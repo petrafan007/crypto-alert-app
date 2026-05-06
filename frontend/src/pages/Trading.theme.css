@@ -1,0 +1,65 @@
+.trading-page-container { color:var(--text-primary); }
+.trading-title { color:var(--accent-primary); margin:0 0 24px 0; font-size:28px; font-weight:700; }
+.trading-grid { display:grid; grid-template-columns:1fr 1fr; gap:24px; margin-bottom:24px; }
+.panel { background:var(--card-bg); border:1px solid var(--card-border); border-radius:12px; padding:20px; box-shadow:var(--card-shadow); }
+.panel-title { margin:0 0 16px 0; color:var(--accent-primary); font-size:18px; font-weight:600; }
+.field-label { display:block; margin-bottom:8px; font-weight:600; color:var(--text-primary); }
+.text-input, .select-input { width:100%; padding:8px 12px; border-radius:6px; background:var(--input-bg); color:var(--text-primary); border:1px solid var(--input-border); margin-bottom:8px; }
+.text-input:focus, .select-input:focus { outline:none; border-color:var(--input-focus-border); box-shadow:var(--input-focus-shadow); }
+
+/* TRADING DROPDOWN STYLING FOR DARK MODE */
+body.dark-mode .trading-page-container select {
+  background: var(--input-bg) !important;
+  color: var(--text-primary) !important;
+  border: 1px solid var(--input-border) !important;
+}
+
+body.dark-mode .trading-page-container select option {
+  background: var(--input-bg) !important;
+  color: #000 !important;
+  border: none !important;
+}
+
+body.dark-mode .trading-page-container .select-input option {
+  background: #fff !important;
+  color: #000 !important;
+}
+.market-stats { background:var(--bg-tertiary); padding:16px; border-radius:8px; display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+.stat-label { color:var(--text-tertiary); font-size:12px; }
+.stat-value { font-size:18px; font-weight:600; }
+.stat-value.pos { color:var(--accent-success); }
+.stat-value.neg { color:var(--accent-danger); }
+.stat-sub { font-size:16px; }
+.side-toggle { display:flex; gap:8px; }
+.side-btn { flex:1; padding:8px 12px; border-radius:6px; border:none; cursor:pointer; background:var(--bg-tertiary); color:var(--text-primary); font-weight:600; transition:.2s; }
+.side-btn.buy.active { background:var(--accent-success); color:#fff; }
+.side-btn.sell.active { background:var(--accent-danger); color:#fff; }
+.percent-buttons { display:flex; gap:8px; margin-bottom:8px; }
+.percent-buttons button { padding:4px 8px; border:none; border-radius:4px; background:var(--bg-tertiary); color:var(--text-primary); cursor:pointer; font-size:12px; }
+.percent-buttons button:hover { background:var(--table-row-hover); }
+.form-group { margin-bottom:16px; }
+.help-text { font-size:12px; color:var(--text-tertiary); margin-top:4px; }
+.order-summary { background:var(--bg-tertiary); padding:12px; border-radius:8px; }
+.order-summary .row { display:flex; justify-content:space-between; margin-bottom:4px; }
+.order-summary .row.total { border-top:1px solid var(--border-color); padding-top:4px; font-weight:600; }
+.place-order-btn { width:100%; padding:12px; border:none; border-radius:6px; font-size:16px; font-weight:700; cursor:pointer; color:#fff; transition:.2s; }
+.place-order-btn.buy { background:var(--accent-success); }
+.place-order-btn.sell { background:var(--accent-danger); }
+.place-order-btn.loading { opacity:.6; cursor:not-allowed; }
+.order-history-panel .table-scroll { overflow:auto; }
+.history-table { width:100%; border-collapse:collapse; }
+.history-table th, .history-table td { padding:12px; text-align:left; border-bottom:1px solid var(--table-border); }
+.history-table thead th { background:var(--table-header-bg); color:var(--table-header-text); }
+.history-table tbody tr:hover { background:var(--table-row-hover); }
+.history-table .empty { text-align:center; padding:20px; color:var(--text-tertiary); }
+.side.buy { color:var(--accent-success); font-weight:700; }
+.side.sell { color:var(--accent-danger); font-weight:700; }
+.status.filled { color:var(--accent-success); font-weight:700; }
+.status.open { color:var(--accent-danger); font-weight:700; }
+.status.cancelled { color:var(--accent-danger); }
+.status.expired { color:var(--accent-warning); }
+.small { font-size:12px; }
+.small-btn { padding:4px 8px; border:none; border-radius:4px; background:var(--accent-danger); color:#fff; cursor:pointer; font-size:12px; }
+.small-btn.cancel-btn:hover { background:#e53e3e; }
+.mono { font-family: monospace; }
+@media (max-width:900px){ .trading-grid { grid-template-columns:1fr; } }

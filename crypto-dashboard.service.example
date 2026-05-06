@@ -1,0 +1,22 @@
+[Unit]
+Description=Crypto Flask Dashboard
+After=network.target
+Wants=network.target
+
+[Service]
+Type=simple
+User=YOUR_USERNAME
+Group=YOUR_USERNAME
+WorkingDirectory=/home/YOUR_USERNAME/crypto_alert_app
+Environment="PATH=/home/YOUR_USERNAME/crypto_alert_app/venv/bin"
+ExecStart=/home/YOUR_USERNAME/crypto_alert_app/venv/bin/python3 /home/YOUR_USERNAME/crypto_alert_app/main.py
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+KillMode=mixed
+KillSignal=SIGTERM
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target

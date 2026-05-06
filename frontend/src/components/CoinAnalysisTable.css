@@ -1,0 +1,248 @@
+.coin-analysis-table {
+  background: #1a1a1a;
+  border-radius: 12px;
+  overflow: hidden;
+  margin-top: 20px;
+}
+
+.table-header {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1.5fr 2fr;
+  gap: 20px;
+  padding: 16px 20px;
+  background: #2d2d2d;
+  border-bottom: 1px solid #404040;
+  font-weight: 600;
+  color: #e0e0e0;
+}
+
+.table-body {
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.table-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1.5fr 2fr;
+  gap: 20px;
+  padding: 16px 20px;
+  border-bottom: 1px solid #333;
+  transition: background-color 0.2s;
+}
+
+.table-row:hover {
+  background: #252525;
+}
+
+.table-row:last-child {
+  border-bottom: none;
+}
+
+.cell {
+  display: flex;
+  align-items: center;
+  color: #e0e0e0;
+}
+
+.coin-cell .coin-symbol {
+  font-weight: 600;
+  font-size: 16px;
+  color: #9f7aea;
+}
+
+.analysis-cell {
+  justify-content: center;
+}
+
+.analysis-cell .btn {
+  padding: 8px 16px;
+  font-size: 14px;
+  border-radius: 6px;
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s;
+  background: #9f7aea;
+  color: white;
+}
+
+.analysis-cell .btn:hover:not(:disabled) {
+  background: #805ad5;
+  transform: translateY(-1px);
+}
+
+.analysis-cell .btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.analysis-cell .btn.loading {
+  background: #718096;
+}
+
+.datetime-cell {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+.datetime-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.datetime-info .date {
+  font-weight: 600;
+  color: #e0e0e0;
+}
+
+.datetime-info .time {
+  font-size: 12px;
+  color: #a0a0a0;
+}
+
+.datetime-info .ordinal {
+  font-size: 11px;
+  color: #9f7aea;
+  font-weight: 600;
+}
+
+.no-analysis {
+  color: #a0a0a0;
+  font-style: italic;
+}
+
+.report-cell {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.report-content {
+  width: 100%;
+}
+
+.report-preview {
+  font-size: 13px;
+  line-height: 1.4;
+  color: #c0c0c0;
+  margin-bottom: 8px;
+}
+
+.report-content .btn-sm {
+  padding: 4px 8px;
+  font-size: 12px;
+  background: #4a5568;
+  color: #e0e0e0;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.report-content .btn-sm:hover {
+  background: #718096;
+}
+
+.no-report {
+  color: #a0a0a0;
+  font-style: italic;
+}
+
+.coin-analysis-loading,
+.coin-analysis-error,
+.coin-analysis-empty {
+  text-align: center;
+  padding: 40px 20px;
+  color: #a0a0a0;
+}
+
+.coin-analysis-error {
+  color: #f56565;
+}
+
+.coin-analysis-error .btn {
+  margin-top: 16px;
+  padding: 8px 16px;
+  background: #9f7aea;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.coin-analysis-error .btn:hover {
+  background: #805ad5;
+}
+
+/* Light mode overrides */
+body.light-mode .coin-analysis-table {
+  background: var(--card-bg);
+}
+
+body.light-mode .coin-analysis-table .table-header {
+  background: var(--table-header-bg);
+  border-color: var(--table-border);
+  color: var(--table-header-text);
+}
+
+body.light-mode .coin-analysis-table .table-row {
+  border-color: var(--table-border);
+}
+
+body.light-mode .coin-analysis-table .table-row:hover {
+  background: var(--table-row-hover);
+}
+
+body.light-mode .coin-analysis-table .cell {
+  color: var(--text-primary);
+}
+
+body.light-mode .coin-analysis-table .datetime-info .date {
+  color: var(--text-primary);
+}
+
+body.light-mode .coin-analysis-table .report-preview {
+  color: var(--text-secondary);
+}
+
+/* Responsive design */
+@media (max-width: 768px) {
+  .table-header,
+  .table-row {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+  
+  .header-cell {
+    display: none;
+  }
+  
+  .cell {
+    justify-content: flex-start;
+  }
+  
+  .coin-cell::before {
+    content: "Coin: ";
+    font-weight: 600;
+    color: #9f7aea;
+  }
+  
+  .analysis-cell::before {
+    content: "Analysis: ";
+    font-weight: 600;
+    color: #9f7aea;
+  }
+  
+  .datetime-cell::before {
+    content: "Date/Time: ";
+    font-weight: 600;
+    color: #9f7aea;
+  }
+  
+  .report-cell::before {
+    content: "Report: ";
+    font-weight: 600;
+    color: #9f7aea;
+  }
+}
