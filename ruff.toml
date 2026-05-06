@@ -1,0 +1,24 @@
+# Ruff configuration for Crypto Alert App
+line-length = 120
+exclude = [
+  ".venv",
+  "venv",
+  "node_modules",
+  "frontend",
+  "migrations",
+  "scripts",
+  "__pycache__",
+  "*.dist",
+  "frontend/dist",
+]
+
+[lint]
+select = ["E", "F"]
+ignore = [
+  "E501",  # line length
+  "E402",  # module import not at top
+  "E401",  # multiple imports on one line
+  "E722",  # bare except
+  "F401",  # unused imports
+  "F541",  # f-string without placeholders
+] 

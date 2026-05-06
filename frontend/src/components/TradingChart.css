@@ -1,0 +1,587 @@
+.trading-chart-container {
+  margin-bottom: 2rem;
+  padding: 0;
+  background: linear-gradient(135deg, #0a0e27 0%, #1a1f3a 100%);
+  border-radius: 12px;
+  border: 1px solid rgba(102, 126, 234, 0.2);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+  overflow: visible;
+  position: relative;
+}
+
+/* Remove all padding/margins from chart library elements */
+.trading-chart-container * {
+  box-sizing: border-box;
+}
+
+.trading-chart-container table,
+.trading-chart-container td,
+.trading-chart-container tr {
+  margin: 0 !important;
+  padding: 0 !important;
+  border: none !important;
+}
+
+.trading-chart-container canvas {
+  display: block !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+}
+
+/* Hide the white space by clipping the chart container */
+.trading-chart-container::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  pointer-events: none;
+  border-radius: 12px;
+  box-shadow: inset 0 0 0 1px rgba(102, 126, 234, 0.2);
+}
+
+.chart-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0;
+  padding: 1.25rem 1.5rem;
+  border-bottom: 2px solid rgba(102, 126, 234, 0.3);
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.chart-header h3 {
+  margin: 0;
+  color: #ffffff;
+  font-size: 1.5rem;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+}
+
+.interval-selector {
+  display: flex;
+  gap: 0.25rem;
+}
+
+.interval-btn {
+  padding: 0.5rem 1rem;
+  background: rgba(42, 46, 57, 0.6);
+  border: 1px solid rgba(102, 126, 234, 0.3);
+  border-radius: 6px;
+  color: #d1d5db;
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.interval-btn:hover {
+  background: rgba(102, 126, 234, 0.2);
+  border-color: rgba(102, 126, 234, 0.5);
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3);
+}
+
+.interval-btn.active {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  border-color: #667eea;
+  color: white;
+  font-weight: 700;
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+}
+
+.chart-main {
+  margin: 0 !important;
+  border-radius: 0;
+  overflow: visible !important;
+  width: 100% !important;
+  height: 600px;
+  min-height: 600px;
+  position: relative;
+  border: none;
+  box-shadow: none;
+  padding: 0 !important;
+  background: #0a0e27;
+}
+
+.chart-main > *,
+.chart-indicator > * {
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+.chart-main table,
+.chart-main td,
+.chart-main tr {
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+.chart-main canvas,
+.chart-main > div,
+.chart-indicator table,
+.chart-indicator td,
+.chart-indicator tr {
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+.chart-indicator canvas,
+.chart-indicator > div {
+  background-color: #0a0e27 !important;
+  display: block !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+}
+
+.chart-main-wrapper {
+  position: relative;
+  margin: 0;
+  width: 100%;
+  background: #070b1b;
+  border-radius: 10px;
+  box-shadow: inset 0 0 0 1px rgba(102, 126, 234, 0.15);
+}
+
+.chart-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(10, 14, 39, 0.7);
+  color: #d1d5db;
+  font-weight: 600;
+  z-index: 2;
+}
+
+.chart-overlay.error {
+  background: rgba(64, 18, 18, 0.75);
+  color: #f87171;
+}
+
+.chart-indicator {
+  margin: 1rem 0 0 !important;
+  border-radius: 0;
+  overflow: visible !important;
+  width: 100% !important;
+  height: 200px;
+  min-height: 200px;
+  border: none;
+  border-top: 1px solid rgba(42, 46, 57, 0.8);
+  box-shadow: none;
+  padding: 0 !important;
+  display: block !important;
+  visibility: visible !important;
+  background: #0a0e27 !important;
+  position: relative !important;
+  z-index: 1 !important;
+}
+
+.chart-indicator > * {
+  margin: 0 !important;
+  padding: 0 !important;
+  display: block !important;
+  visibility: visible !important;
+  position: relative !important;
+  z-index: 1 !important;
+}
+
+.chart-indicator canvas {
+  display: block !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+  position: relative !important;
+  z-index: 1 !important;
+  left: 0 !important;
+  top: 0 !important;
+}
+
+.chart-main .tv-lightweight-charts-pane,
+.chart-main .tv-lightweight-charts-price-axis,
+.chart-main .tv-lightweight-charts-time-axis,
+.chart-main .tv-lightweight-charts-left-axis,
+.chart-indicator .tv-lightweight-charts-pane,
+.chart-indicator .tv-lightweight-charts-price-axis,
+.chart-indicator .tv-lightweight-charts-time-axis,
+.chart-indicator .tv-lightweight-charts-left-axis {
+  background: #0a0e27 !important;
+}
+
+.chart-main .tv-lightweight-charts,
+.chart-indicator .tv-lightweight-charts {
+  left: 0 !important;
+  margin: 0 !important;
+}
+
+.chart-main [class*="price-axis"],
+.chart-indicator [class*="price-axis"],
+.chart-main [class*="time-axis"],
+.chart-indicator [class*="time-axis"],
+.chart-main [class*="pane-separator"],
+.chart-indicator [class*="pane-separator"] {
+  background-color: #0a0e27 !important;
+}
+
+.chart-main [class*="pane"],
+.chart-indicator [class*="pane"] {
+  background-color: #0a0e27 !important;
+}
+
+.chart-main .tv-lightweight-charts-price-axis,
+.chart-indicator .tv-lightweight-charts-price-axis {
+  border: none !important;
+  min-width: 100px !important;
+  width: 100px !important;
+  padding-right: 8px !important;
+  padding-left: 8px !important;
+}
+
+.chart-main .tv-lightweight-charts-price-axis:not(:last-of-type),
+.chart-indicator .tv-lightweight-charts-price-axis:not(:last-of-type) {
+  display: none !important;
+}
+
+.chart-main [class*="price-axis-container"],
+.chart-indicator [class*="price-axis-container"],
+.chart-main [class*="price-axis-pane"],
+.chart-indicator [class*="price-axis-pane"] {
+  padding-right: 8px !important;
+  padding-left: 8px !important;
+  min-width: 100px !important;
+}
+
+.chart-main [class*="left-axis"],
+.chart-indicator [class*="left-axis"] {
+  width: 0 !important;
+  min-width: 0 !important;
+  max-width: 0 !important;
+  display: none !important;
+  visibility: hidden !important;
+}
+
+.chart-main [class*="left-axis"] canvas,
+.chart-indicator [class*="left-axis"] canvas {
+  display: none !important;
+  width: 0 !important;
+}
+
+/* Force hide any table cell that might be the left axis - ONLY MAIN CHART */
+.chart-main > div > table > tbody > tr > td:first-child,
+.chart-main > div > table tr td:first-of-type {
+  width: 0 !important;
+  min-width: 0 !important;
+  max-width: 0 !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  overflow: hidden !important;
+  opacity: 0 !important;
+}
+
+/* For indicator chart, ONLY hide width/padding but keep opacity and overflow normal */
+.chart-indicator > div > table > tbody > tr > td:first-child,
+.chart-indicator > div > table tr td:first-of-type {
+  width: 0 !important;
+  min-width: 0 !important;
+  max-width: 0 !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  /* DO NOT hide opacity or overflow - let content render */
+}
+
+.chart-main .tv-lightweight-charts-logo,
+.chart-indicator .tv-lightweight-charts-logo {
+  display: none !important;
+}
+
+/* NUCLEAR OPTION: Hide ALL possible legend/title/watermark elements in indicator chart */
+.chart-indicator [class*="legend"],
+.chart-indicator [class*="title"],
+.chart-indicator [class*="pane-legend"],
+.chart-indicator [class*="watermark"],
+.chart-indicator [class*="pane-wrapper"] > div[style*="position"],
+.chart-indicator div[style*="position: absolute"][style*="background"],
+.chart-indicator div[style*="rgba(255"],
+.chart-indicator div[style*="rgb(255"],
+.chart-indicator div[style*="background: white"],
+.chart-indicator div[style*="background:white"],
+.chart-indicator div[style*="background:#fff"],
+.chart-indicator div[style*="background: #fff"],
+.chart-indicator > div > div:not(table):not(canvas)[style*="position: absolute"],
+.chart-indicator > div > div > div:not(table):not(canvas)[style*="position: absolute"] {
+  display: none !important;
+  visibility: hidden !important;
+  opacity: 0 !important;
+  width: 0 !important;
+  height: 0 !important;
+  overflow: hidden !important;
+  pointer-events: none !important;
+}
+
+/* Force hide any absolutely positioned white/light colored divs */
+.chart-indicator div[style*="background"][style*="255"] {
+  background: transparent !important;
+}
+
+.chart-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1rem;
+  background: #1a1f35;
+  border-bottom: 1px solid #2a2e39;
+}
+
+.chart-header h3 {
+  margin: 0;
+  font-size: 18px;
+  color: #d1d5db;
+}
+
+/* Chart symbol dropdown in header */
+.chart-symbol-dropdown {
+  background: #1a1f35;
+  color: #d1d5db;
+  border: 1px solid #2a2e39;
+  border-radius: 6px;
+  padding: 8px 12px;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  outline: none;
+  transition: all 0.2s;
+}
+
+.chart-symbol-dropdown:hover {
+  border-color: #667eea;
+  background: #252b45;
+}
+
+.chart-symbol-dropdown:focus {
+  border-color: #667eea;
+  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+}
+
+/* Style marker text to be black and centered inside circles */
+.chart-main svg g[class*="marker"] text,
+.chart-main svg text[class*="marker"],
+.chart-main canvas + div svg text {
+  fill: #000000 !important;
+  font-weight: 900 !important;
+  font-size: 10px !important;
+  text-anchor: middle !important;
+  dominant-baseline: central !important;
+  transform: translateY(0px) !important;
+}
+
+/* Hide the default marker shape and only show our custom styling */
+.chart-main svg circle[class*="marker"] {
+  stroke: none !important;
+}
+
+.chart-marker-tooltip {
+  position: absolute;
+  display: none;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 0.75rem 0.9rem;
+  background: rgba(10, 14, 39, 0.92);
+  border: 1px solid rgba(56, 189, 248, 0.35);
+  border-radius: 10px;
+  color: #e2e8f0;
+  font-size: 0.75rem;
+  line-height: 1.35;
+  box-shadow: 0 16px 32px rgba(7, 11, 27, 0.65);
+  pointer-events: none;
+  z-index: 5;
+  min-width: 180px;
+  max-width: 240px;
+}
+
+.marker-tooltip-heading {
+  font-weight: 700;
+  font-size: 0.8rem;
+  color: #38bdf8;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.marker-tooltip-line {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.marker-tooltip-line span {
+  font-weight: 600;
+  color: #f8fafc;
+}
+
+.chart-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  padding: 1.25rem 1.5rem;
+  border-top: 2px solid rgba(102, 126, 234, 0.3);
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.control-section {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.section-label {
+  color: #a0a3bd;
+  font-size: 0.875rem;
+  font-weight: 500;
+  margin-right: 0.25rem;
+}
+
+.toggle-btn {
+  padding: 0.5rem 1rem;
+  background: rgba(42, 46, 57, 0.6);
+  border: 1px solid rgba(102, 126, 234, 0.3);
+  border-radius: 6px;
+  color: #d1d5db;
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.toggle-btn:hover {
+  background: rgba(102, 126, 234, 0.2);
+  border-color: rgba(102, 126, 234, 0.5);
+  transform: translateY(-1px);
+}
+
+.toggle-btn.active {
+  background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
+  border-color: #22c55e;
+  color: white;
+  font-weight: 700;
+  box-shadow: 0 4px 12px rgba(34, 197, 94, 0.4);
+}
+
+.chart-loading,
+.chart-error {
+  padding: 3rem;
+  text-align: center;
+  color: #a0a3bd;
+  font-size: 1rem;
+}
+
+.chart-error {
+  color: #ef5350;
+}
+
+/* Light Mode Overrides */
+.light-mode .trading-chart-container,
+body.light-mode .trading-chart-container {
+  background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
+  border-color: rgba(102, 126, 234, 0.3);
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.08);
+}
+
+.light-mode .chart-header,
+body.light-mode .chart-header {
+  border-bottom-color: rgba(102, 126, 234, 0.3);
+  background: rgba(255, 255, 255, 0.5);
+}
+
+.light-mode .chart-header h3,
+body.light-mode .chart-header h3 {
+  color: #1a202c;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+}
+
+.light-mode .chart-controls,
+body.light-mode .chart-controls {
+  border-top-color: rgba(102, 126, 234, 0.3);
+  background: rgba(255, 255, 255, 0.5);
+}
+
+.light-mode .interval-btn,
+body.light-mode .interval-btn,
+.light-mode .toggle-btn,
+body.light-mode .toggle-btn {
+  background: rgba(255, 255, 255, 0.8);
+  border-color: rgba(102, 126, 234, 0.3);
+  color: #4b5563;
+}
+
+.light-mode .interval-btn:hover,
+body.light-mode .interval-btn:hover,
+.light-mode .toggle-btn:hover,
+body.light-mode .toggle-btn:hover {
+  background: rgba(102, 126, 234, 0.1);
+  border-color: rgba(102, 126, 234, 0.5);
+}
+
+.light-mode .interval-btn.active,
+body.light-mode .interval-btn.active {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  border-color: #667eea;
+  color: white;
+}
+
+.light-mode .toggle-btn.active,
+body.light-mode .toggle-btn.active {
+  background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
+  border-color: #22c55e;
+  color: white;
+}
+
+.light-mode .chart-main,
+body.light-mode .chart-main,
+.light-mode .chart-indicator,
+body.light-mode .chart-indicator {
+  border-color: transparent;
+  box-shadow: none;
+}
+
+.light-mode .chart-indicator,
+body.light-mode .chart-indicator {
+  border-top-color: rgba(203, 213, 225, 0.8);
+}
+
+.light-mode .section-label,
+body.light-mode .section-label {
+  color: #64748b;
+}
+
+.light-mode .chart-loading,
+body.light-mode .chart-loading {
+  color: #64748b;
+}
+
+.light-mode .chart-error,
+body.light-mode .chart-error {
+  color: #dc2626;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .chart-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.75rem;
+  }
+  
+  .interval-selector {
+    width: 100%;
+    overflow-x: auto;
+  }
+  
+  .control-section {
+    width: 100%;
+  }
+}
