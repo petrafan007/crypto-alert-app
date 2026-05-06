@@ -1,0 +1,109 @@
+/* CSS Variables for Theme Management */
+
+/* Light Theme Variables */
+:root {
+  --bg-primary: #f7fafc;
+  --bg-secondary: #ffffff;
+  --bg-tertiary: #edf2f7;
+  --bg-quaternary: #f7fafc;
+  
+  --text-primary: #2d3748;
+  --text-secondary: #4a5568;
+  --text-tertiary: #718096;
+  --text-inverse: #ffffff;
+  
+  --border-color: #e2e8f0;
+  --border-hover: #cbd5e0;
+  
+  --accent-primary: #3182ce;
+  --accent-secondary: #4fd1c5;
+  --accent-success: #48bb78;
+  --accent-warning: #ed8936;
+  --accent-danger: #f56565;
+  --accent-purple: #9f7aea;
+  
+  --shadow-sm: 0 1px 3px 0 rgba(0, 0, 0, 0.1);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+  
+  --nav-bg: #ffffff;
+  --nav-border: #e2e8f0;
+  --nav-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1);
+  
+  --card-bg: #ffffff;
+  --card-border: #e2e8f0;
+  --card-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1);
+  
+  --table-header-bg: #f7fafc;
+  --table-header-text: #3182ce;
+  --table-row-bg: #ffffff;
+  --table-row-hover: #edf2f7;
+  --table-border: #e2e8f0;
+  
+  --input-bg: #ffffff;
+  --input-border: #e2e8f0;
+  --input-focus-border: #3182ce;
+  --input-focus-shadow: 0 0 0 3px rgba(49, 130, 206, 0.1);
+  
+  --button-bg: #3182ce;
+  --button-hover-bg: #2c5282;
+  --button-text: #ffffff;
+  
+  --modal-bg: #ffffff;
+  --modal-border: #e2e8f0;
+  --modal-overlay: rgba(0, 0, 0, 0.5);
+}
+
+/* Dark Theme Variables */
+[data-theme="dark"] {
+  --bg-primary: #181f23;
+  --bg-secondary: #232b31;
+  --bg-tertiary: #2d3748;
+  --bg-quaternary: #1a1f23;
+  
+  --text-primary: #ffffff;
+  --text-secondary: #e2e8f0;
+  --text-tertiary: #a0aec0;
+  --text-inverse: #181f23;
+  
+  --border-color: #333;
+  --border-hover: #4a5568;
+  
+  --accent-primary: #4fd1c5;
+  --accent-secondary: #4fd1c5;
+  --accent-success: #48bb78;
+  --accent-warning: #ed8936;
+  --accent-danger: #f56565;
+  --accent-purple: #9f7aea;
+  
+  --shadow-sm: 0 1px 3px 0 rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.5);
+  
+  --nav-bg: #232b31;
+  --nav-border: #333;
+  --nav-shadow: none;
+  
+  --card-bg: #232b31;
+  --card-border: #333;
+  --card-shadow: none;
+  
+  --table-header-bg: #1a1f23;
+  --table-header-text: #4fd1c5;
+  --table-row-bg: #232b31;
+  --table-row-hover: #2d3748;
+  --table-border: #333;
+  
+  --input-bg: #1a1f23;
+  --input-border: #444;
+  --input-focus-border: #4fd1c5;
+  --input-focus-shadow: none;
+  
+  --button-bg: #4fd1c5;
+  --button-hover-bg: #38b2ac;
+  --button-text: #0f1419;
+  
+  --modal-bg: #232b31;
+  --modal-border: #333;
+  --modal-overlay: rgba(0, 0, 0, 0.7);
+}

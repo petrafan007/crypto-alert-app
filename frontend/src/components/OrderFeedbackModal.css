@@ -1,0 +1,157 @@
+/* Order Feedback Modal Styles */
+.order-feedback-modal-backdrop {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 20px;
+}
+
+.order-feedback-modal {
+  background: #1a1f23;
+  border: 1px solid #333;
+  border-radius: 12px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+  max-width: 500px;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  animation: modalSlideIn 0.3s ease-out;
+}
+
+@keyframes modalSlideIn {
+  from {
+    opacity: 0;
+    transform: scale(0.9) translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+.order-feedback-modal-header {
+  padding: 24px 24px 16px;
+  border-bottom: 1px solid #333;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.order-feedback-icon {
+  font-size: 32px;
+  line-height: 1;
+}
+
+.order-feedback-modal-header h3 {
+  color: #4fd1c5;
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.order-feedback-modal.success .order-feedback-modal-header h3 {
+  color: #34d399;
+}
+
+.order-feedback-modal.error .order-feedback-modal-header h3 {
+  color: #f87171;
+}
+
+.order-feedback-modal.warning .order-feedback-modal-header h3 {
+  color: #fbbf24;
+}
+
+.order-feedback-modal-content {
+  padding: 20px 24px;
+}
+
+.order-feedback-message {
+  color: #e2e8f0;
+  line-height: 1.6;
+  font-size: 15px;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+
+.order-feedback-modal-footer {
+  padding: 16px 24px 24px;
+  border-top: 1px solid #333;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.order-feedback-modal-footer .btn {
+  min-width: 100px;
+  padding: 10px 24px;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+/* Responsive design */
+@media (max-width: 768px) {
+  .order-feedback-modal-backdrop {
+    padding: 10px;
+  }
+  
+  .order-feedback-modal-header,
+  .order-feedback-modal-content,
+  .order-feedback-modal-footer {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+}
+
+/* LIGHT MODE STYLING FOR ORDER FEEDBACK MODAL */
+body.light-mode .order-feedback-modal-backdrop,
+body:not(.dark-mode) .order-feedback-modal-backdrop {
+  background: rgba(0, 0, 0, 0.5) !important;
+}
+
+body.light-mode .order-feedback-modal,
+body:not(.dark-mode) .order-feedback-modal {
+  background: #f3f4f6 !important;
+  border: 1px solid #9ca3af !important;
+  color: #000 !important;
+}
+
+body.light-mode .order-feedback-modal-header,
+body:not(.dark-mode) .order-feedback-modal-header {
+  border-bottom: 1px solid #d1d5db !important;
+}
+
+body.light-mode .order-feedback-modal-header h3,
+body:not(.dark-mode) .order-feedback-modal-header h3 {
+  color: #1e40af !important;
+}
+
+body.light-mode .order-feedback-modal.success .order-feedback-modal-header h3,
+body:not(.dark-mode) .order-feedback-modal.success .order-feedback-modal-header h3 {
+  color: #059669 !important;
+}
+
+body.light-mode .order-feedback-modal.error .order-feedback-modal-header h3,
+body:not(.dark-mode) .order-feedback-modal.error .order-feedback-modal-header h3 {
+  color: #dc2626 !important;
+}
+
+body.light-mode .order-feedback-modal.warning .order-feedback-modal-header h3,
+body:not(.dark-mode) .order-feedback-modal.warning .order-feedback-modal-header h3 {
+  color: #d97706 !important;
+}
+
+body.light-mode .order-feedback-message,
+body:not(.dark-mode) .order-feedback-message {
+  color: #1f2937 !important;
+}
+
+body.light-mode .order-feedback-modal-footer,
+body:not(.dark-mode) .order-feedback-modal-footer {
+  border-top: 1px solid #d1d5db !important;
+}

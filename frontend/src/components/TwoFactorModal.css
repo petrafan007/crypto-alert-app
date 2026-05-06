@@ -1,0 +1,390 @@
+/* Two-Factor Authentication Modal */
+.two-factor-modal-backdrop {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.8);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+  padding: 20px;
+}
+
+.two-factor-modal {
+  background: #1a1f23;
+  border: 2px solid #667eea;
+  border-radius: 16px;
+  box-shadow: 0 20px 60px rgba(102, 126, 234, 0.4);
+  max-width: 500px;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  animation: modalSlideIn 0.3s ease-out;
+}
+
+@keyframes modalSlideIn {
+  from {
+    opacity: 0;
+    transform: scale(0.95) translateY(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+.two-factor-modal-header {
+  padding: 24px 28px 20px;
+  border-bottom: 1px solid rgba(102, 126, 234, 0.3);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.two-factor-modal-header h3 {
+  color: #667eea;
+  margin: 0;
+  font-size: 22px;
+  font-weight: 700;
+}
+
+.two-factor-close {
+  background: none;
+  border: none;
+  color: #888;
+  font-size: 28px;
+  cursor: pointer;
+  padding: 0;
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  transition: all 0.2s ease;
+  line-height: 1;
+}
+
+.two-factor-close:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+}
+
+.two-factor-modal-content {
+  padding: 28px;
+}
+
+.order-summary {
+  background: rgba(102, 126, 234, 0.1);
+  border: 1px solid rgba(102, 126, 234, 0.3);
+  border-radius: 12px;
+  padding: 20px;
+  margin-bottom: 28px;
+}
+
+.order-explanation {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  padding: 16px 18px;
+  margin-bottom: 24px;
+  color: #e2e8f0;
+  line-height: 1.5;
+  font-size: 0.95rem;
+}
+
+.order-summary h4 {
+  color: #667eea;
+  margin: 0 0 16px 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.order-detail-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 8px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.order-detail-row:last-child {
+  border-bottom: none;
+}
+
+.order-detail-row.total {
+  margin-top: 8px;
+  padding-top: 16px;
+  border-top: 2px solid rgba(102, 126, 234, 0.3);
+  border-bottom: none;
+}
+
+.order-detail-row .label {
+  color: #9ca3af;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.order-detail-row .value {
+  color: #ffffff;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.order-detail-row .value.buy {
+  color: #34d399;
+}
+
+.order-detail-row .value.sell {
+  color: #f87171;
+}
+
+.order-detail-row.total .value {
+  font-size: 18px;
+  color: #667eea;
+}
+
+.two-factor-form {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.form-group label {
+  color: #e2e8f0;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.two-factor-input {
+  width: 100%;
+  padding: 16px 20px;
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: 8px;
+  text-align: center;
+  background: rgba(255, 255, 255, 0.05);
+  border: 2px solid rgba(102, 126, 234, 0.3);
+  border-radius: 12px;
+  color: #ffffff;
+  transition: all 0.2s ease;
+  font-family: 'Courier New', monospace;
+}
+
+.two-factor-input:focus {
+  outline: none;
+  border-color: #667eea;
+  background: rgba(255, 255, 255, 0.08);
+  box-shadow: 0 0 0 4px rgba(102, 126, 234, 0.2);
+}
+
+.two-factor-input::placeholder {
+  color: rgba(255, 255, 255, 0.2);
+  letter-spacing: 8px;
+}
+
+.two-factor-input:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.help-text {
+  color: #9ca3af;
+  font-size: 13px;
+  margin: 0;
+  line-height: 1.5;
+}
+
+.error-message {
+  background: rgba(248, 113, 113, 0.1);
+  border: 1px solid rgba(248, 113, 113, 0.3);
+  border-radius: 8px;
+  padding: 12px 16px;
+  color: #f87171;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.two-factor-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: flex-end;
+  margin-top: 8px;
+}
+
+.two-factor-actions .btn {
+  padding: 12px 28px;
+  font-size: 15px;
+  font-weight: 600;
+  border-radius: 8px;
+  transition: all 0.2s ease;
+  border: none;
+  cursor: pointer;
+}
+
+.two-factor-actions .btn-secondary {
+  background: rgba(255, 255, 255, 0.1);
+  color: #ffffff;
+}
+
+.two-factor-actions .btn-secondary:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.two-factor-actions .btn-primary {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: #ffffff;
+}
+
+.two-factor-actions .btn-primary:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 20px rgba(102, 126, 234, 0.4);
+}
+
+.two-factor-actions .btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Light Mode Styles */
+body.light-mode .two-factor-modal-backdrop,
+body:not(.dark-mode) .two-factor-modal-backdrop {
+  background: rgba(0, 0, 0, 0.6);
+}
+
+body.light-mode .two-factor-modal,
+body:not(.dark-mode) .two-factor-modal {
+  background: #ffffff;
+  border-color: #667eea;
+}
+
+body.light-mode .two-factor-modal-header,
+body:not(.dark-mode) .two-factor-modal-header {
+  border-bottom-color: rgba(102, 126, 234, 0.2);
+}
+
+body.light-mode .two-factor-modal-header h3,
+body:not(.dark-mode) .two-factor-modal-header h3 {
+  color: #1e40af;
+}
+
+body.light-mode .two-factor-close,
+body:not(.dark-mode) .two-factor-close {
+  color: #6b7280;
+}
+
+body.light-mode .two-factor-close:hover,
+body:not(.dark-mode) .two-factor-close:hover {
+  background: rgba(0, 0, 0, 0.05);
+  color: #000;
+}
+
+body.light-mode .order-summary,
+body:not(.dark-mode) .order-summary {
+  background: rgba(102, 126, 234, 0.05);
+  border-color: rgba(102, 126, 234, 0.2);
+}
+
+body.light-mode .order-explanation,
+body:not(.dark-mode) .order-explanation {
+  background: #f8fafc;
+  border-color: #e2e8f0;
+  color: #2d3748;
+}
+
+body.light-mode .order-summary h4,
+body:not(.dark-mode) .order-summary h4 {
+  color: #1e40af;
+}
+
+body.light-mode .order-detail-row,
+body:not(.dark-mode) .order-detail-row {
+  border-bottom-color: rgba(0, 0, 0, 0.08);
+}
+
+body.light-mode .order-detail-row.total,
+body:not(.dark-mode) .order-detail-row.total {
+  border-top-color: rgba(102, 126, 234, 0.2);
+}
+
+body.light-mode .order-detail-row .label,
+body:not(.dark-mode) .order-detail-row .label {
+  color: #6b7280;
+}
+
+body.light-mode .order-detail-row .value,
+body:not(.dark-mode) .order-detail-row .value {
+  color: #1f2937;
+}
+
+body.light-mode .form-group label,
+body:not(.dark-mode) .form-group label {
+  color: #1f2937;
+}
+
+body.light-mode .two-factor-input,
+body:not(.dark-mode) .two-factor-input {
+  background: #f9fafb;
+  border-color: #d1d5db;
+  color: #000;
+}
+
+body.light-mode .two-factor-input:focus,
+body:not(.dark-mode) .two-factor-input:focus {
+  border-color: #667eea;
+  background: #ffffff;
+}
+
+body.light-mode .help-text,
+body:not(.dark-mode) .help-text {
+  color: #6b7280;
+}
+
+body.light-mode .two-factor-actions .btn-secondary,
+body:not(.dark-mode) .two-factor-actions .btn-secondary {
+  background: #e5e7eb;
+  color: #1f2937;
+}
+
+body.light-mode .two-factor-actions .btn-secondary:hover:not(:disabled),
+body:not(.dark-mode) .two-factor-actions .btn-secondary:hover:not(:disabled) {
+  background: #d1d5db;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .two-factor-modal-backdrop {
+    padding: 10px;
+  }
+  
+  .two-factor-modal {
+    max-width: 100%;
+  }
+  
+  .two-factor-modal-header,
+  .two-factor-modal-content {
+    padding-left: 20px;
+    padding-right: 20px;
+  }
+  
+  .two-factor-input {
+    font-size: 24px;
+    letter-spacing: 6px;
+  }
+  
+  .two-factor-actions {
+    flex-direction: column;
+  }
+  
+  .two-factor-actions .btn {
+    width: 100%;
+  }
+}
