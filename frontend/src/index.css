@@ -1,0 +1,22 @@
+body {
+  margin: 0;
+  font-family: system-ui, sans-serif;
+  background: #f7f7fa;
+}
+nav a {
+  text-decoration: none;
+}
+table {
+  border-collapse: collapse;
+  width: 100%;
+  background: #fff;
+  margin-top: 16px;
+}
+th, td {
+  border: 1px solid #ddd;
+  padding: 8px;
+  text-align: left;
+}
+th {
+  background: #f0f0f0;
+}

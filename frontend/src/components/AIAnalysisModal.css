@@ -1,0 +1,169 @@
+.ai-analysis-modal-overlay {position:fixed; inset:0; background:rgba(0,0,0,.6); display:flex; align-items:center; justify-content:center; z-index:1000;}
+.ai-analysis-modal {background:var(--card-bg); color:var(--text-primary); padding:24px; border-radius:12px; border:1px solid var(--card-border); max-width:800px; width:90%; max-height:90vh; overflow:auto; box-shadow:var(--shadow-lg);} 
+.ai-analysis-header {display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;}
+.ai-analysis-header h2 {margin:0; font-size:22px; color:var(--accent-primary);} 
+.close-btn {background:none; border:none; color:var(--text-tertiary); font-size:24px; cursor:pointer; padding:4px;} 
+.close-btn:hover {color:var(--accent-primary);} 
+.ai-analysis-loading, .ai-analysis-error {text-align:center; padding:40px; color:var(--text-tertiary);} 
+.ai-analysis-error {color:var(--accent-danger);} 
+.spinner {width:40px; height:40px; border:3px solid var(--border-color); border-top:3px solid var(--accent-primary); border-radius:50%; animation:spin 1s linear infinite; margin:0 auto 16px;} @keyframes spin {0%{transform:rotate(0)}100%{transform:rotate(360deg)}}
+.section-block {margin-bottom:24px;} .section-block h3 {margin:0 0 16px 0; color:var(--text-primary);} 
+.summary-grid {display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:16px;} 
+.summary-card {background:var(--bg-tertiary); padding:16px; border-radius:8px; border:1px solid var(--border-color);} 
+.summary-card h4 {margin:0 0 8px 0; font-size:14px; color:var(--accent-primary);} 
+.metric {font-size:24px; font-weight:700;} .muted {color:var(--text-tertiary); font-size:14px;} .tiny {font-size:12px;} 
+.panel {background:var(--bg-tertiary); padding:16px; border-radius:8px; border:1px solid var(--border-color);} 
+.tech-grid {display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:12px; margin-bottom:16px;} 
+.tech-item {text-align:center;} .value-strong {color:var(--text-primary); font-weight:600; font-size:16px;} 
+.patterns h4 {margin:0 0 8px 0; color:var(--accent-primary);} .patterns ul {margin:0; padding-left:20px; color:var(--text-secondary);} 
+.targets-grid {display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:16px;} 
+.target-card {background:var(--bg-tertiary); padding:16px; border-radius:8px; border:1px solid var(--border-color); text-align:center;} 
+.target-card h4 {margin:0 0 8px 0;} .accent-green {color:var(--accent-success);} .accent-red {color:var(--accent-danger);} .target-value {font-size:20px; font-weight:700;} 
+.body-text {color:var(--text-secondary); line-height:1.5;} .risk-list {margin:0; padding-left:20px; color:var(--text-secondary);} 
+.actions {display:flex; gap:12px; justify-content:center;} 
+
+/* LIGHT MODE AI ANALYSIS MODAL - AGGRESSIVE OVERRIDES */
+body.light-mode .ai-analysis-modal-overlay,
+body:not(.dark-mode) .ai-analysis-modal-overlay {
+  background: rgba(0, 0, 0, 0.5) !important;
+}
+
+body.light-mode .ai-analysis-modal,
+body:not(.dark-mode) .ai-analysis-modal {
+  background: #e5e7eb !important;
+  color: #000 !important;
+  border: 1px solid #9ca3af !important;
+}
+
+body.light-mode .ai-analysis-modal *,
+body:not(.dark-mode) .ai-analysis-modal * {
+  color: #000 !important;
+}
+
+body.light-mode .summary-card,
+body.light-mode .panel,
+body.light-mode .target-card,
+body:not(.dark-mode) .summary-card,
+body:not(.dark-mode) .panel,
+body:not(.dark-mode) .target-card {
+  background: #f3f4f6 !important;
+  color: #000 !important;
+  border: 1px solid #d1d5db !important;
+}
+
+body.light-mode .summary-card *,
+body.light-mode .panel *,
+body.light-mode .target-card *,
+body:not(.dark-mode) .summary-card *,
+body:not(.dark-mode) .panel *,
+body:not(.dark-mode) .target-card * {
+  color: #000 !important;
+}
+
+body.light-mode .ai-analysis-header h2,
+body:not(.dark-mode) .ai-analysis-header h2 {
+  color: #1e40af !important;
+}
+
+body.light-mode .close-btn,
+body:not(.dark-mode) .close-btn {
+  color: #6b7280 !important;
+}
+
+body.light-mode .close-btn:hover,
+body:not(.dark-mode) .close-btn:hover {
+  color: #1e40af !important;
+}
+
+body.light-mode .section-block h3,
+body:not(.dark-mode) .section-block h3 {
+  color: #000 !important;
+}
+
+body.light-mode .summary-card,
+body.light-mode .panel,
+body.light-mode .target-card,
+body:not(.dark-mode) .summary-card,
+body:not(.dark-mode) .panel,
+body:not(.dark-mode) .target-card {
+  background: #f3f4f6 !important;
+  border: 1px solid #d1d5db !important;
+  color: #000 !important;
+}
+
+body.light-mode .summary-card h4,
+body.light-mode .patterns h4,
+body:not(.dark-mode) .summary-card h4,
+body:not(.dark-mode) .patterns h4 {
+  color: #1e40af !important;
+}
+
+body.light-mode .metric,
+body.light-mode .value-strong,
+body:not(.dark-mode) .metric,
+body:not(.dark-mode) .value-strong {
+  color: #000 !important;
+}
+
+body.light-mode .muted,
+body.light-mode .body-text,
+body.light-mode .patterns ul,
+body.light-mode .risk-list,
+body:not(.dark-mode) .muted,
+body:not(.dark-mode) .body-text,
+body:not(.dark-mode) .patterns ul,
+body:not(.dark-mode) .risk-list {
+  color: #374151 !important;
+}
+
+/* DARK MODE AI ANALYSIS MODAL */
+body.dark-mode .ai-analysis-modal-overlay {
+  background: rgba(0, 0, 0, 0.8) !important;
+}
+
+body.dark-mode .ai-analysis-modal {
+  background: var(--card-bg) !important;
+  color: var(--text-primary) !important;
+  border: 1px solid var(--card-border) !important;
+}
+
+body.dark-mode .ai-analysis-header h2 {
+  color: var(--accent-primary) !important;
+}
+
+body.dark-mode .close-btn {
+  color: var(--text-tertiary) !important;
+}
+
+body.dark-mode .close-btn:hover {
+  color: var(--accent-primary) !important;
+}
+
+body.dark-mode .section-block h3 {
+  color: var(--text-primary) !important;
+}
+
+body.dark-mode .summary-card,
+body.dark-mode .panel,
+body.dark-mode .target-card {
+  background: var(--table-header-bg) !important;
+  border: 1px solid var(--border-color) !important;
+  color: var(--text-primary) !important;
+}
+
+body.dark-mode .summary-card h4,
+body.dark-mode .patterns h4 {
+  color: var(--accent-primary) !important;
+}
+
+body.dark-mode .metric,
+body.dark-mode .value-strong {
+  color: var(--text-primary) !important;
+}
+
+body.dark-mode .muted,
+body.dark-mode .body-text,
+body.dark-mode .patterns ul,
+body.dark-mode .risk-list {
+  color: var(--text-secondary) !important;
+} 

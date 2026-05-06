@@ -1,0 +1,20 @@
+Flask==2.3.3
+Flask-SQLAlchemy==3.0.5
+Flask-Login==0.6.3
+APScheduler==3.10.4
+requests==2.31.0
+numpy>=2.1.0
+textblob==0.17.1
+Werkzeug==2.3.7
+pytz==2023.3
+python-dotenv==1.0.0
+gunicorn==21.2.0
+python-telegram-bot==20.6
+openai>=1.0.0  # Required for GPT-5 models and OpenAI client
+zai==0.0.2  # Z.AI client library required by zai_client.py
+PyJWT==2.8.0
+python-binance==1.0.19  # Binance API client
+pyotp==2.9.0  # TOTP for 2FA
+qrcode[pil]==7.4.2  # QR code generation for 2FA setup
+cryptography>=43.0.0  # Credential encryption support
+psycopg2-binary>=2.9.0  # PostgreSQL driver

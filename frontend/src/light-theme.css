@@ -1,0 +1,774 @@
+/* Light theme */
+body { 
+  background-color: #f7fafc; 
+  color: #2d3748; 
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  margin: 0;
+  padding: 0;
+}
+
+/* Navigation styling */
+.nav-container {
+  background: #ffffff;
+  border-bottom: 1px solid #e2e8f0;
+  padding: 16px 24px;
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1);
+}
+
+.nav-content {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+.nav-brand {
+  color: #3182ce;
+  text-decoration: none;
+  font-size: 1.5rem;
+  font-weight: bold;
+}
+
+.nav-links {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+}
+
+.nav-link {
+  color: #2d3748;
+  text-decoration: none;
+  padding: 8px 16px;
+  border-radius: 6px;
+  transition: background 0.2s;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.nav-link:hover {
+  background: #edf2f7;
+}
+
+/* Override button defaults for nav-link buttons */
+button.nav-link {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: inherit;
+  margin: 0;
+  display: inline-block;
+}
+
+.nav-button {
+  background: #3182ce;
+  color: #fff;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  transition: background 0.2s;
+}
+
+.nav-button:hover {
+  background: #2c5282;
+}
+
+.nav-button.secondary {
+  background: #ed8936;
+}
+
+.nav-button.secondary:hover {
+  background: #dd6b20;
+}
+
+.nav-button.purple {
+  background: #9f7aea;
+}
+
+.nav-button.purple:hover {
+  background: #805ad5;
+}
+
+.nav-button.danger {
+  background: #f56565;
+}
+
+.nav-button.danger:hover {
+  background: #e53e3e;
+}
+
+/* Main content area */
+.main-container {
+  max-width: none;
+  margin: 0 auto;
+  padding: 24px;
+}
+
+/* Section headers */
+.section-header {
+  color: #3182ce;
+  font-size: 1.25rem;
+  font-weight: 600;
+  margin-bottom: 16px;
+  margin-top: 32px;
+}
+
+/* Charts container */
+.charts-container {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+  margin-bottom: 32px;
+}
+
+.chart-panel {
+  background: #ffffff;
+  border-radius: 12px;
+  padding: 24px;
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1);
+}
+
+.chart-title {
+  color: #3182ce;
+  font-size: 1.1rem;
+  font-weight: 600;
+  margin-bottom: 16px;
+  text-align: center;
+}
+
+/* Total value display */
+.total-value {
+  text-align: center;
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: #2d3748;
+  margin: 24px 0;
+  padding: 16px;
+  background: #ffffff;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1);
+}
+
+/* Table styling */
+.table-container {
+  background: #ffffff;
+  border-radius: 12px;
+  overflow-x: auto;
+  border: 1px solid #e2e8f0;
+  margin-bottom: 32px;
+  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1);
+}
+
+.table-header {
+  background: #f7fafc;
+  padding: 16px 24px;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.table-title {
+  color: #3182ce;
+  font-size: 1.25rem;
+  font-weight: 600;
+  margin: 0;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  background: transparent;
+}
+
+th {
+  background: #f7fafc;
+  color: #3182ce;
+  font-size: 0.9rem;
+  font-weight: 600;
+  padding: 12px 12px;
+  text-align: left;
+  border-bottom: 1px solid #e2e8f0;
+  white-space: nowrap;
+}
+
+td {
+  color: #2d3748;
+  font-size: 0.9rem;
+  font-weight: 500;
+  padding: 12px 12px;
+  background: #ffffff;
+  border-bottom: 1px solid #e2e8f0;
+  text-align: left;
+  white-space: nowrap;
+}
+
+tr:nth-child(even) td {
+  background: #f7fafc;
+}
+
+tr:hover td {
+  background: #edf2f7;
+}
+
+/* Status indicators */
+.status-positive {
+  color: #38a169;
+}
+
+.status-negative {
+  color: #e53e3e;
+}
+
+.status-neutral {
+  color: #2d3748;
+}
+
+/* Buttons */
+.btn {
+  background: #3182ce;
+  color: #fff;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  font-weight: 500;
+  transition: background 0.2s;
+  min-width: 80px;
+}
+
+.btn:hover {
+  background: #2c5282;
+}
+
+.btn-secondary {
+  background: #718096;
+}
+
+.btn-secondary:hover {
+  background: #4a5568;
+}
+
+.btn-danger {
+  background: #e53e3e;
+}
+
+.btn-danger:hover {
+  background: #c53030;
+}
+
+/* Form elements */
+input, select, textarea {
+  background: #ffffff;
+  color: #2d3748;
+  border: 1px solid #e2e8f0;
+  padding: 8px 12px;
+  border-radius: 4px;
+  font-size: 0.9rem;
+}
+
+input:focus, select:focus, textarea:focus {
+  outline: none;
+  border-color: #3182ce;
+  box-shadow: 0 0 0 3px rgba(49, 130, 206, 0.1);
+}
+
+/* Icons */
+.icon {
+  width: 16px;
+  height: 16px;
+  display: inline-block;
+  vertical-align: middle;
+  margin-right: 4px;
+}
+
+/* Alert indicators */
+.alert-enabled {
+  color: #d69e2e;
+}
+
+.alert-disabled {
+  color: #d69e2e;
+  opacity: 0.3;
+}
+
+/* Responsive design */
+@media (max-width: 768px) {
+  .charts-container {
+    grid-template-columns: 1fr;
+  }
+  
+  .nav-links {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  
+  .nav-link, .nav-button {
+    font-size: 12px;
+    padding: 6px 12px;
+  }
+}
+
+/* Time range buttons */
+.time-range-container {
+  display: flex;
+  gap: 0;
+  margin-top: 16px;
+  justify-content: center;
+  width: 100%;
+}
+
+.time-range-btn {
+  background: #f7fafc;
+  color: #4a5568;
+  border: 1px solid #e2e8f0;
+  padding: 8px 16px;
+  border-radius: 0;
+  cursor: pointer;
+  font-size: 0.9rem;
+  font-weight: 500;
+  transition: all 0.2s;
+  flex: 1;
+  min-width: 0;
+  text-align: center;
+  border-right: none;
+}
+
+.time-range-btn:first-child {
+  border-radius: 6px 0 0 6px;
+}
+
+.time-range-btn:last-child {
+  border-radius: 0 6px 6px 0;
+  border-right: 1px solid #e2e8f0;
+}
+
+.time-range-btn:hover {
+  background: #edf2f7;
+  color: #2d3748;
+}
+
+.time-range-btn.active {
+  background: #38a169;
+  border-color: #38a169;
+  color: #fff;
+  font-weight: 600;
+}
+
+/* Modal styling */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.modal-content {
+  background: #ffffff;
+  border-radius: 12px;
+  padding: 0;
+  max-width: 500px;
+  width: 90%;
+  max-height: 80vh;
+  overflow: hidden;
+  border: 1px solid #e2e8f0;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+}
+
+.modal-content textarea {
+  flex: 1;
+  min-height: 120px;
+  max-height: 400px;
+  overflow-y: auto;
+  margin: 0;
+  padding: 16px;
+  background: #ffffff;
+  color: #2d3748;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  font-family: inherit;
+  font-size: 14px;
+  resize: vertical;
+  line-height: 1.5;
+  width: calc(100% - 32px);
+  margin: 16px;
+  box-sizing: border-box;
+}
+
+.modal-header {
+  color: #3182ce;
+  font-size: 18px;
+  font-weight: bold;
+  margin: 0;
+  padding: 20px 24px 16px;
+  border-bottom: 1px solid #e2e8f0;
+  background: #f7fafc;
+  border-radius: 12px 12px 0 0;
+}
+
+.modal-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: flex-end;
+  margin: 0;
+  padding: 16px 24px 20px;
+  border-top: 1px solid #e2e8f0;
+  background: #f7fafc;
+  border-radius: 0 0 12px 12px;
+}
+
+/* Analysis Modal Specific Styling */
+.analysis-modal {
+  max-width: 800px !important;
+  max-height: 75vh !important;
+  width: 90% !important;
+  overflow-y: auto !important;
+}
+
+.analysis-modal .modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  position: relative;
+}
+
+.analysis-modal .modal-close {
+  background: none;
+  border: none;
+  color: #718096;
+  font-size: 24px;
+  font-weight: bold;
+  cursor: pointer;
+  padding: 0;
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  transition: all 0.2s ease;
+}
+
+.analysis-modal .modal-close:hover {
+  background: #edf2f7;
+  color: #2d3748;
+}
+
+.analysis-modal .modal-body {
+  flex: 1;
+  overflow: visible;
+  padding: 20px 24px;
+}
+
+.analysis-modal .modal-actions {
+  position: sticky;
+  bottom: 0;
+  background: #f7fafc;
+  border-top: 1px solid #e2e8f0;
+  padding: 16px 24px;
+  margin: 0;
+  border-radius: 0 0 12px 12px;
+}
+
+/* Message notifications */
+.message {
+  position: fixed;
+  top: 80px;
+  right: 24px;
+  padding: 12px 16px;
+  border-radius: 8px;
+  z-index: 1000;
+  max-width: 300px;
+  font-weight: 500;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+}
+
+.message.success {
+  background: rgba(72, 187, 120, 0.1);
+  border: 1px solid rgba(72, 187, 120, 0.3);
+  color: #38a169;
+}
+
+.message.error {
+  background: rgba(245, 101, 101, 0.1);
+  border: 1px solid rgba(245, 101, 101, 0.3);
+  color: #e53e3e;
+}
+
+/* Table-specific styling */
+.favorite-star {
+  cursor: pointer;
+  font-size: 16px;
+  color: #718096;
+  transition: color 0.2s;
+}
+
+.favorite-star.favorite {
+  color: #d69e2e;
+}
+
+.symbol-cell {
+  font-weight: bold;
+}
+
+.alert-toggle {
+  cursor: pointer;
+  font-size: 16px;
+  transition: color 0.2s;
+}
+
+.action-icon {
+  cursor: pointer;
+  font-size: 16px;
+  color: #718096;
+  transition: color 0.2s;
+}
+
+.action-icon:hover {
+  color: #3182ce;
+}
+
+.no-data {
+  padding: 20px;
+  text-align: center;
+  color: #718096;
+}
+
+.trade-action-btn {
+  border: none;
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform 0.2s ease, box-shadow 0.2s ease, opacity 0.2s ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 70px;
+  color: #ffffff;
+}
+
+.trade-action-btn.buy {
+  background: linear-gradient(135deg, #48bb78 0%, #38a169 100%);
+}
+
+.trade-action-btn.sell {
+  background: linear-gradient(135deg, #f56565 0%, #e53e3e 100%);
+}
+
+.trade-action-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 10px rgba(15, 23, 42, 0.25);
+}
+
+.trade-action-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+.watchlist-input {
+  padding: 16px 24px;
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+.watchlist-symbol-input {
+  flex: 1;
+  max-width: 200px;
+}
+
+/* Table container with horizontal scroll */
+.table-container {
+  overflow-x: auto;
+  background: #ffffff;
+  border-radius: 12px;
+  border: 1px solid #e2e8f0;
+  margin-bottom: 32px;
+  width: 100%;
+  min-width: 100%;
+  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1);
+}
+
+/* Override any global table styles for portfolio table */
+.table-container table {
+  width: 100% !important;
+  border-collapse: collapse !important;
+}
+
+/* Make table columns more compact */
+.table-container th,
+.table-container td {
+  padding: 8px 12px !important;
+}
+
+
+/* Force table to be wide */
+.table-container {
+  overflow-x: auto;
+  background: #ffffff;
+  border-radius: 12px;
+  border: 1px solid #e2e8f0;
+  margin-bottom: 32px;
+  width: 100% !important;
+  min-width: 100% !important;
+  max-width: none !important;
+  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1);
+}
+
+/* Table styling to match screenshot */
+.table-container table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.table-container thead th {
+  background: #f7fafc;
+  color: #3182ce;
+  padding: 12px 16px;
+  text-align: left;
+  font-weight: 700;
+  border-bottom: 1px solid #e2e8f0;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.table-container tbody td {
+  padding: 12px 16px;
+  border-bottom: 1px solid #e2e8f0;
+  color: #2d3748;
+}
+
+.table-container tbody tr:hover {
+  background: #edf2f7;
+}
+
+/* Sort arrow styling */
+.table-container thead th[onclick] {
+  cursor: pointer;
+  user-select: none;
+}
+
+.table-container thead th[onclick]:hover {
+  background: #edf2f7;
+}
+
+/* Status colors */
+.status-positive {
+  color: #38a169;
+}
+
+.status-negative {
+  color: #e53e3e;
+}
+
+/* Remove old .theme-toggle usage (deprecated) */
+.theme-toggle { display:none !important; }
+/* New theme switch inherits from theme.css */
+/* AI Dashboard light adjustments already handled via variables; ensure override for legacy dark hardcoded colors */
+.ai-dashboard { background: var(--bg-primary); color: var(--text-primary); }
+.ai-dashboard .ai-header h1 { color: var(--accent-primary); }
+.ai-dashboard .ai-section h2 { color: var(--accent-primary); }
+.ai-dashboard .ai-card, .ai-recommendation-card, .ai-alert-card, .ai-portfolio-recommendations { background: var(--card-bg); border:1px solid var(--card-border); }
+.ai-dashboard .rec-reasoning { background: var(--bg-tertiary); }
+.coin-analysis-table { background: var(--card-bg); }
+.coin-analysis-table .table-header { background: var(--table-header-bg); color: var(--table-header-text); }
+.coin-analysis-table .table-row { background: var(--table-row-bg); }
+.coin-analysis-table .table-row:hover { background: var(--table-row-hover); }
+.coin-analysis-table .cell { color: var(--text-primary); }
+
+/* Dashboard table (light mode): lock font size for headers, cells, symbol cells and on hover */
+.dashboard-page-container .table-container thead th,
+.dashboard-page-container .table-container tbody td,
+.dashboard-page-container .table-container .symbol-cell {
+  font-size: 13px !important;
+  line-height: 1.25 !important;
+}
+
+.dashboard-page-container .table-container tbody tr:hover td,
+.dashboard-page-container .table-container tbody tr:hover .symbol-cell {
+  font-size: 13px !important;
+}
+
+/* Ensure columns auto-size and never overflow container */
+.table-container table { table-layout: auto !important; }
+.table-container th, .table-container td { width: auto !important; max-width: none !important; }
+/* Center alert columns in portfolio */
+.portfolio-table thead th:nth-child(6),
+.portfolio-table thead th:nth-child(7),
+.portfolio-table tbody td:nth-child(6),
+.portfolio-table tbody td:nth-child(7) { text-align: center !important; }
+
+/* Compact headers and cells so columns size to content */
+.table-container thead th { white-space: nowrap; padding: 8px 10px !important; }
+.table-container tbody td { white-space: nowrap; padding: 8px 10px !important; }
+/* Let the last Actions column stay visible by allowing earlier columns to shrink */
+.table-container table { table-layout: auto !important; }
+
+/* Portfolio: compact column widths to keep Actions visible */
+.portfolio-table thead th,
+.portfolio-table tbody td {
+  padding: 6px 8px !important;
+}
+/* Initial Value */
+.portfolio-table tbody td:nth-child(8) { max-width: 12ch !important; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Purchase Date */
+.portfolio-table tbody td:nth-child(5) { max-width: 12ch !important; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Amount */
+.portfolio-table tbody td:nth-child(2) { max-width: 8ch !important; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Current Price */
+.portfolio-table tbody td:nth-child(3) { max-width: 12ch !important; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Current Value */
+.portfolio-table tbody td:nth-child(4) { max-width: 12ch !important; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* % Change */
+.portfolio-table tbody td:nth-child(10) { max-width: 9ch !important; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Sentiment */
+.portfolio-table tbody td:nth-child(11) { max-width: 10ch !important; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Watchlist: compact columns and ensure Actions visible */
+.watchlist-table thead th,
+.watchlist-table tbody td { padding: 6px 8px !important; white-space: nowrap; }
+/* Current Price */
+.watchlist-table thead th:nth-child(2),
+.watchlist-table tbody td:nth-child(2) { max-width: 10ch !important; overflow: hidden; text-overflow: ellipsis; }
+/* Sentiment */
+.watchlist-table thead th:nth-child(3),
+.watchlist-table tbody td:nth-child(3) { max-width: 8ch !important; overflow: hidden; text-overflow: ellipsis; }
+/* Actions */
+.watchlist-table tbody td.actions-cell .btn { padding: 4px 8px; font-size: 12px; border-radius: 4px; }
+
+/* Ensure header text is fully visible with padding */
+.table-container thead th { min-width: max-content !important; max-width: none !important; padding: 8px 10px !important; }
+/* Portfolio headers must not be truncated */
+.portfolio-table thead th { min-width: max-content !important; max-width: none !important; }
+/* Watchlist headers must not be truncated */
+.watchlist-table thead th { min-width: max-content !important; max-width: none !important; }
+
+/* Equalize button sizes across tables */
+.portfolio-table .btn,
+.watchlist-table .btn { padding: 6px 12px !important; font-size: 0.85rem !important; border-radius: 6px !important; min-width: 70px !important; font-weight: 600 !important; }
+/* Specific: watchlist Trade/Delete match portfolio Trade/Hide */
+.watchlist-table .btn { padding: 6px 12px !important; font-size: 0.85rem !important; font-weight: 600 !important; }
+
+.table-container.portfolio-table thead th.portfolio-header {
+  text-align: center !important;
+}

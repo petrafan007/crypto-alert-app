@@ -1,0 +1,44 @@
+version: '3.9'
+
+services:
+  sentinel-node:
+    image: ghcr.io/sentinel-official/dvpn-node:latest
+    container_name: sentinel-node
+    restart: unless-stopped
+
+    cap_add:
+      - NET_ADMIN
+      - NET_BIND_SERVICE
+      - NET_RAW
+      - SYS_MODULE
+
+    sysctls:
+      net.ipv4.ip_forward: "1"
+      net.ipv6.conf.all.disable_ipv6: "0"
+      net.ipv6.conf.all.forwarding:  "1"
+      net.ipv6.conf.default.forwarding: "1"
+
+    volumes:
+      - sentinel_node_config:/root/.sentinelnode
+      - sentinel_node_logs:/root/.sentinelnode/logs
+      - /lib/modules:/lib/modules:ro
+
+    ports:
+      - "7777:7777/tcp"
+      - "51822:8888/udp"
+
+    environment:
+      LOG_LEVEL: info
+      MONIKER: thinclient-node
+      NETWORK: mainnet
+      CHAIN_ID: sentinelhub-2
+      IP_ADDRESS: auto
+      EXTERNAL_PORT: "51822"
+
+    command: ["process", "start"]
+
+volumes:
+  sentinel_node_config:
+    external: true
+  sentinel_node_logs:
+    external: true
