@@ -172,6 +172,7 @@ crypto.code-workspace
 crypto-dashboard-source.service
 
 # Internal Development & Planning
+github_instructions.md
 TODO.md
 CryptoDesktopApp.md
 VibecodeInstructions.md

@@ -550,10 +550,24 @@ def api_system_upgrade():
             
         log_path = os.path.join(root_dir, 'upgrade_background.log')
         
+        target_version = ""
+        if request.is_json:
+            target_version = request.json.get("target_version", "")
+        
+        # Sanitize target_version (only allow alphanumeric, dots, and hyphens)
+        import re
+        if target_version and not re.match(r'^[\w\.\-]+$', target_version):
+            return jsonify({"success": False, "error": "Invalid version format"}), 400
+
         # Run the script in the background so it doesn't kill the request midway
         # We redirect output to a log file
+        cmd = f"/usr/bin/nohup {script_path}"
+        if target_version:
+            cmd += f" {target_version}"
+        cmd += f" > {log_path} 2>&1 &"
+        
         subprocess.Popen(
-            f"/usr/bin/nohup {script_path} > {log_path} 2>&1 &",
+            cmd,
             shell=True,
             cwd=root_dir,
             executable='/bin/bash'

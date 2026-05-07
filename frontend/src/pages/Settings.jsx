@@ -89,6 +89,10 @@ export default function Settings({ isLightMode }) {
   const [forcingAnalysis, setForcingAnalysis] = useState(false);
   const [forceAnalysisResult, setForceAnalysisResult] = useState(null);
   const [upgrading, setUpgrading] = useState(false);
+  const [showUpgradeModal, setShowUpgradeModal] = useState(false);
+  const [includeBeta, setIncludeBeta] = useState(true);
+  const [availableVersion, setAvailableVersion] = useState(null);
+  const [isFetchingVersion, setIsFetchingVersion] = useState(false);
 
   // 2FA State
   const [twoFactorEnabled, setTwoFactorEnabled] = useState(false);
@@ -547,13 +551,54 @@ export default function Settings({ isLightMode }) {
     }
   };
 
-  const handleUpgrade = async () => {
-    if (!window.confirm("Are you sure you want to pull the latest Version 1.1 Beta updates from GitHub and restart the app?")) return;
+  const fetchLatestVersion = async (wantsBeta) => {
+    setIsFetchingVersion(true);
+    setAvailableVersion(null);
+    try {
+      const res = await axios.get('https://api.github.com/repos/petrafan007/crypto-alert-app/releases');
+      const releases = res.data;
+      if (releases && releases.length > 0) {
+        let targetRelease = null;
+        if (wantsBeta) {
+          targetRelease = releases[0]; // The absolute latest
+        } else {
+          // Find first release that is not a prerelease and tag doesn't contain 'beta'
+          targetRelease = releases.find(r => !r.prerelease && !r.tag_name.toLowerCase().includes('beta'));
+        }
+        if (targetRelease) {
+          setAvailableVersion(targetRelease.tag_name);
+        }
+      }
+    } catch (err) {
+      console.error("Failed to fetch GitHub releases", err);
+    } finally {
+      setIsFetchingVersion(false);
+    }
+  };
+
+  const handleOpenUpgradeModal = () => {
+    setShowUpgradeModal(true);
+    fetchLatestVersion(includeBeta);
+  };
+
+  useEffect(() => {
+    if (showUpgradeModal) {
+      fetchLatestVersion(includeBeta);
+    }
+  }, [includeBeta, showUpgradeModal]);
+
+  const confirmUpgrade = async () => {
+    setShowUpgradeModal(false);
     setUpgrading(true);
     setMessage('Upgrade initiated. Please wait, the page will automatically refresh when complete...');
     setMessageType('success');
     try {
-      const response = await axios.post('/api/system/upgrade', {}, { withCredentials: true });
+      const payload = {};
+      if (availableVersion) {
+        payload.target_version = availableVersion;
+      }
+      
+      const response = await axios.post('/api/system/upgrade', payload, { withCredentials: true });
       if (response.data.success) {
         let serverWentDown = false;
         const pollInterval = setInterval(async () => {
@@ -734,6 +779,28 @@ export default function Settings({ isLightMode }) {
 
   return (
     <div className="settings-page-container">
+      <Modal show={showUpgradeModal} onHide={() => setShowUpgradeModal(false)} centered contentClassName={isLightMode ? 'bg-light text-dark' : 'bg-dark text-light'}>
+        <Modal.Header closeButton className={isLightMode ? 'border-bottom' : 'border-secondary'}>
+          <Modal.Title>Confirm Application Upgrade</Modal.Title>
+        </Modal.Header>
+        <Modal.Body>
+          {isFetchingVersion ? (
+            <p>Checking for latest version...</p>
+          ) : (
+            <p>
+              Are you sure you want to pull the latest version {availableVersion ? `(${availableVersion}) ` : ''}from GitHub and restart the app?
+            </p>
+          )}
+        </Modal.Body>
+        <Modal.Footer className={isLightMode ? 'border-top' : 'border-secondary'}>
+          <Button variant="secondary" onClick={() => setShowUpgradeModal(false)}>
+            Cancel
+          </Button>
+          <Button variant="warning" onClick={confirmUpgrade} disabled={isFetchingVersion}>
+            Confirm Upgrade
+          </Button>
+        </Modal.Footer>
+      </Modal>
       {/* Onboarding Modal */}
       <OnboardingModal
         show={showOnboardingModal}
@@ -813,22 +880,33 @@ export default function Settings({ isLightMode }) {
             Reset Password
           </button>
 
-          <button
-            onClick={handleUpgrade}
-            disabled={upgrading}
-            style={{
-              padding: '12px 24px',
-              borderRadius: 6,
-              border: '1px solid #ecc94b',
-              background: 'transparent',
-              color: '#ecc94b',
-              fontSize: '16px',
-              cursor: upgrading ? 'not-allowed' : 'pointer',
-              transition: 'all 0.2s'
-            }}
-          >
-            {upgrading ? 'Upgrading...' : 'Upgrade App'}
-          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <button
+              onClick={handleOpenUpgradeModal}
+              disabled={upgrading}
+              style={{
+                padding: '12px 24px',
+                borderRadius: 6,
+                border: '1px solid #ecc94b',
+                background: 'transparent',
+                color: '#ecc94b',
+                fontSize: '16px',
+                cursor: upgrading ? 'not-allowed' : 'pointer',
+                transition: 'all 0.2s'
+              }}
+            >
+              {upgrading ? 'Upgrading...' : 'Upgrade App'}
+            </button>
+            <label style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', color: isLightMode ? '#2d3748' : '#e2e8f0', userSelect: 'none', margin: 0 }}>
+              <input
+                type="checkbox"
+                checked={includeBeta}
+                onChange={(e) => setIncludeBeta(e.target.checked)}
+                style={{ marginRight: '8px', cursor: 'pointer' }}
+              />
+              Include Beta Versions
+            </label>
+          </div>
         </div>
         <div style={{ marginTop: '15px', color: '#a0aec0', fontSize: '14px', textAlign: 'center' }}>
 

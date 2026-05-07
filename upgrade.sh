@@ -10,7 +10,12 @@ log() {
     echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" | tee -a "$LOG_FILE"
 }
 
+TARGET_VERSION=$1
+
 log "Starting Crypto Alert App Upgrade..."
+if [ -n "$TARGET_VERSION" ]; then
+    log "Target version: $TARGET_VERSION"
+fi
 
 # 1. Navigate to the local app directory (the live instance, not the source!)
 cd "$PROJECT_DIR"
@@ -18,9 +23,14 @@ cd "$PROJECT_DIR"
 # 2. Pull the latest code from GitHub
 log "Pulling latest changes from petrafan007/crypto-alert-app..."
 # Assuming remote is already set, or we can force it
-git fetch origin main || log "Warning: Git fetch failed."
+git fetch origin --tags || log "Warning: Git fetch tags failed."
+git checkout main || log "Warning: Git checkout main failed."
 git reset --hard origin/main || log "Warning: Git reset failed."
 
+if [ -n "$TARGET_VERSION" ]; then
+    log "Checking out target version: $TARGET_VERSION"
+    git checkout "$TARGET_VERSION" || log "Error: Git checkout $TARGET_VERSION failed."
+fi
 # 3. Update Python dependencies
 log "Updating Python dependencies..."
 if [ -d ".venv" ]; then
