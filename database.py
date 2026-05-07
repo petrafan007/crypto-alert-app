@@ -1,8 +1,6 @@
-from flask_sqlalchemy import SQLAlchemy
 from flask import current_app
 import os
-
-db = SQLAlchemy()
+from core.extensions import db
 
 def init_db():
     """Initialize the database with all models"""
