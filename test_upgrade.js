@@ -62,7 +62,7 @@ const puppeteer = require('puppeteer');
 
         if (confirmButton && confirmButton.asElement()) {
           console.log("Clicking Confirm Upgrade button...");
-          await confirmButton.click();
+          await confirmButton.evaluate(b => b.click());
         
         console.log("Waiting for page reload (timeout 120s)...");
         await page.waitForNavigation({ timeout: 120000, waitUntil: 'networkidle0' });
