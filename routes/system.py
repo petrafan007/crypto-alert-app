@@ -553,7 +553,7 @@ def api_system_upgrade():
         # Run the script in the background so it doesn't kill the request midway
         # We redirect output to a log file
         subprocess.Popen(
-            f"nohup {script_path} > {log_path} 2>&1 &",
+            f"/usr/bin/nohup {script_path} > {log_path} 2>&1 &",
             shell=True,
             cwd=root_dir,
             executable='/bin/bash'

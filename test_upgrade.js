@@ -21,7 +21,7 @@ const puppeteer = require('puppeteer');
 
   try {
     console.log("Navigating to login...");
-    await page.goto('http://127.0.0.1:5016/login', { waitUntil: 'networkidle0' });
+    await page.goto('http://127.0.0.1:5010/login', { waitUntil: 'networkidle0' });
     
     console.log("Entering credentials...");
     await page.type('input[type="text"]', 'jcavallarojr');
@@ -32,7 +32,7 @@ const puppeteer = require('puppeteer');
     await page.waitForNavigation({ waitUntil: 'networkidle0' });
     
     console.log("Navigating to settings...");
-    await page.goto('http://127.0.0.1:5016/settings', { waitUntil: 'networkidle0' });
+    await page.goto('http://127.0.0.1:5010/settings', { waitUntil: 'networkidle0' });
     
     console.log("Looking for upgrade button...");
     // The button text is "Upgrade App"
