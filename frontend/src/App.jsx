@@ -377,7 +377,7 @@ export default function App() {
           fontSize: '12px',
           margin: 0
         }}>
-          © 2026 Crypto Alert App version 1.02 beta. All rights reserved.
+          © 2026 Crypto Alert App version 1.03 beta. All rights reserved.
         </p>
       </footer>
 
