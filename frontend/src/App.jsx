@@ -161,13 +161,9 @@ export default function App() {
 
       {/* Navigation */}
       <nav className="nav-container">
-        <div className="nav-content">
-          <Link to="/" className="nav-brand">
-            Crypto Alert App
-          </Link>
-
+        <div className="nav-content" style={{ flexDirection: 'column' }}>
           {user && (
-            <div className="nav-links">
+            <div className="nav-links" style={{ width: '100%', justifyContent: 'center' }}>
               <Link to="/" className="nav-link">
                 📊 Dashboard
               </Link>
@@ -216,6 +212,9 @@ export default function App() {
               </button>
             </div>
           )}
+          <div style={{ marginTop: '10px', fontWeight: 'bold', fontSize: '1.5rem', color: 'var(--accent-secondary)' }}>
+            Crypto Alert App
+          </div>
         </div>
       </nav>
 
@@ -377,7 +376,7 @@ export default function App() {
           fontSize: '12px',
           margin: 0
         }}>
-          © 2026 Crypto Alert App version 1.03 beta. All rights reserved.
+          Crypto Alert App version 1.1 beta. © 2026 Cavallaro Services. All rights reserved.
         </p>
       </footer>
 

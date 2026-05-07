@@ -2617,7 +2617,7 @@ def extract_symbol_from_body(body_text):
     
     return None
 
-def log_ai_conversation(user_id, prompt_type, sender, body, conversation_id=None, symbol=None):
+def log_ai_conversation(user_id, prompt_type, sender, body, conversation_id=None, symbol=None, coin_id=None):
     """Log AI conversation to database with coin_id linking using ORM"""
     try:
         from models import AIConversation
@@ -2628,14 +2628,14 @@ def log_ai_conversation(user_id, prompt_type, sender, body, conversation_id=None
         created_at = now
         
         # Get coin_id if symbol is provided or can be extracted
-        coin_id = None
-        if symbol:
-            coin_id = get_coin_id_by_symbol(symbol, user_id)
-        else:
-            # Try to extract symbol from body text
-            extracted_symbol = extract_symbol_from_body(body)
-            if extracted_symbol:
-                coin_id = get_coin_id_by_symbol(extracted_symbol, user_id)
+        if coin_id is None:
+            if symbol:
+                coin_id = get_coin_id_by_symbol(symbol, user_id)
+            else:
+                # Try to extract symbol from body text
+                extracted_symbol = extract_symbol_from_body(body)
+                if extracted_symbol:
+                    coin_id = get_coin_id_by_symbol(extracted_symbol, user_id)
         
         new_conv = AIConversation(
             user_id=user_id,
@@ -11219,6 +11219,10 @@ def api_settings():
             "news_api": cred.news_api,
             "brave_search_api_key": getattr(cred, 'brave_search_api_key', None),
             "brave_search_api_key_fallback": getattr(cred, 'brave_search_api_key_fallback', None),
+            "openai_key_fallback": getattr(cred, 'openai_key_fallback', None),
+            "zai_key_fallback": getattr(cred, 'zai_key_fallback', None),
+            "perplexity_key_fallback": getattr(cred, 'perplexity_key_fallback', None),
+            "gemini_key_fallback": getattr(cred, 'gemini_key_fallback', None),
             
             # Encryption status
             "credentials_encryption_key": "", # Never return the key

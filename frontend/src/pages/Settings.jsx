@@ -831,7 +831,7 @@ export default function Settings({ isLightMode }) {
           </button>
         </div>
         <div style={{ marginTop: '15px', color: '#a0aec0', fontSize: '14px', textAlign: 'center' }}>
-          Current Version: 1.0
+
         </div>
       </div>
 
