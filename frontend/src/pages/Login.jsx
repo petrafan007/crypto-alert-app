@@ -45,7 +45,7 @@ export default function Login() {
         fontSize: '2rem',
         fontWeight: 600
       }}>
-        Login to Crypto Dashboard
+        Login to Crypto Alert App
       </h2>
 
       <form onSubmit={handleSubmit}>

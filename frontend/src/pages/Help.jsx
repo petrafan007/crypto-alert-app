@@ -202,7 +202,7 @@ export default function Help({ isLightMode }) {
                 <ul style={{ paddingLeft: '20px', marginBottom: '16px' }}>
                     <li><strong>OpenAI</strong> - GPT-4o, GPT-4o-mini</li>
                     <li><strong>Z.AI (Zhipu)</strong> - GLM-4 Flash</li>
-                    <li><strong>Anthropic</strong> - Claude models</li>
+                    <li><strong>Perplexity</strong> - Sonar models</li>
                     <li><strong>Google</strong> - Gemini models</li>
                 </ul>
 
