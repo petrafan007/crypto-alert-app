@@ -548,23 +548,34 @@ export default function Settings({ isLightMode }) {
   };
 
   const handleUpgrade = async () => {
-    if (!window.confirm("Are you sure you want to pull the latest Version 1.0 updates from GitHub and restart the app?")) return;
+    if (!window.confirm("Are you sure you want to pull the latest Version 1.01 Beta updates from GitHub and restart the app?")) return;
     setUpgrading(true);
-    setMessage('');
+    setMessage('Upgrade initiated. Please wait, the page will automatically refresh when complete...');
+    setMessageType('success');
     try {
       const response = await axios.post('/api/system/upgrade', {}, { withCredentials: true });
       if (response.data.success) {
-        setMessage('✅ ' + response.data.message);
-        setMessageType('success');
+        let serverWentDown = false;
+        const pollInterval = setInterval(async () => {
+          try {
+            await axios.get('/login');
+            if (serverWentDown) {
+              clearInterval(pollInterval);
+              window.location.reload();
+            }
+          } catch (e) {
+            serverWentDown = true;
+          }
+        }, 2000);
       } else {
         setMessage('❌ ' + (response.data.error || 'Upgrade failed'));
         setMessageType('error');
+        setUpgrading(false);
       }
     } catch (err) {
       console.error('Upgrade error:', err);
       setMessage('❌ ' + (err.response?.data?.error || 'Failed to trigger upgrade'));
       setMessageType('error');
-    } finally {
       setUpgrading(false);
     }
   };

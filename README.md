@@ -1,5 +1,7 @@
 # Crypto Alert App
 
+**Crypto Alert App** is a comprehensive, non-custodial cryptocurrency portfolio management and trading platform designed exclusively for Binance.US. It provides users with real-time portfolio tracking, automated price alerts, one-click trading, built-in staking management, and AI-powered market sentiment analysis. 
+
 **Last Updated**: May 2026
 
 ## 🚨 CRITICAL DEVELOPMENT RULE ⚠️
@@ -59,8 +61,7 @@ The application utilizes a **unified PostgreSQL database**.
 **Service Name**: `crypto-dashboard.service`
 
 **Ports**:
-- **Development/Source Port**: `5011` (Used when running `main.py` directly for local testing)
-- **Production Systemd Port**: `5010` (Used by the active local production instance running as a background service)
+- **Default Application Port**: `5016` (Used for both running directly or via systemd service)
 
 **Restart Command**: `sudo systemctl restart crypto-dashboard.service`
 **Check Logs Command**: `sudo journalctl -u crypto-dashboard.service -f`

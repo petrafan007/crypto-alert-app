@@ -38,11 +38,18 @@ cd ..
 # flask db upgrade
 
 # 6. Restart the application service
-if [ -z "$IS_TEST_ENV" ]; then
+log "Restarting application..."
+if systemctl is-active --quiet crypto-dashboard.service; then
     log "Restarting crypto-dashboard.service..."
-    if [ -z "$IS_TEST_ENV" ]; then sudo systemctl restart crypto-dashboard.service; fi
-else
-    log "Test environment detected. Skipping systemd restart."
+    sudo systemctl restart crypto-dashboard.service
+fi
+
+# If running manually via python3 main.py (test environment), restart it
+if pgrep -f "python3 main.py" > /dev/null; then
+    log "Restarting manual python3 main.py instance..."
+    pkill -f "python3 main.py" || true
+    sleep 2
+    nohup python3 main.py > /dev/null 2>&1 &
 fi
 
 log "Upgrade Complete! System is back online."

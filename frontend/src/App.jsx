@@ -163,7 +163,7 @@ export default function App() {
       <nav className="nav-container">
         <div className="nav-content">
           <Link to="/" className="nav-brand">
-            Crypto Dashboard
+            Crypto Alert App
           </Link>
 
           {user && (
