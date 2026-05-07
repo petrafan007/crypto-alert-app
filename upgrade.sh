@@ -23,7 +23,11 @@ git reset --hard origin/main || log "Warning: Git reset failed."
 
 # 3. Update Python dependencies
 log "Updating Python dependencies..."
-source venv/bin/activate
+if [ -d ".venv" ]; then
+    source .venv/bin/activate
+elif [ -d "venv" ]; then
+    source venv/bin/activate
+fi
 pip install -r requirements.txt | tee -a "$LOG_FILE"
 
 # 4. Update Node dependencies & rebuild frontend
