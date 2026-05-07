@@ -1061,6 +1061,10 @@ def api_settings():
             "zai_key": getattr(cred, 'zai_key', None),
             "perplexity_key": getattr(cred, 'perplexity_key', None),
             "gemini_key": getattr(cred, 'gemini_key', None),
+            "openai_key_fallback": getattr(cred, 'openai_key_fallback', None),
+            "zai_key_fallback": getattr(cred, 'zai_key_fallback', None),
+            "perplexity_key_fallback": getattr(cred, 'perplexity_key_fallback', None),
+            "gemini_key_fallback": getattr(cred, 'gemini_key_fallback', None),
             # ai_provider is already in ai_settings, but ensure sync? 
             # ai_settings takes precedence as it handles defaults and user_settings overlay
             "telegram_token": cred.telegram_token,
