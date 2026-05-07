@@ -52,12 +52,18 @@ const puppeteer = require('puppeteer');
       });
 
       console.log("Looking for Confirm Upgrade button...");
+      await page.waitForFunction(() => {
+        const buttons = Array.from(document.querySelectorAll('button'));
+        const btn = buttons.find(b => b.textContent.includes('Confirm Upgrade'));
+        return btn && !btn.disabled;
+      });
+
       const confirmButton = await page.evaluateHandle(() => {
         const buttons = Array.from(document.querySelectorAll('button'));
         return buttons.find(b => b.textContent.includes('Confirm Upgrade') && !b.disabled);
       });
 
-      if (confirmButton) {
+      if (confirmButton && confirmButton.asElement()) {
         console.log("Clicking Confirm Upgrade button...");
         await confirmButton.click();
         
