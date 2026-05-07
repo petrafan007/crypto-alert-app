@@ -548,7 +548,7 @@ export default function Settings({ isLightMode }) {
   };
 
   const handleUpgrade = async () => {
-    if (!window.confirm("Are you sure you want to pull the latest Version 1.02 Beta updates from GitHub and restart the app?")) return;
+    if (!window.confirm("Are you sure you want to pull the latest Version 1.03 Beta updates from GitHub and restart the app?")) return;
     setUpgrading(true);
     setMessage('Upgrade initiated. Please wait, the page will automatically refresh when complete...');
     setMessageType('success');

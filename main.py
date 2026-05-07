@@ -18942,5 +18942,6 @@ if __name__ == '__main__':
     app.register_blueprint(portfolio_bp)
     app.register_blueprint(system_bp)
     
-    port = int(os.environ.get('PORT', 5016))
+    from utils import get_app_port
+    port = get_app_port()
     app.run(host='0.0.0.0', port=port, debug=False, use_reloader=False)

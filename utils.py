@@ -120,3 +120,63 @@ def get_live_coinbase_holdings(access_token):
             logger.error(f"Skipping account: {acc} Error: {e}", exc_info=True)
             continue
     return holdings
+
+def find_free_port(start_port=5016):
+    """Find a free port starting from start_port"""
+    import socket
+    port = start_port
+    while port < start_port + 100:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            try:
+                # Use SO_REUSEADDR to avoid "Address already in use" if we just closed it
+                s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                s.bind(('0.0.0.0', port))
+                return port
+            except socket.error:
+                port += 1
+    return start_port
+
+def get_app_port():
+    """Determine the port to run the app on with intelligent fallback"""
+    # 1. Priority: Environment variable
+    env_port = os.environ.get('PORT')
+    if env_port:
+        try:
+            return int(env_port)
+        except ValueError:
+            pass
+
+    # 2. Check for PORT in .env file explicitly
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    try:
+        env_path = os.path.join(base_dir, '.env')
+        if os.path.exists(env_path):
+            with open(env_path, 'r') as f:
+                for line in f:
+                    if line.strip().startswith('PORT='):
+                        return int(line.split('=')[1].strip())
+    except Exception:
+        pass
+
+    # 3. Intelligent detection for existing installations
+    # Check for personal files or logs that indicate a previous port
+    files_to_check = ['CryptoAppInstructions.md', 'app_stderr.log', 'manual_start.log']
+    for filename in files_to_check:
+        try:
+            filepath = os.path.join(base_dir, filename)
+            if os.path.exists(filepath):
+                with open(filepath, 'r', errors='ignore') as f:
+                    # Look for common port patterns in first 10k chars
+                    content = f.read(10000)
+                    import re
+                    # Look for "port 5010", ":5010", "Running on ...:5010" etc.
+                    match = re.search(r'(?:port\s+|:)(501[0-9])', content, re.IGNORECASE)
+                    if match:
+                        detected_port = int(match.group(1))
+                        logger.info(f"Detected previously used port {detected_port} in {filename}")
+                        return detected_port
+        except Exception:
+            continue
+
+    # 4. Fallback: Find a free port starting from 5016
+    return find_free_port(5016)
