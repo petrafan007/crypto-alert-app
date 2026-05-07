@@ -3,6 +3,9 @@
 
 set -e
 
+# Ensure PATH has standard binary locations, mainly for when invoked via restricted systemd environments
+export PATH="/usr/local/bin:/usr/bin:/bin:$PATH"
+
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" &> /dev/null && pwd)"
 LOG_FILE="$PROJECT_DIR/upgrade.log"
 
