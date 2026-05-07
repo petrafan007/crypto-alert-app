@@ -41,33 +41,28 @@ const puppeteer = require('puppeteer');
       return buttons.find(b => b.textContent.includes('Upgrade App'));
     });
     
-    if (upgradeButton) {
-      console.log("Clicking upgrade button...");
-      await upgradeButton.click();
-      
-      console.log("Waiting for modal to appear...");
-      await page.waitForFunction(() => {
-        const texts = Array.from(document.querySelectorAll('*')).map(el => el.textContent);
-        return texts.some(t => t && t.includes('Confirm Application Upgrade'));
-      });
-
-      console.log("Looking for Confirm Upgrade button...");
-      await page.waitForFunction(() => {
-        const buttons = Array.from(document.querySelectorAll('button'));
-        const btn = buttons.find(b => b.textContent.includes('Confirm Upgrade'));
-        return btn && !btn.disabled;
-      });
-
-      const confirmButton = await page.evaluateHandle(() => {
-        const buttons = Array.from(document.querySelectorAll('button'));
-        return buttons.find(b => b.textContent.includes('Confirm Upgrade') && !b.disabled);
-      });
-
-      if (confirmButton && confirmButton.asElement()) {
-        console.log("Waiting for modal animation...");
+      if (upgradeButton) {
+        console.log("Clicking upgrade button...");
+        await upgradeButton.click();
+        
+        console.log("Waiting for modal to appear and transition...");
         await new Promise(r => setTimeout(r, 1000));
-        console.log("Clicking Confirm Upgrade button...");
-        await confirmButton.click();
+
+        console.log("Looking for Confirm Upgrade button...");
+        await page.waitForFunction(() => {
+          const buttons = Array.from(document.querySelectorAll('button'));
+          const btn = buttons.find(b => b.textContent.includes('Confirm Upgrade'));
+          return btn && !btn.disabled;
+        });
+
+        const confirmButton = await page.evaluateHandle(() => {
+          const buttons = Array.from(document.querySelectorAll('button'));
+          return buttons.find(b => b.textContent.includes('Confirm Upgrade') && !b.disabled);
+        });
+
+        if (confirmButton && confirmButton.asElement()) {
+          console.log("Clicking Confirm Upgrade button...");
+          await confirmButton.click();
         
         console.log("Waiting for page reload (timeout 120s)...");
         await page.waitForNavigation({ timeout: 120000, waitUntil: 'networkidle0' });
