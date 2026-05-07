@@ -566,11 +566,16 @@ def api_system_upgrade():
             cmd += f" {target_version}"
         cmd += f" > {log_path} 2>&1 &"
         
+        # Ensure standard paths are in the environment so system binaries like 'git' and 'date' work
+        env = os.environ.copy()
+        env['PATH'] = f"{env.get('PATH', '')}:/usr/local/bin:/usr/bin:/bin"
+
         subprocess.Popen(
             cmd,
             shell=True,
             cwd=root_dir,
-            executable='/bin/bash'
+            executable='/bin/bash',
+            env=env
         )
         
         return jsonify({
