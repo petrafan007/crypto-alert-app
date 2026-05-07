@@ -1,9 +1,6 @@
 import os
 import sys
 import subprocess
-from dotenv import load_dotenv
-
-load_dotenv(override=True)
 
 def bootstrap():
     base_dir = os.path.dirname(os.path.abspath(__file__))
@@ -24,8 +21,14 @@ def bootstrap():
             os.execv(sys.executable, [sys.executable] + sys.argv)
             sys.exit(0)
 
+# Run bootstrap immediately before any third-party imports
+bootstrap()
+
+from dotenv import load_dotenv
+load_dotenv(override=True)
+
 if __name__ == "__main__":
-    bootstrap()
+    pass  # Bootstrap already ran above
 
 from flask import send_file, make_response
 from typing import List
@@ -18939,5 +18942,5 @@ if __name__ == '__main__':
     app.register_blueprint(portfolio_bp)
     app.register_blueprint(system_bp)
     
-    port = int(os.environ.get('PORT', 5010))
+    port = int(os.environ.get('PORT', 5016))
     app.run(host='0.0.0.0', port=port, debug=False, use_reloader=False)
