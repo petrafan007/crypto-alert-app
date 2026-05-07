@@ -45,8 +45,24 @@ const puppeteer = require('puppeteer');
       console.log("Clicking upgrade button...");
       await upgradeButton.click();
       
-      console.log("Waiting for page reload (timeout 120s)...");
-      await page.waitForNavigation({ timeout: 120000, waitUntil: 'networkidle0' });
+      console.log("Waiting for modal to appear...");
+      await page.waitForFunction(() => {
+        const texts = Array.from(document.querySelectorAll('*')).map(el => el.textContent);
+        return texts.some(t => t && t.includes('Confirm Application Upgrade'));
+      });
+
+      console.log("Looking for Confirm Upgrade button...");
+      const confirmButton = await page.evaluateHandle(() => {
+        const buttons = Array.from(document.querySelectorAll('button'));
+        return buttons.find(b => b.textContent.includes('Confirm Upgrade') && !b.disabled);
+      });
+
+      if (confirmButton) {
+        console.log("Clicking Confirm Upgrade button...");
+        await confirmButton.click();
+        
+        console.log("Waiting for page reload (timeout 120s)...");
+        await page.waitForNavigation({ timeout: 120000, waitUntil: 'networkidle0' });
       
       console.log("Page reloaded. Verifying content...");
       const bodyText = await page.evaluate(() => document.body.innerText);
@@ -54,6 +70,9 @@ const puppeteer = require('puppeteer');
         console.log("SUCCESS: Upgrade completed, page refreshed, and branding is correct.");
       } else {
         console.log("ERROR: Branding not found. Page might not have refreshed properly.");
+      }
+      } else {
+        console.log("ERROR: Confirm Upgrade button not found on Settings page modal.");
       }
     } else {
       console.log("ERROR: Upgrade button not found on Settings page.");
