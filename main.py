@@ -604,7 +604,7 @@ from models import Coin, WatchlistCoin, Notification, AIPrompt, AIConversation, 
 from credentials import User, Credential, UserSetting, DesktopToken
 from trading_models import TestOrder, RealOrder, TestPortfolio, TradingSettings, AllActivity, PortfolioValueHistory, StakingOrder
 from log import logger
-from database import db
+from core.extensions import db
 
 # Eastern Time utility functions
 def get_eastern_now():
