@@ -542,16 +542,20 @@ def api_system_upgrade():
     try:
         import subprocess
         # Check if user is admin (optional, assuming current_user is validated)
-        script_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'upgrade.sh')
+        root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        script_path = os.path.join(root_dir, 'upgrade.sh')
         
         if not os.path.exists(script_path):
             return jsonify({"success": False, "error": "Upgrade script not found"}), 404
             
+        log_path = os.path.join(root_dir, 'upgrade_background.log')
+        
         # Run the script in the background so it doesn't kill the request midway
         # We redirect output to a log file
         subprocess.Popen(
-            f"nohup {script_path} > /home/jcavallarojr/crypto_alert_app/upgrade_background.log 2>&1 &",
+            f"nohup {script_path} > {log_path} 2>&1 &",
             shell=True,
+            cwd=root_dir,
             executable='/bin/bash'
         )
         
