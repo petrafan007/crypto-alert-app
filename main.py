@@ -5467,7 +5467,7 @@ def record_true_portfolio_value():
             ).filter(
                 db.or_(
                     db.and_(Credential._api_key.isnot(None), Credential._api_secret.isnot(None)),
-                    db.and_(Credential.trading_api_key.isnot(None), Credential.trading_api_secret.isnot(None))
+                    db.and_(Credential._trading_api_key.isnot(None), Credential._trading_api_secret.isnot(None))
                 )
             ).all()
 
