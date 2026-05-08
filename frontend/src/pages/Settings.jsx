@@ -779,28 +779,114 @@ export default function Settings({ isLightMode }) {
 
   return (
     <div className="settings-page-container">
-      <Modal show={showUpgradeModal} onHide={() => setShowUpgradeModal(false)} centered contentClassName={isLightMode ? 'bg-light text-dark' : 'bg-dark text-light'}>
-        <Modal.Header closeButton className={isLightMode ? 'border-bottom' : 'border-secondary'}>
-          <Modal.Title>Confirm Application Upgrade</Modal.Title>
-        </Modal.Header>
-        <Modal.Body>
-          {isFetchingVersion ? (
-            <p>Checking for latest version...</p>
-          ) : (
-            <p>
-              Are you sure you want to pull the latest version {availableVersion ? `(${availableVersion}) ` : ''}from GitHub and restart the app?
-            </p>
-          )}
-        </Modal.Body>
-        <Modal.Footer className={isLightMode ? 'border-top' : 'border-secondary'}>
-          <Button variant="secondary" onClick={() => setShowUpgradeModal(false)}>
-            Cancel
-          </Button>
-          <Button variant="warning" onClick={confirmUpgrade} disabled={isFetchingVersion}>
-            Confirm Upgrade
-          </Button>
-        </Modal.Footer>
-      </Modal>
+      {showUpgradeModal && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: 'rgba(0, 0, 0, 0.7)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 9999
+        }}>
+          <div style={{
+            backgroundColor: isLightMode ? '#fff' : '#1a1a2e',
+            borderRadius: '12px',
+            maxWidth: '500px',
+            width: '90%',
+            padding: '0',
+            border: `1px solid ${isLightMode ? '#e2e8f0' : '#4fd1c5'}`,
+            boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)'
+          }}>
+            {/* Modal Header */}
+            <div style={{
+              padding: '20px 24px',
+              borderBottom: `1px solid ${isLightMode ? '#e2e8f0' : '#2d3748'}`,
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center'
+            }}>
+              <h2 style={{ margin: 0, color: isLightMode ? '#2d3748' : '#fff', fontSize: '1.25rem', fontWeight: 'bold' }}>
+                Confirm Application Upgrade
+              </h2>
+              <button 
+                onClick={() => setShowUpgradeModal(false)}
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  color: isLightMode ? '#718096' : '#a0aec0',
+                  fontSize: '1.5rem',
+                  cursor: 'pointer',
+                  lineHeight: 1
+                }}
+              >
+                &times;
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div style={{ padding: '24px' }}>
+              {isFetchingVersion ? (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', color: isLightMode ? '#4a5568' : '#e2e8f0' }}>
+                  <div className="spinner-border spinner-border-sm" role="status"></div>
+                  <span>Checking for latest version from GitHub...</span>
+                </div>
+              ) : (
+                <p style={{ margin: 0, color: isLightMode ? '#4a5568' : '#e2e8f0', fontSize: '1rem', lineHeight: '1.6' }}>
+                  Are you sure you want to pull the latest version {availableVersion ? (
+                    <strong style={{ color: '#ecc94b' }}>({availableVersion})</strong>
+                  ) : ''} from GitHub and restart the app?
+                </p>
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            <div style={{
+              padding: '16px 24px',
+              borderTop: `1px solid ${isLightMode ? '#e2e8f0' : '#2d3748'}`,
+              display: 'flex',
+              justifyContent: 'flex-end',
+              gap: '12px'
+            }}>
+              <button
+                onClick={() => setShowUpgradeModal(false)}
+                style={{
+                  padding: '10px 20px',
+                  borderRadius: '6px',
+                  border: `1px solid ${isLightMode ? '#e2e8f0' : '#4a5568'}`,
+                  background: 'transparent',
+                  color: isLightMode ? '#4a5568' : '#e2e8f0',
+                  fontSize: '14px',
+                  fontWeight: '600',
+                  cursor: 'pointer'
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmUpgrade}
+                disabled={isFetchingVersion}
+                style={{
+                  padding: '10px 20px',
+                  borderRadius: '6px',
+                  border: 'none',
+                  background: isFetchingVersion ? '#4a5568' : '#ecc94b',
+                  color: '#000',
+                  fontSize: '14px',
+                  fontWeight: 'bold',
+                  cursor: isFetchingVersion ? 'not-allowed' : 'pointer',
+                  boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)'
+                }}
+              >
+                Confirm Upgrade
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {/* Onboarding Modal */}
       <OnboardingModal
         show={showOnboardingModal}
