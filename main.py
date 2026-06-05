@@ -13570,7 +13570,18 @@ def place_test_order():
 
         quantity = quantity_input
         if not quantity or quantity <= 0:
-            reference_price = price if price > 0 else current_price
+            stop_price = _coerce_float(data.get('stopPrice'), 0.0) or 0.0
+            stop_limit_price = _coerce_float(data.get('stopLimitPrice'), 0.0) or 0.0
+            
+            if price > 0:
+                reference_price = price
+            elif stop_limit_price > 0:
+                reference_price = stop_limit_price
+            elif stop_price > 0:
+                reference_price = stop_price
+            else:
+                reference_price = current_price
+
             if (not reference_price or reference_price <= 0) and quote_amount and quote_amount > 0:
                 try:
                     ticker = client.get_symbol_ticker(symbol=symbol)
@@ -14930,7 +14941,18 @@ def place_real_order():
 
         quantity = quantity_input or 0.0
         if quantity <= 0:
-            reference_price = price if price > 0 else current_price
+            stop_price = _coerce_float(data.get('stopPrice'), 0.0) or 0.0
+            stop_limit_price = _coerce_float(data.get('stopLimitPrice'), 0.0) or 0.0
+            
+            if price > 0:
+                reference_price = price
+            elif stop_limit_price > 0:
+                reference_price = stop_limit_price
+            elif stop_price > 0:
+                reference_price = stop_price
+            else:
+                reference_price = current_price
+
             if (not reference_price or reference_price <= 0) and quote_amount and quote_amount > 0:
                 try:
                     ticker = client.get_symbol_ticker(symbol=symbol)
@@ -15585,19 +15607,23 @@ def place_test_oco_order():
     try:
         data = request.get_json()
         
-        # Validate required fields for OCO
-        required_fields = ['symbol', 'side', 'quantity', 'price', 'stopPrice', 'stopLimitPrice']
+        required_fields = ['symbol', 'side', 'price', 'stopPrice', 'stopLimitPrice']
         for field in required_fields:
             if field not in data:
                 return jsonify({'success': False, 'error': f'Missing required field: {field}'}), 400
         
         symbol = data['symbol'].upper()
         side = data['side'].upper()  # BUY or SELL
-        quantity = float(data['quantity'])
         price = float(data['price'])
         stop_price = float(data['stopPrice'])
         stop_limit_price = float(data['stopLimitPrice'])
         stop_limit_time_in_force = data.get('stopLimitTimeInForce', 'GTC')
+        
+        quantity = _coerce_float(data.get('quantity')) or 0.0
+        quote_amount = _coerce_float(data.get('quoteQuantity') or data.get('quote_amount')) or 0.0
+        
+        if quantity <= 0 and quote_amount <= 0:
+            return jsonify({'success': False, 'error': 'Must provide either quantity or quoteQuantity'}), 400
         
         # Validate prices
         if price <= 0 or stop_price <= 0 or stop_limit_price <= 0:
@@ -15636,10 +15662,29 @@ def place_test_oco_order():
         filters = get_symbol_filters(client, symbol)
         if not filters:
             return jsonify({'success': False, 'error': f'Unable to get trading filters for {symbol}'}), 400
-        
+        # If quantity not provided but quote_amount is, calculate quantity
+        if quantity <= 0 and quote_amount > 0:
+            try:
+                ticker = client.get_symbol_ticker(symbol=symbol)
+                current_price = _coerce_float(ticker.get('price'), 0.0) or 0.0
+            except Exception as e:
+                logger.error(f"Failed to fetch price for OCO: {e}")
+                current_price = 0.0
+            
+            if side == 'BUY':
+                # For BUY OCO, use the highest possible price for quantity calculation to ensure sufficient balance
+                reference_price = max(price, stop_price, stop_limit_price, current_price)
+            else:
+                # For SELL OCO, use the most likely execution price (limit price)
+                reference_price = price if price > 0 else current_price
+                
+            if reference_price > 0:
+                quantity = quote_amount / reference_price
+            else:
+                return jsonify({'success': False, 'error': 'Unable to determine reference price to calculate quantity'}), 400
+
         # Format quantity according to LOT_SIZE filter
         formatted_quantity = format_quantity(quantity, filters['stepSize'])
-        
         if formatted_quantity < filters['minQty']:
             return jsonify({'success': False, 'error': f'Quantity {formatted_quantity} is below minimum {filters["minQty"]}'}), 400
         
@@ -15782,19 +15827,23 @@ def place_real_oco_order():
     try:
         data = request.get_json()
         
-        # Validate required fields
-        required_fields = ['symbol', 'side', 'quantity', 'price', 'stopPrice', 'stopLimitPrice']
+        required_fields = ['symbol', 'side', 'price', 'stopPrice', 'stopLimitPrice']
         for field in required_fields:
             if field not in data:
                 return jsonify({'success': False, 'error': f'Missing required field: {field}'}), 400
         
         symbol = data['symbol'].upper()
         side = data['side'].upper()
-        quantity = float(data['quantity'])
         price = float(data['price'])
         stop_price = float(data['stopPrice'])
         stop_limit_price = float(data['stopLimitPrice'])
         stop_limit_time_in_force = data.get('stopLimitTimeInForce', 'GTC')
+        
+        quantity = _coerce_float(data.get('quantity')) or 0.0
+        quote_amount = _coerce_float(data.get('quoteQuantity') or data.get('quote_amount')) or 0.0
+        
+        if quantity <= 0 and quote_amount <= 0:
+            return jsonify({'success': False, 'error': 'Must provide either quantity or quoteQuantity'}), 400
         
         # Validate prices
         if price <= 0 or stop_price <= 0 or stop_limit_price <= 0:
@@ -15833,10 +15882,29 @@ def place_real_oco_order():
         filters = get_symbol_filters(client, symbol)
         if not filters:
             return jsonify({'success': False, 'error': f'Unable to get trading filters for {symbol}'}), 400
-        
+        # If quantity not provided but quote_amount is, calculate quantity
+        if quantity <= 0 and quote_amount > 0:
+            try:
+                ticker = client.get_symbol_ticker(symbol=symbol)
+                current_price = _coerce_float(ticker.get('price'), 0.0) or 0.0
+            except Exception as e:
+                logger.error(f"Failed to fetch price for OCO: {e}")
+                current_price = 0.0
+            
+            if side == 'BUY':
+                # For BUY OCO, use the highest possible price for quantity calculation to ensure sufficient balance
+                reference_price = max(price, stop_price, stop_limit_price, current_price)
+            else:
+                # For SELL OCO, use the most likely execution price (limit price)
+                reference_price = price if price > 0 else current_price
+                
+            if reference_price > 0:
+                quantity = quote_amount / reference_price
+            else:
+                return jsonify({'success': False, 'error': 'Unable to determine reference price to calculate quantity'}), 400
+
         # Format quantity according to LOT_SIZE filter
         formatted_quantity = format_quantity(quantity, filters['stepSize'])
-        
         if formatted_quantity < filters['minQty']:
             return jsonify({'success': False, 'error': f'Quantity {formatted_quantity} is below minimum {filters["minQty"]}'}), 400
         

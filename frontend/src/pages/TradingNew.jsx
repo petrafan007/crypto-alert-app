@@ -1119,10 +1119,19 @@ const TradingNew = () => {
       if (twofaToken) {
         orderData.twofa_token = twofaToken;
       }
-      if (quoteQuantity) {
+
+      // Only send the amount the user actually intends to prioritize
+      if (lastEditedRef.current === 'quote' && quoteQuantity) {
         orderData.quoteQuantity = quoteQuantity;
         orderData.quote_quantity = quoteQuantity;
         orderData.quote_amount = quoteQuantity;
+        // Delete base quantity so the backend calculates it perfectly using the limit/market price
+        delete orderData.quantity;
+      } else if (orderData.quantity) {
+        // User prioritized base quantity, do not send quote amount to avoid confusion
+        delete orderData.quoteQuantity;
+        delete orderData.quote_quantity;
+        delete orderData.quote_amount;
       }
 
       const response = await axios.post(endpoint, orderData, { withCredentials: true });
