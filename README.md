@@ -74,6 +74,7 @@ The application utilizes a **unified PostgreSQL database**.
 ## Recent Major Updates (June 2026 - v1.11 beta)
 - **Instant Price Alerts on Order Fill**: Addressed missing instant price alerts when an order fills. The system now immediately evaluates price thresholds using the actual fill price, bypassing the standard polling delay.
 - **Trading Quantity Recalculation Fix**: Fixed a bug where trading quantities (base asset) didn't recalculate properly when using the USD slider or typing a USD value, then changing the Limit/Stop price. The app now defers calculation to the backend to mathematically guarantee the correct asset quantity based on the exact Limit/Stop/Worst-Case price at the time of execution.
+- **Application Upgrade Modal UI**: Fixed an issue where the "Confirm Application Upgrade" modal appeared misaligned in the bottom-left corner and caused unexpected scrolling. Refactored the modal to use React-Bootstrap's `Modal` component, ensuring it is properly centered, accessible, and correctly overlays the screen.
 
 ### 🚨 CRITICAL RULE FOR GITHUB PUSHES:
 **GOING FORWARD, YOU MUST ALWAYS REFERENCE YOUR UPDATES/FIXES IN THIS README FILE WITH EVERY PUSH TO GITHUB.**
