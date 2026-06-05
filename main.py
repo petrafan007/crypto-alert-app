@@ -10337,6 +10337,86 @@ def _format_quote_amount(amount):
     return formatted or "0"
 
 
+def evaluate_instant_price_alerts(user_id, symbol, price, username):
+    try:
+        from models import Coin, WatchlistCoin
+        # Check portfolio
+        coin = Coin.query.filter_by(user_id=user_id, symbol=symbol, alert_enabled=True, hidden=False).first()
+        if coin and coin.avg_entry is not None:
+            down_threshold = None
+            up_threshold = None
+            if coin.custom_lower_type in ("%", "Auto%") and coin.custom_lower_pct is not None:
+                down_threshold = round(coin.avg_entry * (1 - float(coin.custom_lower_pct) / 100), 6)
+            elif coin.custom_lower_type == "#" and coin.custom_lower_val is not None:
+                down_threshold = round(float(coin.custom_lower_val), 6)
+
+            if coin.custom_upper_type in ("%", "Auto%") and coin.custom_upper_pct is not None:
+                up_threshold = round(coin.avg_entry * (1 + float(coin.custom_upper_pct) / 100), 6)
+            elif coin.custom_upper_type == "#" and coin.custom_upper_val is not None:
+                up_threshold = round(float(coin.custom_upper_val), 6)
+
+            # Check for price crossing thresholds
+            if down_threshold is not None:
+                last_alert_down = get_last_alert_state(user_id, symbol, "down", "portfolio", _normalize_threshold(down_threshold))
+                if price <= down_threshold:
+                    if last_alert_down not in ("saved", "sent"):
+                        save_notification_record(user_id, coin.id, 'coin', symbol, 'down', 'price', down_threshold, price, price)
+                        set_last_alert_state(user_id, symbol, "down", "saved", "portfolio", _normalize_threshold(down_threshold))
+                    if last_alert_down != "sent":
+                        sent = send_telegram_alert(username, symbol, price, "down", down_threshold)
+                        if sent:
+                            set_last_alert_state(user_id, symbol, "down", "sent", "portfolio", _normalize_threshold(down_threshold))
+                elif last_alert_down in ("saved", "sent") and price > down_threshold * 1.01:
+                    set_last_alert_state(user_id, symbol, "down", None, "portfolio", _normalize_threshold(down_threshold))
+
+            # UP alert logic
+            if up_threshold is not None:
+                last_alert_up = get_last_alert_state(user_id, symbol, "up", "portfolio", _normalize_threshold(up_threshold))
+                if price >= up_threshold:
+                    if last_alert_up not in ("saved", "sent"):
+                        save_notification_record(user_id, coin.id, 'coin', symbol, 'up', 'price', up_threshold, price, price)
+                        set_last_alert_state(user_id, symbol, "up", "saved", "portfolio", _normalize_threshold(up_threshold))
+                    if last_alert_up != "sent":
+                        sent = send_telegram_alert(username, symbol, price, "up", up_threshold)
+                        if sent:
+                            set_last_alert_state(user_id, symbol, "up", "sent", "portfolio", _normalize_threshold(up_threshold))
+                elif last_alert_up in ("saved", "sent") and price < up_threshold * 0.99:
+                    set_last_alert_state(user_id, symbol, "up", None, "portfolio", _normalize_threshold(up_threshold))
+
+        # Check watchlist
+        w_coin = WatchlistCoin.query.filter_by(user_id=user_id, symbol=symbol, alert_enabled=True, hidden=False).first()
+        if w_coin:
+            if w_coin.down_alert is not None:
+                wl_down = round(float(w_coin.down_alert), 6)
+                last_state = get_last_alert_state(user_id, symbol, "down", source="watchlist", threshold=wl_down)
+                if price <= wl_down:
+                    if last_state not in ("saved", "sent"):
+                        save_notification_record(user_id, w_coin.id, 'watchlist', symbol, 'down', '#', wl_down, price, price)
+                        set_last_alert_state(user_id, symbol, "down", "saved", source="watchlist", threshold=wl_down)
+                    if last_state != "sent":
+                        sent = send_telegram_alert(username, symbol, price, "down", wl_down)
+                        if sent:
+                            set_last_alert_state(user_id, symbol, "down", "sent", source="watchlist", threshold=wl_down)
+                elif last_state in ("saved", "sent") and price > wl_down * 1.01:
+                    set_last_alert_state(user_id, symbol, "down", None, source="watchlist", threshold=wl_down)
+
+            if w_coin.up_alert is not None:
+                wl_up = round(float(w_coin.up_alert), 6)
+                last_state = get_last_alert_state(user_id, symbol, "up", source="watchlist", threshold=wl_up)
+                if price >= wl_up:
+                    if last_state not in ("saved", "sent"):
+                        save_notification_record(user_id, w_coin.id, 'watchlist', symbol, 'up', '#', wl_up, price, price)
+                        set_last_alert_state(user_id, symbol, "up", "saved", source="watchlist", threshold=wl_up)
+                    if last_state != "sent":
+                        sent = send_telegram_alert(username, symbol, price, "up", wl_up)
+                        if sent:
+                            set_last_alert_state(user_id, symbol, "up", "sent", source="watchlist", threshold=wl_up)
+                elif last_state in ("saved", "sent") and price < wl_up * 0.99:
+                    set_last_alert_state(user_id, symbol, "up", None, source="watchlist", threshold=wl_up)
+    except Exception as exc:
+        logger.error(f"Error evaluating instant price alerts: {exc}", exc_info=True)
+
+
 def notify_order_fill(order, username, executed_qty, quote_qty, fill_price=None):
     """Send Telegram and desktop notifications for a filled order."""
     try:
@@ -10369,6 +10449,10 @@ def notify_order_fill(order, username, executed_qty, quote_qty, fill_price=None)
                 effective_price = quote_value / executed_value
             else:
                 effective_price = order.avg_fill_price or order.price or 0.0
+
+        # Evaluate instant price alerts now that we have an effective fill price
+        if effective_price > 0:
+            evaluate_instant_price_alerts(order.user_id, base_asset, effective_price, username)
 
         notification_id = save_notification_record(
             user_id=order.user_id,
