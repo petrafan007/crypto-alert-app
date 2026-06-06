@@ -1,0 +1,129 @@
+.tx-modal-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.6);
+  z-index: 1000;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  backdrop-filter: blur(2px);
+}
+
+.tx-modal-content {
+  background: #1e2233;
+  border: 1px solid #32384a;
+  border-radius: 8px;
+  width: 320px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  position: relative;
+  overflow: hidden;
+  animation: modalFadeIn 0.2s ease-out;
+}
+
+@keyframes modalFadeIn {
+  from { opacity: 0; transform: translateY(-10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.tx-modal-close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  background: transparent;
+  border: none;
+  color: #9ca3af;
+  font-size: 24px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  border-radius: 50%;
+  transition: all 0.2s;
+}
+
+.tx-modal-close:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+}
+
+.tx-modal-header {
+  padding: 16px 20px;
+  border-bottom: 1px solid #32384a;
+}
+
+.tx-modal-header h3 {
+  margin: 0 0 4px 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.tx-modal-date {
+  color: #9ca3af;
+  font-size: 12px;
+}
+
+.tx-modal-body {
+  display: flex;
+  align-items: stretch;
+  min-height: 160px;
+}
+
+.tx-modal-nav {
+  background: rgba(0, 0, 0, 0.2);
+  border: none;
+  color: #9ca3af;
+  font-size: 32px;
+  cursor: pointer;
+  padding: 0 12px;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+}
+
+.tx-modal-nav:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: #fff;
+}
+
+.tx-modal-details {
+  flex: 1;
+  padding: 16px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.tx-detail-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 13px;
+}
+
+.tx-label {
+  color: #9ca3af;
+}
+
+.tx-value {
+  color: #e5e7eb;
+}
+
+.fw-bold {
+  font-weight: bold;
+}
+
+.tx-modal-footer {
+  padding: 10px 20px;
+  background: rgba(0, 0, 0, 0.2);
+  border-top: 1px solid #32384a;
+  text-align: center;
+  font-size: 12px;
+  color: #9ca3af;
+}

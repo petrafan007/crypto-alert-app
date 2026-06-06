@@ -1423,13 +1423,20 @@ def get_trading_transactions(symbol):
         transactions = []
         from trading_models import AllActivity
         
+        from flask import request
+        all_coins = request.args.get('all_coins', 'false').lower() == 'true'
+        
         # Query all_activities using ORM
-        rows = AllActivity.query.filter(
+        query = AllActivity.query.filter(
             AllActivity.user_id == current_user.id,
-            AllActivity.asset == base_asset,
             AllActivity.type.in_(['BUY', 'SELL']),
             AllActivity.exchange == 'binance'
-        ).order_by(AllActivity.date.asc()).all()
+        )
+        
+        if not all_coins:
+            query = query.filter(AllActivity.asset == base_asset)
+            
+        rows = query.order_by(AllActivity.date.asc()).all()
 
         for row in rows:
             try:
@@ -1463,7 +1470,8 @@ def get_trading_transactions(symbol):
                     'time': timestamp,
                     'type': row.type,
                     'amount': abs(float(row.amount)) if row.amount is not None else 0.0,
-                    'price': price_value
+                    'price': price_value,
+                    'asset': row.asset
                 })
             except Exception as parse_err:
                 logger.warning(f"Failed to parse transaction row: {parse_err}")

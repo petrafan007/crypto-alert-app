@@ -9,6 +9,7 @@ import {
   calculateStochastic,
   calculateATR
 } from '../utils/technicalIndicators';
+import TransactionModal from './TransactionModal';
 import './TradingChart.css';
 
 const TradingChart = ({ symbol, onSymbolChange, tradingPairs = [] }) => {
@@ -17,6 +18,7 @@ const TradingChart = ({ symbol, onSymbolChange, tradingPairs = [] }) => {
   const candlestickSeriesRef = useRef(null);
   const volumeSeriesRef = useRef(null);
   const [chartReady, setChartReady] = useState(false);
+  const [modalState, setModalState] = useState({ isOpen: false, transactions: [], type: '', dateStr: '' });
   
   // Indicator series refs
   const ma7Ref = useRef(null);
@@ -43,6 +45,7 @@ const TradingChart = ({ symbol, onSymbolChange, tradingPairs = [] }) => {
   const crosshairMoveHandlerRef = useRef(null);
   const indicatorSyncHandlerRef = useRef(null);
   const resizeHandlerRef = useRef(null);
+  const clickHandlerRef = useRef(null);
   
   // State
   const [interval, setInterval] = useState('1d');
@@ -152,7 +155,7 @@ const TradingChart = ({ symbol, onSymbolChange, tradingPairs = [] }) => {
         
         // Fetch transactions (optional)
         try {
-          const transRes = await axios.get(`/api/trading/transactions/${symbol}`, {
+          const transRes = await axios.get(`/api/trading/transactions/${symbol}?all_coins=true`, {
             withCredentials: true
           });
           
@@ -431,32 +434,25 @@ const TradingChart = ({ symbol, onSymbolChange, tradingPairs = [] }) => {
         const sellTransactions = markerEntries.filter(m => m.type === 'SELL');
         
         let tooltipContent = '';
+        const firstEntry = markerEntries[0];
+        const dateStr = new Date(firstEntry.originalTime * 1000).toLocaleDateString();
         
         if (buyTransactions.length > 0) {
-          const totalBuyAmount = buyTransactions.reduce((sum, tx) => sum + (tx.amount || 0), 0);
           const totalBuyValue = buyTransactions.reduce((sum, tx) => sum + (tx.amount * tx.price || 0), 0);
           tooltipContent += `
-            <div class="marker-tooltip-heading">Buy ${baseAsset}</div>
-            <div class="marker-tooltip-line">Transactions: <span>${buyTransactions.length}</span></div>
-            <div class="marker-tooltip-line">Total Amount: <span>${formatAmount(totalBuyAmount)}</span></div>
-            <div class="marker-tooltip-line">Total Value: <span>${formatCurrency(totalBuyValue)}</span></div>
+            <div class="marker-tooltip-heading" style="color: #22c55e;">Purchases (${dateStr})</div>
+            <div class="marker-tooltip-line">Total USDT: <span>${formatCurrency(totalBuyValue)}</span></div>
           `;
         }
         
         if (sellTransactions.length > 0) {
           if (tooltipContent) tooltipContent += '<div style="margin-top: 8px;"></div>';
-          const totalSellAmount = sellTransactions.reduce((sum, tx) => sum + (tx.amount || 0), 0);
           const totalSellValue = sellTransactions.reduce((sum, tx) => sum + (tx.amount * tx.price || 0), 0);
           tooltipContent += `
-            <div class="marker-tooltip-heading">Sell ${baseAsset}</div>
-            <div class="marker-tooltip-line">Transactions: <span>${sellTransactions.length}</span></div>
-            <div class="marker-tooltip-line">Total Amount: <span>${formatAmount(totalSellAmount)}</span></div>
-            <div class="marker-tooltip-line">Total Value: <span>${formatCurrency(totalSellValue)}</span></div>
+            <div class="marker-tooltip-heading" style="color: #ef4444;">Sales (${dateStr})</div>
+            <div class="marker-tooltip-line">Total USDT: <span>${formatCurrency(totalSellValue)}</span></div>
           `;
         }
-        
-        const firstEntry = markerEntries[0];
-        tooltipContent += `<div class="marker-tooltip-line" style="margin-top: 4px;">${formatDateTime(firstEntry.originalTime)}</div>`;
 
         tooltip.innerHTML = tooltipContent;
         tooltip.style.display = 'flex';
@@ -483,6 +479,41 @@ const TradingChart = ({ symbol, onSymbolChange, tradingPairs = [] }) => {
         tooltip.style.left = `${left}px`;
         tooltip.style.top = `${top}px`;
       };
+
+      const handleChartClick = (param) => {
+        if (!param || !param.point || param.time === undefined) return;
+        const rawTime = param.time;
+        const normalizedTime = typeof rawTime === 'number' ? rawTime : rawTime?.timestamp ?? null;
+        if (!normalizedTime) return;
+
+        const markerEntries = markerDataRef.current[normalizedTime];
+        if (!markerEntries || markerEntries.length === 0) return;
+
+        const containerBounds = chartContainerRef.current.getBoundingClientRect();
+        // Determine if they clicked top half (SELL/aboveBar) or bottom half (BUY/belowBar)
+        let typeClicked = param.point.y < (containerBounds.height / 2) ? 'SELL' : 'BUY';
+        let txs = markerEntries.filter(m => m.type === typeClicked);
+        
+        // If they clicked top but there are no sells, default to buys (and vice versa)
+        if (txs.length === 0) {
+          typeClicked = typeClicked === 'BUY' ? 'SELL' : 'BUY';
+          txs = markerEntries.filter(m => m.type === typeClicked);
+        }
+        
+        if (txs.length > 0) {
+          const firstEntry = txs[0];
+          const dateStr = new Date(firstEntry.originalTime * 1000).toLocaleDateString();
+          setModalState({
+            isOpen: true,
+            transactions: txs,
+            type: typeClicked,
+            dateStr
+          });
+        }
+      };
+
+      chartRef.current.subscribeClick(handleChartClick);
+      clickHandlerRef.current = handleChartClick;
 
       chartRef.current.subscribeCrosshairMove(handleCrosshairMove);
       crosshairMoveHandlerRef.current = handleCrosshairMove;
@@ -1068,6 +1099,10 @@ const TradingChart = ({ symbol, onSymbolChange, tradingPairs = [] }) => {
         chartRef.current.unsubscribeCrosshairMove(crosshairMoveHandlerRef.current);
         crosshairMoveHandlerRef.current = null;
       }
+      if (chartRef.current && clickHandlerRef.current) {
+        chartRef.current.unsubscribeClick(clickHandlerRef.current);
+        clickHandlerRef.current = null;
+      }
       if (resizeHandlerRef.current) {
         window.removeEventListener('resize', resizeHandlerRef.current);
         resizeHandlerRef.current = null;
@@ -1166,6 +1201,14 @@ const TradingChart = ({ symbol, onSymbolChange, tradingPairs = [] }) => {
         {error && (
           <div className="chart-overlay error">Error: {error}</div>
         )}
+        
+        <TransactionModal
+          isOpen={modalState.isOpen}
+          onClose={() => setModalState({ ...modalState, isOpen: false })}
+          transactions={modalState.transactions}
+          type={modalState.type}
+          dateStr={modalState.dateStr}
+        />
       </div>
       
       {(indicators.rsi || indicators.macd || indicators.stoch || indicators.atr) && (
