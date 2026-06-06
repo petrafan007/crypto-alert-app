@@ -429,25 +429,30 @@ const TradingChart = ({ symbol, onSymbolChange, tradingPairs = [] }) => {
           return;
         }
 
-        // Group by type and calculate totals
-        const buyTransactions = markerEntries.filter(m => m.type === 'BUY');
-        const sellTransactions = markerEntries.filter(m => m.type === 'SELL');
+        const containerBounds = container.getBoundingClientRect();
         
+        // Determine if they hover top half (SELL/aboveBar) or bottom half (BUY/belowBar)
+        let typeHovered = point.y < (containerBounds.height / 2) ? 'SELL' : 'BUY';
+        let txs = markerEntries.filter(m => m.type === typeHovered);
+        
+        // If they hover top but there are no sells, default to buys (and vice versa)
+        if (txs.length === 0) {
+          typeHovered = typeHovered === 'BUY' ? 'SELL' : 'BUY';
+          txs = markerEntries.filter(m => m.type === typeHovered);
+        }
+
         let tooltipContent = '';
-        const firstEntry = markerEntries[0];
+        const firstEntry = txs[0];
         const dateStr = new Date(firstEntry.originalTime * 1000).toLocaleDateString();
         
-        if (buyTransactions.length > 0) {
-          const totalBuyValue = buyTransactions.reduce((sum, tx) => sum + (tx.amount * tx.price || 0), 0);
+        if (typeHovered === 'BUY') {
+          const totalBuyValue = txs.reduce((sum, tx) => sum + (tx.amount * tx.price || 0), 0);
           tooltipContent += `
             <div class="marker-tooltip-heading" style="color: #22c55e;">Purchases (${dateStr})</div>
             <div class="marker-tooltip-line">Total USDT: <span>${formatCurrency(totalBuyValue)}</span></div>
           `;
-        }
-        
-        if (sellTransactions.length > 0) {
-          if (tooltipContent) tooltipContent += '<div style="margin-top: 8px;"></div>';
-          const totalSellValue = sellTransactions.reduce((sum, tx) => sum + (tx.amount * tx.price || 0), 0);
+        } else {
+          const totalSellValue = txs.reduce((sum, tx) => sum + (tx.amount * tx.price || 0), 0);
           tooltipContent += `
             <div class="marker-tooltip-heading" style="color: #ef4444;">Sales (${dateStr})</div>
             <div class="marker-tooltip-line">Total USDT: <span>${formatCurrency(totalSellValue)}</span></div>
@@ -456,8 +461,6 @@ const TradingChart = ({ symbol, onSymbolChange, tradingPairs = [] }) => {
 
         tooltip.innerHTML = tooltipContent;
         tooltip.style.display = 'flex';
-
-        const containerBounds = container.getBoundingClientRect();
 
         const tooltipRect = tooltip.getBoundingClientRect();
         let left = point.x + 16;
