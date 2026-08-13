@@ -870,7 +870,6 @@ function Dashboard({ isLightMode }) {
               {isPortfolio ? (coin.alert_enabled ? 'Disable Alerts' : 'Enable Alerts') : (item.alert_enabled ? 'Disable Alerts' : 'Enable Alerts')}
             </button>
             <button onClick={() => { openNews(isPortfolio ? coin.symbol : item.symbol); closeActionMenu(); }}>News</button>
-            <button onClick={() => { refreshNews(isPortfolio ? coin.symbol : item.symbol); closeActionMenu(); }}>Refresh News</button>
             <button onClick={() => { openNoteModal(isPortfolio ? coin : item); closeActionMenu(); }}>Notes</button>
             <button onClick={() => { navigateToTrading(isPortfolio ? coin.symbol : item.symbol, 'BUY'); closeActionMenu(); }}>Buy</button>
             <button onClick={() => { navigateToTrading(isPortfolio ? coin.symbol : item.symbol, 'SELL'); closeActionMenu(); }}>Sell</button>
@@ -1820,14 +1819,6 @@ function Dashboard({ isLightMode }) {
                           </span>
                           <span
                             className="action-icon"
-                            title="Refresh News"
-                            onClick={() => refreshNews(coin.symbol)}
-                            style={{ cursor: 'pointer', marginLeft: 8 }}
-                          >
-                            🔄
-                          </span>
-                          <span
-                            className="action-icon"
                             title={coin.note ? `Note: ${coin.note}` : 'Add note'}
                             onClick={() => openNoteModal(coin)}
                             style={{ cursor: 'pointer', marginLeft: 8 }}
@@ -2004,14 +1995,6 @@ function Dashboard({ isLightMode }) {
                         </span>
                         <span
                           className="action-icon"
-                          title="Refresh News"
-                          onClick={() => refreshNews(item.symbol)}
-                          style={{ cursor: 'pointer', marginLeft: 8 }}
-                        >
-                          🔄
-                        </span>
-                        <span
-                          className="action-icon"
                           title={item.note ? `Note: ${item.note}` : 'Add note'}
                           onClick={() => openNoteModal(item)}
                           style={{ cursor: 'pointer', marginLeft: 8 }}
@@ -2179,15 +2162,13 @@ function Dashboard({ isLightMode }) {
             </div>
 
             <div className="modal-actions">
-              {newsAnalysisData && !newsAnalysisData.error && (
-                <button
-                  className="btn btn-primary"
-                  onClick={() => refreshNews(newsAnalysisSymbol)}
-                  disabled={newsLoading}
-                >
-                  {newsLoading ? 'Refreshing...' : 'Refresh Analysis'}
-                </button>
-              )}
+              <button
+                className="btn btn-primary"
+                onClick={() => refreshNews(newsAnalysisSymbol)}
+                disabled={newsLoading}
+              >
+                {newsLoading ? 'Refreshing...' : 'Refresh Analysis'}
+              </button>
               <button
                 className="btn btn-secondary"
                 onClick={() => setShowNewsModal(false)}

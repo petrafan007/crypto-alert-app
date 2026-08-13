@@ -341,6 +341,9 @@ def prune_old_ai_conversations(app):
                 else:
                     logger.info(f"AI Conversation Retention: No conversations older than {cutoff} found.")
             iteration()
+            # Sleep 24 hours between runs
+            time.sleep(86400)
+
 def sentiment_analysis_loop(app):
     """Background loop to periodically run sentiment analysis for enabled users according to their frequency setting."""
     from services.ai_service import run_sentiment_analysis_for_user

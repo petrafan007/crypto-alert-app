@@ -1667,15 +1667,22 @@ def api_ai_news_analysis():
                 'error': 'AI analysis is disabled. Enable AI in Settings to use this feature.'
             }), 400
         
+        # Get coin_id for this symbol
+        from models import Coin, WatchlistCoin
+        coin_obj = Coin.query.filter_by(user_id=current_user.id, symbol=symbol, hidden=False).first()
+        if not coin_obj:
+            coin_obj = WatchlistCoin.query.filter_by(user_id=current_user.id, symbol=symbol, hidden=False).first()
+        coin_id = coin_obj.id if coin_obj else None
+
         # 1. Date-based Cache Check: If not forcing fresh, check if we have an analysis from TODAY in US/Eastern
-        if not force_fresh:
+        if not force_fresh and coin_id:
             try:
                 import pytz
                 today_et = get_eastern_now().date()
                 
                 cached_row = AIConversation.query.filter(
                     AIConversation.user_id == current_user.id,
-                    AIConversation.symbol == symbol,
+                    AIConversation.coin_id == coin_id,
                     AIConversation.prompt_type == 'coin_analysis',
                     AIConversation.sender == 'ai'
                 ).order_by(AIConversation.id.desc()).first()

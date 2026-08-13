@@ -384,14 +384,16 @@ def call_ai_with_web_search(
 def log_ai_conversation(user_id, prompt_type, sender, body, symbol=None, coin_id=None):
     """Helper to log conversation to ai_conversations table."""
     try:
+        now = datetime.utcnow()
         conv = AIConversation(
             user_id=user_id,
             prompt_type=prompt_type,
             sender=sender,
             body=body,
-            symbol=symbol,
+            date=now.date(),
+            time=now.strftime("%H:%M:%S"),
             coin_id=coin_id,
-            created_at=datetime.utcnow()
+            created_at=now
         )
         db.session.add(conv)
         db.session.commit()
