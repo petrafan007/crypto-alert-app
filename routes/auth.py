@@ -19,8 +19,7 @@ from credentials import User, Credential, UserSetting
 from models import DefaultAIPrompt, AIPrompt
 from log import logger
 from services.credential_service import get_user_credentials
-
-# Import extensions if needed
+from credential_security import EncryptionKeyError, decrypt_secret
 
 # Create Blueprint
 auth_bp = Blueprint('auth', __name__)

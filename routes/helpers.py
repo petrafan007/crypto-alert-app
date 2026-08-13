@@ -3,7 +3,11 @@ from core.extensions import db
 from models import Coin, WatchlistCoin
 from credentials import Credential, User, UserSetting
 import requests
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+from decimal import Decimal
+from collections import defaultdict, deque
+import math
+import numpy as np
 import threading
 import time
 import hashlib
@@ -13,10 +17,116 @@ import json
 import jwt
 from cryptography.fernet import Fernet
 import os
+from flask import request, jsonify, make_response, current_app as app
+from credential_security import decrypt_secret
+from services.trading_service import get_cost_basis_for_asset, calculate_avg_entry_fifo
+from services.credential_service import get_user_credentials
+
+STABLE_COINS = {'USDT', 'USD', 'USDC', 'BUSD', 'DAI', 'TUSD', 'USDP'}
 
 background_threads = {}
 AUTO_ALERT_CACHE = {}
 ALERT_CHECK_INTERVAL = 300
+
+def _format_date_only(value):
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.strftime('%Y-%m-%d')
+    return str(value)[:10]
+
+def _safe_decimal(value):
+    if value is None:
+        return Decimal('0')
+    if isinstance(value, Decimal):
+        return value
+    if isinstance(value, (int, float)):
+        return Decimal(str(value))
+    value_str = str(value).strip()
+    if not value_str:
+        return Decimal('0')
+    try:
+        return Decimal(value_str)
+    except Exception:
+        return Decimal('0')
+
+def _parse_transaction_datetime(value):
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, (int, float)):
+        return datetime.utcfromtimestamp(value)
+    if isinstance(value, str):
+        try:
+            return datetime.fromisoformat(value)
+        except Exception:
+            try:
+                return datetime.strptime(value, '%Y-%m-%d %H:%M:%S')
+            except Exception:
+                return datetime.utcnow()
+    return datetime.utcnow()
+
+def _load_transaction_details(raw_details):
+    if not raw_details:
+        return {}
+    if isinstance(raw_details, dict):
+        return raw_details
+    try:
+        return json.loads(raw_details)
+    except Exception:
+        return {}
+
+def _is_auto_generated_detail(raw_details):
+    if not raw_details:
+        return False
+    if isinstance(raw_details, str):
+        return raw_details.strip().lower().startswith('auto-generated from')
+    return False
+
+def _extract_trade_numbers(details_dict, fallback_fee):
+    if not isinstance(details_dict, dict):
+        return Decimal('0'), Decimal('0'), fallback_fee
+    total_after = _safe_decimal(details_dict.get('total_value_after_fees'))
+    filled_value = _safe_decimal(details_dict.get('filled_value'))
+    total_fees = _safe_decimal(details_dict.get('total_fees'))
+    if total_fees <= 0:
+        commission_info = details_dict.get('commission_detail_total')
+        if isinstance(commission_info, dict):
+            total_fees = _safe_decimal(commission_info.get('total_commission'))
+    if total_fees <= 0:
+        total_fees = _safe_decimal(details_dict.get('fee'))
+    if total_after <= 0 and filled_value > 0 and total_fees > 0:
+        total_after = filled_value - total_fees
+    fee_used = total_fees if total_fees > 0 else fallback_fee
+    return total_after, filled_value, fee_used
+
+def _try_binance_symbol_pairs(client, symbol, extra_pairs=None):
+    symbol = (symbol or '').upper()
+    if not symbol:
+        return None, None
+    candidate_pairs = [f"{symbol}USDT", f"{symbol}USD"]
+    if extra_pairs:
+        candidate_pairs.extend(extra_pairs)
+    for market in candidate_pairs:
+        try:
+            ticker = client.get_symbol_ticker(symbol=market)
+            price = float(ticker['price'])
+            return price, market
+        except Exception:
+            continue
+    return None, None
+
+def get_last_7d_prices(symbol):
+    try:
+        from models import PriceHistory
+        cutoff = datetime.utcnow() - timedelta(days=7)
+        rows = PriceHistory.query.filter(
+            PriceHistory.symbol == symbol.upper(),
+            PriceHistory.timestamp >= cutoff.timestamp()
+        ).order_by(PriceHistory.timestamp.asc()).all()
+        return [r.price for r in rows]
+    except Exception as e:
+        logger.error(f"Error in get_last_7d_prices: {e}")
+        return []
 
 def create_extension_jwt(user):
     if not jwt:

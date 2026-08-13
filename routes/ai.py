@@ -295,6 +295,59 @@ def test_ai_connection_generic():
         return jsonify(success=False, message=str(e)), 500
 
 
+def _get_latest_conversation_row(user_id, prompt_type, sender):
+    try:
+        query = AIConversation.query.filter_by(
+            user_id=user_id, 
+            prompt_type=prompt_type, 
+            sender=sender
+        ).filter(
+            (AIConversation.is_hidden == 0) | (AIConversation.is_hidden == None)
+        ).order_by(
+            AIConversation.id.desc()
+        )
+        
+        row = query.first()
+        if not row:
+            return None
+        
+        created_at = None
+        if row.created_at:
+            try:
+                created_at = row.created_at.isoformat()
+            except Exception:
+                created_at = get_eastern_now_iso()
+        elif row.date and row.time:
+            try:
+                date_str = row.date
+                time_str = row.time.replace(' EST', '').strip()
+                dt_str = f"{date_str} {time_str}"
+                dt = datetime.strptime(dt_str, "%Y-%m-%d %I:%M %p")
+                from pytz import timezone
+                eastern = timezone('US/Eastern')
+                dt_eastern = eastern.localize(dt)
+                created_at = dt_eastern.isoformat()
+            except Exception as e:
+                logger.error(f"Error parsing date/time for conversation {row.id}: {e}")
+                created_at = get_eastern_now_iso()
+        else:
+            created_at = get_eastern_now_iso()
+        
+        return {
+            'id': row.id,
+            'user_id': row.user_id,
+            'date': row.date,
+            'time': row.time,
+            'prompt_type': row.prompt_type,
+            'sender': row.sender,
+            'body': row.body,
+            'conversation_id': row.conversation_id,
+            'created_at': created_at
+        }
+    except Exception as e:
+        logger.error(f"_get_latest_conversation_row error: {e}")
+        return None
+
 # View Prompt endpoints — return latest Stage 3 (user) prompt per section
 @ai_bp.route('/api/ai/market-analysis-workflow-prompt', methods=['GET'])
 @login_required

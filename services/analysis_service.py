@@ -66,24 +66,167 @@ def is_ai_enabled(username):
     except:
         return False
 
-def get_user_ai_settings(username):
-    """Get AI settings for a user"""
-    from credentials import User
-    user = User.query.filter_by(username=username).first()
-    if not user: return {}
-    
-    settings = UserSetting.query.filter_by(user_id=user.id).first()
-    if not settings: return {}
-    
-    return {
-        'ai_enabled': settings.ai_enabled,
-        'ai_provider': settings.ai_provider or 'openai',
-        'ai_model': settings.ai_model or 'gpt-5',
-        'ai_risk_tolerance': settings.ai_risk_tolerance or 'moderate',
-        'ai_confidence_threshold': settings.ai_confidence_threshold or 0.7,
-        'ai_max_tokens': settings.ai_max_tokens or 2000,
-        'ai_web_search_enabled': settings.ai_web_search_enabled
-    }
+def get_user_ai_settings(username: str) -> dict:
+    """
+    Return AI/user settings merged with defaults.
+    - Loads defaults from database first, fallback to built-in defaults
+    - Overlays values from credentials (ai_provider only)
+    - Overlays per-user entries from user_settings table
+    - Normalizes time strings and fixes '24:00' -> '23:59'
+    """
+    try:
+        from credentials import User, UserSetting
+        from models import DefaultAIPrompt
+
+        settings = {
+            'ai_enabled': True,
+            'ai_provider': 'openai',
+            'ai_model': 'gpt-5',
+            'ai_cache_duration_hours': 1,
+            'ai_confidence_threshold': 70,
+            'ai_risk_tolerance': 'moderate',
+            'ai_analysis_window_start': '08:00',
+            'ai_analysis_window_end': '23:59',
+            'ai_notifications_enabled': True,
+            'ai_max_tokens': 800,
+            'ai_web_search_enabled': True,
+            'tax_manual_invested_updated': None,
+            'tax_cost_basis_method': 'fifo',
+            'credentials_encryption_key_configured': False,
+            'ai_prompts': {
+                'market_analysis_pre': '',
+                'market_analysis_post': '',
+                'risk_assessment_pre': '',
+                'risk_assessment_post': '',
+                'portfolio_review_pre': '',
+                'portfolio_review_post': '',
+                'coin_analysis_pre': '',
+                'coin_analysis_post': '',
+                'sentiment_prompt_pre': '',
+                'sentiment_prompt_post': '',
+            },
+            'copilot_chat_pre': '',
+            'copilot_chat_post': ''
+        }
+
+        user_obj = User.query.filter_by(username=username).first()
+        if user_obj:
+            user_setting = UserSetting.query.filter_by(user_id=user_obj.id).first()
+            if user_setting:
+                settings['ai_enabled'] = user_setting.ai_enabled
+                settings['ai_provider'] = user_setting.ai_provider
+                settings['ai_provider_fallback'] = user_setting.ai_provider_fallback
+                settings['ai_model'] = user_setting.ai_model
+                settings['ai_model_fallback'] = user_setting.ai_model_fallback
+                settings['ai_risk_tolerance'] = user_setting.ai_risk_tolerance
+                settings['ai_confidence_threshold'] = user_setting.ai_confidence_threshold
+                settings['ai_notifications_enabled'] = user_setting.ai_notifications_enabled
+                settings['ai_analysis_frequency'] = user_setting.ai_analysis_frequency
+                settings['ai_cache_duration_hours'] = user_setting.ai_cache_duration_hours
+                settings['ai_analysis_window_start'] = user_setting.ai_analysis_window_start
+                settings['ai_analysis_window_end'] = user_setting.ai_analysis_window_end
+                settings['ai_max_tokens'] = user_setting.ai_max_tokens
+                settings['ai_web_search_enabled'] = user_setting.ai_web_search_enabled
+                settings['tax_manual_invested_updated'] = user_setting.tax_manual_invested_updated
+                settings['tax_cost_basis_method'] = user_setting.tax_cost_basis_method
+                settings['credentials_encryption_key_configured'] = user_setting.credentials_encryption_key_configured
+
+                if hasattr(user_setting, 'copilot_chat_pre') and user_setting.copilot_chat_pre:
+                    settings['copilot_chat_pre'] = user_setting.copilot_chat_pre
+                if hasattr(user_setting, 'copilot_chat_post') and user_setting.copilot_chat_post:
+                    settings['copilot_chat_post'] = user_setting.copilot_chat_post
+
+                if hasattr(user_setting, 'sentiment_analysis_frequency_hours'):
+                    settings['sentiment_analysis_frequency_hours'] = user_setting.sentiment_analysis_frequency_hours or 24
+
+        provider = settings.get('ai_provider', 'openai')
+        model = settings.get('ai_model')
+
+        valid_providers = {'openai', 'zai', 'perplexity', 'gemini'}
+        if provider not in valid_providers:
+            provider = 'openai'
+            settings['ai_provider'] = provider
+
+        openai_models = {
+            'gpt-5', 'gpt-5-mini', 'gpt-5-nano', 'gpt-4.1', 'gpt-4.1-mini',
+            'gpt-4.1-nano', 'o4-mini', 'o3', 'o3-mini',
+        }
+        zai_models = {
+            'glm-4.7', 'glm-4.7-flash', 'glm-4.7-flashx',
+        }
+        perplexity_models = {
+            'sonar-pro', 'sonar', 'sonar-reasoning',
+        }
+        gemini_models = {
+            'gemini-3-flash-preview', 'gemini-3-pro-preview',
+        }
+        default_models = {
+            'openai': 'gpt-5',
+            'zai': 'glm-4.7-flash',
+            'perplexity': 'sonar-pro',
+            'gemini': 'gemini-3-flash-preview',
+        }
+
+        if provider == 'openai':
+            if model not in openai_models:
+                settings['ai_model'] = default_models['openai']
+        elif provider == 'zai':
+            if model not in zai_models:
+                settings['ai_model'] = default_models['zai']
+        elif provider == 'perplexity':
+            if model not in perplexity_models:
+                settings['ai_model'] = 'sonar-pro'
+        elif provider == 'gemini':
+            if model not in gemini_models:
+                settings['ai_model'] = default_models['gemini']
+        else:
+            settings['ai_model'] = default_models['openai']
+
+        def _fix_time(s: str, default: str) -> str:
+            try:
+                s = (s or '').strip()
+                if s == '24:00':
+                    return '23:59'
+                parts = s.split(':')
+                if len(parts) < 2:
+                    return default
+                hh = int(parts[0])
+                mm = int(parts[1])
+                if not (0 <= hh <= 23 and 0 <= mm <= 59):
+                    return default
+                return f"{hh:02d}:{mm:02d}"
+            except Exception:
+                return default
+
+        settings['ai_analysis_window_start'] = _fix_time(settings.get('ai_analysis_window_start', '08:00'), '08:00')
+        settings['ai_analysis_window_end'] = _fix_time(settings.get('ai_analysis_window_end', '23:59'), '23:59')
+
+        if user_obj:
+            ai_prompts_obj = get_user_ai_prompts(user_obj.id)
+            if ai_prompts_obj:
+                settings['ai_prompts'] = {
+                    'market_analysis_pre': getattr(ai_prompts_obj, 'market_analysis_pre', settings['ai_prompts']['market_analysis_pre']),
+                    'market_analysis_post': getattr(ai_prompts_obj, 'market_analysis_post', settings['ai_prompts']['market_analysis_post']),
+                    'risk_assessment_pre': getattr(ai_prompts_obj, 'risk_assessment_pre', settings['ai_prompts']['risk_assessment_pre']),
+                    'risk_assessment_post': getattr(ai_prompts_obj, 'risk_assessment_post', settings['ai_prompts']['risk_assessment_post']),
+                    'portfolio_review_pre': getattr(ai_prompts_obj, 'portfolio_review_pre', settings['ai_prompts']['portfolio_review_pre']),
+                    'portfolio_review_post': getattr(ai_prompts_obj, 'portfolio_review_post', settings['ai_prompts']['portfolio_review_post']),
+                    'coin_analysis_pre': getattr(ai_prompts_obj, 'coin_analysis_pre', settings['ai_prompts']['coin_analysis_pre']),
+                    'coin_analysis_post': getattr(ai_prompts_obj, 'coin_analysis_post', settings['ai_prompts']['coin_analysis_post']),
+                    'sentiment_prompt_pre': getattr(ai_prompts_obj, 'sentiment_prompt_pre', settings['ai_prompts']['sentiment_prompt_pre']),
+                    'sentiment_prompt_post': getattr(ai_prompts_obj, 'sentiment_prompt_post', settings['ai_prompts']['sentiment_prompt_post']),
+                }
+            
+            if not settings.get('copilot_chat_pre'):
+                def_prompts = DefaultAIPrompt.query.first()
+                if def_prompts:
+                    settings['copilot_chat_pre'] = def_prompts.copilot_chat_pre
+                    settings['copilot_chat_post'] = def_prompts.copilot_chat_post
+
+        return settings
+    except Exception as e:
+        logger.error(f"Error building user AI settings for {username}: {e}")
+        return {}
 
 def calculate_volatility(price_data):
     if not price_data or len(price_data) < 2: return 0.0
