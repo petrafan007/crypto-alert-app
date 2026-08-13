@@ -500,8 +500,6 @@ def update_coins_from_binance_balances(user_id, balances, client=None):
                 if asset == 'ONT' and total > 0:
                     if existing_coin:
                         existing_coin.amount = total
-                        existing_coin.hidden = False
-                        existing_coin.auto_hidden = False
                         existing_coin.updated_at = datetime.utcnow()
                     else:
                         new_ont = Coin(
@@ -558,8 +556,9 @@ def update_coins_from_binance_balances(user_id, balances, client=None):
                     existing_coin.updated_at = datetime.utcnow()
                     
                     usd_value = total * (existing_coin.current or 0)
-                    if existing_coin.hidden and usd_value >= 1.00:
+                    if existing_coin.hidden and existing_coin.auto_hidden and usd_value >= 1.00:
                         existing_coin.hidden = False
+                        existing_coin.auto_hidden = False
                     
                     db.session.commit()
                     updated_count += 1
