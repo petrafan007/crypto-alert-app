@@ -1,8 +1,16 @@
 import os
+import socket
 from datetime import timedelta
 from flask import Flask
 from dotenv import load_dotenv
 load_dotenv(override=True)
+
+# Enforce IPv4 globally for urllib3/requests to avoid Binance.US rejecting IPv6 with -71012
+try:
+    import urllib3.util.connection as urllib3_cn
+    urllib3_cn.allowed_gai_family = lambda: socket.AF_INET
+except Exception:
+    pass
 
 from core.extensions import db, login_manager, scheduler
 from log import logger

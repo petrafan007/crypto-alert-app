@@ -1,8 +1,10 @@
 import hmac
 import hashlib
 import time
+import socket
 import requests
 import json
+import urllib3.util.connection as urllib3_cn
 from datetime import datetime, timedelta
 from flask import current_app, jsonify, make_response
 from flask_login import current_user
@@ -13,9 +15,20 @@ from trading_models import StakingOrder
 from services.binance_service import fetch_binance_price
 from services.common import _coerce_float
 
+# Ensure Binance.US API calls always use IPv4
+try:
+    urllib3_cn.allowed_gai_family = lambda: socket.AF_INET
+except Exception:
+    pass
+
 def binance_us_api_call(cred, endpoint, method='GET', params_dict=None, use_trading_keys=False):
     """Make a signed call to the Binance.US SAPI endpoints."""
     try:
+        try:
+            urllib3_cn.allowed_gai_family = lambda: socket.AF_INET
+        except Exception:
+            pass
+
         if use_trading_keys:
             api_key = cred.trading_api_key
             api_secret = cred.trading_api_secret
@@ -33,7 +46,15 @@ def binance_us_api_call(cred, endpoint, method='GET', params_dict=None, use_trad
         params = params_dict.copy() if params_dict else {}
         params['timestamp'] = timestamp
         
-        query_string = '&'.join([f"{k}={v}" for k, v in params.items()])
+        query_parts = []
+        for k, v in params.items():
+            if isinstance(v, (list, tuple)):
+                for item in v:
+                    query_parts.append(f"{k}={item}")
+            else:
+                query_parts.append(f"{k}={v}")
+        query_string = '&'.join(query_parts)
+
         signature = hmac.new(
             api_secret.encode('utf-8'),
             query_string.encode('utf-8'),
