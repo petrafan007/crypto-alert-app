@@ -28,6 +28,10 @@ from services.staking_service import (
 
 STABLE_COINS = {'USDT', 'USD', 'USDC', 'BUSD', 'DAI', 'TUSD', 'USDP'}
 
+def is_stablecoin(symbol):
+    """Check if a given cryptocurrency symbol is a stablecoin"""
+    return (symbol or '').strip().upper() in STABLE_COINS
+
 background_threads = {}
 AUTO_ALERT_CACHE = {}
 ALERT_CHECK_INTERVAL = 300
