@@ -341,8 +341,23 @@ def prune_old_ai_conversations(app):
                 else:
                     logger.info(f"AI Conversation Retention: No conversations older than {cutoff} found.")
             iteration()
-            # Sleep 24 hours between runs
-            time.sleep(86400)
+def sentiment_analysis_loop(app):
+    """Background loop to periodically run sentiment analysis for enabled users according to their frequency setting."""
+    from services.ai_service import run_sentiment_analysis_for_user
+    logger.info("=== sentiment_analysis_loop STARTED ===")
+    with app.app_context():
+        while True:
+            @safe_background_iteration
+            def iteration():
+                users = User.query.all()
+                for user in users:
+                    try:
+                        run_sentiment_analysis_for_user(user.id, user.username, force=False)
+                    except Exception as e:
+                        logger.error(f"Error in background sentiment analysis for {user.username}: {e}")
+            iteration()
+            # Check every 30 minutes
+            time.sleep(1800)
 
 def start_background_jobs(app=None):
     """Initialize and start all background alert, sync, and retention loops."""
@@ -378,6 +393,10 @@ def start_background_jobs(app=None):
     # 5. AI Conversation 30-day Retention Loop
     retention_thread = threading.Thread(target=prune_old_ai_conversations, args=(app,), daemon=True)
     retention_thread.start()
+
+    # 6. Periodic Sentiment Analysis Loop
+    sentiment_thread = threading.Thread(target=sentiment_analysis_loop, args=(app,), daemon=True)
+    sentiment_thread.start()
     
     logger.info("All background threads initiated.")
     return {
@@ -385,5 +404,6 @@ def start_background_jobs(app=None):
         "portfolio": portfolio_thread,
         "watchlist": watchlist_thread,
         "volatility": volatility_thread,
-        "ai_retention": retention_thread
+        "ai_retention": retention_thread,
+        "sentiment": sentiment_thread
     }

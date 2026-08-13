@@ -706,24 +706,27 @@ def get_coin_sentiment(symbol, coin=None, current_price=None, username=None):
     Returns the AI-generated sentiment for a coin from the coins table.
     The sentiment is determined by the 3-stage agentic AI workflow and stored in the coins table.
     Valid values are 'Buy', 'Sell', or 'Hold'.
+    If sentiment cannot be pulled or is invalid, returns 'Error'. NEVER falls back to 'Hold'.
     """
     try:
         if not coin:
             # If coin object not provided, try to get it from the database
             coin = db.session.query(Coin).filter_by(symbol=symbol).first()
             if not coin:
-                return "Hold"  # Default if coin not found
+                return "Error"
         
         # Return the AI-generated sentiment if available
         if hasattr(coin, 'sentiment') and coin.sentiment in ['Buy', 'Sell', 'Hold']:
             return coin.sentiment
+        elif hasattr(coin, 'sentiment') and coin.sentiment:
+            return coin.sentiment
             
-        # Fallback to 'Hold' if no AI sentiment is available yet
-        return "Hold"
+        # If no valid sentiment is available, return 'Error' (NEVER fall back to 'Hold')
+        return "Error"
         
     except Exception as e:
         logger.error(f"Error in get_coin_sentiment for {symbol}: {e}")
-        return "Hold"  # Default on error
+        return "Error"
 
 def apply_auto_visibility_rules(coin, current_value):
     """Apply automatic hide/unhide rules based on USD value thresholds."""

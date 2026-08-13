@@ -106,7 +106,8 @@ def get_user_ai_settings(username: str) -> dict:
                 'sentiment_prompt_post': '',
             },
             'copilot_chat_pre': '',
-            'copilot_chat_post': ''
+            'copilot_chat_post': '',
+            'ai_reasoning_level': 'medium'
         }
 
         user_obj = User.query.filter_by(username=username).first()
@@ -139,6 +140,9 @@ def get_user_ai_settings(username: str) -> dict:
                 if hasattr(user_setting, 'sentiment_analysis_frequency_hours'):
                     settings['sentiment_analysis_frequency_hours'] = user_setting.sentiment_analysis_frequency_hours or 24
 
+                if hasattr(user_setting, 'ai_reasoning_level'):
+                    settings['ai_reasoning_level'] = user_setting.ai_reasoning_level or 'medium'
+
         provider = settings.get('ai_provider', 'openai')
         model = settings.get('ai_model')
 
@@ -158,13 +162,13 @@ def get_user_ai_settings(username: str) -> dict:
             'sonar-pro', 'sonar', 'sonar-reasoning',
         }
         gemini_models = {
-            'gemini-3-flash-preview', 'gemini-3-pro-preview',
+            'gemini-3.5-flash', 'gemini-3.6-flash', 'gemini-3.7-flash',
         }
         default_models = {
             'openai': 'gpt-5',
             'zai': 'glm-4.7-flash',
             'perplexity': 'sonar-pro',
-            'gemini': 'gemini-3-flash-preview',
+            'gemini': 'gemini-3.5-flash',
         }
 
         if provider == 'openai':

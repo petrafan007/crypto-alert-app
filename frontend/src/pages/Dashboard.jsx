@@ -918,18 +918,17 @@ function Dashboard({ isLightMode }) {
     });
   };
 
-  // News function - Show cached/existing analysis (NEWS button)
+  // News function - Show cached/today's analysis (NEWS button)
   const openNews = async (symbol) => {
     try {
       setNewsLoading(true);
       setNewsAnalysisSymbol(symbol);
       setShowNewsModal(true);
 
-      // First try to get cached analysis by checking if we have recent data
-      // If no cached data or it's old, fall back to fresh analysis
+      // Backend checks daily cache; if cached from today, returns cached. Otherwise automatically fetches fresh today.
       const response = await axios.post('/api/ai/news-analysis', {
         symbol: symbol,
-        use_cache: true  // Request cached data if available
+        force_fresh: false
       }, { withCredentials: true });
 
       if (response.data.error) {
@@ -1780,9 +1779,13 @@ function Dashboard({ isLightMode }) {
                     <td
                       className={isMobile ? 'mobile-hide' : ''}
                       title={coin.sentiment_last_updated ? `Last Updated: ${new Date(coin.sentiment_last_updated).toLocaleString()}` : 'No analysis date available'}
-                      style={{ cursor: 'help' }}
+                      style={{ cursor: 'help', textAlign: 'center' }}
                     >
-                      {coin.sentiment || 'Hold'}
+                      {coin.sentiment === 'Buy' && <span style={{ color: '#48bb78', fontWeight: 'bold' }}>Buy</span>}
+                      {coin.sentiment === 'Sell' && <span style={{ color: '#f56565', fontWeight: 'bold' }}>Sell</span>}
+                      {coin.sentiment === 'Hold' && <span style={{ color: '#ecc94b', fontWeight: 'bold' }}>Hold</span>}
+                      {coin.sentiment === 'Error' && <span style={{ color: '#fc8181', fontWeight: 'bold', background: 'rgba(245, 101, 101, 0.2)', padding: '2px 6px', borderRadius: '4px' }}>⚠️ Error</span>}
+                      {!['Buy', 'Sell', 'Hold', 'Error'].includes(coin.sentiment) && (coin.sentiment ? coin.sentiment : <span style={{ color: '#fc8181' }}>Error</span>)}
                     </td>
                     <td className="actions-cell" style={{ whiteSpace: 'nowrap', position: 'relative' }}>
                       {isMobile ? (
@@ -2176,20 +2179,21 @@ function Dashboard({ isLightMode }) {
             </div>
 
             <div className="modal-actions">
+              {newsAnalysisData && !newsAnalysisData.error && (
+                <button
+                  className="btn btn-primary"
+                  onClick={() => refreshNews(newsAnalysisSymbol)}
+                  disabled={newsLoading}
+                >
+                  {newsLoading ? 'Refreshing...' : 'Refresh Analysis'}
+                </button>
+              )}
               <button
                 className="btn btn-secondary"
                 onClick={() => setShowNewsModal(false)}
               >
                 Close
               </button>
-              {newsAnalysisData && !newsAnalysisData.error && (
-                <button
-                  className="btn btn-primary"
-                  onClick={() => openNews(newsAnalysisSymbol)}
-                >
-                  Refresh Analysis
-                </button>
-              )}
             </div>
           </div>
         </div>

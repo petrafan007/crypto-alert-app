@@ -29,7 +29,7 @@ from services.analysis_service import (
     calculate_symbol_snapshot, calculate_volatility
 )
 from services.portfolio_service import get_comprehensive_crypto_data_for_user
-from zai_client import call_ai_with_web_search
+from services.ai_service import call_ai_with_web_search, web_search, run_sentiment_analysis_for_user, log_ai_conversation
 
 # Local helpers previously in main
 import threading
@@ -157,7 +157,7 @@ def test_gemini_connection():
         payload = request.get_json(silent=True) or {}
         username = current_user.username
         ai_settings = get_user_ai_settings(username)
-        model = payload.get('model') or ai_settings.get('ai_model') or 'gemini-2.5-pro'
+        model = payload.get('model') or ai_settings.get('ai_model') or 'gemini-3.5-flash'
         key = payload.get('gemini_key')
 
         cred = get_user_credentials(username)
@@ -262,7 +262,7 @@ def test_ai_connection_generic():
 
         elif provider == 'gemini':
             try:
-                test_model = model or 'gemini-1.5-flash'
+                test_model = model or 'gemini-3.5-flash'
                 # Simple generateContent test
                 url = f"https://generativelanguage.googleapis.com/v1beta/models/{test_model}:generateContent?key={api_key}"
                 r = requests.post(
@@ -383,10 +383,14 @@ def api_ai_workflow_latest():
 def force_sentiment_analysis():
     """Force run sentiment analysis for current user"""
     try:
+        user_id = current_user.id
+        username = current_user.username
+        app = current_app._get_current_object()
+        
         # Run in a separate thread so valid response returns immediately
         def run_async():
-            with current_app.app_context():
-                run_sentiment_analysis_for_user(current_user.id, current_user.username, force=True)
+            with app.app_context():
+                run_sentiment_analysis_for_user(user_id, username, force=True)
         
         thread = threading.Thread(target=run_async)
         thread.start()
@@ -572,7 +576,7 @@ def get_ai_models():
         'sonar-pro', 'sonar', 'sonar-reasoning',
     }
     gemini_models = {
-        'gemini-3-flash-preview', 'gemini-3-pro-preview',
+        'gemini-3.5-flash', 'gemini-3.6-flash', 'gemini-3.7-flash',
     }
     
     # Create a dictionary of labels for the models
@@ -592,8 +596,9 @@ def get_ai_models():
         'sonar-pro': 'Sonar Pro',
         'sonar': 'Sonar',
         'sonar-reasoning': 'Sonar Reasoning',
-        'gemini-3-flash-preview': 'Gemini 3 Flash (preview)',
-        'gemini-3-pro-preview': 'Gemini 3 Pro (preview)',
+        'gemini-3.5-flash': 'Gemini 3.5 Flash',
+        'gemini-3.6-flash': 'Gemini 3.6 Flash',
+        'gemini-3.7-flash': 'Gemini 3.7 Flash',
     }
     
     def get_model_options(models):
@@ -1647,11 +1652,10 @@ def api_archive_ai_conversation(message_id):
 @ai_bp.route('/api/ai/news-analysis', methods=['POST'])
 @login_required
 def api_ai_news_analysis():
-    """Get AI news analysis for a specific coin using 3-stage agentic workflow with coin_analysis prompts"""
+    """Get AI news analysis for a specific coin using 3-stage agentic workflow with coin_analysis prompts with daily caching."""
     try:
-        data = request.get_json()
+        data = request.get_json() or {}
         symbol = data.get('symbol', '').upper()
-        use_cache = data.get('use_cache', False)
         force_fresh = data.get('force_fresh', False)
         
         if not symbol:
@@ -1663,102 +1667,63 @@ def api_ai_news_analysis():
                 'error': 'AI analysis is disabled. Enable AI in Settings to use this feature.'
             }), 400
         
-        # Check for cached analysis if use_cache is True and not forcing fresh
-        if use_cache and not force_fresh:
+        # 1. Date-based Cache Check: If not forcing fresh, check if we have an analysis from TODAY in US/Eastern
+        if not force_fresh:
             try:
-                # Get coin_id for this symbol and user (check both portfolio and watchlist)
-                coin_id = get_coin_id_by_symbol(symbol, current_user.id)
+                import pytz
+                today_et = get_eastern_now().date()
                 
-                # If not in portfolio, check if it's in watchlist
-                if not coin_id:
-                    from models import WatchlistCoin
-                    watchlist_coin = WatchlistCoin.query.filter_by(
-                        user_id=current_user.id, 
-                        symbol=symbol.upper(),
-                        hidden=False
-                    ).first()
-                    
-                    if not watchlist_coin:
-                        return jsonify({
-                            'error': f'Coin {symbol} not found in your portfolio or watchlist.',
-                            'no_coin': True
-                        }), 404
-                
-                # Check ai_conversations for recent coin analysis (last 2 hours) by coin_id
-                from datetime import datetime, timedelta
-                cutoff_time = datetime.utcnow() - timedelta(hours=2)
-                
-                # Use SQLAlchemy ORM instead of legacy SQLite
                 cached_row = AIConversation.query.filter(
                     AIConversation.user_id == current_user.id,
-                    AIConversation.coin_id == coin_id,
+                    AIConversation.symbol == symbol,
                     AIConversation.prompt_type == 'coin_analysis',
-                    AIConversation.sender == 'ai',
-                    AIConversation.created_at >= cutoff_time
+                    AIConversation.sender == 'ai'
                 ).order_by(AIConversation.id.desc()).first()
-                
-                if cached_row:
-                    cached_analysis = cached_row.body
-                    # Format the timestamp
-                    try:
-                        timestamp_formatted = cached_row.created_at.strftime("%B %d, %Y at %I:%M %p UTC") if cached_row.created_at else "Unknown"
-                    except Exception:
-                        timestamp_formatted = str(cached_row.created_at)
+
+                if cached_row and cached_row.created_at:
+                    dt = cached_row.created_at
+                    if not dt.tzinfo:
+                        dt = dt.replace(tzinfo=timezone.utc)
+                    cached_et = dt.astimezone(pytz.timezone('US/Eastern'))
                     
-                    return jsonify({
-                        'symbol': symbol,
-                        'analysis': cached_analysis,
-                        'timestamp': timestamp_formatted,
-                        'prompt_used': 'Cached analysis',
-                        'cached': True
-                    })
-                else:
-                    # NO CACHE EXISTS - Return error instead of falling back to fresh analysis
-                    return jsonify({
-                        'error': f'No cached analysis found for {symbol}. Use the refresh button (🔄) to generate fresh analysis.',
-                        'no_cache': True
-                    }), 404
-            except Exception as cache_error:
-                logger.warning(f"Cache check failed for {symbol}: {cache_error}")
-                return jsonify({
-                    'error': f'Cache check failed for {symbol}. Use the refresh button (🔄) to generate fresh analysis.',
-                    'cache_error': True
-                }), 500
-        
-        # Get user's AI prompts from database (NO HARDCODING)
+                    if cached_et.date() == today_et:
+                        timestamp_formatted = format_eastern_datetime(cached_row.created_at, "%B %d, %Y at %I:%M %p EST")
+                        return jsonify({
+                            'symbol': symbol,
+                            'analysis': cached_row.body,
+                            'timestamp': timestamp_formatted,
+                            'prompt_used': 'Cached analysis (Today)',
+                            'cached': True
+                        })
+            except Exception as cache_err:
+                logger.warning(f"Error checking daily cache for {symbol}: {cache_err}")
+
+        # 2. If no cache from today or force_fresh is True, automatically run fresh AI analysis
         ai_prompts_obj = get_user_ai_prompts(current_user.id)
         if not ai_prompts_obj:
             return jsonify({
                 'error': 'No AI prompts configured. Please check your settings.'
             }), 400
             
-        # Use coin_analysis prompts for the 3-stage workflow
         coin_pre_prompt = ai_prompts_obj.coin_analysis_pre
         coin_post_prompt = ai_prompts_obj.coin_analysis_post
         if not coin_pre_prompt or not coin_post_prompt:
             return jsonify({'error': 'coin_analysis_pre and coin_analysis_post must be set in the database.'}), 400
 
-        # Replace placeholders
         current_datetime = format_eastern_datetime(None, "%B %d, %Y at %I:%M %p EST")
         coin_pre_prompt = coin_pre_prompt.replace('{symbol}', symbol).replace('{datetime}', current_datetime)
         coin_post_prompt = coin_post_prompt.replace('{symbol}', symbol).replace('{datetime}', current_datetime)
 
-        # Get model setting
         user_settings = get_user_ai_settings(current_user.username)
         model = user_settings.get('ai_model', 'gpt-5')
 
-        # Capture current_user attributes before threading (Flask-Login context not available in threads)
         username = current_user.username
         user_id = current_user.id
 
-        # === Gather coin data for the specific symbol ===
         from models import Coin
         coin_obj = Coin.query.filter_by(user_id=user_id, symbol=symbol, hidden=False).first()
-        
-        # Get coin_id for logging
         coin_id = coin_obj.id if coin_obj else None
 
-        # Prepare the user's original message for the 3-stage agentic workflow
         original_user_message = (
             "NEWS_ANALYSIS_DATA\n"
             f"symbol: {symbol}\n"
@@ -1766,11 +1731,6 @@ def api_ai_news_analysis():
         )
 
         try:
-            # Call the 3-stage agentic workflow with proper message structure
-            # The call_ai_with_web_search function will:
-            # 1. Use coin_analysis_pre for Stage 1 (search query generation)
-            # 2. Execute web searches in Stage 2
-            # 3. Use coin_analysis_post for Stage 3 (final analysis with search results)
             ai_response, stage3_prompt = call_ai_with_web_search(
                 username=username,
                 messages=[{"role": "user", "content": original_user_message}],
@@ -1784,9 +1744,9 @@ def api_ai_news_analysis():
             if not ai_response:
                 raise Exception("No response received from AI analysis")
 
-            analysis = ai_response.choices[0].message.content
+            analysis = ai_response.choices[0].message.content if hasattr(ai_response, 'choices') else str(ai_response)
 
-            # Log the AI conversation for copilot sidebar with proper timing
+            # Log the AI conversation for caching and copilot sidebar
             log_ai_conversation(user_id, "coin_analysis", "user", original_user_message, symbol=symbol, coin_id=coin_id)
             time.sleep(0.1)
             log_ai_conversation(user_id, "coin_analysis", "ai", analysis, symbol=symbol, coin_id=coin_id)
@@ -1807,10 +1767,6 @@ def api_ai_news_analysis():
             
     except Exception as e:
         logger.error(f"Error in news analysis endpoint: {e}")
-        return jsonify({'error': str(e)}), 500
-            
-    except Exception as e:
-        logger.error(f"Error in news analysis: {e}")
         return jsonify({'error': str(e)}), 500
 
 

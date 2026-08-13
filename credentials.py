@@ -250,6 +250,7 @@ class UserSetting(db.Model):
     copilot_chat_pre = db.Column(db.Text)
     copilot_chat_post = db.Column(db.Text)
     sentiment_analysis_frequency_hours = db.Column(db.Integer, default=24)
+    ai_reasoning_level = db.Column(db.String, default='medium')
 
 class DesktopToken(db.Model):
     __tablename__ = "desktop_tokens"

@@ -231,7 +231,7 @@ def api_coin_data_live():
                         "current_price": current_price,
                         "current_value": current_value,
                         "pct_change": 0.0,
-                        "sentiment": getattr(coin, 'sentiment', 'Hold'),
+                        "sentiment": getattr(coin, 'sentiment', 'Error') or 'Error',
                         "alert_enabled": getattr(coin, 'alert_enabled', True),
                         "note": getattr(coin, 'note', ''),
                         "custom_lower_val": getattr(coin, 'custom_lower_val', None),

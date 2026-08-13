@@ -41,6 +41,7 @@ export default function Settings({ isLightMode }) {
     gemini_key: '',
     ai_provider: 'openai',
     ai_model: '',
+    ai_reasoning_level: 'medium',
     telegram_token: '',
     telegram_chat_id: '',
     news_api: '',
@@ -1101,6 +1102,24 @@ export default function Settings({ isLightMode }) {
               Select an AI model supported by the chosen provider
             </div>
           </div>
+
+          {/* Gemini Reasoning Effort */}
+          {settings.ai_provider === 'gemini' && (
+            <div className="settings-form-group">
+              <label>Reasoning</label>
+              <select
+                value={settings.ai_reasoning_level || 'medium'}
+                onChange={(e) => handleInputChange('ai_reasoning_level', e.target.value)}
+              >
+                <option value="low">Low</option>
+                <option value="medium">Medium</option>
+                <option value="high">High</option>
+              </select>
+              <div className="settings-form-help">
+                Configure reasoning effort for Gemini models (Low, Medium, or High)
+              </div>
+            </div>
+          )}
 
           {/* OpenAI Configuration - Only show when OpenAI is selected */}
           {settings.ai_provider === 'openai' && (

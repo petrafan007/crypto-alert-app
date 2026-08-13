@@ -898,7 +898,8 @@ def api_settings():
                 'ai_cache_duration_hours', 'ai_analysis_window_start', 'ai_analysis_window_end',
                 'ai_max_tokens', 'ai_web_search_enabled', 'tax_manual_invested_updated', 
                 'tax_cost_basis_method', 'copilot_chat_pre', 'copilot_chat_post',
-                'sentiment_analysis_frequency_hours', 'ai_provider_fallback', 'ai_model_fallback'
+                'sentiment_analysis_frequency_hours', 'ai_provider_fallback', 'ai_model_fallback',
+                'ai_reasoning_level'
             ]
 
             for key, value in data.items():

@@ -202,6 +202,5 @@ if __name__ == "__main__":
 	else:
 		print("Usage: python zai_client.py <api_key>") 
 def call_ai_with_web_search(*args, **kwargs):
-    """Stub for backward compatibility during modular refactor."""
-    print("WARNING: call_ai_with_web_search is currently a stub.")
-    return "AI Analysis temporarily unavailable.", None
+    from services.ai_service import call_ai_with_web_search as _real_call
+    return _real_call(*args, **kwargs)
