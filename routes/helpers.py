@@ -21,6 +21,10 @@ from flask import request, jsonify, make_response, current_app as app
 from credential_security import decrypt_secret
 from services.trading_service import get_cost_basis_for_asset, calculate_avg_entry_fifo
 from services.credential_service import get_user_credentials
+from services.staking_service import (
+    calculate_staking_value_for_user, binance_us_api_call, binance_has_staking_permission,
+    build_staking_balance_view, _build_staking_dashboard_payload, _dashboard_staking_response
+)
 
 STABLE_COINS = {'USDT', 'USD', 'USDC', 'BUSD', 'DAI', 'TUSD', 'USDP'}
 
@@ -164,9 +168,11 @@ def get_user_from_bearer():
 def get_manual_tax_investment(user_id):
     try:
         setting = UserSetting.query.filter_by(user_id=user_id).first()
-        if not setting or setting.tax_manual_invested_updated is None:
+        if not setting or not setting.tax_manual_invested_updated:
             return 0.0
         return float(setting.tax_manual_invested_updated)
+    except (ValueError, TypeError):
+        return 0.0
     except Exception as e:
         logger.error(f"Failed to fetch manual tax investment for user {user_id}: {e}")
         return 0.0
@@ -764,4 +770,6 @@ def serve_react_app():
 
     content = re.sub(r'(/static/[^"\']+)(["\'])', _add_version, content)
     return Response(content, mimetype='text/html')
+
+__all__ = [name for name in globals() if not name.startswith('__')]
 

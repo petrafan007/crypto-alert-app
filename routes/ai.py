@@ -1,27 +1,16 @@
 
-from datetime import timedelta, datetime
+from datetime import timedelta, datetime, timezone
 import requests
 import threading
-from flask import send_file, request, jsonify, render_template, current_app, redirect, url_for
+import json
+import time
+from flask import Blueprint, send_file, request, jsonify, render_template, current_app, redirect, url_for
 from flask_login import current_user, login_required, login_user, logout_user
-from models import Coin, WatchlistCoin, Notification, PriceHistory
+from models import Coin, WatchlistCoin, Notification, PriceHistory, AIPrompt, AIConversation
 from credentials import Credential, User, UserSetting
 from core.extensions import db
 from log import logger
 from routes.helpers import *
-
-import json
-import datetime
-from datetime import timedelta
-import time
-
-from flask import Blueprint, request, jsonify, current_app
-from flask_login import login_required, current_user
-
-# Database & Models
-from core.extensions import db
-from models import AIPrompt, AIConversation
-from credentials import User, Credential, UserSetting
 
 # AI Clients
 try:
