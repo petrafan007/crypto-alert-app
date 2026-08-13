@@ -5,7 +5,7 @@ import axios from 'axios';
 import Dashboard from './pages/Dashboard';
 import Login from './pages/Login';
 import Signup from './pages/Signup';
-import TradingNew from './pages/TradingNew';
+import Trading from './pages/Trading';
 import Settings from './pages/Settings';
 import AIDashboard from './pages/AIDashboard';
 import AICopilotSidebar from './components/AICopilotSidebar';
@@ -237,7 +237,7 @@ export default function App() {
             } />
             <Route path="/trading" element={
               <ProtectedRoute isLightMode={isLightMode}>
-                <TradingNew />
+                <Trading />
               </ProtectedRoute>
             } />
             <Route path="/ai-analysis" element={

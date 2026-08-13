@@ -55,3 +55,44 @@ def tax_report_page():
 def help_page():
     """Serve the help page"""
     return serve_react_app()
+
+@frontend_bp.route("/settings")
+@login_required
+def settings_page():
+    """Serve the settings page"""
+    return serve_react_app()
+
+@frontend_bp.route("/ai-analysis")
+@login_required
+def ai_analysis_page():
+    """Serve the AI analysis page"""
+    return serve_react_app()
+
+@frontend_bp.route("/privacy")
+def privacy_page():
+    """Serve the privacy policy page"""
+    return serve_react_app()
+
+@frontend_bp.route("/terms")
+def terms_page():
+    """Serve the terms of service page"""
+    return serve_react_app()
+
+@frontend_bp.route("/acceptable-use")
+def acceptable_use_page():
+    """Serve the acceptable use page"""
+    return serve_react_app()
+
+@frontend_bp.route("/support")
+def support_page():
+    """Serve the support page"""
+    return serve_react_app()
+
+@frontend_bp.route("/<path:path>")
+def catch_all_spa(path):
+    """Catch-all route to support client-side React Router navigation and page refreshes"""
+    if path.startswith("api/"):
+        return jsonify({"error": "Endpoint not found"}), 404
+    if path.startswith("static/"):
+        return '', 404
+    return serve_react_app()

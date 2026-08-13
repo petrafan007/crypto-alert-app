@@ -293,11 +293,39 @@ def volatility_alert_loop(app):
             iteration()
             time.sleep(300)
 
+def prune_old_ai_conversations(app):
+    """Clean up AI conversations older than 30 days, keeping maximum 1 month of history."""
+    from datetime import datetime, timedelta
+    from models import AIConversation
+    logger.info("=== Starting AI conversation 30-day retention cleanup ===")
+    with app.app_context():
+        while True:
+            @safe_background_iteration
+            def iteration():
+                cutoff = datetime.utcnow() - timedelta(days=30)
+                deleted = AIConversation.query.filter(AIConversation.created_at < cutoff).delete(synchronize_session=False)
+                if deleted > 0:
+                    db.session.commit()
+                    logger.info(f"AI Conversation Retention: Pruned {deleted} conversations older than {cutoff}.")
+                else:
+                    logger.info(f"AI Conversation Retention: No conversations older than {cutoff} found.")
+            iteration()
+            # Sleep 24 hours between runs
+            time.sleep(86400)
+
 def start_background_jobs(app=None):
-    """Initialize and start all background alert and sync loops."""
+    """Initialize and start all background alert, sync, and retention loops."""
     import threading
     from log import logger
     
+    if not app:
+        from flask import current_app
+        app = current_app._get_current_object() if current_app else None
+        
+    if not app:
+        logger.warning("start_background_jobs called without an active app.")
+        return {}
+
     logger.info("Starting background jobs...")
     
     # 1. Binance Portfolio Sync Loop
@@ -316,4 +344,15 @@ def start_background_jobs(app=None):
     volatility_thread = threading.Thread(target=volatility_alert_loop, args=(app,), daemon=True)
     volatility_thread.start()
     
+    # 5. AI Conversation 30-day Retention Loop
+    retention_thread = threading.Thread(target=prune_old_ai_conversations, args=(app,), daemon=True)
+    retention_thread.start()
+    
     logger.info("All background threads initiated.")
+    return {
+        "sync": sync_thread,
+        "portfolio": portfolio_thread,
+        "watchlist": watchlist_thread,
+        "volatility": volatility_thread,
+        "ai_retention": retention_thread
+    }

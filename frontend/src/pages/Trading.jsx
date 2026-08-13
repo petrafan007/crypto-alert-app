@@ -1,51 +1,473 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
-import AIAnalysis from '../components/AIAnalysis';
-import { useAuth } from '../components/AuthContext';
-import TradingChart from '../components/TradingChart';
+import OrderFeedbackModal from '../components/OrderFeedbackModal';
 import TwoFactorModal from '../components/TwoFactorModal';
+import ConvertDustModal from '../components/ConvertDustModal';
+import CancelOrderModal from '../components/CancelOrderModal';
+import TradingChart from '../components/TradingChart';
 import TradePermissionModal from '../components/TradePermissionModal';
 import ApiKeyRequiredModal from '../components/ApiKeyRequiredModal';
+import './Trading.css';
+import { useLocation, useNavigate } from 'react-router-dom';
 
-export default function Trading({ isLightMode }) {
-  const { isLoggingOut } = useAuth();
-  const [selectedPair, setSelectedPair] = useState('BTC-USD');
-  const [tradingPairs, setTradingPairs] = useState([]);
-  const [filteredPairs, setFilteredPairs] = useState([]);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [marketData, setMarketData] = useState(null);
-  const [orderType, setOrderType] = useState('MARKET');
-  const [side, setSide] = useState('BUY');
-  const [amount, setAmount] = useState('');
-  const [limitPrice, setLimitPrice] = useState('');
-  const [stopPrice, setStopPrice] = useState('');
-  const [stopLimitPrice, setStopLimitPrice] = useState('');
-  const [execution, setExecution] = useState('allow_taker');
-  const [timeInForce, setTimeInForce] = useState('good_til_canceled');
+const Trading = () => {
+  console.log('Trading component rendering...');
+  const location = useLocation();
+  const navigate = useNavigate();
+
+  // Trading Settings
+  const [settings, setSettings] = useState({
+    test_mode_enabled: true,
+    max_order_size_usd: 1000,
+    daily_loss_limit_usd: 500,
+    require_2fa: false
+  });
+
+  // Initialize symbol with localStorage persistence or fallback to BTCUSDT
+  const getInitialSymbol = () => {
+    try {
+      const saved = localStorage.getItem('selectedTradingPair');
+      if (saved) return saved;
+    } catch (e) {}
+    return 'BTCUSDT';
+  };
+
+  // Order Form State
+  const [orderForm, setOrderForm] = useState({
+    symbol: getInitialSymbol(),
+    side: 'BUY',
+    type: 'MARKET',
+    quantity: '',
+    // derived quote amount stored separately
+    price: '',
+    stopPrice: '',
+    stopLimitPrice: '', // For OCO orders
+    stopLimitTimeInForce: 'GTC', // For OCO orders
+    timeInForce: 'GTC' // GTC, IOC, FOK
+  });
+  const [quoteQuantity, setQuoteQuantity] = useState('');
+  const lastEditedRef = useRef(null);
+
+  // UI State
+  const [orders, setOrders] = useState([]);
+  const [portfolio, setPortfolio] = useState([]);
+  const [testOrders, setTestOrders] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [orderHistory, setOrderHistory] = useState([]);
-  const [portfolioAnalysis, setPortfolioAnalysis] = useState(null);
-  const [showAdvanced, setShowAdvanced] = useState(false);
-  const [availableBalance, setAvailableBalance] = useState(0);
-  const [subtotal, setSubtotal] = useState(0);
-  const [fee, setFee] = useState(0);
-  const [total, setTotal] = useState(0);
-  const [tradingSettings, setTradingSettings] = useState(null);
-  const [is2faModalVisible, setIs2faModalVisible] = useState(false);
-  const [orderDetailsFor2fa, setOrderDetailsFor2fa] = useState(null);
+  const [activeTab, setActiveTab] = useState('order'); // 'order', 'history', 'portfolio'
+  const [showCanceledOrders, setShowCanceledOrders] = useState(false);
+
+  // Modal state for feedback
+  const [feedbackModal, setFeedbackModal] = useState({
+    isVisible: false,
+    message: '',
+    type: 'success' // 'success', 'error', 'warning'
+  });
+
+  // 2FA Modal state
+  const [twoFactorModal, setTwoFactorModal] = useState({
+    isVisible: false,
+    orderData: null
+  });
+
+  // New state for Binance.US features
+  const [currentPrices, setCurrentPrices] = useState({ base: 0, quote: 0 });
+  const [balances, setBalances] = useState({
+    base: 0,
+    base_locked: 0,
+    base_total: 0,
+    quote: 0,
+    quote_locked: 0,
+    quote_total: 0
+  });
+  const [balancePercentage, setBalancePercentage] = useState(0);
+  const [estimatedFee, setEstimatedFee] = useState({ amount: 0, usd: 0, asset: '' });
+  const [openOrders, setOpenOrders] = useState([]);
+  const [cancelModal, setCancelModal] = useState({
+    isVisible: false,
+    order: null,
+    error: '',
+    loading: false,
+  });
+
+  // Order types fetched from API
+  const [orderTypes, setOrderTypes] = useState([]);
 
   // Permission Check States
   const [showApiKeyModal, setShowApiKeyModal] = useState(false);
   const [showPermissionModal, setShowPermissionModal] = useState(false);
 
+  // Convert Dust modal state
+  const [dustModal, setDustModal] = useState({ isVisible: false });
+
+  // Properly extract base and quote assets (matches backend logic)
+  // For USDTUSD: base=USDT, quote=USD
+  // For BTCUSD: base=BTC, quote=USD
+  // For BTCUSDT: base=BTC, quote=USDT
+  const baseAsset = orderForm.symbol.endsWith('USD') && !orderForm.symbol.endsWith('USDT')
+    ? orderForm.symbol.slice(0, -3)  // Remove 'USD'
+    : orderForm.symbol.endsWith('USDT')
+      ? orderForm.symbol.slice(0, -4)  // Remove 'USDT'
+      : orderForm.symbol;
+  const quoteAsset = orderForm.symbol.endsWith('USD') && !orderForm.symbol.endsWith('USDT') ? 'USD' : 'USDT';
+
+  const determinePriceForCalculations = (formState = orderForm) => {
+    const marketPrice = parseFloat(currentPrices.base) || 0;
+    const limitPrice = parseFloat(formState.price);
+    const stopPrice = parseFloat(formState.stopPrice);
+    const stopLimitPrice = parseFloat(formState.stopLimitPrice);
+
+    switch (formState.type) {
+      case 'LIMIT':
+      case 'LIMIT_MAKER':
+        return limitPrice > 0 ? limitPrice : marketPrice;
+      case 'STOP_LOSS':
+      case 'TAKE_PROFIT':
+        return stopPrice > 0 ? stopPrice : marketPrice;
+      case 'STOP_LOSS_LIMIT':
+      case 'TAKE_PROFIT_LIMIT':
+        if (limitPrice > 0) return limitPrice;
+        if (stopLimitPrice > 0) return stopLimitPrice;
+        if (stopPrice > 0) return stopPrice;
+        return marketPrice;
+      case 'OCO':
+        if (formState.side === 'BUY') {
+          // For BUY OCO, we MUST be able to afford the more expensive order
+          return Math.max(limitPrice || 0, stopLimitPrice || 0, stopPrice || 0, marketPrice);
+        }
+        // For SELL OCO, funds are in base asset, so choosing limitPrice is fine for display
+        if (limitPrice > 0) return limitPrice;
+        if (stopLimitPrice > 0) return stopLimitPrice;
+        if (stopPrice > 0) return stopPrice;
+        return marketPrice;
+      default:
+        return marketPrice;
+    }
+  };
+
+  const formatNumberString = (num, decimals = 2) => {
+    if (!Number.isFinite(num)) return '';
+    const fixed = num.toFixed(decimals);
+    return fixed
+      .replace(/(\.\d*?[1-9])0+$/g, '$1')
+      .replace(/\.0+$/g, '')
+      .replace(/\.$/, '');
+  };
+
+  const handleBaseQuantityChange = (value) => {
+    lastEditedRef.current = 'base';
+    setOrderForm((prev) => ({ ...prev, quantity: value }));
+
+    if (!value) {
+      setQuoteQuantity('');
+      return;
+    }
+
+    const numeric = parseFloat(value);
+    if (Number.isNaN(numeric)) {
+      setQuoteQuantity('');
+      return;
+    }
+
+    const price = determinePriceForCalculations();
+    if (price > 0) {
+      const total = numeric * price;
+      setQuoteQuantity(Number.isFinite(total) ? formatNumberString(total, 2) : '');
+    } else {
+      setQuoteQuantity('');
+    }
+  };
+
+  const handleQuoteQuantityChange = (value) => {
+    lastEditedRef.current = 'quote';
+    setQuoteQuantity(value);
+
+    if (!value) {
+      setOrderForm((prev) => ({ ...prev, quantity: '' }));
+      return;
+    }
+
+    const numeric = parseFloat(value);
+    if (Number.isNaN(numeric)) {
+      return;
+    }
+
+    const price = determinePriceForCalculations();
+    if (price > 0) {
+      const baseAmount = numeric / price;
+      setOrderForm((prev) => ({
+        ...prev,
+        quantity: Number.isFinite(baseAmount)
+          ? (baseAmount > 0 ? formatNumberString(baseAmount, 8) : '0')
+          : prev.quantity
+      }));
+    }
+  };
+
+  const renderTimeInForceSelector = () => (
+    <div className="form-group">
+      <label>Time in Force</label>
+      <div className="time-in-force-selector">
+        <label className="radio-option">
+          <input
+            type="radio"
+            name="timeInForce"
+            value="GTC"
+            checked={orderForm.timeInForce === 'GTC'}
+            onChange={(e) => setOrderForm({ ...orderForm, timeInForce: e.target.value })}
+          />
+          <span>GTC - Good Till Cancel</span>
+        </label>
+        <label className="radio-option">
+          <input
+            type="radio"
+            name="timeInForce"
+            value="IOC"
+            checked={orderForm.timeInForce === 'IOC'}
+            onChange={(e) => setOrderForm({ ...orderForm, timeInForce: e.target.value })}
+          />
+          <span>IOC - Immediate or Cancel</span>
+        </label>
+        <label className="radio-option">
+          <input
+            type="radio"
+            name="timeInForce"
+            value="FOK"
+            checked={orderForm.timeInForce === 'FOK'}
+            onChange={(e) => setOrderForm({ ...orderForm, timeInForce: e.target.value })}
+          />
+          <span>FOK - Fill or Kill</span>
+        </label>
+      </div>
+      <small className="form-help">
+        {orderForm.timeInForce === 'GTC' && 'Order remains active until filled or cancelled'}
+        {orderForm.timeInForce === 'IOC' && 'Immediately execute as much as possible, cancel remainder'}
+        {orderForm.timeInForce === 'FOK' && 'Must fill entire order immediately or cancel'}
+      </small>
+    </div>
+  );
+
+  const renderOrderTypeFields = () => {
+    const cells = [];
+
+    const placeholderCell = (key) => (
+      <div className="order-grid-item order-grid-item--placeholder" key={key} aria-hidden="true" />
+    );
+
+    const limitPriceCell = (key, helpText) => (
+      <div className="order-grid-item" key={`limit-${key}`}>
+        <div className="form-group">
+          <label htmlFor="price">Limit Price ({quoteAsset})</label>
+          <input
+            id="price"
+            type="number"
+            step="any"
+            value={orderForm.price}
+            onChange={(e) => setOrderForm((prev) => ({ ...prev, price: e.target.value }))}
+            placeholder="Enter limit price"
+            className="form-control"
+            required
+            autoComplete="off"
+          />
+          {helpText && <small className="form-help">{helpText}</small>}
+        </div>
+      </div>
+    );
+
+    const stopPriceCell = (key, helpText) => (
+      <div className="order-grid-item" key={`stop-${key}`}>
+        <div className="form-group">
+          <label htmlFor="stopPrice">Stop Price ({quoteAsset})</label>
+          <input
+            id="stopPrice"
+            type="number"
+            step="any"
+            value={orderForm.stopPrice}
+            onChange={(e) => setOrderForm((prev) => ({ ...prev, stopPrice: e.target.value }))}
+            placeholder="Enter stop price"
+            className="form-control"
+            required
+            autoComplete="off"
+          />
+          {helpText && <small className="form-help">{helpText}</small>}
+        </div>
+      </div>
+    );
+
+    const stopLimitPriceCell = (key) => (
+      <div className="order-grid-item" key={`stop-limit-${key}`}>
+        <div className="form-group">
+          <label htmlFor="stopLimitPrice">Stop Limit Price ({quoteAsset})</label>
+          <input
+            id="stopLimitPrice"
+            type="number"
+            step="any"
+            value={orderForm.stopLimitPrice}
+            onChange={(e) => setOrderForm((prev) => ({ ...prev, stopLimitPrice: e.target.value }))}
+            placeholder="Stop loss execution price"
+            className="form-control"
+            required
+            autoComplete="off"
+          />
+          <small className="form-help">
+            Price at which the stop-loss limit order will be placed
+          </small>
+        </div>
+      </div>
+    );
+
+    switch (orderForm.type) {
+      case 'LIMIT':
+        cells.push(
+          limitPriceCell('main'),
+          <div className="order-grid-item" key="tif-limit">
+            {renderTimeInForceSelector()}
+          </div>
+        );
+        break;
+      case 'MARKET':
+        break;
+      case 'STOP_LOSS':
+      case 'TAKE_PROFIT':
+        cells.push(
+          stopPriceCell('single'),
+          placeholderCell('stop-placeholder')
+        );
+        break;
+      case 'STOP_LOSS_LIMIT':
+      case 'TAKE_PROFIT_LIMIT':
+        cells.push(
+          limitPriceCell('combo'),
+          stopPriceCell('combo'),
+          <div className="order-grid-item" key="tif-stoplimit">
+            {renderTimeInForceSelector()}
+          </div>,
+          placeholderCell('stoplimit-placeholder')
+        );
+        break;
+      case 'LIMIT_MAKER':
+        cells.push(
+          limitPriceCell('maker'),
+          <div className="order-grid-item" key="tif-maker">
+            {renderTimeInForceSelector()}
+          </div>
+        );
+        break;
+      case 'OCO':
+        cells.push(
+          limitPriceCell(
+            'oco',
+            orderForm.side === 'SELL'
+              ? 'Must be greater than current market price'
+              : 'Must be less than current market price'
+          ),
+          stopPriceCell(
+            'oco',
+            orderForm.side === 'SELL'
+              ? 'Must be less than current market price'
+              : 'Must be greater than current market price'
+          ),
+          stopLimitPriceCell('oco'),
+          placeholderCell('oco-placeholder')
+        );
+        break;
+      default:
+        break;
+    }
+
+    return cells;
+  };
+
+  const buildOrderConfirmationDetails = () => {
+    const qty = parseFloat(orderForm.quantity || 0);
+    const marketPrice = parseFloat(currentPrices.base || 0);
+    const effectivePrice = orderForm.type === 'MARKET'
+      ? marketPrice
+      : determinePriceForCalculations();
+    const estimatedValue = qty > 0 && effectivePrice > 0
+      ? (qty * effectivePrice).toFixed(2)
+      : '0.00';
+
+    return {
+      side: orderForm.side,
+      symbol: orderForm.symbol,
+      type: orderForm.type,
+      quantity: orderForm.quantity,
+      price: orderForm.price,
+      stopPrice: orderForm.stopPrice,
+      stopLimitPrice: orderForm.stopLimitPrice,
+      timeInForce: orderForm.timeInForce,
+      stopLimitTimeInForce: orderForm.stopLimitTimeInForce,
+      estimatedValue,
+    };
+  };
+
+  const handleSymbolChange = (newSymbol) => {
+    if (newSymbol && newSymbol !== 'ALL') {
+      try {
+        localStorage.setItem('selectedTradingPair', newSymbol);
+      } catch (e) {}
+    }
+    setOrderForm((prev) => ({
+      ...prev,
+      symbol: newSymbol,
+      quantity: '',
+      price: '',
+      stopPrice: '',
+      stopLimitPrice: ''
+    }));
+    setQuoteQuantity('');
+    setBalancePercentage(0);
+  };
+
+  useEffect(() => {
+    if (location.state?.tradePrefill) {
+      const { symbol, side } = location.state.tradePrefill;
+      if (symbol) {
+        try {
+          localStorage.setItem('selectedTradingPair', symbol);
+        } catch (e) {}
+      }
+      setOrderForm((prev) => ({
+        ...prev,
+        symbol: symbol || prev.symbol,
+        side: side || prev.side,
+        type: prev.type,
+        quantity: '',
+        price: '',
+        stopPrice: '',
+        stopLimitPrice: ''
+      }));
+      setQuoteQuantity('');
+      setBalancePercentage(0);
+      navigate('.', { replace: true, state: {} });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.state]);
+
+  // Popular trading pairs
+  const tradingPairs = [
+    // USD pairs (top of list for easy access)
+    'USDTUSD', 'BTCUSD', 'ETHUSD',
+    // USDT pairs
+    'BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'ADAUSDT', 'DOGEUSDT',
+    'XRPUSDT', 'DOTUSDT', 'UNIUSDT', 'LTCUSDT', 'LINKUSDT',
+    'SOLUSDT', 'MATICUSDT', 'AVAXUSDT', 'ATOMUSDT', 'ALGOUSDT',
+    // Added requested pairs
+    'SUIUSDT', 'CELRUSDT', 'FETUSDT', 'LPTUSDT', 'ONTUSDT', 'KSMUSDT'
+  ];
+
+
+  // Load settings and data on mount
   useEffect(() => {
     // Check trade permission first
     const checkPermission = async () => {
       try {
         const response = await axios.get('/api/check-trade-permission', { withCredentials: true });
         if (!response.data.has_api_key) {
+          // No API key configured
           setShowApiKeyModal(true);
         } else if (!response.data.has_permission) {
+          // Has API key but no trading permission
           setShowPermissionModal(true);
         }
       } catch (err) {
@@ -54,395 +476,1481 @@ export default function Trading({ isLightMode }) {
     };
     checkPermission();
 
-    fetchTradingPairs();
-    fetchOrderHistory();
-    fetchPortfolioAnalysis();
-    fetchTradingSettings();
+    loadTradingSettings();
+    loadOrderTypes(orderForm.symbol);
+    loadOrders();
+    loadOpenOrders();
+    if (settings.test_mode_enabled) {
+      loadTestPortfolio();
+      loadTestOrders();
+    }
   }, []);
 
-  useEffect(() => {
-    if (selectedPair) {
-      fetchMarketData(selectedPair);
-      calculateOrderSummary();
-    }
-  }, [selectedPair, amount, limitPrice, orderType, side]);
-
-  // Filter trading pairs based on search term
-  useEffect(() => {
-    if (searchTerm.trim() === '') {
-      setFilteredPairs(tradingPairs);
-    } else {
-      const filtered = tradingPairs.filter(pair =>
-        pair.display_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        pair.id?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        pair.base_currency?.toLowerCase().includes(searchTerm.toLowerCase())
-      );
-      setFilteredPairs(filtered);
-    }
-  }, [searchTerm, tradingPairs]);
-
-  const fetchTradingSettings = async () => {
+  const loadOrderTypes = async (symbol) => {
     try {
-      const response = await axios.get('/api/trading/settings');
+      const url = symbol
+        ? `/api/trading/order-types?symbol=${encodeURIComponent(symbol)}`
+        : '/api/trading/order-types';
+      const response = await axios.get(url);
       if (response.data.success) {
-        setTradingSettings(response.data.settings);
+        const newTypes = response.data.order_types;
+        setOrderTypes(newTypes);
+        // If current order type is not in the new list, reset to first available
+        const currentTypeValid = newTypes.some(t => t.value === orderForm.type);
+        if (!currentTypeValid && newTypes.length > 0) {
+          setOrderForm(prev => ({
+            ...prev,
+            type: newTypes[0].value,
+            price: '',
+            stopPrice: '',
+            stopLimitPrice: ''
+          }));
+          setQuoteQuantity('');
+        }
       }
     } catch (error) {
-      console.error('Failed to fetch trading settings:', error);
+      console.error('Failed to load order types:', error);
+      // Fallback to basic order types if API fails
+      setOrderTypes([
+        { value: 'MARKET', label: 'Market Order', description: 'Execute immediately at current market price' },
+        { value: 'LIMIT', label: 'Limit Order', description: 'Execute at specified price or better' }
+      ]);
     }
   };
 
-  const fetchTradingPairs = async () => {
-    try {
-      // Don't make API calls if we're logging out
-      if (isLoggingOut || window.globalIsLoggingOut) {
-        return;
+  // Re-fetch order types whenever the trading pair changes
+  useEffect(() => {
+    if (orderForm.symbol) {
+      loadOrderTypes(orderForm.symbol);
+    }
+  }, [orderForm.symbol]);
+
+  useEffect(() => {
+    const price = determinePriceForCalculations();
+
+    // If the user last edited the USD/Quote amount, price changes should adjust the Base quantity
+    if (lastEditedRef.current === 'quote') {
+      const currentQuote = parseFloat(quoteQuantity);
+      if (!Number.isNaN(currentQuote) && price > 0) {
+        const newBase = currentQuote / price;
+        const formatted = formatNumberString(newBase, 8);
+        if (formatted !== orderForm.quantity) {
+          setOrderForm(prev => ({ ...prev, quantity: formatted }));
+        }
       }
-
-      const response = await axios.get('/api/trading-pairs');
-      setTradingPairs(response.data.pairs || []);
-      setFilteredPairs(response.data.pairs || []);
-    } catch (error) {
-      console.error('Failed to fetch trading pairs:', error);
     }
-  };
-
-  const fetchMarketData = async (symbol) => {
-    try {
-      // Don't make API calls if we're logging out
-      if (isLoggingOut || window.globalIsLoggingOut) {
-        return;
+    // Otherwise, price changes adjust the USD/Quote amount (Default or after editing Base)
+    else {
+      const currentBase = parseFloat(orderForm.quantity);
+      if (!Number.isNaN(currentBase) && price > 0) {
+        const newQuote = currentBase * price;
+        const formatted = formatNumberString(newQuote, 2);
+        if (formatted !== quoteQuantity) {
+          setQuoteQuantity(formatted);
+        }
       }
-
-      const response = await axios.get(`/api/market-data/${symbol}`);
-      setMarketData(response.data);
-    } catch (error) {
-      console.error('Failed to fetch market data:', error);
     }
-  };
+  }, [
+    orderForm.type,
+    orderForm.price,
+    orderForm.stopPrice,
+    orderForm.stopLimitPrice,
+    orderForm.symbol,
+    currentPrices.base,
+  ]);
 
-  const fetchOrderHistory = async () => {
+  useEffect(() => {
+    if (activeTab === 'history') {
+      loadOpenOrders();
+      loadOrders();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab]);
+
+  const loadTradingSettings = async () => {
     try {
-      // Don't make API calls if we're logging out
-      if (isLoggingOut || window.globalIsLoggingOut) {
-        return;
-      }
-
-      const response = await axios.get('/api/orders');
-      setOrderHistory(response.data.orders || []);
-    } catch (error) {
-      console.error('Failed to fetch order history:', error);
-    }
-  };
-
-  const fetchPortfolioAnalysis = async () => {
-    try {
-      // Don't make API calls if we're logging out
-      if (isLoggingOut || window.globalIsLoggingOut) {
-        return;
-      }
-
-      const response = await axios.get('/api/portfolio-analysis');
-      setPortfolioAnalysis(response.data);
-    } catch (error) {
-      console.error('Failed to fetch portfolio analysis:', error);
-    }
-  };
-
-  const calculateOrderSummary = () => {
-    if (!amount || !marketData) return;
-
-    const amountValue = parseFloat(amount) || 0;
-    const price = orderType === 'LIMIT' ? parseFloat(limitPrice) || marketData.price : marketData.price;
-
-    // Calculate subtotal
-    const calculatedSubtotal = amountValue;
-    setSubtotal(calculatedSubtotal);
-
-    // Calculate fee (simplified - Coinbase typically charges 0.5% for market orders)
-    const feeRate = orderType === 'MARKET' ? 0.005 : 0.0035;
-    const calculatedFee = calculatedSubtotal * feeRate;
-    setFee(calculatedFee);
-
-    // Calculate total
-    const calculatedTotal = calculatedSubtotal + calculatedFee;
-    setTotal(calculatedTotal);
-  };
-
-  const handlePercentageClick = (percentage) => {
-    if (!availableBalance) return;
-
-    let newAmount;
-    if (side === 'BUY') {
-      // For buy orders, use USD balance
-      newAmount = (availableBalance * percentage) / 100;
-    } else {
-      // For sell orders, use crypto balance
-      newAmount = (availableBalance * percentage) / 100;
-    }
-
-    setAmount(newAmount.toFixed(6));
-  };
-
-  const proceedWithOrderPlacement = async (twofaToken = null) => {
-    setLoading(true);
-    try {
-      const orderData = {
-        side,
-        symbol: selectedPair.replace('-', ''),
-        type: orderType,
-        quantity: parseFloat(amount),
-        timeInForce,
-        ...(orderType === 'LIMIT' && { price: parseFloat(limitPrice) }),
-        ...(orderType === 'STOP_LOSS' && { stopPrice: parseFloat(stopPrice) }),
-        ...(orderType === 'STOP_LOSS_LIMIT' && { price: parseFloat(limitPrice), stopPrice: parseFloat(stopPrice) }),
-        ...(orderType === 'TAKE_PROFIT' && { stopPrice: parseFloat(stopPrice) }),
-        ...(orderType === 'TAKE_PROFIT_LIMIT' && { price: parseFloat(limitPrice), stopPrice: parseFloat(stopPrice) }),
-        ...(orderType === 'LIMIT_MAKER' && { price: parseFloat(limitPrice) }),
-        ...(orderType === 'OCO' && {
-          price: parseFloat(limitPrice), // The price for the limit order
-          stopPrice: parseFloat(stopPrice), // The price that triggers the stop order
-          stopLimitPrice: parseFloat(stopLimitPrice) // The price for the limit order that is created when the stop is triggered
-        }),
-        ...(twofaToken && { twofa_token: twofaToken })
-      };
-
-      const endpoint = tradingSettings?.test_mode_enabled ? '/api/trading/test-order' : '/api/trading/place-order';
-      const response = await axios.post(endpoint, orderData);
-
+      const response = await axios.get('/api/trading/settings', { withCredentials: true });
       if (response.data.success) {
-        alert(`Order placed successfully! Order ID: ${response.data.order?.id || response.data.binance_order_id}`);
-        setAmount('');
-        setLimitPrice('');
-        setStopPrice('');
-        setStopLimitPrice('');
-        fetchOrderHistory();
+        setSettings(response.data.settings);
+      }
+    } catch (error) {
+      console.error('Failed to load trading settings:', error);
+      setFeedbackModal({
+        isVisible: true,
+        message: 'Failed to load trading settings: ' + (error.response?.data?.error || error.message),
+        type: 'error'
+      });
+    }
+  };
+
+  const normalizeOrderRecord = (order) => {
+    if (!order || typeof order !== 'object') {
+      return order;
+    }
+
+    const safeFloat = (value) =>
+      value === null || value === undefined || value === ''
+        ? null
+        : parseFloat(value);
+
+    const createdAt =
+      order.created_at ||
+      order.time ||
+      (order.updateTime ? new Date(order.updateTime).toISOString() : null);
+
+    const quantity =
+      safeFloat(order.quantity) ??
+      safeFloat(order.origQty) ??
+      safeFloat(order.executedQty) ??
+      0;
+
+    const executedQuantity =
+      safeFloat(order.filled_quantity) ??
+      safeFloat(order.executed_qty) ??
+      safeFloat(order.executedQty) ??
+      quantity;
+
+    const cumulativeQuote =
+      safeFloat(order.cumulative_quote_qty) ??
+      safeFloat(order.cummulativeQuoteQty) ??
+      safeFloat(order.quoteQuantity);
+
+    const price =
+      safeFloat(order.price) ??
+      safeFloat(order.limit_price) ??
+      (executedQuantity && cumulativeQuote
+        ? cumulativeQuote / Math.max(executedQuantity, 1e-9)
+        : null);
+
+    const filledPrice =
+      safeFloat(order.filled_price) ??
+      safeFloat(order.avg_fill_price) ??
+      (executedQuantity && cumulativeQuote
+        ? cumulativeQuote / Math.max(executedQuantity, 1e-9)
+        : price) ??
+      0;
+
+    return {
+      ...order,
+      id:
+        order.id ??
+        order.binance_order_id ??
+        order.orderId ??
+        `order-${order.symbol}-${createdAt || Date.now()}`,
+      order_type:
+        order.order_type || order.type || order.orderType || order.order_type_desc || 'UNKNOWN',
+      quantity: quantity ?? 0,
+      price: price ?? 0,
+      filled_quantity: executedQuantity ?? 0,
+      filled_price: filledPrice ?? 0,
+      created_at: createdAt,
+      status: order.status || 'UNKNOWN',
+    };
+  };
+
+  const loadOrders = async () => {
+    try {
+      const response = await axios.get('/api/trading/real-orders?limit=all', { withCredentials: true });
+      if (response.data.success) {
+        const normalized = (response.data.orders || []).map(normalizeOrderRecord);
+        setOrders(normalized);
+      }
+    } catch (error) {
+      console.error('Failed to load orders:', error);
+    }
+  };
+
+  const loadTestPortfolio = async () => {
+    try {
+      const response = await axios.get('/api/trading/portfolio', { withCredentials: true });
+      if (response.data.success) {
+        setPortfolio(response.data.holdings);
+      }
+    } catch (error) {
+      console.error('Failed to load test portfolio:', error);
+    }
+  };
+
+  const loadTestOrders = async () => {
+    try {
+      const response = await axios.get('/api/trading/test-orders?limit=100', { withCredentials: true });
+      if (response.data.success) {
+        const normalized = (response.data.orders || []).map(normalizeOrderRecord);
+        setTestOrders(normalized);
+      }
+    } catch (error) {
+      console.error('Failed to load test orders:', error);
+    }
+  };
+
+  const backfillTestPortfolio = async () => {
+    try {
+      setLoading(true);
+      const response = await axios.post('/api/trading/portfolio/backfill', {}, { withCredentials: true });
+      if (response.data.success) {
+        setFeedbackModal({
+          isVisible: true,
+          message: response.data.message || 'Test portfolio backfilled successfully from your real holdings!',
+          type: 'success'
+        });
+        await loadTestPortfolio(); // Reload portfolio after backfill
       } else {
-        alert(`Failed to place order: ${response.data.error}`);
+        setFeedbackModal({
+          isVisible: true,
+          message: response.data.error || 'Failed to backfill test portfolio',
+          type: 'error'
+        });
       }
     } catch (error) {
-      console.error('Place order error:', error);
-      alert('Failed to place order. Please try again.');
+      console.error('Failed to backfill test portfolio:', error);
+      setFeedbackModal({
+        isVisible: true,
+        message: 'Failed to backfill test portfolio: ' + (error.response?.data?.error || error.message),
+        type: 'error'
+      });
     } finally {
       setLoading(false);
-      setIs2faModalVisible(false);
     }
   };
 
-  const handleVerify2faAndPlaceOrder = async (code) => {
+  // Load current market prices
+  const loadCurrentPrices = async (targetSymbol) => {
+    const symbolToFetch = targetSymbol || orderForm.symbol;
     try {
-      const response = await axios.post('/api/trading/2fa/verify', { code });
-      if (response.data.success) {
-        await proceedWithOrderPlacement(response.data.token);
-      } else {
-        throw new Error(response.data.error || 'Invalid 2FA code');
+      const response = await axios.get(`/api/trading/price/${symbolToFetch}`, { withCredentials: true });
+      if (response.data.success && response.data.prices) {
+        const expectedBase = symbolToFetch.endsWith('USD') && !symbolToFetch.endsWith('USDT')
+          ? symbolToFetch.slice(0, -3)
+          : symbolToFetch.replace('USDT', '');
+        if (response.data.prices.base_asset === expectedBase) {
+          setCurrentPrices(response.data.prices);
+        }
       }
     } catch (error) {
-      console.error('2FA verification failed:', error);
-      throw new Error(error.response?.data?.error || '2FA verification failed');
+      console.error('Failed to load current prices:', error);
     }
   };
 
-  const handlePlaceOrder = async (e) => {
-    e.preventDefault();
-    if (!amount || !selectedPair) return;
+  // Load user balances for selected trading pair
+  const loadBalances = async (targetSymbol) => {
+    const symbolToFetch = targetSymbol || orderForm.symbol;
+    try {
+      const response = await axios.get(`/api/trading/balances/${symbolToFetch}`, { withCredentials: true });
+      if (response.data.success && response.data.balances) {
+        const expectedBase = symbolToFetch.endsWith('USD') && !symbolToFetch.endsWith('USDT')
+          ? symbolToFetch.slice(0, -3)
+          : symbolToFetch.replace('USDT', '');
+        if (response.data.balances.base_asset === expectedBase) {
+          setBalances(response.data.balances);
+        }
+      }
+    } catch (error) {
+      console.error('Failed to load balances:', error);
+    }
+  };
 
-    const orderDetails = {
-      side,
-      symbol: selectedPair.replace('-', ''),
-      type: orderType,
-      quantity: parseFloat(amount),
-      price: orderType.includes('LIMIT') || orderType === 'OCO' ? parseFloat(limitPrice) : null,
-      stopPrice: orderType.includes('STOP') || orderType === 'OCO' ? parseFloat(stopPrice) : null,
-      stopLimitPrice: orderType === 'OCO' ? parseFloat(stopLimitPrice) : null,
-      estimatedValue: total,
-    };
+  // Load open orders
+  const loadOpenOrders = async () => {
+    try {
+      const response = await axios.get('/api/trading/open-orders', { withCredentials: true });
+      if (response.data.success) {
+        setOpenOrders(response.data.orders || []);
+      }
+    } catch (error) {
+      console.error('Failed to load open orders:', error);
+    }
+  };
 
-    if (tradingSettings?.require_2fa) {
-      setOrderDetailsFor2fa(orderDetails);
-      setIs2faModalVisible(true);
+  const openCancelModalForOrder = (order) => {
+    setCancelModal({
+      isVisible: true,
+      order,
+      error: '',
+      loading: false,
+    });
+  };
+
+  const closeCancelModal = () => {
+    setCancelModal({ isVisible: false, order: null, error: '', loading: false });
+  };
+
+  const handleCancelOrderConfirm = async (twoFactorCode) => {
+    if (!cancelModal.order) {
+      return;
+    }
+
+    const orderId = cancelModal.order.order_id || cancelModal.order.orderId || cancelModal.order.id;
+    const symbol = cancelModal.order.symbol;
+
+    if (!orderId || !symbol) {
+      setCancelModal((prev) => ({
+        ...prev,
+        error: 'Unable to determine order reference for cancellation.',
+      }));
+      return;
+    }
+
+    setCancelModal((prev) => ({ ...prev, loading: true, error: '' }));
+
+    try {
+      const response = await axios.post(
+        `/api/cancel-order/${orderId}`,
+        {
+          symbol,
+          two_factor_code: twoFactorCode,
+        },
+        { withCredentials: true }
+      );
+
+      if (response.data.success) {
+        setCancelModal({ isVisible: false, order: null, error: '', loading: false });
+        setOpenOrders((prev) =>
+          prev.filter((order) => (order.order_id || order.orderId || order.id) !== orderId)
+        );
+        await loadOpenOrders();
+        await loadOrders();
+        setFeedbackModal({
+          isVisible: true,
+          message: `Order ${symbol} #${orderId} cancelled successfully`,
+          type: 'success',
+        });
+      } else {
+        setCancelModal((prev) => ({
+          ...prev,
+          loading: false,
+          error: response.data.error || 'Failed to cancel order.',
+        }));
+      }
+    } catch (error) {
+      const message = error.response?.data?.error || error.message || 'Failed to cancel order.';
+      setCancelModal((prev) => ({ ...prev, loading: false, error: message }));
+    }
+  };
+
+  // Load actual trading fees from Binance.US
+  const loadTradingFees = async (targetSymbol) => {
+    const symbolToFetch = targetSymbol || orderForm.symbol;
+    try {
+      const response = await axios.get(`/api/trading/fees/${symbolToFetch}`, { withCredentials: true });
+      if (response.data.success && response.data.fees) {
+        return response.data.fees;
+      }
+      return { makerRate: 0.0, takerRate: 0.0002 };
+    } catch (error) {
+      console.error('Failed to load trading fees:', error);
+      return { makerRate: 0.0, takerRate: 0.0002 };
+    }
+  };
+
+  // Calculate estimated fee using actual Binance.US rates
+  const calculateFee = async () => {
+    const qty = parseFloat(orderForm.quantity) || 0;
+    const price = determinePriceForCalculations();
+
+    if (qty === 0 || price === 0) {
+      setEstimatedFee({ amount: 0, usd: 0, asset: quoteAsset, rate: 0 });
+      return;
+    }
+
+    const fees = await loadTradingFees(orderForm.symbol);
+    const isTakerExpected = ['MARKET', 'STOP_LOSS', 'STOP_LOSS_LIMIT', 'TAKE_PROFIT'].includes(orderForm.type);
+    const feeRate = isTakerExpected ? (fees.takerRate || 0.004) : (fees.makerRate || 0.001);
+
+    if (orderForm.side === 'BUY') {
+      const feeInAsset = qty * feeRate;
+      const feeInUSD = feeInAsset * price;
+
+      setEstimatedFee({
+        amount: feeInAsset,
+        usd: feeInUSD,
+        asset: baseAsset,
+        rate: feeRate
+      });
     } else {
-      await proceedWithOrderPlacement();
+      const total = qty * price;
+      const feeInQuote = total * feeRate;
+
+      setEstimatedFee({
+        amount: feeInQuote,
+        usd: feeInQuote,
+        asset: quoteAsset,
+        rate: feeRate
+      });
     }
   };
 
-  const handleCancelOrder = async (orderId) => {
-    if (!confirm('Are you sure you want to cancel this order?')) return;
+  // Instant fee calculation using cached rates (no API call)
+  const calculateFeeInstant = () => {
+    const qty = parseFloat(orderForm.quantity) || 0;
+    const price = determinePriceForCalculations();
 
-    try {
-      const response = await axios.post(`/api/cancel-order/${orderId}`);
-      if (response.data.success) {
-        alert('Order cancelled successfully!');
-        fetchOrderHistory(); // Refresh order history
+    if (qty === 0 || price === 0) {
+      setEstimatedFee({ amount: 0, usd: 0, asset: quoteAsset, rate: 0 });
+      return;
+    }
+
+    const isTakerExpected = ['MARKET', 'STOP_LOSS', 'STOP_LOSS_LIMIT', 'TAKE_PROFIT'].includes(orderForm.type);
+    const defaultRate = isTakerExpected ? 0.004 : 0.001;
+    const feeRate = estimatedFee.rate !== undefined && estimatedFee.rate > 0 ? estimatedFee.rate : defaultRate;
+
+    if (orderForm.side === 'BUY') {
+      const feeInAsset = qty * feeRate;
+      const feeInUSD = feeInAsset * price;
+
+      setEstimatedFee({
+        amount: feeInAsset,
+        usd: feeInUSD,
+        asset: baseAsset,
+        rate: feeRate
+      });
+    } else {
+      const total = qty * price;
+      const feeInQuote = total * feeRate;
+
+      setEstimatedFee({
+        amount: feeInQuote,
+        usd: feeInQuote,
+        asset: quoteAsset,
+        rate: feeRate
+      });
+    }
+  };
+
+  // Handle balance slider change
+  const handleBalanceSliderChange = (percentage) => {
+    setBalancePercentage(percentage);
+
+    if (orderForm.side === 'SELL') {
+      lastEditedRef.current = 'base';
+      const availableQty = balances.base;
+      const selectedQty = (availableQty * percentage) / 100;
+      handleBaseQuantityChange(selectedQty > 0 ? selectedQty.toFixed(8) : '');
+    } else {
+      lastEditedRef.current = 'quote';
+      const availableQuote = balances.quote;
+      const price = determinePriceForCalculations();
+      if (price > 0 && availableQuote > 0) {
+        const availableQty = (availableQuote * 0.999) / price;
+        const selectedQty = (availableQty * percentage) / 100;
+        const formattedBase = selectedQty > 0 ? selectedQty.toFixed(8) : '';
+        setOrderForm((prev) => ({ ...prev, quantity: formattedBase }));
+        setQuoteQuantity(formatNumberString((availableQuote * percentage) / 100, 2));
       } else {
-        alert('Failed to cancel order: ' + response.data.error);
+        setOrderForm((prev) => ({ ...prev, quantity: '' }));
+        setQuoteQuantity('');
+      }
+    }
+  };
+
+  // Update prices and balances when symbol changes
+  useEffect(() => {
+    const currentSymbol = orderForm.symbol;
+    loadCurrentPrices(currentSymbol);
+    loadBalances(currentSymbol);
+    loadOpenOrders();
+    calculateFee();
+
+    const priceInterval = setInterval(() => {
+      loadCurrentPrices(currentSymbol);
+    }, 5000);
+    const balanceInterval = setInterval(() => {
+      loadBalances(currentSymbol);
+    }, 5000);
+    const feeInterval = setInterval(calculateFee, 10000);
+
+    return () => {
+      clearInterval(priceInterval);
+      clearInterval(balanceInterval);
+      clearInterval(feeInterval);
+    };
+  }, [orderForm.symbol]);
+
+  // Instant recalculation when quantity/price/type/side changes (no API call)
+  useEffect(() => {
+    calculateFeeInstant();
+  }, [
+    orderForm.quantity,
+    orderForm.price,
+    orderForm.stopPrice,
+    orderForm.stopLimitPrice,
+    orderForm.type,
+    orderForm.side,
+    currentPrices
+  ]);
+
+  const handleSettingsUpdate = async (updates) => {
+    try {
+      const response = await axios.post('/api/trading/settings', updates, { withCredentials: true });
+      if (response.data.success) {
+        setSettings(response.data.settings);
+        setFeedbackModal({
+          isVisible: true,
+          message: 'Trading settings updated successfully!',
+          type: 'success'
+        });
       }
     } catch (error) {
-      console.error('Cancel order error:', error);
-      alert('Failed to cancel order. Please try again.');
+      setFeedbackModal({
+        isVisible: true,
+        message: 'Failed to update settings: ' + (error.response?.data?.error || error.message),
+        type: 'error'
+      });
     }
   };
 
-  const getOrderTypeDescription = (type) => {
-    switch (type) {
-      case 'MARKET': return 'Market: Execute immediately at current price';
-      case 'LIMIT': return 'Limit: Execute at specified price or better';
-      case 'STOP': return 'Stop: Trigger when price reaches stop level';
-      case 'OCO': return 'One-Cancels-Other: Two orders, one cancels the other';
-      default: return type;
+  const handleOrderSubmit = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+
+    try {
+      if (!orderForm.quantity || parseFloat(orderForm.quantity) <= 0) {
+        setFeedbackModal({
+          isVisible: true,
+          message: 'Please enter a valid quantity greater than 0.',
+          type: 'error'
+        });
+        setLoading(false);
+        return;
+      }
+
+      if (['LIMIT', 'STOP_LOSS_LIMIT', 'TAKE_PROFIT_LIMIT', 'LIMIT_MAKER'].includes(orderForm.type)) {
+        if (!orderForm.price || parseFloat(orderForm.price) <= 0) {
+          setFeedbackModal({
+            isVisible: true,
+            message: 'Price is required for limit orders.',
+            type: 'error'
+          });
+          setLoading(false);
+          return;
+        }
+      }
+
+      if (['STOP_LOSS', 'STOP_LOSS_LIMIT', 'TAKE_PROFIT', 'TAKE_PROFIT_LIMIT'].includes(orderForm.type)) {
+        if (!orderForm.stopPrice || parseFloat(orderForm.stopPrice) <= 0) {
+          setFeedbackModal({
+            isVisible: true,
+            message: 'Stop price is required for stop orders.',
+            type: 'error'
+          });
+          setLoading(false);
+          return;
+        }
+      }
+
+      if (orderForm.type === 'OCO') {
+        if (!orderForm.price || parseFloat(orderForm.price) <= 0) {
+          setFeedbackModal({
+            isVisible: true,
+            message: 'Limit price is required for OCO orders.',
+            type: 'error'
+          });
+          setLoading(false);
+          return;
+        }
+        if (!orderForm.stopPrice || parseFloat(orderForm.stopPrice) <= 0) {
+          setFeedbackModal({
+            isVisible: true,
+            message: 'Stop price is required for OCO orders.',
+            type: 'error'
+          });
+          setLoading(false);
+          return;
+        }
+        if (!orderForm.stopLimitPrice || parseFloat(orderForm.stopLimitPrice) <= 0) {
+          setFeedbackModal({
+            isVisible: true,
+            message: 'Stop limit price is required for OCO orders.',
+            type: 'error'
+          });
+          setLoading(false);
+          return;
+        }
+      }
+
+      if (['STOP_LOSS_LIMIT', 'TAKE_PROFIT_LIMIT'].includes(orderForm.type)) {
+        const limit = parseFloat(orderForm.price || 0);
+        const stop = parseFloat(orderForm.stopPrice || 0);
+        if (!Number.isFinite(limit) || !Number.isFinite(stop)) {
+          setFeedbackModal({
+            isVisible: true,
+            message: 'Please enter both limit and stop prices for stop-limit orders.',
+            type: 'error'
+          });
+          setLoading(false);
+          return;
+        }
+        if (orderForm.side === 'BUY' && limit < stop) {
+          setFeedbackModal({
+            isVisible: true,
+            message: 'For buy stop-limit orders, the limit price must be greater than or equal to the stop price so the order does not execute immediately.',
+            type: 'error'
+          });
+          setLoading(false);
+          return;
+        }
+        if (orderForm.side === 'SELL' && limit > stop) {
+          setFeedbackModal({
+            isVisible: true,
+            message: 'For sell stop-limit orders, the limit price must be less than or equal to the stop price so the order does not execute immediately.',
+            type: 'error'
+          });
+          setLoading(false);
+          return;
+        }
+      }
+
+      if (settings.require_2fa && settings.totp_enabled) {
+        setTwoFactorModal({
+          isVisible: true,
+          orderData: buildOrderConfirmationDetails()
+        });
+        setLoading(false);
+        return;
+      }
+
+      await submitOrder(null);
+    } catch (error) {
+      console.error('Order submission error:', error);
+      if (error.response?.data?.requires_2fa) {
+        setTwoFactorModal({
+          isVisible: true,
+          orderData: buildOrderConfirmationDetails()
+        });
+      } else {
+        const errorMessage = error.response?.data?.error || error.message || 'Failed to place order. Please check your connection and try again.';
+        setFeedbackModal({
+          isVisible: true,
+          message: errorMessage,
+          type: 'error'
+        });
+      }
+    } finally {
+      setLoading(false);
     }
   };
 
-  const getOrderStatusColor = (status) => {
-    switch (status) {
-      case 'OPEN': return '#f56565';
-      case 'FILLED': return '#48bb78';
-      case 'CANCELLED': return '#e53e3e';
-      case 'EXPIRED': return '#ed8936';
-      default: return '#718096';
+  const handle2FAVerify = async (code) => {
+    try {
+      // Verify 2FA code
+      const verifyResponse = await axios.post('/api/trading/2fa/verify', { code }, { withCredentials: true });
+
+      if (!verifyResponse.data.success) {
+        throw new Error(verifyResponse.data.error || 'Verification failed');
+      }
+
+      const token = verifyResponse.data.token;
+
+      // Close 2FA modal
+      setTwoFactorModal({ isVisible: false, orderData: null });
+      setLoading(true);
+
+      // Submit order with token
+      await submitOrder(token);
+
+    } catch (error) {
+      throw error; // Re-throw to be caught by modal
     }
   };
 
-  const formatCurrency = (value) => {
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: 'USD',
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2
-    }).format(value);
+  const handleDustSuccess = (_data, toAsset) => {
+    setFeedbackModal({
+      isVisible: true,
+      message: `Small balances successfully converted to ${toAsset}! Your portfolio chart will update shortly.`,
+      type: 'success',
+    });
   };
 
-  const getButtonText = () => {
-    const baseCurrency = selectedPair.split('-')[0];
-    return `${side} ${baseCurrency}`;
+  const submitOrder = async (twofaToken) => {
+    try {
+      setLoading(true);
+
+      // Choose endpoint based on order type and test mode
+      let endpoint;
+      if (orderForm.type === 'OCO') {
+        endpoint = settings.test_mode_enabled ? '/api/trading/test-oco-order' : '/api/trading/oco-order';
+      } else {
+        endpoint = settings.test_mode_enabled ? '/api/trading/test-order' : '/api/trading/place-order';
+      }
+
+      // Add 2FA token to request if present
+      const orderData = { ...orderForm };
+      if (twofaToken) {
+        orderData.twofa_token = twofaToken;
+      }
+
+      // Only send the amount the user actually intends to prioritize
+      if (lastEditedRef.current === 'quote' && quoteQuantity) {
+        orderData.quoteQuantity = quoteQuantity;
+        orderData.quote_quantity = quoteQuantity;
+        orderData.quote_amount = quoteQuantity;
+        // Delete base quantity so the backend calculates it perfectly using the limit/market price
+        delete orderData.quantity;
+      } else if (orderData.quantity) {
+        // User prioritized base quantity, do not send quote amount to avoid confusion
+        delete orderData.quoteQuantity;
+        delete orderData.quote_quantity;
+        delete orderData.quote_amount;
+      }
+
+      const response = await axios.post(endpoint, orderData, { withCredentials: true });
+
+      if (response.data.success) {
+        const successMessage = settings.test_mode_enabled
+          ? `Test order placed successfully!\n\n${orderForm.side} ${orderForm.quantity} ${orderForm.symbol.replace('USDT', '')} validated with Binance.US and simulated.\n\nYour test portfolio has been updated.`
+          : `Real order placed successfully!\n\nOrder ID: ${response.data.binance_order_id}\n\nYour portfolio will be updated once the order is filled.`;
+
+        setFeedbackModal({
+          isVisible: true,
+          message: successMessage,
+          type: 'success'
+        });
+
+        // Clear form
+        setOrderForm({
+          ...orderForm,
+          quantity: '',
+          price: '',
+          stopPrice: '',
+          stopLimitPrice: ''
+        });
+
+        // Reload orders and portfolio
+        await loadOrders();
+        if (settings.test_mode_enabled) {
+          await loadTestPortfolio();
+          await loadTestOrders();
+        }
+
+        // Reload balances
+        await loadBalances();
+      } else {
+        // Check if 2FA is required
+        if (response.data.requires_2fa) {
+          setTwoFactorModal({
+            isVisible: true,
+            orderData: buildOrderConfirmationDetails()
+          });
+          return;
+        }
+
+        setFeedbackModal({
+          isVisible: true,
+          message: response.data.error || 'Order failed. Please try again.',
+          type: 'error'
+        });
+      }
+    } catch (error) {
+      console.error('Order submission error:', error);
+      if (error.response?.data?.requires_2fa) {
+        setTwoFactorModal({
+          isVisible: true,
+          orderData: buildOrderConfirmationDetails()
+        });
+      } else {
+        const errorMessage = error.response?.data?.error || error.message || 'Failed to place order. Please check your connection and try again.';
+        setFeedbackModal({
+          isVisible: true,
+          message: errorMessage,
+          type: 'error'
+        });
+      }
+    } finally {
+      setLoading(false);
+    }
   };
+
+  const formatNumber = (num, decimals = 2) => {
+    if (num === null || num === undefined) return 'N/A';
+    return parseFloat(num).toFixed(decimals);
+  };
+
+  const formatDate = (dateString) => {
+    if (!dateString) return 'N/A';
+    return new Date(dateString).toLocaleString();
+  };
+
+  const isCanceledStatus = (status) => {
+    if (!status) return false;
+    const normalized = String(status).toUpperCase();
+    return normalized.includes('CANCEL');
+  };
+
+  const currentPairOrders = orderForm.symbol === 'ALL'
+    ? orders
+    : orders.filter((order) => (order.symbol || '').toUpperCase() === (orderForm.symbol || '').toUpperCase());
+
+  const filteredOrders = showCanceledOrders
+    ? currentPairOrders
+    : currentPairOrders.filter((order) => !isCanceledStatus(order.status));
+
+  const filteredOpenOrders = orderForm.symbol === 'ALL'
+    ? openOrders
+    : openOrders.filter((order) => (order.symbol || '').toUpperCase() === (orderForm.symbol || '').toUpperCase());
 
   return (
-    <div className="trading-page-container">
+    <div className="trading-container" style={{ minHeight: '100vh', padding: '20px', color: 'white' }}>
       {/* API Key Required Modal */}
       <ApiKeyRequiredModal
         show={showApiKeyModal}
         onClose={() => setShowApiKeyModal(false)}
-        isLightMode={isLightMode}
+        isLightMode={false}
       />
       {/* Trade Permission Modal */}
       <TradePermissionModal
         show={showPermissionModal}
         onClose={() => setShowPermissionModal(false)}
         pageName="trading"
-        isLightMode={isLightMode}
+        isLightMode={false}
       />
+      <div className="trading-header">
+        <div className="trading-header-left">
+          <h1 style={{ fontSize: '2rem', margin: 0 }}>🔄 Trading Center</h1>
 
-      <h1 className="trading-title">Advanced Trading Dashboard</h1>
-      <TwoFactorModal
-        isVisible={is2faModalVisible}
-        onClose={() => setIs2faModalVisible(false)}
-        onVerify={handleVerify2faAndPlaceOrder}
-        orderDetails={orderDetailsFor2fa}
-      />
-      {/* Chart placed full-width above grid */}
-      <div className="panel" style={{ gridColumn: '1 / -1' }}>
-        <TradingChart
-          symbol={selectedPair.replace('-', '').includes('USD') ? selectedPair.replace('-', '') : selectedPair.replace('-', '') + 'USDT'}
-          onSymbolChange={(newSymbol) => {
-            // Convert back to hyphenated format (e.g., "BTCUSDT" -> "BTC-USDT" or "BTCUSD" -> "BTC-USD")
-            let baseAsset;
-            let quoteAsset;
-            if (newSymbol.endsWith('USDT')) {
-              baseAsset = newSymbol.replace('USDT', '');
-              quoteAsset = 'USDT';
-            } else if (newSymbol.endsWith('USD')) {
-              baseAsset = newSymbol.replace('USD', '');
-              quoteAsset = 'USD';
-            } else {
-              baseAsset = newSymbol;
-              quoteAsset = 'USDT';
-            }
-            setSelectedPair(`${baseAsset}-${quoteAsset}`);
-          }}
-          tradingPairs={filteredPairs}
-        />
-      </div>
-      <div className="trading-grid">
-        <div className="panel market-data-panel">
-          <h3 className="panel-title">Market Data</h3>
-          {marketData && (
-            <div className="market-stats">
-              <div className="stat"><div className="stat-label">Price</div><div className="stat-value">{formatCurrency(marketData.price)}</div></div>
-              <div className="stat"><div className="stat-label">24h Change</div><div className={`stat-value ${marketData.change_24h >= 0 ? 'pos' : 'neg'}`}>{marketData.change_24h >= 0 ? '+' : ''}{marketData.change_24h.toFixed(2)}%</div></div>
-              <div className="stat"><div className="stat-label">24h High</div><div className="stat-sub">{formatCurrency(marketData.high_24h)}</div></div>
-              <div className="stat"><div className="stat-label">24h Low</div><div className="stat-sub">{formatCurrency(marketData.low_24h)}</div></div>
+          {/* Test Mode Banner */}
+          {settings.test_mode_enabled && (
+            <div className="test-mode-banner">
+              <span className="test-badge">TEST MODE</span>
+              <span className="test-description">
+                Orders are validated with Binance.US but not executed. Safe for testing strategies.
+              </span>
             </div>
           )}
         </div>
-        <div className="panel order-panel">
-          <h3 className="panel-title">Place Order</h3>
-          <form onSubmit={handlePlaceOrder} className="order-form">
-            <div className="form-group">
-              <label className="field-label">Order Type</label>
-              <select value={orderType} onChange={(e) => setOrderType(e.target.value)} className="select-input">
-                <option value="MARKET">Market</option><option value="LIMIT">Limit</option><option value="STOP">Stop</option><option value="OCO">OCO (One-Cancels-Other)</option>
-              </select>
-              <div className="help-text">{getOrderTypeDescription(orderType)}</div>
-            </div>
-            <div className="form-group">
-              <label className="field-label">Side</label>
-              <div className="side-toggle">
-                <button type="button" onClick={() => setSide('BUY')} className={`side-btn buy ${side === 'BUY' ? 'active' : ''}`}>BUY</button>
-                <button type="button" onClick={() => setSide('SELL')} className={`side-btn sell ${side === 'SELL' ? 'active' : ''}`}>SELL</button>
-              </div>
-            </div>
-            <div className="form-group">
-              <label className="field-label">Amount (USD)</label>
-              <input type="number" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="Enter amount" className="text-input" step="0.01" min="0" />
-              <div className="percent-buttons">
-                <button type="button" onClick={() => handlePercentageClick(25)}>25%</button>
-                <button type="button" onClick={() => handlePercentageClick(50)}>50%</button>
-                <button type="button" onClick={() => handlePercentageClick(100)}>Max</button>
-              </div>
-            </div>
-            {(orderType === 'LIMIT' || orderType === 'OCO') && (
-              <div className="form-group"><label className="field-label">Limit Price (USD)</label><input type="number" value={limitPrice} onChange={(e) => setLimitPrice(e.target.value)} className="text-input" step="0.01" min="0" /></div>
-            )}
-            {(orderType === 'STOP' || orderType === 'OCO') && (
-              <>
-                <div className="form-group"><label className="field-label">Stop Price (USD)</label><input type="number" value={stopPrice} onChange={(e) => setStopPrice(e.target.value)} className="text-input" step="0.01" min="0" /></div>
-                <div className="form-group"><label className="field-label">Stop Limit Price (USD)</label><input type="number" value={stopLimitPrice} onChange={(e) => setStopLimitPrice(e.target.value)} className="text-input" step="0.01" min="0" /></div>
-              </>
-            )}
-            <div className="form-group"><label className="field-label">Execution</label><select value={execution} onChange={(e) => setExecution(e.target.value)} className="select-input"><option value="allow_taker">Allow Taker</option><option value="post_only">Post Only</option></select></div>
-            <div className="form-group"><label className="field-label">Time in Force</label><select value={timeInForce} onChange={(e) => setTimeInForce(e.target.value)} className="select-input"><option value="good_til_canceled">Good Til Canceled</option><option value="good_til_time">Good Til Time</option><option value="immediate_or_cancel">Immediate or Cancel</option></select></div>
-            <div className="order-summary">
-              <div className="row"><span>Subtotal:</span><span>{formatCurrency(subtotal)}</span></div>
-              <div className="row"><span>Fee:</span><span>{formatCurrency(fee)}</span></div>
-              <div className="row total"><span>Total:</span><span>{formatCurrency(total)}</span></div>
-            </div>
-            <button type="submit" disabled={loading || !amount} className={`place-order-btn ${side.toLowerCase()} ${loading ? 'loading' : ''}`}>{loading ? 'Placing Order...' : getButtonText()}</button>
-          </form>
+
+        {/* Convert Dust button + Test Mode toggle */}
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: '16px' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px', paddingTop: '4px' }}>
+            <button
+              id="convert-dust-btn"
+              onClick={() => setDustModal({ isVisible: true })}
+              style={{
+                padding: '8px 16px',
+                borderRadius: '8px',
+                border: '1px solid rgba(102,126,234,0.5)',
+                background: 'rgba(102,126,234,0.12)',
+                color: 'var(--text-primary, #c7d2fe)',
+                fontSize: '0.85rem',
+                fontWeight: 600,
+                cursor: 'pointer',
+                whiteSpace: 'nowrap',
+                transition: 'all 0.2s',
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = 'rgba(102,126,234,0.22)';
+                e.currentTarget.style.borderColor = '#667eea';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = 'rgba(102,126,234,0.12)';
+                e.currentTarget.style.borderColor = 'rgba(102,126,234,0.5)';
+              }}
+              title="Convert small balances (dust) to BNB, BTC, ETH, or USDT"
+            >
+              🪙 Convert Dust
+            </button>
+          </div>
+
+          <div className="trading-mode-toggle">
+            <span className="trading-mode-caption">Test Mode</span>
+            <label className="toggle-switch">
+              <input
+                type="checkbox"
+                checked={settings.test_mode_enabled}
+                onChange={(e) => handleSettingsUpdate({ test_mode_enabled: e.target.checked })}
+              />
+              <span className="toggle-slider"></span>
+            </label>
+            <span className="trading-mode-status">{settings.test_mode_enabled ? 'Enabled' : 'Disabled'}</span>
+          </div>
         </div>
       </div>
-      <div className="panel order-history-panel">
-        <h3 className="panel-title">Order History</h3>
-        <div className="table-scroll">
-          <table className="history-table">
-            <thead><tr><th>Order ID</th><th>Product</th><th>Side</th><th>Type</th><th>Status</th><th>Filled Size</th><th>Fees</th><th>Created</th><th>Actions</th></tr></thead>
-            <tbody>{orderHistory.length === 0 ? (<tr><td colSpan="9" className="empty">No orders found</td></tr>) : orderHistory.map(order => (
-              <tr key={order.order_id}>
-                <td className="mono small">{order.order_id}</td>
-                <td>{order.product_id}</td>
-                <td className={`side ${order.side.toLowerCase()}`}>{order.side}</td>
-                <td>{order.order_type}</td>
-                <td className={`status ${order.status.toLowerCase()}`}>{order.status}</td>
-                <td>{order.filled_size || '0'}</td>
-                <td>{formatCurrency(order.fees || 0)}</td>
-                <td className="small">{new Date(order.created_time).toLocaleDateString()}</td>
-                <td>{order.status === 'OPEN' && (<button onClick={() => handleCancelOrder(order.order_id)} className="small-btn cancel-btn">Cancel</button>)}</td>
-              </tr>))}
-            </tbody>
-          </table>
-        </div>
+
+      {/* Order Feedback Modal */}
+      <OrderFeedbackModal
+        isVisible={feedbackModal.isVisible}
+        onClose={() => setFeedbackModal({ ...feedbackModal, isVisible: false })}
+        message={feedbackModal.message}
+        type={feedbackModal.type}
+      />
+
+      {/* Two Factor Authentication Modal */}
+      <TwoFactorModal
+        isVisible={twoFactorModal.isVisible}
+        onClose={() => setTwoFactorModal({ isVisible: false, orderData: null })}
+        onVerify={handle2FAVerify}
+        orderDetails={twoFactorModal.orderData}
+      />
+
+      {/* Convert Dust Modal */}
+      <ConvertDustModal
+        isVisible={dustModal.isVisible}
+        onClose={() => setDustModal({ isVisible: false })}
+        require2fa={settings.require_2fa}
+        onSuccess={handleDustSuccess}
+      />
+
+      <CancelOrderModal
+        isVisible={cancelModal.isVisible}
+        onClose={closeCancelModal}
+        onConfirm={handleCancelOrderConfirm}
+        order={cancelModal.order}
+        loading={cancelModal.loading}
+        error={cancelModal.error}
+      />
+
+      {/* Tab Navigation */}
+      <div className="trading-tabs">
+        <button
+          className={`tab-button ${activeTab === 'order' ? 'active' : ''}`}
+          onClick={() => setActiveTab('order')}
+        >
+          📝 Place Order
+        </button>
+        <button
+          className={`tab-button ${activeTab === 'history' ? 'active' : ''}`}
+          onClick={() => setActiveTab('history')}
+        >
+          📜 Order History
+        </button>
+        {settings.test_mode_enabled && (
+          <button
+            className={`tab-button ${activeTab === 'portfolio' ? 'active' : ''}`}
+            onClick={() => setActiveTab('portfolio')}
+          >
+            💼 Test Portfolio
+          </button>
+        )}
       </div>
-      {portfolioAnalysis && (<div className="panel"><AIAnalysis data={portfolioAnalysis} /></div>)}
+
+      {/* Tab Content */}
+      <div className="trading-content">
+
+        {/* ORDER FORM TAB */}
+        {activeTab === 'order' && (
+          <div className="order-form-container">
+            {/* Trading Chart - Full Width */}
+            <TradingChart
+              key={orderForm.symbol}
+              symbol={orderForm.symbol}
+              onSymbolChange={handleSymbolChange}
+              tradingPairs={tradingPairs.map(pair => ({ id: pair, display_name: pair }))}
+            />
+
+            <form onSubmit={handleOrderSubmit} className="order-form">
+              <div className="order-grid">
+                {/* LEFT COLUMN: Balances, Withdraw, Order Side */}
+                <div className="order-grid-item">
+                  <div className="balance-display-section info-card">
+                    <div className="balance-item">
+                      <span className="balance-label">{baseAsset} Available:</span>
+                      <span className="balance-value">{balances.base.toFixed(8)}</span>
+                    </div>
+                    <div className="balance-item">
+                      <span className="balance-label">{quoteAsset} Available:</span>
+                      <span className="balance-value">{balances.quote.toFixed(2)}</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* RIGHT COLUMN: Current Price */}
+                <div className="order-grid-item">
+                  <div className="price-display-section info-card">
+                    <div className="price-item">
+                      <span className="price-label">{baseAsset} Price:</span>
+                      <span className="price-value">
+                        {currentPrices.base > 0
+                          ? (currentPrices.base >= 100
+                              ? `$${currentPrices.base.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                              : currentPrices.base >= 1
+                                ? `$${currentPrices.base.toFixed(4)}`
+                                : `$${currentPrices.base.toFixed(6)}`)
+                          : '—'}
+                      </span>
+                    </div>
+                    <div className="price-item">
+                      <span className="price-label">{quoteAsset} Price:</span>
+                      <span className="price-value">$1.00</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Withdraw/Deposit buttons removed */}
+
+                {/* LEFT: Order Side */}
+                <div className="order-grid-item">
+                  <div className="form-group">
+                    <label>Order Side</label>
+                    <div className="side-toggle">
+                      <button
+                        type="button"
+                        className={`side-button buy ${orderForm.side === 'BUY' ? 'active' : ''}`}
+                        onClick={() => {
+                          setOrderForm({ ...orderForm, side: 'BUY' });
+                          setBalancePercentage(0);
+                        }}
+                      >
+                        📈 BUY
+                      </button>
+                      <button
+                        type="button"
+                        className={`side-button sell ${orderForm.side === 'SELL' ? 'active' : ''}`}
+                        onClick={() => {
+                          setOrderForm({ ...orderForm, side: 'SELL' });
+                          setBalancePercentage(0);
+                        }}
+                      >
+                        📉 SELL
+                      </button>
+                    </div>
+                  </div>
+                </div>
+                <div className="order-grid-item">
+                  <div className="form-group">
+                    <label htmlFor="type">Order Type</label>
+                    <select
+                      id="type"
+                      value={orderForm.type}
+                      onChange={(e) => {
+                        setOrderForm({
+                          ...orderForm,
+                          type: e.target.value,
+                          price: '',
+                          stopPrice: '',
+                          stopLimitPrice: ''
+                        });
+                        setQuoteQuantity('');
+                      }}
+                      className="form-control"
+                    >
+                      {orderTypes.map(type => (
+                        <option key={type.value} value={type.value}>
+                          {type.label}
+                        </option>
+                      ))}
+                    </select>
+                    <small className="form-help">
+                      {orderTypes.find(t => t.value === orderForm.type)?.description}
+                    </small>
+                  </div>
+                </div>
+
+                <div className="order-grid-item">
+                  <div className="form-group">
+                    <label htmlFor="quantity">{baseAsset} Quantity</label>
+                    <input
+                      id="quantity"
+                      type="text"
+                      inputMode="decimal"
+                      value={orderForm.quantity}
+                      onChange={(e) => handleBaseQuantityChange(e.target.value)}
+                      placeholder={`Enter ${baseAsset} quantity`}
+                      className="form-control"
+                      required
+                      autoComplete="off"
+                    />
+                  </div>
+                </div>
+                <div className="order-grid-item">
+                  <div className="form-group">
+                    <label htmlFor="quoteQuantity">{quoteAsset} Quantity</label>
+                    <input
+                      id="quoteQuantity"
+                      type="text"
+                      inputMode="decimal"
+                      value={quoteQuantity}
+                      onChange={(e) => handleQuoteQuantityChange(e.target.value)}
+                      placeholder={`Enter ${quoteAsset} amount`}
+                      className="form-control"
+                      autoComplete="off"
+                    />
+                  </div>
+                </div>
+
+                <div className="order-grid-item">
+                  <div className="form-group">
+                    <label>
+                      Use Balance: {balancePercentage}%
+                      {balancePercentage > 0 && (
+                        <span className="balance-amount">
+                          {' '}({orderForm.side === 'SELL'
+                            ? `${((balances.base * balancePercentage) / 100).toFixed(8)} ${baseAsset}`
+                            : `${((balances.quote * balancePercentage) / 100).toFixed(2)} ${quoteAsset}`})
+                        </span>
+                      )}
+                    </label>
+                    <input
+                      type="range"
+                      min="0"
+                      max="100"
+                      step="1"
+                      value={balancePercentage}
+                      onChange={(e) => handleBalanceSliderChange(parseInt(e.target.value, 10))}
+                      className="balance-slider"
+                    />
+                    <div className="slider-labels">
+                      <span>0%</span>
+                      <span>25%</span>
+                      <span>50%</span>
+                      <span>75%</span>
+                      <span>100%</span>
+                    </div>
+                  </div>
+                </div>
+                <div className="order-grid-item order-grid-item--placeholder" aria-hidden="true" />
+
+                {renderOrderTypeFields()}
+
+                {(parseFloat(orderForm.quantity) > 0 || parseFloat(quoteQuantity) > 0) && (
+                  <div className="order-grid-item grid-span-2">
+                    <div className="fee-display-section">
+                      <div className="fee-row">
+                        <span className="fee-label">Estimated Fee:</span>
+                        <span className="fee-value">
+                          {estimatedFee.amount > 0
+                            ? `${estimatedFee.amount < 0.001 ? estimatedFee.amount.toFixed(6) : estimatedFee.amount.toFixed(4)} ${estimatedFee.asset || (orderForm.side === 'BUY' ? baseAsset : quoteAsset)}`
+                            : `0.0000 ${orderForm.side === 'BUY' ? baseAsset : quoteAsset}`}
+                        </span>
+                      </div>
+                      <div className="fee-row">
+                        <span className="fee-label">Fee in USD:</span>
+                        <span className="fee-value">
+                          {estimatedFee.usd > 0
+                            ? (estimatedFee.usd < 0.01 ? `$${estimatedFee.usd.toFixed(4)}` : `$${estimatedFee.usd.toFixed(2)}`)
+                            : '$0.00'}
+                        </span>
+                      </div>
+                      <div className="fee-total">
+                        <span className="fee-label">{orderForm.side === 'BUY' ? 'Total Cost:' : 'You Receive:'}:</span>
+                        <span className="fee-value">
+                          {orderForm.side === 'BUY'
+                            ? `$${((parseFloat(orderForm.quantity || 0) * determinePriceForCalculations()) + (estimatedFee.usd || 0)).toFixed(2)}`
+                            : `${Math.max(0, (parseFloat(orderForm.quantity || 0) * determinePriceForCalculations()) - (estimatedFee.usd || 0)).toFixed(2)} ${quoteAsset}`
+                          }
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                <div className="order-grid-item grid-span-2 order-submit-cell">
+                  <button
+                    type="submit"
+                    className={`submit-button ${orderForm.side.toLowerCase()}`}
+                    disabled={loading}
+                  >
+                    {loading ? (
+                      <span>⏳ Processing...</span>
+                    ) : (
+                      <span>
+                        {settings.test_mode_enabled ? '🧪 Place Test Order' : '⚡ Place Real Order'}
+                      </span>
+                    )}
+                  </button>
+                </div>
+
+                {!settings.test_mode_enabled && (
+                  <div className="order-grid-item grid-span-2">
+                    <div className="real-order-warning">
+                      ⚠️ <strong>WARNING:</strong> You are in REAL TRADING MODE. This will place an actual order on Binance.US.
+                    </div>
+                  </div>
+                )}
+              </div>
+            </form>
+          </div>
+        )}
+
+        {/* ORDER HISTORY TAB */}
+        {activeTab === 'history' && (
+          <div className="order-history-container">
+
+            {/* Open Orders Section */}
+            <div className="open-orders-section">
+              <div className="order-history-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                  <h2>Open Orders</h2>
+                </div>
+                <div className="history-pair-filter" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <label htmlFor="history-pair-dropdown" style={{ color: '#94a3b8', fontSize: '0.9rem' }}>Filter Pair:</label>
+                  <select
+                    id="history-pair-dropdown"
+                    value={orderForm.symbol}
+                    onChange={(e) => handleSymbolChange(e.target.value)}
+                    style={{
+                      padding: '6px 12px',
+                      fontSize: '0.95rem',
+                      borderRadius: '6px',
+                      background: '#1e293b',
+                      color: '#fff',
+                      border: '1px solid #475569',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    <option value="ALL">All Trading Pairs</option>
+                    {tradingPairs.map(pair => (
+                      <option key={pair} value={pair}>
+                        {pair}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {filteredOpenOrders.length === 0 ? (
+                <div className="empty-state">
+                  <p>No open orders {orderForm.symbol !== 'ALL' ? `for ${orderForm.symbol}` : ''}</p>
+                </div>
+              ) : (
+                <div className="table-container trading-table">
+                  <div className="order-table-scroll">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Date</th>
+                          <th>Symbol</th>
+                          <th>Side</th>
+                          <th>Type</th>
+                          <th>Quantity</th>
+                          <th>Price</th>
+                          <th>Filled</th>
+                          <th>Status</th>
+                          <th>Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {filteredOpenOrders.map((order, idx) => (
+                          <tr key={order.id || idx} className="open-order-row">
+                            <td>{formatDate(order.created_at || order.time)}</td>
+                            <td className="symbol-cell">{order.symbol}</td>
+                            <td>
+                              <span className={`badge badge-${order.side.toLowerCase()}`}>
+                                {order.side}
+                              </span>
+                            </td>
+                            <td>{order.order_type || order.type}</td>
+                            <td>{formatNumber(order.quantity || order.origQty, 8)}</td>
+                            <td>{order.price ? `$${formatNumber(order.price)}` : '-'}</td>
+                            <td>{formatNumber(order.filled_quantity || order.executedQty || 0, 8)}</td>
+                            <td>
+                              <span className="badge badge-open">
+                                {order.status}
+                              </span>
+                            </td>
+                            <td>
+                              <button
+                                className="btn btn-danger cancel-order-btn"
+                                onClick={() => openCancelModalForOrder(order)}
+                                disabled={
+                                  cancelModal.loading &&
+                                  cancelModal.order &&
+                                  (cancelModal.order.order_id || cancelModal.order.orderId || cancelModal.order.id) ===
+                                  (order.order_id || order.orderId || order.id)
+                                }
+                              >
+                                Cancel Order
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* All Orders History */}
+            <div className="order-history-header" style={{ marginTop: '2rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
+              <h2>Order History {orderForm.symbol !== 'ALL' && <span style={{ fontSize: '0.9rem', color: '#60a5fa', fontWeight: 'normal' }}>({orderForm.symbol})</span>}</h2>
+              <div className="order-history-toggle">
+                <label className="toggle-switch">
+                  <input
+                    type="checkbox"
+                    checked={showCanceledOrders}
+                    onChange={(e) => setShowCanceledOrders(e.target.checked)}
+                  />
+                  <span className="toggle-slider"></span>
+                </label>
+                <span className="order-history-toggle-label">Show Canceled Orders</span>
+              </div>
+            </div>
+
+            {filteredOrders.length === 0 ? (
+              <div className="empty-state">
+                <p>{orders.length === 0 ? 'No orders yet. Place your first order to get started!' : `No orders found for ${orderForm.symbol !== 'ALL' ? orderForm.symbol : 'this filter'}.`}</p>
+              </div>
+            ) : (
+              <div className="table-container trading-table">
+                <div className="order-table-scroll">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Date</th>
+                        <th>Symbol</th>
+                        <th>Side</th>
+                        <th>Type</th>
+                        <th>Quantity</th>
+                        <th>Price</th>
+                        <th>Filled</th>
+                        <th>Status</th>
+                        <th>Total</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredOrders.map((order) => (
+                        <tr key={order.id}>
+                          <td>{formatDate(order.created_at)}</td>
+                          <td className="symbol-cell">{order.symbol}</td>
+                          <td>
+                            <span className={`badge badge-${order.side.toLowerCase()}`}>
+                              {order.side}
+                            </span>
+                          </td>
+                          <td>{order.order_type}</td>
+                          <td>{formatNumber(order.quantity, 8)}</td>
+                          <td>{order.price ? `$${formatNumber(order.price)}` : '-'}</td>
+                          <td>{formatNumber(order.filled_quantity || 0, 8)}</td>
+                          <td>
+                            <span className={`badge badge-${(order.status || 'unknown').toLowerCase()}`}>
+                              {order.status}
+                            </span>
+                          </td>
+                          <td>
+                            ${formatNumber((order.filled_quantity || order.quantity || 0) * (order.filled_price || order.price || 0))}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* TEST PORTFOLIO TAB */}
+        {activeTab === 'portfolio' && settings.test_mode_enabled && (
+          <div className="portfolio-container">
+            <div className="portfolio-header">
+              <h2>Test Portfolio</h2>
+              <div className="portfolio-actions">
+                <button onClick={backfillTestPortfolio} className="backfill-button" disabled={loading}>
+                  🔄 Backfill from Real Portfolio
+                </button>
+                <button onClick={() => { loadTestPortfolio(); loadTestOrders(); }} className="refresh-button">
+                  🔄 Refresh
+                </button>
+              </div>
+            </div>
+
+            {/* Portfolio Balances Section */}
+            <div className="portfolio-section">
+              <h3>💰 Current Holdings</h3>
+              {portfolio.length === 0 ? (
+                <div className="empty-state">
+                  <p>No holdings yet. Use the "Backfill from Real Portfolio" button above to initialize with your actual coins, or buy some assets to see them here!</p>
+                </div>
+              ) : (
+                <div className="table-container portfolio-table">
+                  <table style={{ width: '100%' }}>
+                    <thead>
+                      <tr>
+                        <th>Symbol</th>
+                        <th>Quantity</th>
+                        <th>Avg Price</th>
+                        <th>Current Price</th>
+                        <th>Cost Basis</th>
+                        <th>Current Value</th>
+                        <th>P&L</th>
+                        <th>P&L %</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {portfolio.map((holding) => (
+                        <tr key={holding.symbol}>
+                          <td><strong>{holding.symbol}</strong></td>
+                          <td>{formatNumber(holding.quantity, 8)}</td>
+                          <td>${formatNumber(holding.average_price)}</td>
+                          <td>${formatNumber(holding.current_price)}</td>
+                          <td>${formatNumber(holding.cost_basis)}</td>
+                          <td>${formatNumber(holding.current_value)}</td>
+                          <td className={holding.pnl >= 0 ? 'status-positive' : 'status-negative'}>
+                            {holding.pnl >= 0 ? '📈' : '📉'} ${formatNumber(Math.abs(holding.pnl))}
+                          </td>
+                          <td className={holding.pnl >= 0 ? 'status-positive' : 'status-negative'}>
+                            {formatNumber(holding.pnl_pct, 2)}%
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot>
+                      <tr className="summary-row">
+                        <td colSpan="4"><strong>Total Portfolio</strong></td>
+                        <td><strong>${formatNumber(portfolio.reduce((sum, h) => sum + h.cost_basis, 0))}</strong></td>
+                        <td><strong>${formatNumber(portfolio.reduce((sum, h) => sum + h.current_value, 0))}</strong></td>
+                        <td className={portfolio.reduce((sum, h) => sum + h.pnl, 0) >= 0 ? 'status-positive' : 'status-negative'}>
+                          <strong>${formatNumber(Math.abs(portfolio.reduce((sum, h) => sum + h.pnl, 0)))}</strong>
+                        </td>
+                        <td></td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              )}
+            </div>
+
+            {/* Test Orders History Section */}
+            <div className="portfolio-section">
+              <h3>📜 Test Order History</h3>
+              {testOrders.length === 0 ? (
+                <div className="empty-state">
+                  <p>No test orders yet. Place a test order to see it here!</p>
+                </div>
+              ) : (
+                <div className="table-container portfolio-table">
+                  <table style={{ width: '100%' }}>
+                    <thead>
+                      <tr>
+                        <th>Date</th>
+                        <th>Symbol</th>
+                        <th>Side</th>
+                        <th>Type</th>
+                        <th>Quantity</th>
+                        <th>Price</th>
+                        <th>Fill Price</th>
+                        <th>Status</th>
+                        <th>Notes</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {testOrders.map((order) => (
+                        <tr key={order.id}>
+                          <td>{new Date(order.created_at).toLocaleString()}</td>
+                          <td><strong>{order.symbol}</strong></td>
+                          <td className={order.side === 'BUY' ? 'status-positive' : 'status-negative'}>
+                            {order.side === 'BUY' ? '📈' : '📉'} {order.side}
+                          </td>
+                          <td>{order.type}</td>
+                          <td>{formatNumber(order.quantity, 8)}</td>
+                          <td>{order.price ? '$' + formatNumber(order.price) : '-'}</td>
+                          <td>{order.simulated_fill_price ? '$' + formatNumber(order.simulated_fill_price) : '-'}</td>
+                          <td>
+                            <span className={`status-badge ${order.status.toLowerCase()}`}>
+                              {order.status}
+                            </span>
+                          </td>
+                          <td className="notes-cell">{order.notes || '-'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
-}
+};
+
+export default Trading;

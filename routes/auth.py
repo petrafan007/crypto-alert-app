@@ -236,61 +236,7 @@ def onboarding():
         return jsonify({"success": True, "message": "Credentials saved successfully."})
     return jsonify({"error": "GET method not supported"}), 405
 
-@auth_bp.route("/register", methods=["POST"])
-def register_user():
-    """Register a new user"""
-    data = request.get_json()
-    if not data:
-        return jsonify({"error": "No input data provided"}), 400
-        
-    username = data.get("username")
-    password = data.get("password")
-    
-    if not username or not password:
-        return jsonify({"error": "Username and password are required"}), 400
-        
-    username = username.strip()
-    
-    # Check if user already exists
-    if User.query.filter_by(username=username).first():
-        return jsonify({"error": "Username already exists"}), 409
-        
-    try:
-        # Calculate new user_id (max + 1)
-        # We need a lock or atomic operation ideally, but for low volume this is acceptable
-        max_id = db.session.query(db.func.max(User.id)).scalar() or 0
-        new_user_id = max_id + 1
-        
-        # Create new user
-        new_user = User(id=new_user_id, username=username)
-        new_user.set_password(password)
-        new_user.last_login = datetime.utcnow()
-        
-        db.session.add(new_user)
-        db.session.flush() # Ensure user exists before adding credential
-        
-        # Create empty credential row
-        new_cred = Credential(user_id=new_user.id, username=username)
-        db.session.add(new_cred)
-        
-        db.session.commit()
-        
-        # Log the user in
-        login_user(new_user)
-        
-        logger.info(f"New user registered: {username} (ID: {new_user_id})")
-        
-        return jsonify({
-            "success": True, 
-            "message": "User registered successfully", 
-            "user_id": new_user_id,
-            "redirect": "/settings?new_user=true"
-        })
-        
-    except Exception as e:
-        db.session.rollback()
-        logger.error(f"Error registering user: {e}")
-        return jsonify({"error": f"Registration failed: {str(e)}"}), 500
+
 
 @auth_bp.route('/api/get-credentials')
 @login_required

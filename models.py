@@ -29,7 +29,6 @@ class Coin(db.Model):
     sentiment_last_updated = db.Column(db.DateTime, nullable=True)
     note = db.Column(db.Text, default="")
     volatility_pct = db.Column(db.Float, nullable=True)
-    volatility_pct = db.Column(db.Float, nullable=True)
     last_volatility_alert_time = db.Column(db.DateTime, nullable=True)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     

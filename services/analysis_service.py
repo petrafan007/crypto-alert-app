@@ -18,7 +18,8 @@ def get_ai_cache(user_id, cache_key, cache_type):
         if cache:
             # Check if cache is still valid
             if cache.expires_at > datetime.datetime.utcnow():
-                return json.loads(cache.result_json)
+                cache_content = getattr(cache, 'data', None) or getattr(cache, 'result_json', None)
+                return json.loads(cache_content) if cache_content else None
             else:
                 db.session.delete(cache)
                 db.session.commit()
@@ -37,15 +38,16 @@ def set_ai_cache(user_id, cache_key, cache_type, result, duration_hours=24):
             cache_type=cache_type
         ).first()
         
+        serialized = json.dumps(result)
         if cache:
-            cache.result_json = json.dumps(result)
+            cache.data = serialized
             cache.expires_at = expires_at
         else:
             cache = AICache(
                 user_id=user_id,
                 cache_key=cache_key,
                 cache_type=cache_type,
-                result_json=json.dumps(result),
+                data=serialized,
                 expires_at=expires_at
             )
             db.session.add(cache)

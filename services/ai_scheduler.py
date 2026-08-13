@@ -1,8 +1,9 @@
 from datetime import datetime, timedelta
 import pytz
-from flask import current_app
-from models import db, User, AIAnalysisSchedule, UserSetting
-from services.helpers import get_user_ai_settings
+from core.extensions import db
+from credentials import User, UserSetting
+from models import AIAnalysisSchedule
+from services.analysis_service import get_user_ai_settings
 import logging
 
 logger = logging.getLogger(__name__)

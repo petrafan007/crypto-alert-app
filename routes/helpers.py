@@ -287,16 +287,27 @@ def calculate_auto_alert(symbol, alert_type, avg_entry=None):
 def ensure_background_jobs():
     """Ensure background jobs are running"""
     global background_threads
-    
-    # Filter out any dead threads
-    background_threads = [t for t in background_threads if t.is_alive()]
-    
-    # If no background threads are running, start them
-    if not background_threads:
-        logger.warning("No background threads found, starting them now...")
-        start_background_jobs(app)
-    
-    return len(background_threads) > 0
+    try:
+        from services.scheduler_tasks import start_background_jobs
+        from flask import current_app
+        
+        thread_list = list(background_threads.values()) if isinstance(background_threads, dict) else list(background_threads)
+        alive_threads = [t for t in thread_list if hasattr(t, 'is_alive') and t.is_alive()]
+        
+        if not alive_threads:
+            logger.warning("No background threads found, starting them now...")
+            app_obj = current_app._get_current_object() if current_app else None
+            if app_obj:
+                started = start_background_jobs(app_obj)
+                if isinstance(started, dict):
+                    background_threads = started
+                elif isinstance(started, list):
+                    background_threads = {f"thread_{i}": t for i, t in enumerate(started)}
+                return True
+        return len(alive_threads) > 0
+    except Exception as e:
+        logger.error(f"Error in ensure_background_jobs: {e}")
+        return False
 
 def clear_alert_state(user_id=None):
     """Clear alert_state entries. If user_id is provided, clear only entries for that user.
