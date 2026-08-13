@@ -25,7 +25,7 @@ from log import logger
 from services.helpers import format_eastern_datetime, get_eastern_now, format_eastern_datetime_ampm, get_eastern_datetime, get_eastern_now_iso
 from services.credential_service import get_user_credentials
 from services.analysis_service import (
-    get_ai_cache, set_ai_cache, get_user_ai_settings, is_ai_enabled, get_user_ai_prompts, get_ai_conversations, log_ai_communication, 
+    get_ai_cache, set_ai_cache, get_user_ai_settings, is_ai_enabled, get_user_ai_prompts, log_ai_communication, 
     calculate_symbol_snapshot, calculate_volatility
 )
 from services.portfolio_service import get_comprehensive_crypto_data_for_user
@@ -1521,7 +1521,7 @@ def get_ai_conversations(user_id, limit=20, offset=0, search_term=None, include_
     query = AIConversation.query.filter(AIConversation.user_id == user_id)
     
     if not include_hidden:
-        query = query.filter(db.or_(AIConversation.is_hidden == 0, AIConversation.is_hidden == False, AIConversation.is_hidden.is_(None)))
+        query = query.filter(db.or_(AIConversation.is_hidden == 0, AIConversation.is_hidden.is_(None)))
         # Exclude background JSON cache records from the visible sidebar
         query = query.filter(~AIConversation.prompt_type.endswith('_workflow'))
     
@@ -1560,7 +1560,7 @@ def get_ai_conversations_count(user_id, search_term=None, include_hidden=False, 
     query = AIConversation.query.filter(AIConversation.user_id == user_id)
     
     if not include_hidden:
-        query = query.filter(db.or_(AIConversation.is_hidden == 0, AIConversation.is_hidden == False, AIConversation.is_hidden.is_(None)))
+        query = query.filter(db.or_(AIConversation.is_hidden == 0, AIConversation.is_hidden.is_(None)))
         query = query.filter(~AIConversation.prompt_type.endswith('_workflow'))
     
     if prompt_type_filter:
