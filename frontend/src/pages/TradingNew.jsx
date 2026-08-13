@@ -682,11 +682,17 @@ const TradingNew = () => {
   };
 
   // Load current market prices
-  const loadCurrentPrices = async () => {
+  const loadCurrentPrices = async (targetSymbol) => {
+    const symbolToFetch = targetSymbol || orderForm.symbol;
     try {
-      const response = await axios.get(`/api/trading/price/${orderForm.symbol}`, { withCredentials: true });
-      if (response.data.success) {
-        setCurrentPrices(response.data.prices);
+      const response = await axios.get(`/api/trading/price/${symbolToFetch}`, { withCredentials: true });
+      if (response.data.success && response.data.prices) {
+        const expectedBase = symbolToFetch.endsWith('USD') && !symbolToFetch.endsWith('USDT')
+          ? symbolToFetch.slice(0, -3)
+          : symbolToFetch.replace('USDT', '');
+        if (response.data.prices.base_asset === expectedBase) {
+          setCurrentPrices(response.data.prices);
+        }
       }
     } catch (error) {
       console.error('Failed to load current prices:', error);
@@ -694,11 +700,17 @@ const TradingNew = () => {
   };
 
   // Load user balances for selected trading pair
-  const loadBalances = async () => {
+  const loadBalances = async (targetSymbol) => {
+    const symbolToFetch = targetSymbol || orderForm.symbol;
     try {
-      const response = await axios.get(`/api/trading/balances/${orderForm.symbol}`, { withCredentials: true });
-      if (response.data.success) {
-        setBalances(response.data.balances);
+      const response = await axios.get(`/api/trading/balances/${symbolToFetch}`, { withCredentials: true });
+      if (response.data.success && response.data.balances) {
+        const expectedBase = symbolToFetch.endsWith('USD') && !symbolToFetch.endsWith('USDT')
+          ? symbolToFetch.slice(0, -3)
+          : symbolToFetch.replace('USDT', '');
+        if (response.data.balances.base_asset === expectedBase) {
+          setBalances(response.data.balances);
+        }
       }
     } catch (error) {
       console.error('Failed to load balances:', error);
@@ -784,16 +796,17 @@ const TradingNew = () => {
   };
 
   // Load actual trading fees from Binance.US
-  const loadTradingFees = async () => {
+  const loadTradingFees = async (targetSymbol) => {
+    const symbolToFetch = targetSymbol || orderForm.symbol;
     try {
-      const response = await axios.get(`/api/trading/fees/${orderForm.symbol}`, { withCredentials: true });
-      if (response.data.success) {
+      const response = await axios.get(`/api/trading/fees/${symbolToFetch}`, { withCredentials: true });
+      if (response.data.success && response.data.fees) {
         return response.data.fees;
       }
+      return { makerRate: 0.0, takerRate: 0.0002 };
     } catch (error) {
       console.error('Failed to load trading fees:', error);
-      // Fall back to default Binance.US rates: 0.1% maker, 0.4% taker
-      return { makerRate: 0.001, takerRate: 0.004 };
+      return { makerRate: 0.0, takerRate: 0.0002 };
     }
   };
 
@@ -803,45 +816,31 @@ const TradingNew = () => {
     const price = determinePriceForCalculations();
 
     if (qty === 0 || price === 0) {
-      setEstimatedFee({ amount: 0, usd: 0, asset: '', rate: 0 });
+      setEstimatedFee({ amount: 0, usd: 0, asset: quoteAsset, rate: 0 });
       return;
     }
 
-    // Get actual trading fees from Binance.US (cached)
-    const fees = await loadTradingFees();
-
-    // Determine if this would be a maker or taker order
-    // LIMIT orders are typically maker, MARKET orders are taker
-    // For worst-case estimate, use taker rate
-    const feeRate = orderForm.type === 'MARKET' ? fees.takerRate : fees.makerRate;
-
-    // Binance.US charges fees on the asset you RECEIVE
-    // BUY: Fee is on the base asset (BTC, ETH, etc.)
-    // SELL: Fee is on the quote asset (USDT, USD)
+    const fees = await loadTradingFees(orderForm.symbol);
+    const feeRate = orderForm.type === 'MARKET' ? (fees.takerRate ?? 0.0002) : (fees.makerRate ?? 0.0);
 
     if (orderForm.side === 'BUY') {
-      // When buying BTC with USDT, fee is charged in BTC
-      // Fee = quantity * fee_rate (NOT price * quantity * fee_rate)
-      const feeAsset = orderForm.symbol.replace('USDT', '').replace('USD', '');
       const feeInAsset = qty * feeRate;
       const feeInUSD = feeInAsset * price;
 
       setEstimatedFee({
         amount: feeInAsset,
         usd: feeInUSD,
-        asset: feeAsset,
+        asset: baseAsset,
         rate: feeRate
       });
     } else {
-      // When selling BTC for USDT, fee is charged in USDT
-      // Fee = (quantity * price) * fee_rate
       const total = qty * price;
-      const feeInUSDT = total * feeRate;
+      const feeInQuote = total * feeRate;
 
       setEstimatedFee({
-        amount: feeInUSDT,
-        usd: feeInUSDT,
-        asset: 'USDT',
+        amount: feeInQuote,
+        usd: feeInQuote,
+        asset: quoteAsset,
         rate: feeRate
       });
     }
@@ -853,33 +852,30 @@ const TradingNew = () => {
     const price = determinePriceForCalculations();
 
     if (qty === 0 || price === 0) {
-      setEstimatedFee({ amount: 0, usd: 0, asset: '', rate: 0 });
+      setEstimatedFee({ amount: 0, usd: 0, asset: quoteAsset, rate: 0 });
       return;
     }
 
-    // Use existing fee rate from state, or default to Binance.US rates
-    // Market orders = taker (0.4%), Limit orders = maker (0.1%)
-    const feeRate = estimatedFee.rate || (orderForm.type === 'MARKET' ? 0.004 : 0.001);
+    const feeRate = estimatedFee.rate !== undefined ? estimatedFee.rate : (orderForm.type === 'MARKET' ? 0.0002 : 0.0);
 
     if (orderForm.side === 'BUY') {
-      const feeAsset = orderForm.symbol.replace('USDT', '').replace('USD', '');
       const feeInAsset = qty * feeRate;
       const feeInUSD = feeInAsset * price;
 
       setEstimatedFee({
         amount: feeInAsset,
         usd: feeInUSD,
-        asset: feeAsset,
+        asset: baseAsset,
         rate: feeRate
       });
     } else {
       const total = qty * price;
-      const feeInUSDT = total * feeRate;
+      const feeInQuote = total * feeRate;
 
       setEstimatedFee({
-        amount: feeInUSDT,
-        usd: feeInUSDT,
-        asset: 'USDT',
+        amount: feeInQuote,
+        usd: feeInQuote,
+        asset: quoteAsset,
         rate: feeRate
       });
     }
@@ -889,44 +885,47 @@ const TradingNew = () => {
   const handleBalanceSliderChange = (percentage) => {
     setBalancePercentage(percentage);
 
-    // Calculate quantity based on percentage of available balance
     if (orderForm.side === 'SELL') {
-      // Selling: use base asset balance
       lastEditedRef.current = 'base';
       const availableQty = balances.base;
       const selectedQty = (availableQty * percentage) / 100;
-      handleBaseQuantityChange(selectedQty.toFixed(8));
+      handleBaseQuantityChange(selectedQty > 0 ? selectedQty.toFixed(8) : '');
     } else {
-      // Buying: calculate how much we can buy with quote asset balance
       lastEditedRef.current = 'quote';
       const availableQuote = balances.quote;
       const price = determinePriceForCalculations();
-      if (price > 0) {
-        // Use a 0.1% buffer to avoid rounding issues with fees
+      if (price > 0 && availableQuote > 0) {
         const availableQty = (availableQuote * 0.999) / price;
         const selectedQty = (availableQty * percentage) / 100;
-
-        // Update both fields
-        const formattedBase = selectedQty.toFixed(8);
+        const formattedBase = selectedQty > 0 ? selectedQty.toFixed(8) : '';
         setOrderForm((prev) => ({ ...prev, quantity: formattedBase }));
         setQuoteQuantity(formatNumberString((availableQuote * percentage) / 100, 2));
+      } else {
+        setOrderForm((prev) => ({ ...prev, quantity: '' }));
+        setQuoteQuantity('');
       }
     }
   };
 
   // Update prices and balances when symbol changes
   useEffect(() => {
-    loadCurrentPrices();
-    loadBalances();
+    const currentSymbol = orderForm.symbol;
+    loadCurrentPrices(currentSymbol);
+    loadBalances(currentSymbol);
     loadOpenOrders();
-    calculateFee(); // Load fees on symbol change
+    calculateFee();
 
-    // Set up refresh intervals
-    const priceInterval = setInterval(loadCurrentPrices, 5000); // Prices every 5s
-    const feeInterval = setInterval(calculateFee, 10000); // Fees every 10s
+    const priceInterval = setInterval(() => {
+      loadCurrentPrices(currentSymbol);
+    }, 5000);
+    const balanceInterval = setInterval(() => {
+      loadBalances(currentSymbol);
+    }, 5000);
+    const feeInterval = setInterval(calculateFee, 10000);
 
     return () => {
       clearInterval(priceInterval);
+      clearInterval(balanceInterval);
       clearInterval(feeInterval);
     };
   }, [orderForm.symbol]);
@@ -1419,17 +1418,23 @@ const TradingNew = () => {
                   </div>
                 </div>
 
-                {/* RIGHT COLUMN: Current Price, Deposit */}
+                {/* RIGHT COLUMN: Current Price */}
                 <div className="order-grid-item">
                   <div className="price-display-section info-card">
                     <div className="price-item">
-                      <span className="price-label">{baseAsset}</span>
+                      <span className="price-label">{baseAsset} Price:</span>
                       <span className="price-value">
-                        {currentPrices.base > 0 ? `$${currentPrices.base.toFixed(2)}` : '—'}
+                        {currentPrices.base > 0
+                          ? (currentPrices.base >= 100
+                              ? `$${currentPrices.base.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                              : currentPrices.base >= 1
+                                ? `$${currentPrices.base.toFixed(4)}`
+                                : `$${currentPrices.base.toFixed(6)}`)
+                          : '—'}
                       </span>
                     </div>
                     <div className="price-item">
-                      <span className="price-label">{quoteAsset}</span>
+                      <span className="price-label">{quoteAsset} Price:</span>
                       <span className="price-value">$1.00</span>
                     </div>
                   </div>
@@ -1567,19 +1572,25 @@ const TradingNew = () => {
                       <div className="fee-row">
                         <span className="fee-label">Estimated Fee:</span>
                         <span className="fee-value">
-                          {estimatedFee.amount.toFixed(8)} {estimatedFee.asset}
+                          {estimatedFee.amount < 0.001
+                            ? estimatedFee.amount.toFixed(6)
+                            : estimatedFee.amount.toFixed(4)} {estimatedFee.asset}
                         </span>
                       </div>
                       <div className="fee-row">
                         <span className="fee-label">Fee in USD:</span>
-                        <span className="fee-value">${estimatedFee.usd.toFixed(2)}</span>
+                        <span className="fee-value">
+                          {estimatedFee.usd < 0.01
+                            ? `$${estimatedFee.usd.toFixed(4)}`
+                            : `$${estimatedFee.usd.toFixed(2)}`}
+                        </span>
                       </div>
                       <div className="fee-total">
                         <span className="fee-label">{orderForm.side === 'BUY' ? 'Total Cost:' : 'You Receive:'}:</span>
                         <span className="fee-value">
                           {orderForm.side === 'BUY'
                             ? `$${((parseFloat(orderForm.quantity || 0) * determinePriceForCalculations()) + estimatedFee.usd).toFixed(2)}`
-                            : `${(parseFloat(orderForm.quantity || 0) * determinePriceForCalculations() - estimatedFee.usd).toFixed(2)} ${quoteAsset}`
+                            : `${Math.max(0, (parseFloat(orderForm.quantity || 0) * determinePriceForCalculations()) - estimatedFee.usd).toFixed(2)} ${quoteAsset}`
                           }
                         </span>
                       </div>
