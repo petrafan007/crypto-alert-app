@@ -574,6 +574,30 @@ def _dashboard_staking_response(cred):
     return _respond_with_staking_dashboard_payload(cred)
 
 
+def get_coin_sentiment(symbol, coin=None, current_price=None, username=None):
+    """
+    Returns the AI-generated sentiment for a coin from the coins table.
+    The sentiment is determined by the 3-stage agentic AI workflow and stored in the coins table.
+    Valid values are 'Buy', 'Sell', or 'Hold'.
+    """
+    try:
+        if not coin:
+            # If coin object not provided, try to get it from the database
+            coin = db.session.query(Coin).filter_by(symbol=symbol).first()
+            if not coin:
+                return "Hold"  # Default if coin not found
+        
+        # Return the AI-generated sentiment if available
+        if hasattr(coin, 'sentiment') and coin.sentiment in ['Buy', 'Sell', 'Hold']:
+            return coin.sentiment
+            
+        # Fallback to 'Hold' if no AI sentiment is available yet
+        return "Hold"
+        
+    except Exception as e:
+        logger.error(f"Error in get_coin_sentiment for {symbol}: {e}")
+        return "Hold"  # Default on error
+
 def apply_auto_visibility_rules(coin, current_value):
     """Apply automatic hide/unhide rules based on USD value thresholds."""
     changed = False

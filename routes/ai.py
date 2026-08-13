@@ -333,6 +333,8 @@ def api_portfolio_review_workflow_prompt():
 
 
 # Latest AI result per section — for dashboard rehydration after reload
+ALLOWED_WORKFLOW_TYPES = {'market_analysis', 'risk_assessment', 'portfolio_review'}
+
 @ai_bp.route('/api/ai/workflow-latest', methods=['GET'])
 @login_required
 def api_ai_workflow_latest():

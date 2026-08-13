@@ -34,18 +34,16 @@ def get_user_credentials_dict(username) -> dict:
     }
 
 def is_encryption_available():
-    from credential_security import _MASTER_KEY
-    return _MASTER_KEY is not None
+    from credential_security import is_encryption_available as _is_avail
+    return _is_avail()
 
 def is_persisted_key_available():
-    from credential_security import KEY_FILE_PATH
-    import os
-    return os.path.exists(KEY_FILE_PATH)
+    from credential_security import is_persisted_key_available as _is_persisted
+    return _is_persisted()
 
 def persist_encryption_key(password):
-    from credential_security import save_key_to_file
-    return save_key_to_file(password)
+    from credential_security import persist_encryption_key as _persist
+    return _persist(password)
 
-class EncryptionKeyError(Exception):
-    pass
+from credential_security import EncryptionKeyError
 
