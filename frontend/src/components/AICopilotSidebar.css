@@ -267,7 +267,8 @@
   background: #1a1f23;
 }
 
-.conversation-message.agent {
+.conversation-message.agent,
+.conversation-message.ai {
   border-left: 4px solid #48bb78;
   background: #232b31;
 }
@@ -594,7 +595,8 @@ body.light-mode .conversation-message.user {
   background: var(--bg-secondary);
 }
 
-body.light-mode .conversation-message.agent {
+body.light-mode .conversation-message.agent,
+body.light-mode .conversation-message.ai {
   background: var(--bg-tertiary);
 }
 

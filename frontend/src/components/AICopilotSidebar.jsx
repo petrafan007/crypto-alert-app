@@ -437,32 +437,33 @@ export default function AICopilotSidebar() {
       date: dateStr,
       time: timeStr,
       prompt_type: 'manual',
-      sender: 'agent',
+      sender: 'ai',
       body: '',
       thinking: true,
       conversation_id: conversationId,
       optimistic: true
     };
 
-    // Order with column-reverse: to appear visually as [user above, placeholder below],
-    // we must insert in reverse order so that in reversed flex, user renders after placeholder.
-    // Therefore push: [placeholder, user, ...prev]
-    setConversations(prev => [placeholderMessage, userMessage, ...prev]);
+    // Append to end of conversation list (Oldest -> Newest order)
+    setConversations(prev => [...prev, userMessage, placeholderMessage]);
+    setMessage('');
+    setTimeout(scrollToBottom, 50);
 
     try {
       const response = await axios.post('/api/ai/conversation', {
-        message: message.trim(),
+        message: userMessage.body,
         conversation_id: conversationId
       }, { withCredentials: true });
 
-      const newConversationId = response.data.conversation_id;
+      const newConversationId = response.data?.conversation_id;
+      const aiResponseText = response.data?.response || 'No response generated.';
 
       // Replace placeholder with actual AI response and attach conversation id
       setConversations(prev => prev.map((m) => {
         if (m.id === placeholderId) {
           return {
             ...m,
-            body: response.data.response,
+            body: aiResponseText,
             thinking: false,
             optimistic: false,
             conversation_id: newConversationId
@@ -477,16 +478,15 @@ export default function AICopilotSidebar() {
         }
         return m;
       }));
-      setMessage('');
       setConversationId(newConversationId);
+      setTimeout(scrollToBottom, 50);
     } catch (error) {
       console.error('Error sending message:', error);
       // Show error in placeholder
       setConversations(prev => prev.map(m =>
-        m.id === placeholderId ? { ...m, body: 'Error: Failed to get AI response.', thinking: false, optimistic: false } : m
+        m.id === placeholderId ? { ...m, body: 'Error: Failed to get AI response. Please try again.', thinking: false, optimistic: false } : m
       ));
-      // Clear input so it doesn't feel stuck
-      setMessage('');
+      setTimeout(scrollToBottom, 50);
     } finally {
       setIsLoading(false);
     }
