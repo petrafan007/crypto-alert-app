@@ -1534,6 +1534,67 @@ function Dashboard({ isLightMode }) {
     }
   };
 
+  const renderSentimentCell = (coin, isWatchlist = false) => {
+    const sentiment = coin.sentiment || (isWatchlist ? 'Watch' : 'Hold');
+    const reason = coin.sentiment_reason || '';
+    const lastUpdated = coin.sentiment_last_updated ? `Last Updated: ${formatLocalDateTime(coin.sentiment_last_updated)}` : '';
+    
+    let tooltip = '';
+    if (reason && lastUpdated) {
+      tooltip = `${reason}\n\n${lastUpdated}`;
+    } else if (reason) {
+      tooltip = reason;
+    } else if (lastUpdated) {
+      tooltip = lastUpdated;
+    } else {
+      tooltip = 'No sentiment explanation available';
+    }
+
+    let color = '#ecc94b'; // Default Hold / Gold
+    let bg = 'transparent';
+    let label = sentiment;
+
+    if (['Buy Immediately', 'Consider Buying', 'Buy'].includes(sentiment)) {
+      color = '#48bb78'; // Green
+    } else if (['Sell Immediately', 'Consider Selling', 'Sell'].includes(sentiment)) {
+      color = '#f56565'; // Red
+    } else if (sentiment === 'Hold') {
+      color = '#ecc94b'; // Gold
+    } else if (sentiment === 'Error') {
+      color = '#fc8181'; // Red Error
+      bg = 'rgba(245, 101, 101, 0.2)';
+      label = '⚠️ Error';
+    } else if (sentiment === 'Watch') {
+      color = '#cbd5f5'; // Light gray/blue
+    }
+
+    return (
+      <td
+        className={isMobile ? 'mobile-hide' : ''}
+        title={tooltip}
+        style={{
+          cursor: 'help',
+          textAlign: 'center',
+          whiteSpace: 'nowrap'
+        }}
+      >
+        <span
+          style={{
+            color: color,
+            fontWeight: 'bold',
+            background: bg,
+            padding: bg !== 'transparent' ? '2px 6px' : '0',
+            borderRadius: '4px',
+            textDecoration: reason ? 'underline dotted' : 'none',
+            textUnderlineOffset: '3px'
+          }}
+        >
+          {label}
+        </span>
+      </td>
+    );
+  };
+
   if (loading) {
     return (
       <div style={{
@@ -1847,17 +1908,7 @@ function Dashboard({ isLightMode }) {
                     <td className={`${coin.pct_change >= 0 ? 'status-positive' : 'status-negative'} ${isMobile ? 'mobile-hide' : ''}`}>
                       {coin.pct_change !== undefined ? `${coin.pct_change >= 0 ? '+' : ''}${coin.pct_change.toFixed(2)}%` : '—'}
                     </td>
-                    <td
-                      className={isMobile ? 'mobile-hide' : ''}
-                      title={coin.sentiment_last_updated ? `Last Updated: ${formatLocalDateTime(coin.sentiment_last_updated)}` : 'No analysis date available'}
-                      style={{ cursor: 'help', textAlign: 'center' }}
-                    >
-                      {coin.sentiment === 'Buy' && <span style={{ color: '#48bb78', fontWeight: 'bold' }}>Buy</span>}
-                      {coin.sentiment === 'Sell' && <span style={{ color: '#f56565', fontWeight: 'bold' }}>Sell</span>}
-                      {coin.sentiment === 'Hold' && <span style={{ color: '#ecc94b', fontWeight: 'bold' }}>Hold</span>}
-                      {coin.sentiment === 'Error' && <span style={{ color: '#fc8181', fontWeight: 'bold', background: 'rgba(245, 101, 101, 0.2)', padding: '2px 6px', borderRadius: '4px' }}>⚠️ Error</span>}
-                      {!['Buy', 'Sell', 'Hold', 'Error'].includes(coin.sentiment) && (coin.sentiment ? coin.sentiment : <span style={{ color: '#fc8181' }}>Error</span>)}
-                    </td>
+                    {renderSentimentCell(coin, false)}
                     <td className="actions-cell" style={{ whiteSpace: 'nowrap', position: 'relative' }}>
                       {isMobile ? (
                         <>
@@ -2030,7 +2081,7 @@ function Dashboard({ isLightMode }) {
                     {item.symbol}
                   </td>
                   <td style={{ whiteSpace: 'nowrap', textAlign: 'center' }}>{item.current_price ? `$${item.current_price.toFixed(2)}` : '—'}</td>
-                  <td className={isMobile ? 'mobile-hide' : ''} style={{ textAlign: 'center' }}>{item.sentiment || 'Watch'}</td>
+                  {renderSentimentCell(item, true)}
                   <td style={{ textAlign: 'center' }}>{renderWatchlistAlertCell(item, 'down')}</td>
                   <td style={{ textAlign: 'center' }}>{renderWatchlistAlertCell(item, 'up')}</td>
                   <td className={isMobile ? 'mobile-hide' : ''} style={{ textAlign: 'center' }}>{renderVolatilityCell(item, 'watchlist')}</td>

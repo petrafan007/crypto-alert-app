@@ -4192,6 +4192,7 @@ def api_watchlist():
             "action": "Watch",  # Simplified to avoid database locks
             "current_price": current_price,
             "sentiment": w.sentiment or "Watch",
+            "sentiment_reason": getattr(w, 'sentiment_reason', "") or "",
             "volatility_pct": w.volatility_pct,
             "cached_news": w_news.get('text', ''),
             "cached_news_date": w_news.get('created_at', None)
@@ -4231,6 +4232,7 @@ def api_watchlist_live():
             "action": "Watch",  # Simplified to avoid database locks
             "current_price": current_price,
             "sentiment": w.sentiment or "Watch",
+            "sentiment_reason": getattr(w, 'sentiment_reason', "") or "",
             "volatility_pct": w.volatility_pct,
             "cached_news": w_news.get('text', ''),
             "cached_news_date": w_news.get('created_at', None)

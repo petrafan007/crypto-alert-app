@@ -26,6 +26,7 @@ class Coin(db.Model):
     initial_value = db.Column(db.Float, default=0.0)
     purchase_date = db.Column(db.String(25))  # Date only, no time component
     sentiment = db.Column(db.String(50), default="Hold")
+    sentiment_reason = db.Column(db.Text, default="")
     sentiment_last_updated = db.Column(db.DateTime, nullable=True)
     note = db.Column(db.Text, default="")
     volatility_pct = db.Column(db.Float, nullable=True)
@@ -53,6 +54,7 @@ class WatchlistCoin(db.Model):
     action = db.Column(db.String(10), default="Watch")
     current_price = db.Column(db.Float, default=0.0)
     sentiment = db.Column(db.String(50), default="Watch")
+    sentiment_reason = db.Column(db.Text, default="")
     volatility_pct = db.Column(db.Float, nullable=True)
     last_volatility_alert_time = db.Column(db.DateTime, nullable=True)
     

@@ -419,12 +419,90 @@ def log_ai_conversation(user_id, prompt_type, sender, body, symbol=None, coin_id
         logger.error(f"Error logging AI conversation: {e}")
         db.session.rollback()
 
+def parse_sentiment_json(response_text):
+    """
+    Parse the AI JSON output for Item 1 (phrase) and Item 2 (reason).
+    Valid phrases: 'Hold', 'Buy Immediately', 'Consider Buying', 'Sell Immediately', 'Consider Selling'
+    """
+    VALID_PHRASES = {
+        'buy immediately': 'Buy Immediately',
+        'consider buying': 'Consider Buying',
+        'sell immediately': 'Sell Immediately',
+        'consider selling': 'Consider Selling',
+        'hold': 'Hold',
+        # Tolerant fallbacks
+        'strong buy': 'Buy Immediately',
+        'buy': 'Consider Buying',
+        'strong sell': 'Sell Immediately',
+        'sell': 'Consider Selling'
+    }
+    
+    phrase = None
+    reason = None
+    
+    clean_text = (response_text or '').strip()
+    if '```' in clean_text:
+        match = re.search(r'```(?:json)?\s*([\s\S]*?)\s*```', clean_text)
+        if match:
+            clean_text = match.group(1).strip()
+            
+    # Try finding JSON object {...} or array [...]
+    json_match = re.search(r'(\{[\s\S]*\}|\[[\s\S]*\])', clean_text)
+    if json_match:
+        try:
+            parsed = json.loads(json_match.group(1))
+            if isinstance(parsed, dict):
+                for k, v in parsed.items():
+                    k_lower = str(k).lower()
+                    v_str = str(v).strip()
+                    if any(x in k_lower for x in ['item 1', 'item1', 'sentiment', 'action', 'signal', 'recommendation', 'suggestion', 'item_1']):
+                        if v_str.lower() in VALID_PHRASES:
+                            phrase = VALID_PHRASES[v_str.lower()]
+                    elif any(x in k_lower for x in ['item 2', 'item2', 'reason', 'explanation', 'description', 'summary', 'item_2']):
+                        reason = v_str
+                
+                # If phrase not identified by key name, check dictionary values
+                if not phrase:
+                    for v in parsed.values():
+                        if str(v).strip().lower() in VALID_PHRASES:
+                            phrase = VALID_PHRASES[str(v).strip().lower()]
+                            break
+                if not reason:
+                    for k, v in parsed.items():
+                        if str(v).strip() != phrase and len(str(v).strip()) > 5:
+                            reason = str(v).strip()
+                            break
+                            
+            elif isinstance(parsed, list) and len(parsed) >= 2:
+                p_cand = str(parsed[0]).strip()
+                if p_cand.lower() in VALID_PHRASES:
+                    phrase = VALID_PHRASES[p_cand.lower()]
+                reason = str(parsed[1]).strip()
+        except Exception as e:
+            logger.warning(f"JSON sentiment decode error: {e}")
+            
+    # Fallback pattern search if structured JSON parse was incomplete
+    if not phrase:
+        for p_key in ['buy immediately', 'consider buying', 'sell immediately', 'consider selling', 'hold', 'strong buy', 'strong sell', 'buy', 'sell']:
+            if re.search(r'\b' + re.escape(p_key) + r'\b', clean_text, re.IGNORECASE):
+                phrase = VALID_PHRASES[p_key]
+                break
+                
+    if not reason and phrase:
+        remainder = re.sub(re.escape(phrase), '', clean_text, flags=re.IGNORECASE)
+        remainder = re.sub(r'[\{\}\[\]"\':`]', ' ', remainder).strip()
+        remainder = re.sub(r'\s+', ' ', remainder).strip()
+        if len(remainder) > 5:
+            reason = remainder
+            
+    return phrase or "Hold", reason or ""
+
+
 def run_sentiment_analysis_for_user(user_id, username, force=False):
     """
     Run sentiment analysis for a user's portfolio coins.
-    Strictly parses for 'Buy', 'Sell', or 'Hold'.
-    If any error occurs or sentiment cannot be extracted, sets sentiment to 'Error'.
-    NEVER falls back to 'Hold' on failure.
+    Parses JSON output for phrase ('Hold', 'Buy Immediately', 'Consider Buying', 'Sell Immediately', 'Consider Selling')
+    and 1-2 sentence explanation stored as sentiment_reason.
     """
     count = 0
     try:
@@ -487,14 +565,12 @@ def run_sentiment_analysis_for_user(user_id, username, force=False):
                 if not sentiment_pre_prompt or not sentiment_post_prompt:
                     logger.warning(f"Missing sentiment prompts for user {username}. Marking Error.")
                     coin_row.sentiment = "Error"
+                    coin_row.sentiment_reason = "Missing sentiment prompt configuration in Settings."
                     coin_row.sentiment_last_updated = datetime.utcnow()
                     db.session.commit()
                     continue
 
-                current_datetime = format_eastern_datetime(None, "%B %d, %Y at %I:%M %p EST")
-                
-                # Instruction to force structured output
-                sentiment_post_prompt += "\n\nIMPORTANT: You MUST include your rating in the exact format: 'Sentiment: Buy', 'Sentiment: Sell', or 'Sentiment: Hold'. Also include 'Confidence: XX%'."
+                current_datetime = format_eastern_datetime(None, "%B %d, %Y at %I:%M %p EDT")
 
                 sentiment_request = (
                     "SENTIMENT_ANALYSIS_DATA\n"
@@ -523,34 +599,12 @@ def run_sentiment_analysis_for_user(user_id, username, force=False):
                 else:
                     sentiment_text = str(response).strip()
 
-                # Parse Confidence
-                confidence = 0
-                conf_match = re.search(r"Confidence:\s*(\d+)", sentiment_text, re.IGNORECASE)
-                if conf_match:
-                    confidence = int(conf_match.group(1))
-
-                # Parse Signal strictly: 'Buy', 'Sell', 'Hold'
-                sentiment_result = None
-                explicit_match = re.search(r"Sentiment:\s*(Buy|Sell|Hold)", sentiment_text, re.IGNORECASE)
-                if explicit_match:
-                    sentiment_result = explicit_match.group(1).capitalize()
-                else:
-                    # Fallback check for distinct tokens in first 150 chars
-                    first_part = sentiment_text[:150].lower()
-                    if "buy" in first_part and "sell" not in first_part and "hold" not in first_part:
-                        sentiment_result = "Buy"
-                    elif "sell" in first_part and "buy" not in first_part and "hold" not in first_part:
-                        sentiment_result = "Sell"
-                    elif "hold" in first_part and "buy" not in first_part and "sell" not in first_part:
-                        sentiment_result = "Hold"
-
-                # STRICT RULE: If signal could not be unambiguously parsed, it is an Error
-                if not sentiment_result or sentiment_result not in ['Buy', 'Sell', 'Hold']:
-                    logger.warning(f"Could not extract Buy/Sell/Hold from response for {symbol}. Setting sentiment to Error.")
-                    sentiment_result = "Error"
+                # Parse JSON output for Action phrase and Explanation reason
+                sentiment_result, sentiment_reason = parse_sentiment_json(sentiment_text)
 
                 # Update database
                 coin_row.sentiment = sentiment_result
+                coin_row.sentiment_reason = sentiment_reason
                 coin_row.sentiment_last_updated = datetime.utcnow()
                 db.session.commit()
                 count += 1
@@ -559,16 +613,16 @@ def run_sentiment_analysis_for_user(user_id, username, force=False):
                 time.sleep(0.1)
                 log_ai_conversation(user_id, "sentiment_analysis", "ai", sentiment_text, symbol=symbol, coin_id=coin_id)
 
-                # Send Telegram alert if high confidence
-                if notifications_enabled and sentiment_result in ['Buy', 'Sell'] and confidence >= confidence_threshold:
+                # Send Telegram alert if buy/sell signal
+                if notifications_enabled and sentiment_result in ['Buy Immediately', 'Consider Buying', 'Sell Immediately', 'Consider Selling']:
                     alert_msg = (
                         f"🚀 AI TRADING SIGNAL: {symbol}\n"
                         f"Signal: {sentiment_result.upper()}\n"
-                        f"Confidence: {confidence}%\n"
+                        f"Reason: {sentiment_reason}\n"
                         f"Time: {current_datetime}"
                     )
                     send_telegram_message(username, alert_msg)
-                    logger.info(f"Sent AI Trading Alert for {symbol} ({sentiment_result} {confidence}%)")
+                    logger.info(f"Sent AI Trading Alert for {symbol} ({sentiment_result})")
 
                 time.sleep(2)
 
@@ -576,6 +630,7 @@ def run_sentiment_analysis_for_user(user_id, username, force=False):
                 logger.error(f"Error processing sentiment for {symbol}: {coin_error}")
                 try:
                     coin_row.sentiment = "Error"
+                    coin_row.sentiment_reason = f"Analysis error: {str(coin_error)}"
                     coin_row.sentiment_last_updated = datetime.utcnow()
                     db.session.commit()
                 except Exception:

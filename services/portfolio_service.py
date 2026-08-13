@@ -156,6 +156,8 @@ def get_portfolio_data_for_user(user_id):
                     "current_value": current_value,
                     "pct_change": pct_change,
                     "sentiment": getattr(coin, 'sentiment', None),
+                    "sentiment_reason": getattr(coin, 'sentiment_reason', "") or "",
+                    "sentiment_last_updated": coin.sentiment_last_updated.isoformat() if getattr(coin, 'sentiment_last_updated', None) else None,
                     "alert_enabled": coin.alert_enabled,
                     "note": coin.note,
                     "custom_lower_val": coin.custom_lower_val,
