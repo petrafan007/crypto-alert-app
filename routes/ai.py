@@ -1515,24 +1515,81 @@ def api_ai_recommendation_score(symbol):
 
 
 
+def get_ai_conversations(user_id, limit=20, offset=0, search_term=None, include_hidden=False, filter_sentiment=False, prompt_type_filter=None):
+    """Retrieve filtered and paginated AI conversations for user using SQLAlchemy ORM"""
+    from models import AIConversation
+    query = AIConversation.query.filter(AIConversation.user_id == user_id)
+    
+    if not include_hidden:
+        query = query.filter(db.or_(AIConversation.is_hidden == 0, AIConversation.is_hidden == False, AIConversation.is_hidden.is_(None)))
+        # Exclude background JSON cache records from the visible sidebar
+        query = query.filter(~AIConversation.prompt_type.endswith('_workflow'))
+    
+    if prompt_type_filter:
+        query = query.filter(AIConversation.prompt_type == prompt_type_filter)
+        
+    if filter_sentiment:
+        query = query.filter(AIConversation.prompt_type != 'sentiment_analysis')
+        
+    if search_term:
+        query = query.filter(AIConversation.body.ilike(f"%{search_term}%"))
+        
+    rows = query.order_by(AIConversation.id.desc()).offset(offset).limit(limit).all()
+    
+    result = []
+    for r in rows:
+        result.append({
+            'id': r.id,
+            'user_id': r.user_id,
+            'date': r.date or (r.created_at.strftime('%Y-%m-%d') if r.created_at else ''),
+            'time': r.time or (r.created_at.strftime('%I:%M %p EDT') if r.created_at else ''),
+            'prompt_type': r.prompt_type,
+            'sender': r.sender,
+            'body': r.body,
+            'conversation_id': r.conversation_id,
+            'created_at': format_iso_utc(r.created_at) if r.created_at else None,
+            'is_hidden': bool(r.is_hidden),
+            'coin_id': r.coin_id
+        })
+    return result
+
+
+def get_ai_conversations_count(user_id, search_term=None, include_hidden=False, filter_sentiment=False, prompt_type_filter=None):
+    """Get total count of filtered AI conversations for user"""
+    from models import AIConversation
+    query = AIConversation.query.filter(AIConversation.user_id == user_id)
+    
+    if not include_hidden:
+        query = query.filter(db.or_(AIConversation.is_hidden == 0, AIConversation.is_hidden == False, AIConversation.is_hidden.is_(None)))
+        query = query.filter(~AIConversation.prompt_type.endswith('_workflow'))
+    
+    if prompt_type_filter:
+        query = query.filter(AIConversation.prompt_type == prompt_type_filter)
+        
+    if filter_sentiment:
+        query = query.filter(AIConversation.prompt_type != 'sentiment_analysis')
+        
+    if search_term:
+        query = query.filter(AIConversation.body.ilike(f"%{search_term}%"))
+        
+    return query.count()
+
+
 @ai_bp.route('/api/ai/conversations')
 @login_required
 def api_ai_conversations():
     """Get AI conversations for user with optional filtering"""
     try:
-        # Check if user is authenticated
         if not current_user.is_authenticated:
             logger.error("User not authenticated for AI conversations")
             return jsonify({'error': 'User not authenticated'}), 401
         
-        limit = request.args.get('limit', 10, type=int)  # Default to 10 for pagination
+        limit = request.args.get('limit', 10, type=int)
         offset = request.args.get('offset', 0, type=int)
         search_term = request.args.get('search', None)
         include_hidden = request.args.get('include_hidden', 'false').lower() == 'true'
         filter_sentiment = request.args.get('filter_sentiment', 'false').lower() == 'true'
         prompt_type_filter = request.args.get('prompt_type')
-        
-        logger.info(f"Getting AI conversations for user {current_user.id}, limit={limit}, offset={offset}, filter_sentiment={filter_sentiment}")
         
         conversations = get_ai_conversations(
             current_user.id, 
@@ -1544,7 +1601,6 @@ def api_ai_conversations():
             prompt_type_filter
         )
         
-        # Get total count with the same filters
         total_count = get_ai_conversations_count(
             current_user.id, 
             search_term, 
@@ -1552,8 +1608,6 @@ def api_ai_conversations():
             filter_sentiment,
             prompt_type_filter
         )
-        
-        logger.info(f"Retrieved {len(conversations)} conversations out of {total_count} total")
         
         return jsonify({
             'conversations': conversations,
@@ -1564,8 +1618,7 @@ def api_ai_conversations():
         })
         
     except Exception as e:
-        logger.error(f"Error getting AI conversations: {e}")
-        # Return empty conversations instead of 500 error
+        logger.error(f"Error getting AI conversations: {e}", exc_info=True)
         return jsonify({
             'conversations': [],
             'total': 0,
@@ -1574,14 +1627,14 @@ def api_ai_conversations():
 
 
 def process_ai_conversation(user_id, message, conversation_id=None):
-    """Process user message and generate AI response for Copilot sidebar"""
+    """Process user message and generate AI response for Copilot sidebar with rich workflow context"""
     from models import Coin, AIConversation
     from credentials import User
     
     user = User.query.get(user_id)
     username = user.username if user else 'jcavallarojr'
     
-    # Gather user holdings context
+    # 1. Gather live portfolio context
     coins = Coin.query.filter_by(user_id=user_id, hidden=False).all()
     non_stablecoins = [c for c in coins if not is_stablecoin(c.symbol)]
     coin_lines = []
@@ -1591,11 +1644,54 @@ def process_ai_conversation(user_id, message, conversation_id=None):
         coin_lines.append(f"- {c.symbol}: {c.amount} tokens (current price: ${price:.2f}, total value: ${val:.2f})")
     holdings_text = "\n".join(coin_lines) if coin_lines else "No current non-stablecoin holdings."
     
-    # Prepare user message with portfolio context
-    user_prompt_with_context = f"{message}\n\n[USER PORTFOLIO CONTEXT]\n{holdings_text}"
+    # 2. Gather latest Market Analysis context
+    latest_market = AIConversation.query.filter(
+        AIConversation.user_id == user_id,
+        AIConversation.prompt_type == 'market_analysis',
+        AIConversation.sender == 'ai'
+    ).order_by(AIConversation.id.desc()).first()
+    market_text = latest_market.body[:2500] if latest_market and latest_market.body else "No recent market analysis available."
+    
+    # 3. Gather latest Portfolio Review context
+    latest_review = AIConversation.query.filter(
+        AIConversation.user_id == user_id,
+        AIConversation.prompt_type == 'portfolio_review',
+        AIConversation.sender == 'ai'
+    ).order_by(AIConversation.id.desc()).first()
+    review_text = latest_review.body[:2500] if latest_review and latest_review.body else "No recent portfolio review available."
+    
+    # 4. Gather recent conversation history for conversational continuity
+    recent_convs = AIConversation.query.filter(
+        AIConversation.user_id == user_id,
+        AIConversation.is_hidden == 0,
+        AIConversation.prompt_type.in_(['manual', 'copilot'])
+    ).order_by(AIConversation.id.desc()).limit(6).all()
+    recent_convs.reverse()
+    
+    conv_history_lines = []
+    for c in recent_convs:
+        speaker = "User" if c.sender == 'user' else "AI Copilot"
+        snippet = (c.body or '').strip()
+        if len(snippet) > 300:
+            snippet = snippet[:300] + "..."
+        conv_history_lines.append(f"{speaker}: {snippet}")
+    history_text = "\n".join(conv_history_lines) if conv_history_lines else "No previous conversation history."
+    
+    # Build complete context payload for AI
+    context_payload = (
+        f"{message}\n\n"
+        f"=== USER PORTFOLIO CONTEXT ===\n"
+        f"{holdings_text}\n\n"
+        f"=== LATEST MARKET ANALYSIS ===\n"
+        f"{market_text}\n\n"
+        f"=== LATEST PORTFOLIO REVIEW ===\n"
+        f"{review_text}\n\n"
+        f"=== RECENT CHAT HISTORY ===\n"
+        f"{history_text}"
+    )
     
     copilot_messages = [
-        {"role": "user", "content": user_prompt_with_context}
+        {"role": "user", "content": context_payload}
     ]
     
     response, actual_stage3_prompt = call_ai_with_web_search(
