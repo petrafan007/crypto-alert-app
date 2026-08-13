@@ -172,29 +172,43 @@ def call_ai_with_web_search(
         
         user_ai_settings = get_user_ai_settings(username)
         max_tokens = user_ai_settings.get('ai_max_tokens', 2000)
-        ai_reasoning_level = (user_ai_settings.get('ai_reasoning_level') or 'medium').lower()
 
         cred = get_user_credentials(username)
         if not cred:
             raise ValueError(f"No credentials found for user: {username}")
         
         def _pick_key(p):
-            if p == 'openai':
-                return decrypt_secret(cred.openai_key_fallback) or decrypt_secret(cred._openai_key)
-            if p == 'zai':
-                return decrypt_secret(cred.zai_key_fallback) or decrypt_secret(cred._zai_key)
-            if p == 'perplexity':
-                return decrypt_secret(cred.perplexity_key_fallback) or decrypt_secret(cred._perplexity_key)
-            if p == 'gemini':
-                return decrypt_secret(cred.gemini_key_fallback) or decrypt_secret(cred._gemini_key)
+            if is_fallback_attempt:
+                if p == 'openai':
+                    return decrypt_secret(cred.openai_key_fallback) or decrypt_secret(cred.openai_key)
+                if p == 'zai':
+                    return decrypt_secret(cred.zai_key_fallback) or decrypt_secret(cred.zai_key)
+                if p == 'perplexity':
+                    return decrypt_secret(cred.perplexity_key_fallback) or decrypt_secret(cred.perplexity_key)
+                if p == 'gemini':
+                    return decrypt_secret(cred.gemini_key_fallback) or decrypt_secret(cred.gemini_key)
+            else:
+                if p == 'openai':
+                    return decrypt_secret(cred.openai_key)
+                if p == 'zai':
+                    return decrypt_secret(cred.zai_key)
+                if p == 'perplexity':
+                    return decrypt_secret(cred.perplexity_key)
+                if p == 'gemini':
+                    return decrypt_secret(cred.gemini_key)
             return None
 
         if is_fallback_attempt:
             provider = user_ai_settings.get('ai_provider_fallback') or 'openai'
-            model = user_ai_settings.get('ai_model_fallback') or model or 'gpt-5'
-            logger.info(f"⚠️ USING FALLBACK AI PROVIDER: {provider} / {model}")
+            model = user_ai_settings.get('ai_model_fallback') or model
+            if not model:
+                defaults = {'openai': 'gpt-5', 'zai': 'glm-4.7-flash', 'perplexity': 'sonar-pro', 'gemini': 'gemini-3.5-flash'}
+                model = defaults.get(provider, 'gpt-5')
+            ai_reasoning_level = (user_ai_settings.get('ai_reasoning_level_fallback') or 'medium').lower()
+            logger.info(f"⚠️ USING FALLBACK AI PROVIDER: {provider} / {model} (reasoning: {ai_reasoning_level})")
         else:
             provider = user_ai_settings.get('ai_provider', 'openai')
+            ai_reasoning_level = (user_ai_settings.get('ai_reasoning_level') or 'medium').lower()
             if not model:
                 model = user_ai_settings.get('ai_model')
                 if not model:

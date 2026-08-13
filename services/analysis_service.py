@@ -107,7 +107,8 @@ def get_user_ai_settings(username: str) -> dict:
             },
             'copilot_chat_pre': '',
             'copilot_chat_post': '',
-            'ai_reasoning_level': 'medium'
+            'ai_reasoning_level': 'medium',
+            'ai_reasoning_level_fallback': 'medium'
         }
 
         user_obj = User.query.filter_by(username=username).first()
@@ -142,6 +143,8 @@ def get_user_ai_settings(username: str) -> dict:
 
                 if hasattr(user_setting, 'ai_reasoning_level'):
                     settings['ai_reasoning_level'] = user_setting.ai_reasoning_level or 'medium'
+                if hasattr(user_setting, 'ai_reasoning_level_fallback'):
+                    settings['ai_reasoning_level_fallback'] = user_setting.ai_reasoning_level_fallback or 'medium'
 
         provider = settings.get('ai_provider', 'openai')
         model = settings.get('ai_model')

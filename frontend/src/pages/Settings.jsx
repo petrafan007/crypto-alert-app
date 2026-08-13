@@ -38,10 +38,16 @@ export default function Settings({ isLightMode }) {
     openai_key: '',
     zai_key: '',
     perplexity_key: '',
-    gemini_key: '',
     ai_provider: 'openai',
     ai_model: '',
     ai_reasoning_level: 'medium',
+    ai_provider_fallback: '',
+    ai_model_fallback: '',
+    ai_reasoning_level_fallback: 'medium',
+    openai_key_fallback: '',
+    zai_key_fallback: '',
+    perplexity_key_fallback: '',
+    gemini_key_fallback: '',
     telegram_token: '',
     telegram_chat_id: '',
     news_api: '',
@@ -181,15 +187,18 @@ export default function Settings({ isLightMode }) {
         };
 
         const provider = mergedSettings.ai_provider || prev.ai_provider || 'openai';
-        let model = mergedSettings.ai_model;
-
-        const sanitizedModel = sanitizeModel(provider, model, currentModelOptions);
+        const fallbackProvider = mergedSettings.ai_provider_fallback || prev.ai_provider_fallback || '';
+        let fallbackModel = mergedSettings.ai_model_fallback;
+        const sanitizedFallbackModel = fallbackProvider ? sanitizeModel(fallbackProvider, fallbackModel, currentModelOptions) : (fallbackModel || '');
 
         return {
           ...prev,
           ...mergedSettings,
           ai_provider: provider,
-          ai_model: sanitizedModel
+          ai_model: sanitizedModel,
+          ai_provider_fallback: fallbackProvider,
+          ai_model_fallback: sanitizedFallbackModel,
+          ai_reasoning_level_fallback: mergedSettings.ai_reasoning_level_fallback || prev.ai_reasoning_level_fallback || 'medium'
         };
       });
     } catch (error) {
@@ -219,6 +228,23 @@ export default function Settings({ isLightMode }) {
         return {
           ...prev,
           ai_model: sanitizedModel,
+        };
+      }
+
+      if (field === 'ai_provider_fallback') {
+        const sanitizedModel = value ? sanitizeModel(value, prev.ai_model_fallback, modelOptions) : '';
+        return {
+          ...prev,
+          ai_provider_fallback: value,
+          ai_model_fallback: sanitizedModel,
+        };
+      }
+
+      if (field === 'ai_model_fallback') {
+        const sanitizedModel = prev.ai_provider_fallback ? sanitizeModel(prev.ai_provider_fallback, value, modelOptions) : value;
+        return {
+          ...prev,
+          ai_model_fallback: sanitizedModel,
         };
       }
 
@@ -516,7 +542,8 @@ export default function Settings({ isLightMode }) {
       const response = await axios.post('/api/test-ai-connection-generic', {
         provider: provider,
         api_key: apiKey,
-        model: settings.ai_model_fallback
+        model: settings.ai_model_fallback,
+        is_fallback: true
       }, { withCredentials: true });
 
       setFallbackTestResult({
@@ -1258,15 +1285,12 @@ export default function Settings({ isLightMode }) {
           )}
         </div>
 
-        {/* AI Integration Fallback */}
-        <div className="settings-page-section">
-          <h3>🤖 AI Integration Fallback</h3>
-          <div className="settings-form-help" style={{ marginBottom: '16px' }}>
-            Configure a backup AI provider. If the primary provider fails (e.g., rate limits, downtime), the system will automatically retry using these credentials.
-          </div>
+        {/* Fallback AI Integration */}
+        <div className="settings-page-section" style={{ flex: "0 0 48%" }}>
+          <h3>Fallback AI Integration</h3>
 
           <div className="settings-form-group">
-            <label>AI Provider Fallback</label>
+            <label>AI Provider</label>
             <select
               value={settings.ai_provider_fallback || ''}
               onChange={(e) => handleInputChange('ai_provider_fallback', e.target.value)}
@@ -1277,82 +1301,117 @@ export default function Settings({ isLightMode }) {
               <option value="perplexity">Perplexity</option>
               <option value="gemini">Gemini</option>
             </select>
+            <div className="settings-form-help">
+              Choose your fallback AI provider for automatic failover
+            </div>
           </div>
 
-          {settings.ai_provider_fallback && (
+          <div className="settings-form-group">
+            <label>AI Model</label>
+            <select
+              value={settings.ai_model_fallback || ''}
+              onChange={(e) => handleInputChange('ai_model_fallback', e.target.value)}
+            >
+              {(modelOptions[settings.ai_provider_fallback] || []).map((option) => (
+                <option key={option.value} value={option.value}>{option.label}</option>
+              ))}
+            </select>
+            <div className="settings-form-help">
+              Select an AI model supported by the chosen fallback provider
+            </div>
+          </div>
+
+          {/* Gemini Reasoning Effort for Fallback */}
+          {settings.ai_provider_fallback === 'gemini' && (
             <div className="settings-form-group">
-              <label>AI Model Fallback</label>
+              <label>Reasoning</label>
               <select
-                value={settings.ai_model_fallback || ''}
-                onChange={(e) => handleInputChange('ai_model_fallback', e.target.value)}
+                value={settings.ai_reasoning_level_fallback || 'medium'}
+                onChange={(e) => handleInputChange('ai_reasoning_level_fallback', e.target.value)}
               >
-                {(modelOptions[settings.ai_provider_fallback] || []).map((option) => (
-                  <option key={option.value} value={option.value}>{option.label}</option>
-                ))}
+                <option value="low">Low</option>
+                <option value="medium">Medium</option>
+                <option value="high">High</option>
               </select>
+              <div className="settings-form-help">
+                Configure reasoning effort for Gemini models (Low, Medium, or High)
+              </div>
             </div>
           )}
 
-          {/* OpenAI Fallback */}
+          {/* OpenAI Fallback Configuration */}
           {settings.ai_provider_fallback === 'openai' && (
             <div className="settings-form-group">
-              <label>OpenAI API Key (Fallback)</label>
+              <label>OpenAI API Key</label>
               <input
                 type="password"
                 value={settings.openai_key_fallback || ''}
                 onChange={(e) => handleInputChange('openai_key_fallback', e.target.value)}
-                placeholder="Enter Fallback OpenAI API Key"
+                placeholder="Enter OpenAI API Key"
               />
+              <div className="settings-form-help">
+                Used as fallback for AI-powered trading analysis and recommendations
+              </div>
             </div>
           )}
 
-          {/* Z.AI Fallback */}
+          {/* Z.AI Fallback Configuration */}
           {settings.ai_provider_fallback === 'zai' && (
             <div className="settings-form-group">
-              <label>Z.AI API Key (Fallback)</label>
+              <label>Z.AI API Key</label>
               <input
                 type="password"
                 value={settings.zai_key_fallback || ''}
                 onChange={(e) => handleInputChange('zai_key_fallback', e.target.value)}
-                placeholder="Enter Fallback Z.AI API Key"
+                placeholder="Enter Z.AI API Key"
               />
+              <div className="settings-form-help">
+                Used as fallback for AI-powered trading analysis and recommendations
+              </div>
             </div>
           )}
 
-          {/* Perplexity Fallback */}
+          {/* Perplexity Fallback Configuration */}
           {settings.ai_provider_fallback === 'perplexity' && (
             <div className="settings-form-group">
-              <label>Perplexity API Key (Fallback)</label>
+              <label>Perplexity API Key</label>
               <input
                 type="password"
                 value={settings.perplexity_key_fallback || ''}
                 onChange={(e) => handleInputChange('perplexity_key_fallback', e.target.value)}
-                placeholder="Enter Fallback Perplexity API Key"
+                placeholder="Enter Perplexity API Key"
               />
+              <div className="settings-form-help">
+                Used as fallback for AI-powered trading analysis and recommendations
+              </div>
             </div>
           )}
 
-          {/* Gemini Fallback */}
+          {/* Gemini Fallback Configuration */}
           {settings.ai_provider_fallback === 'gemini' && (
             <div className="settings-form-group">
-              <label>Gemini API Key (Fallback)</label>
+              <label>Gemini API Key</label>
               <input
                 type="password"
                 value={settings.gemini_key_fallback || ''}
                 onChange={(e) => handleInputChange('gemini_key_fallback', e.target.value)}
-                placeholder="Enter Fallback Gemini API Key"
+                placeholder="Enter Gemini API Key"
               />
+              <div className="settings-form-help">
+                Used as fallback for AI-powered trading analysis and recommendations
+              </div>
             </div>
           )}
 
-          {/* Test Button for Fallback */}
-          <div className="settings-form-group" style={{ marginTop: '16px' }}>
+          {/* Test Fallback AI Connection button */}
+          <div className="settings-form-group" style={{ marginTop: '8px' }}>
             <button
               onClick={testFallbackConnection}
               disabled={!settings.ai_provider_fallback || testingFallback}
               className={`settings-button secondary ${(!settings.ai_provider_fallback || testingFallback) ? 'disabled' : ''}`}
+              style={{ marginTop: '8px' }}
             >
-              {testingFallback ? 'Testing...' : 'Test AI Fallback Integration'}
+              {testingFallback ? 'Testing...' : 'Test Fallback AI Connection'}
             </button>
             {fallbackTestResult && (
               <div className={`settings-status ${fallbackTestResult.success ? 'success' : 'error'}`} style={{ marginTop: '8px' }}>

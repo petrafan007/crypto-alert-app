@@ -899,7 +899,7 @@ def api_settings():
                 'ai_max_tokens', 'ai_web_search_enabled', 'tax_manual_invested_updated', 
                 'tax_cost_basis_method', 'copilot_chat_pre', 'copilot_chat_post',
                 'sentiment_analysis_frequency_hours', 'ai_provider_fallback', 'ai_model_fallback',
-                'ai_reasoning_level'
+                'ai_reasoning_level', 'ai_reasoning_level_fallback'
             ]
 
             for key, value in data.items():

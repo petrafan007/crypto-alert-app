@@ -12,10 +12,35 @@ def init_db(app=None):
     target_app = app if app is not None else current_app
     ctx = target_app.app_context() if target_app else None
     
+    def run_migrations():
+        db.create_all()
+        # Ensure recently added columns exist in PostgreSQL
+        try:
+            columns_to_ensure = [
+                ("user_settings", "ai_reasoning_level", "VARCHAR DEFAULT 'medium'"),
+                ("user_settings", "ai_reasoning_level_fallback", "VARCHAR DEFAULT 'medium'"),
+                ("user_settings", "ai_provider_fallback", "VARCHAR"),
+                ("user_settings", "ai_model_fallback", "VARCHAR"),
+                ("coins", "sentiment_reason", "TEXT"),
+                ("watchlist_coins", "sentiment_reason", "TEXT"),
+                ("coins", "cached_news", "TEXT"),
+                ("watchlist_coins", "cached_news", "TEXT"),
+                ("coins", "cached_news_date", "TIMESTAMP"),
+                ("watchlist_coins", "cached_news_date", "TIMESTAMP")
+            ]
+            for table, col, col_type in columns_to_ensure:
+                try:
+                    db.session.execute(db.text(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {col} {col_type}"))
+                except Exception:
+                    pass
+            db.session.commit()
+        except Exception as e:
+            db.session.rollback()
+
     if ctx:
         with ctx:
-            db.create_all()
+            run_migrations()
     else:
-        db.create_all()
+        run_migrations()
     
     return db

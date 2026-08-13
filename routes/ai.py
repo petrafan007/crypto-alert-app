@@ -207,6 +207,22 @@ def test_ai_connection_generic():
         api_key = payload.get('api_key')
         model = payload.get('model')
 
+        if not api_key or api_key == '********':
+            # Check saved credential if api_key not provided in request body
+            from credentials import Credential
+            from routes.helpers import decrypt_secret
+            cred = Credential.query.filter_by(user_id=current_user.id).first()
+            if cred:
+                is_fallback = payload.get('is_fallback', True)
+                if provider == 'openai':
+                    api_key = (decrypt_secret(cred.openai_key_fallback) if is_fallback else None) or decrypt_secret(cred.openai_key)
+                elif provider == 'zai':
+                    api_key = (decrypt_secret(cred.zai_key_fallback) if is_fallback else None) or decrypt_secret(cred.zai_key)
+                elif provider == 'perplexity':
+                    api_key = (decrypt_secret(cred.perplexity_key_fallback) if is_fallback else None) or decrypt_secret(cred.perplexity_key)
+                elif provider == 'gemini':
+                    api_key = (decrypt_secret(cred.gemini_key_fallback) if is_fallback else None) or decrypt_secret(cred.gemini_key)
+
         if not provider or not api_key:
             return jsonify(success=False, message='Provider and API key are required'), 400
 
