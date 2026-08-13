@@ -23,9 +23,18 @@ const TradingNew = () => {
     require_2fa: false
   });
 
+  // Initialize symbol with localStorage persistence or fallback to BTCUSDT
+  const getInitialSymbol = () => {
+    try {
+      const saved = localStorage.getItem('selectedTradingPair');
+      if (saved) return saved;
+    } catch (e) {}
+    return 'BTCUSDT';
+  };
+
   // Order Form State
   const [orderForm, setOrderForm] = useState({
-    symbol: 'BTCUSDT',
+    symbol: getInitialSymbol(),
     side: 'BUY',
     type: 'MARKET',
     quantity: '',
@@ -392,9 +401,32 @@ const TradingNew = () => {
     };
   };
 
+  const handleSymbolChange = (newSymbol) => {
+    if (newSymbol && newSymbol !== 'ALL') {
+      try {
+        localStorage.setItem('selectedTradingPair', newSymbol);
+      } catch (e) {}
+    }
+    setOrderForm((prev) => ({
+      ...prev,
+      symbol: newSymbol,
+      quantity: '',
+      price: '',
+      stopPrice: '',
+      stopLimitPrice: ''
+    }));
+    setQuoteQuantity('');
+    setBalancePercentage(0);
+  };
+
   useEffect(() => {
     if (location.state?.tradePrefill) {
       const { symbol, side } = location.state.tradePrefill;
+      if (symbol) {
+        try {
+          localStorage.setItem('selectedTradingPair', symbol);
+        } catch (e) {}
+      }
       setOrderForm((prev) => ({
         ...prev,
         symbol: symbol || prev.symbol,
@@ -821,7 +853,8 @@ const TradingNew = () => {
     }
 
     const fees = await loadTradingFees(orderForm.symbol);
-    const feeRate = orderForm.type === 'MARKET' ? (fees.takerRate ?? 0.0002) : (fees.makerRate ?? 0.0);
+    const isTakerExpected = ['MARKET', 'STOP_LOSS', 'STOP_LOSS_LIMIT', 'TAKE_PROFIT'].includes(orderForm.type);
+    const feeRate = isTakerExpected ? (fees.takerRate || 0.004) : (fees.makerRate || 0.001);
 
     if (orderForm.side === 'BUY') {
       const feeInAsset = qty * feeRate;
@@ -856,7 +889,9 @@ const TradingNew = () => {
       return;
     }
 
-    const feeRate = estimatedFee.rate !== undefined ? estimatedFee.rate : (orderForm.type === 'MARKET' ? 0.0002 : 0.0);
+    const isTakerExpected = ['MARKET', 'STOP_LOSS', 'STOP_LOSS_LIMIT', 'TAKE_PROFIT'].includes(orderForm.type);
+    const defaultRate = isTakerExpected ? 0.004 : 0.001;
+    const feeRate = estimatedFee.rate !== undefined && estimatedFee.rate > 0 ? estimatedFee.rate : defaultRate;
 
     if (orderForm.side === 'BUY') {
       const feeInAsset = qty * feeRate;
@@ -1236,13 +1271,21 @@ const TradingNew = () => {
 
   const isCanceledStatus = (status) => {
     if (!status) return false;
-    const normalized = status.toString().toUpperCase();
+    const normalized = String(status).toUpperCase();
     return normalized.includes('CANCEL');
   };
 
-  const filteredOrders = showCanceledOrders
+  const currentPairOrders = orderForm.symbol === 'ALL'
     ? orders
-    : orders.filter((order) => !isCanceledStatus(order.status));
+    : orders.filter((order) => (order.symbol || '').toUpperCase() === (orderForm.symbol || '').toUpperCase());
+
+  const filteredOrders = showCanceledOrders
+    ? currentPairOrders
+    : currentPairOrders.filter((order) => !isCanceledStatus(order.status));
+
+  const filteredOpenOrders = orderForm.symbol === 'ALL'
+    ? openOrders
+    : openOrders.filter((order) => (order.symbol || '').toUpperCase() === (orderForm.symbol || '').toUpperCase());
 
   return (
     <div className="trading-container" style={{ minHeight: '100vh', padding: '20px', color: 'white' }}>
@@ -1388,18 +1431,7 @@ const TradingNew = () => {
             <TradingChart
               key={orderForm.symbol}
               symbol={orderForm.symbol}
-              onSymbolChange={(newSymbol) => {
-                setOrderForm({
-                  ...orderForm,
-                  symbol: newSymbol,
-                  quantity: '',
-                  price: '',
-                  stopPrice: '',
-                  stopLimitPrice: ''
-                });
-                setQuoteQuantity('');
-                setBalancePercentage(0);
-              }}
+              onSymbolChange={handleSymbolChange}
               tradingPairs={tradingPairs.map(pair => ({ id: pair, display_name: pair }))}
             />
 
@@ -1633,13 +1665,39 @@ const TradingNew = () => {
 
             {/* Open Orders Section */}
             <div className="open-orders-section">
-              <div className="order-history-header">
-                <h2>Open Orders</h2>
+              <div className="order-history-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                  <h2>Open Orders</h2>
+                </div>
+                <div className="history-pair-filter" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <label htmlFor="history-pair-dropdown" style={{ color: '#94a3b8', fontSize: '0.9rem' }}>Filter Pair:</label>
+                  <select
+                    id="history-pair-dropdown"
+                    value={orderForm.symbol}
+                    onChange={(e) => handleSymbolChange(e.target.value)}
+                    style={{
+                      padding: '6px 12px',
+                      fontSize: '0.95rem',
+                      borderRadius: '6px',
+                      background: '#1e293b',
+                      color: '#fff',
+                      border: '1px solid #475569',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    <option value="ALL">All Trading Pairs</option>
+                    {tradingPairs.map(pair => (
+                      <option key={pair} value={pair}>
+                        {pair}
+                      </option>
+                    ))}
+                  </select>
+                </div>
               </div>
 
-              {openOrders.length === 0 ? (
+              {filteredOpenOrders.length === 0 ? (
                 <div className="empty-state">
-                  <p>No open orders</p>
+                  <p>No open orders {orderForm.symbol !== 'ALL' ? `for ${orderForm.symbol}` : ''}</p>
                 </div>
               ) : (
                 <div className="table-container trading-table">
@@ -1659,7 +1717,7 @@ const TradingNew = () => {
                         </tr>
                       </thead>
                       <tbody>
-                        {openOrders.map((order, idx) => (
+                        {filteredOpenOrders.map((order, idx) => (
                           <tr key={order.id || idx} className="open-order-row">
                             <td>{formatDate(order.created_at || order.time)}</td>
                             <td className="symbol-cell">{order.symbol}</td>
@@ -1701,8 +1759,8 @@ const TradingNew = () => {
             </div>
 
             {/* All Orders History */}
-            <div className="order-history-header" style={{ marginTop: '2rem' }}>
-              <h2>Order History</h2>
+            <div className="order-history-header" style={{ marginTop: '2rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
+              <h2>Order History {orderForm.symbol !== 'ALL' && <span style={{ fontSize: '0.9rem', color: '#60a5fa', fontWeight: 'normal' }}>({orderForm.symbol})</span>}</h2>
               <div className="order-history-toggle">
                 <label className="toggle-switch">
                   <input
@@ -1718,7 +1776,7 @@ const TradingNew = () => {
 
             {filteredOrders.length === 0 ? (
               <div className="empty-state">
-                <p>{orders.length === 0 ? 'No orders yet. Place your first order to get started!' : 'No orders match your filters.'}</p>
+                <p>{orders.length === 0 ? 'No orders yet. Place your first order to get started!' : `No orders found for ${orderForm.symbol !== 'ALL' ? orderForm.symbol : 'this filter'}.`}</p>
               </div>
             ) : (
               <div className="table-container trading-table">
@@ -1750,14 +1808,14 @@ const TradingNew = () => {
                           <td>{order.order_type}</td>
                           <td>{formatNumber(order.quantity, 8)}</td>
                           <td>{order.price ? `$${formatNumber(order.price)}` : '-'}</td>
-                          <td>{formatNumber(order.filled_quantity, 8)}</td>
+                          <td>{formatNumber(order.filled_quantity || 0, 8)}</td>
                           <td>
-                            <span className={`badge badge-${order.status.toLowerCase()}`}>
+                            <span className={`badge badge-${(order.status || 'unknown').toLowerCase()}`}>
                               {order.status}
                             </span>
                           </td>
                           <td>
-                            ${formatNumber((order.filled_quantity || 0) * (order.filled_price || 0))}
+                            ${formatNumber((order.filled_quantity || order.quantity || 0) * (order.filled_price || order.price || 0))}
                           </td>
                         </tr>
                       ))}

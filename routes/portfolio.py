@@ -2050,7 +2050,8 @@ def get_real_orders_only():
         ).mappings().all()
 
         activity_records = []
-        for activity in activity_rows:
+        for row in activity_rows:
+            activity = dict(row)
             details_str = activity.get('details') or ''
             details_json = None
             if details_str:
@@ -2207,6 +2208,8 @@ def get_real_orders_only():
 
         # Sort and limit
         order_list = list(combined_orders.values())
+        if symbol_filter:
+            order_list = [o for o in order_list if (o.get('symbol') or '').upper() == symbol_filter]
         order_list.sort(key=lambda o: o.get('created_at') or '', reverse=True)
         limited_orders = order_list if unlimited else order_list[:limit]
 
@@ -3029,23 +3032,22 @@ def get_trading_fees(symbol):
             commission_rates = account.get('commissionRates', {})
             logger.info(f"Binance.US commission rates (raw): {commission_rates}")
             
-            if commission_rates:
-                # Binance.US returns BASE rates as decimal strings (e.g., "0.00400000" = 0.4%)
-                # These are BEFORE any BNB discount (5% off if using BNB for fees)
-                # The actual fee at order time will be lower if BNB is enabled
-                maker_rate = float(commission_rates.get('maker', '0.001'))
-                taker_rate = float(commission_rates.get('taker', '0.004'))
-                logger.info(f"✅ BASE rates (before BNB discount): Maker={maker_rate:.4f} ({maker_rate*100:.2f}%), Taker={taker_rate:.4f} ({taker_rate*100:.2f}%)")
+            tier_0_pairs = ['BTCUSD', 'BTCUSDT', 'BTCUSDC']
+            is_tier_0 = symbol in tier_0_pairs
+            
+            if is_tier_0:
+                maker_rate = 0.0
+                taker_rate = 0.0
+            elif commission_rates:
+                raw_maker = float(commission_rates.get('maker', '0.001'))
+                raw_taker = float(commission_rates.get('taker', '0.004'))
+                maker_rate = raw_maker if raw_maker > 0 else 0.001
+                taker_rate = raw_taker if raw_taker > 0 else 0.004
             else:
-                # Old format: makerCommission/takerCommission (in basis points)
-                # 10 basis points = 0.1%, 40 basis points = 0.4%
                 maker_commission = account.get('makerCommission', 10)
                 taker_commission = account.get('takerCommission', 40)
-                logger.info(f"Got old format commission (basis points): makerCommission={maker_commission}, takerCommission={taker_commission}")
-                
-                maker_rate = float(maker_commission) / 10000
-                taker_rate = float(taker_commission) / 10000
-                logger.info(f"Converted to rates - Maker: {maker_rate:.4f} ({maker_rate*100:.2f}%), Taker: {taker_rate:.4f} ({taker_rate*100:.2f}%)")
+                maker_rate = (float(maker_commission) / 10000) if float(maker_commission) > 0 else 0.001
+                taker_rate = (float(taker_commission) / 10000) if float(taker_commission) > 0 else 0.004
             
             return jsonify({
                 'success': True,
