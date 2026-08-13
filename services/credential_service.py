@@ -11,7 +11,7 @@ def get_user_credentials(username):
         if not user:
             return None
         
-        creds = Credential.query.filter_by(user_id=user.id, exchange='binance_us').first()
+        creds = Credential.query.filter_by(user_id=user.id).first()
         if not creds:
             return None
         
