@@ -728,6 +728,36 @@ def get_coin_sentiment(symbol, coin=None, current_price=None, username=None):
         logger.error(f"Error in get_coin_sentiment for {symbol}: {e}")
         return "Error"
 
+def get_user_latest_news_cache(user_id):
+    """
+    Returns a dictionary mapping coin_id to its latest AI news analysis dict:
+    {
+        coin_id: {
+            'text': str,
+            'created_at': isoformat_str
+        }
+    }
+    """
+    try:
+        from models import AIConversation
+        rows = AIConversation.query.filter(
+            AIConversation.user_id == user_id,
+            AIConversation.prompt_type == 'coin_analysis',
+            AIConversation.sender == 'ai'
+        ).order_by(AIConversation.id.desc()).all()
+
+        cache = {}
+        for row in rows:
+            if row.coin_id and row.coin_id not in cache:
+                cache[row.coin_id] = {
+                    'text': row.body or '',
+                    'created_at': row.created_at.isoformat() if row.created_at else None
+                }
+        return cache
+    except Exception as e:
+        logger.error(f"Error fetching latest news cache for user {user_id}: {e}")
+        return {}
+
 def apply_auto_visibility_rules(coin, current_value):
     """Apply automatic hide/unhide rules based on USD value thresholds."""
     changed = False

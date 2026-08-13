@@ -4173,11 +4173,13 @@ def api_delete_coin():
 @login_required
 def api_watchlist():
     wl = WatchlistCoin.query.filter_by(user_id=current_user.id, hidden=False).all()
+    news_cache = get_user_latest_news_cache(current_user.id)
     
     # Use stored current prices for instant response
     watchlist_data = []
     for w in wl:
         current_price = w.current_price or 0.0
+        w_news = news_cache.get(w.id, {})
         
         watchlist_data.append({
             "symbol": w.symbol,
@@ -4190,7 +4192,9 @@ def api_watchlist():
             "action": "Watch",  # Simplified to avoid database locks
             "current_price": current_price,
             "sentiment": w.sentiment or "Watch",
-            "volatility_pct": w.volatility_pct
+            "volatility_pct": w.volatility_pct,
+            "cached_news": w_news.get('text', ''),
+            "cached_news_date": w_news.get('created_at', None)
         })
     
     return jsonify(watchlist_data)
@@ -4200,6 +4204,7 @@ def api_watchlist():
 def api_watchlist_live():
     """Live watchlist data for background refresh"""
     wl = WatchlistCoin.query.filter_by(user_id=current_user.id, hidden=False).all()
+    news_cache = get_user_latest_news_cache(current_user.id)
     
     # Fetch current prices for all watchlist items
     watchlist_data = []
@@ -4214,6 +4219,7 @@ def api_watchlist_live():
             logger.error(f"Failed to fetch price for {w.symbol}: {e}")
             current_price = w.current_price or 0.0
         
+        w_news = news_cache.get(w.id, {})
         watchlist_data.append({
             "symbol": w.symbol,
             "alert_enabled": w.alert_enabled,
@@ -4225,7 +4231,9 @@ def api_watchlist_live():
             "action": "Watch",  # Simplified to avoid database locks
             "current_price": current_price,
             "sentiment": w.sentiment or "Watch",
-            "volatility_pct": w.volatility_pct
+            "volatility_pct": w.volatility_pct,
+            "cached_news": w_news.get('text', ''),
+            "cached_news_date": w_news.get('created_at', None)
         })
     
     return jsonify(watchlist_data)

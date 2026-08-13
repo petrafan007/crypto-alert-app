@@ -143,6 +143,8 @@ def api_coin_data_live():
             except Exception:
                 return 0.0
 
+        news_cache = get_user_latest_news_cache(current_user.id)
+
         for coin in coins:
             try:
                 symbol = (coin.symbol or '').upper()
@@ -183,6 +185,7 @@ def api_coin_data_live():
                     pct_change = ((current_price - avg_entry_val) / avg_entry_val) * 100
 
                 sentiment = get_coin_sentiment(symbol, coin, current_price, current_user.username)
+                coin_news = news_cache.get(coin.id, {})
 
                 logger.error(f"[LIVE] {symbol} included in portfolio response")
                 portfolio.append({
@@ -207,9 +210,10 @@ def api_coin_data_live():
                     "up_alert": coin.custom_upper_val,
                     "favorite": coin.is_manual,
                     "force_visible": coin.force_visible,
-                    "force_visible": coin.force_visible,
                     "volatility_pct": coin.volatility_pct,
-                    "sentiment_last_updated": coin.sentiment_last_updated.isoformat() if hasattr(coin, 'sentiment_last_updated') and coin.sentiment_last_updated else None
+                    "sentiment_last_updated": coin.sentiment_last_updated.isoformat() if hasattr(coin, 'sentiment_last_updated') and coin.sentiment_last_updated else None,
+                    "cached_news": coin_news.get('text', ''),
+                    "cached_news_date": coin_news.get('created_at', None)
                 })
             except Exception as e:
                 logger.error(f"[LIVE] Error processing coin {getattr(coin,'symbol','?')}: {e}", exc_info=True)
@@ -219,6 +223,8 @@ def api_coin_data_live():
                     avg_entry_val = _to_float(getattr(coin, 'avg_entry', 0))
                     current_price = _to_float(getattr(coin, 'current', 0)) or avg_entry_val
                     current_value = amount * (current_price or 0)
+                    cid = getattr(coin, 'id', None)
+                    fallback_news = news_cache.get(cid, {}) if cid else {}
                     logger.error(f"[LIVE] {symbol} fallback included in portfolio response")
                     portfolio.append({
                         "id": getattr(coin, 'id', None),
@@ -242,9 +248,10 @@ def api_coin_data_live():
                         "up_alert": getattr(coin, 'custom_upper_val', None),
                         "favorite": getattr(coin, 'is_manual', False),
                         "force_visible": getattr(coin, 'force_visible', False),
-                        "force_visible": getattr(coin, 'force_visible', False),
                         "volatility_pct": getattr(coin, 'volatility_pct', None),
-                        "sentiment_last_updated": getattr(coin, 'sentiment_last_updated', None).isoformat() if getattr(coin, 'sentiment_last_updated', None) else None
+                        "sentiment_last_updated": getattr(coin, 'sentiment_last_updated', None).isoformat() if getattr(coin, 'sentiment_last_updated', None) else None,
+                        "cached_news": fallback_news.get('text', ''),
+                        "cached_news_date": fallback_news.get('created_at', None)
                     })
                 except Exception:
                     logger.error(f"[LIVE] {symbol} fallback failed, coin skipped")
@@ -284,6 +291,8 @@ def api_coin_data():
             except Exception:
                 return 0.0
 
+        news_cache = get_user_latest_news_cache(current_user.id)
+
         for coin in coins:
             try:
                 symbol = coin.symbol.upper()
@@ -314,6 +323,7 @@ def api_coin_data():
                 avg_entry_val = _to_float(coin.avg_entry)
                 pct_change = round(((current_price - avg_entry_val) / avg_entry_val * 100), 6) if avg_entry_val and current_price else 0.0
                 purchase_date = coin.purchase_date
+                coin_news = news_cache.get(coin.id, {})
 
                 # logger.error(f"[DEBUG] {symbol} included in portfolio response")
                 portfolio.append({
@@ -344,7 +354,9 @@ def api_coin_data():
                     "sentiment": coin.sentiment or get_coin_sentiment(symbol, coin=coin, current_price=current_price, username=current_user.username),
                     "force_visible": coin.force_visible,
                     "volatility_pct": coin.volatility_pct,
-                    "sentiment_last_updated": coin.sentiment_last_updated.isoformat() if hasattr(coin, 'sentiment_last_updated') and coin.sentiment_last_updated else None
+                    "sentiment_last_updated": coin.sentiment_last_updated.isoformat() if hasattr(coin, 'sentiment_last_updated') and coin.sentiment_last_updated else None,
+                    "cached_news": coin_news.get('text', ''),
+                    "cached_news_date": coin_news.get('created_at', None)
                 })
             except Exception as e:
                 logger.error(f"[api_coin_data] Error processing coin {getattr(coin,'symbol','?')}: {e}", exc_info=True)

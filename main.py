@@ -41,11 +41,10 @@ app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=30)
 
 db.init_app(app)
 from database import init_db
-with app.app_context():
-    try:
-        init_db()
-    except Exception as e:
-        logger.error(f"Error in init_db: {e}")
+try:
+    init_db(app)
+except Exception as e:
+    logger.error(f"Error in init_db: {e}")
 
 login_manager.init_app(app)
 login_manager.login_view = "auth.login"

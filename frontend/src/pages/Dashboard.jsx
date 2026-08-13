@@ -917,6 +917,27 @@ function Dashboard({ isLightMode }) {
     });
   };
 
+  // Helper to build a clean tooltip for the News icon (showing cached news if available)
+  const getNewsTooltip = (coinOrItem) => {
+    if (!coinOrItem || !coinOrItem.cached_news) {
+      return "News (Click to fetch latest news)";
+    }
+    const cleanNews = String(coinOrItem.cached_news)
+      .replace(/#{1,6}\s+/g, '') // remove markdown headings
+      .replace(/\*\*/g, '')      // remove bold markers
+      .replace(/\*/g, '')       // remove italic/bullet markers
+      .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1') // remove markdown links
+      .replace(/\s+/g, ' ')      // normalize whitespace
+      .trim();
+
+    const dateStr = coinOrItem.cached_news_date
+      ? new Date(coinOrItem.cached_news_date).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
+      : '';
+
+    const preview = cleanNews.length > 350 ? cleanNews.slice(0, 350) + '...' : cleanNews;
+    return dateStr ? `[${dateStr}] ${preview}` : preview;
+  };
+
   // News function - Show cached/today's analysis (NEWS button)
   const openNews = async (symbol) => {
     try {
@@ -936,13 +957,27 @@ function Dashboard({ isLightMode }) {
           message: response.data.error
         });
       } else {
+        const analysis = response.data.analysis;
+        const nowIso = new Date().toISOString();
         setNewsAnalysisData({
           error: false,
           symbol: response.data.symbol,
-          analysis: response.data.analysis,
+          analysis: analysis,
           timestamp: response.data.timestamp,
           prompt_used: response.data.prompt_used
         });
+
+        // Update cached_news in portfolio and watchlist state
+        setPortfolio(prev => prev.map(c => c.symbol === symbol ? {
+          ...c,
+          cached_news: analysis,
+          cached_news_date: nowIso
+        } : c));
+        setWatchlist(prev => prev.map(w => w.symbol === symbol ? {
+          ...w,
+          cached_news: analysis,
+          cached_news_date: nowIso
+        } : w));
       }
     } catch (error) {
       console.error('Error fetching news analysis:', error);
@@ -976,13 +1011,27 @@ function Dashboard({ isLightMode }) {
           message: response.data.error
         });
       } else {
+        const analysis = response.data.analysis;
+        const nowIso = new Date().toISOString();
         setNewsAnalysisData({
           error: false,
           symbol: response.data.symbol,
-          analysis: response.data.analysis,
+          analysis: analysis,
           timestamp: response.data.timestamp,
           prompt_used: response.data.prompt_used
         });
+
+        // Update cached_news in portfolio and watchlist state
+        setPortfolio(prev => prev.map(c => c.symbol === symbol ? {
+          ...c,
+          cached_news: analysis,
+          cached_news_date: nowIso
+        } : c));
+        setWatchlist(prev => prev.map(w => w.symbol === symbol ? {
+          ...w,
+          cached_news: analysis,
+          cached_news_date: nowIso
+        } : w));
       }
     } catch (error) {
       console.error('Error refreshing news analysis:', error);
@@ -1811,7 +1860,7 @@ function Dashboard({ isLightMode }) {
                           </span>
                           <span
                             className="action-icon"
-                            title="News"
+                            title={getNewsTooltip(coin)}
                             onClick={() => openNews(coin.symbol)}
                             style={{ cursor: 'pointer', marginLeft: 8 }}
                           >
@@ -1987,7 +2036,7 @@ function Dashboard({ isLightMode }) {
                         </span>
                         <span
                           className="action-icon"
-                          title="News"
+                          title={getNewsTooltip(item)}
                           onClick={() => openNews(item.symbol)}
                           style={{ cursor: 'pointer', marginLeft: 8 }}
                         >
