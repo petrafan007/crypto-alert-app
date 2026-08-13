@@ -574,9 +574,39 @@ def _dashboard_staking_response(cred):
     return _respond_with_staking_dashboard_payload(cred)
 
 
+def apply_auto_visibility_rules(coin, current_value):
+    """Apply automatic hide/unhide rules based on USD value thresholds."""
+    changed = False
+    try:
+        value = float(current_value or 0.0)
+    except (TypeError, ValueError):
+        value = 0.0
+
+    # More lenient threshold: unhide if > $0.10, hide if < $0.01
+    if value >= 0.10:
+        if getattr(coin, 'auto_hidden', False):
+            if getattr(coin, 'hidden', False):
+                coin.hidden = False
+                changed = True
+            coin.auto_hidden = False
+            changed = True
+        # If manually hidden, we respect it unless it's auto_hidden
+    elif value < 0.01:
+        if not getattr(coin, 'force_visible', False) and not getattr(coin, 'is_manual', False):
+            if not getattr(coin, 'hidden', False):
+                coin.hidden = True
+                changed = True
+            if not getattr(coin, 'auto_hidden', False):
+                coin.auto_hidden = True
+                changed = True
+    
+    return changed
+
+
 from pathlib import Path
 import re
 from flask import current_app, Response
+
 
 def serve_react_app():
     """Serve the built React index with cache-busting headers so UI updates ship instantly."""

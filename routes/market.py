@@ -294,16 +294,7 @@ def api_coin_data():
                 if symbol in ['USD', 'USDT', 'USDC', 'DAI']:
                     current_price = 1.0
                 else:
-                    try:
-                        current_price = fetch_binance_price(symbol)
-                        if current_price and current_price > 0:
-                            coin.current = current_price
-                            price_changed = True
-                        else:
-                            current_price = coin.current or _to_float(coin.avg_entry) or 0
-                    except Exception as e:
-                        logger.error(f"Failed to fetch price for {symbol}: {e}")
-                        current_price = coin.current or _to_float(coin.avg_entry) or 0
+                    current_price = coin.current or _to_float(coin.avg_entry) or 0
 
                 current_value = amount * current_price if current_price else 0
                 # logger.error(f"[DEBUG] {symbol} current_value: {current_value}")

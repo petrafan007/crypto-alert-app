@@ -48,13 +48,8 @@ export function AuthProvider({ children }) {
       return;
     }
 
-    // Only check auth if a session cookie exists
-    if (document.cookie.includes('session') || document.cookie.includes('sessionid') || document.cookie.includes('flask_session')) {
-      checkAuthStatus();
-    } else {
-      setUser(null);
-      setLoading(false);
-    }
+    // Unconditionally verify auth status since the HttpOnly session cookie is invisible to JS
+    checkAuthStatus();
   }, []);
 
   const checkAuthStatus = async () => {
