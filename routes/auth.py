@@ -1,3 +1,15 @@
+
+from datetime import timedelta, datetime
+import requests
+import threading
+from flask import send_file, request, jsonify, render_template, current_app, redirect, url_for
+from flask_login import current_user, login_required, login_user, logout_user
+from models import Coin, WatchlistCoin, Notification, PriceHistory
+from credentials import Credential, User, UserSetting
+from core.extensions import db
+from log import logger
+from routes.helpers import *
+
 from flask import Blueprint, request, jsonify, session, redirect, url_for
 from flask_login import login_user, logout_user, login_required, current_user
 from werkzeug.security import generate_password_hash
@@ -195,3 +207,244 @@ def reset_password():
     </body>
     </html>
     '''
+
+
+@auth_bp.route('/onboarding', methods=['GET', 'POST'])
+@login_required
+def onboarding():
+    if request.method == 'POST':
+        # No more context switching! Use the consolidated models directly
+        if current_user and getattr(current_user, 'is_authenticated', False):
+            cred = Credential.query.filter_by(user_id=current_user.id).first()
+        else:
+             cred = Credential.query.filter_by(username=current_user.username).first()
+        if not cred:
+            cred = Credential(username=current_user.username)
+            db.session.add(cred)
+        
+        try:
+            cred.telegram_token = request.form["telegram_token"]
+            cred.telegram_chat_id = request.form["telegram_chat_id"]
+            
+            # Make News API key optional and save as None if blank
+            news_api_key = request.form.get("news_api_key", "").strip()
+            cred.news_api = news_api_key if news_api_key else None
+            
+            db.session.commit()
+        except EncryptionKeyError as enc_err:
+            logger.error(f"Onboarding credential encryption failed: {enc_err}")
+            db.session.rollback()
+            return jsonify({"success": False, "error": "Credential encryption key missing. Configure CREDENTIALS_ENCRYPTION_KEY and retry."}), 500
+        return jsonify({"success": True, "message": "Credentials saved successfully."})
+    return jsonify({"error": "GET method not supported"}), 405
+
+@auth_bp.route("/register", methods=["POST"])
+def register_user():
+    """Register a new user"""
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "No input data provided"}), 400
+        
+    username = data.get("username")
+    password = data.get("password")
+    
+    if not username or not password:
+        return jsonify({"error": "Username and password are required"}), 400
+        
+    username = username.strip()
+    
+    # Check if user already exists
+    if User.query.filter_by(username=username).first():
+        return jsonify({"error": "Username already exists"}), 409
+        
+    try:
+        # Calculate new user_id (max + 1)
+        # We need a lock or atomic operation ideally, but for low volume this is acceptable
+        max_id = db.session.query(db.func.max(User.id)).scalar() or 0
+        new_user_id = max_id + 1
+        
+        # Create new user
+        new_user = User(id=new_user_id, username=username)
+        new_user.set_password(password)
+        new_user.last_login = datetime.utcnow()
+        
+        db.session.add(new_user)
+        db.session.flush() # Ensure user exists before adding credential
+        
+        # Create empty credential row
+        new_cred = Credential(user_id=new_user.id, username=username)
+        db.session.add(new_cred)
+        
+        db.session.commit()
+        
+        # Log the user in
+        login_user(new_user)
+        
+        logger.info(f"New user registered: {username} (ID: {new_user_id})")
+        
+        return jsonify({
+            "success": True, 
+            "message": "User registered successfully", 
+            "user_id": new_user_id,
+            "redirect": "/settings?new_user=true"
+        })
+        
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Error registering user: {e}")
+        return jsonify({"error": f"Registration failed: {str(e)}"}), 500
+
+@auth_bp.route('/api/get-credentials')
+@login_required
+def api_get_credentials():
+    try:
+        logger.error(f"api_get_credentials: current_user.username = {str(current_user.username)}")
+        username = current_user.username
+        # No more context switching! Use the consolidated models directly  
+        cred = Credential.query.filter_by(username=username).first()
+        logger.error(f"api_get_credentials: cred = {str(cred)}")
+        if not cred:
+            return jsonify({})
+        return jsonify({
+                                    "telegram_token": cred.telegram_token or "",
+            "telegram_chat_id": cred.telegram_chat_id or "",
+            "news_api_key": cred.news_api or ""
+        })
+    except Exception as e:
+        logger.error(f"api_get_credentials ERROR: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
+@auth_bp.route("/test-session")
+@login_required
+def test_session():
+    return f"Logged in as: {getattr(current_user, 'username', None)}"
+
+@auth_bp.route("/api/account/delete", methods=["DELETE"])
+@login_required
+def delete_account():
+    try:
+        user_id = current_user.id
+        username = current_user.username
+        
+        # 1. Delete records from all tables
+        # From models.py
+        from models import Coin, WatchlistCoin, Notification, StakedCoin, StakingReward, AIPrompt, AIConversation, AICache, AIAnalysisSchedule
+        Coin.query.filter_by(user_id=user_id).delete()
+        WatchlistCoin.query.filter_by(user_id=user_id).delete()
+        Notification.query.filter_by(user_id=user_id).delete()
+        
+        # Handle dependencies (StakingReward -> StakedCoin)
+        StakingReward.query.filter_by(user_id=user_id).delete()
+        StakedCoin.query.filter_by(user_id=user_id).delete()
+        
+        AIPrompt.query.filter_by(user_id=user_id).delete()
+        AIConversation.query.filter_by(user_id=user_id).delete()
+        AICache.query.filter_by(user_id=user_id).delete()
+        AIAnalysisSchedule.query.filter_by(user_id=user_id).delete()
+        
+        # From trading_models.py
+        from trading_models import TestOrder, RealOrder, TestPortfolio, TradingSettings, AllActivity, PortfolioValueHistory, StakingOrder
+        TestOrder.query.filter_by(user_id=user_id).delete()
+        RealOrder.query.filter_by(user_id=user_id).delete()
+        TestPortfolio.query.filter_by(user_id=user_id).delete()
+        TradingSettings.query.filter_by(user_id=user_id).delete()
+        AllActivity.query.filter_by(user_id=user_id).delete()
+        PortfolioValueHistory.query.filter_by(user_id=user_id).delete()
+        StakingOrder.query.filter_by(user_id=user_id).delete()
+        
+        # From credentials.py
+        from credentials import Credential, User, UserSettingSetting, DesktopToken, User
+        Credential.query.filter_by(user_id=user_id).delete()
+        UserSetting.query.filter_by(user_id=user_id).delete()
+        DesktopToken.query.filter_by(user_id=user_id).delete()
+        
+        # Finally delete the user
+        User.query.filter_by(id=user_id).delete()
+        
+        db.session.commit()
+        
+        logger.info(f"USER DELETED: {username} (ID: {user_id}) and all associated data.")
+        
+        # Logout the user
+        logout_user()
+        
+        return jsonify({"success": True, "message": "Account deleted successfully"}), 200
+        
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Error deleting account for user {current_user.id}: {e}")
+        return jsonify({"error": "Failed to delete account. Please try again."}), 500
+
+@auth_bp.route('/api/account')
+@login_required
+def api_account():
+    """Get Binance account information including balances"""
+    import traceback
+    try:
+        # Get Binance credentials from database
+        # Get Binance credentials from database
+        creds = Credential.query.filter_by(user_id=current_user.id).first()
+        
+        if not creds:
+            logger.warning(f"No Binance credentials found for user {current_user.username}")
+            return jsonify({
+                'balances': [],
+                'message': 'No Binance credentials found',
+                'error_code': 'missing_binance_credentials'
+            }), 400
+        api_key = decrypt_secret(creds.api_key)
+        api_secret = decrypt_secret(creds.api_secret)
+        if not api_key or not api_secret:
+            logger.warning(f"No Binance credentials found for user {current_user.username}")
+            return jsonify({
+                'balances': [],
+                'message': 'No Binance credentials found',
+                'error_code': 'missing_binance_credentials'
+            }), 400
+        
+        # Initialize Binance client
+        try:
+            from binance.client import Client
+            client = Client(
+                api_key=api_key,
+                api_secret=api_secret,
+                testnet=False,
+                tld='us'
+            )
+        except Exception as e:
+            logger.error(f"Failed to initialize Binance client: {e}\n{traceback.format_exc()}")
+            return jsonify({'balances': [], 'message': f'Failed to initialize Binance client: {str(e)}'}), 502
+        
+        # Fetch account info
+        try:
+            account_info = client.get_account()
+            logger.info(f"Retrieved account info with {len(account_info.get('balances', []))} balance entries")
+            return jsonify({
+                'balances': account_info.get('balances', []),
+                'canTrade': account_info.get('canTrade', False),
+                'canWithdraw': account_info.get('canWithdraw', False),
+                'canDeposit': account_info.get('canDeposit', False)
+            })
+            
+        except Exception as e:
+            error_msg = str(e)
+            logger.error(f"Error fetching account info: {e}\n{traceback.format_exc()}")
+            
+            if "Too much request weight" in error_msg or "rate limit" in error_msg.lower():
+                return jsonify({
+                    'balances': [],
+                    'message': 'Rate limit reached. Please wait before refreshing.',
+                    'rate_limited': True
+                }), 429
+            elif "API-key" in error_msg or "Invalid API-key" in error_msg:
+                return jsonify({
+                    'balances': [],
+                    'message': 'Invalid Binance API credentials',
+                    'error_code': 'invalid_binance_credentials'
+                }), 400
+            else:
+                return jsonify({'balances': [], 'message': f'Error: {str(e)}'}), 502
+                
+    except Exception as e:
+        logger.error(f"Error in api_account: {e}\n{traceback.format_exc()}")
+        return jsonify({'balances': [], 'message': f'Internal error: {str(e)}'}), 500

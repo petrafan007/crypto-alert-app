@@ -1,3 +1,15 @@
+
+from datetime import timedelta, datetime
+import requests
+import threading
+from flask import send_file, request, jsonify, render_template, current_app, redirect, url_for
+from flask_login import current_user, login_required, login_user, logout_user
+from models import Coin, WatchlistCoin, Notification, PriceHistory
+from credentials import Credential, User, UserSetting
+from core.extensions import db
+from log import logger
+from routes.helpers import *
+
 import json
 import datetime
 import time
@@ -3835,3 +3847,1113 @@ def place_real_oco_order():
                 'error_code': 'invalid_trading_credentials'
             }), 400
         return jsonify({'success': False, 'error': err_msg}), 500
+
+@portfolio_bp.route("/api/sync-coins", methods=["POST"])
+@login_required
+def api_sync_coins():
+    """
+    MANUAL SYNC: Backfill 7 days of historical price data for existing coins in portfolio.
+    Used for recovery when automatic hourly collection missed intervals or after app downtime.
+    Does NOT modify portfolio holdings - only updates price data.
+    """
+    try:
+        logger.info(f"Starting price sync for user {current_user.id}")
+        
+        # Get existing coins from user's portfolio (including hidden ones for recovery)
+        coins = Coin.query.filter_by(user_id=current_user.id).all()
+        if not coins:
+            logger.info(f"Portfolio empty for user {current_user.id}. Attempting initial sync from Binance.")
+            success, message = sync_portfolio_from_binance(current_user.id)
+            if success:
+                coins = Coin.query.filter_by(user_id=current_user.id).all()
+            
+            if not coins:
+                return jsonify({
+                    "success": False,
+                    "error": "No coins in portfolio. Add some coins first, then sync prices."
+                })
+        
+        symbols = list({c.symbol.upper() for c in coins})
+        logger.info(f"Syncing price history for {len(symbols)} symbols: {symbols}")
+        
+        synced_count = 0
+        
+        # Update price history for each symbol
+        for symbol in symbols:
+            try:
+                # Delete existing price history for this symbol
+                try:
+                    PriceHistory.query.filter_by(symbol=symbol.upper()).delete()
+                    db.session.commit()
+                except Exception as e:
+                    logger.error(f"Error clearing price history for {symbol}: {e}")
+                    db.session.rollback()
+                
+                # Use Binance only for price history
+                try:
+                    backfill_7d_prices([symbol])  # Pass as list since function expects list of symbols
+                    logger.info(f"Backfill completed for {symbol}")
+                    synced_count += 1
+                except Exception as e:
+                    logger.warning(f"Binance price fetch failed for {symbol}: {e}")
+            
+            except Exception as e:
+                logger.error(f"Error updating price history for {symbol}: {str(e)}")
+                continue
+        
+        return jsonify({
+            "success": True,
+            "message": f"Successfully updated price history for {synced_count} of {len(symbols)} coins"
+        })
+        
+    except Exception as e:
+        logger.error(f"Error in api_sync_coins: {str(e)}", exc_info=True)
+        return jsonify({
+            "success": False,
+            "error": f"Price sync failed: {str(e)}"
+        })
+
+@portfolio_bp.route("/api/unhide-all", methods=["POST"])
+@login_required
+def unhide_all():
+    data = request.get_json()
+    coin_ids = data.get('coin_ids', [])
+    
+    if not coin_ids:
+        return jsonify({"success": False, "error": "No coins selected"})
+    
+    # Only unhide the selected coins
+    Coin.query.filter(
+        Coin.user_id == current_user.id,
+        Coin.hidden.is_(True),
+        Coin.id.in_(coin_ids)
+    ).update(
+        {
+            Coin.hidden: False,
+            Coin.auto_hidden: False,
+            Coin.force_visible: True
+        },
+        synchronize_session=False
+    )
+    
+    db.session.commit()
+    return jsonify({"success": True})
+
+@portfolio_bp.route('/api/tax/manual-investment', methods=['GET', 'POST'])
+@login_required
+def api_tax_manual_investment():
+    try:
+        if request.method == 'GET':
+            amount = get_manual_tax_investment(current_user.id)
+            return jsonify({
+                'success': True,
+                'amount': amount
+            })
+
+        data = request.get_json(force=True, silent=True) or {}
+        amount = _coerce_float(data.get('amount'), 0.0) or 0.0
+        updated_amount, updated_at = set_manual_tax_investment(current_user.id, amount)
+        return jsonify({
+            'success': True,
+            'amount': updated_amount,
+            'updated_at': updated_at
+        })
+    except Exception as e:
+        logger.error(f"Manual tax investment update failed: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': 'Failed to update manual investment amount'}), 500
+
+@portfolio_bp.route('/api/tax-report')
+@login_required
+def api_tax_report():
+    """Generate comprehensive tax report with cost basis and gain/loss calculations"""
+    try:
+        from trading_models import AllActivity
+        from models import Coin
+        # Use actual Binance balances from coins table, not calculated transaction totals
+        # sync_coins_from_transactions() overwrites correct balances with wrong calculated amounts
+        
+        # Get all completed transactions using ORM
+        activities = AllActivity.query.filter(
+            AllActivity.user_id == current_user.id,
+            AllActivity.status.in_(['FILLED', 'completed'])
+        ).order_by(AllActivity.date.asc()).all()
+        
+        # Convert to list of dictionaries
+        transactions = []
+        for activity in activities:
+            tx_dict = {
+                'id': activity.id,
+                'date': activity.date,
+                'type': activity.type,
+                'asset': activity.asset,
+                'amount': activity.amount,
+                'proceeds': activity.proceeds,
+                'cost_basis': activity.cost_basis,
+                'gain_loss': activity.gain_loss,
+                'fee': activity.fee,
+                'txid': activity.txid,
+                'status': activity.status,
+                'details': activity.details,
+                'price_sold_at': activity.price_sold_at,
+                'exchange': activity.exchange or 'coinbase'  # Default to coinbase for legacy records
+            }
+            transactions.append(tx_dict)
+        
+        # Calculate tax information for each transaction for table display
+        tax_data = []
+        for tx in transactions:
+            asset = tx['asset']
+            tx_type = tx['type']
+            amount = float(tx['amount'] or 0)
+            proceeds = float(tx['proceeds'] or 0)
+            fee = float(tx['fee'] or 0)
+            date = tx['date']
+            
+            tax_info = {
+                'id': tx['id'],
+                'date': _format_activity_date(tx['date']),
+                'type': tx_type,
+                'asset': asset,
+                'amount': amount,
+                'proceeds': proceeds,
+                'fee': fee,
+                'txid': tx['txid'],
+                'cost_basis': float(tx['cost_basis'] or 0),  # Use database value
+                'gain_loss': float(tx['gain_loss']) if tx['gain_loss'] is not None else None,  # Use database value
+                'gain_loss_type': 'short_term' if (tx['gain_loss'] is not None and tx['gain_loss'] > 0) else ('loss' if (tx['gain_loss'] is not None and tx['gain_loss'] < 0) else None),
+                'price_sold_at': tx.get('price_sold_at'),  # USDT price at sale/purchase
+                'exchange': tx.get('exchange', 'coinbase')  # Exchange source
+            }
+            
+            tax_data.append(tax_info)
+        
+        # Get actual current holdings from the coins table (which reflects real balances)
+        current_coins = Coin.query.filter_by(user_id=current_user.id, hidden=False).all()
+
+        performance = _calculate_portfolio_performance(transactions, current_coins)
+        current_holdings = performance['holdings_map']
+        portfolio_holdings_value = float(performance['holdings_value'])
+        portfolio_holdings_cost = performance['holdings_cost']
+
+        staking_active_value = 0.0
+        staking_pending_value = 0.0
+        try:
+            username = getattr(current_user, 'username', None)
+            cred = get_user_credentials(username) if username else None
+            # Only attempt if we have credentials to avoid ValueError spam
+            if cred and (cred.api_key or cred.openai_key or cred.zai_key):
+                 # Try-catch specifically for the configuration error
+                try:
+                    staking_active_value, staking_pending_value = calculate_staking_value_for_user(
+                        cred,
+                        current_user.id
+                    )
+                except ValueError as ve:
+                    # Expected if keys are missing/invalid
+                    logger.warning(f"Skipping staking value for tax report: {ve}")
+                    staking_active_value = 0.0
+                    staking_pending_value = 0.0
+            else:
+                 staking_active_value = 0.0
+                 staking_pending_value = 0.0
+
+        except Exception as staking_err:
+            logger.error(f"Tax report staking valuation error: {staking_err}", exc_info=True)
+            staking_active_value = 0.0
+            staking_pending_value = 0.0
+
+        total_staking_value = staking_active_value + staking_pending_value
+        combined_holdings_value = portfolio_holdings_value + total_staking_value
+
+        manual_invested = get_manual_tax_investment(current_user.id)
+        user_setting_for_tax = UserSetting.query.filter_by(user_id=current_user.id).first()
+        manual_updated_at = None  # This field is deprecated in new schema
+
+        # Calculate summary statistics for the table/meta data
+        valid_transactions = [t for t in tax_data if t['gain_loss'] is not None]
+        sell_transactions = [t for t in valid_transactions if t['type'] == 'SELL']
+        
+        # Calculate total gain/loss as: Current Holdings Value - (Manual Contributions + Total Fees)
+        total_gain_loss = combined_holdings_value - (manual_invested + performance['total_fees_paid'])
+
+        summary = {
+            'total_transactions': len(tax_data),  # Total including orphaned
+            'valid_transactions': len(valid_transactions),  # Only those with proper cost basis
+            'total_buys': len([t for t in tax_data if t['type'] == 'BUY']),
+            'total_sells': len([t for t in tax_data if t['type'] == 'SELL']),
+            'valid_sells': len(sell_transactions),  # Only sells with cost basis
+            'excluded_sells': len([t for t in tax_data if t['type'] == 'SELL' and t['gain_loss'] is None]),
+            'total_gifts': len([t for t in tax_data if t['type'] in ['GIFT', 'BONUS', 'TRANSFER', 'RECEIVE']]),
+            'total_gain_loss': total_gain_loss,
+            'realized_gain': performance['realized_pnl'],
+            'unrealized_gain': performance['unrealized_pnl'],
+            'manual_invested_amount': manual_invested,
+            'manual_invested_updated_at': manual_updated_at,
+            'tracked_cost_basis': portfolio_holdings_cost,
+            'current_holdings_value': combined_holdings_value,
+            'current_holdings_cost_basis': portfolio_holdings_cost,
+            'portfolio_holdings_value': portfolio_holdings_value,
+            'staking_active_value': staking_active_value,
+            'staking_pending_value': staking_pending_value,
+            'staking_total_value': total_staking_value,
+            'total_fees_paid': performance['total_fees_paid'],
+            'total_buy_volume': performance['total_buy_cost'],
+            'total_sell_proceeds': performance['total_sell_proceeds'],
+            'assets_traded': list(set(t['asset'] for t in tax_data)),
+            'assets_with_current_holdings': len(current_holdings),
+            'date_range': {
+                'start': min(t['date'] for t in tax_data) if tax_data else None,
+                'end': max(t['date'] for t in tax_data) if tax_data else None
+            }
+        }
+        
+        return jsonify({
+            'transactions': tax_data,
+            'summary': summary,
+            'current_holdings': current_holdings,
+            'fifo_lots': performance['fifo_lots']
+        })
+        
+    except Exception as e:
+        logger.error(f"Error generating tax report: {str(e)}")
+        return jsonify({"error": "Failed to generate tax report"}), 500
+
+@portfolio_bp.route("/api/hide-coin", methods=["POST"])
+@login_required
+def hide_coin():
+    data = request.get_json()
+    coin_id = data.get("coin_id") or data.get("id")  # Support both coin_id and id
+    hidden = data.get("hidden", True)
+    
+    logger.info(f"Hide coin request: coin_id={coin_id}, hidden={hidden}, user_id={current_user.id}")
+    
+    coin = Coin.query.filter_by(id=coin_id, user_id=current_user.id).first()
+    if coin:
+        logger.info(f"Found coin: {coin.symbol}, current hidden status: {coin.hidden}")
+        coin.hidden = hidden
+        if hidden:  # Automatically disable alerts when hiding
+            coin.alert_enabled = False
+            coin.force_visible = False
+            coin.auto_hidden = False
+        else:
+            coin.auto_hidden = False
+            coin.force_visible = True
+        db.session.commit()
+        logger.info(f"Coin {coin.symbol} hidden status updated to: {coin.hidden}")
+        # If unhidden, trigger backfill for this coin
+        if not hidden:
+            threading.Thread(target=backfill_7d_prices, args=([coin.symbol],), daemon=True).start()
+        return jsonify({"success": True})
+    else:
+        logger.error(f"Coin not found: coin_id={coin_id}, user_id={current_user.id}")
+    return jsonify({"success": False, "error": "Coin not found"}), 404
+
+@portfolio_bp.route("/api/set-favorite", methods=["POST"])
+@login_required
+def set_favorite():
+    data = request.get_json()
+    coin_id = data.get("id")
+    favorite = data.get("favorite", False)
+    coin = Coin.query.filter_by(id=coin_id, user_id=current_user.id).first()
+    if coin:
+        coin.is_manual = favorite  # Assuming `is_manual` is used for favorite
+        db.session.commit()
+        return jsonify({"success": True})
+    return jsonify({"success": False, "error": "Coin not found"}), 404
+
+@portfolio_bp.route("/api/delete-coin", methods=["POST"])
+@login_required
+def api_delete_coin():
+    data = request.get_json()
+    coin_id = data.get("id")
+    coin = Coin.query.filter_by(id=coin_id, user_id=current_user.id).first()
+    if coin:
+        db.session.delete(coin)
+        db.session.commit()
+        return jsonify({"success": True})
+    return jsonify({"success": False, "error": "Coin not found"}), 404
+
+@portfolio_bp.route("/api/watchlist")
+@login_required
+def api_watchlist():
+    wl = WatchlistCoin.query.filter_by(user_id=current_user.id, hidden=False).all()
+    
+    # Use stored current prices for instant response
+    watchlist_data = []
+    for w in wl:
+        current_price = w.current_price or 0.0
+        
+        watchlist_data.append({
+            "symbol": w.symbol,
+            "alert_enabled": w.alert_enabled,
+            "down_val": w.down_alert,
+            "up_val": w.up_alert,
+            "note": w.note,
+            "favorite": w.favorite,
+            "hidden": w.hidden,
+            "action": "Watch",  # Simplified to avoid database locks
+            "current_price": current_price,
+            "sentiment": w.sentiment or "Watch",
+            "volatility_pct": w.volatility_pct
+        })
+    
+    return jsonify(watchlist_data)
+
+@portfolio_bp.route("/api/watchlist-live")
+@login_required
+def api_watchlist_live():
+    """Live watchlist data for background refresh"""
+    wl = WatchlistCoin.query.filter_by(user_id=current_user.id, hidden=False).all()
+    
+    # Fetch current prices for all watchlist items
+    watchlist_data = []
+    for w in wl:
+        try:
+            # Try to get current price from Binance
+            current_price = fetch_binance_price(w.symbol)
+            # Save to database for next load
+            w.current_price = current_price
+            db.session.commit()
+        except Exception as e:
+            logger.error(f"Failed to fetch price for {w.symbol}: {e}")
+            current_price = w.current_price or 0.0
+        
+        watchlist_data.append({
+            "symbol": w.symbol,
+            "alert_enabled": w.alert_enabled,
+            "down_val": w.down_alert,
+            "up_val": w.up_alert,
+            "note": w.note,
+            "favorite": w.favorite,
+            "hidden": w.hidden,
+            "action": "Watch",  # Simplified to avoid database locks
+            "current_price": current_price,
+            "sentiment": w.sentiment or "Watch",
+            "volatility_pct": w.volatility_pct
+        })
+    
+    return jsonify(watchlist_data)
+
+@portfolio_bp.route("/api/watchlist/add", methods=["POST"])
+@login_required
+def api_watchlist_add():
+    data = request.get_json()
+    symbol = data.get("symbol", "").upper()
+    if not symbol:
+        return jsonify({"success": False, "error": "Missing symbol"}), 400
+    exists = WatchlistCoin.query.filter_by(user_id=current_user.id, symbol=symbol).first()
+    if exists:
+        return jsonify({"success": True})
+    wl = WatchlistCoin(symbol=symbol, user_id=current_user.id)
+    db.session.add(wl)
+    db.session.commit()
+    # Trigger backfill for this symbol in a background thread
+    threading.Thread(target=backfill_7d_prices, args=([symbol],), daemon=True).start()
+    return jsonify({"success": True})
+
+@portfolio_bp.route("/api/watchlist/remove", methods=["POST"])
+@login_required
+def api_watchlist_remove():
+    data = request.get_json()
+    symbol = data.get("symbol", "").upper()
+    wl = WatchlistCoin.query.filter_by(user_id=current_user.id, symbol=symbol).first()
+    if wl:
+        db.session.delete(wl)
+        db.session.commit()
+    return jsonify({"success": True})
+
+@portfolio_bp.route("/api/hidden-coins")
+@login_required
+def api_hidden_coins():
+    try:
+        try:
+            update_all_coin_prices_from_binance(current_user.id)
+            db.session.commit()  # Ensure all changes are saved
+        except Exception as e:
+            logger.error(f"Failed to update coin prices: {str(e)}")
+            db.session.rollback()
+        coins = Coin.query.filter_by(user_id=current_user.id, hidden=True).all()
+        logger.debug(f"Hidden coins for user {current_user.id}: {[c.symbol for c in coins]}")
+        result = [coin_to_dict(c) for c in coins]
+        logger.debug(f"/api/hidden-coins result: {result}")
+        return jsonify(result)
+    except Exception as e:
+        logger.error(f"/api/hidden-coins failed: {str(e)}", exc_info=True)
+        # Always return a valid JSON list, never a 500
+        return jsonify([])
+
+@portfolio_bp.route("/api/staking/assets", methods=["GET"])
+@login_required
+def api_staking_assets():
+    """Get available staking assets with details from Binance.US API
+    Doc: GET /sapi/v1/staking/asset"""
+    try:
+        cred = get_user_credentials(current_user.username)
+        
+        if not cred or not cred.api_key or not cred.api_secret:
+            logger.warning("Binance API credentials not configured for staking")
+            return jsonify([])
+        
+        # Call Binance.US staking asset information endpoint
+        response = binance_us_api_call(cred, '/sapi/v1/staking/asset', method='GET', use_trading_keys=True)
+        
+        if response.status_code == 200:
+            staking_assets = response.json()
+            logger.info(f"Retrieved {len(staking_assets)} staking assets from Binance.US")
+            return jsonify(staking_assets)
+        else:
+            logger.error(f"Binance.US staking API error: {response.status_code} - {response.text}")
+            return jsonify([])
+    
+    except Exception as e:
+        logger.error(f"Critical error in api_staking_assets: {e}", exc_info=True)
+        return jsonify([])
+
+@portfolio_bp.route("/api/staking/stakeable-coins", methods=["GET"])
+@login_required
+def api_stakeable_coins():
+    """Get list of stakeable coin symbols from Binance.US API
+    Doc: GET /sapi/v1/staking/asset (extract stakingAsset symbols)"""
+    try:
+        cred = get_user_credentials(current_user.username)
+        if not cred or not cred.api_key or not cred.api_secret:
+            logger.warning("Binance API credentials not configured")
+            return jsonify([])
+        
+        # Call Binance.US staking asset information endpoint
+        response = binance_us_api_call(cred, '/sapi/v1/staking/asset', method='GET', use_trading_keys=True)
+        
+        if response.status_code == 200:
+            staking_assets = response.json()
+            # Extract just the stakingAsset symbols
+            stakeable_coins = [asset.get('stakingAsset') for asset in staking_assets if asset.get('stakingAsset')]
+            logger.info(f"Retrieved {len(stakeable_coins)} stakeable coins from Binance.US API")
+            return jsonify(stakeable_coins)
+        else:
+            logger.error(f"Binance.US staking API error: {response.status_code} - {response.text}")
+            return jsonify([])
+    
+    except Exception as e:
+        logger.error(f"Error in api_stakeable_coins: {e}")
+        return jsonify([])
+
+@portfolio_bp.route("/api/staking/stake", methods=["POST"])
+@login_required
+def api_stake_asset():
+    """Stake an asset using Binance.US API
+    Doc: POST /sapi/v1/staking/stake
+    Params: stakingAsset, amount, autoRestake (optional), twofa_token (optional)"""
+    try:
+        from models import StakedCoin
+        data = request.get_json()
+        
+        staking_asset = data.get('stakingAsset', '').upper()
+        amount = float(data.get('amount', 0))
+        auto_restake = data.get('autoRestake', True)
+        twofa_token = data.get('twofa_token')
+        
+        if not staking_asset or amount <= 0:
+            return jsonify({"error": "Invalid staking asset or amount"}), 400
+        
+        # Check if 2FA is required
+        settings = TradingSettings.query.filter_by(user_id=current_user.id).first()
+        if settings and settings.require_2fa and settings.totp_enabled:
+            if not twofa_token:
+                return jsonify({"error": "2FA verification required", "requires_2fa": True}), 403
+            
+            # Verify 2FA token from session
+            token_data = session.get(f'2fa_verified_{twofa_token}')
+            if not token_data:
+                return jsonify({"error": "Invalid or expired 2FA token"}), 403
+            
+            # Check if token is still valid (2 minutes)
+            from datetime import datetime
+            token_timestamp = token_data.get('timestamp', 0)
+            if datetime.utcnow().timestamp() - token_timestamp > 120:
+                session.pop(f'2fa_verified_{twofa_token}', None)
+                return jsonify({"error": "2FA token expired. Please verify again."}), 403
+            
+            # Verify user ID matches
+            if token_data.get('user_id') != current_user.id:
+                return jsonify({"error": "Invalid 2FA token"}), 403
+            
+            # Clear the token after use
+            session.pop(f'2fa_verified_{twofa_token}', None)
+        
+        # Get user credentials
+        cred = get_user_credentials(current_user.username)
+        if not cred or not cred.api_key or not cred.api_secret:
+            return jsonify({"error": "Binance API credentials not configured"}), 400
+
+        permission_check = binance_has_staking_permission(cred)
+        if permission_check is False:
+            return jsonify({
+                "error": "Your Binance trading API key does not have Earn/Staking permissions enabled.",
+                "action": "Update the API key on Binance.US to allow Earn/Staking or create a new key with that permission."
+            }), 403
+        
+        # Find the coin in portfolio
+        coin = Coin.query.filter_by(user_id=current_user.id, symbol=staking_asset).first()
+        if not coin:
+            return jsonify({"error": f"{staking_asset} not found in portfolio"}), 404
+        
+        if coin.amount < amount:
+            return jsonify({"error": f"Insufficient balance. Available: {coin.amount} {staking_asset}"}), 400
+        
+        # Call Binance.US staking API
+        # POST /sapi/v1/staking/stake
+        params = {
+            'stakingAsset': staking_asset,
+            'amount': str(amount),
+            'autoRestake': str(auto_restake).lower()
+        }
+        
+        try:
+            logger.info(f"Calling Binance staking API for {current_user.username}: {params}")
+            response = binance_us_api_call(cred, '/sapi/v1/staking/stake', method='POST', params_dict=params, use_trading_keys=True)
+            
+            if response.status_code == 200:
+                result = response.json()
+                
+                # Deduct from coins table
+                coin.amount -= amount
+                
+                # Get staking asset info for APR/APY
+                asset_response = binance_us_api_call(cred, '/sapi/v1/staking/asset', method='GET', params_dict={'stakingAsset': staking_asset}, use_trading_keys=True)
+                product_info = {}
+                if asset_response.status_code == 200:
+                    assets = asset_response.json()
+                    if isinstance(assets, list) and len(assets) > 0:
+                        product_info = assets[0]
+                
+                # Add to staked_coins table
+                staked_coin = StakedCoin(
+                    user_id=current_user.id,
+                    symbol=staking_asset,
+                    amount=amount,
+                    stake_transaction_id=result.get('data', {}).get('purchaseRecordId', ''),
+                    apr=float(product_info.get('apr', 0)),
+                    apy=float(product_info.get('apy', 0)),
+                    reward_asset=product_info.get('rewardAsset', staking_asset),
+                    unstaking_period_hours=int(product_info.get('unstakingPeriod', 168)),
+                    auto_restake=auto_restake,
+                    status='active'
+                )
+                
+                db.session.add(staked_coin)
+                db.session.commit()
+                trigger_portfolio_snapshot(current_user.id, current_user.username)
+
+                # Record staking transaction in exchange_logs (staking_orders)
+                try:
+                    engine_logs = db.engine
+                    metadata = {
+                        'purchaseRecordId': result.get('data', {}).get('purchaseRecordId', ''),
+                        'raw_response': result
+                    }
+                    usd_value = None
+                    try:
+                        price = fetch_binance_price(staking_asset)
+                        usd_value = float(price) * float(amount) if price else None
+                    except Exception:
+                        usd_value = None
+
+                    from trading_models import StakingOrder
+                    
+                    # Record staking transaction using ORM
+                    new_staking_order = StakingOrder(
+                        user_id=current_user.id,
+                        symbol=staking_asset,
+                        action='stake',
+                        amount=float(amount),
+                        status='completed',
+                        transaction_id=result.get('data', {}).get('purchaseRecordId', ''),
+                        auto_restake=auto_restake,
+                        apr=float(product_info.get('apr', 0)),
+                        apy=float(product_info.get('apy', 0)),
+                        reward_asset=product_info.get('rewardAsset', staking_asset),
+                        usd_value=usd_value,
+                        extra_metadata=json.dumps(metadata)
+                    )
+                    
+                    db.session.add(new_staking_order)
+                    db.session.commit()
+                except Exception as log_err:
+                    logger.error(f"Failed to insert staking_orders record: {log_err}", exc_info=True)
+                
+                logger.info(f"Successfully staked {amount} {staking_asset} for user {current_user.username}")
+                return jsonify({
+                    "success": True,
+                    "message": f"Successfully staked {amount} {staking_asset}",
+                    "purchaseRecordId": result.get('data', {}).get('purchaseRecordId', '')
+                })
+            elif response.status_code == 401:
+                logger.error(f"Binance staking API authorization error: {response.text}")
+                return jsonify({
+                    "error": "Binance rejected the staking request due to missing permissions.",
+                    "details": "Enable Earn/Staking on the trading API key in Binance.US and try again.",
+                    "requires_staking_permission": True
+                }), 403
+            else:
+                logger.error(f"Binance staking API error: {response.status_code} - {response.text}")
+                return jsonify({"error": f"Staking failed: {response.text}"}), response.status_code
+        
+        except Exception as e:
+            db.session.rollback()
+            logger.error(f"Binance staking API error: {e}", exc_info=True)
+            return jsonify({"error": f"Staking failed: {str(e)}"}), 500
+    
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Error in api_stake_asset: {e}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
+
+@portfolio_bp.route("/api/staking/unstake", methods=["POST"])
+@login_required
+def api_unstake_asset():
+    """Unstake an asset using Binance.US API
+    Doc: POST /sapi/v1/staking/unstake
+    Params: stakedCoinId, amount, twofa_token (optional)"""
+    try:
+        from models import StakedCoin
+        data = request.get_json()
+        
+        staked_coin_id = data.get('stakedCoinId')
+        amount = float(data.get('amount', 0))
+        twofa_token = data.get('twofa_token')
+        
+        if not staked_coin_id or amount <= 0:
+            return jsonify({"error": "Invalid staked coin ID or amount"}), 400
+
+        # Check if 2FA is required
+        settings = TradingSettings.query.filter_by(user_id=current_user.id).first()
+        if settings and settings.require_2fa and settings.totp_enabled:
+            if not twofa_token:
+                return jsonify({"error": "2FA verification required", "requires_2fa": True}), 403
+            
+            # Verify 2FA token from session
+            token_data = session.get(f'2fa_verified_{twofa_token}')
+            if not token_data:
+                return jsonify({"error": "Invalid or expired 2FA token"}), 403
+            
+            # Check if token is still valid (2 minutes)
+            from datetime import datetime
+            token_timestamp = token_data.get('timestamp', 0)
+            if datetime.utcnow().timestamp() - token_timestamp > 120:
+                session.pop(f'2fa_verified_{twofa_token}', None)
+                return jsonify({"error": "2FA token expired. Please verify again."}), 403
+            
+            # Verify user ID matches
+            if token_data.get('user_id') != current_user.id:
+                return jsonify({"error": "Invalid 2FA token"}), 403
+            
+            # Clear the token after use
+            session.pop(f'2fa_verified_{twofa_token}', None)
+        
+        # Get user credentials
+        cred = get_user_credentials(current_user.username)
+        if not cred or not cred.api_key or not cred.api_secret:
+            return jsonify({"error": "Binance API credentials not configured"}), 400
+        
+        # Find the staked coin
+        staked_coin = StakedCoin.query.filter_by(id=staked_coin_id, user_id=current_user.id).first()
+        if not staked_coin:
+            return jsonify({"error": "Staked position not found"}), 404
+        
+        if staked_coin.amount < amount:
+            return jsonify({"error": f"Insufficient staked balance. Available: {staked_coin.amount}"}), 400
+        
+        # Call Binance.US unstake API
+        # POST /sapi/v1/staking/unstake
+        params = {
+            'stakingAsset': staked_coin.symbol,
+            'amount': str(amount)
+        }
+        
+        try:
+            response = binance_us_api_call(cred, '/sapi/v1/staking/unstake', method='POST', params_dict=params, use_trading_keys=True)
+            
+            if response.status_code == 200:
+                result = response.json()
+                
+                # Calculate when unstaking completes
+                unstaking_hours = staked_coin.unstaking_period_hours or 168
+                available_at = datetime.utcnow() + timedelta(hours=unstaking_hours)
+
+                if abs(staked_coin.amount - amount) < 1e-10:
+                    # Full unstake - update existing record
+                    staked_coin.status = 'unstaking'
+                    staked_coin.unstake_requested_at = datetime.utcnow()
+                    staked_coin.unstake_available_at = available_at
+                else:
+                    # Partial unstake - keep existing record active but reduced
+                    # Create a NEW record for the unstaking part
+                    staked_coin.amount -= amount
+                    
+                    new_unstaking_record = StakedCoin(
+                        user_id=staked_coin.user_id,
+                        symbol=staked_coin.symbol,
+                        amount=amount,
+                        staked_at=staked_coin.staked_at,
+                        stake_transaction_id=staked_coin.stake_transaction_id,
+                        apr=staked_coin.apr,
+                        apy=staked_coin.apy,
+                        reward_asset=staked_coin.reward_asset,
+                        unstaking_period_hours=staked_coin.unstaking_period_hours,
+                        auto_restake=staked_coin.auto_restake,
+                        status='unstaking',
+                        unstake_requested_at=datetime.utcnow(),
+                        unstake_available_at=available_at
+                    )
+                    db.session.add(new_unstaking_record)
+
+                # Log a local StakingOrder for immediate history feedback
+                try:
+                    from trading_models import StakingOrder
+                    new_order = StakingOrder(
+                        user_id=current_user.id,
+                        symbol=staked_coin.symbol,
+                        amount=amount,
+                        action='unstake',
+                        status='PROCESSING',
+                        timestamp=datetime.utcnow(),
+                        usd_value=0.0 # Will be updated by sync
+                    )
+                    db.session.add(new_order)
+                except Exception as order_err:
+                    logger.warning(f"Failed to log local unstake order: {order_err}")
+                
+                db.session.commit()
+                trigger_portfolio_snapshot(current_user.id, current_user.username)
+                
+                logger.info(f"Successfully initiated unstake of {amount} {staked_coin.symbol} for user {current_user.username}")
+                return jsonify({
+                    "success": True,
+                    "message": f"Unstaking {amount} {staked_coin.symbol}. Available in {unstaking_hours} hours",
+                    "unstakeAvailableAt": available_at.isoformat()
+                })
+            else:
+                logger.error(f"Binance unstaking API error: {response.status_code} - {response.text}")
+                return jsonify({"error": f"Unstaking failed: {response.text}"}), response.status_code
+        
+        except Exception as e:
+            db.session.rollback()
+            logger.error(f"Binance unstaking API error: {e}", exc_info=True)
+            return jsonify({"error": f"Unstaking failed: {str(e)}"}), 500
+    
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Error in api_unstake_asset: {e}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
+
+@portfolio_bp.route("/api/dust/assets", methods=["GET"])
+@login_required
+def api_dust_assets():
+    """GET /sapi/v1/asset/query/dust-assets — list convertible dust balances.
+    Query param: toAsset (BNB|BTC|ETH|USDT, default BNB)
+    """
+    try:
+        to_asset = request.args.get("toAsset", "BNB").upper()
+        cred = get_user_credentials(current_user.username)
+        if not cred or not cred.api_key or not cred.api_secret:
+            return jsonify({"error": "Binance API credentials not configured"}), 400
+
+        response = binance_us_api_call(
+            cred,
+            "/sapi/v1/asset/query/dust-assets",
+            method="GET",
+            params_dict={"toAsset": to_asset},
+            use_trading_keys=False,
+        )
+
+        if response.status_code == 200:
+            data = response.json()
+            return jsonify({"success": True, "data": data})
+        else:
+            logger.error(f"Binance dust-assets error: {response.status_code} {response.text}")
+            return jsonify({"success": False, "error": response.text}), response.status_code
+
+    except Exception as exc:
+        logger.error(f"Error in api_dust_assets: {exc}", exc_info=True)
+        return jsonify({"error": str(exc)}), 500
+
+@portfolio_bp.route("/api/dust/convert", methods=["POST"])
+@login_required
+def api_dust_convert():
+    """POST /sapi/v1/asset/dust — convert selected dust assets.
+    Body JSON: { fromAssets: ["LTC","XRP",...], toAsset: "BNB", twofa_token: "<token>" }
+    """
+    try:
+        data = request.get_json() or {}
+        from_assets = data.get("fromAssets", [])
+        to_asset = (data.get("toAsset") or "BNB").upper()
+        twofa_token = data.get("twofa_token")
+
+        if not from_assets:
+            return jsonify({"error": "No assets selected for conversion"}), 400
+        if to_asset not in ("BNB", "BTC", "ETH", "USDT"):
+            return jsonify({"error": f"Invalid toAsset: {to_asset}"}), 400
+
+        # 2FA check
+        settings = TradingSettings.query.filter_by(user_id=current_user.id).first()
+        if settings and settings.require_2fa and settings.totp_secret:
+            if not twofa_token:
+                return jsonify({"error": "2FA verification required", "requires_2fa": True}), 403
+            token_data = session.get(f"2fa_verified_{twofa_token}")
+            if not token_data or token_data.get("user_id") != current_user.id:
+                return jsonify({"error": "Invalid or expired 2FA token", "requires_2fa": True}), 403
+            if datetime.utcnow().timestamp() - token_data.get("timestamp", 0) > 120:
+                session.pop(f"2fa_verified_{twofa_token}", None)
+                return jsonify({"error": "2FA token expired. Please verify again.", "requires_2fa": True}), 403
+            session.pop(f"2fa_verified_{twofa_token}", None)
+
+        cred = get_user_credentials(current_user.username)
+        if not cred or not cred.api_key or not cred.api_secret:
+            return jsonify({"error": "Binance API credentials not configured"}), 400
+
+        # Build params — Binance expects fromAsset repeated for each coin
+        params = {"toAsset": to_asset}
+        for asset in from_assets:
+            params.setdefault("fromAsset", [])
+            if isinstance(params["fromAsset"], list):
+                params["fromAsset"].append(asset)
+            else:
+                params["fromAsset"] = [params["fromAsset"], asset]
+
+        # binance_us_api_call flattens lists automatically via requests
+        response = binance_us_api_call(
+            cred,
+            "/sapi/v1/asset/dust",
+            method="POST",
+            params_dict=params,
+            use_trading_keys=False,
+        )
+
+        if response.status_code == 200:
+            result = response.json()
+            logger.info(
+                f"Dust conversion success for user {current_user.id}: "
+                f"{from_assets} -> {to_asset}"
+            )
+            # Trigger immediate portfolio snapshot so chart updates without waiting 5 min
+            trigger_portfolio_snapshot(current_user.id, current_user.username)
+            return jsonify({"success": True, "data": result})
+        else:
+            logger.error(f"Binance dust convert error: {response.status_code} {response.text}")
+            return jsonify({"success": False, "error": response.text}), response.status_code
+
+    except Exception as exc:
+        logger.error(f"Error in api_dust_convert: {exc}", exc_info=True)
+        return jsonify({"error": str(exc)}), 500
+
+@portfolio_bp.route("/api/dust/history", methods=["GET"])
+@login_required
+def api_dust_history():
+    """GET /sapi/v1/asset/query/dust-logs — dust conversion history."""
+    try:
+        cred = get_user_credentials(current_user.username)
+        if not cred or not cred.api_key or not cred.api_secret:
+            return jsonify({"error": "Binance API credentials not configured"}), 400
+
+        params = {}
+        if request.args.get("startTime"):
+            params["startTime"] = request.args.get("startTime")
+        if request.args.get("endTime"):
+            params["endTime"] = request.args.get("endTime")
+
+        response = binance_us_api_call(
+            cred,
+            "/sapi/v1/asset/query/dust-logs",
+            method="GET",
+            params_dict=params,
+            use_trading_keys=False,
+        )
+
+        if response.status_code == 200:
+            return jsonify({"success": True, "data": response.json()})
+        else:
+            return jsonify({"success": False, "error": response.text}), response.status_code
+
+    except Exception as exc:
+        logger.error(f"Error in api_dust_history: {exc}", exc_info=True)
+        return jsonify({"error": str(exc)}), 500
+
+@portfolio_bp.route("/api/staking/history", methods=["GET"])
+@login_required
+def api_staking_history():
+    """Get staking transaction history from Binance.US API
+    Doc: GET /sapi/v1/staking/history
+    Optional params: asset, startTime, endTime, page, limit"""
+    try:
+        cred = get_user_credentials(current_user.username)
+        if not cred or not cred.api_key or not cred.api_secret:
+            logger.warning("Binance API credentials not configured")
+            return jsonify([])
+        
+        # Call Binance.US staking history endpoint
+        # GET /sapi/v1/staking/history
+        params = {}
+        if request.args.get('asset'):
+            params['asset'] = request.args.get('asset')
+        if request.args.get('startTime'):
+            params['startTime'] = request.args.get('startTime')
+        if request.args.get('endTime'):
+            params['endTime'] = request.args.get('endTime')
+        if request.args.get('page'):
+            params['page'] = request.args.get('page')
+        if request.args.get('limit'):
+            params['limit'] = request.args.get('limit')
+        
+        response = binance_us_api_call(cred, '/sapi/v1/staking/history', method='GET', params_dict=params, use_trading_keys=True)
+        
+        if response.status_code == 200:
+            history_data = response.json()
+            if isinstance(history_data, dict):
+                history_entries = history_data.get('data', [])
+            else:
+                history_entries = history_data
+
+            normalized = []
+            for entry in history_entries:
+                status_raw = str(entry.get('status', '')).upper()
+                entry_type_raw = str(entry.get('type', '')).lower()
+                
+                # Check for unstake/redeem FIRST to avoid mislabeling as stake
+                if 'unstake' in entry_type_raw or 'redeem' in entry_type_raw:
+                    entry_type = 'unstake'
+                elif 'stake' in entry_type_raw:
+                    entry_type = 'stake'
+                else:
+                    entry_type = entry_type_raw or 'unknown'
+
+                normalized.append({
+                    'asset': str(entry.get('asset', '')).upper(),
+                    'amount': _coerce_float(entry.get('amount'), entry.get('amount')) or 0.0,
+                    'type': entry_type,
+                    'initiatedTime': entry.get('initiatedTime'),
+                    'status': status_raw if status_raw else 'UNKNOWN',
+                    'tranId': entry.get('tranId'),
+                    'raw': entry
+                })
+
+            logger.info(f"Retrieved {len(normalized)} staking history records from Binance.US")
+            return jsonify(normalized)
+        else:
+            logger.error(f"Binance staking history API error: {response.status_code} - {response.text}")
+            return jsonify([])
+    
+    except Exception as e:
+        logger.error(f"Error in api_staking_history: {e}", exc_info=True)
+        return jsonify([])
+
+@portfolio_bp.route("/api/staking/rewards", methods=["GET"])
+@login_required
+def api_staking_rewards():
+    """Get staking rewards history from Binance.US API
+    Doc: GET /sapi/v1/staking/stakingRewardsHistory
+    Optional params: asset, startTime, endTime, page, limit"""
+    try:
+        cred = get_user_credentials(current_user.username)
+        if not cred or not cred.api_key or not cred.api_secret:
+            logger.warning("Binance API credentials not configured")
+            return jsonify([])
+        
+        # Call Binance.US staking rewards history endpoint
+        # GET /sapi/v1/staking/stakingRewardsHistory
+        params = {}
+        if request.args.get('asset'):
+            params['asset'] = request.args.get('asset')
+        if request.args.get('startTime'):
+            params['startTime'] = request.args.get('startTime')
+        if request.args.get('endTime'):
+            params['endTime'] = request.args.get('endTime')
+        if request.args.get('page'):
+            params['page'] = request.args.get('page')
+        if request.args.get('limit'):
+            params['limit'] = request.args.get('limit')
+        
+        response = binance_us_api_call(cred, '/sapi/v1/staking/stakingRewardsHistory', method='GET', params_dict=params, use_trading_keys=True)
+        
+        if response.status_code == 200:
+            result = response.json()
+            # Response format: {"code":"000000","message":"success","data":[{...}],"total":1,"success":true}
+            rewards_data = result.get('data', [])
+            
+            # Convert string values to floats for frontend compatibility
+            for r in rewards_data:
+                if 'usdValue' in r:
+                    try:
+                        r['usdValue'] = float(r['usdValue'])
+                    except (ValueError, TypeError):
+                        r['usdValue'] = 0.0
+                if 'amount' in r:
+                    try:
+                        r['amount'] = float(r['amount'])
+                    except (ValueError, TypeError):
+                        r['amount'] = 0.0
+                        
+            logger.info(f"Retrieved {len(rewards_data)} staking reward records from Binance.US")
+            return jsonify(rewards_data)
+        else:
+            logger.error(f"Binance staking rewards API error: {response.status_code} - {response.text}")
+            return jsonify([])
+    
+    except Exception as e:
+        logger.error(f"Error in api_staking_rewards: {e}", exc_info=True)
+        return jsonify([])
+
+@portfolio_bp.route("/api/set-watchlist-favorite", methods=["POST"])
+@login_required
+def set_watchlist_favorite():
+    data = request.get_json()
+    symbol = data.get("symbol", "").upper()
+    favorite = data.get("favorite", False)
+    w = WatchlistCoin.query.filter_by(user_id=current_user.id, symbol=symbol).first()
+    if w:
+        w.favorite = favorite
+        db.session.commit()
+        return jsonify({"success": True})
+    return jsonify({"success": False, "error": "Watchlist coin not found"}), 404
+
+@portfolio_bp.route("/api/tax-report/export", methods=["GET"])
+@login_required
+def export_tax_report_csv():
+    try:
+        from trading_models import AllActivity
+        import io
+        import csv
+        
+        activities = AllActivity.query.filter_by(user_id=current_user.id).order_by(AllActivity.date.desc()).all()
+        
+        output = io.StringIO()
+        writer = csv.writer(output)
+        
+        # Headers
+        writer.writerow(['Date', 'Type', 'Asset', 'Amount', 'Price Traded At', 'Proceeds', 'Fee', 'Cost Basis', 'Gain/Loss', 'Description', 'Exchange', 'TxID'])
+        
+        for act in activities:
+            writer.writerow([
+                act.date,
+                act.type,
+                act.asset,
+                act.amount,
+                act.price_sold_at or '',
+                act.proceeds or 0,
+                act.fee or 0,
+                act.cost_basis or 0,
+                act.gain_loss or 0,
+                act.description or '',
+                act.exchange or '',
+                act.txid or ''
+            ])
+            
+        output.seek(0)
+        return send_file(
+            io.BytesIO(output.getvalue().encode('utf-8')),
+            mimetype='text/csv',
+            as_attachment=True,
+            download_name=f"crypto_tax_report_{datetime.now().strftime('%Y%m%d')}.csv"
+        )
+    except Exception as e:
+        logger.error(f"Error exporting tax report: {e}")
+        return jsonify({"error": "Failed to export tax report"}), 500

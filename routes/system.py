@@ -1,3 +1,15 @@
+
+from datetime import timedelta, datetime
+import requests
+import threading
+from flask import send_file, request, jsonify, render_template, current_app, redirect, url_for
+from flask_login import current_user, login_required, login_user, logout_user
+from models import Coin, WatchlistCoin, Notification, PriceHistory
+from credentials import Credential, User, UserSetting
+from core.extensions import db
+from log import logger
+from routes.helpers import *
+
 import os
 from datetime import datetime
 
@@ -1127,3 +1139,879 @@ def api_desktop_notifications_working():
 def generate_desktop_token_working():
     """Generate long-lived token for desktop app - Working version"""
     return generate_desktop_token()
+
+@system_bp.route('/api/test-openai-connection', methods=['POST', 'GET'])
+@login_required
+def test_openai_connection():
+    try:
+        from flask import request
+        payload = request.get_json(silent=True) or {}
+        username = current_user.username
+        ai_settings = get_user_ai_settings(username)
+        # Sanitize model to OpenAI-supported list only
+        openai_models = {
+            'gpt-5', 'gpt-5-mini', 'gpt-5-nano',
+            'gpt-4.1', 'gpt-4.1-mini', 'gpt-4.1-nano',
+            'o4-mini', 'o3', 'o3-mini'
+        }
+        requested_model = payload.get('model')
+        model = requested_model if requested_model in openai_models else 'gpt-5'
+        key = payload.get('openai_key')
+
+        cred = get_user_credentials(username)
+        openai_api_key = key if key else decrypt_secret(getattr(cred, '_openai_key', None))
+        if not openai_api_key:
+            return jsonify(success=False, message='OpenAI API key missing'), 400
+        try:
+            from openai import OpenAI
+            client = OpenAI(api_key=openai_api_key, timeout=20.0)
+            resp = client.chat.completions.create(
+                model=model,
+                messages=[{"role":"user","content":"ping"}],
+                max_completion_tokens=5
+            )
+            ok = bool(getattr(resp, 'choices', None))
+            return jsonify(success=ok, message='OpenAI connection OK' if ok else 'OpenAI responded without choices')
+        except Exception as e:
+            return jsonify(success=False, message=f'OpenAI error: {e}'), 400
+    except Exception as e:
+        return jsonify(success=False, message=str(e)), 500
+
+@system_bp.route('/api/test-zai-connection', methods=['POST', 'GET'])
+@login_required
+def test_zai_connection():
+    try:
+        from flask import request
+        payload = request.get_json(silent=True) or {}
+        username = current_user.username
+        ai_settings = get_user_ai_settings(username)
+        # Sanitize model to Z.AI-supported list only
+        zai_models = {
+            'glm-4.7', 'glm-4.7-flash', 'glm-4.7-flashx'
+        }
+        requested_model = payload.get('model')
+        model = requested_model if requested_model in zai_models else 'glm-4.7-flash'
+        key = payload.get('zai_key')
+
+        cred = get_user_credentials(username)
+        zai_api_key = key if key else decrypt_secret(getattr(cred, '_zai_key', None))
+        if not zai_api_key:
+            return jsonify(success=False, message='Z.AI API key missing'), 400
+        try:
+            from zai_client import ZAIClient
+            client = ZAIClient(zai_api_key)
+            resp = client.chat_completion(
+                messages=[{"role":"user","content":"ping"}],
+                model=model,
+                max_tokens=5,
+                temperature=0.0
+            )
+            ok = bool(resp) and resp.get('success')
+            return jsonify(success=bool(ok), message='Z.AI connection OK' if ok else f"Z.AI error: {resp}")
+        except Exception as e:
+            return jsonify(success=False, message=f'Z.AI error: {e}'), 400
+    except Exception as e:
+        return jsonify(success=False, message=str(e)), 500
+
+@system_bp.route('/api/check-credential')
+@login_required
+def check_credential():
+    field = request.args.get('field')
+    value = request.args.get('value')
+
+    # Basic length check
+    if not value or len(value) < 5:
+        return jsonify(valid=False, message="This value is too short.")
+
+    if field == "telegram_token":
+        try:
+            r = requests.get(f"https://api.telegram.org/bot{value}/getMe", timeout=8)
+            data = r.json()
+            if data.get("ok"):
+                return jsonify(valid=True, message="Telegram Bot Token is valid.")
+            else:
+                return jsonify(valid=False, message="Telegram Bot Token is invalid.")
+        except Exception as e:
+            return jsonify(valid=False, message=f"Telegram Bot Token check error: {str(e)}")
+
+    if field == "telegram_chat_id":
+        token = request.args.get('telegram_token', '')
+        if not token:
+            return jsonify(valid=True, message="Format looks OK. (Token required for full check)")
+        try:
+            test_url = f"https://api.telegram.org/bot{token}/sendMessage"
+            payload = {"chat_id": value, "text": "Test message from Crypto Dashboard onboarding."}
+            r = requests.post(test_url, data=payload, timeout=8)
+            data = r.json()
+            if data.get("ok"):
+                return jsonify(valid=True, message="Telegram Chat ID is valid and can receive messages.")
+            else:
+                return jsonify(valid=False, message=f"Telegram Chat ID error: {data.get('description', 'Unknown error')}")
+        except Exception as e:
+            return jsonify(valid=False, message=f"Telegram Chat ID check error: {str(e)}")
+
+    if field == "news_api_key":
+        try:
+            url = f"https://newsapi.org/v2/top-headlines?category=business&apiKey={value}"
+            r = requests.get(url, timeout=8)
+            data = r.json()
+            if data.get("status") == "ok":
+                return jsonify(valid=True, message="News API Key accepted.")
+            else:
+                return jsonify(valid=False, message=f"News API Key error: {data.get('message', 'Unknown error')}")
+        except Exception as e:
+            return jsonify(valid=False, message=f"News API check error: {str(e)}")
+
+
+
+    return jsonify(valid=False, message="Unknown field.")
+
+@system_bp.route("/api/update-note", methods=["POST"])
+@login_required
+def api_update_note():
+    """Update note for a coin or watchlist item"""
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({"success": False, "error": "No data provided"}), 400
+            
+        coin_id = data.get("coin_id")
+        note = data.get("note", "")
+        
+        if not coin_id:
+            return jsonify({"success": False, "error": "coin_id is required"}), 400
+        
+        # First try to find in portfolio coins table
+        coin = Coin.query.filter_by(id=coin_id, user_id=current_user.id).first()
+        if coin:
+            coin.note = note
+            db.session.commit()
+            logger.info(f"Updated note for portfolio coin {coin.symbol} (id={coin_id}): {note[:50]}...")
+            return jsonify({"success": True, "message": "Portfolio note updated"})
+        
+        # If not found in portfolio, try watchlist table
+        watchlist_coin = WatchlistCoin.query.filter_by(id=coin_id, user_id=current_user.id).first()
+        if watchlist_coin:
+            watchlist_coin.note = note
+            db.session.commit()
+            logger.info(f"Updated note for watchlist coin {watchlist_coin.symbol} (id={coin_id}): {note[:50]}...")
+            return jsonify({"success": True, "message": "Watchlist note updated"})
+        
+        return jsonify({"success": False, "error": "Coin not found in portfolio or watchlist"}), 404
+        
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Error updating note: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+@system_bp.route("/api/set-initial-price", methods=["POST"])
+@login_required
+def api_set_initial_price():
+    data = request.get_json()
+    coin_id = data.get("id")
+    price = float(data.get("price", 0.0))
+    coin = Coin.query.filter_by(id=coin_id, user_id=current_user.id).first()
+    if coin:
+        coin.initial_price = price
+        coin.is_manual = True
+        db.session.commit()
+        return jsonify({"success": True})
+    return jsonify({"success": False, "error": "Coin not found"}), 404
+
+@system_bp.route("/api/set-custom-pct", methods=["POST"])
+@login_required
+def set_custom_pct():
+    data = request.get_json()
+    coin_id = data.get("id")
+    coin = Coin.query.filter_by(id=coin_id, user_id=current_user.id).first()
+    if not coin:
+        return jsonify({"success": False, "error": "Coin not found"})
+    
+    # Handle percentage values - store in custom_lower_pct/custom_upper_pct
+    if "custom_lower_pct" in data:
+        val = data["custom_lower_pct"]
+        coin.custom_lower_pct = float(val) if val not in ("", None) else None
+    if "custom_upper_pct" in data:
+        val = data["custom_upper_pct"]
+        coin.custom_upper_pct = float(val) if val not in ("", None) else None
+    
+    # Handle number values - store in custom_lower_val/custom_upper_val
+    if "custom_lower_val" in data:
+        val = data["custom_lower_val"]
+        coin.custom_lower_val = float(val) if val not in ("", None) else None
+    if "custom_upper_val" in data:
+        val = data["custom_upper_val"]
+        coin.custom_upper_val = float(val) if val not in ("", None) else None
+    
+    # Handle type changes
+    if "custom_lower_type" in data:
+        coin.custom_lower_type = data["custom_lower_type"]
+    if "custom_upper_type" in data:
+        coin.custom_upper_type = data["custom_upper_type"]
+    
+    db.session.commit()
+    return jsonify({"success": True})
+
+@system_bp.route("/api/set-alert", methods=["POST"])
+@login_required
+def set_alert():
+    data = request.get_json()
+    coin = Coin.query.filter_by(id=data["id"], user_id=current_user.id).first()
+    if not coin:
+        return jsonify({"error": "Coin not found"}), 404
+    coin.alert_enabled = not coin.alert_enabled  # Toggle the alert
+    db.session.commit()
+    return jsonify({"success": True, "alert_enabled": coin.alert_enabled})
+
+@system_bp.route("/api/set-custom-pct-type", methods=["POST"])
+@login_required
+def set_custom_pct_type():
+    d = request.get_json()
+    logger.info(f"[set-custom-pct-type] Received data: {d}")
+    
+    coin = Coin.query.filter_by(id=d["id"], user_id=current_user.id).first()
+    if not coin:
+        return jsonify({"error": "Coin not found"}), 404
+    
+    direction = d.get("type", "")  # "down" or "up"
+    pct_type = d.get("pct_type", "#")  # "#", "%", or "Auto%"
+    value = d.get("value")  # The text box value
+    
+    if direction == "down":
+        coin.custom_lower_type = pct_type
+        
+        if pct_type == "#":
+            # Number type - store in custom_lower_val, clear custom_lower_pct (rounded to 2 decimal places)
+            coin.custom_lower_val = round(float(value), 2) if value != '' and value is not None else None
+            coin.custom_lower_pct = None
+            logger.info(f"[set-custom-pct-type] Set {coin.symbol} down_alert (#) to {coin.custom_lower_val}")
+            
+        elif pct_type == "%":
+            # Percentage type - store in custom_lower_pct, clear custom_lower_val (rounded to 2 decimal places)
+            coin.custom_lower_pct = round(float(value), 2) if value != '' and value is not None else None
+            coin.custom_lower_val = None
+            logger.info(f"[set-custom-pct-type] Set {coin.symbol} down_alert (%) to {coin.custom_lower_pct}")
+            
+        elif pct_type == "Auto%":
+            # Auto percentage - calculate value automatically, store in custom_lower_pct (rounded to 2 decimal places)
+            coin.custom_lower_val = None
+            auto_value = calculate_auto_alert(coin.symbol, "down", coin.avg_entry)
+            coin.custom_lower_pct = round(auto_value, 2) if auto_value is not None else None
+            logger.info(f"[set-custom-pct-type] Set {coin.symbol} down_alert (Auto%) to {coin.custom_lower_pct}")
+            
+    elif direction == "up":
+        coin.custom_upper_type = pct_type
+        
+        if pct_type == "#":
+            # Number type - store in custom_upper_val, clear custom_upper_pct (rounded to 2 decimal places)
+            coin.custom_upper_val = round(float(value), 2) if value != '' and value is not None else None
+            coin.custom_upper_pct = None
+            logger.info(f"[set-custom-pct-type] Set {coin.symbol} up_alert (#) to {coin.custom_upper_val}")
+            
+        elif pct_type == "%":
+            # Percentage type - store in custom_upper_pct, clear custom_upper_val (rounded to 2 decimal places)
+            coin.custom_upper_pct = round(float(value), 2) if value != '' and value is not None else None
+            coin.custom_upper_val = None
+            logger.info(f"[set-custom-pct-type] Set {coin.symbol} up_alert (%) to {coin.custom_upper_pct}")
+            
+        elif pct_type == "Auto%":
+            # Auto percentage - calculate value automatically, store in custom_upper_pct (rounded to 2 decimal places)
+            coin.custom_upper_val = None
+            auto_value = calculate_auto_alert(coin.symbol, "up", coin.initial_price)
+            coin.custom_upper_pct = round(auto_value, 2) if auto_value is not None else None
+            logger.info(f"[set-custom-pct-type] Set {coin.symbol} up_alert (Auto%) to {coin.custom_upper_pct}")
+    
+    db.session.commit()
+    
+    # Return the updated values so frontend can update display
+    response_data = {"success": True}
+    if direction == "down":
+        response_data["custom_lower_type"] = coin.custom_lower_type
+        response_data["custom_lower_val"] = coin.custom_lower_val
+        response_data["custom_lower_pct"] = coin.custom_lower_pct
+    elif direction == "up":
+        response_data["custom_upper_type"] = coin.custom_upper_type
+        response_data["custom_upper_val"] = coin.custom_upper_val
+        response_data["custom_upper_pct"] = coin.custom_upper_pct
+    
+    return jsonify(response_data)
+
+@system_bp.route("/api/clear-alert-state", methods=["POST"])
+@login_required
+def api_clear_alert_state():
+    try:
+        removed = clear_alert_state(current_user.id)
+        return jsonify({"success": True, "removed": removed})
+    except Exception as e:
+        logger.error(f"/api/clear-alert-state error: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+@system_bp.route("/api/debug-alerts")
+@login_required
+def debug_alerts():
+    """Debug endpoint to check alert system status"""
+    try:
+        # Check if user has ETH with alerts enabled
+        eth_coin = Coin.query.filter_by(
+            user_id=current_user.id, 
+            symbol='ETH', 
+            alert_enabled=True, 
+            hidden=False
+        ).first()
+        
+        if not eth_coin:
+            return jsonify({
+                "error": "No ETH coin found with alerts enabled",
+                "user_coins": [c.symbol for c in Coin.query.filter_by(user_id=current_user.id).all()]
+            })
+        
+        # Get current price
+        current_price = fetch_crypto_price('ETH')
+        
+        # Calculate thresholds
+        thresholds = {}
+        if eth_coin.custom_upper_type == "#" and eth_coin.custom_upper_val:
+            thresholds['up_threshold'] = round(float(eth_coin.custom_upper_val), 6)
+        elif eth_coin.custom_upper_type in ["%", "Auto%"] and eth_coin.custom_upper_pct:
+            thresholds['up_threshold'] = round(eth_coin.initial_price * (1 + float(eth_coin.custom_upper_pct) / 100), 6)
+        
+        if eth_coin.custom_lower_type == "#" and eth_coin.custom_lower_val:
+            thresholds['down_threshold'] = round(float(eth_coin.custom_lower_val), 6)
+        elif eth_coin.custom_lower_type in ["%", "Auto%"] and eth_coin.custom_lower_pct:
+            thresholds['down_threshold'] = round(eth_coin.initial_price * (1 - float(eth_coin.custom_lower_pct) / 100), 6)
+        
+        # Check alert state
+        alert_states = {}
+        if 'up_threshold' in thresholds:
+            alert_states['up_state'] = get_last_alert_state(
+                current_user.id, 'ETH', 'up', 
+                source="portfolio", 
+                threshold=thresholds['up_threshold']
+            )
+        if 'down_threshold' in thresholds:
+            alert_states['down_state'] = get_last_alert_state(
+                current_user.id, 'ETH', 'down', 
+                source="portfolio", 
+                threshold=thresholds['down_threshold']
+            )
+        
+        return jsonify({
+            "user_id": current_user.id,
+            "eth_coin": {
+                "id": eth_coin.id,
+                "symbol": eth_coin.symbol,
+                "alert_enabled": eth_coin.alert_enabled,
+                "hidden": eth_coin.hidden,
+                "initial_price": eth_coin.initial_price,
+                "custom_upper_type": eth_coin.custom_upper_type,
+                "custom_upper_val": eth_coin.custom_upper_val,
+                "custom_upper_pct": eth_coin.custom_upper_pct,
+                "custom_lower_type": eth_coin.custom_lower_type,
+                "custom_lower_val": eth_coin.custom_lower_val,
+                "custom_lower_pct": eth_coin.custom_lower_pct
+            },
+            "current_price": current_price,
+            "thresholds": thresholds,
+            "alert_states": alert_states,
+            "price_crossed_up": current_price >= thresholds.get('up_threshold', 0) if 'up_threshold' in thresholds else False,
+            "price_crossed_down": current_price <= thresholds.get('down_threshold', 999999) if 'down_threshold' in thresholds else False
+        })
+        
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@system_bp.route("/api/set-watch-alert", methods=["POST"])
+@login_required
+def set_watch_alert():
+    data = request.get_json()
+    symbol = data.get("symbol", "").upper()
+    direction = data.get("direction")
+    value = data.get("value", None)
+    alert_enabled = data.get("alert_enabled", None)
+    
+    logger.info(f"set_watch_alert called: symbol={symbol}, direction={direction}, value={value}, alert_enabled={alert_enabled}")
+    
+    w = WatchlistCoin.query.filter_by(user_id=current_user.id, symbol=symbol).first()
+    if not w:
+        logger.error(f"Watchlist coin not found: {symbol}")
+        return jsonify({"success": False, "error": "Watchlist coin not found"})
+    
+    logger.info(f"Found watchlist coin: {w.symbol}, current down_alert={w.down_alert}, up_alert={w.up_alert}")
+    
+    if direction == "down":
+        w.down_alert = round(float(value), 2) if value not in ("", None) else None
+        logger.info(f"Updated down_alert to: {w.down_alert}")
+    elif direction == "up":
+        w.up_alert = round(float(value), 2) if value not in ("", None) else None
+        logger.info(f"Updated up_alert to: {w.up_alert}")
+    
+    if alert_enabled is not None:
+        w.alert_enabled = bool(alert_enabled)
+        logger.info(f"Updated alert_enabled to: {w.alert_enabled}")
+    
+    db.session.commit()
+    logger.info("Database committed successfully")
+    return jsonify({"success": True})   
+
+@system_bp.route("/api/set-watch-alert-type", methods=["POST"])
+@login_required
+def set_watch_alert_type():
+    data = request.get_json()
+    symbol = data.get("symbol", "").upper()
+    _ = data.get("direction")
+    _ = data.get("type")
+    
+    w = WatchlistCoin.query.filter_by(user_id=current_user.id, symbol=symbol).first()
+    if not w:
+        return jsonify({"success": False, "error": "Watchlist coin not found"})
+    
+    # For watchlist, we don't need to store alert types since we're using direct values
+    # This endpoint is just for compatibility with the frontend
+    db.session.commit()
+    return jsonify({"success": True})
+
+@system_bp.route('/api/set-volatility-pct', methods=['POST'])
+@login_required
+def set_volatility_pct():
+    data = request.get_json()
+    table_type = data.get('table_type')
+    volatility_pct = data.get('volatility_pct')
+
+    if table_type == 'portfolio':
+        coin_id = data.get('id')
+        coin = Coin.query.filter_by(user_id=current_user.id, id=coin_id).first()
+    elif table_type == 'watchlist':
+        symbol = data.get('symbol')
+        coin = WatchlistCoin.query.filter_by(user_id=current_user.id, symbol=symbol).first()
+    else:
+        return jsonify({"success": False, "error": "Invalid table type"})
+
+    if coin:
+        coin.volatility_pct = volatility_pct
+        db.session.commit()
+        return jsonify({"success": True})
+    
+    return jsonify({"success": False, "error": "Coin not found"})
+
+@system_bp.route("/api/mark-onboarding-complete", methods=["POST"])
+@login_required
+def mark_onboarding_complete():
+    """Mark the user as having seen the onboarding modal."""
+    try:
+        user_setting = UserSetting.query.filter_by(user_id=current_user.id).first()
+        if not user_setting:
+            user_setting = UserSetting(user_id=current_user.id)
+            db.session.add(user_setting)
+        
+        user_setting.has_seen_onboarding = True
+        db.session.commit()
+        return jsonify({"success": True}), 200
+    except Exception as e:
+        logger.error(f"Error marking onboarding complete: {e}")
+        db.session.rollback()
+        return jsonify({"error": str(e)}), 500
+
+@system_bp.route("/api/support/send", methods=["POST"])
+def send_support_message():
+    """Send support contact form message via email."""
+    import smtplib
+    from email.mime.text import MIMEText
+    from email.mime.multipart import MIMEMultipart
+    from email.mime.base import MIMEBase
+    from email import encoders
+    
+    try:
+        full_name = request.form.get('fullName', '').strip()
+        email = request.form.get('email', '').strip()
+        topic = request.form.get('topic', '').strip()
+        message = request.form.get('message', '').strip()
+        
+        # Validation
+        if not email:
+            return jsonify({"error": "Email address is required"}), 400
+        if not topic:
+            return jsonify({"error": "Topic is required"}), 400
+        if not message:
+            return jsonify({"error": "Message is required"}), 400
+        if len(message) > 5000:
+            return jsonify({"error": "Message must be 5000 characters or less"}), 400
+        
+        # Valid topics
+        valid_topics = ['Billing', 'Technical Issue', 'Suggestions', 'Questions', 
+                       'Account Access', 'Content Feedback', 'Other']
+        if topic not in valid_topics:
+            return jsonify({"error": "Invalid topic selected"}), 400
+        
+        # Build email
+        support_email = "petrafan007@gmail.com"
+        
+        msg = MIMEMultipart()
+        msg['From'] = email
+        msg['To'] = support_email
+        msg['Subject'] = f"[Crypto Alert App] {topic}"
+        
+        # Email body
+        body = f"""New support message from Crypto Alert App:
+
+From: {full_name or 'Not provided'}
+Email: {email}
+Topic: {topic}
+
+Message:
+{message}
+"""
+        msg.attach(MIMEText(body, 'plain'))
+        
+        # Handle attachment
+        attachment = request.files.get('attachment')
+        if attachment and attachment.filename:
+            # Validate file size (100 MB)
+            attachment.seek(0, 2)  # Seek to end
+            file_size = attachment.tell()
+            attachment.seek(0)  # Reset to beginning
+            
+            if file_size > 100 * 1024 * 1024:
+                return jsonify({"error": "Attachment must be less than 100 MB"}), 400
+            
+            part = MIMEBase('application', 'octet-stream')
+            part.set_payload(attachment.read())
+            encoders.encode_base64(part)
+            part.add_header('Content-Disposition', f'attachment; filename="{attachment.filename}"')
+            msg.attach(part)
+        
+        # Send email using localhost SMTP (assuming local mail server)
+        # For Gmail, you would need app passwords and SSL
+        try:
+            # Try sendmail first (local)
+            import subprocess
+            email_content = msg.as_string()
+            process = subprocess.Popen(
+                ['/usr/sbin/sendmail', '-t', '-oi'],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE
+            )
+            stdout, stderr = process.communicate(email_content.encode())
+            
+            if process.returncode != 0:
+                logger.error(f"Sendmail failed: {stderr.decode()}")
+                # Fallback to direct SMTP if available
+                raise Exception("Sendmail failed, trying SMTP")
+                
+        except Exception as sendmail_err:
+            logger.warning(f"Sendmail not available: {sendmail_err}")
+            # Try localhost SMTP
+            try:
+                with smtplib.SMTP('localhost', 25) as server:
+                    server.sendmail(email, support_email, msg.as_string())
+            except Exception as smtp_err:
+                logger.error(f"SMTP also failed: {smtp_err}")
+                # Log the message anyway so we don't lose it
+                logger.info(f"SUPPORT MESSAGE (email failed): From={email}, Topic={topic}, Message={message[:200]}...")
+                # Still return success - message logged
+        
+        logger.info(f"Support message received from {email} about {topic}")
+        return jsonify({"success": True, "message": "Message sent successfully"}), 200
+        
+    except Exception as e:
+        logger.error(f"Error sending support message: {e}")
+        return jsonify({"error": "Failed to send message. Please try again."}), 500
+
+@system_bp.route("/api/test-binance-connection", methods=["GET", "POST"])
+@login_required
+def api_test_binance_connection():
+    """Test Binance.US Portfolio API connection (production only, no testnet)"""
+    try:
+        # ALWAYS use production Binance.US - testnet is geo-restricted for US users
+        api_key = None
+        api_secret = None
+        testnet = False  # Force production for US users
+        
+        # Check if keys provided in request body (for testing new keys)
+        if request.method == 'POST':
+            data = request.get_json() or {}
+            api_key = data.get('api_key')
+            api_secret = data.get('api_secret')
+        
+        # Fallback to credentials from database
+        if not api_key or not api_secret:
+            # Get credentials from credentials table
+            creds = Credential.query.filter_by(user_id=current_user.id).first()
+            
+            if creds:
+                api_key = decrypt_secret(creds.api_key)
+                api_secret = decrypt_secret(creds.api_secret)
+            
+        if not api_key or not api_secret:
+            return jsonify({
+                "success": False,
+                "message": "Binance API key and secret are required"
+            }), 400
+            
+        # Import Binance client
+
+        from binance.client import Client
+        from binance.exceptions import BinanceAPIException
+        
+        # If we get a location restriction error, default to testnet and inform user
+        location_restricted = False
+        binance_type = "Binance"
+        
+        # Connect to Binance.US only (US users cannot use regular Binance)
+        connection_attempts = []
+        
+        try:
+            logger.info(f"Attempting Binance.US connection with testnet={testnet}")
+            client = Client(
+                api_key,
+                api_secret,
+                testnet=testnet,
+                tld='us',
+                requests_params={
+                    'timeout': 15,  # Increased timeout
+                }
+            )
+            binance_type = "Binance.US"
+            account = client.get_account()
+            logger.info("Binance.US connection successful")
+            
+        except BinanceAPIException as api_e:
+            connection_attempts.append(f"Binance.US: {api_e.message}")
+            logger.warning(f"Binance.US failed: {api_e.message}")
+            
+            return jsonify({
+                "success": False,
+                "message": "Binance.US connection failed",
+                "details": f"API Error: {api_e.message}",
+                "suggestion": "For US users: 1) Verify your Binance.US API keys are correct, 2) Ensure your Binance.US account is verified, 3) Check API permissions include 'Read Info'",
+                "attempts": connection_attempts
+            }), 400
+                
+        except Exception as e:
+            connection_attempts.append(f"Binance.US: {str(e)}")
+            logger.warning(f"Binance.US connection failed: {e}")
+            
+            return jsonify({
+                "success": False,
+                "message": "Binance.US connection failed",
+                "details": f"Connection Error: {str(e)}",
+                "suggestion": "For US users: 1) Verify your Binance.US API keys are correct, 2) Check your network connection, 3) Ensure your Binance.US account is verified",
+                "attempts": connection_attempts
+            }), 400
+            
+        # Get balances (filter out zero balances)
+        balances = [
+            {"asset": b['asset'], "free": b['free'], "locked": b['locked']}
+            for b in account['balances'] 
+            if float(b['free']) > 0 or float(b['locked']) > 0
+        ]
+        
+        # Update last connection time
+        try:
+            user_obj = User.query.filter_by(username=current_user.username).first()
+            if user_obj:
+                user_obj.binance_connected = True
+                user_obj.binance_connected_at = datetime.utcnow()
+                db.session.commit()
+        except Exception as e:
+            logger.warning(f"Could not update connection timestamp: {e}")
+        
+        success_message = f"{binance_type} {'Testnet ' if testnet else ''}API connection successful"
+        if location_restricted:
+            success_message += " (automatically switched to testnet due to location restrictions)"
+        
+        return jsonify({
+            "success": True,
+            "message": success_message,
+            "location_restricted": location_restricted,
+            "using_testnet": testnet,
+            "account": {
+                "makerCommission": account.get('makerCommission'),
+                "takerCommission": account.get('takerCommission'),
+                "buyerCommission": account.get('buyerCommission'),
+                "sellerCommission": account.get('sellerCommission'),
+                "canTrade": account.get('canTrade'),
+                "canWithdraw": account.get('canWithdraw'),
+                "canDeposit": account.get('canDeposit'),
+                "balances": balances
+            }
+        })
+        
+    except BinanceAPIException as e:
+        logger.error(f"Binance API error: {e.message}")
+        return jsonify({
+            "success": False,
+            "message": f"Binance API error: {e.message}",
+            "code": e.code,
+            "suggestion": "Check your API credentials and try enabling testnet mode"
+        }), 400
+        
+    except Exception as e:
+        logger.error(f"Binance connection test failed: {str(e)}")
+        return jsonify({
+            "success": False,
+            "message": f"Connection test failed: {str(e)}",
+            "suggestion": "Check your network connection and API credentials"
+        }), 500
+
+@system_bp.route("/api/test-brave-search", methods=['POST'])
+@login_required
+def api_test_brave_search():
+    """Test Brave Search API key validity"""
+    try:
+        data = request.get_json()
+        brave_api_key = data.get('brave_search_api_key') or data.get('api_key')
+        
+        if not brave_api_key:
+            return jsonify({
+                "success": False,
+                "message": "No Brave Search API key provided"
+            }), 400
+        
+        # Test Brave Search API with a simple query
+        import requests
+        
+        test_url = "https://api.search.brave.com/res/v1/web/search"
+        headers = {
+            "Accept": "application/json",
+            "Accept-Encoding": "gzip",
+            "X-Subscription-Token": brave_api_key
+        }
+        params = {
+            "q": "test query",
+            "count": 1
+        }
+        
+        response = requests.get(test_url, headers=headers, params=params, timeout=10)
+        
+        if response.status_code == 200:
+            # API key is valid
+            data = response.json()
+            return jsonify({
+                "success": True,
+                "message": "Brave Search API key is valid",
+                "usage": "Unknown"  # Brave doesn't always return usage in test calls
+            })
+        elif response.status_code == 401:
+            return jsonify({
+                "success": False,
+                "message": "Invalid Brave Search API key"
+            }), 400
+        elif response.status_code == 429:
+            return jsonify({
+                "success": False,
+                "message": "Brave Search API rate limit exceeded (2000/month limit reached)"
+            }), 429
+        else:
+            return jsonify({
+                "success": False,
+                "message": f"Brave Search API error: {response.status_code}"
+            }), 400
+            
+    except requests.exceptions.Timeout:
+        return jsonify({
+            "success": False,
+            "message": "Brave Search API request timed out"
+        }), 500
+    except requests.exceptions.RequestException as e:
+        return jsonify({
+            "success": False,
+            "message": f"Brave Search API request failed: {str(e)}"
+        }), 500
+    except Exception as e:
+        logger.error(f"Test Brave Search API error: {str(e)}")
+        return jsonify({
+            "success": False,
+            "message": f"Unexpected error: {str(e)}"
+        }), 500
+
+@system_bp.route('/api/trading-pairs')
+@login_required
+def api_trading_pairs():
+    """Get available trading pairs - BINANCE VERSION"""
+    logger.info("Trading pairs API called (Binance mode)")
+    # Return Binance.US trading pairs exclusively
+    # Return Binance.US trading pairs exclusively
+    binance_pairs = [
+        {'id': 'USDTUSD', 'base_currency': 'USDT', 'quote_currency': 'USD', 'display_name': 'USDT-USD', 'status': 'online'},
+        {'id': 'BTCUSD', 'base_currency': 'BTC', 'quote_currency': 'USD', 'display_name': 'Bitcoin-USD', 'status': 'online'},
+        {'id': 'ETHUSD', 'base_currency': 'ETH', 'quote_currency': 'USD', 'display_name': 'Ethereum-USD', 'status': 'online'},
+        {'id': 'BTCUSDT', 'base_currency': 'BTC', 'quote_currency': 'USDT', 'display_name': 'Bitcoin-USDT', 'status': 'online'},
+        {'id': 'ETHUSDT', 'base_currency': 'ETH', 'quote_currency': 'USDT', 'display_name': 'Ethereum-USDT', 'status': 'online'},
+        {'id': 'SOLUSDT', 'base_currency': 'SOL', 'quote_currency': 'USDT', 'display_name': 'Solana-USDT', 'status': 'online'},
+        {'id': 'ADAUSDT', 'base_currency': 'ADA', 'quote_currency': 'USDT', 'display_name': 'Cardano-USDT', 'status': 'online'},
+        {'id': 'SUIUSDT', 'base_currency': 'SUI', 'quote_currency': 'USDT', 'display_name': 'Sui-USDT', 'status': 'online'}
+    ]
+    return jsonify({'pairs': binance_pairs})
+
+@system_bp.route('/api/test-simple')
+def api_test_simple():
+    """Simple test endpoint"""
+    return jsonify({"test": "success", "message": "Simple test endpoint is working"})
+
+@system_bp.route('/api/test-db')
+@login_required
+def api_test_db():
+    """Test database connection and user lookup using ORM"""
+    try:
+        logger.info('=== Testing database connection ===')
+        from credentials import User, UserSetting
+        
+        # Test user lookup
+        user = User.query.filter_by(username=current_user.username).first()
+        
+        if user:
+            user_id = user.id
+            logger.info(f'=== User found: {user_id} ===')
+            
+            # Test inserting/updating a setting using ORM
+            setting = UserSetting.query.filter_by(user_id=user_id, setting_key='test_key').first()
+            if not setting:
+                setting = UserSetting(user_id=user_id, setting_key='test_key', setting_value='test_value')
+                db.session.add(setting)
+            else:
+                setting.setting_value = 'test_value'
+            
+            db.session.commit()
+            
+            return jsonify({"success": True, "user_id": user_id, "message": "Database test successful"})
+        else:
+            return jsonify({"error": "User not found"}), 404
+            
+    except Exception as e:
+        print(f'=== Database test error: {e} ===', flush=True)
+        import traceback
+        print(f'=== Traceback: {traceback.format_exc()} ===', flush=True)
+        return jsonify({"error": str(e)}), 500
+
+@system_bp.route('/api/debug/background-jobs', methods=['GET'])
+@login_required
+def debug_background_jobs():
+    """Debug endpoint to check and restart background jobs"""
+    try:
+        # Ensure background jobs are running
+        jobs_running = ensure_background_jobs()
+        
+        # Get status of all background threads
+        thread_status = []
+        for i, t in enumerate(background_threads):
+            thread_status.append({
+                'id': i,
+                'name': t.name,
+                'alive': t.is_alive(),
+                'daemon': t.daemon,
+                'ident': t.ident
+            })
+        
+        return jsonify({
+            'success': True,
+            'jobs_running': jobs_running,
+            'threads': thread_status,
+            'thread_count': len(background_threads)
+        })
+    except Exception as e:
+        logger.error(f"Error checking background jobs: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500

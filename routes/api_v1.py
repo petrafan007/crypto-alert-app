@@ -10974,7 +10974,7 @@ def delete_account():
         StakingOrder.query.filter_by(user_id=user_id).delete()
         
         # From credentials.py
-        from credentials import Credential, UserSetting, DesktopToken, User
+        from credentials import Credential, User, UserSettingSetting, DesktopToken, User
         Credential.query.filter_by(user_id=user_id).delete()
         UserSetting.query.filter_by(user_id=user_id).delete()
         DesktopToken.query.filter_by(user_id=user_id).delete()
