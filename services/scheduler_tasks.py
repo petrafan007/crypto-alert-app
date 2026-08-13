@@ -1,4 +1,7 @@
 import time
+import os
+import json
+import threading
 from datetime import datetime
 from flask import current_app
 from core.extensions import db
@@ -16,8 +19,31 @@ from services.portfolio_service import (
 )
 from services.credential_service import get_user_credentials
 
-# Cache for alert states
-alert_states = {} # {(user_id, symbol, direction, source, threshold): state}
+# Persistent alert states store
+_alert_state_lock = threading.Lock()
+ALERT_STATE_FILE = "alert_state.json"
+
+def _load_alert_states():
+    if os.path.exists(ALERT_STATE_FILE):
+        try:
+            with open(ALERT_STATE_FILE, 'r') as f:
+                return json.load(f)
+        except Exception as e:
+            logger.error(f"Error loading alert states: {e}")
+            return {}
+    return {}
+
+def _save_alert_states(states):
+    try:
+        with open(ALERT_STATE_FILE, 'w') as f:
+            json.dump(states, f)
+    except Exception as e:
+        logger.error(f"Error saving alert states: {e}")
+
+def _make_alert_key(user_id, symbol, direction, source=None, threshold=None):
+    thresh_str = f"{float(threshold):.6f}" if threshold is not None else "None"
+    src = source or "portfolio"
+    return f"{user_id}:{symbol.upper()}:{direction.lower()}:{src}:{thresh_str}"
 
 def _normalize_threshold(threshold):
     if threshold is None:
@@ -28,15 +54,20 @@ def _normalize_threshold(threshold):
         return None
 
 def get_last_alert_state(user_id, symbol, direction, source=None, threshold=None):
-    key = (user_id, symbol.upper(), direction.lower(), source, threshold)
-    return alert_states.get(key)
+    key = _make_alert_key(user_id, symbol, direction, source, threshold)
+    with _alert_state_lock:
+        states = _load_alert_states()
+        return states.get(key)
 
 def set_last_alert_state(user_id, symbol, direction, value, source=None, threshold=None):
-    key = (user_id, symbol.upper(), direction.lower(), source, threshold)
-    if value is None:
-        alert_states.pop(key, None)
-    else:
-        alert_states[key] = value
+    key = _make_alert_key(user_id, symbol, direction, source, threshold)
+    with _alert_state_lock:
+        states = _load_alert_states()
+        if value is None:
+            states.pop(key, None)
+        else:
+            states[key] = value
+        _save_alert_states(states)
 
 def safe_background_iteration(f):
     def wrapper(*args, **kwargs):
