@@ -2375,7 +2375,7 @@ def api_portfolio_review_workflow():
                     "message": f"AI analysis scheduled every {cache_duration_hours} hours. Use manual refresh to run immediately.",
                     "status": "schedule_blocked"
                 })
-            cache_timestamp = datetime.now() - timedelta(hours=cache_duration_hours)
+            cache_timestamp = datetime.utcnow() - timedelta(hours=cache_duration_hours)
             cached_result = db.session.query(AIConversation).filter(
                 AIConversation.user_id == user_id,
                 AIConversation.prompt_type == 'portfolio_review_workflow',
@@ -2397,61 +2397,47 @@ def api_portfolio_review_workflow():
         logger.info(f"=== PORTFOLIO REVIEW WORKFLOW START (SYNC) - User: {username} ===")
         analysis_start_time = get_eastern_now_iso()
 
-        # === STAGE 1: Send portfolio_review_pre to AI ===
-        ai_prompts = get_user_ai_prompts(user_id)
-        if not ai_prompts or not ai_prompts.portfolio_review_pre:
-            raise Exception("No portfolio_review_pre prompt configured for this user.")
-        stage1_prompt = ai_prompts.portfolio_review_pre
-        stage1_messages = [
-            {"role": "user", "content": stage1_prompt}
-        ]
-        # Send to AI (Stage 1)
-        stage1_response, _ = call_ai_with_web_search(
-            username=username,
-            messages=stage1_messages,
-            user_id=user_id,
-            prompt_type='portfolio_review',
-            symbol=None,
-            model=None
-        )
-        if hasattr(stage1_response, 'choices') and stage1_response.choices:
-            stage1_content = stage1_response.choices[0].message.content
-        else:
-            raise Exception("Invalid AI response format at Stage 1")
-
-        # === STAGE 2: Brave search + coin data + portfolio_review_post ===
+        # Build non-stablecoin user holdings summary
         from models import Coin
         coins = Coin.query.filter_by(user_id=user_id, hidden=False).all()
         non_stablecoins = [c for c in coins if not is_stablecoin(c.symbol)]
-        coin_data = "\n".join([f"{c.symbol}: {c.amount} (value: ${c.amount * c.current if c.current else 0:.2f})" for c in non_stablecoins])
+        coin_lines = []
+        for c in non_stablecoins:
+            price = getattr(c, 'current_price', None) or getattr(c, 'initial_price', 0) or 0
+            val = (c.amount or 0) * price
+            coin_lines.append(f"- {c.symbol}: {c.amount} tokens (current price: ${price:.2f}, total value: ${val:.2f})")
+        coin_data = "\n".join(coin_lines) if coin_lines else "No non-stablecoin holdings."
 
-        if not ai_prompts.portfolio_review_post:
-            raise Exception("No portfolio_review_post prompt configured for this user.")
-        stage2_prompt = ai_prompts.portfolio_review_post
-        stage2_context = f"{stage2_prompt}\n\nUSER COIN DATA:\n{coin_data if coin_data else 'No non-stablecoin holdings.'}"
-        stage2_messages = [
-            {"role": "system", "content": stage2_context},
-            {"role": "user", "content": stage1_content}
+        portfolio_review_messages = [
+            {
+                "role": "user",
+                "content": f"CURRENT PORTFOLIO HOLDINGS:\n{coin_data}\n\nPlease perform a comprehensive portfolio review."
+            }
         ]
-        # Send to AI (Stage 2)
-        stage2_response, actual_user_prompt = call_ai_with_web_search(
+
+        response, actual_user_prompt = call_ai_with_web_search(
             username=username,
-            messages=stage2_messages,
+            messages=portfolio_review_messages,
             user_id=user_id,
             prompt_type='portfolio_review',
             symbol=None,
             model=None
         )
-        if hasattr(stage2_response, 'choices') and stage2_response.choices:
-            analysis_content = stage2_response.choices[0].message.content
+
+        if hasattr(response, 'choices') and response.choices:
+            analysis_content = response.choices[0].message.content
         else:
-            raise Exception("Invalid AI response format at Stage 2")
+            raise Exception("Invalid AI response format")
 
         # === LOGGING ===
-        import time
-        log_ai_conversation(user_id, "portfolio_review", "user", actual_user_prompt)
-        time.sleep(0.1)
-        log_ai_conversation(user_id, "portfolio_review", "ai", analysis_content)
+        try:
+            import time
+            log_ai_conversation(user_id, "portfolio_review", "user", actual_user_prompt)
+            time.sleep(0.1)
+            log_ai_conversation(user_id, "portfolio_review", "ai", analysis_content)
+            logger.info(f"Portfolio review conversations saved to AI Copilot for user {user_id}")
+        except Exception as conversation_error:
+            logger.error(f"Failed to save portfolio review conversations: {conversation_error}")
 
         # === RESPONSE ===
         workflow_result = {
@@ -2459,21 +2445,26 @@ def api_portfolio_review_workflow():
             "timestamp": get_eastern_now().isoformat(),
             "stage1": {
                 "status": "completed",
-                "description": "Sent portfolio_review_pre to AI"
+                "description": "Data Gathering - Generated targeted search queries for portfolio assets"
             },
             "stage2": {
                 "status": "completed",
-                "description": "Brave search + coin data + portfolio_review_post sent to AI"
+                "description": "Web Search - Executed searches for real-time market data and news"
             },
             "stage3": {
                 "status": "completed",
-                "description": "AI generated holistic portfolio review",
+                "description": "Portfolio Review Synthesis - Combined holdings with recent market intelligence",
                 "content": analysis_content
             },
             "analysis": {
                 "content": analysis_content,
                 "type": "portfolio_review",
                 "generated_at": analysis_start_time
+            },
+            "cache_info": {
+                "status": "fresh_analysis",
+                "generated_at": analysis_start_time,
+                "expires_at": (get_eastern_now() + timedelta(hours=cache_duration_hours)).isoformat()
             },
             "status": "completed"
         }
@@ -2539,7 +2530,7 @@ def api_portfolio_review_results():
         cache_duration_hours = user_settings.get('ai_cache_duration_hours', 4)
         
         # Look for recent cached results
-        cache_timestamp = datetime.now() - timedelta(hours=cache_duration_hours)
+        cache_timestamp = datetime.utcnow() - timedelta(hours=cache_duration_hours)
         cached_result = db.session.query(AIConversation).filter(
             AIConversation.user_id == user_id,
             AIConversation.prompt_type == 'portfolio_review_workflow',

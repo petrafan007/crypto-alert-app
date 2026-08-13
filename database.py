@@ -15,19 +15,7 @@ def init_db(app=None):
     if ctx:
         with ctx:
             db.create_all()
-            try:
-                from sqlalchemy import text
-                db.session.execute(text("ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS ai_reasoning_level VARCHAR DEFAULT 'medium'"))
-                db.session.commit()
-            except Exception:
-                db.session.rollback()
     else:
         db.create_all()
-        try:
-            from sqlalchemy import text
-            db.session.execute(text("ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS ai_reasoning_level VARCHAR DEFAULT 'medium'"))
-            db.session.commit()
-        except Exception:
-            db.session.rollback()
     
     return db

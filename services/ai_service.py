@@ -291,21 +291,22 @@ def call_ai_with_web_search(
                         contents.append({"role": "user", "parts": [{"text": text_content}]})
                 
                 # Setup reasoning effort / thinkingConfig
-                budget_map = {'low': 1024, 'medium': 4096, 'high': 8192}
-                budget = budget_map.get(ai_reasoning_level, 4096)
+                budget_map = {'low': 1024, 'medium': 2048, 'high': 4096}
+                budget = budget_map.get(ai_reasoning_level, 2048)
+                
+                gen_config = {"maxOutputTokens": p_max_tokens}
+                # Only include thinkingConfig if maxOutputTokens allows space for both thinking and output
+                if p_max_tokens > budget + 512:
+                    gen_config["thinkingConfig"] = {"thinkingBudget": budget}
                 
                 req_json = {
                     "contents": contents,
-                    "generationConfig": {
-                        "maxOutputTokens": p_max_tokens,
-                        "thinkingConfig": {
-                            "thinkingBudget": budget
-                        }
-                    }
+                    "generationConfig": gen_config
                 }
                 if system_instruction:
                     req_json["systemInstruction"] = system_instruction
                 
+                last_err = ""
                 for api_ver in ['v1beta', 'v1', 'v1alpha']:
                     url = f"https://generativelanguage.googleapis.com/{api_ver}/models/{model}:generateContent?key={key}"
                     r = requests.post(url, json=req_json, timeout=60)
@@ -315,7 +316,20 @@ def call_ai_with_web_search(
                             return res_json['candidates'][0]['content']['parts'][0]['text']
                         except Exception:
                             return json.dumps(res_json)
-                raise Exception(f"Gemini API error: {r.text}")
+                    elif r.status_code == 400 and "thinkingConfig" in gen_config:
+                        # Retry without thinkingConfig in case model does not support it
+                        req_json["generationConfig"] = {"maxOutputTokens": p_max_tokens}
+                        r_retry = requests.post(url, json=req_json, timeout=60)
+                        if r_retry.status_code == 200:
+                            res_json = r_retry.json()
+                            try:
+                                return res_json['candidates'][0]['content']['parts'][0]['text']
+                            except Exception:
+                                return json.dumps(res_json)
+                        last_err = r_retry.text
+                    else:
+                        last_err = r.text
+                raise Exception(f"Gemini API error: {last_err}")
             
             else:
                 raise ValueError(f"Unsupported AI provider: {provider}")
