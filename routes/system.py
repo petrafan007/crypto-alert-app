@@ -910,7 +910,6 @@ def api_settings():
                         db.session.add(ai_prompts)
                     prompt_fields = [
                         'market_analysis_pre', 'market_analysis_post',
-                        'risk_assessment_pre', 'risk_assessment_post',
                         'portfolio_review_pre', 'portfolio_review_post',
                         'coin_analysis_pre', 'coin_analysis_post',
                         'sentiment_prompt_pre', 'sentiment_prompt_post'

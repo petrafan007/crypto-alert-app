@@ -148,18 +148,14 @@ export default function AIDashboard({ isLightMode }) {
 
   // New state for 3-stage agentic workflows
   const [marketAnalysisData, setMarketAnalysisData] = useState(null);
-  const [riskAssessmentData, setRiskAssessmentData] = useState(null);
   const [portfolioReviewData, setPortfolioReviewData] = useState(null);
   // Prompt viewing state
   const [marketPrompt, setMarketPrompt] = useState(null);
-  const [riskPrompt, setRiskPrompt] = useState(null);
   const [portfolioPrompt, setPortfolioPrompt] = useState(null);
   const [showMarketPrompt, setShowMarketPrompt] = useState(false);
-  const [showRiskPrompt, setShowRiskPrompt] = useState(false);
   const [showPortfolioPrompt, setShowPortfolioPrompt] = useState(false);
   const [workflowLoading, setWorkflowLoading] = useState({
     marketAnalysis: false,
-    riskAssessment: false,
     portfolioReview: false
   });
 
@@ -251,7 +247,6 @@ export default function AIDashboard({ isLightMode }) {
 
       await Promise.all([
         loadOne('market_analysis', setMarketAnalysisData, 'marketAnalysis'),
-        loadOne('risk_assessment', setRiskAssessmentData, 'riskAssessment'),
         loadOne('portfolio_review', setPortfolioReviewData, 'portfolioReview'),
       ]);
     } catch (err) {
@@ -264,7 +259,6 @@ export default function AIDashboard({ isLightMode }) {
     try {
       const urlMap = {
         market_analysis: '/api/ai/market-analysis-workflow-prompt',
-        risk_assessment: '/api/ai/risk-assessment-workflow-prompt',
         portfolio_review: '/api/ai/portfolio-review-workflow-prompt',
       };
       const url = urlMap[type];
@@ -285,11 +279,6 @@ export default function AIDashboard({ isLightMode }) {
     setMarketPrompt(body);
     setShowMarketPrompt(true);
   };
-  const onViewRiskPrompt = async () => {
-    const body = await fetchWorkflowPrompt('risk_assessment');
-    setRiskPrompt(body);
-    setShowRiskPrompt(true);
-  };
   const onViewPortfolioPrompt = async () => {
     const body = await fetchWorkflowPrompt('portfolio_review');
     setPortfolioPrompt(body);
@@ -308,11 +297,6 @@ export default function AIDashboard({ isLightMode }) {
         stateKey: 'marketAnalysis',
         endpoint: '/api/ai/market-analysis-workflow',
         setter: setMarketAnalysisData
-      },
-      'risk-assessment': {
-        stateKey: 'riskAssessment',
-        endpoint: '/api/ai/risk-assessment-workflow',
-        setter: setRiskAssessmentData
       },
       'portfolio-review': {
         stateKey: 'portfolioReview',
@@ -617,137 +601,6 @@ export default function AIDashboard({ isLightMode }) {
               <p style={{ fontSize: '12px', opacity: 0.7, marginTop: '16px' }}>
                 Analysis runs automatically during your configured analysis window.
                 Use manual refresh for off-hours analysis.
-              </p>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Risk Assessment - 3-Stage Agentic Workflow */}
-      <div className="ai-section">
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-          <h2>⚠️ Risk Assessment</h2>
-          <div style={{ display: 'flex', gap: '8px' }}>
-            <button
-              onClick={() => fetchWorkflowData('risk-assessment')}
-              disabled={workflowLoading.riskAssessment}
-              className="btn btn-secondary"
-              style={{ fontSize: '14px' }}
-            >
-              {workflowLoading.riskAssessment ? '⏳ Assessing...' : '🔍 Refresh Risk Assessment'}
-            </button>
-            <button
-              onClick={onViewRiskPrompt}
-              className="btn"
-              style={{ fontSize: '14px' }}
-            >
-              View Prompt
-            </button>
-          </div>
-        </div>
-        {showRiskPrompt && (
-          <div className="modal-backdrop">
-            <div className="modal">
-              <div className="modal-header">
-                <h3>📝 Risk Assessment Prompt</h3>
-              </div>
-              <div className="modal-body" style={{ maxHeight: '60vh', overflowY: 'auto' }}>
-                <pre style={{ whiteSpace: 'pre-wrap', fontFamily: 'inherit', fontSize: '14px', lineHeight: '1.6' }}>
-                  {riskPrompt || '(No saved prompt yet)'}
-                </pre>
-              </div>
-              <div className="modal-footer" style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
-                <button className="btn btn-secondary" onClick={() => setShowRiskPrompt(false)}>Close</button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {riskAssessmentData ? (
-          <div className="workflow-result">
-            {/* Workflow Stages */}
-            <div className="workflow-stages" style={{ display: 'none' }}>
-              <div className={`workflow-stage ${riskAssessmentData.stage1?.status || 'pending'}`}>
-                <div className="stage-header">
-                  <span className="stage-number">1</span>
-                  <span className="stage-title">Risk Data Gathering</span>
-                  <span className={`stage-status ${riskAssessmentData.stage1?.status || 'pending'}`}>
-                    {riskAssessmentData.stage1?.status === 'completed' ? '✅' :
-                      riskAssessmentData.stage1?.status === 'failed' ? '❌' : '⏳'}
-                  </span>
-                </div>
-                <p className="stage-description">
-                  {riskAssessmentData.stage1?.description || 'Generating risk-focused search queries...'}
-                </p>
-              </div>
-
-              <div className={`workflow-stage ${riskAssessmentData.stage2?.status || 'pending'}`}>
-                <div className="stage-header">
-                  <span className="stage-number">2</span>
-                  <span className="stage-title">Risk Intelligence</span>
-                  <span className={`stage-status ${riskAssessmentData.stage2?.status || 'pending'}`}>
-                    {riskAssessmentData.stage2?.status === 'completed' ? '✅' :
-                      riskAssessmentData.stage2?.status === 'failed' ? '❌' : '⏳'}
-                  </span>
-                </div>
-                <p className="stage-description">
-                  {riskAssessmentData.stage2?.description || 'Retrieving current risk indicators...'}
-                </p>
-              </div>
-
-              <div className={`workflow-stage ${riskAssessmentData.stage3?.status || 'pending'}`}>
-                <div className="stage-header">
-                  <span className="stage-number">3</span>
-                  <span className="stage-title">Risk Analysis</span>
-                  <span className={`stage-status ${riskAssessmentData.stage3?.status || 'pending'}`}>
-                    {riskAssessmentData.stage3?.status === 'completed' ? '✅' :
-                      riskAssessmentData.stage3?.status === 'failed' ? '❌' : '⏳'}
-                  </span>
-                </div>
-                <p className="stage-description">
-                  {riskAssessmentData.stage3?.description || 'Synthesizing risk assessment with recommendations...'}
-                </p>
-              </div>
-            </div>
-
-            {/* Risk Assessment Results */}
-            {riskAssessmentData.analysis?.content && (
-              <div className="workflow-content">
-                <h3>⚡ Risk Assessment Results</h3>
-                <div className="analysis-content">
-                  <div
-                    style={{
-                      whiteSpace: 'pre-wrap',
-                      fontFamily: 'inherit',
-                      fontSize: '14px',
-                      lineHeight: '1.6'
-                    }}
-                    dangerouslySetInnerHTML={{
-                      __html: renderMarkdown(riskAssessmentData.analysis.content)
-                    }}
-                  />
-                </div>
-                <div className="analysis-meta">
-                  <span className="meta-item">
-                    <strong>Generated:</strong> {formatEasternTime(riskAssessmentData.analysis.generated_at)}
-                  </span>
-                  {riskAssessmentData.cache_info?.expires_at && (
-                    <span className="meta-item">
-                      <strong>Cache Expires:</strong> {new Date(riskAssessmentData.cache_info.expires_at).toLocaleString()}
-                    </span>
-                  )}
-                </div>
-              </div>
-            )}
-          </div>
-        ) : (
-          <div className="workflow-placeholder">
-            <div className="placeholder-content">
-              <h3>🤖 Risk Assessment</h3>
-              <p>Click "Refresh Risk Assessment" to execute the agentic workflow:</p>
-              <p style={{ fontSize: '12px', opacity: 0.7, marginTop: '16px' }}>
-                Risk assessment runs automatically during your configured analysis window.
-                Use manual refresh for immediate risk evaluation.
               </p>
             </div>
           </div>

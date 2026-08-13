@@ -98,8 +98,6 @@ def get_user_ai_settings(username: str) -> dict:
             'ai_prompts': {
                 'market_analysis_pre': '',
                 'market_analysis_post': '',
-                'risk_assessment_pre': '',
-                'risk_assessment_post': '',
                 'portfolio_review_pre': '',
                 'portfolio_review_post': '',
                 'coin_analysis_pre': '',
@@ -209,8 +207,6 @@ def get_user_ai_settings(username: str) -> dict:
                 settings['ai_prompts'] = {
                     'market_analysis_pre': getattr(ai_prompts_obj, 'market_analysis_pre', settings['ai_prompts']['market_analysis_pre']),
                     'market_analysis_post': getattr(ai_prompts_obj, 'market_analysis_post', settings['ai_prompts']['market_analysis_post']),
-                    'risk_assessment_pre': getattr(ai_prompts_obj, 'risk_assessment_pre', settings['ai_prompts']['risk_assessment_pre']),
-                    'risk_assessment_post': getattr(ai_prompts_obj, 'risk_assessment_post', settings['ai_prompts']['risk_assessment_post']),
                     'portfolio_review_pre': getattr(ai_prompts_obj, 'portfolio_review_pre', settings['ai_prompts']['portfolio_review_pre']),
                     'portfolio_review_post': getattr(ai_prompts_obj, 'portfolio_review_post', settings['ai_prompts']['portfolio_review_post']),
                     'coin_analysis_pre': getattr(ai_prompts_obj, 'coin_analysis_pre', settings['ai_prompts']['coin_analysis_pre']),
@@ -266,7 +262,6 @@ def get_user_ai_prompts(user_id):
             ai_prompts = AIPrompt(
                 user_id=user_id,
                 market_analysis_pre="", market_analysis_post="",
-                risk_assessment_pre="", risk_assessment_post="",
                 portfolio_review_pre="", portfolio_review_post="",
                 coin_analysis_pre="", coin_analysis_post="",
                 sentiment_prompt_pre="", sentiment_prompt_post=""

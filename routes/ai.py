@@ -350,18 +350,6 @@ def api_market_analysis_workflow_prompt():
     return jsonify(row)
 
 
-@ai_bp.route('/api/ai/risk-assessment-workflow-prompt', methods=['GET'])
-@login_required
-def api_risk_assessment_workflow_prompt():
-    row = _get_latest_conversation_row(current_user.id, 'risk_assessment', 'user')
-    if not row:
-        return jsonify({
-            'error': 'not_found',
-            'message': 'No saved Risk Assessment prompt found for current user. Run the workflow first.'
-        }), 404
-    return jsonify(row)
-
-
 @ai_bp.route('/api/ai/portfolio-review-workflow-prompt', methods=['GET'])
 @login_required
 def api_portfolio_review_workflow_prompt():
@@ -375,12 +363,12 @@ def api_portfolio_review_workflow_prompt():
 
 
 # Latest AI result per section — for dashboard rehydration after reload
-ALLOWED_WORKFLOW_TYPES = {'market_analysis', 'risk_assessment', 'portfolio_review'}
+ALLOWED_WORKFLOW_TYPES = {'market_analysis', 'portfolio_review'}
 
 @ai_bp.route('/api/ai/workflow-latest', methods=['GET'])
 @login_required
 def api_ai_workflow_latest():
-    # type must be one of market_analysis|risk_assessment|portfolio_review
+    # type must be one of market_analysis|portfolio_review
     t = (request.args.get('type') or '').strip().lower().replace('-', '_')
     if t not in ALLOWED_WORKFLOW_TYPES:
         return jsonify({'error': 'invalid_type', 'allowed': list(ALLOWED_WORKFLOW_TYPES)}), 400
@@ -2357,202 +2345,7 @@ def api_market_analysis_workflow():
         }), 500
 
 
-@ai_bp.route('/api/ai/risk-assessment-workflow', methods=['GET'])
-@login_required
-def api_risk_assessment_workflow():
-    """Execute 3-stage agentic Risk Assessment workflow using user's custom prompts"""
-    try:
-        from datetime import timedelta
-        from models import AIConversation
-        username = current_user.username
-        user_id = current_user.id
-        manual_request = request.args.get('manual', 'false').lower() == 'true'
-        user_settings = get_user_ai_settings(username)
-        cache_duration_hours = user_settings.get('ai_cache_duration_hours', 4)
 
-        # Always run for manual requests, otherwise check schedule/cache
-        if not manual_request:
-            if not should_run_ai_analysis(user_id):
-                # Identify most recent cache (expired or not) to show instead of blank
-                last_conv = AIConversation.query.filter_by(
-                    user_id=user_id, 
-                    prompt_type='risk_assessment_workflow',
-                    sender='ai'
-                ).order_by(AIConversation.created_at.desc()).first()
-                
-                if last_conv:
-                    try:
-                        cached_data = json.loads(last_conv.body)
-                        cached_data['cache_info'] = {
-                            "status": "expired_schedule_blocked",
-                            "cached_at": last_conv.created_at.isoformat(),
-                            "expires_at": (last_conv.created_at + timedelta(hours=cache_duration_hours)).isoformat()
-                        }
-                        return jsonify(cached_data)
-                    except:
-                        pass
-                
-                return jsonify({
-                    "success": False,
-                    "message": f"AI analysis scheduled every {cache_duration_hours} hours. Use manual refresh to run immediately.",
-                    "stage1": {"status": "skipped", "reason": "schedule_not_ready"},
-                    "stage2": {"status": "skipped", "reason": "schedule_not_ready"},
-                    "stage3": {"status": "skipped", "reason": "schedule_not_ready"},
-                    "cache_info": {"status": "schedule_blocked"}
-                })
-            cache_timestamp = datetime.now() - timedelta(hours=cache_duration_hours)
-            cached_result = db.session.query(AIConversation).filter(
-                AIConversation.user_id == user_id,
-                AIConversation.prompt_type == 'risk_assessment_workflow',
-                AIConversation.sender == 'ai',
-                AIConversation.created_at > cache_timestamp
-            ).order_by(AIConversation.created_at.desc()).first()
-            if cached_result:
-                try:
-                    cached_data = json.loads(cached_result.body)
-                    cached_data['cache_info'] = {
-                        "status": "cache_hit",
-                        "cached_at": cached_result.created_at.isoformat(),
-                        "expires_at": (cached_result.created_at + timedelta(hours=cache_duration_hours)).isoformat()
-                    }
-                    return jsonify(cached_data)
-                except json.JSONDecodeError:
-                    logger.warning(f"Failed to parse cached risk assessment for user {user_id}")
-
-        logger.info(f"=== RISK ASSESSMENT WORKFLOW START - User: {username} ===")
-        analysis_start_time = get_eastern_now_iso()
-
-        # === STAGE 1: Send risk_assessment_pre to AI ===
-        ai_prompts = get_user_ai_prompts(user_id)
-        if not ai_prompts or not ai_prompts.risk_assessment_pre:
-            raise Exception("No risk_assessment_pre prompt configured for this user.")
-        stage1_prompt = ai_prompts.risk_assessment_pre
-        stage1_messages = [{"role": "system", "content": stage1_prompt}]
-        # Send to AI (Stage 1)
-        stage1_response, _ = call_ai_with_web_search(
-            username=username,
-            messages=stage1_messages,
-            user_id=user_id,
-            prompt_type='risk_assessment',
-            symbol=None,
-            model=None
-        )
-        if hasattr(stage1_response, 'choices') and stage1_response.choices:
-            stage1_content = stage1_response.choices[0].message.content
-        else:
-            raise Exception("Invalid AI response format at Stage 1")
-
-        # === STAGE 2: Brave search + coin data + risk_assessment_post ===
-        # Gather non-stablecoin, non-hidden coins
-        from models import Coin
-        coins = Coin.query.filter_by(user_id=user_id, hidden=False).all()
-        non_stablecoins = [c for c in coins if not is_stablecoin(c.symbol)]
-        coin_data_lines = []
-        for c in non_stablecoins:
-            amount = float(c.amount or 0.0)
-            current_price = float(c.current or 0.0)
-            current_value = current_price * amount
-            coin_data_lines.append(
-                f"{c.symbol}: {amount:.6f} (value: ${current_value:,.2f} @ ${current_price:.4f})"
-            )
-        coin_data = "\n".join(coin_data_lines)
-
-        # Use Brave search results from Stage 1 (already included in call_ai_with_web_search context)
-        if not ai_prompts.risk_assessment_post:
-            raise Exception("No risk_assessment_post prompt configured for this user.")
-        stage2_prompt = ai_prompts.risk_assessment_post
-        # Combine context
-        stage2_context = f"{stage2_prompt}\n\nUSER COIN DATA:\n{coin_data if coin_data else 'No non-stablecoin holdings.'}"
-        stage2_messages = [
-            {"role": "system", "content": stage2_context},
-            {"role": "user", "content": stage1_content}
-        ]
-        # Send to AI (Stage 2)
-        stage2_response, actual_user_prompt = call_ai_with_web_search(
-            username=username,
-            messages=stage2_messages,
-            user_id=user_id,
-            prompt_type='risk_assessment',
-            symbol=None,
-            model=None
-        )
-        if hasattr(stage2_response, 'choices') and stage2_response.choices:
-            analysis_content = stage2_response.choices[0].message.content
-        else:
-            raise Exception("Invalid AI response format at Stage 2")
-
-        # === LOGGING ===
-        import time
-        log_ai_conversation(user_id, "risk_assessment", "user", actual_user_prompt)
-        time.sleep(0.1)
-        log_ai_conversation(user_id, "risk_assessment", "ai", analysis_content)
-
-        # === RESPONSE ===
-        workflow_result = {
-            "success": True,
-            "timestamp": get_eastern_now().isoformat(),
-            "stage1": {
-                "status": "completed",
-                "description": "Sent risk_assessment_pre to AI"
-            },
-            "stage2": {
-                "status": "completed",
-                "description": "Brave search + coin data + risk_assessment_post sent to AI"
-            },
-            "stage3": {
-                "status": "completed",
-                "description": "AI generated holistic risk assessment",
-                "content": analysis_content
-            },
-            "analysis": {
-                "content": analysis_content,
-                "type": "risk_assessment",
-                "generated_at": analysis_start_time
-            },
-            "cache_info": {
-                "status": "fresh_analysis",
-                "generated_at": analysis_start_time,
-                "expires_at": (get_eastern_now() + timedelta(hours=cache_duration_hours)).isoformat()
-            }
-        }
-
-        # Store workflow result in AIConversation table for caching only
-        try:
-            now = get_eastern_now()
-            ai_conversation = AIConversation(
-                user_id=user_id,
-                date=now.strftime('%Y-%m-%d'),
-                time=now.strftime('%I:%M %p %Z'),
-                prompt_type='risk_assessment_workflow',
-                sender='ai',
-                body=json.dumps(workflow_result),
-                created_at=now,
-                is_hidden=1
-            )
-            db.session.add(ai_conversation)
-            db.session.commit()
-            logger.info(f"Risk assessment workflow cache stored for user {user_id}")
-            update_ai_analysis_schedule(user_id)
-        except Exception as db_error:
-            logger.error(f"Failed to store risk assessment cache: {db_error}")
-
-        logger.info(f"=== RISK ASSESSMENT WORKFLOW COMPLETE - User: {username} ===")
-        return jsonify(workflow_result)
-
-    except Exception as e:
-        logger.error(f"Risk assessment workflow error for user {username}: {e}")
-        try:
-            db.session.rollback()
-        except:
-            pass
-        return jsonify({
-            "success": False,
-            "error": str(e),
-            "stage1": {"status": "failed", "error": str(e)},
-            "stage2": {"status": "failed", "error": str(e)},
-            "stage3": {"status": "failed", "error": str(e)},
-            "cache_info": {"status": "error"}
-        }), 500
 
 
 @ai_bp.route('/api/ai/portfolio-review-workflow', methods=['GET', 'POST'])
@@ -2834,10 +2627,10 @@ def api_ai_copilot_results():
         # Get recent workflow results from the last 24 hours
         since_timestamp = datetime.now() - timedelta(hours=24)
         
-        # Query all three workflow types
+        # Query active workflow types (market_analysis and portfolio_review)
         workflow_conversations = db.session.query(AIConversation).filter(
             AIConversation.user_id == user_id,
-            AIConversation.prompt_type.in_(['market_analysis_workflow', 'risk_assessment_workflow', 'portfolio_review_workflow']),
+            AIConversation.prompt_type.in_(['market_analysis_workflow', 'portfolio_review_workflow']),
             AIConversation.sender == 'ai',
             AIConversation.created_at > since_timestamp,
             AIConversation.is_hidden == 0
@@ -2911,7 +2704,6 @@ def api_ai_copilot_results():
         workflow_stats = {
             "total_workflows": len(workflow_conversations),
             "market_analysis_count": len([c for c in workflow_conversations if c.prompt_type == 'market_analysis_workflow']),
-            "risk_assessment_count": len([c for c in workflow_conversations if c.prompt_type == 'risk_assessment_workflow']),
             "portfolio_review_count": len([c for c in workflow_conversations if c.prompt_type == 'portfolio_review_workflow']),
             "time_range": "24 hours",
             "last_updated": get_eastern_now().isoformat()

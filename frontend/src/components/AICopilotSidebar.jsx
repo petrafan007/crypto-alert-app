@@ -530,7 +530,7 @@ export default function AICopilotSidebar() {
   const getPromptTypeIcon = (promptType) => {
     switch (promptType) {
       case 'market_analysis': return '📈';
-      case 'risk_assessment': return '⚠️';
+      case 'risk_assessment':
       case 'portfolio_review': return '💼';
       case 'news_analysis': return '📰';
       case 'manual': return '💬';
@@ -542,7 +542,7 @@ export default function AICopilotSidebar() {
     if (sender === 'user') return username || 'You';
     switch (promptType) {
       case 'market_analysis': return 'Market Analysis';
-      case 'risk_assessment': return 'Risk Assessment';
+      case 'risk_assessment':
       case 'portfolio_review': return 'Portfolio Review';
       case 'news_analysis': return 'News Analysis';
       case 'manual': return 'AI';

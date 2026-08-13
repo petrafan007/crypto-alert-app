@@ -181,8 +181,7 @@ export default function Help({ isLightMode }) {
                 </p>
                 <ul style={{ paddingLeft: '20px', marginBottom: '16px' }}>
                     <li><strong>Market Analysis</strong> - Current market trends and opportunities</li>
-                    <li><strong>Risk Assessment</strong> - Portfolio risk evaluation</li>
-                    <li><strong>Portfolio Review</strong> - Personalized recommendations</li>
+                    <li><strong>Portfolio Review</strong> - Comprehensive portfolio performance, asset allocation, and risk evaluation</li>
                 </ul>
 
                 <h3 style={{ color: textColor, marginBottom: '12px' }}>Tax Report</h3>
