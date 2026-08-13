@@ -1573,12 +1573,67 @@ def api_ai_conversations():
         })
 
 
+def process_ai_conversation(user_id, message, conversation_id=None):
+    """Process user message and generate AI response for Copilot sidebar"""
+    from models import Coin, AIConversation
+    from credentials import User
+    
+    user = User.query.get(user_id)
+    username = user.username if user else 'jcavallarojr'
+    
+    # Gather user holdings context
+    coins = Coin.query.filter_by(user_id=user_id, hidden=False).all()
+    non_stablecoins = [c for c in coins if not is_stablecoin(c.symbol)]
+    coin_lines = []
+    for c in non_stablecoins:
+        price = getattr(c, 'current_price', None) or getattr(c, 'initial_price', 0) or 0
+        val = (c.amount or 0) * price
+        coin_lines.append(f"- {c.symbol}: {c.amount} tokens (current price: ${price:.2f}, total value: ${val:.2f})")
+    holdings_text = "\n".join(coin_lines) if coin_lines else "No current non-stablecoin holdings."
+    
+    # Prepare user message with portfolio context
+    user_prompt_with_context = f"{message}\n\n[USER PORTFOLIO CONTEXT]\n{holdings_text}"
+    
+    copilot_messages = [
+        {"role": "user", "content": user_prompt_with_context}
+    ]
+    
+    response, actual_stage3_prompt = call_ai_with_web_search(
+        username=username,
+        messages=copilot_messages,
+        user_id=user_id,
+        prompt_type='copilot',
+        symbol=None,
+        model=None
+    )
+    
+    if hasattr(response, 'choices') and response.choices:
+        ai_content = response.choices[0].message.content
+    elif hasattr(response, 'text'):
+        ai_content = response.text
+    else:
+        ai_content = str(response)
+    
+    # Log user message and AI response in chronological order
+    try:
+        import time
+        log_ai_conversation(user_id, "manual", "user", message)
+        time.sleep(0.05)
+        log_ai_conversation(user_id, "manual", "ai", ai_content)
+    except Exception as log_err:
+        logger.error(f"Error logging Copilot conversation: {log_err}")
+    
+    return ai_content, conversation_id
+
+
 @ai_bp.route('/api/ai/conversation', methods=['POST'])
+@ai_bp.route('/api/ai/chat', methods=['POST'])
 @login_required
 def api_ai_conversation():
     """Process user message and get AI response"""
+    conversation_id = None
     try:
-        data = request.get_json()
+        data = request.get_json() or {}
         message = data.get('message', '').strip()
         conversation_id = data.get('conversation_id', None)
         
@@ -1594,7 +1649,7 @@ def api_ai_conversation():
         })
         
     except Exception as e:
-        logger.error(f"Error processing AI conversation: {e}")
+        logger.error(f"Error processing AI conversation: {e}", exc_info=True)
         return jsonify({
             'response': 'I apologize, but I encountered an error processing your request. Please try again later.',
             'conversation_id': conversation_id

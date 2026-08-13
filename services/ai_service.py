@@ -220,6 +220,8 @@ def call_ai_with_web_search(
             'market_analysis': getattr(ai_prompts, 'market_analysis_pre', None),
             'portfolio_review': getattr(ai_prompts, 'portfolio_review_pre', None),
             'sentiment_analysis': getattr(ai_prompts, 'sentiment_prompt_pre', None),
+            'copilot': getattr(ai_prompts, 'copilot_chat_pre', None) or user_ai_settings.get('copilot_chat_pre'),
+            'manual': getattr(ai_prompts, 'copilot_chat_pre', None) or user_ai_settings.get('copilot_chat_pre'),
         }
         stage1_template = stage1_prompt_map.get(prompt_type)
         if not stage1_template:
@@ -358,6 +360,8 @@ def call_ai_with_web_search(
             'market_analysis': getattr(ai_prompts, 'market_analysis_post', None),
             'portfolio_review': getattr(ai_prompts, 'portfolio_review_post', None),
             'sentiment_analysis': getattr(ai_prompts, 'sentiment_prompt_post', None),
+            'copilot': getattr(ai_prompts, 'copilot_chat_post', None) or user_ai_settings.get('copilot_chat_post'),
+            'manual': getattr(ai_prompts, 'copilot_chat_post', None) or user_ai_settings.get('copilot_chat_post'),
         }
         stage3_template = stage3_prompt_map.get(prompt_type)
         if not stage3_template:
