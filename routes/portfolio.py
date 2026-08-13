@@ -27,10 +27,10 @@ from log import logger
 from services.portfolio_service import (
     compute_portfolio_total_value, _compute_portfolio_history_series, 
     record_true_portfolio_value, sync_coins_from_transactions, 
-    trigger_portfolio_snapshot
+    trigger_portfolio_snapshot, update_portfolio_from_real_order
 )
 from services.binance_service import (
-    fetch_binance_price, fetch_binance_price, build_order_config,
+    fetch_binance_price, build_order_config,
     get_symbol_filters, get_trade_fee_for_symbol,
     get_cached_exchange_info,
     sync_portfolio_from_binance, update_all_coin_prices_from_binance
@@ -49,10 +49,6 @@ from transaction_utils import recalculate_asset_activity
 _KLINES_CACHE = {}
 _KLINES_CACHE_TTL = 300
 def _coerce_activity_datetime(dt): return dt # TODO: move to common
-def build_order_config(order_type, side, amount, data, symbol): 
-    from services.binance_service import build_order_config as boc
-    return boc(order_type, side, amount, data, symbol)
-def update_portfolio_from_real_order(*args, **kwargs): pass # TODO
 def update_test_portfolio(*args, **kwargs): pass # TODO
 
 # Blueprint Definition
@@ -2846,10 +2842,13 @@ def place_real_order():
             total_commission = sum(float(f.get('commission', 0)) for f in fills)
             commission_asset = fills[0].get('commissionAsset', 'USDT') if fills else 'USDT'
 
+            binance_order_id = order_response.get('orderId') or order_response.get('orderListId')
+            status = order_response.get('status', 'NEW')
+
             success_payload = {
                 'success': True,
                 'order': None,
-                'binance_order_id': order_response['orderId'],
+                'binance_order_id': binance_order_id,
                 'message': f'Real order placed successfully. Quantity adjusted from {quantity} to {formatted_quantity} to match trading rules.' if quantity != formatted_quantity else 'Real order placed successfully',
                 'formatted_values': {
                     'quantity': formatted_quantity,
@@ -2862,32 +2861,32 @@ def place_real_order():
             try:
                 real_order = RealOrder(
                     user_id=current_user.id,
-                    binance_order_id=order_response['orderId'],
+                    binance_order_id=binance_order_id,
                     symbol=symbol,
                     side=side,
                     type=order_type,
                     quantity=formatted_quantity,
                     price=formatted_price if formatted_price > 0 else None,
                     stop_price=order_params.get('stopPrice'),
-                    time_in_force=order_response.get('timeInForce'),
-                    status=order_response['status'],
+                    time_in_force=order_response.get('timeInForce', 'GTC'),
+                    status=status,
                     executed_qty=executed_qty,
-                    cumulative_quote_qty=float(order_response.get('cummulativeQuoteQty', 0)),
+                    cumulative_quote_qty=float(order_response.get('cummulativeQuoteQty') or order_response.get('cumulativeQuoteQty') or 0),
                     avg_fill_price=avg_fill_price,
                     commission=total_commission,
                     commission_asset=commission_asset,
                     binance_client_order_id=order_response.get('clientOrderId'),
                     created_at=datetime.utcnow(),
                     updated_at=datetime.utcnow(),
-                    filled_at=datetime.utcnow() if order_response['status'] == 'FILLED' else None,
+                    filled_at=datetime.utcnow() if status == 'FILLED' else None,
                     order_response=json.dumps(order_response)
                 )
 
                 db.session.add(real_order)
-                if order_response['status'] == 'FILLED':
+                if status == 'FILLED':
                     real_order.fill_notified = True
 
-                if order_response['status'] == 'FILLED' and executed_qty > 0:
+                if status == 'FILLED' and executed_qty > 0:
                     update_portfolio_from_real_order(
                         user_id=current_user.id,
                         symbol=symbol,
@@ -2896,13 +2895,13 @@ def place_real_order():
                         price=avg_fill_price,
                         commission=total_commission,
                         commission_asset=commission_asset,
-                        order_id=order_response['orderId']
+                        order_id=binance_order_id
                     )
                     notify_order_fill(
                         real_order,
                         username=current_user.username,
                         executed_qty=executed_qty,
-                        quote_qty=float(order_response.get('cummulativeQuoteQty', 0)),
+                        quote_qty=float(order_response.get('cummulativeQuoteQty') or order_response.get('cumulativeQuoteQty') or 0),
                         fill_price=avg_fill_price
                     )
 
@@ -2920,9 +2919,9 @@ def place_real_order():
                 except Exception as recalc_err:
                     logger.warning(f"Failed to recalculate activity after real order for {symbol}: {recalc_err}")
 
-                logger.info(f"REAL ORDER PLACED for user {current_user.id}: {symbol} {side} {formatted_quantity} @ {avg_fill_price} - Order ID: {order_response['orderId']}")
+                logger.info(f"REAL ORDER PLACED for user {current_user.id}: {symbol} {side} {formatted_quantity} @ {avg_fill_price} - Order ID: {binance_order_id}")
             except Exception as post_err:
-                logger.error(f"Order {order_response['orderId']} placed but post-processing failed: {post_err}", exc_info=True)
+                logger.error(f"Order {binance_order_id} placed but post-processing failed: {post_err}", exc_info=True)
                 db.session.rollback()
 
             return jsonify(success_payload)

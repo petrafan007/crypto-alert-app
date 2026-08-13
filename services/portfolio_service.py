@@ -399,3 +399,167 @@ def _format_date_only(value):
     if isinstance(value, datetime):
         return value.strftime('%Y-%m-%d')
     return str(value)[:10]
+
+def ensure_auto_watchlist_entry(user_id, symbol, trade_price):
+    """Ensure a watchlist entry exists for auto-hidden coins with alerts configured."""
+    from models import WatchlistCoin
+    try:
+        lower_alert = round(trade_price * 0.9, 6)
+        upper_alert = round(trade_price * 1.1, 6)
+    except (TypeError, ValueError):
+        lower_alert = None
+        upper_alert = None
+
+    existing = WatchlistCoin.query.filter_by(user_id=user_id, symbol=symbol.upper()).first()
+    if existing:
+        if existing.action and existing.action != 'AutoWatch':
+            return
+        existing.down_alert = lower_alert
+        existing.up_alert = upper_alert
+        existing.alert_enabled = True
+        existing.hidden = False
+        existing.action = 'AutoWatch'
+        existing.current_price = trade_price
+    else:
+        watch = WatchlistCoin(
+            user_id=user_id,
+            symbol=symbol.upper(),
+            down_alert=lower_alert,
+            up_alert=upper_alert,
+            alert_enabled=True,
+            note='Auto-added after position closed',
+            favorite=False,
+            hidden=False,
+            action='AutoWatch',
+            current_price=trade_price,
+            sentiment='Watch'
+        )
+        db.session.add(watch)
+
+def remove_auto_watchlist_entry(user_id, symbol):
+    """Remove auto-managed watchlist entries once a position is re-established."""
+    from models import WatchlistCoin
+    watch = WatchlistCoin.query.filter_by(
+        user_id=user_id,
+        symbol=symbol.upper(),
+        action='AutoWatch'
+    ).first()
+    if watch:
+        db.session.delete(watch)
+
+def update_portfolio_from_real_order(user_id, symbol, side, quantity, price, commission, commission_asset, order_id):
+    """Update coins table and all_activities (tax report) after real order fills"""
+    from services.trading_service import calculate_avg_entry_fifo
+    try:
+        base_asset = symbol.replace('USDT', '').replace('USD', '')
+        
+        commission_usd = commission
+        if commission_asset not in ('USDT', 'USD'):
+            commission_usd = commission * price
+        
+        coin = Coin.query.filter_by(user_id=user_id, symbol=base_asset).first()
+        previous_avg_entry = coin.avg_entry if coin else 0.0
+        
+        if side == 'BUY':
+            if not coin:
+                coin = Coin(
+                    user_id=user_id,
+                    symbol=base_asset,
+                    amount=quantity,
+                    current=price,
+                    avg_entry=price,
+                    initial_value=quantity * price,
+                    purchase_date=datetime.now().strftime('%Y-%m-%d'),
+                    alert_enabled=True,
+                    is_manual=False,
+                    hidden=False,
+                    auto_hidden=False,
+                    force_visible=False
+                )
+                db.session.add(coin)
+                logger.info(f"Created new coin entry for {base_asset}: {quantity} @ ${price}")
+            else:
+                old_total_cost = (coin.amount or 0) * (coin.avg_entry or 0)
+                new_cost = quantity * price
+                new_total = old_total_cost + new_cost
+                
+                coin.amount = (coin.amount or 0) + quantity
+                coin.avg_entry = new_total / coin.amount if coin.amount > 0 else price
+                coin.current = price
+                logger.info(f"Updated coin {base_asset}: New amount={coin.amount}, New avg_entry=${coin.avg_entry:.2f}")
+            
+            if coin:
+                total_value = (coin.amount or 0) * price
+                if total_value >= 1.0:
+                    coin.hidden = False
+                    coin.auto_hidden = False
+                    coin.force_visible = False
+                remove_auto_watchlist_entry(user_id, base_asset)
+        
+        elif side == 'SELL':
+            if coin:
+                coin.amount = max(0.0, (coin.amount or 0) - quantity)
+                coin.current = price
+                logger.info(f"Updated coin {base_asset} after sell: New amount={coin.amount}")
+                remaining_value = (coin.amount or 0) * price
+                if remaining_value < 1.0:
+                    coin.hidden = True
+                    coin.auto_hidden = True
+                    coin.force_visible = False
+                    coin.alert_enabled = False
+                    ensure_auto_watchlist_entry(user_id, base_asset, price)
+                else:
+                    remove_auto_watchlist_entry(user_id, base_asset)
+            else:
+                ensure_auto_watchlist_entry(user_id, base_asset, price)
+
+        if coin:
+            recalculated_avg, recalculated_cost, recalculated_amount = calculate_avg_entry_fifo(
+                user_id,
+                base_asset,
+                target_amount=coin.amount
+            )
+            if recalculated_cost >= 1.0 and recalculated_amount > 0:
+                coin.avg_entry = recalculated_avg
+            else:
+                coin.avg_entry = 0.0
+        
+        transaction_date = datetime.utcnow()
+        txid = f"binance_{order_id}_{symbol}"
+
+        if side == 'BUY':
+            cost_basis = (quantity * price) + commission_usd
+            proceeds = None
+            amount_value = quantity
+        else:
+            proceeds = (quantity * price) - commission_usd
+            reference_avg = previous_avg_entry if previous_avg_entry else (coin.avg_entry if coin else 0.0)
+            cost_basis = reference_avg * quantity if reference_avg else (quantity * price)
+            amount_value = -quantity
+
+        description = f"{side} {quantity} {base_asset} @ ${price:.2f}"
+        details = f"Order ID: {order_id}, Commission: {commission} {commission_asset}"
+        
+        new_activity = AllActivity(
+            date=transaction_date,
+            type=side,
+            asset=base_asset,
+            amount=amount_value,
+            proceeds=proceeds,
+            cost_basis=cost_basis,
+            fee=commission_usd,
+            description=description,
+            txid=txid,
+            status='completed',
+            details=details,
+            user_id=user_id,
+            avg_entry=price,
+            price_sold_at=price,
+            exchange='binance'
+        )
+        db.session.add(new_activity)
+        db.session.commit()
+        logger.info(f"Added {side} transaction to all_activities: {description}")
+    except Exception as e:
+        logger.error(f"Error updating portfolio from real order: {e}")
+        db.session.rollback()
