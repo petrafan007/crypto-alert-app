@@ -25,6 +25,7 @@ from services.portfolio_service import (
 from services.binance_service import (
     fetch_binance_price, fetch_binance_price, build_order_config,
     get_symbol_filters, get_trade_fee_for_symbol,
+    get_cached_exchange_info,
     sync_portfolio_from_binance, update_all_coin_prices_from_binance
 )
 from services.staking_service import (
@@ -1201,10 +1202,15 @@ def update_trading_settings():
 
 @portfolio_bp.route('/api/trading/order-types', methods=['GET'])
 def get_trading_order_types():
-    """Get canonical list of supported Binance.US spot order types and TimeInForce options"""
+    """Get canonical list of supported Binance.US spot order types and TimeInForce options.
+    
+    Optional query param: ?symbol=XRPUSDT
+    When provided, filters the canonical list to only include order types
+    that Binance.US actually supports for that specific trading pair.
+    """
     try:
         # Canonical Binance.US spot order types (authoritative source)
-        order_types = [
+        all_order_types = [
             {
                 'value': 'MARKET',
                 'label': 'Market Order',
@@ -1271,6 +1277,42 @@ def get_trading_order_types():
                 'requires_stop_limit_price': True
             }
         ]
+        
+        # If a symbol is provided, filter to only the order types Binance.US supports for it
+        symbol = request.args.get('symbol', '').strip().upper()
+        order_types = all_order_types
+        
+        if symbol:
+            try:
+                from binance.client import Client
+                from credential_security import decrypt_secret
+                import os
+                from dotenv import load_dotenv
+                load_dotenv(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), '.env'))
+                
+                api_key = os.getenv('BINANCE_API_KEY')
+                api_secret = os.getenv('BINANCE_API_SECRET')
+                
+                if api_key and api_secret:
+                    client = Client(api_key=api_key, api_secret=api_secret, testnet=False, tld='us')
+                    exchange_info = get_cached_exchange_info(client)
+                    
+                    if exchange_info:
+                        for sym_info in exchange_info.get('symbols', []):
+                            if sym_info['symbol'] == symbol:
+                                allowed_types = set(sym_info.get('orderTypes', []))
+                                order_types = [ot for ot in all_order_types if ot['value'] in allowed_types]
+                                
+                                # OCO is not listed in orderTypes but requires STOP_LOSS_LIMIT support
+                                if 'STOP_LOSS_LIMIT' not in allowed_types:
+                                    order_types = [ot for ot in order_types if ot['value'] != 'OCO']
+                                
+                                logger.info(f"Filtered order types for {symbol}: {[ot['value'] for ot in order_types]}")
+                                break
+                        else:
+                            logger.warning(f"Symbol {symbol} not found in exchange info, returning all order types")
+            except Exception as filter_err:
+                logger.warning(f"Could not filter order types for {symbol}, returning all: {filter_err}")
         
         # TimeInForce options for limit orders
         time_in_force_options = [

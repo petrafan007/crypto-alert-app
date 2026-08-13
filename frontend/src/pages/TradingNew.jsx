@@ -445,7 +445,7 @@ const TradingNew = () => {
     checkPermission();
 
     loadTradingSettings();
-    loadOrderTypes();
+    loadOrderTypes(orderForm.symbol);
     loadOrders();
     loadOpenOrders();
     if (settings.test_mode_enabled) {
@@ -454,11 +454,27 @@ const TradingNew = () => {
     }
   }, []);
 
-  const loadOrderTypes = async () => {
+  const loadOrderTypes = async (symbol) => {
     try {
-      const response = await axios.get('/api/trading/order-types');
+      const url = symbol
+        ? `/api/trading/order-types?symbol=${encodeURIComponent(symbol)}`
+        : '/api/trading/order-types';
+      const response = await axios.get(url);
       if (response.data.success) {
-        setOrderTypes(response.data.order_types);
+        const newTypes = response.data.order_types;
+        setOrderTypes(newTypes);
+        // If current order type is not in the new list, reset to first available
+        const currentTypeValid = newTypes.some(t => t.value === orderForm.type);
+        if (!currentTypeValid && newTypes.length > 0) {
+          setOrderForm(prev => ({
+            ...prev,
+            type: newTypes[0].value,
+            price: '',
+            stopPrice: '',
+            stopLimitPrice: ''
+          }));
+          setQuoteQuantity('');
+        }
       }
     } catch (error) {
       console.error('Failed to load order types:', error);
@@ -469,6 +485,13 @@ const TradingNew = () => {
       ]);
     }
   };
+
+  // Re-fetch order types whenever the trading pair changes
+  useEffect(() => {
+    if (orderForm.symbol) {
+      loadOrderTypes(orderForm.symbol);
+    }
+  }, [orderForm.symbol]);
 
   useEffect(() => {
     const price = determinePriceForCalculations();

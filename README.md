@@ -71,6 +71,9 @@ The application utilizes a **unified PostgreSQL database**.
 - **AI Analysis**: Multi-provider support (OpenAI, Z.AI, Perplexity, Gemini). Integrated web search (Brave Search with DuckDuckGo fallback).
 - **Telegram API**: Price alert notifications via Bot API.
 
+## Recent Major Updates (August 2026)
+- **Dynamic Order Types Per Trading Pair (v1.2-beta)**: The Order Type dropdown on the trading page now dynamically filters to only show order types that Binance.US actually supports for the selected trading pair. For example, if a pair like XRPUSDT does not support Stop Loss orders, that option will no longer appear. This prevents failed order submissions due to unsupported order types.
+
 ## Recent Major Updates (June 2026)
 - **Trading Chart Markers & Transaction Modal (v1.12-beta)**: Upgraded the trading chart to aggregate buys and sells across all cryptocurrencies into singular daily markers. Hovering over a marker now cleanly displays the total aggregated USDT value for that day. Clicking an arrow opens a detailed, interactive React-Bootstrap modal that allows cycling through exact transaction details (Coin Name, Exact Time, Price, Amount, and USDT Value) for that specific day's trades.
 - **Instant Price Alerts on Order Fill (v1.11-beta)**: Addressed missing instant price alerts when an order fills. The system now immediately evaluates price thresholds using the actual fill price, bypassing the standard polling delay.
