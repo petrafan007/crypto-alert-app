@@ -308,41 +308,69 @@ def call_ai_with_web_search(
                 if system_instruction:
                     req_json["systemInstruction"] = system_instruction
                 
-                last_err = ""
-                for api_ver in ['v1beta', 'v1', 'v1alpha']:
-                    url = f"https://generativelanguage.googleapis.com/{api_ver}/models/{model}:generateContent?key={key}"
-                    r = requests.post(url, json=req_json, timeout=60)
-                    if r.status_code == 200:
-                        res_json = r.json()
+                max_gemini_retries = 2
+                for attempt in range(max_gemini_retries + 1):
+                    last_err = ""
+                    for api_ver in ['v1beta', 'v1']:
+                        url = f"https://generativelanguage.googleapis.com/{api_ver}/models/{model}:generateContent?key={key}"
                         try:
-                            return res_json['candidates'][0]['content']['parts'][0]['text']
+                            r = requests.post(url, json=req_json, timeout=60)
+                            if r.status_code == 200:
+                                res_json = r.json()
+                                try:
+                                    return res_json['candidates'][0]['content']['parts'][0]['text']
+                                except Exception:
+                                    return json.dumps(res_json)
+                            elif r.status_code == 400 and "thinkingConfig" in gen_config:
+                                # Retry without thinkingConfig in case model does not support it
+                                req_json["generationConfig"] = {"maxOutputTokens": p_max_tokens}
+                                r_retry = requests.post(url, json=req_json, timeout=60)
+                                if r_retry.status_code == 200:
+                                    res_json = r_retry.json()
+                                    try:
+                                        return res_json['candidates'][0]['content']['parts'][0]['text']
+                                    except Exception:
+                                        return json.dumps(res_json)
+                                last_err = r_retry.text
+                            elif r.status_code == 429 or "RESOURCE_EXHAUSTED" in r.text:
+                                last_err = r.text
+                                break  # Break version loop to trigger retry delay
+                            else:
+                                last_err = r.text
+                        except Exception as req_ex:
+                            last_err = str(req_ex)
+
+                    if attempt < max_gemini_retries and ("429" in last_err or "RESOURCE_EXHAUSTED" in last_err):
+                        delay = 12 * (attempt + 1)
+                        # Try parsing retryDelay from error JSON
+                        try:
+                            delay_match = re.search(r'retryDelay["\']:\s*["\'](\d+)s', last_err)
+                            if delay_match:
+                                delay = min(int(delay_match.group(1)) + 1, 30)
                         except Exception:
-                            return json.dumps(res_json)
-                    elif r.status_code == 400 and "thinkingConfig" in gen_config:
-                        # Retry without thinkingConfig in case model does not support it
-                        req_json["generationConfig"] = {"maxOutputTokens": p_max_tokens}
-                        r_retry = requests.post(url, json=req_json, timeout=60)
-                        if r_retry.status_code == 200:
-                            res_json = r_retry.json()
-                            try:
-                                return res_json['candidates'][0]['content']['parts'][0]['text']
-                            except Exception:
-                                return json.dumps(res_json)
-                        last_err = r_retry.text
-                    else:
-                        last_err = r.text
+                            pass
+                        logger.warning(f"Gemini 429 Rate Limit (attempt {attempt + 1}/{max_gemini_retries}). Backing off for {delay}s...")
+                        time.sleep(delay)
+                        continue
+                    elif "429" not in last_err and "RESOURCE_EXHAUSTED" not in last_err:
+                        break
+
                 raise Exception(f"Gemini API error: {last_err}")
             
             else:
                 raise ValueError(f"Unsupported AI provider: {provider}")
 
         # Stage 1: Queries
-        try:
-            search_queries_text = _execute_ai_call(stage1_messages, p_max_tokens=300)
-            search_queries = [q.strip().strip('-*0123456789. ') for q in (search_queries_text or '').split('\n') if q.strip()][:2]
-        except Exception as e:
-            logger.warning(f"Stage 1 query generation error: {e}. Using fallback query.")
-            search_queries = [f"{symbol_value} crypto news market analysis today"]
+        if prompt_type == 'sentiment_analysis':
+            # Optimize: Avoid burning a precious Gemini RPM quota just to formulate a search query
+            search_queries = [f"{symbol_value} cryptocurrency news market price sentiment today"]
+        else:
+            try:
+                search_queries_text = _execute_ai_call(stage1_messages, p_max_tokens=300)
+                search_queries = [q.strip().strip('-*0123456789. ') for q in (search_queries_text or '').split('\n') if q.strip()][:2]
+            except Exception as e:
+                logger.warning(f"Stage 1 query generation error: {e}. Using fallback query.")
+                search_queries = [f"{symbol_value} crypto news market analysis today"]
 
         # Stage 2: Web Searches
         search_summaries = []
@@ -624,7 +652,7 @@ def run_sentiment_analysis_for_user(user_id, username, force=False):
                     send_telegram_message(username, alert_msg)
                     logger.info(f"Sent AI Trading Alert for {symbol} ({sentiment_result})")
 
-                time.sleep(2)
+                time.sleep(6)
 
             except Exception as coin_error:
                 logger.error(f"Error processing sentiment for {symbol}: {coin_error}")
@@ -635,7 +663,7 @@ def run_sentiment_analysis_for_user(user_id, username, force=False):
                     db.session.commit()
                 except Exception:
                     db.session.rollback()
-                time.sleep(2)
+                time.sleep(6)
 
         return count
 

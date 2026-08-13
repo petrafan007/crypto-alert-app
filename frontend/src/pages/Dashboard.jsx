@@ -1938,7 +1938,7 @@ function Dashboard({ isLightMode }) {
                             onClick={() => openNews(coin.symbol)}
                             style={{ cursor: 'pointer', marginLeft: 8 }}
                           >
-                            📄
+                            📰
                           </span>
                           <span
                             className="action-icon"
@@ -2114,7 +2114,7 @@ function Dashboard({ isLightMode }) {
                           onClick={() => openNews(item.symbol)}
                           style={{ cursor: 'pointer', marginLeft: 8 }}
                         >
-                          📄
+                          📰
                         </span>
                         <span
                           className="action-icon"

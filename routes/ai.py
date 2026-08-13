@@ -1515,7 +1515,7 @@ def api_ai_recommendation_score(symbol):
 
 
 
-def get_ai_conversations(user_id, limit=20, offset=0, search_term=None, include_hidden=False, filter_sentiment=False, prompt_type_filter=None):
+def get_ai_conversations(user_id, limit=20, offset=0, search_term=None, include_hidden=False, filter_sentiment=True, prompt_type_filter=None):
     """Retrieve filtered and paginated AI conversations for user using SQLAlchemy ORM"""
     from models import AIConversation
     query = AIConversation.query.filter(AIConversation.user_id == user_id)
@@ -1528,7 +1528,7 @@ def get_ai_conversations(user_id, limit=20, offset=0, search_term=None, include_
     if prompt_type_filter:
         query = query.filter(AIConversation.prompt_type == prompt_type_filter)
         
-    if filter_sentiment:
+    if filter_sentiment and not (prompt_type_filter == 'sentiment_analysis'):
         query = query.filter(AIConversation.prompt_type != 'sentiment_analysis')
         
     if search_term:
@@ -1554,7 +1554,7 @@ def get_ai_conversations(user_id, limit=20, offset=0, search_term=None, include_
     return result
 
 
-def get_ai_conversations_count(user_id, search_term=None, include_hidden=False, filter_sentiment=False, prompt_type_filter=None):
+def get_ai_conversations_count(user_id, search_term=None, include_hidden=False, filter_sentiment=True, prompt_type_filter=None):
     """Get total count of filtered AI conversations for user"""
     from models import AIConversation
     query = AIConversation.query.filter(AIConversation.user_id == user_id)
@@ -1566,7 +1566,7 @@ def get_ai_conversations_count(user_id, search_term=None, include_hidden=False, 
     if prompt_type_filter:
         query = query.filter(AIConversation.prompt_type == prompt_type_filter)
         
-    if filter_sentiment:
+    if filter_sentiment and not (prompt_type_filter == 'sentiment_analysis'):
         query = query.filter(AIConversation.prompt_type != 'sentiment_analysis')
         
     if search_term:
@@ -1584,11 +1584,11 @@ def api_ai_conversations():
             logger.error("User not authenticated for AI conversations")
             return jsonify({'error': 'User not authenticated'}), 401
         
-        limit = request.args.get('limit', 10, type=int)
+        limit = request.args.get('limit', 20, type=int)
         offset = request.args.get('offset', 0, type=int)
         search_term = request.args.get('search', None)
         include_hidden = request.args.get('include_hidden', 'false').lower() == 'true'
-        filter_sentiment = request.args.get('filter_sentiment', 'false').lower() == 'true'
+        filter_sentiment = request.args.get('filter_sentiment', 'true').lower() != 'false'
         prompt_type_filter = request.args.get('prompt_type')
         
         conversations = get_ai_conversations(
@@ -2365,6 +2365,14 @@ def api_market_analysis_workflow():
         # Extract the analysis content
         if hasattr(response, 'choices') and response.choices:
             analysis_content = response.choices[0].message.content
+        elif hasattr(response, 'text'):
+            analysis_content = response.text
+        elif isinstance(response, str):
+            analysis_content = response
+        elif isinstance(response, dict) and 'content' in response:
+            analysis_content = response['content']
+        elif response is not None:
+            analysis_content = str(response)
         else:
             raise Exception("Invalid AI response format")
         
@@ -2577,6 +2585,14 @@ def api_portfolio_review_workflow():
 
         if hasattr(response, 'choices') and response.choices:
             analysis_content = response.choices[0].message.content
+        elif hasattr(response, 'text'):
+            analysis_content = response.text
+        elif isinstance(response, str):
+            analysis_content = response
+        elif isinstance(response, dict) and 'content' in response:
+            analysis_content = response['content']
+        elif response is not None:
+            analysis_content = str(response)
         else:
             raise Exception("Invalid AI response format")
 

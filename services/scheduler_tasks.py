@@ -362,11 +362,21 @@ def sentiment_analysis_loop(app):
             # Check every 30 minutes
             time.sleep(1800)
 
+_background_tasks_started = False
+_background_tasks_lock = threading.Lock()
+
 def start_background_jobs(app=None):
     """Initialize and start all background alert, sync, and retention loops."""
+    global _background_tasks_started
     import threading
     from log import logger
     
+    with _background_tasks_lock:
+        if _background_tasks_started:
+            logger.info("Background jobs already started, skipping duplicate initialization.")
+            return {}
+        _background_tasks_started = True
+
     if not app:
         from flask import current_app
         app = current_app._get_current_object() if current_app else None
