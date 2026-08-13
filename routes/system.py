@@ -34,7 +34,6 @@ from services.analysis_service import get_user_ai_settings
 from services.notification_service import save_notification_record
 
 # Stub/Direct logic for system helpers
-def serve_react_app(path=""): return ""
 def fetch_binance_price(symbol): 
     import requests
     try:

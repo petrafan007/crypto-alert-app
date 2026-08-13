@@ -152,7 +152,6 @@ def login():
             return jsonify({"error": str(e)}), 500
     
     # For GET requests, serve the React app by importing the shared helper
-    def serve_react_app(path=""): return ""
     logger.info("Login GET request, serving React app")
     return serve_react_app()
 

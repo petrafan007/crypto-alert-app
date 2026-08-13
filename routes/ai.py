@@ -43,7 +43,6 @@ from services.portfolio_service import get_comprehensive_crypto_data_for_user
 from zai_client import call_ai_with_web_search
 
 # Local helpers previously in main
-def serve_react_app(path=""): return ""
 import threading
 import numpy as np
 

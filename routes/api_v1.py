@@ -729,46 +729,6 @@ pass # app = Flask(__name__, static_folder='frontend/dist', static_url_path='/st
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'super-secret-key')
 app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 0
 
-def serve_react_app():
-    """Serve the built React index with cache-busting headers so UI updates ship instantly."""
-    index_path = Path(app.static_folder or '') / 'index.html'
-    logger.info(f"Serving React index from {index_path}")
-    try:
-        content = index_path.read_text(encoding='utf-8')
-    except FileNotFoundError:
-        logger.warning("React index file missing, falling back to send_static_file")
-        return app.send_static_file('index.html')
-
-    build_token = str(int(index_path.stat().st_mtime))
-    logger.info(f"Serving React index with cache-bust token {build_token}")
-
-    def _add_version(match):
-        path = match.group(1)
-        quote = match.group(2)
-        if '?v=' in path:
-            return match.group(0)
-        return f'{path}?v={build_token}{quote}'
-
-    content = re.sub(r'(/static/[^"\']+)(["\'])', _add_version, content)
-
-    # Embed staking summary for dashboard to avoid CDN-stale API calls
-    if current_user and getattr(current_user, 'is_authenticated', False) and request.path in {'/dashboard', '/dashboard.html', '/'}:
-        try:
-            cred = get_user_credentials(current_user.username)
-            prefetch = _build_staking_dashboard_payload(cred)
-            import json
-            injection = f"<script>window.__STAKING_SUMMARY__={json.dumps(prefetch)};</script>"
-            content = content.replace('<div id="root"></div>', f'{injection}<div id="root"></div>')
-        except Exception as prefetch_err:
-            logger.error(f"Failed to embed staking prefetch: {prefetch_err}", exc_info=True)
-
-    response = make_response(content)
-    response.headers['Content-Type'] = 'text/html; charset=utf-8'
-    response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
-    response.headers['Pragma'] = 'no-cache'
-    response.headers['Expires'] = '0'
-    return response
-
 # Initialize background threads list
 background_threads = []
 
