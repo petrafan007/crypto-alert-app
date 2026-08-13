@@ -728,6 +728,18 @@ def get_coin_sentiment(symbol, coin=None, current_price=None, username=None):
         logger.error(f"Error in get_coin_sentiment for {symbol}: {e}")
         return "Error"
 
+def format_iso_utc(dt):
+    """Format datetime as UTC ISO 8601 string with Z indicator so browsers correctly convert to local time."""
+    if not dt:
+        return None
+    if isinstance(dt, str):
+        if not dt.endswith('Z') and not '+' in dt and not '-' in dt[10:]:
+            return f"{dt}Z"
+        return dt
+    if hasattr(dt, 'tzinfo') and dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.isoformat()
+
 def get_user_latest_news_cache(user_id):
     """
     Returns a dictionary mapping coin_id to its latest AI news analysis dict:
@@ -751,7 +763,7 @@ def get_user_latest_news_cache(user_id):
             if row.coin_id and row.coin_id not in cache:
                 cache[row.coin_id] = {
                     'text': row.body or '',
-                    'created_at': row.created_at.isoformat() if row.created_at else None
+                    'created_at': format_iso_utc(row.created_at)
                 }
         return cache
     except Exception as e:

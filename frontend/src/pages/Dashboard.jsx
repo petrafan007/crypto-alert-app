@@ -917,6 +917,29 @@ function Dashboard({ isLightMode }) {
     });
   };
 
+  // Date formatting helpers that guarantee UTC timestamps are properly parsed and converted to user local time
+  const formatLocalDateTime = (dateStr) => {
+    if (!dateStr) return '';
+    let s = String(dateStr).trim();
+    if (!s.endsWith('Z') && !s.includes('+') && !s.slice(10).includes('-')) {
+      s += 'Z';
+    }
+    const d = new Date(s);
+    if (isNaN(d.getTime())) return dateStr;
+    return d.toLocaleString();
+  };
+
+  const formatLocalDate = (dateStr) => {
+    if (!dateStr) return '';
+    let s = String(dateStr).trim();
+    if (!s.endsWith('Z') && !s.includes('+') && !s.slice(10).includes('-')) {
+      s += 'Z';
+    }
+    const d = new Date(s);
+    if (isNaN(d.getTime())) return dateStr;
+    return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+  };
+
   // Helper to build a clean tooltip for the News icon (showing cached news if available)
   const getNewsTooltip = (coinOrItem) => {
     if (!coinOrItem || !coinOrItem.cached_news) {
@@ -931,7 +954,7 @@ function Dashboard({ isLightMode }) {
       .trim();
 
     const dateStr = coinOrItem.cached_news_date
-      ? new Date(coinOrItem.cached_news_date).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
+      ? formatLocalDate(coinOrItem.cached_news_date)
       : '';
 
     const preview = cleanNews.length > 350 ? cleanNews.slice(0, 350) + '...' : cleanNews;
@@ -1826,7 +1849,7 @@ function Dashboard({ isLightMode }) {
                     </td>
                     <td
                       className={isMobile ? 'mobile-hide' : ''}
-                      title={coin.sentiment_last_updated ? `Last Updated: ${new Date(coin.sentiment_last_updated).toLocaleString()}` : 'No analysis date available'}
+                      title={coin.sentiment_last_updated ? `Last Updated: ${formatLocalDateTime(coin.sentiment_last_updated)}` : 'No analysis date available'}
                       style={{ cursor: 'help', textAlign: 'center' }}
                     >
                       {coin.sentiment === 'Buy' && <span style={{ color: '#48bb78', fontWeight: 'bold' }}>Buy</span>}

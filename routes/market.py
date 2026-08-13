@@ -211,7 +211,7 @@ def api_coin_data_live():
                     "favorite": coin.is_manual,
                     "force_visible": coin.force_visible,
                     "volatility_pct": coin.volatility_pct,
-                    "sentiment_last_updated": coin.sentiment_last_updated.isoformat() if hasattr(coin, 'sentiment_last_updated') and coin.sentiment_last_updated else None,
+                    "sentiment_last_updated": format_iso_utc(coin.sentiment_last_updated) if hasattr(coin, 'sentiment_last_updated') and coin.sentiment_last_updated else None,
                     "cached_news": coin_news.get('text', ''),
                     "cached_news_date": coin_news.get('created_at', None)
                 })
@@ -249,7 +249,7 @@ def api_coin_data_live():
                         "favorite": getattr(coin, 'is_manual', False),
                         "force_visible": getattr(coin, 'force_visible', False),
                         "volatility_pct": getattr(coin, 'volatility_pct', None),
-                        "sentiment_last_updated": getattr(coin, 'sentiment_last_updated', None).isoformat() if getattr(coin, 'sentiment_last_updated', None) else None,
+                        "sentiment_last_updated": format_iso_utc(getattr(coin, 'sentiment_last_updated', None)),
                         "cached_news": fallback_news.get('text', ''),
                         "cached_news_date": fallback_news.get('created_at', None)
                     })
@@ -354,7 +354,7 @@ def api_coin_data():
                     "sentiment": coin.sentiment or get_coin_sentiment(symbol, coin=coin, current_price=current_price, username=current_user.username),
                     "force_visible": coin.force_visible,
                     "volatility_pct": coin.volatility_pct,
-                    "sentiment_last_updated": coin.sentiment_last_updated.isoformat() if hasattr(coin, 'sentiment_last_updated') and coin.sentiment_last_updated else None,
+                    "sentiment_last_updated": format_iso_utc(coin.sentiment_last_updated) if hasattr(coin, 'sentiment_last_updated') and coin.sentiment_last_updated else None,
                     "cached_news": coin_news.get('text', ''),
                     "cached_news_date": coin_news.get('created_at', None)
                 })
