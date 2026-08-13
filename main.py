@@ -60,17 +60,16 @@ app.register_blueprint(ai_bp)
 app.register_blueprint(market_bp)
 app.register_blueprint(frontend_bp)
 
-# Start background sync, alert monitoring, and retention loops
-try:
-    from services.scheduler_tasks import start_background_jobs
-    start_background_jobs(app)
-except Exception as e:
-    logger.error(f"Failed to start background jobs: {e}")
-
 @app.teardown_appcontext
 def shutdown_session(exception=None):
     db.session.remove()
 
 if __name__ == '__main__':
+    # Start background sync, alert monitoring, and retention loops
+    try:
+        from services.scheduler_tasks import start_background_jobs
+        start_background_jobs(app)
+    except Exception as e:
+        logger.error(f"Failed to start background jobs: {e}")
     port = int(os.environ.get('PORT', 5010))
     app.run(host='0.0.0.0', port=port, debug=False, use_reloader=False)

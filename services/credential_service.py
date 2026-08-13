@@ -12,12 +12,6 @@ def get_user_credentials(username):
             return None
         
         creds = Credential.query.filter_by(user_id=user.id).first()
-        if not creds:
-            return None
-        
-        # decrypted credentials
-        creds.api_key = decrypt_secret(creds.api_key)
-        creds.api_secret = decrypt_secret(creds.api_secret)
         return creds
     except Exception as e:
         logger.error(f"Credential retrieval error for user {username}: {e}")

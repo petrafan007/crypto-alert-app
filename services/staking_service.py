@@ -29,12 +29,8 @@ def binance_us_api_call(cred, endpoint, method='GET', params_dict=None, use_trad
         except Exception:
             pass
 
-        if use_trading_keys:
-            api_key = cred.trading_api_key
-            api_secret = cred.trading_api_secret
-        else:
-            api_key = cred.api_key
-            api_secret = cred.api_secret
+        api_key = getattr(cred, 'api_key', None) or getattr(cred, 'trading_api_key', None)
+        api_secret = getattr(cred, 'api_secret', None) or getattr(cred, 'trading_api_secret', None)
 
         if not api_key or not api_secret:
             raise ValueError("Missing API keys for Binance.US call")
