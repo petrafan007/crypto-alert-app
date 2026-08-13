@@ -22,6 +22,8 @@ _EXCHANGE_INFO_CACHE = {
 
 def build_order_config(order_type, side, amount, data, symbol):
     """Build the order configuration for different order types"""
+    from services.common import normalize_price_str
+
     params = {
         'symbol': symbol,
         'side': side,
@@ -30,14 +32,14 @@ def build_order_config(order_type, side, amount, data, symbol):
 
     if order_type == 'MARKET':
         if side == 'BUY' and data.get('quoteQuantity'):
-             params['quoteOrderQty'] = data.get('quoteQuantity')
+            params['quoteOrderQty'] = normalize_price_str(data.get('quoteQuantity'))
         else:
-            params['quantity'] = amount
+            params['quantity'] = normalize_price_str(amount) if amount else amount
     else: # For LIMIT, STOP_LOSS, etc.
-        params['quantity'] = amount
+        params['quantity'] = normalize_price_str(amount) if amount else amount
 
     if order_type in ['LIMIT', 'LIMIT_MAKER', 'STOP_LOSS_LIMIT', 'TAKE_PROFIT_LIMIT']:
-        limit_price = data.get('price')
+        limit_price = normalize_price_str(data.get('price'))
         if not limit_price:
             raise ValueError("Limit price required for limit orders")
         params['price'] = limit_price
@@ -46,13 +48,13 @@ def build_order_config(order_type, side, amount, data, symbol):
         params['timeInForce'] = data.get('timeInForce', 'GTC')
 
     if order_type in ['STOP_LOSS', 'STOP_LOSS_LIMIT', 'TAKE_PROFIT', 'TAKE_PROFIT_LIMIT', 'OCO']:
-        stop_price = data.get('stopPrice')
+        stop_price = normalize_price_str(data.get('stopPrice'))
         if not stop_price:
             raise ValueError("Stop price required for stop orders")
         params['stopPrice'] = stop_price
 
     if order_type == 'OCO':
-        stop_limit_price = data.get('stopLimitPrice')
+        stop_limit_price = normalize_price_str(data.get('stopLimitPrice'))
         if not stop_limit_price:
             raise ValueError("Stop limit price required for OCO orders")
         params['stopLimitPrice'] = stop_limit_price

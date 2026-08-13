@@ -251,9 +251,9 @@ const TradingNew = () => {
           <input
             id="price"
             type="number"
-            step="0.01"
+            step="any"
             value={orderForm.price}
-            onChange={(e) => setOrderForm({ ...orderForm, price: e.target.value })}
+            onChange={(e) => setOrderForm((prev) => ({ ...prev, price: e.target.value }))}
             placeholder="Enter limit price"
             className="form-control"
             required
@@ -271,9 +271,9 @@ const TradingNew = () => {
           <input
             id="stopPrice"
             type="number"
-            step="0.01"
+            step="any"
             value={orderForm.stopPrice}
-            onChange={(e) => setOrderForm({ ...orderForm, stopPrice: e.target.value })}
+            onChange={(e) => setOrderForm((prev) => ({ ...prev, stopPrice: e.target.value }))}
             placeholder="Enter stop price"
             className="form-control"
             required
@@ -291,9 +291,9 @@ const TradingNew = () => {
           <input
             id="stopLimitPrice"
             type="number"
-            step="0.01"
+            step="any"
             value={orderForm.stopLimitPrice}
-            onChange={(e) => setOrderForm({ ...orderForm, stopLimitPrice: e.target.value })}
+            onChange={(e) => setOrderForm((prev) => ({ ...prev, stopLimitPrice: e.target.value }))}
             placeholder="Stop loss execution price"
             className="form-control"
             required
@@ -930,17 +930,18 @@ const TradingNew = () => {
     };
   }, [orderForm.symbol]);
 
-  // Instant recalculation when quantity/price changes (no API call)
+  // Instant recalculation when quantity/price/type/side changes (no API call)
   useEffect(() => {
     calculateFeeInstant();
-  }, [orderForm.quantity, orderForm.price, orderForm.side]);
-
-  // Update fee when price updates (use instant calculation)
-  useEffect(() => {
-    if (orderForm.quantity > 0) {
-      calculateFeeInstant();
-    }
-  }, [currentPrices]);
+  }, [
+    orderForm.quantity,
+    orderForm.price,
+    orderForm.stopPrice,
+    orderForm.stopLimitPrice,
+    orderForm.type,
+    orderForm.side,
+    currentPrices
+  ]);
 
   const handleSettingsUpdate = async (updates) => {
     try {
@@ -1566,31 +1567,31 @@ const TradingNew = () => {
 
                 {renderOrderTypeFields()}
 
-                {estimatedFee.amount > 0 && (
+                {(parseFloat(orderForm.quantity) > 0 || parseFloat(quoteQuantity) > 0) && (
                   <div className="order-grid-item grid-span-2">
                     <div className="fee-display-section">
                       <div className="fee-row">
                         <span className="fee-label">Estimated Fee:</span>
                         <span className="fee-value">
-                          {estimatedFee.amount < 0.001
-                            ? estimatedFee.amount.toFixed(6)
-                            : estimatedFee.amount.toFixed(4)} {estimatedFee.asset}
+                          {estimatedFee.amount > 0
+                            ? `${estimatedFee.amount < 0.001 ? estimatedFee.amount.toFixed(6) : estimatedFee.amount.toFixed(4)} ${estimatedFee.asset || (orderForm.side === 'BUY' ? baseAsset : quoteAsset)}`
+                            : `0.0000 ${orderForm.side === 'BUY' ? baseAsset : quoteAsset}`}
                         </span>
                       </div>
                       <div className="fee-row">
                         <span className="fee-label">Fee in USD:</span>
                         <span className="fee-value">
-                          {estimatedFee.usd < 0.01
-                            ? `$${estimatedFee.usd.toFixed(4)}`
-                            : `$${estimatedFee.usd.toFixed(2)}`}
+                          {estimatedFee.usd > 0
+                            ? (estimatedFee.usd < 0.01 ? `$${estimatedFee.usd.toFixed(4)}` : `$${estimatedFee.usd.toFixed(2)}`)
+                            : '$0.00'}
                         </span>
                       </div>
                       <div className="fee-total">
                         <span className="fee-label">{orderForm.side === 'BUY' ? 'Total Cost:' : 'You Receive:'}:</span>
                         <span className="fee-value">
                           {orderForm.side === 'BUY'
-                            ? `$${((parseFloat(orderForm.quantity || 0) * determinePriceForCalculations()) + estimatedFee.usd).toFixed(2)}`
-                            : `${Math.max(0, (parseFloat(orderForm.quantity || 0) * determinePriceForCalculations()) - estimatedFee.usd).toFixed(2)} ${quoteAsset}`
+                            ? `$${((parseFloat(orderForm.quantity || 0) * determinePriceForCalculations()) + (estimatedFee.usd || 0)).toFixed(2)}`
+                            : `${Math.max(0, (parseFloat(orderForm.quantity || 0) * determinePriceForCalculations()) - (estimatedFee.usd || 0)).toFixed(2)} ${quoteAsset}`
                           }
                         </span>
                       </div>
