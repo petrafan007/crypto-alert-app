@@ -463,7 +463,8 @@ def log_ai_conversation(user_id, prompt_type, sender, body, symbol=None, coin_id
 
 def parse_sentiment_json(response_text):
     """
-    Parse the AI JSON output for Item 1 (phrase) and Item 2 (reason).
+    Parse the AI JSON output for sentiment phrase and reason.
+    Expects JSON: {"sentiment": "Hold|Buy Immediately|...", "reason": "explanation"}
     Valid phrases: 'Hold', 'Buy Immediately', 'Consider Buying', 'Sell Immediately', 'Consider Selling'
     """
     VALID_PHRASES = {
@@ -483,6 +484,8 @@ def parse_sentiment_json(response_text):
     reason = None
     
     clean_text = (response_text or '').strip()
+
+    # Strip markdown code fences if present
     if '```' in clean_text:
         match = re.search(r'```(?:json)?\s*([\s\S]*?)\s*```', clean_text)
         if match:
@@ -501,18 +504,21 @@ def parse_sentiment_json(response_text):
                         if v_str.lower() in VALID_PHRASES:
                             phrase = VALID_PHRASES[v_str.lower()]
                     elif any(x in k_lower for x in ['item 2', 'item2', 'reason', 'explanation', 'description', 'summary', 'item_2']):
-                        reason = v_str
+                        if v_str:
+                            reason = v_str
                 
-                # If phrase not identified by key name, check dictionary values
+                # If phrase not identified by key name, scan values
                 if not phrase:
                     for v in parsed.values():
                         if str(v).strip().lower() in VALID_PHRASES:
                             phrase = VALID_PHRASES[str(v).strip().lower()]
                             break
+                # If reason not found by key name, take first long non-phrase value
                 if not reason:
                     for k, v in parsed.items():
-                        if str(v).strip() != phrase and len(str(v).strip()) > 5:
-                            reason = str(v).strip()
+                        candidate = str(v).strip()
+                        if candidate != phrase and len(candidate) > 10:
+                            reason = candidate
                             break
                             
             elif isinstance(parsed, list) and len(parsed) >= 2:
@@ -521,24 +527,27 @@ def parse_sentiment_json(response_text):
                     phrase = VALID_PHRASES[p_cand.lower()]
                 reason = str(parsed[1]).strip()
         except Exception as e:
-            logger.warning(f"JSON sentiment decode error: {e}")
+            logger.warning(f"JSON sentiment decode error: {e}. Raw: {repr(json_match.group(1)[:200])}")
+    else:
+        # No JSON found — AI did not follow the required JSON format
+        logger.warning(f"Sentiment AI response contained no JSON. Raw response: {repr(clean_text[:300])}")
             
-    # Fallback pattern search if structured JSON parse was incomplete
+    # Fallback: scan raw text for a sentiment phrase if JSON parse missed it
     if not phrase:
         for p_key in ['buy immediately', 'consider buying', 'sell immediately', 'consider selling', 'hold', 'strong buy', 'strong sell', 'buy', 'sell']:
             if re.search(r'\b' + re.escape(p_key) + r'\b', clean_text, re.IGNORECASE):
                 phrase = VALID_PHRASES[p_key]
                 break
                 
+    # Fallback: extract reason from remaining text after removing the phrase
     if not reason and phrase:
         remainder = re.sub(re.escape(phrase), '', clean_text, flags=re.IGNORECASE)
-        remainder = re.sub(r'[\{\}\[\]"\':`]', ' ', remainder).strip()
+        remainder = re.sub(r'[\{\}\[\]\"\':`]', ' ', remainder).strip()
         remainder = re.sub(r'\s+', ' ', remainder).strip()
-        if len(remainder) > 5:
+        if len(remainder) > 10:
             reason = remainder
             
     return phrase or "Hold", reason or ""
-
 
 def run_sentiment_analysis_for_user(user_id, username, force=False):
     """
