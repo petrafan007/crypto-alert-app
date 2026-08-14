@@ -571,12 +571,20 @@ export default function Settings({ isLightMode }) {
       const response = await axios.post('/api/force-sentiment-analysis', {}, { withCredentials: true });
       if (response.data.success) {
         setForceAnalysisResult({ success: true, message: response.data.message });
+        setMessage(response.data.message || 'Sentiment analysis started successfully');
+        setMessageType('success');
       } else {
-        setForceAnalysisResult({ success: false, message: response.data.error || 'Failed to start analysis' });
+        const errMsg = response.data.error || 'Failed to start analysis';
+        setForceAnalysisResult({ success: false, message: errMsg });
+        setMessage(errMsg);
+        setMessageType('error');
       }
     } catch (err) {
       console.error('Force analysis error:', err);
-      setForceAnalysisResult({ success: false, message: err.response?.data?.error || 'Failed to connect to server' });
+      const errMsg = err.response?.data?.error || 'Failed to connect to server';
+      setForceAnalysisResult({ success: false, message: errMsg });
+      setMessage(errMsg);
+      setMessageType('error');
     } finally {
       setForcingAnalysis(false);
     }
@@ -929,11 +937,11 @@ export default function Settings({ isLightMode }) {
         isLightMode={isLightMode}
       />
       {/* Header with Action Buttons */}
-      <div className="settings-header">
-        <h1>Settings & API Configuration</h1>
+      <div className="settings-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
+        <h1 style={{ margin: 0 }}>Settings & API Configuration</h1>
 
         {/* Top Right Action Buttons */}
-        <div className="settings-action-buttons">
+        <div className="settings-action-buttons" style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '12px', flexWrap: 'wrap', marginLeft: 'auto' }}>
           <div className="settings-status">
             <div
               style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', userSelect: 'none' }}
@@ -949,6 +957,23 @@ export default function Settings({ isLightMode }) {
               )}
             </div>
           </div>
+
+          <button
+            onClick={handleForceAnalysis}
+            disabled={forcingAnalysis}
+            style={{
+              padding: '12px 24px',
+              borderRadius: 6,
+              border: '1px solid #4fd1c5',
+              background: 'transparent',
+              color: '#4fd1c5',
+              fontSize: '16px',
+              cursor: forcingAnalysis ? 'not-allowed' : 'pointer',
+              transition: 'all 0.2s'
+            }}
+          >
+            {forcingAnalysis ? 'Analyzing...' : 'Run Sentiment Analysis Now'}
+          </button>
 
           <button
             onClick={handleSyncCoins}
@@ -1042,8 +1067,8 @@ export default function Settings({ isLightMode }) {
       )}
 
       <div className="settings-grid">
-        {/* Binance.US API Key and Secret (Unified) */}
-        <div className="settings-page-section" style={{ flex: "0 0 100%" }}>
+        {/* Row 1, Left: Binance.US API Key and Secret (Unified) */}
+        <div className="settings-page-section">
           <h3>Binance.US API Key and Secret</h3>
           <p>
             Enter your Binance.US API Key and Secret. This single key is used for <strong>Portfolio Sync, Price Tracking, and Trading</strong>. Ensure the key has <strong>SPOT Trading</strong> permissions enabled.
@@ -1098,356 +1123,8 @@ export default function Settings({ isLightMode }) {
           </div>
         </div>
 
-        {/* AI Integration - Side by side with 2FA */}
-        <div className="settings-page-section" style={{ flex: "0 0 48%" }}>
-          <h3>AI Integration</h3>
-
-          <div className="settings-form-group">
-            <label>AI Provider</label>
-            <select
-              value={settings.ai_provider || 'openai'}
-              onChange={(e) => handleInputChange('ai_provider', e.target.value)}
-            >
-              <option value="openai">OpenAI</option>
-              <option value="zai">Z.AI</option>
-              <option value="perplexity">Perplexity</option>
-              <option value="gemini">Gemini</option>
-            </select>
-            <div className="settings-form-help">
-              Choose your AI provider for analysis and recommendations
-            </div>
-          </div>
-
-          <div className="settings-form-group">
-            <label>AI Model</label>
-            <select
-              value={settings.ai_model || ''}
-              onChange={(e) => handleInputChange('ai_model', e.target.value)}
-            >
-              {(modelOptions[settings.ai_provider] || []).map((option) => (
-                <option key={option.value} value={option.value}>{option.label}</option>
-              ))}
-            </select>
-            <div className="settings-form-help">
-              Select an AI model supported by the chosen provider
-            </div>
-          </div>
-
-          {/* Gemini Reasoning Effort */}
-          {settings.ai_provider === 'gemini' && (
-            <div className="settings-form-group">
-              <label>Reasoning</label>
-              <select
-                value={settings.ai_reasoning_level || 'medium'}
-                onChange={(e) => handleInputChange('ai_reasoning_level', e.target.value)}
-              >
-                <option value="low">Low</option>
-                <option value="medium">Medium</option>
-                <option value="high">High</option>
-              </select>
-              <div className="settings-form-help">
-                Configure reasoning effort for Gemini models (Low, Medium, or High)
-              </div>
-            </div>
-          )}
-
-          {/* OpenAI Configuration - Only show when OpenAI is selected */}
-          {settings.ai_provider === 'openai' && (
-            <div className="settings-form-group">
-              <label>
-                OpenAI API Key
-              </label>
-              <input
-                type="password"
-                value={settings.openai_key || ''}
-                onChange={(e) => handleInputChange('openai_key', e.target.value)}
-                placeholder="Enter OpenAI API Key"
-              />
-              <div className="settings-form-help">
-                Used for AI-powered trading analysis and recommendations
-              </div>
-
-              {/* Test OpenAI Connection button */}
-              <button
-                onClick={testOpenAIConnection}
-                disabled={testingOpenAI}
-                className={`settings-button secondary ${testingOpenAI ? 'disabled' : ''}`}
-                style={{ marginTop: '8px' }}
-              >
-                {testingOpenAI ? 'Testing...' : 'Test OpenAI Connection'}
-              </button>
-            </div>
-          )}
-
-          {/* Z.AI Configuration - Only show when Z.AI is selected */}
-          {settings.ai_provider === 'zai' && (
-            <div className="settings-form-group">
-              <label>
-                Z.AI API Key
-              </label>
-              <input
-                type="password"
-                value={settings.zai_key || ''}
-                onChange={(e) => handleInputChange('zai_key', e.target.value)}
-                placeholder="Enter Z.AI API Key"
-              />
-              <div className="settings-form-help">
-                Used for AI-powered trading analysis and recommendations
-              </div>
-
-              {/* Test Z.AI Connection button */}
-              <button
-                onClick={testZAIConnection}
-                disabled={testingZAI}
-                className={`settings-button secondary ${testingZAI ? 'disabled' : ''}`}
-                style={{ marginTop: '8px' }}
-              >
-                {testingZAI ? 'Testing...' : 'Test Z.AI Connection'}
-              </button>
-            </div>
-          )}
-
-          {/* Perplexity Configuration - Only show when Perplexity is selected */}
-          {settings.ai_provider === 'perplexity' && (
-            <div className="settings-form-group">
-              <label>
-                Perplexity API Key
-              </label>
-              <input
-                type="password"
-                value={settings.perplexity_key || ''}
-                onChange={(e) => handleInputChange('perplexity_key', e.target.value)}
-                placeholder="Enter Perplexity API Key"
-              />
-              <div className="settings-form-help">
-                Used for AI-powered trading analysis and recommendations
-              </div>
-              <button
-                onClick={async () => {
-                  setMessage('');
-                  setMessageType('');
-                  try {
-                    const resp = await axios.post('/api/test-perplexity-connection', {
-                      model: settings.ai_model,
-                      perplexity_key: settings.perplexity_key,
-                    }, { withCredentials: true });
-                    setMessage(resp.data.message || '✅ Perplexity connection successful');
-                    setMessageType(resp.data.success ? 'success' : 'error');
-                  } catch (err) {
-                    setMessage(err.response?.data?.message || '❌ Failed to test Perplexity connection');
-                    setMessageType('error');
-                  }
-                }}
-                className="settings-button secondary"
-                style={{ marginTop: '8px' }}
-                disabled={!settings.perplexity_key}
-              >
-                Test AI Integration
-              </button>
-            </div>
-          )}
-
-          {/* Gemini Configuration - Only show when Gemini is selected */}
-          {settings.ai_provider === 'gemini' && (
-            <div className="settings-form-group">
-              <label>
-                Gemini API Key
-              </label>
-              <input
-                type="password"
-                value={settings.gemini_key || ''}
-                onChange={(e) => handleInputChange('gemini_key', e.target.value)}
-                placeholder="Enter Gemini API Key"
-              />
-              <div className="settings-form-help">
-                Used for AI-powered trading analysis and recommendations
-              </div>
-              <button
-                onClick={async () => {
-                  setMessage('');
-                  setMessageType('');
-                  try {
-                    const resp = await axios.post('/api/test-gemini-connection', {
-                      model: settings.ai_model,
-                      gemini_key: settings.gemini_key,
-                    }, { withCredentials: true });
-                    setMessage(resp.data.message || '✅ Gemini connection successful');
-                    setMessageType(resp.data.success ? 'success' : 'error');
-                  } catch (err) {
-                    setMessage(err.response?.data?.message || '❌ Failed to test Gemini connection');
-                    setMessageType('error');
-                  }
-                }}
-                className="settings-button secondary"
-                style={{ marginTop: '8px' }}
-                disabled={!settings.gemini_key}
-              >
-                Test AI Integration
-              </button>
-            </div>
-          )}
-        </div>
-
-        {/* Fallback AI Integration */}
-        <div className="settings-page-section" style={{ flex: "0 0 48%" }}>
-          <h3>Fallback AI Integration</h3>
-
-          <div className="settings-form-group">
-            <label>AI Provider</label>
-            <select
-              value={settings.ai_provider_fallback || ''}
-              onChange={(e) => handleInputChange('ai_provider_fallback', e.target.value)}
-            >
-              <option value="">-- Select Fallback Provider --</option>
-              <option value="openai">OpenAI</option>
-              <option value="zai">Z.AI</option>
-              <option value="perplexity">Perplexity</option>
-              <option value="gemini">Gemini</option>
-            </select>
-            <div className="settings-form-help">
-              Choose your fallback AI provider for automatic failover
-            </div>
-          </div>
-
-          <div className="settings-form-group">
-            <label>AI Model</label>
-            <select
-              value={settings.ai_model_fallback || ''}
-              onChange={(e) => handleInputChange('ai_model_fallback', e.target.value)}
-            >
-              {(modelOptions[settings.ai_provider_fallback] || []).map((option) => (
-                <option key={option.value} value={option.value}>{option.label}</option>
-              ))}
-            </select>
-            <div className="settings-form-help">
-              Select an AI model supported by the chosen fallback provider
-            </div>
-          </div>
-
-          {/* Gemini Reasoning Effort for Fallback */}
-          {settings.ai_provider_fallback === 'gemini' && (
-            <div className="settings-form-group">
-              <label>Reasoning</label>
-              <select
-                value={settings.ai_reasoning_level_fallback || 'medium'}
-                onChange={(e) => handleInputChange('ai_reasoning_level_fallback', e.target.value)}
-              >
-                <option value="low">Low</option>
-                <option value="medium">Medium</option>
-                <option value="high">High</option>
-              </select>
-              <div className="settings-form-help">
-                Configure reasoning effort for Gemini models (Low, Medium, or High)
-              </div>
-            </div>
-          )}
-
-          {/* OpenAI Fallback Configuration */}
-          {settings.ai_provider_fallback === 'openai' && (
-            <div className="settings-form-group">
-              <label>OpenAI API Key</label>
-              <input
-                type="password"
-                value={settings.openai_key_fallback || ''}
-                onChange={(e) => handleInputChange('openai_key_fallback', e.target.value)}
-                placeholder="Enter OpenAI API Key"
-              />
-              <div className="settings-form-help">
-                Used as fallback for AI-powered trading analysis and recommendations
-              </div>
-            </div>
-          )}
-
-          {/* Z.AI Fallback Configuration */}
-          {settings.ai_provider_fallback === 'zai' && (
-            <div className="settings-form-group">
-              <label>Z.AI API Key</label>
-              <input
-                type="password"
-                value={settings.zai_key_fallback || ''}
-                onChange={(e) => handleInputChange('zai_key_fallback', e.target.value)}
-                placeholder="Enter Z.AI API Key"
-              />
-              <div className="settings-form-help">
-                Used as fallback for AI-powered trading analysis and recommendations
-              </div>
-            </div>
-          )}
-
-          {/* Perplexity Fallback Configuration */}
-          {settings.ai_provider_fallback === 'perplexity' && (
-            <div className="settings-form-group">
-              <label>Perplexity API Key</label>
-              <input
-                type="password"
-                value={settings.perplexity_key_fallback || ''}
-                onChange={(e) => handleInputChange('perplexity_key_fallback', e.target.value)}
-                placeholder="Enter Perplexity API Key"
-              />
-              <div className="settings-form-help">
-                Used as fallback for AI-powered trading analysis and recommendations
-              </div>
-            </div>
-          )}
-
-          {/* Gemini Fallback Configuration */}
-          {settings.ai_provider_fallback === 'gemini' && (
-            <div className="settings-form-group">
-              <label>Gemini API Key</label>
-              <input
-                type="password"
-                value={settings.gemini_key_fallback || ''}
-                onChange={(e) => handleInputChange('gemini_key_fallback', e.target.value)}
-                placeholder="Enter Gemini API Key"
-              />
-              <div className="settings-form-help">
-                Used as fallback for AI-powered trading analysis and recommendations
-              </div>
-            </div>
-          )}
-
-          {/* Test Fallback AI Connection button */}
-          <div className="settings-form-group" style={{ marginTop: '8px' }}>
-            <button
-              onClick={testFallbackConnection}
-              disabled={!settings.ai_provider_fallback || testingFallback}
-              className={`settings-button secondary ${(!settings.ai_provider_fallback || testingFallback) ? 'disabled' : ''}`}
-              style={{ marginTop: '8px' }}
-            >
-              {testingFallback ? 'Testing...' : 'Test Fallback AI Connection'}
-            </button>
-            {fallbackTestResult && (
-              <div className={`settings-status ${fallbackTestResult.success ? 'success' : 'error'}`} style={{ marginTop: '8px' }}>
-                {fallbackTestResult.message}
-              </div>
-            )}
-          </div>
-        </div>
-
+        {/* Row 1, Right: Two-Factor Authentication Section */}
         <div className="settings-page-section">
-          <h3>⚡ Force Analysis</h3>
-          <div className="settings-form-help">
-            Manually trigger sentiment analysis for all your coins immediately. This is useful for testing AI integration or refreshing stale data.
-          </div>
-          <div className="settings-form-group">
-            <button
-              onClick={handleForceAnalysis}
-              disabled={forcingAnalysis}
-              className={`settings-button primary ${forcingAnalysis ? 'disabled' : ''}`}
-              style={{ width: '100%', marginTop: '10px' }}
-            >
-              {forcingAnalysis ? 'Running Analysis...' : 'Run Sentiment Analysis Now'}
-            </button>
-            {forceAnalysisResult && (
-              <div className={`settings-status ${forceAnalysisResult.success ? 'success' : 'error'}`} style={{ marginTop: '8px' }}>
-                {forceAnalysisResult.message}
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Two-Factor Authentication Section - Side by side with AI Integration */}
-        <div className="settings-page-section" style={{ flex: "0 0 48%" }}>
           <h3>🔐 Two-Factor Authentication (2FA)</h3>
 
           <div className="settings-form-help" style={{ marginBottom: '20px', padding: '12px', background: 'rgba(102, 126, 234, 0.1)', borderLeft: '3px solid #667eea', borderRadius: '4px', fontSize: '13px' }}>
@@ -1637,9 +1314,335 @@ export default function Settings({ isLightMode }) {
           )}
         </div>
 
+        {/* Row 2, Left: Primary AI Integration */}
+        <div className="settings-page-section">
+          <h3>Primary AI Integration</h3>
+
+          <div className="settings-form-group">
+            <label>AI Provider</label>
+            <select
+              value={settings.ai_provider || 'openai'}
+              onChange={(e) => handleInputChange('ai_provider', e.target.value)}
+            >
+              <option value="openai">OpenAI</option>
+              <option value="zai">Z.AI</option>
+              <option value="perplexity">Perplexity</option>
+              <option value="gemini">Gemini</option>
+            </select>
+            <div className="settings-form-help">
+              Choose your AI provider for analysis and recommendations
+            </div>
+          </div>
+
+          <div className="settings-form-group">
+            <label>AI Model</label>
+            <select
+              value={settings.ai_model || ''}
+              onChange={(e) => handleInputChange('ai_model', e.target.value)}
+            >
+              {(modelOptions[settings.ai_provider] || []).map((option) => (
+                <option key={option.value} value={option.value}>{option.label}</option>
+              ))}
+            </select>
+            <div className="settings-form-help">
+              Select an AI model supported by the chosen provider
+            </div>
+          </div>
+
+          {/* Gemini Reasoning Effort */}
+          {settings.ai_provider === 'gemini' && (
+            <div className="settings-form-group">
+              <label>Reasoning</label>
+              <select
+                value={settings.ai_reasoning_level || 'medium'}
+                onChange={(e) => handleInputChange('ai_reasoning_level', e.target.value)}
+              >
+                <option value="low">Low</option>
+                <option value="medium">Medium</option>
+                <option value="high">High</option>
+              </select>
+              <div className="settings-form-help">
+                Configure reasoning effort for Gemini models (Low, Medium, or High)
+              </div>
+            </div>
+          )}
+
+          {/* OpenAI Configuration - Only show when OpenAI is selected */}
+          {settings.ai_provider === 'openai' && (
+            <div className="settings-form-group">
+              <label>
+                OpenAI API Key
+              </label>
+              <input
+                type="password"
+                value={settings.openai_key || ''}
+                onChange={(e) => handleInputChange('openai_key', e.target.value)}
+                placeholder="Enter OpenAI API Key"
+              />
+              <div className="settings-form-help">
+                Used for AI-powered trading analysis and recommendations
+              </div>
+
+              {/* Test OpenAI Connection button */}
+              <button
+                onClick={testOpenAIConnection}
+                disabled={testingOpenAI}
+                className={`settings-button secondary ${testingOpenAI ? 'disabled' : ''}`}
+                style={{ marginTop: '8px' }}
+              >
+                {testingOpenAI ? 'Testing...' : 'Test OpenAI Connection'}
+              </button>
+            </div>
+          )}
+
+          {/* Z.AI Configuration - Only show when Z.AI is selected */}
+          {settings.ai_provider === 'zai' && (
+            <div className="settings-form-group">
+              <label>
+                Z.AI API Key
+              </label>
+              <input
+                type="password"
+                value={settings.zai_key || ''}
+                onChange={(e) => handleInputChange('zai_key', e.target.value)}
+                placeholder="Enter Z.AI API Key"
+              />
+              <div className="settings-form-help">
+                Used for AI-powered trading analysis and recommendations
+              </div>
+
+              {/* Test Z.AI Connection button */}
+              <button
+                onClick={testZAIConnection}
+                disabled={testingZAI}
+                className={`settings-button secondary ${testingZAI ? 'disabled' : ''}`}
+                style={{ marginTop: '8px' }}
+              >
+                {testingZAI ? 'Testing...' : 'Test Z.AI Connection'}
+              </button>
+            </div>
+          )}
+
+          {/* Perplexity Configuration - Only show when Perplexity is selected */}
+          {settings.ai_provider === 'perplexity' && (
+            <div className="settings-form-group">
+              <label>
+                Perplexity API Key
+              </label>
+              <input
+                type="password"
+                value={settings.perplexity_key || ''}
+                onChange={(e) => handleInputChange('perplexity_key', e.target.value)}
+                placeholder="Enter Perplexity API Key"
+              />
+              <div className="settings-form-help">
+                Used for AI-powered trading analysis and recommendations
+              </div>
+              <button
+                onClick={async () => {
+                  setMessage('');
+                  setMessageType('');
+                  try {
+                    const resp = await axios.post('/api/test-perplexity-connection', {
+                      model: settings.ai_model,
+                      perplexity_key: settings.perplexity_key,
+                    }, { withCredentials: true });
+                    setMessage(resp.data.message || '✅ Perplexity connection successful');
+                    setMessageType(resp.data.success ? 'success' : 'error');
+                  } catch (err) {
+                    setMessage(err.response?.data?.message || '❌ Failed to test Perplexity connection');
+                    setMessageType('error');
+                  }
+                }}
+                className="settings-button secondary"
+                style={{ marginTop: '8px' }}
+                disabled={!settings.perplexity_key}
+              >
+                Test AI Integration
+              </button>
+            </div>
+          )}
+
+          {/* Gemini Configuration - Only show when Gemini is selected */}
+          {settings.ai_provider === 'gemini' && (
+            <div className="settings-form-group">
+              <label>
+                Gemini API Key
+              </label>
+              <input
+                type="password"
+                value={settings.gemini_key || ''}
+                onChange={(e) => handleInputChange('gemini_key', e.target.value)}
+                placeholder="Enter Gemini API Key"
+              />
+              <div className="settings-form-help">
+                Used for AI-powered trading analysis and recommendations
+              </div>
+              <button
+                onClick={async () => {
+                  setMessage('');
+                  setMessageType('');
+                  try {
+                    const resp = await axios.post('/api/test-gemini-connection', {
+                      model: settings.ai_model,
+                      gemini_key: settings.gemini_key,
+                    }, { withCredentials: true });
+                    setMessage(resp.data.message || '✅ Gemini connection successful');
+                    setMessageType(resp.data.success ? 'success' : 'error');
+                  } catch (err) {
+                    setMessage(err.response?.data?.message || '❌ Failed to test Gemini connection');
+                    setMessageType('error');
+                  }
+                }}
+                className="settings-button secondary"
+                style={{ marginTop: '8px' }}
+                disabled={!settings.gemini_key}
+              >
+                Test AI Integration
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* Row 2, Right: Fallback AI Integration */}
+        <div className="settings-page-section">
+          <h3>Fallback AI Integration</h3>
+
+          <div className="settings-form-group">
+            <label>AI Provider</label>
+            <select
+              value={settings.ai_provider_fallback || ''}
+              onChange={(e) => handleInputChange('ai_provider_fallback', e.target.value)}
+            >
+              <option value="">-- Select Fallback Provider --</option>
+              <option value="openai">OpenAI</option>
+              <option value="zai">Z.AI</option>
+              <option value="perplexity">Perplexity</option>
+              <option value="gemini">Gemini</option>
+            </select>
+            <div className="settings-form-help">
+              Choose your fallback AI provider for automatic failover
+            </div>
+          </div>
+
+          <div className="settings-form-group">
+            <label>AI Model</label>
+            <select
+              value={settings.ai_model_fallback || ''}
+              onChange={(e) => handleInputChange('ai_model_fallback', e.target.value)}
+            >
+              {(modelOptions[settings.ai_provider_fallback] || []).map((option) => (
+                <option key={option.value} value={option.value}>{option.label}</option>
+              ))}
+            </select>
+            <div className="settings-form-help">
+              Select an AI model supported by the chosen fallback provider
+            </div>
+          </div>
+
+          {/* Gemini Reasoning Effort for Fallback */}
+          {settings.ai_provider_fallback === 'gemini' && (
+            <div className="settings-form-group">
+              <label>Reasoning</label>
+              <select
+                value={settings.ai_reasoning_level_fallback || 'medium'}
+                onChange={(e) => handleInputChange('ai_reasoning_level_fallback', e.target.value)}
+              >
+                <option value="low">Low</option>
+                <option value="medium">Medium</option>
+                <option value="high">High</option>
+              </select>
+              <div className="settings-form-help">
+                Configure reasoning effort for Gemini models (Low, Medium, or High)
+              </div>
+            </div>
+          )}
+
+          {/* OpenAI Fallback Configuration */}
+          {settings.ai_provider_fallback === 'openai' && (
+            <div className="settings-form-group">
+              <label>OpenAI API Key</label>
+              <input
+                type="password"
+                value={settings.openai_key_fallback || ''}
+                onChange={(e) => handleInputChange('openai_key_fallback', e.target.value)}
+                placeholder="Enter OpenAI API Key"
+              />
+              <div className="settings-form-help">
+                Used as fallback for AI-powered trading analysis and recommendations
+              </div>
+            </div>
+          )}
+
+          {/* Z.AI Fallback Configuration */}
+          {settings.ai_provider_fallback === 'zai' && (
+            <div className="settings-form-group">
+              <label>Z.AI API Key</label>
+              <input
+                type="password"
+                value={settings.zai_key_fallback || ''}
+                onChange={(e) => handleInputChange('zai_key_fallback', e.target.value)}
+                placeholder="Enter Z.AI API Key"
+              />
+              <div className="settings-form-help">
+                Used as fallback for AI-powered trading analysis and recommendations
+              </div>
+            </div>
+          )}
+
+          {/* Perplexity Fallback Configuration */}
+          {settings.ai_provider_fallback === 'perplexity' && (
+            <div className="settings-form-group">
+              <label>Perplexity API Key</label>
+              <input
+                type="password"
+                value={settings.perplexity_key_fallback || ''}
+                onChange={(e) => handleInputChange('perplexity_key_fallback', e.target.value)}
+                placeholder="Enter Perplexity API Key"
+              />
+              <div className="settings-form-help">
+                Used as fallback for AI-powered trading analysis and recommendations
+              </div>
+            </div>
+          )}
+
+          {/* Gemini Fallback Configuration */}
+          {settings.ai_provider_fallback === 'gemini' && (
+            <div className="settings-form-group">
+              <label>Gemini API Key</label>
+              <input
+                type="password"
+                value={settings.gemini_key_fallback || ''}
+                onChange={(e) => handleInputChange('gemini_key_fallback', e.target.value)}
+                placeholder="Enter Gemini API Key"
+              />
+              <div className="settings-form-help">
+                Used as fallback for AI-powered trading analysis and recommendations
+              </div>
+            </div>
+          )}
+
+          {/* Test Fallback AI Connection button */}
+          <div className="settings-form-group" style={{ marginTop: '8px' }}>
+            <button
+              onClick={testFallbackConnection}
+              disabled={!settings.ai_provider_fallback || testingFallback}
+              className={`settings-button secondary ${(!settings.ai_provider_fallback || testingFallback) ? 'disabled' : ''}`}
+              style={{ marginTop: '8px' }}
+            >
+              {testingFallback ? 'Testing...' : 'Test Fallback AI Connection'}
+            </button>
+            {fallbackTestResult && (
+              <div className={`settings-status ${fallbackTestResult.success ? 'success' : 'error'}`} style={{ marginTop: '8px' }}>
+                {fallbackTestResult.message}
+              </div>
+            )}
+          </div>
+        </div>
+
         {/* Credential Encryption - ONLY for Admin (id=1) */}
         {user && user.id === 1 && (
-          <div className="settings-page-section" style={{ flex: "0 0 48%" }}>
+          <div className="settings-page-section" style={{ gridColumn: '1 / -1' }}>
             <h3>Credential Encryption</h3>
             <p>
               Store a Fernet key to encrypt Binance, AI, and notification credentials at rest. Provide either a 32-character raw secret or a URL-safe base64 string.
@@ -2312,41 +2315,65 @@ export default function Settings({ isLightMode }) {
         </div>
       </div>
 
-      {/* Notifications */}
-      <div className="settings-page-section">
-        <h3>Notifications</h3>
+      {/* Notifications & Tax Configuration - Side by Side */}
+      <div className="settings-grid" style={{ marginTop: '24px' }}>
+        {/* Notifications */}
+        <div className="settings-page-section">
+          <h3>Notifications</h3>
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-          <div>
-            <label style={{ display: 'block', marginBottom: 8, color: '#fff' }}>
-              Telegram Bot Token
-            </label>
-            <input
-              type="text"
-              value={settings.telegram_token || ''}
-              onChange={(e) => handleInputChange('telegram_token', e.target.value)}
-              placeholder="Enter Telegram Bot Token"
-              style={{
-                width: 'calc(100% - 24px)',
-                padding: '8px 12px',
-                borderRadius: 6,
-                background: '#1a1f23',
-                color: '#fff',
-                border: '1px solid #444',
-                boxSizing: 'border-box'
-              }}
-            />
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+            <div>
+              <label style={{ display: 'block', marginBottom: 8, color: '#fff' }}>
+                Telegram Bot Token
+              </label>
+              <input
+                type="text"
+                value={settings.telegram_token || ''}
+                onChange={(e) => handleInputChange('telegram_token', e.target.value)}
+                placeholder="Enter Telegram Bot Token"
+                style={{
+                  width: 'calc(100% - 24px)',
+                  padding: '8px 12px',
+                  borderRadius: 6,
+                  background: '#1a1f23',
+                  color: '#fff',
+                  border: '1px solid #444',
+                  boxSizing: 'border-box'
+                }}
+              />
+            </div>
+
+            <div>
+              <label style={{ display: 'block', marginBottom: 8, color: '#fff' }}>
+                Telegram Chat ID
+              </label>
+              <input
+                type="text"
+                value={settings.telegram_chat_id || ''}
+                onChange={(e) => handleInputChange('telegram_chat_id', e.target.value)}
+                placeholder="Enter Telegram Chat ID"
+                style={{
+                  width: 'calc(100% - 24px)',
+                  padding: '8px 12px',
+                  borderRadius: 6,
+                  background: '#1a1f23',
+                  color: '#fff',
+                  border: '1px solid #444',
+                  boxSizing: 'border-box'
+                }}
+              />
+            </div>
           </div>
 
-          <div>
+          <div style={{ marginTop: 16 }}>
             <label style={{ display: 'block', marginBottom: 8, color: '#fff' }}>
-              Telegram Chat ID
+              News API Key
             </label>
             <input
               type="text"
-              value={settings.telegram_chat_id || ''}
-              onChange={(e) => handleInputChange('telegram_chat_id', e.target.value)}
-              placeholder="Enter Telegram Chat ID"
+              value={settings.news_api || ''}
+              onChange={(e) => handleInputChange('news_api', e.target.value)}
+              placeholder="Enter News API Key"
               style={{
                 width: 'calc(100% - 24px)',
                 padding: '8px 12px',
@@ -2360,57 +2387,36 @@ export default function Settings({ isLightMode }) {
           </div>
         </div>
 
-        <div style={{ marginTop: 16 }}>
-          <label style={{ display: 'block', marginBottom: 8, color: '#fff' }}>
-            News API Key
-          </label>
-          <input
-            type="text"
-            value={settings.news_api || ''}
-            onChange={(e) => handleInputChange('news_api', e.target.value)}
-            placeholder="Enter News API Key"
-            style={{
-              width: 'calc(100% - 24px)',
-              padding: '8px 12px',
-              borderRadius: 6,
-              background: '#1a1f23',
-              color: '#fff',
-              border: '1px solid #444',
-              boxSizing: 'border-box'
-            }}
-          />
-        </div>
-      </div>
+        {/* Tax Configuration */}
+        <div className="settings-page-section">
+          <h3>💰 Tax Configuration</h3>
+          <p>Configure tax calculation methods for your portfolio report.</p>
 
-      {/* Tax Configuration */}
-      <div className="settings-page-section">
-        <h3>💰 Tax Configuration</h3>
-        <p>Configure tax calculation methods for your portfolio report.</p>
-
-        <div style={{ marginTop: 16 }}>
-          <label style={{ display: 'block', marginBottom: 8, color: '#fff' }}>
-            Cost Basis Method
-          </label>
-          <select
-            value={settings.tax_cost_basis_method || 'fifo'}
-            onChange={(e) => handleInputChange('tax_cost_basis_method', e.target.value)}
-            style={{
-              width: '100%',
-              padding: '12px 12px',
-              borderRadius: 6,
-              background: '#1a1f23',
-              color: '#fff',
-              border: '1px solid #444',
-              boxSizing: 'border-box',
-              fontSize: '16px'
-            }}
-          >
-            <option value="fifo">FIFO (First In, First Out)</option>
-            <option value="lifo">LIFO (Last In, First Out)</option>
-          </select>
-          <p className="settings-form-help">
-            Used to calculate realized/unrealized gains. FIFO is standard for most jurisdictions.
-          </p>
+          <div style={{ marginTop: 16 }}>
+            <label style={{ display: 'block', marginBottom: 8, color: '#fff' }}>
+              Cost Basis Method
+            </label>
+            <select
+              value={settings.tax_cost_basis_method || 'fifo'}
+              onChange={(e) => handleInputChange('tax_cost_basis_method', e.target.value)}
+              style={{
+                width: '100%',
+                padding: '12px 12px',
+                borderRadius: 6,
+                background: '#1a1f23',
+                color: '#fff',
+                border: '1px solid #444',
+                boxSizing: 'border-box',
+                fontSize: '16px'
+              }}
+            >
+              <option value="fifo">FIFO (First In, First Out)</option>
+              <option value="lifo">LIFO (Last In, First Out)</option>
+            </select>
+            <p className="settings-form-help">
+              Used to calculate realized/unrealized gains. FIFO is standard for most jurisdictions.
+            </p>
+          </div>
         </div>
       </div>
 
