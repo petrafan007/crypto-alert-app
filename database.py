@@ -31,16 +31,12 @@ def init_db(app=None):
             ("coins", "cached_news_date", "TIMESTAMP"),
             ("watchlist_coins", "cached_news_date", "TIMESTAMP")
         ]
-        try:
-            with db.engine.connect() as conn:
-                for table, col, col_type in columns_to_ensure:
-                    try:
-                        conn.execute(db.text(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {col} {col_type}"))
-                        conn.commit()
-                    except Exception as ex:
-                        print(f"Migration note for {table}.{col}: {ex}")
-        except Exception as e:
-            print(f"Migration engine connection error: {e}")
+        for table, col, col_type in columns_to_ensure:
+            try:
+                with db.engine.begin() as conn:
+                    conn.execute(db.text(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {col} {col_type}"))
+            except Exception as ex:
+                print(f"Migration note for {table}.{col}: {ex}")
 
     if ctx:
         with ctx:
