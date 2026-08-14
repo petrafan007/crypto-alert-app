@@ -187,6 +187,9 @@ export default function Settings({ isLightMode }) {
         };
 
         const provider = mergedSettings.ai_provider || prev.ai_provider || 'openai';
+        let model = mergedSettings.ai_model;
+        const sanitizedModel = sanitizeModel(provider, model, currentModelOptions);
+
         const fallbackProvider = mergedSettings.ai_provider_fallback || prev.ai_provider_fallback || '';
         let fallbackModel = mergedSettings.ai_model_fallback;
         const sanitizedFallbackModel = fallbackProvider ? sanitizeModel(fallbackProvider, fallbackModel, currentModelOptions) : (fallbackModel || '');

@@ -113,7 +113,15 @@ def get_user_ai_settings(username: str) -> dict:
 
         user_obj = User.query.filter_by(username=username).first()
         if user_obj:
-            user_setting = UserSetting.query.filter_by(user_id=user_obj.id).first()
+            try:
+                user_setting = UserSetting.query.filter_by(user_id=user_obj.id).first()
+            except Exception as e:
+                logger.error(f"Error querying UserSetting for {username}: {e}")
+                try:
+                    db.session.rollback()
+                except Exception:
+                    pass
+                user_setting = None
             if user_setting:
                 settings['ai_enabled'] = user_setting.ai_enabled
                 settings['ai_provider'] = user_setting.ai_provider
