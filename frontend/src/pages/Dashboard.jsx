@@ -1475,6 +1475,13 @@ function Dashboard({ isLightMode }) {
       }
     };
 
+    const handleBlur = (e) => {
+      const value = e.target.value.replace(/[^0-9]/g, '');
+      const formattedValue = value === '' ? '' : parseInt(value, 10);
+      e.target.value = formattedValue;
+      handleValueChange(formattedValue);
+    };
+
     return (
       <div style={{
         display: 'flex',
@@ -1490,6 +1497,7 @@ function Dashboard({ isLightMode }) {
             e.target.value = value;
           }}
           onKeyPress={handleKeyPress}
+          onBlur={handleBlur}
           style={{
             width: '60px',
             padding: '2px 4px',

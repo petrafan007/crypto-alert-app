@@ -316,15 +316,17 @@ def watchlist_alert_loop(app):
             iteration()
             time.sleep(60)
 
-def check_coin_volatility(user, coin, client, table_type):
-    """Check for high volatility in a coin and send Telegram alert"""
+def check_coin_volatility(user, coin, ticker_map, table_type):
+    """Check for high volatility in a coin and send Telegram alert using pre-fetched ticker map"""
     try:
         symbol = coin.symbol.upper()
         volatility_threshold = float(coin.volatility_pct or 0)
         if volatility_threshold <= 0: return
 
-        from binance.client import Client
-        ticker = client.get_ticker(symbol=f"{symbol}USDT")
+        ticker = ticker_map.get(f"{symbol}USDT") or ticker_map.get(f"{symbol}USD") or ticker_map.get(symbol)
+        if not ticker or 'priceChangePercent' not in ticker:
+            return
+
         price_change_pct = float(ticker['priceChangePercent'])
 
         if abs(price_change_pct) >= volatility_threshold:
@@ -347,15 +349,29 @@ def volatility_alert_loop(app):
             def iteration():
                 users = User.query.all()
                 for user in users:
+                    coins = Coin.query.filter(Coin.user_id == user.id, Coin.volatility_pct > 0).all()
+                    watchlist_coins = WatchlistCoin.query.filter(WatchlistCoin.user_id == user.id, WatchlistCoin.volatility_pct > 0).all()
+                    
+                    if not coins and not watchlist_coins:
+                        continue
+
                     credentials = get_user_credentials(user.username)
                     if not credentials or not (credentials.api_key or credentials.trading_api_key):
                         continue
+
                     from binance.client import Client
                     client = Client(credentials.api_key, credentials.api_secret, tld='us')
-                    coins = Coin.query.filter(Coin.user_id == user.id, Coin.alert_enabled == True, Coin.volatility_pct > 0).all()
-                    for coin in coins: check_coin_volatility(user, coin, client, 'portfolio')
-                    watchlist_coins = WatchlistCoin.query.filter(WatchlistCoin.user_id == user.id, WatchlistCoin.alert_enabled == True, WatchlistCoin.volatility_pct > 0).all()
-                    for coin in watchlist_coins: check_coin_volatility(user, coin, client, 'watchlist')
+                    try:
+                        tickers = client.get_ticker()
+                        ticker_map = {t['symbol']: t for t in tickers if isinstance(t, dict) and 'symbol' in t}
+                    except Exception as tick_err:
+                        logger.error(f"Failed to fetch bulk 24h tickers for volatility check (User {user.username}): {tick_err}")
+                        continue
+
+                    for coin in coins:
+                        check_coin_volatility(user, coin, ticker_map, 'portfolio')
+                    for coin in watchlist_coins:
+                        check_coin_volatility(user, coin, ticker_map, 'watchlist')
             iteration()
             time.sleep(300)
 
