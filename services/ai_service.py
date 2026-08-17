@@ -562,6 +562,168 @@ def parse_sentiment_json(response_text):
             
     return phrase or "Hold", reason or ""
 
+def analyze_single_symbol_sentiment(user_id, username, symbol, is_watchlist=False, coin_id=None, amount=0.0):
+    """
+    Run on-demand sentiment analysis for a single symbol (Portfolio coin or Watchlist coin).
+    Updates the database with parsed sentiment and reason, logs the AI conversation,
+    and returns (sentiment, sentiment_reason).
+    """
+    symbol = (symbol or "").strip().upper()
+    if not symbol:
+        return "Error", "Invalid coin symbol"
+
+    if is_stablecoin(symbol):
+        logger.info(f"Skipping sentiment analysis for stablecoin {symbol} (marking Hold)")
+        sentiment_res = "Hold"
+        reason_res = "Dollar-pegged stablecoin for capital preservation."
+        if is_watchlist:
+            wl_row = WatchlistCoin.query.filter_by(user_id=user_id, symbol=symbol).first()
+            if wl_row:
+                wl_row.sentiment = sentiment_res
+                wl_row.sentiment_reason = reason_res
+                if hasattr(wl_row, 'sentiment_last_updated'):
+                    wl_row.sentiment_last_updated = datetime.utcnow()
+                db.session.commit()
+        else:
+            coin_row = Coin.query.filter_by(user_id=user_id, symbol=symbol).first()
+            if coin_row:
+                coin_row.sentiment = sentiment_res
+                coin_row.sentiment_reason = reason_res
+                coin_row.sentiment_last_updated = datetime.utcnow()
+                db.session.commit()
+        return sentiment_res, reason_res
+
+    if not is_ai_enabled(username):
+        logger.info(f"AI disabled for {username}, skipping sentiment analysis for {symbol}")
+        default_sentiment = "Watch" if is_watchlist else "Hold"
+        default_reason = "AI integration disabled in Settings."
+        if is_watchlist:
+            wl_row = WatchlistCoin.query.filter_by(user_id=user_id, symbol=symbol).first()
+            if wl_row:
+                wl_row.sentiment = default_sentiment
+                wl_row.sentiment_reason = default_reason
+                if hasattr(wl_row, 'sentiment_last_updated'):
+                    wl_row.sentiment_last_updated = datetime.utcnow()
+                db.session.commit()
+        return default_sentiment, default_reason
+
+    try:
+        settings = get_user_ai_settings(username)
+        notifications_enabled = settings.get('ai_notifications_enabled', True)
+        ai_prompts_obj = get_user_ai_prompts(user_id)
+        sentiment_pre_prompt = (getattr(ai_prompts_obj, 'sentiment_prompt_pre', None) or "").strip()
+        sentiment_post_prompt = (getattr(ai_prompts_obj, 'sentiment_prompt_post', None) or "").strip()
+
+        if not sentiment_pre_prompt or not sentiment_post_prompt:
+            logger.warning(f"Missing sentiment prompts for user {username}. Marking Error.")
+            err_sentiment = "Error"
+            err_reason = "Missing sentiment prompt configuration in Settings."
+            if is_watchlist:
+                wl_row = WatchlistCoin.query.filter_by(user_id=user_id, symbol=symbol).first()
+                if wl_row:
+                    wl_row.sentiment = err_sentiment
+                    wl_row.sentiment_reason = err_reason
+                    if hasattr(wl_row, 'sentiment_last_updated'):
+                        wl_row.sentiment_last_updated = datetime.utcnow()
+                    db.session.commit()
+            else:
+                coin_row = Coin.query.filter_by(user_id=user_id, symbol=symbol).first()
+                if coin_row:
+                    coin_row.sentiment = err_sentiment
+                    coin_row.sentiment_reason = err_reason
+                    coin_row.sentiment_last_updated = datetime.utcnow()
+                    db.session.commit()
+            return err_sentiment, err_reason
+
+        current_datetime = format_eastern_datetime(None, "%B %d, %Y at %I:%M %p EDT")
+        sentiment_request = (
+            "SENTIMENT_ANALYSIS_DATA\n"
+            f"symbol: {symbol}\n"
+            f"amount: {amount}\n"
+            f"datetime: {current_datetime}\n"
+        )
+
+        response, actual_stage3_prompt = call_ai_with_web_search(
+            username=username,
+            messages=[
+                {"role": "system", "content": sentiment_post_prompt},
+                {"role": "user", "content": sentiment_request}
+            ],
+            user_id=user_id,
+            prompt_type="sentiment_analysis",
+            symbol=symbol,
+            amount=amount
+        )
+
+        sentiment_text = ""
+        if hasattr(response, 'choices') and response.choices:
+            sentiment_text = response.choices[0].message.content.strip()
+        elif isinstance(response, dict) and 'content' in response:
+            sentiment_text = response['content'].strip()
+        else:
+            sentiment_text = str(response).strip()
+
+        sentiment_result, sentiment_reason = parse_sentiment_json(sentiment_text)
+
+        # Update database
+        resolved_coin_id = coin_id
+        if is_watchlist:
+            wl_row = WatchlistCoin.query.filter_by(user_id=user_id, symbol=symbol).first()
+            if wl_row:
+                wl_row.sentiment = sentiment_result
+                wl_row.sentiment_reason = sentiment_reason
+                if hasattr(wl_row, 'sentiment_last_updated'):
+                    wl_row.sentiment_last_updated = datetime.utcnow()
+                db.session.commit()
+                resolved_coin_id = wl_row.id
+        else:
+            coin_row = Coin.query.filter_by(user_id=user_id, symbol=symbol).first()
+            if coin_row:
+                coin_row.sentiment = sentiment_result
+                coin_row.sentiment_reason = sentiment_reason
+                coin_row.sentiment_last_updated = datetime.utcnow()
+                db.session.commit()
+                resolved_coin_id = coin_row.id
+
+        log_ai_conversation(user_id, "sentiment_analysis", "user", actual_stage3_prompt, symbol=symbol, coin_id=resolved_coin_id)
+        time.sleep(0.1)
+        log_ai_conversation(user_id, "sentiment_analysis", "ai", sentiment_text, symbol=symbol, coin_id=resolved_coin_id)
+
+        # Send Telegram alert if buy/sell signal
+        if notifications_enabled and sentiment_result in ['Buy Immediately', 'Consider Buying', 'Sell Immediately', 'Consider Selling']:
+            alert_msg = (
+                f"🚀 AI TRADING SIGNAL ({'WATCHLIST' if is_watchlist else 'PORTFOLIO'}): {symbol}\n"
+                f"Signal: {sentiment_result.upper()}\n"
+                f"Reason: {sentiment_reason}\n"
+                f"Time: {current_datetime}"
+            )
+            send_telegram_message(username, alert_msg)
+            logger.info(f"Sent AI Trading Alert for {symbol} ({sentiment_result})")
+
+        return sentiment_result, sentiment_reason
+
+    except Exception as e:
+        logger.error(f"Error in analyze_single_symbol_sentiment for {symbol}: {e}")
+        try:
+            if is_watchlist:
+                wl_row = WatchlistCoin.query.filter_by(user_id=user_id, symbol=symbol).first()
+                if wl_row:
+                    wl_row.sentiment = "Error"
+                    wl_row.sentiment_reason = f"Analysis error: {str(e)}"
+                    if hasattr(wl_row, 'sentiment_last_updated'):
+                        wl_row.sentiment_last_updated = datetime.utcnow()
+                    db.session.commit()
+            else:
+                coin_row = Coin.query.filter_by(user_id=user_id, symbol=symbol).first()
+                if coin_row:
+                    coin_row.sentiment = "Error"
+                    coin_row.sentiment_reason = f"Analysis error: {str(e)}"
+                    coin_row.sentiment_last_updated = datetime.utcnow()
+                    db.session.commit()
+        except Exception:
+            db.session.rollback()
+        raise e
+
 def run_sentiment_analysis_for_user(user_id, username, force=False):
     """
     Run sentiment analysis for a user's portfolio coins.
@@ -594,16 +756,6 @@ def run_sentiment_analysis_for_user(user_id, username, force=False):
         except Exception:
             sentiment_freq_hours = 24.0
 
-        threshold_raw = settings.get('ai_confidence_threshold', 70)
-        try:
-            confidence_threshold = float(threshold_raw)
-            if confidence_threshold < 1:
-                confidence_threshold *= 100
-        except Exception:
-            confidence_threshold = 70.0
-        
-        notifications_enabled = settings.get('ai_notifications_enabled', True)
-        
         coins = Coin.query.filter_by(user_id=user_id, hidden=False).filter(Coin.amount > 0).all()
         if not coins:
             logger.info(f"No portfolio coins found for sentiment analysis for user {username}")
@@ -626,7 +778,6 @@ def run_sentiment_analysis_for_user(user_id, username, force=False):
                 continue
 
             if not force and last_updated:
-                # Calculate elapsed time in UTC
                 now_utc = datetime.now(timezone.utc)
                 last_utc = last_updated if last_updated.tzinfo else last_updated.replace(tzinfo=timezone.utc)
                 elapsed_hours = (now_utc - last_utc).total_seconds() / 3600.0
@@ -636,84 +787,20 @@ def run_sentiment_analysis_for_user(user_id, username, force=False):
             logger.info(f"Analyzing sentiment for {symbol} (User: {username})...")
             
             try:
-                ai_prompts_obj = get_user_ai_prompts(user_id)
-                sentiment_pre_prompt = (getattr(ai_prompts_obj, 'sentiment_prompt_pre', None) or "").strip()
-                sentiment_post_prompt = (getattr(ai_prompts_obj, 'sentiment_prompt_post', None) or "").strip()
-                
-                if not sentiment_pre_prompt or not sentiment_post_prompt:
-                    logger.warning(f"Missing sentiment prompts for user {username}. Marking Error.")
-                    coin_row.sentiment = "Error"
-                    coin_row.sentiment_reason = "Missing sentiment prompt configuration in Settings."
-                    coin_row.sentiment_last_updated = datetime.utcnow()
-                    db.session.commit()
-                    continue
-
-                current_datetime = format_eastern_datetime(None, "%B %d, %Y at %I:%M %p EDT")
-
-                sentiment_request = (
-                    "SENTIMENT_ANALYSIS_DATA\n"
-                    f"symbol: {symbol}\n"
-                    f"amount: {amount}\n"
-                    f"datetime: {current_datetime}\n"
-                )
-
-                response, actual_stage3_prompt = call_ai_with_web_search(
-                    username=username,
-                    messages=[
-                        {"role": "system", "content": sentiment_post_prompt},
-                        {"role": "user", "content": sentiment_request}
-                    ],
+                analyze_single_symbol_sentiment(
                     user_id=user_id,
-                    prompt_type="sentiment_analysis",
+                    username=username,
                     symbol=symbol,
+                    is_watchlist=False,
+                    coin_id=coin_id,
                     amount=amount
                 )
-
-                sentiment_text = ""
-                if hasattr(response, 'choices') and response.choices:
-                    sentiment_text = response.choices[0].message.content.strip()
-                elif isinstance(response, dict) and 'content' in response:
-                    sentiment_text = response['content'].strip()
-                else:
-                    sentiment_text = str(response).strip()
-
-                # Parse JSON output for Action phrase and Explanation reason
-                sentiment_result, sentiment_reason = parse_sentiment_json(sentiment_text)
-
-                # Update database
-                coin_row.sentiment = sentiment_result
-                coin_row.sentiment_reason = sentiment_reason
-                coin_row.sentiment_last_updated = datetime.utcnow()
-                db.session.commit()
                 count += 1
-
-                log_ai_conversation(user_id, "sentiment_analysis", "user", actual_stage3_prompt, symbol=symbol, coin_id=coin_id)
-                time.sleep(0.1)
-                log_ai_conversation(user_id, "sentiment_analysis", "ai", sentiment_text, symbol=symbol, coin_id=coin_id)
-
-                # Send Telegram alert if buy/sell signal
-                if notifications_enabled and sentiment_result in ['Buy Immediately', 'Consider Buying', 'Sell Immediately', 'Consider Selling']:
-                    alert_msg = (
-                        f"🚀 AI TRADING SIGNAL: {symbol}\n"
-                        f"Signal: {sentiment_result.upper()}\n"
-                        f"Reason: {sentiment_reason}\n"
-                        f"Time: {current_datetime}"
-                    )
-                    send_telegram_message(username, alert_msg)
-                    logger.info(f"Sent AI Trading Alert for {symbol} ({sentiment_result})")
-
                 # Pacing delay between coins to prevent hitting LLM API rate limits
                 time.sleep(8)
 
             except Exception as coin_error:
                 logger.error(f"Error processing sentiment for {symbol}: {coin_error}")
-                try:
-                    coin_row.sentiment = "Error"
-                    coin_row.sentiment_reason = f"Analysis error: {str(coin_error)}"
-                    coin_row.sentiment_last_updated = datetime.utcnow()
-                    db.session.commit()
-                except Exception:
-                    db.session.rollback()
                 # Extra backoff if error was due to rate limits
                 if any(k in str(coin_error).lower() for k in ["429", "rate limit", "resource_exhausted", "overloaded", "1302", "1305"]):
                     logger.warning(f"Rate limit detected for {symbol}, cooling down for 15s before next coin...")

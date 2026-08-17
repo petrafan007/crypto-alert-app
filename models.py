@@ -57,6 +57,7 @@ class WatchlistCoin(db.Model):
     sentiment_reason = db.Column(db.Text, default="")
     volatility_pct = db.Column(db.Float, nullable=True)
     last_volatility_alert_time = db.Column(db.DateTime, nullable=True)
+    sentiment_last_updated = db.Column(db.DateTime, nullable=True)
     
     # Composite index for efficient lookups
     __table_args__ = (

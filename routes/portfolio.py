@@ -4193,6 +4193,7 @@ def api_watchlist():
             "current_price": current_price,
             "sentiment": w.sentiment or "Watch",
             "sentiment_reason": getattr(w, 'sentiment_reason', "") or "",
+            "sentiment_last_updated": w.sentiment_last_updated.isoformat() if getattr(w, 'sentiment_last_updated', None) else None,
             "volatility_pct": w.volatility_pct,
             "cached_news": w_news.get('text', ''),
             "cached_news_date": w_news.get('created_at', None)
@@ -4233,6 +4234,7 @@ def api_watchlist_live():
             "current_price": current_price,
             "sentiment": w.sentiment or "Watch",
             "sentiment_reason": getattr(w, 'sentiment_reason', "") or "",
+            "sentiment_last_updated": w.sentiment_last_updated.isoformat() if getattr(w, 'sentiment_last_updated', None) else None,
             "volatility_pct": w.volatility_pct,
             "cached_news": w_news.get('text', ''),
             "cached_news_date": w_news.get('created_at', None)
@@ -4244,18 +4246,50 @@ def api_watchlist_live():
 @login_required
 def api_watchlist_add():
     data = request.get_json()
-    symbol = data.get("symbol", "").upper()
+    symbol = data.get("symbol", "").upper().strip()
     if not symbol:
         return jsonify({"success": False, "error": "Missing symbol"}), 400
     exists = WatchlistCoin.query.filter_by(user_id=current_user.id, symbol=symbol).first()
     if exists:
-        return jsonify({"success": True})
-    wl = WatchlistCoin(symbol=symbol, user_id=current_user.id)
+        return jsonify({"success": True, "message": "Symbol already in watchlist"})
+    
+    current_price = 0.0
+    try:
+        current_price = fetch_binance_price(symbol) or 0.0
+    except Exception as e:
+        logger.warning(f"Failed to fetch initial price for {symbol}: {e}")
+
+    wl = WatchlistCoin(symbol=symbol, user_id=current_user.id, current_price=current_price)
     db.session.add(wl)
     db.session.commit()
+
     # Trigger backfill for this symbol in a background thread
     threading.Thread(target=backfill_7d_prices, args=([symbol],), daemon=True).start()
-    return jsonify({"success": True})
+
+    # On-the-spot sentiment check for the newly added watchlist coin
+    user_id = current_user.id
+    username = current_user.username
+    sentiment_res = "Watch"
+    reason_res = ""
+    try:
+        from services.ai_service import analyze_single_symbol_sentiment
+        sentiment_res, reason_res = analyze_single_symbol_sentiment(
+            user_id=user_id,
+            username=username,
+            symbol=symbol,
+            is_watchlist=True,
+            coin_id=wl.id,
+            amount=0.0
+        )
+    except Exception as ex:
+        logger.error(f"On-the-spot watchlist sentiment check error for {symbol}: {ex}")
+
+    return jsonify({
+        "success": True,
+        "symbol": symbol,
+        "sentiment": sentiment_res,
+        "sentiment_reason": reason_res
+    })
 
 @portfolio_bp.route("/api/watchlist/remove", methods=["POST"])
 @login_required

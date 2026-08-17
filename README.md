@@ -86,7 +86,16 @@ The application utilizes a **unified PostgreSQL database**.
 ### Settings UI Overhaul
 - **Right-aligned Header Controls**: All action buttons (AI toggle, Run Sentiment Analysis Now, Sync Coins, Save Settings, Reset Password, Upgrade App, Include Beta) are now right-aligned in a flex row.
 - **Run Sentiment Analysis Now in Header**: Moved from a standalone card to the header bar, placed to the left of Sync Coins, matching the same outline style.
-- **Removed Force Analysis Card**: Eliminated the redundant ⚡ Force Analysis section from the settings grid; the functionality lives in the header button.
+## v1.34-beta (August 2026)
+
+### On-the-Spot Watchlist Sentiment Analysis
+- **Instant Sentiment on Addition**: Adding a new cryptocurrency to the Watchlist automatically runs an on-the-spot sentiment analysis check, providing immediate AI trading sentiment and detailed explanation upon adding the coin.
+- **Dedicated Single-Symbol Sentiment Engine**: Created `analyze_single_symbol_sentiment` in `services/ai_service.py` to support on-demand single-coin analysis for both portfolio and watchlist items independently of periodic batch scheduler runs.
+- **Watchlist Timestamp & Reason Tracking**: Added `sentiment_last_updated` column and database migration for the `watchlist` table, enabling tooltip explanation and timestamp rendering on watchlist cards and table rows.
+- **Stablecoin Optimization**: Automatically fast-paths dollar-pegged stablecoins on watchlist addition directly to "Hold" without consuming LLM API tokens.
+
+---
+
 ## v1.33-beta (August 2026)
 
 ### Z.AI Error Resolution & Global Endpoint Routing

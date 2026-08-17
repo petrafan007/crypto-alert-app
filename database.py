@@ -29,7 +29,8 @@ def init_db(app=None):
             ("coins", "cached_news", "TEXT"),
             ("watchlist", "cached_news", "TEXT"),
             ("coins", "cached_news_date", "TIMESTAMP"),
-            ("watchlist", "cached_news_date", "TIMESTAMP")
+            ("watchlist", "cached_news_date", "TIMESTAMP"),
+            ("watchlist", "sentiment_last_updated", "TIMESTAMP")
         ]
         for table, col, col_type in columns_to_ensure:
             try:
