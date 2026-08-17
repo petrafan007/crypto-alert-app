@@ -105,7 +105,7 @@ def test_zai_connection():
             resp = client.chat_completion(
                 messages=[{"role":"user","content":"ping"}],
                 model=model,
-                max_tokens=5,
+                max_tokens=50,
                 temperature=0.0
             )
             ok = bool(resp) and resp.get('success')

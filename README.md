@@ -87,6 +87,26 @@ The application utilizes a **unified PostgreSQL database**.
 - **Right-aligned Header Controls**: All action buttons (AI toggle, Run Sentiment Analysis Now, Sync Coins, Save Settings, Reset Password, Upgrade App, Include Beta) are now right-aligned in a flex row.
 - **Run Sentiment Analysis Now in Header**: Moved from a standalone card to the header bar, placed to the left of Sync Coins, matching the same outline style.
 - **Removed Force Analysis Card**: Eliminated the redundant ⚡ Force Analysis section from the settings grid; the functionality lives in the header button.
+## v1.33-beta (August 2026)
+
+### Z.AI Error Resolution & Global Endpoint Routing
+- **Optimized Endpoint Priority**: Reordered candidate endpoints in `zai_client.py` to prioritize global production endpoints (`https://api.z.ai/api/paas/v4` and `https://open.bigmodel.cn/api/paas/v4`) ahead of the specialized coding plan endpoint (`api/coding/paas/v4`), eliminating false `429 (code 1305)` "service overloaded" errors on standard accounts.
+- **Rate-Limit & Overload Resilience**: Added retry loops with exponential backoff for Z.AI rate limits and temporary traffic spikes (`1302` / `1305` / `该模型当前访问量过大`).
+- **Flash Model Sibling Failover**: Added automatic fallback to sibling flash models (`glm-4.7-flash` ↔ `glm-4.5-flash`) if an upstream flash model is experiencing global congestion.
+- **Reasoning Content Extraction**: Automatically extracts `reasoning_content` when reasoning models spend generation tokens in thought blocks, preventing empty responses.
+- **Clear Account Balance Guidance**: Specific error messaging for error code `1113` advising when a paid model requires account recharge.
+
+### Sentiment Check Pacing & Rate-Limit Prevention
+- **Staggered Coin Execution**: Paced portfolio sentiment analysis loops with an 8-second delay between coins and a 15-second cooldown upon rate-limit detection, preventing burst traffic from exhausting LLM API RPM (requests per minute) limits.
+- **Stablecoin Fast-Path**: Automatically bypasses LLM and web search calls for dollar-pegged stablecoins (USDT, USD, USDC, DAI, TUSD, USDP, EURC, PYUSD), immediately setting sentiment to "Hold" and conserving API quota.
+- **Sentiment Concurrency Lock**: Per-user mutex ensures only one sentiment analysis run executes at a time per user, preventing race conditions between background scheduler jobs and manual triggers.
+- **Gemini 503 High Demand Recovery**: Extended Gemini retry handling to gracefully back off and retry during temporary `503 UNAVAILABLE` ("This model is currently experiencing high demand") spikes before falling back to secondary providers.
+
+---
+
+## v1.32-beta (August 2026)
+
+### Settings UI Layout Overhaul
 - **Reorganized Settings Grid (2-column layout)**:
   - Row 1: Binance.US API Key & Secret | Two-Factor Authentication (2FA)
   - Row 2: Primary AI Integration | Fallback AI Integration

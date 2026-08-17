@@ -3,6 +3,7 @@ import re
 import json
 import time
 import logging
+import threading
 import requests
 from datetime import datetime, timezone
 from urllib.parse import quote
@@ -19,9 +20,12 @@ from services.analysis_service import (
 )
 from services.helpers import format_eastern_datetime, get_eastern_now
 from services.notification_service import send_telegram_message
-from routes.helpers import decrypt_secret
+from routes.helpers import decrypt_secret, is_stablecoin
 
 logger = logging.getLogger(__name__)
+
+_running_sentiment_users = set()
+_running_sentiment_lock = threading.Lock()
 
 def is_user_analysis_window_active(start_str, end_str):
     """Check if current Eastern time is within the user's configured window (HH:MM - HH:MM)."""
@@ -96,30 +100,28 @@ def web_search(query, max_results=2, username=None):
             logger.error(f"Error accessing Brave Search credentials: {e}")
 
     # 2. DuckDuckGo fallback
-    for retry in range(2):
-        try:
-            from bs4 import BeautifulSoup
-            search_url = f"https://html.duckduckgo.com/html/?q={quote(query)}"
-            headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
-            resp = requests.get(search_url, headers=headers, timeout=10)
-            if resp.status_code == 200:
-                soup = BeautifulSoup(resp.text, 'html.parser')
-                results = []
-                for result_div in soup.find_all('div', class_='result', limit=max_results):
-                    title_elem = result_div.find('a', class_='result__a')
-                    snippet_elem = result_div.find('a', class_='result__snippet')
-                    if title_elem:
-                        results.append({
-                            'title': title_elem.get_text(strip=True),
-                            'snippet': snippet_elem.get_text(strip=True)[:300] if snippet_elem else '',
-                            'url': title_elem.get('href', ''),
-                            'source': 'DuckDuckGo'
-                        })
-                if results:
-                    return results
-        except Exception as e:
-            logger.warning(f"DuckDuckGo fallback attempt {retry + 1} failed: {e}")
-            time.sleep(1)
+    try:
+        from bs4 import BeautifulSoup
+        search_url = f"https://html.duckduckgo.com/html/?q={quote(query)}"
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+        resp = requests.get(search_url, headers=headers, timeout=6)
+        if resp.status_code == 200:
+            soup = BeautifulSoup(resp.text, 'html.parser')
+            results = []
+            for result_div in soup.find_all('div', class_='result', limit=max_results):
+                title_elem = result_div.find('a', class_='result__a')
+                snippet_elem = result_div.find('a', class_='result__snippet')
+                if title_elem:
+                    results.append({
+                        'title': title_elem.get_text(strip=True),
+                        'snippet': snippet_elem.get_text(strip=True)[:300] if snippet_elem else '',
+                        'url': title_elem.get('href', ''),
+                        'source': 'DuckDuckGo'
+                    })
+            if results:
+                return results
+    except Exception as e:
+        logger.warning(f"DuckDuckGo fallback failed: {e}")
 
     # 3. Final default
     return [{
@@ -271,10 +273,20 @@ def call_ai_with_web_search(
                     raise ValueError("Z.AI API key not configured")
                 from zai_client import ZAIClient
                 client = ZAIClient(key)
-                resp = client.chat_completion(messages=p_messages, model=model, max_tokens=p_max_tokens, temperature=0.2)
-                if resp.get('success'):
-                    return resp.get('content')
-                raise Exception(f"Z.AI error: {resp.get('error')}")
+                max_zai_retries = 2
+                last_zai_error = ""
+                for zai_attempt in range(max_zai_retries + 1):
+                    resp = client.chat_completion(messages=p_messages, model=model, max_tokens=max(p_max_tokens, 1024), temperature=0.2)
+                    if resp.get('success'):
+                        return resp.get('content')
+                    last_zai_error = resp.get('error', 'Unknown Z.AI error')
+                    if zai_attempt < max_zai_retries and any(code in str(last_zai_error).lower() for code in ["429", "1305", "1302", "rate limit", "overloaded"]):
+                        delay = 4 * (zai_attempt + 1)
+                        logger.warning(f"Z.AI rate limit/overload (attempt {zai_attempt + 1}/{max_zai_retries}). Retrying in {delay}s...")
+                        time.sleep(delay)
+                    else:
+                        break
+                raise Exception(f"Z.AI error: {last_zai_error}")
 
             elif provider == 'perplexity':
                 key = _pick_key('perplexity')
@@ -346,7 +358,7 @@ def call_ai_with_web_search(
                                     except Exception:
                                         return json.dumps(res_json)
                                 last_err = r_retry.text
-                            elif r.status_code == 429 or "RESOURCE_EXHAUSTED" in r.text:
+                            elif r.status_code in [429, 503] or "RESOURCE_EXHAUSTED" in r.text or "UNAVAILABLE" in r.text:
                                 last_err = r.text
                                 break  # Break version loop to trigger retry delay
                             else:
@@ -354,8 +366,9 @@ def call_ai_with_web_search(
                         except Exception as req_ex:
                             last_err = str(req_ex)
 
-                    if attempt < max_gemini_retries and ("429" in last_err or "RESOURCE_EXHAUSTED" in last_err):
-                        delay = 12 * (attempt + 1)
+                    is_retryable = any(k in last_err for k in ["429", "503", "RESOURCE_EXHAUSTED", "UNAVAILABLE", "high demand"])
+                    if attempt < max_gemini_retries and is_retryable:
+                        delay = 6 * (attempt + 1)
                         # Try parsing retryDelay from error JSON
                         try:
                             delay_match = re.search(r'retryDelay["\']:\s*["\'](\d+)s', last_err)
@@ -363,10 +376,10 @@ def call_ai_with_web_search(
                                 delay = min(int(delay_match.group(1)) + 1, 30)
                         except Exception:
                             pass
-                        logger.warning(f"Gemini 429 Rate Limit (attempt {attempt + 1}/{max_gemini_retries}). Backing off for {delay}s...")
+                        logger.warning(f"Gemini {r.status_code if 'r' in locals() else 'API'} transient issue (attempt {attempt + 1}/{max_gemini_retries}). Backing off for {delay}s...")
                         time.sleep(delay)
                         continue
-                    elif "429" not in last_err and "RESOURCE_EXHAUSTED" not in last_err:
+                    elif not is_retryable:
                         break
 
                 raise Exception(f"Gemini API error: {last_err}")
@@ -555,6 +568,12 @@ def run_sentiment_analysis_for_user(user_id, username, force=False):
     Parses JSON output for phrase ('Hold', 'Buy Immediately', 'Consider Buying', 'Sell Immediately', 'Consider Selling')
     and 1-2 sentence explanation stored as sentiment_reason.
     """
+    with _running_sentiment_lock:
+        if user_id in _running_sentiment_users:
+            logger.info(f"Sentiment analysis already in progress for user {username} (ID: {user_id}), skipping duplicate trigger.")
+            return 0
+        _running_sentiment_users.add(user_id)
+
     count = 0
     try:
         if not is_ai_enabled(username) and not force:
@@ -597,6 +616,14 @@ def run_sentiment_analysis_for_user(user_id, username, force=False):
             symbol = coin_row.symbol
             amount = coin_row.amount
             last_updated = coin_row.sentiment_last_updated
+
+            if is_stablecoin(symbol):
+                logger.info(f"Skipping sentiment analysis for stablecoin {symbol} (marking Hold)")
+                coin_row.sentiment = "Hold"
+                coin_row.sentiment_reason = "Dollar-pegged stablecoin for capital preservation."
+                coin_row.sentiment_last_updated = datetime.utcnow()
+                db.session.commit()
+                continue
 
             if not force and last_updated:
                 # Calculate elapsed time in UTC
@@ -675,7 +702,8 @@ def run_sentiment_analysis_for_user(user_id, username, force=False):
                     send_telegram_message(username, alert_msg)
                     logger.info(f"Sent AI Trading Alert for {symbol} ({sentiment_result})")
 
-                time.sleep(6)
+                # Pacing delay between coins to prevent hitting LLM API rate limits
+                time.sleep(8)
 
             except Exception as coin_error:
                 logger.error(f"Error processing sentiment for {symbol}: {coin_error}")
@@ -686,10 +714,18 @@ def run_sentiment_analysis_for_user(user_id, username, force=False):
                     db.session.commit()
                 except Exception:
                     db.session.rollback()
-                time.sleep(6)
+                # Extra backoff if error was due to rate limits
+                if any(k in str(coin_error).lower() for k in ["429", "rate limit", "resource_exhausted", "overloaded", "1302", "1305"]):
+                    logger.warning(f"Rate limit detected for {symbol}, cooling down for 15s before next coin...")
+                    time.sleep(15)
+                else:
+                    time.sleep(8)
 
         return count
 
     except Exception as e:
         logger.error(f"Error in run_sentiment_analysis_for_user for {username}: {e}")
         return count
+    finally:
+        with _running_sentiment_lock:
+            _running_sentiment_users.discard(user_id)
