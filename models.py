@@ -143,7 +143,8 @@ class AIPrompt(db.Model):
     portfolio_review_pre = db.Column(db.Text)
     risk_assessment_pre = db.Column(db.Text)
     news_analysis_pre = db.Column(db.Text)
-    sentiment_prompt_pre = db.Column(db.Text)  # New: Sentiment analysis pre-search prompt
+    sentiment_prompt_pre = db.Column(db.Text)  # Portfolio Sentiment analysis pre-search prompt
+    watchlist_sentiment_prompt_pre = db.Column(db.Text)  # Watchlist Sentiment analysis pre-search prompt
     
     # Stage 2 (Post-search) prompts for final analysis
     coin_analysis_post = db.Column(db.Text)
@@ -151,7 +152,8 @@ class AIPrompt(db.Model):
     portfolio_review_post = db.Column(db.Text)
     risk_assessment_post = db.Column(db.Text)
     news_analysis_post = db.Column(db.Text)
-    sentiment_prompt_post = db.Column(db.Text)  # New: Sentiment analysis post-search prompt
+    sentiment_prompt_post = db.Column(db.Text)  # Portfolio Sentiment analysis post-search prompt
+    watchlist_sentiment_prompt_post = db.Column(db.Text)  # Watchlist Sentiment analysis post-search prompt
 
 class DefaultAIPrompt(db.Model):
     __tablename__ = "default_ai_prompts"
@@ -164,6 +166,7 @@ class DefaultAIPrompt(db.Model):
     risk_assessment_pre = db.Column(db.Text)
     news_analysis_pre = db.Column(db.Text)
     sentiment_prompt_pre = db.Column(db.Text)
+    watchlist_sentiment_prompt_pre = db.Column(db.Text)
     copilot_chat_pre = db.Column(db.Text)
     
     # Stage 2 (Post-search) prompts
@@ -173,6 +176,7 @@ class DefaultAIPrompt(db.Model):
     risk_assessment_post = db.Column(db.Text)
     news_analysis_post = db.Column(db.Text)
     sentiment_prompt_post = db.Column(db.Text)
+    watchlist_sentiment_prompt_post = db.Column(db.Text)
     copilot_chat_post = db.Column(db.Text)
 
 class AIConversation(db.Model):

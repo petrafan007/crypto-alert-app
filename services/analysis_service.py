@@ -104,6 +104,8 @@ def get_user_ai_settings(username: str) -> dict:
                 'coin_analysis_post': '',
                 'sentiment_prompt_pre': '',
                 'sentiment_prompt_post': '',
+                'watchlist_sentiment_prompt_pre': '',
+                'watchlist_sentiment_prompt_post': '',
             },
             'copilot_chat_pre': '',
             'copilot_chat_post': '',
@@ -148,6 +150,9 @@ def get_user_ai_settings(username: str) -> dict:
 
                 if hasattr(user_setting, 'sentiment_analysis_frequency_hours'):
                     settings['sentiment_analysis_frequency_hours'] = user_setting.sentiment_analysis_frequency_hours or 24
+
+                if hasattr(user_setting, 'watchlist_sentiment_analysis_frequency_hours'):
+                    settings['watchlist_sentiment_analysis_frequency_hours'] = user_setting.watchlist_sentiment_analysis_frequency_hours or 24
 
                 if hasattr(user_setting, 'ai_reasoning_level'):
                     settings['ai_reasoning_level'] = user_setting.ai_reasoning_level or 'medium'
@@ -229,6 +234,8 @@ def get_user_ai_settings(username: str) -> dict:
                     'coin_analysis_post': getattr(ai_prompts_obj, 'coin_analysis_post', settings['ai_prompts']['coin_analysis_post']),
                     'sentiment_prompt_pre': getattr(ai_prompts_obj, 'sentiment_prompt_pre', settings['ai_prompts']['sentiment_prompt_pre']),
                     'sentiment_prompt_post': getattr(ai_prompts_obj, 'sentiment_prompt_post', settings['ai_prompts']['sentiment_prompt_post']),
+                    'watchlist_sentiment_prompt_pre': getattr(ai_prompts_obj, 'watchlist_sentiment_prompt_pre', settings['ai_prompts']['watchlist_sentiment_prompt_pre']),
+                    'watchlist_sentiment_prompt_post': getattr(ai_prompts_obj, 'watchlist_sentiment_prompt_post', settings['ai_prompts']['watchlist_sentiment_prompt_post']),
                 }
             
             if not settings.get('copilot_chat_pre'):
@@ -280,7 +287,8 @@ def get_user_ai_prompts(user_id):
                 market_analysis_pre="", market_analysis_post="",
                 portfolio_review_pre="", portfolio_review_post="",
                 coin_analysis_pre="", coin_analysis_post="",
-                sentiment_prompt_pre="", sentiment_prompt_post=""
+                sentiment_prompt_pre="", sentiment_prompt_post="",
+                watchlist_sentiment_prompt_pre="", watchlist_sentiment_prompt_post=""
             )
             db.session.add(ai_prompts)
             db.session.commit()

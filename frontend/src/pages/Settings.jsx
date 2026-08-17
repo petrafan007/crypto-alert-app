@@ -60,6 +60,7 @@ export default function Settings({ isLightMode }) {
     ai_notifications_enabled: true,
     ai_analysis_frequency: 'daily',
     sentiment_analysis_frequency_hours: 24,
+    watchlist_sentiment_analysis_frequency_hours: 24,
     tax_cost_basis_method: 'fifo',
     ai_prompts: {
       market_analysis_pre: '',
@@ -73,7 +74,9 @@ export default function Settings({ isLightMode }) {
       news_analysis_post: '',
       coin_analysis_post: '',
       sentiment_prompt_pre: '',
-      sentiment_prompt_post: ''
+      sentiment_prompt_post: '',
+      watchlist_sentiment_prompt_pre: '',
+      watchlist_sentiment_prompt_post: ''
     },
     copilot_chat_pre: '',
     copilot_chat_post: ''
@@ -2093,11 +2096,11 @@ export default function Settings({ isLightMode }) {
               </div>
             </div>
 
-            {/* Sentiment Analysis */}
-            <div style={{ background: '#1a1f23', padding: 16, borderRadius: 8, border: '1px solid #444' }}>
-              <h5 style={{ color: '#4fd1c5', marginBottom: 12, fontSize: '14px' }}>Sentiment Analysis</h5>
+            {/* Portfolio Sentiment Analysis */}
+            <div style={{ background: '#1a1f23', padding: 16, borderRadius: 8, border: '1px solid #444', marginTop: 16 }}>
+              <h5 style={{ color: '#4fd1c5', marginBottom: 12, fontSize: '14px' }}>Portfolio Sentiment Analysis</h5>
               <p style={{ color: '#a0a6b8', fontSize: '12px', marginBottom: 16, lineHeight: '1.4' }}>
-                Automated sentiment analysis runs every 30 minutes for all portfolio coins. Configure the prompts used for the 3-stage agentic workflow.
+                Automated sentiment analysis for all portfolio coins you currently own. Classifies into: <strong>Hold, Buy Immediately, Consider Buying, Sell Immediately, Consider Selling</strong>.
               </p>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                 <div>
@@ -2129,10 +2132,10 @@ export default function Settings({ isLightMode }) {
                     }}
                   />
 
-                  {/* Sentiment Update Frequency */}
+                  {/* Portfolio Sentiment Update Frequency */}
                   <div style={{ marginTop: 12 }}>
                     <label style={{ display: 'block', marginBottom: 6, color: '#fff', fontSize: '12px' }}>
-                      Sentiment Update Frequency (hours)
+                      Portfolio Sentiment Update Frequency (hours)
                     </label>
                     <input
                       type="number"
@@ -2162,6 +2165,97 @@ export default function Settings({ isLightMode }) {
                       handleInputChange('ai_prompts', {
                         ...settings.ai_prompts,
                         sentiment_prompt_post: e.target.value
+                      });
+                      autoResizeTextarea(e.target);
+                    }}
+                    style={{
+                      width: 'calc(100% - 24px)',
+                      padding: '8px 12px',
+                      borderRadius: 6,
+                      background: '#232b31',
+                      color: '#fff',
+                      border: '1px solid #555',
+                      boxSizing: 'border-box',
+                      resize: 'none',
+                      fontSize: '12px',
+                      minHeight: '80px',
+                      overflow: 'hidden',
+                      lineHeight: '1.5'
+                    }}
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Watchlist Sentiment Analysis */}
+            <div style={{ background: '#1a1f23', padding: 16, borderRadius: 8, border: '1px solid #444', marginTop: 16 }}>
+              <h5 style={{ color: '#4fd1c5', marginBottom: 12, fontSize: '14px' }}>Watchlist Sentiment Analysis</h5>
+              <p style={{ color: '#a0a6b8', fontSize: '12px', marginBottom: 16, lineHeight: '1.4' }}>
+                Automated and on-the-spot sentiment analysis for watchlist coins you are monitoring. Classifies prospective entry into: <strong>Avoid, Watch, Consider Buying, Definitely Buy</strong>.
+              </p>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <div>
+                  <label style={{ display: 'block', marginBottom: 8, color: '#fff', fontSize: '12px' }}>
+                    Pre-Search Prompt (Stage 1)
+                  </label>
+                  <textarea
+                    value={settings.ai_prompts?.watchlist_sentiment_prompt_pre || ''}
+                    onChange={(e) => {
+                      handleInputChange('ai_prompts', {
+                        ...settings.ai_prompts,
+                        watchlist_sentiment_prompt_pre: e.target.value
+                      });
+                      autoResizeTextarea(e.target);
+                    }}
+                    style={{
+                      width: 'calc(100% - 24px)',
+                      padding: '8px 12px',
+                      borderRadius: 6,
+                      background: '#232b31',
+                      color: '#fff',
+                      border: '1px solid #555',
+                      boxSizing: 'border-box',
+                      resize: 'none',
+                      fontSize: '12px',
+                      minHeight: '80px',
+                      overflow: 'hidden',
+                      lineHeight: '1.5'
+                    }}
+                  />
+
+                  {/* Watchlist Sentiment Update Frequency */}
+                  <div style={{ marginTop: 12 }}>
+                    <label style={{ display: 'block', marginBottom: 6, color: '#fff', fontSize: '12px' }}>
+                      Watchlist Sentiment Update Frequency (hours)
+                    </label>
+                    <input
+                      type="number"
+                      min="1"
+                      value={settings.watchlist_sentiment_analysis_frequency_hours || 24}
+                      onChange={(e) => handleInputChange('watchlist_sentiment_analysis_frequency_hours', parseInt(e.target.value))}
+                      style={{
+                        width: '100%',
+                        padding: '8px 12px',
+                        borderRadius: 6,
+                        background: '#232b31',
+                        color: '#fff',
+                        border: '1px solid #555',
+                        boxSizing: 'border-box',
+                        fontSize: '12px'
+                      }}
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label style={{ display: 'block', marginBottom: 8, color: '#fff', fontSize: '12px' }}>
+                    Post-Search Prompt (Stage 3)
+                  </label>
+                  <textarea
+                    value={settings.ai_prompts?.watchlist_sentiment_prompt_post || ''}
+                    onChange={(e) => {
+                      handleInputChange('ai_prompts', {
+                        ...settings.ai_prompts,
+                        watchlist_sentiment_prompt_post: e.target.value
                       });
                       autoResizeTextarea(e.target);
                     }}

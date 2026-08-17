@@ -380,8 +380,8 @@ def prune_old_ai_conversations(app):
             time.sleep(86400)
 
 def sentiment_analysis_loop(app):
-    """Background loop to periodically run sentiment analysis for enabled users according to their frequency setting."""
-    from services.ai_service import run_sentiment_analysis_for_user
+    """Background loop to periodically run sentiment analysis for enabled users according to their frequency settings."""
+    from services.ai_service import run_sentiment_analysis_for_user, run_watchlist_sentiment_analysis_for_user
     logger.info("=== sentiment_analysis_loop STARTED ===")
     with app.app_context():
         while True:
@@ -392,7 +392,11 @@ def sentiment_analysis_loop(app):
                     try:
                         run_sentiment_analysis_for_user(user.id, user.username, force=False)
                     except Exception as e:
-                        logger.error(f"Error in background sentiment analysis for {user.username}: {e}")
+                        logger.error(f"Error in background portfolio sentiment analysis for {user.username}: {e}")
+                    try:
+                        run_watchlist_sentiment_analysis_for_user(user.id, user.username, force=False)
+                    except Exception as e:
+                        logger.error(f"Error in background watchlist sentiment analysis for {user.username}: {e}")
             iteration()
             # Check every 30 minutes
             time.sleep(1800)

@@ -1550,22 +1550,44 @@ function Dashboard({ isLightMode }) {
       tooltip = 'No sentiment explanation available';
     }
 
-    let color = '#ecc94b'; // Default Hold / Gold
+    let color = isWatchlist ? '#63b3ed' : '#ecc94b';
     let bg = 'transparent';
     let label = sentiment;
 
-    if (['Buy Immediately', 'Consider Buying', 'Buy'].includes(sentiment)) {
-      color = '#48bb78'; // Green
-    } else if (['Sell Immediately', 'Consider Selling', 'Sell'].includes(sentiment)) {
-      color = '#f56565'; // Red
-    } else if (sentiment === 'Hold') {
-      color = '#ecc94b'; // Gold
-    } else if (sentiment === 'Error') {
-      color = '#fc8181'; // Red Error
-      bg = 'rgba(245, 101, 101, 0.2)';
-      label = '⚠️ Error';
-    } else if (sentiment === 'Watch') {
-      color = '#cbd5f5'; // Light gray/blue
+    if (isWatchlist) {
+      if (['Definitely Buy', 'Strong Buy', 'Buy Immediately'].includes(sentiment)) {
+        color = '#00e676'; // Bright vibrant green
+        label = 'Definitely Buy';
+      } else if (['Consider Buying', 'Buy'].includes(sentiment)) {
+        color = '#48bb78'; // Soft green
+        label = 'Consider Buying';
+      } else if (['Watch', 'Hold', 'Neutral'].includes(sentiment)) {
+        color = '#63b3ed'; // Sky blue / slate
+        label = 'Watch';
+      } else if (['Avoid', 'Sell', 'Sell Immediately', 'Strong Sell', 'Do Not Buy'].includes(sentiment)) {
+        color = '#f56565'; // Soft Red
+        label = 'Avoid';
+      } else if (sentiment === 'Error') {
+        color = '#fc8181';
+        bg = 'rgba(245, 101, 101, 0.2)';
+        label = '⚠️ Error';
+      }
+    } else {
+      if (['Buy Immediately', 'Strong Buy'].includes(sentiment)) {
+        color = '#00e676'; // Bright vibrant green
+      } else if (['Consider Buying', 'Buy'].includes(sentiment)) {
+        color = '#48bb78'; // Green
+      } else if (['Sell Immediately', 'Strong Sell'].includes(sentiment)) {
+        color = '#f56565'; // Vibrant red
+      } else if (['Consider Selling', 'Sell'].includes(sentiment)) {
+        color = '#ed8936'; // Orange / Soft red
+      } else if (sentiment === 'Hold') {
+        color = '#ecc94b'; // Gold
+      } else if (sentiment === 'Error') {
+        color = '#fc8181'; // Red Error
+        bg = 'rgba(245, 101, 101, 0.2)';
+        label = '⚠️ Error';
+      }
     }
 
     return (

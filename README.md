@@ -199,7 +199,25 @@ The application utilizes a **unified PostgreSQL database**.
 
 ---
 
-## Fixes & Hotfixes (v1.2 → v1.32)
+## v1.35-beta (August 2026)
+
+- **Dedicated Watchlist Sentiment Analysis Prompts**:
+  - Split sentiment settings into distinct **Portfolio Sentiment Analysis** (for owned coins) and **Watchlist Sentiment Analysis** (for prospective coins).
+  - Watchlist prompts provide custom tailored stage 1 query generation and stage 3 synthesis evaluating whether to initiate a new position.
+  - Added dedicated database columns (`watchlist_sentiment_prompt_pre`, `watchlist_sentiment_prompt_post`, `watchlist_sentiment_analysis_frequency_hours`).
+- **4-Option Watchlist Sentiment Classification**:
+  - Watchlist sentiment classifies prospective entries into: **Avoid** (Red), **Watch** (Sky Blue), **Consider Buying** (Soft Green), and **Definitely Buy** (Vibrant Green).
+  - Added resilient JSON parsing and tolerance mapping for all 4 watchlist signals alongside the 5 portfolio actions.
+- **Independent Sentiment Schedulers & On-The-Spot Analysis**:
+  - Independent frequency intervals for portfolio and watchlist coins.
+  - Background scheduler automatically evaluates both portfolio and watchlist queues with rate-limit pacing and concurrency locks.
+  - Instant on-the-spot sentiment check triggers when a coin is added to the watchlist.
+- **Footer Version Synchronization**:
+  - Synchronized footer version display and `package.json` to `v1.35-beta`.
+
+---
+
+## Fixes & Hotfixes (v1.2 → v1.35)
 
 - **Telegram Alert State Persistence**: Alert states persisted to `alert_state.json` to prevent duplicate alerts across service restarts.
 - **Credential Deadlock Prevention**: Fixed credential model mutation deadlock on reads; scoped background jobs to main process only.

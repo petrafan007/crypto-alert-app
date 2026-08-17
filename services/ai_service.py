@@ -236,6 +236,7 @@ def call_ai_with_web_search(
             'market_analysis': getattr(ai_prompts, 'market_analysis_pre', None),
             'portfolio_review': getattr(ai_prompts, 'portfolio_review_pre', None),
             'sentiment_analysis': getattr(ai_prompts, 'sentiment_prompt_pre', None),
+            'watchlist_sentiment_analysis': getattr(ai_prompts, 'watchlist_sentiment_prompt_pre', None),
             'copilot': getattr(ai_prompts, 'copilot_chat_pre', None) or user_ai_settings.get('copilot_chat_pre'),
             'manual': getattr(ai_prompts, 'copilot_chat_pre', None) or user_ai_settings.get('copilot_chat_pre'),
         }
@@ -415,6 +416,7 @@ def call_ai_with_web_search(
             'market_analysis': getattr(ai_prompts, 'market_analysis_post', None),
             'portfolio_review': getattr(ai_prompts, 'portfolio_review_post', None),
             'sentiment_analysis': getattr(ai_prompts, 'sentiment_prompt_post', None),
+            'watchlist_sentiment_analysis': getattr(ai_prompts, 'watchlist_sentiment_prompt_post', None),
             'copilot': getattr(ai_prompts, 'copilot_chat_post', None) or user_ai_settings.get('copilot_chat_post'),
             'manual': getattr(ai_prompts, 'copilot_chat_post', None) or user_ai_settings.get('copilot_chat_post'),
         }
@@ -474,24 +476,48 @@ def log_ai_conversation(user_id, prompt_type, sender, body, symbol=None, coin_id
         logger.error(f"Error logging AI conversation: {e}")
         db.session.rollback()
 
-def parse_sentiment_json(response_text):
+def parse_sentiment_json(response_text, is_watchlist=False):
     """
     Parse the AI JSON output for sentiment phrase and reason.
-    Expects JSON: {"sentiment": "Hold|Buy Immediately|...", "reason": "explanation"}
-    Valid phrases: 'Hold', 'Buy Immediately', 'Consider Buying', 'Sell Immediately', 'Consider Selling'
+    For Portfolio (is_watchlist=False):
+      Valid phrases: 'Hold', 'Buy Immediately', 'Consider Buying', 'Sell Immediately', 'Consider Selling'
+    For Watchlist (is_watchlist=True):
+      Valid phrases: 'Avoid', 'Watch', 'Consider Buying', 'Definitely Buy'
     """
-    VALID_PHRASES = {
-        'buy immediately': 'Buy Immediately',
-        'consider buying': 'Consider Buying',
-        'sell immediately': 'Sell Immediately',
-        'consider selling': 'Consider Selling',
-        'hold': 'Hold',
-        # Tolerant fallbacks
-        'strong buy': 'Buy Immediately',
-        'buy': 'Consider Buying',
-        'strong sell': 'Sell Immediately',
-        'sell': 'Consider Selling'
-    }
+    if is_watchlist:
+        valid_phrases = {
+            'avoid': 'Avoid',
+            'watch': 'Watch',
+            'consider buying': 'Consider Buying',
+            'definitely buy': 'Definitely Buy',
+            # Tolerant fallbacks
+            'buy immediately': 'Definitely Buy',
+            'strong buy': 'Definitely Buy',
+            'buy': 'Consider Buying',
+            'hold': 'Watch',
+            'neutral': 'Watch',
+            'sell': 'Avoid',
+            'sell immediately': 'Avoid',
+            'strong sell': 'Avoid',
+            'do not buy': 'Avoid',
+            'pass': 'Avoid',
+            'ignore': 'Avoid'
+        }
+        default_phrase = "Watch"
+    else:
+        valid_phrases = {
+            'buy immediately': 'Buy Immediately',
+            'consider buying': 'Consider Buying',
+            'sell immediately': 'Sell Immediately',
+            'consider selling': 'Consider Selling',
+            'hold': 'Hold',
+            # Tolerant fallbacks
+            'strong buy': 'Buy Immediately',
+            'buy': 'Consider Buying',
+            'strong sell': 'Sell Immediately',
+            'sell': 'Consider Selling'
+        }
+        default_phrase = "Hold"
     
     phrase = None
     reason = None
@@ -514,8 +540,8 @@ def parse_sentiment_json(response_text):
                     k_lower = str(k).lower()
                     v_str = str(v).strip()
                     if any(x in k_lower for x in ['item 1', 'item1', 'sentiment', 'action', 'signal', 'recommendation', 'suggestion', 'item_1']):
-                        if v_str.lower() in VALID_PHRASES:
-                            phrase = VALID_PHRASES[v_str.lower()]
+                        if v_str.lower() in valid_phrases:
+                            phrase = valid_phrases[v_str.lower()]
                     elif any(x in k_lower for x in ['item 2', 'item2', 'reason', 'explanation', 'description', 'summary', 'item_2']):
                         if v_str:
                             reason = v_str
@@ -523,8 +549,8 @@ def parse_sentiment_json(response_text):
                 # If phrase not identified by key name, scan values
                 if not phrase:
                     for v in parsed.values():
-                        if str(v).strip().lower() in VALID_PHRASES:
-                            phrase = VALID_PHRASES[str(v).strip().lower()]
+                        if str(v).strip().lower() in valid_phrases:
+                            phrase = valid_phrases[str(v).strip().lower()]
                             break
                 # If reason not found by key name, take first long non-phrase value
                 if not reason:
@@ -536,8 +562,8 @@ def parse_sentiment_json(response_text):
                             
             elif isinstance(parsed, list) and len(parsed) >= 2:
                 p_cand = str(parsed[0]).strip()
-                if p_cand.lower() in VALID_PHRASES:
-                    phrase = VALID_PHRASES[p_cand.lower()]
+                if p_cand.lower() in valid_phrases:
+                    phrase = valid_phrases[p_cand.lower()]
                 reason = str(parsed[1]).strip()
         except Exception as e:
             logger.warning(f"JSON sentiment decode error: {e}. Raw: {repr(json_match.group(1)[:200])}")
@@ -547,9 +573,12 @@ def parse_sentiment_json(response_text):
             
     # Fallback: scan raw text for a sentiment phrase if JSON parse missed it
     if not phrase:
-        for p_key in ['buy immediately', 'consider buying', 'sell immediately', 'consider selling', 'hold', 'strong buy', 'strong sell', 'buy', 'sell']:
+        scan_keys = list(valid_phrases.keys())
+        # Sort by longest string first so multi-word matches take precedence
+        scan_keys.sort(key=len, reverse=True)
+        for p_key in scan_keys:
             if re.search(r'\b' + re.escape(p_key) + r'\b', clean_text, re.IGNORECASE):
-                phrase = VALID_PHRASES[p_key]
+                phrase = valid_phrases[p_key]
                 break
                 
     # Fallback: extract reason from remaining text after removing the phrase
@@ -560,7 +589,7 @@ def parse_sentiment_json(response_text):
         if len(remainder) > 10:
             reason = remainder
             
-    return phrase or "Hold", reason or ""
+    return phrase or default_phrase, reason or ""
 
 def analyze_single_symbol_sentiment(user_id, username, symbol, is_watchlist=False, coin_id=None, amount=0.0):
     """
@@ -573,8 +602,8 @@ def analyze_single_symbol_sentiment(user_id, username, symbol, is_watchlist=Fals
         return "Error", "Invalid coin symbol"
 
     if is_stablecoin(symbol):
-        logger.info(f"Skipping sentiment analysis for stablecoin {symbol} (marking Hold)")
-        sentiment_res = "Hold"
+        logger.info(f"Skipping sentiment analysis for stablecoin {symbol} (marking {'Watch' if is_watchlist else 'Hold'})")
+        sentiment_res = "Watch" if is_watchlist else "Hold"
         reason_res = "Dollar-pegged stablecoin for capital preservation."
         if is_watchlist:
             wl_row = WatchlistCoin.query.filter_by(user_id=user_id, symbol=symbol).first()
@@ -611,11 +640,18 @@ def analyze_single_symbol_sentiment(user_id, username, symbol, is_watchlist=Fals
         settings = get_user_ai_settings(username)
         notifications_enabled = settings.get('ai_notifications_enabled', True)
         ai_prompts_obj = get_user_ai_prompts(user_id)
-        sentiment_pre_prompt = (getattr(ai_prompts_obj, 'sentiment_prompt_pre', None) or "").strip()
-        sentiment_post_prompt = (getattr(ai_prompts_obj, 'sentiment_prompt_post', None) or "").strip()
+        
+        if is_watchlist:
+            sentiment_pre_prompt = (getattr(ai_prompts_obj, 'watchlist_sentiment_prompt_pre', None) or "").strip()
+            sentiment_post_prompt = (getattr(ai_prompts_obj, 'watchlist_sentiment_prompt_post', None) or "").strip()
+            prompt_type = "watchlist_sentiment_analysis"
+        else:
+            sentiment_pre_prompt = (getattr(ai_prompts_obj, 'sentiment_prompt_pre', None) or "").strip()
+            sentiment_post_prompt = (getattr(ai_prompts_obj, 'sentiment_prompt_post', None) or "").strip()
+            prompt_type = "sentiment_analysis"
 
         if not sentiment_pre_prompt or not sentiment_post_prompt:
-            logger.warning(f"Missing sentiment prompts for user {username}. Marking Error.")
+            logger.warning(f"Missing sentiment prompts for user {username} (watchlist={is_watchlist}). Marking Error.")
             err_sentiment = "Error"
             err_reason = "Missing sentiment prompt configuration in Settings."
             if is_watchlist:
@@ -637,7 +673,7 @@ def analyze_single_symbol_sentiment(user_id, username, symbol, is_watchlist=Fals
 
         current_datetime = format_eastern_datetime(None, "%B %d, %Y at %I:%M %p EDT")
         sentiment_request = (
-            "SENTIMENT_ANALYSIS_DATA\n"
+            f"{'WATCHLIST_' if is_watchlist else ''}SENTIMENT_ANALYSIS_DATA\n"
             f"symbol: {symbol}\n"
             f"amount: {amount}\n"
             f"datetime: {current_datetime}\n"
@@ -650,7 +686,7 @@ def analyze_single_symbol_sentiment(user_id, username, symbol, is_watchlist=Fals
                 {"role": "user", "content": sentiment_request}
             ],
             user_id=user_id,
-            prompt_type="sentiment_analysis",
+            prompt_type=prompt_type,
             symbol=symbol,
             amount=amount
         )
@@ -663,7 +699,7 @@ def analyze_single_symbol_sentiment(user_id, username, symbol, is_watchlist=Fals
         else:
             sentiment_text = str(response).strip()
 
-        sentiment_result, sentiment_reason = parse_sentiment_json(sentiment_text)
+        sentiment_result, sentiment_reason = parse_sentiment_json(sentiment_text, is_watchlist=is_watchlist)
 
         # Update database
         resolved_coin_id = coin_id
@@ -685,20 +721,27 @@ def analyze_single_symbol_sentiment(user_id, username, symbol, is_watchlist=Fals
                 db.session.commit()
                 resolved_coin_id = coin_row.id
 
-        log_ai_conversation(user_id, "sentiment_analysis", "user", actual_stage3_prompt, symbol=symbol, coin_id=resolved_coin_id)
+        log_ai_conversation(user_id, prompt_type, "user", actual_stage3_prompt, symbol=symbol, coin_id=resolved_coin_id)
         time.sleep(0.1)
-        log_ai_conversation(user_id, "sentiment_analysis", "ai", sentiment_text, symbol=symbol, coin_id=resolved_coin_id)
+        log_ai_conversation(user_id, prompt_type, "ai", sentiment_text, symbol=symbol, coin_id=resolved_coin_id)
 
-        # Send Telegram alert if buy/sell signal
-        if notifications_enabled and sentiment_result in ['Buy Immediately', 'Consider Buying', 'Sell Immediately', 'Consider Selling']:
-            alert_msg = (
-                f"🚀 AI TRADING SIGNAL ({'WATCHLIST' if is_watchlist else 'PORTFOLIO'}): {symbol}\n"
-                f"Signal: {sentiment_result.upper()}\n"
-                f"Reason: {sentiment_reason}\n"
-                f"Time: {current_datetime}"
-            )
-            send_telegram_message(username, alert_msg)
-            logger.info(f"Sent AI Trading Alert for {symbol} ({sentiment_result})")
+        # Send Telegram alert if notable trading signal
+        if notifications_enabled:
+            should_notify = False
+            if is_watchlist and sentiment_result in ['Definitely Buy', 'Consider Buying']:
+                should_notify = True
+            elif not is_watchlist and sentiment_result in ['Buy Immediately', 'Consider Buying', 'Sell Immediately', 'Consider Selling']:
+                should_notify = True
+
+            if should_notify:
+                alert_msg = (
+                    f"🚀 AI {'WATCHLIST' if is_watchlist else 'PORTFOLIO'} SIGNAL: {symbol}\n"
+                    f"Signal: {sentiment_result.upper()}\n"
+                    f"Reason: {sentiment_reason}\n"
+                    f"Time: {current_datetime}"
+                )
+                send_telegram_message(username, alert_msg)
+                logger.info(f"Sent AI Trading Alert for {symbol} ({sentiment_result})")
 
         return sentiment_result, sentiment_reason
 
@@ -739,7 +782,7 @@ def run_sentiment_analysis_for_user(user_id, username, force=False):
     count = 0
     try:
         if not is_ai_enabled(username) and not force:
-            logger.info(f"Skipping sentiment analysis for {username} - AI disabled")
+            logger.info(f"Skipping portfolio sentiment analysis for {username} - AI disabled")
             return 0
         
         settings = get_user_ai_settings(username)
@@ -747,7 +790,7 @@ def run_sentiment_analysis_for_user(user_id, username, force=False):
             start_str = settings.get('ai_analysis_window_start', '08:00')
             end_str = settings.get('ai_analysis_window_end', '23:59')
             if not is_user_analysis_window_active(start_str, end_str):
-                logger.info(f"Skipping sentiment analysis for {username} - outside analysis window")
+                logger.info(f"Skipping portfolio sentiment analysis for {username} - outside analysis window")
                 return 0
 
         sentiment_freq_hours = settings.get('sentiment_analysis_frequency_hours', 24)
@@ -761,7 +804,7 @@ def run_sentiment_analysis_for_user(user_id, username, force=False):
             logger.info(f"No portfolio coins found for sentiment analysis for user {username}")
             return 0
 
-        logger.info(f"Running sentiment analysis for {len(coins)} coins (User: {username}, Force: {force})")
+        logger.info(f"Running portfolio sentiment analysis for {len(coins)} coins (User: {username}, Force: {force})")
 
         for coin_row in coins:
             coin_id = coin_row.id
@@ -784,7 +827,7 @@ def run_sentiment_analysis_for_user(user_id, username, force=False):
                 if elapsed_hours < sentiment_freq_hours:
                     continue
 
-            logger.info(f"Analyzing sentiment for {symbol} (User: {username})...")
+            logger.info(f"Analyzing portfolio sentiment for {symbol} (User: {username})...")
             
             try:
                 analyze_single_symbol_sentiment(
@@ -800,7 +843,7 @@ def run_sentiment_analysis_for_user(user_id, username, force=False):
                 time.sleep(8)
 
             except Exception as coin_error:
-                logger.error(f"Error processing sentiment for {symbol}: {coin_error}")
+                logger.error(f"Error processing portfolio sentiment for {symbol}: {coin_error}")
                 # Extra backoff if error was due to rate limits
                 if any(k in str(coin_error).lower() for k in ["429", "rate limit", "resource_exhausted", "overloaded", "1302", "1305"]):
                     logger.warning(f"Rate limit detected for {symbol}, cooling down for 15s before next coin...")
@@ -816,3 +859,97 @@ def run_sentiment_analysis_for_user(user_id, username, force=False):
     finally:
         with _running_sentiment_lock:
             _running_sentiment_users.discard(user_id)
+
+def run_watchlist_sentiment_analysis_for_user(user_id, username, force=False):
+    """
+    Run sentiment analysis for a user's watchlist coins.
+    Parses JSON output for phrase ('Avoid', 'Watch', 'Consider Buying', 'Definitely Buy')
+    and 1-2 sentence explanation stored as sentiment_reason.
+    """
+    with _running_sentiment_lock:
+        if user_id in _running_sentiment_users:
+            logger.info(f"Sentiment analysis already in progress for user {username} (ID: {user_id}), skipping duplicate trigger.")
+            return 0
+        _running_sentiment_users.add(user_id)
+
+    count = 0
+    try:
+        if not is_ai_enabled(username) and not force:
+            logger.info(f"Skipping watchlist sentiment analysis for {username} - AI disabled")
+            return 0
+        
+        settings = get_user_ai_settings(username)
+        if not force:
+            start_str = settings.get('ai_analysis_window_start', '08:00')
+            end_str = settings.get('ai_analysis_window_end', '23:59')
+            if not is_user_analysis_window_active(start_str, end_str):
+                logger.info(f"Skipping watchlist sentiment analysis for {username} - outside analysis window")
+                return 0
+
+        wl_freq_hours = settings.get('watchlist_sentiment_analysis_frequency_hours', 24)
+        try:
+            wl_freq_hours = float(wl_freq_hours)
+        except Exception:
+            wl_freq_hours = 24.0
+
+        wl_coins = WatchlistCoin.query.filter_by(user_id=user_id).all()
+        if not wl_coins:
+            logger.info(f"No watchlist coins found for sentiment analysis for user {username}")
+            return 0
+
+        logger.info(f"Running watchlist sentiment analysis for {len(wl_coins)} coins (User: {username}, Force: {force})")
+
+        for wl_row in wl_coins:
+            coin_id = wl_row.id
+            symbol = wl_row.symbol
+            last_updated = getattr(wl_row, 'sentiment_last_updated', None)
+
+            if is_stablecoin(symbol):
+                logger.info(f"Skipping sentiment analysis for watchlist stablecoin {symbol} (marking Watch)")
+                wl_row.sentiment = "Watch"
+                wl_row.sentiment_reason = "Dollar-pegged stablecoin for capital preservation."
+                if hasattr(wl_row, 'sentiment_last_updated'):
+                    wl_row.sentiment_last_updated = datetime.utcnow()
+                db.session.commit()
+                continue
+
+            if not force and last_updated:
+                now_utc = datetime.now(timezone.utc)
+                last_utc = last_updated if last_updated.tzinfo else last_updated.replace(tzinfo=timezone.utc)
+                elapsed_hours = (now_utc - last_utc).total_seconds() / 3600.0
+                if elapsed_hours < wl_freq_hours:
+                    continue
+
+            logger.info(f"Analyzing watchlist sentiment for {symbol} (User: {username})...")
+            
+            try:
+                analyze_single_symbol_sentiment(
+                    user_id=user_id,
+                    username=username,
+                    symbol=symbol,
+                    is_watchlist=True,
+                    coin_id=coin_id,
+                    amount=0.0
+                )
+                count += 1
+                # Pacing delay between coins to prevent hitting LLM API rate limits
+                time.sleep(8)
+
+            except Exception as coin_error:
+                logger.error(f"Error processing watchlist sentiment for {symbol}: {coin_error}")
+                # Extra backoff if error was due to rate limits
+                if any(k in str(coin_error).lower() for k in ["429", "rate limit", "resource_exhausted", "overloaded", "1302", "1305"]):
+                    logger.warning(f"Rate limit detected for {symbol}, cooling down for 15s before next coin...")
+                    time.sleep(15)
+                else:
+                    time.sleep(8)
+
+        return count
+
+    except Exception as e:
+        logger.error(f"Error in run_watchlist_sentiment_analysis_for_user for {username}: {e}")
+        return count
+    finally:
+        with _running_sentiment_lock:
+            _running_sentiment_users.discard(user_id)
+

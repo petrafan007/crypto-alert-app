@@ -29,7 +29,10 @@ from services.analysis_service import (
     calculate_symbol_snapshot, calculate_volatility
 )
 from services.portfolio_service import get_comprehensive_crypto_data_for_user
-from services.ai_service import call_ai_with_web_search, web_search, run_sentiment_analysis_for_user, log_ai_conversation
+from services.ai_service import (
+    call_ai_with_web_search, web_search, run_sentiment_analysis_for_user,
+    run_watchlist_sentiment_analysis_for_user, log_ai_conversation
+)
 
 # Local helpers previously in main
 import threading
@@ -402,16 +405,21 @@ def api_ai_workflow_latest():
 @ai_bp.route('/api/force-sentiment-analysis', methods=['POST'])
 @login_required
 def force_sentiment_analysis():
-    """Force run sentiment analysis for current user"""
+    """Force run sentiment analysis for current user (portfolio, watchlist, or both)"""
     try:
         user_id = current_user.id
         username = current_user.username
         app = current_app._get_current_object()
+        req_data = request.get_json(silent=True) or {}
+        target = req_data.get('target', 'all')
         
         # Run in a separate thread so valid response returns immediately
         def run_async():
             with app.app_context():
-                run_sentiment_analysis_for_user(user_id, username, force=True)
+                if target in ['all', 'portfolio']:
+                    run_sentiment_analysis_for_user(user_id, username, force=True)
+                if target in ['all', 'watchlist']:
+                    run_watchlist_sentiment_analysis_for_user(user_id, username, force=True)
         
         thread = threading.Thread(target=run_async)
         thread.start()
@@ -473,7 +481,9 @@ def api_ai_settings():
                         'coin_analysis_pre': ai_prompts.coin_analysis_pre or '',
                         'coin_analysis_post': ai_prompts.coin_analysis_post or '',
                         'sentiment_prompt_pre': ai_prompts.sentiment_prompt_pre or '',
-                        'sentiment_prompt_post': ai_prompts.sentiment_prompt_post or ''
+                        'sentiment_prompt_post': ai_prompts.sentiment_prompt_post or '',
+                        'watchlist_sentiment_prompt_pre': getattr(ai_prompts, 'watchlist_sentiment_prompt_pre', '') or '',
+                        'watchlist_sentiment_prompt_post': getattr(ai_prompts, 'watchlist_sentiment_prompt_post', '') or ''
                     }
                     logger.error("=== DEBUG: AI prompts added to settings ===")
                 else:
@@ -527,7 +537,8 @@ def api_ai_settings():
                 'ai_confidence_threshold', 'ai_notifications_enabled', 'ai_analysis_frequency',
                 'ai_cache_duration_hours', 'ai_analysis_window_start', 'ai_analysis_window_end',
                 'ai_max_tokens', 'ai_web_search_enabled', 'tax_manual_invested_updated', 
-                'tax_cost_basis_method'
+                'tax_cost_basis_method', 'sentiment_analysis_frequency_hours',
+                'watchlist_sentiment_analysis_frequency_hours'
             ]
 
             for key, value in data.items():
@@ -544,7 +555,8 @@ def api_ai_settings():
                         'risk_assessment_pre', 'risk_assessment_post',
                         'portfolio_review_pre', 'portfolio_review_post',
                         'coin_analysis_pre', 'coin_analysis_post',
-                        'sentiment_prompt_pre', 'sentiment_prompt_post'
+                        'sentiment_prompt_pre', 'sentiment_prompt_post',
+                        'watchlist_sentiment_prompt_pre', 'watchlist_sentiment_prompt_post'
                     ]
                     for field in prompt_fields:
                         if field in value:
@@ -559,7 +571,7 @@ def api_ai_settings():
                     if key in ['ai_enabled', 'ai_notifications_enabled', 'ai_web_search_enabled']:
                          setattr(user_setting, key, bool(value))
                     # For int fields
-                    elif key in ['ai_cache_duration_hours', 'ai_max_tokens']:
+                    elif key in ['ai_cache_duration_hours', 'ai_max_tokens', 'sentiment_analysis_frequency_hours', 'watchlist_sentiment_analysis_frequency_hours']:
                         try:
                             setattr(user_setting, key, int(value))
                         except:

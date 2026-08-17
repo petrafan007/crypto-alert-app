@@ -106,12 +106,14 @@ def register():
                         coin_analysis_post=defaults.coin_analysis_post,
                         sentiment_prompt_pre=defaults.sentiment_prompt_pre,
                         sentiment_prompt_post=defaults.sentiment_prompt_post,
+                        watchlist_sentiment_prompt_pre=getattr(defaults, 'watchlist_sentiment_prompt_pre', ''),
+                        watchlist_sentiment_prompt_post=getattr(defaults, 'watchlist_sentiment_prompt_post', ''),
                         news_analysis_pre=getattr(defaults, 'news_analysis_pre', ''),
                         news_analysis_post=getattr(defaults, 'news_analysis_post', '')
                     )
                     db.session.add(new_prompts)
                     db.session.commit()
-                    logger.info(f"Seeded 10 AI prompts for new user {new_user.id}")
+                    logger.info(f"Seeded AI prompts for new user {new_user.id}")
             except Exception as prompt_err:
                 logger.warning(f"Failed to seed prompts for new user: {prompt_err}")
             
