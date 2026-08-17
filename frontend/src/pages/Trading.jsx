@@ -1178,15 +1178,15 @@ const Trading = () => {
         orderData.twofa_token = twofaToken;
       }
 
-      // Only send the amount the user actually intends to prioritize
+      // Add quote amounts if quote was prioritized
       if (lastEditedRef.current === 'quote' && quoteQuantity) {
         orderData.quoteQuantity = quoteQuantity;
         orderData.quote_quantity = quoteQuantity;
         orderData.quote_amount = quoteQuantity;
-        // Delete base quantity so the backend calculates it perfectly using the limit/market price
-        delete orderData.quantity;
+        if (!orderData.quantity && orderForm.quantity) {
+          orderData.quantity = orderForm.quantity;
+        }
       } else if (orderData.quantity) {
-        // User prioritized base quantity, do not send quote amount to avoid confusion
         delete orderData.quoteQuantity;
         delete orderData.quote_quantity;
         delete orderData.quote_amount;

@@ -1597,10 +1597,15 @@ def place_test_order():
         data = request.get_json()
         
         # Validate required fields
-        required_fields = ['symbol', 'side', 'type', 'quantity']
+        required_fields = ['symbol', 'side', 'type']
         for field in required_fields:
-            if field not in data:
+            if field not in data or not data[field]:
                 return jsonify({'success': False, 'error': f'Missing required field: {field}'}), 400
+        
+        has_quantity = bool(data.get('quantity'))
+        has_quote = bool(data.get('quoteQuantity') or data.get('quote_quantity') or data.get('quote_amount'))
+        if not has_quantity and not has_quote:
+            return jsonify({'success': False, 'error': 'Missing required field: quantity'}), 400
         
         symbol = data['symbol'].upper()
         base_asset = symbol.replace('USDT', '').replace('USD', '')
@@ -2679,10 +2684,15 @@ def place_real_order():
         data = request.get_json()
         
         # Validate required fields
-        required_fields = ['symbol', 'side', 'type', 'quantity']
+        required_fields = ['symbol', 'side', 'type']
         for field in required_fields:
-            if field not in data:
+            if field not in data or not data[field]:
                 return jsonify({'success': False, 'error': f'Missing required field: {field}'}), 400
+        
+        has_quantity = bool(data.get('quantity'))
+        has_quote = bool(data.get('quoteQuantity') or data.get('quote_quantity') or data.get('quote_amount'))
+        if not has_quantity and not has_quote:
+            return jsonify({'success': False, 'error': 'Missing required field: quantity'}), 400
         
         symbol = data['symbol'].upper()
         side = data['side'].upper()
@@ -3419,18 +3429,29 @@ def place_test_oco_order():
         data = request.get_json()
         
         # Validate required fields for OCO
-        required_fields = ['symbol', 'side', 'quantity', 'price', 'stopPrice', 'stopLimitPrice']
+        required_fields = ['symbol', 'side', 'price', 'stopPrice', 'stopLimitPrice']
         for field in required_fields:
-            if field not in data:
+            if field not in data or data[field] is None or data[field] == '':
                 return jsonify({'success': False, 'error': f'Missing required field: {field}'}), 400
+        
+        has_quantity = bool(data.get('quantity'))
+        has_quote = bool(data.get('quoteQuantity') or data.get('quote_quantity') or data.get('quote_amount'))
+        if not has_quantity and not has_quote:
+            return jsonify({'success': False, 'error': 'Missing required field: quantity'}), 400
         
         symbol = data['symbol'].upper()
         side = data['side'].upper()  # BUY or SELL
-        quantity = float(data['quantity'])
         price = float(data['price'])
         stop_price = float(data['stopPrice'])
         stop_limit_price = float(data['stopLimitPrice'])
         stop_limit_time_in_force = data.get('stopLimitTimeInForce', 'GTC')
+        
+        quantity = _coerce_float(data.get('quantity'), 0.0) or 0.0
+        quote_amount = _coerce_float(
+            data.get('quoteQuantity') or data.get('quote_quantity') or data.get('quote_amount')
+        )
+        if quantity <= 0 and quote_amount and quote_amount > 0 and price > 0:
+            quantity = quote_amount / price
         
         # Validate prices
         if price <= 0 or stop_price <= 0 or stop_limit_price <= 0:
@@ -3617,18 +3638,29 @@ def place_real_oco_order():
         data = request.get_json()
         
         # Validate required fields
-        required_fields = ['symbol', 'side', 'quantity', 'price', 'stopPrice', 'stopLimitPrice']
+        required_fields = ['symbol', 'side', 'price', 'stopPrice', 'stopLimitPrice']
         for field in required_fields:
-            if field not in data:
+            if field not in data or data[field] is None or data[field] == '':
                 return jsonify({'success': False, 'error': f'Missing required field: {field}'}), 400
+        
+        has_quantity = bool(data.get('quantity'))
+        has_quote = bool(data.get('quoteQuantity') or data.get('quote_quantity') or data.get('quote_amount'))
+        if not has_quantity and not has_quote:
+            return jsonify({'success': False, 'error': 'Missing required field: quantity'}), 400
         
         symbol = data['symbol'].upper()
         side = data['side'].upper()
-        quantity = float(data['quantity'])
         price = float(data['price'])
         stop_price = float(data['stopPrice'])
         stop_limit_price = float(data['stopLimitPrice'])
         stop_limit_time_in_force = data.get('stopLimitTimeInForce', 'GTC')
+        
+        quantity = _coerce_float(data.get('quantity'), 0.0) or 0.0
+        quote_amount = _coerce_float(
+            data.get('quoteQuantity') or data.get('quote_quantity') or data.get('quote_amount')
+        )
+        if quantity <= 0 and quote_amount and quote_amount > 0 and price > 0:
+            quantity = quote_amount / price
         
         # Validate prices
         if price <= 0 or stop_price <= 0 or stop_limit_price <= 0:
