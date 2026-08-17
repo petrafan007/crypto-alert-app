@@ -7,19 +7,21 @@ import { useSearchParams } from 'react-router-dom';
 import OnboardingModal from '../components/OnboardingModal';
 
 const getDefaultModel = (provider, options) => {
+  if (!options || !provider) return '';
   const models = options[provider] || [];
-  if (models.length > 0) {
-    // Prefer a non-experimental default if available
-    const nonExp = models.find(m => !m.label.includes('(exp)'));
-    return nonExp ? nonExp.value : models[0].value;
+  if (Array.isArray(models) && models.length > 0) {
+    const nonExp = models.find(m => m && typeof m.label === 'string' && !m.label.includes('(exp)'));
+    return nonExp ? (nonExp.value || nonExp) : (models[0]?.value || models[0] || '');
   }
   return '';
 };
 
 const sanitizeModel = (provider, model, options) => {
+  if (!options || !provider) return model || '';
   const validList = options[provider] || [];
-  const validValues = validList.map((item) => item.value);
-  return validValues.includes(model) ? model : getDefaultModel(provider, options);
+  if (!Array.isArray(validList) || validList.length === 0) return model || '';
+  const validValues = validList.map((item) => (item && typeof item === 'object' ? item.value : item));
+  return (model && validValues.includes(model)) ? model : getDefaultModel(provider, options);
 };
 
 export default function Settings({ isLightMode }) {
@@ -82,8 +84,8 @@ export default function Settings({ isLightMode }) {
   const [messageType, setMessageType] = useState(''); // 'success' or 'error'
   const [testingBinance, setTestingBinance] = useState(false);
   const [testingTrading, setTestingTrading] = useState(false);
-  const [testingOpenAI, setTestingOpenAI] = useState(false);
-  const [testingZAI, setTestingZAI] = useState(false);
+  const [testingPrimaryAi, setTestingPrimaryAi] = useState(false);
+  const [primaryAiTestResult, setPrimaryAiTestResult] = useState(null);
   const [testingBraveApi, setTestingBraveApi] = useState(false);
   const [testingBraveApiFallback, setTestingBraveApiFallback] = useState(false);
   const [braveApiTestResult, setBraveApiTestResult] = useState(null);
@@ -426,55 +428,39 @@ export default function Settings({ isLightMode }) {
     await handleSave();
   };
 
-  // Test OpenAI Connection
-  const testOpenAIConnection = async () => {
-    setTestingOpenAI(true);
-    setMessage('');
-    setMessageType('');
+  // Test Primary AI Connection
+  const testPrimaryAiConnection = async () => {
+    setTestingPrimaryAi(true);
+    setPrimaryAiTestResult(null);
+
+    const provider = settings.ai_provider;
+    let apiKey = '';
+
+    if (provider === 'openai') apiKey = settings.openai_key;
+    else if (provider === 'zai') apiKey = settings.zai_key;
+    else if (provider === 'perplexity') apiKey = settings.perplexity_key;
+    else if (provider === 'gemini') apiKey = settings.gemini_key;
 
     try {
-      const response = await axios.get('/api/test-openai-connection', { withCredentials: true });
+      const response = await axios.post('/api/test-ai-connection-generic', {
+        provider: provider,
+        api_key: apiKey,
+        model: settings.ai_model,
+        is_fallback: false
+      }, { withCredentials: true });
 
-      if (response.data.success) {
-        setMessage('✅ OpenAI API connection successful!');
-        setMessageType('success');
-      } else {
-        setMessage(`❌ ${response.data.message || 'Failed to connect to OpenAI API'}`);
-        setMessageType('error');
-      }
+      setPrimaryAiTestResult({
+        success: response.data.success,
+        message: response.data.message || (response.data.success ? 'AI connection successful!' : 'Connection failed')
+      });
     } catch (error) {
-      console.error('Error testing OpenAI connection:', error);
-      const errorMessage = error.response?.data?.message || error.message || 'Failed to connect to OpenAI API';
-      setMessage(`❌ ${errorMessage}`);
-      setMessageType('error');
+      console.error('Error testing primary AI connection:', error);
+      setPrimaryAiTestResult({
+        success: false,
+        message: error.response?.data?.message || error.message || 'Failed to test AI connection'
+      });
     } finally {
-      setTestingOpenAI(false);
-    }
-  };
-
-  // Test Z.AI Connection
-  const testZAIConnection = async () => {
-    setTestingZAI(true);
-    setMessage('');
-    setMessageType('');
-
-    try {
-      const response = await axios.get('/api/test-zai-connection', { withCredentials: true });
-
-      if (response.data.success) {
-        setMessage('✅ Z.AI API connection successful!');
-        setMessageType('success');
-      } else {
-        setMessage(`❌ ${response.data.message || 'Failed to connect to Z.AI API'}`);
-        setMessageType('error');
-      }
-    } catch (error) {
-      console.error('Error testing Z.AI connection:', error);
-      const errorMessage = error.response?.data?.message || error.message || 'Failed to connect to Z.AI API';
-      setMessage(`❌ ${errorMessage}`);
-      setMessageType('error');
-    } finally {
-      setTestingZAI(false);
+      setTestingPrimaryAi(false);
     }
   };
 
@@ -1382,16 +1368,6 @@ export default function Settings({ isLightMode }) {
               <div className="settings-form-help">
                 Used for AI-powered trading analysis and recommendations
               </div>
-
-              {/* Test OpenAI Connection button */}
-              <button
-                onClick={testOpenAIConnection}
-                disabled={testingOpenAI}
-                className={`settings-button secondary ${testingOpenAI ? 'disabled' : ''}`}
-                style={{ marginTop: '8px' }}
-              >
-                {testingOpenAI ? 'Testing...' : 'Test OpenAI Connection'}
-              </button>
             </div>
           )}
 
@@ -1410,16 +1386,6 @@ export default function Settings({ isLightMode }) {
               <div className="settings-form-help">
                 Used for AI-powered trading analysis and recommendations
               </div>
-
-              {/* Test Z.AI Connection button */}
-              <button
-                onClick={testZAIConnection}
-                disabled={testingZAI}
-                className={`settings-button secondary ${testingZAI ? 'disabled' : ''}`}
-                style={{ marginTop: '8px' }}
-              >
-                {testingZAI ? 'Testing...' : 'Test Z.AI Connection'}
-              </button>
             </div>
           )}
 
@@ -1438,28 +1404,6 @@ export default function Settings({ isLightMode }) {
               <div className="settings-form-help">
                 Used for AI-powered trading analysis and recommendations
               </div>
-              <button
-                onClick={async () => {
-                  setMessage('');
-                  setMessageType('');
-                  try {
-                    const resp = await axios.post('/api/test-perplexity-connection', {
-                      model: settings.ai_model,
-                      perplexity_key: settings.perplexity_key,
-                    }, { withCredentials: true });
-                    setMessage(resp.data.message || '✅ Perplexity connection successful');
-                    setMessageType(resp.data.success ? 'success' : 'error');
-                  } catch (err) {
-                    setMessage(err.response?.data?.message || '❌ Failed to test Perplexity connection');
-                    setMessageType('error');
-                  }
-                }}
-                className="settings-button secondary"
-                style={{ marginTop: '8px' }}
-                disabled={!settings.perplexity_key}
-              >
-                Test AI Integration
-              </button>
             </div>
           )}
 
@@ -1478,30 +1422,25 @@ export default function Settings({ isLightMode }) {
               <div className="settings-form-help">
                 Used for AI-powered trading analysis and recommendations
               </div>
-              <button
-                onClick={async () => {
-                  setMessage('');
-                  setMessageType('');
-                  try {
-                    const resp = await axios.post('/api/test-gemini-connection', {
-                      model: settings.ai_model,
-                      gemini_key: settings.gemini_key,
-                    }, { withCredentials: true });
-                    setMessage(resp.data.message || '✅ Gemini connection successful');
-                    setMessageType(resp.data.success ? 'success' : 'error');
-                  } catch (err) {
-                    setMessage(err.response?.data?.message || '❌ Failed to test Gemini connection');
-                    setMessageType('error');
-                  }
-                }}
-                className="settings-button secondary"
-                style={{ marginTop: '8px' }}
-                disabled={!settings.gemini_key}
-              >
-                Test AI Integration
-              </button>
             </div>
           )}
+
+          {/* Test Primary AI Integration button */}
+          <div className="settings-form-group" style={{ marginTop: '8px' }}>
+            <button
+              onClick={testPrimaryAiConnection}
+              disabled={!settings.ai_provider || testingPrimaryAi}
+              className={`settings-button secondary ${(!settings.ai_provider || testingPrimaryAi) ? 'disabled' : ''}`}
+              style={{ marginTop: '8px' }}
+            >
+              {testingPrimaryAi ? 'Testing...' : 'Test AI Integration'}
+            </button>
+            {primaryAiTestResult && (
+              <div className={`settings-status ${primaryAiTestResult.success ? 'success' : 'error'}`} style={{ marginTop: '8px' }}>
+                {primaryAiTestResult.message}
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Row 2, Right: Fallback AI Integration */}
@@ -1630,7 +1569,7 @@ export default function Settings({ isLightMode }) {
               className={`settings-button secondary ${(!settings.ai_provider_fallback || testingFallback) ? 'disabled' : ''}`}
               style={{ marginTop: '8px' }}
             >
-              {testingFallback ? 'Testing...' : 'Test Fallback AI Connection'}
+              {testingFallback ? 'Testing...' : 'Test AI Integration'}
             </button>
             {fallbackTestResult && (
               <div className={`settings-status ${fallbackTestResult.success ? 'success' : 'error'}`} style={{ marginTop: '8px' }}>

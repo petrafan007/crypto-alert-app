@@ -88,14 +88,15 @@ def test_zai_connection():
         ai_settings = get_user_ai_settings(username)
         # Sanitize model to Z.AI-supported list only
         zai_models = {
-            'glm-4.7', 'glm-4.7-flash', 'glm-4.7-flashx'
+            'glm-4.7', 'glm-4.7-flash', 'glm-4.7-flashx',
+            'glm-4.5', 'glm-4.5-flash', 'glm-4.5-air', 'glm-4-plus', 'glm-5.2'
         }
-        requested_model = payload.get('model')
-        model = requested_model if requested_model in zai_models else 'glm-4.7-flash'
-        key = payload.get('zai_key')
+        requested_model = payload.get('model') or request.args.get('model')
+        model = requested_model if requested_model in zai_models else (ai_settings.get('ai_model') or 'glm-4.7-flash')
+        key = payload.get('zai_key') or request.args.get('zai_key')
 
         cred = get_user_credentials(username)
-        zai_api_key = key if key else decrypt_secret(getattr(cred, '_zai_key', None))
+        zai_api_key = key if (key and key != '********') else decrypt_secret(getattr(cred, '_zai_key', None))
         if not zai_api_key:
             return jsonify(success=False, message='Z.AI API key missing'), 400
         try:
@@ -108,7 +109,11 @@ def test_zai_connection():
                 temperature=0.0
             )
             ok = bool(resp) and resp.get('success')
-            return jsonify(success=bool(ok), message='Z.AI connection OK' if ok else f"Z.AI error: {resp}")
+            if ok:
+                return jsonify(success=True, message=f'Z.AI connection OK ({model})')
+            else:
+                err_msg = resp.get('error') if isinstance(resp, dict) else str(resp)
+                return jsonify(success=False, message=f"Z.AI error: {err_msg}"), 400
         except Exception as e:
             return jsonify(success=False, message=f'Z.AI error: {e}'), 400
     except Exception as e:
@@ -587,6 +592,7 @@ def get_ai_models():
     }
     zai_models = {
         'glm-4.7', 'glm-4.7-flash', 'glm-4.7-flashx',
+        'glm-4.5-flash', 'glm-4.5', 'glm-4.5-air', 'glm-4-plus', 'glm-5.2',
     }
     perplexity_models = {
         'sonar-pro', 'sonar', 'sonar-reasoning',
@@ -609,6 +615,11 @@ def get_ai_models():
         'glm-4.7': 'GLM-4.7',
         'glm-4.7-flash': 'GLM-4.7 Flash',
         'glm-4.7-flashx': 'GLM-4.7 FlashX',
+        'glm-4.5-flash': 'GLM-4.5 Flash (Free)',
+        'glm-4.5': 'GLM-4.5',
+        'glm-4.5-air': 'GLM-4.5 Air',
+        'glm-4-plus': 'GLM-4 Plus',
+        'glm-5.2': 'GLM-5.2',
         'sonar-pro': 'Sonar Pro',
         'sonar': 'Sonar',
         'sonar-reasoning': 'Sonar Reasoning',

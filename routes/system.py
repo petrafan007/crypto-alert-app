@@ -873,9 +873,10 @@ def api_settings():
         # Get user from credentials database
         # No more context switching! Use the consolidated models directly
         cred = Credential.query.filter_by(user_id=current_user.id).first()
-        
         if not cred:
-            return jsonify({"error": "No credentials found"}), 404
+            cred = Credential(user_id=current_user.id, username=username)
+            db.session.add(cred)
+            db.session.commit()
         
         # Get AI settings
         ai_settings = get_user_ai_settings(username)

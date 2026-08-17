@@ -15,7 +15,7 @@ from services.notification_service import (
     send_telegram_alert, save_notification_record, send_telegram_message
 )
 from services.portfolio_service import (
-    record_true_portfolio_value, get_comprehensive_crypto_data_for_user
+    record_true_portfolio_value, compute_portfolio_total_value, record_portfolio_history, get_comprehensive_crypto_data_for_user
 )
 from services.credential_service import get_user_credentials
 
@@ -72,9 +72,28 @@ def set_last_alert_state(user_id, symbol, direction, value, source=None, thresho
 def safe_background_iteration(f):
     def wrapper(*args, **kwargs):
         try:
-            return f(*args, **kwargs)
+            try:
+                db.session.rollback()
+            except Exception:
+                pass
+            res = f(*args, **kwargs)
+            try:
+                db.session.commit()
+            except Exception as commit_err:
+                logger.error(f"Background iteration commit error: {commit_err}")
+                db.session.rollback()
+            return res
         except Exception as e:
             logger.error(f"Background iteration error: {e}")
+            try:
+                db.session.rollback()
+            except Exception:
+                pass
+        finally:
+            try:
+                db.session.remove()
+            except Exception:
+                pass
     return wrapper
 
 class ObjectView(object):
@@ -138,7 +157,10 @@ def portfolio_alert_loop(app):
             def iteration():
                 users = User.query.all()
                 for user in users:
-                    coins = Coin.query.filter_by(user_id=user.id, alert_enabled=True, hidden=False).all()
+                    coins = Coin.query.filter(
+                        Coin.user_id == user.id,
+                        db.or_(Coin.hidden == False, Coin.amount > 0, Coin.force_visible == True)
+                    ).all()
                     for coin in coins:
                         symbol = (coin.symbol or '').upper()
                         price = None
@@ -149,6 +171,7 @@ def portfolio_alert_loop(app):
                                 if price and price > 0:
                                     binance_rate_limiter.record_call(symbol)
                                     coin.current = price
+                                    coin.updated_at = datetime.utcnow()
                                     db.session.commit()
                                 else:
                                     binance_rate_limiter.record_failure(symbol)
@@ -161,6 +184,9 @@ def portfolio_alert_loop(app):
                             price = coin.current if coin.current and coin.current > 0 else None
                         
                         if price is None or coin.avg_entry is None:
+                            continue
+
+                        if not coin.alert_enabled:
                             continue
 
                         down_threshold = None
@@ -213,8 +239,17 @@ def portfolio_alert_loop(app):
                             elif last_alert_up in ("saved", "sent") and price < up_threshold * 0.99:
                                 set_last_alert_state(user.id, symbol, "up", None, "portfolio", norm_up)
 
+                    # Compute and record total portfolio value for history chart
+                    try:
+                        cred_obj = get_user_credentials(user.username)
+                        total_val = compute_portfolio_total_value(user.id, username=user.username, cred=cred_obj)
+                        if total_val > 0:
+                            record_portfolio_history(user.id, round(total_val, 2))
+                    except Exception as val_err:
+                        logger.error(f"Error computing/recording portfolio total for user {user.username}: {val_err}")
+
             iteration()
-            time.sleep(120)
+            time.sleep(60)
 
 def watchlist_alert_loop(app):
     logger.info("=== watchlist_alert_loop STARTED ===")
@@ -224,7 +259,7 @@ def watchlist_alert_loop(app):
             def iteration():
                 users = User.query.all()
                 for user in users:
-                    watchlist_coins = WatchlistCoin.query.filter_by(user_id=user.id, alert_enabled=True, hidden=False).all()
+                    watchlist_coins = WatchlistCoin.query.filter_by(user_id=user.id, hidden=False).all()
                     for coin in watchlist_coins:
                         symbol = (coin.symbol or '').upper()
                         price = None
@@ -248,7 +283,7 @@ def watchlist_alert_loop(app):
                         else:
                             price = getattr(coin, 'current_price', None)
                             
-                        if price is None:
+                        if price is None or not coin.alert_enabled:
                             continue
 
                         if coin.down_alert is not None:
@@ -279,7 +314,7 @@ def watchlist_alert_loop(app):
                             elif last_state in ("saved", "sent") and price < wl_up * 0.99:
                                 set_last_alert_state(user.id, symbol, "up", None, source="watchlist", threshold=wl_up)
             iteration()
-            time.sleep(120)
+            time.sleep(60)
 
 def check_coin_volatility(user, coin, client, table_type):
     """Check for high volatility in a coin and send Telegram alert"""

@@ -556,6 +556,12 @@ def update_coins_from_binance_balances(user_id, balances, client=None):
 
                     existing_coin.amount = total
                     existing_coin.updated_at = datetime.utcnow()
+                    try:
+                        fresh_price = fetch_binance_price(asset)
+                        if fresh_price and fresh_price > 0:
+                            existing_coin.current = fresh_price
+                    except Exception:
+                        pass
                     
                     usd_value = total * (existing_coin.current or 0)
                     if existing_coin.hidden and existing_coin.auto_hidden and usd_value >= 1.00:

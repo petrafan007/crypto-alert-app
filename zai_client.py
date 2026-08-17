@@ -28,18 +28,35 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
 class ZAIClient:
-	"""Wrapper for Z.AI API client with SDK-or-HTTP fallback"""
+	"""Wrapper for Z.AI API client with multi-endpoint and SDK-or-HTTP fallback"""
 	
 	def __init__(self, api_key: str, timeout_seconds: int | None = None):
-		"""Initialize Z.AI client with API key"""
+		"""Initialize Z.AI client with API key and candidate endpoints"""
 		self.api_key = api_key
 		self.client = None
-		self.base_url = "https://api.z.ai/api/paas/v4"
+		
+		# Candidate endpoints in order of priority:
+		# 1. Custom ZAI_BASE_URL if set
+		# 2. Coding Plan endpoint (for users with GLM Coding Plan subscriptions)
+		# 3. Standard Z.AI endpoint
+		# 4. BigModel platform endpoint
+		custom_url = os.getenv("ZAI_BASE_URL")
+		if custom_url:
+			self.candidate_endpoints = [custom_url.rstrip("/")]
+		else:
+			self.candidate_endpoints = [
+				"https://api.z.ai/api/coding/paas/v4",
+				"https://api.z.ai/api/paas/v4",
+				"https://open.bigmodel.cn/api/paas/v4"
+			]
+		self.base_url = self.candidate_endpoints[0]
 		self.timeout = timeout_seconds or int(os.getenv("ZAI_HTTP_TIMEOUT", "60"))
-		# Prepare resilient HTTP session
+		
+		# Prepare resilient HTTP session without swallowing 429 responses into Retry loops
 		self.session = requests.Session()
-		retries = Retry(total=3, backoff_factor=1, status_forcelist=[429, 500, 502, 503, 504], allowed_methods=["POST"])  # type: ignore
+		retries = Retry(total=2, backoff_factor=1, status_forcelist=[500, 502, 503, 504], allowed_methods=["POST"])  # type: ignore
 		self.session.mount("https://", HTTPAdapter(max_retries=retries))
+		
 		if _ZAI_SDK_AVAILABLE and ZaiClient is not None:
 			try:
 				self.client = ZaiClient(api_key=api_key)
@@ -48,8 +65,7 @@ class ZAIClient:
 				self.client = None
 	
 	def _http_chat_completion(self, messages: List[Dict[str, Any]], model: str, max_tokens: int, temperature: float) -> Dict[str, Any]:
-		"""HTTP fallback implementation compatible with OpenAI-style API."""
-		endpoint = f"{self.base_url}/chat/completions"
+		"""HTTP implementation compatible with OpenAI-style API with automatic endpoint discovery."""
 		headers = {
 			"Authorization": f"Bearer {self.api_key}",
 			"Content-Type": "application/json",
@@ -60,30 +76,63 @@ class ZAIClient:
 			"max_tokens": max_tokens,
 			"temperature": temperature,
 		}
-		resp = self.session.post(endpoint, json=payload, headers=headers, timeout=self.timeout)
-		if not resp.ok:
-			# Log detailed error information
-			error_details = f"Z.AI API Error: {resp.status_code} - {resp.reason}"
+
+		last_error = "Unknown error"
+		endpoints_to_try = [self.base_url] + [ep for ep in self.candidate_endpoints if ep != self.base_url]
+
+		for endpoint_base in endpoints_to_try:
+			endpoint = f"{endpoint_base}/chat/completions"
 			try:
-				error_json = resp.json()
-				error_details += f" - Response: {error_json}"
-			except:
-				error_details += f" - Text: {resp.text[:500]}"
-			logger.error(error_details)
-		resp.raise_for_status()
-		data = resp.json()
-		# Normalize to expected shape
-		content = data["choices"][0]["message"]["content"]
-		usage = data.get("usage", {})
+				resp = self.session.post(endpoint, json=payload, headers=headers, timeout=self.timeout)
+				if resp.status_code == 200:
+					self.base_url = endpoint_base  # Pin the working endpoint
+					data = resp.json()
+					choices = data.get("choices", [])
+					if choices:
+						content = choices[0].get("message", {}).get("content", "")
+					else:
+						content = ""
+					usage = data.get("usage", {})
+					return {
+						'success': True,
+						'content': content,
+						'model': model,
+						'usage': {
+							'prompt_tokens': usage.get('prompt_tokens'),
+							'completion_tokens': usage.get('completion_tokens'),
+							'total_tokens': usage.get('total_tokens'),
+						}
+					}
+
+				# Extract detailed error message from response body
+				err_msg = f"{resp.status_code} {resp.reason}"
+				try:
+					err_data = resp.json()
+					if isinstance(err_data, dict):
+						if "error" in err_data:
+							err_obj = err_data["error"]
+							if isinstance(err_obj, dict):
+								err_msg = err_obj.get("message") or err_obj.get("msg") or str(err_obj)
+							else:
+								err_msg = str(err_obj)
+						elif "msg" in err_data:
+							err_msg = err_data["msg"]
+						elif "message" in err_data:
+							err_msg = err_data["message"]
+				except Exception:
+					err_msg = resp.text[:300] or err_msg
+
+				last_error = f"{endpoint_base}: {resp.status_code} - {err_msg}"
+				logger.warning(f"Z.AI request to {endpoint} returned {resp.status_code}: {err_msg}")
+
+			except requests.exceptions.RequestException as req_err:
+				last_error = f"{endpoint_base}: {req_err}"
+				logger.warning(f"Z.AI request to {endpoint} failed: {req_err}")
+
 		return {
-			'success': True,
-			'content': content,
-			'model': model,
-			'usage': {
-				'prompt_tokens': usage.get('prompt_tokens'),
-				'completion_tokens': usage.get('completion_tokens'),
-				'total_tokens': usage.get('total_tokens'),
-			}
+			'success': False,
+			'error': last_error,
+			'content': None
 		}
 	
 	def chat_completion(self, messages: List[Dict[str, Any]], model: str, max_tokens: int = 1000, temperature: float = 0.7) -> Dict[str, Any]:
@@ -93,25 +142,28 @@ class ZAIClient:
 		try:
 			# Prefer SDK if available
 			if self.client is not None:
-				# Some SDKs don't expose timeout; rely on HTTP fallback if SDK errors
-				response = self.client.chat.completions.create(
-					model=model,
-					messages=messages,
-					max_tokens=max_tokens,
-					temperature=temperature
-				)
-				content = response.choices[0].message.content
-				return {
-					'success': True,
-					'content': content,
-					'model': model,
-					'usage': {
-						'prompt_tokens': getattr(response.usage, 'prompt_tokens', None),
-						'completion_tokens': getattr(response.usage, 'completion_tokens', None),
-						'total_tokens': getattr(response.usage, 'total_tokens', None),
+				try:
+					response = self.client.chat.completions.create(
+						model=model,
+						messages=messages,
+						max_tokens=max_tokens,
+						temperature=temperature
+					)
+					content = response.choices[0].message.content
+					return {
+						'success': True,
+						'content': content,
+						'model': model,
+						'usage': {
+							'prompt_tokens': getattr(response.usage, 'prompt_tokens', None),
+							'completion_tokens': getattr(response.usage, 'completion_tokens', None),
+							'total_tokens': getattr(response.usage, 'total_tokens', None),
+						}
 					}
-				}
-			# HTTP fallback
+				except Exception as sdk_err:
+					logger.warning(f"Z.AI SDK call failed ({sdk_err}), falling back to HTTP client...")
+
+			# HTTP implementation with multi-endpoint support
 			return self._http_chat_completion(messages, model, max_tokens, temperature)
 		except Exception as e:
 			logger.error(f"Z.AI API error: {e}")

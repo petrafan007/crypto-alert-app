@@ -168,6 +168,7 @@ def get_user_ai_settings(username: str) -> dict:
         }
         zai_models = {
             'glm-4.7', 'glm-4.7-flash', 'glm-4.7-flashx',
+            'glm-4.5-flash', 'glm-4.5', 'glm-4.5-air', 'glm-4-plus', 'glm-5.2',
         }
         perplexity_models = {
             'sonar-pro', 'sonar', 'sonar-reasoning',
