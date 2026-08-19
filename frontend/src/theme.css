@@ -1,3 +1,40 @@
+.portfolio-performance-table {
+  border-collapse: collapse;
+  color: var(--text-primary, #fff);
+  font-size: 12px;
+}
+
+.portfolio-performance-table th,
+.portfolio-performance-table td {
+  border-bottom: 1px solid rgba(148, 163, 184, 0.25);
+  padding: 8px 7px;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.portfolio-performance-table th:first-child,
+.portfolio-performance-table td:first-child {
+  text-align: left;
+}
+
+.portfolio-performance-table th {
+  color: var(--text-secondary, #aeb9bf);
+  font-weight: 600;
+}
+
+.performance-up {
+  color: #38c172;
+  font-weight: 600;
+}
+
+.performance-down {
+  color: #f56565;
+  font-weight: 600;
+}
+
+.performance-empty {
+  color: var(--text-secondary, #aeb9bf);
+}
 /* Dark theme matching the screenshot */
 body { 
   background-color: var(--bg-primary);

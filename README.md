@@ -81,6 +81,13 @@ The application utilizes a **unified PostgreSQL database**.
 
 ## Version History & Changelog
 
+## v1.41-beta (August 2026)
+
+### Live Portfolio Performance Table
+- Fixed the seven-day coin history endpoint so it returns actual stored samples instead of repeated fallback points.
+- Added a live percentage performance table for qualifying portfolio coins across 7 days, 3 days, 1 day, 12 hours, and 1 hour.
+- Added throttled live price history snapshots during dashboard refreshes.
+
 ## v1.4-beta (August 2026)
 
 ### Granular Portfolio Volatility Alerts

@@ -10,6 +10,7 @@ import { useAuth } from '../components/AuthContext';
 import FearGreedWidget from '../components/FearGreedWidget';
 import CBBIWidget from '../components/CBBIWidget';
 import StakingSummaryWidget from '../components/StakingSummaryWidget';
+import PortfolioPerformanceTable from '../components/PortfolioPerformanceTable';
 
 const TREND_RANGES = [
   { key: '4H', label: '4H' },
@@ -1850,6 +1851,9 @@ function Dashboard({ isLightMode }) {
 
         {/* Staking Summary Widget */}
         <StakingSummaryWidget />
+
+        {/* Live portfolio performance table */}
+        <PortfolioPerformanceTable portfolio={portfolio} isLightMode={isLightMode} />
       </div>
 
       {/* Portfolio Table */}

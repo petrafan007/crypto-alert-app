@@ -33,7 +33,7 @@ def api_pionex_price():
 @market_bp.route("/api/chart_history/<symbol>")
 @login_required
 def chart_history(symbol):
-    """Get price history for the last 7 days and return 7 evenly spaced points using ORM"""
+    """Return actual stored price samples for the last seven days."""
     try:
         from models import PriceHistory
         now = int(time.time())
@@ -48,26 +48,7 @@ def chart_history(symbol):
         if not rows:
             return jsonify({"prices": []})
 
-        # Build 7 points: latest at now, then at now-1d, now-2d, ..., now-6d
-        points = []
-        timestamps = [row.timestamp for row in rows]
-        prices = [row.price for row in rows]
-        
-        for i in range(6, -1, -1):  # 6 days ago to today
-            target_ts = now - i * 24 * 60 * 60
-            # Find the latest price at or before target_ts
-            idx = None
-            for j in range(len(timestamps)):
-                if timestamps[j] > target_ts:
-                    break
-                idx = j
-            
-            if idx is not None:
-                points.append([target_ts * 1000, prices[idx]])
-            else:
-                # If no earlier price, use the earliest available
-                points.append([target_ts * 1000, prices[0]])
-        
+        points = [[int(row.timestamp) * 1000, float(row.price)] for row in rows]
         return jsonify({"prices": points})
     except Exception as e:
         logger.error(f"chart_history: Exception for {symbol}: {e}", exc_info=True)
@@ -167,6 +148,12 @@ def api_coin_data_live():
 
                 current_value = amount * current_price if current_price else 0.0
                 logger.error(f"[LIVE] {symbol} current_value: {current_value}")
+
+                latest_history = PriceHistory.query.filter_by(symbol=symbol).order_by(PriceHistory.timestamp.desc()).first()
+                now_timestamp = int(time.time())
+                if current_price > 0 and (not latest_history or now_timestamp - int(latest_history.timestamp) >= 60):
+                    db.session.add(PriceHistory(symbol=symbol, price=current_price, timestamp=now_timestamp))
+                    price_changed = True
 
                 if apply_auto_visibility_rules(coin, current_value):
                     visibility_changed = True
