@@ -900,6 +900,7 @@ def api_settings():
                 'ai_max_tokens', 'ai_web_search_enabled', 'tax_manual_invested_updated', 
                 'tax_cost_basis_method', 'copilot_chat_pre', 'copilot_chat_post',
                 'sentiment_analysis_frequency_hours', 'watchlist_sentiment_analysis_frequency_hours',
+                'volatility_hours',
                 'ai_provider_fallback', 'ai_model_fallback',
                 'ai_reasoning_level', 'ai_reasoning_level_fallback'
             ]
@@ -927,9 +928,12 @@ def api_settings():
                 if key in allowed_fields:
                     if key in ['ai_enabled', 'ai_notifications_enabled', 'ai_web_search_enabled']:
                          setattr(user_setting, key, bool(value))
-                    elif key in ['ai_cache_duration_hours', 'ai_max_tokens', 'sentiment_analysis_frequency_hours', 'watchlist_sentiment_analysis_frequency_hours']:
+                    elif key in ['ai_cache_duration_hours', 'ai_max_tokens', 'sentiment_analysis_frequency_hours', 'watchlist_sentiment_analysis_frequency_hours', 'volatility_hours']:
                         try:
-                            setattr(user_setting, key, int(value))
+                            parsed_value = int(value)
+                            if key == 'volatility_hours' and parsed_value < 1:
+                                raise ValueError('Volatility Hours must be at least 1')
+                            setattr(user_setting, key, parsed_value)
                         except:
                             pass
                     elif key in ['ai_confidence_threshold']:

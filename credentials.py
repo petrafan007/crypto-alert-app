@@ -251,6 +251,7 @@ class UserSetting(db.Model):
     copilot_chat_post = db.Column(db.Text)
     sentiment_analysis_frequency_hours = db.Column(db.Integer, default=24)
     watchlist_sentiment_analysis_frequency_hours = db.Column(db.Integer, default=24)
+    volatility_hours = db.Column(db.Integer, default=24)
     ai_reasoning_level = db.Column(db.String, default='medium')
     ai_reasoning_level_fallback = db.Column(db.String, default='medium')
 

@@ -61,6 +61,7 @@ export default function Settings({ isLightMode }) {
     ai_analysis_frequency: 'daily',
     sentiment_analysis_frequency_hours: 24,
     watchlist_sentiment_analysis_frequency_hours: 24,
+    volatility_hours: 24,
     tax_cost_basis_method: 'fifo',
     ai_prompts: {
       market_analysis_pre: '',
@@ -298,6 +299,11 @@ export default function Settings({ isLightMode }) {
             if (!settings.gemini_key) errors.push("Gemini API Key is required.");
             break;
         }
+      }
+
+      const volatilityHours = Number(settings.volatility_hours);
+      if (!Number.isInteger(volatilityHours) || volatilityHours < 1) {
+        errors.push("Volatility Hours must be a whole number of at least 1.");
       }
 
       if (errors.length > 0) {
@@ -2450,6 +2456,37 @@ export default function Settings({ isLightMode }) {
               Used to calculate realized/unrealized gains. FIFO is standard for most jurisdictions.
             </p>
           </div>
+        </div>
+      </div>
+
+      {/* Portfolio Table Settings */}
+      <div className="settings-page-section" style={{ marginTop: '24px' }}>
+        <h3>Portfolio Table Settings</h3>
+        <div style={{ maxWidth: 360, marginTop: 16 }}>
+          <label style={{ display: 'block', marginBottom: 8, color: '#fff' }}>
+            Volatility Hours
+          </label>
+          <input
+            type="number"
+            min="1"
+            max="999"
+            step="1"
+            value={settings.volatility_hours ?? 24}
+            onChange={(e) => handleInputChange('volatility_hours', e.target.value)}
+            style={{
+              width: '100%',
+              padding: '12px',
+              borderRadius: 6,
+              background: '#1a1f23',
+              color: '#fff',
+              border: '1px solid #444',
+              boxSizing: 'border-box',
+              fontSize: '16px'
+            }}
+          />
+          <p className="settings-form-help">
+            Volatility alerts compare each coin&apos;s current price with its price at the start of this many hours.
+          </p>
         </div>
       </div>
 

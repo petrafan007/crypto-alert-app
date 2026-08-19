@@ -81,6 +81,12 @@ The application utilizes a **unified PostgreSQL database**.
 
 ## Version History & Changelog
 
+## v1.4-beta (August 2026)
+
+### Granular Portfolio Volatility Alerts
+- Added a Portfolio Table Settings control for configuring the volatility alert window in hours.
+- Volatility alerts now compare current prices against Binance.US hourly candles for the configured window, defaulting to 24 hours.
+
 ## v1.32-beta (August 2026)
 
 ### Settings UI Overhaul

@@ -25,6 +25,7 @@ def init_db(app=None):
             ("user_settings", "ai_provider_fallback", "VARCHAR"),
             ("user_settings", "ai_model_fallback", "VARCHAR"),
             ("user_settings", "watchlist_sentiment_analysis_frequency_hours", "INTEGER DEFAULT 24"),
+            ("user_settings", "volatility_hours", "INTEGER DEFAULT 24"),
             ("coins", "sentiment_reason", "TEXT"),
             ("watchlist", "sentiment_reason", "TEXT"),
             ("coins", "cached_news", "TEXT"),

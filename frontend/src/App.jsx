@@ -376,7 +376,7 @@ export default function App() {
           fontSize: '12px',
           margin: 0
         }}>
-          Crypto Alert App version 1.35-beta. © 2026 Cavallaro Services. All rights reserved.
+          Crypto Alert App version 1.4-beta. © 2026 Cavallaro Services. All rights reserved.
         </p>
       </footer>
 

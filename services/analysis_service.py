@@ -109,6 +109,7 @@ def get_user_ai_settings(username: str) -> dict:
             },
             'copilot_chat_pre': '',
             'copilot_chat_post': '',
+            'volatility_hours': 24,
             'ai_reasoning_level': 'medium',
             'ai_reasoning_level_fallback': 'medium'
         }
@@ -153,6 +154,9 @@ def get_user_ai_settings(username: str) -> dict:
 
                 if hasattr(user_setting, 'watchlist_sentiment_analysis_frequency_hours'):
                     settings['watchlist_sentiment_analysis_frequency_hours'] = user_setting.watchlist_sentiment_analysis_frequency_hours or 24
+
+                if hasattr(user_setting, 'volatility_hours'):
+                    settings['volatility_hours'] = user_setting.volatility_hours or 24
 
                 if hasattr(user_setting, 'ai_reasoning_level'):
                     settings['ai_reasoning_level'] = user_setting.ai_reasoning_level or 'medium'

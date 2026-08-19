@@ -7,7 +7,7 @@ from flask import current_app
 from core.extensions import db
 from log import logger
 from models import Coin, WatchlistCoin, Notification
-from credentials import User, Credential
+from credentials import User, Credential, UserSetting
 from services.binance_service import (
     sync_binance_account, binance_rate_limiter, fetch_binance_price
 )
@@ -316,24 +316,35 @@ def watchlist_alert_loop(app):
             iteration()
             time.sleep(60)
 
-def check_coin_volatility(user, coin, ticker_map, table_type):
-    """Check for high volatility in a coin and send Telegram alert using pre-fetched ticker map"""
+def check_coin_volatility(user, coin, ticker_map, client, volatility_hours, table_type):
+    """Check volatility against the configured number of completed hourly candles."""
     try:
         symbol = coin.symbol.upper()
         volatility_threshold = float(coin.volatility_pct or 0)
         if volatility_threshold <= 0: return
 
         ticker = ticker_map.get(f"{symbol}USDT") or ticker_map.get(f"{symbol}USD") or ticker_map.get(symbol)
-        if not ticker or 'priceChangePercent' not in ticker:
+        if not ticker or 'lastPrice' not in ticker:
             return
 
-        price_change_pct = float(ticker['priceChangePercent'])
+        pair = ticker.get('symbol')
+        if not pair:
+            return
+        klines = client.get_klines(symbol=pair, interval='1h', limit=volatility_hours + 1)
+        if len(klines) < 2:
+            return
+
+        start_price = float(klines[0][1])
+        current_price = float(ticker['lastPrice'])
+        if start_price <= 0:
+            return
+        price_change_pct = ((current_price - start_price) / start_price) * 100
 
         if abs(price_change_pct) >= volatility_threshold:
             direction = "UP" if price_change_pct > 0 else "DOWN"
             last_alert = get_last_alert_state(user.id, symbol, "volatility", source=table_type, threshold=volatility_threshold)
             if last_alert != "sent":
-                msg = f"⚠️ VOLATILITY ALERT: {symbol} is {direction} {abs(price_change_pct):.2f}% in 24h!"
+                msg = f"⚠️ VOLATILITY ALERT: {symbol} is {direction} {abs(price_change_pct):.2f}% in {volatility_hours}h!"
                 send_telegram_message(user.username, msg)
                 set_last_alert_state(user.id, symbol, "volatility", "sent", source=table_type, threshold=volatility_threshold)
         else:
@@ -349,6 +360,9 @@ def volatility_alert_loop(app):
             def iteration():
                 users = User.query.all()
                 for user in users:
+                    user_settings = UserSetting.query.filter_by(user_id=user.id).first()
+                    volatility_hours = int(getattr(user_settings, 'volatility_hours', 24) or 24)
+                    volatility_hours = max(1, min(volatility_hours, 999))
                     coins = Coin.query.filter(Coin.user_id == user.id, Coin.volatility_pct > 0).all()
                     watchlist_coins = WatchlistCoin.query.filter(WatchlistCoin.user_id == user.id, WatchlistCoin.volatility_pct > 0).all()
                     
@@ -365,13 +379,13 @@ def volatility_alert_loop(app):
                         tickers = client.get_ticker()
                         ticker_map = {t['symbol']: t for t in tickers if isinstance(t, dict) and 'symbol' in t}
                     except Exception as tick_err:
-                        logger.error(f"Failed to fetch bulk 24h tickers for volatility check (User {user.username}): {tick_err}")
+                        logger.error(f"Failed to fetch tickers for volatility check (User {user.username}): {tick_err}")
                         continue
 
                     for coin in coins:
-                        check_coin_volatility(user, coin, ticker_map, 'portfolio')
+                        check_coin_volatility(user, coin, ticker_map, client, volatility_hours, 'portfolio')
                     for coin in watchlist_coins:
-                        check_coin_volatility(user, coin, ticker_map, 'watchlist')
+                        check_coin_volatility(user, coin, ticker_map, client, volatility_hours, 'watchlist')
             iteration()
             time.sleep(300)
 
