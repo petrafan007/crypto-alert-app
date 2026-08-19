@@ -6,6 +6,8 @@ import { FaToggleOn, FaToggleOff, FaInfoCircle } from 'react-icons/fa';
 import { useSearchParams } from 'react-router-dom';
 import OnboardingModal from '../components/OnboardingModal';
 
+const CURRENT_APP_VERSION = 'v1.4-beta';
+
 const getDefaultModel = (provider, options) => {
   if (!options || !provider) return '';
   const models = options[provider] || [];
@@ -589,22 +591,7 @@ export default function Settings({ isLightMode }) {
     setIsFetchingVersion(true);
     setAvailableVersion(null);
     try {
-      const res = await axios.get('https://api.github.com/repos/petrafan007/crypto-alert-app/releases');
-      const releases = res.data;
-      if (releases && releases.length > 0) {
-        let targetRelease = null;
-        if (wantsBeta) {
-          targetRelease = releases[0]; // The absolute latest
-        } else {
-          // Find first release that is not a prerelease and tag doesn't contain 'beta'
-          targetRelease = releases.find(r => !r.prerelease && !r.tag_name.toLowerCase().includes('beta'));
-        }
-        if (targetRelease) {
-          setAvailableVersion(targetRelease.tag_name);
-        }
-      }
-    } catch (err) {
-      console.error("Failed to fetch GitHub releases", err);
+      setAvailableVersion(CURRENT_APP_VERSION);
     } finally {
       setIsFetchingVersion(false);
     }
