@@ -289,33 +289,40 @@
   background: var(--bg-tertiary, #0f172a);
 }
 
-.prediction-ledger-table {
+.ai-dashboard .prediction-ledger-table {
   width: 100%;
   border-collapse: collapse;
   font-size: 13px;
 }
 
-.prediction-ledger-table th {
-  background: var(--bg-secondary, #1e293b);
-  color: var(--text-primary, #f8fafc);
+.ai-dashboard .prediction-ledger-table th {
+  background: var(--bg-secondary, #1e293b) !important;
+  color: var(--text-primary, #f8fafc) !important;
   font-weight: 700;
   text-align: left;
   padding: 11px 12px;
-  border-bottom: 1px solid var(--border-color, #334155);
+  border-bottom: 1px solid var(--border-color, #334155) !important;
   position: sticky;
   top: 0;
   z-index: 5;
 }
 
-.prediction-ledger-table td {
+.ai-dashboard .prediction-ledger-table td,
+.ai-dashboard .prediction-ledger-table tr td,
+.ai-dashboard .prediction-ledger-table tbody tr td,
+.ai-dashboard .prediction-ledger-table tbody tr:nth-child(even) td,
+.ai-dashboard .prediction-ledger-table tbody tr:nth-child(odd) td {
   padding: 11px 12px;
-  border-bottom: 1px solid var(--border-color, rgba(255, 255, 255, 0.08));
-  color: var(--text-primary, #f1f5f9);
-  background: var(--bg-tertiary, #0f172a);
+  border-bottom: 1px solid var(--border-color, #334155) !important;
+  color: var(--text-primary, #f1f5f9) !important;
+  background: var(--bg-tertiary, #0f172a) !important;
 }
 
-.prediction-ledger-table tr:hover td {
-  background: rgba(255, 255, 255, 0.05);
+.ai-dashboard .prediction-ledger-table tr:hover td,
+.ai-dashboard .prediction-ledger-table tbody tr:hover td,
+.ai-dashboard .prediction-ledger-table tbody tr:nth-child(even):hover td,
+.ai-dashboard .prediction-ledger-table tbody tr:nth-child(odd):hover td {
+  background: rgba(255, 255, 255, 0.06) !important;
 }
 
 .date-cell {
@@ -698,20 +705,27 @@ body.light-mode .prediction-table-container {
   border-color: #cbd5e1;
 }
 
-body.light-mode .prediction-ledger-table th {
-  background: #f8fafc;
-  color: #1e293b;
-  border-color: #e2e8f0;
+body.light-mode .ai-dashboard .prediction-ledger-table th {
+  background: #f1f5f9 !important;
+  color: #0f172a !important;
+  border-bottom-color: #cbd5e1 !important;
 }
 
-body.light-mode .prediction-ledger-table td {
-  background: #ffffff;
-  color: #1e293b;
-  border-color: #e2e8f0;
+body.light-mode .ai-dashboard .prediction-ledger-table td,
+body.light-mode .ai-dashboard .prediction-ledger-table tr td,
+body.light-mode .ai-dashboard .prediction-ledger-table tbody tr td,
+body.light-mode .ai-dashboard .prediction-ledger-table tbody tr:nth-child(even) td,
+body.light-mode .ai-dashboard .prediction-ledger-table tbody tr:nth-child(odd) td {
+  background: #ffffff !important;
+  color: #0f172a !important;
+  border-bottom-color: #e2e8f0 !important;
 }
 
-body.light-mode .prediction-ledger-table tr:hover td {
-  background: #f1f5f9;
+body.light-mode .ai-dashboard .prediction-ledger-table tr:hover td,
+body.light-mode .ai-dashboard .prediction-ledger-table tbody tr:hover td,
+body.light-mode .ai-dashboard .prediction-ledger-table tbody tr:nth-child(even):hover td,
+body.light-mode .ai-dashboard .prediction-ledger-table tbody tr:nth-child(odd):hover td {
+  background: #f8fafc !important;
 }
 
 body.light-mode .symbol-cell .coin-pill {

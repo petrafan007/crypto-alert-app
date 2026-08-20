@@ -319,7 +319,7 @@ const AIDashboard = () => {
     }
 
     const containerStyles = window.getComputedStyle(container);
-    const width = container.clientWidth || 800;
+    const width = Math.max(container.clientWidth - 12, 300);
     const height = 340;
 
     const bgCol = isLightMode ? '#ffffff' : '#0f172a';
@@ -345,11 +345,18 @@ const AIDashboard = () => {
         borderColor: borderCol,
         autoScale: true,
         entireTextOnly: false,
+        scaleMargins: {
+          top: 0.1,
+          bottom: 0.1,
+        },
+        minimumWidth: 70,
       },
       timeScale: {
         borderColor: borderCol,
         timeVisible: true,
         secondsVisible: false,
+        rightOffset: 12,
+        barSpacing: 8,
       },
       handleScroll: {
         mouseWheel: true,

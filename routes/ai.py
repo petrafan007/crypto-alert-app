@@ -511,25 +511,30 @@ def api_ai_sentiment_accuracy():
 
         eastern = timezone('US/Eastern')
         now_utc = datetime.now(dt_tz.utc)
+        STABLECOINS = {'USDT', 'USDC', 'USD', 'BUSD', 'DAI', 'TUSD', 'FDUSD', 'USDD', 'USDP'}
 
-        # 1. Gather all user symbols from portfolio and watchlist
+        # 1. Gather all user symbols from portfolio and watchlist (excluding stablecoins)
         user_coins = Coin.query.filter_by(user_id=user_id).filter(db.or_(Coin.hidden == False, Coin.hidden == None)).all()
         user_wl = WatchlistCoin.query.filter_by(user_id=user_id).filter(db.or_(WatchlistCoin.hidden == False, WatchlistCoin.hidden == None)).all()
 
         available_symbols_set = set()
         for c in user_coins:
             if c.symbol:
-                available_symbols_set.add(c.symbol.upper().strip())
+                sym = c.symbol.upper().strip()
+                if sym not in STABLECOINS:
+                    available_symbols_set.add(sym)
         for w in user_wl:
             if w.symbol:
-                available_symbols_set.add(w.symbol.upper().strip())
+                sym = w.symbol.upper().strip()
+                if sym not in STABLECOINS:
+                    available_symbols_set.add(sym)
 
-        # Ensure seed records exist in SentimentHistory for all active coins
+        # Ensure seed records exist in SentimentHistory for all active non-stablecoin coins
         existing_history_symbols = {r[0] for r in db.session.query(SentimentHistory.symbol).filter_by(user_id=user_id).distinct().all()}
         
         for c in user_coins:
             sym = c.symbol.upper().strip() if c.symbol else None
-            if sym and sym not in existing_history_symbols:
+            if sym and sym not in STABLECOINS and sym not in existing_history_symbols:
                 c_price = float(getattr(c, 'current', 0.0) or getattr(c, 'avg_entry', 0.0) or 0.0)
                 if c_price <= 0:
                     try:
@@ -555,7 +560,7 @@ def api_ai_sentiment_accuracy():
 
         for w in user_wl:
             sym = w.symbol.upper().strip() if w.symbol else None
-            if sym and sym not in existing_history_symbols:
+            if sym and sym not in STABLECOINS and sym not in existing_history_symbols:
                 w_price = float(getattr(w, 'current_price', 0.0) or 0.0)
                 if w_price <= 0:
                     try:
@@ -580,7 +585,7 @@ def api_ai_sentiment_accuracy():
                 db.session.commit()
 
         # 2. Query SentimentHistory
-        query = SentimentHistory.query.filter_by(user_id=user_id)
+        query = SentimentHistory.query.filter_by(user_id=user_id).filter(~SentimentHistory.symbol.in_(list(STABLECOINS)))
 
         # Timeframe filter
         cutoff = None
