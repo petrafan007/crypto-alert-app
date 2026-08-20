@@ -319,7 +319,7 @@ const AIDashboard = () => {
     }
 
     const containerStyles = window.getComputedStyle(container);
-    const width = Math.max(container.clientWidth - 12, 300);
+    const width = Math.max(container.clientWidth - 20, 300);
     const height = 340;
 
     const bgCol = isLightMode ? '#ffffff' : '#0f172a';
@@ -344,19 +344,21 @@ const AIDashboard = () => {
       rightPriceScale: {
         borderColor: borderCol,
         autoScale: true,
-        entireTextOnly: false,
+        entireTextOnly: true,
+        alignLabels: true,
         scaleMargins: {
-          top: 0.1,
-          bottom: 0.1,
+          top: 0.12,
+          bottom: 0.12,
         },
-        minimumWidth: 70,
+        minimumWidth: 80,
       },
       timeScale: {
         borderColor: borderCol,
         timeVisible: true,
         secondsVisible: false,
-        rightOffset: 12,
-        barSpacing: 8,
+        rightOffset: 16,
+        barSpacing: 9,
+        minBarSpacing: 4,
       },
       handleScroll: {
         mouseWheel: true,
@@ -462,7 +464,7 @@ const AIDashboard = () => {
     // Resize handler
     const handleResize = () => {
       if (chartContainerRef.current && chartInstanceRef.current) {
-        chartInstanceRef.current.applyOptions({ width: chartContainerRef.current.clientWidth });
+        chartInstanceRef.current.applyOptions({ width: Math.max(chartContainerRef.current.clientWidth - 20, 300) });
       }
     };
     window.addEventListener('resize', handleResize);
@@ -782,12 +784,12 @@ const AIDashboard = () => {
               <table className="prediction-ledger-table">
                 <thead>
                   <tr>
-                    <th>Date (EDT)</th>
-                    <th>Time (EDT)</th>
                     <th>Coin</th>
-                    <th>AI Recommendation</th>
+                    <th>Live Price</th>
                     <th>Signal Price</th>
-                    <th>Subsequent / Live Price</th>
+                    <th>Date</th>
+                    <th>Time</th>
+                    <th>AI Recommendation</th>
                     <th>Outcome</th>
                   </tr>
                 </thead>
@@ -799,26 +801,26 @@ const AIDashboard = () => {
                       const signalBadgeClass = isBullish ? 'badge-buy' : isBearish ? 'badge-sell' : 'badge-watch';
 
                       return (
-                        <tr key={row.id} title={row.sentiment_reason || ''}>
-                          <td className="date-cell">{row.date}</td>
-                          <td className="time-cell">{row.time}</td>
+                        <tr key={row.id}>
                           <td className="symbol-cell">
                             <span className="coin-pill">{row.symbol}</span>
                           </td>
-                          <td>
-                            <span className={`signal-pill ${signalBadgeClass}`}>
-                              {row.sentiment}
-                            </span>
+                          <td className="price-cell">
+                            ${parseFloat(row.evaluation_price || row.current_price || 0) > 100
+                              ? parseFloat(row.evaluation_price || row.current_price || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })
+                              : parseFloat(row.evaluation_price || row.current_price || 0).toFixed(4)}
                           </td>
                           <td className="price-cell">
                             ${parseFloat(row.price_at_prediction || 0) > 100
                               ? parseFloat(row.price_at_prediction || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })
                               : parseFloat(row.price_at_prediction || 0).toFixed(4)}
                           </td>
-                          <td className="price-cell">
-                            ${parseFloat(row.evaluation_price || 0) > 100
-                              ? parseFloat(row.evaluation_price || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })
-                              : parseFloat(row.evaluation_price || 0).toFixed(4)}
+                          <td className="date-cell">{row.date}</td>
+                          <td className="time-cell">{row.time}</td>
+                          <td>
+                            <span className={`signal-pill ${signalBadgeClass}`} title={row.sentiment_reason || ''}>
+                              {row.sentiment}
+                            </span>
                           </td>
                           <td>
                             {row.outcome_status === 'correct' ? (
