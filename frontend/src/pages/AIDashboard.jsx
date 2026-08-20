@@ -782,13 +782,13 @@ const AIDashboard = () => {
               <table className="prediction-ledger-table">
                 <thead>
                   <tr>
-                    <th>Date & Time (EDT)</th>
+                    <th>Date (EDT)</th>
+                    <th>Time (EDT)</th>
                     <th>Coin</th>
                     <th>AI Recommendation</th>
                     <th>Signal Price</th>
                     <th>Subsequent / Live Price</th>
                     <th>Outcome</th>
-                    <th>AI Model (Tier)</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -800,7 +800,8 @@ const AIDashboard = () => {
 
                       return (
                         <tr key={row.id} title={row.sentiment_reason || ''}>
-                          <td className="date-cell">{row.formatted_datetime || `${row.date} ${row.time}`}</td>
+                          <td className="date-cell">{row.date}</td>
+                          <td className="time-cell">{row.time}</td>
                           <td className="symbol-cell">
                             <span className="coin-pill">{row.symbol}</span>
                           </td>
@@ -833,11 +834,6 @@ const AIDashboard = () => {
                                 ⏳ Active Tracking
                               </span>
                             )}
-                          </td>
-                          <td className="model-cell">
-                            <span className="model-tag" title={`Tier: ${getTierName(row.tier)}\nProvider: ${getProviderName(row.provider)}\nModel: ${row.model}`}>
-                              {row.model || getProviderName(row.provider)} ({getTierName(row.tier)})
-                            </span>
                           </td>
                         </tr>
                       );

@@ -25,14 +25,14 @@ cd "$PROJECT_DIR"
 
 # 2. Pull the latest code from GitHub
 log "Pulling latest changes from petrafan007/crypto-alert-app..."
-# Assuming remote is already set, or we can force it
-git fetch origin --tags || log "Warning: Git fetch tags failed."
+git fetch origin --tags -f || log "Warning: Git fetch tags failed."
 git checkout main || log "Warning: Git checkout main failed."
 git reset --hard origin/main || log "Warning: Git reset failed."
 
 if [ -n "$TARGET_VERSION" ]; then
     log "Checking out target version: $TARGET_VERSION"
-    git checkout "$TARGET_VERSION" || log "Error: Git checkout $TARGET_VERSION failed."
+    git checkout -f "$TARGET_VERSION" || log "Error: Git checkout $TARGET_VERSION failed."
+    git reset --hard "$TARGET_VERSION" || log "Warning: Git reset to $TARGET_VERSION failed."
 fi
 # 3. Update Python dependencies
 log "Updating Python dependencies..."
