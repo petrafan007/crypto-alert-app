@@ -206,21 +206,20 @@
   background: transparent !important;
 }
 
-.chart-viewport-wrapper .tv-lightweight-charts table,
-.chart-viewport-wrapper .tv-lightweight-charts tbody,
-.chart-viewport-wrapper .tv-lightweight-charts tr,
-.chart-viewport-wrapper .tv-lightweight-charts td,
-.chart-viewport-wrapper .tv-lightweight-charts th {
+.chart-viewport-wrapper .tv-lightweight-charts table {
   margin: 0 !important;
   padding: 0 !important;
   border: none !important;
+  border-collapse: collapse !important;
   background: transparent !important;
-  table-layout: auto !important;
+  table-layout: fixed !important;
   box-shadow: none !important;
-  text-align: left !important;
-  overflow: visible !important;
-  height: auto !important;
-  width: auto !important;
+}
+
+.chart-viewport-wrapper .tv-lightweight-charts td {
+  padding: 0 !important;
+  border: none !important;
+  background: transparent !important;
 }
 
 .chart-viewport-wrapper .tv-lightweight-charts tr:hover td,
@@ -394,14 +393,15 @@
 
 .symbol-cell {
   text-align: center !important;
+  vertical-align: middle !important;
 }
 
 .coin-cell-content {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
   gap: 6px;
-  margin: 0 auto;
+  width: 100% !important;
   cursor: help;
 }
 
