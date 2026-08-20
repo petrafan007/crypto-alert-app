@@ -22,7 +22,7 @@ ChartJS.register(
   Legend
 );
 
-const PriceHistoryPopup = ({ symbol, isVisible, position, onClose, onChartClick }) => {
+const PriceHistoryPopup = ({ symbol, isVisible, position, onClose, onMouseEnter, onChartClick }) => {
   const [priceData, setPriceData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -73,11 +73,20 @@ const PriceHistoryPopup = ({ symbol, isVisible, position, onClose, onChartClick 
         backgroundColor: 'rgba(49, 130, 206, 0.3)', // Translucent blue area
         borderWidth: 2,
         fill: true,
-        tension: 0.3,
+        tension: 0.4, // Smoother line
         pointBackgroundColor: '#3182ce', // Blue dots
         pointBorderColor: '#fff', // White border
         pointBorderWidth: 1,
-        pointRadius: 2, // Smaller dots like portfolio trend
+        pointRadius: function(context) {
+          const index = context.dataIndex;
+          if (index === 0) return 2; // Show first point
+          if (!priceData || !priceData[index] || !priceData[index - 1]) return 0;
+          
+          // Show one dot per day
+          const currDate = new Date(priceData[index][0]).getDate();
+          const prevDate = new Date(priceData[index - 1][0]).getDate();
+          return currDate !== prevDate ? 2 : 0;
+        },
         pointHoverRadius: 4,
       },
     ],
@@ -173,7 +182,7 @@ const PriceHistoryPopup = ({ symbol, isVisible, position, onClose, onChartClick 
         maxWidth: '400px',
         pointerEvents: 'auto',
       }}
-      onMouseEnter={() => {}} // Keep popup open when hovering over it
+      onMouseEnter={onMouseEnter}
       onMouseLeave={onClose}
     >
       <div style={{ 

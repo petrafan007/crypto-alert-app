@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import useNotificationPoller from '../hooks/useNotificationPoller';
 import axios from 'axios';
@@ -133,25 +133,40 @@ function Dashboard({ isLightMode }) {
   };
 
 
+  const hoverTimeoutRef = useRef(null);
+
   // Hover popup functions
   const handleSymbolHover = (symbol, event) => {
+    if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current);
     const rect = event.currentTarget.getBoundingClientRect();
+    
+    // Prevent cutting off on edges
+    let xPos = rect.left + rect.width / 2 - 150;
+    if (xPos < 10) xPos = 10;
+    if (xPos + 350 > window.innerWidth) xPos = window.innerWidth - 350;
+    
     setHoverPopup({
       isVisible: true,
       symbol: symbol,
       position: {
-        x: rect.left + rect.width / 2 - 150, // Center above symbol (popup width is ~300px)
-        y: rect.top - 250 // Position above symbol
+        x: xPos,
+        y: Math.max(10, rect.top - 260) // Position above symbol securely
       }
     });
   };
 
   const handleSymbolLeave = () => {
-    setHoverPopup({
-      isVisible: false,
-      symbol: null,
-      position: { x: 0, y: 0 }
-    });
+    hoverTimeoutRef.current = setTimeout(() => {
+      setHoverPopup({
+        isVisible: false,
+        symbol: null,
+        position: { x: 0, y: 0 }
+      });
+    }, 200);
+  };
+
+  const handlePopupMouseEnter = () => {
+    if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current);
   };
 
   const handleChartClick = (symbol) => {
@@ -2241,6 +2256,7 @@ function Dashboard({ isLightMode }) {
         isVisible={hoverPopup.isVisible}
         position={hoverPopup.position}
         onClose={handleSymbolLeave}
+        onMouseEnter={handlePopupMouseEnter}
         onChartClick={handleChartClick}
       />
 
