@@ -2597,7 +2597,7 @@ def api_portfolio_review_workflow():
 
         # Build non-stablecoin user holdings summary
         from models import Coin
-        coins = Coin.query.filter_by(user_id=user_id, hidden=False).all()
+        coins = Coin.query.filter(Coin.user_id == user_id, Coin.hidden == False, Coin.amount > 0).all()
         non_stablecoins = [c for c in coins if not is_stablecoin(c.symbol)]
         coin_lines = []
         for c in non_stablecoins:

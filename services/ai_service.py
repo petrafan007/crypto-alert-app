@@ -58,8 +58,8 @@ def web_search(query, max_results=2, username=None):
         try:
             cred = get_user_credentials(username)
             if cred:
-                brave_api_key = decrypt_secret(getattr(cred, '_brave_key', None))
-                brave_api_key_fallback = decrypt_secret(getattr(cred, 'brave_key_fallback', None))
+                brave_api_key = cred.brave_search_api_key
+                brave_api_key_fallback = cred.brave_search_api_key_fallback
                 
                 for key_name, api_key in [('primary', brave_api_key), ('fallback', brave_api_key_fallback)]:
                     if not api_key or not api_key.strip():
