@@ -63,31 +63,62 @@ const PriceHistoryPopup = ({ symbol, isVisible, position, onClose, onMouseEnter,
     });
   };
 
-  const chartData = priceData ? {
-    labels: priceData.map(point => formatDate(point[0])),
+  const processedData = React.useMemo(() => {
+    if (!priceData || priceData.length === 0) return null;
+    
+    const daysMap = {};
+    priceData.forEach(point => {
+      const d = new Date(point[0]);
+      const dateStr = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+      daysMap[dateStr] = point[1]; // Keep latest price for the day
+    });
+
+    const labels = [];
+    const dataPoints = [];
+    
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date();
+      d.setDate(d.getDate() - i);
+      const dateStr = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+      labels.push(dateStr);
+      dataPoints.push(daysMap[dateStr] || null);
+    }
+    
+    // Forward fill gaps
+    let lastKnown = null;
+    for (let i = 0; i < dataPoints.length; i++) {
+      if (dataPoints[i] !== null) {
+        lastKnown = dataPoints[i];
+      } else if (lastKnown !== null) {
+        dataPoints[i] = lastKnown;
+      }
+    }
+    
+    // Backfill if first days are null
+    const firstKnown = dataPoints.find(val => val !== null) || 0;
+    for (let i = 0; i < dataPoints.length; i++) {
+      if (dataPoints[i] === null) dataPoints[i] = firstKnown;
+    }
+    
+    return { labels, data: dataPoints };
+  }, [priceData]);
+
+  const chartData = processedData ? {
+    labels: processedData.labels,
     datasets: [
       {
         label: `${symbol || 'Unknown'} Price`,
-        data: priceData.map(point => point[1]),
+        data: processedData.data,
         borderColor: '#3182ce', // Blue line like portfolio trend
         backgroundColor: 'rgba(49, 130, 206, 0.3)', // Translucent blue area
         borderWidth: 2,
         fill: true,
         tension: 0.4, // Smoother line
-        pointBackgroundColor: '#3182ce', // Blue dots
-        pointBorderColor: '#fff', // White border
-        pointBorderWidth: 1,
-        pointRadius: function(context) {
-          const index = context.dataIndex;
-          if (index === 0) return 2; // Show first point
-          if (!priceData || !priceData[index] || !priceData[index - 1]) return 0;
-          
-          // Show one dot per day
-          const currDate = new Date(priceData[index][0]).getDate();
-          const prevDate = new Date(priceData[index - 1][0]).getDate();
-          return currDate !== prevDate ? 2 : 0;
-        },
-        pointHoverRadius: 4,
+        pointBackgroundColor: '#3182ce',
+        pointBorderColor: '#fff',
+        pointBorderWidth: 0,
+        pointRadius: 0, // No dots at all as requested
+        pointHoverRadius: 4, // Still allow hover interaction
       },
     ],
   } : null;
