@@ -69,7 +69,7 @@ const PriceHistoryPopup = ({ symbol, isVisible, position, onClose, onMouseEnter,
     const daysMap = {};
     priceData.forEach(point => {
       const d = new Date(point[0]);
-      const dateStr = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+      const dateStr = `${d.getMonth() + 1}/${d.getDate().toString().padStart(2, '0')}`;
       daysMap[dateStr] = point[1]; // Keep latest price for the day
     });
 
@@ -79,7 +79,7 @@ const PriceHistoryPopup = ({ symbol, isVisible, position, onClose, onMouseEnter,
     for (let i = 6; i >= 0; i--) {
       const d = new Date();
       d.setDate(d.getDate() - i);
-      const dateStr = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+      const dateStr = `${d.getMonth() + 1}/${d.getDate().toString().padStart(2, '0')}`;
       labels.push(dateStr);
       dataPoints.push(daysMap[dateStr] || null);
     }
