@@ -48,10 +48,11 @@ def is_user_analysis_window_active(start_str, end_str):
         logger.error(f"Error checking analysis window: {e}")
         return True
 
-def web_search(query, max_results=2, username=None):
+def web_search(query, max_results=2, username=None, freshness="pd"):
     """
     Search the web for real-time crypto info.
     Priority: Brave Search API -> DuckDuckGo HTML -> Binance Price fallback.
+    freshness parameter options: 'pd' (past 24h / 12-24h window), 'pw' (past week), 'pm' (past month), 'py' (past year).
     """
     # 1. Try Brave Search API if credentials exist
     if username:
@@ -65,7 +66,7 @@ def web_search(query, max_results=2, username=None):
                     if not api_key or not api_key.strip():
                         continue
                     try:
-                        logger.info(f"Attempting Brave Search ({key_name}) for query: {query}")
+                        logger.info(f"Attempting Brave Search ({key_name}, freshness={freshness}) for query: {query}")
                         brave_url = "https://api.search.brave.com/res/v1/web/search"
                         headers = {
                             "Accept": "application/json",
@@ -78,7 +79,7 @@ def web_search(query, max_results=2, username=None):
                             "search_lang": "en",
                             "country": "US",
                             "safesearch": "moderate",
-                            "freshness": "pd"
+                            "freshness": freshness or "pd"
                         }
                         resp = requests.get(brave_url, headers=headers, params=params, timeout=12)
                         if resp.status_code == 200:
@@ -389,9 +390,11 @@ def call_ai_with_web_search(
                 raise ValueError(f"Unsupported AI provider: {provider}")
 
         # Stage 1: Queries
-        if prompt_type == 'sentiment_analysis':
-            # Optimize: Avoid burning a precious Gemini RPM quota just to formulate a search query
-            search_queries = [f"{symbol_value} cryptocurrency news market price sentiment today"]
+        if prompt_type in ['sentiment_analysis', 'watchlist_sentiment_analysis']:
+            search_queries = [
+                f"{symbol_value} crypto current price latest news past 12 hours today",
+                f"{symbol_value} cryptocurrency market sentiment news past 12 hours"
+            ]
         else:
             try:
                 search_queries_text = _execute_ai_call(stage1_messages, p_max_tokens=300)
@@ -401,10 +404,12 @@ def call_ai_with_web_search(
                 search_queries = [f"{symbol_value} crypto news market analysis today"]
 
         # Stage 2: Web Searches
+        # Enforce strict 12-24h freshness for Brave Search API
         search_summaries = []
+        freshness_filter = "pd"  # Brave Search API past-day (24h) parameter
         for q in search_queries:
             if not q: continue
-            results = web_search(q, max_results=2, username=username)
+            results = web_search(q, max_results=2, username=username, freshness=freshness_filter)
             for item in results:
                 search_summaries.append(f"- {item.get('title')}: {item.get('snippet')} ({item.get('url')})")
         
@@ -672,11 +677,32 @@ def analyze_single_symbol_sentiment(user_id, username, symbol, is_watchlist=Fals
             return err_sentiment, err_reason
 
         current_datetime = format_eastern_datetime(None, "%B %d, %Y at %I:%M %p EDT")
+        
+        # Look up live price from Binance or local coin record to anchor sentiment analysis
+        current_price = None
+        try:
+            from routes.helpers import fetch_crypto_price
+            current_price = fetch_crypto_price(symbol)
+        except Exception:
+            pass
+        if current_price is None and not is_watchlist:
+            c = Coin.query.filter_by(user_id=user_id, symbol=symbol).first()
+            if c and c.current:
+                current_price = c.current
+        elif current_price is None and is_watchlist:
+            w = WatchlistCoin.query.filter_by(user_id=user_id, symbol=symbol).first()
+            if w and hasattr(w, 'current_price') and w.current_price:
+                current_price = w.current_price
+
+        price_str = f"${current_price:,.2f}" if current_price is not None else "N/A"
+
         sentiment_request = (
             f"{'WATCHLIST_' if is_watchlist else ''}SENTIMENT_ANALYSIS_DATA\n"
             f"symbol: {symbol}\n"
+            f"current_price: {price_str}\n"
             f"amount: {amount}\n"
             f"datetime: {current_datetime}\n"
+            f"IMPORTANT NOTE: The current live price is {price_str}. Base all sentiment, momentum, support/resistance, and short-term outlook strictly on this live price and fresh news/market data from the past 12 hours.\n"
         )
 
         response, actual_stage3_prompt = call_ai_with_web_search(
