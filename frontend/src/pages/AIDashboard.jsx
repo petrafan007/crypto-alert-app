@@ -191,6 +191,22 @@ const AIDashboard = () => {
   const [klinesLoading, setKlinesLoading] = useState(false);
   const [hoveredPoint, setHoveredPoint] = useState(null);
 
+  // Coin filter modal state
+  const [showCoinFilterModal, setShowCoinFilterModal] = useState(false);
+  const [selectedFilterCoins, setSelectedFilterCoins] = useState(() => {
+    try {
+      const saved = localStorage.getItem('sentiment_table_coin_filter');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) return parsed;
+      }
+    } catch (e) {
+      console.warn('Failed to parse coin filter:', e);
+    }
+    return null;
+  });
+  const [tempFilterCoins, setTempFilterCoins] = useState([]);
+
   // Chart DOM container and instance refs
   const chartContainerRef = useRef(null);
   const chartInstanceRef = useRef(null);
@@ -261,65 +277,117 @@ const AIDashboard = () => {
     }
   };
 
-  // Fetch real price klines for selected coin and date range
+  // Fetch Kline / Candlestick data when selectedCoin or dateRange changes
   useEffect(() => {
-    if (!selectedCoin) return;
     const fetchKlines = async () => {
+      if (!selectedCoin) return;
       setKlinesLoading(true);
       try {
         const { interval, limit } = getKlinesParams(dateRange);
         const res = await axios.get(`/api/trading/klines/${selectedCoin}`, {
           params: { interval, limit },
-          withCredentials: true
+          withCredentials: true,
         });
-        if (res.data && res.data.klines && res.data.klines.length > 0) {
-          const normalized = res.data.klines
-            .map(k => ({
-              time: typeof k.time === 'string' ? Math.floor(new Date(k.time).getTime() / 1000) : Math.round(Number(k.time)),
-              open: Number(k.open),
-              high: Number(k.high),
-              low: Number(k.low),
-              close: Number(k.close),
-              volume: Number(k.volume ?? 0)
-            }))
-            .filter(k => Number.isFinite(k.time) && Number.isFinite(k.open) && Number.isFinite(k.high) && Number.isFinite(k.low) && Number.isFinite(k.close))
-            .sort((a, b) => a.time - b.time);
 
-          // Deduplicate timestamps if any
+        if (res.data && Array.isArray(res.data.klines)) {
+          // Format klines for lightweight-charts
+          const formatted = res.data.klines.map(k => ({
+            time: Math.floor(k.time / 1000), // UNIX timestamp in seconds
+            open: parseFloat(k.open),
+            high: parseFloat(k.high),
+            low: parseFloat(k.low),
+            close: parseFloat(k.close),
+          })).sort((a, b) => a.time - b.time);
+
+          // Deduplicate timestamps (lightweight-charts requires strictly increasing times)
           const deduped = [];
           const seen = new Set();
-          for (const k of normalized) {
-            if (!seen.has(k.time)) {
-              seen.add(k.time);
-              deduped.push(k);
+          for (const item of formatted) {
+            if (!seen.has(item.time)) {
+              seen.add(item.time);
+              deduped.push(item);
             }
           }
           setKlines(deduped);
-        } else {
-          setKlines([]);
         }
       } catch (err) {
-        console.warn(`Failed to fetch klines for ${selectedCoin}:`, err);
+        console.error(`Error fetching klines for ${selectedCoin}:`, err);
         setKlines([]);
       } finally {
         setKlinesLoading(false);
       }
     };
+
     fetchKlines();
   }, [selectedCoin, dateRange]);
 
-  // Initialize and update Lightweight Charts instance
+  // Compute available coins with source types for filtering and badges
+  const availableCoinFilters = useMemo(() => {
+    const map = new Map();
+    (accuracyData?.history || []).forEach((row) => {
+      if (row.symbol && !map.has(row.symbol)) {
+        map.set(row.symbol, {
+          symbol: row.symbol,
+          source_type: row.source_type || 'portfolio',
+        });
+      }
+    });
+    (accuracyData?.available_symbols || []).forEach((sym) => {
+      if (sym && !map.has(sym)) {
+        map.set(sym, {
+          symbol: sym,
+          source_type: 'portfolio',
+        });
+      }
+    });
+    return Array.from(map.values()).sort((a, b) => a.symbol.localeCompare(b.symbol));
+  }, [accuracyData]);
+
+  const handleOpenCoinFilterModal = () => {
+    const currentSelected = selectedFilterCoins !== null
+      ? selectedFilterCoins
+      : availableCoinFilters.map(c => c.symbol);
+    setTempFilterCoins([...currentSelected]);
+    setShowCoinFilterModal(true);
+  };
+
+  const handleToggleFilterCoin = (symbol) => {
+    setTempFilterCoins(prev =>
+      prev.includes(symbol) ? prev.filter(s => s !== symbol) : [...prev, symbol]
+    );
+  };
+
+  const handleSelectAllFilterCoins = () => {
+    setTempFilterCoins(availableCoinFilters.map(c => c.symbol));
+  };
+
+  const handleDeselectAllFilterCoins = () => {
+    setTempFilterCoins([]);
+  };
+
+  const handleApplyCoinFilter = () => {
+    setSelectedFilterCoins(tempFilterCoins);
+    try {
+      localStorage.setItem('sentiment_table_coin_filter', JSON.stringify(tempFilterCoins));
+    } catch (e) {
+      console.warn('Failed to save coin filter to localStorage:', e);
+    }
+    setShowCoinFilterModal(false);
+  };
+
+  // Initialize and update Lightweight-Charts instance
   useEffect(() => {
+    if (!chartContainerRef.current || klines.length === 0) return;
+
     const container = chartContainerRef.current;
-    if (!container || klines.length === 0) return;
+    container.innerHTML = '';
 
     if (chartInstanceRef.current) {
       chartInstanceRef.current.remove();
       chartInstanceRef.current = null;
     }
 
-    const containerStyles = window.getComputedStyle(container);
-    const width = Math.max(container.clientWidth - 20, 300);
+    const containerWidth = container.clientWidth || 800;
     const height = 340;
 
     const bgCol = isLightMode ? '#ffffff' : '#0f172a';
@@ -328,7 +396,7 @@ const AIDashboard = () => {
     const borderCol = isLightMode ? '#e2e8f0' : '#334155';
 
     const chart = createChart(container, {
-      width,
+      width: containerWidth,
       height,
       layout: {
         background: { color: bgCol },
@@ -342,22 +410,23 @@ const AIDashboard = () => {
         mode: 1,
       },
       rightPriceScale: {
+        visible: true,
         borderColor: borderCol,
         autoScale: true,
         entireTextOnly: true,
         alignLabels: true,
         scaleMargins: {
-          top: 0.12,
-          bottom: 0.12,
+          top: 0.15,
+          bottom: 0.15,
         },
-        minimumWidth: 80,
+        minimumWidth: 95,
       },
       timeScale: {
         borderColor: borderCol,
         timeVisible: true,
         secondsVisible: false,
-        rightOffset: 16,
-        barSpacing: 9,
+        rightOffset: 24,
+        barSpacing: 10,
         minBarSpacing: 4,
       },
       handleScroll: {
@@ -461,16 +530,20 @@ const AIDashboard = () => {
     // Fit content
     chart.timeScale().fitContent();
 
-    // Resize handler
-    const handleResize = () => {
-      if (chartContainerRef.current && chartInstanceRef.current) {
-        chartInstanceRef.current.applyOptions({ width: Math.max(chartContainerRef.current.clientWidth - 20, 300) });
+    // Use ResizeObserver for perfect responsive width
+    const resizeObserver = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        if (entry.contentRect && chartInstanceRef.current) {
+          chartInstanceRef.current.applyOptions({
+            width: Math.floor(entry.contentRect.width)
+          });
+        }
       }
-    };
-    window.addEventListener('resize', handleResize);
+    });
+    resizeObserver.observe(container);
 
     return () => {
-      window.removeEventListener('resize', handleResize);
+      resizeObserver.disconnect();
       if (chartInstanceRef.current) {
         chartInstanceRef.current.remove();
         chartInstanceRef.current = null;
@@ -777,7 +850,13 @@ const AIDashboard = () => {
           <div className="prediction-table-card">
             <div className="table-header-row">
               <h3>📋 Historical Prediction Ledger & Thesis Validation</h3>
-              <span className="table-count-badge">{accuracyData?.history?.length || 0} Recorded Signals</span>
+              <button
+                className="btn btn-secondary configure-coins-btn"
+                onClick={handleOpenCoinFilterModal}
+                title="Configure which coins appear in this table"
+              >
+                ⚙️ Configure Coins {selectedFilterCoins !== null && selectedFilterCoins.length < availableCoinFilters.length ? `(${selectedFilterCoins.length}/${availableCoinFilters.length})` : ''}
+              </button>
             </div>
 
             <div className="prediction-table-container">
@@ -794,59 +873,78 @@ const AIDashboard = () => {
                   </tr>
                 </thead>
                 <tbody>
-                  {accuracyData?.history && accuracyData.history.length > 0 ? (
-                    accuracyData.history.map((row) => {
-                      const isBullish = ['definitely buy', 'consider buying', 'buy immediately', 'strong buy', 'buy'].includes((row.sentiment || '').toLowerCase());
-                      const isBearish = ['consider selling', 'sell immediately', 'avoid', 'strong sell', 'do not buy', 'sell'].includes((row.sentiment || '').toLowerCase());
-                      const signalBadgeClass = isBullish ? 'badge-buy' : isBearish ? 'badge-sell' : 'badge-watch';
+                  {(() => {
+                    const activeFilterCoins = selectedFilterCoins !== null
+                      ? selectedFilterCoins
+                      : availableCoinFilters.map(c => c.symbol);
+                    const displayHistory = (accuracyData?.history || []).filter(row =>
+                      activeFilterCoins.includes(row.symbol)
+                    );
 
-                      return (
-                        <tr key={row.id}>
-                          <td className="symbol-cell">
-                            <span className="coin-pill">{row.symbol}</span>
-                          </td>
-                          <td className="price-cell">
-                            ${parseFloat(row.evaluation_price || row.current_price || 0) > 100
-                              ? parseFloat(row.evaluation_price || row.current_price || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })
-                              : parseFloat(row.evaluation_price || row.current_price || 0).toFixed(4)}
-                          </td>
-                          <td className="price-cell">
-                            ${parseFloat(row.price_at_prediction || 0) > 100
-                              ? parseFloat(row.price_at_prediction || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })
-                              : parseFloat(row.price_at_prediction || 0).toFixed(4)}
-                          </td>
-                          <td className="date-cell">{row.date}</td>
-                          <td className="time-cell">{row.time}</td>
-                          <td>
-                            <span className={`signal-pill ${signalBadgeClass}`} title={row.sentiment_reason || ''}>
-                              {row.sentiment}
-                            </span>
-                          </td>
-                          <td>
-                            {row.outcome_status === 'correct' ? (
-                              <span className="outcome-pill outcome-correct">
-                                ✅ Correct (+{Math.abs(row.outcome_pct || 0)}%)
+                    if (displayHistory && displayHistory.length > 0) {
+                      return displayHistory.map((row) => {
+                        const isBullish = ['definitely buy', 'consider buying', 'buy immediately', 'strong buy', 'buy'].includes((row.sentiment || '').toLowerCase());
+                        const isBearish = ['consider selling', 'sell immediately', 'avoid', 'strong sell', 'do not buy', 'sell'].includes((row.sentiment || '').toLowerCase());
+                        const signalBadgeClass = isBullish ? 'badge-buy' : isBearish ? 'badge-sell' : 'badge-watch';
+
+                        return (
+                          <tr key={row.id}>
+                            <td className="symbol-cell">
+                              <span className="coin-pill">{row.symbol}</span>
+                              <span
+                                className={`source-badge ${row.source_type === 'portfolio' ? 'source-p' : 'source-w'}`}
+                                title={row.source_type === 'portfolio' ? 'Portfolio Asset' : 'Watchlist Asset'}
+                              >
+                                {row.source_type === 'portfolio' ? 'P' : 'W'}
                               </span>
-                            ) : row.outcome_status === 'wrong' ? (
-                              <span className="outcome-pill outcome-wrong">
-                                ❌ Wrong ({row.outcome_pct || 0}%)
+                            </td>
+                            <td className="price-cell">
+                              ${parseFloat(row.evaluation_price || row.current_price || 0) > 100
+                                ? parseFloat(row.evaluation_price || row.current_price || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })
+                                : parseFloat(row.evaluation_price || row.current_price || 0).toFixed(4)}
+                            </td>
+                            <td className="price-cell">
+                              ${parseFloat(row.price_at_prediction || 0) > 100
+                                ? parseFloat(row.price_at_prediction || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })
+                                : parseFloat(row.price_at_prediction || 0).toFixed(4)}
+                            </td>
+                            <td className="date-cell">{row.date}</td>
+                            <td className="time-cell">{row.time}</td>
+                            <td>
+                              <span className={`signal-pill ${signalBadgeClass}`} title={row.sentiment_reason || ''}>
+                                {row.sentiment}
                               </span>
-                            ) : (
-                              <span className="outcome-pill outcome-tracking">
-                                ⏳ Active Tracking
-                              </span>
-                            )}
-                          </td>
-                        </tr>
-                      );
-                    })
-                  ) : (
-                    <tr>
-                      <td colSpan="7" style={{ textAlign: 'center', padding: '32px', color: 'var(--text-secondary)' }}>
-                        No sentiment history recorded yet. Run a sentiment analysis from the Dashboard or triggers to start tracking theses.
-                      </td>
-                    </tr>
-                  )}
+                            </td>
+                            <td>
+                              {row.outcome_status === 'correct' ? (
+                                <span className="outcome-pill outcome-correct">
+                                  ✅ Correct (+{Math.abs(row.outcome_pct || 0)}%)
+                                </span>
+                              ) : row.outcome_status === 'wrong' ? (
+                                <span className="outcome-pill outcome-wrong">
+                                  ❌ Wrong ({row.outcome_pct || 0}%)
+                                </span>
+                              ) : (
+                                <span className="outcome-pill outcome-tracking">
+                                  ⏳ Active Tracking
+                                </span>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      });
+                    }
+
+                    return (
+                      <tr>
+                        <td colSpan="7" style={{ textAlign: 'center', padding: '32px', color: 'var(--text-secondary)' }}>
+                          {accuracyData?.history?.length > 0
+                            ? 'No coins selected in ledger filter. Click "⚙️ Configure Coins" to enable coins.'
+                            : 'No sentiment history recorded yet. Run a sentiment analysis from the Dashboard or triggers to start tracking theses.'}
+                        </td>
+                      </tr>
+                    );
+                  })()}
                 </tbody>
               </table>
             </div>
@@ -1100,6 +1198,111 @@ const AIDashboard = () => {
           )}
         </div>
       </div>
+
+      {/* ========================================================================= */}
+      {/* 4. CONFIGURE COINS MODAL (FILTER PREDICTION LEDGER) */}
+      {/* ========================================================================= */}
+      {showCoinFilterModal && (
+        <div className="modal-overlay" onClick={() => setShowCoinFilterModal(false)}>
+          <div className="modal-content coin-filter-modal-content" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>⚙️ Configure Visible Coins in Ledger</h3>
+              <button
+                className="modal-close"
+                onClick={() => setShowCoinFilterModal(false)}
+                title="Close"
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="modal-body">
+              <p style={{ color: 'var(--text-secondary, #94a3b8)', fontSize: '13.5px', margin: '0 0 14px 0', lineHeight: '1.5' }}>
+                Select which portfolio and watchlist coins appear in the Historical Prediction Ledger table.
+              </p>
+
+              {availableCoinFilters.length === 0 ? (
+                <p style={{ textAlign: 'center', color: 'var(--text-secondary)', padding: '20px' }}>
+                  No coins found in sentiment history.
+                </p>
+              ) : (
+                <>
+                  <div className="select-all-container" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px', paddingBottom: '10px', borderBottom: '1px solid var(--border-color, #334155)' }}>
+                    <label className="select-all-label" style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontWeight: 600, fontSize: '13px', color: 'var(--text-primary, #f8fafc)' }}>
+                      <input
+                        type="checkbox"
+                        checked={tempFilterCoins.length === availableCoinFilters.length && availableCoinFilters.length > 0}
+                        onChange={(e) => e.target.checked ? handleSelectAllFilterCoins() : handleDeselectAllFilterCoins()}
+                      />
+                      Select All ({tempFilterCoins.length}/{availableCoinFilters.length})
+                    </label>
+                    <div style={{ display: 'flex', gap: '6px' }}>
+                      <button
+                        type="button"
+                        className="btn btn-secondary"
+                        onClick={handleSelectAllFilterCoins}
+                        style={{ fontSize: '11px', padding: '4px 8px' }}
+                      >
+                        All
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-secondary"
+                        onClick={handleDeselectAllFilterCoins}
+                        style={{ fontSize: '11px', padding: '4px 8px' }}
+                      >
+                        None
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="coin-filter-grid">
+                    {availableCoinFilters.map(coin => {
+                      const isChecked = tempFilterCoins.includes(coin.symbol);
+                      return (
+                        <div
+                          key={coin.symbol}
+                          className={`coin-filter-item ${isChecked ? 'selected' : ''}`}
+                          onClick={() => handleToggleFilterCoin(coin.symbol)}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={isChecked}
+                            onChange={() => {}} // Handled by container onClick
+                            onClick={(e) => e.stopPropagation()}
+                          />
+                          <span className="coin-symbol-title">{coin.symbol}</span>
+                          <span className={`source-badge ${coin.source_type === 'portfolio' ? 'source-p' : 'source-w'}`}>
+                            {coin.source_type === 'portfolio' ? 'P' : 'W'}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </>
+              )}
+            </div>
+
+            <div className="modal-actions" style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', padding: '16px 20px', borderTop: '1px solid var(--border-color, #334155)' }}>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={() => setShowCoinFilterModal(false)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={handleApplyCoinFilter}
+                disabled={tempFilterCoins.length === 0}
+              >
+                Apply Filters ({tempFilterCoins.length})
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
