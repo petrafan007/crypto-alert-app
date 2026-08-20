@@ -16,6 +16,7 @@ import PrivacyPolicy from './pages/PrivacyPolicy';
 import TermsOfService from './pages/TermsOfService';
 import AcceptableUse from './pages/AcceptableUse';
 import Support from './pages/Support';
+import { APP_VERSION } from './version';
 import './App.css';
 import './theme.css';
 import './light-theme.css';
@@ -376,7 +377,7 @@ export default function App() {
           fontSize: '12px',
           margin: 0
         }}>
-          Crypto Alert App version 1.41-beta. © 2026 Cavallaro Services. All rights reserved.
+          Crypto Alert App version {APP_VERSION}. © 2026 Cavallaro Services. All rights reserved.
         </p>
       </footer>
 

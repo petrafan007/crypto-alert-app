@@ -81,6 +81,14 @@ The application utilizes a **unified PostgreSQL database**.
 
 ## Version History & Changelog
 
+## v1.42-beta (August 2026)
+
+### Coin Performance Table Reliability
+- Added cached Binance.US hourly history backfill so every performance window can populate immediately without relying on the dashboard having stayed open for seven days.
+- Corrected qualification rules to include only visible, non-stablecoin holdings worth at least $1.00.
+- Centralized baseline selection and live snapshot collection, fixed scheduler persistence, and added failure-safe table loading states.
+- Made package metadata the single source for the footer and in-app upgrade target, synchronized to `v1.42-beta`.
+
 ## v1.41-beta (August 2026)
 
 ### Live Portfolio Performance Table
@@ -261,4 +269,3 @@ The application utilizes a **unified PostgreSQL database**.
 - **PostgreSQL Migration**: Completed refactoring to ORM. Legacy SQLite databases were purged.
 - **Unified Credentials**: Centralized API key management.
 - **Staking System**: Full Binance.US staking support with real-time APY.
-

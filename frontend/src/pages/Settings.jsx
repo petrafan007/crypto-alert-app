@@ -5,8 +5,9 @@ import { useAuth } from '../components/AuthContext';
 import { FaToggleOn, FaToggleOff, FaInfoCircle } from 'react-icons/fa';
 import { useSearchParams } from 'react-router-dom';
 import OnboardingModal from '../components/OnboardingModal';
+import { APP_VERSION_TAG } from '../version';
 
-const CURRENT_APP_VERSION = 'v1.4-beta';
+const CURRENT_APP_VERSION = APP_VERSION_TAG;
 
 const getDefaultModel = (provider, options) => {
   if (!options || !provider) return '';
@@ -2634,4 +2635,3 @@ export default function Settings({ isLightMode }) {
     </div>
   );
 }
-

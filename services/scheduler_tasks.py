@@ -18,6 +18,7 @@ from services.portfolio_service import (
     record_true_portfolio_value, compute_portfolio_total_value, record_portfolio_history, get_comprehensive_crypto_data_for_user
 )
 from services.credential_service import get_user_credentials
+from services.price_history_service import record_price_history_snapshot
 
 # Persistent alert states store
 _alert_state_lock = threading.Lock()
@@ -172,7 +173,10 @@ def portfolio_alert_loop(app):
                                     binance_rate_limiter.record_call(symbol)
                                     coin.current = price
                                     coin.updated_at = datetime.utcnow()
-                                    db.session.commit()
+                                    try:
+                                        record_price_history_snapshot(symbol, price)
+                                    except Exception as history_error:
+                                        logger.warning(f"Failed to record price history for {symbol}: {history_error}")
                                 else:
                                     binance_rate_limiter.record_failure(symbol)
                                     price = coin.current if coin.current and coin.current > 0 else None
@@ -247,7 +251,6 @@ def portfolio_alert_loop(app):
                             record_portfolio_history(user.id, round(total_val, 2))
                     except Exception as val_err:
                         logger.error(f"Error computing/recording portfolio total for user {user.username}: {val_err}")
-
             iteration()
             time.sleep(60)
 

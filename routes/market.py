@@ -1,7 +1,6 @@
-
 from datetime import timedelta, datetime
 import requests
-import threading
+import time
 from flask import send_file, request, jsonify, render_template, current_app, redirect, url_for
 from flask_login import current_user, login_required, login_user, logout_user
 from models import Coin, WatchlistCoin, Notification, PriceHistory
@@ -9,10 +8,15 @@ from credentials import Credential, User, UserSetting
 from core.extensions import db
 from log import logger
 from routes.helpers import *
+from services.price_history_service import (
+    ensure_price_history,
+    get_symbol_performance,
+    is_qualifying_portfolio_coin,
+    record_price_history_snapshot,
+)
 
 from flask import Blueprint
 market_bp = Blueprint('market', __name__)
-
 
 
 @market_bp.route("/api/pionex-price")
@@ -30,18 +34,20 @@ def api_pionex_price():
     except Exception as e:
         return jsonify({"price": None, "error": str(e)})
 
+
 @market_bp.route("/api/chart_history/<symbol>")
 @login_required
 def chart_history(symbol):
     """Return actual stored price samples for the last seven days."""
     try:
-        from models import PriceHistory
+        sym = symbol.upper()
+        ensure_price_history(sym)
         now = int(time.time())
         cutoff = now - 7 * 24 * 60 * 60
         
         # Get all price points for the last 7 days using ORM
         rows = PriceHistory.query.filter(
-            PriceHistory.symbol == symbol.upper(),
+            PriceHistory.symbol == sym,
             PriceHistory.timestamp >= cutoff
         ).order_by(PriceHistory.timestamp.asc()).all()
         
@@ -53,6 +59,7 @@ def chart_history(symbol):
     except Exception as e:
         logger.error(f"chart_history: Exception for {symbol}: {e}", exc_info=True)
         return jsonify({"prices": [], "error": str(e)}), 200
+
 
 @market_bp.route("/api/coingecko_chart/<slug>")
 def coingecko_chart(slug):
@@ -100,6 +107,7 @@ def coingecko_chart(slug):
             data = {"prices": price_points}
             return jsonify(data)
         return jsonify({"error": str(e)}), 500
+
 
 @market_bp.route("/api/coin-data-live")
 @login_required
@@ -149,10 +157,8 @@ def api_coin_data_live():
                 current_value = amount * current_price if current_price else 0.0
                 logger.error(f"[LIVE] {symbol} current_value: {current_value}")
 
-                latest_history = PriceHistory.query.filter_by(symbol=symbol).order_by(PriceHistory.timestamp.desc()).first()
                 now_timestamp = int(time.time())
-                if current_price > 0 and (not latest_history or now_timestamp - int(latest_history.timestamp) >= 60):
-                    db.session.add(PriceHistory(symbol=symbol, price=current_price, timestamp=now_timestamp))
+                if record_price_history_snapshot(symbol, current_price, now_timestamp):
                     price_changed = True
 
                 if apply_auto_visibility_rules(coin, current_value):
@@ -256,6 +262,7 @@ def api_coin_data_live():
         logger.error(f"Error in api_coin_data_live: {e}")
         db.session.rollback()
         return jsonify({"portfolio": [], "error": "Error retrieving portfolio data"}), 500
+
 
 @market_bp.route("/api/coin-data")
 @login_required
@@ -365,6 +372,32 @@ def api_coin_data():
         logger.error(f"Unexpected error in api_coin_data: {str(e)}")
         return jsonify({"portfolio": []})
 
+
+@market_bp.route("/api/coin-performance")
+@login_required
+def api_coin_performance():
+    """Return performance for visible, non-stablecoin holdings worth at least $1."""
+    try:
+        coins = Coin.query.filter_by(user_id=current_user.id).all()
+        qualifying = sorted(
+            (coin for coin in coins if is_qualifying_portfolio_coin(coin)),
+            key=lambda coin: (coin.symbol or "").upper(),
+        )
+        results = [
+            get_symbol_performance(coin.symbol, coin.current)
+            for coin in qualifying
+        ]
+
+        return jsonify({
+            "success": True,
+            "performance": results
+        })
+    except Exception as e:
+        logger.error(f"Error in api_coin_performance: {e}", exc_info=True)
+        db.session.rollback()
+        return jsonify({"success": False, "performance": [], "error": "Unable to load coin performance"}), 500
+
+
 @market_bp.route("/api/auto-alert")
 @login_required
 def api_auto_alert():
@@ -405,6 +438,7 @@ def api_auto_alert():
     except Exception as e:
         logger.error(f"auto-alert error: {str(e)}")
         return jsonify({"value": 10.0})
+
 
 @market_bp.route('/api/market-data/<symbol>')
 @login_required
@@ -447,10 +481,7 @@ def api_market_data(symbol):
     except Exception as e:
         logger.error(f"Error fetching market data for {symbol}: {e}")
         return jsonify({'error': 'Failed to fetch market data'}), 500
-        return jsonify(market_data)
-    except Exception as e:
-        logger.error(f"Market data error: {str(e)}")
-        return jsonify({'error': str(e)}), 500
+
 
 @market_bp.route('/api/widgets/fear-greed', methods=['GET'])
 def api_fear_greed_index():
@@ -463,6 +494,7 @@ def api_fear_greed_index():
     except Exception as e:
         logger.error(f"Error fetching Fear & Greed Index: {e}")
         return jsonify({"error": "Failed to fetch Fear & Greed Index"}), 500
+
 
 @market_bp.route('/api/widgets/cbbi', methods=['GET'])
 def api_cbbi_data():

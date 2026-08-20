@@ -1853,7 +1853,7 @@ function Dashboard({ isLightMode }) {
         <StakingSummaryWidget />
 
         {/* Live portfolio performance table */}
-        <PortfolioPerformanceTable portfolio={portfolio} isLightMode={isLightMode} />
+        <PortfolioPerformanceTable />
       </div>
 
       {/* Portfolio Table */}
