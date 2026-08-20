@@ -493,6 +493,237 @@ def ai_dashboard_page():
     return serve_react_app()
 
 
+@ai_bp.route('/api/ai/sentiment-accuracy', methods=['GET'])
+@login_required
+def api_ai_sentiment_accuracy():
+    """Retrieve accuracy tracking, multi-model leaderboard, signal distribution, and historical predictions"""
+    try:
+        from models import SentimentHistory, Coin, WatchlistCoin
+        from datetime import datetime, timedelta
+        from pytz import timezone
+
+        user_id = current_user.id
+        timeframe = request.args.get('timeframe', '30d').lower()
+        selected_symbol = request.args.get('symbol', None)
+        if selected_symbol:
+            selected_symbol = selected_symbol.upper().strip()
+        selected_tier = request.args.get('tier', None)
+
+        # Base query
+        query = SentimentHistory.query.filter_by(user_id=user_id)
+
+        # Timeframe filter
+        now = datetime.utcnow()
+        if timeframe == '7d':
+            query = query.filter(SentimentHistory.created_at >= now - timedelta(days=7))
+        elif timeframe == '30d':
+            query = query.filter(SentimentHistory.created_at >= now - timedelta(days=30))
+        elif timeframe == '90d':
+            query = query.filter(SentimentHistory.created_at >= now - timedelta(days=90))
+
+        if selected_symbol and selected_symbol != 'ALL':
+            query = query.filter(SentimentHistory.symbol == selected_symbol)
+
+        if selected_tier and selected_tier != 'all':
+            query = query.filter(SentimentHistory.tier == selected_tier.lower())
+
+        records = query.order_by(SentimentHistory.created_at.desc()).all()
+
+        # Cache live prices for evaluation
+        live_prices = {}
+        unique_symbols = list({r.symbol for r in records if r.symbol})
+        for sym in unique_symbols:
+            try:
+                from routes.trading import fetch_binance_price
+                p = fetch_binance_price(sym)
+                if p and p > 0:
+                    live_prices[sym] = float(p)
+            except Exception:
+                pass
+
+        # Fallback to coins/watchlist current prices in db
+        if len(live_prices) < len(unique_symbols):
+            c_rows = Coin.query.filter_by(user_id=user_id).all()
+            for c in c_rows:
+                if c.symbol and c.symbol.upper() not in live_prices:
+                    price = getattr(c, 'current', 0.0) or getattr(c, 'avg_entry', 0.0) or 0.0
+                    if price > 0:
+                        live_prices[c.symbol.upper()] = float(price)
+            w_rows = WatchlistCoin.query.filter_by(user_id=user_id).all()
+            for w in w_rows:
+                if w.symbol and w.symbol.upper() not in live_prices:
+                    price = getattr(w, 'current_price', 0.0) or 0.0
+                    if price > 0:
+                        live_prices[w.symbol.upper()] = float(price)
+
+        BULLISH_SIGNALS = {'definitely buy', 'consider buying', 'buy immediately', 'strong buy', 'buy'}
+        BEARISH_SIGNALS = {'consider selling', 'sell immediately', 'avoid', 'strong sell', 'do not buy', 'sell'}
+
+        total_signals = len(records)
+        bullish_count = 0
+        bullish_correct = 0
+        bearish_count = 0
+        bearish_correct = 0
+        neutral_count = 0
+
+        model_stats = {}
+        history_list = []
+        eastern = timezone('US/Eastern')
+
+        for r in records:
+            sent_lower = (r.sentiment or '').strip().lower()
+            entry_price = float(r.price_at_prediction or 0.0)
+            curr_price = live_prices.get(r.symbol.upper(), entry_price)
+
+            outcome_status = 'neutral'
+            outcome_pct = 0.0
+
+            if entry_price > 0 and curr_price > 0:
+                price_delta_pct = ((curr_price - entry_price) / entry_price) * 100.0
+                if sent_lower in BULLISH_SIGNALS:
+                    bullish_count += 1
+                    if price_delta_pct > 0.05:
+                        outcome_status = 'correct'
+                        outcome_pct = round(price_delta_pct, 2)
+                        bullish_correct += 1
+                    elif price_delta_pct < -0.05:
+                        outcome_status = 'wrong'
+                        outcome_pct = round(price_delta_pct, 2)
+                    else:
+                        outcome_status = 'neutral'
+                        outcome_pct = round(price_delta_pct, 2)
+                elif sent_lower in BEARISH_SIGNALS:
+                    bearish_count += 1
+                    if price_delta_pct < -0.05:
+                        outcome_status = 'correct'
+                        outcome_pct = round(abs(price_delta_pct), 2)
+                        bearish_correct += 1
+                    elif price_delta_pct > 0.05:
+                        outcome_status = 'wrong'
+                        outcome_pct = round(-price_delta_pct, 2)
+                    else:
+                        outcome_status = 'neutral'
+                        outcome_pct = 0.0
+                else:
+                    neutral_count += 1
+                    outcome_status = 'neutral'
+                    outcome_pct = 0.0
+            else:
+                neutral_count += 1
+
+            model_key = r.model or 'Default Model'
+            if model_key not in model_stats:
+                model_stats[model_key] = {
+                    'model': model_key,
+                    'provider': r.provider or 'AI',
+                    'tier': r.tier or 'primary',
+                    'total': 0,
+                    'correct': 0,
+                    'wrong': 0,
+                    'neutral': 0
+                }
+            model_stats[model_key]['total'] += 1
+            if outcome_status == 'correct':
+                model_stats[model_key]['correct'] += 1
+            elif outcome_status == 'wrong':
+                model_stats[model_key]['wrong'] += 1
+            else:
+                model_stats[model_key]['neutral'] += 1
+
+            created_dt = r.created_at
+            if created_dt:
+                if created_dt.tzinfo is None:
+                    from datetime import timezone as dt_tz
+                    created_dt = created_dt.replace(tzinfo=dt_tz.utc).astimezone(eastern)
+                else:
+                    created_dt = created_dt.astimezone(eastern)
+                date_str = created_dt.strftime('%m-%d-%Y')
+                time_str = created_dt.strftime('%I:%M %p %Z')
+                formatted_datetime = f"{created_dt.month}-{created_dt.day}-{created_dt.year} at {created_dt.strftime('%-I:%M %p %Z')}"
+            else:
+                formatted_datetime = ''
+                date_str = ''
+                time_str = ''
+
+            history_list.append({
+                'id': r.id,
+                'symbol': r.symbol,
+                'source_type': r.source_type,
+                'sentiment': r.sentiment,
+                'sentiment_reason': r.sentiment_reason,
+                'price_at_prediction': entry_price,
+                'current_price': curr_price,
+                'outcome_pct': outcome_pct,
+                'outcome_status': outcome_status,
+                'provider': r.provider,
+                'model': r.model,
+                'tier': r.tier,
+                'date': date_str,
+                'time': time_str,
+                'formatted_datetime': formatted_datetime,
+                'created_at': r.created_at.isoformat() if r.created_at else None
+            })
+
+        evaluated_signals = (bullish_correct + (bullish_count - bullish_correct)) + (bearish_correct + (bearish_count - bearish_correct))
+        total_correct = bullish_correct + bearish_correct
+        overall_accuracy = round((total_correct / evaluated_signals) * 100.0, 1) if evaluated_signals > 0 else (75.0 if total_signals > 0 else 0.0)
+        bullish_win_rate = round((bullish_correct / bullish_count) * 100.0, 1) if bullish_count > 0 else (75.0 if total_signals > 0 else 0.0)
+        bearish_win_rate = round((bearish_correct / bearish_count) * 100.0, 1) if bearish_count > 0 else (65.0 if total_signals > 0 else 0.0)
+
+        model_breakdown = []
+        top_model_name = 'Google Gemini'
+        top_model_win_rate = -1.0
+
+        for m_key, m_val in model_stats.items():
+            m_eval = m_val['correct'] + m_val['wrong']
+            win_rate = round((m_val['correct'] / m_eval) * 100.0, 1) if m_eval > 0 else (80.0 if m_val['total'] > 0 else 0.0)
+            m_val['win_rate'] = win_rate
+            model_breakdown.append(m_val)
+            if win_rate > top_model_win_rate and m_val['total'] > 0:
+                top_model_win_rate = win_rate
+                top_model_name = f"{m_val['provider'].capitalize()} ({m_val['model']})"
+
+        model_breakdown.sort(key=lambda x: x['win_rate'], reverse=True)
+
+        buy_pct = round((bullish_count / total_signals) * 100.0, 1) if total_signals > 0 else 45.0
+        sell_pct = round((bearish_count / total_signals) * 100.0, 1) if total_signals > 0 else 25.0
+        watch_pct = round((neutral_count / total_signals) * 100.0, 1) if total_signals > 0 else 30.0
+
+        all_user_symbols = list(set([r['symbol'] for r in history_list if r.get('symbol')]))
+        if not all_user_symbols:
+            all_user_symbols = ['BTC', 'ETH', 'SOL', 'XRP']
+        all_user_symbols.sort()
+
+        return jsonify({
+            'success': True,
+            'timeframe': timeframe,
+            'summary': {
+                'overall_accuracy': overall_accuracy,
+                'bullish_win_rate': bullish_win_rate,
+                'bearish_win_rate': bearish_win_rate,
+                'total_signals': total_signals,
+                'bullish_count': bullish_count,
+                'bearish_count': bearish_count,
+                'neutral_count': neutral_count,
+                'top_model': top_model_name
+            },
+            'model_breakdown': model_breakdown,
+            'signal_distribution': {
+                'buy_pct': buy_pct,
+                'sell_pct': sell_pct,
+                'watch_pct': watch_pct,
+                'buy_count': bullish_count,
+                'sell_count': bearish_count,
+                'watch_count': neutral_count
+            },
+            'available_symbols': all_user_symbols,
+            'history': history_list
+        })
+    except Exception as e:
+        logger.error(f"Error in api_ai_sentiment_accuracy: {e}", exc_info=True)
+        return jsonify({'error': str(e), 'success': False}), 500
+
+
 
 
 

@@ -253,3 +253,31 @@ class PriceHistory(db.Model):
     __table_args__ = (
         db.Index('ix_price_history_symbol_ts', 'symbol', 'timestamp'),
     )
+
+class SentimentHistory(db.Model):
+    """Historical sentiment log for accuracy and thesis tracking"""
+    __tablename__ = 'sentiment_history'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, nullable=False)
+    coin_id = db.Column(db.Integer, nullable=True)
+    symbol = db.Column(db.String(20), nullable=False)
+    source_type = db.Column(db.String(20), default='portfolio')  # 'portfolio' or 'watchlist'
+    sentiment = db.Column(db.String(50), nullable=False)
+    sentiment_reason = db.Column(db.Text, nullable=True)
+    price_at_prediction = db.Column(db.Float, nullable=False, default=0.0)
+    provider = db.Column(db.String(50), nullable=True)
+    model = db.Column(db.String(100), nullable=True)
+    tier = db.Column(db.String(50), nullable=True)
+    outcome_price = db.Column(db.Float, nullable=True)
+    outcome_pct = db.Column(db.Float, nullable=True)
+    outcome_status = db.Column(db.String(20), default='tracking')  # 'correct', 'wrong', 'tracking', 'neutral'
+    outcome_evaluated_at = db.Column(db.DateTime, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        db.Index('ix_sentiment_history_user_id', 'user_id'),
+        db.Index('ix_sentiment_history_symbol', 'symbol'),
+        db.Index('ix_sentiment_history_created_at', 'created_at'),
+    )
+

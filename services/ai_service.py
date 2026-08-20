@@ -525,6 +525,32 @@ def call_ai_with_web_search(
                 )
         raise
 
+def record_sentiment_history(user_id, symbol, sentiment, sentiment_reason, price_at_prediction, provider=None, model=None, tier=None, source_type='portfolio', coin_id=None):
+    """Save an AI sentiment recommendation snapshot into sentiment_history for accuracy tracking."""
+    try:
+        from models import SentimentHistory
+        now = datetime.utcnow()
+        hist = SentimentHistory(
+            user_id=user_id,
+            coin_id=coin_id,
+            symbol=symbol.upper(),
+            source_type=source_type,
+            sentiment=sentiment,
+            sentiment_reason=sentiment_reason,
+            price_at_prediction=float(price_at_prediction or 0.0),
+            provider=provider,
+            model=model,
+            tier=tier,
+            created_at=now,
+            outcome_status='tracking'
+        )
+        db.session.add(hist)
+        db.session.commit()
+    except Exception as e:
+        logger.error(f"Error recording sentiment history: {e}")
+        db.session.rollback()
+
+
 def log_ai_conversation(user_id, prompt_type, sender, body, symbol=None, coin_id=None, provider=None, model=None, tier=None):
     """Helper to log conversation to ai_conversations table."""
     try:
@@ -800,6 +826,7 @@ def analyze_single_symbol_sentiment(user_id, username, symbol, is_watchlist=Fals
 
         # Update database
         resolved_coin_id = coin_id
+        snapshot_price = 0.0
         if is_watchlist:
             wl_row = WatchlistCoin.query.filter_by(user_id=user_id, symbol=symbol).first()
             if wl_row:
@@ -811,6 +838,7 @@ def analyze_single_symbol_sentiment(user_id, username, symbol, is_watchlist=Fals
                 wl_row.sentiment_tier = resp_tier
                 db.session.commit()
                 resolved_coin_id = wl_row.id
+                snapshot_price = float(getattr(wl_row, 'current_price', 0.0) or 0.0)
         else:
             coin_row = Coin.query.filter_by(user_id=user_id, symbol=symbol).first()
             if coin_row:
@@ -822,6 +850,27 @@ def analyze_single_symbol_sentiment(user_id, username, symbol, is_watchlist=Fals
                 coin_row.sentiment_tier = resp_tier
                 db.session.commit()
                 resolved_coin_id = coin_row.id
+                snapshot_price = float(getattr(coin_row, 'current', 0.0) or getattr(coin_row, 'avg_entry', 0.0) or 0.0)
+
+        if not snapshot_price or snapshot_price <= 0:
+            try:
+                from routes.trading import fetch_binance_price
+                snapshot_price = float(fetch_binance_price(symbol) or 0.0)
+            except Exception:
+                pass
+
+        record_sentiment_history(
+            user_id=user_id,
+            symbol=symbol,
+            sentiment=sentiment_result,
+            sentiment_reason=sentiment_reason,
+            price_at_prediction=snapshot_price,
+            provider=resp_provider,
+            model=resp_model,
+            tier=resp_tier,
+            source_type='watchlist' if is_watchlist else 'portfolio',
+            coin_id=resolved_coin_id
+        )
 
         log_ai_conversation(user_id, prompt_type, "user", actual_stage3_prompt, symbol=symbol, coin_id=resolved_coin_id, provider=resp_provider, model=resp_model, tier=resp_tier)
         time.sleep(0.1)

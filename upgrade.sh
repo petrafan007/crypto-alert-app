@@ -58,6 +58,9 @@ fi
 if [ -f "migrations/migrate_v1_48.py" ]; then
     python3 migrations/migrate_v1_48.py | tee -a "$LOG_FILE"
 fi
+if [ -f "migrations/migrate_v1_49.py" ]; then
+    python3 migrations/migrate_v1_49.py | tee -a "$LOG_FILE"
+fi
 
 # 6. Restart the application service
 log "Restarting application..."
