@@ -321,6 +321,42 @@ const AIDashboard = () => {
     fetchKlines();
   }, [selectedCoin, dateRange]);
 
+  // Compute per-coin historical accuracy for hover tooltips
+  const coinAccuracyMap = useMemo(() => {
+    const map = {};
+    (accuracyData?.history || []).forEach((row) => {
+      const sym = row.symbol;
+      if (!sym) return;
+      if (!map[sym]) {
+        map[sym] = { total: 0, correct: 0, wrong: 0, active: 0 };
+      }
+      map[sym].total += 1;
+      if (row.outcome_status === 'correct') {
+        map[sym].correct += 1;
+      } else if (row.outcome_status === 'wrong') {
+        map[sym].wrong += 1;
+      } else {
+        map[sym].active += 1;
+      }
+    });
+
+    const resultMap = {};
+    Object.keys(map).forEach((sym) => {
+      const s = map[sym];
+      const evaluated = s.correct + s.wrong;
+      const rate = evaluated > 0 ? ((s.correct / evaluated) * 100).toFixed(1) : (s.correct > 0 ? '100.0' : '0.0');
+      resultMap[sym] = {
+        ...s,
+        evaluated,
+        accuracyRate: rate,
+        tooltip: evaluated > 0
+          ? `${sym} Historical Accuracy: ${rate}% (${s.correct} Correct, ${s.wrong} Wrong across ${s.total} calls)`
+          : `${sym} Accuracy: Active Tracking (${s.active} calls)`,
+      };
+    });
+    return resultMap;
+  }, [accuracyData]);
+
   // Compute available coins with source types for filtering and badges
   const availableCoinFilters = useMemo(() => {
     const map = new Map();
@@ -863,7 +899,7 @@ const AIDashboard = () => {
               <table className="prediction-ledger-table">
                 <thead>
                   <tr>
-                    <th>Coin</th>
+                    <th style={{ textAlign: 'center' }}>Coin</th>
                     <th>Live Price</th>
                     <th>Signal Price</th>
                     <th>Date</th>
@@ -886,17 +922,22 @@ const AIDashboard = () => {
                         const isBullish = ['definitely buy', 'consider buying', 'buy immediately', 'strong buy', 'buy'].includes((row.sentiment || '').toLowerCase());
                         const isBearish = ['consider selling', 'sell immediately', 'avoid', 'strong sell', 'do not buy', 'sell'].includes((row.sentiment || '').toLowerCase());
                         const signalBadgeClass = isBullish ? 'badge-buy' : isBearish ? 'badge-sell' : 'badge-watch';
+                        const coinStat = coinAccuracyMap[row.symbol] || { tooltip: `${row.symbol} Accuracy: Tracking` };
 
                         return (
                           <tr key={row.id}>
-                            <td className="symbol-cell">
-                              <span className="coin-pill">{row.symbol}</span>
-                              <span
-                                className={`source-badge ${row.source_type === 'portfolio' ? 'source-p' : 'source-w'}`}
-                                title={row.source_type === 'portfolio' ? 'Portfolio Asset' : 'Watchlist Asset'}
-                              >
-                                {row.source_type === 'portfolio' ? 'P' : 'W'}
-                              </span>
+                            <td className="symbol-cell" style={{ textAlign: 'center' }}>
+                              <div className="coin-cell-content" title={coinStat.tooltip}>
+                                <span className="coin-pill">
+                                  {row.symbol}
+                                </span>
+                                <span
+                                  className={`source-badge ${row.source_type === 'portfolio' ? 'source-p' : 'source-w'}`}
+                                  title={row.source_type === 'portfolio' ? 'Portfolio Asset' : 'Watchlist Asset'}
+                                >
+                                  {row.source_type === 'portfolio' ? 'P' : 'W'}
+                                </span>
+                              </div>
                             </td>
                             <td className="price-cell">
                               ${parseFloat(row.evaluation_price || row.current_price || 0) > 100

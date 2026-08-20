@@ -195,6 +195,48 @@
   width: 100%;
 }
 
+/* ========================================================================= */
+/* CRITICAL: LIGHTWEIGHT CHARTS CSS RESET TO PREVENT GLOBAL CSS CORRUPTION   */
+/* ========================================================================= */
+.chart-viewport-wrapper .tv-lightweight-charts {
+  position: relative !important;
+  overflow: hidden !important;
+  width: 100% !important;
+  height: 340px !important;
+  background: transparent !important;
+}
+
+.chart-viewport-wrapper .tv-lightweight-charts table,
+.chart-viewport-wrapper .tv-lightweight-charts tbody,
+.chart-viewport-wrapper .tv-lightweight-charts tr,
+.chart-viewport-wrapper .tv-lightweight-charts td,
+.chart-viewport-wrapper .tv-lightweight-charts th {
+  margin: 0 !important;
+  padding: 0 !important;
+  border: none !important;
+  background: transparent !important;
+  table-layout: auto !important;
+  box-shadow: none !important;
+  text-align: left !important;
+  overflow: visible !important;
+  height: auto !important;
+  width: auto !important;
+}
+
+.chart-viewport-wrapper .tv-lightweight-charts tr:hover td,
+.chart-viewport-wrapper .tv-lightweight-charts tr:nth-child(even) td,
+.chart-viewport-wrapper .tv-lightweight-charts tr:nth-child(odd) td {
+  background: transparent !important;
+}
+
+.chart-viewport-wrapper .tv-lightweight-charts canvas {
+  display: block !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: none !important;
+  background: transparent !important;
+}
+
 .chart-loading-overlay {
   position: absolute;
   inset: 0;
@@ -320,6 +362,10 @@
   z-index: 5;
 }
 
+.ai-dashboard .prediction-ledger-table th:first-child {
+  text-align: center !important;
+}
+
 .ai-dashboard .prediction-ledger-table td,
 .ai-dashboard .prediction-ledger-table tr td,
 .ai-dashboard .prediction-ledger-table tbody tr td,
@@ -347,8 +393,16 @@
 }
 
 .symbol-cell {
-  display: flex;
+  text-align: center !important;
+}
+
+.coin-cell-content {
+  display: inline-flex;
   align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin: 0 auto;
+  cursor: help;
 }
 
 .symbol-cell .coin-pill {
@@ -359,6 +413,7 @@
   font-weight: 700;
   font-size: 12px;
   color: var(--text-primary, #fff);
+  cursor: help;
 }
 
 .source-badge {
