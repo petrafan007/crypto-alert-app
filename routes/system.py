@@ -901,8 +901,10 @@ def api_settings():
                 'tax_cost_basis_method', 'copilot_chat_pre', 'copilot_chat_post',
                 'sentiment_analysis_frequency_hours', 'watchlist_sentiment_analysis_frequency_hours',
                 'volatility_hours',
-                'ai_provider_fallback', 'ai_model_fallback',
-                'ai_reasoning_level', 'ai_reasoning_level_fallback'
+                'ai_provider_fallback', 'ai_model_fallback', 'ai_reasoning_level_fallback',
+                'ai_provider_secondary', 'ai_model_secondary', 'ai_reasoning_level_secondary',
+                'ai_provider_tertiary', 'ai_model_tertiary', 'ai_reasoning_level_tertiary',
+                'ai_reasoning_level'
             ]
 
             for key, value in data.items():
@@ -978,8 +980,10 @@ def api_settings():
                     cred.perplexity_key = data['perplexity_key']
                 if 'gemini_key' in data:
                     cred.gemini_key = data['gemini_key']
+                if 'inception_key' in data:
+                    cred.inception_key = data['inception_key']
                 
-                # Fallback Keys
+                # Secondary (Fallback) Keys
                 if 'openai_key_fallback' in data:
                     cred.openai_key_fallback = data['openai_key_fallback']
                 if 'zai_key_fallback' in data:
@@ -988,6 +992,22 @@ def api_settings():
                     cred.perplexity_key_fallback = data['perplexity_key_fallback']
                 if 'gemini_key_fallback' in data:
                     cred.gemini_key_fallback = data['gemini_key_fallback']
+                if 'inception_key_fallback' in data:
+                    cred.inception_key_fallback = data['inception_key_fallback']
+                if 'inception_key_secondary' in data:
+                    cred.inception_key_fallback = data['inception_key_secondary']
+
+                # Tertiary Keys
+                if 'openai_key_tertiary' in data:
+                    cred.openai_key_tertiary = data['openai_key_tertiary']
+                if 'zai_key_tertiary' in data:
+                    cred.zai_key_tertiary = data['zai_key_tertiary']
+                if 'perplexity_key_tertiary' in data:
+                    cred.perplexity_key_tertiary = data['perplexity_key_tertiary']
+                if 'gemini_key_tertiary' in data:
+                    cred.gemini_key_tertiary = data['gemini_key_tertiary']
+                if 'inception_key_tertiary' in data:
+                    cred.inception_key_tertiary = data['inception_key_tertiary']
 
                 if 'ai_provider' in data:
                     cred.ai_provider = data['ai_provider']
@@ -1068,10 +1088,24 @@ def api_settings():
             "zai_key": getattr(cred, 'zai_key', None),
             "perplexity_key": getattr(cred, 'perplexity_key', None),
             "gemini_key": getattr(cred, 'gemini_key', None),
+            "inception_key": getattr(cred, 'inception_key', None),
             "openai_key_fallback": getattr(cred, 'openai_key_fallback', None),
             "zai_key_fallback": getattr(cred, 'zai_key_fallback', None),
             "perplexity_key_fallback": getattr(cred, 'perplexity_key_fallback', None),
             "gemini_key_fallback": getattr(cred, 'gemini_key_fallback', None),
+            "inception_key_fallback": getattr(cred, 'inception_key_fallback', None),
+            "openai_key_tertiary": getattr(cred, 'openai_key_tertiary', None),
+            "zai_key_tertiary": getattr(cred, 'zai_key_tertiary', None),
+            "perplexity_key_tertiary": getattr(cred, 'perplexity_key_tertiary', None),
+            "gemini_key_tertiary": getattr(cred, 'gemini_key_tertiary', None),
+            "inception_key_tertiary": getattr(cred, 'inception_key_tertiary', None),
+            # ai_provider is already in ai_settings, but ensure sync? 
+            # ai_settings takes precedence as it handles defaults and user_settings overlay
+            "telegram_token": cred.telegram_token,
+            "telegram_chat_id": cred.telegram_chat_id,
+            "news_api": cred.news_api,
+            "brave_search_api_key": getattr(cred, 'brave_search_api_key', None),
+            "brave_search_api_key_fallback": getattr(cred, 'brave_search_api_key_fallback', None),
             # ai_provider is already in ai_settings, but ensure sync? 
             # ai_settings takes precedence as it handles defaults and user_settings overlay
             "telegram_token": cred.telegram_token,

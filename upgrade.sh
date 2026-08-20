@@ -50,9 +50,11 @@ npm install | tee -a "$LOG_FILE"
 npm run build | tee -a "$LOG_FILE"
 cd ..
 
-# 5. Run any database migrations (Optional)
-# If using alembic or similar in the future:
-# flask db upgrade
+# 5. Run any database migrations
+log "Running database migrations..."
+if [ -f "migrations/migrate_v1_47.py" ]; then
+    python3 migrations/migrate_v1_47.py | tee -a "$LOG_FILE"
+fi
 
 # 6. Restart the application service
 log "Restarting application..."

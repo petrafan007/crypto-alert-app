@@ -35,6 +35,7 @@ export default function Settings({ isLightMode }) {
     zai: [],
     perplexity: [],
     gemini: [],
+    inception: [],
   });
   const [settings, setSettings] = useState({
     api_key: '',
@@ -43,16 +44,35 @@ export default function Settings({ isLightMode }) {
     openai_key: '',
     zai_key: '',
     perplexity_key: '',
+    gemini_key: '',
+    inception_key: '',
     ai_provider: 'openai',
     ai_model: '',
     ai_reasoning_level: 'medium',
+
+    // Secondary AI Integration
     ai_provider_fallback: '',
     ai_model_fallback: '',
     ai_reasoning_level_fallback: 'medium',
+    ai_provider_secondary: '',
+    ai_model_secondary: '',
+    ai_reasoning_level_secondary: 'medium',
     openai_key_fallback: '',
     zai_key_fallback: '',
     perplexity_key_fallback: '',
     gemini_key_fallback: '',
+    inception_key_fallback: '',
+
+    // Tertiary AI Integration
+    ai_provider_tertiary: '',
+    ai_model_tertiary: '',
+    ai_reasoning_level_tertiary: 'medium',
+    openai_key_tertiary: '',
+    zai_key_tertiary: '',
+    perplexity_key_tertiary: '',
+    gemini_key_tertiary: '',
+    inception_key_tertiary: '',
+
     telegram_token: '',
     telegram_chat_id: '',
     news_api: '',
@@ -99,6 +119,8 @@ export default function Settings({ isLightMode }) {
   const [braveApiFallbackTestResult, setBraveApiFallbackTestResult] = useState(null);
   const [testingFallback, setTestingFallback] = useState(false);
   const [fallbackTestResult, setFallbackTestResult] = useState(null);
+  const [testingTertiaryAi, setTestingTertiaryAi] = useState(false);
+  const [tertiaryAiTestResult, setTertiaryAiTestResult] = useState(null);
   const [syncing, setSyncing] = useState(false);
   const [encryptionStatus, setEncryptionStatus] = useState({ configured: false, persisted: false });
   const [encryptionKeyDirty, setEncryptionKeyDirty] = useState(false);
@@ -164,7 +186,7 @@ export default function Settings({ isLightMode }) {
       console.log('Fetching settings...');
 
       // Fetch AI models first
-      let currentModelOptions = { openai: [], zai: [], perplexity: [], gemini: [] };
+      let currentModelOptions = { openai: [], zai: [], perplexity: [], gemini: [], inception: [] };
       try {
         const modelsResponse = await axios.get('/api/ai/models', { withCredentials: true });
         if (modelsResponse.data) {
@@ -199,18 +221,28 @@ export default function Settings({ isLightMode }) {
         let model = mergedSettings.ai_model;
         const sanitizedModel = sanitizeModel(provider, model, currentModelOptions);
 
-        const fallbackProvider = mergedSettings.ai_provider_fallback || prev.ai_provider_fallback || '';
-        let fallbackModel = mergedSettings.ai_model_fallback;
-        const sanitizedFallbackModel = fallbackProvider ? sanitizeModel(fallbackProvider, fallbackModel, currentModelOptions) : (fallbackModel || '');
+        const secondaryProvider = mergedSettings.ai_provider_secondary || mergedSettings.ai_provider_fallback || prev.ai_provider_secondary || prev.ai_provider_fallback || '';
+        let secondaryModel = mergedSettings.ai_model_secondary || mergedSettings.ai_model_fallback;
+        const sanitizedSecondaryModel = secondaryProvider ? sanitizeModel(secondaryProvider, secondaryModel, currentModelOptions) : (secondaryModel || '');
+
+        const tertiaryProvider = mergedSettings.ai_provider_tertiary || prev.ai_provider_tertiary || '';
+        let tertiaryModel = mergedSettings.ai_model_tertiary;
+        const sanitizedTertiaryModel = tertiaryProvider ? sanitizeModel(tertiaryProvider, tertiaryModel, currentModelOptions) : (tertiaryModel || '');
 
         return {
           ...prev,
           ...mergedSettings,
           ai_provider: provider,
           ai_model: sanitizedModel,
-          ai_provider_fallback: fallbackProvider,
-          ai_model_fallback: sanitizedFallbackModel,
-          ai_reasoning_level_fallback: mergedSettings.ai_reasoning_level_fallback || prev.ai_reasoning_level_fallback || 'medium'
+          ai_provider_fallback: secondaryProvider,
+          ai_model_fallback: sanitizedSecondaryModel,
+          ai_reasoning_level_fallback: mergedSettings.ai_reasoning_level_secondary || mergedSettings.ai_reasoning_level_fallback || prev.ai_reasoning_level_fallback || 'medium',
+          ai_provider_secondary: secondaryProvider,
+          ai_model_secondary: sanitizedSecondaryModel,
+          ai_reasoning_level_secondary: mergedSettings.ai_reasoning_level_secondary || mergedSettings.ai_reasoning_level_fallback || prev.ai_reasoning_level_fallback || 'medium',
+          ai_provider_tertiary: tertiaryProvider,
+          ai_model_tertiary: sanitizedTertiaryModel,
+          ai_reasoning_level_tertiary: mergedSettings.ai_reasoning_level_tertiary || prev.ai_reasoning_level_tertiary || 'medium'
         };
       });
     } catch (error) {
@@ -243,20 +275,41 @@ export default function Settings({ isLightMode }) {
         };
       }
 
-      if (field === 'ai_provider_fallback') {
-        const sanitizedModel = value ? sanitizeModel(value, prev.ai_model_fallback, modelOptions) : '';
+      if (field === 'ai_provider_fallback' || field === 'ai_provider_secondary') {
+        const sanitizedModel = value ? sanitizeModel(value, prev.ai_model_secondary || prev.ai_model_fallback, modelOptions) : '';
         return {
           ...prev,
           ai_provider_fallback: value,
+          ai_provider_secondary: value,
           ai_model_fallback: sanitizedModel,
+          ai_model_secondary: sanitizedModel,
         };
       }
 
-      if (field === 'ai_model_fallback') {
-        const sanitizedModel = prev.ai_provider_fallback ? sanitizeModel(prev.ai_provider_fallback, value, modelOptions) : value;
+      if (field === 'ai_model_fallback' || field === 'ai_model_secondary') {
+        const prov = prev.ai_provider_secondary || prev.ai_provider_fallback;
+        const sanitizedModel = prov ? sanitizeModel(prov, value, modelOptions) : value;
         return {
           ...prev,
           ai_model_fallback: sanitizedModel,
+          ai_model_secondary: sanitizedModel,
+        };
+      }
+
+      if (field === 'ai_provider_tertiary') {
+        const sanitizedModel = value ? sanitizeModel(value, prev.ai_model_tertiary, modelOptions) : '';
+        return {
+          ...prev,
+          ai_provider_tertiary: value,
+          ai_model_tertiary: sanitizedModel,
+        };
+      }
+
+      if (field === 'ai_model_tertiary') {
+        const sanitizedModel = prev.ai_provider_tertiary ? sanitizeModel(prev.ai_provider_tertiary, value, modelOptions) : value;
+        return {
+          ...prev,
+          ai_model_tertiary: sanitizedModel,
         };
       }
 
@@ -300,6 +353,9 @@ export default function Settings({ isLightMode }) {
             break;
           case 'gemini':
             if (!settings.gemini_key) errors.push("Gemini API Key is required.");
+            break;
+          case 'inception':
+            if (!settings.inception_key) errors.push("Inception Labs API Key is required.");
             break;
         }
       }
@@ -452,12 +508,14 @@ export default function Settings({ isLightMode }) {
     else if (provider === 'zai') apiKey = settings.zai_key;
     else if (provider === 'perplexity') apiKey = settings.perplexity_key;
     else if (provider === 'gemini') apiKey = settings.gemini_key;
+    else if (provider === 'inception') apiKey = settings.inception_key;
 
     try {
       const response = await axios.post('/api/test-ai-connection-generic', {
         provider: provider,
         api_key: apiKey,
         model: settings.ai_model,
+        tier: 'primary',
         is_fallback: false
       }, { withCredentials: true });
 
@@ -525,12 +583,12 @@ export default function Settings({ isLightMode }) {
     }
   };
 
-  // Test AI Fallback Connection
+  // Test AI Secondary (Fallback) Connection
   const testFallbackConnection = async () => {
     setTestingFallback(true);
     setFallbackTestResult(null);
 
-    const provider = settings.ai_provider_fallback;
+    const provider = settings.ai_provider_secondary || settings.ai_provider_fallback;
     let apiKey = '';
 
     // Determine the key based on provider
@@ -538,27 +596,67 @@ export default function Settings({ isLightMode }) {
     else if (provider === 'zai') apiKey = settings.zai_key_fallback;
     else if (provider === 'perplexity') apiKey = settings.perplexity_key_fallback;
     else if (provider === 'gemini') apiKey = settings.gemini_key_fallback;
+    else if (provider === 'inception') apiKey = settings.inception_key_fallback;
 
     try {
       const response = await axios.post('/api/test-ai-connection-generic', {
         provider: provider,
         api_key: apiKey,
-        model: settings.ai_model_fallback,
+        model: settings.ai_model_secondary || settings.ai_model_fallback,
+        tier: 'secondary',
         is_fallback: true
       }, { withCredentials: true });
 
       setFallbackTestResult({
         success: response.data.success,
-        message: response.data.message || (response.data.success ? 'Fallback connection successful!' : 'Connection failed')
+        message: response.data.message || (response.data.success ? 'Secondary connection successful!' : 'Connection failed')
       });
     } catch (error) {
-      console.error('Error testing fallback connection:', error);
+      console.error('Error testing secondary connection:', error);
       setFallbackTestResult({
         success: false,
-        message: error.response?.data?.message || 'Failed to test fallback connection'
+        message: error.response?.data?.message || 'Failed to test secondary connection'
       });
     } finally {
       setTestingFallback(false);
+    }
+  };
+
+  // Test AI Tertiary Connection
+  const testTertiaryAiConnection = async () => {
+    setTestingTertiaryAi(true);
+    setTertiaryAiTestResult(null);
+
+    const provider = settings.ai_provider_tertiary;
+    let apiKey = '';
+
+    // Determine the key based on provider
+    if (provider === 'openai') apiKey = settings.openai_key_tertiary;
+    else if (provider === 'zai') apiKey = settings.zai_key_tertiary;
+    else if (provider === 'perplexity') apiKey = settings.perplexity_key_tertiary;
+    else if (provider === 'gemini') apiKey = settings.gemini_key_tertiary;
+    else if (provider === 'inception') apiKey = settings.inception_key_tertiary;
+
+    try {
+      const response = await axios.post('/api/test-ai-connection-generic', {
+        provider: provider,
+        api_key: apiKey,
+        model: settings.ai_model_tertiary,
+        tier: 'tertiary'
+      }, { withCredentials: true });
+
+      setTertiaryAiTestResult({
+        success: response.data.success,
+        message: response.data.message || (response.data.success ? 'Tertiary connection successful!' : 'Connection failed')
+      });
+    } catch (error) {
+      console.error('Error testing tertiary connection:', error);
+      setTertiaryAiTestResult({
+        success: false,
+        message: error.response?.data?.message || 'Failed to test tertiary connection'
+      });
+    } finally {
+      setTestingTertiaryAi(false);
     }
   };
 
@@ -1311,9 +1409,10 @@ export default function Settings({ isLightMode }) {
               <option value="zai">Z.AI</option>
               <option value="perplexity">Perplexity</option>
               <option value="gemini">Gemini</option>
+              <option value="inception">Inception Labs</option>
             </select>
             <div className="settings-form-help">
-              Choose your AI provider for analysis and recommendations
+              Choose your primary AI provider for analysis and recommendations
             </div>
           </div>
 
@@ -1353,9 +1452,7 @@ export default function Settings({ isLightMode }) {
           {/* OpenAI Configuration - Only show when OpenAI is selected */}
           {settings.ai_provider === 'openai' && (
             <div className="settings-form-group">
-              <label>
-                OpenAI API Key
-              </label>
+              <label>OpenAI API Key</label>
               <input
                 type="password"
                 value={settings.openai_key || ''}
@@ -1371,9 +1468,7 @@ export default function Settings({ isLightMode }) {
           {/* Z.AI Configuration - Only show when Z.AI is selected */}
           {settings.ai_provider === 'zai' && (
             <div className="settings-form-group">
-              <label>
-                Z.AI API Key
-              </label>
+              <label>Z.AI API Key</label>
               <input
                 type="password"
                 value={settings.zai_key || ''}
@@ -1389,9 +1484,7 @@ export default function Settings({ isLightMode }) {
           {/* Perplexity Configuration - Only show when Perplexity is selected */}
           {settings.ai_provider === 'perplexity' && (
             <div className="settings-form-group">
-              <label>
-                Perplexity API Key
-              </label>
+              <label>Perplexity API Key</label>
               <input
                 type="password"
                 value={settings.perplexity_key || ''}
@@ -1407,14 +1500,28 @@ export default function Settings({ isLightMode }) {
           {/* Gemini Configuration - Only show when Gemini is selected */}
           {settings.ai_provider === 'gemini' && (
             <div className="settings-form-group">
-              <label>
-                Gemini API Key
-              </label>
+              <label>Gemini API Key</label>
               <input
                 type="password"
                 value={settings.gemini_key || ''}
                 onChange={(e) => handleInputChange('gemini_key', e.target.value)}
                 placeholder="Enter Gemini API Key"
+              />
+              <div className="settings-form-help">
+                Used for AI-powered trading analysis and recommendations
+              </div>
+            </div>
+          )}
+
+          {/* Inception Labs Configuration - Only show when Inception is selected */}
+          {settings.ai_provider === 'inception' && (
+            <div className="settings-form-group">
+              <label>Inception Labs API Key</label>
+              <input
+                type="password"
+                value={settings.inception_key || ''}
+                onChange={(e) => handleInputChange('inception_key', e.target.value)}
+                placeholder="Enter Inception Labs API Key"
               />
               <div className="settings-form-help">
                 Used for AI-powered trading analysis and recommendations
@@ -1440,49 +1547,50 @@ export default function Settings({ isLightMode }) {
           </div>
         </div>
 
-        {/* Row 2, Right: Fallback AI Integration */}
+        {/* Row 2, Right: Secondary AI Integration */}
         <div className="settings-page-section">
-          <h3>Fallback AI Integration</h3>
+          <h3>Secondary AI Integration</h3>
 
           <div className="settings-form-group">
             <label>AI Provider</label>
             <select
-              value={settings.ai_provider_fallback || ''}
-              onChange={(e) => handleInputChange('ai_provider_fallback', e.target.value)}
+              value={settings.ai_provider_secondary || settings.ai_provider_fallback || ''}
+              onChange={(e) => handleInputChange('ai_provider_secondary', e.target.value)}
             >
-              <option value="">-- Select Fallback Provider --</option>
+              <option value="">-- Select Secondary Provider --</option>
               <option value="openai">OpenAI</option>
               <option value="zai">Z.AI</option>
               <option value="perplexity">Perplexity</option>
               <option value="gemini">Gemini</option>
+              <option value="inception">Inception Labs</option>
             </select>
             <div className="settings-form-help">
-              Choose your fallback AI provider for automatic failover
+              Choose your secondary AI provider for automatic failover
             </div>
           </div>
 
           <div className="settings-form-group">
             <label>AI Model</label>
             <select
-              value={settings.ai_model_fallback || ''}
-              onChange={(e) => handleInputChange('ai_model_fallback', e.target.value)}
+              value={settings.ai_model_secondary || settings.ai_model_fallback || ''}
+              onChange={(e) => handleInputChange('ai_model_secondary', e.target.value)}
             >
-              {(modelOptions[settings.ai_provider_fallback] || []).map((option) => (
+              {(modelOptions[settings.ai_provider_secondary || settings.ai_provider_fallback] || []).map((option) => (
                 <option key={option.value} value={option.value}>{option.label}</option>
               ))}
             </select>
             <div className="settings-form-help">
-              Select an AI model supported by the chosen fallback provider
+              Select an AI model supported by the chosen secondary provider
             </div>
           </div>
 
-          {/* Gemini Reasoning Effort for Fallback */}
-          {settings.ai_provider_fallback === 'gemini' && (
+          {/* Gemini Reasoning Effort for Secondary */}
+          {(settings.ai_provider_secondary === 'gemini' || settings.ai_provider_fallback === 'gemini') && (
             <div className="settings-form-group">
               <label>Reasoning</label>
               <select
-                value={settings.ai_reasoning_level_fallback || 'medium'}
-                onChange={(e) => handleInputChange('ai_reasoning_level_fallback', e.target.value)}
+                value={settings.ai_reasoning_level_secondary || settings.ai_reasoning_level_fallback || 'medium'}
+                onChange={(e) => handleInputChange('ai_reasoning_level_secondary', e.target.value)}
               >
                 <option value="low">Low</option>
                 <option value="medium">Medium</option>
@@ -1494,8 +1602,8 @@ export default function Settings({ isLightMode }) {
             </div>
           )}
 
-          {/* OpenAI Fallback Configuration */}
-          {settings.ai_provider_fallback === 'openai' && (
+          {/* OpenAI Secondary Configuration */}
+          {(settings.ai_provider_secondary === 'openai' || settings.ai_provider_fallback === 'openai') && (
             <div className="settings-form-group">
               <label>OpenAI API Key</label>
               <input
@@ -1505,13 +1613,13 @@ export default function Settings({ isLightMode }) {
                 placeholder="Enter OpenAI API Key"
               />
               <div className="settings-form-help">
-                Used as fallback for AI-powered trading analysis and recommendations
+                Used as secondary fallback for AI-powered trading analysis
               </div>
             </div>
           )}
 
-          {/* Z.AI Fallback Configuration */}
-          {settings.ai_provider_fallback === 'zai' && (
+          {/* Z.AI Secondary Configuration */}
+          {(settings.ai_provider_secondary === 'zai' || settings.ai_provider_fallback === 'zai') && (
             <div className="settings-form-group">
               <label>Z.AI API Key</label>
               <input
@@ -1521,13 +1629,13 @@ export default function Settings({ isLightMode }) {
                 placeholder="Enter Z.AI API Key"
               />
               <div className="settings-form-help">
-                Used as fallback for AI-powered trading analysis and recommendations
+                Used as secondary fallback for AI-powered trading analysis
               </div>
             </div>
           )}
 
-          {/* Perplexity Fallback Configuration */}
-          {settings.ai_provider_fallback === 'perplexity' && (
+          {/* Perplexity Secondary Configuration */}
+          {(settings.ai_provider_secondary === 'perplexity' || settings.ai_provider_fallback === 'perplexity') && (
             <div className="settings-form-group">
               <label>Perplexity API Key</label>
               <input
@@ -1537,13 +1645,13 @@ export default function Settings({ isLightMode }) {
                 placeholder="Enter Perplexity API Key"
               />
               <div className="settings-form-help">
-                Used as fallback for AI-powered trading analysis and recommendations
+                Used as secondary fallback for AI-powered trading analysis
               </div>
             </div>
           )}
 
-          {/* Gemini Fallback Configuration */}
-          {settings.ai_provider_fallback === 'gemini' && (
+          {/* Gemini Secondary Configuration */}
+          {(settings.ai_provider_secondary === 'gemini' || settings.ai_provider_fallback === 'gemini') && (
             <div className="settings-form-group">
               <label>Gemini API Key</label>
               <input
@@ -1553,17 +1661,33 @@ export default function Settings({ isLightMode }) {
                 placeholder="Enter Gemini API Key"
               />
               <div className="settings-form-help">
-                Used as fallback for AI-powered trading analysis and recommendations
+                Used as secondary fallback for AI-powered trading analysis
               </div>
             </div>
           )}
 
-          {/* Test Fallback AI Connection button */}
+          {/* Inception Labs Secondary Configuration */}
+          {(settings.ai_provider_secondary === 'inception' || settings.ai_provider_fallback === 'inception') && (
+            <div className="settings-form-group">
+              <label>Inception Labs API Key</label>
+              <input
+                type="password"
+                value={settings.inception_key_fallback || ''}
+                onChange={(e) => handleInputChange('inception_key_fallback', e.target.value)}
+                placeholder="Enter Inception Labs API Key"
+              />
+              <div className="settings-form-help">
+                Used as secondary fallback for AI-powered trading analysis
+              </div>
+            </div>
+          )}
+
+          {/* Test Secondary AI Connection button */}
           <div className="settings-form-group" style={{ marginTop: '8px' }}>
             <button
               onClick={testFallbackConnection}
-              disabled={!settings.ai_provider_fallback || testingFallback}
-              className={`settings-button secondary ${(!settings.ai_provider_fallback || testingFallback) ? 'disabled' : ''}`}
+              disabled={!(settings.ai_provider_secondary || settings.ai_provider_fallback) || testingFallback}
+              className={`settings-button secondary ${(!(settings.ai_provider_secondary || settings.ai_provider_fallback) || testingFallback) ? 'disabled' : ''}`}
               style={{ marginTop: '8px' }}
             >
               {testingFallback ? 'Testing...' : 'Test AI Integration'}
@@ -1571,6 +1695,159 @@ export default function Settings({ isLightMode }) {
             {fallbackTestResult && (
               <div className={`settings-status ${fallbackTestResult.success ? 'success' : 'error'}`} style={{ marginTop: '8px' }}>
                 {fallbackTestResult.message}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Row 3: Tertiary AI Integration */}
+        <div className="settings-page-section">
+          <h3>Tertiary AI Integration</h3>
+
+          <div className="settings-form-group">
+            <label>AI Provider</label>
+            <select
+              value={settings.ai_provider_tertiary || ''}
+              onChange={(e) => handleInputChange('ai_provider_tertiary', e.target.value)}
+            >
+              <option value="">-- Select Tertiary Provider --</option>
+              <option value="openai">OpenAI</option>
+              <option value="zai">Z.AI</option>
+              <option value="perplexity">Perplexity</option>
+              <option value="gemini">Gemini</option>
+              <option value="inception">Inception Labs</option>
+            </select>
+            <div className="settings-form-help">
+              Choose your tertiary AI provider for secondary failover
+            </div>
+          </div>
+
+          <div className="settings-form-group">
+            <label>AI Model</label>
+            <select
+              value={settings.ai_model_tertiary || ''}
+              onChange={(e) => handleInputChange('ai_model_tertiary', e.target.value)}
+            >
+              {(modelOptions[settings.ai_provider_tertiary] || []).map((option) => (
+                <option key={option.value} value={option.value}>{option.label}</option>
+              ))}
+            </select>
+            <div className="settings-form-help">
+              Select an AI model supported by the chosen tertiary provider
+            </div>
+          </div>
+
+          {/* Gemini Reasoning Effort for Tertiary */}
+          {settings.ai_provider_tertiary === 'gemini' && (
+            <div className="settings-form-group">
+              <label>Reasoning</label>
+              <select
+                value={settings.ai_reasoning_level_tertiary || 'medium'}
+                onChange={(e) => handleInputChange('ai_reasoning_level_tertiary', e.target.value)}
+              >
+                <option value="low">Low</option>
+                <option value="medium">Medium</option>
+                <option value="high">High</option>
+              </select>
+              <div className="settings-form-help">
+                Configure reasoning effort for Gemini models (Low, Medium, or High)
+              </div>
+            </div>
+          )}
+
+          {/* OpenAI Tertiary Configuration */}
+          {settings.ai_provider_tertiary === 'openai' && (
+            <div className="settings-form-group">
+              <label>OpenAI API Key</label>
+              <input
+                type="password"
+                value={settings.openai_key_tertiary || ''}
+                onChange={(e) => handleInputChange('openai_key_tertiary', e.target.value)}
+                placeholder="Enter OpenAI API Key"
+              />
+              <div className="settings-form-help">
+                Used as tertiary fallback for AI-powered trading analysis
+              </div>
+            </div>
+          )}
+
+          {/* Z.AI Tertiary Configuration */}
+          {settings.ai_provider_tertiary === 'zai' && (
+            <div className="settings-form-group">
+              <label>Z.AI API Key</label>
+              <input
+                type="password"
+                value={settings.zai_key_tertiary || ''}
+                onChange={(e) => handleInputChange('zai_key_tertiary', e.target.value)}
+                placeholder="Enter Z.AI API Key"
+              />
+              <div className="settings-form-help">
+                Used as tertiary fallback for AI-powered trading analysis
+              </div>
+            </div>
+          )}
+
+          {/* Perplexity Tertiary Configuration */}
+          {settings.ai_provider_tertiary === 'perplexity' && (
+            <div className="settings-form-group">
+              <label>Perplexity API Key</label>
+              <input
+                type="password"
+                value={settings.perplexity_key_tertiary || ''}
+                onChange={(e) => handleInputChange('perplexity_key_tertiary', e.target.value)}
+                placeholder="Enter Perplexity API Key"
+              />
+              <div className="settings-form-help">
+                Used as tertiary fallback for AI-powered trading analysis
+              </div>
+            </div>
+          )}
+
+          {/* Gemini Tertiary Configuration */}
+          {settings.ai_provider_tertiary === 'gemini' && (
+            <div className="settings-form-group">
+              <label>Gemini API Key</label>
+              <input
+                type="password"
+                value={settings.gemini_key_tertiary || ''}
+                onChange={(e) => handleInputChange('gemini_key_tertiary', e.target.value)}
+                placeholder="Enter Gemini API Key"
+              />
+              <div className="settings-form-help">
+                Used as tertiary fallback for AI-powered trading analysis
+              </div>
+            </div>
+          )}
+
+          {/* Inception Labs Tertiary Configuration */}
+          {settings.ai_provider_tertiary === 'inception' && (
+            <div className="settings-form-group">
+              <label>Inception Labs API Key</label>
+              <input
+                type="password"
+                value={settings.inception_key_tertiary || ''}
+                onChange={(e) => handleInputChange('inception_key_tertiary', e.target.value)}
+                placeholder="Enter Inception Labs API Key"
+              />
+              <div className="settings-form-help">
+                Used as tertiary fallback for AI-powered trading analysis
+              </div>
+            </div>
+          )}
+
+          {/* Test Tertiary AI Connection button */}
+          <div className="settings-form-group" style={{ marginTop: '8px' }}>
+            <button
+              onClick={testTertiaryAiConnection}
+              disabled={!settings.ai_provider_tertiary || testingTertiaryAi}
+              className={`settings-button secondary ${(!settings.ai_provider_tertiary || testingTertiaryAi) ? 'disabled' : ''}`}
+              style={{ marginTop: '8px' }}
+            >
+              {testingTertiaryAi ? 'Testing...' : 'Test AI Integration'}
+            </button>
+            {tertiaryAiTestResult && (
+              <div className={`settings-status ${tertiaryAiTestResult.success ? 'success' : 'error'}`} style={{ marginTop: '8px' }}>
+                {tertiaryAiTestResult.message}
               </div>
             )}
           </div>

@@ -160,13 +160,14 @@ def call_ai_with_web_search(
     symbol=None,
     include_db_context=True,
     amount=None,
-    is_fallback_attempt=False
+    is_fallback_attempt=False,
+    tier_index=0
 ):
     """
-    AGENTIC AI WORKFLOW - 3-STAGE PROCESS:
-    Stage 1: AI analyzes prompt and generates targeted search queries
-    Stage 2: Web searches executed
-    Stage 3: AI synthesizes prompt + search results
+    AGENTIC AI WORKFLOW - 3-STAGE PROCESS WITH 3-TIER CASCADE FAILOVER:
+    Tier 0: Primary AI Integration
+    Tier 1: Secondary AI Integration
+    Tier 2: Tertiary AI Integration
     """
     try:
         if not user_id:
@@ -180,43 +181,76 @@ def call_ai_with_web_search(
         if not cred:
             raise ValueError(f"No credentials found for user: {username}")
         
-        def _pick_key(p):
-            if is_fallback_attempt:
-                if p == 'openai':
-                    return decrypt_secret(cred.openai_key_fallback) or decrypt_secret(cred.openai_key)
-                if p == 'zai':
-                    return decrypt_secret(cred.zai_key_fallback) or decrypt_secret(cred.zai_key)
-                if p == 'perplexity':
-                    return decrypt_secret(cred.perplexity_key_fallback) or decrypt_secret(cred.perplexity_key)
-                if p == 'gemini':
-                    return decrypt_secret(cred.gemini_key_fallback) or decrypt_secret(cred.gemini_key)
-            else:
-                if p == 'openai':
-                    return decrypt_secret(cred.openai_key)
-                if p == 'zai':
-                    return decrypt_secret(cred.zai_key)
-                if p == 'perplexity':
-                    return decrypt_secret(cred.perplexity_key)
-                if p == 'gemini':
-                    return decrypt_secret(cred.gemini_key)
-            return None
+        # Build list of configured tiers
+        tier_configs = [
+            (
+                'primary',
+                user_ai_settings.get('ai_provider', 'openai'),
+                user_ai_settings.get('ai_model'),
+                (user_ai_settings.get('ai_reasoning_level') or 'medium').lower()
+            ),
+            (
+                'secondary',
+                user_ai_settings.get('ai_provider_secondary') or user_ai_settings.get('ai_provider_fallback'),
+                user_ai_settings.get('ai_model_secondary') or user_ai_settings.get('ai_model_fallback'),
+                (user_ai_settings.get('ai_reasoning_level_secondary') or user_ai_settings.get('ai_reasoning_level_fallback') or 'medium').lower()
+            ),
+            (
+                'tertiary',
+                user_ai_settings.get('ai_provider_tertiary'),
+                user_ai_settings.get('ai_model_tertiary'),
+                (user_ai_settings.get('ai_reasoning_level_tertiary') or 'medium').lower()
+            )
+        ]
 
-        if is_fallback_attempt:
-            provider = user_ai_settings.get('ai_provider_fallback') or 'openai'
-            model = user_ai_settings.get('ai_model_fallback') or model
-            if not model:
-                defaults = {'openai': 'gpt-5', 'zai': 'glm-4.7-flash', 'perplexity': 'sonar-pro', 'gemini': 'gemini-3.5-flash'}
-                model = defaults.get(provider, 'gpt-5')
-            ai_reasoning_level = (user_ai_settings.get('ai_reasoning_level_fallback') or 'medium').lower()
-            logger.info(f"⚠️ USING FALLBACK AI PROVIDER: {provider} / {model} (reasoning: {ai_reasoning_level})")
+        # Handle backward-compatible is_fallback_attempt flag
+        if is_fallback_attempt and tier_index == 0:
+            tier_index = 1
+
+        if tier_index >= len(tier_configs):
+            raise ValueError(f"No more fallback tiers available (requested tier index {tier_index})")
+
+        current_tier_name, provider, configured_model, ai_reasoning_level = tier_configs[tier_index]
+
+        if not provider:
+            # If this tier is empty, try the next one
+            if tier_index + 1 < len(tier_configs):
+                return call_ai_with_web_search(
+                    username=username,
+                    messages=messages,
+                    model=None,
+                    user_id=user_id,
+                    prompt_type=prompt_type,
+                    symbol=symbol,
+                    include_db_context=include_db_context,
+                    amount=amount,
+                    tier_index=tier_index + 1
+                )
+            raise ValueError(f"AI Provider not configured for tier {current_tier_name}")
+
+        model = configured_model or model
+        if not model:
+            defaults = {
+                'openai': 'gpt-5',
+                'zai': 'glm-4.7-flash',
+                'perplexity': 'sonar-pro',
+                'gemini': 'gemini-3.7-flash',
+                'inception': 'mercury-2'
+            }
+            model = defaults.get(provider, 'gpt-5')
+
+        if tier_index > 0:
+            logger.info(f"⚠️ USING {current_tier_name.upper()} AI PROVIDER: {provider} / {model} (reasoning: {ai_reasoning_level})")
         else:
-            provider = user_ai_settings.get('ai_provider', 'openai')
-            ai_reasoning_level = (user_ai_settings.get('ai_reasoning_level') or 'medium').lower()
-            if not model:
-                model = user_ai_settings.get('ai_model')
-                if not model:
-                    defaults = {'openai': 'gpt-5', 'zai': 'glm-4.7-flash', 'perplexity': 'sonar-pro', 'gemini': 'gemini-3.5-flash'}
-                    model = defaults.get(provider, 'gpt-5')
+            logger.info(f"Using PRIMARY AI Provider: {provider} / {model} (reasoning: {ai_reasoning_level})")
+
+        def _pick_key(p):
+            if current_tier_name == 'tertiary':
+                return getattr(cred, f"{p}_key_tertiary", None) or getattr(cred, f"{p}_key_fallback", None) or getattr(cred, f"{p}_key", None)
+            elif current_tier_name == 'secondary':
+                return getattr(cred, f"{p}_key_fallback", None) or getattr(cred, f"{p}_key", None)
+            else:
+                return getattr(cred, f"{p}_key", None)
 
         original_user_message = ""
         for msg in messages:
@@ -283,6 +317,9 @@ def call_ai_with_web_search(
                         return resp.get('content')
                     last_zai_error = resp.get('error', 'Unknown Z.AI error')
                     if zai_attempt < max_zai_retries and any(code in str(last_zai_error).lower() for code in ["429", "1305", "1302", "rate limit", "overloaded"]):
+                        # If a backup tier is available, fast-fail without long retry delay
+                        if tier_index + 1 < len(tier_configs) and tier_configs[tier_index + 1][1]:
+                            break
                         delay = 4 * (zai_attempt + 1)
                         logger.warning(f"Z.AI rate limit/overload (attempt {zai_attempt + 1}/{max_zai_retries}). Retrying in {delay}s...")
                         time.sleep(delay)
@@ -302,7 +339,21 @@ def call_ai_with_web_search(
                 )
                 if r.status_code == 200:
                     return r.json()['choices'][0]['message']['content']
-                raise Exception(f"Perplexity error: {r.text}")
+                raise Exception(f"Perplexity error ({r.status_code}): {r.text}")
+
+            elif provider == 'inception':
+                key = _pick_key('inception')
+                if not key:
+                    raise ValueError("Inception Labs API key not configured")
+                r = requests.post(
+                    "https://api.inceptionlabs.ai/v1/chat/completions",
+                    headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+                    json={"model": model or "mercury-2", "messages": p_messages, "max_tokens": p_max_tokens},
+                    timeout=45
+                )
+                if r.status_code == 200:
+                    return r.json()['choices'][0]['message']['content']
+                raise Exception(f"Inception Labs error ({r.status_code}): {r.text}")
 
             elif provider == 'gemini':
                 key = _pick_key('gemini')
@@ -362,22 +413,22 @@ def call_ai_with_web_search(
                                 last_err = r_retry.text
                             elif r.status_code in [429, 503] or "RESOURCE_EXHAUSTED" in r.text or "UNAVAILABLE" in r.text:
                                 last_err = r.text
-                                break  # Break version loop to trigger retry delay
+                                break  # Break version loop to trigger retry delay or failover
                             else:
                                 last_err = r.text
                         except Exception as req_ex:
                             last_err = str(req_ex)
 
-                    is_retryable = any(k in last_err for k in ["429", "503", "RESOURCE_EXHAUSTED", "UNAVAILABLE", "high demand"])
+                    # Check for daily/hard quota limits
+                    is_daily_quota_exhausted = any(k in last_err for k in ["RESOURCE_EXHAUSTED", "Quota exceeded", "GenerateRequestsPerDay", "free_tier_requests"])
+                    if is_daily_quota_exhausted:
+                        # FAST-FAIL: Do not sleep 30-60s on quota exhaustion so next tier can take over instantly
+                        logger.warning(f"Gemini daily quota exhausted for model {model}. Fast-failing to trigger immediate fallback.")
+                        break
+
+                    is_retryable = any(k in last_err for k in ["503", "UNAVAILABLE", "high demand"])
                     if attempt < max_gemini_retries and is_retryable:
-                        delay = 6 * (attempt + 1)
-                        # Try parsing retryDelay from error JSON
-                        try:
-                            delay_match = re.search(r'retryDelay["\']:\s*["\'](\d+)s', last_err)
-                            if delay_match:
-                                delay = min(int(delay_match.group(1)) + 1, 30)
-                        except Exception:
-                            pass
+                        delay = 4 * (attempt + 1)
                         logger.warning(f"Gemini {r.status_code if 'r' in locals() else 'API'} transient issue (attempt {attempt + 1}/{max_gemini_retries}). Backing off for {delay}s...")
                         time.sleep(delay)
                         continue
@@ -445,20 +496,25 @@ def call_ai_with_web_search(
         return AIResponseWrapper(final_content), stage3_user_msg
 
     except Exception as e:
-        logger.error(f"Error in call_ai_with_web_search: {e}")
-        if not is_fallback_attempt and user_ai_settings.get('ai_provider_fallback'):
-            logger.info("Attempting AI fallback provider...")
-            return call_ai_with_web_search(
-                username=username,
-                messages=messages,
-                model=None,
-                user_id=user_id,
-                prompt_type=prompt_type,
-                symbol=symbol,
-                include_db_context=include_db_context,
-                amount=amount,
-                is_fallback_attempt=True
-            )
+        logger.error(f"Error in call_ai_with_web_search (tier: {current_tier_name if 'current_tier_name' in locals() else tier_index}): {e}")
+        
+        # Check if another tier is configured and available
+        next_tier_index = tier_index + 1
+        if 'tier_configs' in locals() and next_tier_index < len(tier_configs):
+            next_tier_name, next_provider, next_model, _ = tier_configs[next_tier_index]
+            if next_provider:
+                logger.info(f"⚠️ FAILING OVER TO {next_tier_name.upper()} AI PROVIDER ({next_provider})...")
+                return call_ai_with_web_search(
+                    username=username,
+                    messages=messages,
+                    model=None,
+                    user_id=user_id,
+                    prompt_type=prompt_type,
+                    symbol=symbol,
+                    include_db_context=include_db_context,
+                    amount=amount,
+                    tier_index=next_tier_index
+                )
         raise
 
 def log_ai_conversation(user_id, prompt_type, sender, body, symbol=None, coin_id=None):

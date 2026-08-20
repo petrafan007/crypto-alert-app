@@ -54,12 +54,13 @@ class Credential(db.Model):
     _trading_api_key = db.Column("trading_api_key", db.String)
     _trading_api_secret = db.Column("trading_api_secret", db.String)
     
-    # AI Integration
+    # AI Integration (Primary)
     _openai_key = db.Column("openai_key", db.String)  # Encrypted OpenAI API Key
     _zai_key = db.Column("zai_key", db.String)  # Encrypted Z.AI API Key
     _perplexity_key = db.Column("perplexity_key", db.String) # Encrypted Perplexity API Key
     _gemini_key = db.Column("gemini_key", db.String) # Encrypted Gemini API Key
-    ai_provider = db.Column(db.String, default='openai')  # AI provider: 'openai', 'zai', 'perplexity', or 'gemini'
+    _inception_key = db.Column("inception_key", db.String) # Encrypted Inception Labs API Key
+    ai_provider = db.Column(db.String, default='openai')  # AI provider: 'openai', 'zai', 'perplexity', 'gemini', or 'inception'
 
     # Notifications
     _telegram_token = db.Column("telegram_token", db.String)
@@ -70,11 +71,19 @@ class Credential(db.Model):
     _brave_search_api_key = db.Column("brave_search_api_key", db.String)  # Brave Search API Key
     _brave_search_api_key_fallback = db.Column("brave_search_api_key_fallback", db.String)  # Fallback Brave Search API Key
     
-    # Fallback AI Keys
+    # Secondary (Fallback) AI Keys
     _openai_key_fallback = db.Column("openai_key_fallback", db.String)
     _zai_key_fallback = db.Column("zai_key_fallback", db.String)
     _perplexity_key_fallback = db.Column("perplexity_key_fallback", db.String)
     _gemini_key_fallback = db.Column("gemini_key_fallback", db.String)
+    _inception_key_fallback = db.Column("inception_key_fallback", db.String)
+
+    # Tertiary AI Keys
+    _openai_key_tertiary = db.Column("openai_key_tertiary", db.String)
+    _zai_key_tertiary = db.Column("zai_key_tertiary", db.String)
+    _perplexity_key_tertiary = db.Column("perplexity_key_tertiary", db.String)
+    _gemini_key_tertiary = db.Column("gemini_key_tertiary", db.String)
+    _inception_key_tertiary = db.Column("inception_key_tertiary", db.String)
 
     
     # OAuth (Legacy/Unused fields removed)
@@ -148,12 +157,29 @@ class Credential(db.Model):
         self._gemini_key = normalize_secret_for_storage(value)
 
     @property
+    def inception_key(self):
+        return decrypt_secret(self._inception_key)
+
+    @inception_key.setter
+    def inception_key(self, value):
+        self._inception_key = normalize_secret_for_storage(value)
+
+    # Secondary (Fallback) Keys
+    @property
     def openai_key_fallback(self):
         return decrypt_secret(self._openai_key_fallback)
 
     @openai_key_fallback.setter
     def openai_key_fallback(self, value):
         self._openai_key_fallback = normalize_secret_for_storage(value)
+
+    @property
+    def openai_key_secondary(self):
+        return self.openai_key_fallback
+
+    @openai_key_secondary.setter
+    def openai_key_secondary(self, value):
+        self.openai_key_fallback = value
 
     @property
     def zai_key_fallback(self):
@@ -164,6 +190,14 @@ class Credential(db.Model):
         self._zai_key_fallback = normalize_secret_for_storage(value)
 
     @property
+    def zai_key_secondary(self):
+        return self.zai_key_fallback
+
+    @zai_key_secondary.setter
+    def zai_key_secondary(self, value):
+        self.zai_key_fallback = value
+
+    @property
     def perplexity_key_fallback(self):
         return decrypt_secret(self._perplexity_key_fallback)
 
@@ -172,12 +206,85 @@ class Credential(db.Model):
         self._perplexity_key_fallback = normalize_secret_for_storage(value)
 
     @property
+    def perplexity_key_secondary(self):
+        return self.perplexity_key_fallback
+
+    @perplexity_key_secondary.setter
+    def perplexity_key_secondary(self, value):
+        self.perplexity_key_fallback = value
+
+    @property
     def gemini_key_fallback(self):
         return decrypt_secret(self._gemini_key_fallback)
 
     @gemini_key_fallback.setter
     def gemini_key_fallback(self, value):
         self._gemini_key_fallback = normalize_secret_for_storage(value)
+
+    @property
+    def gemini_key_secondary(self):
+        return self.gemini_key_fallback
+
+    @gemini_key_secondary.setter
+    def gemini_key_secondary(self, value):
+        self.gemini_key_fallback = value
+
+    @property
+    def inception_key_fallback(self):
+        return decrypt_secret(self._inception_key_fallback)
+
+    @inception_key_fallback.setter
+    def inception_key_fallback(self, value):
+        self._inception_key_fallback = normalize_secret_for_storage(value)
+
+    @property
+    def inception_key_secondary(self):
+        return self.inception_key_fallback
+
+    @inception_key_secondary.setter
+    def inception_key_secondary(self, value):
+        self.inception_key_fallback = value
+
+    # Tertiary Keys
+    @property
+    def openai_key_tertiary(self):
+        return decrypt_secret(self._openai_key_tertiary)
+
+    @openai_key_tertiary.setter
+    def openai_key_tertiary(self, value):
+        self._openai_key_tertiary = normalize_secret_for_storage(value)
+
+    @property
+    def zai_key_tertiary(self):
+        return decrypt_secret(self._zai_key_tertiary)
+
+    @zai_key_tertiary.setter
+    def zai_key_tertiary(self, value):
+        self._zai_key_tertiary = normalize_secret_for_storage(value)
+
+    @property
+    def perplexity_key_tertiary(self):
+        return decrypt_secret(self._perplexity_key_tertiary)
+
+    @perplexity_key_tertiary.setter
+    def perplexity_key_tertiary(self, value):
+        self._perplexity_key_tertiary = normalize_secret_for_storage(value)
+
+    @property
+    def gemini_key_tertiary(self):
+        return decrypt_secret(self._gemini_key_tertiary)
+
+    @gemini_key_tertiary.setter
+    def gemini_key_tertiary(self, value):
+        self._gemini_key_tertiary = normalize_secret_for_storage(value)
+
+    @property
+    def inception_key_tertiary(self):
+        return decrypt_secret(self._inception_key_tertiary)
+
+    @inception_key_tertiary.setter
+    def inception_key_tertiary(self, value):
+        self._inception_key_tertiary = normalize_secret_for_storage(value)
 
 
     @property
@@ -228,10 +335,24 @@ class UserSetting(db.Model):
     __tablename__ = "user_settings"
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'), primary_key=True)
     ai_enabled = db.Column(db.Boolean, default=False)
+    
+    # Primary AI Tier
     ai_provider = db.Column(db.String, default='openai')
-    ai_provider_fallback = db.Column(db.String)
     ai_model = db.Column(db.String, default='gpt-4o')
+    ai_reasoning_level = db.Column(db.String, default='medium')
+
+    # Secondary AI Tier (fallback alias)
+    ai_provider_fallback = db.Column(db.String)
     ai_model_fallback = db.Column(db.String)
+    ai_reasoning_level_fallback = db.Column(db.String, default='medium')
+    ai_provider_secondary = db.Column(db.String)
+    ai_model_secondary = db.Column(db.String)
+    ai_reasoning_level_secondary = db.Column(db.String, default='medium')
+
+    # Tertiary AI Tier
+    ai_provider_tertiary = db.Column(db.String)
+    ai_model_tertiary = db.Column(db.String)
+    ai_reasoning_level_tertiary = db.Column(db.String, default='medium')
 
     ai_risk_tolerance = db.Column(db.String, default='medium')
     ai_confidence_threshold = db.Column(db.Float, default=0.7)
@@ -252,8 +373,6 @@ class UserSetting(db.Model):
     sentiment_analysis_frequency_hours = db.Column(db.Integer, default=24)
     watchlist_sentiment_analysis_frequency_hours = db.Column(db.Integer, default=24)
     volatility_hours = db.Column(db.Integer, default=24)
-    ai_reasoning_level = db.Column(db.String, default='medium')
-    ai_reasoning_level_fallback = db.Column(db.String, default='medium')
 
 class DesktopToken(db.Model):
     __tablename__ = "desktop_tokens"

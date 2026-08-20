@@ -84,6 +84,16 @@ def get_user_ai_settings(username: str) -> dict:
             'ai_enabled': True,
             'ai_provider': 'openai',
             'ai_model': 'gpt-5',
+            'ai_reasoning_level': 'medium',
+            'ai_provider_fallback': '',
+            'ai_model_fallback': '',
+            'ai_reasoning_level_fallback': 'medium',
+            'ai_provider_secondary': '',
+            'ai_model_secondary': '',
+            'ai_reasoning_level_secondary': 'medium',
+            'ai_provider_tertiary': '',
+            'ai_model_tertiary': '',
+            'ai_reasoning_level_tertiary': 'medium',
             'ai_cache_duration_hours': 1,
             'ai_confidence_threshold': 70,
             'ai_risk_tolerance': 'moderate',
@@ -110,8 +120,6 @@ def get_user_ai_settings(username: str) -> dict:
             'copilot_chat_pre': '',
             'copilot_chat_post': '',
             'volatility_hours': 24,
-            'ai_reasoning_level': 'medium',
-            'ai_reasoning_level_fallback': 'medium'
         }
 
         user_obj = User.query.filter_by(username=username).first()
@@ -128,9 +136,21 @@ def get_user_ai_settings(username: str) -> dict:
             if user_setting:
                 settings['ai_enabled'] = user_setting.ai_enabled
                 settings['ai_provider'] = user_setting.ai_provider
-                settings['ai_provider_fallback'] = user_setting.ai_provider_fallback
                 settings['ai_model'] = user_setting.ai_model
-                settings['ai_model_fallback'] = user_setting.ai_model_fallback
+                settings['ai_reasoning_level'] = getattr(user_setting, 'ai_reasoning_level', 'medium') or 'medium'
+                
+                settings['ai_provider_fallback'] = getattr(user_setting, 'ai_provider_secondary', None) or user_setting.ai_provider_fallback
+                settings['ai_model_fallback'] = getattr(user_setting, 'ai_model_secondary', None) or user_setting.ai_model_fallback
+                settings['ai_reasoning_level_fallback'] = getattr(user_setting, 'ai_reasoning_level_secondary', None) or getattr(user_setting, 'ai_reasoning_level_fallback', 'medium') or 'medium'
+                
+                settings['ai_provider_secondary'] = settings['ai_provider_fallback']
+                settings['ai_model_secondary'] = settings['ai_model_fallback']
+                settings['ai_reasoning_level_secondary'] = settings['ai_reasoning_level_fallback']
+
+                settings['ai_provider_tertiary'] = getattr(user_setting, 'ai_provider_tertiary', '')
+                settings['ai_model_tertiary'] = getattr(user_setting, 'ai_model_tertiary', '')
+                settings['ai_reasoning_level_tertiary'] = getattr(user_setting, 'ai_reasoning_level_tertiary', 'medium') or 'medium'
+
                 settings['ai_risk_tolerance'] = user_setting.ai_risk_tolerance
                 settings['ai_confidence_threshold'] = user_setting.ai_confidence_threshold
                 settings['ai_notifications_enabled'] = user_setting.ai_notifications_enabled
@@ -158,15 +178,10 @@ def get_user_ai_settings(username: str) -> dict:
                 if hasattr(user_setting, 'volatility_hours'):
                     settings['volatility_hours'] = user_setting.volatility_hours or 24
 
-                if hasattr(user_setting, 'ai_reasoning_level'):
-                    settings['ai_reasoning_level'] = user_setting.ai_reasoning_level or 'medium'
-                if hasattr(user_setting, 'ai_reasoning_level_fallback'):
-                    settings['ai_reasoning_level_fallback'] = user_setting.ai_reasoning_level_fallback or 'medium'
-
         provider = settings.get('ai_provider', 'openai')
         model = settings.get('ai_model')
 
-        valid_providers = {'openai', 'zai', 'perplexity', 'gemini'}
+        valid_providers = {'openai', 'zai', 'perplexity', 'gemini', 'inception'}
         if provider not in valid_providers:
             provider = 'openai'
             settings['ai_provider'] = provider
@@ -185,11 +200,15 @@ def get_user_ai_settings(username: str) -> dict:
         gemini_models = {
             'gemini-3.5-flash', 'gemini-3.6-flash', 'gemini-3.7-flash',
         }
+        inception_models = {
+            'mercury-2', 'mercury'
+        }
         default_models = {
             'openai': 'gpt-5',
             'zai': 'glm-4.7-flash',
             'perplexity': 'sonar-pro',
-            'gemini': 'gemini-3.5-flash',
+            'gemini': 'gemini-3.7-flash',
+            'inception': 'mercury-2',
         }
 
         if provider == 'openai':
@@ -204,6 +223,9 @@ def get_user_ai_settings(username: str) -> dict:
         elif provider == 'gemini':
             if model not in gemini_models:
                 settings['ai_model'] = default_models['gemini']
+        elif provider == 'inception':
+            if model not in inception_models:
+                settings['ai_model'] = default_models['inception']
         else:
             settings['ai_model'] = default_models['openai']
 

@@ -203,10 +203,45 @@ def test_gemini_connection():
 
 
 
+@ai_bp.route('/api/test-inception-connection', methods=['POST', 'GET'])
+@login_required
+def test_inception_connection():
+    try:
+        from flask import request
+        import requests
+        payload = request.get_json(silent=True) or {}
+        username = current_user.username
+        ai_settings = get_user_ai_settings(username)
+        model = payload.get('model') or ai_settings.get('ai_model') or 'mercury-2'
+        key = payload.get('inception_key') or payload.get('api_key')
+
+        cred = get_user_credentials(username)
+        api_key = key if (key and key != '********') else (
+            getattr(cred, 'inception_key_tertiary', None) or 
+            getattr(cred, 'inception_key_fallback', None) or 
+            getattr(cred, 'inception_key', None)
+        )
+        if not api_key:
+            return jsonify(success=False, message='Inception Labs API key missing'), 400
+
+        r = requests.post(
+            'https://api.inceptionlabs.ai/v1/chat/completions',
+            headers={'Authorization': f'Bearer {api_key}', 'Content-Type': 'application/json'},
+            json={'model': model, 'messages': [{"role":"user","content":"ping"}], 'max_tokens': 5},
+            timeout=20
+        )
+        if r.status_code == 200:
+            return jsonify(success=True, message=f'Inception Labs connection OK (model {model})')
+        else:
+            return jsonify(success=False, message=f'Inception Labs error ({r.status_code}): {r.text}'), 400
+    except Exception as e:
+        return jsonify(success=False, message=str(e)), 500
+
+
 @ai_bp.route('/api/test-ai-connection-generic', methods=['POST'])
 @login_required
 def test_ai_connection_generic():
-    """Generic endpoint to test ANY AI provider with a specific key (useful for fallback testing)"""
+    """Generic endpoint to test ANY AI provider with a specific key (useful for primary, secondary, or tertiary testing)"""
     try:
         from flask import request
         import requests
@@ -214,6 +249,7 @@ def test_ai_connection_generic():
         provider = payload.get('provider')
         api_key = payload.get('api_key')
         model = payload.get('model')
+        tier = payload.get('tier') or ('secondary' if payload.get('is_fallback') else 'primary')
 
         if not api_key or api_key == '********':
             # Check saved credential if api_key not provided in request body
@@ -221,15 +257,19 @@ def test_ai_connection_generic():
             from routes.helpers import decrypt_secret
             cred = Credential.query.filter_by(user_id=current_user.id).first()
             if cred:
-                is_fallback = payload.get('is_fallback', True)
-                if provider == 'openai':
-                    api_key = (decrypt_secret(cred.openai_key_fallback) if is_fallback else None) or decrypt_secret(cred.openai_key)
-                elif provider == 'zai':
-                    api_key = (decrypt_secret(cred.zai_key_fallback) if is_fallback else None) or decrypt_secret(cred.zai_key)
-                elif provider == 'perplexity':
-                    api_key = (decrypt_secret(cred.perplexity_key_fallback) if is_fallback else None) or decrypt_secret(cred.perplexity_key)
-                elif provider == 'gemini':
-                    api_key = (decrypt_secret(cred.gemini_key_fallback) if is_fallback else None) or decrypt_secret(cred.gemini_key)
+                if tier == 'tertiary':
+                    api_key = (
+                        decrypt_secret(getattr(cred, f'_{provider}_key_tertiary', None)) or 
+                        decrypt_secret(getattr(cred, f'_{provider}_key_fallback', None)) or 
+                        decrypt_secret(getattr(cred, f'_{provider}_key', None))
+                    )
+                elif tier == 'secondary':
+                    api_key = (
+                        decrypt_secret(getattr(cred, f'_{provider}_key_fallback', None)) or 
+                        decrypt_secret(getattr(cred, f'_{provider}_key', None))
+                    )
+                else:
+                    api_key = decrypt_secret(getattr(cred, f'_{provider}_key', None))
 
         if not provider or not api_key:
             return jsonify(success=False, message='Provider and API key are required'), 400
@@ -238,7 +278,6 @@ def test_ai_connection_generic():
             try:
                 from openai import OpenAI
                 client = OpenAI(api_key=api_key, timeout=10.0)
-                # Default to gpt-4o-mini for cheap testing if no model
                 test_model = model or 'gpt-4o-mini'
                 resp = client.chat.completions.create(
                     model=test_model,
@@ -269,9 +308,6 @@ def test_ai_connection_generic():
         elif provider == 'perplexity':
             try:
                 test_model = model or 'sonar'
-                # Perplexity supported models
-                allowed = {'sonar-pro', 'sonar', 'sonar-reasoning', 'llama-3.1-sonar-small-128k-online', 'llama-3.1-sonar-large-128k-online', 'llama-3.1-sonar-huge-128k-online'}
-                # Basic validation, but let's be lenient
                 r = requests.post(
                     'https://api.perplexity.ai/chat/completions',
                     headers={'Authorization': f'Bearer {api_key}', 'Content-Type': 'application/json'},
@@ -287,7 +323,6 @@ def test_ai_connection_generic():
         elif provider == 'gemini':
             try:
                 test_model = model or 'gemini-3.5-flash'
-                # Simple generateContent test
                 url = f"https://generativelanguage.googleapis.com/v1beta/models/{test_model}:generateContent?key={api_key}"
                 r = requests.post(
                     url,
@@ -300,6 +335,21 @@ def test_ai_connection_generic():
                 return jsonify(success=False, message=f'Gemini error: {r.text}'), 400
             except Exception as e:
                 return jsonify(success=False, message=f'Gemini error: {e}'), 400
+
+        elif provider == 'inception':
+            try:
+                test_model = model or 'mercury-2'
+                r = requests.post(
+                    'https://api.inceptionlabs.ai/v1/chat/completions',
+                    headers={'Authorization': f'Bearer {api_key}', 'Content-Type': 'application/json'},
+                    json={'model': test_model, 'messages': [{"role":"user","content":"ping"}], 'max_tokens': 5},
+                    timeout=20
+                )
+                if r.status_code == 200:
+                    return jsonify(success=True, message=f'Inception Labs connection OK ({test_model})')
+                return jsonify(success=False, message=f'Inception Labs error ({r.status_code}): {r.text}'), 400
+            except Exception as e:
+                return jsonify(success=False, message=f'Inception Labs error: {e}'), 400
 
         else:
             return jsonify(success=False, message=f'Unsupported provider: {provider}'), 400
@@ -523,6 +573,34 @@ def api_ai_settings():
                 cred.perplexity_key = data.pop('perplexity_key')
             if 'gemini_key' in data:
                 cred.gemini_key = data.pop('gemini_key')
+            if 'inception_key' in data:
+                cred.inception_key = data.pop('inception_key')
+
+            # Secondary / Fallback Keys
+            if 'openai_key_fallback' in data:
+                cred.openai_key_fallback = data.pop('openai_key_fallback')
+            if 'zai_key_fallback' in data:
+                cred.zai_key_fallback = data.pop('zai_key_fallback')
+            if 'perplexity_key_fallback' in data:
+                cred.perplexity_key_fallback = data.pop('perplexity_key_fallback')
+            if 'gemini_key_fallback' in data:
+                cred.gemini_key_fallback = data.pop('gemini_key_fallback')
+            if 'inception_key_fallback' in data:
+                cred.inception_key_fallback = data.pop('inception_key_fallback')
+            if 'inception_key_secondary' in data:
+                cred.inception_key_fallback = data.pop('inception_key_secondary')
+
+            # Tertiary Keys
+            if 'openai_key_tertiary' in data:
+                cred.openai_key_tertiary = data.pop('openai_key_tertiary')
+            if 'zai_key_tertiary' in data:
+                cred.zai_key_tertiary = data.pop('zai_key_tertiary')
+            if 'perplexity_key_tertiary' in data:
+                cred.perplexity_key_tertiary = data.pop('perplexity_key_tertiary')
+            if 'gemini_key_tertiary' in data:
+                cred.gemini_key_tertiary = data.pop('gemini_key_tertiary')
+            if 'inception_key_tertiary' in data:
+                cred.inception_key_tertiary = data.pop('inception_key_tertiary')
 
             # Update each setting
             # Update UserSetting columns
@@ -533,12 +611,16 @@ def api_ai_settings():
             
             # Map of allowed fields to update
             allowed_fields = [
-                'ai_enabled', 'ai_provider', 'ai_model', 'ai_risk_tolerance',
-                'ai_confidence_threshold', 'ai_notifications_enabled', 'ai_analysis_frequency',
-                'ai_cache_duration_hours', 'ai_analysis_window_start', 'ai_analysis_window_end',
-                'ai_max_tokens', 'ai_web_search_enabled', 'tax_manual_invested_updated', 
-                'tax_cost_basis_method', 'sentiment_analysis_frequency_hours',
-                'watchlist_sentiment_analysis_frequency_hours'
+                'ai_enabled', 'ai_provider', 'ai_model', 'ai_reasoning_level',
+                'ai_provider_fallback', 'ai_model_fallback', 'ai_reasoning_level_fallback',
+                'ai_provider_secondary', 'ai_model_secondary', 'ai_reasoning_level_secondary',
+                'ai_provider_tertiary', 'ai_model_tertiary', 'ai_reasoning_level_tertiary',
+                'ai_risk_tolerance', 'ai_confidence_threshold', 'ai_notifications_enabled',
+                'ai_analysis_frequency', 'ai_cache_duration_hours', 'ai_analysis_window_start',
+                'ai_analysis_window_end', 'ai_max_tokens', 'ai_web_search_enabled',
+                'tax_manual_invested_updated', 'tax_cost_basis_method',
+                'sentiment_analysis_frequency_hours', 'watchlist_sentiment_analysis_frequency_hours',
+                'volatility_hours', 'copilot_chat_pre', 'copilot_chat_post'
             ]
 
             for key, value in data.items():
@@ -571,7 +653,7 @@ def api_ai_settings():
                     if key in ['ai_enabled', 'ai_notifications_enabled', 'ai_web_search_enabled']:
                          setattr(user_setting, key, bool(value))
                     # For int fields
-                    elif key in ['ai_cache_duration_hours', 'ai_max_tokens', 'sentiment_analysis_frequency_hours', 'watchlist_sentiment_analysis_frequency_hours']:
+                    elif key in ['ai_cache_duration_hours', 'ai_max_tokens', 'sentiment_analysis_frequency_hours', 'watchlist_sentiment_analysis_frequency_hours', 'volatility_hours']:
                         try:
                             setattr(user_setting, key, int(value))
                         except:
@@ -612,6 +694,9 @@ def get_ai_models():
     gemini_models = {
         'gemini-3.5-flash', 'gemini-3.6-flash', 'gemini-3.7-flash',
     }
+    inception_models = {
+        'mercury-2', 'mercury',
+    }
     
     # Create a dictionary of labels for the models
     model_labels = {
@@ -638,6 +723,8 @@ def get_ai_models():
         'gemini-3.5-flash': 'Gemini 3.5 Flash',
         'gemini-3.6-flash': 'Gemini 3.6 Flash',
         'gemini-3.7-flash': 'Gemini 3.7 Flash',
+        'mercury-2': 'Mercury 2',
+        'mercury': 'Mercury (v1)',
     }
     
     def get_model_options(models):
@@ -648,6 +735,7 @@ def get_ai_models():
         'zai': get_model_options(zai_models),
         'perplexity': get_model_options(perplexity_models),
         'gemini': get_model_options(gemini_models),
+        'inception': get_model_options(inception_models),
     })
 
 
