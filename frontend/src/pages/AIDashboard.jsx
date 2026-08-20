@@ -1,7 +1,7 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import axios from 'axios';
+import { createChart } from 'lightweight-charts';
 import { useAuth } from '../components/AuthContext';
-import AIAnalysisModal from '../components/AIAnalysisModal';
 import ApiKeyRequiredModal from '../components/ApiKeyRequiredModal';
 import './AIDashboard.css';
 
@@ -163,7 +163,6 @@ const renderMarkdown = (markdown) => {
 const AIDashboard = () => {
   const { user, isLightMode, isLoggingOut, authLoading } = useAuth();
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
   const [aiEnabled, setAiEnabled] = useState(true);
 
   // Workflow state
@@ -186,12 +185,16 @@ const AIDashboard = () => {
   // === AI SENTIMENT ACCURACY & THESIS TRACKER STATE ===
   const [accuracyData, setAccuracyData] = useState(null);
   const [accuracyLoading, setAccuracyLoading] = useState(false);
-  const [timeframe, setTimeframe] = useState('30d');
+  const [dateRange, setDateRange] = useState('7d'); // Default: 7D
   const [selectedCoin, setSelectedCoin] = useState('BTC');
-  const [selectedTierFilter, setSelectedTierFilter] = useState('all');
   const [klines, setKlines] = useState([]);
   const [klinesLoading, setKlinesLoading] = useState(false);
-  const [hoveredSignal, setHoveredSignal] = useState(null);
+  const [hoveredPoint, setHoveredPoint] = useState(null);
+
+  // Chart DOM container and instance refs
+  const chartContainerRef = useRef(null);
+  const chartInstanceRef = useRef(null);
+  const candlestickSeriesRef = useRef(null);
 
   useEffect(() => {
     const init = async () => {
@@ -212,7 +215,7 @@ const AIDashboard = () => {
         if (enabled) {
           await Promise.all([
             loadLatestResults(),
-            fetchAccuracyData('30d', selectedCoin, 'all')
+            fetchAccuracyData('7d')
           ]);
         }
       }
@@ -220,18 +223,20 @@ const AIDashboard = () => {
     init();
   }, [authLoading, user]);
 
-  // Fetch accuracy data when timeframe, selectedCoin, or selectedTierFilter changes
-  const fetchAccuracyData = async (tf = timeframe, coin = selectedCoin, tier = selectedTierFilter) => {
+  const fetchAccuracyData = async (tf = dateRange) => {
     setAccuracyLoading(true);
     try {
-      const params = { timeframe: tf };
-      if (coin && coin !== 'ALL') params.symbol = coin;
-      if (tier && tier !== 'all') params.tier = tier;
-      const res = await axios.get('/api/ai/sentiment-accuracy', { params, withCredentials: true });
+      // Fetch full history across all coins (no symbol filter on global accuracy fetch)
+      const res = await axios.get('/api/ai/sentiment-accuracy', {
+        params: { timeframe: tf },
+        withCredentials: true
+      });
       if (res.data && res.data.success) {
         setAccuracyData(res.data);
-        if (!selectedCoin && res.data.available_symbols && res.data.available_symbols.length > 0) {
-          setSelectedCoin(res.data.available_symbols[0]);
+        if (res.data.available_symbols && res.data.available_symbols.length > 0) {
+          if (!selectedCoin || !res.data.available_symbols.includes(selectedCoin)) {
+            setSelectedCoin(res.data.available_symbols[0]);
+          }
         }
       }
     } catch (err) {
@@ -241,18 +246,57 @@ const AIDashboard = () => {
     }
   };
 
-  // Fetch price klines for the selected coin
+  // Map date range to Binance klines interval and limit
+  const getKlinesParams = (range) => {
+    switch (range) {
+      case '1d': return { interval: '5m', limit: 288 };
+      case '3d': return { interval: '15m', limit: 288 };
+      case '5d': return { interval: '30m', limit: 240 };
+      case '7d': return { interval: '1h', limit: 168 };
+      case '14d': return { interval: '2h', limit: 168 };
+      case '30d': return { interval: '4h', limit: 180 };
+      case '90d': return { interval: '1d', limit: 90 };
+      case 'all': return { interval: '1d', limit: 365 };
+      default: return { interval: '1h', limit: 168 };
+    }
+  };
+
+  // Fetch real price klines for selected coin and date range
   useEffect(() => {
     if (!selectedCoin) return;
     const fetchKlines = async () => {
       setKlinesLoading(true);
       try {
+        const { interval, limit } = getKlinesParams(dateRange);
         const res = await axios.get(`/api/trading/klines/${selectedCoin}`, {
-          params: { interval: '1h', limit: 120 },
+          params: { interval, limit },
           withCredentials: true
         });
-        if (res.data && res.data.klines) {
-          setKlines(res.data.klines);
+        if (res.data && res.data.klines && res.data.klines.length > 0) {
+          const normalized = res.data.klines
+            .map(k => ({
+              time: typeof k.time === 'string' ? Math.floor(new Date(k.time).getTime() / 1000) : Math.round(Number(k.time)),
+              open: Number(k.open),
+              high: Number(k.high),
+              low: Number(k.low),
+              close: Number(k.close),
+              volume: Number(k.volume ?? 0)
+            }))
+            .filter(k => Number.isFinite(k.time) && Number.isFinite(k.open) && Number.isFinite(k.high) && Number.isFinite(k.low) && Number.isFinite(k.close))
+            .sort((a, b) => a.time - b.time);
+
+          // Deduplicate timestamps if any
+          const deduped = [];
+          const seen = new Set();
+          for (const k of normalized) {
+            if (!seen.has(k.time)) {
+              seen.add(k.time);
+              deduped.push(k);
+            }
+          }
+          setKlines(deduped);
+        } else {
+          setKlines([]);
         }
       } catch (err) {
         console.warn(`Failed to fetch klines for ${selectedCoin}:`, err);
@@ -262,7 +306,168 @@ const AIDashboard = () => {
       }
     };
     fetchKlines();
-  }, [selectedCoin]);
+  }, [selectedCoin, dateRange]);
+
+  // Initialize and update Lightweight Charts instance
+  useEffect(() => {
+    const container = chartContainerRef.current;
+    if (!container || klines.length === 0) return;
+
+    if (chartInstanceRef.current) {
+      chartInstanceRef.current.remove();
+      chartInstanceRef.current = null;
+    }
+
+    const containerStyles = window.getComputedStyle(container);
+    const width = container.clientWidth || 800;
+    const height = 340;
+
+    const bgCol = isLightMode ? '#ffffff' : '#0f172a';
+    const textCol = isLightMode ? '#475569' : '#94a3b8';
+    const gridCol = isLightMode ? 'rgba(0, 0, 0, 0.06)' : 'rgba(255, 255, 255, 0.05)';
+    const borderCol = isLightMode ? '#e2e8f0' : '#334155';
+
+    const chart = createChart(container, {
+      width,
+      height,
+      layout: {
+        background: { color: bgCol },
+        textColor: textCol,
+      },
+      grid: {
+        vertLines: { color: gridCol },
+        horzLines: { color: gridCol },
+      },
+      crosshair: {
+        mode: 1,
+      },
+      rightPriceScale: {
+        borderColor: borderCol,
+        autoScale: true,
+        entireTextOnly: false,
+      },
+      timeScale: {
+        borderColor: borderCol,
+        timeVisible: true,
+        secondsVisible: false,
+      },
+      handleScroll: {
+        mouseWheel: true,
+        pressedMouseMove: true,
+        horzTouchDrag: true,
+        vertTouchDrag: false,
+      },
+      handleScale: {
+        axisPressedMouseMove: true,
+        mouseWheel: true,
+        pinch: true,
+      },
+    });
+
+    chartInstanceRef.current = chart;
+
+    // Candlestick Series
+    const candleSeries = chart.addCandlestickSeries({
+      upColor: '#00e676',
+      downColor: '#f56565',
+      borderUpColor: '#00e676',
+      borderDownColor: '#f56565',
+      wickUpColor: '#00e676',
+      wickDownColor: '#f56565',
+    });
+    candlestickSeriesRef.current = candleSeries;
+    candleSeries.setData(klines);
+
+    // Filter sentiment signals for the active coin
+    const signalsForCoin = (accuracyData?.history || []).filter(h => h.symbol === selectedCoin);
+
+    // Build trading markers
+    const markers = [];
+    signalsForCoin.forEach(sig => {
+      const sigEpoch = sig.created_timestamp || (sig.created_at ? Math.floor(new Date(sig.created_at).getTime() / 1000) : 0);
+      if (!sigEpoch) return;
+
+      // Find closest candle time
+      let closestKline = klines[0];
+      let minDiff = Infinity;
+      for (const k of klines) {
+        const diff = Math.abs(k.time - sigEpoch);
+        if (diff < minDiff) {
+          minDiff = diff;
+          closestKline = k;
+        }
+      }
+
+      if (closestKline) {
+        const sentLower = (sig.sentiment || '').toLowerCase();
+        const isBullish = ['definitely buy', 'consider buying', 'buy immediately', 'strong buy', 'buy'].includes(sentLower);
+        const isBearish = ['consider selling', 'sell immediately', 'avoid', 'strong sell', 'do not buy', 'sell'].includes(sentLower);
+        const isCorrect = sig.outcome_status === 'correct';
+        const isWrong = sig.outcome_status === 'wrong';
+
+        const outcomeTxt = isCorrect ? `✅ +${Math.abs(sig.outcome_pct || 0)}%` : isWrong ? `❌ ${sig.outcome_pct || 0}%` : '⏳';
+
+        markers.push({
+          time: closestKline.time,
+          position: isBullish ? 'belowBar' : isBearish ? 'aboveBar' : 'inBar',
+          color: isBullish ? '#00e676' : isBearish ? '#f56565' : '#38bdf8',
+          shape: isBullish ? 'arrowUp' : isBearish ? 'arrowDown' : 'circle',
+          text: `${sig.sentiment}: ${outcomeTxt}`,
+          id: sig.id,
+        });
+      }
+    });
+
+    // Sort markers ascending by time (required by lightweight-charts)
+    markers.sort((a, b) => a.time - b.time);
+    candleSeries.setMarkers(markers);
+
+    // Crosshair tooltip listener
+    chart.subscribeCrosshairMove(param => {
+      if (!param || !param.time || !param.seriesData.get(candleSeries)) {
+        setHoveredPoint(null);
+        return;
+      }
+      const data = param.seriesData.get(candleSeries);
+      const epochSec = param.time;
+      const d = new Date(epochSec * 1000);
+      const timeStr = d.toLocaleString('en-US', { timeZone: 'America/New_York', month: 'numeric', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true, timeZoneName: 'short' });
+
+      // Check if any sentiment signal coincides with this candle
+      const matchedSig = signalsForCoin.find(s => {
+        const sEpoch = s.created_timestamp || (s.created_at ? Math.floor(new Date(s.created_at).getTime() / 1000) : 0);
+        return Math.abs(sEpoch - epochSec) < 3600 * 2;
+      });
+
+      setHoveredPoint({
+        timeStr,
+        open: data.open,
+        high: data.high,
+        low: data.low,
+        close: data.close,
+        signal: matchedSig
+      });
+    });
+
+    // Fit content
+    chart.timeScale().fitContent();
+
+    // Resize handler
+    const handleResize = () => {
+      if (chartContainerRef.current && chartInstanceRef.current) {
+        chartInstanceRef.current.applyOptions({ width: chartContainerRef.current.clientWidth });
+      }
+    };
+    window.addEventListener('resize', handleResize);
+
+    return () => {
+      window.removeEventListener('resize', handleResize);
+      if (chartInstanceRef.current) {
+        chartInstanceRef.current.remove();
+        chartInstanceRef.current = null;
+      }
+    };
+  }, [klines, selectedCoin, accuracyData, isLightMode]);
 
   const checkAiStatus = async () => {
     try {
@@ -360,7 +565,6 @@ const AIDashboard = () => {
         withCredentials: true,
       });
       setter(response.data);
-      // Refresh accuracy data if new sentiment was triggered
       fetchAccuracyData();
     } catch (err) {
       console.error(`Error executing ${workflowType} workflow:`, err);
@@ -368,89 +572,6 @@ const AIDashboard = () => {
       setWorkflowLoading((prev) => ({ ...prev, [stateKey]: false }));
     }
   };
-
-  // Filtered signals for the active coin
-  const coinSignals = useMemo(() => {
-    if (!accuracyData || !accuracyData.history) return [];
-    return accuracyData.history.filter(h => !selectedCoin || selectedCoin === 'ALL' || h.symbol === selectedCoin);
-  }, [accuracyData, selectedCoin]);
-
-  // Compute SVG chart coordinates
-  const chartPoints = useMemo(() => {
-    if (!klines || klines.length === 0) {
-      // Fallback synthetic curve if klines not available
-      const basePrice = coinSignals.length > 0 ? coinSignals[0].price_at_prediction : 90000;
-      return Array.from({ length: 40 }, (_, i) => ({
-        time: Date.now() - (40 - i) * 3600 * 1000,
-        close: basePrice * (1 + Math.sin(i / 5) * 0.04 + (i / 40) * 0.03),
-      }));
-    }
-    return klines.map(k => ({
-      time: typeof k.time === 'number' ? (k.time < 1e12 ? k.time * 1000 : k.time) : new Date(k.time).getTime(),
-      close: parseFloat(k.close || k.c || 0),
-      open: parseFloat(k.open || k.o || 0),
-      high: parseFloat(k.high || k.h || 0),
-      low: parseFloat(k.low || k.l || 0)
-    })).filter(p => p.close > 0);
-  }, [klines, coinSignals]);
-
-  const svgCalculations = useMemo(() => {
-    if (chartPoints.length === 0) return { pathD: '', areaD: '', minP: 0, maxP: 100, minT: 0, maxT: 1, points: [] };
-    const width = 1000;
-    const height = 300;
-    const padding = { top: 30, right: 70, bottom: 40, left: 20 };
-
-    const prices = chartPoints.map(p => p.close);
-    let minP = Math.min(...prices) * 0.985;
-    let maxP = Math.max(...prices) * 1.015;
-    if (minP === maxP) { minP *= 0.9; maxP *= 1.1; }
-
-    const minT = chartPoints[0].time;
-    const maxT = chartPoints[chartPoints.length - 1].time;
-    const timeSpan = maxT - minT || 1;
-
-    const getX = (t) => padding.left + ((t - minT) / timeSpan) * (width - padding.left - padding.right);
-    const getY = (p) => padding.top + (1 - (p - minP) / (maxP - minP)) * (height - padding.top - padding.bottom);
-
-    const pts = chartPoints.map(p => ({
-      x: getX(p.time),
-      y: getY(p.close),
-      price: p.close,
-      time: p.time
-    }));
-
-    const pathD = pts.reduce((acc, pt, i) => `${acc} ${i === 0 ? 'M' : 'L'} ${pt.x.toFixed(1)} ${pt.y.toFixed(1)}`, '');
-    const lastX = pts[pts.length - 1].x;
-    const firstX = pts[0].x;
-    const bottomY = height - padding.bottom;
-    const areaD = `${pathD} L ${lastX.toFixed(1)} ${bottomY} L ${firstX.toFixed(1)} ${bottomY} Z`;
-
-    // Map sentiment signals onto chart
-    const signalMarkers = coinSignals.map(sig => {
-      const sigTime = sig.created_at ? new Date(sig.created_at).getTime() : minT;
-      // Clamped x
-      let x = getX(sigTime);
-      if (x < padding.left) x = padding.left + 20;
-      if (x > width - padding.right) x = width - padding.right - 20;
-      let y = getY(sig.price_at_prediction || (minP + maxP) / 2);
-      if (y < padding.top) y = padding.top + 10;
-      if (y > bottomY) y = bottomY - 10;
-
-      const isBullish = ['definitely buy', 'consider buying', 'buy immediately', 'strong buy', 'buy'].includes((sig.sentiment || '').toLowerCase());
-      const isBearish = ['consider selling', 'sell immediately', 'avoid', 'strong sell', 'do not buy', 'sell'].includes((sig.sentiment || '').toLowerCase());
-
-      return {
-        ...sig,
-        x,
-        y,
-        isBullish,
-        isBearish,
-        badgeType: isBullish ? 'buy' : isBearish ? 'sell' : 'watch'
-      };
-    });
-
-    return { pathD, areaD, minP, maxP, minT, maxT, pts, signalMarkers, width, height, padding };
-  }, [chartPoints, coinSignals]);
 
   if (loading) {
     return (
@@ -491,22 +612,13 @@ const AIDashboard = () => {
     overall_accuracy: 74.8,
     bullish_win_rate: 78.2,
     bearish_win_rate: 69.4,
-    total_signals: 28,
+    total_signals: 0,
     top_model: 'Google Gemini (82.1%)'
   };
 
-  const availableSymbols = accuracyData?.available_symbols || ['BTC', 'ETH', 'SOL', 'XRP'];
-  const modelBreakdown = accuracyData?.model_breakdown || [
-    { provider: 'gemini', model: 'gemini-3.7-flash', tier: 'primary', total: 18, correct: 15, wrong: 3, win_rate: 83.3 },
-    { provider: 'inception', model: 'mercury-2', tier: 'secondary', total: 8, correct: 6, wrong: 2, win_rate: 75.0 },
-    { provider: 'openai', model: 'gpt-5', tier: 'tertiary', total: 6, correct: 4, wrong: 2, win_rate: 66.7 },
-  ];
-
-  const distribution = accuracyData?.signal_distribution || {
-    buy_pct: 45.0,
-    watch_pct: 30.0,
-    sell_pct: 25.0
-  };
+  const availableSymbols = accuracyData?.available_symbols || ['BTC', 'ETH', 'ONT', 'SOL', 'XRP'];
+  const recommendationBreakdown = accuracyData?.recommendation_breakdown || [];
+  const modelBreakdown = accuracyData?.model_breakdown || [];
 
   return (
     <div className="ai-dashboard">
@@ -527,7 +639,7 @@ const AIDashboard = () => {
         <div className="ai-header-controls">
           <button
             className="btn btn-secondary"
-            onClick={() => fetchAccuracyData(timeframe, selectedCoin, selectedTierFilter)}
+            onClick={() => fetchAccuracyData(dateRange)}
             disabled={accuracyLoading}
             style={{ fontSize: '13px', padding: '8px 14px' }}
           >
@@ -537,7 +649,7 @@ const AIDashboard = () => {
       </div>
 
       {/* ========================================================================= */}
-      {/* 1. VISUALIZER 1 (TOP SECTION - FULL WIDTH): PERFORMANCE KPIS & PRICE CHART */}
+      {/* 1. VISUALIZER 1 (TOP SECTION - FULL WIDTH): PERFORMANCE KPIS & REAL CHART */}
       {/* ========================================================================= */}
       <div className="ai-section prediction-visualizer-section">
         {/* KPI Scorecards */}
@@ -567,194 +679,79 @@ const AIDashboard = () => {
           </div>
         </div>
 
-        {/* Interactive Chart Container */}
+        {/* Interactive TradingView-Powered Price & Sentiment Chart Card */}
         <div className="price-sentiment-chart-card">
           <div className="chart-header-row">
             <div className="chart-title-area">
               <h3>📈 {selectedCoin}/USDT Price Action with Overlaid AI Sentiment Signals</h3>
-              <span className="chart-subtitle">Pins indicate exact price & time when AI recommendations were generated</span>
+              <span className="chart-subtitle">
+                Interactive real-time candlesticks with AI signal markers. Drag to pan left/right, scroll wheel to zoom.
+              </span>
             </div>
 
-            {/* Filters Row */}
-            <div className="chart-filters-area">
-              {/* Coin Pills */}
-              <div className="filter-pill-group">
-                {availableSymbols.map(sym => (
-                  <button
-                    key={sym}
-                    className={`filter-pill ${selectedCoin === sym ? 'active' : ''}`}
-                    onClick={() => {
-                      setSelectedCoin(sym);
-                      fetchAccuracyData(timeframe, sym, selectedTierFilter);
-                    }}
-                  >
-                    {sym}
-                  </button>
-                ))}
+            {/* Two Dropdown Selectors */}
+            <div className="chart-dropdowns-area">
+              {/* Dropdown 1: Coin Selector */}
+              <div className="dropdown-wrapper">
+                <label htmlFor="coin-select" className="dropdown-label">Coin:</label>
+                <select
+                  id="coin-select"
+                  className="chart-select-dropdown"
+                  value={selectedCoin}
+                  onChange={(e) => setSelectedCoin(e.target.value)}
+                >
+                  {availableSymbols.map(sym => (
+                    <option key={sym} value={sym}>{sym}</option>
+                  ))}
+                </select>
               </div>
 
-              {/* Timeframe Pills */}
-              <div className="filter-pill-group">
-                {['7d', '30d', '90d', 'all'].map(tf => (
-                  <button
-                    key={tf}
-                    className={`filter-pill ${timeframe === tf ? 'active' : ''}`}
-                    onClick={() => {
-                      setTimeframe(tf);
-                      fetchAccuracyData(tf, selectedCoin, selectedTierFilter);
-                    }}
-                  >
-                    {tf.toUpperCase()}
-                  </button>
-                ))}
+              {/* Dropdown 2: Date Range Selector */}
+              <div className="dropdown-wrapper">
+                <label htmlFor="range-select" className="dropdown-label">Range:</label>
+                <select
+                  id="range-select"
+                  className="chart-select-dropdown"
+                  value={dateRange}
+                  onChange={(e) => {
+                    setDateRange(e.target.value);
+                    fetchAccuracyData(e.target.value);
+                  }}
+                >
+                  <option value="1d">1 Day (1D)</option>
+                  <option value="3d">3 Days (3D)</option>
+                  <option value="5d">5 Days (5D)</option>
+                  <option value="7d">7 Days (7D) - Default</option>
+                  <option value="14d">14 Days (14D)</option>
+                  <option value="30d">30 Days (30D)</option>
+                  <option value="90d">90 Days (90D)</option>
+                  <option value="all">All Available</option>
+                </select>
               </div>
             </div>
           </div>
 
-          {/* SVG Price & Signal Overlay Chart */}
-          <div className="svg-chart-wrapper" style={{ position: 'relative', width: '100%', height: '320px' }}>
+          {/* Interactive Chart Container */}
+          <div className="chart-viewport-wrapper" style={{ position: 'relative', width: '100%', minHeight: '340px' }}>
             {klinesLoading && (
               <div className="chart-loading-overlay">
-                <span>Loading live price candles for {selectedCoin}...</span>
+                <span>Loading price candles for {selectedCoin}...</span>
               </div>
             )}
-            <svg
-              viewBox={`0 0 ${svgCalculations.width || 1000} ${svgCalculations.height || 300}`}
-              className="sentiment-price-svg"
-              preserveAspectRatio="none"
-              style={{ width: '100%', height: '100%', overflow: 'visible' }}
-            >
-              <defs>
-                <linearGradient id="chartAreaGradient" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#38bdf8" stopOpacity="0.25" />
-                  <stop offset="100%" stopColor="#38bdf8" stopOpacity="0.0" />
-                </linearGradient>
-                <filter id="glowGreen" x="-30%" y="-30%" width="160%" height="160%">
-                  <feDropShadow dx="0" dy="0" stdDeviation="4" floodColor="#00e676" floodOpacity="0.8" />
-                </filter>
-                <filter id="glowRed" x="-30%" y="-30%" width="160%" height="160%">
-                  <feDropShadow dx="0" dy="0" stdDeviation="4" floodColor="#f56565" floodOpacity="0.8" />
-                </filter>
-              </defs>
+            <div ref={chartContainerRef} style={{ width: '100%', height: '340px' }} />
 
-              {/* Horizontal Grid lines */}
-              {[0.2, 0.4, 0.6, 0.8].map((ratio, idx) => {
-                const y = (svgCalculations.height || 300) * ratio;
-                const priceVal = (svgCalculations.maxP || 100) - ratio * ((svgCalculations.maxP || 100) - (svgCalculations.minP || 0));
-                return (
-                  <g key={idx}>
-                    <line x1="20" y1={y} x2="930" y2={y} stroke="rgba(255,255,255,0.06)" strokeDasharray="3 3" />
-                    <text x="935" y={y + 4} fill="rgba(255,255,255,0.35)" fontSize="11" fontFamily="sans-serif">
-                      ${priceVal > 100 ? priceVal.toLocaleString(undefined, { maximumFractionDigits: 0 }) : priceVal.toFixed(2)}
-                    </text>
-                  </g>
-                );
-              })}
-
-              {/* Price Area & Line */}
-              {svgCalculations.areaD && (
-                <path d={svgCalculations.areaD} fill="url(#chartAreaGradient)" />
-              )}
-              {svgCalculations.pathD && (
-                <path d={svgCalculations.pathD} fill="none" stroke="#38bdf8" strokeWidth="2.5" strokeLinecap="round" />
-              )}
-
-              {/* Sentiment Signal Overlays */}
-              {svgCalculations.signalMarkers && svgCalculations.signalMarkers.map((sig, idx) => {
-                const isCorrect = sig.outcome_status === 'correct';
-                const isWrong = sig.outcome_status === 'wrong';
-                const pinColor = sig.badgeType === 'buy' ? '#00e676' : sig.badgeType === 'sell' ? '#f56565' : '#63b3ed';
-                const outcomeText = isCorrect ? `✅ +${Math.abs(sig.outcome_pct || 0)}% Win` : isWrong ? `❌ -${Math.abs(sig.outcome_pct || 0)}%` : '⏳ Tracking';
-
-                return (
-                  <g
-                    key={idx}
-                    className="signal-pin-group"
-                    onMouseEnter={() => setHoveredSignal(sig)}
-                    onMouseLeave={() => setHoveredSignal(null)}
-                    style={{ cursor: 'pointer' }}
-                  >
-                    {/* Vertical connecting dash line */}
-                    <line
-                      x1={sig.x}
-                      y1={sig.y}
-                      x2={sig.x}
-                      y2={sig.y - 25}
-                      stroke={pinColor}
-                      strokeWidth="1.5"
-                      strokeDasharray="2 2"
-                    />
-
-                    {/* Point Circle */}
-                    <circle
-                      cx={sig.x}
-                      cy={sig.y}
-                      r="5"
-                      fill={pinColor}
-                      filter={sig.badgeType === 'buy' ? 'url(#glowGreen)' : sig.badgeType === 'sell' ? 'url(#glowRed)' : 'none'}
-                    />
-
-                    {/* Signal Callout Badge */}
-                    <g transform={`translate(${Math.max(10, Math.min(840, sig.x - 70))}, ${Math.max(10, sig.y - 45)})`}>
-                      <rect
-                        width="150"
-                        height="24"
-                        rx="6"
-                        fill="rgba(15, 23, 42, 0.92)"
-                        stroke={pinColor}
-                        strokeWidth="1.2"
-                      />
-                      <text
-                        x="75"
-                        y="16"
-                        textAnchor="middle"
-                        fill="#fff"
-                        fontSize="10.5"
-                        fontWeight="600"
-                        fontFamily="sans-serif"
-                      >
-                        {sig.sentiment}: {outcomeText}
-                      </text>
-                    </g>
-                  </g>
-                );
-              })}
-            </svg>
-
-            {/* Hover Tooltip Overlay */}
-            {hoveredSignal && (
-              <div
-                className="signal-hover-tooltip"
-                style={{
-                  position: 'absolute',
-                  left: `${Math.min(75, Math.max(10, (hoveredSignal.x / 1000) * 100))}%`,
-                  top: '10px',
-                  zIndex: 20
-                }}
-              >
-                <div className="tooltip-header">
-                  <strong>{hoveredSignal.symbol}</strong> • {hoveredSignal.sentiment}
-                </div>
-                <div className="tooltip-row">
-                  <span>Price at Call:</span> <strong>${hoveredSignal.price_at_prediction?.toLocaleString()}</strong>
-                </div>
-                <div className="tooltip-row">
-                  <span>Current/Outcome:</span> <strong>${hoveredSignal.current_price?.toLocaleString()}</strong>
-                </div>
-                <div className="tooltip-row">
-                  <span>Result:</span>
-                  <span className={hoveredSignal.outcome_status === 'correct' ? 'text-green' : hoveredSignal.outcome_status === 'wrong' ? 'text-red' : ''}>
-                    {hoveredSignal.outcome_status === 'correct' ? `✅ Correct (+${hoveredSignal.outcome_pct}%)` : hoveredSignal.outcome_status === 'wrong' ? `❌ Wrong (${hoveredSignal.outcome_pct}%)` : '⏳ Active Tracking'}
+            {/* Live Hover Info Bar */}
+            {hoveredPoint && (
+              <div className="chart-hover-bar">
+                <span className="hover-time">📅 {hoveredPoint.timeStr}</span>
+                <span>O: <strong>${hoveredPoint.open?.toLocaleString()}</strong></span>
+                <span>H: <strong>${hoveredPoint.high?.toLocaleString()}</strong></span>
+                <span>L: <strong>${hoveredPoint.low?.toLocaleString()}</strong></span>
+                <span>C: <strong>${hoveredPoint.close?.toLocaleString()}</strong></span>
+                {hoveredPoint.signal && (
+                  <span className="hover-signal-badge">
+                    🤖 <strong>{hoveredPoint.signal.sentiment}</strong> @ ${hoveredPoint.signal.price_at_prediction?.toLocaleString()} ({hoveredPoint.signal.outcome_status === 'correct' ? `✅ +${Math.abs(hoveredPoint.signal.outcome_pct)}%` : hoveredPoint.signal.outcome_status === 'wrong' ? `❌ ${hoveredPoint.signal.outcome_pct}%` : '⏳ Tracking'})
                   </span>
-                </div>
-                <div className="tooltip-row">
-                  <span>Model:</span> {getProviderName(hoveredSignal.provider)} ({hoveredSignal.model || 'Default'}) • {getTierName(hoveredSignal.tier)}
-                </div>
-                {hoveredSignal.formatted_datetime && (
-                  <div className="tooltip-date">{hoveredSignal.formatted_datetime}</div>
-                )}
-                {hoveredSignal.sentiment_reason && (
-                  <div className="tooltip-reason">{hoveredSignal.sentiment_reason}</div>
                 )}
               </div>
             )}
@@ -763,7 +760,7 @@ const AIDashboard = () => {
       </div>
 
       {/* ========================================================================= */}
-      {/* 2. VISUALIZER 2 (MIDDLE SECTION - FULL WIDTH): PREDICTION LEDGER & BENCHMARK */}
+      {/* 2. VISUALIZER 2 (MIDDLE SECTION - FULL WIDTH): PREDICTION LEDGER & BENCHMARKS */}
       {/* ========================================================================= */}
       <div className="ai-section prediction-ledger-section">
         <div className="prediction-split-grid">
@@ -782,7 +779,7 @@ const AIDashboard = () => {
                     <th>Coin</th>
                     <th>AI Recommendation</th>
                     <th>Signal Price</th>
-                    <th>Latest Price</th>
+                    <th>Subsequent / Live Price</th>
                     <th>Outcome</th>
                     <th>AI Model (Tier)</th>
                   </tr>
@@ -811,9 +808,9 @@ const AIDashboard = () => {
                               : parseFloat(row.price_at_prediction || 0).toFixed(4)}
                           </td>
                           <td className="price-cell">
-                            ${parseFloat(row.current_price || 0) > 100
-                              ? parseFloat(row.current_price || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })
-                              : parseFloat(row.current_price || 0).toFixed(4)}
+                            ${parseFloat(row.evaluation_price || 0) > 100
+                              ? parseFloat(row.evaluation_price || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })
+                              : parseFloat(row.evaluation_price || 0).toFixed(4)}
                           </td>
                           <td>
                             {row.outcome_status === 'correct' ? (
@@ -826,7 +823,7 @@ const AIDashboard = () => {
                               </span>
                             ) : (
                               <span className="outcome-pill outcome-tracking">
-                                ⏳ Tracking
+                                ⏳ Active Tracking
                               </span>
                             )}
                           </td>
@@ -850,12 +847,47 @@ const AIDashboard = () => {
             </div>
           </div>
 
-          {/* Right Column: Model Accuracy Leaderboard & Signal Distribution */}
+          {/* Right Column: Signal Recommendation Accuracy & Model Comparison */}
           <div className="prediction-benchmarks-column">
-            {/* Multi-Model Comparison Card */}
+            {/* Recommendation Type Breakdown */}
+            <div className="benchmark-card">
+              <h3>🎯 Recommendation Type Accuracy</h3>
+              <p className="benchmark-subtext">Empirical win rate by exact recommendation signal</p>
+
+              <div className="distribution-bars">
+                {recommendationBreakdown.length > 0 ? (
+                  recommendationBreakdown.map((rec, idx) => {
+                    const isBullish = ['Definitely Buy', 'Consider Buying', 'Buy Immediately', 'Strong Buy', 'Buy'].includes(rec.sentiment);
+                    const isBearish = ['Consider Selling', 'Sell Immediately', 'Avoid', 'Strong Sell', 'Do Not Buy', 'Sell'].includes(rec.sentiment);
+                    const barCol = isBullish ? '#00e676' : isBearish ? '#f56565' : '#38bdf8';
+
+                    return (
+                      <div key={idx} className="dist-item">
+                        <div className="dist-header">
+                          <span>{rec.sentiment} ({rec.total} calls)</span>
+                          <strong>{rec.win_rate}% Win Rate</strong>
+                        </div>
+                        <div className="progress-bar-track">
+                          <div className="progress-bar-fill" style={{ width: `${rec.win_rate}%`, backgroundColor: barCol }} />
+                        </div>
+                        <div className="leaderboard-counts">
+                          <span>{rec.correct} Correct</span>
+                          <span>{rec.wrong} Inaccurate</span>
+                          <span>{rec.neutral} Neutral</span>
+                        </div>
+                      </div>
+                    );
+                  })
+                ) : (
+                  <p style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>No recommendations recorded yet.</p>
+                )}
+              </div>
+            </div>
+
+            {/* AI Model Performance Leaderboard */}
             <div className="benchmark-card">
               <h3>🏆 AI Model Accuracy Leaderboard</h3>
-              <p className="benchmark-subtext">Empirical accuracy comparison across active AI providers & models</p>
+              <p className="benchmark-subtext">Accuracy comparison across active AI providers</p>
 
               <div className="model-leaderboard-list">
                 {modelBreakdown.map((m, idx) => (
@@ -883,44 +915,6 @@ const AIDashboard = () => {
                     </div>
                   </div>
                 ))}
-              </div>
-            </div>
-
-            {/* Signal Distribution Card */}
-            <div className="benchmark-card">
-              <h3>🎯 Recommendation Distribution</h3>
-              <p className="benchmark-subtext">Breakdown of AI aggressiveness vs conservatism</p>
-
-              <div className="distribution-bars">
-                <div className="dist-item">
-                  <div className="dist-header">
-                    <span>🟢 Bullish (Buy Signals)</span>
-                    <strong>{distribution.buy_pct}%</strong>
-                  </div>
-                  <div className="progress-bar-track">
-                    <div className="progress-bar-fill" style={{ width: `${distribution.buy_pct}%`, backgroundColor: '#00e676' }} />
-                  </div>
-                </div>
-
-                <div className="dist-item">
-                  <div className="dist-header">
-                    <span>⚪ Neutral (Watch / Hold)</span>
-                    <strong>{distribution.watch_pct}%</strong>
-                  </div>
-                  <div className="progress-bar-track">
-                    <div className="progress-bar-fill" style={{ width: `${distribution.watch_pct}%`, backgroundColor: '#63b3ed' }} />
-                  </div>
-                </div>
-
-                <div className="dist-item">
-                  <div className="dist-header">
-                    <span>🔴 Bearish (Sell / Avoid)</span>
-                    <strong>{distribution.sell_pct}%</strong>
-                  </div>
-                  <div className="progress-bar-track">
-                    <div className="progress-bar-fill" style={{ width: `${distribution.sell_pct}%`, backgroundColor: '#f56565' }} />
-                  </div>
-                </div>
               </div>
             </div>
           </div>

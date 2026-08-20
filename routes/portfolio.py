@@ -1405,11 +1405,23 @@ def get_trading_klines(symbol):
         )
         
         # Fetch klines from Binance.US
-        # Returns: [[timestamp, open, high, low, close, volume, close_time, quote_asset_volume, trades, ...], ...]
-        try:
-            klines = client.get_klines(symbol=symbol, interval=interval, limit=limit)
-        except Exception as api_err:
-            err_msg = str(api_err)
+        candidate_symbols = [symbol]
+        if not symbol.endswith('USDT') and not symbol.endswith('USD'):
+            candidate_symbols.extend([f"{symbol}USDT", f"{symbol}USD"])
+
+        klines = None
+        last_err = None
+        for sym_try in candidate_symbols:
+            try:
+                klines = client.get_klines(symbol=sym_try, interval=interval, limit=limit)
+                if klines:
+                    symbol = sym_try
+                    break
+            except Exception as api_err:
+                last_err = api_err
+
+        if not klines:
+            err_msg = str(last_err)
             logger.error(f"Failed to fetch klines for {symbol}: {err_msg}")
             if "API-key" in err_msg or "Invalid Api-Key" in err_msg or "invalid api-key" in err_msg.lower():
                 return jsonify({

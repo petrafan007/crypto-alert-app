@@ -529,7 +529,8 @@ def record_sentiment_history(user_id, symbol, sentiment, sentiment_reason, price
     """Save an AI sentiment recommendation snapshot into sentiment_history for accuracy tracking."""
     try:
         from models import SentimentHistory
-        now = datetime.utcnow()
+        from datetime import timezone
+        now = datetime.now(timezone.utc)
         hist = SentimentHistory(
             user_id=user_id,
             coin_id=coin_id,
