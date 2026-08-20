@@ -1558,21 +1558,51 @@ function Dashboard({ isLightMode }) {
     }
   };
 
+  const getProviderDisplayName = (provider) => {
+    switch ((provider || '').toLowerCase()) {
+      case 'openai': return 'OpenAI';
+      case 'gemini': return 'Google Gemini';
+      case 'zai': return 'Z.AI';
+      case 'perplexity': return 'Perplexity';
+      case 'inception': return 'Inception Labs';
+      default: return provider || 'AI';
+    }
+  };
+
+  const getTierDisplayName = (tier) => {
+    if (!tier) return 'Primary';
+    return tier.charAt(0).toUpperCase() + tier.slice(1).toLowerCase();
+  };
+
   const renderSentimentCell = (coin, isWatchlist = false) => {
     const sentiment = coin.sentiment || (isWatchlist ? 'Watch' : 'Hold');
     const reason = coin.sentiment_reason || '';
     const lastUpdated = coin.sentiment_last_updated ? `Last Updated: ${formatLocalDateTime(coin.sentiment_last_updated)}` : '';
     
-    let tooltip = '';
-    if (reason && lastUpdated) {
-      tooltip = `${reason}\n\n${lastUpdated}`;
-    } else if (reason) {
-      tooltip = reason;
-    } else if (lastUpdated) {
-      tooltip = lastUpdated;
-    } else {
-      tooltip = 'No sentiment explanation available';
+    const metaParts = [];
+    if (coin.sentiment_tier || coin.sentiment_provider || coin.sentiment_model) {
+      metaParts.push(`Tier: ${getTierDisplayName(coin.sentiment_tier)}`);
+      metaParts.push(`Provider: ${getProviderDisplayName(coin.sentiment_provider)}`);
+      if (coin.sentiment_model) {
+        metaParts.push(`Model: ${coin.sentiment_model}`);
+      }
     }
+    const metaInfo = metaParts.join('\n');
+
+    let tooltip = '';
+    const tooltipSections = [];
+    if (reason) tooltipSections.push(reason);
+    if (lastUpdated) {
+      if (metaInfo) {
+        tooltipSections.push(`${lastUpdated}\n${metaInfo}`);
+      } else {
+        tooltipSections.push(lastUpdated);
+      }
+    } else if (metaInfo) {
+      tooltipSections.push(metaInfo);
+    }
+    
+    tooltip = tooltipSections.length > 0 ? tooltipSections.join('\n\n') : 'No sentiment explanation available';
 
     let color = isWatchlist ? '#63b3ed' : '#ecc94b';
     let bg = 'transparent';

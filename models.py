@@ -28,6 +28,9 @@ class Coin(db.Model):
     sentiment = db.Column(db.String(50), default="Hold")
     sentiment_reason = db.Column(db.Text, default="")
     sentiment_last_updated = db.Column(db.DateTime, nullable=True)
+    sentiment_provider = db.Column(db.String(50), nullable=True)
+    sentiment_model = db.Column(db.String(100), nullable=True)
+    sentiment_tier = db.Column(db.String(50), nullable=True)
     note = db.Column(db.Text, default="")
     volatility_pct = db.Column(db.Float, nullable=True)
     last_volatility_alert_time = db.Column(db.DateTime, nullable=True)
@@ -58,6 +61,9 @@ class WatchlistCoin(db.Model):
     volatility_pct = db.Column(db.Float, nullable=True)
     last_volatility_alert_time = db.Column(db.DateTime, nullable=True)
     sentiment_last_updated = db.Column(db.DateTime, nullable=True)
+    sentiment_provider = db.Column(db.String(50), nullable=True)
+    sentiment_model = db.Column(db.String(100), nullable=True)
+    sentiment_tier = db.Column(db.String(50), nullable=True)
     
     # Composite index for efficient lookups
     __table_args__ = (
@@ -192,6 +198,9 @@ class AIConversation(db.Model):
     created_at = db.Column(db.DateTime, default=lambda: datetime.now())
     is_hidden = db.Column(db.Integer, default=0)
     coin_id = db.Column(db.Integer)
+    provider = db.Column(db.String(50), nullable=True)
+    model = db.Column(db.String(100), nullable=True)
+    tier = db.Column(db.String(50), nullable=True)
     
     # Indexes for efficient querying
     __table_args__ = (

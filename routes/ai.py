@@ -399,13 +399,16 @@ def _get_latest_conversation_row(user_id, prompt_type, sender):
         return {
             'id': row.id,
             'user_id': row.user_id,
-            'date': row.date,
+            'date': str(row.date) if row.date else '',
             'time': row.time,
             'prompt_type': row.prompt_type,
             'sender': row.sender,
             'body': row.body,
             'conversation_id': row.conversation_id,
-            'created_at': created_at
+            'created_at': created_at,
+            'provider': getattr(row, 'provider', None),
+            'model': getattr(row, 'model', None),
+            'tier': getattr(row, 'tier', None)
         }
     except Exception as e:
         logger.error(f"_get_latest_conversation_row error: {e}")
@@ -1668,7 +1671,7 @@ def get_ai_conversations(user_id, limit=20, offset=0, search_term=None, include_
         result.append({
             'id': r.id,
             'user_id': r.user_id,
-            'date': r.date or (r.created_at.strftime('%Y-%m-%d') if r.created_at else ''),
+            'date': str(r.date) if r.date else (r.created_at.strftime('%Y-%m-%d') if r.created_at else ''),
             'time': r.time or (r.created_at.strftime('%I:%M %p EDT') if r.created_at else ''),
             'prompt_type': r.prompt_type,
             'sender': r.sender,
@@ -1676,7 +1679,10 @@ def get_ai_conversations(user_id, limit=20, offset=0, search_term=None, include_
             'conversation_id': r.conversation_id,
             'created_at': format_iso_utc(r.created_at) if r.created_at else None,
             'is_hidden': bool(r.is_hidden),
-            'coin_id': r.coin_id
+            'coin_id': r.coin_id,
+            'provider': getattr(r, 'provider', None),
+            'model': getattr(r, 'model', None),
+            'tier': getattr(r, 'tier', None)
         })
     return result
 
@@ -1837,16 +1843,20 @@ def process_ai_conversation(user_id, message, conversation_id=None):
     else:
         ai_content = str(response)
     
+    resp_tier = getattr(response, 'tier', 'primary')
+    resp_provider = getattr(response, 'provider', None)
+    resp_model = getattr(response, 'model', None)
+
     # Log user message and AI response in chronological order
     try:
         import time
         log_ai_conversation(user_id, "manual", "user", message)
         time.sleep(0.05)
-        log_ai_conversation(user_id, "manual", "ai", ai_content)
+        log_ai_conversation(user_id, "manual", "ai", ai_content, provider=resp_provider, model=resp_model, tier=resp_tier)
     except Exception as log_err:
         logger.error(f"Error logging Copilot conversation: {log_err}")
     
-    return ai_content, conversation_id
+    return ai_content, conversation_id, resp_tier, resp_provider, resp_model
 
 
 @ai_bp.route('/api/ai/conversation', methods=['POST'])
@@ -1864,11 +1874,14 @@ def api_ai_conversation():
             return jsonify({'error': 'Message is required'}), 400
         
         # Process the conversation
-        ai_response, conversation_id = process_ai_conversation(current_user.id, message, conversation_id)
+        ai_response, conversation_id, resp_tier, resp_provider, resp_model = process_ai_conversation(current_user.id, message, conversation_id)
         
         return jsonify({
             'response': ai_response,
-            'conversation_id': conversation_id
+            'conversation_id': conversation_id,
+            'tier': resp_tier,
+            'provider': resp_provider,
+            'model': resp_model
         })
         
     except Exception as e:
@@ -2030,18 +2043,24 @@ def api_ai_news_analysis():
                 raise Exception("No response received from AI analysis")
 
             analysis = ai_response.choices[0].message.content if hasattr(ai_response, 'choices') else str(ai_response)
+            resp_tier = getattr(ai_response, 'tier', 'primary')
+            resp_provider = getattr(ai_response, 'provider', None)
+            resp_model = getattr(ai_response, 'model', None)
 
             # Log the AI conversation for caching and copilot sidebar
-            log_ai_conversation(user_id, "coin_analysis", "user", original_user_message, symbol=symbol, coin_id=coin_id)
+            log_ai_conversation(user_id, "coin_analysis", "user", original_user_message, symbol=symbol, coin_id=coin_id, provider=resp_provider, model=resp_model, tier=resp_tier)
             time.sleep(0.1)
-            log_ai_conversation(user_id, "coin_analysis", "ai", analysis, symbol=symbol, coin_id=coin_id)
+            log_ai_conversation(user_id, "coin_analysis", "ai", analysis, symbol=symbol, coin_id=coin_id, provider=resp_provider, model=resp_model, tier=resp_tier)
 
             return jsonify({
                 'symbol': symbol,
                 'analysis': analysis,
                 'timestamp': current_datetime,
                 'prompt_used': f"Coin Pre: {coin_pre_prompt[:100]}..., Coin Post: {coin_post_prompt[:100]}...",
-                'cached': False
+                'cached': False,
+                'tier': resp_tier,
+                'provider': resp_provider,
+                'model': resp_model
             })
 
         except Exception as analysis_error:
@@ -2503,10 +2522,17 @@ def api_market_analysis_workflow():
         else:
             raise Exception("Invalid AI response format")
         
+        resp_tier = getattr(response, 'tier', 'primary')
+        resp_provider = getattr(response, 'provider', None)
+        resp_model = getattr(response, 'model', None)
+
         # Structure the response with workflow stages
         workflow_result = {
             "success": True,
             "timestamp": get_eastern_now().isoformat(),
+            "tier": resp_tier,
+            "provider": resp_provider,
+            "model": resp_model,
             "stage1": {
                 "status": "completed",
                 "description": "Data Gathering - Generated targeted search queries for current market information"
@@ -2523,7 +2549,10 @@ def api_market_analysis_workflow():
             "analysis": {
                 "content": analysis_content,
                 "type": "market_analysis",
-                "generated_at": analysis_start_time
+                "generated_at": analysis_start_time,
+                "tier": resp_tier,
+                "provider": resp_provider,
+                "model": resp_model
             },
             "cache_info": {
                 "status": "fresh_analysis",
@@ -2538,13 +2567,13 @@ def api_market_analysis_workflow():
             
             # Use the ACTUAL Stage 3 prompt that was sent to AI (not hardcoded)
             # Log user message first 
-            log_ai_conversation(user_id, "market_analysis", "user", actual_user_prompt)
+            log_ai_conversation(user_id, "market_analysis", "user", actual_user_prompt, provider=resp_provider, model=resp_model, tier=resp_tier)
             
             # Add small delay to ensure proper chronological order
             time.sleep(0.1)
             
             # Then log ai response 
-            log_ai_conversation(user_id, "market_analysis", "ai", analysis_content)
+            log_ai_conversation(user_id, "market_analysis", "ai", analysis_content, provider=resp_provider, model=resp_model, tier=resp_tier)
             
             logger.info(f"Market analysis conversations saved to AI Copilot for user {user_id}")
             
@@ -2722,13 +2751,17 @@ def api_portfolio_review_workflow():
             analysis_content = str(response)
         else:
             raise Exception("Invalid AI response format")
+        
+        resp_tier = getattr(response, 'tier', 'primary')
+        resp_provider = getattr(response, 'provider', None)
+        resp_model = getattr(response, 'model', None)
 
         # === LOGGING ===
         try:
             import time
-            log_ai_conversation(user_id, "portfolio_review", "user", actual_user_prompt)
+            log_ai_conversation(user_id, "portfolio_review", "user", actual_user_prompt, provider=resp_provider, model=resp_model, tier=resp_tier)
             time.sleep(0.1)
-            log_ai_conversation(user_id, "portfolio_review", "ai", analysis_content)
+            log_ai_conversation(user_id, "portfolio_review", "ai", analysis_content, provider=resp_provider, model=resp_model, tier=resp_tier)
             logger.info(f"Portfolio review conversations saved to AI Copilot for user {user_id}")
         except Exception as conversation_error:
             logger.error(f"Failed to save portfolio review conversations: {conversation_error}")
@@ -2737,6 +2770,9 @@ def api_portfolio_review_workflow():
         workflow_result = {
             "success": True,
             "timestamp": get_eastern_now().isoformat(),
+            "tier": resp_tier,
+            "provider": resp_provider,
+            "model": resp_model,
             "stage1": {
                 "status": "completed",
                 "description": "Data Gathering - Generated targeted search queries for portfolio assets"
@@ -2753,7 +2789,10 @@ def api_portfolio_review_workflow():
             "analysis": {
                 "content": analysis_content,
                 "type": "portfolio_review",
-                "generated_at": analysis_start_time
+                "generated_at": analysis_start_time,
+                "tier": resp_tier,
+                "provider": resp_provider,
+                "model": resp_model
             },
             "cache_info": {
                 "status": "fresh_analysis",

@@ -550,48 +550,95 @@ export default function AICopilotSidebar() {
     }
   };
 
-  const formatTime = (timeStr) => {
-    try {
-      const date = new Date(timeStr);
-      // Format as Eastern time with AM/PM
-      return date.toLocaleTimeString('en-US', {
-        timeZone: 'America/New_York',
-        hour: 'numeric',
-        minute: '2-digit',
-        hour12: true
-      });
-    } catch {
-      return timeStr;
+  const getProviderLabel = (provider) => {
+    switch ((provider || '').toLowerCase()) {
+      case 'openai': return 'OpenAI';
+      case 'gemini': return 'Google Gemini';
+      case 'zai': return 'Z.AI';
+      case 'perplexity': return 'Perplexity';
+      case 'inception': return 'Inception Labs';
+      default: return provider || 'AI';
     }
   };
 
-  const formatDate = (dateStr) => {
-    if (!dateStr) return '';
+  const getTierLabel = (tier) => {
+    if (!tier) return 'Primary';
+    return tier.charAt(0).toUpperCase() + tier.slice(1).toLowerCase();
+  };
+
+  const getAiTooltip = (conv) => {
+    if (conv.sender !== 'ai') return '';
+    const tier = getTierLabel(conv.tier);
+    const provider = getProviderLabel(conv.provider || 'openai');
+    const model = conv.model || 'Default';
+    return `Tier: ${tier}\nProvider: ${provider}\nModel: ${model}`;
+  };
+
+  // Combined date+time formatter for display: "8-20-2026 at 5:50 PM EDT"
+  const formatEasternDateTime = (dateStr, timeStr, createdAt) => {
     try {
-      // Handle YYYY-MM-DD format
-      const date = new Date(`${dateStr}T12:00:00`);
-      if (Number.isNaN(date.getTime())) {
-        throw new Error('Invalid date');
+      let d = null;
+      if (createdAt) {
+        d = new Date(createdAt);
+      } else if (dateStr && timeStr) {
+        if (dateStr.includes('GMT') || dateStr.includes('UTC')) {
+          const parsedDate = new Date(dateStr);
+          if (!isNaN(parsedDate.getTime())) {
+            const timeParts = timeStr.match(/(\d{1,2}):(\d{2})(?::(\d{2}))?/);
+            if (timeParts) {
+              const hours = parseInt(timeParts[1], 10);
+              const minutes = parseInt(timeParts[2], 10);
+              const seconds = timeParts[3] ? parseInt(timeParts[3], 10) : 0;
+              d = new Date(Date.UTC(parsedDate.getUTCFullYear(), parsedDate.getUTCMonth(), parsedDate.getUTCDate(), hours, minutes, seconds));
+            } else {
+              d = parsedDate;
+            }
+          }
+        } else if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr.trim())) {
+          const [y, m, day] = dateStr.trim().split('-').map(Number);
+          const timeParts = (timeStr || '').match(/(\d{1,2}):(\d{2})(?::(\d{2}))?/);
+          if (timeParts) {
+            const hours = parseInt(timeParts[1], 10);
+            const minutes = parseInt(timeParts[2], 10);
+            const seconds = timeParts[3] ? parseInt(timeParts[3], 10) : 0;
+            d = new Date(Date.UTC(y, m - 1, day, hours, minutes, seconds));
+          } else {
+            d = new Date(y, m - 1, day);
+          }
+        } else {
+          const parsed = new Date(`${dateStr} ${timeStr}`);
+          if (!isNaN(parsed.getTime())) d = parsed;
+        }
       }
-      return date.toLocaleDateString('en-US', {
-        weekday: 'short',
-        month: 'short',
-        day: 'numeric',
-        year: 'numeric'
-      });
-    } catch {
-      // Fallback for other formats
-      return dateStr;
-    }
-  };
 
-  // Combined date+time formatter for display: "Sat, Oct 18, 2025 at 5:23 PM EST"
-  const formatDateTime = (dateStr, timeStr) => {
-    if (!dateStr) return timeStr || '';
-    const formattedDate = formatDate(dateStr);
-    if (!timeStr) return formattedDate;
-    // Remove redundant "EST" suffix handling, time already includes it
-    return `${formattedDate} at ${timeStr}`;
+      if (d && !isNaN(d.getTime())) {
+        const formatter = new Intl.DateTimeFormat('en-US', {
+          timeZone: 'America/New_York',
+          year: 'numeric',
+          month: 'numeric',
+          day: 'numeric',
+          hour: 'numeric',
+          minute: '2-digit',
+          hour12: true,
+          timeZoneName: 'short'
+        });
+        const parts = formatter.formatToParts(d);
+        const getPart = (type) => parts.find(p => p.type === type)?.value || '';
+        const month = getPart('month');
+        const day = getPart('day');
+        const year = getPart('year');
+        const hour = getPart('hour');
+        const minute = getPart('minute');
+        const dayPeriod = getPart('dayPeriod');
+        const timeZoneName = getPart('timeZoneName') || 'EDT';
+        return `${month}-${day}-${year} at ${hour}:${minute} ${dayPeriod} ${timeZoneName}`;
+      }
+    } catch (e) {
+      console.warn('Error formatting date time:', e);
+    }
+
+    const cleanDate = (dateStr || '').replace(/\s*00:00:00\s*GMT/gi, '').replace(/^[A-Za-z]+,\s*/, '');
+    return `${cleanDate} at ${timeStr || ''}`.trim();
   };
 
   // Safely render text with clickable links, preserving newlines
@@ -759,13 +806,17 @@ export default function AICopilotSidebar() {
                       onChange={() => toggleSelectMessage(conv.id)}
                       className="message-checkbox"
                     />
-                    <span className="prompt-type">
+                    <span
+                      className="prompt-type"
+                      title={getAiTooltip(conv)}
+                      style={conv.sender === 'ai' ? { cursor: 'help' } : {}}
+                    >
                       {getPromptTypeIcon(conv.prompt_type)} {getPromptTypeLabel(conv.prompt_type, conv.sender)}
                     </span>
                   </div>
                   <div className="message-time-actions">
                     <span className="message-datetime">
-                      {formatDateTime(conv.date, conv.time)}
+                      {formatEasternDateTime(conv.date, conv.time, conv.created_at)}
                     </span>
                     <div className="message-actions">
                       <button

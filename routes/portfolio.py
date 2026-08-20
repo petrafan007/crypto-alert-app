@@ -4226,6 +4226,9 @@ def api_watchlist():
             "sentiment": w.sentiment or "Watch",
             "sentiment_reason": getattr(w, 'sentiment_reason', "") or "",
             "sentiment_last_updated": w.sentiment_last_updated.isoformat() if getattr(w, 'sentiment_last_updated', None) else None,
+            "sentiment_provider": getattr(w, 'sentiment_provider', None),
+            "sentiment_model": getattr(w, 'sentiment_model', None),
+            "sentiment_tier": getattr(w, 'sentiment_tier', None),
             "volatility_pct": w.volatility_pct,
             "cached_news": w_news.get('text', ''),
             "cached_news_date": w_news.get('created_at', None)
@@ -4267,6 +4270,9 @@ def api_watchlist_live():
             "sentiment": w.sentiment or "Watch",
             "sentiment_reason": getattr(w, 'sentiment_reason', "") or "",
             "sentiment_last_updated": w.sentiment_last_updated.isoformat() if getattr(w, 'sentiment_last_updated', None) else None,
+            "sentiment_provider": getattr(w, 'sentiment_provider', None),
+            "sentiment_model": getattr(w, 'sentiment_model', None),
+            "sentiment_tier": getattr(w, 'sentiment_tier', None),
             "volatility_pct": w.volatility_pct,
             "cached_news": w_news.get('text', ''),
             "cached_news_date": w_news.get('created_at', None)

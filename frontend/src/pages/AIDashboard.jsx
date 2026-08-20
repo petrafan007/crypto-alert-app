@@ -10,21 +10,47 @@ const formatEasternTime = (isoString) => {
 
   try {
     const date = new Date(isoString);
-    // Format as Eastern time with AM/PM
-    return date.toLocaleString('en-US', {
+    if (isNaN(date.getTime())) return String(isoString);
+    const formatter = new Intl.DateTimeFormat('en-US', {
       timeZone: 'America/New_York',
-      month: 'short',
-      day: 'numeric',
       year: 'numeric',
+      month: 'numeric',
+      day: 'numeric',
       hour: 'numeric',
       minute: '2-digit',
       hour12: true,
       timeZoneName: 'short'
     });
+    const parts = formatter.formatToParts(date);
+    const getPart = (type) => parts.find(p => p.type === type)?.value || '';
+    const month = getPart('month');
+    const day = getPart('day');
+    const year = getPart('year');
+    const hour = getPart('hour');
+    const minute = getPart('minute');
+    const dayPeriod = getPart('dayPeriod');
+    const timeZoneName = getPart('timeZoneName') || 'EDT';
+    return `${month}-${day}-${year} at ${hour}:${minute} ${dayPeriod} ${timeZoneName}`;
   } catch (error) {
     console.error('Error formatting timestamp:', error);
     return 'Invalid date';
   }
+};
+
+const getProviderName = (provider) => {
+  switch ((provider || '').toLowerCase()) {
+    case 'openai': return 'OpenAI';
+    case 'gemini': return 'Google Gemini';
+    case 'zai': return 'Z.AI';
+    case 'perplexity': return 'Perplexity';
+    case 'inception': return 'Inception Labs';
+    default: return provider || 'AI';
+  }
+};
+
+const getTierName = (tier) => {
+  if (!tier) return 'Primary';
+  return tier.charAt(0).toUpperCase() + tier.slice(1).toLowerCase();
 };
 
 const escapeHtml = (str) =>
@@ -232,6 +258,9 @@ export default function AIDashboard({ isLightMode }) {
               analysis: {
                 content: res.data.body,
                 generated_at: createdAt,
+                tier: res.data.tier,
+                provider: res.data.provider,
+                model: res.data.model,
               },
               cache_info: null,
             });
@@ -580,10 +609,26 @@ export default function AIDashboard({ isLightMode }) {
                     }}
                   />
                 </div>
-                <div className="analysis-meta">
-                  <p className="analysis-footer">
+                <div className="analysis-meta" style={{ display: 'flex', flexWrap: 'wrap', gap: '16px', alignItems: 'center' }}>
+                  <p className="analysis-footer" style={{ margin: 0 }}>
                     <strong>Generated:</strong> {formatEasternTime(marketAnalysisData.analysis.generated_at)}
                   </p>
+                  {(marketAnalysisData.analysis?.tier || marketAnalysisData.analysis?.provider || marketAnalysisData.analysis?.model) && (
+                    <span
+                      className="meta-item ai-model-badge"
+                      style={{
+                        background: 'rgba(99, 179, 237, 0.15)',
+                        border: '1px solid rgba(99, 179, 237, 0.3)',
+                        borderRadius: '6px',
+                        padding: '2px 8px',
+                        fontSize: '12px',
+                        cursor: 'help'
+                      }}
+                      title={`Tier: ${getTierName(marketAnalysisData.analysis.tier)}\nProvider: ${getProviderName(marketAnalysisData.analysis.provider)}\nModel: ${marketAnalysisData.analysis.model || 'Default'}`}
+                    >
+                      🤖 <strong>{getTierName(marketAnalysisData.analysis.tier)}:</strong> {getProviderName(marketAnalysisData.analysis.provider)} ({marketAnalysisData.analysis.model || 'Default'})
+                    </span>
+                  )}
                   {marketAnalysisData.cache_info?.expires_at && (
                     <span className="meta-item">
                       <strong>Cache Expires:</strong> {new Date(marketAnalysisData.cache_info.expires_at).toLocaleString()}
@@ -755,10 +800,26 @@ export default function AIDashboard({ isLightMode }) {
                     }}
                   />
                 </div>
-                <div className="analysis-meta">
+                <div className="analysis-meta" style={{ display: 'flex', flexWrap: 'wrap', gap: '16px', alignItems: 'center' }}>
                   <span className="meta-item">
                     <strong>Generated:</strong> {formatEasternTime(portfolioReviewData.analysis.generated_at)}
                   </span>
+                  {(portfolioReviewData.analysis?.tier || portfolioReviewData.analysis?.provider || portfolioReviewData.analysis?.model) && (
+                    <span
+                      className="meta-item ai-model-badge"
+                      style={{
+                        background: 'rgba(99, 179, 237, 0.15)',
+                        border: '1px solid rgba(99, 179, 237, 0.3)',
+                        borderRadius: '6px',
+                        padding: '2px 8px',
+                        fontSize: '12px',
+                        cursor: 'help'
+                      }}
+                      title={`Tier: ${getTierName(portfolioReviewData.analysis.tier)}\nProvider: ${getProviderName(portfolioReviewData.analysis.provider)}\nModel: ${portfolioReviewData.analysis.model || 'Default'}`}
+                    >
+                      🤖 <strong>{getTierName(portfolioReviewData.analysis.tier)}:</strong> {getProviderName(portfolioReviewData.analysis.provider)} ({portfolioReviewData.analysis.model || 'Default'})
+                    </span>
+                  )}
                   {portfolioReviewData.cache_info?.expires_at && (
                     <span className="meta-item">
                       <strong>Cache Expires:</strong> {new Date(portfolioReviewData.cache_info.expires_at).toLocaleString()}

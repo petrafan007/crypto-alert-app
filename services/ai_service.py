@@ -134,8 +134,11 @@ def web_search(query, max_results=2, username=None, freshness="pd"):
 
 class AIResponseWrapper:
     """Wrapper to provide uniform `.choices[0].message.content` interface."""
-    def __init__(self, text):
+    def __init__(self, text, tier="primary", provider=None, model=None):
         self.text = text or ""
+        self.tier = tier
+        self.provider = provider
+        self.model = model
         self.choices = [self._Choice(self.text)]
     
     class _Choice:
@@ -493,7 +496,12 @@ def call_ai_with_web_search(
         ]
 
         final_content = _execute_ai_call(stage3_messages, p_max_tokens=max_tokens)
-        return AIResponseWrapper(final_content), stage3_user_msg
+        return AIResponseWrapper(
+            final_content,
+            tier=current_tier_name,
+            provider=provider,
+            model=model
+        ), stage3_user_msg
 
     except Exception as e:
         logger.error(f"Error in call_ai_with_web_search (tier: {current_tier_name if 'current_tier_name' in locals() else tier_index}): {e}")
@@ -517,7 +525,7 @@ def call_ai_with_web_search(
                 )
         raise
 
-def log_ai_conversation(user_id, prompt_type, sender, body, symbol=None, coin_id=None):
+def log_ai_conversation(user_id, prompt_type, sender, body, symbol=None, coin_id=None, provider=None, model=None, tier=None):
     """Helper to log conversation to ai_conversations table."""
     try:
         now = datetime.utcnow()
@@ -529,7 +537,10 @@ def log_ai_conversation(user_id, prompt_type, sender, body, symbol=None, coin_id
             date=now.date(),
             time=now.strftime("%H:%M:%S"),
             coin_id=coin_id,
-            created_at=now
+            created_at=now,
+            provider=provider,
+            model=model,
+            tier=tier
         )
         db.session.add(conv)
         db.session.commit()
@@ -783,6 +794,10 @@ def analyze_single_symbol_sentiment(user_id, username, symbol, is_watchlist=Fals
 
         sentiment_result, sentiment_reason = parse_sentiment_json(sentiment_text, is_watchlist=is_watchlist)
 
+        resp_tier = getattr(response, 'tier', 'primary')
+        resp_provider = getattr(response, 'provider', None)
+        resp_model = getattr(response, 'model', None)
+
         # Update database
         resolved_coin_id = coin_id
         if is_watchlist:
@@ -790,8 +805,10 @@ def analyze_single_symbol_sentiment(user_id, username, symbol, is_watchlist=Fals
             if wl_row:
                 wl_row.sentiment = sentiment_result
                 wl_row.sentiment_reason = sentiment_reason
-                if hasattr(wl_row, 'sentiment_last_updated'):
-                    wl_row.sentiment_last_updated = datetime.utcnow()
+                wl_row.sentiment_last_updated = datetime.utcnow()
+                wl_row.sentiment_provider = resp_provider
+                wl_row.sentiment_model = resp_model
+                wl_row.sentiment_tier = resp_tier
                 db.session.commit()
                 resolved_coin_id = wl_row.id
         else:
@@ -800,12 +817,15 @@ def analyze_single_symbol_sentiment(user_id, username, symbol, is_watchlist=Fals
                 coin_row.sentiment = sentiment_result
                 coin_row.sentiment_reason = sentiment_reason
                 coin_row.sentiment_last_updated = datetime.utcnow()
+                coin_row.sentiment_provider = resp_provider
+                coin_row.sentiment_model = resp_model
+                coin_row.sentiment_tier = resp_tier
                 db.session.commit()
                 resolved_coin_id = coin_row.id
 
-        log_ai_conversation(user_id, prompt_type, "user", actual_stage3_prompt, symbol=symbol, coin_id=resolved_coin_id)
+        log_ai_conversation(user_id, prompt_type, "user", actual_stage3_prompt, symbol=symbol, coin_id=resolved_coin_id, provider=resp_provider, model=resp_model, tier=resp_tier)
         time.sleep(0.1)
-        log_ai_conversation(user_id, prompt_type, "ai", sentiment_text, symbol=symbol, coin_id=resolved_coin_id)
+        log_ai_conversation(user_id, prompt_type, "ai", sentiment_text, symbol=symbol, coin_id=resolved_coin_id, provider=resp_provider, model=resp_model, tier=resp_tier)
 
         # Send Telegram alert if notable trading signal
         if notifications_enabled:

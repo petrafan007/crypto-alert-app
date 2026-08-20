@@ -206,6 +206,9 @@ def api_coin_data_live():
                     "force_visible": coin.force_visible,
                     "volatility_pct": coin.volatility_pct,
                     "sentiment_last_updated": format_iso_utc(coin.sentiment_last_updated) if hasattr(coin, 'sentiment_last_updated') and coin.sentiment_last_updated else None,
+                    "sentiment_provider": getattr(coin, 'sentiment_provider', None),
+                    "sentiment_model": getattr(coin, 'sentiment_model', None),
+                    "sentiment_tier": getattr(coin, 'sentiment_tier', None),
                     "cached_news": coin_news.get('text', ''),
                     "cached_news_date": coin_news.get('created_at', None)
                 })
@@ -245,6 +248,9 @@ def api_coin_data_live():
                         "force_visible": getattr(coin, 'force_visible', False),
                         "volatility_pct": getattr(coin, 'volatility_pct', None),
                         "sentiment_last_updated": format_iso_utc(getattr(coin, 'sentiment_last_updated', None)),
+                        "sentiment_provider": getattr(coin, 'sentiment_provider', None),
+                        "sentiment_model": getattr(coin, 'sentiment_model', None),
+                        "sentiment_tier": getattr(coin, 'sentiment_tier', None),
                         "cached_news": fallback_news.get('text', ''),
                         "cached_news_date": fallback_news.get('created_at', None)
                     })
@@ -352,6 +358,9 @@ def api_coin_data():
                     "force_visible": coin.force_visible,
                     "volatility_pct": coin.volatility_pct,
                     "sentiment_last_updated": format_iso_utc(coin.sentiment_last_updated) if hasattr(coin, 'sentiment_last_updated') and coin.sentiment_last_updated else None,
+                    "sentiment_provider": getattr(coin, 'sentiment_provider', None),
+                    "sentiment_model": getattr(coin, 'sentiment_model', None),
+                    "sentiment_tier": getattr(coin, 'sentiment_tier', None),
                     "cached_news": coin_news.get('text', ''),
                     "cached_news_date": coin_news.get('created_at', None)
                 })
