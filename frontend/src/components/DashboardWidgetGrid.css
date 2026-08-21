@@ -172,7 +172,6 @@
 /* Custom Resize Handle styling from react-resizable */
 .edit-mode-active .react-resizable-handle {
   background: transparent !important;
-  transform: none !important; /* Prevent default react-resizable rotation */
 }
 
 .edit-mode-active .react-resizable-handle::after {
@@ -181,7 +180,6 @@
   opacity: 0.7;
   transition: all 0.2s ease;
   z-index: 100;
-  box-sizing: border-box; /* Ensure borders don't add to width */
 }
 
 .edit-mode-active .react-resizable-handle:hover::after {
@@ -192,58 +190,104 @@
 
 /* Corners */
 .edit-mode-active .react-resizable-handle-se::after {
-  right: 4px; bottom: 4px; width: 14px; height: 14px;
-  border-right: 3px solid #38bdf8; border-bottom: 3px solid #38bdf8; border-bottom-right-radius: 3px;
-  border-left: none; border-top: none; background: transparent;
+  right: 4px;
+  bottom: 4px;
+  width: 14px;
+  height: 14px;
+  border-right: 3px solid #38bdf8;
+  border-bottom: 3px solid #38bdf8;
+  border-bottom-right-radius: 3px;
 }
+
 .edit-mode-active .react-resizable-handle-sw::after {
-  left: 4px; bottom: 4px; width: 14px; height: 14px;
-  border-left: 3px solid #38bdf8; border-bottom: 3px solid #38bdf8; border-bottom-left-radius: 3px;
-  border-right: none; border-top: none; background: transparent;
+  left: 4px;
+  bottom: 4px;
+  width: 14px;
+  height: 14px;
+  border-left: 3px solid #38bdf8;
+  border-bottom: 3px solid #38bdf8;
+  border-bottom-left-radius: 3px;
 }
+
 .edit-mode-active .react-resizable-handle-ne::after {
-  right: 4px; top: 4px; width: 14px; height: 14px;
-  border-right: 3px solid #38bdf8; border-top: 3px solid #38bdf8; border-top-right-radius: 3px;
-  border-left: none; border-bottom: none; background: transparent;
+  right: 4px;
+  top: 4px;
+  width: 14px;
+  height: 14px;
+  border-right: 3px solid #38bdf8;
+  border-top: 3px solid #38bdf8;
+  border-top-right-radius: 3px;
 }
+
 .edit-mode-active .react-resizable-handle-nw::after {
-  left: 4px; top: 4px; width: 14px; height: 14px;
-  border-left: 3px solid #38bdf8; border-top: 3px solid #38bdf8; border-top-left-radius: 3px;
-  border-right: none; border-bottom: none; background: transparent;
+  left: 4px;
+  top: 4px;
+  width: 14px;
+  height: 14px;
+  border-left: 3px solid #38bdf8;
+  border-top: 3px solid #38bdf8;
+  border-top-left-radius: 3px;
 }
 
 .edit-mode-active .react-resizable-handle-se:hover::after,
 .edit-mode-active .react-resizable-handle-sw:hover::after,
 .edit-mode-active .react-resizable-handle-ne:hover::after,
 .edit-mode-active .react-resizable-handle-nw:hover::after {
-  width: 18px; height: 18px;
+  width: 18px;
+  height: 18px;
 }
 
 /* Edges */
 .edit-mode-active .react-resizable-handle-e::after {
-  right: 4px; top: 50%; transform: translateY(-50%); width: 4px; height: 20px;
-  background: #38bdf8; border-radius: 4px; border: none;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 4px;
+  height: 20px;
+  background: #38bdf8;
+  border-radius: 4px;
 }
+
 .edit-mode-active .react-resizable-handle-w::after {
-  left: 4px; top: 50%; transform: translateY(-50%); width: 4px; height: 20px;
-  background: #38bdf8; border-radius: 4px; border: none;
+  left: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 4px;
+  height: 20px;
+  background: #38bdf8;
+  border-radius: 4px;
 }
+
 .edit-mode-active .react-resizable-handle-n::after {
-  top: 4px; left: 50%; transform: translateX(-50%); width: 20px; height: 4px;
-  background: #38bdf8; border-radius: 4px; border: none;
+  top: 4px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 20px;
+  height: 4px;
+  background: #38bdf8;
+  border-radius: 4px;
 }
+
 .edit-mode-active .react-resizable-handle-s::after {
-  bottom: 4px; left: 50%; transform: translateX(-50%); width: 20px; height: 4px;
-  background: #38bdf8; border-radius: 4px; border: none;
+  bottom: 4px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 20px;
+  height: 4px;
+  background: #38bdf8;
+  border-radius: 4px;
 }
 
 .edit-mode-active .react-resizable-handle-e:hover::after,
 .edit-mode-active .react-resizable-handle-w:hover::after {
-  height: 26px; background: #34d399 !important; border: none;
+  height: 26px;
+  background: #34d399 !important;
 }
+
 .edit-mode-active .react-resizable-handle-n:hover::after,
 .edit-mode-active .react-resizable-handle-s:hover::after {
-  width: 26px; background: #34d399 !important; border: none;
+  width: 26px;
+  background: #34d399 !important;
 }
 
 /* Edit Header */
@@ -300,7 +344,8 @@
   flex-direction: column;
   width: 100%;
   height: 100%;
-  min-height: 0; /* important for flexbox containment */
+  min-height: 0;
+  /* important for flexbox containment */
   overflow: hidden;
   box-sizing: border-box;
 }
