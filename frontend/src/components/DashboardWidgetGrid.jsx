@@ -1,65 +1,79 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { Responsive, WidthProvider } from 'react-grid-layout';
+import 'react-grid-layout/css/styles.css';
+import 'react-resizable/css/styles.css';
 import './DashboardWidgetGrid.css';
 
-const DEFAULT_WIDGETS = [
-  { id: 'portfolio_value', title: 'Portfolio Value', width: 'sm', height: 'auto' },
-  { id: 'fear_greed', title: 'Fear & Greed Index', width: 'sm', height: 'auto' },
-  { id: 'cbbi', title: 'CBBI Bull Run Index', width: 'sm', height: 'auto' },
-  { id: 'staking', title: 'Staking Rewards', width: 'sm', height: 'auto' },
-  { id: 'performance', title: '7-Day Performance', width: 'sm', height: 'auto' },
-  { id: 'allocations', title: 'Asset Allocations', width: 'md', height: 'auto' },
-  { id: 'trend', title: 'Portfolio Trend', width: 'md', height: 'auto' },
+const ResponsiveGridLayout = WidthProvider(Responsive);
+
+const WIDGETS = [
+  { id: 'portfolio_value', title: 'Portfolio Value' },
+  { id: 'fear_greed', title: 'Fear & Greed Index' },
+  { id: 'cbbi', title: 'CBBI Bull Run Index' },
+  { id: 'staking', title: 'Staking Rewards' },
+  { id: 'performance', title: '7-Day Performance' },
+  { id: 'allocations', title: 'Asset Allocations' },
+  { id: 'trend', title: 'Portfolio Trend' }
 ];
 
-const STORAGE_KEY = 'crypto_dashboard_widget_layout_v1';
+const DEFAULT_LAYOUTS = {
+  lg: [
+    { i: 'allocations', x: 0, y: 0, w: 4, h: 4, minW: 3, minH: 3 },
+    { i: 'trend', x: 4, y: 0, w: 8, h: 4, minW: 4, minH: 3 },
+    { i: 'portfolio_value', x: 0, y: 4, w: 3, h: 3, minW: 2, minH: 2 },
+    { i: 'fear_greed', x: 3, y: 4, w: 3, h: 3, minW: 2, minH: 2 },
+    { i: 'cbbi', x: 6, y: 4, w: 3, h: 3, minW: 2, minH: 2 },
+    { i: 'staking', x: 9, y: 4, w: 3, h: 3, minW: 2, minH: 2 },
+    { i: 'performance', x: 0, y: 7, w: 12, h: 2, minW: 4, minH: 1 }
+  ],
+  md: [
+    { i: 'allocations', x: 0, y: 0, w: 4, h: 4 },
+    { i: 'trend', x: 4, y: 0, w: 6, h: 4 },
+    { i: 'portfolio_value', x: 0, y: 4, w: 5, h: 3 },
+    { i: 'fear_greed', x: 5, y: 4, w: 5, h: 3 },
+    { i: 'cbbi', x: 0, y: 7, w: 5, h: 3 },
+    { i: 'staking', x: 5, y: 7, w: 5, h: 3 },
+    { i: 'performance', x: 0, y: 10, w: 10, h: 2 }
+  ],
+  sm: [
+    { i: 'allocations', x: 0, y: 0, w: 6, h: 4 },
+    { i: 'trend', x: 0, y: 4, w: 6, h: 4 },
+    { i: 'portfolio_value', x: 0, y: 8, w: 6, h: 3 },
+    { i: 'fear_greed', x: 0, y: 11, w: 6, h: 3 },
+    { i: 'cbbi', x: 0, y: 14, w: 6, h: 3 },
+    { i: 'staking', x: 0, y: 17, w: 6, h: 3 },
+    { i: 'performance', x: 0, y: 20, w: 6, h: 2 }
+  ]
+};
+
+const STORAGE_KEY = 'crypto_dashboard_widget_layout_v2';
+const HIDDEN_STORAGE_KEY = 'crypto_dashboard_widget_hidden_v2';
 
 const DashboardWidgetGrid = ({
   isLightMode,
   renderWidgetContent
 }) => {
   const [isEditMode, setIsEditMode] = useState(false);
-  const [widgets, setWidgets] = useState(() => {
+  const [layouts, setLayouts] = useState(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          // Merge with any new default widgets that might not be in saved list
-          const savedIds = new Set(parsed.map(w => w.id));
-          const missing = DEFAULT_WIDGETS.filter(d => !savedIds.has(d.id));
-          return [...parsed, ...missing];
-        }
-      }
+      if (saved) return JSON.parse(saved);
     } catch (e) {
-      console.error('Error loading dashboard layout:', e);
+      console.error('Error loading layouts:', e);
     }
-    return DEFAULT_WIDGETS;
+    return DEFAULT_LAYOUTS;
   });
 
   const [hiddenWidgetIds, setHiddenWidgetIds] = useState(() => {
     try {
-      const savedHidden = localStorage.getItem(`${STORAGE_KEY}_hidden`);
-      if (savedHidden) {
-        return JSON.parse(savedHidden) || [];
-      }
+      const saved = localStorage.getItem(HIDDEN_STORAGE_KEY);
+      if (saved) return JSON.parse(saved) || [];
     } catch (e) { }
     return [];
   });
 
-  const [draggedId, setDraggedId] = useState(null);
-  const [dragOverId, setDragOverId] = useState(null);
   const [showAddMenu, setShowAddMenu] = useState(false);
   const addMenuRef = useRef(null);
-
-  // Save to localStorage
-  const saveLayout = (newWidgets, newHidden = hiddenWidgetIds) => {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(newWidgets));
-      localStorage.setItem(`${STORAGE_KEY}_hidden`, JSON.stringify(newHidden));
-    } catch (e) {
-      console.error('Failed to save dashboard layout:', e);
-    }
-  };
 
   // Close add menu on outside click
   useEffect(() => {
@@ -72,76 +86,33 @@ const DashboardWidgetGrid = ({
     return () => document.removeEventListener('mousedown', handleOutsideClick);
   }, []);
 
+  const handleLayoutChange = (layout, allLayouts) => {
+    setLayouts(allLayouts);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(allLayouts));
+  };
+
   const handleResetLayout = () => {
-    setWidgets(DEFAULT_WIDGETS);
+    setLayouts(DEFAULT_LAYOUTS);
     setHiddenWidgetIds([]);
-    saveLayout(DEFAULT_WIDGETS, []);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(DEFAULT_LAYOUTS));
+    localStorage.setItem(HIDDEN_STORAGE_KEY, JSON.stringify([]));
   };
 
   const handleHideWidget = (id) => {
-    const updatedHidden = [...new Set([...hiddenWidgetIds, id])];
-    setHiddenWidgetIds(updatedHidden);
-    saveLayout(widgets, updatedHidden);
+    const updated = [...new Set([...hiddenWidgetIds, id])];
+    setHiddenWidgetIds(updated);
+    localStorage.setItem(HIDDEN_STORAGE_KEY, JSON.stringify(updated));
   };
 
   const handleUnhideWidget = (id) => {
-    const updatedHidden = hiddenWidgetIds.filter(hId => hId !== id);
-    setHiddenWidgetIds(updatedHidden);
-    saveLayout(widgets, updatedHidden);
+    const updated = hiddenWidgetIds.filter(h => h !== id);
+    setHiddenWidgetIds(updated);
+    localStorage.setItem(HIDDEN_STORAGE_KEY, JSON.stringify(updated));
     setShowAddMenu(false);
   };
 
-  const handleWidthChange = (id, newWidth) => {
-    const updated = widgets.map(w => (w.id === id ? { ...w, width: newWidth } : w));
-    setWidgets(updated);
-    saveLayout(updated);
-  };
-
-  // Drag and drop handlers
-  const handleDragStart = (e, id) => {
-    setDraggedId(id);
-    e.dataTransfer.setData('text/plain', id);
-    e.dataTransfer.effectAllowed = 'move';
-  };
-
-  const handleDragOver = (e, targetId) => {
-    e.preventDefault();
-    if (draggedId && draggedId !== targetId) {
-      setDragOverId(targetId);
-    }
-  };
-
-  const handleDragLeave = (e, targetId) => {
-    if (dragOverId === targetId) {
-      setDragOverId(null);
-    }
-  };
-
-  const handleDrop = (e, targetId) => {
-    e.preventDefault();
-    setDragOverId(null);
-    if (!draggedId || draggedId === targetId) return;
-
-    const sourceIndex = widgets.findIndex(w => w.id === draggedId);
-    const targetIndex = widgets.findIndex(w => w.id === targetId);
-
-    if (sourceIndex >= 0 && targetIndex >= 0) {
-      const newWidgets = [...widgets];
-      const [moved] = newWidgets.splice(sourceIndex, 1);
-      newWidgets.splice(targetIndex, 0, moved);
-      setWidgets(newWidgets);
-      saveLayout(newWidgets);
-    }
-    setDraggedId(null);
-  };
-
-  const handleDragEnd = () => {
-    setDraggedId(null);
-    setDragOverId(null);
-  };
-
-  const hiddenWidgetsList = DEFAULT_WIDGETS.filter(w => hiddenWidgetIds.includes(w.id));
-  const visibleWidgets = widgets.filter(w => !hiddenWidgetIds.includes(w.id));
+  const hiddenWidgetsList = WIDGETS.filter(w => hiddenWidgetIds.includes(w.id));
+  const visibleWidgets = WIDGETS.filter(w => !hiddenWidgetIds.includes(w.id));
 
   return (
     <div className={`dashboard-widget-grid-container ${isEditMode ? 'edit-mode-active' : ''}`}>
@@ -159,7 +130,7 @@ const DashboardWidgetGrid = ({
 
           {isEditMode && (
             <span className="dashboard-edit-hint">
-              Drag by handle (⠿) to reorder, resize using width toggles, or click (✕) to hide.
+              Drag by handle (⠿) to reorder, drag bottom-right corner to resize, or click (✕) to hide.
             </span>
           )}
         </div>
@@ -210,79 +181,44 @@ const DashboardWidgetGrid = ({
         )}
       </div>
 
-      {/* Dynamic Widget Grid Canvas */}
-      <div className="dashboard-widget-grid">
-        {visibleWidgets.map((widget) => {
-          const isDragging = draggedId === widget.id;
-          const isDropTarget = dragOverId === widget.id;
-
-          return (
-            <div
-              key={widget.id}
-              className={`dashboard-widget-card size-${widget.width || 'sm'} ${isDragging ? 'is-dragging' : ''} ${isDropTarget ? 'is-drop-target' : ''}`}
-              onDragOver={(e) => isEditMode && handleDragOver(e, widget.id)}
-              onDragLeave={(e) => isEditMode && handleDragLeave(e, widget.id)}
-              onDrop={(e) => isEditMode && handleDrop(e, widget.id)}
-            >
-              {/* Edit Mode Overlay & Controls */}
-              {isEditMode && (
-                <div className="dashboard-widget-edit-header">
-                  <div
-                    className="dashboard-widget-drag-handle"
-                    draggable
-                    onDragStart={(e) => handleDragStart(e, widget.id)}
-                    onDragEnd={handleDragEnd}
-                    title="Click and drag to reposition panel"
-                  >
-                    <span className="drag-icon">⠿</span>
-                    <span className="drag-title">{widget.title}</span>
-                  </div>
-
-                  <div className="dashboard-widget-size-controls">
-                    <button
-                      type="button"
-                      className={`size-btn ${widget.width === 'sm' ? 'active' : ''}`}
-                      onClick={() => handleWidthChange(widget.id, 'sm')}
-                      title="Compact (1 column)"
-                    >
-                      1x
-                    </button>
-                    <button
-                      type="button"
-                      className={`size-btn ${widget.width === 'md' ? 'active' : ''}`}
-                      onClick={() => handleWidthChange(widget.id, 'md')}
-                      title="Wide (2 columns)"
-                    >
-                      2x
-                    </button>
-                    <button
-                      type="button"
-                      className={`size-btn ${widget.width === 'lg' ? 'active' : ''}`}
-                      onClick={() => handleWidthChange(widget.id, 'lg')}
-                      title="Full Width"
-                    >
-                      3x
-                    </button>
-                    <button
-                      type="button"
-                      className="dashboard-widget-hide-btn"
-                      onClick={() => handleHideWidget(widget.id)}
-                      title="Hide panel from view"
-                    >
-                      ✕
-                    </button>
-                  </div>
+      {/* React Grid Layout Canvas */}
+      <ResponsiveGridLayout
+        className="layout"
+        layouts={layouts}
+        breakpoints={{ lg: 1200, md: 996, sm: 768, xs: 480, xxs: 0 }}
+        cols={{ lg: 12, md: 10, sm: 6, xs: 4, xxs: 2 }}
+        rowHeight={80}
+        onLayoutChange={handleLayoutChange}
+        draggableHandle=".dashboard-widget-drag-handle"
+        isDraggable={isEditMode}
+        isResizable={isEditMode}
+        margin={[16, 16]}
+        containerPadding={[0, 0]}
+      >
+        {visibleWidgets.map(widget => (
+          <div key={widget.id} className="dashboard-widget-card">
+            {isEditMode && (
+              <div className="dashboard-widget-edit-header">
+                <div className="dashboard-widget-drag-handle" title="Drag to reorder">
+                  <span className="drag-icon">⠿</span>
+                  <span className="drag-title">{widget.title}</span>
                 </div>
-              )}
-
-              {/* Widget Body Content */}
-              <div className="dashboard-widget-body">
-                {renderWidgetContent(widget.id)}
+                <button
+                  type="button"
+                  className="dashboard-widget-hide-btn"
+                  onClick={() => handleHideWidget(widget.id)}
+                  title="Hide panel from view"
+                >
+                  ✕
+                </button>
               </div>
+            )}
+            <div className="dashboard-widget-body">
+              {renderWidgetContent(widget.id)}
             </div>
-          );
-        })}
-      </div>
+          </div>
+        ))}
+      </ResponsiveGridLayout>
     </div>
   );
 };

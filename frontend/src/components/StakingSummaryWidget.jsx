@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
+import './StakingSummaryWidget.css';
 
 const toNumber = (value, fallback = 0) => {
   const num = Number(value);
@@ -88,23 +89,8 @@ export default function StakingSummaryWidget() {
 
   if (loading) {
     return (
-      <div style={{
-        background: 'var(--card-bg, #ffffff)',
-        borderRadius: '12px',
-        boxShadow: '0 2px 8px rgba(0, 0, 0, 0.1)',
-        padding: '16px',
-        minWidth: '280px',
-        maxWidth: '320px',
-        border: '1px solid var(--border-color, #e0e0e0)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        cursor: 'pointer',
-        transition: 'transform 0.2s, box-shadow 0.2s'
-      }}>
-        <div style={{ fontSize: '14px', color: 'var(--text-secondary, #666666)' }}>
-          Loading...
-        </div>
+      <div className="staking-summary-widget staking-loading-state">
+        Loading...
       </div>
     );
   }
@@ -119,181 +105,73 @@ export default function StakingSummaryWidget() {
   const pendingPositions = Math.max(0, Math.round(pendingPositionsRaw));
 
   return (
-    <div 
-      onClick={handleCardClick}
-      style={{
-        background: 'var(--card-bg, #ffffff)',
-        borderRadius: '12px',
-        boxShadow: '0 2px 8px rgba(0, 0, 0, 0.1)',
-        padding: '16px',
-        minWidth: '280px',
-        maxWidth: '320px',
-        border: '1px solid var(--border-color, #e0e0e0)',
-        display: 'flex',
-        flexDirection: 'column',
-        cursor: 'pointer',
-        transition: 'transform 0.2s, box-shadow 0.2s'
-      }}
-      onMouseEnter={(e) => {
-        e.currentTarget.style.transform = 'translateY(-4px)';
-        e.currentTarget.style.boxShadow = '0 4px 16px rgba(0, 0, 0, 0.15)';
-      }}
-      onMouseLeave={(e) => {
-        e.currentTarget.style.transform = 'translateY(0)';
-        e.currentTarget.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.1)';
-      }}
-    >
-      <div style={{ marginBottom: '16px', textAlign: 'center' }}>
-        <h3 style={{
-          margin: '0 0 4px 0',
-          fontSize: '16px',
-          fontWeight: '600',
-          color: 'var(--text-primary, #333333)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          gap: '8px'
-        }}>
+    <div className="staking-summary-widget" onClick={handleCardClick}>
+      <div className="staking-widget-header">
+        <h3>
           <span>💰</span>
           <span>Staking</span>
         </h3>
-        <small style={{
-          fontSize: '12px',
-          color: 'var(--text-secondary, #666666)',
-          display: 'block'
-        }}>
-          Earning Rewards
-        </small>
+        <small>Earning Rewards</small>
       </div>
       
-      <div style={{
-        display: 'flex',
-        flexDirection: 'column',
-        gap: '12px',
-        flex: 1
-      }}>
+      <div className="staking-widget-body">
         {/* Total Staked Value */}
-        <div style={{ textAlign: 'center' }}>
-          <div style={{
-            fontSize: '28px',
-            fontWeight: 'bold',
-            color: 'var(--primary-color, #2196F3)',
-            marginBottom: '4px'
-          }}>
+        <div className="staking-total-value-container">
+          <div className="staking-total-value">
             ${totalValue.toFixed(2)}
           </div>
-          <div style={{
-            fontSize: '11px',
-            color: 'var(--text-secondary, #666666)',
-            opacity: '0.8'
-          }}>
+          <div className="staking-total-label">
             Total Staked & Pending
           </div>
         </div>
 
         {/* Stats Row */}
-        <div style={{
-          display: 'grid',
-          gridTemplateColumns: '1fr 1fr',
-          gap: '8px',
-          paddingTop: '12px',
-          borderTop: '1px solid var(--border-color, #e0e0e0)'
-        }}>
-          <div style={{ textAlign: 'center' }}>
-            <div style={{
-              fontSize: '18px',
-              fontWeight: '600',
-              color: 'var(--text-primary, #333333)'
-            }}>
+        <div className="staking-stats-row">
+          <div className="staking-stat-block">
+            <div className="staking-stat-value">
               {activePositions}
             </div>
-            <div style={{
-              fontSize: '10px',
-              color: 'var(--text-secondary, #666666)',
-              marginTop: '2px'
-            }}>
+            <div className="staking-stat-label">
               Active Positions
             </div>
           </div>
           
-          <div style={{ textAlign: 'center' }}>
-            <div style={{
-              fontSize: '18px',
-              fontWeight: '600',
-              color: '#2196F3'
-            }}>
+          <div className="staking-stat-block">
+            <div className="staking-stat-value highlight">
               {pendingPositions}
             </div>
-            <div style={{
-              fontSize: '10px',
-              color: 'var(--text-secondary, #666666)',
-              marginTop: '2px'
-            }}>
+            <div className="staking-stat-label">
               Pending
             </div>
-            <div style={{
-              fontSize: '10px',
-              color: 'var(--text-secondary, #999999)'
-            }}>
+            <div className="staking-stat-sublabel">
               ≈${pendingValue.toFixed(2)}
             </div>
           </div>
         </div>
 
         {/* Average APY */}
-        <div style={{
-          textAlign: 'center',
-          paddingTop: '8px',
-          borderTop: '1px solid var(--border-color, #e0e0e0)'
-        }}>
-          <div style={{
-            fontSize: '12px',
-            color: 'var(--text-secondary, #666666)'
-          }}>
+        <div className="staking-metric-row">
+          <div className="staking-metric-label">
             Average APY
           </div>
-          <div style={{
-            fontSize: '16px',
-            fontWeight: '600',
-            color: '#4CAF50',
-            marginTop: '4px'
-          }}>
+          <div className="staking-metric-value">
             {avgApyPercent > 0 ? `${avgApyPercent.toFixed(2)}%` : '—'}
           </div>
         </div>
 
         {/* Today's Rewards */}
         {todaysRewards > 0 && (
-          <div style={{
-            textAlign: 'center',
-            paddingTop: '8px',
-            borderTop: '1px solid var(--border-color, #e0e0e0)'
-          }}>
-            <div style={{
-              fontSize: '12px',
-              color: 'var(--text-secondary, #666666)'
-            }}>
+          <div className="staking-metric-row">
+            <div className="staking-metric-label">
               Today's Rewards
             </div>
-            <div style={{
-              fontSize: '16px',
-              fontWeight: '600',
-              color: '#4CAF50',
-              marginTop: '4px'
-            }}>
+            <div className="staking-metric-value">
               +${todaysRewards.toFixed(2)}
             </div>
           </div>
         )}
 
-        {/* Click instruction */}
-        <div style={{
-          fontSize: '10px',
-          color: 'var(--text-secondary, #666666)',
-          textAlign: 'center',
-          opacity: '0.6',
-          marginTop: '4px'
-        }}>
+        <div className="staking-click-hint">
           Click to view details
         </div>
       </div>

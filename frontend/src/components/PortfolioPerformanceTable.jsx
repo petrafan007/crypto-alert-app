@@ -57,9 +57,9 @@ const PortfolioPerformanceTable = () => {
   };
 
   return (
-    <div className="dashboard-performance-widget">
+    <div className="dashboard-performance-widget widget-panel-inner">
       <div className="performance-widget-header">
-        <h3>
+        <h3 className="chart-title">
           <span>📊</span>
           <span>Coin Performance</span>
         </h3>
