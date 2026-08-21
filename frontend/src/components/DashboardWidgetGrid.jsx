@@ -20,7 +20,7 @@ const getWidgetBounds = (id) => {
   switch(id) {
     case 'allocations': return { minW: 4, minH: 4 };
     case 'trend': return { minW: 5, minH: 4 };
-    case 'performance': return { minW: 6, minH: 2 };
+    case 'performance': return { minW: 3, minH: 2 };
     default: return { minW: 3, minH: 3 };
   }
 };

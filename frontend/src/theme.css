@@ -3309,139 +3309,191 @@ body.light-mode .time-range-btn:hover {
   border-color: #7dd3fc;
 }
 
-/* GLOSSY MAIN TABLES OVERHAUL (v1.63-beta) */
+/* GLOSSY MAIN TABLES OVERHAUL (v1.63-beta) - EXTREME MODERN REVAMP */
 .table-container.portfolio-table,
 .table-container.watchlist-table {
-  background: rgba(15, 23, 42, 0.75) !important;
-  border: 1px solid rgba(255, 255, 255, 0.08) !important;
-  border-radius: 12px !important;
-  backdrop-filter: blur(16px) !important;
-  -webkit-backdrop-filter: blur(16px) !important;
-  box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.1), 0 10px 40px rgba(0, 0, 0, 0.5) !important;
+  background: linear-gradient(180deg, rgba(15, 23, 42, 0.85) 0%, rgba(15, 23, 42, 0.6) 100%) !important;
+  border: 1px solid rgba(56, 189, 248, 0.2) !important;
+  border-radius: 16px !important;
+  backdrop-filter: blur(24px) !important;
+  -webkit-backdrop-filter: blur(24px) !important;
+  box-shadow: inset 0 2px 2px rgba(255, 255, 255, 0.1), 0 20px 50px rgba(0, 0, 0, 0.6), 0 0 40px rgba(56, 189, 248, 0.05) !important;
   overflow: hidden !important;
+  padding-bottom: 8px;
 }
 
 .table-container.portfolio-table .table-header,
 .table-container.watchlist-table .table-header {
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1) !important;
-  background: rgba(30, 41, 59, 0.4) !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05) !important;
+  background: transparent !important;
+  padding: 1.25rem 1.5rem !important;
 }
 
 .table-container.portfolio-table .table-title,
 .table-container.watchlist-table .table-title {
-  background: linear-gradient(135deg, #e2e8f0 0%, #94a3b8 100%);
+  background: linear-gradient(135deg, #ffffff 0%, #7dd3fc 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
-  font-weight: 800;
-  letter-spacing: 0.02em;
+  font-weight: 900;
+  letter-spacing: 0.03em;
+  font-size: 1.5rem;
+  text-shadow: 0 2px 10px rgba(125, 211, 252, 0.2);
+}
+
+.table-container.portfolio-table table,
+.table-container.watchlist-table table {
+  border-collapse: separate !important;
+  border-spacing: 0 6px !important;
+  padding: 0 12px;
 }
 
 .table-container.portfolio-table thead th,
 .table-container.watchlist-table thead th {
-  background: rgba(15, 23, 42, 0.85) !important;
-  backdrop-filter: blur(8px);
-  color: #94a3b8 !important;
+  background: transparent !important;
+  color: #7dd3fc !important;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
-  font-weight: 700;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1) !important;
-  position: sticky;
-  top: 0;
-  z-index: 10;
+  letter-spacing: 0.1em;
+  font-weight: 800;
+  font-size: 0.75rem;
+  border: none !important;
+  padding: 12px 16px !important;
 }
 
 .table-container.portfolio-table tbody tr,
 .table-container.watchlist-table tbody tr {
-  border-bottom: 1px solid rgba(255, 255, 255, 0.04) !important;
-  transition: all 0.2s ease !important;
+  background: rgba(30, 41, 59, 0.5) !important;
+  border: 1px solid rgba(255, 255, 255, 0.03) !important;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+.table-container.portfolio-table tbody td:first-child,
+.table-container.watchlist-table tbody td:first-child {
+  border-top-left-radius: 10px;
+  border-bottom-left-radius: 10px;
+}
+.table-container.portfolio-table tbody td:last-child,
+.table-container.watchlist-table tbody td:last-child {
+  border-top-right-radius: 10px;
+  border-bottom-right-radius: 10px;
 }
 
 .table-container.portfolio-table tbody tr:hover,
 .table-container.watchlist-table tbody tr:hover {
-  background: rgba(56, 189, 248, 0.08) !important;
-  box-shadow: inset 0 0 15px rgba(56, 189, 248, 0.1);
+  background: linear-gradient(90deg, rgba(56, 189, 248, 0.15) 0%, rgba(30, 41, 59, 0.8) 100%) !important;
+  transform: scale(1.01) !important;
+  box-shadow: -4px 0 0 #38bdf8, 0 10px 25px rgba(0, 0, 0, 0.4) !important;
 }
 
 .table-container.portfolio-table td,
 .table-container.watchlist-table td {
-  color: #e2e8f0;
+  color: #f1f5f9;
+  border: none !important;
+  padding: 14px 16px !important;
+  font-weight: 500;
 }
 
-/* Glossy Action Buttons */
+.table-container.portfolio-table .symbol-cell,
+.table-container.watchlist-table .symbol-cell {
+  font-size: 1.05rem;
+  font-weight: 800;
+  color: #ffffff;
+  text-shadow: 0 0 10px rgba(255, 255, 255, 0.3);
+}
+
+/* Glossy Action Buttons - Revamped */
 .trade-action-btn {
-  border-radius: 8px !important;
-  font-weight: 700 !important;
-  letter-spacing: 0.03em !important;
-  text-shadow: 0 1px 2px rgba(0,0,0,0.3);
-  transition: all 0.2s ease !important;
-  border: 1px solid rgba(255,255,255,0.15) !important;
+  border-radius: 10px !important;
+  font-weight: 800 !important;
+  letter-spacing: 0.05em !important;
+  text-transform: uppercase;
+  font-size: 0.75rem !important;
+  padding: 8px 16px !important;
+  color: #ffffff !important;
+  border: 1px solid rgba(255, 255, 255, 0.2) !important;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  position: relative;
+  overflow: hidden;
+}
+
+.trade-action-btn::before {
+  content: '';
+  position: absolute;
+  top: 0; left: -100%; width: 50%; height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.3), transparent);
+  transition: all 0.5s ease;
+}
+
+.trade-action-btn:hover::before {
+  left: 100%;
 }
 
 .trade-action-btn:hover {
-  transform: translateY(-1px);
-  filter: brightness(1.15);
-  box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+  transform: translateY(-2px) scale(1.05);
+  border-color: rgba(255, 255, 255, 0.5) !important;
 }
 
 .trade-action-btn.buy {
-  background: linear-gradient(135deg, #10b981 0%, #047857 100%) !important;
-  box-shadow: inset 0 1px 1px rgba(255,255,255,0.2), 0 2px 8px rgba(16, 185, 129, 0.3) !important;
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%) !important;
+  box-shadow: 0 4px 15px rgba(16, 185, 129, 0.4), inset 0 1px 1px rgba(255,255,255,0.4) !important;
 }
+.trade-action-btn.buy:hover { box-shadow: 0 8px 25px rgba(16, 185, 129, 0.6), inset 0 1px 1px rgba(255,255,255,0.6) !important; }
 
 .trade-action-btn.sell {
-  background: linear-gradient(135deg, #f43f5e 0%, #be123c 100%) !important;
-  box-shadow: inset 0 1px 1px rgba(255,255,255,0.2), 0 2px 8px rgba(244, 63, 94, 0.3) !important;
+  background: linear-gradient(135deg, #f43f5e 0%, #e11d48 100%) !important;
+  box-shadow: 0 4px 15px rgba(244, 63, 94, 0.4), inset 0 1px 1px rgba(255,255,255,0.4) !important;
 }
+.trade-action-btn.sell:hover { box-shadow: 0 8px 25px rgba(244, 63, 94, 0.6), inset 0 1px 1px rgba(255,255,255,0.6) !important; }
 
 .trade-action-btn.stake {
-  background: linear-gradient(135deg, #0ea5e9 0%, #0369a1 100%) !important;
-  box-shadow: inset 0 1px 1px rgba(255,255,255,0.2), 0 2px 8px rgba(14, 165, 233, 0.3) !important;
+  background: linear-gradient(135deg, #0ea5e9 0%, #0284c7 100%) !important;
+  box-shadow: 0 4px 15px rgba(14, 165, 233, 0.4), inset 0 1px 1px rgba(255,255,255,0.4) !important;
 }
+.trade-action-btn.stake:hover { box-shadow: 0 8px 25px rgba(14, 165, 233, 0.6), inset 0 1px 1px rgba(255,255,255,0.6) !important; }
 
 .trade-action-btn.hide {
-  background: linear-gradient(135deg, #64748b 0%, #334155 100%) !important;
-  box-shadow: inset 0 1px 1px rgba(255,255,255,0.2), 0 2px 8px rgba(100, 116, 139, 0.3) !important;
+  background: linear-gradient(135deg, #64748b 0%, #475569 100%) !important;
+  box-shadow: 0 4px 15px rgba(100, 116, 139, 0.3), inset 0 1px 1px rgba(255,255,255,0.2) !important;
 }
 
 /* Light Mode Overrides */
 body.light-mode .table-container.portfolio-table,
 body.light-mode .table-container.watchlist-table {
-  background: rgba(255, 255, 255, 0.85) !important;
-  border: 1px solid rgba(255, 255, 255, 0.5) !important;
-  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.08), inset 0 1px 0 rgba(255, 255, 255, 1) !important;
-}
-
-body.light-mode .table-container.portfolio-table .table-header,
-body.light-mode .table-container.watchlist-table .table-header {
-  border-bottom: 1px solid rgba(0, 0, 0, 0.06) !important;
-  background: rgba(241, 245, 249, 0.6) !important;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.95) 0%, rgba(241, 245, 249, 0.9) 100%) !important;
+  border: 1px solid rgba(2, 132, 199, 0.15) !important;
+  box-shadow: 0 15px 50px rgba(0, 0, 0, 0.1), inset 0 2px 5px rgba(255, 255, 255, 1) !important;
 }
 
 body.light-mode .table-container.portfolio-table .table-title,
 body.light-mode .table-container.watchlist-table .table-title {
-  background: linear-gradient(135deg, #1e293b 0%, #475569 100%);
+  background: linear-gradient(135deg, #0f172a 0%, #0284c7 100%);
   -webkit-background-clip: text;
 }
 
 body.light-mode .table-container.portfolio-table thead th,
 body.light-mode .table-container.watchlist-table thead th {
-  background: rgba(255, 255, 255, 0.95) !important;
-  color: #64748b !important;
-  border-bottom: 1px solid rgba(0, 0, 0, 0.08) !important;
+  color: #0284c7 !important;
 }
 
 body.light-mode .table-container.portfolio-table tbody tr,
 body.light-mode .table-container.watchlist-table tbody tr {
-  border-bottom: 1px solid rgba(0, 0, 0, 0.04) !important;
+  background: #ffffff !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
 }
 
 body.light-mode .table-container.portfolio-table tbody tr:hover,
 body.light-mode .table-container.watchlist-table tbody tr:hover {
-  background: rgba(2, 132, 199, 0.05) !important;
-  box-shadow: inset 0 0 10px rgba(2, 132, 199, 0.05);
+  background: linear-gradient(90deg, rgba(2, 132, 199, 0.08) 0%, #ffffff 100%) !important;
+  box-shadow: -4px 0 0 #0284c7, 0 10px 20px rgba(0, 0, 0, 0.08) !important;
 }
 
 body.light-mode .table-container.portfolio-table td,
 body.light-mode .table-container.watchlist-table td {
-  color: #334155;
+  color: #1e293b;
+}
+
+body.light-mode .table-container.portfolio-table .symbol-cell,
+body.light-mode .table-container.watchlist-table .symbol-cell {
+  color: #0f172a;
+  text-shadow: none;
 }
