@@ -193,6 +193,7 @@
   margin: 0 !important;
   box-sizing: border-box;
   width: 100%;
+  position: relative;
 }
 
 /* ========================================================================= */
@@ -200,40 +201,22 @@
 /* ========================================================================= */
 .chart-viewport-wrapper .tv-lightweight-charts {
   position: relative !important;
-  overflow: hidden !important;
-  width: 100% !important;
-  height: 340px !important;
   background: transparent !important;
 }
 
-.chart-viewport-wrapper .tv-lightweight-charts table {
+.chart-viewport-wrapper .tv-lightweight-charts table,
+.chart-viewport-wrapper .tv-lightweight-charts td,
+.chart-viewport-wrapper .tv-lightweight-charts tr {
   margin: 0 !important;
   padding: 0 !important;
   border: none !important;
-  border-collapse: collapse !important;
-  background: transparent !important;
-  table-layout: fixed !important;
-  box-shadow: none !important;
-}
-
-.chart-viewport-wrapper .tv-lightweight-charts td {
-  padding: 0 !important;
-  border: none !important;
-  background: transparent !important;
-}
-
-.chart-viewport-wrapper .tv-lightweight-charts tr:hover td,
-.chart-viewport-wrapper .tv-lightweight-charts tr:nth-child(even) td,
-.chart-viewport-wrapper .tv-lightweight-charts tr:nth-child(odd) td {
   background: transparent !important;
 }
 
 .chart-viewport-wrapper .tv-lightweight-charts canvas {
   display: block !important;
-  margin: 0 !important;
-  padding: 0 !important;
-  border: none !important;
-  background: transparent !important;
+  visibility: visible !important;
+  opacity: 1 !important;
 }
 
 .chart-loading-overlay {

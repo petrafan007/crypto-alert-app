@@ -449,24 +449,22 @@ const AIDashboard = () => {
         visible: true,
         borderColor: borderCol,
         autoScale: true,
-        entireTextOnly: true,
+        entireTextOnly: false,
         alignLabels: true,
         scaleMargins: {
           top: 0.1,
           bottom: 0.1,
         },
-        minimumWidth: 100,
+        minimumWidth: 120,
       },
       timeScale: {
         borderColor: borderCol,
         timeVisible: true,
         secondsVisible: false,
-        fixLeftEdge: false,
+        fixLeftEdge: true,
         fixRightEdge: false,
         borderVisible: true,
-        rightOffset: 12,
-        barSpacing: 12,
-        minBarSpacing: 6,
+        rightOffset: 6,
       },
       handleScroll: {
         mouseWheel: true,
@@ -566,27 +564,36 @@ const AIDashboard = () => {
       });
     });
 
-    // Fit content
+    // Fit content so the entire date range is visible without zooming in prematurely
     chart.timeScale().fitContent();
-    chart.timeScale().applyOptions({
-      rightOffset: 12,
-      barSpacing: 12,
-      minBarSpacing: 6,
-    });
 
-    // Use ResizeObserver for perfect responsive width
+    // Use ResizeObserver and window resize listener
+    const handleResize = () => {
+      if (chartInstanceRef.current && container) {
+        const styles = window.getComputedStyle(container);
+        const paddingLeftPx = parseFloat(styles.paddingLeft || '0');
+        const paddingRightPx = parseFloat(styles.paddingRight || '0');
+        const nextWidth = container.clientWidth - paddingLeftPx - paddingRightPx;
+        chartInstanceRef.current.resize(Math.max(nextWidth, 320), height);
+      }
+    };
+
+    window.addEventListener('resize', handleResize);
+
     const resizeObserver = new ResizeObserver((entries) => {
       for (const entry of entries) {
         if (entry.contentRect && chartInstanceRef.current) {
-          chartInstanceRef.current.applyOptions({
-            width: Math.floor(entry.contentRect.width)
-          });
+          const w = Math.floor(entry.contentRect.width);
+          if (w > 0) {
+            chartInstanceRef.current.resize(w, height);
+          }
         }
       }
     });
     resizeObserver.observe(container);
 
     return () => {
+      window.removeEventListener('resize', handleResize);
       resizeObserver.disconnect();
       if (chartInstanceRef.current) {
         chartInstanceRef.current.remove();
