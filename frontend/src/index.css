@@ -20,3 +20,12 @@ th, td {
 th {
   background: #f0f0f0;
 }
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.fa-spin {
+  animation: spin 1s linear infinite !important;
+}

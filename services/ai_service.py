@@ -5,7 +5,7 @@ import time
 import logging
 import threading
 import requests
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from urllib.parse import quote
 import pytz
 from flask import current_app, session
@@ -772,6 +772,22 @@ def analyze_single_symbol_sentiment(user_id, username, symbol, is_watchlist=Fals
 
         current_datetime = format_eastern_datetime(None, "%B %d, %Y at %I:%M %p EDT")
         
+        # Mark coin as Checking now... in DB so any live queries show real-time progress
+        try:
+            if is_watchlist:
+                wl_live = WatchlistCoin.query.filter_by(user_id=user_id, symbol=symbol).first()
+                if wl_live:
+                    wl_live.sentiment = "Checking now..."
+                    db.session.commit()
+            else:
+                c_live = Coin.query.filter_by(user_id=user_id, symbol=symbol).first()
+                if c_live:
+                    c_live.sentiment = "Checking now..."
+                    db.session.commit()
+        except Exception as mark_err:
+            logger.warning(f"Could not mark {symbol} as Checking now...: {mark_err}")
+            db.session.rollback()
+
         # Look up live price from Binance or local coin record to anchor sentiment analysis
         current_price = None
         try:
@@ -950,17 +966,18 @@ def get_last_scheduled_time(anchor_time_str, freq_hours_int, now_utc=None):
         
     return last_scheduled_est.astimezone(pytz.utc)
 
-def run_sentiment_analysis_for_user(user_id, username, force=False):
+def run_sentiment_analysis_for_user(user_id, username, force=False, symbol=None):
     """
     Run sentiment analysis for a user's portfolio coins.
     Parses JSON output for phrase ('Hold', 'Buy Immediately', 'Consider Buying', 'Sell Immediately', 'Consider Selling')
     and 1-2 sentence explanation stored as sentiment_reason.
     """
-    with _running_sentiment_lock:
-        if user_id in _running_sentiment_users:
-            logger.info(f"Sentiment analysis already in progress for user {username} (ID: {user_id}), skipping duplicate trigger.")
-            return 0
-        _running_sentiment_users.add(user_id)
+    if not symbol:
+        with _running_sentiment_lock:
+            if user_id in _running_sentiment_users:
+                logger.info(f"Sentiment analysis already in progress for user {username} (ID: {user_id}), skipping duplicate trigger.")
+                return 0
+            _running_sentiment_users.add(user_id)
 
     count = 0
     try:
@@ -985,21 +1002,25 @@ def run_sentiment_analysis_for_user(user_id, username, force=False):
 
         last_scheduled_utc = get_last_scheduled_time(portfolio_start_time, sentiment_freq_hours)
 
-        coins = Coin.query.filter_by(user_id=user_id, hidden=False).filter(Coin.amount > 0).all()
+        if symbol:
+            coins = Coin.query.filter_by(user_id=user_id, symbol=symbol.upper().strip(), hidden=False).all()
+        else:
+            coins = Coin.query.filter_by(user_id=user_id, hidden=False).filter(Coin.amount > 0).all()
+
         if not coins:
-            logger.info(f"No portfolio coins found for sentiment analysis for user {username}")
+            logger.info(f"No portfolio coins found for sentiment analysis for user {username} (symbol={symbol})")
             return 0
 
-        logger.info(f"Running portfolio sentiment analysis for {len(coins)} coins (User: {username}, Force: {force})")
+        logger.info(f"Running portfolio sentiment analysis for {len(coins)} coins (User: {username}, Force: {force}, Symbol: {symbol})")
 
         for coin_row in coins:
             coin_id = coin_row.id
-            symbol = coin_row.symbol
+            sym = coin_row.symbol
             amount = coin_row.amount
             last_updated = coin_row.sentiment_last_updated
 
-            if is_stablecoin(symbol):
-                logger.info(f"Skipping sentiment analysis for stablecoin {symbol} (marking Hold)")
+            if is_stablecoin(sym):
+                logger.info(f"Skipping sentiment analysis for stablecoin {sym} (marking Hold)")
                 coin_row.sentiment = "Hold"
                 coin_row.sentiment_reason = "Dollar-pegged stablecoin for capital preservation."
                 coin_row.sentiment_last_updated = datetime.utcnow()
@@ -1011,29 +1032,31 @@ def run_sentiment_analysis_for_user(user_id, username, force=False):
                 if last_utc >= last_scheduled_utc:
                     continue
 
-            logger.info(f"Analyzing portfolio sentiment for {symbol} (User: {username})...")
+            logger.info(f"Analyzing portfolio sentiment for {sym} (User: {username})...")
             
             try:
                 analyze_single_symbol_sentiment(
                     user_id=user_id,
                     username=username,
-                    symbol=symbol,
+                    symbol=sym,
                     is_watchlist=False,
                     coin_id=coin_id,
                     amount=amount
                 )
                 count += 1
-                # Pacing delay between coins to prevent hitting LLM API rate limits
-                time.sleep(8)
+                if not symbol:
+                    # Pacing delay between batch coins to prevent hitting LLM API rate limits
+                    time.sleep(8)
 
             except Exception as coin_error:
-                logger.error(f"Error processing portfolio sentiment for {symbol}: {coin_error}")
-                # Extra backoff if error was due to rate limits
-                if any(k in str(coin_error).lower() for k in ["429", "rate limit", "resource_exhausted", "overloaded", "1302", "1305"]):
-                    logger.warning(f"Rate limit detected for {symbol}, cooling down for 15s before next coin...")
-                    time.sleep(15)
-                else:
-                    time.sleep(8)
+                logger.error(f"Error processing portfolio sentiment for {sym}: {coin_error}")
+                if not symbol:
+                    # Extra backoff if error was due to rate limits
+                    if any(k in str(coin_error).lower() for k in ["429", "rate limit", "resource_exhausted", "overloaded", "1302", "1305"]):
+                        logger.warning(f"Rate limit detected for {sym}, cooling down for 15s before next coin...")
+                        time.sleep(15)
+                    else:
+                        time.sleep(8)
 
         return count
 
@@ -1041,20 +1064,22 @@ def run_sentiment_analysis_for_user(user_id, username, force=False):
         logger.error(f"Error in run_sentiment_analysis_for_user for {username}: {e}")
         return count
     finally:
-        with _running_sentiment_lock:
-            _running_sentiment_users.discard(user_id)
+        if not symbol:
+            with _running_sentiment_lock:
+                _running_sentiment_users.discard(user_id)
 
-def run_watchlist_sentiment_analysis_for_user(user_id, username, force=False):
+def run_watchlist_sentiment_analysis_for_user(user_id, username, force=False, symbol=None):
     """
     Run sentiment analysis for a user's watchlist coins.
     Parses JSON output for phrase ('Avoid', 'Watch', 'Consider Buying', 'Definitely Buy')
     and 1-2 sentence explanation stored as sentiment_reason.
     """
-    with _running_sentiment_lock:
-        if user_id in _running_sentiment_users:
-            logger.info(f"Sentiment analysis already in progress for user {username} (ID: {user_id}), skipping duplicate trigger.")
-            return 0
-        _running_sentiment_users.add(user_id)
+    if not symbol:
+        with _running_sentiment_lock:
+            if user_id in _running_sentiment_users:
+                logger.info(f"Sentiment analysis already in progress for user {username} (ID: {user_id}), skipping duplicate trigger.")
+                return 0
+            _running_sentiment_users.add(user_id)
 
     count = 0
     try:
@@ -1079,20 +1104,24 @@ def run_watchlist_sentiment_analysis_for_user(user_id, username, force=False):
 
         wl_last_scheduled_utc = get_last_scheduled_time(watchlist_start_time, wl_freq_hours)
 
-        wl_coins = WatchlistCoin.query.filter_by(user_id=user_id).all()
+        if symbol:
+            wl_coins = WatchlistCoin.query.filter_by(user_id=user_id, symbol=symbol.upper().strip()).all()
+        else:
+            wl_coins = WatchlistCoin.query.filter_by(user_id=user_id).all()
+
         if not wl_coins:
-            logger.info(f"No watchlist coins found for sentiment analysis for user {username}")
+            logger.info(f"No watchlist coins found for sentiment analysis for user {username} (symbol={symbol})")
             return 0
 
-        logger.info(f"Running watchlist sentiment analysis for {len(wl_coins)} coins (User: {username}, Force: {force})")
+        logger.info(f"Running watchlist sentiment analysis for {len(wl_coins)} coins (User: {username}, Force: {force}, Symbol: {symbol})")
 
         for wl_row in wl_coins:
             coin_id = wl_row.id
-            symbol = wl_row.symbol
+            sym = wl_row.symbol
             last_updated = getattr(wl_row, 'sentiment_last_updated', None)
 
-            if is_stablecoin(symbol):
-                logger.info(f"Skipping sentiment analysis for watchlist stablecoin {symbol} (marking Watch)")
+            if is_stablecoin(sym):
+                logger.info(f"Skipping sentiment analysis for watchlist stablecoin {sym} (marking Watch)")
                 wl_row.sentiment = "Watch"
                 wl_row.sentiment_reason = "Dollar-pegged stablecoin for capital preservation."
                 if hasattr(wl_row, 'sentiment_last_updated'):
@@ -1105,29 +1134,31 @@ def run_watchlist_sentiment_analysis_for_user(user_id, username, force=False):
                 if last_utc >= wl_last_scheduled_utc:
                     continue
 
-            logger.info(f"Analyzing watchlist sentiment for {symbol} (User: {username})...")
+            logger.info(f"Analyzing watchlist sentiment for {sym} (User: {username})...")
             
             try:
                 analyze_single_symbol_sentiment(
                     user_id=user_id,
                     username=username,
-                    symbol=symbol,
+                    symbol=sym,
                     is_watchlist=True,
                     coin_id=coin_id,
                     amount=0.0
                 )
                 count += 1
-                # Pacing delay between coins to prevent hitting LLM API rate limits
-                time.sleep(8)
+                if not symbol:
+                    # Pacing delay between batch coins to prevent hitting LLM API rate limits
+                    time.sleep(8)
 
             except Exception as coin_error:
-                logger.error(f"Error processing watchlist sentiment for {symbol}: {coin_error}")
-                # Extra backoff if error was due to rate limits
-                if any(k in str(coin_error).lower() for k in ["429", "rate limit", "resource_exhausted", "overloaded", "1302", "1305"]):
-                    logger.warning(f"Rate limit detected for {symbol}, cooling down for 15s before next coin...")
-                    time.sleep(15)
-                else:
-                    time.sleep(8)
+                logger.error(f"Error processing watchlist sentiment for {sym}: {coin_error}")
+                if not symbol:
+                    # Extra backoff if error was due to rate limits
+                    if any(k in str(coin_error).lower() for k in ["429", "rate limit", "resource_exhausted", "overloaded", "1302", "1305"]):
+                        logger.warning(f"Rate limit detected for {sym}, cooling down for 15s before next coin...")
+                        time.sleep(15)
+                    else:
+                        time.sleep(8)
 
         return count
 
@@ -1135,6 +1166,7 @@ def run_watchlist_sentiment_analysis_for_user(user_id, username, force=False):
         logger.error(f"Error in run_watchlist_sentiment_analysis_for_user for {username}: {e}")
         return count
     finally:
-        with _running_sentiment_lock:
-            _running_sentiment_users.discard(user_id)
+        if not symbol:
+            with _running_sentiment_lock:
+                _running_sentiment_users.discard(user_id)
 

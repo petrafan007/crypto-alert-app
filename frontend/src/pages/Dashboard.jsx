@@ -11,6 +11,7 @@ import FearGreedWidget from '../components/FearGreedWidget';
 import CBBIWidget from '../components/CBBIWidget';
 import StakingSummaryWidget from '../components/StakingSummaryWidget';
 import PortfolioPerformanceTable from '../components/PortfolioPerformanceTable';
+import { FaSyncAlt } from 'react-icons/fa';
 
 const TREND_RANGES = [
   { key: '4H', label: '4H' },
@@ -37,6 +38,7 @@ function Dashboard({ isLightMode }) {
   const [orderTooltip, setOrderTooltip] = useState({ isVisible: false, text: '', position: { x: 0, y: 0 } });
   const [trendRange, setTrendRange] = useState('7D');
   const [trendLoading, setTrendLoading] = useState(true);
+  const [refreshingSentiment, setRefreshingSentiment] = useState({});
 
   // Sorting state
   const [sortConfig, setSortConfig] = useState(() => {
@@ -1574,8 +1576,88 @@ function Dashboard({ isLightMode }) {
     return tier.charAt(0).toUpperCase() + tier.slice(1).toLowerCase();
   };
 
+  const handleSingleSentimentRefresh = async (symbol, isWatchlist, e) => {
+    if (e) {
+      e.stopPropagation();
+    }
+    if (!symbol) return;
+    const cleanSymbol = symbol.toUpperCase().trim();
+    setRefreshingSentiment(prev => ({ ...prev, [cleanSymbol]: true }));
+    
+    // Optimistically update local state to "Checking now..."
+    if (isWatchlist) {
+      setWatchlist(prev => prev.map(item => (item.symbol || '').toUpperCase() === cleanSymbol ? { ...item, sentiment: 'Checking now...' } : item));
+    } else {
+      setPortfolio(prev => prev.map(coin => (coin.symbol || '').toUpperCase() === cleanSymbol ? { ...coin, sentiment: 'Checking now...' } : coin));
+    }
+
+    try {
+      await axios.post('/api/force-sentiment-analysis', {
+        symbol: cleanSymbol,
+        target: isWatchlist ? 'watchlist' : 'portfolio'
+      }, { withCredentials: true });
+
+      // Poll until the result updates
+      let attempts = 0;
+      const pollInterval = setInterval(async () => {
+        attempts++;
+        try {
+          if (isWatchlist) {
+            const res = await axios.get('/api/watchlist-live', { withCredentials: true });
+            if (res.data) {
+              setWatchlist(res.data);
+              const found = res.data.find(x => (x.symbol || '').toUpperCase() === cleanSymbol);
+              if (found && found.sentiment && found.sentiment !== 'Checking now...') {
+                clearInterval(pollInterval);
+                setRefreshingSentiment(prev => {
+                  const next = { ...prev };
+                  delete next[cleanSymbol];
+                  return next;
+                });
+              }
+            }
+          } else {
+            const res = await axios.get('/api/coin-data-live');
+            if (res.data?.portfolio) {
+              setPortfolio(res.data.portfolio);
+              const found = res.data.portfolio.find(x => (x.symbol || '').toUpperCase() === cleanSymbol);
+              if (found && found.sentiment && found.sentiment !== 'Checking now...') {
+                clearInterval(pollInterval);
+                setRefreshingSentiment(prev => {
+                  const next = { ...prev };
+                  delete next[cleanSymbol];
+                  return next;
+                });
+              }
+            }
+          }
+        } catch (pollErr) {
+          console.error('Error polling after sentiment refresh:', pollErr);
+        }
+
+        if (attempts >= 15) {
+          clearInterval(pollInterval);
+          setRefreshingSentiment(prev => {
+            const next = { ...prev };
+            delete next[cleanSymbol];
+            return next;
+          });
+        }
+      }, 2500);
+    } catch (err) {
+      console.error('Failed to trigger single sentiment refresh:', err);
+      setRefreshingSentiment(prev => {
+        const next = { ...prev };
+        delete next[cleanSymbol];
+        return next;
+      });
+    }
+  };
+
   const renderSentimentCell = (coin, isWatchlist = false) => {
-    const sentiment = coin.sentiment || (isWatchlist ? 'Watch' : 'Hold');
+    const rawSentiment = coin.sentiment || (isWatchlist ? 'Watch' : 'Hold');
+    const isChecking = rawSentiment === 'Checking now...' || !!refreshingSentiment[coin.symbol];
+    const sentiment = isChecking ? 'Checking now...' : rawSentiment;
     const reason = coin.sentiment_reason || '';
     const lastUpdated = coin.sentiment_last_updated ? `Last Updated: ${formatLocalDateTime(coin.sentiment_last_updated)}` : '';
     
@@ -1591,15 +1673,19 @@ function Dashboard({ isLightMode }) {
 
     let tooltip = '';
     const tooltipSections = [];
-    if (reason) tooltipSections.push(reason);
-    if (lastUpdated) {
-      if (metaInfo) {
-        tooltipSections.push(`${lastUpdated}\n${metaInfo}`);
-      } else {
-        tooltipSections.push(lastUpdated);
+    if (isChecking) {
+      tooltipSections.push('Sentiment analysis currently in progress for this coin...');
+    } else {
+      if (reason) tooltipSections.push(reason);
+      if (lastUpdated) {
+        if (metaInfo) {
+          tooltipSections.push(`${lastUpdated}\n${metaInfo}`);
+        } else {
+          tooltipSections.push(lastUpdated);
+        }
+      } else if (metaInfo) {
+        tooltipSections.push(metaInfo);
       }
-    } else if (metaInfo) {
-      tooltipSections.push(metaInfo);
     }
     
     tooltip = tooltipSections.length > 0 ? tooltipSections.join('\n\n') : 'No sentiment explanation available';
@@ -1608,7 +1694,11 @@ function Dashboard({ isLightMode }) {
     let bg = 'transparent';
     let label = sentiment;
 
-    if (isWatchlist) {
+    if (isChecking) {
+      color = '#38bdf8';
+      bg = 'rgba(56, 189, 248, 0.15)';
+      label = '⏳ Checking now...';
+    } else if (isWatchlist) {
       if (['Definitely Buy', 'Strong Buy', 'Buy Immediately'].includes(sentiment)) {
         color = '#00e676'; // Bright vibrant green
         label = 'Definitely Buy';
@@ -1649,24 +1739,70 @@ function Dashboard({ isLightMode }) {
         className={isMobile ? 'mobile-hide' : ''}
         title={tooltip}
         style={{
-          cursor: 'help',
-          textAlign: 'center',
-          whiteSpace: 'nowrap'
+          cursor: isChecking ? 'wait' : 'help',
+          whiteSpace: 'nowrap',
+          minWidth: '185px',
+          padding: '8px 12px'
         }}
       >
-        <span
-          style={{
-            color: color,
-            fontWeight: 'bold',
-            background: bg,
-            padding: bg !== 'transparent' ? '2px 6px' : '0',
-            borderRadius: '4px',
-            textDecoration: reason ? 'underline dotted' : 'none',
-            textUnderlineOffset: '3px'
-          }}
-        >
-          {label}
-        </span>
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: '8px',
+          width: '100%'
+        }}>
+          <span
+            style={{
+              color: color,
+              fontWeight: 'bold',
+              background: bg,
+              padding: bg !== 'transparent' ? '3px 8px' : '0',
+              borderRadius: '4px',
+              textDecoration: (!isChecking && reason) ? 'underline dotted' : 'none',
+              textUnderlineOffset: '3px',
+              fontSize: '0.92rem',
+              display: 'inline-flex',
+              alignItems: 'center'
+            }}
+          >
+            {label}
+          </span>
+          <button
+            type="button"
+            onClick={(e) => handleSingleSentimentRefresh(coin.symbol, isWatchlist, e)}
+            disabled={isChecking}
+            title={isChecking ? 'Analysis in progress...' : `Refresh sentiment for ${coin.symbol}`}
+            style={{
+              background: 'transparent',
+              border: 'none',
+              color: isChecking ? '#38bdf8' : 'rgba(255, 255, 255, 0.45)',
+              cursor: isChecking ? 'not-allowed' : 'pointer',
+              padding: '4px',
+              borderRadius: '4px',
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontSize: '0.85rem',
+              transition: 'all 0.2s',
+              flexShrink: 0
+            }}
+            onMouseEnter={(e) => {
+              if (!isChecking) {
+                e.currentTarget.style.color = '#38bdf8';
+                e.currentTarget.style.background = 'rgba(56, 189, 248, 0.15)';
+              }
+            }}
+            onMouseLeave={(e) => {
+              if (!isChecking) {
+                e.currentTarget.style.color = 'rgba(255, 255, 255, 0.45)';
+                e.currentTarget.style.background = 'transparent';
+              }
+            }}
+          >
+            <FaSyncAlt style={{ animation: isChecking ? 'spin 1s linear infinite' : 'none' }} />
+          </button>
+        </div>
       </td>
     );
   };
@@ -1922,9 +2058,6 @@ function Dashboard({ isLightMode }) {
               <th onClick={() => handleSort('current_value')} className="portfolio-header sortable">
                 {renderHeaderLabel('current_value', 'Current Value')}
               </th>
-              <th onClick={() => handleSort('purchase_date')} className={`portfolio-header sortable ${isMobile ? 'mobile-hide' : ''}`}>
-                {renderHeaderLabel('purchase_date', 'Purchase Date')}
-              </th>
               <th className="portfolio-header">Price Down Alert</th>
               <th className="portfolio-header">Price Up Alert</th>
               <th onClick={() => handleSort('volatility_pct')} className="portfolio-header sortable">
@@ -1936,7 +2069,7 @@ function Dashboard({ isLightMode }) {
               <th onClick={() => handleSort('pct_change')} className={`portfolio-header sortable ${isMobile ? 'mobile-hide' : ''}`}>
                 {renderHeaderLabel('pct_change', '% Change')}
               </th>
-              <th onClick={() => handleSort('sentiment')} className={`portfolio-header sortable ${isMobile ? 'mobile-hide' : ''}`}>
+              <th onClick={() => handleSort('sentiment')} className={`portfolio-header sortable ${isMobile ? 'mobile-hide' : ''}`} style={{ minWidth: '185px' }}>
                 {renderHeaderLabel('sentiment', 'Sentiment')}
               </th>
               <th className="portfolio-header">Actions</th>
@@ -1945,7 +2078,7 @@ function Dashboard({ isLightMode }) {
           <tbody>
             {!Array.isArray(portfolio) || portfolio.length === 0 ? (
               <tr>
-                <td colSpan="12" className="no-data">
+                <td colSpan="11" className="no-data">
                   No portfolio data available
                 </td>
               </tr>
@@ -1979,7 +2112,6 @@ function Dashboard({ isLightMode }) {
                     <td>{coin.pendingPlaceholder ? '0.0000' : (coin.amount !== undefined && coin.amount !== null ? coin.amount.toFixed(4) : '—')}</td>
                     <td style={{ whiteSpace: 'nowrap' }}>{coin.current_price ? `$${coin.current_price.toFixed(2)}` : '—'}</td>
                     <td>{coin.current_value ? `$${coin.current_value.toFixed(2)}` : '—'}</td>
-                    <td className={isMobile ? 'mobile-hide' : ''} style={{ whiteSpace: 'nowrap' }}>{coin.purchase_date ? coin.purchase_date.split(' ')[0] : '—'}</td>
                     <td style={{ textAlign: 'center' }}>{renderPortfolioAlertCell(coin, 'down')}</td>
                     <td style={{ textAlign: 'center' }}>{renderPortfolioAlertCell(coin, 'up')}</td>
                     <td style={{ textAlign: 'center' }}>{renderVolatilityCell(coin, 'portfolio')}</td>
@@ -2130,7 +2262,7 @@ function Dashboard({ isLightMode }) {
               <th onClick={() => handleSort('current_price')} style={{ cursor: 'pointer' }}>
                 Current Price {getSortIcon('current_price')}
               </th>
-              <th onClick={() => handleSort('sentiment')} className={isMobile ? 'mobile-hide' : ''} style={{ cursor: 'pointer' }}>
+              <th onClick={() => handleSort('sentiment')} className={isMobile ? 'mobile-hide' : ''} style={{ cursor: 'pointer', minWidth: '185px' }}>
                 Sentiment {getSortIcon('sentiment')}
               </th>
               <th>Price Down Alert</th>

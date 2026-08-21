@@ -458,28 +458,29 @@ def api_ai_workflow_latest():
 @ai_bp.route('/api/force-sentiment-analysis', methods=['POST'])
 @login_required
 def force_sentiment_analysis():
-    """Force run sentiment analysis for current user (portfolio, watchlist, or both)"""
+    """Force run sentiment analysis for current user (portfolio, watchlist, or both, or specific coin)"""
     try:
         user_id = current_user.id
         username = current_user.username
         app = current_app._get_current_object()
         req_data = request.get_json(silent=True) or {}
         target = req_data.get('target', 'all')
+        symbol = req_data.get('symbol', None)
         
         # Run in a separate thread so valid response returns immediately
         def run_async():
             with app.app_context():
                 if target in ['all', 'portfolio']:
-                    run_sentiment_analysis_for_user(user_id, username, force=True)
+                    run_sentiment_analysis_for_user(user_id, username, force=True, symbol=symbol)
                 if target in ['all', 'watchlist']:
-                    run_watchlist_sentiment_analysis_for_user(user_id, username, force=True)
+                    run_watchlist_sentiment_analysis_for_user(user_id, username, force=True, symbol=symbol)
         
         thread = threading.Thread(target=run_async)
         thread.start()
         
         return jsonify({
             'success': True,
-            'message': 'Sentiment analysis started in background'
+            'message': f'Sentiment analysis started in background{" for " + symbol if symbol else ""}'
         })
     except Exception as e:
         logger.error(f"Force analysis failed: {e}")

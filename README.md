@@ -81,6 +81,15 @@ The application utilizes a **unified PostgreSQL database**.
 
 ## Version History & Changelog
 
+## v1.53-beta (August 2026)
+
+### Real-Time Sentiment Buff, Per-Coin Refresh & Portfolio Table Refinements
+- **Sentiment Execution Bugfix**: Added missing `timedelta` import in `services/ai_service.py` to prevent background scheduler and manual "Run Sentiment Analysis Now" threads from crashing with a `NameError`.
+- **Real-Time Sentiment Progress Indicator**: When sentiment analysis is actively processing (triggered globally or per-coin), the Sentiment cell dynamically updates in real time to display `⏳ Checking now...` with visual feedback in both the Portfolio and Watchlist tables.
+- **On-the-Spot Per-Coin Sentiment Refresh**: Added a dedicated right-aligned refresh button (🔄) inside the Sentiment column for every coin in both Portfolio and Watchlist tables, allowing instant single-asset sentiment updates.
+- **Portfolio Table Refinements**: Removed the "Purchase Date" UI column from the Portfolio table while preserving the underlying database timestamps, and widened the Sentiment column (`minWidth: 185px`) to prevent text wrapping or truncation on long sentiment labels.
+- **Version Bump**: Synchronized metadata to `v1.53-beta`.
+
 ## v1.52-beta (August 2026)
 
 ### AI Dashboard Candlestick Chart & Binance.US Order Placement Overhaul
