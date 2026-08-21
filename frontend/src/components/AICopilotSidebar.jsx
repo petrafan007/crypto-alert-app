@@ -278,24 +278,50 @@ export default function AICopilotSidebar() {
   };
 
   const deleteMessage = async (messageId) => {
-    try {
-      await axios.delete(`/api/ai/conversations/${messageId}`, {
-        withCredentials: true
-      });
-      setConversations(prev => prev.filter(conv => conv.id !== messageId));
-    } catch (error) {
-      console.error('Error deleting message:', error);
+    // 1. Instantly remove from UI optimistically
+    setConversations(prev => prev.filter(conv => String(conv.id) !== String(messageId)));
+    setSelectedMessages(prev => {
+      const next = new Set(prev);
+      next.delete(messageId);
+      next.delete(Number(messageId));
+      next.delete(String(messageId));
+      return next;
+    });
+    setTotalCount(prev => Math.max(0, prev - 1));
+
+    // 2. Perform backend deletion in background if it's a persisted DB record
+    if (typeof messageId === 'number' || (!String(messageId).startsWith('optimistic_') && !String(messageId).startsWith('placeholder_') && !isNaN(Number(messageId)))) {
+      try {
+        await axios.delete(`/api/ai/conversations/${messageId}`, {
+          withCredentials: true
+        });
+      } catch (error) {
+        console.error('Error deleting message:', error);
+      }
     }
   };
 
   const archiveMessage = async (messageId) => {
-    try {
-      await axios.patch(`/api/ai/conversations/${messageId}/archive`, {}, {
-        withCredentials: true
-      });
-      setConversations(prev => prev.filter(conv => conv.id !== messageId));
-    } catch (error) {
-      console.error('Error archiving message:', error);
+    // 1. Instantly remove from UI optimistically
+    setConversations(prev => prev.filter(conv => String(conv.id) !== String(messageId)));
+    setSelectedMessages(prev => {
+      const next = new Set(prev);
+      next.delete(messageId);
+      next.delete(Number(messageId));
+      next.delete(String(messageId));
+      return next;
+    });
+    setTotalCount(prev => Math.max(0, prev - 1));
+
+    // 2. Perform backend archive in background if it's a persisted DB record
+    if (typeof messageId === 'number' || (!String(messageId).startsWith('optimistic_') && !String(messageId).startsWith('placeholder_') && !isNaN(Number(messageId)))) {
+      try {
+        await axios.patch(`/api/ai/conversations/${messageId}/archive`, {}, {
+          withCredentials: true
+        });
+      } catch (error) {
+        console.error('Error archiving message:', error);
+      }
     }
   };
 
@@ -323,15 +349,22 @@ export default function AICopilotSidebar() {
   const bulkDelete = async () => {
     if (selectedMessages.size === 0) return;
 
+    const idsToDelete = new Set(Array.from(selectedMessages).map(id => String(id)));
+    const idsArray = Array.from(selectedMessages);
+
+    // 1. Instantly remove from UI optimistically
+    setConversations(prev => prev.filter(conv => !idsToDelete.has(String(conv.id))));
+    setTotalCount(prev => Math.max(0, prev - idsArray.length));
+    setSelectedMessages(new Set());
+    setSelectAll(false);
+
+    // 2. Perform backend deletion in background
     try {
       await Promise.all(
-        Array.from(selectedMessages).map(id =>
+        idsArray.filter(id => typeof id === 'number' || !isNaN(Number(id))).map(id =>
           axios.delete(`/api/ai/conversations/${id}`, { withCredentials: true })
         )
       );
-      setConversations(prev => prev.filter(conv => !selectedMessages.has(conv.id)));
-      setSelectedMessages(new Set());
-      setSelectAll(false);
     } catch (error) {
       console.error('Error bulk deleting messages:', error);
     }
@@ -340,15 +373,22 @@ export default function AICopilotSidebar() {
   const bulkArchive = async () => {
     if (selectedMessages.size === 0) return;
 
+    const idsToArchive = new Set(Array.from(selectedMessages).map(id => String(id)));
+    const idsArray = Array.from(selectedMessages);
+
+    // 1. Instantly remove from UI optimistically
+    setConversations(prev => prev.filter(conv => !idsToArchive.has(String(conv.id))));
+    setTotalCount(prev => Math.max(0, prev - idsArray.length));
+    setSelectedMessages(new Set());
+    setSelectAll(false);
+
+    // 2. Perform backend archive in background
     try {
       await Promise.all(
-        Array.from(selectedMessages).map(id =>
+        idsArray.filter(id => typeof id === 'number' || !isNaN(Number(id))).map(id =>
           axios.patch(`/api/ai/conversations/${id}/archive`, {}, { withCredentials: true })
         )
       );
-      setConversations(prev => prev.filter(conv => !selectedMessages.has(conv.id)));
-      setSelectedMessages(new Set());
-      setSelectAll(false);
     } catch (error) {
       console.error('Error bulk archiving messages:', error);
     }

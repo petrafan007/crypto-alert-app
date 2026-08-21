@@ -83,7 +83,9 @@ The application utilizes a **unified PostgreSQL database**.
 
 ## v1.60-beta (August 2026)
 
-### AI Copilot System Prompt Overhaul & Active Sidebar Feed Stream Context Integration
+### AI Copilot System Prompt Overhaul, Optimistic Message Management & Overload Resilience
+- **Instant Optimistic Message Deletion & Archiving**: Deleting or archiving single messages (via the trash can / folder icon) or bulk selected items now removes them from the Copilot sidebar immediately without waiting for server roundtrips or requiring screen refreshes.
+- **Provider Overload Fast-Fail & Key Auto-Discovery**: Removed 48s retry loops when upstream AI providers (such as Z.AI) return `429: Overloaded`, instantly discovering and failing over to secondary keys (OpenAI, Gemini, Perplexity) in milliseconds.
 - **AI Copilot System Prompt Redesign**: Overhauled the default AI Copilot system instructions across database schemas, defaults, and Settings UI, framing the assistant as an expert crypto trading strategist, portfolio analyst, and market intelligence copilot.
 - **Active Sidebar Stream Context Integration**: Dynamically compiles the active chronological stream of sidebar cards into Copilot prompt context—including recent Portfolio Sentiments, Watchlist Sentiments, Market Analyses, Portfolio Reviews, and prior chat dialogue.
 - **Pending Orders & Limit Target Context**: Integrated live pending limit orders and target prices alongside portfolio holdings, ensuring the Copilot can provide data-backed feedback on proposed trades and buy/sell limit targets.
