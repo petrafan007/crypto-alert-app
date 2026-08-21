@@ -919,6 +919,37 @@ def analyze_single_symbol_sentiment(user_id, username, symbol, is_watchlist=Fals
             db.session.rollback()
         raise e
 
+def get_last_scheduled_time(anchor_time_str, freq_hours_int, now_utc=None):
+    if now_utc is None:
+        now_utc = datetime.now(timezone.utc)
+    
+    try:
+        h, m = map(int, anchor_time_str.split(':'))
+    except Exception:
+        h, m = 8, 0
+    
+    import pytz
+    eastern = pytz.timezone('US/Eastern')
+    now_est = now_utc.astimezone(eastern)
+    
+    start_of_day = now_est.replace(hour=h, minute=m, second=0, microsecond=0)
+    
+    if freq_hours_int <= 0:
+        freq_hours_int = 24
+        
+    yesterday_anchor = start_of_day - timedelta(days=1)
+    last_scheduled_est = yesterday_anchor
+    current_step = yesterday_anchor
+    
+    max_steps = 100
+    steps = 0
+    while current_step <= now_est and steps < max_steps:
+        last_scheduled_est = current_step
+        current_step += timedelta(hours=freq_hours_int)
+        steps += 1
+        
+    return last_scheduled_est.astimezone(pytz.utc)
+
 def run_sentiment_analysis_for_user(user_id, username, force=False):
     """
     Run sentiment analysis for a user's portfolio coins.
@@ -945,11 +976,14 @@ def run_sentiment_analysis_for_user(user_id, username, force=False):
                 logger.info(f"Skipping portfolio sentiment analysis for {username} - outside analysis window")
                 return 0
 
+        portfolio_start_time = settings.get('portfolio_schedule_start_time', '08:00')
         sentiment_freq_hours = settings.get('sentiment_analysis_frequency_hours', 24)
         try:
-            sentiment_freq_hours = float(sentiment_freq_hours)
+            sentiment_freq_hours = int(float(sentiment_freq_hours))
         except Exception:
-            sentiment_freq_hours = 24.0
+            sentiment_freq_hours = 24
+
+        last_scheduled_utc = get_last_scheduled_time(portfolio_start_time, sentiment_freq_hours)
 
         coins = Coin.query.filter_by(user_id=user_id, hidden=False).filter(Coin.amount > 0).all()
         if not coins:
@@ -973,10 +1007,8 @@ def run_sentiment_analysis_for_user(user_id, username, force=False):
                 continue
 
             if not force and last_updated:
-                now_utc = datetime.now(timezone.utc)
                 last_utc = last_updated if last_updated.tzinfo else last_updated.replace(tzinfo=timezone.utc)
-                elapsed_hours = (now_utc - last_utc).total_seconds() / 3600.0
-                if elapsed_hours < sentiment_freq_hours:
+                if last_utc >= last_scheduled_utc:
                     continue
 
             logger.info(f"Analyzing portfolio sentiment for {symbol} (User: {username})...")
@@ -1038,11 +1070,14 @@ def run_watchlist_sentiment_analysis_for_user(user_id, username, force=False):
                 logger.info(f"Skipping watchlist sentiment analysis for {username} - outside analysis window")
                 return 0
 
+        watchlist_start_time = settings.get('watchlist_schedule_start_time', '08:00')
         wl_freq_hours = settings.get('watchlist_sentiment_analysis_frequency_hours', 24)
         try:
-            wl_freq_hours = float(wl_freq_hours)
+            wl_freq_hours = int(float(wl_freq_hours))
         except Exception:
-            wl_freq_hours = 24.0
+            wl_freq_hours = 24
+
+        wl_last_scheduled_utc = get_last_scheduled_time(watchlist_start_time, wl_freq_hours)
 
         wl_coins = WatchlistCoin.query.filter_by(user_id=user_id).all()
         if not wl_coins:
@@ -1066,10 +1101,8 @@ def run_watchlist_sentiment_analysis_for_user(user_id, username, force=False):
                 continue
 
             if not force and last_updated:
-                now_utc = datetime.now(timezone.utc)
                 last_utc = last_updated if last_updated.tzinfo else last_updated.replace(tzinfo=timezone.utc)
-                elapsed_hours = (now_utc - last_utc).total_seconds() / 3600.0
-                if elapsed_hours < wl_freq_hours:
+                if last_utc >= wl_last_scheduled_utc:
                     continue
 
             logger.info(f"Analyzing watchlist sentiment for {symbol} (User: {username})...")

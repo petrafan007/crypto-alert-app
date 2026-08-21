@@ -372,6 +372,8 @@ class UserSetting(db.Model):
     copilot_chat_post = db.Column(db.Text)
     sentiment_analysis_frequency_hours = db.Column(db.Integer, default=24)
     watchlist_sentiment_analysis_frequency_hours = db.Column(db.Integer, default=24)
+    portfolio_schedule_start_time = db.Column(db.String, default='08:00')
+    watchlist_schedule_start_time = db.Column(db.String, default='08:00')
     volatility_hours = db.Column(db.Integer, default=24)
 
 class DesktopToken(db.Model):

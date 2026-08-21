@@ -665,24 +665,25 @@ def api_ai_sentiment_accuracy():
             for i, r in enumerate(sym_records):
                 entry_price = float(r.price_at_prediction or 0.0)
                 is_latest = (i == n - 1)
+                next_record = sym_records[i + 1] if not is_latest else None
 
-                # Determine subsequent evaluation price (from next check or live price)
-                if not is_latest:
-                    eval_price = float(sym_records[i + 1].price_at_prediction or 0.0)
+                # Determine subsequent evaluation price (from next check)
+                if not is_latest and next_record:
+                    eval_price = float(next_record.price_at_prediction or 0.0)
                     eval_target = 'next_check'
                 else:
-                    eval_price = float(live_prices.get(sym, entry_price) or entry_price)
-                    eval_target = 'current_market'
+                    eval_price = entry_price
+                    eval_target = 'tracking'
 
                 if eval_price <= 0:
                     eval_price = entry_price
 
                 sent_clean = (r.sentiment or '').strip()
                 sent_lower = sent_clean.lower()
-                outcome_status = 'neutral'
+                outcome_status = 'tracking'
                 outcome_pct = 0.0
 
-                if entry_price > 0 and eval_price > 0:
+                if entry_price > 0 and eval_price > 0 and not is_latest:
                     price_delta_pct = ((eval_price - entry_price) / entry_price) * 100.0
                     if sent_lower in BULLISH_SIGNALS:
                         bullish_count += 1
@@ -712,7 +713,7 @@ def api_ai_sentiment_accuracy():
                         neutral_count += 1
                         outcome_status = 'neutral'
                         outcome_pct = 0.0
-                else:
+                elif not is_latest:
                     neutral_count += 1
 
                 # Recommendation breakdown stats
@@ -747,20 +748,32 @@ def api_ai_sentiment_accuracy():
                 else:
                     model_stats[model_key]['neutral'] += 1
 
-                # Format EDT Date/Time cleanly
+                # Format EDT Date/Time cleanly for current record
                 created_dt = r.created_at
                 if created_dt:
                     if created_dt.tzinfo is None:
                         created_dt = created_dt.replace(tzinfo=dt_tz.utc).astimezone(eastern)
                     else:
                         created_dt = created_dt.astimezone(eastern)
-                    date_str = f"{created_dt.month}-{created_dt.day}-{created_dt.year}"
-                    time_str = created_dt.strftime('%-I:%M %p %Z')
+                    date_str = f"{created_dt.month:02d}/{created_dt.day:02d}/{str(created_dt.year)[-2:]}"
+                    time_str = created_dt.strftime('%H:%M')
                     formatted_datetime = f"{date_str} at {time_str}"
                 else:
                     formatted_datetime = ''
                     date_str = ''
                     time_str = ''
+
+                # Format EDT Date/Time for next record (evaluation record)
+                eval_date_str = ''
+                eval_time_str = ''
+                if not is_latest and next_record and next_record.created_at:
+                    eval_dt = next_record.created_at
+                    if eval_dt.tzinfo is None:
+                        eval_dt = eval_dt.replace(tzinfo=dt_tz.utc).astimezone(eastern)
+                    else:
+                        eval_dt = eval_dt.astimezone(eastern)
+                    eval_date_str = f"{eval_dt.month:02d}/{eval_dt.day:02d}/{str(eval_dt.year)[-2:]}"
+                    eval_time_str = eval_dt.strftime('%H:%M')
 
                 history_list.append({
                     'id': r.id,
@@ -779,6 +792,8 @@ def api_ai_sentiment_accuracy():
                     'tier': r.tier,
                     'date': date_str,
                     'time': time_str,
+                    'eval_date': eval_date_str,
+                    'eval_time': eval_time_str,
                     'formatted_datetime': formatted_datetime,
                     'created_at': r.created_at.isoformat() if r.created_at else None,
                     'created_timestamp': int(created_dt.timestamp()) if created_dt else int(now_utc.timestamp())

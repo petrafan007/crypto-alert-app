@@ -2425,6 +2425,29 @@ export default function Settings({ isLightMode }) {
                       }}
                     />
                   </div>
+
+                  {/* Portfolio Schedule Start Time */}
+                  <div style={{ marginTop: 12 }}>
+                    <label style={{ display: 'block', marginBottom: 6, color: '#fff', fontSize: '12px' }}>
+                      Schedule Anchor Time (Start Time)
+                    </label>
+                    <input
+                      type="time"
+                      value={settings.portfolio_schedule_start_time || "08:00"}
+                      onChange={(e) => handleInputChange('portfolio_schedule_start_time', e.target.value)}
+                      style={{
+                        width: '100%',
+                        padding: '8px 12px',
+                        borderRadius: 6,
+                        background: '#232b31',
+                        color: '#fff',
+                        border: '1px solid #555',
+                        boxSizing: 'border-box',
+                        fontSize: '12px',
+                        colorScheme: 'dark'
+                      }}
+                    />
+                  </div>
                 </div>
                 <div>
                   <label style={{ display: 'block', marginBottom: 8, color: '#fff', fontSize: '12px' }}>
@@ -2513,6 +2536,29 @@ export default function Settings({ isLightMode }) {
                         border: '1px solid #555',
                         boxSizing: 'border-box',
                         fontSize: '12px'
+                      }}
+                    />
+                  </div>
+
+                  {/* Watchlist Schedule Start Time */}
+                  <div style={{ marginTop: 12 }}>
+                    <label style={{ display: 'block', marginBottom: 6, color: '#fff', fontSize: '12px' }}>
+                      Schedule Anchor Time (Start Time)
+                    </label>
+                    <input
+                      type="time"
+                      value={settings.watchlist_schedule_start_time || "08:00"}
+                      onChange={(e) => handleInputChange('watchlist_schedule_start_time', e.target.value)}
+                      style={{
+                        width: '100%',
+                        padding: '8px 12px',
+                        borderRadius: 6,
+                        background: '#232b31',
+                        color: '#fff',
+                        border: '1px solid #555',
+                        boxSizing: 'border-box',
+                        fontSize: '12px',
+                        colorScheme: 'dark'
                       }}
                     />
                   </div>

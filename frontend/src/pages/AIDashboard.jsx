@@ -459,7 +459,7 @@ const AIDashboard = () => {
       },
       timeScale: {
         borderColor: borderCol,
-        timeVisible: true,
+        timeVisible: dateRange === '1d', // Show hours for 1d, dates for multi-day
         secondsVisible: false,
         rightOffset: 24,
         barSpacing: 10,
@@ -881,8 +881,8 @@ const AIDashboard = () => {
       {/* 2. VISUALIZER 2 (MIDDLE SECTION - FULL WIDTH): PREDICTION LEDGER & BENCHMARKS */}
       {/* ========================================================================= */}
       <div className="ai-section prediction-ledger-section">
-        <div className="prediction-split-grid">
-          {/* Left Column: Historical Prediction Ledger Table */}
+        <div className="prediction-ledger-full-width">
+          {/* Historical Prediction Ledger Table */}
           <div className="prediction-table-card">
             <div className="table-header-row">
               <h3>📋 Historical Prediction Ledger & Thesis Validation</h3>
@@ -900,10 +900,12 @@ const AIDashboard = () => {
                 <thead>
                   <tr>
                     <th style={{ textAlign: 'center' }}>Coin</th>
-                    <th>Live Price</th>
+                    <th>Updated Price</th>
                     <th>Signal Price</th>
-                    <th>Date</th>
-                    <th>Time</th>
+                    <th>Signal Date</th>
+                    <th>Signal Time</th>
+                    <th>Updated Date</th>
+                    <th>Updated Time</th>
                     <th>AI Recommendation</th>
                     <th>Outcome</th>
                   </tr>
@@ -940,9 +942,9 @@ const AIDashboard = () => {
                               </div>
                             </td>
                             <td className="price-cell">
-                              ${parseFloat(row.evaluation_price || row.current_price || 0) > 100
-                                ? parseFloat(row.evaluation_price || row.current_price || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })
-                                : parseFloat(row.evaluation_price || row.current_price || 0).toFixed(4)}
+                              {row.is_latest ? 'Tracking' : `$${parseFloat(row.evaluation_price || 0) > 100
+                                ? parseFloat(row.evaluation_price || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })
+                                : parseFloat(row.evaluation_price || 0).toFixed(4)}`}
                             </td>
                             <td className="price-cell">
                               ${parseFloat(row.price_at_prediction || 0) > 100
@@ -951,6 +953,8 @@ const AIDashboard = () => {
                             </td>
                             <td className="date-cell">{row.date}</td>
                             <td className="time-cell">{row.time}</td>
+                            <td className="date-cell" style={{ color: row.is_latest ? 'var(--text-secondary)' : 'var(--text-primary)' }}>{row.eval_date || 'Tracking'}</td>
+                            <td className="time-cell" style={{ color: row.is_latest ? 'var(--text-secondary)' : 'var(--text-primary)' }}>{row.eval_time || 'Tracking'}</td>
                             <td>
                               <span className={`signal-pill ${signalBadgeClass}`} title={row.sentiment_reason || ''}>
                                 {row.sentiment}
@@ -978,7 +982,7 @@ const AIDashboard = () => {
 
                     return (
                       <tr>
-                        <td colSpan="7" style={{ textAlign: 'center', padding: '32px', color: 'var(--text-secondary)' }}>
+                        <td colSpan="9" style={{ textAlign: 'center', padding: '32px', color: 'var(--text-secondary)' }}>
                           {accuracyData?.history?.length > 0
                             ? 'No coins selected in ledger filter. Click "⚙️ Configure Coins" to enable coins.'
                             : 'No sentiment history recorded yet. Run a sentiment analysis from the Dashboard or triggers to start tracking theses.'}
@@ -989,10 +993,12 @@ const AIDashboard = () => {
                 </tbody>
               </table>
             </div>
+            </div>
           </div>
+        </div>
 
-          {/* Right Column: Signal Recommendation Accuracy & Model Comparison */}
-          <div className="prediction-benchmarks-column">
+        {/* Right Column: Signal Recommendation Accuracy & Model Comparison */}
+        <div className="benchmark-split-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', marginTop: '20px' }}>
             {/* Recommendation Type Breakdown */}
             <div className="benchmark-card">
               <h3>🎯 Recommendation Type Accuracy</h3>
@@ -1060,10 +1066,8 @@ const AIDashboard = () => {
                   </div>
                 ))}
               </div>
-            </div>
           </div>
         </div>
-      </div>
 
       {/* ========================================================================= */}
       {/* 3. BOTTOM SECTION: MARKET ANALYSIS & PORTFOLIO REVIEW (50% / 50% SIDE-BY-SIDE) */}
