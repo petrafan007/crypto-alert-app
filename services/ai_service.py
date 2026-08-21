@@ -981,6 +981,11 @@ def run_sentiment_analysis_for_user(user_id, username, force=False, symbol=None)
 
     count = 0
     try:
+        try:
+            db.session.rollback()
+        except Exception:
+            pass
+
         if not is_ai_enabled(username) and not force:
             logger.info(f"Skipping portfolio sentiment analysis for {username} - AI disabled")
             return 0
@@ -1003,6 +1008,13 @@ def run_sentiment_analysis_for_user(user_id, username, force=False, symbol=None)
         last_scheduled_utc = get_last_scheduled_time(portfolio_start_time, sentiment_freq_hours)
 
         if symbol:
+            try:
+                c_init = Coin.query.filter_by(user_id=user_id, symbol=symbol.upper().strip(), hidden=False).first()
+                if c_init:
+                    c_init.sentiment = "Checking now..."
+                    db.session.commit()
+            except Exception:
+                db.session.rollback()
             coins = Coin.query.filter_by(user_id=user_id, symbol=symbol.upper().strip(), hidden=False).all()
         else:
             coins = Coin.query.filter_by(user_id=user_id, hidden=False).filter(Coin.amount > 0).all()
@@ -1083,6 +1095,11 @@ def run_watchlist_sentiment_analysis_for_user(user_id, username, force=False, sy
 
     count = 0
     try:
+        try:
+            db.session.rollback()
+        except Exception:
+            pass
+
         if not is_ai_enabled(username) and not force:
             logger.info(f"Skipping watchlist sentiment analysis for {username} - AI disabled")
             return 0
@@ -1105,6 +1122,13 @@ def run_watchlist_sentiment_analysis_for_user(user_id, username, force=False, sy
         wl_last_scheduled_utc = get_last_scheduled_time(watchlist_start_time, wl_freq_hours)
 
         if symbol:
+            try:
+                w_init = WatchlistCoin.query.filter_by(user_id=user_id, symbol=symbol.upper().strip()).first()
+                if w_init:
+                    w_init.sentiment = "Checking now..."
+                    db.session.commit()
+            except Exception:
+                db.session.rollback()
             wl_coins = WatchlistCoin.query.filter_by(user_id=user_id, symbol=symbol.upper().strip()).all()
         else:
             wl_coins = WatchlistCoin.query.filter_by(user_id=user_id).all()

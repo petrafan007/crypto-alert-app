@@ -470,6 +470,10 @@ def force_sentiment_analysis():
         # Run in a separate thread so valid response returns immediately
         def run_async():
             with app.app_context():
+                try:
+                    db.session.rollback()
+                except Exception:
+                    pass
                 if target in ['all', 'portfolio']:
                     run_sentiment_analysis_for_user(user_id, username, force=True, symbol=symbol)
                 if target in ['all', 'watchlist']:

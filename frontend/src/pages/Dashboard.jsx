@@ -1582,6 +1582,13 @@ function Dashboard({ isLightMode }) {
     }
     if (!symbol) return;
     const cleanSymbol = symbol.toUpperCase().trim();
+    
+    // Find initial timestamp so we know when a fresh analysis has landed
+    const currentCoin = isWatchlist
+      ? watchlist.find(x => (x.symbol || '').toUpperCase() === cleanSymbol)
+      : portfolio.find(x => (x.symbol || '').toUpperCase() === cleanSymbol);
+    const initialLastUpdated = currentCoin?.sentiment_last_updated || null;
+
     setRefreshingSentiment(prev => ({ ...prev, [cleanSymbol]: true }));
     
     // Optimistically update local state to "Checking now..."
@@ -1597,7 +1604,7 @@ function Dashboard({ isLightMode }) {
         target: isWatchlist ? 'watchlist' : 'portfolio'
       }, { withCredentials: true });
 
-      // Poll until the result updates
+      // Poll until the result updates with a newer sentiment_last_updated or moves past "Checking now..."
       let attempts = 0;
       const pollInterval = setInterval(async () => {
         attempts++;
@@ -1605,29 +1612,43 @@ function Dashboard({ isLightMode }) {
           if (isWatchlist) {
             const res = await axios.get('/api/watchlist-live', { withCredentials: true });
             if (res.data) {
-              setWatchlist(res.data);
               const found = res.data.find(x => (x.symbol || '').toUpperCase() === cleanSymbol);
-              if (found && found.sentiment && found.sentiment !== 'Checking now...') {
-                clearInterval(pollInterval);
-                setRefreshingSentiment(prev => {
-                  const next = { ...prev };
-                  delete next[cleanSymbol];
-                  return next;
-                });
+              if (found) {
+                const isFinished = (found.sentiment_last_updated && found.sentiment_last_updated !== initialLastUpdated && found.sentiment !== 'Checking now...')
+                  || (attempts > 6 && found.sentiment !== 'Checking now...' && found.sentiment !== 'Watch');
+                
+                if (found.sentiment === 'Checking now...' || !isFinished) {
+                  setWatchlist(res.data.map(item => (item.symbol || '').toUpperCase() === cleanSymbol ? { ...item, sentiment: 'Checking now...' } : item));
+                } else {
+                  setWatchlist(res.data);
+                  clearInterval(pollInterval);
+                  setRefreshingSentiment(prev => {
+                    const next = { ...prev };
+                    delete next[cleanSymbol];
+                    return next;
+                  });
+                }
               }
             }
           } else {
             const res = await axios.get('/api/coin-data-live');
             if (res.data?.portfolio) {
-              setPortfolio(res.data.portfolio);
               const found = res.data.portfolio.find(x => (x.symbol || '').toUpperCase() === cleanSymbol);
-              if (found && found.sentiment && found.sentiment !== 'Checking now...') {
-                clearInterval(pollInterval);
-                setRefreshingSentiment(prev => {
-                  const next = { ...prev };
-                  delete next[cleanSymbol];
-                  return next;
-                });
+              if (found) {
+                const isFinished = (found.sentiment_last_updated && found.sentiment_last_updated !== initialLastUpdated && found.sentiment !== 'Checking now...')
+                  || (attempts > 6 && found.sentiment !== 'Checking now...' && found.sentiment !== 'Hold');
+
+                if (found.sentiment === 'Checking now...' || !isFinished) {
+                  setPortfolio(res.data.portfolio.map(c => (c.symbol || '').toUpperCase() === cleanSymbol ? { ...c, sentiment: 'Checking now...' } : c));
+                } else {
+                  setPortfolio(res.data.portfolio);
+                  clearInterval(pollInterval);
+                  setRefreshingSentiment(prev => {
+                    const next = { ...prev };
+                    delete next[cleanSymbol];
+                    return next;
+                  });
+                }
               }
             }
           }
@@ -1635,15 +1656,21 @@ function Dashboard({ isLightMode }) {
           console.error('Error polling after sentiment refresh:', pollErr);
         }
 
-        if (attempts >= 15) {
+        if (attempts >= 35) {
           clearInterval(pollInterval);
           setRefreshingSentiment(prev => {
             const next = { ...prev };
             delete next[cleanSymbol];
             return next;
           });
+          // Final fetch
+          if (isWatchlist) {
+            axios.get('/api/watchlist-live', { withCredentials: true }).then(r => r.data && setWatchlist(r.data)).catch(() => {});
+          } else {
+            axios.get('/api/coin-data-live').then(r => r.data?.portfolio && setPortfolio(r.data.portfolio)).catch(() => {});
+          }
         }
-      }, 2500);
+      }, 2000);
     } catch (err) {
       console.error('Failed to trigger single sentiment refresh:', err);
       setRefreshingSentiment(prev => {

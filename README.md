@@ -81,6 +81,14 @@ The application utilizes a **unified PostgreSQL database**.
 
 ## Version History & Changelog
 
+## v1.55-beta (August 2026)
+
+### Database Migration for Schedule Columns & Reliable Timestamp-Based Polling
+- **Database Schema Migration (`migrate_v1_55.py`)**: Added missing `portfolio_schedule_start_time` and `watchlist_schedule_start_time` columns to `user_settings` table in PostgreSQL, resolving the `UndefinedColumn` / `InFailedSqlTransaction` error that previously aborted sentiment analysis execution.
+- **Robust Polling & State Detection**: Updated single-coin sentiment refresh in `Dashboard.jsx` to track `sentiment_last_updated` and keep polling throughout long AI web search synthesis without prematurely terminating after the first poll.
+- **Instant Pre-Analysis Flagging**: Added immediate DB commit of `sentiment = "Checking now..."` right upon entry of single-coin execution so live listeners reflect the state instantly.
+- **Version Bump**: Synchronized metadata to `v1.55-beta`.
+
 ## v1.54-beta (August 2026)
 
 ### Portfolio Actions Truncation Fix & Table Proportions Tuning
