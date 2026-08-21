@@ -1684,8 +1684,6 @@ body.dark-mode .table-container tbody tr:nth-child(odd) td {
 }
 
 body.dark-mode .chart-panel {
-  background: var(--card-bg) !important;
-  border: 1px solid var(--card-border) !important;
   color: var(--text-primary) !important;
 }
 
@@ -1731,8 +1729,6 @@ body.light-mode .table-container tbody tr:nth-child(odd) td {
 }
 
 body.light-mode .chart-panel {
-  background: var(--card-bg) !important;
-  border: 1px solid var(--card-border) !important;
   color: var(--text-primary) !important;
 }
 
@@ -3388,6 +3384,7 @@ body.light-mode .table-container.portfolio-table tbody tr.pending-order .symbol-
 
 /* Dashboard Widget Panel Inners - Modern Glossy Facelift */
 
+body.dark-mode .widget-panel-inner,
 .widget-panel-inner {
   background: rgba(15, 23, 42, 0.6) !important;
   border-radius: 12px !important;
