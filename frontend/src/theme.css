@@ -3252,8 +3252,8 @@ body.light-mode .table-container.portfolio-table tbody tr.pending-order .symbol-
   background: rgba(30, 41, 59, 0.6);
   color: #94a3b8;
   border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 6px;
-  padding: 4px 10px;
+  border-radius: 20px;
+  padding: 4px 12px;
   font-size: 0.75rem;
   font-weight: 600;
   cursor: pointer;
@@ -3309,9 +3309,139 @@ body.light-mode .time-range-btn:hover {
   border-color: #7dd3fc;
 }
 
-body.light-mode .time-range-btn.active {
-  background: #0284c7;
-  color: #ffffff;
-  border-color: #0284c7;
-  box-shadow: 0 4px 6px rgba(2, 132, 199, 0.2);
+/* GLOSSY MAIN TABLES OVERHAUL (v1.63-beta) */
+.table-container.portfolio-table,
+.table-container.watchlist-table {
+  background: rgba(15, 23, 42, 0.75) !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  border-radius: 12px !important;
+  backdrop-filter: blur(16px) !important;
+  -webkit-backdrop-filter: blur(16px) !important;
+  box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.1), 0 10px 40px rgba(0, 0, 0, 0.5) !important;
+  overflow: hidden !important;
+}
+
+.table-container.portfolio-table .table-header,
+.table-container.watchlist-table .table-header {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1) !important;
+  background: rgba(30, 41, 59, 0.4) !important;
+}
+
+.table-container.portfolio-table .table-title,
+.table-container.watchlist-table .table-title {
+  background: linear-gradient(135deg, #e2e8f0 0%, #94a3b8 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+
+.table-container.portfolio-table thead th,
+.table-container.watchlist-table thead th {
+  background: rgba(15, 23, 42, 0.85) !important;
+  backdrop-filter: blur(8px);
+  color: #94a3b8 !important;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-weight: 700;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1) !important;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.table-container.portfolio-table tbody tr,
+.table-container.watchlist-table tbody tr {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04) !important;
+  transition: all 0.2s ease !important;
+}
+
+.table-container.portfolio-table tbody tr:hover,
+.table-container.watchlist-table tbody tr:hover {
+  background: rgba(56, 189, 248, 0.08) !important;
+  box-shadow: inset 0 0 15px rgba(56, 189, 248, 0.1);
+}
+
+.table-container.portfolio-table td,
+.table-container.watchlist-table td {
+  color: #e2e8f0;
+}
+
+/* Glossy Action Buttons */
+.trade-action-btn {
+  border-radius: 8px !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.03em !important;
+  text-shadow: 0 1px 2px rgba(0,0,0,0.3);
+  transition: all 0.2s ease !important;
+  border: 1px solid rgba(255,255,255,0.15) !important;
+}
+
+.trade-action-btn:hover {
+  transform: translateY(-1px);
+  filter: brightness(1.15);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+}
+
+.trade-action-btn.buy {
+  background: linear-gradient(135deg, #10b981 0%, #047857 100%) !important;
+  box-shadow: inset 0 1px 1px rgba(255,255,255,0.2), 0 2px 8px rgba(16, 185, 129, 0.3) !important;
+}
+
+.trade-action-btn.sell {
+  background: linear-gradient(135deg, #f43f5e 0%, #be123c 100%) !important;
+  box-shadow: inset 0 1px 1px rgba(255,255,255,0.2), 0 2px 8px rgba(244, 63, 94, 0.3) !important;
+}
+
+.trade-action-btn.stake {
+  background: linear-gradient(135deg, #0ea5e9 0%, #0369a1 100%) !important;
+  box-shadow: inset 0 1px 1px rgba(255,255,255,0.2), 0 2px 8px rgba(14, 165, 233, 0.3) !important;
+}
+
+.trade-action-btn.hide {
+  background: linear-gradient(135deg, #64748b 0%, #334155 100%) !important;
+  box-shadow: inset 0 1px 1px rgba(255,255,255,0.2), 0 2px 8px rgba(100, 116, 139, 0.3) !important;
+}
+
+/* Light Mode Overrides */
+body.light-mode .table-container.portfolio-table,
+body.light-mode .table-container.watchlist-table {
+  background: rgba(255, 255, 255, 0.85) !important;
+  border: 1px solid rgba(255, 255, 255, 0.5) !important;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.08), inset 0 1px 0 rgba(255, 255, 255, 1) !important;
+}
+
+body.light-mode .table-container.portfolio-table .table-header,
+body.light-mode .table-container.watchlist-table .table-header {
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06) !important;
+  background: rgba(241, 245, 249, 0.6) !important;
+}
+
+body.light-mode .table-container.portfolio-table .table-title,
+body.light-mode .table-container.watchlist-table .table-title {
+  background: linear-gradient(135deg, #1e293b 0%, #475569 100%);
+  -webkit-background-clip: text;
+}
+
+body.light-mode .table-container.portfolio-table thead th,
+body.light-mode .table-container.watchlist-table thead th {
+  background: rgba(255, 255, 255, 0.95) !important;
+  color: #64748b !important;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08) !important;
+}
+
+body.light-mode .table-container.portfolio-table tbody tr,
+body.light-mode .table-container.watchlist-table tbody tr {
+  border-bottom: 1px solid rgba(0, 0, 0, 0.04) !important;
+}
+
+body.light-mode .table-container.portfolio-table tbody tr:hover,
+body.light-mode .table-container.watchlist-table tbody tr:hover {
+  background: rgba(2, 132, 199, 0.05) !important;
+  box-shadow: inset 0 0 10px rgba(2, 132, 199, 0.05);
+}
+
+body.light-mode .table-container.portfolio-table td,
+body.light-mode .table-container.watchlist-table td {
+  color: #334155;
 }

@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { Pie, Line } from 'react-chartjs-2';
+import { Doughnut, Line } from 'react-chartjs-2';
 import {
   Chart as ChartJS,
   ArcElement,
@@ -10,6 +10,7 @@ import {
   PointElement,
   LineElement,
   TimeScale,
+  Filler,
 } from 'chart.js';
 import 'chartjs-adapter-date-fns';
 
@@ -21,59 +22,63 @@ ChartJS.register(
   LinearScale,
   PointElement,
   LineElement,
-  TimeScale
+  TimeScale,
+  Filler
 );
 
 export function PortfolioPie({ portfolio, isLightMode }) {
   // Only show coins with value > 0
   const data = useMemo(() => {
     const filtered = (portfolio || []).filter(c => c.current_value > 0);
+    const neonPalette = [
+      '#38bdf8', '#10b981', '#f59e0b', '#ec4899', '#8b5cf6', '#14b8a6',
+      '#ef4444', '#f97316', '#eab308', '#84cc16', '#06b6d4', '#6366f1', '#d946ef'
+    ];
     return {
       labels: filtered.map(c => c.symbol),
       datasets: [
         {
           data: filtered.map(c => c.current_value),
-          backgroundColor: [
-            '#ed64a6', // Pink for USDT
-            '#68d391', // Light green for SOL
-            '#f6e05e', // Orange for XRP
-            '#63b3ed', // Light blue for LINK
-            '#fc8181', // Red for DIMO
-            '#4fd1c5', '#4299e1', '#f687b3', '#fbb6ce', '#b794f4', '#f56565', '#48bb78', '#ecc94b', '#ed8936', '#718096', '#e53e3e', '#38a169', '#d69e2e', '#805ad5', '#319795'
-          ],
-          borderWidth: 2,
-          borderColor: '#232b31',
+          backgroundColor: neonPalette,
+          borderWidth: 3,
+          borderColor: isLightMode ? '#ffffff' : '#0f172a',
+          hoverOffset: 6,
         },
       ],
     };
-  }, [portfolio]);
+  }, [portfolio, isLightMode]);
 
   const options = useMemo(() => ({
     responsive: true,
     maintainAspectRatio: false,
+    cutout: '65%',
     plugins: {
       legend: {
-        position: 'top',
+        position: 'right',
         labels: {
-          color: isLightMode ? '#333' : '#fff', // Dynamic color based on theme
-          font: { size: 12 },
+          color: isLightMode ? '#475569' : '#e2e8f0',
+          font: { size: 12, family: 'Inter, sans-serif' },
           usePointStyle: true,
-          padding: 8,
+          pointStyle: 'circle',
+          padding: 16,
         },
       },
       tooltip: {
-        backgroundColor: isLightMode ? '#fff' : '#232b31',
-        titleColor: isLightMode ? '#333' : '#4fd1c5',
-        bodyColor: isLightMode ? '#333' : '#fff',
-        borderColor: isLightMode ? '#ddd' : '#333',
+        backgroundColor: isLightMode ? 'rgba(255, 255, 255, 0.95)' : 'rgba(15, 23, 42, 0.95)',
+        titleColor: isLightMode ? '#0f172a' : '#f8fafc',
+        bodyColor: isLightMode ? '#334155' : '#e2e8f0',
+        borderColor: isLightMode ? 'rgba(0, 0, 0, 0.1)' : 'rgba(255, 255, 255, 0.1)',
         borderWidth: 1,
+        padding: 12,
+        cornerRadius: 8,
+        titleFont: { size: 13, weight: 'bold', family: 'Inter, sans-serif' },
+        bodyFont: { size: 13, family: 'Inter, sans-serif' },
+        boxPadding: 6,
       },
     },
   }), [isLightMode]);
 
-  return (
-    <Pie data={data} options={options} />
-  );
+  return <Doughnut data={data} options={options} />;
 }
 
 export function PortfolioTrend({ history, range, isLightMode }) {
@@ -104,19 +109,32 @@ export function PortfolioTrend({ history, range, isLightMode }) {
       {
         label: 'Portfolio Value',
         data: safeHistory.map(([_, v]) => v),
-        fill: false, // Remove fill to avoid confusion
-        borderColor: '#3182ce', // Blue line
-        backgroundColor: '#3182ce',
-        tension: 0.3,
-        pointRadius: 4, // Make points more visible
-        pointBackgroundColor: '#3182ce',
-        pointBorderColor: '#fff',
-        pointBorderWidth: 2,
+        fill: true,
+        backgroundColor: (context) => {
+          const chart = context.chart;
+          const { ctx, chartArea } = chart;
+          if (!chartArea) return null;
+          const gradient = ctx.createLinearGradient(0, chartArea.top, 0, chartArea.bottom);
+          if (isLightMode) {
+            gradient.addColorStop(0, 'rgba(2, 132, 199, 0.3)');
+            gradient.addColorStop(1, 'rgba(2, 132, 199, 0.0)');
+          } else {
+            gradient.addColorStop(0, 'rgba(56, 189, 248, 0.4)');
+            gradient.addColorStop(1, 'rgba(56, 189, 248, 0.0)');
+          }
+          return gradient;
+        },
+        borderColor: isLightMode ? '#0284c7' : '#38bdf8',
+        borderWidth: 3,
+        tension: 0.4,
+        pointRadius: 0,
         pointHoverRadius: 6,
-        borderWidth: 2,
+        pointBackgroundColor: isLightMode ? '#0284c7' : '#38bdf8',
+        pointBorderColor: '#ffffff',
+        pointBorderWidth: 2,
       },
     ],
-  }), [safeHistory]);
+  }), [safeHistory, isLightMode]);
 
   const options = useMemo(() => ({
     responsive: true,
@@ -132,12 +150,15 @@ export function PortfolioTrend({ history, range, isLightMode }) {
       tooltip: {
         mode: 'index',
         intersect: false,
-        backgroundColor: '#232b31',
-        titleColor: '#4fd1c5',
-        bodyColor: '#fff',
-        borderColor: '#333',
+        backgroundColor: isLightMode ? 'rgba(255, 255, 255, 0.95)' : 'rgba(15, 23, 42, 0.95)',
+        titleColor: isLightMode ? '#0f172a' : '#f8fafc',
+        bodyColor: isLightMode ? '#0284c7' : '#38bdf8',
+        borderColor: isLightMode ? 'rgba(0, 0, 0, 0.1)' : 'rgba(255, 255, 255, 0.1)',
         borderWidth: 1,
+        padding: 12,
         cornerRadius: 8,
+        titleFont: { size: 13, weight: 'bold', family: 'Inter, sans-serif' },
+        bodyFont: { size: 14, weight: 'bold', family: 'Inter, sans-serif' },
         displayColors: false,
         callbacks: {
           title: function(context) {
@@ -151,7 +172,7 @@ export function PortfolioTrend({ history, range, isLightMode }) {
             });
           },
           label: function(context) {
-            return `$${context.parsed.y.toFixed(2)}`;
+            return `$${context.parsed.y.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
           }
         }
       },
@@ -171,13 +192,12 @@ export function PortfolioTrend({ history, range, isLightMode }) {
           tooltipFormat: 'MMM dd, yyyy HH:mm'
         },
         ticks: {
-          source: 'data', // Use data points for ticks
-          color: isLightMode ? '#666' : '#ccc',
-          font: { size: 11 },
-          maxTicksLimit: safeHistory.length, // Show all data points
+          source: 'data',
+          color: isLightMode ? '#64748b' : '#94a3b8',
+          font: { size: 11, family: 'Inter, sans-serif' },
+          maxTicksLimit: safeHistory.length,
           callback: function(value, index) {
             const date = new Date(value);
-            // Format based on range
             if (range.includes('H') || range === '1D') {
               return date.toLocaleString('en-US', { hour: 'numeric', minute: '2-digit' });
             } else if (range === '3D') {
@@ -190,29 +210,25 @@ export function PortfolioTrend({ history, range, isLightMode }) {
           }
         },
         grid: {
-          color: isLightMode ? 'rgba(0, 0, 0, 0.1)' : 'rgba(255, 255, 255, 0.1)',
+          color: isLightMode ? 'rgba(0, 0, 0, 0.05)' : 'rgba(255, 255, 255, 0.05)',
           drawBorder: false,
         },
-        border: {
-          color: isLightMode ? '#ddd' : '#333',
-        },
+        border: { display: false },
       },
       y: {
         beginAtZero: false,
         ticks: {
-          color: isLightMode ? '#666' : '#ccc',
-          font: { size: 11 },
+          color: isLightMode ? '#64748b' : '#94a3b8',
+          font: { size: 11, family: 'Inter, sans-serif' },
           callback: function(value) {
-            return '$' + value.toFixed(0);
+            return '$' + value.toLocaleString();
           }
         },
         grid: {
-          color: isLightMode ? 'rgba(0, 0, 0, 0.1)' : 'rgba(255, 255, 255, 0.1)',
+          color: isLightMode ? 'rgba(0, 0, 0, 0.05)' : 'rgba(255, 255, 255, 0.05)',
           drawBorder: false,
         },
-        border: {
-          color: isLightMode ? '#ddd' : '#333',
-        },
+        border: { display: false },
       },
     },
   }), [range, safeHistory.length, timeConfig, isLightMode]);

@@ -16,17 +16,28 @@ const WIDGETS = [
   { id: 'trend', title: 'Portfolio Trend' }
 ];
 
+const getWidgetBounds = (id) => {
+  switch(id) {
+    case 'allocations': return { minW: 4, minH: 4 };
+    case 'trend': return { minW: 5, minH: 4 };
+    case 'performance': return { minW: 6, minH: 2 };
+    default: return { minW: 3, minH: 3 };
+  }
+};
+
+const mapLayoutBounds = (layout) => layout.map(item => ({ ...item, ...getWidgetBounds(item.i) }));
+
 const DEFAULT_LAYOUTS = {
-  lg: [
-    { i: 'allocations', x: 0, y: 0, w: 4, h: 4, minW: 3, minH: 3 },
-    { i: 'trend', x: 4, y: 0, w: 8, h: 4, minW: 4, minH: 3 },
-    { i: 'portfolio_value', x: 0, y: 4, w: 3, h: 3, minW: 2, minH: 2 },
-    { i: 'fear_greed', x: 3, y: 4, w: 3, h: 3, minW: 2, minH: 2 },
-    { i: 'cbbi', x: 6, y: 4, w: 3, h: 3, minW: 2, minH: 2 },
-    { i: 'staking', x: 9, y: 4, w: 3, h: 3, minW: 2, minH: 2 },
-    { i: 'performance', x: 0, y: 7, w: 12, h: 2, minW: 4, minH: 1 }
-  ],
-  md: [
+  lg: mapLayoutBounds([
+    { i: 'allocations', x: 0, y: 0, w: 4, h: 4 },
+    { i: 'trend', x: 4, y: 0, w: 8, h: 4 },
+    { i: 'portfolio_value', x: 0, y: 4, w: 3, h: 3 },
+    { i: 'fear_greed', x: 3, y: 4, w: 3, h: 3 },
+    { i: 'cbbi', x: 6, y: 4, w: 3, h: 3 },
+    { i: 'staking', x: 9, y: 4, w: 3, h: 3 },
+    { i: 'performance', x: 0, y: 7, w: 12, h: 2 }
+  ]),
+  md: mapLayoutBounds([
     { i: 'allocations', x: 0, y: 0, w: 4, h: 4 },
     { i: 'trend', x: 4, y: 0, w: 6, h: 4 },
     { i: 'portfolio_value', x: 0, y: 4, w: 5, h: 3 },
@@ -34,8 +45,8 @@ const DEFAULT_LAYOUTS = {
     { i: 'cbbi', x: 0, y: 7, w: 5, h: 3 },
     { i: 'staking', x: 5, y: 7, w: 5, h: 3 },
     { i: 'performance', x: 0, y: 10, w: 10, h: 2 }
-  ],
-  sm: [
+  ]),
+  sm: mapLayoutBounds([
     { i: 'allocations', x: 0, y: 0, w: 6, h: 4 },
     { i: 'trend', x: 0, y: 4, w: 6, h: 4 },
     { i: 'portfolio_value', x: 0, y: 8, w: 6, h: 3 },
@@ -43,11 +54,11 @@ const DEFAULT_LAYOUTS = {
     { i: 'cbbi', x: 0, y: 14, w: 6, h: 3 },
     { i: 'staking', x: 0, y: 17, w: 6, h: 3 },
     { i: 'performance', x: 0, y: 20, w: 6, h: 2 }
-  ]
+  ])
 };
 
-const STORAGE_KEY = 'crypto_dashboard_widget_layout_v2';
-const HIDDEN_STORAGE_KEY = 'crypto_dashboard_widget_hidden_v2';
+const STORAGE_KEY = 'crypto_dashboard_widget_layout_v1_63';
+const HIDDEN_STORAGE_KEY = 'crypto_dashboard_widget_hidden_v1_63';
 
 const DashboardWidgetGrid = ({
   isLightMode,
@@ -87,8 +98,13 @@ const DashboardWidgetGrid = ({
   }, []);
 
   const handleLayoutChange = (layout, allLayouts) => {
-    setLayouts(allLayouts);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(allLayouts));
+    // Merge minW/minH back in case the library strips them
+    const mappedLayouts = {};
+    for (const [bp, l] of Object.entries(allLayouts)) {
+      mappedLayouts[bp] = mapLayoutBounds(l);
+    }
+    setLayouts(mappedLayouts);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(mappedLayouts));
   };
 
   const handleResetLayout = () => {
@@ -130,7 +146,7 @@ const DashboardWidgetGrid = ({
 
           {isEditMode && (
             <span className="dashboard-edit-hint">
-              Drag by handle (⠿) to reorder, drag bottom-right corner to resize, or click (✕) to hide.
+              Drag by handle (⠿) to reorder, drag any corner/edge to resize, or click (✕) to hide.
             </span>
           )}
         </div>
@@ -192,6 +208,7 @@ const DashboardWidgetGrid = ({
         draggableHandle=".dashboard-widget-drag-handle"
         isDraggable={isEditMode}
         isResizable={isEditMode}
+        resizeHandles={['se', 'sw', 'ne', 'nw', 'e', 'w', 'n', 's']}
         margin={[16, 16]}
         containerPadding={[0, 0]}
       >
