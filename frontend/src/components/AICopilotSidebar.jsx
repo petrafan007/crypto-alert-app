@@ -453,7 +453,10 @@ export default function AICopilotSidebar() {
       const response = await axios.post('/api/ai/conversation', {
         message: userMessage.body,
         conversation_id: conversationId
-      }, { withCredentials: true });
+      }, {
+        withCredentials: true,
+        timeout: 90000
+      });
 
       const newConversationId = response.data?.conversation_id;
       const aiResponseText = response.data?.response || 'No response generated.';
@@ -466,7 +469,10 @@ export default function AICopilotSidebar() {
             body: aiResponseText,
             thinking: false,
             optimistic: false,
-            conversation_id: newConversationId
+            conversation_id: newConversationId,
+            tier: response.data?.tier,
+            provider: response.data?.provider,
+            model: response.data?.model
           };
         }
         if (m.id === userMessage.id) {
@@ -482,9 +488,10 @@ export default function AICopilotSidebar() {
       setTimeout(scrollToBottom, 50);
     } catch (error) {
       console.error('Error sending message:', error);
+      const errorMsg = error.response?.data?.response || error.response?.data?.error || (error.code === 'ECONNABORTED' ? 'Request timed out. Please try again.' : 'Error: Failed to get AI response. Please try again.');
       // Show error in placeholder
       setConversations(prev => prev.map(m =>
-        m.id === placeholderId ? { ...m, body: 'Error: Failed to get AI response. Please try again.', thinking: false, optimistic: false } : m
+        m.id === placeholderId ? { ...m, body: errorMsg, thinking: false, optimistic: false } : m
       ));
       setTimeout(scrollToBottom, 50);
     } finally {

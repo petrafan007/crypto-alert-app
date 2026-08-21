@@ -2148,11 +2148,18 @@ def api_ai_conversations():
 
 def process_ai_conversation(user_id, message, conversation_id=None):
     """Process user message and generate AI response for Copilot sidebar with rich workflow context"""
-    from models import Coin, AIConversation
+    from models import Coin, WatchlistCoin, AIConversation
     from credentials import User
+    import re
     
     user = User.query.get(user_id)
     username = user.username if user else 'jcavallarojr'
+    
+    # Log user message immediately so conversation history is never lost
+    try:
+        log_ai_conversation(user_id, "manual", "user", message)
+    except Exception as log_err:
+        logger.error(f"Error logging initial Copilot user message: {log_err}")
     
     # 1. Gather live portfolio context
     coins = Coin.query.filter_by(user_id=user_id, hidden=False).all()
@@ -2161,9 +2168,41 @@ def process_ai_conversation(user_id, message, conversation_id=None):
     for c in non_stablecoins:
         price = getattr(c, 'current_price', None) or getattr(c, 'initial_price', 0) or 0
         val = (c.amount or 0) * price
-        coin_lines.append(f"- {c.symbol}: {c.amount} tokens (current price: ${price:.2f}, total value: ${val:.2f})")
+        sent = getattr(c, 'sentiment', None) or 'None'
+        coin_lines.append(f"- {c.symbol}: {c.amount} tokens (current price: ${price:.4f}, total value: ${val:.2f}, sentiment: {sent})")
     holdings_text = "\n".join(coin_lines) if coin_lines else "No current non-stablecoin holdings."
     
+    # Detect symbols mentioned in user's message
+    upper_msg = message.upper()
+    words = set(re.findall(r'[A-Za-z0-9]+', upper_msg))
+    
+    portfolio_symbols = [c.symbol.upper() for c in coins if c.symbol]
+    wl_coins = WatchlistCoin.query.filter_by(user_id=user_id).all()
+    wl_symbols = [w.symbol.upper() for w in wl_coins if w.symbol]
+    common_symbols = {'BTC', 'ETH', 'SOL', 'XRP', 'ADA', 'DOGE', 'BNB', 'AVAX', 'LINK', 'SUI', 'ONT', 'DOT', 'NEAR', 'TRX', 'LTC', 'SHIB', 'PEPE', 'USDC', 'USDT'}
+    all_candidate_symbols = set(portfolio_symbols + wl_symbols).union(common_symbols)
+    
+    mentioned_symbols = [w for w in words if w in all_candidate_symbols]
+    target_symbol = mentioned_symbols[0] if mentioned_symbols else (portfolio_symbols[0] if portfolio_symbols else 'CRYPTO')
+    
+    # Check if there is specific sentiment / data for target_symbol
+    symbol_details = []
+    target_coin = next((c for c in coins if c.symbol.upper() == target_symbol), None)
+    target_wl = next((w for w in wl_coins if w.symbol.upper() == target_symbol), None) if not target_coin else None
+    
+    if target_coin:
+        price = getattr(target_coin, 'current_price', None) or getattr(target_coin, 'initial_price', 0) or 0
+        sent = getattr(target_coin, 'sentiment', None) or 'None'
+        reason = getattr(target_coin, 'sentiment_reason', None) or ''
+        symbol_details.append(f"Target Coin: {target_coin.symbol} (Portfolio: {target_coin.amount} tokens @ ${price:.4f}, Sentiment: {sent}, Reason: {reason})")
+    elif target_wl:
+        price = getattr(target_wl, 'current_price', None) or 0
+        sent = getattr(target_wl, 'sentiment', None) or 'None'
+        reason = getattr(target_wl, 'sentiment_reason', None) or ''
+        symbol_details.append(f"Target Coin: {target_wl.symbol} (Watchlist Asset: Price ${price:.4f}, Sentiment: {sent}, Reason: {reason})")
+    
+    symbol_context_text = "\n".join(symbol_details) if symbol_details else ""
+
     # 2. Gather latest Market Analysis context
     latest_market = AIConversation.query.filter(
         AIConversation.user_id == user_id,
@@ -2199,7 +2238,9 @@ def process_ai_conversation(user_id, message, conversation_id=None):
     
     # Build complete context payload for AI
     context_payload = (
-        f"{message}\n\n"
+        f"USER QUESTION / PROMPT:\n{message}\n\n"
+        f"=== FOCUSED SYMBOL CONTEXT ===\n"
+        f"{symbol_context_text or 'No single focus coin identified.'}\n\n"
         f"=== USER PORTFOLIO CONTEXT ===\n"
         f"{holdings_text}\n\n"
         f"=== LATEST MARKET ANALYSIS ===\n"
@@ -2219,7 +2260,7 @@ def process_ai_conversation(user_id, message, conversation_id=None):
         messages=copilot_messages,
         user_id=user_id,
         prompt_type='copilot',
-        symbol=None,
+        symbol=target_symbol,
         model=None
     )
     
@@ -2234,14 +2275,11 @@ def process_ai_conversation(user_id, message, conversation_id=None):
     resp_provider = getattr(response, 'provider', None)
     resp_model = getattr(response, 'model', None)
 
-    # Log user message and AI response in chronological order
+    # Log AI response in database
     try:
-        import time
-        log_ai_conversation(user_id, "manual", "user", message)
-        time.sleep(0.05)
-        log_ai_conversation(user_id, "manual", "ai", ai_content, provider=resp_provider, model=resp_model, tier=resp_tier)
+        log_ai_conversation(user_id, "manual", "ai", ai_content, symbol=target_symbol, provider=resp_provider, model=resp_model, tier=resp_tier)
     except Exception as log_err:
-        logger.error(f"Error logging Copilot conversation: {log_err}")
+        logger.error(f"Error logging Copilot AI response: {log_err}")
     
     return ai_content, conversation_id, resp_tier, resp_provider, resp_model
 
@@ -2273,8 +2311,13 @@ def api_ai_conversation():
         
     except Exception as e:
         logger.error(f"Error processing AI conversation: {e}", exc_info=True)
+        err_msg = f"I'm sorry, I was unable to connect to the AI model right now ({str(e)}). Please verify your AI API key in Settings or try again shortly."
+        try:
+            log_ai_conversation(current_user.id, "manual", "ai", err_msg)
+        except Exception:
+            pass
         return jsonify({
-            'response': 'I apologize, but I encountered an error processing your request. Please try again later.',
+            'response': err_msg,
             'conversation_id': conversation_id
         })
 

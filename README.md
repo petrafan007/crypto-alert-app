@@ -81,6 +81,15 @@ The application utilizes a **unified PostgreSQL database**.
 
 ## Version History & Changelog
 
+## v1.59-beta (August 2026)
+
+### AI Copilot Pipeline Optimization, Reasoning Token Fix & Error Resilience
+- **Fast-Track Copilot Pipeline**: Streamlined the AI Copilot workflow by replacing the multi-stage LLM query generation pass with fast, symbol-targeted search queries, cutting Copilot response latency from 45-75 seconds down to 3-6 seconds.
+- **Reasoning Model Token Budgeting**: Fixed reasoning token starvation for OpenAI reasoning models (`o1`, `o3-mini`, `gpt-5`) where internal reasoning tokens previously consumed the token budget and caused empty completion responses.
+- **Symbol-Aware Context Injection**: Automatically extracts mentioned crypto assets (e.g. `XRP`, `BTC`, `SOL`, `ONT`) from the user's message, injecting live pricing, portfolio holdings, sentiment signals, sentiment reasons, and order status directly into the prompt.
+- **Robust Error Recovery & Logging**: Logs user messages immediately upon receipt, guarantees graceful fallback responses when external AI provider outages occur, and adds a 90-second client timeout with descriptive error propagation in the Copilot UI.
+- **Version Bump**: Synchronized metadata to `v1.59-beta`.
+
 ## v1.58-beta (August 2026)
 
 ### Contextual Trading Pair Filtering on Buy/Sell Navigation & Sentiment Contrast Optimization

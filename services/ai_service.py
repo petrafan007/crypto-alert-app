@@ -300,12 +300,19 @@ def call_ai_with_web_search(
                     raise ValueError("OpenAI API key not configured")
                 from openai import OpenAI
                 client = OpenAI(api_key=key, timeout=90.0)
+                # Reasoning models require enough max_completion_tokens for internal reasoning tokens + output tokens
+                is_reasoning_model = any(m in (model or '').lower() for m in ['o1', 'o3', 'gpt-5', 'reasoning'])
+                effective_tokens = max(p_max_tokens, 2500) if is_reasoning_model else p_max_tokens
                 resp = client.chat.completions.create(
                     model=model,
                     messages=p_messages,
-                    max_completion_tokens=p_max_tokens
+                    max_completion_tokens=effective_tokens
                 )
-                return resp.choices[0].message.content
+                msg = resp.choices[0].message if (resp.choices and len(resp.choices) > 0) else None
+                content = getattr(msg, 'content', '') or ''
+                if not content and hasattr(msg, 'reasoning_content') and msg.reasoning_content:
+                    content = msg.reasoning_content
+                return content
 
             elif provider == 'zai':
                 key = _pick_key('zai')
@@ -449,6 +456,11 @@ def call_ai_with_web_search(
             search_queries = [
                 f"{symbol_value} crypto current price latest news past 12 hours today",
                 f"{symbol_value} cryptocurrency market sentiment news past 12 hours"
+            ]
+        elif prompt_type in ['copilot', 'manual']:
+            # Fast deterministic query for real-time Copilot chat without multi-second LLM query overhead
+            search_queries = [
+                f"{symbol_value} cryptocurrency market price trend sentiment today"
             ]
         else:
             try:
@@ -601,9 +613,11 @@ def log_ai_conversation(user_id, prompt_type, sender, body, symbol=None, coin_id
         )
         db.session.add(conv)
         db.session.commit()
+        return conv.id
     except Exception as e:
         logger.error(f"Error logging AI conversation: {e}")
         db.session.rollback()
+        return None
 
 def parse_sentiment_json(response_text, is_watchlist=False):
     """
