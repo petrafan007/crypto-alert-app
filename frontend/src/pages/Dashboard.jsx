@@ -928,11 +928,14 @@ function Dashboard({ isLightMode }) {
       console.warn('Unable to determine trading pair for symbol:', symbol);
       return;
     }
+    const cleanBase = String(symbol || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+    const baseCoin = cleanBase === 'USDT' ? 'USDT' : (cleanBase.endsWith('USDT') ? cleanBase.slice(0, -4) : cleanBase.endsWith('USD') ? cleanBase.slice(0, -3) : cleanBase);
     navigate('/trading', {
       state: {
         tradePrefill: {
           symbol: pair,
-          side: side === 'SELL' ? 'SELL' : 'BUY'
+          side: side === 'SELL' ? 'SELL' : 'BUY',
+          baseCoin: baseCoin
         }
       }
     });
@@ -1787,12 +1790,20 @@ function Dashboard({ isLightMode }) {
           padding: '6px 8px'
         }}
       >
-        <div style={{
-          display: 'inline-flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          gap: '6px'
-        }}>
+        <div
+          className={`sentiment-pill-wrapper ${coin.hasPendingOrder ? 'pending-highlight-sentiment' : ''}`}
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '6px',
+            background: coin.hasPendingOrder ? 'rgba(15, 23, 42, 0.92)' : 'transparent',
+            padding: coin.hasPendingOrder ? '3px 8px' : '0',
+            borderRadius: coin.hasPendingOrder ? '6px' : '0',
+            border: coin.hasPendingOrder ? '1px solid rgba(0, 0, 0, 0.35)' : 'none',
+            boxShadow: coin.hasPendingOrder ? '0 1px 4px rgba(0, 0, 0, 0.4)' : 'none'
+          }}
+        >
           <span
             style={{
               color: color,
@@ -1805,7 +1816,8 @@ function Dashboard({ isLightMode }) {
               fontSize: '0.88rem',
               display: 'inline-flex',
               alignItems: 'center',
-              whiteSpace: 'nowrap'
+              whiteSpace: 'nowrap',
+              textShadow: coin.hasPendingOrder ? '0 1px 2px rgba(0,0,0,0.6)' : 'none'
             }}
           >
             {label}
@@ -1818,7 +1830,7 @@ function Dashboard({ isLightMode }) {
             style={{
               background: 'transparent',
               border: 'none',
-              color: isChecking ? '#38bdf8' : 'rgba(255, 255, 255, 0.45)',
+              color: isChecking ? '#38bdf8' : (coin.hasPendingOrder ? '#94a3b8' : 'rgba(255, 255, 255, 0.45)'),
               cursor: isChecking ? 'not-allowed' : 'pointer',
               padding: '2px',
               borderRadius: '4px',
@@ -1837,7 +1849,7 @@ function Dashboard({ isLightMode }) {
             }}
             onMouseLeave={(e) => {
               if (!isChecking) {
-                e.currentTarget.style.color = 'rgba(255, 255, 255, 0.45)';
+                e.currentTarget.style.color = coin.hasPendingOrder ? '#94a3b8' : 'rgba(255, 255, 255, 0.45)';
                 e.currentTarget.style.background = 'transparent';
               }
             }}

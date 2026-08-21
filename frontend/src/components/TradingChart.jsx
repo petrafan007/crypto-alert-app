@@ -12,7 +12,7 @@ import {
 import TransactionModal from './TransactionModal';
 import './TradingChart.css';
 
-const TradingChart = ({ symbol, onSymbolChange, tradingPairs = [] }) => {
+const TradingChart = ({ symbol, onSymbolChange, tradingPairs = [], filterCoin = null, onResetFilter = null, totalPairsCount = 0 }) => {
   const chartContainerRef = useRef(null);
   const chartRef = useRef(null);
   const candlestickSeriesRef = useRef(null);
@@ -1314,53 +1314,65 @@ const TradingChart = ({ symbol, onSymbolChange, tradingPairs = [] }) => {
   return (
     <div className="trading-chart-container">
       <div className="chart-header">
-        {onSymbolChange && tradingPairs.length > 0 ? (
-          <select 
-            value={symbol} 
-            onChange={(e) => onSymbolChange(e.target.value)}
-            className="chart-symbol-dropdown"
-          >
-            {(() => {
-              const usdPairs = tradingPairs.filter(p => (p.quote_currency === 'USD' || (p.id && p.id.endsWith('USD') && !p.id.endsWith('USDT'))));
-              const usdtPairs = tradingPairs.filter(p => (p.quote_currency === 'USDT' || (p.id && p.id.endsWith('USDT'))));
-              const otherPairs = tradingPairs.filter(p => !usdPairs.includes(p) && !usdtPairs.includes(p));
+        <div className="chart-symbol-group">
+          {onSymbolChange && tradingPairs.length > 0 ? (
+            <select 
+              value={symbol} 
+              onChange={(e) => onSymbolChange(e.target.value)}
+              className="chart-symbol-dropdown"
+            >
+              {(() => {
+                const usdPairs = tradingPairs.filter(p => (p.quote_currency === 'USD' || (p.id && p.id.endsWith('USD') && !p.id.endsWith('USDT'))));
+                const usdtPairs = tradingPairs.filter(p => (p.quote_currency === 'USDT' || (p.id && p.id.endsWith('USDT'))));
+                const otherPairs = tradingPairs.filter(p => !usdPairs.includes(p) && !usdtPairs.includes(p));
 
-              return (
-                <>
-                  {usdPairs.length > 0 && (
-                    <optgroup label={`USD Pairs (${usdPairs.length})`}>
-                      {usdPairs.map(pair => (
-                        <option key={pair.id} value={pair.id}>
-                          {pair.display_name || pair.id}
-                        </option>
-                      ))}
-                    </optgroup>
-                  )}
-                  {usdtPairs.length > 0 && (
-                    <optgroup label={`USDT Pairs (${usdtPairs.length})`}>
-                      {usdtPairs.map(pair => (
-                        <option key={pair.id} value={pair.id}>
-                          {pair.display_name || pair.id}
-                        </option>
-                      ))}
-                    </optgroup>
-                  )}
-                  {otherPairs.length > 0 && (
-                    <optgroup label="Other Pairs">
-                      {otherPairs.map(pair => (
-                        <option key={pair.id} value={pair.id}>
-                          {pair.display_name || pair.id}
-                        </option>
-                      ))}
-                    </optgroup>
-                  )}
-                </>
-              );
-            })()}
-          </select>
-        ) : (
-          <h3>{baseAsset} / {quoteAsset}</h3>
-        )}
+                return (
+                  <>
+                    {usdPairs.length > 0 && (
+                      <optgroup label={`USD Pairs (${usdPairs.length})`}>
+                        {usdPairs.map(pair => (
+                          <option key={pair.id} value={pair.id}>
+                            {pair.display_name || pair.id}
+                          </option>
+                        ))}
+                      </optgroup>
+                    )}
+                    {usdtPairs.length > 0 && (
+                      <optgroup label={`USDT Pairs (${usdtPairs.length})`}>
+                        {usdtPairs.map(pair => (
+                          <option key={pair.id} value={pair.id}>
+                            {pair.display_name || pair.id}
+                          </option>
+                        ))}
+                      </optgroup>
+                    )}
+                    {otherPairs.length > 0 && (
+                      <optgroup label="Other Pairs">
+                        {otherPairs.map(pair => (
+                          <option key={pair.id} value={pair.id}>
+                            {pair.display_name || pair.id}
+                          </option>
+                        ))}
+                      </optgroup>
+                    )}
+                  </>
+                );
+              })()}
+            </select>
+          ) : (
+            <h3>{baseAsset} / {quoteAsset}</h3>
+          )}
+          {filterCoin && onResetFilter && (
+            <button
+              type="button"
+              className="chart-reset-filter-btn"
+              onClick={onResetFilter}
+              title={`Filtered to ${filterCoin} pairs. Click to show all trading pairs.`}
+            >
+              🔄 Show All Pairs {totalPairsCount > 0 ? `(${totalPairsCount})` : ''}
+            </button>
+          )}
+        </div>
         <div className="interval-selector">
           {intervals.map(int => (
             <button

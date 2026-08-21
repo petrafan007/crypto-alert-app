@@ -2837,6 +2837,21 @@ body.light-mode *[style*="color:'#666'"] {
   color: #000 !important;
 }
 
+/* Sentiment contrast protection on pending-order highlighted rows */
+.table-container.portfolio-table tr.pending-order .sentiment-pill-wrapper.pending-highlight-sentiment,
+.table-container.portfolio-table tbody tr.pending-order .sentiment-pill-wrapper.pending-highlight-sentiment {
+  background: rgba(15, 23, 42, 0.95) !important;
+  border: 1px solid rgba(0, 0, 0, 0.4) !important;
+  border-radius: 6px !important;
+  padding: 3px 8px !important;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35) !important;
+}
+
+.table-container.portfolio-table tr.pending-order .sentiment-pill-wrapper.pending-highlight-sentiment span,
+.table-container.portfolio-table tbody tr.pending-order .sentiment-pill-wrapper.pending-highlight-sentiment span {
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6) !important;
+}
+
 
 .table-container.portfolio-table table {
   display: table !important;

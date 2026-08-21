@@ -448,13 +448,26 @@ const Trading = () => {
     setBalancePercentage(0);
   };
 
+  const [filterCoin, setFilterCoin] = useState(() => {
+    if (location.state?.tradePrefill?.baseCoin) {
+      return location.state.tradePrefill.baseCoin;
+    }
+    return null;
+  });
+
   useEffect(() => {
     if (location.state?.tradePrefill) {
-      const { symbol, side } = location.state.tradePrefill;
+      const { symbol, side, baseCoin } = location.state.tradePrefill;
       if (symbol) {
         try {
           localStorage.setItem('selectedTradingPair', symbol);
         } catch (e) {}
+      }
+      if (baseCoin) {
+        setFilterCoin(baseCoin);
+      } else if (symbol) {
+        const derived = (symbol.endsWith('USD') && !symbol.endsWith('USDT')) ? symbol.slice(0, -3) : symbol.endsWith('USDT') ? symbol.slice(0, -4) : symbol;
+        setFilterCoin(derived);
       }
       setOrderForm((prev) => ({
         ...prev,
@@ -518,6 +531,17 @@ const Trading = () => {
       console.error('Failed to load live trading pairs, using fallback:', error);
     }
   };
+
+  const displayedTradingPairs = React.useMemo(() => {
+    if (!filterCoin) return tradingPairs;
+    const cleanFilter = filterCoin.toUpperCase().trim();
+    const matched = tradingPairs.filter(p => {
+      const base = (p.base_currency || '').toUpperCase();
+      const id = (p.id || '').toUpperCase();
+      return base === cleanFilter || id.startsWith(cleanFilter);
+    });
+    return matched.length > 0 ? matched : tradingPairs;
+  }, [tradingPairs, filterCoin]);
 
   // Load settings and data on mount
   useEffect(() => {
@@ -1563,7 +1587,10 @@ const Trading = () => {
               key={orderForm.symbol}
               symbol={orderForm.symbol}
               onSymbolChange={handleSymbolChange}
-              tradingPairs={tradingPairs}
+              tradingPairs={displayedTradingPairs}
+              totalPairsCount={tradingPairs.length}
+              filterCoin={filterCoin}
+              onResetFilter={() => setFilterCoin(null)}
             />
 
             <form onSubmit={handleOrderSubmit} className="order-form">

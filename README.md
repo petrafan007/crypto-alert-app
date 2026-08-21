@@ -81,6 +81,14 @@ The application utilizes a **unified PostgreSQL database**.
 
 ## Version History & Changelog
 
+## v1.58-beta (August 2026)
+
+### Contextual Trading Pair Filtering on Buy/Sell Navigation & Sentiment Contrast Optimization
+- **Contextual Pair Filtering on Navigation**: Clicking "Buy" or "Sell" from the Portfolio or Watchlist tables now automatically focuses and filters the Trading page dropdown to show only relevant pairs for the selected asset (e.g. clicking XRP shows `XRP/USD` and `XRP/USDT`), eliminating unnecessary scrolling across hundreds of symbols.
+- **Show All Pairs Reset Button**: Added a dedicated "🔄 Show All Pairs" reset button directly in the Trading Chart header to instantly restore the full multi-hundred pair catalog at any time.
+- **High-Contrast Sentiment Badge on Pending Rows**: Redesigned sentiment pill rendering on yellow highlighted pending-order rows with a high-contrast dark capsule container (`rgba(15, 23, 42, 0.95)`), ensuring sentiment text (`Hold`, `Consider Selling`, `Consider Buying`, etc.) and refresh controls remain crisp, vivid, and easily readable.
+- **Version Bump**: Synchronized metadata to `v1.58-beta`.
+
 ## v1.57-beta (August 2026)
 
 ### Complete Binance.US USD Trading Pairs Expansion & Dynamic Exchange Synchronization
