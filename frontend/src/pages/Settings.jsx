@@ -2600,12 +2600,12 @@ export default function Settings({ isLightMode }) {
             <div style={{ background: '#1a1f23', padding: 16, borderRadius: 8, border: '1px solid #444', marginTop: 16 }}>
               <h5 style={{ color: '#4fd1c5', marginBottom: 12, fontSize: '14px' }}>AI Copilot System Prompt</h5>
               <p style={{ color: '#a0a6b8', fontSize: '12px', marginBottom: 16, lineHeight: '1.4' }}>
-                Configure the behavior of the manual AI Copilot sidebar. Use the Pre-Search prompt to extract search queries, and the Post-Search prompt to guide the final answer.
+                Configure the persona and analytical behavior of the AI Copilot sidebar. The Copilot automatically receives your live portfolio, watchlist, pending orders, and active sidebar conversation feed.
               </p>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                 <div>
                   <label style={{ display: 'block', marginBottom: 8, color: '#fff', fontSize: '12px' }}>
-                    Pre-Search Prompt (Search Logic)
+                    Search Intelligence Prompt (Pre-Search)
                   </label>
                   <textarea
                     value={settings.copilot_chat_pre || ''}
@@ -2614,7 +2614,7 @@ export default function Settings({ isLightMode }) {
                       autoResizeTextarea(e.target);
                     }}
                     onInput={(e) => autoResizeTextarea(e.target)}
-                    placeholder="e.g. Analyze the request and extract search terms..."
+                    placeholder="e.g. You are the search intelligence module for the AI Copilot..."
                     style={{
                       width: 'calc(100% - 24px)',
                       padding: '8px 12px',
@@ -2633,7 +2633,7 @@ export default function Settings({ isLightMode }) {
                 </div>
                 <div>
                   <label style={{ display: 'block', marginBottom: 8, color: '#fff', fontSize: '12px' }}>
-                    Post-Search Prompt (Answer Logic)
+                    Copilot System Instructions (Post-Search Synthesis)
                   </label>
                   <textarea
                     value={settings.copilot_chat_post || ''}
@@ -2642,7 +2642,7 @@ export default function Settings({ isLightMode }) {
                       autoResizeTextarea(e.target);
                     }}
                     onInput={(e) => autoResizeTextarea(e.target)}
-                    placeholder="e.g. You are a helpful assistant. Use the search results..."
+                    placeholder="e.g. You are the AI Copilot for Crypto Alert App, an expert cryptocurrency portfolio strategist..."
                     style={{
                       width: 'calc(100% - 24px)',
                       padding: '8px 12px',

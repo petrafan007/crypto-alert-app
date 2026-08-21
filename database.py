@@ -45,7 +45,7 @@ def init_db(app=None):
             except Exception as ex:
                 print(f"Migration note for {table}.{col}: {ex}")
 
-        # Seed default watchlist prompts if empty
+        # Seed default watchlist & copilot prompts if empty
         default_wl_pre = (
             "You are an intelligent search query generator for cryptocurrency analysis. "
             "I am currently monitoring {symbol} on my watchlist as a prospective investment opportunity. "
@@ -62,6 +62,19 @@ def init_db(app=None):
             "}\n\n"
             "Do NOT include any explanation, preamble, markdown, or text outside of the JSON object."
         )
+        default_copilot_pre = (
+            "You are the search intelligence module for the AI Copilot in Crypto Alert App. "
+            "Analyze the user's inquiry and relevant context as of {datetime} to extract the most effective, targeted search query for live market information."
+        )
+        default_copilot_post = (
+            "You are the AI Copilot for Crypto Alert App, an expert cryptocurrency portfolio strategist and market analyst. "
+            "You have direct access to the user's live portfolio, watchlist, pending orders, recent sentiment ratings & reasons, market analysis workflows, and recent sidebar conversation history as of {datetime}.\n\n"
+            "When answering the user:\n"
+            "- Provide actionable, data-backed guidance considering technical momentum, sentiment ratings, risk/reward, and current portfolio exposure.\n"
+            "- When referencing sentiment signals (e.g. 'Consider Selling', 'Consider Buying', 'Hold'), explain the underlying market drivers, catalysts, and whether contrarian opportunities or caution are warranted.\n"
+            "- Directly address proposed trades, limit orders, entry/exit price targets, and market trends with clear reasoning.\n"
+            "- Maintain a concise, structured, and professional tone with bullet points where appropriate."
+        )
         try:
             def_prompt = DefaultAIPrompt.query.first()
             if def_prompt:
@@ -69,6 +82,10 @@ def init_db(app=None):
                     def_prompt.watchlist_sentiment_prompt_pre = default_wl_pre
                 if not def_prompt.watchlist_sentiment_prompt_post:
                     def_prompt.watchlist_sentiment_prompt_post = default_wl_post
+                if not def_prompt.copilot_chat_pre or len(def_prompt.copilot_chat_pre.strip()) < 40:
+                    def_prompt.copilot_chat_pre = default_copilot_pre
+                if not def_prompt.copilot_chat_post or len(def_prompt.copilot_chat_post.strip()) < 80:
+                    def_prompt.copilot_chat_post = default_copilot_post
                 db.session.commit()
             
             user_prompts = AIPrompt.query.all()
@@ -80,10 +97,16 @@ def init_db(app=None):
                 if not up.watchlist_sentiment_prompt_post:
                     up.watchlist_sentiment_prompt_post = default_wl_post
                     updated = True
+                if not up.copilot_chat_pre or len(up.copilot_chat_pre.strip()) < 40:
+                    up.copilot_chat_pre = default_copilot_pre
+                    updated = True
+                if not up.copilot_chat_post or len(up.copilot_chat_post.strip()) < 80:
+                    up.copilot_chat_post = default_copilot_post
+                    updated = True
                 if updated:
                     db.session.commit()
         except Exception as seed_err:
-            print(f"Error seeding default watchlist prompts: {seed_err}")
+            print(f"Error seeding default prompts: {seed_err}")
             db.session.rollback()
 
     if ctx:

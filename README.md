@@ -81,6 +81,14 @@ The application utilizes a **unified PostgreSQL database**.
 
 ## Version History & Changelog
 
+## v1.60-beta (August 2026)
+
+### AI Copilot System Prompt Overhaul & Active Sidebar Feed Stream Context Integration
+- **AI Copilot System Prompt Redesign**: Overhauled the default AI Copilot system instructions across database schemas, defaults, and Settings UI, framing the assistant as an expert crypto trading strategist, portfolio analyst, and market intelligence copilot.
+- **Active Sidebar Stream Context Integration**: Dynamically compiles the active chronological stream of sidebar cards into Copilot prompt context—including recent Portfolio Sentiments, Watchlist Sentiments, Market Analyses, Portfolio Reviews, and prior chat dialogue.
+- **Pending Orders & Limit Target Context**: Integrated live pending limit orders and target prices alongside portfolio holdings, ensuring the Copilot can provide data-backed feedback on proposed trades and buy/sell limit targets.
+- **Version Bump**: Synchronized metadata to `v1.60-beta`.
+
 ## v1.59-beta (August 2026)
 
 ### AI Copilot Pipeline Optimization, Reasoning Token Fix & Error Resilience

@@ -2150,6 +2150,7 @@ def process_ai_conversation(user_id, message, conversation_id=None):
     """Process user message and generate AI response for Copilot sidebar with rich workflow context"""
     from models import Coin, WatchlistCoin, AIConversation
     from credentials import User
+    from core.extensions import db
     import re
     
     user = User.query.get(user_id)
@@ -2169,10 +2170,26 @@ def process_ai_conversation(user_id, message, conversation_id=None):
         price = getattr(c, 'current_price', None) or getattr(c, 'initial_price', 0) or 0
         val = (c.amount or 0) * price
         sent = getattr(c, 'sentiment', None) or 'None'
-        coin_lines.append(f"- {c.symbol}: {c.amount} tokens (current price: ${price:.4f}, total value: ${val:.2f}, sentiment: {sent})")
+        reason = getattr(c, 'sentiment_reason', None) or ''
+        reason_snippet = f" (Reason: {reason[:100]}...)" if reason else ""
+        coin_lines.append(f"- {c.symbol}: {c.amount} tokens (current price: ${price:.4f}, total value: ${val:.2f}, sentiment: {sent}{reason_snippet})")
     holdings_text = "\n".join(coin_lines) if coin_lines else "No current non-stablecoin holdings."
     
-    # Detect symbols mentioned in user's message
+    # 2. Gather active pending orders
+    pending_orders_list = []
+    try:
+        from trading_models import RealOrder, TestOrder
+        real_pending = RealOrder.query.filter_by(user_id=user_id, status='NEW').all()
+        test_pending = TestOrder.query.filter_by(user_id=user_id, status='NEW').all()
+        for o in (real_pending + test_pending):
+            price_val = float(o.price or 0)
+            qty_val = o.orig_qty or o.amount or ''
+            pending_orders_list.append(f"- {o.symbol} {o.side} {o.type} @ ${price_val:.4f} (Qty: {qty_val})")
+    except Exception as ord_err:
+        logger.warning(f"Note loading pending orders for Copilot: {ord_err}")
+    pending_orders_text = "\n".join(pending_orders_list) if pending_orders_list else "No active pending orders."
+
+    # 3. Detect symbols mentioned in user's message
     upper_msg = message.upper()
     words = set(re.findall(r'[A-Za-z0-9]+', upper_msg))
     
@@ -2203,52 +2220,64 @@ def process_ai_conversation(user_id, message, conversation_id=None):
     
     symbol_context_text = "\n".join(symbol_details) if symbol_details else ""
 
-    # 2. Gather latest Market Analysis context
-    latest_market = AIConversation.query.filter(
-        AIConversation.user_id == user_id,
-        AIConversation.prompt_type == 'market_analysis',
-        AIConversation.sender == 'ai'
-    ).order_by(AIConversation.id.desc()).first()
-    market_text = latest_market.body[:2500] if latest_market and latest_market.body else "No recent market analysis available."
+    # 4. Gather active AI Copilot Sidebar Feed Stream (chronological context)
+    sidebar_feed_lines = []
+    try:
+        sidebar_records = AIConversation.query.filter(
+            AIConversation.user_id == user_id,
+            db.or_(AIConversation.is_hidden == 0, AIConversation.is_hidden.is_(None)),
+            ~AIConversation.prompt_type.endswith('_workflow')
+        ).order_by(AIConversation.id.desc()).limit(20).all()
+        sidebar_records.reverse()  # Oldest -> Newest chronological order
+        
+        for rec in sidebar_records:
+            ptype = rec.prompt_type
+            sender = (rec.sender or '').lower()
+            body = (rec.body or '').strip()
+            time_str = rec.time or (rec.created_at.strftime('%Y-%m-%d %H:%M') if rec.created_at else '')
+            
+            # Determine coin symbol if associated with a coin
+            coin_sym = ""
+            if rec.coin_id:
+                matched_coin = next((c for c in coins if c.id == rec.coin_id), None)
+                if not matched_coin:
+                    matched_coin = next((w for w in wl_coins if w.id == rec.coin_id), None)
+                if matched_coin:
+                    coin_sym = f" [{matched_coin.symbol}]"
+
+            if ptype in ['sentiment_analysis', 'watchlist_sentiment_analysis']:
+                prefix = "Portfolio Sentiment" if ptype == 'sentiment_analysis' else "Watchlist Sentiment"
+                sidebar_feed_lines.append(f"[{time_str}] {prefix}{coin_sym}:\n{body}")
+            elif ptype == 'market_analysis':
+                snippet = body[:1200] + ("..." if len(body) > 1200 else "")
+                sidebar_feed_lines.append(f"[{time_str}] Workflow - Market Analysis:\n{snippet}")
+            elif ptype == 'portfolio_review':
+                snippet = body[:1200] + ("..." if len(body) > 1200 else "")
+                sidebar_feed_lines.append(f"[{time_str}] Workflow - Portfolio Review:\n{snippet}")
+            elif sender == 'user':
+                sidebar_feed_lines.append(f"[{time_str}] User: {body}")
+            elif sender == 'ai':
+                snippet = body[:1500] + ("..." if len(body) > 1500 else "")
+                sidebar_feed_lines.append(f"[{time_str}] AI Copilot: {snippet}")
+            else:
+                snippet = body[:500]
+                sidebar_feed_lines.append(f"[{time_str}] {ptype.title()}{coin_sym}: {snippet}")
+    except Exception as side_err:
+        logger.warning(f"Error loading sidebar feed for Copilot: {side_err}")
     
-    # 3. Gather latest Portfolio Review context
-    latest_review = AIConversation.query.filter(
-        AIConversation.user_id == user_id,
-        AIConversation.prompt_type == 'portfolio_review',
-        AIConversation.sender == 'ai'
-    ).order_by(AIConversation.id.desc()).first()
-    review_text = latest_review.body[:2500] if latest_review and latest_review.body else "No recent portfolio review available."
-    
-    # 4. Gather recent conversation history for conversational continuity
-    recent_convs = AIConversation.query.filter(
-        AIConversation.user_id == user_id,
-        AIConversation.is_hidden == 0,
-        AIConversation.prompt_type.in_(['manual', 'copilot'])
-    ).order_by(AIConversation.id.desc()).limit(6).all()
-    recent_convs.reverse()
-    
-    conv_history_lines = []
-    for c in recent_convs:
-        speaker = "User" if c.sender == 'user' else "AI Copilot"
-        snippet = (c.body or '').strip()
-        if len(snippet) > 300:
-            snippet = snippet[:300] + "..."
-        conv_history_lines.append(f"{speaker}: {snippet}")
-    history_text = "\n".join(conv_history_lines) if conv_history_lines else "No previous conversation history."
+    sidebar_feed_text = "\n\n".join(sidebar_feed_lines) if sidebar_feed_lines else "No recent sidebar activity."
     
     # Build complete context payload for AI
     context_payload = (
         f"USER QUESTION / PROMPT:\n{message}\n\n"
         f"=== FOCUSED SYMBOL CONTEXT ===\n"
         f"{symbol_context_text or 'No single focus coin identified.'}\n\n"
-        f"=== USER PORTFOLIO CONTEXT ===\n"
+        f"=== USER ACTIVE PENDING ORDERS ===\n"
+        f"{pending_orders_text}\n\n"
+        f"=== USER LIVE PORTFOLIO HOLDINGS ===\n"
         f"{holdings_text}\n\n"
-        f"=== LATEST MARKET ANALYSIS ===\n"
-        f"{market_text}\n\n"
-        f"=== LATEST PORTFOLIO REVIEW ===\n"
-        f"{review_text}\n\n"
-        f"=== RECENT CHAT HISTORY ===\n"
-        f"{history_text}"
+        f"=== ACTIVE AI COPILOT SIDEBAR STREAM & CHAT HISTORY (Oldest to Newest) ===\n"
+        f"{sidebar_feed_text}"
     )
     
     copilot_messages = [
