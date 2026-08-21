@@ -81,6 +81,19 @@ The application utilizes a **unified PostgreSQL database**.
 
 ## Version History & Changelog
 
+## v1.62-beta (August 2026)
+
+### Customizable Upper Dashboard Widget Grid & Modernized Tables Facelift
+- **Interactive Upper Widget Grid**: Converted the 7 upper dashboard panels (Allocations Donut, Portfolio Trend Area Line, Fear & Greed Gauge, Total Portfolio Value, CBBI Bull Run Index, Staking Yield, and 7-Day Performance Tickers) into an interactive customizable grid.
+  - **Edit Dashboard Mode**: Toggle button in the header enabling visual drag-and-drop (`⠿`) reordering, width span resizing (1x, 2x, 3x full-width), and one-click hiding (`✕`).
+  - **Restore / Unhide Panels Drawer**: Dedicated "+ Add / Restore Panels" menu to unhide previously hidden panels at any time.
+  - **Persistent Local Layout**: Automatic storage in `localStorage` with a "Reset Default" restore option.
+- **Modernized Portfolio & Watchlist Tables**:
+  - Full aesthetic facelift with frosted glass card containers, subtle neon borders, modern typography, and refined action buttons.
+  - **100% Feature Parity Preserved**: Retained all table actions (Buy ⚡, Sell ⚡, Stake 🪙, Hide 👁️, Notes 📝, Alert Bell 🔔, Delete 🗑️), on-demand sentiment recalculation (🔄), 7-day sparkline hover popup, column sorting (`▲`/`▼`), and yellow pending order highlights.
+- **Full Theme Parity**: Complete Light Mode and Dark Mode support across all new and refreshed components.
+- **Version Bump**: Synchronized all client and package metadata to `v1.62-beta`.
+
 ## v1.61-beta (August 2026)
 
 ### Independent Order History View, 20-Order Pagination & Searchable Trading Pair Selectors

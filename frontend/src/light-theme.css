@@ -761,3 +761,46 @@ input:focus, select:focus, textarea:focus {
 .table-container.portfolio-table thead th.portfolio-header {
   text-align: center !important;
 }
+
+/* Modernized Light Mode Table Container & Styling */
+.light-mode .table-container.portfolio-table,
+.light-mode .table-container.watchlist-table {
+  background: #ffffff !important;
+  border: 1px solid #e2e8f0 !important;
+  border-radius: 12px !important;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.05) !important;
+}
+
+.light-mode .table-container .table-header {
+  border-bottom: 1px solid #e2e8f0 !important;
+}
+
+.light-mode .table-container .table-title {
+  color: #0f172a !important;
+}
+
+.light-mode .table-container.portfolio-table thead th,
+.light-mode .table-container.watchlist-table thead th {
+  background: #f8fafc !important;
+  color: #475569 !important;
+  border-bottom: 1px solid #e2e8f0 !important;
+}
+
+.light-mode .table-container.portfolio-table tbody tr,
+.light-mode .table-container.watchlist-table tbody tr {
+  border-bottom: 1px solid #f1f5f9 !important;
+}
+
+.light-mode .table-container.portfolio-table tbody tr:hover,
+.light-mode .table-container.watchlist-table tbody tr:hover {
+  background: #f8fafc !important;
+}
+
+.light-mode .symbol-cell {
+  color: #0284c7 !important;
+}
+
+.light-mode .symbol-cell:hover {
+  color: #0369a1 !important;
+}
+

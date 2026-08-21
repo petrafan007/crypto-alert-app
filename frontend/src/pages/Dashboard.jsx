@@ -11,6 +11,7 @@ import FearGreedWidget from '../components/FearGreedWidget';
 import CBBIWidget from '../components/CBBIWidget';
 import StakingSummaryWidget from '../components/StakingSummaryWidget';
 import PortfolioPerformanceTable from '../components/PortfolioPerformanceTable';
+import DashboardWidgetGrid from '../components/DashboardWidgetGrid';
 import { FaSyncAlt } from 'react-icons/fa';
 
 const TREND_RANGES = [
@@ -1967,129 +1968,80 @@ function Dashboard({ isLightMode }) {
           </button>
         </div>
       )}
-      {/* Charts Section */}
-      <div className="charts-container">
-        {/* Allocations Chart */}
-        <div className="chart-panel">
-          <h2 className="chart-title">Allocations</h2>
-          <div style={{ height: '300px' }}>
-            <PortfolioPie portfolio={portfolio} isLightMode={isLightMode} />
-          </div>
-        </div>
-
-        {/* Portfolio Trend Chart */}
-        <div className="chart-panel">
-          <h2 className="chart-title">Portfolio Trend</h2>
-          <div style={{ height: '300px' }}>
-            {trendLoading ? (
-              <div style={{
-                display: 'flex',
-                justifyContent: 'center',
-                alignItems: 'center',
-                height: '100%',
-                color: '#666'
-              }}>
-                Loading trend...
-              </div>
-            ) : (
-              <PortfolioTrend history={trendHistory} range={trendRange} isLightMode={isLightMode} />
-            )}
-          </div>
-
-          {/* Time Range Buttons */}
-          <div className="time-range-container">
-            {TREND_RANGES.map(range => (
-              <button
-                key={range.key}
-                onClick={() => setTrendRange(range.key)}
-                className={`time-range-btn ${trendRange === range.key ? 'active' : ''}`}
-              >
-                {range.label}
-              </button>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      {/* Widgets Row: Fear & Greed, Total Value, CBBI */}
-      <div style={{
-        display: 'flex',
-        justifyContent: 'center',
-        alignItems: 'stretch',
-        gap: '20px',
-        marginBottom: '24px',
-        flexWrap: 'wrap'
-      }}>
-        {/* Fear & Greed Index Widget */}
-        <FearGreedWidget />
-
-        {/* Total Value Widget */}
-        <div style={{
-          background: 'var(--card-bg, #ffffff)',
-          borderRadius: '12px',
-          boxShadow: '0 2px 8px rgba(0, 0, 0, 0.1)',
-          padding: '16px',
-          minWidth: '280px',
-          maxWidth: '320px',
-          border: '1px solid var(--border-color, #e0e0e0)',
-          display: 'flex',
-          flexDirection: 'column',
-          justifyContent: 'center',
-          alignItems: 'center'
-        }}>
-          <div style={{ marginBottom: '16px', textAlign: 'center' }}>
-            <h3 style={{
-              margin: '0 0 4px 0',
-              fontSize: '16px',
-              fontWeight: '600',
-              color: 'var(--text-primary, #333333)'
-            }}>
-              Portfolio Value
-            </h3>
-            <small style={{
-              fontSize: '12px',
-              color: 'var(--text-secondary, #666666)',
-              display: 'block'
-            }}>
-              Total Holdings (incl. staking & pending)
-            </small>
-          </div>
-          <div style={{
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            gap: '12px',
-            flex: 1,
-            justifyContent: 'center'
-          }}>
-            <div style={{
-              fontSize: '32px',
-              fontWeight: 'bold',
-              color: 'var(--primary-color, #007bff)',
-              textAlign: 'center'
-            }}>
-              ${totalValue ? totalValue.toFixed(2) : '0.00'}
-            </div>
-            <div style={{
-              fontSize: '12px',
-              color: 'var(--text-secondary, #666666)',
-              opacity: '0.8',
-              textAlign: 'center'
-            }}>
-              Includes Binance.US staking balances · Last updated: {new Date().toLocaleString()}
-            </div>
-          </div>
-        </div>
-
-        {/* CBBI Widget */}
-        <CBBIWidget />
-
-        {/* Staking Summary Widget */}
-        <StakingSummaryWidget />
-
-        {/* Live portfolio performance table */}
-        <PortfolioPerformanceTable />
-      </div>
+      {/* Interactive Customizable Widgets Grid */}
+      <DashboardWidgetGrid
+        isLightMode={isLightMode}
+        renderWidgetContent={(widgetId) => {
+          switch (widgetId) {
+            case 'allocations':
+              return (
+                <div className="chart-panel widget-panel-inner" style={{ height: '100%', padding: '16px', display: 'flex', flexDirection: 'column' }}>
+                  <h2 className="chart-title" style={{ margin: '0 0 12px 0', fontSize: '1.1rem' }}>Allocations</h2>
+                  <div style={{ flex: 1, minHeight: '260px', width: '100%' }}>
+                    <PortfolioPie portfolio={portfolio} isLightMode={isLightMode} />
+                  </div>
+                </div>
+              );
+            case 'trend':
+              return (
+                <div className="chart-panel widget-panel-inner" style={{ height: '100%', padding: '16px', display: 'flex', flexDirection: 'column' }}>
+                  <h2 className="chart-title" style={{ margin: '0 0 12px 0', fontSize: '1.1rem' }}>Portfolio Trend</h2>
+                  <div style={{ flex: 1, minHeight: '220px', width: '100%' }}>
+                    {trendLoading ? (
+                      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%', color: '#94a3b8' }}>
+                        Loading trend...
+                      </div>
+                    ) : (
+                      <PortfolioTrend history={trendHistory} range={trendRange} isLightMode={isLightMode} />
+                    )}
+                  </div>
+                  <div className="time-range-container" style={{ marginTop: '8px', display: 'flex', justifyContent: 'center', gap: '4px', flexWrap: 'wrap' }}>
+                    {TREND_RANGES.map(range => (
+                      <button
+                        key={range.key}
+                        onClick={() => setTrendRange(range.key)}
+                        className={`time-range-btn ${trendRange === range.key ? 'active' : ''}`}
+                      >
+                        {range.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              );
+            case 'fear_greed':
+              return <FearGreedWidget />;
+            case 'portfolio_value':
+              return (
+                <div className="portfolio-value-widget-card widget-panel-inner" style={{ padding: '20px', height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center' }}>
+                  <div style={{ marginBottom: '14px', textAlign: 'center' }}>
+                    <h3 style={{ margin: '0 0 4px 0', fontSize: '16px', fontWeight: '600', color: 'var(--text-primary, #ffffff)' }}>
+                      Portfolio Value
+                    </h3>
+                    <small style={{ fontSize: '12px', color: 'var(--text-secondary, #94a3b8)', display: 'block' }}>
+                      Total Holdings (incl. staking & pending)
+                    </small>
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px', flex: 1, justifyContent: 'center' }}>
+                    <div style={{ fontSize: '32px', fontWeight: 'bold', color: 'var(--primary-color, #38bdf8)', textAlign: 'center' }}>
+                      ${totalValue ? totalValue.toFixed(2) : '0.00'}
+                    </div>
+                    <div style={{ fontSize: '12px', color: 'var(--text-secondary, #94a3b8)', opacity: '0.85', textAlign: 'center' }}>
+                      Includes Binance.US staking balances · Last updated: {new Date().toLocaleTimeString()}
+                    </div>
+                  </div>
+                </div>
+              );
+            case 'cbbi':
+              return <CBBIWidget />;
+            case 'staking':
+              return <StakingSummaryWidget />;
+            case 'performance':
+              return <PortfolioPerformanceTable />;
+            default:
+              return null;
+          }
+        }}
+      />
 
       {/* Portfolio Table */}
       <div className="table-container portfolio-table">

@@ -3115,3 +3115,95 @@ body.light-mode .table-container.portfolio-table tbody tr.pending-order .symbol-
     border-radius: 12px 0 0 12px !important;
   }
 }
+
+/* Modernized Dashboard & Tables Facelift */
+.table-container.portfolio-table,
+.table-container.watchlist-table {
+  background: rgba(15, 23, 42, 0.75);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  backdrop-filter: blur(12px);
+  box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.3);
+  overflow: hidden;
+  margin-bottom: 2rem;
+}
+
+.table-container .table-header {
+  padding: 1rem 1.25rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.table-container .table-title {
+  font-size: 1.35rem;
+  font-weight: 700;
+  color: #f8fafc;
+  margin: 0;
+  letter-spacing: -0.01em;
+}
+
+.table-container.portfolio-table thead th,
+.table-container.watchlist-table thead th {
+  background: rgba(30, 41, 59, 0.9);
+  color: #94a3b8;
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 10px 14px;
+  border-bottom: 1px solid #334155;
+}
+
+.table-container.portfolio-table tbody tr,
+.table-container.watchlist-table tbody tr {
+  transition: background-color 0.15s ease;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.table-container.portfolio-table tbody tr:hover,
+.table-container.watchlist-table tbody tr:hover {
+  background: rgba(30, 41, 59, 0.5) !important;
+}
+
+.table-container.portfolio-table td,
+.table-container.watchlist-table td {
+  padding: 10px 14px;
+  font-size: 0.9rem;
+}
+
+.symbol-cell {
+  font-weight: 700;
+  color: #38bdf8;
+  transition: color 0.15s ease;
+}
+
+.symbol-cell:hover {
+  color: #7dd3fc;
+  text-decoration: underline;
+}
+
+.trade-action-btn {
+  border-radius: 6px !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.02em;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+
+.trade-action-btn.buy {
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%) !important;
+}
+
+.trade-action-btn.sell {
+  background: linear-gradient(135deg, #f43f5e 0%, #e11d48 100%) !important;
+}
+
+.trade-action-btn.stake {
+  background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%) !important;
+}
+
+.trade-action-btn.hide {
+  background: linear-gradient(135deg, #475569 0%, #334155 100%) !important;
+}
+
