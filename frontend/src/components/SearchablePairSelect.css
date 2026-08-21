@@ -1,0 +1,238 @@
+/* SearchablePairSelect.css - High Contrast Dark Theme Pair Selector */
+
+.searchable-pair-select-container {
+  position: relative;
+  display: inline-block;
+  min-width: 220px;
+  max-width: 100%;
+  font-family: inherit;
+  user-select: none;
+}
+
+.searchable-pair-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  width: 100%;
+  padding: 0.45rem 0.85rem;
+  background: #1e293b;
+  border: 1px solid #475569;
+  border-radius: 6px;
+  color: #f8fafc;
+  font-size: 0.95rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease-in-out;
+  box-sizing: border-box;
+  text-align: left;
+}
+
+.searchable-pair-trigger:hover:not(:disabled) {
+  background: #273549;
+  border-color: #38bdf8;
+  box-shadow: 0 0 0 1px rgba(56, 189, 248, 0.2);
+}
+
+.searchable-pair-select-container.open .searchable-pair-trigger {
+  border-color: #38bdf8;
+  box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.25);
+  background: #0f172a;
+}
+
+.searchable-pair-trigger:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.searchable-pair-trigger-content {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.searchable-pair-name {
+  color: #f8fafc;
+  font-weight: 600;
+}
+
+.searchable-pair-symbol-badge {
+  font-size: 0.75rem;
+  color: #94a3b8;
+  background: rgba(15, 23, 42, 0.6);
+  padding: 2px 6px;
+  border-radius: 4px;
+  border: 1px solid #334155;
+}
+
+.searchable-pair-arrow {
+  color: #94a3b8;
+  font-size: 0.75rem;
+  flex-shrink: 0;
+}
+
+/* Dropdown Panel */
+.searchable-pair-dropdown-panel {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  width: 320px;
+  max-width: 90vw;
+  background: #0f172a;
+  border: 1px solid #334155;
+  border-radius: 8px;
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.7), 0 8px 10px -6px rgba(0, 0, 0, 0.7);
+  z-index: 1050;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  animation: fadeInDown 0.15s ease-out;
+}
+
+@keyframes fadeInDown {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Search Box */
+.searchable-pair-search-box {
+  display: flex;
+  align-items: center;
+  padding: 0.5rem 0.75rem;
+  background: #1e293b;
+  border-bottom: 1px solid #334155;
+  gap: 0.5rem;
+}
+
+.searchable-pair-search-icon {
+  font-size: 0.9rem;
+  opacity: 0.7;
+}
+
+.searchable-pair-input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  color: #f8fafc;
+  font-size: 0.9rem;
+  outline: none;
+  font-family: inherit;
+}
+
+.searchable-pair-input::placeholder {
+  color: #64748b;
+  font-size: 0.85rem;
+}
+
+.searchable-pair-clear-btn {
+  background: none;
+  border: none;
+  color: #94a3b8;
+  font-size: 0.9rem;
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 4px;
+}
+
+.searchable-pair-clear-btn:hover {
+  color: #f8fafc;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+/* Pair List */
+.searchable-pair-list {
+  max-height: 280px;
+  overflow-y: auto;
+  padding: 0.35rem 0;
+  scrollbar-width: thin;
+  scrollbar-color: #475569 #0f172a;
+}
+
+.searchable-pair-list::-webkit-scrollbar {
+  width: 6px;
+}
+
+.searchable-pair-list::-webkit-scrollbar-thumb {
+  background-color: #475569;
+  border-radius: 3px;
+}
+
+.searchable-pair-group-header {
+  padding: 0.4rem 0.75rem 0.2rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: #38bdf8;
+  letter-spacing: 0.05em;
+}
+
+.searchable-pair-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.45rem 0.75rem;
+  color: #cbd5e1;
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: background 0.1s ease;
+}
+
+.searchable-pair-option:hover,
+.searchable-pair-option.highlighted {
+  background: #1e293b;
+  color: #f8fafc;
+}
+
+.searchable-pair-option.selected {
+  background: #0369a1;
+  color: #ffffff;
+  font-weight: 600;
+}
+
+.searchable-pair-option-label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.searchable-pair-option-name {
+  font-weight: 500;
+}
+
+.searchable-pair-option-code {
+  font-size: 0.75rem;
+  color: #94a3b8;
+}
+
+.searchable-pair-option.selected .searchable-pair-option-code {
+  color: #bae6fd;
+}
+
+.searchable-pair-check {
+  color: #38bdf8;
+  font-weight: bold;
+  font-size: 0.95rem;
+}
+
+.searchable-pair-option.selected .searchable-pair-check {
+  color: #ffffff;
+}
+
+.searchable-pair-no-results {
+  padding: 1.5rem 1rem;
+  text-align: center;
+  color: #94a3b8;
+  font-size: 0.9rem;
+}

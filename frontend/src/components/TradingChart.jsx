@@ -10,6 +10,7 @@ import {
   calculateATR
 } from '../utils/technicalIndicators';
 import TransactionModal from './TransactionModal';
+import SearchablePairSelect from './SearchablePairSelect';
 import './TradingChart.css';
 
 const TradingChart = ({ symbol, onSymbolChange, tradingPairs = [], filterCoin = null, onResetFilter = null, totalPairsCount = 0 }) => {
@@ -1316,49 +1317,12 @@ const TradingChart = ({ symbol, onSymbolChange, tradingPairs = [], filterCoin = 
       <div className="chart-header">
         <div className="chart-symbol-group">
           {onSymbolChange && tradingPairs.length > 0 ? (
-            <select 
-              value={symbol} 
-              onChange={(e) => onSymbolChange(e.target.value)}
-              className="chart-symbol-dropdown"
-            >
-              {(() => {
-                const usdPairs = tradingPairs.filter(p => (p.quote_currency === 'USD' || (p.id && p.id.endsWith('USD') && !p.id.endsWith('USDT'))));
-                const usdtPairs = tradingPairs.filter(p => (p.quote_currency === 'USDT' || (p.id && p.id.endsWith('USDT'))));
-                const otherPairs = tradingPairs.filter(p => !usdPairs.includes(p) && !usdtPairs.includes(p));
-
-                return (
-                  <>
-                    {usdPairs.length > 0 && (
-                      <optgroup label={`USD Pairs (${usdPairs.length})`}>
-                        {usdPairs.map(pair => (
-                          <option key={pair.id} value={pair.id}>
-                            {pair.display_name || pair.id}
-                          </option>
-                        ))}
-                      </optgroup>
-                    )}
-                    {usdtPairs.length > 0 && (
-                      <optgroup label={`USDT Pairs (${usdtPairs.length})`}>
-                        {usdtPairs.map(pair => (
-                          <option key={pair.id} value={pair.id}>
-                            {pair.display_name || pair.id}
-                          </option>
-                        ))}
-                      </optgroup>
-                    )}
-                    {otherPairs.length > 0 && (
-                      <optgroup label="Other Pairs">
-                        {otherPairs.map(pair => (
-                          <option key={pair.id} value={pair.id}>
-                            {pair.display_name || pair.id}
-                          </option>
-                        ))}
-                      </optgroup>
-                    )}
-                  </>
-                );
-              })()}
-            </select>
+            <SearchablePairSelect
+              value={symbol}
+              onChange={onSymbolChange}
+              tradingPairs={tradingPairs}
+              placeholder="Search trading pairs..."
+            />
           ) : (
             <h3>{baseAsset} / {quoteAsset}</h3>
           )}

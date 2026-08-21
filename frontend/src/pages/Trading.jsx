@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import axios from 'axios';
 import OrderFeedbackModal from '../components/OrderFeedbackModal';
 import TwoFactorModal from '../components/TwoFactorModal';
@@ -7,6 +7,7 @@ import CancelOrderModal from '../components/CancelOrderModal';
 import TradingChart from '../components/TradingChart';
 import TradePermissionModal from '../components/TradePermissionModal';
 import ApiKeyRequiredModal from '../components/ApiKeyRequiredModal';
+import SearchablePairSelect from '../components/SearchablePairSelect';
 import './Trading.css';
 import { useLocation, useNavigate } from 'react-router-dom';
 
@@ -55,6 +56,9 @@ const Trading = () => {
   const [loading, setLoading] = useState(false);
   const [activeTab, setActiveTab] = useState('order'); // 'order', 'history', 'portfolio'
   const [showCanceledOrders, setShowCanceledOrders] = useState(false);
+  const [historySymbolFilter, setHistorySymbolFilter] = useState('ALL');
+  const [historyPage, setHistoryPage] = useState(1);
+  const HISTORY_PAGE_SIZE = 20;
 
   // Modal state for feedback
   const [feedbackModal, setFeedbackModal] = useState({
@@ -1430,17 +1434,35 @@ const Trading = () => {
     return normalized.includes('CANCEL');
   };
 
-  const currentPairOrders = orderForm.symbol === 'ALL'
+  const currentPairOrders = historySymbolFilter === 'ALL'
     ? orders
-    : orders.filter((order) => (order.symbol || '').toUpperCase() === (orderForm.symbol || '').toUpperCase());
+    : orders.filter((order) => (order.symbol || '').toUpperCase() === (historySymbolFilter || '').toUpperCase());
 
   const filteredOrders = showCanceledOrders
     ? currentPairOrders
     : currentPairOrders.filter((order) => !isCanceledStatus(order.status));
 
-  const filteredOpenOrders = orderForm.symbol === 'ALL'
+  const filteredOpenOrders = historySymbolFilter === 'ALL'
     ? openOrders
-    : openOrders.filter((order) => (order.symbol || '').toUpperCase() === (orderForm.symbol || '').toUpperCase());
+    : openOrders.filter((order) => (order.symbol || '').toUpperCase() === (historySymbolFilter || '').toUpperCase());
+
+  // Reset pagination to page 1 whenever filter or canceled filter changes
+  useEffect(() => {
+    setHistoryPage(1);
+  }, [historySymbolFilter, showCanceledOrders]);
+
+  const totalHistoryPages = Math.max(1, Math.ceil(filteredOrders.length / HISTORY_PAGE_SIZE));
+
+  useEffect(() => {
+    if (historyPage > totalHistoryPages) {
+      setHistoryPage(totalHistoryPages);
+    }
+  }, [historyPage, totalHistoryPages]);
+
+  const paginatedOrders = useMemo(() => {
+    const startIndex = (historyPage - 1) * HISTORY_PAGE_SIZE;
+    return filteredOrders.slice(startIndex, startIndex + HISTORY_PAGE_SIZE);
+  }, [filteredOrders, historyPage]);
 
   return (
     <div className="trading-container" style={{ minHeight: '100vh', padding: '20px', color: 'white' }}>
@@ -1828,66 +1850,20 @@ const Trading = () => {
                   <h2>Open Orders</h2>
                 </div>
                 <div className="history-pair-filter" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                  <label htmlFor="history-pair-dropdown" style={{ color: '#94a3b8', fontSize: '0.9rem' }}>Filter Pair:</label>
-                  <select
-                    id="history-pair-dropdown"
-                    value={orderForm.symbol}
-                    onChange={(e) => handleSymbolChange(e.target.value)}
-                    style={{
-                      padding: '6px 12px',
-                      fontSize: '0.95rem',
-                      borderRadius: '6px',
-                      background: '#1e293b',
-                      color: '#fff',
-                      border: '1px solid #475569',
-                      cursor: 'pointer'
-                    }}
-                  >
-                    <option value="ALL">All Trading Pairs</option>
-                    {(() => {
-                      const usdPairs = tradingPairs.filter(p => p.quote_currency === 'USD' || (p.id && p.id.endsWith('USD') && !p.id.endsWith('USDT')));
-                      const usdtPairs = tradingPairs.filter(p => p.quote_currency === 'USDT' || (p.id && p.id.endsWith('USDT')));
-                      const otherPairs = tradingPairs.filter(p => !usdPairs.includes(p) && !usdtPairs.includes(p));
-
-                      return (
-                        <>
-                          {usdPairs.length > 0 && (
-                            <optgroup label={`USD Pairs (${usdPairs.length})`}>
-                              {usdPairs.map(pair => (
-                                <option key={pair.id} value={pair.id}>
-                                  {pair.display_name} ({pair.id})
-                                </option>
-                              ))}
-                            </optgroup>
-                          )}
-                          {usdtPairs.length > 0 && (
-                            <optgroup label={`USDT Pairs (${usdtPairs.length})`}>
-                              {usdtPairs.map(pair => (
-                                <option key={pair.id} value={pair.id}>
-                                  {pair.display_name} ({pair.id})
-                                </option>
-                              ))}
-                            </optgroup>
-                          )}
-                          {otherPairs.length > 0 && (
-                            <optgroup label="Other Pairs">
-                              {otherPairs.map(pair => (
-                                <option key={pair.id} value={pair.id}>
-                                  {pair.display_name} ({pair.id})
-                                </option>
-                              ))}
-                            </optgroup>
-                          )}
-                        </>
-                      );
-                    })()}
-                  </select>
+                  <label style={{ color: '#94a3b8', fontSize: '0.9rem' }}>Filter Pair:</label>
+                  <SearchablePairSelect
+                    value={historySymbolFilter}
+                    onChange={setHistorySymbolFilter}
+                    tradingPairs={tradingPairs}
+                    includeAllOption={true}
+                    placeholder="All Trading Pairs"
+                  />
                 </div>
               </div>
 
               {filteredOpenOrders.length === 0 ? (
                 <div className="empty-state">
-                  <p>No open orders {orderForm.symbol !== 'ALL' ? `for ${orderForm.symbol}` : ''}</p>
+                  <p>No open orders {historySymbolFilter !== 'ALL' ? `for ${historySymbolFilter}` : ''}</p>
                 </div>
               ) : (
                 <div className="table-container trading-table">
@@ -1950,7 +1926,7 @@ const Trading = () => {
 
             {/* All Orders History */}
             <div className="order-history-header" style={{ marginTop: '2rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
-              <h2>Order History {orderForm.symbol !== 'ALL' && <span style={{ fontSize: '0.9rem', color: '#60a5fa', fontWeight: 'normal' }}>({orderForm.symbol})</span>}</h2>
+              <h2>Order History {historySymbolFilter !== 'ALL' && <span style={{ fontSize: '0.9rem', color: '#60a5fa', fontWeight: 'normal' }}>({historySymbolFilter})</span>}</h2>
               <div className="order-history-toggle">
                 <label className="toggle-switch">
                   <input
@@ -1966,53 +1942,128 @@ const Trading = () => {
 
             {filteredOrders.length === 0 ? (
               <div className="empty-state">
-                <p>{orders.length === 0 ? 'No orders yet. Place your first order to get started!' : `No orders found for ${orderForm.symbol !== 'ALL' ? orderForm.symbol : 'this filter'}.`}</p>
+                <p>{orders.length === 0 ? 'No orders yet. Place your first order to get started!' : `No orders found for ${historySymbolFilter !== 'ALL' ? historySymbolFilter : 'this filter'}.`}</p>
               </div>
             ) : (
-              <div className="table-container trading-table">
-                <div className="order-table-scroll">
-                  <table>
-                    <thead>
-                      <tr>
-                        <th>Date</th>
-                        <th>Symbol</th>
-                        <th>Side</th>
-                        <th>Type</th>
-                        <th>Quantity</th>
-                        <th>Price</th>
-                        <th>Filled</th>
-                        <th>Status</th>
-                        <th>Total</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {filteredOrders.map((order) => (
-                        <tr key={order.id}>
-                          <td>{formatDate(order.created_at)}</td>
-                          <td className="symbol-cell">{order.symbol}</td>
-                          <td>
-                            <span className={`badge badge-${order.side.toLowerCase()}`}>
-                              {order.side}
-                            </span>
-                          </td>
-                          <td>{order.order_type}</td>
-                          <td>{formatNumber(order.quantity, 8)}</td>
-                          <td>{order.price ? `$${formatNumber(order.price)}` : '-'}</td>
-                          <td>{formatNumber(order.filled_quantity || 0, 8)}</td>
-                          <td>
-                            <span className={`badge badge-${(order.status || 'unknown').toLowerCase()}`}>
-                              {order.status}
-                            </span>
-                          </td>
-                          <td>
-                            ${formatNumber((order.filled_quantity || order.quantity || 0) * (order.filled_price || order.price || 0))}
-                          </td>
+              <>
+                <div className="table-container trading-table">
+                  <div className="order-table-scroll">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Date</th>
+                          <th>Symbol</th>
+                          <th>Side</th>
+                          <th>Type</th>
+                          <th>Quantity</th>
+                          <th>Price</th>
+                          <th>Filled</th>
+                          <th>Status</th>
+                          <th>Total</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                      </thead>
+                      <tbody>
+                        {paginatedOrders.map((order) => (
+                          <tr key={order.id}>
+                            <td>{formatDate(order.created_at)}</td>
+                            <td className="symbol-cell">{order.symbol}</td>
+                            <td>
+                              <span className={`badge badge-${order.side.toLowerCase()}`}>
+                                {order.side}
+                              </span>
+                            </td>
+                            <td>{order.order_type}</td>
+                            <td>{formatNumber(order.quantity, 8)}</td>
+                            <td>{order.price ? `$${formatNumber(order.price)}` : '-'}</td>
+                            <td>{formatNumber(order.filled_quantity || 0, 8)}</td>
+                            <td>
+                              <span className={`badge badge-${(order.status || 'unknown').toLowerCase()}`}>
+                                {order.status}
+                              </span>
+                            </td>
+                            <td>
+                              ${formatNumber((order.filled_quantity || order.quantity || 0) * (order.filled_price || order.price || 0))}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
-              </div>
+
+                {/* Pagination Controls */}
+                {filteredOrders.length > 0 && (
+                  <div className="order-history-pagination">
+                    <div className="order-history-pagination-info">
+                      Showing {(historyPage - 1) * HISTORY_PAGE_SIZE + 1}–{Math.min(historyPage * HISTORY_PAGE_SIZE, filteredOrders.length)} of {filteredOrders.length} orders
+                    </div>
+                    {totalHistoryPages > 1 && (
+                      <div className="order-history-pagination-controls">
+                        <button
+                          type="button"
+                          className="pagination-btn"
+                          onClick={() => setHistoryPage(1)}
+                          disabled={historyPage === 1}
+                          title="First Page"
+                        >
+                          ««
+                        </button>
+                        <button
+                          type="button"
+                          className="pagination-btn"
+                          onClick={() => setHistoryPage(prev => Math.max(1, prev - 1))}
+                          disabled={historyPage === 1}
+                          title="Previous Page"
+                        >
+                          ‹ Prev
+                        </button>
+
+                        {(() => {
+                          const pages = [];
+                          const maxVisible = 5;
+                          let startPage = Math.max(1, historyPage - Math.floor(maxVisible / 2));
+                          let endPage = Math.min(totalHistoryPages, startPage + maxVisible - 1);
+                          if (endPage - startPage + 1 < maxVisible) {
+                            startPage = Math.max(1, endPage - maxVisible + 1);
+                          }
+                          for (let i = startPage; i <= endPage; i++) {
+                            pages.push(
+                              <button
+                                key={i}
+                                type="button"
+                                className={`pagination-btn ${historyPage === i ? 'active' : ''}`}
+                                onClick={() => setHistoryPage(i)}
+                              >
+                                {i}
+                              </button>
+                            );
+                          }
+                          return pages;
+                        })()}
+
+                        <button
+                          type="button"
+                          className="pagination-btn"
+                          onClick={() => setHistoryPage(prev => Math.min(totalHistoryPages, prev + 1))}
+                          disabled={historyPage === totalHistoryPages}
+                          title="Next Page"
+                        >
+                          Next ›
+                        </button>
+                        <button
+                          type="button"
+                          className="pagination-btn"
+                          onClick={() => setHistoryPage(totalHistoryPages)}
+                          disabled={historyPage === totalHistoryPages}
+                          title="Last Page"
+                        >
+                          »»
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </>
             )}
           </div>
         )}

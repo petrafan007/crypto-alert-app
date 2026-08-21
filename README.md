@@ -81,6 +81,16 @@ The application utilizes a **unified PostgreSQL database**.
 
 ## Version History & Changelog
 
+## v1.61-beta (August 2026)
+
+### Independent Order History View, 20-Order Pagination & Searchable Trading Pair Selectors
+- **Independent Order History Filter**: Decoupled the pair filter in the Order History tab from the Place Order form. Navigating to Order History now defaults to displaying all open orders and complete trade history across all pairs (`ALL`), without interfering with or being constrained by the currently selected pair on the Place Order tab.
+- **Order History Table Pagination**: Added 20-row pagination to the Order History table with responsive page controls (First, Previous, Numbered Page Pills, Next, Last) and row range indicators.
+- **Searchable Trading Pair Dropdowns**:
+  - Replaced the static `<select>` in the Place Order / Trading Chart header with a searchable typeahead dropdown, allowing instant real-time filtering and selection across hundreds of pairs by typing asset tickers or names (e.g. `XRP`, `SOL`, `BTC`, `USD`).
+  - Replaced the Order History pair filter dropdown with a matching searchable typeahead selector featuring an "All Trading Pairs" global view option.
+- **Version Bump**: Synchronized all client and package metadata to `v1.61-beta`.
+
 ## v1.60-beta (August 2026)
 
 ### AI Copilot System Prompt Overhaul, Optimistic Message Management & Overload Resilience
