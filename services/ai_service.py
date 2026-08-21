@@ -256,13 +256,7 @@ def call_ai_with_web_search(
                 original_user_message = msg.get('content', '')
                 break
 
-        # Check for DB context request
-        db_context = ""
-        if include_db_context:
-            try:
-                db_context = get_relevant_db_context(username, original_user_message)
-            except Exception as e:
-                logger.error(f"Error retrieving DB context for {username}: {e}")
+
 
         # Check for cached AI response
         if use_cache:
