@@ -931,7 +931,7 @@ const AIDashboard = () => {
                       ? selectedFilterCoins
                       : availableCoinFilters.map(c => c.symbol);
                     const displayHistory = (accuracyData?.history || []).filter(row =>
-                      activeFilterCoins.includes(row.symbol)
+                      activeFilterCoins.includes(row.symbol) && !row.is_latest && row.outcome_status !== 'tracking'
                     );
 
                     if (displayHistory && displayHistory.length > 0) {
@@ -957,7 +957,7 @@ const AIDashboard = () => {
                               </div>
                             </td>
                             <td className="price-cell">
-                              {row.is_latest ? 'Tracking' : `$${parseFloat(row.evaluation_price || 0) > 100
+                              {`$${parseFloat(row.evaluation_price || 0) > 100
                                 ? parseFloat(row.evaluation_price || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })
                                 : parseFloat(row.evaluation_price || 0).toFixed(4)}`}
                             </td>
@@ -968,8 +968,8 @@ const AIDashboard = () => {
                             </td>
                             <td className="date-cell">{row.date}</td>
                             <td className="time-cell">{row.time}</td>
-                            <td className="date-cell" style={{ color: row.is_latest ? 'var(--text-secondary)' : 'var(--text-primary)' }}>{row.eval_date || 'Tracking'}</td>
-                            <td className="time-cell" style={{ color: row.is_latest ? 'var(--text-secondary)' : 'var(--text-primary)' }}>{row.eval_time || 'Tracking'}</td>
+                            <td className="date-cell" style={{ color: 'var(--text-primary)' }}>{row.eval_date || '—'}</td>
+                            <td className="time-cell" style={{ color: 'var(--text-primary)' }}>{row.eval_time || '—'}</td>
                             <td>
                               <span className={`signal-pill ${signalBadgeClass}`} title={row.sentiment_reason || ''}>
                                 {row.sentiment}
@@ -985,8 +985,8 @@ const AIDashboard = () => {
                                   ❌ Wrong ({row.outcome_pct || 0}%)
                                 </span>
                               ) : (
-                                <span className="outcome-pill outcome-tracking">
-                                  ⏳ Active Tracking
+                                <span className="outcome-pill outcome-neutral" style={{ background: 'rgba(100, 116, 139, 0.15)', color: 'var(--text-secondary)' }}>
+                                  ⚖️ Neutral ({row.outcome_pct || 0}%)
                                 </span>
                               )}
                             </td>
@@ -999,8 +999,8 @@ const AIDashboard = () => {
                       <tr>
                         <td colSpan="9" style={{ textAlign: 'center', padding: '32px', color: 'var(--text-secondary)' }}>
                           {accuracyData?.history?.length > 0
-                            ? 'No coins selected in ledger filter. Click "⚙️ Configure Coins" to enable coins.'
-                            : 'No sentiment history recorded yet. Run a sentiment analysis from the Dashboard or triggers to start tracking theses.'}
+                            ? 'No validated prediction pairs matching the selected coin filters yet.'
+                            : 'No validated prediction pairs yet. Historical pairs will appear once consecutive sentiment checks and pricing are recorded to measure outcome.'}
                         </td>
                       </tr>
                     );

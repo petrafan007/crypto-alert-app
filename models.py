@@ -31,6 +31,7 @@ class Coin(db.Model):
     sentiment_provider = db.Column(db.String(50), nullable=True)
     sentiment_model = db.Column(db.String(100), nullable=True)
     sentiment_tier = db.Column(db.String(50), nullable=True)
+    sentiment_search_status = db.Column(db.String(100), nullable=True)
     note = db.Column(db.Text, default="")
     volatility_pct = db.Column(db.Float, nullable=True)
     last_volatility_alert_time = db.Column(db.DateTime, nullable=True)
@@ -64,6 +65,7 @@ class WatchlistCoin(db.Model):
     sentiment_provider = db.Column(db.String(50), nullable=True)
     sentiment_model = db.Column(db.String(100), nullable=True)
     sentiment_tier = db.Column(db.String(50), nullable=True)
+    sentiment_search_status = db.Column(db.String(100), nullable=True)
     
     # Composite index for efficient lookups
     __table_args__ = (
@@ -269,6 +271,7 @@ class SentimentHistory(db.Model):
     provider = db.Column(db.String(50), nullable=True)
     model = db.Column(db.String(100), nullable=True)
     tier = db.Column(db.String(50), nullable=True)
+    sentiment_search_status = db.Column(db.String(100), nullable=True)
     outcome_price = db.Column(db.Float, nullable=True)
     outcome_pct = db.Column(db.Float, nullable=True)
     outcome_status = db.Column(db.String(20), default='tracking')  # 'correct', 'wrong', 'tracking', 'neutral'

@@ -4357,6 +4357,7 @@ def api_watchlist():
             "sentiment_provider": getattr(w, 'sentiment_provider', None),
             "sentiment_model": getattr(w, 'sentiment_model', None),
             "sentiment_tier": getattr(w, 'sentiment_tier', None),
+            "sentiment_search_status": getattr(w, 'sentiment_search_status', None),
             "volatility_pct": w.volatility_pct,
             "cached_news": w_news.get('text', ''),
             "cached_news_date": w_news.get('created_at', None)
@@ -4401,6 +4402,7 @@ def api_watchlist_live():
             "sentiment_provider": getattr(w, 'sentiment_provider', None),
             "sentiment_model": getattr(w, 'sentiment_model', None),
             "sentiment_tier": getattr(w, 'sentiment_tier', None),
+            "sentiment_search_status": getattr(w, 'sentiment_search_status', None),
             "volatility_pct": w.volatility_pct,
             "cached_news": w_news.get('text', ''),
             "cached_news_date": w_news.get('created_at', None)

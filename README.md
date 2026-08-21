@@ -81,6 +81,15 @@ The application utilizes a **unified PostgreSQL database**.
 
 ## Version History & Changelog
 
+## v1.56-beta (August 2026)
+
+### Sentiment Web Search Provenance & Historical Prediction Ledger Formatting
+- **Web Search Provenance Tracking**: Added `sentiment_search_status` across `Coin`, `WatchlistCoin`, and `SentimentHistory` database models (with `migrations/migrate_v1_56.py`), recording detailed web search execution telemetry (`Brave Search (N results found)`, `Brave Search (N results, no specific news)`, `DuckDuckGo Fallback`, or `Web Search Unavailable`).
+- **Dashboard Sentiment Tooltip Search Status**: Enhanced the tooltip when hovering over sentiment pills in the Dashboard to show exact web search engine and outcome with status icons (`✅`, `⚠️`, `❌`).
+- **Historical Prediction Ledger Completed Pairs Filter**: Filtered out active tracking rows (`is_latest` / `outcome_status == 'tracking'`) from the Historical Prediction Ledger table so only validated prediction-outcome pairs with two concrete sentiment and pricing data points are displayed.
+- **12-Hour AM/PM Eastern Time Formatting**: Updated signal timestamps and evaluation timestamps in the prediction ledger to clean 12-hour AM/PM Eastern time format (e.g. `9:20 PM`).
+- **Version Bump**: Synchronized metadata to `v1.56-beta`.
+
 ## v1.55-beta (August 2026)
 
 ### Database Migration for Schedule Columns & Reliable Timestamp-Based Polling

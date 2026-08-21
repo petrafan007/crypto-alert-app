@@ -209,6 +209,7 @@ def api_coin_data_live():
                     "sentiment_provider": getattr(coin, 'sentiment_provider', None),
                     "sentiment_model": getattr(coin, 'sentiment_model', None),
                     "sentiment_tier": getattr(coin, 'sentiment_tier', None),
+                    "sentiment_search_status": getattr(coin, 'sentiment_search_status', None),
                     "cached_news": coin_news.get('text', ''),
                     "cached_news_date": coin_news.get('created_at', None)
                 })
@@ -251,6 +252,7 @@ def api_coin_data_live():
                         "sentiment_provider": getattr(coin, 'sentiment_provider', None),
                         "sentiment_model": getattr(coin, 'sentiment_model', None),
                         "sentiment_tier": getattr(coin, 'sentiment_tier', None),
+                        "sentiment_search_status": getattr(coin, 'sentiment_search_status', None),
                         "cached_news": fallback_news.get('text', ''),
                         "cached_news_date": fallback_news.get('created_at', None)
                     })
@@ -361,6 +363,7 @@ def api_coin_data():
                     "sentiment_provider": getattr(coin, 'sentiment_provider', None),
                     "sentiment_model": getattr(coin, 'sentiment_model', None),
                     "sentiment_tier": getattr(coin, 'sentiment_tier', None),
+                    "sentiment_search_status": getattr(coin, 'sentiment_search_status', None),
                     "cached_news": coin_news.get('text', ''),
                     "cached_news_date": coin_news.get('created_at', None)
                 })

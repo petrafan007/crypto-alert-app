@@ -1696,6 +1696,18 @@ function Dashboard({ isLightMode }) {
         metaParts.push(`Model: ${coin.sentiment_model}`);
       }
     }
+    if (coin.sentiment_search_status) {
+      let icon = '🔍';
+      const statusLower = coin.sentiment_search_status.toLowerCase();
+      if (statusLower.includes('brave') && !statusLower.includes('failed')) {
+        icon = '✅';
+      } else if (statusLower.includes('fallback') || statusLower.includes('duckduckgo')) {
+        icon = '⚠️';
+      } else if (statusLower.includes('unavailable') || statusLower.includes('failed')) {
+        icon = '❌';
+      }
+      metaParts.push(`Web Search: ${icon} ${coin.sentiment_search_status}`);
+    }
     const metaInfo = metaParts.join('\n');
 
     let tooltip = '';

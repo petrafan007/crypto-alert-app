@@ -753,7 +753,7 @@ def api_ai_sentiment_accuracy():
                 else:
                     model_stats[model_key]['neutral'] += 1
 
-                # Format EDT Date/Time cleanly for current record
+                # Format EDT Date/Time cleanly for current record (12-hour AM/PM)
                 created_dt = r.created_at
                 if created_dt:
                     if created_dt.tzinfo is None:
@@ -761,14 +761,14 @@ def api_ai_sentiment_accuracy():
                     else:
                         created_dt = created_dt.astimezone(eastern)
                     date_str = f"{created_dt.month:02d}/{created_dt.day:02d}/{str(created_dt.year)[-2:]}"
-                    time_str = created_dt.strftime('%H:%M')
+                    time_str = created_dt.strftime('%I:%M %p').lstrip('0')
                     formatted_datetime = f"{date_str} at {time_str}"
                 else:
                     formatted_datetime = ''
                     date_str = ''
                     time_str = ''
 
-                # Format EDT Date/Time for next record (evaluation record)
+                # Format EDT Date/Time for next record (evaluation record) (12-hour AM/PM)
                 eval_date_str = ''
                 eval_time_str = ''
                 if not is_latest and next_record and next_record.created_at:
@@ -778,31 +778,34 @@ def api_ai_sentiment_accuracy():
                     else:
                         eval_dt = eval_dt.astimezone(eastern)
                     eval_date_str = f"{eval_dt.month:02d}/{eval_dt.day:02d}/{str(eval_dt.year)[-2:]}"
-                    eval_time_str = eval_dt.strftime('%H:%M')
+                    eval_time_str = eval_dt.strftime('%I:%M %p').lstrip('0')
 
-                history_list.append({
-                    'id': r.id,
-                    'symbol': sym,
-                    'source_type': r.source_type,
-                    'sentiment': r.sentiment,
-                    'sentiment_reason': r.sentiment_reason,
-                    'price_at_prediction': entry_price,
-                    'evaluation_price': eval_price,
-                    'eval_target': eval_target,
-                    'is_latest': is_latest,
-                    'outcome_pct': outcome_pct,
-                    'outcome_status': outcome_status,
-                    'provider': r.provider,
-                    'model': r.model,
-                    'tier': r.tier,
-                    'date': date_str,
-                    'time': time_str,
-                    'eval_date': eval_date_str,
-                    'eval_time': eval_time_str,
-                    'formatted_datetime': formatted_datetime,
-                    'created_at': r.created_at.isoformat() if r.created_at else None,
-                    'created_timestamp': int(created_dt.timestamp()) if created_dt else int(now_utc.timestamp())
-                })
+                # Only include completed / validated historical pairs in the ledger table
+                if not is_latest and next_record:
+                    history_list.append({
+                        'id': r.id,
+                        'symbol': sym,
+                        'source_type': r.source_type,
+                        'sentiment': r.sentiment,
+                        'sentiment_reason': r.sentiment_reason,
+                        'price_at_prediction': entry_price,
+                        'evaluation_price': eval_price,
+                        'eval_target': eval_target,
+                        'is_latest': False,
+                        'outcome_pct': outcome_pct,
+                        'outcome_status': outcome_status,
+                        'provider': r.provider,
+                        'model': r.model,
+                        'tier': r.tier,
+                        'search_status': getattr(r, 'sentiment_search_status', None),
+                        'date': date_str,
+                        'time': time_str,
+                        'eval_date': eval_date_str,
+                        'eval_time': eval_time_str,
+                        'formatted_datetime': formatted_datetime,
+                        'created_at': r.created_at.isoformat() if r.created_at else None,
+                        'created_timestamp': int(created_dt.timestamp()) if created_dt else int(now_utc.timestamp())
+                    })
 
         # Sort history list descending by created_at (newest first for table)
         history_list.sort(key=lambda x: x.get('created_timestamp', 0), reverse=True)

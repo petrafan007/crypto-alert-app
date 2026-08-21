@@ -134,11 +134,12 @@ def web_search(query, max_results=2, username=None, freshness="pd"):
 
 class AIResponseWrapper:
     """Wrapper to provide uniform `.choices[0].message.content` interface."""
-    def __init__(self, text, tier="primary", provider=None, model=None):
+    def __init__(self, text, tier="primary", provider=None, model=None, search_status=None):
         self.text = text or ""
         self.tier = tier
         self.provider = provider
         self.model = model
+        self.search_status = search_status or "Brave Search"
         self.choices = [self._Choice(self.text)]
     
     class _Choice:
@@ -460,14 +461,41 @@ def call_ai_with_web_search(
         # Stage 2: Web Searches
         # Enforce strict 12-24h freshness for Brave Search API
         search_summaries = []
+        search_sources = set()
         freshness_filter = "pd"  # Brave Search API past-day (24h) parameter
+        valid_search_results = 0
+        symbol_mentioned = False
+        clean_sym = (symbol_value or '').upper()
+
         for q in search_queries:
             if not q: continue
             results = web_search(q, max_results=2, username=username, freshness=freshness_filter)
             for item in results:
+                src = item.get('source', '')
+                if src:
+                    search_sources.add(src)
+                if src != 'System':
+                    valid_search_results += 1
+                    title_snip = f"{item.get('title', '')} {item.get('snippet', '')}".upper()
+                    if clean_sym and clean_sym in title_snip:
+                        symbol_mentioned = True
                 search_summaries.append(f"- {item.get('title')}: {item.get('snippet')} ({item.get('url')})")
         
         search_text = "\n".join(search_summaries) if search_summaries else "No recent search results found."
+
+        # Compute search status string
+        if any('Brave' in s for s in search_sources):
+            if valid_search_results > 0:
+                if symbol_mentioned:
+                    search_status = f"Brave Search ({valid_search_results} results found)"
+                else:
+                    search_status = f"Brave Search ({valid_search_results} results, no specific news)"
+            else:
+                search_status = "Brave Search (0 results found)"
+        elif any('DuckDuckGo' in s for s in search_sources):
+            search_status = f"DuckDuckGo Fallback ({valid_search_results} results found)"
+        else:
+            search_status = "Web Search Unavailable"
 
         # Stage 3: Synthesis
         stage3_prompt_map = {
@@ -500,7 +528,8 @@ def call_ai_with_web_search(
             final_content,
             tier=current_tier_name,
             provider=provider,
-            model=model
+            model=model,
+            search_status=search_status
         ), stage3_user_msg
 
     except Exception as e:
@@ -525,7 +554,7 @@ def call_ai_with_web_search(
                 )
         raise
 
-def record_sentiment_history(user_id, symbol, sentiment, sentiment_reason, price_at_prediction, provider=None, model=None, tier=None, source_type='portfolio', coin_id=None):
+def record_sentiment_history(user_id, symbol, sentiment, sentiment_reason, price_at_prediction, provider=None, model=None, tier=None, source_type='portfolio', coin_id=None, search_status=None):
     """Save an AI sentiment recommendation snapshot into sentiment_history for accuracy tracking."""
     try:
         from models import SentimentHistory
@@ -542,6 +571,7 @@ def record_sentiment_history(user_id, symbol, sentiment, sentiment_reason, price
             provider=provider,
             model=model,
             tier=tier,
+            sentiment_search_status=search_status,
             created_at=now,
             outcome_status='tracking'
         )
@@ -840,6 +870,7 @@ def analyze_single_symbol_sentiment(user_id, username, symbol, is_watchlist=Fals
         resp_tier = getattr(response, 'tier', 'primary')
         resp_provider = getattr(response, 'provider', None)
         resp_model = getattr(response, 'model', None)
+        resp_search_status = getattr(response, 'search_status', None) or 'Brave Search'
 
         # Update database
         resolved_coin_id = coin_id
@@ -853,6 +884,7 @@ def analyze_single_symbol_sentiment(user_id, username, symbol, is_watchlist=Fals
                 wl_row.sentiment_provider = resp_provider
                 wl_row.sentiment_model = resp_model
                 wl_row.sentiment_tier = resp_tier
+                wl_row.sentiment_search_status = resp_search_status
                 db.session.commit()
                 resolved_coin_id = wl_row.id
                 snapshot_price = float(getattr(wl_row, 'current_price', 0.0) or 0.0)
@@ -865,6 +897,7 @@ def analyze_single_symbol_sentiment(user_id, username, symbol, is_watchlist=Fals
                 coin_row.sentiment_provider = resp_provider
                 coin_row.sentiment_model = resp_model
                 coin_row.sentiment_tier = resp_tier
+                coin_row.sentiment_search_status = resp_search_status
                 db.session.commit()
                 resolved_coin_id = coin_row.id
                 snapshot_price = float(getattr(coin_row, 'current', 0.0) or getattr(coin_row, 'avg_entry', 0.0) or 0.0)
@@ -886,7 +919,8 @@ def analyze_single_symbol_sentiment(user_id, username, symbol, is_watchlist=Fals
             model=resp_model,
             tier=resp_tier,
             source_type='watchlist' if is_watchlist else 'portfolio',
-            coin_id=resolved_coin_id
+            coin_id=resolved_coin_id,
+            search_status=resp_search_status
         )
 
         log_ai_conversation(user_id, prompt_type, "user", actual_stage3_prompt, symbol=symbol, coin_id=resolved_coin_id, provider=resp_provider, model=resp_model, tier=resp_tier)
