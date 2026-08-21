@@ -81,6 +81,14 @@ The application utilizes a **unified PostgreSQL database**.
 
 ## Version History & Changelog
 
+## v1.54-beta (August 2026)
+
+### Portfolio Actions Truncation Fix & Table Proportions Tuning
+- **Action Buttons Ellipsis Bugfix**: Removed legacy `nth-child` max-width and text-overflow ellipsis CSS rules that erroneously collapsed the 11th table column, restoring full visibility to all action buttons (`🔔`, `📰`, `✏️`, `Buy`, `Sell`, `Stake`, `Hide`).
+- **Sentiment Alignment & Gap Removal**: Eliminated the artificial space gap between sentiment recommendation badges and per-coin refresh buttons (`🔄`) by switching to centered inline-flex grouping with a 6px gap and removing excessive column `minWidth` constraints.
+- **Table Proportions Optimization**: Narrowed and centered `Current Value`, `Avg Entry`, and `% Change` columns to optimize screen real estate and prevent table overflow.
+- **Version Bump**: Synchronized metadata to `v1.54-beta`.
+
 ## v1.53-beta (August 2026)
 
 ### Real-Time Sentiment Buff, Per-Coin Refresh & Portfolio Table Refinements

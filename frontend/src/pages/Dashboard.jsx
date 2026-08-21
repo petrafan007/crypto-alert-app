@@ -1741,29 +1741,29 @@ function Dashboard({ isLightMode }) {
         style={{
           cursor: isChecking ? 'wait' : 'help',
           whiteSpace: 'nowrap',
-          minWidth: '185px',
-          padding: '8px 12px'
+          textAlign: 'center',
+          padding: '6px 8px'
         }}
       >
         <div style={{
-          display: 'flex',
+          display: 'inline-flex',
           alignItems: 'center',
-          justifyContent: 'space-between',
-          gap: '8px',
-          width: '100%'
+          justifyContent: 'center',
+          gap: '6px'
         }}>
           <span
             style={{
               color: color,
               fontWeight: 'bold',
               background: bg,
-              padding: bg !== 'transparent' ? '3px 8px' : '0',
+              padding: bg !== 'transparent' ? '2px 6px' : '0',
               borderRadius: '4px',
               textDecoration: (!isChecking && reason) ? 'underline dotted' : 'none',
               textUnderlineOffset: '3px',
-              fontSize: '0.92rem',
+              fontSize: '0.88rem',
               display: 'inline-flex',
-              alignItems: 'center'
+              alignItems: 'center',
+              whiteSpace: 'nowrap'
             }}
           >
             {label}
@@ -1778,12 +1778,12 @@ function Dashboard({ isLightMode }) {
               border: 'none',
               color: isChecking ? '#38bdf8' : 'rgba(255, 255, 255, 0.45)',
               cursor: isChecking ? 'not-allowed' : 'pointer',
-              padding: '4px',
+              padding: '2px',
               borderRadius: '4px',
               display: 'inline-flex',
               alignItems: 'center',
               justifyContent: 'center',
-              fontSize: '0.85rem',
+              fontSize: '0.82rem',
               transition: 'all 0.2s',
               flexShrink: 0
             }}
@@ -2069,7 +2069,7 @@ function Dashboard({ isLightMode }) {
               <th onClick={() => handleSort('pct_change')} className={`portfolio-header sortable ${isMobile ? 'mobile-hide' : ''}`}>
                 {renderHeaderLabel('pct_change', '% Change')}
               </th>
-              <th onClick={() => handleSort('sentiment')} className={`portfolio-header sortable ${isMobile ? 'mobile-hide' : ''}`} style={{ minWidth: '185px' }}>
+              <th onClick={() => handleSort('sentiment')} className={`portfolio-header sortable ${isMobile ? 'mobile-hide' : ''}`}>
                 {renderHeaderLabel('sentiment', 'Sentiment')}
               </th>
               <th className="portfolio-header">Actions</th>
@@ -2111,16 +2111,16 @@ function Dashboard({ isLightMode }) {
                     </td>
                     <td>{coin.pendingPlaceholder ? '0.0000' : (coin.amount !== undefined && coin.amount !== null ? coin.amount.toFixed(4) : '—')}</td>
                     <td style={{ whiteSpace: 'nowrap' }}>{coin.current_price ? `$${coin.current_price.toFixed(2)}` : '—'}</td>
-                    <td>{coin.current_value ? `$${coin.current_value.toFixed(2)}` : '—'}</td>
+                    <td style={{ whiteSpace: 'nowrap', textAlign: 'center' }}>{coin.current_value ? `$${coin.current_value.toFixed(2)}` : '—'}</td>
                     <td style={{ textAlign: 'center' }}>{renderPortfolioAlertCell(coin, 'down')}</td>
                     <td style={{ textAlign: 'center' }}>{renderPortfolioAlertCell(coin, 'up')}</td>
                     <td style={{ textAlign: 'center' }}>{renderVolatilityCell(coin, 'portfolio')}</td>
-                    <td className={isMobile ? 'mobile-hide' : ''} style={{ whiteSpace: 'nowrap' }}>{coin.avg_entry ? `$${coin.avg_entry.toFixed(2)}` : '—'}</td>
-                    <td className={`${coin.pct_change >= 0 ? 'status-positive' : 'status-negative'} ${isMobile ? 'mobile-hide' : ''}`}>
+                    <td className={isMobile ? 'mobile-hide' : ''} style={{ whiteSpace: 'nowrap', textAlign: 'center' }}>{coin.avg_entry ? `$${coin.avg_entry.toFixed(2)}` : '—'}</td>
+                    <td className={`${coin.pct_change >= 0 ? 'status-positive' : 'status-negative'} ${isMobile ? 'mobile-hide' : ''}`} style={{ whiteSpace: 'nowrap', textAlign: 'center' }}>
                       {coin.pct_change !== undefined ? `${coin.pct_change >= 0 ? '+' : ''}${coin.pct_change.toFixed(2)}%` : '—'}
                     </td>
                     {renderSentimentCell(coin, false)}
-                    <td className="actions-cell" style={{ whiteSpace: 'nowrap', position: 'relative' }}>
+                    <td className="actions-cell" style={{ whiteSpace: 'nowrap', position: 'relative', textAlign: 'center' }}>
                       {isMobile ? (
                         <>
                           <button
@@ -2262,7 +2262,7 @@ function Dashboard({ isLightMode }) {
               <th onClick={() => handleSort('current_price')} style={{ cursor: 'pointer' }}>
                 Current Price {getSortIcon('current_price')}
               </th>
-              <th onClick={() => handleSort('sentiment')} className={isMobile ? 'mobile-hide' : ''} style={{ cursor: 'pointer', minWidth: '185px' }}>
+              <th onClick={() => handleSort('sentiment')} className={isMobile ? 'mobile-hide' : ''} style={{ cursor: 'pointer' }}>
                 Sentiment {getSortIcon('sentiment')}
               </th>
               <th>Price Down Alert</th>

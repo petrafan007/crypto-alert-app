@@ -724,50 +724,39 @@ input:focus, select:focus, textarea:focus {
 /* Let the last Actions column stay visible by allowing earlier columns to shrink */
 .table-container table { table-layout: auto !important; }
 
-/* Portfolio: compact column widths to keep Actions visible */
+/* Portfolio & Watchlist: compact column widths and clean actions */
 .portfolio-table thead th,
-.portfolio-table tbody td {
-  padding: 6px 8px !important;
-}
-/* Initial Value */
-.portfolio-table tbody td:nth-child(8) { max-width: 12ch !important; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* Purchase Date */
-.portfolio-table tbody td:nth-child(5) { max-width: 12ch !important; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* Amount */
-.portfolio-table tbody td:nth-child(2) { max-width: 8ch !important; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* Current Price */
-.portfolio-table tbody td:nth-child(3) { max-width: 12ch !important; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* Current Value */
-.portfolio-table tbody td:nth-child(4) { max-width: 12ch !important; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* % Change */
-.portfolio-table tbody td:nth-child(10) { max-width: 9ch !important; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* Sentiment */
-.portfolio-table tbody td:nth-child(11) { max-width: 10ch !important; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-
-/* Watchlist: compact columns and ensure Actions visible */
+.portfolio-table tbody td,
 .watchlist-table thead th,
-.watchlist-table tbody td { padding: 6px 8px !important; white-space: nowrap; }
-/* Current Price */
-.watchlist-table thead th:nth-child(2),
-.watchlist-table tbody td:nth-child(2) { max-width: 10ch !important; overflow: hidden; text-overflow: ellipsis; }
-/* Sentiment */
-.watchlist-table thead th:nth-child(3),
-.watchlist-table tbody td:nth-child(3) { max-width: 8ch !important; overflow: hidden; text-overflow: ellipsis; }
-/* Actions */
-.watchlist-table tbody td.actions-cell .btn { padding: 4px 8px; font-size: 12px; border-radius: 4px; }
+.watchlist-table tbody td {
+  padding: 6px 8px !important;
+  white-space: nowrap;
+}
+
+/* Ensure Actions cell is fully visible without truncation */
+.actions-cell,
+.portfolio-table td.actions-cell,
+.watchlist-table td.actions-cell {
+  white-space: nowrap !important;
+  overflow: visible !important;
+  text-overflow: clip !important;
+  width: auto !important;
+  max-width: none !important;
+}
+
+.portfolio-table .trade-action-btn,
+.watchlist-table .trade-action-btn {
+  padding: 4px 8px !important;
+  min-width: 50px !important;
+  font-size: 0.82rem !important;
+  margin-left: 4px !important;
+  border-radius: 4px !important;
+}
 
 /* Ensure header text is fully visible with padding */
 .table-container thead th { min-width: max-content !important; max-width: none !important; padding: 8px 10px !important; }
-/* Portfolio headers must not be truncated */
 .portfolio-table thead th { min-width: max-content !important; max-width: none !important; }
-/* Watchlist headers must not be truncated */
 .watchlist-table thead th { min-width: max-content !important; max-width: none !important; }
-
-/* Equalize button sizes across tables */
-.portfolio-table .btn,
-.watchlist-table .btn { padding: 6px 12px !important; font-size: 0.85rem !important; border-radius: 6px !important; min-width: 70px !important; font-weight: 600 !important; }
-/* Specific: watchlist Trade/Delete match portfolio Trade/Hide */
-.watchlist-table .btn { padding: 6px 12px !important; font-size: 0.85rem !important; font-weight: 600 !important; }
 
 .table-container.portfolio-table thead th.portfolio-header {
   text-align: center !important;

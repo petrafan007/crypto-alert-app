@@ -505,17 +505,28 @@ tr:hover td {
   background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
 }
 
-/* Ensure all action buttons in tables match */
+/* Ensure all action buttons in tables match and fit neatly */
 table .trade-action-btn {
-  margin-left: 8px;
-  font-size: 0.85rem !important;
-  padding: 6px 12px !important;
+  margin-left: 5px;
+  font-size: 0.82rem !important;
+  padding: 4px 8px !important;
   font-weight: 600 !important;
-  min-width: 70px !important;
+  min-width: 50px !important;
+  border-radius: 4px !important;
 }
 
 table .trade-action-btn:first-child {
   margin-left: 0;
+}
+
+.actions-cell,
+.portfolio-table td.actions-cell,
+.watchlist-table td.actions-cell {
+  white-space: nowrap !important;
+  overflow: visible !important;
+  text-overflow: clip !important;
+  width: auto !important;
+  max-width: none !important;
 }
 
 .trade-action-btn:hover {
