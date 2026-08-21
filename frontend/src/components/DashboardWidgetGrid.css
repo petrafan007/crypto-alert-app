@@ -172,6 +172,8 @@
 /* Custom Resize Handle styling from react-resizable */
 .edit-mode-active .react-resizable-handle {
   background: transparent !important;
+  background-image: none !important;
+  transform: none !important;
 }
 
 .edit-mode-active .react-resizable-handle::after {
