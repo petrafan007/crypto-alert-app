@@ -50,11 +50,11 @@ class ZAIClient:
 				"https://api.z.ai/api/coding/paas/v4"
 			]
 		self.base_url = self.candidate_endpoints[0]
-		self.timeout = timeout_seconds or int(os.getenv("ZAI_HTTP_TIMEOUT", "60"))
+		self.timeout = timeout_seconds or int(os.getenv("ZAI_HTTP_TIMEOUT", "12"))
 		
-		# Prepare resilient HTTP session without swallowing 429 responses into Retry loops
+		# Prepare resilient HTTP session
 		self.session = requests.Session()
-		retries = Retry(total=2, backoff_factor=1, status_forcelist=[500, 502, 503, 504], allowed_methods=["POST"])  # type: ignore
+		retries = Retry(total=1, backoff_factor=0.5, status_forcelist=[500, 502, 503, 504], allowed_methods=["POST"])  # type: ignore
 		self.session.mount("https://", HTTPAdapter(max_retries=retries))
 		
 		if _ZAI_SDK_AVAILABLE and ZaiClient is not None:
@@ -65,8 +65,7 @@ class ZAIClient:
 				self.client = None
 	
 	def _http_chat_completion(self, messages: List[Dict[str, Any]], model: str, max_tokens: int, temperature: float) -> Dict[str, Any]:
-		"""HTTP implementation compatible with OpenAI-style API with automatic endpoint discovery and rate limit backoff."""
-		import time
+		"""HTTP implementation compatible with OpenAI-style API with automatic endpoint discovery and fast rate limit failover."""
 		headers = {
 			"Authorization": f"Bearer {self.api_key}",
 			"Content-Type": "application/json",
@@ -134,20 +133,13 @@ class ZAIClient:
 				last_error = f"{endpoint_base}: {resp.status_code} - {err_msg}"
 				logger.warning(f"Z.AI request to {endpoint} returned {resp.status_code}: {err_msg}")
 
-				# If rate limited (1302) or overloaded (1305), pause briefly before trying next endpoint
-				if resp.status_code == 429 and ep_idx < len(endpoints_to_try) - 1:
-					time.sleep(2)
+				# Fast-fail on 429/overloaded so backup tiers can take over immediately
+				if resp.status_code == 429 or "overloaded" in str(err_msg).lower() or "1305" in str(err_msg):
+					break
 
 			except requests.exceptions.RequestException as req_err:
 				last_error = f"{endpoint_base}: {req_err}"
 				logger.warning(f"Z.AI request to {endpoint} failed: {req_err}")
-
-		# If the requested flash model is globally overloaded (code 1305 / 429), try sibling flash model
-		if model in ['glm-4.7-flash', 'glm-4.7-flashx'] and "429" in str(last_error) and ("overloaded" in str(last_error).lower() or "过大" in str(last_error)):
-			logger.info("Z.AI glm-4.7-flash is overloaded upstream, falling back to glm-4.5-flash...")
-			fallback_res = self._http_chat_completion(messages, 'glm-4.5-flash', max_tokens, temperature)
-			if fallback_res.get('success'):
-				return fallback_res
 
 		return {
 			'success': False,

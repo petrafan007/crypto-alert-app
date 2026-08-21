@@ -185,27 +185,45 @@ def call_ai_with_web_search(
         if not cred:
             raise ValueError(f"No credentials found for user: {username}")
         
-        # Build list of configured tiers
-        tier_configs = [
-            (
-                'primary',
-                user_ai_settings.get('ai_provider', 'openai'),
-                user_ai_settings.get('ai_model'),
-                (user_ai_settings.get('ai_reasoning_level') or 'medium').lower()
-            ),
-            (
-                'secondary',
-                user_ai_settings.get('ai_provider_secondary') or user_ai_settings.get('ai_provider_fallback'),
-                user_ai_settings.get('ai_model_secondary') or user_ai_settings.get('ai_model_fallback'),
-                (user_ai_settings.get('ai_reasoning_level_secondary') or user_ai_settings.get('ai_reasoning_level_fallback') or 'medium').lower()
-            ),
-            (
-                'tertiary',
-                user_ai_settings.get('ai_provider_tertiary'),
-                user_ai_settings.get('ai_model_tertiary'),
-                (user_ai_settings.get('ai_reasoning_level_tertiary') or 'medium').lower()
-            )
-        ]
+        # Build initial list of configured tiers
+        tier_configs = []
+        p_provider = user_ai_settings.get('ai_provider', 'openai')
+        p_model = user_ai_settings.get('ai_model')
+        p_reasoning = (user_ai_settings.get('ai_reasoning_level') or 'medium').lower()
+        if p_provider:
+            tier_configs.append(('primary', p_provider, p_model, p_reasoning))
+
+        s_provider = user_ai_settings.get('ai_provider_secondary') or user_ai_settings.get('ai_provider_fallback')
+        s_model = user_ai_settings.get('ai_model_secondary') or user_ai_settings.get('ai_model_fallback')
+        s_reasoning = (user_ai_settings.get('ai_reasoning_level_secondary') or user_ai_settings.get('ai_reasoning_level_fallback') or 'medium').lower()
+        if s_provider:
+            tier_configs.append(('secondary', s_provider, s_model, s_reasoning))
+
+        t_provider = user_ai_settings.get('ai_provider_tertiary')
+        t_model = user_ai_settings.get('ai_model_tertiary')
+        t_reasoning = (user_ai_settings.get('ai_reasoning_level_tertiary') or 'medium').lower()
+        if t_provider:
+            tier_configs.append(('tertiary', t_provider, t_model, t_reasoning))
+
+        # Auto-discover additional fallback providers from all active API keys in user credentials
+        used_providers = {t[1] for t in tier_configs if t[1]}
+        provider_defaults = {
+            'openai': ('gpt-5', 'medium'),
+            'gemini': ('gemini-3.7-flash', 'medium'),
+            'perplexity': ('sonar-pro', 'medium'),
+            'zai': ('glm-4.7-flash', 'medium'),
+            'inception': ('mercury-2', 'medium')
+        }
+        for prov, (def_mod, def_reas) in provider_defaults.items():
+            if prov not in used_providers:
+                has_key = bool(
+                    getattr(cred, f"{prov}_key", None) or 
+                    getattr(cred, f"{prov}_key_fallback", None) or 
+                    getattr(cred, f"{prov}_key_tertiary", None)
+                )
+                if has_key:
+                    tier_configs.append((f"auto_fallback_{prov}", prov, def_mod, def_reas))
+                    used_providers.add(prov)
 
         # Handle backward-compatible is_fallback_attempt flag
         if is_fallback_attempt and tier_index == 0:
@@ -216,32 +234,7 @@ def call_ai_with_web_search(
 
         current_tier_name, provider, configured_model, ai_reasoning_level = tier_configs[tier_index]
 
-        if not provider:
-            # If this tier is empty, try the next one
-            if tier_index + 1 < len(tier_configs):
-                return call_ai_with_web_search(
-                    username=username,
-                    messages=messages,
-                    model=None,
-                    user_id=user_id,
-                    prompt_type=prompt_type,
-                    symbol=symbol,
-                    include_db_context=include_db_context,
-                    amount=amount,
-                    tier_index=tier_index + 1
-                )
-            raise ValueError(f"AI Provider not configured for tier {current_tier_name}")
-
-        model = configured_model or model
-        if not model:
-            defaults = {
-                'openai': 'gpt-5',
-                'zai': 'glm-4.7-flash',
-                'perplexity': 'sonar-pro',
-                'gemini': 'gemini-3.7-flash',
-                'inception': 'mercury-2'
-            }
-            model = defaults.get(provider, 'gpt-5')
+        model = configured_model or model or 'gpt-5'
 
         if tier_index > 0:
             logger.info(f"⚠️ USING {current_tier_name.upper()} AI PROVIDER: {provider} / {model} (reasoning: {ai_reasoning_level})")
@@ -254,22 +247,32 @@ def call_ai_with_web_search(
             elif current_tier_name == 'secondary':
                 return getattr(cred, f"{p}_key_fallback", None) or getattr(cred, f"{p}_key", None)
             else:
-                return getattr(cred, f"{p}_key", None)
+                return getattr(cred, f"{p}_key", None) or getattr(cred, f"{p}_key_fallback", None) or getattr(cred, f"{p}_key_tertiary", None)
 
         original_user_message = ""
         for msg in messages:
             if msg.get('role') == 'user':
                 original_user_message = msg.get('content', '')
                 break
-        if not original_user_message and messages:
-            original_user_message = messages[-1].get('content', '')
+
+        # Check for DB context request
+        db_context = ""
+        if include_db_context:
+            try:
+                db_context = get_relevant_db_context(username, original_user_message)
+            except Exception as e:
+                logger.error(f"Error retrieving DB context for {username}: {e}")
+
+        # Check for cached AI response
+        if use_cache:
+            cache_key = hashlib.md5(f"{provider}:{model}:{prompt_type}:{original_user_message}".encode()).hexdigest()
+            cached = AICache.query.filter_by(cache_key=cache_key).first()
+            if cached and cached.is_valid():
+                logger.info(f"Returning cached AI response for {username} ({cache_key})")
+                return AIResponseWrapper(cached.response, tier=current_tier_name, provider=provider, model=model, search_status="Cached Response"), ""
 
         # Get prompt templates
         ai_prompts = get_user_ai_prompts(user_id)
-        current_datetime = format_eastern_datetime(None, "%Y-%m-%d %H:%M:%S EST")
-        symbol_value = symbol if symbol else "CRYPTO"
-        amount_value = str(amount) if amount is not None else "0"
-
         stage1_prompt_map = {
             'coin_analysis': getattr(ai_prompts, 'coin_analysis_pre', None),
             'market_analysis': getattr(ai_prompts, 'market_analysis_pre', None),
@@ -279,18 +282,18 @@ def call_ai_with_web_search(
             'copilot': getattr(ai_prompts, 'copilot_chat_pre', None) or user_ai_settings.get('copilot_chat_pre'),
             'manual': getattr(ai_prompts, 'copilot_chat_pre', None) or user_ai_settings.get('copilot_chat_pre'),
         }
+
         stage1_template = stage1_prompt_map.get(prompt_type)
         if not stage1_template:
             stage1_template = user_ai_settings.get('copilot_chat_pre') or "Analyze the query and list 1 or 2 targeted search queries."
-        
-        try:
-            stage1_prompt = stage1_template.format(symbol=symbol_value, datetime=current_datetime, amount=amount_value)
-        except Exception:
-            stage1_prompt = stage1_template.replace('{symbol}', symbol_value).replace('{datetime}', current_datetime)
+
+        current_datetime = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        symbol_value = symbol or "CRYPTO"
+        stage1_prompt = stage1_template.replace('{symbol}', symbol_value).replace('{datetime}', current_datetime)
 
         stage1_messages = [
             {"role": "system", "content": stage1_prompt},
-            {"role": "user", "content": original_user_message}
+            {"role": "user", "content": f"User query: {original_user_message}\n\nGenerate search queries."}
         ]
 
         def _execute_ai_call(p_messages, p_max_tokens=600):
@@ -299,7 +302,7 @@ def call_ai_with_web_search(
                 if not key:
                     raise ValueError("OpenAI API key not configured")
                 from openai import OpenAI
-                client = OpenAI(api_key=key, timeout=90.0)
+                client = OpenAI(api_key=key, timeout=25.0)
                 # Reasoning models require enough max_completion_tokens for internal reasoning tokens + output tokens
                 is_reasoning_model = any(m in (model or '').lower() for m in ['o1', 'o3', 'gpt-5', 'reasoning'])
                 effective_tokens = max(p_max_tokens, 2500) if is_reasoning_model else p_max_tokens
@@ -319,23 +322,11 @@ def call_ai_with_web_search(
                 if not key:
                     raise ValueError("Z.AI API key not configured")
                 from zai_client import ZAIClient
-                client = ZAIClient(key)
-                max_zai_retries = 2
-                last_zai_error = ""
-                for zai_attempt in range(max_zai_retries + 1):
-                    resp = client.chat_completion(messages=p_messages, model=model, max_tokens=max(p_max_tokens, 1024), temperature=0.2)
-                    if resp.get('success'):
-                        return resp.get('content')
-                    last_zai_error = resp.get('error', 'Unknown Z.AI error')
-                    if zai_attempt < max_zai_retries and any(code in str(last_zai_error).lower() for code in ["429", "1305", "1302", "rate limit", "overloaded"]):
-                        # If a backup tier is available, fast-fail without long retry delay
-                        if tier_index + 1 < len(tier_configs) and tier_configs[tier_index + 1][1]:
-                            break
-                        delay = 4 * (zai_attempt + 1)
-                        logger.warning(f"Z.AI rate limit/overload (attempt {zai_attempt + 1}/{max_zai_retries}). Retrying in {delay}s...")
-                        time.sleep(delay)
-                    else:
-                        break
+                client = ZAIClient(key, timeout_seconds=12)
+                resp = client.chat_completion(messages=p_messages, model=model, max_tokens=max(p_max_tokens, 1024), temperature=0.2)
+                if resp.get('success'):
+                    return resp.get('content')
+                last_zai_error = resp.get('error', 'Unknown Z.AI error')
                 raise Exception(f"Z.AI error: {last_zai_error}")
 
             elif provider == 'perplexity':
@@ -346,7 +337,7 @@ def call_ai_with_web_search(
                     "https://api.perplexity.ai/chat/completions",
                     headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
                     json={"model": model, "messages": p_messages, "max_tokens": p_max_tokens},
-                    timeout=45
+                    timeout=15
                 )
                 if r.status_code == 200:
                     return r.json()['choices'][0]['message']['content']
@@ -360,7 +351,7 @@ def call_ai_with_web_search(
                     "https://api.inceptionlabs.ai/v1/chat/completions",
                     headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
                     json={"model": model or "mercury-2", "messages": p_messages, "max_tokens": p_max_tokens},
-                    timeout=45
+                    timeout=15
                 )
                 if r.status_code == 200:
                     return r.json()['choices'][0]['message']['content']
@@ -398,53 +389,32 @@ def call_ai_with_web_search(
                 if system_instruction:
                     req_json["systemInstruction"] = system_instruction
                 
-                max_gemini_retries = 2
-                for attempt in range(max_gemini_retries + 1):
-                    last_err = ""
-                    for api_ver in ['v1beta', 'v1']:
-                        url = f"https://generativelanguage.googleapis.com/{api_ver}/models/{model}:generateContent?key={key}"
-                        try:
-                            r = requests.post(url, json=req_json, timeout=60)
-                            if r.status_code == 200:
-                                res_json = r.json()
+                last_err = ""
+                for api_ver in ['v1beta', 'v1']:
+                    url = f"https://generativelanguage.googleapis.com/{api_ver}/models/{model}:generateContent?key={key}"
+                    try:
+                        r = requests.post(url, json=req_json, timeout=15)
+                        if r.status_code == 200:
+                            res_json = r.json()
+                            try:
+                                return res_json['candidates'][0]['content']['parts'][0]['text']
+                            except Exception:
+                                return json.dumps(res_json)
+                        elif r.status_code == 400 and "thinkingConfig" in gen_config:
+                            # Retry without thinkingConfig in case model does not support it
+                            req_json["generationConfig"] = {"maxOutputTokens": p_max_tokens}
+                            r_retry = requests.post(url, json=req_json, timeout=15)
+                            if r_retry.status_code == 200:
+                                res_json = r_retry.json()
                                 try:
                                     return res_json['candidates'][0]['content']['parts'][0]['text']
                                 except Exception:
                                     return json.dumps(res_json)
-                            elif r.status_code == 400 and "thinkingConfig" in gen_config:
-                                # Retry without thinkingConfig in case model does not support it
-                                req_json["generationConfig"] = {"maxOutputTokens": p_max_tokens}
-                                r_retry = requests.post(url, json=req_json, timeout=60)
-                                if r_retry.status_code == 200:
-                                    res_json = r_retry.json()
-                                    try:
-                                        return res_json['candidates'][0]['content']['parts'][0]['text']
-                                    except Exception:
-                                        return json.dumps(res_json)
-                                last_err = r_retry.text
-                            elif r.status_code in [429, 503] or "RESOURCE_EXHAUSTED" in r.text or "UNAVAILABLE" in r.text:
-                                last_err = r.text
-                                break  # Break version loop to trigger retry delay or failover
-                            else:
-                                last_err = r.text
-                        except Exception as req_ex:
-                            last_err = str(req_ex)
-
-                    # Check for daily/hard quota limits
-                    is_daily_quota_exhausted = any(k in last_err for k in ["RESOURCE_EXHAUSTED", "Quota exceeded", "GenerateRequestsPerDay", "free_tier_requests"])
-                    if is_daily_quota_exhausted:
-                        # FAST-FAIL: Do not sleep 30-60s on quota exhaustion so next tier can take over instantly
-                        logger.warning(f"Gemini daily quota exhausted for model {model}. Fast-failing to trigger immediate fallback.")
-                        break
-
-                    is_retryable = any(k in last_err for k in ["503", "UNAVAILABLE", "high demand"])
-                    if attempt < max_gemini_retries and is_retryable:
-                        delay = 4 * (attempt + 1)
-                        logger.warning(f"Gemini {r.status_code if 'r' in locals() else 'API'} transient issue (attempt {attempt + 1}/{max_gemini_retries}). Backing off for {delay}s...")
-                        time.sleep(delay)
-                        continue
-                    elif not is_retryable:
-                        break
+                            last_err = r_retry.text
+                        else:
+                            last_err = r.text
+                    except Exception as req_ex:
+                        last_err = str(req_ex)
 
                 raise Exception(f"Gemini API error: {last_err}")
             

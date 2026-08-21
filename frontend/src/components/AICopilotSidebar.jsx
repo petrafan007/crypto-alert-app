@@ -455,7 +455,7 @@ export default function AICopilotSidebar() {
         conversation_id: conversationId
       }, {
         withCredentials: true,
-        timeout: 90000
+        timeout: 120000
       });
 
       const newConversationId = response.data?.conversation_id;

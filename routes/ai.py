@@ -2284,25 +2284,40 @@ def process_ai_conversation(user_id, message, conversation_id=None):
         {"role": "user", "content": context_payload}
     ]
     
-    response, actual_stage3_prompt = call_ai_with_web_search(
-        username=username,
-        messages=copilot_messages,
-        user_id=user_id,
-        prompt_type='copilot',
-        symbol=target_symbol,
-        model=None
-    )
-    
-    if hasattr(response, 'choices') and response.choices:
-        ai_content = response.choices[0].message.content
-    elif hasattr(response, 'text'):
-        ai_content = response.text
-    else:
-        ai_content = str(response)
-    
-    resp_tier = getattr(response, 'tier', 'primary')
-    resp_provider = getattr(response, 'provider', None)
-    resp_model = getattr(response, 'model', None)
+    try:
+        response, actual_stage3_prompt = call_ai_with_web_search(
+            username=username,
+            messages=copilot_messages,
+            user_id=user_id,
+            prompt_type='copilot',
+            symbol=target_symbol,
+            model=None
+        )
+        
+        if hasattr(response, 'choices') and response.choices:
+            ai_content = response.choices[0].message.content
+        elif hasattr(response, 'text'):
+            ai_content = response.text
+        else:
+            ai_content = str(response)
+        
+        resp_tier = getattr(response, 'tier', 'primary')
+        resp_provider = getattr(response, 'provider', None)
+        resp_model = getattr(response, 'model', None)
+
+    except Exception as ai_err:
+        logger.error(f"All AI providers exhausted for Copilot: {ai_err}")
+        # Build immediate data-backed response from live database telemetry
+        resp_tier = "telemetry_fallback"
+        resp_provider = "system"
+        resp_model = "live-telemetry"
+        ai_content = (
+            f"**Live Copilot Analysis for {target_symbol}:**\n\n"
+            f"• **Focused Coin Context**: {symbol_context_text or f'{target_symbol} telemetry active'}\n"
+            f"• **Active Pending Orders**: {pending_orders_text}\n"
+            f"• **Current Portfolio Holdings**: {holdings_text}\n\n"
+            f"*(Note: Live crypto telemetry supplied directly because upstream AI provider returned a temporary rate limit or overload: {ai_err})*"
+        )
 
     # Log AI response in database
     try:
