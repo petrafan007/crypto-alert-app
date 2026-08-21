@@ -44,7 +44,8 @@ def build_order_config(order_type, side, amount, data, symbol):
             raise ValueError("Limit price required for limit orders")
         params['price'] = limit_price
     
-    if order_type in ['LIMIT', 'STOP_LOSS_LIMIT', 'TAKE_PROFIT_LIMIT', 'LIMIT_MAKER']:
+    # LIMIT_MAKER is post-only and must NOT include timeInForce
+    if order_type in ['LIMIT', 'STOP_LOSS_LIMIT', 'TAKE_PROFIT_LIMIT']:
         params['timeInForce'] = data.get('timeInForce', 'GTC')
 
     if order_type in ['STOP_LOSS', 'STOP_LOSS_LIMIT', 'TAKE_PROFIT', 'TAKE_PROFIT_LIMIT', 'OCO']:
@@ -103,18 +104,37 @@ def get_symbol_filters(client, symbol):
         if not exchange_info: return None
         for sym in exchange_info['symbols']:
             if sym['symbol'] == symbol:
-                filters = {}
+                filters = {
+                    'ocoAllowed': sym.get('ocoAllowed', False),
+                    'isSpotTradingAllowed': sym.get('isSpotTradingAllowed', True),
+                    'orderTypes': sym.get('orderTypes', [])
+                }
                 for f in sym['filters']:
-                    if f['filterType'] == 'LOT_SIZE':
+                    ft = f['filterType']
+                    if ft == 'LOT_SIZE':
                         filters['minQty'] = float(f['minQty'])
                         filters['maxQty'] = float(f['maxQty'])
                         filters['stepSize'] = float(f['stepSize'])
-                    elif f['filterType'] == 'PRICE_FILTER':
+                    elif ft == 'PRICE_FILTER':
                         filters['minPrice'] = float(f['minPrice'])
                         filters['maxPrice'] = float(f['maxPrice'])
                         filters['tickSize'] = float(f['tickSize'])
-                    elif f['filterType'] in ['MIN_NOTIONAL', 'NOTIONAL']:
+                    elif ft in ['MIN_NOTIONAL', 'NOTIONAL']:
                         filters['minNotional'] = float(f.get('minNotional', f.get('notional', 0)))
+                    elif ft == 'PERCENT_PRICE':
+                        filters['multiplierUp'] = float(f.get('multiplierUp', 5.0))
+                        filters['multiplierDown'] = float(f.get('multiplierDown', 0.2))
+                        filters['avgPriceMins'] = int(f.get('avgPriceMins', 5))
+                    elif ft == 'PERCENT_PRICE_BY_SIDE':
+                        filters['bidMultiplierUp'] = float(f.get('bidMultiplierUp', 5.0))
+                        filters['bidMultiplierDown'] = float(f.get('bidMultiplierDown', 0.2))
+                        filters['askMultiplierUp'] = float(f.get('askMultiplierUp', 5.0))
+                        filters['askMultiplierDown'] = float(f.get('askMultiplierDown', 0.2))
+                        filters['avgPriceMins'] = int(f.get('avgPriceMins', 5))
+                    elif ft == 'MARKET_LOT_SIZE':
+                        filters['marketMinQty'] = float(f['minQty'])
+                        filters['marketMaxQty'] = float(f['maxQty'])
+                        filters['marketStepSize'] = float(f['stepSize'])
                 filters['baseAssetPrecision'] = sym['baseAssetPrecision']
                 filters['quotePrecision'] = sym['quotePrecision']
                 return filters
@@ -122,6 +142,36 @@ def get_symbol_filters(client, symbol):
     except Exception as e:
         logger.error(f"Error getting symbol filters: {e}")
         return None
+
+def validate_order_price_collar(price, side, current_price, filters, symbol):
+    """Validate price against PERCENT_PRICE or PERCENT_PRICE_BY_SIDE filters"""
+    if not price or price <= 0 or not current_price or current_price <= 0:
+        return True, None
+
+    # Determine multipliers based on side and available filters
+    mult_up = filters.get('multiplierUp', 5.0)
+    mult_down = filters.get('multiplierDown', 0.2)
+    if side == 'BUY':
+        mult_up = filters.get('bidMultiplierUp', mult_up)
+        mult_down = filters.get('bidMultiplierDown', mult_down)
+    else: # SELL
+        mult_up = filters.get('askMultiplierUp', mult_up)
+        mult_down = filters.get('askMultiplierDown', mult_down)
+
+    max_allowed = current_price * mult_up
+    min_allowed = current_price * mult_down
+
+    if price > max_allowed:
+        return False, (
+            f"Price ${price:,.6f} exceeds the maximum allowed Binance.US price collar (${max_allowed:,.6f} = {mult_up}x market price) "
+            f"for {symbol} (Current market price: ${current_price:,.6f}). Please adjust your price closer to market value."
+        )
+    if min_allowed > 0 and price < min_allowed:
+        return False, (
+            f"Price ${price:,.6f} is below the minimum allowed Binance.US price collar (${min_allowed:,.6f} = {mult_down}x market price) "
+            f"for {symbol} (Current market price: ${current_price:,.6f}). Please adjust your price closer to market value."
+        )
+    return True, None
 
 class BinanceRateLimiter:
     """Circuit breaker and rate limiter for Binance API calls"""

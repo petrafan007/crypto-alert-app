@@ -1304,12 +1304,9 @@ def get_trading_order_types():
                         for sym_info in exchange_info.get('symbols', []):
                             if sym_info['symbol'] == symbol:
                                 allowed_types = set(sym_info.get('orderTypes', []))
+                                if sym_info.get('ocoAllowed', False) or 'STOP_LOSS_LIMIT' in allowed_types:
+                                    allowed_types.add('OCO')
                                 order_types = [ot for ot in all_order_types if ot['value'] in allowed_types]
-                                
-                                # OCO is not listed in orderTypes but requires STOP_LOSS_LIMIT support
-                                if 'STOP_LOSS_LIMIT' not in allowed_types:
-                                    order_types = [ot for ot in order_types if ot['value'] != 'OCO']
-                                
                                 logger.info(f"Filtered order types for {symbol}: {[ot['value'] for ot in order_types]}")
                                 break
                         else:
@@ -1786,27 +1783,46 @@ def place_test_order():
                 formatted_stop_price = format_price(stop_price, filters['tickSize'])
                 test_params['stopPrice'] = formatted_stop_price
 
-                if order_type in ['STOP_LOSS_LIMIT', 'TAKE_PROFIT_LIMIT']:
+                if order_type == 'STOP_LOSS_LIMIT':
                     if formatted_price <= 0:
                         return jsonify({'success': False, 'error': 'Limit price must be greater than 0 for stop-limit orders'}), 400
                     if side == 'BUY' and formatted_price < formatted_stop_price:
-                        return jsonify({'success': False, 'error': 'For buy stop-limit orders, limit price must be greater than or equal to stop price to avoid immediate execution.'}), 400
+                        return jsonify({'success': False, 'error': 'For buy stop-loss limit orders, limit price must be greater than or equal to stop price.'}), 400
                     if side == 'SELL' and formatted_price > formatted_stop_price:
-                        return jsonify({'success': False, 'error': 'For sell stop-limit orders, limit price must be less than or equal to stop price to avoid immediate execution.'}), 400
+                        return jsonify({'success': False, 'error': 'For sell stop-loss limit orders, limit price must be less than or equal to stop price.'}), 400
+                elif order_type == 'TAKE_PROFIT_LIMIT':
+                    if formatted_price <= 0:
+                        return jsonify({'success': False, 'error': 'Limit price must be greater than 0 for take-profit limit orders'}), 400
+                    if side == 'BUY' and formatted_price > formatted_stop_price:
+                        return jsonify({'success': False, 'error': 'For buy take-profit limit orders, limit price must be less than or equal to stop price.'}), 400
+                    if side == 'SELL' and formatted_price < formatted_stop_price:
+                        return jsonify({'success': False, 'error': 'For sell take-profit limit orders, limit price must be greater than or equal to stop price.'}), 400
+
+            # Pre-validate price collar against current market price
+            try:
+                ticker = client.get_symbol_ticker(symbol=symbol)
+                current_market_price = float(ticker['price'])
+            except Exception:
+                current_market_price = 0.0
+
+            from services.binance_service import validate_order_price_collar
+            if formatted_price > 0 and current_market_price > 0:
+                valid, collar_err = validate_order_price_collar(formatted_price, side, current_market_price, filters, symbol)
+                if not valid:
+                    return jsonify({'success': False, 'error': collar_err}), 400
+            if order_type in ['STOP_LOSS', 'STOP_LOSS_LIMIT', 'TAKE_PROFIT', 'TAKE_PROFIT_LIMIT'] and current_market_price > 0:
+                valid, collar_err = validate_order_price_collar(formatted_stop_price, side, current_market_price, filters, symbol)
+                if not valid:
+                    return jsonify({'success': False, 'error': collar_err}), 400
             
             # For MARKET orders, check MIN_NOTIONAL using current price
             if order_type == 'MARKET' and 'minNotional' in filters:
-                try:
-                    ticker = client.get_symbol_ticker(symbol=symbol)
-                    current_price = float(ticker['price'])
-                    order_value = formatted_quantity * current_price
-                    if order_value < filters['minNotional']:
-                        return jsonify({
-                            'success': False, 
-                            'error': f'Order value too small. Minimum order value for {symbol} is ${filters["minNotional"]:.2f}. Your order value is approximately ${order_value:.2f} at current market price. Please increase quantity.'
-                        }), 400
-                except Exception as price_error:
-                    logger.warning(f"Could not check MIN_NOTIONAL for MARKET order: {price_error}")
+                order_value = formatted_quantity * (current_market_price or 1.0)
+                if order_value < filters['minNotional']:
+                    return jsonify({
+                        'success': False, 
+                        'error': f'Order value too small. Minimum order value for {symbol} is ${filters["minNotional"]:.2f}. Your order value is approximately ${order_value:.2f} at current market price. Please increase quantity.'
+                    }), 400
             
             # Validate with Binance test endpoint
             client.create_test_order(**test_params)
@@ -1816,15 +1832,22 @@ def place_test_order():
             logger.error(f"Binance order validation failed: {e}\n{traceback.format_exc()}")
             
             # Parse Binance error for more specific messaging
-            if 'LOT_SIZE' in error_msg:
+            if 'PERCENT_PRICE' in error_msg:
+                mult_up = filters.get('multiplierUp', 5.0)
+                mult_down = filters.get('multiplierDown', 0.2)
+                return jsonify({
+                    'success': False, 
+                    'error': f'Price filter failure (PERCENT_PRICE): Binance.US restricts order prices to within {mult_down}x - {mult_up}x of current market price for {symbol}. Please adjust your price closer to market value.'
+                }), 400
+            elif 'LOT_SIZE' in error_msg:
                 return jsonify({
                     'success': False, 
                     'error': f'Invalid quantity. The quantity has too many decimal places or doesn\'t meet the step size requirement for {symbol}. Please adjust your order quantity.'
                 }), 400
-            elif 'MIN_NOTIONAL' in error_msg:
+            elif 'MIN_NOTIONAL' in error_msg or 'NOTIONAL' in error_msg:
                 return jsonify({
                     'success': False, 
-                    'error': f'Order value too small. The total order value (quantity × price) is below the minimum required for {symbol}. Please increase your quantity or choose a different trading pair.'
+                    'error': f'Order value too small. The total order value (quantity × price) is below the minimum required for {symbol} (${filters.get("minNotional", 10):.2f}). Please increase your quantity.'
                 }), 400
             elif 'PRICE_FILTER' in error_msg:
                 return jsonify({
@@ -2825,9 +2848,48 @@ def place_real_order():
                     'success': False, 
                     'error': f'Price too high. Maximum price for {symbol} is {filters["maxPrice"]}. You entered {price}.'
                 }), 400
+            data['price'] = str(formatted_price)
         else:
             formatted_price = 0.0
-        
+
+        # Format stopPrice according to PRICE_FILTER if present
+        stop_price = _coerce_float(data.get('stopPrice'), 0.0) or 0.0
+        formatted_stop_price = 0.0
+        if stop_price > 0:
+            formatted_stop_price = format_price(stop_price, filters['tickSize'])
+            data['stopPrice'] = str(formatted_stop_price)
+
+        # Validate order type specific rules
+        if order_type in ['LIMIT', 'STOP_LOSS_LIMIT', 'TAKE_PROFIT_LIMIT', 'LIMIT_MAKER']:
+            if formatted_price <= 0:
+                return jsonify({'success': False, 'error': 'Price is required for limit orders'}), 400
+
+        if order_type in ['STOP_LOSS', 'STOP_LOSS_LIMIT', 'TAKE_PROFIT', 'TAKE_PROFIT_LIMIT']:
+            if formatted_stop_price <= 0:
+                return jsonify({'success': False, 'error': f'Stop price is required for {order_type} orders'}), 400
+
+        if order_type == 'STOP_LOSS_LIMIT':
+            if side == 'BUY' and formatted_price < formatted_stop_price:
+                return jsonify({'success': False, 'error': 'For buy stop-loss limit orders, limit price must be greater than or equal to stop price.'}), 400
+            if side == 'SELL' and formatted_price > formatted_stop_price:
+                return jsonify({'success': False, 'error': 'For sell stop-loss limit orders, limit price must be less than or equal to stop price.'}), 400
+        elif order_type == 'TAKE_PROFIT_LIMIT':
+            if side == 'BUY' and formatted_price > formatted_stop_price:
+                return jsonify({'success': False, 'error': 'For buy take-profit limit orders, limit price must be less than or equal to stop price.'}), 400
+            if side == 'SELL' and formatted_price < formatted_stop_price:
+                return jsonify({'success': False, 'error': 'For sell take-profit limit orders, limit price must be greater than or equal to stop price.'}), 400
+
+        # Pre-validate price collar against current market price
+        from services.binance_service import validate_order_price_collar
+        if formatted_price > 0 and current_price > 0:
+            valid, collar_err = validate_order_price_collar(formatted_price, side, current_price, filters, symbol)
+            if not valid:
+                return jsonify({'success': False, 'error': collar_err}), 400
+        if formatted_stop_price > 0 and current_price > 0:
+            valid, collar_err = validate_order_price_collar(formatted_stop_price, side, current_price, filters, symbol)
+            if not valid:
+                return jsonify({'success': False, 'error': collar_err}), 400
+
         # Get current price for order size validation
         try:
             reference_price_for_value = formatted_price if formatted_price > 0 else current_price
@@ -2854,7 +2916,7 @@ def place_real_order():
         
         # Place REAL order on Binance.US
         try:
-            logger.info(f"Placing real order with params: {{'symbol': '{symbol}', 'side': '{side}', 'type': '{order_type}', 'quantity': {formatted_quantity}, 'price': {formatted_price}, 'order_value_usd': {order_value_usd}}}")
+            logger.info(f"Placing real order with params: {{'symbol': '{symbol}', 'side': '{side}', 'type': '{order_type}', 'quantity': {formatted_quantity}, 'price': {formatted_price}, 'stopPrice': {formatted_stop_price}, 'order_value_usd': {order_value_usd}}}")
             order_params = build_order_config(order_type, side, formatted_quantity, data, symbol)
             
             # PLACE THE REAL ORDER
@@ -3512,10 +3574,12 @@ def place_test_oco_order():
         if formatted_quantity > filters['maxQty']:
             return jsonify({'success': False, 'error': f'Quantity {formatted_quantity} exceeds maximum {filters["maxQty"]}'}), 400
         
-        # Update quantity to formatted value
+        # Update quantity and prices to formatted values
         quantity = formatted_quantity
+        price = format_price(price, filters['tickSize'])
+        stop_price = format_price(stop_price, filters['tickSize'])
+        stop_limit_price = format_price(stop_limit_price, filters['tickSize'])
         
-        # Validate OCO order with Binance.US (Note: Binance doesn't have a test endpoint for OCO, so we skip validation)
         # Get current market price for simulation
         try:
             ticker = client.get_symbol_ticker(symbol=symbol)
@@ -3523,6 +3587,13 @@ def place_test_oco_order():
         except Exception as e:
             logger.error(f"Failed to get current price for {symbol}: {e}")
             current_price = price
+
+        # Pre-validate price collars
+        from services.binance_service import validate_order_price_collar
+        for p_val, p_name in [(price, 'Limit Price'), (stop_price, 'Stop Price'), (stop_limit_price, 'Stop Limit Price')]:
+            valid, collar_err = validate_order_price_collar(p_val, side, current_price, filters, symbol)
+            if not valid:
+                return jsonify({'success': False, 'error': f'{p_name}: {collar_err}'}), 400
         
         # Validate price relationships
         if side == 'SELL':
@@ -3721,8 +3792,26 @@ def place_real_oco_order():
         if formatted_quantity > filters['maxQty']:
             return jsonify({'success': False, 'error': f'Quantity {formatted_quantity} exceeds maximum {filters["maxQty"]}'}), 400
         
-        # Update quantity to formatted value
+        # Update quantity and prices to formatted values
         quantity = formatted_quantity
+        price = format_price(price, filters['tickSize'])
+        stop_price = format_price(stop_price, filters['tickSize'])
+        stop_limit_price = format_price(stop_limit_price, filters['tickSize'])
+
+        # Get current market price for pre-validations
+        try:
+            ticker = client.get_symbol_ticker(symbol=symbol)
+            current_price = float(ticker['price'])
+        except Exception as e:
+            logger.error(f"Failed to get current price for {symbol}: {e}")
+            current_price = price
+
+        # Pre-validate price collars
+        from services.binance_service import validate_order_price_collar
+        for p_val, p_name in [(price, 'Limit Price'), (stop_price, 'Stop Price'), (stop_limit_price, 'Stop Limit Price')]:
+            valid, collar_err = validate_order_price_collar(p_val, side, current_price, filters, symbol)
+            if not valid:
+                return jsonify({'success': False, 'error': f'{p_name}: {collar_err}'}), 400
         
         # For BUY orders, check USDT balance and adjust quantity if needed to account for fees
         if side == 'BUY':
@@ -3873,6 +3962,33 @@ def place_real_oco_order():
                     'success': False,
                     'error': 'Invalid Binance API credentials',
                     'error_code': 'invalid_trading_credentials'
+                }), 400
+            if 'PERCENT_PRICE' in error_msg:
+                mult_up = filters.get('multiplierUp', 5.0)
+                mult_down = filters.get('multiplierDown', 0.2)
+                return jsonify({
+                    'success': False,
+                    'error': f'Price filter failure (PERCENT_PRICE): Binance.US restricts order prices to within {mult_down}x - {mult_up}x of current market price (${current_price:,.6f}) for {symbol}. Please adjust your price closer to market value.'
+                }), 400
+            if 'MIN_NOTIONAL' in error_msg or 'NOTIONAL' in error_msg:
+                return jsonify({
+                    'success': False,
+                    'error': f"Order value too small. Minimum required order value for {symbol} is ${filters.get('minNotional', 10):.2f}."
+                }), 400
+            if 'LOT_SIZE' in error_msg:
+                return jsonify({
+                    'success': False,
+                    'error': f"Invalid quantity. Quantity must be between {filters.get('minQty')} and {filters.get('maxQty')} in steps of {filters.get('stepSize')}."
+                }), 400
+            if 'PRICE_FILTER' in error_msg:
+                return jsonify({
+                    'success': False,
+                    'error': f"Invalid price. Price must be between {filters.get('minPrice')} and {filters.get('maxPrice')} in increments of {filters.get('tickSize')}."
+                }), 400
+            if 'INSUFFICIENT_BALANCE' in error_msg or 'Account has insufficient balance' in error_msg:
+                return jsonify({
+                    'success': False,
+                    'error': 'Insufficient balance in your Binance.US account to execute this OCO order.'
                 }), 400
             return jsonify({'success': False, 'error': f'OCO order placement failed: {error_msg}'}), 400
 

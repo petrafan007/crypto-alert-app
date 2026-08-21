@@ -292,7 +292,7 @@ const AIDashboard = () => {
         if (res.data && Array.isArray(res.data.klines)) {
           // Format klines for lightweight-charts
           const formatted = res.data.klines.map(k => ({
-            time: Math.floor(k.time / 1000), // UNIX timestamp in seconds
+            time: typeof k.time === 'string' ? Math.floor(new Date(k.time).getTime() / 1000) : Math.round(Number(k.time)),
             open: parseFloat(k.open),
             high: parseFloat(k.high),
             low: parseFloat(k.low),
@@ -452,18 +452,21 @@ const AIDashboard = () => {
         entireTextOnly: true,
         alignLabels: true,
         scaleMargins: {
-          top: 0.15,
-          bottom: 0.15,
+          top: 0.1,
+          bottom: 0.1,
         },
-        minimumWidth: 95,
+        minimumWidth: 100,
       },
       timeScale: {
         borderColor: borderCol,
-        timeVisible: dateRange === '1d', // Show hours for 1d, dates for multi-day
+        timeVisible: true,
         secondsVisible: false,
-        rightOffset: 24,
-        barSpacing: 10,
-        minBarSpacing: 4,
+        fixLeftEdge: false,
+        fixRightEdge: false,
+        borderVisible: true,
+        rightOffset: 12,
+        barSpacing: 12,
+        minBarSpacing: 6,
       },
       handleScroll: {
         mouseWheel: true,
@@ -565,6 +568,11 @@ const AIDashboard = () => {
 
     // Fit content
     chart.timeScale().fitContent();
+    chart.timeScale().applyOptions({
+      rightOffset: 12,
+      barSpacing: 12,
+      minBarSpacing: 6,
+    });
 
     // Use ResizeObserver for perfect responsive width
     const resizeObserver = new ResizeObserver((entries) => {

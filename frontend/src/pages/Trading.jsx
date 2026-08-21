@@ -334,14 +334,43 @@ const Trading = () => {
         );
         break;
       case 'STOP_LOSS_LIMIT':
-      case 'TAKE_PROFIT_LIMIT':
         cells.push(
-          limitPriceCell('combo'),
-          stopPriceCell('combo'),
-          <div className="order-grid-item" key="tif-stoplimit">
+          limitPriceCell(
+            'stoploss-limit',
+            orderForm.side === 'SELL'
+              ? 'Execution price (typically ≤ Stop Price)'
+              : 'Execution price (typically ≥ Stop Price)'
+          ),
+          stopPriceCell(
+            'stoploss-stop',
+            orderForm.side === 'SELL'
+              ? 'Trigger price (must be ≤ current market price)'
+              : 'Trigger price (must be ≥ current market price)'
+          ),
+          <div className="order-grid-item" key="tif-stoplosslimit">
             {renderTimeInForceSelector()}
           </div>,
-          placeholderCell('stoplimit-placeholder')
+          placeholderCell('stoplosslimit-placeholder')
+        );
+        break;
+      case 'TAKE_PROFIT_LIMIT':
+        cells.push(
+          limitPriceCell(
+            'takeprofit-limit',
+            orderForm.side === 'SELL'
+              ? 'Execution price to secure profit'
+              : 'Execution price to buy dip'
+          ),
+          stopPriceCell(
+            'takeprofit-stop',
+            orderForm.side === 'SELL'
+              ? 'Trigger price (must be ≥ current market price)'
+              : 'Trigger price (must be ≤ current market price)'
+          ),
+          <div className="order-grid-item" key="tif-takeprofitlimit">
+            {renderTimeInForceSelector()}
+          </div>,
+          placeholderCell('takeprofitlimit-placeholder')
         );
         break;
       case 'LIMIT_MAKER':
@@ -1067,13 +1096,13 @@ const Trading = () => {
         }
       }
 
-      if (['STOP_LOSS_LIMIT', 'TAKE_PROFIT_LIMIT'].includes(orderForm.type)) {
+      if (orderForm.type === 'STOP_LOSS_LIMIT') {
         const limit = parseFloat(orderForm.price || 0);
         const stop = parseFloat(orderForm.stopPrice || 0);
-        if (!Number.isFinite(limit) || !Number.isFinite(stop)) {
+        if (!Number.isFinite(limit) || !Number.isFinite(stop) || limit <= 0 || stop <= 0) {
           setFeedbackModal({
             isVisible: true,
-            message: 'Please enter both limit and stop prices for stop-limit orders.',
+            message: 'Please enter both limit and stop prices for stop-loss limit orders.',
             type: 'error'
           });
           setLoading(false);
@@ -1082,7 +1111,7 @@ const Trading = () => {
         if (orderForm.side === 'BUY' && limit < stop) {
           setFeedbackModal({
             isVisible: true,
-            message: 'For buy stop-limit orders, the limit price must be greater than or equal to the stop price so the order does not execute immediately.',
+            message: 'For buy stop-loss limit orders, the limit price must be greater than or equal to the stop price.',
             type: 'error'
           });
           setLoading(false);
@@ -1091,11 +1120,79 @@ const Trading = () => {
         if (orderForm.side === 'SELL' && limit > stop) {
           setFeedbackModal({
             isVisible: true,
-            message: 'For sell stop-limit orders, the limit price must be less than or equal to the stop price so the order does not execute immediately.',
+            message: 'For sell stop-loss limit orders, the limit price must be less than or equal to the stop price.',
             type: 'error'
           });
           setLoading(false);
           return;
+        }
+      }
+
+      if (orderForm.type === 'TAKE_PROFIT_LIMIT') {
+        const limit = parseFloat(orderForm.price || 0);
+        const stop = parseFloat(orderForm.stopPrice || 0);
+        if (!Number.isFinite(limit) || !Number.isFinite(stop) || limit <= 0 || stop <= 0) {
+          setFeedbackModal({
+            isVisible: true,
+            message: 'Please enter both limit and stop prices for take-profit limit orders.',
+            type: 'error'
+          });
+          setLoading(false);
+          return;
+        }
+        if (orderForm.side === 'BUY' && limit > stop) {
+          setFeedbackModal({
+            isVisible: true,
+            message: 'For buy take-profit limit orders, the limit price must be less than or equal to the stop price.',
+            type: 'error'
+          });
+          setLoading(false);
+          return;
+        }
+        if (orderForm.side === 'SELL' && limit < stop) {
+          setFeedbackModal({
+            isVisible: true,
+            message: 'For sell take-profit limit orders, the limit price must be greater than or equal to the stop price.',
+            type: 'error'
+          });
+          setLoading(false);
+          return;
+        }
+      }
+
+      // Pre-validate prices against Binance price collar (5x max / 0.2x min of current price)
+      const marketPrice = parseFloat(currentPrices.base) || 0;
+      if (marketPrice > 0) {
+        const checkPrices = [];
+        if (['LIMIT', 'STOP_LOSS_LIMIT', 'TAKE_PROFIT_LIMIT', 'LIMIT_MAKER', 'OCO'].includes(orderForm.type)) {
+          if (parseFloat(orderForm.price) > 0) checkPrices.push({ name: 'Limit Price', val: parseFloat(orderForm.price) });
+        }
+        if (['STOP_LOSS', 'STOP_LOSS_LIMIT', 'TAKE_PROFIT', 'TAKE_PROFIT_LIMIT', 'OCO'].includes(orderForm.type)) {
+          if (parseFloat(orderForm.stopPrice) > 0) checkPrices.push({ name: 'Stop Price', val: parseFloat(orderForm.stopPrice) });
+        }
+        if (orderForm.type === 'OCO' && parseFloat(orderForm.stopLimitPrice) > 0) {
+          checkPrices.push({ name: 'Stop Limit Price', val: parseFloat(orderForm.stopLimitPrice) });
+        }
+
+        for (const p of checkPrices) {
+          if (p.val > marketPrice * 5) {
+            setFeedbackModal({
+              isVisible: true,
+              message: `${p.name} ($${p.val}) exceeds Binance.US maximum price collar (max $${(marketPrice * 5).toFixed(6)} = 5x current market price of $${marketPrice.toFixed(6)}). Please adjust your price closer to current market value.`,
+              type: 'error'
+            });
+            setLoading(false);
+            return;
+          }
+          if (p.val < marketPrice * 0.2) {
+            setFeedbackModal({
+              isVisible: true,
+              message: `${p.name} ($${p.val}) is below Binance.US minimum price collar (min $${(marketPrice * 0.2).toFixed(6)} = 0.2x current market price of $${marketPrice.toFixed(6)}). Please adjust your price closer to current market value.`,
+              type: 'error'
+            });
+            setLoading(false);
+            return;
+          }
         }
       }
 

@@ -81,6 +81,15 @@ The application utilizes a **unified PostgreSQL database**.
 
 ## Version History & Changelog
 
+## v1.52-beta (August 2026)
+
+### AI Dashboard Candlestick Chart & Binance.US Order Placement Overhaul
+- **AI Dashboard Chart Time Scale Fix**: Normalized candlestick timestamps to eliminate double second conversion, fixing the x-axis tick repeating issue ("21 21 21" 1970 dates) and aligning time scale, crosshairs, and price scales with Trading Center.
+- **Binance.US PERCENT_PRICE Price Collar Handling**: Added extraction and pre-validation for Binance.US price collar filters (`PERCENT_PRICE` and `PERCENT_PRICE_BY_SIDE`, 5x up / 0.2x down multiplier). Translated exchange rejection errors into descriptive, user-friendly messages displaying current price and maximum allowable bounds.
+- **Take Profit Limit & Stop Loss Limit Logic Correction**: Fixed erroneous client-side and backend validation that previously conflated Take Profit rules with Stop Loss rules and erroneously blocked sell take-profit limit orders where limit price > stop price.
+- **Binance.US Order Types & OCO Support**: Resolved `LIMIT_MAKER` parameter constraints (prohibiting `timeInForce`), quantized OCO limit/stop prices to exchange tick sizes, and retained `OCO` in available symbol order types.
+- **Version Bump**: Synchronized metadata to `v1.52-beta`.
+
 ## v1.42-beta (August 2026)
 
 ### Coin Performance Table Reliability
