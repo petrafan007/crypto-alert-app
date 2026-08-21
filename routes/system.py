@@ -1707,24 +1707,104 @@ def api_test_brave_search():
             "message": f"Unexpected error: {str(e)}"
         }), 500
 
+_TRADING_PAIRS_CACHE = {
+    'pairs': None,
+    'timestamp': 0
+}
+
+FALLBACK_USD_PAIRS = [
+    'AAVEUSD', 'ADAUSD', 'ALGOUSD', 'ATOMUSD', 'AVAXUSD', 'BCHUSD', 'BNBUSD', 'BONKUSD',
+    'BTCUSD', 'CRVUSD', 'DGBUSD', 'DOGEUSD', 'DOTUSD', 'ENSUSD', 'ETCUSD', 'ETHUSD',
+    'FETUSD', 'FLOKIUSD', 'GALAUSD', 'GRTUSD', 'HBARUSD', 'HYPEUSD', 'ICPUSD', 'IOTAUSD',
+    'JUPUSD', 'LINKUSD', 'LPTUSD', 'LTCUSD', 'MEUSD', 'NEARUSD', 'ONEUSD', 'OPUSD',
+    'PEPEUSD', 'POLUSD', 'RENDERUSD', 'RVNUSD', 'SANDUSD', 'SHIBUSD', 'SOLUSD', 'SUIUSD',
+    'SUSD', 'SUSHIUSD', 'THETAUSD', 'TRUMPUSD', 'TRXUSD', 'UNIUSD', 'USDCUSD', 'USDTUSD',
+    'VETUSD', 'VTHOUSD', 'XLMUSD', 'XRPUSD', 'ZECUSD', 'ZILUSD'
+]
+
+FALLBACK_USDT_PAIRS = [
+    'BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'XRPUSDT', 'BNBUSDT', 'ADAUSDT', 'DOGEUSDT', 'SUIUSDT',
+    'AVAXUSDT', 'LINKUSDT', 'DOTUSDT', 'NEARUSDT', 'PEPEUSDT', 'SHIBUSDT', 'LTCUSDT', 'UNIUSDT',
+    'ATOMUSDT', 'ALGOUSDT', 'BCHUSDT', 'TRXUSDT', 'XLMUSDT', 'FETUSDT', 'RENDERUSDT', 'HBARUSDT',
+    'ICPUSDT', 'AAVEUSDT', 'CRVUSDT', 'SANDUSDT', 'GALAUSDT', 'CELRUSDT', 'LPTUSDT', 'ONTUSDT',
+    'KSMUSDT', 'BONKUSDT', 'FLOKIUSDT', 'INJUSDT', 'ARBUSDT', 'OPUSDT', 'TIAUSDT', 'SEIUSDT',
+    'JUPUSDT', 'ENAUSDT', 'WIFUSDT', 'TRUMPUSDT', 'USDCUSDT'
+]
+
 @system_bp.route('/api/trading-pairs')
 @login_required
 def api_trading_pairs():
-    """Get available trading pairs - BINANCE VERSION"""
-    logger.info("Trading pairs API called (Binance mode)")
-    # Return Binance.US trading pairs exclusively
-    # Return Binance.US trading pairs exclusively
-    binance_pairs = [
-        {'id': 'USDTUSD', 'base_currency': 'USDT', 'quote_currency': 'USD', 'display_name': 'USDT-USD', 'status': 'online'},
-        {'id': 'BTCUSD', 'base_currency': 'BTC', 'quote_currency': 'USD', 'display_name': 'Bitcoin-USD', 'status': 'online'},
-        {'id': 'ETHUSD', 'base_currency': 'ETH', 'quote_currency': 'USD', 'display_name': 'Ethereum-USD', 'status': 'online'},
-        {'id': 'BTCUSDT', 'base_currency': 'BTC', 'quote_currency': 'USDT', 'display_name': 'Bitcoin-USDT', 'status': 'online'},
-        {'id': 'ETHUSDT', 'base_currency': 'ETH', 'quote_currency': 'USDT', 'display_name': 'Ethereum-USDT', 'status': 'online'},
-        {'id': 'SOLUSDT', 'base_currency': 'SOL', 'quote_currency': 'USDT', 'display_name': 'Solana-USDT', 'status': 'online'},
-        {'id': 'ADAUSDT', 'base_currency': 'ADA', 'quote_currency': 'USDT', 'display_name': 'Cardano-USDT', 'status': 'online'},
-        {'id': 'SUIUSDT', 'base_currency': 'SUI', 'quote_currency': 'USDT', 'display_name': 'Sui-USDT', 'status': 'online'}
-    ]
-    return jsonify({'pairs': binance_pairs})
+    """Get available trading pairs - BINANCE.US VERSION with full USD and USDT coverage"""
+    import time
+    now = time.time()
+    if _TRADING_PAIRS_CACHE['pairs'] and (now - _TRADING_PAIRS_CACHE['timestamp']) < 300:
+        return jsonify({'pairs': _TRADING_PAIRS_CACHE['pairs']})
+
+    try:
+        res = requests.get('https://api.binance.us/api/v3/exchangeInfo', timeout=5)
+        if res.status_code == 200:
+            data = res.json()
+            symbols = data.get('symbols', [])
+            usd_pairs = []
+            usdt_pairs = []
+            other_pairs = []
+            
+            for sym in symbols:
+                if sym.get('status') != 'TRADING':
+                    continue
+                symbol = sym.get('symbol', '')
+                base = sym.get('baseAsset', '')
+                quote = sym.get('quoteAsset', '')
+                
+                pair_obj = {
+                    'id': symbol,
+                    'base_currency': base,
+                    'quote_currency': quote,
+                    'display_name': f"{base}/{quote}",
+                    'status': 'online'
+                }
+                
+                if quote == 'USD':
+                    usd_pairs.append(pair_obj)
+                elif quote == 'USDT':
+                    usdt_pairs.append(pair_obj)
+                else:
+                    other_pairs.append(pair_obj)
+            
+            usd_pairs.sort(key=lambda x: x['base_currency'])
+            usdt_pairs.sort(key=lambda x: x['base_currency'])
+            other_pairs.sort(key=lambda x: x['base_currency'])
+            
+            all_pairs = usd_pairs + usdt_pairs + other_pairs
+            if all_pairs:
+                _TRADING_PAIRS_CACHE['pairs'] = all_pairs
+                _TRADING_PAIRS_CACHE['timestamp'] = now
+                logger.info(f"Loaded {len(all_pairs)} live Binance.US trading pairs ({len(usd_pairs)} USD pairs, {len(usdt_pairs)} USDT pairs)")
+                return jsonify({'pairs': all_pairs})
+    except Exception as e:
+        logger.error(f"Error fetching live Binance.US exchange info: {e}")
+
+    # Fallback if live exchange info is unreachable
+    fallback_pairs = []
+    for s in sorted(FALLBACK_USD_PAIRS):
+        base = s[:-3]
+        fallback_pairs.append({
+            'id': s,
+            'base_currency': base,
+            'quote_currency': 'USD',
+            'display_name': f"{base}/USD",
+            'status': 'online'
+        })
+    for s in sorted(FALLBACK_USDT_PAIRS):
+        base = s[:-4]
+        fallback_pairs.append({
+            'id': s,
+            'base_currency': base,
+            'quote_currency': 'USDT',
+            'display_name': f"{base}/USDT",
+            'status': 'online'
+        })
+    return jsonify({'pairs': fallback_pairs})
 
 @system_bp.route('/api/test-simple')
 def api_test_simple():

@@ -81,6 +81,15 @@ The application utilizes a **unified PostgreSQL database**.
 
 ## Version History & Changelog
 
+## v1.57-beta (August 2026)
+
+### Complete Binance.US USD Trading Pairs Expansion & Dynamic Exchange Synchronization
+- **Full Binance.US USD Pairs Catalog**: Expanded the Trading Center trading pairs list to include all 54 active USD trading pairs on Binance.US (including `XRP/USD`, `BTC/USD`, `ETH/USD`, `SOL/USD`, `ADA/USD`, `SUI/USD`, `DOGE/USD`, `LTC/USD`, `LINK/USD`, etc.) alongside all 200+ USDT trading pairs.
+- **Dynamic Trading Pairs Synchronization (`GET /api/trading-pairs`)**: Updated the trading pairs backend endpoint to query live Binance.US exchange info with in-memory caching and a robust 54-pair USD fallback list, ensuring live trading pairs are always available.
+- **Grouped & Organized Trading Dropdown UI**: Upgraded the Trading Chart pair selector and Open Orders history dropdown with clean `<optgroup>` categorizations (`USD Pairs` and `USDT Pairs`), enabling effortless discovery and selection of any USD or USDT pair.
+- **Robust Base & Quote Asset Parser**: Enhanced symbol string parsing across the trading engine and chart components to reliably extract base and quote assets for all combinations (including `USDTUSD`, `XRPUSD`, `SUSD`).
+- **Version Bump**: Synchronized metadata to `v1.57-beta`.
+
 ## v1.56-beta (August 2026)
 
 ### Sentiment Web Search Provenance & Historical Prediction Ledger Formatting

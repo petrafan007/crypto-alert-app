@@ -850,7 +850,10 @@ function Dashboard({ isLightMode }) {
   const resolveTradingPair = (symbol) => {
     if (!symbol) return '';
     const cleaned = String(symbol).toUpperCase().replace(/[^A-Z0-9]/g, '');
-    if (cleaned.endsWith('USDT')) {
+    if (cleaned === 'USDT') {
+      return 'USDTUSD';
+    }
+    if (cleaned.endsWith('USDT') || (cleaned.endsWith('USD') && cleaned.length > 3)) {
       return cleaned;
     }
     return `${cleaned}USDT`;

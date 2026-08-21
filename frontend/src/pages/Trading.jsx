@@ -473,18 +473,51 @@ const Trading = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location.state]);
 
-  // Popular trading pairs
-  const tradingPairs = [
-    // USD pairs (top of list for easy access)
-    'USDTUSD', 'BTCUSD', 'ETHUSD',
+  // Comprehensive default list of all 54 Binance.US USD pairs + popular USDT pairs
+  const DEFAULT_TRADING_PAIRS = [
+    // All 54 Binance.US USD pairs (sorted alphabetically)
+    'AAVEUSD', 'ADAUSD', 'ALGOUSD', 'ATOMUSD', 'AVAXUSD', 'BCHUSD', 'BNBUSD', 'BONKUSD',
+    'BTCUSD', 'CRVUSD', 'DGBUSD', 'DOGEUSD', 'DOTUSD', 'ENSUSD', 'ETCUSD', 'ETHUSD',
+    'FETUSD', 'FLOKIUSD', 'GALAUSD', 'GRTUSD', 'HBARUSD', 'HYPEUSD', 'ICPUSD', 'IOTAUSD',
+    'JUPUSD', 'LINKUSD', 'LPTUSD', 'LTCUSD', 'MEUSD', 'NEARUSD', 'ONEUSD', 'OPUSD',
+    'PEPEUSD', 'POLUSD', 'RENDERUSD', 'RVNUSD', 'SANDUSD', 'SHIBUSD', 'SOLUSD', 'SUIUSD',
+    'SUSD', 'SUSHIUSD', 'THETAUSD', 'TRUMPUSD', 'TRXUSD', 'UNIUSD', 'USDCUSD', 'USDTUSD',
+    'VETUSD', 'VTHOUSD', 'XLMUSD', 'XRPUSD', 'ZECUSD', 'ZILUSD',
     // USDT pairs
-    'BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'ADAUSDT', 'DOGEUSDT',
-    'XRPUSDT', 'DOTUSDT', 'UNIUSDT', 'LTCUSDT', 'LINKUSDT',
-    'SOLUSDT', 'MATICUSDT', 'AVAXUSDT', 'ATOMUSDT', 'ALGOUSDT',
-    // Added requested pairs
-    'SUIUSDT', 'CELRUSDT', 'FETUSDT', 'LPTUSDT', 'ONTUSDT', 'KSMUSDT'
+    'BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'XRPUSDT', 'BNBUSDT', 'ADAUSDT', 'DOGEUSDT', 'SUIUSDT',
+    'AVAXUSDT', 'LINKUSDT', 'DOTUSDT', 'NEARUSDT', 'PEPEUSDT', 'SHIBUSDT', 'LTCUSDT', 'UNIUSDT',
+    'ATOMUSDT', 'ALGOUSDT', 'BCHUSDT', 'TRXUSDT', 'XLMUSDT', 'FETUSDT', 'RENDERUSDT', 'HBARUSDT',
+    'ICPUSDT', 'AAVEUSDT', 'CRVUSDT', 'SANDUSDT', 'GALAUSDT', 'CELRUSDT', 'LPTUSDT', 'ONTUSDT',
+    'KSMUSDT', 'BONKUSDT', 'FLOKIUSDT', 'INJUSDT', 'ARBUSDT', 'OPUSDT', 'TIAUSDT', 'SEIUSDT',
+    'JUPUSDT', 'ENAUSDT', 'WIFUSDT', 'TRUMPUSDT', 'USDCUSDT'
   ];
 
+  const formatPairObject = (p) => {
+    if (typeof p === 'object' && p !== null) {
+      const id = p.id || p.symbol || '';
+      const base = p.base_currency || p.baseAsset || p.base || ((id.endsWith('USD') && !id.endsWith('USDT')) ? id.slice(0, -3) : id.endsWith('USDT') ? id.slice(0, -4) : id);
+      const quote = p.quote_currency || p.quoteAsset || p.quote || ((id.endsWith('USD') && !id.endsWith('USDT')) ? 'USD' : 'USDT');
+      const display_name = p.display_name || `${base}/${quote}`;
+      return { id, display_name, base_currency: base, quote_currency: quote };
+    }
+    const id = String(p);
+    const base = (id.endsWith('USD') && !id.endsWith('USDT')) ? id.slice(0, -3) : id.endsWith('USDT') ? id.slice(0, -4) : id;
+    const quote = (id.endsWith('USD') && !id.endsWith('USDT')) ? 'USD' : 'USDT';
+    return { id, display_name: `${base}/${quote}`, base_currency: base, quote_currency: quote };
+  };
+
+  const [tradingPairs, setTradingPairs] = useState(DEFAULT_TRADING_PAIRS.map(formatPairObject));
+
+  const loadTradingPairs = async () => {
+    try {
+      const response = await axios.get('/api/trading-pairs', { withCredentials: true });
+      if (response.data && Array.isArray(response.data.pairs) && response.data.pairs.length > 0) {
+        setTradingPairs(response.data.pairs.map(formatPairObject));
+      }
+    } catch (error) {
+      console.error('Failed to load live trading pairs, using fallback:', error);
+    }
+  };
 
   // Load settings and data on mount
   useEffect(() => {
@@ -505,6 +538,7 @@ const Trading = () => {
     };
     checkPermission();
 
+    loadTradingPairs();
     loadTradingSettings();
     loadOrderTypes(orderForm.symbol);
     loadOrders();
@@ -1529,7 +1563,7 @@ const Trading = () => {
               key={orderForm.symbol}
               symbol={orderForm.symbol}
               onSymbolChange={handleSymbolChange}
-              tradingPairs={tradingPairs.map(pair => ({ id: pair, display_name: pair }))}
+              tradingPairs={tradingPairs}
             />
 
             <form onSubmit={handleOrderSubmit} className="order-form">
@@ -1783,11 +1817,43 @@ const Trading = () => {
                     }}
                   >
                     <option value="ALL">All Trading Pairs</option>
-                    {tradingPairs.map(pair => (
-                      <option key={pair} value={pair}>
-                        {pair}
-                      </option>
-                    ))}
+                    {(() => {
+                      const usdPairs = tradingPairs.filter(p => p.quote_currency === 'USD' || (p.id && p.id.endsWith('USD') && !p.id.endsWith('USDT')));
+                      const usdtPairs = tradingPairs.filter(p => p.quote_currency === 'USDT' || (p.id && p.id.endsWith('USDT')));
+                      const otherPairs = tradingPairs.filter(p => !usdPairs.includes(p) && !usdtPairs.includes(p));
+
+                      return (
+                        <>
+                          {usdPairs.length > 0 && (
+                            <optgroup label={`USD Pairs (${usdPairs.length})`}>
+                              {usdPairs.map(pair => (
+                                <option key={pair.id} value={pair.id}>
+                                  {pair.display_name} ({pair.id})
+                                </option>
+                              ))}
+                            </optgroup>
+                          )}
+                          {usdtPairs.length > 0 && (
+                            <optgroup label={`USDT Pairs (${usdtPairs.length})`}>
+                              {usdtPairs.map(pair => (
+                                <option key={pair.id} value={pair.id}>
+                                  {pair.display_name} ({pair.id})
+                                </option>
+                              ))}
+                            </optgroup>
+                          )}
+                          {otherPairs.length > 0 && (
+                            <optgroup label="Other Pairs">
+                              {otherPairs.map(pair => (
+                                <option key={pair.id} value={pair.id}>
+                                  {pair.display_name} ({pair.id})
+                                </option>
+                              ))}
+                            </optgroup>
+                          )}
+                        </>
+                      );
+                    })()}
                   </select>
                 </div>
               </div>

@@ -68,7 +68,12 @@ const TradingChart = ({ symbol, onSymbolChange, tradingPairs = [] }) => {
     fibonacci: false
   });
   
-  const baseAsset = symbol.replace('USDT', '').replace('USD', '');
+  const baseAsset = (symbol || '').endsWith('USD') && !(symbol || '').endsWith('USDT')
+    ? (symbol || '').slice(0, -3)
+    : (symbol || '').endsWith('USDT')
+      ? (symbol || '').slice(0, -4)
+      : (symbol || '');
+  const quoteAsset = (symbol || '').endsWith('USD') && !(symbol || '').endsWith('USDT') ? 'USD' : 'USDT';
 
   const formatAmount = (value) => {
     if (value === null || value === undefined) return '0';
@@ -98,28 +103,189 @@ const TradingChart = ({ symbol, onSymbolChange, tradingPairs = [] }) => {
 
   const intervalToSeconds = (selectedInterval) => {
     switch (selectedInterval) {
-      case '1m':
-        return 60;
-      case '5m':
-        return 60 * 5;
-      case '15m':
-        return 60 * 15;
-      case '30m':
-        return 60 * 30;
-      case '1h':
-        return 60 * 60;
-      case '4h':
-        return 60 * 60 * 4;
-      case '1d':
-        return 60 * 60 * 24;
-      case '1w':
-        return 60 * 60 * 24 * 7;
-      case '1M':
-        return 60 * 60 * 24 * 30;
-      default:
-        return 60 * 60 * 24;
+      case '1m': return 60;
+      case '5m': return 300;
+      case '15m': return 900;
+      case '30m': return 1800;
+      case '1h': return 3600;
+      case '4h': return 14400;
+      case '1d': return 86400;
+      case '1w': return 604800;
+      case '1M': return 2592000;
+      default: return 86400;
     }
   };
+
+  // Convert raw API klines to Lightweight Charts format
+  const processKlines = (data) => {
+    return data.map(d => ({
+      time: Math.floor(d[0] / 1000), // Convert ms to seconds
+      open: parseFloat(d[1]),
+      high: parseFloat(d[2]),
+      low: parseFloat(d[3]),
+      close: parseFloat(d[4]),
+      volume: parseFloat(d[5])
+    }));
+  };
+
+  // Fetch transactions for the current symbol
+  const fetchTransactions = async () => {
+    try {
+      const response = await axios.get(`/api/trading/transactions/${symbol}`, { withCredentials: true });
+      if (response.data.success) {
+        setTransactions(response.data.transactions || []);
+      }
+    } catch (err) {
+      console.error('Failed to fetch transactions:', err);
+    }
+  };
+
+  // Add buy/sell markers to the chart
+  const addTransactionMarkers = (series, txs, klineData) => {
+    if (!series || !txs.length || !klineData.length) return;
+
+    // Filter transactions to match current symbol
+    const relevantTxs = txs.filter(t => t.symbol === symbol && t.status === 'FILLED');
+    if (!relevantTxs.length) return;
+
+    // Aggregate transactions by timestamp / date for markers
+    const aggregated = {};
+    relevantTxs.forEach(t => {
+      let tSeconds = 0;
+      if (t.time) {
+        tSeconds = t.time > 1e11 ? Math.floor(t.time / 1000) : t.time;
+      } else if (t.created_at) {
+        tSeconds = Math.floor(new Date(t.created_at).getTime() / 1000);
+      } else {
+        return;
+      }
+
+      // Snap transaction to nearest kline timestamp
+      const nearestKline = klineData.reduce((prev, curr) => {
+        return Math.abs(curr.time - tSeconds) < Math.abs(prev.time - tSeconds) ? curr : prev;
+      });
+
+      const key = `${nearestKline.time}_${t.side}`;
+      if (!aggregated[key]) {
+        aggregated[key] = {
+          time: nearestKline.time,
+          side: t.side,
+          amount: 0,
+          totalValue: 0,
+          count: 0,
+          transactions: []
+        };
+      }
+      const qty = parseFloat(t.quantity || t.amount || 0);
+      const prc = parseFloat(t.price || t.filled_price || 0);
+      aggregated[key].amount += qty;
+      aggregated[key].totalValue += (qty * prc);
+      aggregated[key].count += 1;
+      aggregated[key].transactions.push({
+        ...t,
+        originalTime: tSeconds,
+        amount: qty,
+        price: prc
+      });
+    });
+
+    const markers = Object.values(aggregated).map(agg => {
+      const isBuy = agg.side === 'BUY';
+      return {
+        time: agg.time,
+        position: isBuy ? 'belowBar' : 'aboveBar',
+        color: isBuy ? '#22c55e' : '#ef4444',
+        shape: isBuy ? 'arrowUp' : 'arrowDown',
+        text: `${agg.side} (${agg.count})`,
+        size: 2,
+        id: `tx_${agg.time}_${agg.side}`,
+        transactions: agg.transactions
+      };
+    });
+
+    // Sort markers by time
+    markers.sort((a, b) => a.time - b.time);
+    series.setMarkers(markers);
+    buyMarkersRef.current = markers;
+  };
+
+  // Helper to attach tooltips
+  const setupTooltip = () => {
+    const container = chartContainerRef.current;
+    if (!container) return;
+
+    let tooltip = markerTooltipRef.current;
+    if (!tooltip) {
+      tooltip = document.createElement('div');
+      tooltip.className = 'marker-tooltip';
+      container.appendChild(tooltip);
+      markerTooltipRef.current = tooltip;
+    }
+
+    if (chartRef.current && !crosshairMoveHandlerRef.current) {
+      crosshairMoveHandlerRef.current = (param) => {
+        if (!param || !param.point || !param.time) {
+          if (tooltip) tooltip.style.display = 'none';
+          return;
+        }
+
+        const point = param.point;
+        const containerBounds = container.getBoundingClientRect();
+        const hoveredMarkers = (buyMarkersRef.current || []).filter(m => m.time === param.time);
+
+        if (!hoveredMarkers.length) {
+          if (tooltip) tooltip.style.display = 'none';
+          return;
+        }
+
+        const marker = hoveredMarkers[0];
+        const txs = marker.transactions || [];
+        if (!txs.length) {
+          if (tooltip) tooltip.style.display = 'none';
+          return;
+        }
+
+        let tooltipContent = '';
+        const typeHovered = marker.transactions[0]?.side || 'BUY';
+        const firstEntry = txs[0];
+        const dateStr = new Date(firstEntry.originalTime * 1000).toLocaleDateString();
+        
+        if (typeHovered === 'BUY') {
+          const totalBuyValue = txs.reduce((sum, tx) => sum + (tx.amount * tx.price || 0), 0);
+          tooltipContent += `
+            <div class="marker-tooltip-heading" style="color: #22c55e;">Purchases (${dateStr})</div>
+            <div class="marker-tooltip-line">Total ${quoteAsset}: <span>${formatCurrency(totalBuyValue)}</span></div>
+          `;
+        } else {
+          const totalSellValue = txs.reduce((sum, tx) => sum + (tx.amount * tx.price || 0), 0);
+          tooltipContent += `
+            <div class="marker-tooltip-heading" style="color: #ef4444;">Sales (${dateStr})</div>
+            <div class="marker-tooltip-line">Total ${quoteAsset}: <span>${formatCurrency(totalSellValue)}</span></div>
+          `;
+        }
+
+        tooltip.innerHTML = tooltipContent;
+        tooltip.style.display = 'flex';
+
+        const tooltipRect = tooltip.getBoundingClientRect();
+        let left = point.x + 16;
+        let top = point.y + 16;
+
+        if (left + tooltipRect.width > containerBounds.width) {
+          left = point.x - tooltipRect.width - 16;
+        }
+        if (top + tooltipRect.height > containerBounds.height) {
+          top = point.y - tooltipRect.height - 16;
+        }
+
+        tooltip.style.left = `${Math.max(0, left)}px`;
+        tooltip.style.top = `${Math.max(0, top)}px`;
+      };
+
+      chartRef.current.subscribeCrosshairMove(crosshairMoveHandlerRef.current);
+    }
+  };
+
   // Fetch initial klines and transactions, then use WebSocket for updates
   useEffect(() => {
     if (!symbol) return;
@@ -1154,14 +1320,46 @@ const TradingChart = ({ symbol, onSymbolChange, tradingPairs = [] }) => {
             onChange={(e) => onSymbolChange(e.target.value)}
             className="chart-symbol-dropdown"
           >
-            {tradingPairs.map(pair => (
-              <option key={pair.id} value={pair.id}>
-                {pair.display_name || pair.id}
-              </option>
-            ))}
+            {(() => {
+              const usdPairs = tradingPairs.filter(p => (p.quote_currency === 'USD' || (p.id && p.id.endsWith('USD') && !p.id.endsWith('USDT'))));
+              const usdtPairs = tradingPairs.filter(p => (p.quote_currency === 'USDT' || (p.id && p.id.endsWith('USDT'))));
+              const otherPairs = tradingPairs.filter(p => !usdPairs.includes(p) && !usdtPairs.includes(p));
+
+              return (
+                <>
+                  {usdPairs.length > 0 && (
+                    <optgroup label={`USD Pairs (${usdPairs.length})`}>
+                      {usdPairs.map(pair => (
+                        <option key={pair.id} value={pair.id}>
+                          {pair.display_name || pair.id}
+                        </option>
+                      ))}
+                    </optgroup>
+                  )}
+                  {usdtPairs.length > 0 && (
+                    <optgroup label={`USDT Pairs (${usdtPairs.length})`}>
+                      {usdtPairs.map(pair => (
+                        <option key={pair.id} value={pair.id}>
+                          {pair.display_name || pair.id}
+                        </option>
+                      ))}
+                    </optgroup>
+                  )}
+                  {otherPairs.length > 0 && (
+                    <optgroup label="Other Pairs">
+                      {otherPairs.map(pair => (
+                        <option key={pair.id} value={pair.id}>
+                          {pair.display_name || pair.id}
+                        </option>
+                      ))}
+                    </optgroup>
+                  )}
+                </>
+              );
+            })()}
           </select>
         ) : (
-          <h3>{baseAsset} / USDT</h3>
+          <h3>{baseAsset} / {quoteAsset}</h3>
         )}
         <div className="interval-selector">
           {intervals.map(int => (
