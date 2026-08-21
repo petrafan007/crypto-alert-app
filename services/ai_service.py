@@ -165,7 +165,8 @@ def call_ai_with_web_search(
     include_db_context=True,
     amount=None,
     is_fallback_attempt=False,
-    tier_index=0
+    tier_index=0,
+    use_cache=False
 ):
     """
     AGENTIC AI WORKFLOW - 3-STAGE PROCESS WITH 3-TIER CASCADE FAILOVER:

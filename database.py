@@ -35,8 +35,12 @@ def init_db(app=None):
             ("watchlist", "sentiment_last_updated", "TIMESTAMP"),
             ("ai_prompts", "watchlist_sentiment_prompt_pre", "TEXT"),
             ("ai_prompts", "watchlist_sentiment_prompt_post", "TEXT"),
+            ("ai_prompts", "copilot_chat_pre", "TEXT"),
+            ("ai_prompts", "copilot_chat_post", "TEXT"),
             ("default_ai_prompts", "watchlist_sentiment_prompt_pre", "TEXT"),
-            ("default_ai_prompts", "watchlist_sentiment_prompt_post", "TEXT")
+            ("default_ai_prompts", "watchlist_sentiment_prompt_post", "TEXT"),
+            ("default_ai_prompts", "copilot_chat_pre", "TEXT"),
+            ("default_ai_prompts", "copilot_chat_post", "TEXT")
         ]
         for table, col, col_type in columns_to_ensure:
             try:
@@ -78,29 +82,29 @@ def init_db(app=None):
         try:
             def_prompt = DefaultAIPrompt.query.first()
             if def_prompt:
-                if not def_prompt.watchlist_sentiment_prompt_pre:
+                if hasattr(def_prompt, 'watchlist_sentiment_prompt_pre') and not def_prompt.watchlist_sentiment_prompt_pre:
                     def_prompt.watchlist_sentiment_prompt_pre = default_wl_pre
-                if not def_prompt.watchlist_sentiment_prompt_post:
+                if hasattr(def_prompt, 'watchlist_sentiment_prompt_post') and not def_prompt.watchlist_sentiment_prompt_post:
                     def_prompt.watchlist_sentiment_prompt_post = default_wl_post
-                if not def_prompt.copilot_chat_pre or len(def_prompt.copilot_chat_pre.strip()) < 40:
+                if hasattr(def_prompt, 'copilot_chat_pre') and (not def_prompt.copilot_chat_pre or len(def_prompt.copilot_chat_pre.strip()) < 40):
                     def_prompt.copilot_chat_pre = default_copilot_pre
-                if not def_prompt.copilot_chat_post or len(def_prompt.copilot_chat_post.strip()) < 80:
+                if hasattr(def_prompt, 'copilot_chat_post') and (not def_prompt.copilot_chat_post or len(def_prompt.copilot_chat_post.strip()) < 80):
                     def_prompt.copilot_chat_post = default_copilot_post
                 db.session.commit()
             
             user_prompts = AIPrompt.query.all()
             for up in user_prompts:
                 updated = False
-                if not up.watchlist_sentiment_prompt_pre:
+                if hasattr(up, 'watchlist_sentiment_prompt_pre') and not up.watchlist_sentiment_prompt_pre:
                     up.watchlist_sentiment_prompt_pre = default_wl_pre
                     updated = True
-                if not up.watchlist_sentiment_prompt_post:
+                if hasattr(up, 'watchlist_sentiment_prompt_post') and not up.watchlist_sentiment_prompt_post:
                     up.watchlist_sentiment_prompt_post = default_wl_post
                     updated = True
-                if not up.copilot_chat_pre or len(up.copilot_chat_pre.strip()) < 40:
+                if hasattr(up, 'copilot_chat_pre') and (not up.copilot_chat_pre or len(up.copilot_chat_pre.strip()) < 40):
                     up.copilot_chat_pre = default_copilot_pre
                     updated = True
-                if not up.copilot_chat_post or len(up.copilot_chat_post.strip()) < 80:
+                if hasattr(up, 'copilot_chat_post') and (not up.copilot_chat_post or len(up.copilot_chat_post.strip()) < 80):
                     up.copilot_chat_post = default_copilot_post
                     updated = True
                 if updated:
