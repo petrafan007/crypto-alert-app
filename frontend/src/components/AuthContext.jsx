@@ -137,10 +137,12 @@ export function AuthProvider({ children }) {
       clearInterval(i);
     }
 
-    // Clear localStorage and sessionStorage
+    // Clear auth session while preserving UI preferences
     try {
-      localStorage.clear();
       sessionStorage.clear();
+      // Remove only auth-specific tokens if any, keeping UI layout & theme intact
+      localStorage.removeItem('authToken');
+      localStorage.removeItem('session_token');
     } catch (error) {
       // Ignore storage errors
     }

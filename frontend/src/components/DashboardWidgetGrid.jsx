@@ -54,6 +54,57 @@ const getWidgetBounds = (id) => {
   }
 };
 
+const getWidgetDefaultSize = (id, bp = 'lg') => {
+  if (id === 'allocations') return bp === 'sm' ? { w: 6, h: 4 } : { w: 4, h: 4 };
+  if (id === 'trend') return bp === 'sm' ? { w: 6, h: 4 } : bp === 'md' ? { w: 6, h: 4 } : { w: 8, h: 4 };
+  if (id === 'performance') return bp === 'sm' ? { w: 6, h: 3 } : bp === 'md' ? { w: 10, h: 3 } : { w: 12, h: 3 };
+  if (['top_movers', 'recent_trades', 'ai_pulse'].includes(id)) {
+    return bp === 'sm' ? { w: 6, h: 3 } : bp === 'md' ? { w: 5, h: 3 } : { w: 4, h: 3 };
+  }
+  // Standard metric cards (fear_greed, cbbi, portfolio_value, staking, staking_rewards, risk_monitor, quick_trade, gas_monitor)
+  return bp === 'sm' ? { w: 6, h: 3 } : bp === 'md' ? { w: 5, h: 3 } : { w: 3, h: 3 };
+};
+
+const findFirstAvailableSpot = (currentLayout, targetW, targetH, totalCols = 12) => {
+  let maxY = 0;
+  const occupied = new Set();
+
+  (currentLayout || []).forEach(item => {
+    const ix = item.x || 0;
+    const iy = item.y || 0;
+    const iw = item.w || 1;
+    const ih = item.h || 1;
+    maxY = Math.max(maxY, iy + ih);
+
+    for (let r = 0; r < ih; r++) {
+      for (let c = 0; c < iw; c++) {
+        occupied.add(`${ix + c},${iy + r}`);
+      }
+    }
+  });
+
+  // Search row by row, then col by col for the first slot that fits targetW x targetH
+  for (let y = 0; y <= maxY + 5; y++) {
+    for (let x = 0; x <= totalCols - targetW; x++) {
+      let fits = true;
+      for (let r = 0; r < targetH; r++) {
+        for (let c = 0; c < targetW; c++) {
+          if (occupied.has(`${x + c},${y + r}`)) {
+            fits = false;
+            break;
+          }
+        }
+        if (!fits) break;
+      }
+      if (fits) {
+        return { x, y };
+      }
+    }
+  }
+
+  return { x: 0, y: maxY };
+};
+
 const mapLayoutBounds = (layout) => layout.map(item => ({ ...item, ...getWidgetBounds(item.i) }));
 
 const DEFAULT_LAYOUTS = {
@@ -107,8 +158,72 @@ const DEFAULT_LAYOUTS = {
   ])
 };
 
-const STORAGE_KEY = 'crypto_dashboard_widget_layout_v1_71';
-const HIDDEN_STORAGE_KEY = 'crypto_dashboard_widget_hidden_v1_71';
+const STORAGE_KEY = 'crypto_dashboard_widget_layout_persistent';
+const HIDDEN_STORAGE_KEY = 'crypto_dashboard_widget_hidden_persistent';
+
+const LEGACY_STORAGE_KEYS = [
+  'crypto_dashboard_widget_layout_persistent',
+  'crypto_dashboard_widget_layout_v1_72',
+  'crypto_dashboard_widget_layout_v1_71',
+  'crypto_dashboard_widget_layout_v1_70',
+  'crypto_dashboard_widget_layout_v1_69',
+  'crypto_dashboard_widget_layout_v1_68',
+  'crypto_dashboard_widget_layout_v1_67',
+  'crypto_dashboard_widget_layout_v1_66',
+  'crypto_dashboard_widget_layout_v1_63',
+  'crypto_dashboard_widget_layout'
+];
+
+const LEGACY_HIDDEN_KEYS = [
+  'crypto_dashboard_widget_hidden_persistent',
+  'crypto_dashboard_widget_hidden_v1_72',
+  'crypto_dashboard_widget_hidden_v1_71',
+  'crypto_dashboard_widget_hidden_v1_70',
+  'crypto_dashboard_widget_hidden_v1_69',
+  'crypto_dashboard_widget_hidden_v1_68',
+  'crypto_dashboard_widget_hidden_v1_67',
+  'crypto_dashboard_widget_hidden_v1_66',
+  'crypto_dashboard_widget_hidden_v1_63',
+  'crypto_dashboard_widget_hidden'
+];
+
+const loadPersistedLayouts = () => {
+  try {
+    for (const key of LEGACY_STORAGE_KEYS) {
+      const saved = localStorage.getItem(key);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed && typeof parsed === 'object') {
+          // Permanently save to standard key
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(parsed));
+          return parsed;
+        }
+      }
+    }
+  } catch (e) {
+    console.error('Error loading persisted layouts:', e);
+  }
+  return DEFAULT_LAYOUTS;
+};
+
+const loadPersistedHiddenWidgets = () => {
+  try {
+    for (const key of LEGACY_HIDDEN_KEYS) {
+      const saved = localStorage.getItem(key);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) {
+          const merged = Array.from(new Set([...parsed, ...NEW_WIDGET_IDS]));
+          localStorage.setItem(HIDDEN_STORAGE_KEY, JSON.stringify(merged));
+          return merged;
+        }
+      }
+    }
+  } catch (e) {
+    console.error('Error loading persisted hidden widgets:', e);
+  }
+  return [...NEW_WIDGET_IDS];
+};
 
 const DashboardWidgetGrid = ({
   isLightMode,
@@ -116,27 +231,8 @@ const DashboardWidgetGrid = ({
   onEditPerformanceCoins
 }) => {
   const [isEditMode, setIsEditMode] = useState(false);
-  const [layouts, setLayouts] = useState(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY);
-      if (saved) return JSON.parse(saved);
-    } catch (e) {
-      console.error('Error loading layouts:', e);
-    }
-    return DEFAULT_LAYOUTS;
-  });
-
-  const [hiddenWidgetIds, setHiddenWidgetIds] = useState(() => {
-    try {
-      const saved = localStorage.getItem(HIDDEN_STORAGE_KEY);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        // Ensure new widgets are included in hidden list if not already explicitly saved
-        return Array.from(new Set([...(parsed || []), ...NEW_WIDGET_IDS]));
-      }
-    } catch (e) { }
-    return [...NEW_WIDGET_IDS];
-  });
+  const [layouts, setLayouts] = useState(loadPersistedLayouts);
+  const [hiddenWidgetIds, setHiddenWidgetIds] = useState(loadPersistedHiddenWidgets);
 
   const [initialSnapshot, setInitialSnapshot] = useState(null);
   const [history, setHistory] = useState([]);
@@ -243,6 +339,33 @@ const DashboardWidgetGrid = ({
 
   const handleUnhideWidget = (id) => {
     pushHistory(layouts, hiddenWidgetIds);
+
+    const bpCols = { lg: 12, md: 10, sm: 6, xs: 4, xxs: 2 };
+    const newLayouts = { ...layouts };
+
+    for (const [bp, cols] of Object.entries(bpCols)) {
+      const currentBpLayout = (newLayouts[bp] || []).filter(item => item.i !== id && !hiddenWidgetIds.includes(item.i));
+      const targetSize = getWidgetDefaultSize(id, bp);
+      const w = Math.min(targetSize.w, cols);
+      const h = targetSize.h;
+      const bounds = getWidgetBounds(id);
+
+      const spot = findFirstAvailableSpot(currentBpLayout, w, h, cols);
+
+      const newItem = {
+        i: id,
+        x: spot.x,
+        y: spot.y,
+        w: w,
+        h: h,
+        ...bounds
+      };
+
+      const otherItems = (newLayouts[bp] || []).filter(item => item.i !== id);
+      newLayouts[bp] = [...otherItems, newItem];
+    }
+
+    setLayouts(newLayouts);
     const updated = hiddenWidgetIds.filter(h => h !== id);
     setHiddenWidgetIds(updated);
     setShowAddMenu(false);

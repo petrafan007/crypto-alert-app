@@ -114,8 +114,14 @@ function Dashboard({ isLightMode }) {
   const [showPerformanceCoinModal, setShowPerformanceCoinModal] = useState(false);
   const [performanceHiddenCoins, setPerformanceHiddenCoins] = useState(() => {
     try {
-      const saved = localStorage.getItem('crypto_performance_hidden_coins_v1_69');
-      if (saved) return JSON.parse(saved) || [];
+      const direct = localStorage.getItem('crypto_performance_hidden_coins_persistent');
+      if (direct) return JSON.parse(direct) || [];
+      const legacy = localStorage.getItem('crypto_performance_hidden_coins_v1_69') || localStorage.getItem('crypto_performance_hidden_coins');
+      if (legacy) {
+        const parsed = JSON.parse(legacy) || [];
+        localStorage.setItem('crypto_performance_hidden_coins_persistent', JSON.stringify(parsed));
+        return parsed;
+      }
     } catch (e) {}
     return [];
   });
@@ -195,7 +201,7 @@ function Dashboard({ isLightMode }) {
   const handleSavePerformanceCoinModal = () => {
     setPerformanceHiddenCoins(performanceCoinDraft);
     try {
-      localStorage.setItem('crypto_performance_hidden_coins_v1_69', JSON.stringify(performanceCoinDraft));
+      localStorage.setItem('crypto_performance_hidden_coins_persistent', JSON.stringify(performanceCoinDraft));
     } catch (e) {
       console.error('Error saving performance hidden coins:', e);
     }

@@ -122,6 +122,13 @@ The application utilizes a **unified PostgreSQL database**.
 
 ## Version History & Changelog
 
+## v1.72-beta (August 2026)
+
+### Smart Grid Hole-Detection & Default Panel Sizing for Restored Widgets
+- **First Open Spot Placement (`findFirstAvailableSpot`)**: When restoring or adding a new widget from the *+ Add / Restore Panels* dropdown, the grid layout engine scans row-by-row to detect the first available open slot in the dashboard and places the widget right there instead of dropping it at the bottom-left corner.
+- **Full Standard Default Sizing (`w: 3, h: 3`)**: Restored panels now open at the full, standard size of metric cards (matching Fear & Greed / CBBI / Staking) instead of collapsing into a miniature 1x1 or 2x2 box.
+- **Version Bump**: Synchronized metadata to `v1.72-beta`.
+
 ## v1.71-beta (August 2026)
 
 ### Freeform Dashboard Grid Layout & Drag-Drop Snapping Fix
