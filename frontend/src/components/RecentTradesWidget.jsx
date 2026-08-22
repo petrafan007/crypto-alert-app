@@ -60,7 +60,7 @@ const RecentTradesWidget = ({ isLightMode }) => {
           No recent executed orders.
         </div>
       ) : (
-        <div style={{ flex: 1, overflowY: 'auto', minHeight: 0, display: 'flex', flexDirection: 'column', gap: '6px' }}>
+        <div className="custom-scrollbar" style={{ flex: 1, overflowY: 'auto', minHeight: 0, display: 'flex', flexDirection: 'column', gap: '6px' }}>
           {trades.map((order, idx) => {
             const isBuy = (order.side || '').toUpperCase() === 'BUY';
             const baseSymbol = (order.symbol || '').replace(/(USDT|USD)$/, '');

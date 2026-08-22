@@ -23,7 +23,10 @@ export default function AICopilotSidebar() {
   const [offset, setOffset] = useState(0);
   const [totalCount, setTotalCount] = useState(0);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
-  const [showAutomation, setShowAutomation] = useState(true);
+  const [showAutomation, setShowAutomation] = useState(() => {
+    const saved = localStorage.getItem('ai_copilot_show_automation');
+    return saved !== null ? JSON.parse(saved) : true;
+  });
   const [searchHits, setSearchHits] = useState([]);
   const [currentHitIndex, setCurrentHitIndex] = useState(-1);
   const messageRefs = useRef(new Map());
@@ -116,6 +119,7 @@ export default function AICopilotSidebar() {
     if (isOpen) {
       fetchConversations(false, true);
     }
+    localStorage.setItem('ai_copilot_show_automation', JSON.stringify(showAutomation));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showAutomation]);
 
@@ -733,22 +737,24 @@ export default function AICopilotSidebar() {
         <div className="sidebar-header">
           <h3>🤖 AI Copilot</h3>
           <div className="header-controls">
-            <label className="auto-refresh-toggle">
-              <input
-                type="checkbox"
-                checked={showAutomation}
-                onChange={(e) => setShowAutomation(e.target.checked)}
-              />
-              <span>Show workflows</span>
-            </label>
-            <label className="select-all-toggle">
-              <input
-                type="checkbox"
-                checked={selectAll}
-                onChange={toggleSelectAll}
-              />
-              <span>Select All</span>
-            </label>
+            <div className="checkbox-row" style={{ display: 'flex', gap: '15px' }}>
+              <label className="auto-refresh-toggle">
+                <input
+                  type="checkbox"
+                  checked={showAutomation}
+                  onChange={(e) => setShowAutomation(e.target.checked)}
+                />
+                <span>Show workflows</span>
+              </label>
+              <label className="select-all-toggle">
+                <input
+                  type="checkbox"
+                  checked={selectAll}
+                  onChange={toggleSelectAll}
+                />
+                <span>Select All</span>
+              </label>
+            </div>
             {selectedMessages.size > 0 && (
               <div className="bulk-actions">
                 <button
