@@ -92,10 +92,10 @@ function Dashboard({ isLightMode }) {
   const [notification, setNotification] = useState({ show: false, message: '', type: 'info' });
   const [isMobile, setIsMobile] = useState(false);
   const [openActionMenu, setOpenActionMenu] = useState({ type: null, key: null, payload: null });
-  const [openTradeQuoteMenu, setOpenTradeQuoteMenu] = useState({ type: null, key: null, side: null });
+  const [openTradeQuoteMenu, setOpenTradeQuoteMenu] = useState({ type: null, key: null, side: null, position: null });
   const tradeQuoteMenuStyle = isMobile
     ? { display: 'flex', flexDirection: 'column', gap: 4, margin: '0 0 4px' }
-    : { position: 'absolute', top: 'calc(100% + 6px)', right: 0, zIndex: 100, display: 'flex', flexDirection: 'column', gap: 4, minWidth: 148 };
+    : { position: 'fixed', top: openTradeQuoteMenu.position?.top ?? 0, left: openTradeQuoteMenu.position?.left ?? 0, zIndex: 1000, display: 'flex', flexDirection: 'column', gap: 4, minWidth: 148 };
 
   // Toast for backend notifications
   useNotificationPoller(user && user.id, notif => {
@@ -130,13 +130,23 @@ function Dashboard({ isLightMode }) {
   }, []);
 
   const closeActionMenu = () => setOpenActionMenu({ type: null, key: null, payload: null });
-  const closeTradeQuoteMenu = () => setOpenTradeQuoteMenu({ type: null, key: null, side: null });
+  const closeTradeQuoteMenu = () => setOpenTradeQuoteMenu({ type: null, key: null, side: null, position: null });
 
-  const toggleTradeQuoteMenu = (type, key, side) => {
+  const toggleTradeQuoteMenu = (type, key, side, event) => {
     setOpenTradeQuoteMenu(prev =>
       prev.type === type && prev.key === key && prev.side === side
-        ? { type: null, key: null, side: null }
-        : { type, key, side }
+        ? { type: null, key: null, side: null, position: null }
+        : {
+          type,
+          key,
+          side,
+          position: event && !isMobile
+            ? {
+              top: Math.min(event.currentTarget.getBoundingClientRect().bottom + 6, window.innerHeight - 92),
+              left: Math.min(event.currentTarget.getBoundingClientRect().left, window.innerWidth - 196)
+            }
+            : null
+        }
     );
   };
 
@@ -907,7 +917,7 @@ function Dashboard({ isLightMode }) {
             </button>
             <button onClick={() => { openNews(isPortfolio ? coin.symbol : item.symbol); closeActionMenu(); }}>News</button>
             <button onClick={() => { openNoteModal(isPortfolio ? coin : item); closeActionMenu(); }}>Notes</button>
-            <button onClick={() => toggleTradeQuoteMenu(openActionMenu.type, openActionMenu.key, 'BUY')}>Buy</button>
+            <button onClick={(event) => toggleTradeQuoteMenu(openActionMenu.type, openActionMenu.key, 'BUY', event)}>Buy</button>
             {openTradeQuoteMenu.type === openActionMenu.type && openTradeQuoteMenu.key === openActionMenu.key && openTradeQuoteMenu.side === 'BUY' && (
               <div className="trade-quote-menu" style={tradeQuoteMenuStyle}>
                 <button onClick={() => { navigateToTrading(isPortfolio ? coin.symbol : item.symbol, 'BUY', 'USD'); closeActionMenu(); closeTradeQuoteMenu(); }}>Buy with USD</button>
@@ -916,7 +926,7 @@ function Dashboard({ isLightMode }) {
             )}
             {isPortfolio && (
               <>
-                <button onClick={() => toggleTradeQuoteMenu(openActionMenu.type, openActionMenu.key, 'SELL')}>Sell</button>
+                <button onClick={(event) => toggleTradeQuoteMenu(openActionMenu.type, openActionMenu.key, 'SELL', event)}>Sell</button>
                 {openTradeQuoteMenu.type === openActionMenu.type && openTradeQuoteMenu.key === openActionMenu.key && openTradeQuoteMenu.side === 'SELL' && (
                   <div className="trade-quote-menu" style={tradeQuoteMenuStyle}>
                     <button onClick={() => { navigateToTrading(coin.symbol, 'SELL', 'USD'); closeActionMenu(); closeTradeQuoteMenu(); }}>Sell for USD</button>
@@ -2251,7 +2261,7 @@ function Dashboard({ isLightMode }) {
                           </span>
                           <button
                             className="trade-action-btn buy"
-                            onClick={() => toggleTradeQuoteMenu('portfolio', coin.symbol, 'BUY')}
+                            onClick={(event) => toggleTradeQuoteMenu('portfolio', coin.symbol, 'BUY', event)}
                           >
                             Buy
                           </button>
@@ -2263,7 +2273,7 @@ function Dashboard({ isLightMode }) {
                           )}
                           <button
                             className="trade-action-btn sell"
-                            onClick={() => toggleTradeQuoteMenu('portfolio', coin.symbol, 'SELL')}
+                            onClick={(event) => toggleTradeQuoteMenu('portfolio', coin.symbol, 'SELL', event)}
                           >
                             Sell
                           </button>
@@ -2442,7 +2452,7 @@ function Dashboard({ isLightMode }) {
                         </span>
                         <button
                           className="trade-action-btn buy"
-                          onClick={() => toggleTradeQuoteMenu('watchlist', item.symbol, 'BUY')}
+                          onClick={(event) => toggleTradeQuoteMenu('watchlist', item.symbol, 'BUY', event)}
                           style={{ marginLeft: 8 }}
                         >
                           Buy
