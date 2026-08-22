@@ -99,6 +99,7 @@ function Dashboard({ isLightMode }) {
 
   const [notification, setNotification] = useState({ show: false, message: '', type: 'info' });
   const [isMobile, setIsMobile] = useState(false);
+  const [mobileTab, setMobileTab] = useState('charts'); // 'charts' | 'tables'
   const [openActionMenu, setOpenActionMenu] = useState({ type: null, key: null, payload: null });
   const [openTradeQuoteMenu, setOpenTradeQuoteMenu] = useState({ type: null, key: null, side: null, position: null });
   const [volatilityHoursSetting, setVolatilityHoursSetting] = useState(24);
@@ -2361,7 +2362,6 @@ function Dashboard({ isLightMode }) {
     if (['USD', 'USDT', 'USDC', 'BUSD', 'DAI', 'TUSD', 'USDP'].includes(sym)) {
       return (
         <td
-          className={isMobile ? 'mobile-hide' : ''}
           style={{ textAlign: 'center', whiteSpace: 'nowrap', padding: '6px 8px', color: 'var(--text-secondary, #94a3b8)' }}
         >
           —
@@ -2461,7 +2461,6 @@ function Dashboard({ isLightMode }) {
 
     return (
       <td
-        className={isMobile ? 'mobile-hide' : ''}
         title={tooltip}
         style={{
           cursor: isChecking ? 'wait' : 'help',
@@ -2647,9 +2646,28 @@ function Dashboard({ isLightMode }) {
           </button>
         </div>
       )}
+      {/* Mobile-Only Charts vs Tables Segmented Tab Bar */}
+      <div className="mobile-dashboard-tabs">
+        <button
+          type="button"
+          className={`mobile-dashboard-tab-btn ${mobileTab === 'charts' ? 'active' : ''}`}
+          onClick={() => setMobileTab('charts')}
+        >
+          📊 Charts
+        </button>
+        <button
+          type="button"
+          className={`mobile-dashboard-tab-btn ${mobileTab === 'tables' ? 'active' : ''}`}
+          onClick={() => setMobileTab('tables')}
+        >
+          📋 Tables
+        </button>
+      </div>
+
       {/* Interactive Customizable Widgets Grid */}
-      <DashboardWidgetGrid
-        isLightMode={isLightMode}
+      <div className={`dashboard-widgets-section ${isMobile && mobileTab !== 'charts' ? 'mobile-hidden' : ''}`}>
+        <DashboardWidgetGrid
+          isLightMode={isLightMode}
         onEditPerformanceCoins={handleOpenPerformanceCoinModal}
         onEditRecentTrades={handleOpenRecentTradesModal}
         renderWidgetContent={(widgetId) => {
@@ -2737,9 +2755,12 @@ function Dashboard({ isLightMode }) {
           }
         }}
       />
+      </div>
 
-      {/* Portfolio Table */}
-      <div className="table-container portfolio-table">
+      {/* Tables Section */}
+      <div className={`dashboard-tables-section ${isMobile && mobileTab !== 'tables' ? 'mobile-hidden' : ''}`}>
+        {/* Portfolio Table */}
+        <div className="table-container portfolio-table">
         <div className="table-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px', marginBottom: '8px' }}>
           <h2 className="table-title" style={{ margin: 0 }}>Portfolio</h2>
           <div style={{ fontSize: '15px', fontWeight: '700', color: 'var(--accent-primary, #4fd1c5)', letterSpacing: '0.3px' }}>
@@ -2767,13 +2788,13 @@ function Dashboard({ isLightMode }) {
               <th onClick={() => handleSort('volatility_pct')} className="portfolio-header sortable">
                 {renderHeaderLabel('volatility_pct', 'Volatility %')}
               </th>
-              <th onClick={() => handleSort('avg_entry')} className={`portfolio-header sortable ${isMobile ? 'mobile-hide' : ''}`}>
+              <th onClick={() => handleSort('avg_entry')} className="portfolio-header sortable">
                 {renderHeaderLabel('avg_entry', 'Avg Entry')}
               </th>
-              <th onClick={() => handleSort('pct_change')} className={`portfolio-header sortable ${isMobile ? 'mobile-hide' : ''}`}>
+              <th onClick={() => handleSort('pct_change')} className="portfolio-header sortable">
                 {renderHeaderLabel('pct_change', '% Change')}
               </th>
-              <th onClick={() => handleSort('sentiment')} className={`portfolio-header sortable ${isMobile ? 'mobile-hide' : ''}`}>
+              <th onClick={() => handleSort('sentiment')} className="portfolio-header sortable">
                 {renderHeaderLabel('sentiment', 'Sentiment')}
               </th>
               <th className="portfolio-header">Actions</th>
@@ -2824,8 +2845,8 @@ function Dashboard({ isLightMode }) {
                     <td style={{ textAlign: 'center' }}>{renderPortfolioAlertCell(coin, 'down')}</td>
                     <td style={{ textAlign: 'center' }}>{renderPortfolioAlertCell(coin, 'up')}</td>
                     <td style={{ textAlign: 'center' }}>{renderVolatilityCell(coin, 'portfolio')}</td>
-                    <td className={isMobile ? 'mobile-hide' : ''} style={{ whiteSpace: 'nowrap', textAlign: 'center' }}>{isStable ? '—' : (coin.avg_entry ? `$${coin.avg_entry.toFixed(2)}` : '—')}</td>
-                    <td className={`${!isStable && coin.pct_change >= 0 ? 'status-positive' : !isStable && coin.pct_change < 0 ? 'status-negative' : ''} ${isMobile ? 'mobile-hide' : ''}`} style={{ whiteSpace: 'nowrap', textAlign: 'center' }}>
+                    <td style={{ whiteSpace: 'nowrap', textAlign: 'center' }}>{isStable ? '—' : (coin.avg_entry ? `$${coin.avg_entry.toFixed(2)}` : '—')}</td>
+                    <td className={!isStable && coin.pct_change >= 0 ? 'status-positive' : !isStable && coin.pct_change < 0 ? 'status-negative' : ''} style={{ whiteSpace: 'nowrap', textAlign: 'center' }}>
                       {isStable ? '—' : (coin.pct_change !== undefined && coin.pct_change !== null ? `${coin.pct_change >= 0 ? '+' : ''}${coin.pct_change.toFixed(2)}%` : '—')}
                     </td>
                     {renderSentimentCell(coin, false)}
@@ -2981,8 +3002,8 @@ function Dashboard({ isLightMode }) {
               </th>
               <th>Price Down Alert</th>
               <th>Price Up Alert</th>
-              <th className={isMobile ? 'mobile-hide' : ''}>Volatility %</th>
-              <th onClick={() => handleSort('sentiment')} className={isMobile ? 'mobile-hide' : ''} style={{ cursor: 'pointer' }}>
+              <th>Volatility %</th>
+              <th onClick={() => handleSort('sentiment')} style={{ cursor: 'pointer' }}>
                 Sentiment {getSortIcon('sentiment')}
               </th>
               <th>Actions</th>
@@ -3014,7 +3035,7 @@ function Dashboard({ isLightMode }) {
                   <td style={{ whiteSpace: 'nowrap', textAlign: 'center' }}>{item.current_price ? `$${item.current_price.toFixed(2)}` : '—'}</td>
                   <td style={{ textAlign: 'center' }}>{renderWatchlistAlertCell(item, 'down')}</td>
                   <td style={{ textAlign: 'center' }}>{renderWatchlistAlertCell(item, 'up')}</td>
-                  <td className={isMobile ? 'mobile-hide' : ''} style={{ textAlign: 'center' }}>{renderVolatilityCell(item, 'watchlist')}</td>
+                  <td style={{ textAlign: 'center' }}>{renderVolatilityCell(item, 'watchlist')}</td>
                   {renderSentimentCell(item, true)}
                   <td className="actions-cell" style={{ textAlign: 'center', whiteSpace: 'nowrap', position: 'relative' }}>
                     {isMobile ? (
@@ -3079,6 +3100,7 @@ function Dashboard({ isLightMode }) {
             )}
           </tbody>
         </table>
+      </div>
       </div>
 
       {/* Note Modal */}
