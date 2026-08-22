@@ -93,6 +93,9 @@ function Dashboard({ isLightMode }) {
   const [isMobile, setIsMobile] = useState(false);
   const [openActionMenu, setOpenActionMenu] = useState({ type: null, key: null, payload: null });
   const [openTradeQuoteMenu, setOpenTradeQuoteMenu] = useState({ type: null, key: null, side: null });
+  const tradeQuoteMenuStyle = isMobile
+    ? { display: 'flex', flexDirection: 'column', gap: 4, margin: '0 0 4px' }
+    : { position: 'absolute', top: 'calc(100% + 6px)', right: 0, zIndex: 100, display: 'flex', flexDirection: 'column', gap: 4, minWidth: 148 };
 
   // Toast for backend notifications
   useNotificationPoller(user && user.id, notif => {
@@ -906,7 +909,7 @@ function Dashboard({ isLightMode }) {
             <button onClick={() => { openNoteModal(isPortfolio ? coin : item); closeActionMenu(); }}>Notes</button>
             <button onClick={() => toggleTradeQuoteMenu(openActionMenu.type, openActionMenu.key, 'BUY')}>Buy</button>
             {openTradeQuoteMenu.type === openActionMenu.type && openTradeQuoteMenu.key === openActionMenu.key && openTradeQuoteMenu.side === 'BUY' && (
-              <div className="trade-quote-menu">
+              <div className="trade-quote-menu" style={tradeQuoteMenuStyle}>
                 <button onClick={() => { navigateToTrading(isPortfolio ? coin.symbol : item.symbol, 'BUY', 'USD'); closeActionMenu(); closeTradeQuoteMenu(); }}>Buy with USD</button>
                 <button onClick={() => { navigateToTrading(isPortfolio ? coin.symbol : item.symbol, 'BUY', 'USDT'); closeActionMenu(); closeTradeQuoteMenu(); }}>Buy with USDT</button>
               </div>
@@ -915,7 +918,7 @@ function Dashboard({ isLightMode }) {
               <>
                 <button onClick={() => toggleTradeQuoteMenu(openActionMenu.type, openActionMenu.key, 'SELL')}>Sell</button>
                 {openTradeQuoteMenu.type === openActionMenu.type && openTradeQuoteMenu.key === openActionMenu.key && openTradeQuoteMenu.side === 'SELL' && (
-                  <div className="trade-quote-menu">
+                  <div className="trade-quote-menu" style={tradeQuoteMenuStyle}>
                     <button onClick={() => { navigateToTrading(coin.symbol, 'SELL', 'USD'); closeActionMenu(); closeTradeQuoteMenu(); }}>Sell for USD</button>
                     <button onClick={() => { navigateToTrading(coin.symbol, 'SELL', 'USDT'); closeActionMenu(); closeTradeQuoteMenu(); }}>Sell for USDT</button>
                   </div>
@@ -2253,7 +2256,7 @@ function Dashboard({ isLightMode }) {
                             Buy
                           </button>
                           {openTradeQuoteMenu.type === 'portfolio' && openTradeQuoteMenu.key === coin.symbol && openTradeQuoteMenu.side === 'BUY' && (
-                            <div className="trade-quote-menu">
+                            <div className="trade-quote-menu" style={tradeQuoteMenuStyle}>
                               <button onClick={() => { navigateToTrading(coin.symbol, 'BUY', 'USD'); closeTradeQuoteMenu(); }}>Buy with USD</button>
                               <button onClick={() => { navigateToTrading(coin.symbol, 'BUY', 'USDT'); closeTradeQuoteMenu(); }}>Buy with USDT</button>
                             </div>
@@ -2265,7 +2268,7 @@ function Dashboard({ isLightMode }) {
                             Sell
                           </button>
                           {openTradeQuoteMenu.type === 'portfolio' && openTradeQuoteMenu.key === coin.symbol && openTradeQuoteMenu.side === 'SELL' && (
-                            <div className="trade-quote-menu">
+                            <div className="trade-quote-menu" style={tradeQuoteMenuStyle}>
                               <button onClick={() => { navigateToTrading(coin.symbol, 'SELL', 'USD'); closeTradeQuoteMenu(); }}>Sell for USD</button>
                               <button onClick={() => { navigateToTrading(coin.symbol, 'SELL', 'USDT'); closeTradeQuoteMenu(); }}>Sell for USDT</button>
                             </div>
@@ -2445,7 +2448,7 @@ function Dashboard({ isLightMode }) {
                           Buy
                         </button>
                         {openTradeQuoteMenu.type === 'watchlist' && openTradeQuoteMenu.key === item.symbol && openTradeQuoteMenu.side === 'BUY' && (
-                          <div className="trade-quote-menu">
+                          <div className="trade-quote-menu" style={tradeQuoteMenuStyle}>
                             <button onClick={() => { navigateToTrading(item.symbol, 'BUY', 'USD'); closeTradeQuoteMenu(); }}>Buy with USD</button>
                             <button onClick={() => { navigateToTrading(item.symbol, 'BUY', 'USDT'); closeTradeQuoteMenu(); }}>Buy with USDT</button>
                           </div>
