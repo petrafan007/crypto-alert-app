@@ -1098,7 +1098,7 @@ body.light-mode .theme-switch {
 .theme-switch .thumb {
   position: absolute;
   top: 3px;
-  left: 3px;
+  left: 4px;
   width: 28px;
   height: 28px;
   background: var(--card-bg);
@@ -1113,13 +1113,13 @@ body.light-mode .theme-switch {
 }
 
 .theme-switch.dark .thumb {
-  transform: translateX(36px);
+  transform: translateX(34px);
 }
 
 .theme-switch .icon {
   position: absolute;
   top: 0;
-  width: 36px;
+  width: 28px;
   height: 100%;
   display: flex;
   align-items: center;
@@ -1132,11 +1132,12 @@ body.light-mode .theme-switch {
 }
 
 .theme-switch .icon.sun {
-  left: 0;
+  left: 4px;
 }
 
 .theme-switch .icon.moon {
-  left: 36px;
+  right: 4px;
+  left: auto;
 }
 
 .theme-switch.light .icon.sun {
