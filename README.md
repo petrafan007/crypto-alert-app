@@ -81,6 +81,14 @@ The application utilizes a **unified PostgreSQL database**.
 
 ## Version History & Changelog
 
+## v1.68-beta (August 2026)
+
+### Pre-Execution Open Order Conflict Resolution for Auto-Sell
+- **Automatic Conflicting Order Cancellation**: Integrated pre-check logic into the backend Auto-Sell executor (`execute_auto_sell`). Prior to submitting a market sell order, the system scans for any active open orders on Binance.US for that specific coin (such as open limit sells, stop-loss limits, or OCO orders) and automatically cancels them to immediately unlock 100% of the coin's asset balance.
+- **Dynamic Post-Cancel Balance Refresh**: Re-queries Binance's live free balance post-cancellation, recalculates optimal lot size formatting, and executes the market sell into USDT without manual intervention or order failure.
+- **Enhanced Multi-Channel Logging**: Detailed notes of cancelled orders are recorded in `AllActivity`, dispatched via Telegram alerts, and saved as user notifications.
+- **Version Bump**: Synchronized metadata across `version.js`, `package.json`, and UI footer to `v1.68-beta`.
+
 ## v1.67-beta (August 2026)
 
 ### Portfolio Volatility Drop Auto-Sell & App Versioning Fix

@@ -404,7 +404,7 @@ def check_auto_sell_for_coin(user, coin, ticker_map, client):
         logger.error(f"Error checking auto-sell for {getattr(coin, 'symbol', '?')}: {e}", exc_info=True)
 
 def execute_auto_sell(user, coin, pair, current_price, price_drop_pct, threshold, client):
-    """Execute automatic market sell for USDT upon volatility drop trigger."""
+    """Execute automatic market sell for USDT upon volatility drop trigger, cancelling conflicting open orders first."""
     from models import Notification
     from trading_models import AllActivity
     from services.binance_service import get_symbol_filters
@@ -412,12 +412,55 @@ def execute_auto_sell(user, coin, pair, current_price, price_drop_pct, threshold
 
     symbol = coin.symbol.upper()
     try:
+        # Step 1: Check for and cancel any existing open orders for this coin to unlock balances
+        cancelled_orders = []
+        try:
+            open_orders = []
+            try:
+                open_orders = client.get_open_orders()
+            except Exception as all_ord_err:
+                logger.warning(f"Failed to fetch global open orders for {symbol}, checking pair {pair}: {all_ord_err}")
+                try:
+                    open_orders = client.get_open_orders(symbol=pair)
+                except Exception:
+                    open_orders = []
+
+            for ord_item in open_orders:
+                ord_symbol = ord_item.get('symbol', '')
+                # Match orders where base asset matches our coin (e.g., ETHUSDT, ETHUSD, ETHBTC)
+                if ord_symbol.startswith(symbol) or ord_symbol == pair:
+                    ord_id = ord_item.get('orderId')
+                    try:
+                        logger.info(f"Auto-Sell pre-check: Cancelling conflicting open order {ord_symbol} #{ord_id} for User {user.username}...")
+                        client.cancel_order(symbol=ord_symbol, orderId=ord_id)
+                        cancelled_orders.append(f"{ord_symbol} #{ord_id}")
+
+                        # Update local RealOrder record if present
+                        try:
+                            from trading_models import RealOrder
+                            local_order = RealOrder.query.filter_by(user_id=user.id, binance_order_id=int(ord_id)).first()
+                            if local_order:
+                                local_order.status = 'CANCELED'
+                                local_order.canceled_at = datetime.utcnow()
+                                local_order.updated_at = datetime.utcnow()
+                        except Exception as loc_err:
+                            logger.warning(f"Could not update local RealOrder for #{ord_id}: {loc_err}")
+                    except Exception as cancel_err:
+                        logger.error(f"Failed to cancel open order {ord_symbol} #{ord_id}: {cancel_err}")
+
+            if cancelled_orders:
+                logger.info(f"Auto-Sell: Successfully cancelled {len(cancelled_orders)} open order(s) for {symbol}: {', '.join(cancelled_orders)}")
+                time.sleep(0.5)  # Brief pause to allow balance unlock to settle on Binance
+        except Exception as open_err:
+            logger.error(f"Error during open orders check/cancellation for {symbol}: {open_err}")
+
+        # Step 2: Get symbol trading filters
         filters = get_symbol_filters(client, pair)
         if not filters:
             logger.error(f"Failed to get symbol filters for auto-sell pair {pair}")
             return
 
-        # Check free balance on Binance
+        # Step 3: Check updated free balance on Binance
         try:
             balance = client.get_asset_balance(asset=symbol)
             free_balance = float(balance.get('free', 0)) if balance else 0.0
@@ -427,7 +470,7 @@ def execute_auto_sell(user, coin, pair, current_price, price_drop_pct, threshold
 
         sell_qty = min(float(coin.amount or 0), free_balance) if free_balance > 0 else float(coin.amount or 0)
         if sell_qty <= 0:
-            logger.warning(f"No available balance to sell for {symbol}. Disabling auto-sell.")
+            logger.warning(f"No available balance to sell for {symbol} after open order cancellation. Disabling auto-sell.")
             coin.auto_sell_enabled = False
             db.session.commit()
             return
@@ -465,6 +508,8 @@ def execute_auto_sell(user, coin, pair, current_price, price_drop_pct, threshold
         proceeds = executed_qty * avg_price
         quote_asset = 'USDT' if pair.endswith('USDT') else ('USD' if pair.endswith('USD') else 'USDT')
 
+        cancel_note = f" (Cancelled {len(cancelled_orders)} open order(s): {', '.join(cancelled_orders)})" if cancelled_orders else ""
+
         # Record activity
         new_activity = AllActivity(
             date=datetime.utcnow(),
@@ -475,7 +520,7 @@ def execute_auto_sell(user, coin, pair, current_price, price_drop_pct, threshold
             fee=total_commission,
             txid=f"auto_sell_{order_id}",
             status=order.get('status', 'FILLED'),
-            details=f"⚡ Auto-Sell executed: {price_drop_pct:.2f}% drop in 1h (Threshold: {threshold}%) for {quote_asset}",
+            details=f"⚡ Auto-Sell executed: {price_drop_pct:.2f}% drop in 1h (Threshold: {threshold}%) for {quote_asset}{cancel_note}",
             avg_entry=avg_price,
             user_id=user.id,
             exchange='binance'
@@ -492,7 +537,7 @@ def execute_auto_sell(user, coin, pair, current_price, price_drop_pct, threshold
         notif = Notification(
             user_id=user.id,
             title=f"🚨 Auto-Sell Executed: {symbol}",
-            message=f"Automatically sold {executed_qty} {symbol} for {quote_asset} at ~${avg_price:.4f} after a {price_drop_pct:.2f}% price drop in 1 hour (Threshold: {threshold}%). Order ID: {order_id}",
+            message=f"Automatically sold {executed_qty} {symbol} for {quote_asset} at ~${avg_price:.4f} after a {price_drop_pct:.2f}% price drop in 1 hour (Threshold: {threshold}%).{cancel_note} Order ID: {order_id}",
             created_at=datetime.utcnow()
         )
         db.session.add(notif)
@@ -506,6 +551,7 @@ def execute_auto_sell(user, coin, pair, current_price, price_drop_pct, threshold
             f"Trigger: Dropped <b>{price_drop_pct:.2f}%</b> in 1h (Threshold: <b>{threshold}%</b>)\n"
             f"Exec Price: ~${avg_price:.4f}\n"
             f"Proceeds: ${proceeds:.2f} {quote_asset}\n"
+            f"{f'Cancelled Orders: {len(cancelled_orders)}\n' if cancelled_orders else ''}"
             f"Order ID: {order_id}"
         )
         send_telegram_message(user.username, telegram_msg)
