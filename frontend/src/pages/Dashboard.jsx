@@ -189,8 +189,9 @@ function Dashboard({ isLightMode }) {
     const fetchSettings = async () => {
       try {
         const res = await axios.get('/api/settings', { withCredentials: true });
-        if (res.data?.settings?.volatility_hours) {
-          setVolatilityHoursSetting(parseInt(res.data.settings.volatility_hours, 10) || 24);
+        const vh = res.data?.volatility_hours ?? res.data?.settings?.volatility_hours;
+        if (vh !== undefined && vh !== null && vh !== '') {
+          setVolatilityHoursSetting(parseInt(vh, 10) || 24);
         }
       } catch (e) {}
     };
