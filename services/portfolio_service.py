@@ -449,12 +449,15 @@ def remove_auto_watchlist_entry(user_id, symbol):
     if watch:
         db.session.delete(watch)
 
-def update_portfolio_from_real_order(user_id, symbol, side, quantity, price, commission, commission_asset, order_id):
-    """Update coins table and all_activities (tax report) after real order fills"""
+def update_portfolio_from_real_order(user_id, symbol, side, quantity, price, commission, commission_asset, order_id, quote_quantity=None):
+    """Update base and quote coin balances plus all_activities after a real fill."""
     from services.trading_service import calculate_avg_entry_fifo
     try:
         base_asset = symbol.replace('USDT', '').replace('USD', '')
+        quote_asset = 'USDT' if symbol.endswith('USDT') else 'USD' if symbol.endswith('USD') else None
+        executed_quote = float(quote_quantity) if quote_quantity else quantity * price
         
+        commission_asset = (commission_asset or '').upper()
         commission_usd = commission
         if commission_asset not in ('USDT', 'USD'):
             commission_usd = commission * price
@@ -515,6 +518,34 @@ def update_portfolio_from_real_order(user_id, symbol, side, quantity, price, com
             else:
                 ensure_auto_watchlist_entry(user_id, base_asset, price)
 
+        if quote_asset:
+            quote_coin = Coin.query.filter_by(user_id=user_id, symbol=quote_asset).first()
+            if not quote_coin:
+                quote_coin = Coin(
+                    user_id=user_id,
+                    symbol=quote_asset,
+                    amount=0.0,
+                    current=1.0,
+                    avg_entry=1.0,
+                    initial_value=0.0,
+                    purchase_date=datetime.now().strftime('%Y-%m-%d'),
+                    alert_enabled=True,
+                    is_manual=False,
+                    hidden=False,
+                    auto_hidden=False,
+                    force_visible=False
+                )
+                db.session.add(quote_coin)
+
+            commission_in_quote = commission if commission_asset == quote_asset else 0.0
+            quote_delta = -executed_quote - commission_in_quote if side == 'BUY' else executed_quote - commission_in_quote
+            quote_coin.amount = max(0.0, (quote_coin.amount or 0) + quote_delta)
+            quote_coin.current = 1.0
+            quote_coin.avg_entry = 1.0
+            quote_coin.hidden = False
+            quote_coin.auto_hidden = False
+            logger.info(f"Updated {quote_asset} after {side} {base_asset}: New amount={quote_coin.amount}")
+
         if coin:
             recalculated_avg, recalculated_cost, recalculated_amount = calculate_avg_entry_fifo(
                 user_id,
@@ -530,11 +561,11 @@ def update_portfolio_from_real_order(user_id, symbol, side, quantity, price, com
         txid = f"binance_{order_id}_{symbol}"
 
         if side == 'BUY':
-            cost_basis = (quantity * price) + commission_usd
+            cost_basis = executed_quote + commission_usd
             proceeds = None
             amount_value = quantity
         else:
-            proceeds = (quantity * price) - commission_usd
+            proceeds = executed_quote - commission_usd
             reference_avg = previous_avg_entry if previous_avg_entry else (coin.avg_entry if coin else 0.0)
             cost_basis = reference_avg * quantity if reference_avg else (quantity * price)
             amount_value = -quantity

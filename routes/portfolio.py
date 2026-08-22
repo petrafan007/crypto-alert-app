@@ -2968,6 +2968,7 @@ def place_real_order():
             
             # Extract fill details
             executed_qty = float(order_response.get('executedQty', 0))
+            executed_quote_qty = float(order_response.get('cummulativeQuoteQty') or order_response.get('cumulativeQuoteQty') or 0)
             fills = order_response.get('fills', [])
             avg_fill_price = float(fills[0].get('price', 0)) if fills else (price if price > 0 else current_price)
             total_commission = sum(float(f.get('commission', 0)) for f in fills)
@@ -3002,7 +3003,7 @@ def place_real_order():
                     time_in_force=order_response.get('timeInForce', 'GTC'),
                     status=status,
                     executed_qty=executed_qty,
-                    cumulative_quote_qty=float(order_response.get('cummulativeQuoteQty') or order_response.get('cumulativeQuoteQty') or 0),
+                    cumulative_quote_qty=executed_quote_qty,
                     avg_fill_price=avg_fill_price,
                     commission=total_commission,
                     commission_asset=commission_asset,
@@ -3026,13 +3027,14 @@ def place_real_order():
                         price=avg_fill_price,
                         commission=total_commission,
                         commission_asset=commission_asset,
-                        order_id=binance_order_id
+                        order_id=binance_order_id,
+                        quote_quantity=executed_quote_qty
                     )
                     notify_order_fill(
                         real_order,
                         username=current_user.username,
                         executed_qty=executed_qty,
-                        quote_qty=float(order_response.get('cummulativeQuoteQty') or order_response.get('cumulativeQuoteQty') or 0),
+                        quote_qty=executed_quote_qty,
                         fill_price=avg_fill_price
                     )
 

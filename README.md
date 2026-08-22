@@ -89,6 +89,7 @@ The application utilizes a **unified PostgreSQL database**.
 - Trading now opens the selected base/quote pair, such as `XRPUSD` or `XRPUSDT`, with the requested order side.
 - Fixed quote menus rendering behind or outside table containers by mounting desktop menus at the document root.
 - Fixed real quote-balance buys exhausting USD or USDT before fees: the balance slider and server now reserve the exchange taker fee and a small safety buffer before submitting an order.
+- Fixed real-order portfolio updates to apply Binance's executed USD/USDT quote amount and commission immediately, preventing stale quote balances and inflated total holdings after trades.
 
 ## v1.63-beta (August 2026)
 
