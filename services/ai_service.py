@@ -1021,6 +1021,9 @@ def run_sentiment_analysis_for_user(user_id, username, force=False, symbol=None)
         last_scheduled_utc = get_last_scheduled_time(portfolio_start_time, sentiment_freq_hours)
 
         if symbol:
+            if is_stablecoin(symbol):
+                logger.info(f"Skipping sentiment analysis for stablecoin {symbol}")
+                return 0
             try:
                 c_init = Coin.query.filter_by(user_id=user_id, symbol=symbol.upper().strip(), hidden=False).first()
                 if c_init:
@@ -1031,6 +1034,7 @@ def run_sentiment_analysis_for_user(user_id, username, force=False, symbol=None)
             coins = Coin.query.filter_by(user_id=user_id, symbol=symbol.upper().strip(), hidden=False).all()
         else:
             coins = Coin.query.filter_by(user_id=user_id, hidden=False).filter(Coin.amount > 0).all()
+            coins = [c for c in coins if not is_stablecoin(c.symbol)]
 
         if not coins:
             logger.info(f"No portfolio coins found for sentiment analysis for user {username} (symbol={symbol})")
@@ -1045,11 +1049,7 @@ def run_sentiment_analysis_for_user(user_id, username, force=False, symbol=None)
             last_updated = coin_row.sentiment_last_updated
 
             if is_stablecoin(sym):
-                logger.info(f"Skipping sentiment analysis for stablecoin {sym} (marking Hold)")
-                coin_row.sentiment = "Hold"
-                coin_row.sentiment_reason = "Dollar-pegged stablecoin for capital preservation."
-                coin_row.sentiment_last_updated = datetime.utcnow()
-                db.session.commit()
+                logger.info(f"Skipping sentiment analysis for stablecoin {sym}")
                 continue
 
             if not force and last_updated:
@@ -1135,6 +1135,9 @@ def run_watchlist_sentiment_analysis_for_user(user_id, username, force=False, sy
         wl_last_scheduled_utc = get_last_scheduled_time(watchlist_start_time, wl_freq_hours)
 
         if symbol:
+            if is_stablecoin(symbol):
+                logger.info(f"Skipping watchlist sentiment analysis for stablecoin {symbol}")
+                return 0
             try:
                 w_init = WatchlistCoin.query.filter_by(user_id=user_id, symbol=symbol.upper().strip()).first()
                 if w_init:
@@ -1145,6 +1148,7 @@ def run_watchlist_sentiment_analysis_for_user(user_id, username, force=False, sy
             wl_coins = WatchlistCoin.query.filter_by(user_id=user_id, symbol=symbol.upper().strip()).all()
         else:
             wl_coins = WatchlistCoin.query.filter_by(user_id=user_id).all()
+            wl_coins = [w for w in wl_coins if not is_stablecoin(w.symbol)]
 
         if not wl_coins:
             logger.info(f"No watchlist coins found for sentiment analysis for user {username} (symbol={symbol})")
@@ -1158,12 +1162,7 @@ def run_watchlist_sentiment_analysis_for_user(user_id, username, force=False, sy
             last_updated = getattr(wl_row, 'sentiment_last_updated', None)
 
             if is_stablecoin(sym):
-                logger.info(f"Skipping sentiment analysis for watchlist stablecoin {sym} (marking Watch)")
-                wl_row.sentiment = "Watch"
-                wl_row.sentiment_reason = "Dollar-pegged stablecoin for capital preservation."
-                if hasattr(wl_row, 'sentiment_last_updated'):
-                    wl_row.sentiment_last_updated = datetime.utcnow()
-                db.session.commit()
+                logger.info(f"Skipping sentiment analysis for watchlist stablecoin {sym}")
                 continue
 
             if not force and last_updated:

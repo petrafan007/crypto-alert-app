@@ -2256,6 +2256,7 @@ function Dashboard({ isLightMode }) {
     }
     if (!symbol) return;
     const cleanSymbol = symbol.toUpperCase().trim();
+    if (['USD', 'USDT', 'USDC', 'BUSD', 'DAI', 'TUSD', 'USDP'].includes(cleanSymbol)) return;
     
     // Find initial timestamp so we know when a fresh analysis has landed
     const currentCoin = isWatchlist
@@ -2356,6 +2357,17 @@ function Dashboard({ isLightMode }) {
   };
 
   const renderSentimentCell = (coin, isWatchlist = false) => {
+    const sym = (coin.symbol || '').toUpperCase().trim();
+    if (['USD', 'USDT', 'USDC', 'BUSD', 'DAI', 'TUSD', 'USDP'].includes(sym)) {
+      return (
+        <td
+          className={isMobile ? 'mobile-hide' : ''}
+          style={{ textAlign: 'center', whiteSpace: 'nowrap', padding: '6px 8px', color: 'var(--text-secondary, #94a3b8)' }}
+        >
+          —
+        </td>
+      );
+    }
     const rawSentiment = coin.sentiment || (isWatchlist ? 'Watch' : 'Hold');
     const isChecking = rawSentiment === 'Checking now...' || !!refreshingSentiment[coin.symbol];
     const sentiment = isChecking ? 'Checking now...' : rawSentiment;
@@ -2776,6 +2788,8 @@ function Dashboard({ isLightMode }) {
               </tr>
             ) : (
               sortData(portfolio, sortConfig.key).map((coin) => {
+                const sym = (coin.symbol || '').toUpperCase().trim();
+                const isStable = ['USD', 'USDT', 'USDC', 'BUSD', 'DAI', 'TUSD', 'USDP'].includes(sym);
                 const isPlaceholder = !!coin.pendingPlaceholder || !coin.id;
                 const alertTitle = isPlaceholder
                   ? 'Alerts unavailable for pending-only entries'
@@ -2810,9 +2824,9 @@ function Dashboard({ isLightMode }) {
                     <td style={{ textAlign: 'center' }}>{renderPortfolioAlertCell(coin, 'down')}</td>
                     <td style={{ textAlign: 'center' }}>{renderPortfolioAlertCell(coin, 'up')}</td>
                     <td style={{ textAlign: 'center' }}>{renderVolatilityCell(coin, 'portfolio')}</td>
-                    <td className={isMobile ? 'mobile-hide' : ''} style={{ whiteSpace: 'nowrap', textAlign: 'center' }}>{coin.avg_entry ? `$${coin.avg_entry.toFixed(2)}` : '—'}</td>
-                    <td className={`${coin.pct_change >= 0 ? 'status-positive' : 'status-negative'} ${isMobile ? 'mobile-hide' : ''}`} style={{ whiteSpace: 'nowrap', textAlign: 'center' }}>
-                      {coin.pct_change !== undefined ? `${coin.pct_change >= 0 ? '+' : ''}${coin.pct_change.toFixed(2)}%` : '—'}
+                    <td className={isMobile ? 'mobile-hide' : ''} style={{ whiteSpace: 'nowrap', textAlign: 'center' }}>{isStable ? '—' : (coin.avg_entry ? `$${coin.avg_entry.toFixed(2)}` : '—')}</td>
+                    <td className={`${!isStable && coin.pct_change >= 0 ? 'status-positive' : !isStable && coin.pct_change < 0 ? 'status-negative' : ''} ${isMobile ? 'mobile-hide' : ''}`} style={{ whiteSpace: 'nowrap', textAlign: 'center' }}>
+                      {isStable ? '—' : (coin.pct_change !== undefined && coin.pct_change !== null ? `${coin.pct_change >= 0 ? '+' : ''}${coin.pct_change.toFixed(2)}%` : '—')}
                     </td>
                     {renderSentimentCell(coin, false)}
                     <td className="actions-cell" style={{ whiteSpace: 'nowrap', position: 'relative', textAlign: 'center' }}>
@@ -2965,19 +2979,19 @@ function Dashboard({ isLightMode }) {
               <th onClick={() => handleSort('current_price')} style={{ cursor: 'pointer' }}>
                 Current Price {getSortIcon('current_price')}
               </th>
-              <th onClick={() => handleSort('sentiment')} className={isMobile ? 'mobile-hide' : ''} style={{ cursor: 'pointer' }}>
-                Sentiment {getSortIcon('sentiment')}
-              </th>
               <th>Price Down Alert</th>
               <th>Price Up Alert</th>
               <th className={isMobile ? 'mobile-hide' : ''}>Volatility %</th>
+              <th onClick={() => handleSort('sentiment')} className={isMobile ? 'mobile-hide' : ''} style={{ cursor: 'pointer' }}>
+                Sentiment {getSortIcon('sentiment')}
+              </th>
               <th>Actions</th>
             </tr>
           </thead>
           <tbody>
             {!Array.isArray(watchlist) || watchlist.length === 0 ? (
               <tr>
-                <td colSpan="6" className="no-data" style={{ textAlign: 'center' }}>
+                <td colSpan="7" className="no-data" style={{ textAlign: 'center' }}>
                   No watchlist items
                 </td>
               </tr>
@@ -2998,10 +3012,10 @@ function Dashboard({ isLightMode }) {
                     </div>
                   </td>
                   <td style={{ whiteSpace: 'nowrap', textAlign: 'center' }}>{item.current_price ? `$${item.current_price.toFixed(2)}` : '—'}</td>
-                  {renderSentimentCell(item, true)}
                   <td style={{ textAlign: 'center' }}>{renderWatchlistAlertCell(item, 'down')}</td>
                   <td style={{ textAlign: 'center' }}>{renderWatchlistAlertCell(item, 'up')}</td>
                   <td className={isMobile ? 'mobile-hide' : ''} style={{ textAlign: 'center' }}>{renderVolatilityCell(item, 'watchlist')}</td>
+                  {renderSentimentCell(item, true)}
                   <td className="actions-cell" style={{ textAlign: 'center', whiteSpace: 'nowrap', position: 'relative' }}>
                     {isMobile ? (
                       <>
