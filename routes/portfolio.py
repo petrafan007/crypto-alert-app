@@ -3443,6 +3443,56 @@ def get_trading_balances(symbol):
                         quote_locked = locked_balance
                     
                     logger.info(f"[BALANCE] Real Binance: {asset}: free={free_balance:.8f}, locked={locked_balance:.8f}, total={total_balance:.8f}")
+
+            # Compute active Auto-Buy allocations for quote_asset to protect reserved funds
+            reservations = []
+            quote_reserved = 0.0
+            seen_symbols = set()
+
+            try:
+                portfolio_auto_buys = Coin.query.filter(
+                    Coin.user_id == current_user.id,
+                    Coin.auto_buy_enabled == True,
+                    Coin.auto_buy_amount > 0
+                ).all()
+
+                for c in portfolio_auto_buys:
+                    sym = (c.symbol or '').upper()
+                    quote_curr = (getattr(c, 'auto_buy_quote_currency', None) or 'USDT').upper()
+                    amt = float(c.auto_buy_amount or 0.0)
+                    if quote_curr == quote_asset and amt > 0 and sym not in seen_symbols:
+                        quote_reserved += amt
+                        seen_symbols.add(sym)
+                        reservations.append({
+                            'symbol': sym,
+                            'amount': amt,
+                            'quote_currency': quote_curr,
+                            'source': 'portfolio'
+                        })
+
+                watchlist_auto_buys = WatchlistCoin.query.filter(
+                    WatchlistCoin.user_id == current_user.id,
+                    WatchlistCoin.auto_buy_enabled == True,
+                    WatchlistCoin.auto_buy_amount > 0
+                ).all()
+
+                for w in watchlist_auto_buys:
+                    sym = (w.symbol or '').upper()
+                    quote_curr = (getattr(w, 'auto_buy_quote_currency', None) or 'USDT').upper()
+                    amt = float(w.auto_buy_amount or 0.0)
+                    if quote_curr == quote_asset and amt > 0 and sym not in seen_symbols:
+                        quote_reserved += amt
+                        seen_symbols.add(sym)
+                        reservations.append({
+                            'symbol': sym,
+                            'amount': amt,
+                            'quote_currency': quote_curr,
+                            'source': 'watchlist'
+                        })
+            except Exception as res_err:
+                logger.error(f"Error computing auto-buy reservations: {res_err}")
+
+            quote_usable = max(0.0, round(quote_free - quote_reserved, 2))
             
             return jsonify({
                 'success': True,
@@ -3451,6 +3501,9 @@ def get_trading_balances(symbol):
                     'base_locked': base_locked,
                     'base_total': base_free + base_locked,
                     'quote': quote_free,
+                    'quote_usable': quote_usable,
+                    'quote_reserved_auto_buy': quote_reserved,
+                    'quote_reservations': reservations,
                     'quote_locked': quote_locked,
                     'quote_total': quote_free + quote_locked,
                     'base_asset': base_asset,

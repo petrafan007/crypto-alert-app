@@ -1019,7 +1019,7 @@ const Trading = () => {
       handleBaseQuantityChange(selectedQty > 0 ? selectedQty.toFixed(8) : '');
     } else {
       lastEditedRef.current = 'quote';
-      const availableQuote = balances.quote;
+      const availableQuote = balances.quote_usable !== undefined ? balances.quote_usable : balances.quote;
       const price = determinePriceForCalculations();
       if (price > 0 && availableQuote > 0) {
         const defaultFeeRate = ['MARKET', 'STOP_LOSS', 'STOP_LOSS_LIMIT', 'TAKE_PROFIT'].includes(orderForm.type) ? 0.004 : 0.001;
@@ -1641,9 +1641,17 @@ const Trading = () => {
                 <div className="trading-asset-card-details">
                   <span className="trading-asset-card-label">{quoteAsset} Available</span>
                   <span className="trading-asset-card-value">
-                    {balances.quote.toFixed(2)} <small>{quoteAsset}</small>
+                    {(balances.quote_usable !== undefined ? balances.quote_usable : balances.quote).toFixed(2)}
+                    {balances.quote_reserved_auto_buy > 0 && <span style={{ color: '#38bdf8', marginLeft: '3px' }} title={`$${balances.quote_reserved_auto_buy.toFixed(2)} reserved for active Auto-Buy triggers`}>*</span>}
+                    <small> {quoteAsset}</small>
                   </span>
-                  <span className="trading-asset-card-sub">Ready to trade</span>
+                  {balances.quote_reserved_auto_buy > 0 ? (
+                    <span className="trading-asset-card-sub" style={{ color: '#38bdf8' }} title={`Total on Binance: $${balances.quote.toFixed(2)}. $${balances.quote_reserved_auto_buy.toFixed(2)} is reserved for Auto-Buys.`}>
+                      ${balances.quote_reserved_auto_buy.toFixed(2)} reserved
+                    </span>
+                  ) : (
+                    <span className="trading-asset-card-sub">Ready to trade</span>
+                  )}
                 </div>
               </div>
 
@@ -1665,6 +1673,34 @@ const Trading = () => {
                 <span className="trading-asset-card-sub">Instant Market Rate</span>
               </div>
             </div>
+
+            {/* Reserved Auto-Buy Allocation Banner */}
+            {balances.quote_reserved_auto_buy > 0 && (
+              <div style={{
+                background: 'rgba(56, 189, 248, 0.08)',
+                border: '1px solid rgba(56, 189, 248, 0.25)',
+                borderRadius: '8px',
+                padding: '8px 12px',
+                marginBottom: '14px',
+                fontSize: '12px',
+                color: '#e2e8f0',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                flexWrap: 'wrap',
+                gap: '6px'
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span style={{ fontSize: '15px' }}>🚀</span>
+                  <span>
+                    <strong>${balances.quote_reserved_auto_buy.toFixed(2)} {quoteAsset}</strong> reserved for active Auto-Buy triggers ({balances.quote_reservations?.map(r => r.symbol).join(', ') || 'portfolio'}).
+                  </span>
+                </div>
+                <span style={{ fontSize: '11px', color: '#94a3b8' }}>
+                  Total on Binance: ${balances.quote.toFixed(2)} {quoteAsset} | Unreserved Usable: ${(balances.quote_usable ?? (balances.quote - balances.quote_reserved_auto_buy)).toFixed(2)} {quoteAsset}
+                </span>
+              </div>
+            )}
 
             {/* Redesigned Modern Order Panel */}
             <form onSubmit={handleOrderSubmit} className="trading-order-panel">
@@ -1782,7 +1818,7 @@ const Trading = () => {
                     <span className="order-slider-amount">
                       ({orderForm.side === 'SELL'
                         ? `${((balances.base * balancePercentage) / 100).toFixed(8)} ${baseAsset}`
-                        : `$${((balances.quote * balancePercentage) / 100).toFixed(2)} ${quoteAsset}`})
+                        : `$${(((balances.quote_usable !== undefined ? balances.quote_usable : balances.quote) * balancePercentage) / 100).toFixed(2)} ${quoteAsset}`})
                     </span>
                   )}
                 </div>
