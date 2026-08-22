@@ -1066,9 +1066,9 @@ body.dark-mode .time-range-btn.active {
 /* Theme switch styles - rebuilt */
 .theme-switch {
   position: relative;
-  width: 78px;
+  width: 72px;
   height: 36px;
-  background: linear-gradient(135deg, var(--bg-tertiary), var(--bg-secondary));
+  background: var(--bg-tertiary);
   border: 1px solid var(--border-color);
   border-radius: 18px;
   padding: 0;
@@ -1079,15 +1079,19 @@ body.dark-mode .time-range-btn.active {
   overflow: hidden;
   box-sizing: border-box;
   flex-shrink: 0;
+  box-shadow: inset 0 2px 6px rgba(0,0,0,0.2);
+  transition: background 0.3s ease;
+}
+
+body.light-mode .theme-switch {
+  background: #e2e8f0;
 }
 
 .theme-switch .track {
   position: relative;
   width: 100%;
   height: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  display: block;
   pointer-events: none;
 }
 
@@ -1095,12 +1099,13 @@ body.dark-mode .time-range-btn.active {
   position: absolute;
   top: 3px;
   left: 3px;
-  width: 30px;
-  height: 30px;
+  width: 28px;
+  height: 28px;
   background: var(--card-bg);
   border-radius: 50%;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
-  transition: transform 0.25s ease, background 0.25s ease, box-shadow 0.25s ease;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+  transition: transform 0.3s cubic-bezier(0.4, 0.0, 0.2, 1);
+  z-index: 2;
 }
 
 .theme-switch.light .thumb {
@@ -1108,56 +1113,46 @@ body.dark-mode .time-range-btn.active {
 }
 
 .theme-switch.dark .thumb {
-  transform: translateX(40px);
+  transform: translateX(36px);
 }
 
 .theme-switch .icon {
   position: absolute;
-  top: 50%;
-  transform: translateY(-50%);
-  font-size: 15px;
-  z-index: 1;
+  top: 0;
+  width: 36px;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  z-index: 3;
   pointer-events: none;
-  opacity: 0.45;
-  transition: opacity 0.25s ease;
+  opacity: 0.5;
+  transition: opacity 0.3s ease, transform 0.3s ease;
 }
 
 .theme-switch .icon.sun {
-  left: 12px;
+  left: 0;
 }
 
 .theme-switch .icon.moon {
-  right: 12px;
+  left: 36px;
 }
 
 .theme-switch.light .icon.sun {
   opacity: 1;
+  transform: scale(1.1);
 }
 
 .theme-switch.dark .icon.moon {
   opacity: 1;
+  transform: scale(1.1);
 }
 
 @media (max-width: 960px) {
   .theme-switch {
-    width: 78px;
+    width: 72px;
     height: 36px;
-    border-radius: 18px;
-  }
-
-  .theme-switch .thumb {
-    width: 30px;
-    height: 30px;
-    top: 3px;
-    left: 3px;
-  }
-
-  .theme-switch.dark .thumb {
-    transform: translateX(40px);
-  }
-
-  .theme-switch .icon {
-    font-size: 15px;
   }
 }
 

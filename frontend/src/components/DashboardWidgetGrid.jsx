@@ -136,10 +136,9 @@ const DashboardWidgetGrid = ({
   const customizeBtn = (
     <button
       type="button"
-      className={`dashboard-edit-toggle-btn ${isEditMode ? 'active' : ''}`}
+      className={portalTarget ? `nav-link ${isEditMode ? 'active' : ''}` : `dashboard-edit-toggle-btn ${isEditMode ? 'active' : ''}`}
       onClick={() => setIsEditMode(prev => !prev)}
       title="Customize dashboard panel positions and sizes"
-      style={{ marginRight: '16px' }}
     >
       {isEditMode ? '✓ Done Editing' : '✏️ Customize Layout'}
     </button>
@@ -147,10 +146,13 @@ const DashboardWidgetGrid = ({
 
   return (
     <div className={`dashboard-widget-grid-container ${isEditMode ? 'edit-mode-active' : ''}`}>
+      {portalTarget && createPortal(customizeBtn, portalTarget)}
+
       {/* Top Controls Bar */}
+      {(isEditMode || !portalTarget) && (
       <div className="dashboard-grid-toolbar">
         <div className="dashboard-grid-toolbar-left">
-          {portalTarget ? createPortal(customizeBtn, portalTarget) : customizeBtn}
+          {!portalTarget && customizeBtn}
 
 
           {isEditMode && (
@@ -205,6 +207,7 @@ const DashboardWidgetGrid = ({
           </div>
         )}
       </div>
+      )}
 
       {/* React Grid Layout Canvas */}
       <ResponsiveGridLayout
