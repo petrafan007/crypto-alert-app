@@ -396,6 +396,78 @@ const AIDashboard = () => {
     return Array.from(map.values()).sort((a, b) => a.symbol.localeCompare(b.symbol));
   }, [accuracyData]);
 
+  // Dynamic recommendation and multi-model breakdowns
+  const { recommendationBreakdown, modelBreakdown } = useMemo(() => {
+    if (!accuracyData) {
+      return { recommendationBreakdown: [], modelBreakdown: [] };
+    }
+
+    const availableFilterList = availableCoinFilters || [];
+    const isFiltering = selectedFilterCoins !== null && selectedFilterCoins.length < availableFilterList.length;
+
+    // If not actively filtering coins, default to server-aggregated breakdowns
+    if (!isFiltering) {
+      return {
+        recommendationBreakdown: accuracyData.recommendation_breakdown || [],
+        modelBreakdown: accuracyData.model_breakdown || []
+      };
+    }
+
+    const activeFilterCoins = selectedFilterCoins || availableFilterList.map(c => c.symbol);
+    const filteredHistory = (accuracyData.history || []).filter(row => row && row.symbol && activeFilterCoins.includes(row.symbol));
+
+    const recStats = {};
+    const modStats = {};
+
+    filteredHistory.forEach(row => {
+      if (!row) return;
+      // Recommendation Breakdown
+      const recKey = row.sentiment || 'Unknown';
+      if (!recStats[recKey]) {
+        recStats[recKey] = { sentiment: recKey, total: 0, correct: 0, wrong: 0, neutral: 0 };
+      }
+      recStats[recKey].total += 1;
+      if (row.outcome_status === 'correct') recStats[recKey].correct += 1;
+      else if (row.outcome_status === 'wrong') recStats[recKey].wrong += 1;
+      else if (row.outcome_status === 'neutral') recStats[recKey].neutral += 1;
+      
+      // Model Breakdown
+      const modelKey = row.model || 'Default Model';
+      if (!modStats[modelKey]) {
+        modStats[modelKey] = {
+          model: modelKey,
+          provider: row.provider || 'AI',
+          tier: row.tier || 'primary',
+          total: 0,
+          correct: 0,
+          wrong: 0,
+          neutral: 0
+        };
+      }
+      modStats[modelKey].total += 1;
+      if (row.outcome_status === 'correct') modStats[modelKey].correct += 1;
+      else if (row.outcome_status === 'wrong') modStats[modelKey].wrong += 1;
+      else if (row.outcome_status === 'neutral') modStats[modelKey].neutral += 1;
+    });
+
+    const recBreakdown = Object.values(recStats).map(r => {
+      const rEval = r.correct + r.wrong;
+      r.win_rate = rEval > 0 ? Number(((r.correct / rEval) * 100).toFixed(1)) : (r.correct > 0 ? 100.0 : 0.0);
+      return r;
+    }).sort((a, b) => b.total - a.total);
+
+    const modBreakdown = Object.values(modStats).map(m => {
+      const mEval = m.correct + m.wrong;
+      m.win_rate = mEval > 0 ? Number(((m.correct / mEval) * 100).toFixed(1)) : (m.total > 0 ? 80.0 : 0.0);
+      return m;
+    }).sort((a, b) => b.win_rate - a.win_rate);
+
+    return {
+      recommendationBreakdown: recBreakdown.length > 0 ? recBreakdown : (accuracyData.recommendation_breakdown || []),
+      modelBreakdown: modBreakdown.length > 0 ? modBreakdown : (accuracyData.model_breakdown || [])
+    };
+  }, [accuracyData, selectedFilterCoins, availableCoinFilters]);
+
   const handleOpenCoinFilterModal = () => {
     const currentSelected = selectedFilterCoins !== null
       ? selectedFilterCoins
@@ -767,77 +839,6 @@ const AIDashboard = () => {
   };
 
   const availableSymbols = accuracyData?.available_symbols || ['BTC', 'ETH', 'ONT', 'SOL', 'XRP'];
-
-  const { recommendationBreakdown, modelBreakdown } = useMemo(() => {
-    if (!accuracyData) {
-      return { recommendationBreakdown: [], modelBreakdown: [] };
-    }
-
-    const availableFilterList = availableCoinFilters || [];
-    const isFiltering = selectedFilterCoins !== null && selectedFilterCoins.length < availableFilterList.length;
-
-    // If not actively filtering coins, default to server-aggregated breakdowns
-    if (!isFiltering) {
-      return {
-        recommendationBreakdown: accuracyData.recommendation_breakdown || [],
-        modelBreakdown: accuracyData.model_breakdown || []
-      };
-    }
-
-    const activeFilterCoins = selectedFilterCoins || availableFilterList.map(c => c.symbol);
-    const filteredHistory = (accuracyData.history || []).filter(row => row && row.symbol && activeFilterCoins.includes(row.symbol));
-
-    const recStats = {};
-    const modStats = {};
-
-    filteredHistory.forEach(row => {
-      if (!row) return;
-      // Recommendation Breakdown
-      const recKey = row.sentiment || 'Unknown';
-      if (!recStats[recKey]) {
-        recStats[recKey] = { sentiment: recKey, total: 0, correct: 0, wrong: 0, neutral: 0 };
-      }
-      recStats[recKey].total += 1;
-      if (row.outcome_status === 'correct') recStats[recKey].correct += 1;
-      else if (row.outcome_status === 'wrong') recStats[recKey].wrong += 1;
-      else if (row.outcome_status === 'neutral') recStats[recKey].neutral += 1;
-      
-      // Model Breakdown
-      const modelKey = row.model || 'Default Model';
-      if (!modStats[modelKey]) {
-        modStats[modelKey] = {
-          model: modelKey,
-          provider: row.provider || 'AI',
-          tier: row.tier || 'primary',
-          total: 0,
-          correct: 0,
-          wrong: 0,
-          neutral: 0
-        };
-      }
-      modStats[modelKey].total += 1;
-      if (row.outcome_status === 'correct') modStats[modelKey].correct += 1;
-      else if (row.outcome_status === 'wrong') modStats[modelKey].wrong += 1;
-      else if (row.outcome_status === 'neutral') modStats[modelKey].neutral += 1;
-    });
-
-    const recBreakdown = Object.values(recStats).map(r => {
-      const rEval = r.correct + r.wrong;
-      r.win_rate = rEval > 0 ? Number(((r.correct / rEval) * 100).toFixed(1)) : (r.correct > 0 ? 100.0 : 0.0);
-      return r;
-    }).sort((a, b) => b.total - a.total);
-
-    const modBreakdown = Object.values(modStats).map(m => {
-      const mEval = m.correct + m.wrong;
-      m.win_rate = mEval > 0 ? Number(((m.correct / mEval) * 100).toFixed(1)) : (m.total > 0 ? 80.0 : 0.0);
-      return m;
-    }).sort((a, b) => b.win_rate - a.win_rate);
-
-    return {
-      recommendationBreakdown: recBreakdown.length > 0 ? recBreakdown : (accuracyData.recommendation_breakdown || []),
-      modelBreakdown: modBreakdown.length > 0 ? modBreakdown : (accuracyData.model_breakdown || [])
-    };
-  }, [accuracyData, selectedFilterCoins, availableCoinFilters]);
 
   return (
     <div className="ai-dashboard">
