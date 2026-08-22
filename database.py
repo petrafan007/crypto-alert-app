@@ -119,44 +119,30 @@ def init_db(app=None):
         )
         try:
             def_prompt = DefaultAIPrompt.query.first()
-            if def_prompt:
-                if hasattr(def_prompt, 'sentiment_prompt_pre') and not def_prompt.sentiment_prompt_pre:
-                    def_prompt.sentiment_prompt_pre = default_port_pre
-                if hasattr(def_prompt, 'sentiment_prompt_post') and not def_prompt.sentiment_prompt_post:
-                    def_prompt.sentiment_prompt_post = default_port_post
-                if hasattr(def_prompt, 'watchlist_sentiment_prompt_pre') and not def_prompt.watchlist_sentiment_prompt_pre:
-                    def_prompt.watchlist_sentiment_prompt_pre = default_wl_pre
-                if hasattr(def_prompt, 'watchlist_sentiment_prompt_post') and not def_prompt.watchlist_sentiment_prompt_post:
-                    def_prompt.watchlist_sentiment_prompt_post = default_wl_post
-                if hasattr(def_prompt, 'copilot_chat_pre') and (not def_prompt.copilot_chat_pre or len(def_prompt.copilot_chat_pre.strip()) < 40):
-                    def_prompt.copilot_chat_pre = default_copilot_pre
-                if hasattr(def_prompt, 'copilot_chat_post') and (not def_prompt.copilot_chat_post or len(def_prompt.copilot_chat_post.strip()) < 80):
-                    def_prompt.copilot_chat_post = default_copilot_post
-                db.session.commit()
+            if not def_prompt:
+                def_prompt = DefaultAIPrompt()
+                db.session.add(def_prompt)
+            def_prompt.sentiment_prompt_pre = default_port_pre
+            def_prompt.sentiment_prompt_post = default_port_post
+            def_prompt.watchlist_sentiment_prompt_pre = default_wl_pre
+            def_prompt.watchlist_sentiment_prompt_post = default_wl_post
+            if not def_prompt.copilot_chat_pre or len(def_prompt.copilot_chat_pre.strip()) < 40:
+                def_prompt.copilot_chat_pre = default_copilot_pre
+            if not def_prompt.copilot_chat_post or len(def_prompt.copilot_chat_post.strip()) < 80:
+                def_prompt.copilot_chat_post = default_copilot_post
+            db.session.commit()
             
             user_prompts = AIPrompt.query.all()
             for up in user_prompts:
-                updated = False
-                if hasattr(up, 'sentiment_prompt_pre') and not up.sentiment_prompt_pre:
-                    up.sentiment_prompt_pre = default_port_pre
-                    updated = True
-                if hasattr(up, 'sentiment_prompt_post') and not up.sentiment_prompt_post:
-                    up.sentiment_prompt_post = default_port_post
-                    updated = True
-                if hasattr(up, 'watchlist_sentiment_prompt_pre') and not up.watchlist_sentiment_prompt_pre:
-                    up.watchlist_sentiment_prompt_pre = default_wl_pre
-                    updated = True
-                if hasattr(up, 'watchlist_sentiment_prompt_post') and not up.watchlist_sentiment_prompt_post:
-                    up.watchlist_sentiment_prompt_post = default_wl_post
-                    updated = True
-                if hasattr(up, 'copilot_chat_pre') and (not up.copilot_chat_pre or len(up.copilot_chat_pre.strip()) < 40):
+                up.sentiment_prompt_pre = default_port_pre
+                up.sentiment_prompt_post = default_port_post
+                up.watchlist_sentiment_prompt_pre = default_wl_pre
+                up.watchlist_sentiment_prompt_post = default_wl_post
+                if not up.copilot_chat_pre or len(up.copilot_chat_pre.strip()) < 40:
                     up.copilot_chat_pre = default_copilot_pre
-                    updated = True
-                if hasattr(up, 'copilot_chat_post') and (not up.copilot_chat_post or len(up.copilot_chat_post.strip()) < 80):
+                if not up.copilot_chat_post or len(up.copilot_chat_post.strip()) < 80:
                     up.copilot_chat_post = default_copilot_post
-                    updated = True
-                if updated:
-                    db.session.commit()
+            db.session.commit()
         except Exception as seed_err:
             print(f"Error seeding default prompts: {seed_err}")
             db.session.rollback()
