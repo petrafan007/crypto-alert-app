@@ -1162,26 +1162,53 @@ function Dashboard({ isLightMode }) {
   // Add to watchlist function
   const addToWatchlist = async (e) => {
     e.preventDefault();
-    if (!watchlistSymbol.trim()) return;
+    const cleanSym = watchlistSymbol.trim().toUpperCase();
+    if (!cleanSym) return;
+
+    // Clear input immediately so user can continue interacting
+    setWatchlistSymbol('');
+
+    // Optimistic item to render immediately (0ms latency)
+    const tempId = `temp-${Date.now()}`;
+    const tempItem = {
+      id: tempId,
+      symbol: cleanSym,
+      current_price: null,
+      alert_enabled: false,
+      favorite: false,
+      sentiment: 'Checking now...',
+      sentiment_reason: '',
+      sentiment_last_updated: null,
+      volatility_pct: null,
+      down_val: null,
+      up_val: null,
+      note: ''
+    };
+
+    setWatchlist(prev => {
+      if (prev.some(c => (c.symbol || '').toUpperCase() === cleanSym)) return prev;
+      return [tempItem, ...prev];
+    });
 
     setAddingToWatchlist(true);
     try {
       const response = await axios.post('/api/watchlist/add', {
-        symbol: watchlistSymbol.trim().toUpperCase()
+        symbol: cleanSym
       }, { withCredentials: true });
 
-      if (response.data.success) {
-        // Clear the input
-        setWatchlistSymbol('');
-
-        // Refresh watchlist data to show the new item with current price
+      if (response.data && response.data.success) {
+        // Fetch fresh watchlist data in background to sync true database ID & price
         const watchlistResponse = await axios.get('/api/watchlist-live', { withCredentials: true });
         if (watchlistResponse.data) {
           setWatchlist(watchlistResponse.data);
         }
+      } else {
+        // Revert on failure
+        setWatchlist(prev => prev.filter(c => c.id !== tempId));
       }
     } catch (err) {
       console.error('Add to watchlist error:', err);
+      setWatchlist(prev => prev.filter(c => c.id !== tempId));
     } finally {
       setAddingToWatchlist(false);
     }

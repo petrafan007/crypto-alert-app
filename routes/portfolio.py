@@ -4434,29 +4434,36 @@ def api_watchlist_add():
     # Trigger backfill for this symbol in a background thread
     threading.Thread(target=backfill_7d_prices, args=([symbol],), daemon=True).start()
 
-    # On-the-spot sentiment check for the newly added watchlist coin
+    # Trigger on-the-spot sentiment check in a background thread so add is instantaneous
     user_id = current_user.id
     username = current_user.username
-    sentiment_res = "Watch"
-    reason_res = ""
-    try:
-        from services.ai_service import analyze_single_symbol_sentiment
-        sentiment_res, reason_res = analyze_single_symbol_sentiment(
-            user_id=user_id,
-            username=username,
-            symbol=symbol,
-            is_watchlist=True,
-            coin_id=wl.id,
-            amount=0.0
-        )
-    except Exception as ex:
-        logger.error(f"On-the-spot watchlist sentiment check error for {symbol}: {ex}")
+    wl_id = wl.id
+    app = current_app._get_current_object()
+
+    def _run_watchlist_sentiment_bg():
+        with app.app_context():
+            try:
+                from services.ai_service import analyze_single_symbol_sentiment
+                analyze_single_symbol_sentiment(
+                    user_id=user_id,
+                    username=username,
+                    symbol=symbol,
+                    is_watchlist=True,
+                    coin_id=wl_id,
+                    amount=0.0
+                )
+            except Exception as ex:
+                logger.error(f"Background watchlist sentiment check error for {symbol}: {ex}")
+
+    threading.Thread(target=_run_watchlist_sentiment_bg, daemon=True).start()
 
     return jsonify({
         "success": True,
         "symbol": symbol,
-        "sentiment": sentiment_res,
-        "sentiment_reason": reason_res
+        "current_price": current_price,
+        "id": wl.id,
+        "sentiment": "Checking now...",
+        "sentiment_reason": ""
     })
 
 @portfolio_bp.route("/api/watchlist/remove", methods=["POST"])
