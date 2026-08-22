@@ -88,6 +88,7 @@ The application utilizes a **unified PostgreSQL database**.
 - Added USD/USDT quote-currency menus to the existing Watchlist Buy action; Watchlist Sell was not added.
 - Trading now opens the selected base/quote pair, such as `XRPUSD` or `XRPUSDT`, with the requested order side.
 - Fixed quote menus rendering behind or outside table containers by mounting desktop menus at the document root.
+- Fixed real quote-balance buys exhausting USD or USDT before fees: the balance slider and server now reserve the exchange taker fee and a small safety buffer before submitting an order.
 
 ## v1.63-beta (August 2026)
 

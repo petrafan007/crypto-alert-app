@@ -87,8 +87,8 @@ def get_trade_fee_for_symbol(client, symbol):
 
         fee_info = client.get_trade_fee(symbol=symbol)
         if isinstance(fee_info, list) and len(fee_info) > 0:
-            maker = float(fee_info[0].get('maker', 0.0))
-            taker = float(fee_info[0].get('taker', 0.0))
+            maker = float(fee_info[0].get('makerCommission', fee_info[0].get('maker', 0.0)))
+            taker = float(fee_info[0].get('takerCommission', fee_info[0].get('taker', 0.0)))
             fee = {'maker': maker, 'taker': taker}
             _EXCHANGE_INFO_CACHE['fees'][symbol] = {'fee': fee, 'ts': time.time()}
             return fee

@@ -2890,6 +2890,50 @@ def place_real_order():
             if not valid:
                 return jsonify({'success': False, 'error': collar_err}), 400
 
+        # Reserve the exchange fee before submitting real buy orders. Binance.US charges
+        # this fee in the quote asset, so a 100% quote balance order would otherwise fail.
+        if side == 'BUY':
+            try:
+                fee_info = get_trade_fee_for_symbol(client, symbol) or {}
+                fee_rate = max(
+                    _coerce_float(fee_info.get('maker'), 0.001) or 0.001,
+                    _coerce_float(fee_info.get('taker'), 0.004) or 0.004
+                )
+                fee_reserve_rate = fee_rate + 0.001
+                quote_asset = 'USDT' if symbol.endswith('USDT') else 'USD' if symbol.endswith('USD') else None
+                reference_price = formatted_price if formatted_price > 0 else current_price
+
+                if quote_asset and reference_price > 0:
+                    account = client.get_account()
+                    balances = {balance['asset']: _coerce_float(balance.get('free'), 0.0) or 0.0 for balance in account.get('balances', [])}
+                    available_quote = balances.get(quote_asset, 0.0)
+                    max_spendable_quote = available_quote / (1 + fee_reserve_rate)
+                    requested_quote = quote_amount if order_type == 'MARKET' and has_quote else formatted_quantity * reference_price
+
+                    if requested_quote > max_spendable_quote:
+                        adjusted_quantity = format_quantity(max_spendable_quote / reference_price, filters['stepSize'])
+                        if adjusted_quantity < filters['minQty']:
+                            return jsonify({
+                                'success': False,
+                                'error': f'Insufficient {quote_asset} balance after reserving trading fees. Available: {available_quote:.8f} {quote_asset}.'
+                            }), 400
+
+                        formatted_quantity = adjusted_quantity
+                        if order_type == 'MARKET' and has_quote:
+                            adjusted_quote = max(0.0, int(max_spendable_quote * 100) / 100)
+                            quote_amount = adjusted_quote
+                            data['quoteQuantity'] = f'{adjusted_quote:.2f}'
+                            data['quote_quantity'] = data['quoteQuantity']
+                            data['quote_amount'] = data['quoteQuantity']
+
+                        logger.info(
+                            f'Reduced {symbol} buy order to reserve fees: requested={requested_quote:.8f} '
+                            f'{quote_asset}, submitted={quote_amount if order_type == "MARKET" and has_quote else formatted_quantity * reference_price:.8f} '
+                            f'{quote_asset}, available={available_quote:.8f}, fee_rate={fee_rate:.6f}'
+                        )
+            except Exception as balance_err:
+                logger.warning(f'Could not reserve quote balance for {symbol} buy order: {balance_err}')
+
         # Get current price for order size validation
         try:
             reference_price_for_value = formatted_price if formatted_price > 0 else current_price

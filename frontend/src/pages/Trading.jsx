@@ -1021,11 +1021,14 @@ const Trading = () => {
       const availableQuote = balances.quote;
       const price = determinePriceForCalculations();
       if (price > 0 && availableQuote > 0) {
-        const availableQty = (availableQuote * 0.999) / price;
-        const selectedQty = (availableQty * percentage) / 100;
+        const defaultFeeRate = ['MARKET', 'STOP_LOSS', 'STOP_LOSS_LIMIT', 'TAKE_PROFIT'].includes(orderForm.type) ? 0.004 : 0.001;
+        const feeRate = estimatedFee.rate > 0 ? estimatedFee.rate : defaultFeeRate;
+        const selectedBalance = (availableQuote * percentage) / 100;
+        const spendableQuote = Math.floor((selectedBalance / (1 + feeRate + 0.001)) * 100) / 100;
+        const selectedQty = spendableQuote / price;
         const formattedBase = selectedQty > 0 ? selectedQty.toFixed(8) : '';
         setOrderForm((prev) => ({ ...prev, quantity: formattedBase }));
-        setQuoteQuantity(formatNumberString((availableQuote * percentage) / 100, 2));
+        setQuoteQuantity(formatNumberString(spendableQuote, 2));
       } else {
         setOrderForm((prev) => ({ ...prev, quantity: '' }));
         setQuoteQuantity('');
