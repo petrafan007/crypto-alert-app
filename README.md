@@ -4,6 +4,47 @@
 
 **Last Updated**: August 2026
 
+## 🚀 Key Features & Capabilities
+
+- **📊 Real-Time Portfolio & Watchlist Tracking**
+  - **Live Binance.US Sync**: Real-time balance and transaction history synchronization with Binance.US.
+  - **Interactive Customizable Dashboard Grid**: Modern drag-and-drop (`⠿`) reordering, multi-handle resizing, and custom panel visibility for all upper dashboard widgets.
+  - **Market Gauges & Performance**: Built-in Fear & Greed Index, CBBI Bull Run Peak Confidence metric, Staking Yield overview, and 7-day multi-interval performance tickers.
+  - **True Portfolio Trend Charts**: Multi-timeframe portfolio net worth graphs (1D, 7D, 30D, 1Y, All-time) with live updates.
+  - **Cryptocurrency Vector Icons**: Rich, high-resolution coin icons for effortless asset recognition across all tables.
+
+- **⚡ Professional Trading Terminal (USD & USDT)**
+  - **Dual-Quote Currency Trading**: Instant one-click spot trading for both **USD** and **USDT** quote pairs directly from Portfolio and Watchlist rows.
+  - **Advanced Order Execution**: Support for Market Orders, Limit Orders, Stop-Loss Limit, and OCO (One-Cancels-the-Other) protective orders.
+  - **Searchable Pair Selector**: Real-time typeahead search across all 54+ active Binance.US USD pairs and 200+ USDT pairs.
+  - **High-Performance TradingView Charts**: Lightweight Charts engine with candlestick series, volume histogram, technical indicators (MA7, MA25, MA99, Bollinger Bands, RSI, MACD, Stochastic, ATR), and exact-price buy/sell execution markers.
+  - **Paginated Order History**: Independent order history tab with 20-row pagination and symbol filtering.
+
+- **🛡️ Autonomous Crash Protection & Volatility Auto-Sell**
+  - **Executive Volatility Auto-Sell**: Set custom 1-hour drop thresholds (e.g. >5%) per coin. If a market dump occurs, the background daemon automatically executes a market sell into USDT to protect capital.
+  - **Pre-Execution Conflict Resolution**: Automatically scans and cancels conflicting open orders (limit/stop-loss) to unlock 100% of your coin's balance before placing emergency sales.
+  - **Granular Price & Volatility Alerts**: Automated 24/7 background monitors with instant multi-channel push alerts via Telegram and desktop notifications.
+
+- **🤖 AI Market Copilot & Automated Sentiment Analysis**
+  - **Multi-Provider AI Intelligence**: Seamless integration with **OpenAI (GPT-4o, o1, o3-mini)**, **Google Gemini**, **Z.AI**, and **Perplexity**.
+  - **Live Web-Grounded Analysis**: Automated sentiment analysis and market outlook generation powered by real-time web search (Brave Search / DuckDuckGo).
+  - **Interactive AI Copilot Sidebar**: Context-aware crypto strategist that analyzes your active portfolio holdings, pending orders, and recent market movements to deliver tailored trading intelligence.
+  - **Historical Prediction Ledger**: Transparent performance tracking that evaluates and scores AI recommendation accuracy over time.
+
+- **💰 Native Binance.US Staking & Yield Management**
+  - **Staking Hub**: Monitor and manage staking positions for all supported proof-of-stake cryptocurrencies directly in-app.
+  - **One-Click Stake & Unstake**: Effortlessly deposit into or redeem from staking positions.
+  - **Daily Reward Tracking**: Real-time tracking of today's rewards, average APY, active staked amounts, and pending releases.
+
+- **📑 Tax Reporting & Complete Activity Ledger**
+  - **Capital Gains & Losses**: Automated tax summary computation with custom tax-year filtering.
+  - **Unified Transaction Log**: Complete audit trail logging every buy, sell, deposit, withdrawal, staking reward, and fee.
+
+- **🔐 Non-Custodial Security Architecture**
+  - **Local AES-256 Credential Encryption**: API keys and secrets are securely encrypted at rest.
+  - **Optional 2FA Protection**: Add two-factor authentication security for all trade execution endpoints.
+  - **Self-Hosted Privacy**: Your keys, trades, and portfolio data stay completely under your control on your private server.
+
 ## 🚨 CRITICAL DEVELOPMENT RULE ⚠️
 **ANYTIME you make changes to the code (Python backend), you MUST rebuild/restart the service for changes to take effect!**
 ```bash
