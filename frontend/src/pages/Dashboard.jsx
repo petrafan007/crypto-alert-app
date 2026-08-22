@@ -498,6 +498,7 @@ function Dashboard({ isLightMode }) {
 
     const { key: symbol, side, type } = openTradeQuoteMenu;
     const isBuy = side === 'BUY';
+    const isUsdt = symbol === 'USDT';
     const coin = type === 'watchlist'
       ? (watchlist || []).find(w => w.symbol === symbol)
       : (portfolio || []).find(c => c.symbol === symbol);
@@ -509,13 +510,31 @@ function Dashboard({ isLightMode }) {
             <button role="menuitem" onClick={() => { navigateToTrading(symbol, 'BUY', 'USD'); closeTradeQuoteMenu(); }}>
               Buy with USD
             </button>
-            <button role="menuitem" onClick={() => { navigateToTrading(symbol, 'BUY', 'USDT'); closeTradeQuoteMenu(); }}>
+            <button
+              role="menuitem"
+              onClick={() => {
+                if (!isUsdt) {
+                  navigateToTrading(symbol, 'BUY', 'USDT'); closeTradeQuoteMenu();
+                }
+              }}
+              disabled={isUsdt}
+              title={isUsdt ? 'Cannot purchase USDT with USDT' : undefined}
+            >
               Buy with USDT
             </button>
             <button role="menuitem" onClick={() => { handleTriggerAutoBuyClick(symbol, coin, 'USD', type); closeTradeQuoteMenu(); }}>
               Trigger Auto-Buy (USD)
             </button>
-            <button role="menuitem" onClick={() => { handleTriggerAutoBuyClick(symbol, coin, 'USDT', type); closeTradeQuoteMenu(); }}>
+            <button
+              role="menuitem"
+              onClick={() => {
+                if (!isUsdt) {
+                  handleTriggerAutoBuyClick(symbol, coin, 'USDT', type); closeTradeQuoteMenu();
+                }
+              }}
+              disabled={isUsdt}
+              title={isUsdt ? 'Cannot auto-buy USDT with USDT' : undefined}
+            >
               Trigger Auto-Buy (USDT)
             </button>
           </>
@@ -524,13 +543,31 @@ function Dashboard({ isLightMode }) {
             <button role="menuitem" onClick={() => { navigateToTrading(symbol, 'SELL', 'USD'); closeTradeQuoteMenu(); }}>
               Sell for USD
             </button>
-            <button role="menuitem" onClick={() => { navigateToTrading(symbol, 'SELL', 'USDT'); closeTradeQuoteMenu(); }}>
+            <button
+              role="menuitem"
+              onClick={() => {
+                if (!isUsdt) {
+                  navigateToTrading(symbol, 'SELL', 'USDT'); closeTradeQuoteMenu();
+                }
+              }}
+              disabled={isUsdt}
+              title={isUsdt ? 'Cannot sell USDT for USDT' : undefined}
+            >
               Sell for USDT
             </button>
             <button role="menuitem" onClick={() => { handleTriggerAutoSellClick(symbol, coin, 'USD', type); closeTradeQuoteMenu(); }}>
               Trigger Auto-Sell (USD)
             </button>
-            <button role="menuitem" onClick={() => { handleTriggerAutoSellClick(symbol, coin, 'USDT', type); closeTradeQuoteMenu(); }}>
+            <button
+              role="menuitem"
+              onClick={() => {
+                if (!isUsdt) {
+                  handleTriggerAutoSellClick(symbol, coin, 'USDT', type); closeTradeQuoteMenu();
+                }
+              }}
+              disabled={isUsdt}
+              title={isUsdt ? 'Cannot auto-sell USDT for USDT' : undefined}
+            >
               Trigger Auto-Sell (USDT)
             </button>
           </>
@@ -1306,24 +1343,93 @@ function Dashboard({ isLightMode }) {
               {isPortfolio ? (coin.alert_enabled ? 'Disable Alerts' : 'Enable Alerts') : (item.alert_enabled ? 'Disable Alerts' : 'Enable Alerts')}
             </button>
             <button onClick={() => { openNews(isPortfolio ? coin.symbol : item.symbol); closeActionMenu(); }}>News</button>
-            <button onClick={() => { openNoteModal(isPortfolio ? coin : item); closeActionMenu(); }}>Notes</button>
-            <button onClick={(event) => toggleTradeQuoteMenu(openActionMenu.type, openActionMenu.key, 'BUY', event)}>Buy</button>
+            {/* Buy button */}
+            <button
+              onClick={(event) => {
+                const sym = isPortfolio ? coin.symbol : item.symbol;
+                if (sym !== 'USD') {
+                  toggleTradeQuoteMenu(openActionMenu.type, openActionMenu.key, 'BUY', event);
+                }
+              }}
+              disabled={(isPortfolio ? coin.symbol : item.symbol) === 'USD'}
+              style={(isPortfolio ? coin.symbol : item.symbol) === 'USD' ? { opacity: 0.4, cursor: 'not-allowed' } : undefined}
+            >
+              Buy
+            </button>
             {openTradeQuoteMenu.type === openActionMenu.type && openTradeQuoteMenu.key === openActionMenu.key && openTradeQuoteMenu.side === 'BUY' && (
               <div className="trade-quote-menu" style={tradeQuoteMenuStyle}>
                 <button onClick={() => { navigateToTrading(isPortfolio ? coin.symbol : item.symbol, 'BUY', 'USD'); closeActionMenu(); closeTradeQuoteMenu(); }}>Buy with USD</button>
-                <button onClick={() => { navigateToTrading(isPortfolio ? coin.symbol : item.symbol, 'BUY', 'USDT'); closeActionMenu(); closeTradeQuoteMenu(); }}>Buy with USDT</button>
+                <button
+                  onClick={() => {
+                    const sym = isPortfolio ? coin.symbol : item.symbol;
+                    if (sym !== 'USDT') {
+                      navigateToTrading(sym, 'BUY', 'USDT'); closeActionMenu(); closeTradeQuoteMenu();
+                    }
+                  }}
+                  disabled={(isPortfolio ? coin.symbol : item.symbol) === 'USDT'}
+                  style={(isPortfolio ? coin.symbol : item.symbol) === 'USDT' ? { opacity: 0.4, cursor: 'not-allowed' } : undefined}
+                >
+                  Buy with USDT
+                </button>
                 <button onClick={() => { handleTriggerAutoBuyClick(isPortfolio ? coin.symbol : item.symbol, isPortfolio ? coin : item, 'USD', openActionMenu.type); closeActionMenu(); closeTradeQuoteMenu(); }}>Trigger Auto-Buy (USD)</button>
-                <button onClick={() => { handleTriggerAutoBuyClick(isPortfolio ? coin.symbol : item.symbol, isPortfolio ? coin : item, 'USDT', openActionMenu.type); closeActionMenu(); closeTradeQuoteMenu(); }}>Trigger Auto-Buy (USDT)</button>
+                <button
+                  onClick={() => {
+                    const sym = isPortfolio ? coin.symbol : item.symbol;
+                    if (sym !== 'USDT') {
+                      handleTriggerAutoBuyClick(sym, isPortfolio ? coin : item, 'USDT', openActionMenu.type); closeActionMenu(); closeTradeQuoteMenu();
+                    }
+                  }}
+                  disabled={(isPortfolio ? coin.symbol : item.symbol) === 'USDT'}
+                  style={(isPortfolio ? coin.symbol : item.symbol) === 'USDT' ? { opacity: 0.4, cursor: 'not-allowed' } : undefined}
+                >
+                  Trigger Auto-Buy (USDT)
+                </button>
               </div>
             )}
-            <button onClick={(event) => toggleTradeQuoteMenu(openActionMenu.type, openActionMenu.key, 'SELL', event)}>Sell</button>
-            {openTradeQuoteMenu.type === openActionMenu.type && openTradeQuoteMenu.key === openActionMenu.key && openTradeQuoteMenu.side === 'SELL' && (
-              <div className="trade-quote-menu" style={tradeQuoteMenuStyle}>
-                <button onClick={() => { navigateToTrading(isPortfolio ? coin.symbol : item.symbol, 'SELL', 'USD'); closeActionMenu(); closeTradeQuoteMenu(); }}>Sell for USD</button>
-                <button onClick={() => { navigateToTrading(isPortfolio ? coin.symbol : item.symbol, 'SELL', 'USDT'); closeActionMenu(); closeTradeQuoteMenu(); }}>Sell for USDT</button>
-                <button onClick={() => { handleTriggerAutoSellClick(isPortfolio ? coin.symbol : item.symbol, isPortfolio ? coin : item, 'USD', openActionMenu.type); closeActionMenu(); closeTradeQuoteMenu(); }}>Trigger Auto-Sell (USD)</button>
-                <button onClick={() => { handleTriggerAutoSellClick(isPortfolio ? coin.symbol : item.symbol, isPortfolio ? coin : item, 'USDT', openActionMenu.type); closeActionMenu(); closeTradeQuoteMenu(); }}>Trigger Auto-Sell (USDT)</button>
-              </div>
+
+            {/* Sell button - only available for Portfolio, disabled for USD */}
+            {isPortfolio && (
+              <>
+                <button
+                  onClick={(event) => {
+                    if (coin.symbol !== 'USD') {
+                      toggleTradeQuoteMenu(openActionMenu.type, openActionMenu.key, 'SELL', event);
+                    }
+                  }}
+                  disabled={coin.symbol === 'USD'}
+                  style={coin.symbol === 'USD' ? { opacity: 0.4, cursor: 'not-allowed' } : undefined}
+                >
+                  Sell
+                </button>
+                {openTradeQuoteMenu.type === openActionMenu.type && openTradeQuoteMenu.key === openActionMenu.key && openTradeQuoteMenu.side === 'SELL' && (
+                  <div className="trade-quote-menu" style={tradeQuoteMenuStyle}>
+                    <button onClick={() => { navigateToTrading(coin.symbol, 'SELL', 'USD'); closeActionMenu(); closeTradeQuoteMenu(); }}>Sell for USD</button>
+                    <button
+                      onClick={() => {
+                        if (coin.symbol !== 'USDT') {
+                          navigateToTrading(coin.symbol, 'SELL', 'USDT'); closeActionMenu(); closeTradeQuoteMenu();
+                        }
+                      }}
+                      disabled={coin.symbol === 'USDT'}
+                      style={coin.symbol === 'USDT' ? { opacity: 0.4, cursor: 'not-allowed' } : undefined}
+                    >
+                      Sell for USDT
+                    </button>
+                    <button onClick={() => { handleTriggerAutoSellClick(coin.symbol, coin, 'USD', openActionMenu.type); closeActionMenu(); closeTradeQuoteMenu(); }}>Trigger Auto-Sell (USD)</button>
+                    <button
+                      onClick={() => {
+                        if (coin.symbol !== 'USDT') {
+                          handleTriggerAutoSellClick(coin.symbol, coin, 'USDT', openActionMenu.type); closeActionMenu(); closeTradeQuoteMenu();
+                        }
+                      }}
+                      disabled={coin.symbol === 'USDT'}
+                      style={coin.symbol === 'USDT' ? { opacity: 0.4, cursor: 'not-allowed' } : undefined}
+                    >
+                      Trigger Auto-Sell (USDT)
+                    </button>
+                  </div>
+                )}
+              </>
             )}
             {isPortfolio && (
               <button
@@ -2683,13 +2789,19 @@ function Dashboard({ isLightMode }) {
                           </span>
                           <button
                             className="trade-action-btn buy"
-                            onClick={(event) => toggleTradeQuoteMenu('portfolio', coin.symbol, 'BUY', event)}
+                            onClick={(event) => coin.symbol !== 'USD' && toggleTradeQuoteMenu('portfolio', coin.symbol, 'BUY', event)}
+                            disabled={coin.symbol === 'USD'}
+                            title={coin.symbol === 'USD' ? 'Cannot purchase fiat USD' : 'Buy'}
+                            style={coin.symbol === 'USD' ? { opacity: 0.4, cursor: 'not-allowed' } : undefined}
                           >
                             Buy
                           </button>
                           <button
                             className="trade-action-btn sell"
-                            onClick={(event) => toggleTradeQuoteMenu('portfolio', coin.symbol, 'SELL', event)}
+                            onClick={(event) => coin.symbol !== 'USD' && toggleTradeQuoteMenu('portfolio', coin.symbol, 'SELL', event)}
+                            disabled={coin.symbol === 'USD'}
+                            title={coin.symbol === 'USD' ? 'Cannot sell fiat USD' : 'Sell'}
+                            style={coin.symbol === 'USD' ? { opacity: 0.4, cursor: 'not-allowed' } : undefined}
                           >
                             Sell
                           </button>
@@ -2862,16 +2974,15 @@ function Dashboard({ isLightMode }) {
                         </span>
                         <button
                           className="trade-action-btn buy"
-                          onClick={(event) => toggleTradeQuoteMenu('watchlist', item.symbol, 'BUY', event)}
-                          style={{ marginLeft: 8 }}
+                          onClick={(event) => item.symbol !== 'USD' && toggleTradeQuoteMenu('watchlist', item.symbol, 'BUY', event)}
+                          disabled={item.symbol === 'USD'}
+                          title={item.symbol === 'USD' ? 'Cannot purchase fiat USD' : 'Buy'}
+                          style={{
+                            marginLeft: 8,
+                            ...(item.symbol === 'USD' ? { opacity: 0.4, cursor: 'not-allowed' } : {})
+                          }}
                         >
                           Buy
-                        </button>
-                        <button
-                          className="trade-action-btn sell"
-                          onClick={(event) => toggleTradeQuoteMenu('watchlist', item.symbol, 'SELL', event)}
-                        >
-                          Sell
                         </button>
                         <button
                           className="trade-action-btn delete"
@@ -3183,6 +3294,26 @@ function Dashboard({ isLightMode }) {
                 You are about to enable an automatic purchase of <strong>{autoBuyModal.symbol} with {autoBuyModal.quoteCurrency}</strong> when the price surges more than <strong>{autoBuyModal.volatilityPct}%</strong> within the past <strong>{autoBuyModal.volatilityHours} hour(s)</strong> (configured in Settings).
               </p>
 
+              {/* Immediate insufficient balance banner */}
+              {!autoBuyModal.loadingBalance && autoBuyModal.availableBalance < 1.00 && (
+                <div style={{
+                  padding: '12px 14px',
+                  borderRadius: '6px',
+                  backgroundColor: 'rgba(239, 68, 68, 0.18)',
+                  color: '#f87171',
+                  fontSize: '13px',
+                  fontWeight: '600',
+                  marginBottom: '16px',
+                  border: '1px solid rgba(239, 68, 68, 0.4)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px'
+                }}>
+                  <span>⚠️</span>
+                  <span>Not enough {autoBuyModal.quoteCurrency} to place this order (minimum $1.00 required).</span>
+                </div>
+              )}
+
               {/* Live Balance Summary */}
               <div style={{
                 padding: '12px 14px',
@@ -3231,14 +3362,16 @@ function Dashboard({ isLightMode }) {
                       placeholder="0.00"
                       value={autoBuyModal.amount}
                       onChange={(e) => setAutoBuyModal(prev => ({ ...prev, amount: e.target.value, error: '' }))}
+                      disabled={autoBuyModal.availableBalance < 1.00 || autoBuyModal.loadingBalance}
                       style={{
                         width: '100%',
                         padding: '10px 12px 10px 26px',
                         borderRadius: '6px',
                         border: '1px solid var(--border-color, #334155)',
-                        backgroundColor: 'rgba(0, 0, 0, 0.25)',
-                        color: 'var(--text-primary, #fff)',
-                        fontSize: '14px'
+                        backgroundColor: autoBuyModal.availableBalance < 1.00 ? 'rgba(0, 0, 0, 0.4)' : 'rgba(0, 0, 0, 0.25)',
+                        color: autoBuyModal.availableBalance < 1.00 ? '#64748b' : 'var(--text-primary, #fff)',
+                        fontSize: '14px',
+                        cursor: autoBuyModal.availableBalance < 1.00 ? 'not-allowed' : 'text'
                       }}
                     />
                   </div>
@@ -3246,7 +3379,7 @@ function Dashboard({ isLightMode }) {
                     type="button"
                     className="btn btn-secondary"
                     onClick={() => setAutoBuyModal(prev => ({ ...prev, amount: prev.availableBalance > 0 ? String(prev.availableBalance) : '', error: '' }))}
-                    disabled={autoBuyModal.availableBalance < 1.00}
+                    disabled={autoBuyModal.availableBalance < 1.00 || autoBuyModal.loadingBalance}
                     style={{ padding: '0 16px', fontWeight: '600', fontSize: '12px' }}
                   >
                     MAX

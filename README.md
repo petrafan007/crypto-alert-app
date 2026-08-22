@@ -122,6 +122,15 @@ The application utilizes a **unified PostgreSQL database**.
 
 ## Version History & Changelog
 
+## v1.75-beta (August 2026)
+
+### USD/USDT Trading Action Guards, Watchlist Table Streamlining & Immediate Auto-Buy Balance Validation
+- **USD Trading Guards**: Explicitly grayed out and disabled the `Buy` and `Sell` action buttons for fiat `USD` in both Portfolio and Watchlist tables.
+- **USDT Self-Pairing Guards**: Disabled `Buy with USDT`, `Sell for USDT`, `Trigger Auto-Buy (USDT)`, and `Trigger Auto-Sell (USDT)` when interacting with `USDT` to prevent self-pairing trading attempts.
+- **Watchlist Table Clean-Up**: Removed the redundant `Sell` button from the Watchlist table, keeping Watchlist focused exclusively on monitoring and opportunistic buy orders.
+- **Immediate Auto-Buy $1.00 Balance Banner**: The Auto-Buy confirmation modal now immediately displays a prominent warning banner and disables input fields if the available uncommitted quote balance is less than the $1.00 minimum required.
+- **Version Bump**: Synchronized metadata to `v1.75-beta`.
+
 ## v1.74-beta (August 2026)
 
 ### Dual-Quote Auto-Sell (USD/USDT) & Smart Auto-Buy with Real-Time Balance Commitment Accounting
