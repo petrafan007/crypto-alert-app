@@ -769,16 +769,29 @@ const AIDashboard = () => {
   const availableSymbols = accuracyData?.available_symbols || ['BTC', 'ETH', 'ONT', 'SOL', 'XRP'];
 
   const { recommendationBreakdown, modelBreakdown } = useMemo(() => {
-    const activeFilterCoins = selectedFilterCoins !== null
-      ? selectedFilterCoins
-      : availableCoinFilters.map(c => c.symbol);
+    if (!accuracyData) {
+      return { recommendationBreakdown: [], modelBreakdown: [] };
+    }
 
-    const filteredHistory = (accuracyData?.history || []).filter(row => activeFilterCoins.includes(row.symbol));
+    const availableFilterList = availableCoinFilters || [];
+    const isFiltering = selectedFilterCoins !== null && selectedFilterCoins.length < availableFilterList.length;
+
+    // If not actively filtering coins, default to server-aggregated breakdowns
+    if (!isFiltering) {
+      return {
+        recommendationBreakdown: accuracyData.recommendation_breakdown || [],
+        modelBreakdown: accuracyData.model_breakdown || []
+      };
+    }
+
+    const activeFilterCoins = selectedFilterCoins || availableFilterList.map(c => c.symbol);
+    const filteredHistory = (accuracyData.history || []).filter(row => row && row.symbol && activeFilterCoins.includes(row.symbol));
 
     const recStats = {};
     const modStats = {};
 
     filteredHistory.forEach(row => {
+      if (!row) return;
       // Recommendation Breakdown
       const recKey = row.sentiment || 'Unknown';
       if (!recStats[recKey]) {
@@ -820,7 +833,10 @@ const AIDashboard = () => {
       return m;
     }).sort((a, b) => b.win_rate - a.win_rate);
 
-    return { recommendationBreakdown: recBreakdown, modelBreakdown: modBreakdown };
+    return {
+      recommendationBreakdown: recBreakdown.length > 0 ? recBreakdown : (accuracyData.recommendation_breakdown || []),
+      modelBreakdown: modBreakdown.length > 0 ? modBreakdown : (accuracyData.model_breakdown || [])
+    };
   }, [accuracyData, selectedFilterCoins, availableCoinFilters]);
 
   return (
@@ -998,15 +1014,17 @@ const AIDashboard = () => {
                 </thead>
                 <tbody>
                   {(() => {
+                    const availableFilterList = availableCoinFilters || [];
                     const activeFilterCoins = selectedFilterCoins !== null
                       ? selectedFilterCoins
-                      : availableCoinFilters.map(c => c.symbol);
+                      : availableFilterList.map(c => c.symbol);
                     let displayHistory = (accuracyData?.history || []).filter(row =>
-                      activeFilterCoins.includes(row.symbol) && !row.is_latest && row.outcome_status !== 'tracking'
+                      row && row.symbol && activeFilterCoins.includes(row.symbol) && !row.is_latest && row.outcome_status !== 'tracking'
                     );
 
-                    if (ledgerSortConfig) {
+                    if (ledgerSortConfig && displayHistory.length > 0) {
                       displayHistory = [...displayHistory].sort((a, b) => {
+                        if (!a || !b) return 0;
                         let valA = a[ledgerSortConfig.key];
                         let valB = b[ledgerSortConfig.key];
                         
@@ -1030,10 +1048,11 @@ const AIDashboard = () => {
 
                     if (displayHistory && displayHistory.length > 0) {
                       return displayHistory.map((row) => {
+                        if (!row) return null;
                         const isBullish = ['definitely buy', 'consider buying', 'buy immediately', 'strong buy', 'buy'].includes((row.sentiment || '').toLowerCase());
                         const isBearish = ['consider selling', 'sell immediately', 'avoid', 'strong sell', 'do not buy', 'sell'].includes((row.sentiment || '').toLowerCase());
                         const signalBadgeClass = isBullish ? 'badge-buy' : isBearish ? 'badge-sell' : 'badge-watch';
-                        const coinStat = coinAccuracyMap[row.symbol] || { tooltip: `${row.symbol} Accuracy: Tracking` };
+                        const coinStat = coinAccuracyMap?.[row.symbol] || { tooltip: `${row.symbol} Accuracy: Tracking` };
 
                         return (
                           <tr key={row.id}>
@@ -1056,8 +1075,8 @@ const AIDashboard = () => {
                                 ? parseFloat(row.price_at_prediction || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })
                                 : parseFloat(row.price_at_prediction || 0).toFixed(4)}
                             </td>
-                            <td className="date-cell">{row.date}</td>
-                            <td className="time-cell">{row.time}</td>
+                            <td className="date-cell">{row.date || '—'}</td>
+                            <td className="time-cell">{row.time || '—'}</td>
                             <td className="price-cell">
                               {`$${parseFloat(row.evaluation_price || 0) > 100
                                 ? parseFloat(row.evaluation_price || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })
@@ -1067,7 +1086,7 @@ const AIDashboard = () => {
                             <td className="time-cell" style={{ color: 'var(--text-primary)' }}>{row.eval_time || '—'}</td>
                             <td>
                               <span className={`signal-pill ${signalBadgeClass}`} title={row.sentiment_reason || ''}>
-                                {row.sentiment}
+                                {row.sentiment || '—'}
                               </span>
                             </td>
                             <td>
@@ -1115,7 +1134,7 @@ const AIDashboard = () => {
               <p className="benchmark-subtext">Empirical win rate by exact recommendation signal</p>
 
               <div className="distribution-bars">
-                {recommendationBreakdown.length > 0 ? (
+                {recommendationBreakdown && recommendationBreakdown.length > 0 ? (
                   recommendationBreakdown.map((rec, idx) => {
                     const isBullish = ['Definitely Buy', 'Consider Buying', 'Buy Immediately', 'Strong Buy', 'Buy'].includes(rec.sentiment);
                     const isBearish = ['Consider Selling', 'Sell Immediately', 'Avoid', 'Strong Sell', 'Do Not Buy', 'Sell'].includes(rec.sentiment);
@@ -1150,31 +1169,35 @@ const AIDashboard = () => {
               <p className="benchmark-subtext">Accuracy comparison across active AI providers</p>
 
               <div className="model-leaderboard-list">
-                {modelBreakdown.map((m, idx) => (
-                  <div key={idx} className="leaderboard-item">
-                    <div className="leaderboard-header">
-                      <div className="model-info">
-                        <strong>{getProviderName(m.provider)}</strong>
-                        <span className="model-subname">({m.model}) • {getTierName(m.tier)}</span>
+                {modelBreakdown && modelBreakdown.length > 0 ? (
+                  modelBreakdown.map((m, idx) => (
+                    <div key={idx} className="leaderboard-item">
+                      <div className="leaderboard-header">
+                        <div className="model-info">
+                          <strong>{getProviderName(m.provider)}</strong>
+                          <span className="model-subname">({m.model}) • {getTierName(m.tier)}</span>
+                        </div>
+                        <div className="model-winrate">{m.win_rate}% Win Rate</div>
                       </div>
-                      <div className="model-winrate">{m.win_rate}% Win Rate</div>
+                      <div className="progress-bar-track">
+                        <div
+                          className="progress-bar-fill"
+                          style={{
+                            width: `${m.win_rate}%`,
+                            backgroundColor: idx === 0 ? '#00e676' : idx === 1 ? '#38bdf8' : '#a855f7'
+                          }}
+                        />
+                      </div>
+                      <div className="leaderboard-counts">
+                        <span>{m.correct} Correct Calls</span>
+                        <span>{m.wrong} Inaccurate Calls</span>
+                        <span>{m.total} Total</span>
+                      </div>
                     </div>
-                    <div className="progress-bar-track">
-                      <div
-                        className="progress-bar-fill"
-                        style={{
-                          width: `${m.win_rate}%`,
-                          backgroundColor: idx === 0 ? '#00e676' : idx === 1 ? '#38bdf8' : '#a855f7'
-                        }}
-                      />
-                    </div>
-                    <div className="leaderboard-counts">
-                      <span>{m.correct} Correct Calls</span>
-                      <span>{m.wrong} Inaccurate Calls</span>
-                      <span>{m.total} Total</span>
-                    </div>
-                  </div>
-                ))}
+                  ))
+                ) : (
+                  <p style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>No model leaderboard data available yet.</p>
+                )}
               </div>
           </div>
         </div>

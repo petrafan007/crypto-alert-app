@@ -45,7 +45,8 @@ function ProtectedRoute({ children, isLightMode }) {
 
 export default function App() {
   const { user, logout } = useAuth();
-  const navigate = useLocation(); // Changed from useNavigate to useLocation
+  const location = useLocation();
+  const isDashboard = location.pathname === '/';
   const [message, setMessage] = useState('');
   const [messageType, setMessageType] = useState('');
   const [showUnhideModal, setShowUnhideModal] = useState(false);
@@ -165,10 +166,13 @@ export default function App() {
         <div className="nav-content" style={{ flexDirection: 'column' }}>
           {user && (
             <div className="nav-links" style={{ width: '100%', justifyContent: 'center' }}>
-              <Link to="/" className="nav-link">
-                📊 Dashboard
-              </Link>
-              <div id="navbar-customize-portal" style={{ display: 'inline-flex', alignItems: 'center' }}></div>
+              {isDashboard ? (
+                <div id="navbar-customize-portal" style={{ display: 'inline-flex', alignItems: 'center' }}></div>
+              ) : (
+                <Link to="/" className="nav-link">
+                  📊 Dashboard
+                </Link>
+              )}
               <Link to="/ai-analysis" className="nav-link">
                 🤖 AI Analysis
               </Link>
