@@ -1243,9 +1243,29 @@ const TradingChart = ({ symbol, onSymbolChange, tradingPairs = [], filterCoin = 
     const markerData = {};
     const markersByTime = new Map(); // Track markers by time and type
     
+    // Deduplicate transactions and map time correctly
+    const uniqueTransactions = [];
+    const seenTxIds = new Set();
+    transactions.forEach(tx => {
+      let tSeconds = 0;
+      if (tx.time) {
+        tSeconds = tx.time > 1e11 ? Math.floor(tx.time / 1000) : tx.time;
+      } else if (tx.created_at) {
+        tSeconds = Math.floor(new Date(tx.created_at).getTime() / 1000);
+      }
+      
+      if (!tSeconds) return; // Skip invalid times
+      
+      const txHash = tx.id || tx.orderId || `${tSeconds}-${tx.price}-${tx.quantity || tx.amount}-${tx.type}`;
+      if (!seenTxIds.has(txHash)) {
+        seenTxIds.add(txHash);
+        uniqueTransactions.push({ ...tx, normalizedTime: tSeconds });
+      }
+    });
+
     // Group transactions by time and type
-    transactions.forEach((tx, index) => {
-      const mappedTime = findClosestTime(tx.time);
+    uniqueTransactions.forEach((tx, index) => {
+      const mappedTime = findClosestTime(tx.normalizedTime);
       const key = `${mappedTime}-${tx.type}`;
       
       if (!markersByTime.has(key)) {
@@ -1262,7 +1282,7 @@ const TradingChart = ({ symbol, onSymbolChange, tradingPairs = [], filterCoin = 
       }
       markerData[mappedTime].push({
         ...tx,
-        originalTime: tx.time,
+        originalTime: tx.normalizedTime,
         mappedTime,
       });
     });
