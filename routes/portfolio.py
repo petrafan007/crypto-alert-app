@@ -4385,7 +4385,7 @@ def api_watchlist():
     watchlist_data = []
     for w in wl:
         current_price = w.current_price or 0.0
-        w_news = news_cache.get(w.id, {})
+        w_news = news_cache.get(w.id) or news_cache.get((w.symbol or '').upper()) or {}
         
         watchlist_data.append({
             "symbol": w.symbol,
@@ -4438,7 +4438,7 @@ def api_watchlist_live():
             logger.error(f"Failed to fetch price for {w.symbol}: {e}")
             current_price = w.current_price or 0.0
         
-        w_news = news_cache.get(w.id, {})
+        w_news = news_cache.get(w.id) or news_cache.get((w.symbol or '').upper()) or {}
         watchlist_data.append({
             "id": w.id,
             "symbol": w.symbol,

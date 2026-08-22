@@ -584,6 +584,50 @@ input:focus, select:focus, textarea:focus {
   box-shadow: none;
 }
 
+body.light-mode .action-icon-btn {
+  background: #f1f5f9;
+  border: 1px solid #cbd5e1;
+  color: #1e293b;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+body.light-mode .action-icon-btn:hover:not(:disabled) {
+  background: #e2e8f0;
+  border-color: #94a3b8;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+body.light-mode .action-icon-btn.alert-btn.alert-enabled {
+  background: #dcfce7;
+  border-color: #86efac;
+}
+
+body.light-mode .action-icon-btn.alert-btn.alert-disabled {
+  background: #f1f5f9;
+  border-color: #cbd5e1;
+  opacity: 0.6;
+}
+
+body.light-mode .action-icon-btn.news-btn {
+  background: #e0f2fe;
+  border-color: #7dd3fc;
+}
+
+body.light-mode .action-icon-btn.news-btn:hover {
+  background: #bae6fd;
+  border-color: #38bdf8;
+}
+
+body.light-mode .action-icon-btn.note-btn {
+  background: #fef3c7;
+  border-color: #fcd34d;
+}
+
+body.light-mode .action-icon-btn.note-btn:hover {
+  background: #fde68a;
+  border-color: #f59e0b;
+}
+
 .trade-quote-menu {
   position: fixed;
   z-index: 1000;

@@ -178,7 +178,7 @@ def api_coin_data_live():
                     pct_change = ((current_price - avg_entry_val) / avg_entry_val) * 100
 
                 sentiment = get_coin_sentiment(symbol, coin, current_price, current_user.username)
-                coin_news = news_cache.get(coin.id, {})
+                coin_news = news_cache.get(coin.id) or news_cache.get(symbol) or {}
 
                 logger.error(f"[LIVE] {symbol} included in portfolio response")
                 portfolio.append({
@@ -345,7 +345,7 @@ def api_coin_data():
                 avg_entry_val = _to_float(coin.avg_entry)
                 pct_change = round(((current_price - avg_entry_val) / avg_entry_val * 100), 6) if avg_entry_val and current_price else 0.0
                 purchase_date = coin.purchase_date
-                coin_news = news_cache.get(coin.id, {})
+                coin_news = news_cache.get(coin.id) or news_cache.get(symbol) or {}
 
                 # logger.error(f"[DEBUG] {symbol} included in portfolio response")
                 portfolio.append({

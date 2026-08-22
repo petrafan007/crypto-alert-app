@@ -2112,48 +2112,67 @@ function Dashboard({ isLightMode }) {
 
     return (
       <div style={{
+        position: 'relative',
         display: 'flex',
-        gap: '4px',
         alignItems: 'center',
-        justifyContent: 'center'
+        justifyContent: 'center',
+        width: '100%',
+        minWidth: '85px'
       }}>
-        <input
-          type="text"
-          defaultValue={volatilityPct}
-          onChange={(e) => {
-            let value = e.target.value.replace(/[^0-9]/g, '');
-            e.target.value = value;
-          }}
-          onKeyPress={handleKeyPress}
-          onBlur={handleBlur}
-          style={{
-            width: '60px',
-            padding: '2px 4px',
-            fontSize: '12px',
-            background: '#1a1f23',
-            color: '#fff',
-            border: (item.auto_sell_enabled || item.auto_buy_enabled) ? '1px solid #38bdf8' : '1px solid #333',
-            borderRadius: '2px',
-            textAlign: 'center',
-            boxShadow: (item.auto_sell_enabled || item.auto_buy_enabled) ? '0 0 6px rgba(56, 189, 248, 0.4)' : 'none'
-          }}
-        />
-        <span>%</span>
-        {item.auto_sell_enabled && (
-          <span
-            title={`⚡ Auto-Sell Active: Automatically sells for ${item.auto_sell_quote_currency || 'USDT'} if price drops > ${item.auto_sell_volatility_pct || item.volatility_pct}% in ${volatilityHoursSetting}h.`}
-            style={{ fontSize: '13px', cursor: 'help', color: '#ef4444', filter: 'drop-shadow(0 0 4px rgba(239, 68, 68, 0.7))' }}
-          >
-            ⚡
-          </span>
-        )}
-        {item.auto_buy_enabled && (
-          <span
-            title={`🚀 Auto-Buy Active: Automatically purchases with $${parseFloat(item.auto_buy_amount || 0).toFixed(2)} ${item.auto_buy_quote_currency || 'USDT'} if price surges > +${item.auto_buy_volatility_pct || item.volatility_pct}% in ${volatilityHoursSetting}h.`}
-            style={{ fontSize: '13px', cursor: 'help', color: '#22c55e', filter: 'drop-shadow(0 0 4px rgba(34, 197, 94, 0.7))' }}
-          >
-            🚀
-          </span>
+        <div style={{
+          display: 'inline-flex',
+          gap: '4px',
+          alignItems: 'center',
+          justifyContent: 'center'
+        }}>
+          <input
+            type="text"
+            defaultValue={volatilityPct}
+            onChange={(e) => {
+              let value = e.target.value.replace(/[^0-9]/g, '');
+              e.target.value = value;
+            }}
+            onKeyPress={handleKeyPress}
+            onBlur={handleBlur}
+            style={{
+              width: '50px',
+              padding: '2px 4px',
+              fontSize: '12px',
+              background: '#1a1f23',
+              color: '#fff',
+              border: (item.auto_sell_enabled || item.auto_buy_enabled) ? '1px solid #38bdf8' : '1px solid #333',
+              borderRadius: '2px',
+              textAlign: 'center',
+              boxShadow: (item.auto_sell_enabled || item.auto_buy_enabled) ? '0 0 6px rgba(56, 189, 248, 0.4)' : 'none'
+            }}
+          />
+          <span>%</span>
+        </div>
+        {(item.auto_sell_enabled || item.auto_buy_enabled) && (
+          <div style={{
+            position: 'absolute',
+            right: '2px',
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '2px'
+          }}>
+            {item.auto_sell_enabled && (
+              <span
+                title={`⚡ Auto-Sell Active: Automatically sells for ${item.auto_sell_quote_currency || 'USDT'} if price drops > ${item.auto_sell_volatility_pct || item.volatility_pct}% in ${volatilityHoursSetting}h.`}
+                style={{ fontSize: '13px', cursor: 'help', color: '#ef4444', filter: 'drop-shadow(0 0 4px rgba(239, 68, 68, 0.7))' }}
+              >
+                ⚡
+              </span>
+            )}
+            {item.auto_buy_enabled && (
+              <span
+                title={`🚀 Auto-Buy Active: Automatically purchases with $${parseFloat(item.auto_buy_amount || 0).toFixed(2)} ${item.auto_buy_quote_currency || 'USDT'} if price surges > +${item.auto_buy_volatility_pct || item.volatility_pct}% in ${volatilityHoursSetting}h.`}
+                style={{ fontSize: '13px', cursor: 'help', color: '#22c55e', filter: 'drop-shadow(0 0 4px rgba(34, 197, 94, 0.7))' }}
+              >
+                🚀
+              </span>
+            )}
+          </div>
         )}
       </div>
     );
@@ -2680,8 +2699,11 @@ function Dashboard({ isLightMode }) {
 
       {/* Portfolio Table */}
       <div className="table-container portfolio-table">
-        <div className="table-header">
-          <h2 className="table-title">Portfolio</h2>
+        <div className="table-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px', marginBottom: '8px' }}>
+          <h2 className="table-title" style={{ margin: 0 }}>Portfolio</h2>
+          <div style={{ fontSize: '15px', fontWeight: '700', color: 'var(--accent-primary, #4fd1c5)', letterSpacing: '0.3px' }}>
+            Total Value: ${(totalValue || (portfolio || []).reduce((acc, c) => acc + (parseFloat(c.current_value) || 0), 0)).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USDT
+          </div>
         </div>
         <table /* removed colgroup and resizing */ style={{ width: '100%' }}>
           {/* removed dynamic colgroup */}
@@ -2779,30 +2801,32 @@ function Dashboard({ isLightMode }) {
                         </>
                       ) : (
                         <>
-                          <span
+                          <button
+                            type="button"
                             onClick={!isPlaceholder ? () => toggleAlert(coin.id, coin.alert_enabled) : undefined}
-                            className={alertToggleClass}
+                            className={`action-icon-btn alert-btn ${coin.alert_enabled ? 'alert-enabled' : 'alert-disabled'}`}
                             title={alertTitle}
+                            disabled={isPlaceholder}
                             style={{ cursor: isPlaceholder ? 'not-allowed' : 'pointer' }}
                           >
                             🔔
-                          </span>
-                          <span
-                            className="action-icon"
+                          </button>
+                          <button
+                            type="button"
+                            className="action-icon-btn news-btn"
                             title={getNewsTooltip(coin)}
                             onClick={() => openNews(coin.symbol)}
-                            style={{ cursor: 'pointer', marginLeft: 8 }}
                           >
                             📰
-                          </span>
-                          <span
-                            className="action-icon"
+                          </button>
+                          <button
+                            type="button"
+                            className="action-icon-btn note-btn"
                             title={coin.note ? `Note: ${coin.note}` : 'Add note'}
                             onClick={() => openNoteModal(coin)}
-                            style={{ cursor: 'pointer', marginLeft: 8 }}
                           >
                             ✏️
-                          </span>
+                          </button>
                           <button
                             className="trade-action-btn buy"
                             onClick={(event) => coin.symbol !== 'USD' && toggleTradeQuoteMenu('portfolio', coin.symbol, 'BUY', event)}
@@ -2964,39 +2988,36 @@ function Dashboard({ isLightMode }) {
                       </>
                     ) : (
                       <>
-                        <span
+                        <button
+                          type="button"
                           onClick={() => toggleWatchlistAlert(item.symbol, item.alert_enabled)}
-                          className={`alert-toggle ${item.alert_enabled ? 'alert-enabled' : 'alert-disabled'}`}
+                          className={`action-icon-btn alert-btn ${item.alert_enabled ? 'alert-enabled' : 'alert-disabled'}`}
                           title={item.alert_enabled ? 'Alerts enabled' : 'Alerts disabled'}
-                          style={{ cursor: 'pointer' }}
                         >
                           🔔
-                        </span>
-                        <span
-                          className="action-icon"
+                        </button>
+                        <button
+                          type="button"
+                          className="action-icon-btn news-btn"
                           title={getNewsTooltip(item)}
                           onClick={() => openNews(item.symbol)}
-                          style={{ cursor: 'pointer', marginLeft: 8 }}
                         >
                           📰
-                        </span>
-                        <span
-                          className="action-icon"
+                        </button>
+                        <button
+                          type="button"
+                          className="action-icon-btn note-btn"
                           title={item.note ? `Note: ${item.note}` : 'Add note'}
                           onClick={() => openNoteModal(item)}
-                          style={{ cursor: 'pointer', marginLeft: 8 }}
                         >
                           ✏️
-                        </span>
+                        </button>
                         <button
                           className="trade-action-btn buy"
                           onClick={(event) => item.symbol !== 'USD' && toggleTradeQuoteMenu('watchlist', item.symbol, 'BUY', event)}
                           disabled={item.symbol === 'USD'}
                           title={item.symbol === 'USD' ? 'Cannot purchase fiat USD' : 'Buy'}
-                          style={{
-                            marginLeft: 8,
-                            ...(item.symbol === 'USD' ? { opacity: 0.4, cursor: 'not-allowed' } : {})
-                          }}
+                          style={item.symbol === 'USD' ? { opacity: 0.4, cursor: 'not-allowed' } : undefined}
                         >
                           Buy
                         </button>

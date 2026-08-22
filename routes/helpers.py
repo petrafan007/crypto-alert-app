@@ -746,9 +746,9 @@ def format_iso_utc(dt):
 
 def get_user_latest_news_cache(user_id):
     """
-    Returns a dictionary mapping coin_id to its latest AI news analysis dict:
+    Returns a dictionary mapping both coin_id (int) and symbol (upper str) to its latest AI news analysis dict:
     {
-        coin_id: {
+        key: {
             'text': str,
             'created_at': isoformat_str
         }
@@ -764,11 +764,16 @@ def get_user_latest_news_cache(user_id):
 
         cache = {}
         for row in rows:
+            entry = {
+                'text': row.body or '',
+                'created_at': format_iso_utc(row.created_at)
+            }
             if row.coin_id and row.coin_id not in cache:
-                cache[row.coin_id] = {
-                    'text': row.body or '',
-                    'created_at': format_iso_utc(row.created_at)
-                }
+                cache[row.coin_id] = entry
+            if row.symbol:
+                sym = str(row.symbol).strip().upper()
+                if sym and sym not in cache:
+                    cache[sym] = entry
         return cache
     except Exception as e:
         logger.error(f"Error fetching latest news cache for user {user_id}: {e}")

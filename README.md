@@ -122,6 +122,16 @@ The application utilizes a **unified PostgreSQL database**.
 
 ## Version History & Changelog
 
+## v1.77-beta (August 2026)
+
+### Copilot Scrollbar Polish, Table Header USDT Total Value, Volatility Alignment & Action Buttons
+- **AI Copilot Sidebar Scrollbar Polish**: Restyled the AI Copilot sidebar scrollbar in both Dark Mode (subtle, sleek rounded slate `#475569` on transparent track) and Light Mode (crisp, high-contrast `#94a3b8` thumb on subtle track), matching the Recent Order History widget design.
+- **Portfolio Table Header USDT Total**: Added a live, right-aligned **Total Value: $X,XXX.XX USDT** indicator in the Portfolio section header.
+- **Volatility Centering & Badge Anchoring**: Reworked `renderVolatilityCell` to keep the input box and `%` sign centered across all rows while cleanly anchoring active Auto-Sell/Auto-Buy trigger badges (`⚡`/`🚀`) to the right edge.
+- **Real Action Icon Buttons**: Upgraded bare emojis for Alerts (`🔔`), News (`📰`), and Notes (`✏️`) into styled action button pills with distinct backgrounds, borders, and hover states for high contrast on light mode, dark mode, and yellow pending-order highlighted rows.
+- **News Cache Symbol Indexing**: Enhanced `get_user_latest_news_cache` to index news by both coin ID and uppercase symbol, ensuring instant tooltip news previews for both Portfolio and Watchlist assets.
+- **Version Bump**: Synchronized metadata to `v1.77-beta`.
+
 ## v1.76-beta (August 2026)
 
 ### Price Alert onBlur Auto-Save for Portfolio & Watchlist
