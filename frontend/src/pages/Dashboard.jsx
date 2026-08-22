@@ -2113,67 +2113,50 @@ function Dashboard({ isLightMode }) {
 
     return (
       <div style={{
-        position: 'relative',
-        display: 'flex',
+        display: 'inline-flex',
         alignItems: 'center',
         justifyContent: 'center',
+        gap: '4px',
         width: '100%',
         minWidth: '85px'
       }}>
-        <div style={{
-          display: 'inline-flex',
-          gap: '4px',
-          alignItems: 'center',
-          justifyContent: 'center'
-        }}>
-          <input
-            type="text"
-            defaultValue={volatilityPct}
-            onChange={(e) => {
-              let value = e.target.value.replace(/[^0-9]/g, '');
-              e.target.value = value;
-            }}
-            onKeyPress={handleKeyPress}
-            onBlur={handleBlur}
-            style={{
-              width: '50px',
-              padding: '2px 4px',
-              fontSize: '12px',
-              background: '#1a1f23',
-              color: '#fff',
-              border: (item.auto_sell_enabled || item.auto_buy_enabled) ? '1px solid #38bdf8' : '1px solid #333',
-              borderRadius: '2px',
-              textAlign: 'center',
-              boxShadow: (item.auto_sell_enabled || item.auto_buy_enabled) ? '0 0 6px rgba(56, 189, 248, 0.4)' : 'none'
-            }}
-          />
-          <span>%</span>
-        </div>
-        {(item.auto_sell_enabled || item.auto_buy_enabled) && (
-          <div style={{
-            position: 'absolute',
-            right: '2px',
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: '2px'
-          }}>
-            {item.auto_sell_enabled && (
-              <span
-                title={`⚡ Auto-Sell Active: Automatically sells for ${item.auto_sell_quote_currency || 'USDT'} if price drops > ${item.auto_sell_volatility_pct || item.volatility_pct}% in ${volatilityHoursSetting}h.`}
-                style={{ fontSize: '13px', cursor: 'help', color: '#ef4444', filter: 'drop-shadow(0 0 4px rgba(239, 68, 68, 0.7))' }}
-              >
-                ⚡
-              </span>
-            )}
-            {item.auto_buy_enabled && (
-              <span
-                title={`🚀 Auto-Buy Active: Automatically purchases with $${parseFloat(item.auto_buy_amount || 0).toFixed(2)} ${item.auto_buy_quote_currency || 'USDT'} if price surges > +${item.auto_buy_volatility_pct || item.volatility_pct}% in ${volatilityHoursSetting}h.`}
-                style={{ fontSize: '13px', cursor: 'help', color: '#22c55e', filter: 'drop-shadow(0 0 4px rgba(34, 197, 94, 0.7))' }}
-              >
-                🚀
-              </span>
-            )}
-          </div>
+        {item.auto_sell_enabled && (
+          <span
+            title={`⚡ Auto-Sell Active: Automatically sells for ${item.auto_sell_quote_currency || 'USDT'} if price drops > ${item.auto_sell_volatility_pct || item.volatility_pct}% in ${volatilityHoursSetting}h.`}
+            style={{ fontSize: '13px', cursor: 'help', color: '#ef4444', filter: 'drop-shadow(0 0 4px rgba(239, 68, 68, 0.7))', flexShrink: 0 }}
+          >
+            ⚡
+          </span>
+        )}
+        <input
+          type="text"
+          defaultValue={volatilityPct}
+          onChange={(e) => {
+            let value = e.target.value.replace(/[^0-9]/g, '');
+            e.target.value = value;
+          }}
+          onKeyPress={handleKeyPress}
+          onBlur={handleBlur}
+          style={{
+            width: '45px',
+            padding: '2px 4px',
+            fontSize: '12px',
+            background: '#1a1f23',
+            color: '#fff',
+            border: (item.auto_sell_enabled || item.auto_buy_enabled) ? '1px solid #38bdf8' : '1px solid #333',
+            borderRadius: '2px',
+            textAlign: 'center',
+            boxShadow: (item.auto_sell_enabled || item.auto_buy_enabled) ? '0 0 6px rgba(56, 189, 248, 0.4)' : 'none'
+          }}
+        />
+        <span style={{ fontSize: '12px' }}>%</span>
+        {item.auto_buy_enabled && (
+          <span
+            title={`🚀 Auto-Buy Active: Automatically purchases with $${parseFloat(item.auto_buy_amount || 0).toFixed(2)} ${item.auto_buy_quote_currency || 'USDT'} if price surges > +${item.auto_buy_volatility_pct || item.volatility_pct}% in ${volatilityHoursSetting}h.`}
+            style={{ fontSize: '13px', cursor: 'help', color: '#22c55e', filter: 'drop-shadow(0 0 4px rgba(34, 197, 94, 0.7))', flexShrink: 0 }}
+          >
+            🚀
+          </span>
         )}
       </div>
     );
