@@ -101,11 +101,32 @@ function Dashboard({ isLightMode }) {
   const [isMobile, setIsMobile] = useState(false);
   const [openActionMenu, setOpenActionMenu] = useState({ type: null, key: null, payload: null });
   const [openTradeQuoteMenu, setOpenTradeQuoteMenu] = useState({ type: null, key: null, side: null, position: null });
+  const [volatilityHoursSetting, setVolatilityHoursSetting] = useState(24);
   const [autoSellModal, setAutoSellModal] = useState({
     isOpen: false,
     symbol: '',
     coin: null,
+    tableType: 'portfolio',
+    quoteCurrency: 'USDT',
     volatilityPct: 0,
+    volatilityHours: 24,
+    loading: false,
+    error: ''
+  });
+  const [autoBuyModal, setAutoBuyModal] = useState({
+    isOpen: false,
+    symbol: '',
+    coin: null,
+    tableType: 'portfolio',
+    quoteCurrency: 'USDT',
+    amount: '',
+    volatilityPct: 0,
+    volatilityHours: 24,
+    freeBalance: 0,
+    reservedBalance: 0,
+    availableBalance: 0,
+    activeCommitments: [],
+    loadingBalance: false,
     loading: false,
     error: ''
   });
@@ -162,6 +183,18 @@ function Dashboard({ isLightMode }) {
     handleResize();
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  useEffect(() => {
+    const fetchSettings = async () => {
+      try {
+        const res = await axios.get('/api/settings', { withCredentials: true });
+        if (res.data?.settings?.volatility_hours) {
+          setVolatilityHoursSetting(parseInt(res.data.settings.volatility_hours, 10) || 24);
+        }
+      } catch (e) {}
+    };
+    fetchSettings();
   }, []);
 
   const closeActionMenu = () => setOpenActionMenu({ type: null, key: null, payload: null });
@@ -229,8 +262,15 @@ function Dashboard({ isLightMode }) {
     );
   };
 
-  const handleTriggerAutoSellClick = (symbol, coinObj = null) => {
-    const coin = coinObj || (portfolio || []).find(c => c.symbol === symbol);
+  const handleTriggerAutoSellClick = (symbol, coinObj = null, quoteCurrency = 'USDT', tableType = 'portfolio') => {
+    let coin = coinObj;
+    if (!coin) {
+      if (tableType === 'watchlist') {
+        coin = (watchlist || []).find(c => c.symbol === symbol);
+      } else {
+        coin = (portfolio || []).find(c => c.symbol === symbol);
+      }
+    }
     let volPct = 0;
     if (coin && coin.volatility_pct !== null && coin.volatility_pct !== undefined) {
       volPct = parseFloat(coin.volatility_pct);
@@ -239,7 +279,10 @@ function Dashboard({ isLightMode }) {
       isOpen: true,
       symbol: symbol || (coin ? coin.symbol : ''),
       coin: coin,
+      tableType: tableType,
+      quoteCurrency: quoteCurrency,
       volatilityPct: volPct > 0 ? volPct : (coin?.auto_sell_volatility_pct || 5),
+      volatilityHours: volatilityHoursSetting,
       loading: false,
       error: ''
     });
@@ -252,30 +295,49 @@ function Dashboard({ isLightMode }) {
       const payload = {
         symbol: autoSellModal.symbol,
         id: autoSellModal.coin?.id,
+        table_type: autoSellModal.tableType,
+        quote_currency: autoSellModal.quoteCurrency,
         volatility_pct: autoSellModal.volatilityPct,
         enabled: enable
       };
       const res = await axios.post('/api/portfolio/trigger-auto-sell', payload, { withCredentials: true });
       if (res.data.success) {
-        setPortfolio(prev =>
-          prev.map(c =>
-            c.symbol === autoSellModal.symbol || (autoSellModal.coin && c.id === autoSellModal.coin.id)
-              ? {
-                ...c,
-                auto_sell_enabled: enable,
-                auto_sell_volatility_pct: autoSellModal.volatilityPct,
-                volatility_pct: autoSellModal.volatilityPct
-              }
-              : c
-          )
-        );
+        if (autoSellModal.tableType === 'watchlist') {
+          setWatchlist(prev =>
+            prev.map(c =>
+              c.symbol === autoSellModal.symbol || (autoSellModal.coin && c.id === autoSellModal.coin.id)
+                ? {
+                  ...c,
+                  auto_sell_enabled: enable,
+                  auto_sell_volatility_pct: autoSellModal.volatilityPct,
+                  auto_sell_quote_currency: autoSellModal.quoteCurrency,
+                  volatility_pct: autoSellModal.volatilityPct
+                }
+                : c
+            )
+          );
+        } else {
+          setPortfolio(prev =>
+            prev.map(c =>
+              c.symbol === autoSellModal.symbol || (autoSellModal.coin && c.id === autoSellModal.coin.id)
+                ? {
+                  ...c,
+                  auto_sell_enabled: enable,
+                  auto_sell_volatility_pct: autoSellModal.volatilityPct,
+                  auto_sell_quote_currency: autoSellModal.quoteCurrency,
+                  volatility_pct: autoSellModal.volatilityPct
+                }
+                : c
+            )
+          );
+        }
         setNotification({
           show: true,
           message: res.data.message || (enable ? `Auto-sell activated for ${autoSellModal.symbol}!` : `Auto-sell disabled for ${autoSellModal.symbol}`),
           type: 'success'
         });
         setTimeout(() => setNotification({ show: false, message: '', type: 'info' }), 5000);
-        setAutoSellModal({ isOpen: false, symbol: '', coin: null, volatilityPct: 0, loading: false, error: '' });
+        setAutoSellModal(prev => ({ ...prev, isOpen: false, loading: false, error: '' }));
       } else {
         setAutoSellModal(prev => ({ ...prev, loading: false, error: res.data.error || 'Failed to update auto-sell' }));
       }
@@ -289,25 +351,189 @@ function Dashboard({ isLightMode }) {
     }
   };
 
+  const handleTriggerAutoBuyClick = async (symbol, coinObj = null, quoteCurrency = 'USDT', tableType = 'portfolio') => {
+    let coin = coinObj;
+    if (!coin) {
+      if (tableType === 'watchlist') {
+        coin = (watchlist || []).find(c => c.symbol === symbol);
+      } else {
+        coin = (portfolio || []).find(c => c.symbol === symbol);
+      }
+    }
+    let volPct = 0;
+    if (coin && coin.volatility_pct !== null && coin.volatility_pct !== undefined) {
+      volPct = parseFloat(coin.volatility_pct);
+    }
+
+    const currentAlloc = coin?.auto_buy_amount ? String(coin.auto_buy_amount) : '';
+
+    setAutoBuyModal({
+      isOpen: true,
+      symbol: symbol || (coin ? coin.symbol : ''),
+      coin: coin,
+      tableType: tableType,
+      quoteCurrency: quoteCurrency,
+      amount: currentAlloc,
+      volatilityPct: volPct > 0 ? volPct : (coin?.auto_buy_volatility_pct || 5),
+      volatilityHours: volatilityHoursSetting,
+      freeBalance: 0,
+      reservedBalance: 0,
+      availableBalance: 0,
+      activeCommitments: [],
+      loadingBalance: true,
+      loading: false,
+      error: ''
+    });
+
+    try {
+      const res = await axios.get('/api/portfolio/auto-buy-balance-info', {
+        params: {
+          quote_currency: quoteCurrency,
+          symbol: symbol,
+          id: coin?.id,
+          table_type: tableType
+        },
+        withCredentials: true
+      });
+      if (res.data?.success) {
+        setAutoBuyModal(prev => ({
+          ...prev,
+          freeBalance: res.data.free_balance || 0,
+          reservedBalance: res.data.reserved_balance || 0,
+          availableBalance: res.data.available_balance || 0,
+          activeCommitments: res.data.active_commitments || [],
+          loadingBalance: false
+        }));
+      } else {
+        setAutoBuyModal(prev => ({ ...prev, loadingBalance: false, error: res.data?.error || '' }));
+      }
+    } catch (e) {
+      setAutoBuyModal(prev => ({ ...prev, loadingBalance: false, error: 'Could not fetch live balance info' }));
+    }
+  };
+
+  const handleConfirmAutoBuy = async (enable = true) => {
+    if (!autoBuyModal.symbol) return;
+    if (enable) {
+      const numAmt = parseFloat(autoBuyModal.amount);
+      if (isNaN(numAmt) || numAmt < 1.00) {
+        setAutoBuyModal(prev => ({ ...prev, error: `Minimum allocation amount is $1.00 ${prev.quoteCurrency}.` }));
+        return;
+      }
+      if (numAmt > autoBuyModal.availableBalance + 0.0001) {
+        setAutoBuyModal(prev => ({
+          ...prev,
+          error: `Cannot allocate $${numAmt.toFixed(2)}. Available uncommitted balance is only $${prev.availableBalance.toFixed(2)} ${prev.quoteCurrency}.`
+        }));
+        return;
+      }
+    }
+
+    setAutoBuyModal(prev => ({ ...prev, loading: true, error: '' }));
+    try {
+      const payload = {
+        symbol: autoBuyModal.symbol,
+        id: autoBuyModal.coin?.id,
+        table_type: autoBuyModal.tableType,
+        quote_currency: autoBuyModal.quoteCurrency,
+        amount: parseFloat(autoBuyModal.amount) || 0,
+        volatility_pct: autoBuyModal.volatilityPct,
+        enabled: enable
+      };
+      const res = await axios.post('/api/portfolio/trigger-auto-buy', payload, { withCredentials: true });
+      if (res.data.success) {
+        if (autoBuyModal.tableType === 'watchlist') {
+          setWatchlist(prev =>
+            prev.map(c =>
+              c.symbol === autoBuyModal.symbol || (autoBuyModal.coin && c.id === autoBuyModal.coin.id)
+                ? {
+                  ...c,
+                  auto_buy_enabled: enable,
+                  auto_buy_amount: parseFloat(autoBuyModal.amount) || 0,
+                  auto_buy_quote_currency: autoBuyModal.quoteCurrency,
+                  auto_buy_volatility_pct: autoBuyModal.volatilityPct,
+                  volatility_pct: autoBuyModal.volatilityPct
+                }
+                : c
+            )
+          );
+        } else {
+          setPortfolio(prev =>
+            prev.map(c =>
+              c.symbol === autoBuyModal.symbol || (autoBuyModal.coin && c.id === autoBuyModal.coin.id)
+                ? {
+                  ...c,
+                  auto_buy_enabled: enable,
+                  auto_buy_amount: parseFloat(autoBuyModal.amount) || 0,
+                  auto_buy_quote_currency: autoBuyModal.quoteCurrency,
+                  auto_buy_volatility_pct: autoBuyModal.volatilityPct,
+                  volatility_pct: autoBuyModal.volatilityPct
+                }
+                : c
+            )
+          );
+        }
+        setNotification({
+          show: true,
+          message: res.data.message || (enable ? `Auto-buy activated for ${autoBuyModal.symbol}!` : `Auto-buy disabled for ${autoBuyModal.symbol}`),
+          type: 'success'
+        });
+        setTimeout(() => setNotification({ show: false, message: '', type: 'info' }), 5000);
+        setAutoBuyModal(prev => ({ ...prev, isOpen: false, loading: false, error: '' }));
+      } else {
+        setAutoBuyModal(prev => ({ ...prev, loading: false, error: res.data.error || 'Failed to update auto-buy' }));
+      }
+    } catch (err) {
+      console.error('Trigger auto-buy error:', err);
+      setAutoBuyModal(prev => ({
+        ...prev,
+        loading: false,
+        error: err.response?.data?.error || 'Failed to update auto-buy. Please check your volatility settings.'
+      }));
+    }
+  };
+
   const renderDesktopTradeQuoteMenu = () => {
     if (isMobile || !openTradeQuoteMenu.position || typeof document === 'undefined') return null;
 
     const { key: symbol, side, type } = openTradeQuoteMenu;
     const isBuy = side === 'BUY';
-    const coin = (portfolio || []).find(c => c.symbol === symbol);
+    const coin = type === 'watchlist'
+      ? (watchlist || []).find(w => w.symbol === symbol)
+      : (portfolio || []).find(c => c.symbol === symbol);
 
     return createPortal(
       <div className="trade-quote-menu" style={tradeQuoteMenuStyle} role="menu" aria-label={`${isBuy ? 'Buy' : 'Sell'} ${symbol}`}>
-        <button role="menuitem" onClick={() => { navigateToTrading(symbol, side, 'USD'); closeTradeQuoteMenu(); }}>
-          {isBuy ? 'Buy with USD' : 'Sell for USD'}
-        </button>
-        <button role="menuitem" onClick={() => { navigateToTrading(symbol, side, 'USDT'); closeTradeQuoteMenu(); }}>
-          {isBuy ? 'Buy with USDT' : 'Sell for USDT'}
-        </button>
-        {!isBuy && type === 'portfolio' && (
-          <button role="menuitem" onClick={() => { handleTriggerAutoSellClick(symbol, coin); closeTradeQuoteMenu(); }}>
-            Trigger Auto-Sell
-          </button>
+        {isBuy ? (
+          <>
+            <button role="menuitem" onClick={() => { navigateToTrading(symbol, 'BUY', 'USD'); closeTradeQuoteMenu(); }}>
+              Buy with USD
+            </button>
+            <button role="menuitem" onClick={() => { navigateToTrading(symbol, 'BUY', 'USDT'); closeTradeQuoteMenu(); }}>
+              Buy with USDT
+            </button>
+            <button role="menuitem" onClick={() => { handleTriggerAutoBuyClick(symbol, coin, 'USD', type); closeTradeQuoteMenu(); }}>
+              Trigger Auto-Buy (USD)
+            </button>
+            <button role="menuitem" onClick={() => { handleTriggerAutoBuyClick(symbol, coin, 'USDT', type); closeTradeQuoteMenu(); }}>
+              Trigger Auto-Buy (USDT)
+            </button>
+          </>
+        ) : (
+          <>
+            <button role="menuitem" onClick={() => { navigateToTrading(symbol, 'SELL', 'USD'); closeTradeQuoteMenu(); }}>
+              Sell for USD
+            </button>
+            <button role="menuitem" onClick={() => { navigateToTrading(symbol, 'SELL', 'USDT'); closeTradeQuoteMenu(); }}>
+              Sell for USDT
+            </button>
+            <button role="menuitem" onClick={() => { handleTriggerAutoSellClick(symbol, coin, 'USD', type); closeTradeQuoteMenu(); }}>
+              Trigger Auto-Sell (USD)
+            </button>
+            <button role="menuitem" onClick={() => { handleTriggerAutoSellClick(symbol, coin, 'USDT', type); closeTradeQuoteMenu(); }}>
+              Trigger Auto-Sell (USDT)
+            </button>
+          </>
         )}
       </div>,
       document.body
@@ -1086,19 +1312,18 @@ function Dashboard({ isLightMode }) {
               <div className="trade-quote-menu" style={tradeQuoteMenuStyle}>
                 <button onClick={() => { navigateToTrading(isPortfolio ? coin.symbol : item.symbol, 'BUY', 'USD'); closeActionMenu(); closeTradeQuoteMenu(); }}>Buy with USD</button>
                 <button onClick={() => { navigateToTrading(isPortfolio ? coin.symbol : item.symbol, 'BUY', 'USDT'); closeActionMenu(); closeTradeQuoteMenu(); }}>Buy with USDT</button>
+                <button onClick={() => { handleTriggerAutoBuyClick(isPortfolio ? coin.symbol : item.symbol, isPortfolio ? coin : item, 'USD', openActionMenu.type); closeActionMenu(); closeTradeQuoteMenu(); }}>Trigger Auto-Buy (USD)</button>
+                <button onClick={() => { handleTriggerAutoBuyClick(isPortfolio ? coin.symbol : item.symbol, isPortfolio ? coin : item, 'USDT', openActionMenu.type); closeActionMenu(); closeTradeQuoteMenu(); }}>Trigger Auto-Buy (USDT)</button>
               </div>
             )}
-            {isPortfolio && (
-              <>
-                <button onClick={(event) => toggleTradeQuoteMenu(openActionMenu.type, openActionMenu.key, 'SELL', event)}>Sell</button>
-                {openTradeQuoteMenu.type === openActionMenu.type && openTradeQuoteMenu.key === openActionMenu.key && openTradeQuoteMenu.side === 'SELL' && (
-                  <div className="trade-quote-menu" style={tradeQuoteMenuStyle}>
-                    <button onClick={() => { navigateToTrading(coin.symbol, 'SELL', 'USD'); closeActionMenu(); closeTradeQuoteMenu(); }}>Sell for USD</button>
-                    <button onClick={() => { navigateToTrading(coin.symbol, 'SELL', 'USDT'); closeActionMenu(); closeTradeQuoteMenu(); }}>Sell for USDT</button>
-                    <button onClick={() => { handleTriggerAutoSellClick(coin.symbol, coin); closeActionMenu(); closeTradeQuoteMenu(); }}>Trigger Auto-Sell</button>
-                  </div>
-                )}
-              </>
+            <button onClick={(event) => toggleTradeQuoteMenu(openActionMenu.type, openActionMenu.key, 'SELL', event)}>Sell</button>
+            {openTradeQuoteMenu.type === openActionMenu.type && openTradeQuoteMenu.key === openActionMenu.key && openTradeQuoteMenu.side === 'SELL' && (
+              <div className="trade-quote-menu" style={tradeQuoteMenuStyle}>
+                <button onClick={() => { navigateToTrading(isPortfolio ? coin.symbol : item.symbol, 'SELL', 'USD'); closeActionMenu(); closeTradeQuoteMenu(); }}>Sell for USD</button>
+                <button onClick={() => { navigateToTrading(isPortfolio ? coin.symbol : item.symbol, 'SELL', 'USDT'); closeActionMenu(); closeTradeQuoteMenu(); }}>Sell for USDT</button>
+                <button onClick={() => { handleTriggerAutoSellClick(isPortfolio ? coin.symbol : item.symbol, isPortfolio ? coin : item, 'USD', openActionMenu.type); closeActionMenu(); closeTradeQuoteMenu(); }}>Trigger Auto-Sell (USD)</button>
+                <button onClick={() => { handleTriggerAutoSellClick(isPortfolio ? coin.symbol : item.symbol, isPortfolio ? coin : item, 'USDT', openActionMenu.type); closeActionMenu(); closeTradeQuoteMenu(); }}>Trigger Auto-Sell (USDT)</button>
+              </div>
             )}
             {isPortfolio && (
               <button
@@ -1785,19 +2010,27 @@ function Dashboard({ isLightMode }) {
             fontSize: '12px',
             background: '#1a1f23',
             color: '#fff',
-            border: item.auto_sell_enabled ? '1px solid #22c55e' : '1px solid #333',
+            border: (item.auto_sell_enabled || item.auto_buy_enabled) ? '1px solid #38bdf8' : '1px solid #333',
             borderRadius: '2px',
             textAlign: 'center',
-            boxShadow: item.auto_sell_enabled ? '0 0 6px rgba(34, 197, 94, 0.4)' : 'none'
+            boxShadow: (item.auto_sell_enabled || item.auto_buy_enabled) ? '0 0 6px rgba(56, 189, 248, 0.4)' : 'none'
           }}
         />
         <span>%</span>
-        {tableType === 'portfolio' && item.auto_sell_enabled && (
+        {item.auto_sell_enabled && (
           <span
-            title={`⚡ Auto-Sell Active: Automatically sells for USDT if price drops > ${item.auto_sell_volatility_pct || item.volatility_pct}% in 1 hour.`}
-            style={{ fontSize: '13px', cursor: 'help', color: '#22c55e', filter: 'drop-shadow(0 0 4px rgba(34, 197, 94, 0.7))' }}
+            title={`⚡ Auto-Sell Active: Automatically sells for ${item.auto_sell_quote_currency || 'USDT'} if price drops > ${item.auto_sell_volatility_pct || item.volatility_pct}% in ${volatilityHoursSetting}h.`}
+            style={{ fontSize: '13px', cursor: 'help', color: '#ef4444', filter: 'drop-shadow(0 0 4px rgba(239, 68, 68, 0.7))' }}
           >
             ⚡
+          </span>
+        )}
+        {item.auto_buy_enabled && (
+          <span
+            title={`🚀 Auto-Buy Active: Automatically purchases with $${parseFloat(item.auto_buy_amount || 0).toFixed(2)} ${item.auto_buy_quote_currency || 'USDT'} if price surges > +${item.auto_buy_volatility_pct || item.volatility_pct}% in ${volatilityHoursSetting}h.`}
+            style={{ fontSize: '13px', cursor: 'help', color: '#22c55e', filter: 'drop-shadow(0 0 4px rgba(34, 197, 94, 0.7))' }}
+          >
+            🚀
           </span>
         )}
       </div>
@@ -2635,6 +2868,12 @@ function Dashboard({ isLightMode }) {
                           Buy
                         </button>
                         <button
+                          className="trade-action-btn sell"
+                          onClick={(event) => toggleTradeQuoteMenu('watchlist', item.symbol, 'SELL', event)}
+                        >
+                          Sell
+                        </button>
+                        <button
                           className="trade-action-btn delete"
                           onClick={() => deleteWatchlistItem(item.symbol)}
                           title="Delete from watchlist"
@@ -2858,14 +3097,16 @@ function Dashboard({ isLightMode }) {
       {/* Auto-Sell Confirmation Modal */}
       {autoSellModal.isOpen && (
         <div className="modal-overlay" onClick={() => setAutoSellModal(prev => ({ ...prev, isOpen: false }))}>
-          <div className="modal-content auto-sell-modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '440px' }}>
+          <div className="modal-content auto-sell-modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '460px' }}>
             <div className="modal-header">
-              <h3>⚡ Trigger Auto-Sell ({autoSellModal.symbol})</h3>
+              <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px', margin: 0 }}>
+                <span>⚡</span> Trigger Auto-Sell ({autoSellModal.symbol})
+              </h3>
               <button className="modal-close" onClick={() => setAutoSellModal(prev => ({ ...prev, isOpen: false }))}>×</button>
             </div>
             <div style={{ padding: '20px 24px' }}>
-              <p style={{ fontSize: '15px', lineHeight: '1.6', margin: '0 0 16px', color: 'var(--text-primary, #e2e8f0)' }}>
-                You are about to enable an automatic sale of <strong>{autoSellModal.symbol}</strong> when the price drops more than <strong>{autoSellModal.volatilityPct}%</strong> within a 1-hour period. Are you sure you want to do this?
+              <p style={{ fontSize: '14px', lineHeight: '1.6', margin: '0 0 16px', color: 'var(--text-primary, #e2e8f0)' }}>
+                You are about to enable an automatic sale of <strong>{autoSellModal.symbol} for {autoSellModal.quoteCurrency}</strong> when the price drops more than <strong>{autoSellModal.volatilityPct}%</strong> within the past <strong>{autoSellModal.volatilityHours} hour(s)</strong> (configured in Settings). Are you sure you want to do this?
               </p>
 
               {autoSellModal.coin?.auto_sell_enabled && (
@@ -2878,7 +3119,7 @@ function Dashboard({ isLightMode }) {
                   marginBottom: '16px',
                   border: '1px solid rgba(34, 197, 94, 0.3)'
                 }}>
-                  ⚡ Auto-Sell is currently <strong>ACTIVE</strong> for {autoSellModal.symbol}.
+                  ⚡ Auto-Sell is currently <strong>ACTIVE</strong> for {autoSellModal.symbol} ({autoSellModal.coin.auto_sell_quote_currency || 'USDT'}).
                 </div>
               )}
 
@@ -2921,6 +3162,162 @@ function Dashboard({ isLightMode }) {
                 disabled={autoSellModal.loading}
               >
                 {autoSellModal.loading ? 'Enabling...' : 'Yes'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Auto-Buy Confirmation Modal */}
+      {autoBuyModal.isOpen && (
+        <div className="modal-overlay" onClick={() => setAutoBuyModal(prev => ({ ...prev, isOpen: false }))}>
+          <div className="modal-content auto-buy-modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '480px' }}>
+            <div className="modal-header">
+              <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px', margin: 0 }}>
+                <span>🚀</span> Trigger Auto-Buy ({autoBuyModal.symbol})
+              </h3>
+              <button className="modal-close" onClick={() => setAutoBuyModal(prev => ({ ...prev, isOpen: false }))}>×</button>
+            </div>
+            <div style={{ padding: '20px 24px' }}>
+              <p style={{ fontSize: '14px', lineHeight: '1.6', margin: '0 0 16px', color: 'var(--text-primary, #e2e8f0)' }}>
+                You are about to enable an automatic purchase of <strong>{autoBuyModal.symbol} with {autoBuyModal.quoteCurrency}</strong> when the price surges more than <strong>{autoBuyModal.volatilityPct}%</strong> within the past <strong>{autoBuyModal.volatilityHours} hour(s)</strong> (configured in Settings).
+              </p>
+
+              {/* Live Balance Summary */}
+              <div style={{
+                padding: '12px 14px',
+                borderRadius: '8px',
+                backgroundColor: 'rgba(15, 23, 42, 0.6)',
+                border: '1px solid var(--border-color, rgba(255, 255, 255, 0.1))',
+                marginBottom: '16px',
+                fontSize: '13px'
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
+                  <span style={{ color: 'var(--text-secondary, #94a3b8)' }}>Binance.US Free Balance:</span>
+                  <strong style={{ color: '#38bdf8' }}>${autoBuyModal.freeBalance.toFixed(2)} {autoBuyModal.quoteCurrency}</strong>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
+                  <span style={{ color: 'var(--text-secondary, #94a3b8)' }}>Reserved for other Auto-Buys:</span>
+                  <span style={{ color: autoBuyModal.reservedBalance > 0 ? '#f59e0b' : '#94a3b8' }}>
+                    ${autoBuyModal.reservedBalance.toFixed(2)} {autoBuyModal.quoteCurrency}
+                  </span>
+                </div>
+                <div style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  paddingTop: '6px',
+                  borderTop: '1px solid rgba(255, 255, 255, 0.08)',
+                  fontWeight: '600'
+                }}>
+                  <span style={{ color: 'var(--text-primary, #fff)' }}>Available to Allocate:</span>
+                  <span style={{ color: autoBuyModal.availableBalance >= 1.00 ? '#4ade80' : '#f87171' }}>
+                    ${autoBuyModal.availableBalance.toFixed(2)} {autoBuyModal.quoteCurrency}
+                  </span>
+                </div>
+              </div>
+
+              {/* Allocation Input */}
+              <div style={{ marginBottom: '16px' }}>
+                <label style={{ display: 'block', fontSize: '13px', fontWeight: '500', marginBottom: '6px', color: 'var(--text-primary, #e2e8f0)' }}>
+                  Allocation Amount ({autoBuyModal.quoteCurrency}) <span style={{ color: '#94a3b8', fontSize: '11px' }}>(Min $1.00)</span>
+                </label>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <div style={{ position: 'relative', flex: 1 }}>
+                    <span style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8', fontSize: '14px' }}>$</span>
+                    <input
+                      type="number"
+                      min="1"
+                      step="any"
+                      placeholder="0.00"
+                      value={autoBuyModal.amount}
+                      onChange={(e) => setAutoBuyModal(prev => ({ ...prev, amount: e.target.value, error: '' }))}
+                      style={{
+                        width: '100%',
+                        padding: '10px 12px 10px 26px',
+                        borderRadius: '6px',
+                        border: '1px solid var(--border-color, #334155)',
+                        backgroundColor: 'rgba(0, 0, 0, 0.25)',
+                        color: 'var(--text-primary, #fff)',
+                        fontSize: '14px'
+                      }}
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    onClick={() => setAutoBuyModal(prev => ({ ...prev, amount: prev.availableBalance > 0 ? String(prev.availableBalance) : '', error: '' }))}
+                    disabled={autoBuyModal.availableBalance < 1.00}
+                    style={{ padding: '0 16px', fontWeight: '600', fontSize: '12px' }}
+                  >
+                    MAX
+                  </button>
+                </div>
+              </div>
+
+              {autoBuyModal.activeCommitments.length > 0 && (
+                <div style={{ marginBottom: '16px', fontSize: '12px', color: '#94a3b8' }}>
+                  <span>Active commitments: </span>
+                  {autoBuyModal.activeCommitments.map((c, i) => (
+                    <span key={i} style={{ color: c.is_current ? '#38bdf8' : '#e2e8f0', marginRight: '6px' }}>
+                      {c.symbol}: ${c.amount.toFixed(2)}{c.is_current ? ' (current)' : ''}{i < autoBuyModal.activeCommitments.length - 1 ? ',' : ''}
+                    </span>
+                  ))}
+                </div>
+              )}
+
+              {autoBuyModal.coin?.auto_buy_enabled && (
+                <div style={{
+                  padding: '10px 14px',
+                  borderRadius: '6px',
+                  backgroundColor: 'rgba(34, 197, 94, 0.12)',
+                  color: '#4ade80',
+                  fontSize: '13px',
+                  marginBottom: '16px',
+                  border: '1px solid rgba(34, 197, 94, 0.3)'
+                }}>
+                  🚀 Auto-Buy is currently <strong>ACTIVE</strong> for {autoBuyModal.symbol} (${parseFloat(autoBuyModal.coin.auto_buy_amount || 0).toFixed(2)} {autoBuyModal.quoteCurrency}).
+                </div>
+              )}
+
+              {autoBuyModal.error && (
+                <div style={{
+                  padding: '10px 14px',
+                  borderRadius: '6px',
+                  backgroundColor: 'rgba(239, 68, 68, 0.15)',
+                  color: '#f87171',
+                  fontSize: '13px',
+                  marginBottom: '16px',
+                  border: '1px solid rgba(239, 68, 68, 0.3)'
+                }}>
+                  {autoBuyModal.error}
+                </div>
+              )}
+            </div>
+            <div className="modal-actions" style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', padding: '16px 24px', borderTop: '1px solid var(--border-color, rgba(255,255,255,0.08))' }}>
+              {autoBuyModal.coin?.auto_buy_enabled && (
+                <button
+                  className="btn btn-secondary"
+                  style={{ marginRight: 'auto', color: '#f87171', borderColor: 'rgba(239,68,68,0.4)' }}
+                  onClick={() => handleConfirmAutoBuy(false)}
+                  disabled={autoBuyModal.loading}
+                >
+                  Disable Auto-Buy
+                </button>
+              )}
+              <button
+                className="btn btn-secondary"
+                onClick={() => setAutoBuyModal(prev => ({ ...prev, isOpen: false }))}
+                disabled={autoBuyModal.loading}
+              >
+                Cancel
+              </button>
+              <button
+                className="btn btn-primary"
+                style={{ backgroundColor: '#22c55e', borderColor: '#22c55e', color: '#fff', fontWeight: '600' }}
+                onClick={() => handleConfirmAutoBuy(true)}
+                disabled={autoBuyModal.loading || autoBuyModal.availableBalance < 1.00 || !autoBuyModal.amount || parseFloat(autoBuyModal.amount) < 1.00}
+              >
+                {autoBuyModal.loading ? 'Enabling...' : 'Enable Auto-Buy'}
               </button>
             </div>
           </div>

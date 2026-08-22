@@ -43,7 +43,22 @@ def init_db(app=None):
             ("default_ai_prompts", "copilot_chat_post", "TEXT"),
             ("coins", "auto_sell_enabled", "BOOLEAN DEFAULT FALSE"),
             ("coins", "auto_sell_volatility_pct", "FLOAT"),
-            ("coins", "auto_sell_triggered_at", "TIMESTAMP")
+            ("coins", "auto_sell_quote_currency", "VARCHAR(10) DEFAULT 'USDT'"),
+            ("coins", "auto_sell_triggered_at", "TIMESTAMP"),
+            ("coins", "auto_buy_enabled", "BOOLEAN DEFAULT FALSE"),
+            ("coins", "auto_buy_volatility_pct", "FLOAT"),
+            ("coins", "auto_buy_quote_currency", "VARCHAR(10) DEFAULT 'USDT'"),
+            ("coins", "auto_buy_amount", "FLOAT"),
+            ("coins", "auto_buy_triggered_at", "TIMESTAMP"),
+            ("watchlist", "auto_sell_enabled", "BOOLEAN DEFAULT FALSE"),
+            ("watchlist", "auto_sell_volatility_pct", "FLOAT"),
+            ("watchlist", "auto_sell_quote_currency", "VARCHAR(10) DEFAULT 'USDT'"),
+            ("watchlist", "auto_sell_triggered_at", "TIMESTAMP"),
+            ("watchlist", "auto_buy_enabled", "BOOLEAN DEFAULT FALSE"),
+            ("watchlist", "auto_buy_volatility_pct", "FLOAT"),
+            ("watchlist", "auto_buy_quote_currency", "VARCHAR(10) DEFAULT 'USDT'"),
+            ("watchlist", "auto_buy_amount", "FLOAT"),
+            ("watchlist", "auto_buy_triggered_at", "TIMESTAMP")
         ]
         for table, col, col_type in columns_to_ensure:
             try:

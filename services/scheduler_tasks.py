@@ -355,15 +355,15 @@ def check_coin_volatility(user, coin, ticker_map, client, volatility_hours, tabl
     except Exception as e:
         logger.error(f"Error checking volatility for {coin.symbol}: {e}")
 
-def check_auto_sell_for_coin(user, coin, ticker_map, client):
+def check_auto_sell_for_coin(user, coin, ticker_map, client, volatility_hours=24, table_type='portfolio'):
     """
-    Check if an auto-sell enabled coin has dropped more than its threshold in a 1-hour period,
-    and execute an automatic market sell for USDT if triggered.
+    Check if an auto-sell enabled coin has dropped more than its threshold over volatility_hours,
+    and execute an automatic market sell for its configured quote currency (USDT or USD) if triggered.
     """
     try:
         if not getattr(coin, 'auto_sell_enabled', False):
             return
-        if not coin.amount or float(coin.amount) <= 0:
+        if table_type == 'portfolio' and (not coin.amount or float(coin.amount) <= 0):
             return
 
         symbol = coin.symbol.upper()
@@ -371,21 +371,23 @@ def check_auto_sell_for_coin(user, coin, ticker_map, client):
         if threshold <= 0:
             return
 
-        # Target USDT pair, fallback to USD
-        pair = f"{symbol}USDT"
+        target_quote = (getattr(coin, 'auto_sell_quote_currency', None) or 'USDT').upper()
+        pair = f"{symbol}{target_quote}"
         ticker = ticker_map.get(pair)
         if not ticker:
-            pair = f"{symbol}USD"
+            fallback_quote = 'USD' if target_quote == 'USDT' else 'USDT'
+            pair = f"{symbol}{fallback_quote}"
             ticker = ticker_map.get(pair)
+            target_quote = fallback_quote
         if not ticker or 'lastPrice' not in ticker:
             return
 
-        # Fetch 1-hour klines (interval='1h', limit=2: [0] is previous hour, [1] is current hour)
-        klines = client.get_klines(symbol=pair, interval='1h', limit=2)
+        # Fetch klines for volatility_hours
+        klines = client.get_klines(symbol=pair, interval='1h', limit=max(2, volatility_hours + 1))
         if len(klines) < 2:
             return
 
-        start_price = float(klines[0][1])  # Open price of 1h candle (previous hour reference)
+        start_price = float(klines[0][1])  # Open price at start of period
         current_price = float(ticker['lastPrice'])
         if start_price <= 0:
             return
@@ -393,24 +395,24 @@ def check_auto_sell_for_coin(user, coin, ticker_map, client):
         # Calculate price drop percentage (positive when price drops)
         price_drop_pct = ((start_price - current_price) / start_price) * 100
 
-        # If price dropped by more than threshold within 1 hour
         if price_drop_pct >= threshold:
             logger.warning(
                 f"🚨 AUTO-SELL TRIGGERED for User {user.username}: {symbol} dropped {price_drop_pct:.2f}% "
-                f"(Threshold: {threshold}%) from ${start_price:.4f} to ${current_price:.4f}"
+                f"(Threshold: {threshold}%) in {volatility_hours}h from ${start_price:.4f} to ${current_price:.4f}"
             )
-            execute_auto_sell(user, coin, pair, current_price, price_drop_pct, threshold, client)
+            execute_auto_sell(user, coin, pair, current_price, price_drop_pct, threshold, volatility_hours, client, table_type)
     except Exception as e:
         logger.error(f"Error checking auto-sell for {getattr(coin, 'symbol', '?')}: {e}", exc_info=True)
 
-def execute_auto_sell(user, coin, pair, current_price, price_drop_pct, threshold, client):
-    """Execute automatic market sell for USDT upon volatility drop trigger, cancelling conflicting open orders first."""
+def execute_auto_sell(user, coin, pair, current_price, price_drop_pct, threshold, volatility_hours, client, table_type='portfolio'):
+    """Execute automatic market sell upon volatility drop trigger, cancelling conflicting open orders first."""
     from models import Notification
     from trading_models import AllActivity
     from services.binance_service import get_symbol_filters
     from services.common import format_quantity
 
     symbol = coin.symbol.upper()
+    quote_asset = 'USDT' if pair.endswith('USDT') else ('USD' if pair.endswith('USD') else 'USDT')
     try:
         # Step 1: Check for and cancel any existing open orders for this coin to unlock balances
         cancelled_orders = []
@@ -419,7 +421,6 @@ def execute_auto_sell(user, coin, pair, current_price, price_drop_pct, threshold
             try:
                 open_orders = client.get_open_orders()
             except Exception as all_ord_err:
-                logger.warning(f"Failed to fetch global open orders for {symbol}, checking pair {pair}: {all_ord_err}")
                 try:
                     open_orders = client.get_open_orders(symbol=pair)
                 except Exception:
@@ -427,7 +428,6 @@ def execute_auto_sell(user, coin, pair, current_price, price_drop_pct, threshold
 
             for ord_item in open_orders:
                 ord_symbol = ord_item.get('symbol', '')
-                # Match orders where base asset matches our coin (e.g., ETHUSDT, ETHUSD, ETHBTC)
                 if ord_symbol.startswith(symbol) or ord_symbol == pair:
                     ord_id = ord_item.get('orderId')
                     try:
@@ -435,7 +435,6 @@ def execute_auto_sell(user, coin, pair, current_price, price_drop_pct, threshold
                         client.cancel_order(symbol=ord_symbol, orderId=ord_id)
                         cancelled_orders.append(f"{ord_symbol} #{ord_id}")
 
-                        # Update local RealOrder record if present
                         try:
                             from trading_models import RealOrder
                             local_order = RealOrder.query.filter_by(user_id=user.id, binance_order_id=int(ord_id)).first()
@@ -450,7 +449,7 @@ def execute_auto_sell(user, coin, pair, current_price, price_drop_pct, threshold
 
             if cancelled_orders:
                 logger.info(f"Auto-Sell: Successfully cancelled {len(cancelled_orders)} open order(s) for {symbol}: {', '.join(cancelled_orders)}")
-                time.sleep(0.5)  # Brief pause to allow balance unlock to settle on Binance
+                time.sleep(0.5)
         except Exception as open_err:
             logger.error(f"Error during open orders check/cancellation for {symbol}: {open_err}")
 
@@ -466,9 +465,9 @@ def execute_auto_sell(user, coin, pair, current_price, price_drop_pct, threshold
             free_balance = float(balance.get('free', 0)) if balance else 0.0
         except Exception as bal_err:
             logger.warning(f"Could not fetch asset balance for {symbol}, using coin.amount: {bal_err}")
-            free_balance = float(coin.amount or 0)
+            free_balance = float(getattr(coin, 'amount', 0) or 0)
 
-        sell_qty = min(float(coin.amount or 0), free_balance) if free_balance > 0 else float(coin.amount or 0)
+        sell_qty = free_balance if free_balance > 0 else float(getattr(coin, 'amount', 0) or 0)
         if sell_qty <= 0:
             logger.warning(f"No available balance to sell for {symbol} after open order cancellation. Disabling auto-sell.")
             coin.auto_sell_enabled = False
@@ -506,8 +505,6 @@ def execute_auto_sell(user, coin, pair, current_price, price_drop_pct, threshold
             avg_price = float(order.get('price', current_price) or current_price)
 
         proceeds = executed_qty * avg_price
-        quote_asset = 'USDT' if pair.endswith('USDT') else ('USD' if pair.endswith('USD') else 'USDT')
-
         cancel_note = f" (Cancelled {len(cancelled_orders)} open order(s): {', '.join(cancelled_orders)})" if cancelled_orders else ""
 
         # Record activity
@@ -520,7 +517,7 @@ def execute_auto_sell(user, coin, pair, current_price, price_drop_pct, threshold
             fee=total_commission,
             txid=f"auto_sell_{order_id}",
             status=order.get('status', 'FILLED'),
-            details=f"⚡ Auto-Sell executed: {price_drop_pct:.2f}% drop in 1h (Threshold: {threshold}%) for {quote_asset}{cancel_note}",
+            details=f"⚡ Auto-Sell executed: {price_drop_pct:.2f}% drop in {volatility_hours}h (Threshold: {threshold}%) for {quote_asset}{cancel_note}",
             avg_entry=avg_price,
             user_id=user.id,
             exchange='binance'
@@ -530,14 +527,14 @@ def execute_auto_sell(user, coin, pair, current_price, price_drop_pct, threshold
         # Update coin record
         coin.auto_sell_enabled = False
         coin.auto_sell_triggered_at = datetime.utcnow()
-        if coin.amount:
+        if hasattr(coin, 'amount') and coin.amount:
             coin.amount = max(0.0, float(coin.amount) - executed_qty)
 
         # Create in-app notification
         notif = Notification(
             user_id=user.id,
             title=f"🚨 Auto-Sell Executed: {symbol}",
-            message=f"Automatically sold {executed_qty} {symbol} for {quote_asset} at ~${avg_price:.4f} after a {price_drop_pct:.2f}% price drop in 1 hour (Threshold: {threshold}%).{cancel_note} Order ID: {order_id}",
+            message=f"Automatically sold {executed_qty} {symbol} for {quote_asset} at ~${avg_price:.4f} after a {price_drop_pct:.2f}% price drop in {volatility_hours}h (Threshold: {threshold}%).{cancel_note} Order ID: {order_id}",
             created_at=datetime.utcnow()
         )
         db.session.add(notif)
@@ -548,7 +545,7 @@ def execute_auto_sell(user, coin, pair, current_price, price_drop_pct, threshold
             f"🚨 <b>AUTO-SELL EXECUTED</b>\n"
             f"Coin: <b>{symbol}</b>\n"
             f"Action: Sold <b>{executed_qty} {symbol}</b> for <b>{quote_asset}</b>\n"
-            f"Trigger: Dropped <b>{price_drop_pct:.2f}%</b> in 1h (Threshold: <b>{threshold}%</b>)\n"
+            f"Trigger: Dropped <b>{price_drop_pct:.2f}%</b> in {volatility_hours}h (Threshold: <b>{threshold}%</b>)\n"
             f"Exec Price: ~${avg_price:.4f}\n"
             f"Proceeds: ${proceeds:.2f} {quote_asset}\n"
             f"{f'Cancelled Orders: {len(cancelled_orders)}\n' if cancelled_orders else ''}"
@@ -558,6 +555,193 @@ def execute_auto_sell(user, coin, pair, current_price, price_drop_pct, threshold
         logger.info(f"Auto-sell for {symbol} completed successfully. Order ID: {order_id}")
     except Exception as exec_err:
         logger.error(f"Failed to execute auto-sell for {symbol} (User {user.username}): {exec_err}", exc_info=True)
+
+def check_auto_buy_for_coin(user, coin, ticker_map, client, volatility_hours=24, table_type='portfolio'):
+    """
+    Check if an auto-buy enabled coin has surged more than its threshold in volatility_hours,
+    and execute an automatic market buy using allocated quote currency (USDT or USD) if triggered.
+    """
+    try:
+        if not getattr(coin, 'auto_buy_enabled', False):
+            return
+
+        alloc_amount = float(getattr(coin, 'auto_buy_amount', 0.0) or 0.0)
+        if alloc_amount < 1.00:
+            return
+
+        symbol = coin.symbol.upper()
+        threshold = float(getattr(coin, 'auto_buy_volatility_pct', None) or coin.volatility_pct or 0)
+        if threshold <= 0:
+            return
+
+        target_quote = (getattr(coin, 'auto_buy_quote_currency', None) or 'USDT').upper()
+        pair = f"{symbol}{target_quote}"
+        ticker = ticker_map.get(pair)
+        if not ticker:
+            fallback_quote = 'USD' if target_quote == 'USDT' else 'USDT'
+            pair = f"{symbol}{fallback_quote}"
+            ticker = ticker_map.get(pair)
+            target_quote = fallback_quote
+        if not ticker or 'lastPrice' not in ticker:
+            return
+
+        klines = client.get_klines(symbol=pair, interval='1h', limit=max(2, volatility_hours + 1))
+        if len(klines) < 2:
+            return
+
+        start_price = float(klines[0][1])  # Open price at start of period
+        current_price = float(ticker['lastPrice'])
+        if start_price <= 0:
+            return
+
+        # Calculate price surge percentage (positive when price increases)
+        price_surge_pct = ((current_price - start_price) / start_price) * 100
+
+        if price_surge_pct >= threshold:
+            logger.warning(
+                f"🚀 AUTO-BUY TRIGGERED for User {user.username}: {symbol} surged +{price_surge_pct:.2f}% "
+                f"(Threshold: +{threshold}%) in {volatility_hours}h from ${start_price:.4f} to ${current_price:.4f}"
+            )
+            execute_auto_buy(user, coin, pair, current_price, price_surge_pct, threshold, volatility_hours, alloc_amount, target_quote, client, table_type)
+    except Exception as e:
+        logger.error(f"Error checking auto-buy for {getattr(coin, 'symbol', '?')}: {e}", exc_info=True)
+
+def execute_auto_buy(user, coin, pair, current_price, price_surge_pct, threshold, volatility_hours, alloc_amount, quote_currency, client, table_type='portfolio'):
+    """Execute automatic market buy upon volatility surge trigger."""
+    from models import Notification
+    from trading_models import AllActivity
+    from services.binance_service import get_symbol_filters
+    from services.common import format_quantity
+
+    symbol = coin.symbol.upper()
+    try:
+        # Step 1: Check available free balance of quote currency on Binance
+        balance = client.get_asset_balance(asset=quote_currency)
+        free_quote_bal = float(balance.get('free', 0)) if balance else 0.0
+
+        if free_quote_bal < 1.00:
+            logger.warning(f"Auto-Buy for {symbol}: Insufficient {quote_currency} balance (${free_quote_bal:.2f}). Disabling auto-buy.")
+            coin.auto_buy_enabled = False
+            db.session.commit()
+            return
+
+        actual_spend = min(alloc_amount, free_quote_bal)
+        if actual_spend < 1.00:
+            logger.warning(f"Auto-Buy for {symbol}: Available spend (${actual_spend:.2f}) is below $1.00. Disabling auto-buy.")
+            coin.auto_buy_enabled = False
+            db.session.commit()
+            return
+
+        # Step 2: Get symbol trading filters
+        filters = get_symbol_filters(client, pair)
+        if not filters:
+            logger.error(f"Failed to get symbol filters for auto-buy pair {pair}")
+            return
+
+        step_size = filters.get('stepSize', 0.00001)
+        raw_qty = actual_spend / current_price
+        formatted_qty = format_quantity(raw_qty, step_size)
+        min_qty = filters.get('minQty', 0)
+        min_notional = filters.get('minNotional', 0)
+
+        if formatted_qty < min_qty or (formatted_qty * current_price) < min_notional:
+            logger.warning(f"Auto-buy calculated quantity {formatted_qty} {symbol} is below minQty ({min_qty}) or minNotional ({min_notional}). Disabling auto-buy.")
+            coin.auto_buy_enabled = False
+            db.session.commit()
+            return
+
+        # Cancel any conflicting open buy orders for this symbol
+        cancelled_orders = []
+        try:
+            open_orders = client.get_open_orders(symbol=pair)
+            for ord_item in open_orders:
+                if ord_item.get('side') == 'BUY':
+                    ord_id = ord_item.get('orderId')
+                    try:
+                        client.cancel_order(symbol=pair, orderId=ord_id)
+                        cancelled_orders.append(f"{pair} #{ord_id}")
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+
+        logger.info(f"Placing market buy order on Binance for ~${actual_spend:.2f} {quote_currency} of {symbol} ({pair})...")
+        try:
+            order = client.order_market_buy(
+                symbol=pair,
+                quantity=formatted_qty
+            )
+        except Exception as buy_err:
+            logger.error(f"Market buy failed with quantity {formatted_qty}: {buy_err}. Retrying with quoteOrderQty...")
+            order = client.order_market_buy(
+                symbol=pair,
+                quoteOrderQty=round(actual_spend, 2)
+            )
+
+        order_id = order.get('orderId', 'unknown')
+        executed_qty = float(order.get('executedQty', formatted_qty))
+        fills = order.get('fills', [])
+        total_commission = 0.0
+        avg_price = 0.0
+        if fills:
+            total_price = sum(float(f['price']) * float(f['qty']) for f in fills)
+            total_filled_qty = sum(float(f['qty']) for f in fills)
+            avg_price = total_price / total_filled_qty if total_filled_qty > 0 else current_price
+            total_commission = sum(float(f['commission']) for f in fills)
+        else:
+            avg_price = float(order.get('price', current_price) or current_price)
+
+        total_cost = executed_qty * avg_price
+        cancel_note = f" (Cancelled {len(cancelled_orders)} open buy order(s))" if cancelled_orders else ""
+
+        # Record activity
+        new_activity = AllActivity(
+            date=datetime.utcnow(),
+            type='BUY',
+            asset=symbol,
+            amount=executed_qty,
+            proceeds=total_cost,
+            fee=total_commission,
+            txid=f"auto_buy_{order_id}",
+            status=order.get('status', 'FILLED'),
+            details=f"🚀 Auto-Buy executed: +{price_surge_pct:.2f}% surge in {volatility_hours}h (Threshold: +{threshold}%) using ${total_cost:.2f} {quote_currency}{cancel_note}",
+            avg_entry=avg_price,
+            user_id=user.id,
+            exchange='binance'
+        )
+        db.session.add(new_activity)
+
+        # Update coin record
+        coin.auto_buy_enabled = False
+        coin.auto_buy_triggered_at = datetime.utcnow()
+        if table_type == 'portfolio' and hasattr(coin, 'amount'):
+            coin.amount = float(coin.amount or 0.0) + executed_qty
+
+        # In-app Notification
+        notif = Notification(
+            user_id=user.id,
+            title=f"🚀 Auto-Buy Executed: {symbol}",
+            message=f"Automatically purchased {executed_qty} {symbol} with ${total_cost:.2f} {quote_currency} at ~${avg_price:.4f} after a +{price_surge_pct:.2f}% surge in {volatility_hours}h (Threshold: +{threshold}%).{cancel_note} Order ID: {order_id}",
+            created_at=datetime.utcnow()
+        )
+        db.session.add(notif)
+        db.session.commit()
+
+        # Send Telegram notification
+        telegram_msg = (
+            f"🚀 <b>AUTO-BUY EXECUTED</b>\n"
+            f"Coin: <b>{symbol}</b>\n"
+            f"Action: Bought <b>{executed_qty} {symbol}</b> with <b>${total_cost:.2f} {quote_currency}</b>\n"
+            f"Trigger: Surged <b>+{price_surge_pct:.2f}%</b> in {volatility_hours}h (Threshold: <b>+{threshold}%</b>)\n"
+            f"Exec Price: ~${avg_price:.4f}\n"
+            f"Total Cost: ${total_cost:.2f} {quote_currency}\n"
+            f"{f'Cancelled Buy Orders: {len(cancelled_orders)}\n' if cancelled_orders else ''}"
+            f"Order ID: {order_id}"
+        )
+        send_telegram_message(user.username, telegram_msg)
+        logger.info(f"Auto-buy for {symbol} completed successfully. Order ID: {order_id}")
+    except Exception as exec_err:
+        logger.error(f"Failed to execute auto-buy for {symbol} (User {user.username}): {exec_err}", exc_info=True)
 
 def volatility_alert_loop(app):
     logger.info("=== volatility_alert_loop STARTED ===")
@@ -573,9 +757,12 @@ def volatility_alert_loop(app):
                     volatility_hours = max(1, min(volatility_hours, 999))
                     coins = Coin.query.filter(
                         Coin.user_id == user.id,
-                        or_(Coin.volatility_pct > 0, Coin.auto_sell_enabled == True)
+                        or_(Coin.volatility_pct > 0, Coin.auto_sell_enabled == True, Coin.auto_buy_enabled == True)
                     ).all()
-                    watchlist_coins = WatchlistCoin.query.filter(WatchlistCoin.user_id == user.id, WatchlistCoin.volatility_pct > 0).all()
+                    watchlist_coins = WatchlistCoin.query.filter(
+                        WatchlistCoin.user_id == user.id,
+                        or_(WatchlistCoin.volatility_pct > 0, WatchlistCoin.auto_sell_enabled == True, WatchlistCoin.auto_buy_enabled == True)
+                    ).all()
                     
                     if not coins and not watchlist_coins:
                         continue
@@ -597,9 +784,16 @@ def volatility_alert_loop(app):
                         if coin.volatility_pct and float(coin.volatility_pct) > 0:
                             check_coin_volatility(user, coin, ticker_map, client, volatility_hours, 'portfolio')
                         if getattr(coin, 'auto_sell_enabled', False):
-                            check_auto_sell_for_coin(user, coin, ticker_map, client)
+                            check_auto_sell_for_coin(user, coin, ticker_map, client, volatility_hours, 'portfolio')
+                        if getattr(coin, 'auto_buy_enabled', False):
+                            check_auto_buy_for_coin(user, coin, ticker_map, client, volatility_hours, 'portfolio')
                     for coin in watchlist_coins:
-                        check_coin_volatility(user, coin, ticker_map, client, volatility_hours, 'watchlist')
+                        if coin.volatility_pct and float(coin.volatility_pct) > 0:
+                            check_coin_volatility(user, coin, ticker_map, client, volatility_hours, 'watchlist')
+                        if getattr(coin, 'auto_sell_enabled', False):
+                            check_auto_sell_for_coin(user, coin, ticker_map, client, volatility_hours, 'watchlist')
+                        if getattr(coin, 'auto_buy_enabled', False):
+                            check_auto_buy_for_coin(user, coin, ticker_map, client, volatility_hours, 'watchlist')
             iteration()
             time.sleep(120)
 

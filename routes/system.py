@@ -1510,25 +1510,64 @@ def set_volatility_pct():
     
     return jsonify({"success": False, "error": "Coin not found"})
 
+def _get_user_binance_free_balance(user_id, asset):
+    """Fetch live free balance of USD or USDT for a user from Binance.US"""
+    try:
+        from credentials import Credential
+        from services.credential_service import decrypt_secret
+        from binance.client import Client
+
+        creds = Credential.query.filter_by(user_id=user_id).first()
+        if not creds:
+            return 0.0
+
+        api_key = decrypt_secret(creds.api_key) or decrypt_secret(creds.trading_api_key)
+        api_secret = decrypt_secret(creds.api_secret) or decrypt_secret(creds.trading_api_secret)
+        if not api_key or not api_secret:
+            return 0.0
+
+        client = Client(api_key=api_key, api_secret=api_secret, testnet=False, tld='us')
+        acc = client.get_account()
+        for b in acc.get('balances', []):
+            if (b.get('asset') or '').upper() == asset.upper():
+                return float(b.get('free', 0.0))
+        return 0.0
+    except Exception as e:
+        logger.warning(f"Error checking free balance of {asset} for user {user_id}: {e}")
+        return 0.0
+
 @system_bp.route('/api/portfolio/trigger-auto-sell', methods=['POST'])
 @login_required
 def trigger_auto_sell():
-    """Enable or disable Auto-Sell on 1-hour volatility drop for a portfolio coin."""
+    """Enable or disable Auto-Sell on volatility drop for a portfolio or watchlist coin."""
     try:
         data = request.get_json() or {}
         symbol = (data.get('symbol') or '').upper()
         coin_id = data.get('id')
+        table_type = (data.get('table_type') or 'portfolio').lower()
+        quote_currency = (data.get('quote_currency') or 'USDT').upper()
+        if quote_currency not in ('USD', 'USDT'):
+            quote_currency = 'USDT'
         enabled = data.get('enabled', True)
         volatility_pct = data.get('volatility_pct')
         
+        user_setting = UserSetting.query.filter_by(user_id=current_user.id).first()
+        vol_hours = int(getattr(user_setting, 'volatility_hours', 24) or 24)
+        
         coin = None
-        if coin_id:
-            coin = Coin.query.filter_by(user_id=current_user.id, id=coin_id).first()
-        if not coin and symbol:
-            coin = Coin.query.filter_by(user_id=current_user.id, symbol=symbol).first()
+        if table_type == 'watchlist':
+            if coin_id:
+                coin = WatchlistCoin.query.filter_by(user_id=current_user.id, id=coin_id).first()
+            if not coin and symbol:
+                coin = WatchlistCoin.query.filter_by(user_id=current_user.id, symbol=symbol).first()
+        else:
+            if coin_id:
+                coin = Coin.query.filter_by(user_id=current_user.id, id=coin_id).first()
+            if not coin and symbol:
+                coin = Coin.query.filter_by(user_id=current_user.id, symbol=symbol).first()
             
         if not coin:
-            return jsonify({"success": False, "error": "Coin not found in portfolio"}), 404
+            return jsonify({"success": False, "error": f"{symbol} not found in {table_type}"}), 404
             
         if enabled:
             if volatility_pct is not None:
@@ -1543,14 +1582,17 @@ def trigger_auto_sell():
                 
             coin.auto_sell_enabled = True
             coin.auto_sell_volatility_pct = pct_val
+            coin.auto_sell_quote_currency = quote_currency
             coin.auto_sell_triggered_at = None
             db.session.commit()
-            logger.info(f"Auto-sell enabled for user {current_user.username}: {coin.symbol} at {pct_val}% 1h drop.")
+            logger.info(f"Auto-sell ({quote_currency}) enabled for user {current_user.username}: {coin.symbol} at {pct_val}% drop in {vol_hours}h.")
             return jsonify({
                 "success": True,
-                "message": f"Auto-sell enabled for {coin.symbol}. It will automatically sell for USDT if the price drops more than {pct_val:.1f}% within 1 hour.",
+                "message": f"Auto-sell enabled for {coin.symbol}. It will automatically sell for {quote_currency} if the price drops more than {pct_val:.1f}% within {vol_hours} hour(s).",
                 "auto_sell_enabled": True,
-                "volatility_pct": pct_val
+                "auto_sell_quote_currency": quote_currency,
+                "volatility_pct": pct_val,
+                "volatility_hours": vol_hours
             })
         else:
             coin.auto_sell_enabled = False
@@ -1563,6 +1605,191 @@ def trigger_auto_sell():
             })
     except Exception as e:
         logger.error(f"Error toggling auto-sell: {e}", exc_info=True)
+        return jsonify({"success": False, "error": str(e)}), 500
+
+@system_bp.route('/api/portfolio/auto-buy-balance-info', methods=['GET'])
+@login_required
+def get_auto_buy_balance_info():
+    """Return live free balance, reserved auto-buy allocations, and available funds for a quote currency."""
+    try:
+        quote_currency = (request.args.get('quote_currency') or 'USDT').upper()
+        if quote_currency not in ('USD', 'USDT'):
+            quote_currency = 'USDT'
+            
+        current_symbol = (request.args.get('symbol') or '').upper()
+        current_id = request.args.get('id')
+        current_table = (request.args.get('table_type') or 'portfolio').lower()
+
+        free_balance = _get_user_binance_free_balance(current_user.id, quote_currency)
+
+        # Calculate all other active commitments for this quote currency
+        portfolio_coins = Coin.query.filter_by(user_id=current_user.id, auto_buy_enabled=True).all()
+        watchlist_coins = WatchlistCoin.query.filter_by(user_id=current_user.id, auto_buy_enabled=True).all()
+
+        active_commitments = []
+        reserved_total = 0.0
+
+        for c in portfolio_coins:
+            c_quote = (getattr(c, 'auto_buy_quote_currency', None) or 'USDT').upper()
+            if c_quote == quote_currency:
+                c_amt = float(getattr(c, 'auto_buy_amount', 0.0) or 0.0)
+                is_current = (current_table == 'portfolio' and (str(c.id) == str(current_id) or c.symbol == current_symbol))
+                active_commitments.append({
+                    'id': c.id,
+                    'symbol': c.symbol,
+                    'amount': c_amt,
+                    'quote_currency': c_quote,
+                    'table_type': 'portfolio',
+                    'is_current': is_current
+                })
+                if not is_current:
+                    reserved_total += c_amt
+
+        for w in watchlist_coins:
+            w_quote = (getattr(w, 'auto_buy_quote_currency', None) or 'USDT').upper()
+            if w_quote == quote_currency:
+                w_amt = float(getattr(w, 'auto_buy_amount', 0.0) or 0.0)
+                is_current = (current_table == 'watchlist' and (str(w.id) == str(current_id) or w.symbol == current_symbol))
+                active_commitments.append({
+                    'id': w.id,
+                    'symbol': w.symbol,
+                    'amount': w_amt,
+                    'quote_currency': w_quote,
+                    'table_type': 'watchlist',
+                    'is_current': is_current
+                })
+                if not is_current:
+                    reserved_total += w_amt
+
+        available_balance = max(0.0, free_balance - reserved_total)
+
+        return jsonify({
+            'success': True,
+            'quote_currency': quote_currency,
+            'free_balance': round(free_balance, 2),
+            'reserved_balance': round(reserved_total, 2),
+            'available_balance': round(available_balance, 2),
+            'active_commitments': active_commitments
+        })
+    except Exception as e:
+        logger.error(f"Error fetching auto-buy balance info: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@system_bp.route('/api/portfolio/trigger-auto-buy', methods=['POST'])
+@login_required
+def trigger_auto_buy():
+    """Enable or disable Auto-Buy on volatility surge for a portfolio or watchlist coin with reserved balance validation."""
+    try:
+        data = request.get_json() or {}
+        symbol = (data.get('symbol') or '').upper()
+        coin_id = data.get('id')
+        table_type = (data.get('table_type') or 'portfolio').lower()
+        quote_currency = (data.get('quote_currency') or 'USDT').upper()
+        if quote_currency not in ('USD', 'USDT'):
+            quote_currency = 'USDT'
+        enabled = data.get('enabled', True)
+        amount = data.get('amount')
+        volatility_pct = data.get('volatility_pct')
+
+        user_setting = UserSetting.query.filter_by(user_id=current_user.id).first()
+        vol_hours = int(getattr(user_setting, 'volatility_hours', 24) or 24)
+
+        coin = None
+        if table_type == 'watchlist':
+            if coin_id:
+                coin = WatchlistCoin.query.filter_by(user_id=current_user.id, id=coin_id).first()
+            if not coin and symbol:
+                coin = WatchlistCoin.query.filter_by(user_id=current_user.id, symbol=symbol).first()
+        else:
+            if coin_id:
+                coin = Coin.query.filter_by(user_id=current_user.id, id=coin_id).first()
+            if not coin and symbol:
+                coin = Coin.query.filter_by(user_id=current_user.id, symbol=symbol).first()
+
+        if not coin:
+            return jsonify({"success": False, "error": f"{symbol} not found in {table_type}"}), 404
+
+        if enabled:
+            try:
+                alloc_amount = float(amount or 0.0)
+            except (ValueError, TypeError):
+                alloc_amount = 0.0
+
+            if alloc_amount < 1.00:
+                return jsonify({
+                    "success": False,
+                    "error": f"Minimum allocation amount is $1.00 {quote_currency}."
+                }), 400
+
+            # Validate against live free balance and existing reserved commitments
+            free_balance = _get_user_binance_free_balance(current_user.id, quote_currency)
+
+            portfolio_coins = Coin.query.filter_by(user_id=current_user.id, auto_buy_enabled=True).all()
+            watchlist_coins = WatchlistCoin.query.filter_by(user_id=current_user.id, auto_buy_enabled=True).all()
+
+            reserved_total = 0.0
+            other_commitments = []
+            for c in portfolio_coins:
+                if (getattr(c, 'auto_buy_quote_currency', None) or 'USDT').upper() == quote_currency:
+                    if not (table_type == 'portfolio' and (str(c.id) == str(coin_id) or c.symbol == symbol)):
+                        c_amt = float(getattr(c, 'auto_buy_amount', 0.0) or 0.0)
+                        reserved_total += c_amt
+                        other_commitments.append(f"{c.symbol}: ${c_amt:.2f}")
+
+            for w in watchlist_coins:
+                if (getattr(w, 'auto_buy_quote_currency', None) or 'USDT').upper() == quote_currency:
+                    if not (table_type == 'watchlist' and (str(w.id) == str(coin_id) or w.symbol == symbol)):
+                        w_amt = float(getattr(w, 'auto_buy_amount', 0.0) or 0.0)
+                        reserved_total += w_amt
+                        other_commitments.append(f"{w.symbol}: ${w_amt:.2f}")
+
+            available_to_allocate = max(0.0, free_balance - reserved_total)
+
+            if alloc_amount > available_to_allocate + 0.0001:
+                comm_str = f" (already reserved for {', '.join(other_commitments)})" if other_commitments else ""
+                return jsonify({
+                    "success": False,
+                    "error": f"Cannot allocate ${alloc_amount:.2f} {quote_currency}. Available uncommitted balance is ${available_to_allocate:.2f} {quote_currency}{comm_str}."
+                }), 400
+
+            if volatility_pct is not None:
+                try:
+                    coin.volatility_pct = float(volatility_pct)
+                except (ValueError, TypeError):
+                    pass
+
+            pct_val = float(coin.volatility_pct or 0)
+            if pct_val <= 0:
+                return jsonify({"success": False, "error": "Please set a valid Volatility % greater than 0 before enabling Auto-Buy."}), 400
+
+            coin.auto_buy_enabled = True
+            coin.auto_buy_volatility_pct = pct_val
+            coin.auto_buy_quote_currency = quote_currency
+            coin.auto_buy_amount = alloc_amount
+            coin.auto_buy_triggered_at = None
+            db.session.commit()
+
+            logger.info(f"Auto-buy ({quote_currency}) enabled for user {current_user.username}: {coin.symbol} (${alloc_amount:.2f}) at +{pct_val}% surge in {vol_hours}h.")
+            return jsonify({
+                "success": True,
+                "message": f"Auto-buy enabled for {coin.symbol}. It will automatically purchase with ${alloc_amount:.2f} {quote_currency} if the price surges more than {pct_val:.1f}% within {vol_hours} hour(s).",
+                "auto_buy_enabled": True,
+                "auto_buy_amount": alloc_amount,
+                "auto_buy_quote_currency": quote_currency,
+                "volatility_pct": pct_val,
+                "volatility_hours": vol_hours
+            })
+        else:
+            coin.auto_buy_enabled = False
+            db.session.commit()
+            logger.info(f"Auto-buy disabled for user {current_user.username}: {coin.symbol}")
+            return jsonify({
+                "success": True,
+                "message": f"Auto-buy disabled for {coin.symbol}.",
+                "auto_buy_enabled": False
+            })
+    except Exception as e:
+        logger.error(f"Error toggling auto-buy: {e}", exc_info=True)
         return jsonify({"success": False, "error": str(e)}), 500
 
 @system_bp.route("/api/mark-onboarding-complete", methods=["POST"])

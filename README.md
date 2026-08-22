@@ -122,6 +122,15 @@ The application utilizes a **unified PostgreSQL database**.
 
 ## Version History & Changelog
 
+## v1.74-beta (August 2026)
+
+### Dual-Quote Auto-Sell (USD/USDT) & Smart Auto-Buy with Real-Time Balance Commitment Accounting
+- **Dual-Quote Auto-Sell**: Split the Auto-Sell action into `Trigger Auto-Sell (USD)` and `Trigger Auto-Sell (USDT)`, allowing automated protection against market drawdowns targeting either quote currency.
+- **Automated Surge Auto-Buy**: Added `Trigger Auto-Buy (USD)` and `Trigger Auto-Buy (USDT)` for all Portfolio and Watchlist assets, executing automatic market buy orders when coins experience upward price surges over user-configured volatility hours.
+- **Balance Commitment & Over-Allocation Guard**: Integrated real-time uncommitted balance tracking ($B_{\text{available}} = \max(0, \text{Free} - \text{Reserved})$), preventing users from allocating more USD or USDT than what is freely available across multiple active Auto-Buy triggers, enforced with a $1.00 minimum order floor.
+- **Dual Volatility Parameter Synchronization**: Tied execution logic directly to the configured `volatility_hours` duration in Settings and individual coin `volatility_pct` thresholds in tables.
+- **Version Bump**: Synchronized metadata to `v1.74-beta`.
+
 ## v1.73-beta (August 2026)
 
 ### Recent Trades, Top Movers Data Fix & Done Editing Auto-Save
