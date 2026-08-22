@@ -30,6 +30,8 @@ const TradingChart = ({ symbol, onSymbolChange, tradingPairs = [], filterCoin = 
   const bbLowerRef = useRef(null);
   const buyMarkersRef = useRef([]);
   const sellMarkersRef = useRef([]);
+  const buyMarkerSeriesRef = useRef(null);
+  const sellMarkerSeriesRef = useRef(null);
   
   // Separate chart for RSI, MACD, Stochastic, ATR
   const indicatorContainerRef = useRef(null);
@@ -523,6 +525,20 @@ const TradingChart = ({ symbol, onSymbolChange, tradingPairs = [], filterCoin = 
         wickUpColor: '#26a69a',
         wickDownColor: '#ef5350',
         visible: true,
+      });
+
+      buyMarkerSeriesRef.current = chartRef.current.addLineSeries({
+        lineWidth: 0,
+        crosshairMarkerVisible: false,
+        priceLineVisible: false,
+        lastValueVisible: false,
+      });
+
+      sellMarkerSeriesRef.current = chartRef.current.addLineSeries({
+        lineWidth: 0,
+        crosshairMarkerVisible: false,
+        priceLineVisible: false,
+        lastValueVisible: false,
       });
       
       // Add volume series with better styling
@@ -1180,12 +1196,16 @@ const TradingChart = ({ symbol, onSymbolChange, tradingPairs = [], filterCoin = 
   
   // Add buy/sell markers
   useEffect(() => {
-    if (!candlestickSeriesRef.current) {
+    if (!candlestickSeriesRef.current || !buyMarkerSeriesRef.current || !sellMarkerSeriesRef.current) {
       return;
     }
 
     if (!transactions || transactions.length === 0 || klines.length === 0) {
       candlestickSeriesRef.current.setMarkers([]);
+      buyMarkerSeriesRef.current.setData([]);
+      buyMarkerSeriesRef.current.setMarkers([]);
+      sellMarkerSeriesRef.current.setData([]);
+      sellMarkerSeriesRef.current.setMarkers([]);
       markerDataRef.current = {};
       if (markerTooltipRef.current) {
         markerTooltipRef.current.style.display = 'none';
@@ -1247,19 +1267,56 @@ const TradingChart = ({ symbol, onSymbolChange, tradingPairs = [], filterCoin = 
       });
     });
     
+    const buyData = [];
+    const sellData = [];
+    const buyMarkers = [];
+    const sellMarkers = [];
+
     // Create consolidated markers (max 2 per candle: 1 BUY, 1 SELL)
-    const markers = Array.from(markersByTime.values()).map(({ type, mappedTime, transactions }) => {
-      return {
+    Array.from(markersByTime.values()).forEach(({ type, mappedTime, transactions }) => {
+      let totalValue = 0;
+      let totalAmount = 0;
+      
+      transactions.forEach(tx => {
+        const qty = parseFloat(tx.amount || tx.quantity || 0);
+        const price = parseFloat(tx.price || tx.filled_price || 0);
+        totalAmount += qty;
+        totalValue += qty * price;
+      });
+      
+      const avgPrice = totalAmount > 0 ? totalValue / totalAmount : 0;
+      
+      const marker = {
         id: `${type}-${mappedTime}`,
         time: mappedTime,
-        position: type === 'BUY' ? 'belowBar' : 'aboveBar',
+        position: 'inBar',
         color: type === 'BUY' ? '#22c55e' : '#ef4444',
         shape: type === 'BUY' ? 'arrowUp' : 'arrowDown',
         // NO TEXT AT ALL - tooltip is handled separately
       };
+
+      if (type === 'BUY') {
+        buyData.push({ time: mappedTime, value: avgPrice });
+        buyMarkers.push(marker);
+      } else {
+        sellData.push({ time: mappedTime, value: avgPrice });
+        sellMarkers.push(marker);
+      }
     });
 
-    candlestickSeriesRef.current.setMarkers(markers);
+    // sort data by time (required by lightweight-charts)
+    buyData.sort((a, b) => a.time - b.time);
+    buyMarkers.sort((a, b) => a.time - b.time);
+    sellData.sort((a, b) => a.time - b.time);
+    sellMarkers.sort((a, b) => a.time - b.time);
+
+    buyMarkerSeriesRef.current.setData(buyData);
+    buyMarkerSeriesRef.current.setMarkers(buyMarkers);
+    
+    sellMarkerSeriesRef.current.setData(sellData);
+    sellMarkerSeriesRef.current.setMarkers(sellMarkers);
+    
+    candlestickSeriesRef.current.setMarkers([]); // Clear any old markers just in case
     markerDataRef.current = markerData;
   }, [transactions, klines, interval]);
 
