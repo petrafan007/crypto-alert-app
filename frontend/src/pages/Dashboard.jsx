@@ -92,6 +92,7 @@ function Dashboard({ isLightMode }) {
   const [notification, setNotification] = useState({ show: false, message: '', type: 'info' });
   const [isMobile, setIsMobile] = useState(false);
   const [openActionMenu, setOpenActionMenu] = useState({ type: null, key: null, payload: null });
+  const [openTradeQuoteMenu, setOpenTradeQuoteMenu] = useState({ type: null, key: null, side: null });
 
   // Toast for backend notifications
   useNotificationPoller(user && user.id, notif => {
@@ -126,6 +127,15 @@ function Dashboard({ isLightMode }) {
   }, []);
 
   const closeActionMenu = () => setOpenActionMenu({ type: null, key: null, payload: null });
+  const closeTradeQuoteMenu = () => setOpenTradeQuoteMenu({ type: null, key: null, side: null });
+
+  const toggleTradeQuoteMenu = (type, key, side) => {
+    setOpenTradeQuoteMenu(prev =>
+      prev.type === type && prev.key === key && prev.side === side
+        ? { type: null, key: null, side: null }
+        : { type, key, side }
+    );
+  };
 
   const toggleActionMenu = (type, key, event, payload = null) => {
     if (!isMobile) return;
@@ -894,8 +904,24 @@ function Dashboard({ isLightMode }) {
             </button>
             <button onClick={() => { openNews(isPortfolio ? coin.symbol : item.symbol); closeActionMenu(); }}>News</button>
             <button onClick={() => { openNoteModal(isPortfolio ? coin : item); closeActionMenu(); }}>Notes</button>
-            <button onClick={() => { navigateToTrading(isPortfolio ? coin.symbol : item.symbol, 'BUY'); closeActionMenu(); }}>Buy</button>
-            <button onClick={() => { navigateToTrading(isPortfolio ? coin.symbol : item.symbol, 'SELL'); closeActionMenu(); }}>Sell</button>
+            <button onClick={() => toggleTradeQuoteMenu(openActionMenu.type, openActionMenu.key, 'BUY')}>Buy</button>
+            {openTradeQuoteMenu.type === openActionMenu.type && openTradeQuoteMenu.key === openActionMenu.key && openTradeQuoteMenu.side === 'BUY' && (
+              <div className="trade-quote-menu">
+                <button onClick={() => { navigateToTrading(isPortfolio ? coin.symbol : item.symbol, 'BUY', 'USD'); closeActionMenu(); closeTradeQuoteMenu(); }}>Buy with USD</button>
+                <button onClick={() => { navigateToTrading(isPortfolio ? coin.symbol : item.symbol, 'BUY', 'USDT'); closeActionMenu(); closeTradeQuoteMenu(); }}>Buy with USDT</button>
+              </div>
+            )}
+            {isPortfolio && (
+              <>
+                <button onClick={() => toggleTradeQuoteMenu(openActionMenu.type, openActionMenu.key, 'SELL')}>Sell</button>
+                {openTradeQuoteMenu.type === openActionMenu.type && openTradeQuoteMenu.key === openActionMenu.key && openTradeQuoteMenu.side === 'SELL' && (
+                  <div className="trade-quote-menu">
+                    <button onClick={() => { navigateToTrading(coin.symbol, 'SELL', 'USD'); closeActionMenu(); closeTradeQuoteMenu(); }}>Sell for USD</button>
+                    <button onClick={() => { navigateToTrading(coin.symbol, 'SELL', 'USDT'); closeActionMenu(); closeTradeQuoteMenu(); }}>Sell for USDT</button>
+                  </div>
+                )}
+              </>
+            )}
             {isPortfolio && (
               <button
                 onClick={() => { handleStakeClick(coin); closeActionMenu(); }}
@@ -924,20 +950,26 @@ function Dashboard({ isLightMode }) {
     );
   };
 
-  const navigateToTrading = (symbol, side) => {
-    const pair = resolveTradingPair(symbol);
+  const navigateToTrading = (symbol, side, quote = 'USDT') => {
+    const cleanSymbol = String(symbol || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+    const cleanBase = cleanSymbol === 'USDT'
+      ? 'USDT'
+      : cleanSymbol.endsWith('USDT')
+        ? cleanSymbol.slice(0, -4)
+        : cleanSymbol.endsWith('USD')
+          ? cleanSymbol.slice(0, -3)
+          : cleanSymbol;
+    const pair = `${cleanBase}${quote === 'USD' ? 'USD' : 'USDT'}`;
     if (!pair) {
       console.warn('Unable to determine trading pair for symbol:', symbol);
       return;
     }
-    const cleanBase = String(symbol || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
-    const baseCoin = cleanBase === 'USDT' ? 'USDT' : (cleanBase.endsWith('USDT') ? cleanBase.slice(0, -4) : cleanBase.endsWith('USD') ? cleanBase.slice(0, -3) : cleanBase);
     navigate('/trading', {
       state: {
         tradePrefill: {
           symbol: pair,
           side: side === 'SELL' ? 'SELL' : 'BUY',
-          baseCoin: baseCoin
+          baseCoin: cleanBase
         }
       }
     });
@@ -2216,16 +2248,28 @@ function Dashboard({ isLightMode }) {
                           </span>
                           <button
                             className="trade-action-btn buy"
-                            onClick={() => navigateToTrading(coin.symbol, 'BUY')}
+                            onClick={() => toggleTradeQuoteMenu('portfolio', coin.symbol, 'BUY')}
                           >
                             Buy
                           </button>
+                          {openTradeQuoteMenu.type === 'portfolio' && openTradeQuoteMenu.key === coin.symbol && openTradeQuoteMenu.side === 'BUY' && (
+                            <div className="trade-quote-menu">
+                              <button onClick={() => { navigateToTrading(coin.symbol, 'BUY', 'USD'); closeTradeQuoteMenu(); }}>Buy with USD</button>
+                              <button onClick={() => { navigateToTrading(coin.symbol, 'BUY', 'USDT'); closeTradeQuoteMenu(); }}>Buy with USDT</button>
+                            </div>
+                          )}
                           <button
                             className="trade-action-btn sell"
-                            onClick={() => navigateToTrading(coin.symbol, 'SELL')}
+                            onClick={() => toggleTradeQuoteMenu('portfolio', coin.symbol, 'SELL')}
                           >
                             Sell
                           </button>
+                          {openTradeQuoteMenu.type === 'portfolio' && openTradeQuoteMenu.key === coin.symbol && openTradeQuoteMenu.side === 'SELL' && (
+                            <div className="trade-quote-menu">
+                              <button onClick={() => { navigateToTrading(coin.symbol, 'SELL', 'USD'); closeTradeQuoteMenu(); }}>Sell for USD</button>
+                              <button onClick={() => { navigateToTrading(coin.symbol, 'SELL', 'USDT'); closeTradeQuoteMenu(); }}>Sell for USDT</button>
+                            </div>
+                          )}
                           <button
                             className="trade-action-btn stake"
                             onClick={() => handleStakeClick(coin)}
@@ -2395,11 +2439,17 @@ function Dashboard({ isLightMode }) {
                         </span>
                         <button
                           className="trade-action-btn buy"
-                          onClick={() => navigateToTrading(item.symbol, 'BUY')}
+                          onClick={() => toggleTradeQuoteMenu('watchlist', item.symbol, 'BUY')}
                           style={{ marginLeft: 8 }}
                         >
                           Buy
                         </button>
+                        {openTradeQuoteMenu.type === 'watchlist' && openTradeQuoteMenu.key === item.symbol && openTradeQuoteMenu.side === 'BUY' && (
+                          <div className="trade-quote-menu">
+                            <button onClick={() => { navigateToTrading(item.symbol, 'BUY', 'USD'); closeTradeQuoteMenu(); }}>Buy with USD</button>
+                            <button onClick={() => { navigateToTrading(item.symbol, 'BUY', 'USDT'); closeTradeQuoteMenu(); }}>Buy with USDT</button>
+                          </div>
+                        )}
                         <button
                           className="trade-action-btn delete"
                           onClick={() => deleteWatchlistItem(item.symbol)}

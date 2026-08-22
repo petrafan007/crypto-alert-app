@@ -81,6 +81,13 @@ The application utilizes a **unified PostgreSQL database**.
 
 ## Version History & Changelog
 
+## v1.65-beta (August 2026)
+
+### USD and USDT Trading Choices from Portfolio and Watchlist
+- Added USD/USDT quote-currency menus to Portfolio Buy and Sell actions.
+- Added USD/USDT quote-currency menus to the existing Watchlist Buy action; Watchlist Sell was not added.
+- Trading now opens the selected base/quote pair, such as `XRPUSD` or `XRPUSDT`, with the requested order side.
+
 ## v1.63-beta (August 2026)
 
 ### True Drag-to-Resize Dashboard Grid, Official Cryptocurrency Icons & AI Analysis Enhancements
