@@ -2690,8 +2690,13 @@ function Dashboard({ isLightMode }) {
                       Total Holdings (incl. staking & pending)
                     </small>
                   </div>
-                  <div className="portfolio-value-amount" style={{ fontSize: '2rem', fontWeight: '700', color: 'var(--accent-color, #38bdf8)' }}>
-                    ${totalValue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px', flex: 1, justifyContent: 'center' }}>
+                    <div style={{ fontSize: '32px', fontWeight: 'bold', color: 'var(--primary-color, #38bdf8)', textAlign: 'center' }}>
+                      ${totalValue != null ? Number(totalValue).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '0.00'}
+                    </div>
+                    <div style={{ fontSize: '12px', color: 'var(--text-secondary, #94a3b8)', opacity: '0.85', textAlign: 'center' }}>
+                      Includes Binance.US staking balances · Last updated: {new Date().toLocaleTimeString()}
+                    </div>
                   </div>
                 </div>
               );
@@ -2726,7 +2731,7 @@ function Dashboard({ isLightMode }) {
         <div className="table-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px', marginBottom: '8px' }}>
           <h2 className="table-title" style={{ margin: 0 }}>Portfolio</h2>
           <div style={{ fontSize: '15px', fontWeight: '700', color: 'var(--accent-primary, #4fd1c5)', letterSpacing: '0.3px' }}>
-            Total Value: ${(totalValue || (portfolio || []).reduce((acc, c) => acc + (parseFloat(c.current_value) || 0), 0)).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USDT
+            Total Value: ${(totalValue != null ? Number(totalValue) : (portfolio || []).reduce((acc, c) => acc + (parseFloat(c.current_value) || 0), 0)).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USDT
           </div>
         </div>
         <table /* removed colgroup and resizing */ style={{ width: '100%' }}>

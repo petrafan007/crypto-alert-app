@@ -290,7 +290,7 @@ const RecentTradesWidget = ({ isLightMode, config, onEdit }) => {
                     </span>
                     {parsed.total > 0 && (
                       <span style={{ fontSize: '10px', color: '#94a3b8' }}>
-                        (${parsed.total.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })})
+                        (${Number(parsed.total || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })})
                       </span>
                     )}
                   </div>
