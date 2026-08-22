@@ -2647,22 +2647,24 @@ function Dashboard({ isLightMode }) {
         </div>
       )}
       {/* Mobile-Only Charts vs Tables Segmented Tab Bar */}
-      <div className="mobile-dashboard-tabs">
-        <button
-          type="button"
-          className={`mobile-dashboard-tab-btn ${mobileTab === 'charts' ? 'active' : ''}`}
-          onClick={() => setMobileTab('charts')}
-        >
-          📊 Charts
-        </button>
-        <button
-          type="button"
-          className={`mobile-dashboard-tab-btn ${mobileTab === 'tables' ? 'active' : ''}`}
-          onClick={() => setMobileTab('tables')}
-        >
-          📋 Tables
-        </button>
-      </div>
+      {isMobile && (
+        <div className="mobile-dashboard-tabs">
+          <button
+            type="button"
+            className={`mobile-dashboard-tab-btn ${mobileTab === 'charts' ? 'active' : ''}`}
+            onClick={() => setMobileTab('charts')}
+          >
+            📊 Charts
+          </button>
+          <button
+            type="button"
+            className={`mobile-dashboard-tab-btn ${mobileTab === 'tables' ? 'active' : ''}`}
+            onClick={() => setMobileTab('tables')}
+          >
+            📋 Tables
+          </button>
+        </div>
+      )}
 
       {/* Interactive Customizable Widgets Grid */}
       <div className={`dashboard-widgets-section ${isMobile && mobileTab !== 'charts' ? 'mobile-hidden' : ''}`}>

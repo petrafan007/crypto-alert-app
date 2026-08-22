@@ -3175,6 +3175,11 @@ body.light-mode .table-container.portfolio-table tbody tr.pending-order .symbol-
   color: #000 !important;
 }
 
+/* Mobile Dashboard Tabs - hidden on desktop */
+.mobile-dashboard-tabs {
+  display: none !important;
+}
+
 /* Mobile-first fixes to eliminate horizontal scrolling */
 @media (max-width: 960px) {
   .nav-container {
