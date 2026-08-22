@@ -40,7 +40,10 @@ def init_db(app=None):
             ("default_ai_prompts", "watchlist_sentiment_prompt_pre", "TEXT"),
             ("default_ai_prompts", "watchlist_sentiment_prompt_post", "TEXT"),
             ("default_ai_prompts", "copilot_chat_pre", "TEXT"),
-            ("default_ai_prompts", "copilot_chat_post", "TEXT")
+            ("default_ai_prompts", "copilot_chat_post", "TEXT"),
+            ("coins", "auto_sell_enabled", "BOOLEAN DEFAULT FALSE"),
+            ("coins", "auto_sell_volatility_pct", "FLOAT"),
+            ("coins", "auto_sell_triggered_at", "TIMESTAMP")
         ]
         for table, col, col_type in columns_to_ensure:
             try:

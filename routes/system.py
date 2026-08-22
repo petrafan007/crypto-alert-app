@@ -1510,6 +1510,61 @@ def set_volatility_pct():
     
     return jsonify({"success": False, "error": "Coin not found"})
 
+@system_bp.route('/api/portfolio/trigger-auto-sell', methods=['POST'])
+@login_required
+def trigger_auto_sell():
+    """Enable or disable Auto-Sell on 1-hour volatility drop for a portfolio coin."""
+    try:
+        data = request.get_json() or {}
+        symbol = (data.get('symbol') or '').upper()
+        coin_id = data.get('id')
+        enabled = data.get('enabled', True)
+        volatility_pct = data.get('volatility_pct')
+        
+        coin = None
+        if coin_id:
+            coin = Coin.query.filter_by(user_id=current_user.id, id=coin_id).first()
+        if not coin and symbol:
+            coin = Coin.query.filter_by(user_id=current_user.id, symbol=symbol).first()
+            
+        if not coin:
+            return jsonify({"success": False, "error": "Coin not found in portfolio"}), 404
+            
+        if enabled:
+            if volatility_pct is not None:
+                try:
+                    coin.volatility_pct = float(volatility_pct)
+                except (ValueError, TypeError):
+                    pass
+            
+            pct_val = float(coin.volatility_pct or 0)
+            if pct_val <= 0:
+                return jsonify({"success": False, "error": "Please set a valid Volatility % greater than 0 before enabling Auto-Sell."}), 400
+                
+            coin.auto_sell_enabled = True
+            coin.auto_sell_volatility_pct = pct_val
+            coin.auto_sell_triggered_at = None
+            db.session.commit()
+            logger.info(f"Auto-sell enabled for user {current_user.username}: {coin.symbol} at {pct_val}% 1h drop.")
+            return jsonify({
+                "success": True,
+                "message": f"Auto-sell enabled for {coin.symbol}. It will automatically sell for USDT if the price drops more than {pct_val:.1f}% within 1 hour.",
+                "auto_sell_enabled": True,
+                "volatility_pct": pct_val
+            })
+        else:
+            coin.auto_sell_enabled = False
+            db.session.commit()
+            logger.info(f"Auto-sell disabled for user {current_user.username}: {coin.symbol}")
+            return jsonify({
+                "success": True,
+                "message": f"Auto-sell disabled for {coin.symbol}.",
+                "auto_sell_enabled": False
+            })
+    except Exception as e:
+        logger.error(f"Error toggling auto-sell: {e}", exc_info=True)
+        return jsonify({"success": False, "error": str(e)}), 500
+
 @system_bp.route("/api/mark-onboarding-complete", methods=["POST"])
 @login_required
 def mark_onboarding_complete():

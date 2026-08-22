@@ -94,9 +94,17 @@ function Dashboard({ isLightMode }) {
   const [isMobile, setIsMobile] = useState(false);
   const [openActionMenu, setOpenActionMenu] = useState({ type: null, key: null, payload: null });
   const [openTradeQuoteMenu, setOpenTradeQuoteMenu] = useState({ type: null, key: null, side: null, position: null });
+  const [autoSellModal, setAutoSellModal] = useState({
+    isOpen: false,
+    symbol: '',
+    coin: null,
+    volatilityPct: 0,
+    loading: false,
+    error: ''
+  });
   const tradeQuoteMenuStyle = isMobile
     ? { display: 'flex', flexDirection: 'column', gap: 4, margin: '0 0 4px' }
-    : { position: 'fixed', top: openTradeQuoteMenu.position?.top ?? 0, left: openTradeQuoteMenu.position?.left ?? 0, zIndex: 1000, display: 'flex', flexDirection: 'column', gap: 4, minWidth: 148 };
+    : { position: 'fixed', top: openTradeQuoteMenu.position?.top ?? 0, left: openTradeQuoteMenu.position?.left ?? 0, zIndex: 1000, display: 'flex', flexDirection: 'column', gap: 4, minWidth: 154 };
 
   // Toast for backend notifications
   useNotificationPoller(user && user.id, notif => {
@@ -146,7 +154,7 @@ function Dashboard({ isLightMode }) {
           side,
           position: buttonRect
             ? {
-              top: Math.max(8, Math.min(buttonRect.bottom + 6, window.innerHeight - 92)),
+              top: Math.max(8, Math.min(buttonRect.bottom + 6, window.innerHeight - 130)),
               left: Math.max(8, Math.min(buttonRect.left, window.innerWidth - 196))
             }
             : null
@@ -154,11 +162,72 @@ function Dashboard({ isLightMode }) {
     );
   };
 
+  const handleTriggerAutoSellClick = (symbol, coinObj = null) => {
+    const coin = coinObj || (portfolio || []).find(c => c.symbol === symbol);
+    let volPct = 0;
+    if (coin && coin.volatility_pct !== null && coin.volatility_pct !== undefined) {
+      volPct = parseFloat(coin.volatility_pct);
+    }
+    setAutoSellModal({
+      isOpen: true,
+      symbol: symbol || (coin ? coin.symbol : ''),
+      coin: coin,
+      volatilityPct: volPct > 0 ? volPct : (coin?.auto_sell_volatility_pct || 5),
+      loading: false,
+      error: ''
+    });
+  };
+
+  const handleConfirmAutoSell = async (enable = true) => {
+    if (!autoSellModal.symbol) return;
+    setAutoSellModal(prev => ({ ...prev, loading: true, error: '' }));
+    try {
+      const payload = {
+        symbol: autoSellModal.symbol,
+        id: autoSellModal.coin?.id,
+        volatility_pct: autoSellModal.volatilityPct,
+        enabled: enable
+      };
+      const res = await axios.post('/api/portfolio/trigger-auto-sell', payload, { withCredentials: true });
+      if (res.data.success) {
+        setPortfolio(prev =>
+          prev.map(c =>
+            c.symbol === autoSellModal.symbol || (autoSellModal.coin && c.id === autoSellModal.coin.id)
+              ? {
+                ...c,
+                auto_sell_enabled: enable,
+                auto_sell_volatility_pct: autoSellModal.volatilityPct,
+                volatility_pct: autoSellModal.volatilityPct
+              }
+              : c
+          )
+        );
+        setNotification({
+          show: true,
+          message: res.data.message || (enable ? `Auto-sell activated for ${autoSellModal.symbol}!` : `Auto-sell disabled for ${autoSellModal.symbol}`),
+          type: 'success'
+        });
+        setTimeout(() => setNotification({ show: false, message: '', type: 'info' }), 5000);
+        setAutoSellModal({ isOpen: false, symbol: '', coin: null, volatilityPct: 0, loading: false, error: '' });
+      } else {
+        setAutoSellModal(prev => ({ ...prev, loading: false, error: res.data.error || 'Failed to update auto-sell' }));
+      }
+    } catch (err) {
+      console.error('Trigger auto-sell error:', err);
+      setAutoSellModal(prev => ({
+        ...prev,
+        loading: false,
+        error: err.response?.data?.error || 'Failed to update auto-sell. Please check your volatility settings.'
+      }));
+    }
+  };
+
   const renderDesktopTradeQuoteMenu = () => {
     if (isMobile || !openTradeQuoteMenu.position || typeof document === 'undefined') return null;
 
-    const { key: symbol, side } = openTradeQuoteMenu;
+    const { key: symbol, side, type } = openTradeQuoteMenu;
     const isBuy = side === 'BUY';
+    const coin = (portfolio || []).find(c => c.symbol === symbol);
 
     return createPortal(
       <div className="trade-quote-menu" style={tradeQuoteMenuStyle} role="menu" aria-label={`${isBuy ? 'Buy' : 'Sell'} ${symbol}`}>
@@ -168,6 +237,11 @@ function Dashboard({ isLightMode }) {
         <button role="menuitem" onClick={() => { navigateToTrading(symbol, side, 'USDT'); closeTradeQuoteMenu(); }}>
           {isBuy ? 'Buy with USDT' : 'Sell for USDT'}
         </button>
+        {!isBuy && type === 'portfolio' && (
+          <button role="menuitem" onClick={() => { handleTriggerAutoSellClick(symbol, coin); closeTradeQuoteMenu(); }}>
+            Trigger Auto-Sell
+          </button>
+        )}
       </div>,
       document.body
     );
@@ -954,6 +1028,7 @@ function Dashboard({ isLightMode }) {
                   <div className="trade-quote-menu" style={tradeQuoteMenuStyle}>
                     <button onClick={() => { navigateToTrading(coin.symbol, 'SELL', 'USD'); closeActionMenu(); closeTradeQuoteMenu(); }}>Sell for USD</button>
                     <button onClick={() => { navigateToTrading(coin.symbol, 'SELL', 'USDT'); closeActionMenu(); closeTradeQuoteMenu(); }}>Sell for USDT</button>
+                    <button onClick={() => { handleTriggerAutoSellClick(coin.symbol, coin); closeActionMenu(); closeTradeQuoteMenu(); }}>Trigger Auto-Sell</button>
                   </div>
                 )}
               </>
@@ -1643,12 +1718,21 @@ function Dashboard({ isLightMode }) {
             fontSize: '12px',
             background: '#1a1f23',
             color: '#fff',
-            border: '1px solid #333',
+            border: item.auto_sell_enabled ? '1px solid #22c55e' : '1px solid #333',
             borderRadius: '2px',
-            textAlign: 'center'
+            textAlign: 'center',
+            boxShadow: item.auto_sell_enabled ? '0 0 6px rgba(34, 197, 94, 0.4)' : 'none'
           }}
         />
         <span>%</span>
+        {tableType === 'portfolio' && item.auto_sell_enabled && (
+          <span
+            title={`⚡ Auto-Sell Active: Automatically sells for USDT if price drops > ${item.auto_sell_volatility_pct || item.volatility_pct}% in 1 hour.`}
+            style={{ fontSize: '13px', cursor: 'help', color: '#22c55e', filter: 'drop-shadow(0 0 4px rgba(34, 197, 94, 0.7))' }}
+          >
+            ⚡
+          </span>
+        )}
       </div>
     );
   };
@@ -2683,6 +2767,78 @@ function Dashboard({ isLightMode }) {
               </button>
               <button className="btn btn-primary" onClick={handleStakeSubmit}>
                 Confirm Stake
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Auto-Sell Confirmation Modal */}
+      {autoSellModal.isOpen && (
+        <div className="modal-overlay" onClick={() => setAutoSellModal(prev => ({ ...prev, isOpen: false }))}>
+          <div className="modal-content auto-sell-modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '440px' }}>
+            <div className="modal-header">
+              <h3>⚡ Trigger Auto-Sell ({autoSellModal.symbol})</h3>
+              <button className="modal-close" onClick={() => setAutoSellModal(prev => ({ ...prev, isOpen: false }))}>×</button>
+            </div>
+            <div style={{ padding: '20px 24px' }}>
+              <p style={{ fontSize: '15px', lineHeight: '1.6', margin: '0 0 16px', color: 'var(--text-primary, #e2e8f0)' }}>
+                You are about to enable an automatic sale of <strong>{autoSellModal.symbol}</strong> when the price drops more than <strong>{autoSellModal.volatilityPct}%</strong> within a 1-hour period. Are you sure you want to do this?
+              </p>
+
+              {autoSellModal.coin?.auto_sell_enabled && (
+                <div style={{
+                  padding: '10px 14px',
+                  borderRadius: '6px',
+                  backgroundColor: 'rgba(34, 197, 94, 0.12)',
+                  color: '#4ade80',
+                  fontSize: '13px',
+                  marginBottom: '16px',
+                  border: '1px solid rgba(34, 197, 94, 0.3)'
+                }}>
+                  ⚡ Auto-Sell is currently <strong>ACTIVE</strong> for {autoSellModal.symbol}.
+                </div>
+              )}
+
+              {autoSellModal.error && (
+                <div style={{
+                  padding: '10px 14px',
+                  borderRadius: '6px',
+                  backgroundColor: 'rgba(239, 68, 68, 0.15)',
+                  color: '#f87171',
+                  fontSize: '13px',
+                  marginBottom: '16px',
+                  border: '1px solid rgba(239, 68, 68, 0.3)'
+                }}>
+                  {autoSellModal.error}
+                </div>
+              )}
+            </div>
+            <div className="modal-actions" style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', padding: '16px 24px', borderTop: '1px solid var(--border-color, rgba(255,255,255,0.08))' }}>
+              {autoSellModal.coin?.auto_sell_enabled && (
+                <button
+                  className="btn btn-secondary"
+                  style={{ marginRight: 'auto', color: '#f87171', borderColor: 'rgba(239,68,68,0.4)' }}
+                  onClick={() => handleConfirmAutoSell(false)}
+                  disabled={autoSellModal.loading}
+                >
+                  Disable Auto-Sell
+                </button>
+              )}
+              <button
+                className="btn btn-secondary"
+                onClick={() => setAutoSellModal(prev => ({ ...prev, isOpen: false }))}
+                disabled={autoSellModal.loading}
+              >
+                No
+              </button>
+              <button
+                className="btn btn-primary"
+                style={{ backgroundColor: '#22c55e', borderColor: '#22c55e', color: '#fff', fontWeight: '600' }}
+                onClick={() => handleConfirmAutoSell(true)}
+                disabled={autoSellModal.loading}
+              >
+                {autoSellModal.loading ? 'Enabling...' : 'Yes'}
               </button>
             </div>
           </div>

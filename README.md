@@ -81,6 +81,21 @@ The application utilizes a **unified PostgreSQL database**.
 
 ## Version History & Changelog
 
+## v1.67-beta (August 2026)
+
+### Portfolio Volatility Drop Auto-Sell & App Versioning Fix
+- **Trigger Auto-Sell Action**: Added a 3rd option ("Trigger Auto-Sell") to the Portfolio Sell dropdown menu on both desktop and mobile views.
+- **Confirmation Modal**: Clicking "Trigger Auto-Sell" opens a confirmation modal verifying: *"You are about to enable an automatic sale of [X] when the price drops more than [Y]% within a 1-hour period. Are you sure you want to do this?"*, pulling the coin symbol and configured Volatility % directly from the table row.
+- **Autonomous & Executive Market Execution**: Enabled a background monitor in the scheduler loop that compares coin price against 1-hour reference candles. If a dump occurs exceeding the threshold percentage, the backend automatically places a market sell into USDT on Binance.US, logs the activity, updates the database, generates an in-app notification, and sends a Telegram alert without requiring manual user intervention.
+- **Active State Indicators**: Coins with active Auto-Sell protection display an illuminated indicator in the table and provide single-click management/disabling options.
+- **Footer Version Synchronization**: Bumped application metadata across `version.js`, `package.json`, and the footer to `v1.67-beta`.
+
+## v1.66-beta (August 2026)
+
+### Trading Chart Exact Price Markers & Timestamp Normalization
+- **Exact-Price Line Markers**: Plotted buy and sell arrow markers at the exact transaction price using a transparent series rather than snapping above/below candles.
+- **Timestamp Parsing & Deduplication**: Normalized transaction timestamps between seconds and milliseconds, resolving transaction clumping and duplicate entries in the transaction modal.
+
 ## v1.65-beta (August 2026)
 
 ### USD and USDT Trading Choices from Portfolio and Watchlist

@@ -355,8 +355,167 @@ def check_coin_volatility(user, coin, ticker_map, client, volatility_hours, tabl
     except Exception as e:
         logger.error(f"Error checking volatility for {coin.symbol}: {e}")
 
+def check_auto_sell_for_coin(user, coin, ticker_map, client):
+    """
+    Check if an auto-sell enabled coin has dropped more than its threshold in a 1-hour period,
+    and execute an automatic market sell for USDT if triggered.
+    """
+    try:
+        if not getattr(coin, 'auto_sell_enabled', False):
+            return
+        if not coin.amount or float(coin.amount) <= 0:
+            return
+
+        symbol = coin.symbol.upper()
+        threshold = float(getattr(coin, 'auto_sell_volatility_pct', None) or coin.volatility_pct or 0)
+        if threshold <= 0:
+            return
+
+        # Target USDT pair, fallback to USD
+        pair = f"{symbol}USDT"
+        ticker = ticker_map.get(pair)
+        if not ticker:
+            pair = f"{symbol}USD"
+            ticker = ticker_map.get(pair)
+        if not ticker or 'lastPrice' not in ticker:
+            return
+
+        # Fetch 1-hour klines (interval='1h', limit=2: [0] is previous hour, [1] is current hour)
+        klines = client.get_klines(symbol=pair, interval='1h', limit=2)
+        if len(klines) < 2:
+            return
+
+        start_price = float(klines[0][1])  # Open price of 1h candle (previous hour reference)
+        current_price = float(ticker['lastPrice'])
+        if start_price <= 0:
+            return
+
+        # Calculate price drop percentage (positive when price drops)
+        price_drop_pct = ((start_price - current_price) / start_price) * 100
+
+        # If price dropped by more than threshold within 1 hour
+        if price_drop_pct >= threshold:
+            logger.warning(
+                f"🚨 AUTO-SELL TRIGGERED for User {user.username}: {symbol} dropped {price_drop_pct:.2f}% "
+                f"(Threshold: {threshold}%) from ${start_price:.4f} to ${current_price:.4f}"
+            )
+            execute_auto_sell(user, coin, pair, current_price, price_drop_pct, threshold, client)
+    except Exception as e:
+        logger.error(f"Error checking auto-sell for {getattr(coin, 'symbol', '?')}: {e}", exc_info=True)
+
+def execute_auto_sell(user, coin, pair, current_price, price_drop_pct, threshold, client):
+    """Execute automatic market sell for USDT upon volatility drop trigger."""
+    from models import Notification
+    from trading_models import AllActivity
+    from services.binance_service import get_symbol_filters
+    from services.common import format_quantity
+
+    symbol = coin.symbol.upper()
+    try:
+        filters = get_symbol_filters(client, pair)
+        if not filters:
+            logger.error(f"Failed to get symbol filters for auto-sell pair {pair}")
+            return
+
+        # Check free balance on Binance
+        try:
+            balance = client.get_asset_balance(asset=symbol)
+            free_balance = float(balance.get('free', 0)) if balance else 0.0
+        except Exception as bal_err:
+            logger.warning(f"Could not fetch asset balance for {symbol}, using coin.amount: {bal_err}")
+            free_balance = float(coin.amount or 0)
+
+        sell_qty = min(float(coin.amount or 0), free_balance) if free_balance > 0 else float(coin.amount or 0)
+        if sell_qty <= 0:
+            logger.warning(f"No available balance to sell for {symbol}. Disabling auto-sell.")
+            coin.auto_sell_enabled = False
+            db.session.commit()
+            return
+
+        step_size = filters.get('stepSize', 0.00001)
+        formatted_qty = format_quantity(sell_qty, step_size)
+        min_qty = filters.get('minQty', 0)
+        min_notional = filters.get('minNotional', 0)
+
+        if formatted_qty < min_qty or (formatted_qty * current_price) < min_notional:
+            logger.warning(f"Auto-sell quantity {formatted_qty} {symbol} is below minQty ({min_qty}) or minNotional ({min_notional}). Disabling auto-sell.")
+            coin.auto_sell_enabled = False
+            db.session.commit()
+            return
+
+        logger.info(f"Placing market sell order on Binance for {formatted_qty} {symbol} ({pair})...")
+        order = client.order_market_sell(
+            symbol=pair,
+            quantity=formatted_qty
+        )
+
+        order_id = order.get('orderId', 'unknown')
+        executed_qty = float(order.get('executedQty', formatted_qty))
+        fills = order.get('fills', [])
+        total_commission = 0.0
+        avg_price = 0.0
+        if fills:
+            total_price = sum(float(f['price']) * float(f['qty']) for f in fills)
+            total_filled_qty = sum(float(f['qty']) for f in fills)
+            avg_price = total_price / total_filled_qty if total_filled_qty > 0 else current_price
+            total_commission = sum(float(f['commission']) for f in fills)
+        else:
+            avg_price = float(order.get('price', current_price) or current_price)
+
+        proceeds = executed_qty * avg_price
+        quote_asset = 'USDT' if pair.endswith('USDT') else ('USD' if pair.endswith('USD') else 'USDT')
+
+        # Record activity
+        new_activity = AllActivity(
+            date=datetime.utcnow(),
+            type='SELL',
+            asset=symbol,
+            amount=-executed_qty,
+            proceeds=proceeds,
+            fee=total_commission,
+            txid=f"auto_sell_{order_id}",
+            status=order.get('status', 'FILLED'),
+            details=f"⚡ Auto-Sell executed: {price_drop_pct:.2f}% drop in 1h (Threshold: {threshold}%) for {quote_asset}",
+            avg_entry=avg_price,
+            user_id=user.id,
+            exchange='binance'
+        )
+        db.session.add(new_activity)
+
+        # Update coin record
+        coin.auto_sell_enabled = False
+        coin.auto_sell_triggered_at = datetime.utcnow()
+        if coin.amount:
+            coin.amount = max(0.0, float(coin.amount) - executed_qty)
+
+        # Create in-app notification
+        notif = Notification(
+            user_id=user.id,
+            title=f"🚨 Auto-Sell Executed: {symbol}",
+            message=f"Automatically sold {executed_qty} {symbol} for {quote_asset} at ~${avg_price:.4f} after a {price_drop_pct:.2f}% price drop in 1 hour (Threshold: {threshold}%). Order ID: {order_id}",
+            created_at=datetime.utcnow()
+        )
+        db.session.add(notif)
+        db.session.commit()
+
+        # Send Telegram notification
+        telegram_msg = (
+            f"🚨 <b>AUTO-SELL EXECUTED</b>\n"
+            f"Coin: <b>{symbol}</b>\n"
+            f"Action: Sold <b>{executed_qty} {symbol}</b> for <b>{quote_asset}</b>\n"
+            f"Trigger: Dropped <b>{price_drop_pct:.2f}%</b> in 1h (Threshold: <b>{threshold}%</b>)\n"
+            f"Exec Price: ~${avg_price:.4f}\n"
+            f"Proceeds: ${proceeds:.2f} {quote_asset}\n"
+            f"Order ID: {order_id}"
+        )
+        send_telegram_message(user.username, telegram_msg)
+        logger.info(f"Auto-sell for {symbol} completed successfully. Order ID: {order_id}")
+    except Exception as exec_err:
+        logger.error(f"Failed to execute auto-sell for {symbol} (User {user.username}): {exec_err}", exc_info=True)
+
 def volatility_alert_loop(app):
     logger.info("=== volatility_alert_loop STARTED ===")
+    from sqlalchemy import or_
     with app.app_context():
         while True:
             @safe_background_iteration
@@ -366,7 +525,10 @@ def volatility_alert_loop(app):
                     user_settings = UserSetting.query.filter_by(user_id=user.id).first()
                     volatility_hours = int(getattr(user_settings, 'volatility_hours', 24) or 24)
                     volatility_hours = max(1, min(volatility_hours, 999))
-                    coins = Coin.query.filter(Coin.user_id == user.id, Coin.volatility_pct > 0).all()
+                    coins = Coin.query.filter(
+                        Coin.user_id == user.id,
+                        or_(Coin.volatility_pct > 0, Coin.auto_sell_enabled == True)
+                    ).all()
                     watchlist_coins = WatchlistCoin.query.filter(WatchlistCoin.user_id == user.id, WatchlistCoin.volatility_pct > 0).all()
                     
                     if not coins and not watchlist_coins:
@@ -386,11 +548,14 @@ def volatility_alert_loop(app):
                         continue
 
                     for coin in coins:
-                        check_coin_volatility(user, coin, ticker_map, client, volatility_hours, 'portfolio')
+                        if coin.volatility_pct and float(coin.volatility_pct) > 0:
+                            check_coin_volatility(user, coin, ticker_map, client, volatility_hours, 'portfolio')
+                        if getattr(coin, 'auto_sell_enabled', False):
+                            check_auto_sell_for_coin(user, coin, ticker_map, client)
                     for coin in watchlist_coins:
                         check_coin_volatility(user, coin, ticker_map, client, volatility_hours, 'watchlist')
             iteration()
-            time.sleep(300)
+            time.sleep(120)
 
 def prune_old_ai_conversations(app):
     """Clean up AI conversations older than 30 days, keeping maximum 1 month of history."""

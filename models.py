@@ -35,6 +35,9 @@ class Coin(db.Model):
     note = db.Column(db.Text, default="")
     volatility_pct = db.Column(db.Float, nullable=True)
     last_volatility_alert_time = db.Column(db.DateTime, nullable=True)
+    auto_sell_enabled = db.Column(db.Boolean, default=False)
+    auto_sell_volatility_pct = db.Column(db.Float, nullable=True)
+    auto_sell_triggered_at = db.Column(db.DateTime, nullable=True)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
     # Composite index for efficient lookups
