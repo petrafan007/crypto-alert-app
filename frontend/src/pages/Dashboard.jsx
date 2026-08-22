@@ -1197,11 +1197,29 @@ function Dashboard({ isLightMode }) {
       }, { withCredentials: true });
 
       if (response.data && response.data.success) {
-        // Fetch fresh watchlist data in background to sync true database ID & price
-        const watchlistResponse = await axios.get('/api/watchlist-live', { withCredentials: true });
-        if (watchlistResponse.data) {
-          setWatchlist(watchlistResponse.data);
-        }
+        const itemFromServer = response.data.item || {
+          id: response.data.id || tempId,
+          symbol: cleanSym,
+          current_price: response.data.current_price || 0,
+          alert_enabled: false,
+          favorite: false,
+          sentiment: 'Checking now...',
+          sentiment_reason: '',
+          sentiment_last_updated: null,
+          volatility_pct: null,
+          down_val: null,
+          up_val: null,
+          note: ''
+        };
+        setWatchlist(prev => {
+          const index = prev.findIndex(c => c.id === tempId || (c.symbol || '').toUpperCase() === cleanSym);
+          if (index !== -1) {
+            const copy = [...prev];
+            copy[index] = { ...copy[index], ...itemFromServer };
+            return copy;
+          }
+          return [itemFromServer, ...prev];
+        });
       } else {
         // Revert on failure
         setWatchlist(prev => prev.filter(c => c.id !== tempId));

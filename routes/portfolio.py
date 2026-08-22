@@ -4378,15 +4378,14 @@ def api_watchlist_live():
         try:
             # Try to get current price from Binance
             current_price = fetch_binance_price(w.symbol)
-            # Save to database for next load
             w.current_price = current_price
-            db.session.commit()
         except Exception as e:
             logger.error(f"Failed to fetch price for {w.symbol}: {e}")
             current_price = w.current_price or 0.0
         
         w_news = news_cache.get(w.id, {})
         watchlist_data.append({
+            "id": w.id,
             "symbol": w.symbol,
             "alert_enabled": w.alert_enabled,
             "down_val": w.down_alert,
@@ -4394,7 +4393,7 @@ def api_watchlist_live():
             "note": w.note,
             "favorite": w.favorite,
             "hidden": w.hidden,
-            "action": "Watch",  # Simplified to avoid database locks
+            "action": "Watch",
             "current_price": current_price,
             "sentiment": w.sentiment or "Watch",
             "sentiment_reason": getattr(w, 'sentiment_reason', "") or "",
@@ -4408,6 +4407,11 @@ def api_watchlist_live():
             "cached_news_date": w_news.get('created_at', None)
         })
     
+    try:
+        db.session.commit()
+    except Exception as e:
+        logger.error(f"Failed to commit watchlist price updates: {e}")
+    
     return jsonify(watchlist_data)
 
 @portfolio_bp.route("/api/watchlist/add", methods=["POST"])
@@ -4419,7 +4423,32 @@ def api_watchlist_add():
         return jsonify({"success": False, "error": "Missing symbol"}), 400
     exists = WatchlistCoin.query.filter_by(user_id=current_user.id, symbol=symbol).first()
     if exists:
-        return jsonify({"success": True, "message": "Symbol already in watchlist"})
+        return jsonify({
+            "success": True, 
+            "message": "Symbol already in watchlist",
+            "item": {
+                "id": exists.id,
+                "symbol": exists.symbol,
+                "alert_enabled": exists.alert_enabled,
+                "down_val": exists.down_alert,
+                "up_val": exists.up_alert,
+                "note": exists.note,
+                "favorite": exists.favorite,
+                "hidden": exists.hidden,
+                "action": "Watch",
+                "current_price": exists.current_price or 0.0,
+                "sentiment": exists.sentiment or "Watch",
+                "sentiment_reason": getattr(exists, 'sentiment_reason', "") or "",
+                "sentiment_last_updated": exists.sentiment_last_updated.isoformat() if getattr(exists, 'sentiment_last_updated', None) else None,
+                "sentiment_provider": getattr(exists, 'sentiment_provider', None),
+                "sentiment_model": getattr(exists, 'sentiment_model', None),
+                "sentiment_tier": getattr(exists, 'sentiment_tier', None),
+                "sentiment_search_status": getattr(exists, 'sentiment_search_status', None),
+                "volatility_pct": exists.volatility_pct,
+                "cached_news": "",
+                "cached_news_date": None
+            }
+        })
     
     current_price = 0.0
     try:
@@ -4462,8 +4491,28 @@ def api_watchlist_add():
         "symbol": symbol,
         "current_price": current_price,
         "id": wl.id,
-        "sentiment": "Checking now...",
-        "sentiment_reason": ""
+        "item": {
+            "id": wl.id,
+            "symbol": wl.symbol,
+            "alert_enabled": wl.alert_enabled,
+            "down_val": wl.down_alert,
+            "up_val": wl.up_alert,
+            "note": wl.note,
+            "favorite": wl.favorite,
+            "hidden": wl.hidden,
+            "action": "Watch",
+            "current_price": current_price,
+            "sentiment": "Checking now...",
+            "sentiment_reason": "",
+            "sentiment_last_updated": None,
+            "sentiment_provider": None,
+            "sentiment_model": None,
+            "sentiment_tier": None,
+            "sentiment_search_status": None,
+            "volatility_pct": wl.volatility_pct,
+            "cached_news": "",
+            "cached_news_date": None
+        }
     })
 
 @portfolio_bp.route("/api/watchlist/remove", methods=["POST"])
