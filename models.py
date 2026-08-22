@@ -268,6 +268,8 @@ class PriceHistory(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     symbol = db.Column(db.String(20), nullable=False)
     price = db.Column(db.Float, nullable=False)
+    volume = db.Column(db.Float, default=0.0)
+    quote_volume = db.Column(db.Float, default=0.0)
     timestamp = db.Column(db.BigInteger, nullable=False) # Unix timestamp
     exchange = db.Column(db.String(20), default='binance')
     date_int = db.Column(db.BigInteger, nullable=True)

@@ -58,7 +58,10 @@ def init_db(app=None):
             ("watchlist", "auto_buy_volatility_pct", "FLOAT"),
             ("watchlist", "auto_buy_quote_currency", "VARCHAR(10) DEFAULT 'USDT'"),
             ("watchlist", "auto_buy_amount", "FLOAT"),
-            ("watchlist", "auto_buy_triggered_at", "TIMESTAMP")
+            ("watchlist", "auto_buy_triggered_at", "TIMESTAMP"),
+            ("price_history", "volume", "FLOAT DEFAULT 0.0"),
+            ("price_history", "quote_volume", "FLOAT DEFAULT 0.0"),
+            ("user_settings", "sentiment_history_lookback_hours", "INTEGER DEFAULT 12")
         ]
         for table, col, col_type in columns_to_ensure:
             try:

@@ -129,6 +129,7 @@ def get_user_ai_settings(username: str) -> dict:
             ),
             'portfolio_schedule_start_time': '08:00',
             'watchlist_schedule_start_time': '08:00',
+            'sentiment_history_lookback_hours': 12,
             'volatility_hours': 24,
         }
 
@@ -184,6 +185,9 @@ def get_user_ai_settings(username: str) -> dict:
 
                 if hasattr(user_setting, 'watchlist_sentiment_analysis_frequency_hours'):
                     settings['watchlist_sentiment_analysis_frequency_hours'] = user_setting.watchlist_sentiment_analysis_frequency_hours or 24
+
+                if hasattr(user_setting, 'sentiment_history_lookback_hours'):
+                    settings['sentiment_history_lookback_hours'] = user_setting.sentiment_history_lookback_hours or 12
 
                 if hasattr(user_setting, 'portfolio_schedule_start_time'):
                     settings['portfolio_schedule_start_time'] = user_setting.portfolio_schedule_start_time or '08:00'

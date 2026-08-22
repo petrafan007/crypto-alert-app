@@ -815,13 +815,24 @@ def analyze_single_symbol_sentiment(user_id, username, symbol, is_watchlist=Fals
 
         price_str = f"${current_price:,.2f}" if current_price is not None else "N/A"
 
+        # Fetch configured N-hours price and volume context
+        lookback_hours = 12
+        try:
+            lookback_hours = int(user_ai_settings.get('sentiment_history_lookback_hours', 12) or 12)
+        except Exception:
+            lookback_hours = 12
+
+        from services.price_history_service import get_last_nh_price_and_volume
+        _, price_vol_history_text = get_last_nh_price_and_volume(symbol, lookback_hours=lookback_hours)
+
         sentiment_request = (
             f"{'WATCHLIST_' if is_watchlist else ''}SENTIMENT_ANALYSIS_DATA\n"
             f"symbol: {symbol}\n"
             f"current_price: {price_str}\n"
             f"amount: {amount}\n"
             f"datetime: {current_datetime}\n"
-            f"IMPORTANT NOTE: The current live price is {price_str}. Base all sentiment, momentum, support/resistance, and short-term outlook strictly on this live price and fresh news/market data from the past 12 hours.\n"
+            f"IMPORTANT NOTE: The current live price is {price_str}. Base all sentiment, momentum, support/resistance, volume dynamics, and short-term outlook strictly on this live price, the hourly price & volume history below, and fresh news/market data from the past {lookback_hours} hours.\n\n"
+            f"{price_vol_history_text}\n"
         )
 
         response, actual_stage3_prompt = call_ai_with_web_search(

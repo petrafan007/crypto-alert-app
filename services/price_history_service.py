@@ -121,12 +121,16 @@ def ensure_price_history(symbol, now_timestamp=None):
         for kline in klines:
             close_timestamp = min(int(kline[6]) // 1000, now_timestamp)
             close_price = _as_float(kline[4])
+            base_volume = _as_float(kline[5])
+            quote_volume = _as_float(kline[7])
             bucket = close_timestamp // 3600
             if close_timestamp < cutoff or close_price <= 0 or bucket in existing_buckets:
                 continue
             db.session.add(PriceHistory(
                 symbol=symbol,
                 price=close_price,
+                volume=base_volume,
+                quote_volume=quote_volume,
                 timestamp=close_timestamp,
                 exchange="binance",
             ))
@@ -135,7 +139,7 @@ def ensure_price_history(symbol, now_timestamp=None):
 
         if added:
             db.session.commit()
-            logger.info("Backfilled %s hourly price points for %s from %s", added, symbol, selected_pair)
+            logger.info("Backfilled %s hourly price/volume points for %s from %s", added, symbol, selected_pair)
         return bool(added)
     except Exception as error:
         db.session.rollback()
@@ -143,10 +147,12 @@ def ensure_price_history(symbol, now_timestamp=None):
         return False
 
 
-def record_price_history_snapshot(symbol, price, now_timestamp=None, min_interval_seconds=60):
-    """Add a current price snapshot when the last stored sample is old enough."""
+def record_price_history_snapshot(symbol, price, volume=0.0, quote_volume=0.0, now_timestamp=None, min_interval_seconds=60):
+    """Add a current price and volume snapshot when the last stored sample is old enough."""
     symbol = (symbol or "").strip().upper()
     price = _as_float(price)
+    volume = _as_float(volume)
+    quote_volume = _as_float(quote_volume)
     now_timestamp = int(now_timestamp or time.time())
     if not symbol or symbol in STABLE_COINS or price <= 0:
         return False
@@ -158,10 +164,78 @@ def record_price_history_snapshot(symbol, price, now_timestamp=None, min_interva
     db.session.add(PriceHistory(
         symbol=symbol,
         price=price,
+        volume=volume,
+        quote_volume=quote_volume,
         timestamp=now_timestamp,
         exchange="binance",
     ))
     return True
+
+
+def get_last_nh_price_and_volume(symbol, lookback_hours=12, now_timestamp=None):
+    """
+    Retrieve the hourly price and volume data points for the specified lookback window.
+    Returns a list of structured dicts and a formatted text block for AI sentiment context.
+    """
+    from datetime import datetime
+    symbol = (symbol or "").strip().upper()
+    if not symbol or symbol in STABLE_COINS:
+        return [], ""
+
+    lookback_hours = max(1, min(int(lookback_hours or 12), 72))
+    now_timestamp = int(now_timestamp or time.time())
+    ensure_price_history(symbol, now_timestamp)
+
+    cutoff = now_timestamp - (lookback_hours * 3600 + 1800)
+    rows = PriceHistory.query.filter(
+        PriceHistory.symbol == symbol,
+        PriceHistory.timestamp >= cutoff,
+        PriceHistory.timestamp <= now_timestamp,
+    ).order_by(PriceHistory.timestamp.asc()).all()
+
+    hourly_buckets = {}
+    for r in rows:
+        b = int(r.timestamp) // 3600
+        hourly_buckets[b] = r
+
+    current_bucket = now_timestamp // 3600
+    points = []
+    for h in range(lookback_hours, 0, -1):
+        target_b = current_bucket - h
+        row = hourly_buckets.get(target_b)
+        if row and _as_float(row.price) > 0:
+            dt_str = datetime.utcfromtimestamp(row.timestamp).strftime('%Y-%m-%d %H:%M UTC')
+            p = _as_float(row.price)
+            v = _as_float(getattr(row, 'volume', 0.0))
+            qv = _as_float(getattr(row, 'quote_volume', 0.0))
+            points.append({
+                "hours_ago": h,
+                "datetime": dt_str,
+                "price": p,
+                "volume": v,
+                "quote_volume": qv
+            })
+
+    if not points:
+        return [], f"No historical price/volume data available for {symbol}."
+
+    lines = [f"=== LAST {lookback_hours} HOURS HOURLY PRICE & VOLUME HISTORY ({symbol}) ==="]
+    for pt in points:
+        price_fmt = f"${pt['price']:,.2f}" if pt['price'] >= 1 else f"${pt['price']:,.6f}"
+        vol_str = f"{pt['volume']:,.2f} {symbol}" if pt['volume'] > 0 else "N/A"
+        if pt['quote_volume'] > 0:
+            if pt['quote_volume'] >= 1_000_000:
+                qv_str = f" (${pt['quote_volume']/1_000_000:.2f}M USDT)"
+            elif pt['quote_volume'] >= 1_000:
+                qv_str = f" (${pt['quote_volume']/1_000:.1f}K USDT)"
+            else:
+                qv_str = f" (${pt['quote_volume']:.2f} USDT)"
+        else:
+            qv_str = ""
+        lines.append(f"- {pt['hours_ago']}h ago ({pt['datetime']}): Price: {price_fmt} | Volume: {vol_str}{qv_str}")
+
+    prompt_text = "\n".join(lines)
+    return points, prompt_text
 
 
 def get_symbol_performance(symbol, current_price, now_timestamp=None):
