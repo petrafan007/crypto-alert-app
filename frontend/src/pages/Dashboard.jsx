@@ -1853,6 +1853,13 @@ function Dashboard({ isLightMode }) {
       }
     };
 
+    const handleBlur = (e) => {
+      const value = e.target.value.replace(/[^0-9.]/g, '');
+      const formattedValue = value === '' ? '' : parseFloat(value).toFixed(2);
+      e.target.value = formattedValue;
+      handleValueChange(formattedValue);
+    };
+
     const handleTypeChange = async (newType) => {
       try {
         // OPTIMISTIC UPDATE: Immediately update the UI before API call
@@ -1939,6 +1946,7 @@ function Dashboard({ isLightMode }) {
           defaultValue={currentValue}
           disabled={isAutoType}
           onKeyPress={handleKeyPress}
+          onBlur={handleBlur}
           onChange={(e) => {
             // Allow numbers and decimal point, limit to 2 decimal places
             let value = e.target.value.replace(/[^0-9.]/g, '');
@@ -2028,6 +2036,13 @@ function Dashboard({ isLightMode }) {
       }
     };
 
+    const handleBlur = (e) => {
+      const value = e.target.value.replace(/[^0-9.]/g, '');
+      const formattedValue = value === '' ? '' : parseFloat(value).toFixed(2);
+      e.target.value = formattedValue;
+      handleValueChange(formattedValue);
+    };
+
     return (
       <div style={{
         display: 'flex',
@@ -2051,6 +2066,7 @@ function Dashboard({ isLightMode }) {
             e.target.value = value;
           }}
           onKeyPress={handleKeyPress}
+          onBlur={handleBlur}
           style={{
             width: '100px',
             padding: '2px 4px',

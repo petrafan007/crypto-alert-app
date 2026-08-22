@@ -122,6 +122,13 @@ The application utilizes a **unified PostgreSQL database**.
 
 ## Version History & Changelog
 
+## v1.76-beta (August 2026)
+
+### Price Alert onBlur Auto-Save for Portfolio & Watchlist
+- **Blur Auto-Save (`onBlur`)**: Added `onBlur` event listeners to all Price Down and Price Up alert textboxes in both Portfolio and Watchlist tables. Alert thresholds are now automatically saved to the database upon clicking outside the input or tabbing away, matching the existing `Enter` key behavior.
+- **Race-Condition Free Typing**: Maintained local input sanitization during active typing without firing API requests until the input loses focus (`onBlur`) or `Enter` is pressed.
+- **Version Bump**: Synchronized metadata to `v1.76-beta`.
+
 ## v1.75-beta (August 2026)
 
 ### USD/USDT Trading Action Guards, Watchlist Table Streamlining & Immediate Auto-Buy Balance Validation
