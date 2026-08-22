@@ -122,6 +122,21 @@ The application utilizes a **unified PostgreSQL database**.
 
 ## Version History & Changelog
 
+## v1.78-beta (August 2026)
+
+### Modern Order Placement Redesign, Default Trading Pair Fallback & Convert Dust Table Contrast Fix
+- **Default Trading Pair Fallback (`BTCUSDT`)**: Sanitized trading pair initialization in `Trading.jsx` to prevent bare fiat strings (like `USD` or `USDT`) from attempting to load chart data, defaulting reliably to `BTCUSDT` when opening the Trading Center.
+- **Convert Dust Modal Dark Mode Contrast Fix**: Resolved an issue where alternating table rows displayed white backgrounds in Dark Mode due to global CSS selector precedence, ensuring high-contrast dark translucent rows and crisp readability.
+- **Order Placement Section Redesign**:
+  - Implemented sleek glassmorphic top header cards displaying Base Asset Available (with approximate USD value), Quote Asset Available, and a live Real-time Price card with pulsing direction indicator.
+  - Modernized Order Side selection with vibrant Emerald Green (Buy) and Crimson (Sell) segmented pill controls with neon active glow.
+  - Implemented modern segmented pill controls for Order Types (Market, Limit, Stop-Loss, Stop-Loss-Limit, Take-Profit, Take-Profit-Limit, OCO, Limit Maker).
+  - Added streamlined input fields with embedded **`MAX`** balance button and real-time 2-way Quote Quantity sync.
+  - Modernized the balance slider with custom glowing thumb and quick percentage selector pills (`0%`, `25%`, `50%`, `75%`, `100%`).
+  - Added a clean Order Summary card with estimated fee and net receivable breakdown.
+  - Upgraded action submit button to a high-impact glowing full-width button with reactive order state.
+- **Version Bump**: Synchronized metadata to `v1.78-beta`.
+
 ## v1.77-beta (August 2026)
 
 ### Copilot Scrollbar Polish, Table Header USDT Total Value, Volatility Alignment & Action Buttons

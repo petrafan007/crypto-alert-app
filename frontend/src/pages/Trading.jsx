@@ -8,6 +8,7 @@ import TradingChart from '../components/TradingChart';
 import TradePermissionModal from '../components/TradePermissionModal';
 import ApiKeyRequiredModal from '../components/ApiKeyRequiredModal';
 import SearchablePairSelect from '../components/SearchablePairSelect';
+import CryptoIcon from '../components/CryptoIcon';
 import './Trading.css';
 import { useLocation, useNavigate } from 'react-router-dom';
 
@@ -28,7 +29,9 @@ const Trading = () => {
   const getInitialSymbol = () => {
     try {
       const saved = localStorage.getItem('selectedTradingPair');
-      if (saved) return saved;
+      if (saved && saved !== 'USD' && saved !== 'USDT' && saved !== 'ALL' && saved.length >= 5) {
+        return saved;
+      }
     } catch (e) {}
     return 'BTCUSDT';
   };
@@ -208,10 +211,10 @@ const Trading = () => {
   };
 
   const renderTimeInForceSelector = () => (
-    <div className="form-group">
-      <label>Time in Force</label>
-      <div className="time-in-force-selector">
-        <label className="radio-option">
+    <div className="order-input-group tif-group">
+      <label className="order-field-label">Time in Force</label>
+      <div className="modern-tif-selector">
+        <label className={`modern-tif-pill ${orderForm.timeInForce === 'GTC' ? 'active' : ''}`}>
           <input
             type="radio"
             name="timeInForce"
@@ -219,9 +222,9 @@ const Trading = () => {
             checked={orderForm.timeInForce === 'GTC'}
             onChange={(e) => setOrderForm({ ...orderForm, timeInForce: e.target.value })}
           />
-          <span>GTC - Good Till Cancel</span>
+          <span>GTC (Good Till Cancel)</span>
         </label>
-        <label className="radio-option">
+        <label className={`modern-tif-pill ${orderForm.timeInForce === 'IOC' ? 'active' : ''}`}>
           <input
             type="radio"
             name="timeInForce"
@@ -229,9 +232,9 @@ const Trading = () => {
             checked={orderForm.timeInForce === 'IOC'}
             onChange={(e) => setOrderForm({ ...orderForm, timeInForce: e.target.value })}
           />
-          <span>IOC - Immediate or Cancel</span>
+          <span>IOC (Immediate/Cancel)</span>
         </label>
-        <label className="radio-option">
+        <label className={`modern-tif-pill ${orderForm.timeInForce === 'FOK' ? 'active' : ''}`}>
           <input
             type="radio"
             name="timeInForce"
@@ -239,10 +242,10 @@ const Trading = () => {
             checked={orderForm.timeInForce === 'FOK'}
             onChange={(e) => setOrderForm({ ...orderForm, timeInForce: e.target.value })}
           />
-          <span>FOK - Fill or Kill</span>
+          <span>FOK (Fill or Kill)</span>
         </label>
       </div>
-      <small className="form-help">
+      <small className="order-field-help">
         {orderForm.timeInForce === 'GTC' && 'Order remains active until filled or cancelled'}
         {orderForm.timeInForce === 'IOC' && 'Immediately execute as much as possible, cancel remainder'}
         {orderForm.timeInForce === 'FOK' && 'Must fill entire order immediately or cancel'}
@@ -253,69 +256,65 @@ const Trading = () => {
   const renderOrderTypeFields = () => {
     const cells = [];
 
-    const placeholderCell = (key) => (
-      <div className="order-grid-item order-grid-item--placeholder" key={key} aria-hidden="true" />
-    );
-
     const limitPriceCell = (key, helpText) => (
-      <div className="order-grid-item" key={`limit-${key}`}>
-        <div className="form-group">
-          <label htmlFor="price">Limit Price ({quoteAsset})</label>
+      <div className="order-input-group" key={`limit-${key}`}>
+        <label className="order-field-label" htmlFor="price">Limit Price ({quoteAsset})</label>
+        <div className="order-input-wrapper">
           <input
             id="price"
             type="number"
             step="any"
             value={orderForm.price}
             onChange={(e) => setOrderForm((prev) => ({ ...prev, price: e.target.value }))}
-            placeholder="Enter limit price"
-            className="form-control"
+            placeholder="0.00"
+            className="order-styled-input"
             required
             autoComplete="off"
           />
-          {helpText && <small className="form-help">{helpText}</small>}
         </div>
+        {helpText && <small className="order-field-help">{helpText}</small>}
       </div>
     );
 
     const stopPriceCell = (key, helpText) => (
-      <div className="order-grid-item" key={`stop-${key}`}>
-        <div className="form-group">
-          <label htmlFor="stopPrice">Stop Price ({quoteAsset})</label>
+      <div className="order-input-group" key={`stop-${key}`}>
+        <label className="order-field-label" htmlFor="stopPrice">Stop Price ({quoteAsset})</label>
+        <div className="order-input-wrapper">
           <input
             id="stopPrice"
             type="number"
             step="any"
             value={orderForm.stopPrice}
             onChange={(e) => setOrderForm((prev) => ({ ...prev, stopPrice: e.target.value }))}
-            placeholder="Enter stop price"
-            className="form-control"
+            placeholder="0.00"
+            className="order-styled-input"
             required
             autoComplete="off"
           />
-          {helpText && <small className="form-help">{helpText}</small>}
         </div>
+        {helpText && <small className="order-field-help">{helpText}</small>}
       </div>
     );
 
     const stopLimitPriceCell = (key) => (
-      <div className="order-grid-item" key={`stop-limit-${key}`}>
-        <div className="form-group">
-          <label htmlFor="stopLimitPrice">Stop Limit Price ({quoteAsset})</label>
+      <div className="order-input-group" key={`stop-limit-${key}`}>
+        <label className="order-field-label" htmlFor="stopLimitPrice">Stop Limit Price ({quoteAsset})</label>
+        <div className="order-input-wrapper">
           <input
             id="stopLimitPrice"
             type="number"
             step="any"
             value={orderForm.stopLimitPrice}
             onChange={(e) => setOrderForm((prev) => ({ ...prev, stopLimitPrice: e.target.value }))}
-            placeholder="Stop loss execution price"
-            className="form-control"
+            placeholder="0.00"
+            className="order-styled-input"
             required
             autoComplete="off"
           />
-          <small className="form-help">
-            Price at which the stop-loss limit order will be placed
-          </small>
         </div>
+        <small className="order-field-help">
+          Price at which the stop-loss limit order will be placed
+        </small>
       </div>
     );
 
@@ -323,7 +322,7 @@ const Trading = () => {
       case 'LIMIT':
         cells.push(
           limitPriceCell('main'),
-          <div className="order-grid-item" key="tif-limit">
+          <div className="order-input-group" key="tif-limit">
             {renderTimeInForceSelector()}
           </div>
         );
@@ -333,8 +332,7 @@ const Trading = () => {
       case 'STOP_LOSS':
       case 'TAKE_PROFIT':
         cells.push(
-          stopPriceCell('single'),
-          placeholderCell('stop-placeholder')
+          stopPriceCell('single')
         );
         break;
       case 'STOP_LOSS_LIMIT':
@@ -351,10 +349,9 @@ const Trading = () => {
               ? 'Trigger price (must be ≤ current market price)'
               : 'Trigger price (must be ≥ current market price)'
           ),
-          <div className="order-grid-item" key="tif-stoplosslimit">
+          <div className="order-input-group full-width" key="tif-stoplosslimit">
             {renderTimeInForceSelector()}
-          </div>,
-          placeholderCell('stoplosslimit-placeholder')
+          </div>
         );
         break;
       case 'TAKE_PROFIT_LIMIT':
@@ -371,16 +368,15 @@ const Trading = () => {
               ? 'Trigger price (must be ≥ current market price)'
               : 'Trigger price (must be ≤ current market price)'
           ),
-          <div className="order-grid-item" key="tif-takeprofitlimit">
+          <div className="order-input-group full-width" key="tif-takeprofitlimit">
             {renderTimeInForceSelector()}
-          </div>,
-          placeholderCell('takeprofitlimit-placeholder')
+          </div>
         );
         break;
       case 'LIMIT_MAKER':
         cells.push(
           limitPriceCell('maker'),
-          <div className="order-grid-item" key="tif-maker">
+          <div className="order-input-group" key="tif-maker">
             {renderTimeInForceSelector()}
           </div>
         );
@@ -399,15 +395,20 @@ const Trading = () => {
               ? 'Must be less than current market price'
               : 'Must be greater than current market price'
           ),
-          stopLimitPriceCell('oco'),
-          placeholderCell('oco-placeholder')
+          stopLimitPriceCell('oco')
         );
         break;
       default:
         break;
     }
 
-    return cells;
+    if (cells.length === 0) return null;
+
+    return (
+      <div className="order-inputs-row conditional-fields-row">
+        {cells}
+      </div>
+    );
   };
 
   const buildOrderConfirmationDetails = () => {
@@ -1618,226 +1619,250 @@ const Trading = () => {
               onResetFilter={() => setFilterCoin(null)}
             />
 
-            <form onSubmit={handleOrderSubmit} className="order-form">
-              <div className="order-grid">
-                {/* LEFT COLUMN: Balances, Withdraw, Order Side */}
-                <div className="order-grid-item">
-                  <div className="balance-display-section info-card">
-                    <div className="balance-item">
-                      <span className="balance-label">{baseAsset} Available:</span>
-                      <span className="balance-value">{balances.base.toFixed(8)}</span>
-                    </div>
-                    <div className="balance-item">
-                      <span className="balance-label">{quoteAsset} Available:</span>
-                      <span className="balance-value">{balances.quote.toFixed(2)}</span>
-                    </div>
-                  </div>
+            {/* Redesigned Order Placement Header Cards */}
+            <div className="trading-order-header-cards">
+              <div className="trading-asset-card">
+                <CryptoIcon symbol={baseAsset} size={32} />
+                <div className="trading-asset-card-details">
+                  <span className="trading-asset-card-label">{baseAsset} Available</span>
+                  <span className="trading-asset-card-value">
+                    {balances.base.toFixed(8)} <small>{baseAsset}</small>
+                  </span>
+                  {currentPrices.base > 0 && balances.base > 0 && (
+                    <span className="trading-asset-card-sub">
+                      ≈ ${(balances.base * currentPrices.base).toFixed(2)} USD
+                    </span>
+                  )}
                 </div>
+              </div>
 
-                {/* RIGHT COLUMN: Current Price */}
-                <div className="order-grid-item">
-                  <div className="price-display-section info-card">
-                    <div className="price-item">
-                      <span className="price-label">{baseAsset} Price:</span>
-                      <span className="price-value">
-                        {currentPrices.base > 0
-                          ? (currentPrices.base >= 100
-                              ? `$${currentPrices.base.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-                              : currentPrices.base >= 1
-                                ? `$${currentPrices.base.toFixed(4)}`
-                                : `$${currentPrices.base.toFixed(6)}`)
-                          : '—'}
-                      </span>
-                    </div>
-                    <div className="price-item">
-                      <span className="price-label">{quoteAsset} Price:</span>
-                      <span className="price-value">$1.00</span>
-                    </div>
-                  </div>
+              <div className="trading-asset-card">
+                <CryptoIcon symbol={quoteAsset === 'USDT' ? 'USDT' : 'USD'} size={32} />
+                <div className="trading-asset-card-details">
+                  <span className="trading-asset-card-label">{quoteAsset} Available</span>
+                  <span className="trading-asset-card-value">
+                    {balances.quote.toFixed(2)} <small>{quoteAsset}</small>
+                  </span>
+                  <span className="trading-asset-card-sub">Ready to trade</span>
                 </div>
+              </div>
 
-                {/* Withdraw/Deposit buttons removed */}
-
-                {/* LEFT: Order Side */}
-                <div className="order-grid-item">
-                  <div className="form-group">
-                    <label>Order Side</label>
-                    <div className="side-toggle">
-                      <button
-                        type="button"
-                        className={`side-button buy ${orderForm.side === 'BUY' ? 'active' : ''}`}
-                        onClick={() => {
-                          setOrderForm({ ...orderForm, side: 'BUY' });
-                          setBalancePercentage(0);
-                        }}
-                      >
-                        📈 BUY
-                      </button>
-                      <button
-                        type="button"
-                        className={`side-button sell ${orderForm.side === 'SELL' ? 'active' : ''}`}
-                        onClick={() => {
-                          setOrderForm({ ...orderForm, side: 'SELL' });
-                          setBalancePercentage(0);
-                        }}
-                      >
-                        📉 SELL
-                      </button>
-                    </div>
-                  </div>
+              <div className="trading-asset-card trading-price-card">
+                <div className="trading-price-header">
+                  <span className="trading-asset-card-label">Real-time Price</span>
+                  <span className="live-pulse-dot" />
                 </div>
-                <div className="order-grid-item">
-                  <div className="form-group">
-                    <label htmlFor="type">Order Type</label>
-                    <select
-                      id="type"
-                      value={orderForm.type}
-                      onChange={(e) => {
-                        setOrderForm({
-                          ...orderForm,
-                          type: e.target.value,
-                          price: '',
-                          stopPrice: '',
-                          stopLimitPrice: ''
-                        });
-                        setQuoteQuantity('');
+                <div className="trading-asset-card-value price-highlight">
+                  {currentPrices.base > 0
+                    ? (currentPrices.base >= 100
+                        ? `$${currentPrices.base.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                        : currentPrices.base >= 1
+                          ? `$${currentPrices.base.toFixed(4)}`
+                          : `$${currentPrices.base.toFixed(6)}`)
+                    : '—'}
+                  <small> {quoteAsset}</small>
+                </div>
+                <span className="trading-asset-card-sub">Instant Market Rate</span>
+              </div>
+            </div>
+
+            {/* Redesigned Modern Order Panel */}
+            <form onSubmit={handleOrderSubmit} className="trading-order-panel">
+              {/* Row 1: Order Side & Order Types */}
+              <div className="order-control-row">
+                <div className="order-control-group side-group">
+                  <label className="order-field-label">Order Side</label>
+                  <div className="order-side-segmented">
+                    <button
+                      type="button"
+                      className={`order-side-btn buy-side ${orderForm.side === 'BUY' ? 'active' : ''}`}
+                      onClick={() => {
+                        setOrderForm(prev => ({ ...prev, side: 'BUY' }));
+                        setBalancePercentage(0);
                       }}
-                      className="form-control"
                     >
-                      {orderTypes.map(type => (
-                        <option key={type.value} value={type.value}>
-                          {type.label}
-                        </option>
-                      ))}
-                    </select>
-                    <small className="form-help">
-                      {orderTypes.find(t => t.value === orderForm.type)?.description}
-                    </small>
+                      📈 Buy
+                    </button>
+                    <button
+                      type="button"
+                      className={`order-side-btn sell-side ${orderForm.side === 'SELL' ? 'active' : ''}`}
+                      onClick={() => {
+                        setOrderForm(prev => ({ ...prev, side: 'SELL' }));
+                        setBalancePercentage(0);
+                      }}
+                    >
+                      📉 Sell
+                    </button>
                   </div>
                 </div>
 
-                <div className="order-grid-item">
-                  <div className="form-group">
-                    <label htmlFor="quantity">{baseAsset} Quantity</label>
+                <div className="order-control-group type-group">
+                  <label className="order-field-label">Order Types</label>
+                  <div className="order-type-segmented">
+                    {orderTypes.map((t) => (
+                      <button
+                        key={t.value}
+                        type="button"
+                        className={`order-type-btn ${orderForm.type === t.value ? 'active' : ''}`}
+                        onClick={() => {
+                          setOrderForm(prev => ({
+                            ...prev,
+                            type: t.value,
+                            price: '',
+                            stopPrice: '',
+                            stopLimitPrice: ''
+                          }));
+                          setQuoteQuantity('');
+                        }}
+                        title={t.description}
+                      >
+                        {t.label.replace(' Order', '')}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* Row 2: Quantity and Quote Quantity Inputs */}
+              <div className="order-inputs-row">
+                <div className="order-input-group">
+                  <label className="order-field-label" htmlFor="quantity">
+                    Quantity ({baseAsset})
+                  </label>
+                  <div className="order-input-wrapper">
                     <input
                       id="quantity"
                       type="text"
                       inputMode="decimal"
                       value={orderForm.quantity}
                       onChange={(e) => handleBaseQuantityChange(e.target.value)}
-                      placeholder={`Enter ${baseAsset} quantity`}
-                      className="form-control"
+                      placeholder={`0.0000`}
+                      className="order-styled-input"
                       required
                       autoComplete="off"
                     />
+                    <button
+                      type="button"
+                      className="input-max-btn"
+                      onClick={() => handleBalanceSliderChange(100)}
+                      title="Use 100% Available Balance"
+                    >
+                      MAX
+                    </button>
                   </div>
                 </div>
-                <div className="order-grid-item">
-                  <div className="form-group">
-                    <label htmlFor="quoteQuantity">{quoteAsset} Quantity</label>
+
+                <div className="order-input-group">
+                  <label className="order-field-label" htmlFor="quoteQuantity">
+                    Order Value ($ {quoteAsset})
+                  </label>
+                  <div className="order-input-wrapper">
                     <input
                       id="quoteQuantity"
                       type="text"
                       inputMode="decimal"
                       value={quoteQuantity}
                       onChange={(e) => handleQuoteQuantityChange(e.target.value)}
-                      placeholder={`Enter ${quoteAsset} amount`}
-                      className="form-control"
+                      placeholder={`$0.00`}
+                      className="order-styled-input"
                       autoComplete="off"
                     />
                   </div>
                 </div>
-
-                <div className="order-grid-item">
-                  <div className="form-group">
-                    <label>
-                      Use Balance: {balancePercentage}%
-                      {balancePercentage > 0 && (
-                        <span className="balance-amount">
-                          {' '}({orderForm.side === 'SELL'
-                            ? `${((balances.base * balancePercentage) / 100).toFixed(8)} ${baseAsset}`
-                            : `${((balances.quote * balancePercentage) / 100).toFixed(2)} ${quoteAsset}`})
-                        </span>
-                      )}
-                    </label>
-                    <input
-                      type="range"
-                      min="0"
-                      max="100"
-                      step="1"
-                      value={balancePercentage}
-                      onChange={(e) => handleBalanceSliderChange(parseInt(e.target.value, 10))}
-                      className="balance-slider"
-                    />
-                    <div className="slider-labels">
-                      <span>0%</span>
-                      <span>25%</span>
-                      <span>50%</span>
-                      <span>75%</span>
-                      <span>100%</span>
-                    </div>
-                  </div>
-                </div>
-                <div className="order-grid-item order-grid-item--placeholder" aria-hidden="true" />
-
-                {renderOrderTypeFields()}
-
-                {(parseFloat(orderForm.quantity) > 0 || parseFloat(quoteQuantity) > 0) && (
-                  <div className="order-grid-item grid-span-2">
-                    <div className="fee-display-section">
-                      <div className="fee-row">
-                        <span className="fee-label">Estimated Fee:</span>
-                        <span className="fee-value">
-                          {estimatedFee.amount > 0
-                            ? `${estimatedFee.amount < 0.001 ? estimatedFee.amount.toFixed(6) : estimatedFee.amount.toFixed(4)} ${estimatedFee.asset || (orderForm.side === 'BUY' ? baseAsset : quoteAsset)}`
-                            : `0.0000 ${orderForm.side === 'BUY' ? baseAsset : quoteAsset}`}
-                        </span>
-                      </div>
-                      <div className="fee-row">
-                        <span className="fee-label">Fee in USD:</span>
-                        <span className="fee-value">
-                          {estimatedFee.usd > 0
-                            ? (estimatedFee.usd < 0.01 ? `$${estimatedFee.usd.toFixed(4)}` : `$${estimatedFee.usd.toFixed(2)}`)
-                            : '$0.00'}
-                        </span>
-                      </div>
-                      <div className="fee-total">
-                        <span className="fee-label">{orderForm.side === 'BUY' ? 'Total Cost:' : 'You Receive:'}:</span>
-                        <span className="fee-value">
-                          {orderForm.side === 'BUY'
-                            ? `$${((parseFloat(orderForm.quantity || 0) * determinePriceForCalculations()) + (estimatedFee.usd || 0)).toFixed(2)}`
-                            : `${Math.max(0, (parseFloat(orderForm.quantity || 0) * determinePriceForCalculations()) - (estimatedFee.usd || 0)).toFixed(2)} ${quoteAsset}`
-                          }
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                <div className="order-grid-item grid-span-2 order-submit-cell">
-                  <button
-                    type="submit"
-                    className={`submit-button ${orderForm.side.toLowerCase()}`}
-                    disabled={loading}
-                  >
-                    {loading ? (
-                      <span>⏳ Processing...</span>
-                    ) : (
-                      <span>
-                        {settings.test_mode_enabled ? '🧪 Place Test Order' : '⚡ Place Real Order'}
-                      </span>
-                    )}
-                  </button>
-                </div>
-
-                {!settings.test_mode_enabled && (
-                  <div className="order-grid-item grid-span-2">
-                    <div className="real-order-warning">
-                      ⚠️ <strong>WARNING:</strong> You are in REAL TRADING MODE. This will place an actual order on Binance.US.
-                    </div>
-                  </div>
-                )}
               </div>
+
+              {/* Conditional Type Fields (Limit Price, Stop Price, OCO, Time in Force) */}
+              {renderOrderTypeFields()}
+
+              {/* Row 3: Use Balance Slider Section */}
+              <div className="order-slider-section">
+                <div className="order-slider-header">
+                  <span className="order-field-label">Use Balance: {balancePercentage}%</span>
+                  {balancePercentage > 0 && (
+                    <span className="order-slider-amount">
+                      ({orderForm.side === 'SELL'
+                        ? `${((balances.base * balancePercentage) / 100).toFixed(8)} ${baseAsset}`
+                        : `$${((balances.quote * balancePercentage) / 100).toFixed(2)} ${quoteAsset}`})
+                    </span>
+                  )}
+                </div>
+                <input
+                  type="range"
+                  min="0"
+                  max="100"
+                  step="1"
+                  value={balancePercentage}
+                  onChange={(e) => handleBalanceSliderChange(parseInt(e.target.value, 10))}
+                  className="modern-balance-slider"
+                  style={{
+                    background: `linear-gradient(to right, ${orderForm.side === 'BUY' ? '#10b981' : '#ef4444'} ${balancePercentage}%, rgba(255, 255, 255, 0.1) ${balancePercentage}%)`
+                  }}
+                />
+                <div className="slider-pills-row">
+                  {[0, 25, 50, 75, 100].map((pct) => (
+                    <button
+                      key={pct}
+                      type="button"
+                      className={`slider-pct-pill ${balancePercentage === pct ? 'active' : ''}`}
+                      onClick={() => handleBalanceSliderChange(pct)}
+                    >
+                      {pct}%
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Row 4: Order Summary Card */}
+              {(parseFloat(orderForm.quantity) > 0 || parseFloat(quoteQuantity) > 0) && (
+                <div className="order-summary-card">
+                  <div className="order-summary-row">
+                    <span>Order Total:</span>
+                    <strong>
+                      ${(parseFloat(orderForm.quantity || 0) * determinePriceForCalculations()).toFixed(2)} {quoteAsset}
+                    </strong>
+                  </div>
+                  <div className="order-summary-row">
+                    <span>Estimated Fee (0.1%):</span>
+                    <span>
+                      {estimatedFee.usd > 0
+                        ? `$${estimatedFee.usd.toFixed(4)}`
+                        : '$0.00'}
+                    </span>
+                  </div>
+                  <div className="order-summary-row order-summary-total">
+                    <span>{orderForm.side === 'BUY' ? 'Total Cost:' : 'You Receive:'}</span>
+                    <span className="summary-total-val">
+                      {orderForm.side === 'BUY'
+                        ? `$${((parseFloat(orderForm.quantity || 0) * determinePriceForCalculations()) + (estimatedFee.usd || 0)).toFixed(2)}`
+                        : `${Math.max(0, (parseFloat(orderForm.quantity || 0) * determinePriceForCalculations()) - (estimatedFee.usd || 0)).toFixed(2)} ${quoteAsset}`}
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              {/* Row 5: Action Submit Button */}
+              <button
+                type="submit"
+                className={`modern-submit-button ${orderForm.side.toLowerCase()}`}
+                disabled={loading}
+              >
+                {loading ? (
+                  <span>⏳ Processing Order...</span>
+                ) : (
+                  <span>
+                    {settings.test_mode_enabled
+                      ? '🧪 Place Test Order'
+                      : `⚡ Place Real ${orderForm.type === 'MARKET' ? 'Market' : orderForm.type === 'LIMIT' ? 'Limit' : ''} ${orderForm.side === 'BUY' ? 'Buy' : 'Sell'} Order`}
+                  </span>
+                )}
+              </button>
+
+              {/* Row 6: Warning if Real Trading Mode */}
+              {!settings.test_mode_enabled && (
+                <div className="modern-real-warning">
+                  ⚠️ <strong>WARNING:</strong> You are in REAL TRADING MODE. This will execute an actual live order on Binance.US.
+                </div>
+              )}
             </form>
           </div>
         )}

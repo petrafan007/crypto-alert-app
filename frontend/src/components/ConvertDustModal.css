@@ -180,21 +180,23 @@
   white-space: nowrap;
 }
 
-.dust-assets-table tbody tr {
-  transition: background 0.15s;
-}
-.dust-assets-table tbody tr:hover {
-  background: rgba(102,126,234,0.07);
-}
-
-.dust-assets-table tbody td {
+.dust-assets-table tbody tr td,
+.dust-assets-table tbody tr:nth-child(even) td,
+.dust-assets-table tbody tr:nth-child(odd) td {
   padding: 11px 14px;
-  color: rgba(255,255,255,0.85);
+  color: rgba(255,255,255,0.85) !important;
   border-bottom: 1px solid rgba(255,255,255,0.05);
   vertical-align: middle;
-  background: transparent;
+  background: transparent !important;
   white-space: nowrap;
 }
+
+.dust-assets-table tbody tr:hover td,
+.dust-assets-table tbody tr:nth-child(even):hover td,
+.dust-assets-table tbody tr:nth-child(odd):hover td {
+  background: rgba(102,126,234,0.12) !important;
+}
+
 .dust-assets-table tbody tr:last-child td { border-bottom: none; }
 
 /* Checkbox column */
@@ -413,10 +415,24 @@ body:not(.dark-mode) .dust-assets-table thead th {
   border-bottom-color: #e5e7eb;
 }
 
-body.light-mode .dust-assets-table tbody td,
-body:not(.dark-mode) .dust-assets-table tbody td {
-  color: #1f2937;
-  border-bottom-color: #f3f4f6;
+body.light-mode .dust-assets-table tbody tr td,
+body.light-mode .dust-assets-table tbody tr:nth-child(even) td,
+body.light-mode .dust-assets-table tbody tr:nth-child(odd) td,
+body:not(.dark-mode) .dust-assets-table tbody tr td,
+body:not(.dark-mode) .dust-assets-table tbody tr:nth-child(even) td,
+body:not(.dark-mode) .dust-assets-table tbody tr:nth-child(odd) td {
+  color: #1f2937 !important;
+  background: #ffffff !important;
+  border-bottom: 1px solid #f3f4f6;
+}
+
+body.light-mode .dust-assets-table tbody tr:hover td,
+body.light-mode .dust-assets-table tbody tr:nth-child(even):hover td,
+body.light-mode .dust-assets-table tbody tr:nth-child(odd):hover td,
+body:not(.dark-mode) .dust-assets-table tbody tr:hover td,
+body:not(.dark-mode) .dust-assets-table tbody tr:nth-child(even):hover td,
+body:not(.dark-mode) .dust-assets-table tbody tr:nth-child(odd):hover td {
+  background: #eff6ff !important;
 }
 
 body.light-mode .dust-asset-symbol,
