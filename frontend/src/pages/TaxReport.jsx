@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
+import CryptoIcon from '../components/CryptoIcon';
 
 export default function TaxReport({ isLightMode }) {
   const [taxData, setTaxData] = useState(null);
@@ -813,6 +814,12 @@ export default function TaxReport({ isLightMode }) {
                                  </span>
                                ) : '—'
                              ) :
+                              columnKey === 'asset' ? (
+                                <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', justifyContent: 'center' }}>
+                                  <CryptoIcon symbol={tx[columnKey]} size={18} />
+                                  <span>{tx[columnKey] || '—'}</span>
+                                </span>
+                              ) :
                              tx[columnKey] || '—'}
                           </span>
                         )}

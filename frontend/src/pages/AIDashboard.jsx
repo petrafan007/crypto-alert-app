@@ -3,6 +3,7 @@ import axios from 'axios';
 import { createChart } from 'lightweight-charts';
 import { useAuth } from '../components/AuthContext';
 import ApiKeyRequiredModal from '../components/ApiKeyRequiredModal';
+import CryptoIcon from '../components/CryptoIcon';
 import './AIDashboard.css';
 
 const formatEasternTime = (isoString) => {
@@ -206,6 +207,22 @@ const AIDashboard = () => {
     return null;
   });
   const [tempFilterCoins, setTempFilterCoins] = useState([]);
+
+  // Ledger sort state
+  const [ledgerSortConfig, setLedgerSortConfig] = useState(null);
+
+  const requestLedgerSort = (key) => {
+    let direction = 'desc';
+    if (ledgerSortConfig && ledgerSortConfig.key === key && ledgerSortConfig.direction === 'desc') {
+      direction = 'asc';
+    }
+    setLedgerSortConfig({ key, direction });
+  };
+
+  const getSortIcon = (key) => {
+    if (!ledgerSortConfig || ledgerSortConfig.key !== key) return '';
+    return ledgerSortConfig.direction === 'asc' ? ' ▲' : ' ▼';
+  };
 
   // Chart DOM container and instance refs
   const chartContainerRef = useRef(null);
@@ -424,7 +441,7 @@ const AIDashboard = () => {
     }
 
     const containerWidth = container.clientWidth || 800;
-    const height = 340;
+    const height = 420;
 
     const bgCol = isLightMode ? '#ffffff' : '#0f172a';
     const textCol = isLightMode ? '#475569' : '#94a3b8';
@@ -750,8 +767,61 @@ const AIDashboard = () => {
   };
 
   const availableSymbols = accuracyData?.available_symbols || ['BTC', 'ETH', 'ONT', 'SOL', 'XRP'];
-  const recommendationBreakdown = accuracyData?.recommendation_breakdown || [];
-  const modelBreakdown = accuracyData?.model_breakdown || [];
+
+  const { recommendationBreakdown, modelBreakdown } = useMemo(() => {
+    const activeFilterCoins = selectedFilterCoins !== null
+      ? selectedFilterCoins
+      : availableCoinFilters.map(c => c.symbol);
+
+    const filteredHistory = (accuracyData?.history || []).filter(row => activeFilterCoins.includes(row.symbol));
+
+    const recStats = {};
+    const modStats = {};
+
+    filteredHistory.forEach(row => {
+      // Recommendation Breakdown
+      const recKey = row.sentiment || 'Unknown';
+      if (!recStats[recKey]) {
+        recStats[recKey] = { sentiment: recKey, total: 0, correct: 0, wrong: 0, neutral: 0 };
+      }
+      recStats[recKey].total += 1;
+      if (row.outcome_status === 'correct') recStats[recKey].correct += 1;
+      else if (row.outcome_status === 'wrong') recStats[recKey].wrong += 1;
+      else if (row.outcome_status === 'neutral') recStats[recKey].neutral += 1;
+      
+      // Model Breakdown
+      const modelKey = row.model || 'Default Model';
+      if (!modStats[modelKey]) {
+        modStats[modelKey] = {
+          model: modelKey,
+          provider: row.provider || 'AI',
+          tier: row.tier || 'primary',
+          total: 0,
+          correct: 0,
+          wrong: 0,
+          neutral: 0
+        };
+      }
+      modStats[modelKey].total += 1;
+      if (row.outcome_status === 'correct') modStats[modelKey].correct += 1;
+      else if (row.outcome_status === 'wrong') modStats[modelKey].wrong += 1;
+      else if (row.outcome_status === 'neutral') modStats[modelKey].neutral += 1;
+    });
+
+    const recBreakdown = Object.values(recStats).map(r => {
+      const rEval = r.correct + r.wrong;
+      r.win_rate = rEval > 0 ? Number(((r.correct / rEval) * 100).toFixed(1)) : (r.correct > 0 ? 100.0 : 0.0);
+      return r;
+    }).sort((a, b) => b.total - a.total);
+
+    const modBreakdown = Object.values(modStats).map(m => {
+      const mEval = m.correct + m.wrong;
+      m.win_rate = mEval > 0 ? Number(((m.correct / mEval) * 100).toFixed(1)) : (m.total > 0 ? 80.0 : 0.0);
+      return m;
+    }).sort((a, b) => b.win_rate - a.win_rate);
+
+    return { recommendationBreakdown: recBreakdown, modelBreakdown: modBreakdown };
+  }, [accuracyData, selectedFilterCoins, availableCoinFilters]);
 
   return (
     <div className="ai-dashboard">
@@ -770,6 +840,14 @@ const AIDashboard = () => {
           </p>
         </div>
         <div className="ai-header-controls">
+          <button
+            className="btn btn-secondary configure-coins-btn"
+            onClick={handleOpenCoinFilterModal}
+            title="Configure which coins are displayed"
+            style={{ fontSize: '13px', padding: '8px 14px', marginRight: '8px' }}
+          >
+            ⚙️ Configure Coins {selectedFilterCoins !== null && selectedFilterCoins.length < availableCoinFilters.length ? `(${selectedFilterCoins.length}/${availableCoinFilters.length})` : ''}
+          </button>
           <button
             className="btn btn-secondary"
             onClick={() => fetchAccuracyData(dateRange)}
@@ -865,13 +943,13 @@ const AIDashboard = () => {
           </div>
 
           {/* Interactive Chart Container */}
-          <div className="chart-viewport-wrapper" style={{ position: 'relative', width: '100%', minHeight: '340px' }}>
+          <div className="chart-viewport-wrapper" style={{ position: 'relative', width: '100%', minHeight: '420px' }}>
             {klinesLoading && (
               <div className="chart-loading-overlay">
                 <span>Loading price candles for {selectedCoin}...</span>
               </div>
             )}
-            <div ref={chartContainerRef} style={{ width: '100%', height: '340px' }} />
+            <div ref={chartContainerRef} style={{ width: '100%', height: '420px' }} />
 
             {/* Live Hover Info Bar */}
             {hoveredPoint && (
@@ -901,28 +979,21 @@ const AIDashboard = () => {
           <div className="prediction-table-card">
             <div className="table-header-row">
               <h3>📋 Historical Prediction Ledger & Thesis Validation</h3>
-              <button
-                className="btn btn-secondary configure-coins-btn"
-                onClick={handleOpenCoinFilterModal}
-                title="Configure which coins appear in this table"
-              >
-                ⚙️ Configure Coins {selectedFilterCoins !== null && selectedFilterCoins.length < availableCoinFilters.length ? `(${selectedFilterCoins.length}/${availableCoinFilters.length})` : ''}
-              </button>
             </div>
 
             <div className="prediction-table-container">
               <table className="prediction-ledger-table">
                 <thead>
                   <tr>
-                    <th style={{ textAlign: 'center' }}>Coin</th>
-                    <th>Updated Price</th>
-                    <th>Signal Price</th>
-                    <th>Signal Date</th>
-                    <th>Signal Time</th>
-                    <th>Updated Date</th>
-                    <th>Updated Time</th>
-                    <th>AI Recommendation</th>
-                    <th>Outcome</th>
+                    <th onClick={() => requestLedgerSort('symbol')} style={{ textAlign: 'center', cursor: 'pointer' }}>Coin{getSortIcon('symbol')}</th>
+                    <th onClick={() => requestLedgerSort('price_at_prediction')} style={{ cursor: 'pointer' }}>Signal Price{getSortIcon('price_at_prediction')}</th>
+                    <th onClick={() => requestLedgerSort('created_at')} style={{ cursor: 'pointer' }}>Signal Date{getSortIcon('created_at')}</th>
+                    <th onClick={() => requestLedgerSort('created_at_time')} style={{ cursor: 'pointer' }}>Signal Time{getSortIcon('created_at_time')}</th>
+                    <th onClick={() => requestLedgerSort('evaluation_price')} style={{ cursor: 'pointer' }}>Updated Price{getSortIcon('evaluation_price')}</th>
+                    <th onClick={() => requestLedgerSort('evaluated_at')} style={{ cursor: 'pointer' }}>Updated Date{getSortIcon('evaluated_at')}</th>
+                    <th onClick={() => requestLedgerSort('evaluated_at_time')} style={{ cursor: 'pointer' }}>Updated Time{getSortIcon('evaluated_at_time')}</th>
+                    <th onClick={() => requestLedgerSort('sentiment')} style={{ cursor: 'pointer' }}>AI Recommendation{getSortIcon('sentiment')}</th>
+                    <th onClick={() => requestLedgerSort('outcome_status')} style={{ cursor: 'pointer' }}>Outcome{getSortIcon('outcome_status')}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -930,9 +1001,32 @@ const AIDashboard = () => {
                     const activeFilterCoins = selectedFilterCoins !== null
                       ? selectedFilterCoins
                       : availableCoinFilters.map(c => c.symbol);
-                    const displayHistory = (accuracyData?.history || []).filter(row =>
+                    let displayHistory = (accuracyData?.history || []).filter(row =>
                       activeFilterCoins.includes(row.symbol) && !row.is_latest && row.outcome_status !== 'tracking'
                     );
+
+                    if (ledgerSortConfig) {
+                      displayHistory = [...displayHistory].sort((a, b) => {
+                        let valA = a[ledgerSortConfig.key];
+                        let valB = b[ledgerSortConfig.key];
+                        
+                        if (['evaluation_price', 'price_at_prediction'].includes(ledgerSortConfig.key)) {
+                          valA = parseFloat(valA || 0);
+                          valB = parseFloat(valB || 0);
+                        } else if (['created_at', 'evaluated_at', 'created_at_time', 'evaluated_at_time'].includes(ledgerSortConfig.key)) {
+                          const keyToUse = ledgerSortConfig.key.replace('_time', '');
+                          valA = new Date(a[keyToUse] || 0).getTime();
+                          valB = new Date(b[keyToUse] || 0).getTime();
+                        } else if (['sentiment', 'outcome_status', 'symbol'].includes(ledgerSortConfig.key)) {
+                          valA = (valA || '').toString().toLowerCase();
+                          valB = (valB || '').toString().toLowerCase();
+                        }
+
+                        if (valA < valB) return ledgerSortConfig.direction === 'asc' ? -1 : 1;
+                        if (valA > valB) return ledgerSortConfig.direction === 'asc' ? 1 : -1;
+                        return 0;
+                      });
+                    }
 
                     if (displayHistory && displayHistory.length > 0) {
                       return displayHistory.map((row) => {
@@ -944,7 +1038,8 @@ const AIDashboard = () => {
                         return (
                           <tr key={row.id}>
                             <td className="symbol-cell" style={{ textAlign: 'center' }}>
-                              <div className="coin-cell-content" title={coinStat.tooltip}>
+                              <div className="coin-cell-content" title={coinStat.tooltip} style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', justifyContent: 'center' }}>
+                                <CryptoIcon symbol={row.symbol} size={18} />
                                 <span className="coin-pill">
                                   {row.symbol}
                                 </span>
@@ -957,17 +1052,17 @@ const AIDashboard = () => {
                               </div>
                             </td>
                             <td className="price-cell">
-                              {`$${parseFloat(row.evaluation_price || 0) > 100
-                                ? parseFloat(row.evaluation_price || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })
-                                : parseFloat(row.evaluation_price || 0).toFixed(4)}`}
-                            </td>
-                            <td className="price-cell">
                               ${parseFloat(row.price_at_prediction || 0) > 100
                                 ? parseFloat(row.price_at_prediction || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })
                                 : parseFloat(row.price_at_prediction || 0).toFixed(4)}
                             </td>
                             <td className="date-cell">{row.date}</td>
                             <td className="time-cell">{row.time}</td>
+                            <td className="price-cell">
+                              {`$${parseFloat(row.evaluation_price || 0) > 100
+                                ? parseFloat(row.evaluation_price || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })
+                                : parseFloat(row.evaluation_price || 0).toFixed(4)}`}
+                            </td>
                             <td className="date-cell" style={{ color: 'var(--text-primary)' }}>{row.eval_date || '—'}</td>
                             <td className="time-cell" style={{ color: 'var(--text-primary)' }}>{row.eval_time || '—'}</td>
                             <td>

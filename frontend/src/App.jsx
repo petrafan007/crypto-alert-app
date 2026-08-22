@@ -164,11 +164,11 @@ export default function App() {
       <nav className="nav-container">
         <div className="nav-content" style={{ flexDirection: 'column' }}>
           {user && (
-            <div className="nav-links" style={{ width: '100%', justifyContent: 'center', position: 'relative' }}>
-              <div id="navbar-customize-portal" style={{ position: 'absolute', left: '0', display: 'flex', alignItems: 'center', height: '100%' }}></div>
+            <div className="nav-links" style={{ width: '100%', justifyContent: 'center' }}>
               <Link to="/" className="nav-link">
                 📊 Dashboard
               </Link>
+              <div id="navbar-customize-portal" style={{ display: 'inline-flex', alignItems: 'center' }}></div>
               <Link to="/ai-analysis" className="nav-link">
                 🤖 AI Analysis
               </Link>

@@ -81,6 +81,19 @@ The application utilizes a **unified PostgreSQL database**.
 
 ## Version History & Changelog
 
+## v1.63-beta (August 2026)
+
+### True Drag-to-Resize Dashboard Grid, Official Cryptocurrency Icons & AI Analysis Enhancements
+- **Official Cryptocurrency Coin Icons**: Added rich, high-resolution vector cryptocurrency icons alongside coin symbols across Portfolio, Watchlist, Historical Prediction Ledger, and Tax Report transaction log tables.
+- **True Drag-to-Resize Widget Grid**: Integrated responsive multi-handle drag-to-resize across all upper dashboard widgets with smooth real-time resizing and grid snapping.
+- **Navbar Layout Fix**: Moved the "Customize Layout" button inline with dashboard controls to ensure zero overlap with navigation items.
+- **Watchlist Delete Button Styling**: Matched the Watchlist "Delete" button styling with standard gradient trade action buttons.
+- **AI Analysis Page Refinements**:
+  - Expanded the Sentiment vs. Price Action chart height by 24% (to 420px).
+  - Reordered Prediction Ledger columns and made all headers fully sortable.
+  - Enabled dynamic global coin filtering for Recommendation Type Accuracy and AI Model Leaderboards.
+- **Version Bump**: Synchronized all client and package metadata to `v1.63-beta`.
+
 ## v1.62-beta (August 2026)
 
 ### Customizable Upper Dashboard Widget Grid & Modernized Tables Facelift

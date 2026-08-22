@@ -13,6 +13,7 @@ import StakingSummaryWidget from '../components/StakingSummaryWidget';
 import PortfolioPerformanceTable from '../components/PortfolioPerformanceTable';
 import DashboardWidgetGrid from '../components/DashboardWidgetGrid';
 import { FaSyncAlt } from 'react-icons/fa';
+import CryptoIcon from '../components/CryptoIcon';
 
 const TREND_RANGES = [
   { key: '4H', label: '4H' },
@@ -2113,7 +2114,10 @@ function Dashboard({ isLightMode }) {
                       style={{ cursor: 'pointer' }}
                       title="Hover for 7-day chart, click to open on Binance"
                     >
-                      {coin.symbol}
+                      <div className="coin-symbol-container" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', justifyContent: 'center' }}>
+                        <CryptoIcon symbol={coin.symbol} size={20} />
+                        <span>{coin.symbol}</span>
+                      </div>
                     </td>
                     <td>{coin.pendingPlaceholder ? '0.0000' : (coin.amount !== undefined && coin.amount !== null ? coin.amount.toFixed(4) : '—')}</td>
                     <td style={{ whiteSpace: 'nowrap' }}>{coin.current_price ? `$${coin.current_price.toFixed(2)}` : '—'}</td>
@@ -2295,7 +2299,10 @@ function Dashboard({ isLightMode }) {
                     onClick={() => handleChartClick(item.symbol)}
                     title="Hover for 7-day chart, click to open on Binance"
                   >
-                    {item.symbol}
+                    <div className="coin-symbol-container" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', justifyContent: 'center' }}>
+                      <CryptoIcon symbol={item.symbol} size={20} />
+                      <span>{item.symbol}</span>
+                    </div>
                   </td>
                   <td style={{ whiteSpace: 'nowrap', textAlign: 'center' }}>{item.current_price ? `$${item.current_price.toFixed(2)}` : '—'}</td>
                   {renderSentimentCell(item, true)}
@@ -2349,17 +2356,7 @@ function Dashboard({ isLightMode }) {
                           Buy
                         </button>
                         <button
-                          className="btn"
-                          style={{
-                            background: '#f56565',
-                            color: '#fff',
-                            border: 'none',
-                            padding: '4px 8px',
-                            borderRadius: '4px',
-                            cursor: 'pointer',
-                            fontSize: '12px',
-                            marginLeft: 8
-                          }}
+                          className="trade-action-btn delete"
                           onClick={() => deleteWatchlistItem(item.symbol)}
                           title="Delete from watchlist"
                         >
