@@ -62,6 +62,64 @@
   font-style: italic;
 }
 
+.dashboard-save-layout-btn {
+  background: #0284c7;
+  color: #ffffff;
+  border: 1px solid #38bdf8;
+  border-radius: 6px;
+  padding: 0.45rem 0.85rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  box-shadow: 0 0 10px rgba(56, 189, 248, 0.25);
+}
+
+.dashboard-save-layout-btn:hover {
+  background: #0369a1;
+  box-shadow: 0 0 14px rgba(56, 189, 248, 0.45);
+}
+
+.dashboard-undo-layout-btn {
+  background: #1e293b;
+  color: #e2e8f0;
+  border: 1px solid #475569;
+  border-radius: 6px;
+  padding: 0.45rem 0.85rem;
+  font-size: 0.85rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.dashboard-undo-layout-btn:hover:not(:disabled) {
+  background: #334155;
+  border-color: #38bdf8;
+  color: #38bdf8;
+}
+
+.dashboard-undo-layout-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.dashboard-cancel-layout-btn {
+  background: rgba(239, 68, 68, 0.15);
+  color: #f87171;
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  border-radius: 6px;
+  padding: 0.45rem 0.85rem;
+  font-size: 0.85rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.dashboard-cancel-layout-btn:hover {
+  background: #ef4444;
+  color: #ffffff;
+}
+
 .dashboard-add-widget-btn,
 .dashboard-reset-layout-btn {
   background: #1e293b;
@@ -374,6 +432,39 @@
 
 .light-mode .dashboard-edit-hint {
   color: #64748b;
+}
+
+.light-mode .dashboard-save-layout-btn {
+  background: #0284c7;
+  color: #ffffff;
+  border-color: #0284c7;
+}
+
+.light-mode .dashboard-save-layout-btn:hover {
+  background: #0369a1;
+}
+
+.light-mode .dashboard-undo-layout-btn {
+  background: #ffffff;
+  color: #1e293b;
+  border-color: #cbd5e1;
+}
+
+.light-mode .dashboard-undo-layout-btn:hover:not(:disabled) {
+  background: #f8fafc;
+  color: #0284c7;
+  border-color: #0284c7;
+}
+
+.light-mode .dashboard-cancel-layout-btn {
+  background: rgba(239, 68, 68, 0.1);
+  color: #dc2626;
+  border-color: rgba(239, 68, 68, 0.3);
+}
+
+.light-mode .dashboard-cancel-layout-btn:hover {
+  background: #ef4444;
+  color: #ffffff;
 }
 
 .light-mode .dashboard-add-widget-btn,

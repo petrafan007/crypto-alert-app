@@ -13,6 +13,13 @@ import CBBIWidget from '../components/CBBIWidget';
 import StakingSummaryWidget from '../components/StakingSummaryWidget';
 import PortfolioPerformanceTable from '../components/PortfolioPerformanceTable';
 import DashboardWidgetGrid from '../components/DashboardWidgetGrid';
+import TopMoversWidget from '../components/TopMoversWidget';
+import RecentTradesWidget from '../components/RecentTradesWidget';
+import AIPulseWidget from '../components/AIPulseWidget';
+import StakingYieldWidget from '../components/StakingYieldWidget';
+import RiskMonitorWidget from '../components/RiskMonitorWidget';
+import QuickTradeWidget from '../components/QuickTradeWidget';
+import GasMonitorWidget from '../components/GasMonitorWidget';
 import { FaSyncAlt } from 'react-icons/fa';
 import CryptoIcon from '../components/CryptoIcon';
 
@@ -2290,6 +2297,20 @@ function Dashboard({ isLightMode }) {
               return <StakingSummaryWidget />;
             case 'performance':
               return <PortfolioPerformanceTable hiddenCoins={performanceHiddenCoins} />;
+            case 'top_movers':
+              return <TopMoversWidget isLightMode={isLightMode} />;
+            case 'recent_trades':
+              return <RecentTradesWidget isLightMode={isLightMode} />;
+            case 'ai_pulse':
+              return <AIPulseWidget isLightMode={isLightMode} />;
+            case 'staking_rewards':
+              return <StakingYieldWidget isLightMode={isLightMode} />;
+            case 'risk_monitor':
+              return <RiskMonitorWidget isLightMode={isLightMode} portfolio={portfolio} totalValue={totalValue} />;
+            case 'quick_trade':
+              return <QuickTradeWidget isLightMode={isLightMode} portfolio={portfolio} />;
+            case 'gas_monitor':
+              return <GasMonitorWidget isLightMode={isLightMode} />;
             default:
               return null;
           }

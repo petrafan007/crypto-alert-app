@@ -122,6 +122,21 @@ The application utilizes a **unified PostgreSQL database**.
 
 ## Version History & Changelog
 
+## v1.70-beta (August 2026)
+
+### Dashboard Layout History Management & 7 New Modular Panels
+- **Layout History Stack & Undo (`↩ Undo`)**: Added a 5-step undo history engine to the Customize Layout toolbar. Users can undo panel drag/moves, resizes, panel additions, and panel removals sequentially.
+- **Explicit Save & Cancel (`💾 Save` / `✕ Cancel`)**: Added explicit Save and Cancel controls in Customize Layout mode. Clicking **Save** persists layout states with live visual feedback, while **Cancel** cleanly rolls back all modifications to the state when edit mode was entered.
+- **7 New Modular Dashboard Widgets**: Introduced 7 new widgets available directly within the *＋ Add / Restore Panels* menu:
+  1. **🔥 Top Gainers & Losers**: 24h market momentum tracker across portfolio and watchlist assets.
+  2. **📜 Recent Order History**: Real-time filled trade feed with timestamps, side badges, and execution totals.
+  3. **🤖 AI Copilot Market Pulse**: Macro market sentiment scoring, catalyst summaries, and AI market commentary.
+  4. **🌾 Staking Yield & Rewards Tracker**: Projected daily, monthly, and yearly staking yield breakdowns with APR metrics.
+  5. **🛡️ Portfolio Risk & Drawdown Monitor**: Peak ATH drawdown analysis, asset concentration gauges, and risk profiling.
+  6. **⚡ Quick Trade Mini-Terminal**: Fast market buy/sell order launcher directly from the main dashboard.
+  7. **⛽ Network Gas & Fee Monitor**: Live blockchain network fee trackers for Bitcoin, Ethereum, and Solana.
+- **Version Bump**: Synchronized metadata across `version.js`, `package.json`, and UI footer to `v1.70-beta`.
+
 ## v1.69-beta (August 2026)
 
 ### Coin Performance Customization & Trade Menu UX Enhancements

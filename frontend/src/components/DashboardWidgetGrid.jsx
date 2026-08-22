@@ -14,7 +14,24 @@ const WIDGETS = [
   { id: 'staking', title: 'Staking Rewards' },
   { id: 'performance', title: '7-Day Performance' },
   { id: 'allocations', title: 'Asset Allocations' },
-  { id: 'trend', title: 'Portfolio Trend' }
+  { id: 'trend', title: 'Portfolio Trend' },
+  { id: 'top_movers', title: 'Top Gainers & Losers' },
+  { id: 'recent_trades', title: 'Recent Trade History' },
+  { id: 'ai_pulse', title: 'AI Copilot Market Pulse' },
+  { id: 'staking_rewards', title: 'Staking Yield Tracker' },
+  { id: 'risk_monitor', title: 'Portfolio Risk Monitor' },
+  { id: 'quick_trade', title: 'Quick Trade Terminal' },
+  { id: 'gas_monitor', title: 'Network Gas & Fees' }
+];
+
+const NEW_WIDGET_IDS = [
+  'top_movers',
+  'recent_trades',
+  'ai_pulse',
+  'staking_rewards',
+  'risk_monitor',
+  'quick_trade',
+  'gas_monitor'
 ];
 
 const getWidgetBounds = (id) => {
@@ -26,6 +43,13 @@ const getWidgetBounds = (id) => {
     case 'cbbi': return { minW: 2, minH: 3 };
     case 'portfolio_value': return { minW: 2, minH: 3 };
     case 'staking': return { minW: 2, minH: 3 };
+    case 'top_movers': return { minW: 3, minH: 3 };
+    case 'recent_trades': return { minW: 3, minH: 3 };
+    case 'ai_pulse': return { minW: 3, minH: 3 };
+    case 'staking_rewards': return { minW: 2, minH: 3 };
+    case 'risk_monitor': return { minW: 2, minH: 3 };
+    case 'quick_trade': return { minW: 3, minH: 3 };
+    case 'gas_monitor': return { minW: 2, minH: 3 };
     default: return { minW: 2, minH: 3 };
   }
 };
@@ -40,7 +64,14 @@ const DEFAULT_LAYOUTS = {
     { i: 'fear_greed', x: 3, y: 4, w: 3, h: 3 },
     { i: 'cbbi', x: 6, y: 4, w: 3, h: 3 },
     { i: 'staking', x: 9, y: 4, w: 3, h: 3 },
-    { i: 'performance', x: 0, y: 7, w: 12, h: 2 }
+    { i: 'performance', x: 0, y: 7, w: 12, h: 2 },
+    { i: 'top_movers', x: 0, y: 9, w: 4, h: 3 },
+    { i: 'recent_trades', x: 4, y: 9, w: 4, h: 3 },
+    { i: 'ai_pulse', x: 8, y: 9, w: 4, h: 3 },
+    { i: 'staking_rewards', x: 0, y: 12, w: 3, h: 3 },
+    { i: 'risk_monitor', x: 3, y: 12, w: 3, h: 3 },
+    { i: 'quick_trade', x: 6, y: 12, w: 3, h: 3 },
+    { i: 'gas_monitor', x: 9, y: 12, w: 3, h: 3 }
   ]),
   md: mapLayoutBounds([
     { i: 'allocations', x: 0, y: 0, w: 4, h: 4 },
@@ -49,7 +80,14 @@ const DEFAULT_LAYOUTS = {
     { i: 'fear_greed', x: 5, y: 4, w: 5, h: 3 },
     { i: 'cbbi', x: 0, y: 7, w: 5, h: 3 },
     { i: 'staking', x: 5, y: 7, w: 5, h: 3 },
-    { i: 'performance', x: 0, y: 10, w: 10, h: 2 }
+    { i: 'performance', x: 0, y: 10, w: 10, h: 2 },
+    { i: 'top_movers', x: 0, y: 12, w: 5, h: 3 },
+    { i: 'recent_trades', x: 5, y: 12, w: 5, h: 3 },
+    { i: 'ai_pulse', x: 0, y: 15, w: 5, h: 3 },
+    { i: 'staking_rewards', x: 5, y: 15, w: 5, h: 3 },
+    { i: 'risk_monitor', x: 0, y: 18, w: 5, h: 3 },
+    { i: 'quick_trade', x: 5, y: 18, w: 5, h: 3 },
+    { i: 'gas_monitor', x: 0, y: 21, w: 5, h: 3 }
   ]),
   sm: mapLayoutBounds([
     { i: 'allocations', x: 0, y: 0, w: 6, h: 4 },
@@ -58,12 +96,19 @@ const DEFAULT_LAYOUTS = {
     { i: 'fear_greed', x: 0, y: 11, w: 6, h: 3 },
     { i: 'cbbi', x: 0, y: 14, w: 6, h: 3 },
     { i: 'staking', x: 0, y: 17, w: 6, h: 3 },
-    { i: 'performance', x: 0, y: 20, w: 6, h: 2 }
+    { i: 'performance', x: 0, y: 20, w: 6, h: 2 },
+    { i: 'top_movers', x: 0, y: 22, w: 6, h: 3 },
+    { i: 'recent_trades', x: 0, y: 25, w: 6, h: 3 },
+    { i: 'ai_pulse', x: 0, y: 28, w: 6, h: 3 },
+    { i: 'staking_rewards', x: 0, y: 31, w: 6, h: 3 },
+    { i: 'risk_monitor', x: 0, y: 34, w: 6, h: 3 },
+    { i: 'quick_trade', x: 0, y: 37, w: 6, h: 3 },
+    { i: 'gas_monitor', x: 0, y: 40, w: 6, h: 3 }
   ])
 };
 
-const STORAGE_KEY = 'crypto_dashboard_widget_layout_v1_63';
-const HIDDEN_STORAGE_KEY = 'crypto_dashboard_widget_hidden_v1_63';
+const STORAGE_KEY = 'crypto_dashboard_widget_layout_v1_70';
+const HIDDEN_STORAGE_KEY = 'crypto_dashboard_widget_hidden_v1_70';
 
 const DashboardWidgetGrid = ({
   isLightMode,
@@ -84,11 +129,18 @@ const DashboardWidgetGrid = ({
   const [hiddenWidgetIds, setHiddenWidgetIds] = useState(() => {
     try {
       const saved = localStorage.getItem(HIDDEN_STORAGE_KEY);
-      if (saved) return JSON.parse(saved) || [];
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        // Ensure new widgets are included in hidden list if not already explicitly saved
+        return Array.from(new Set([...(parsed || []), ...NEW_WIDGET_IDS]));
+      }
     } catch (e) { }
-    return [];
+    return [...NEW_WIDGET_IDS];
   });
 
+  const [initialSnapshot, setInitialSnapshot] = useState(null);
+  const [history, setHistory] = useState([]);
+  const [saveToast, setSaveToast] = useState('');
   const [showAddMenu, setShowAddMenu] = useState(false);
   const addMenuRef = useRef(null);
 
@@ -103,33 +155,96 @@ const DashboardWidgetGrid = ({
     return () => document.removeEventListener('mousedown', handleOutsideClick);
   }, []);
 
+  // Enter edit mode
+  const handleToggleEditMode = () => {
+    if (!isEditMode) {
+      // Starting edit mode: record initial snapshot and clear history
+      setInitialSnapshot({
+        layouts: JSON.parse(JSON.stringify(layouts)),
+        hiddenWidgetIds: [...hiddenWidgetIds]
+      });
+      setHistory([]);
+      setIsEditMode(true);
+    } else {
+      // Done editing: save and exit
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(layouts));
+      localStorage.setItem(HIDDEN_STORAGE_KEY, JSON.stringify(hiddenWidgetIds));
+      setIsEditMode(false);
+      setHistory([]);
+      setInitialSnapshot(null);
+    }
+  };
+
+  // Helper to push history before a mutation
+  const pushHistory = (currentLayouts, currentHidden) => {
+    setHistory(prev => [
+      ...prev.slice(-4), // keep last 5 total
+      {
+        layouts: JSON.parse(JSON.stringify(currentLayouts || layouts)),
+        hiddenWidgetIds: [...(currentHidden || hiddenWidgetIds)]
+      }
+    ]);
+  };
+
+  // Explicit Save button
+  const handleSaveOnly = () => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(layouts));
+    localStorage.setItem(HIDDEN_STORAGE_KEY, JSON.stringify(hiddenWidgetIds));
+    setInitialSnapshot({
+      layouts: JSON.parse(JSON.stringify(layouts)),
+      hiddenWidgetIds: [...hiddenWidgetIds]
+    });
+    setSaveToast('✓ Saved!');
+    setTimeout(() => setSaveToast(''), 2000);
+  };
+
+  // Undo button (rolls back to last state in history stack)
+  const handleUndo = () => {
+    if (history.length === 0) return;
+    const previousState = history[history.length - 1];
+    setHistory(prev => prev.slice(0, prev.length - 1));
+    setLayouts(previousState.layouts);
+    setHiddenWidgetIds(previousState.hiddenWidgetIds);
+  };
+
+  // Cancel button (discards all changes since edit mode started)
+  const handleCancel = () => {
+    if (initialSnapshot) {
+      setLayouts(initialSnapshot.layouts);
+      setHiddenWidgetIds(initialSnapshot.hiddenWidgetIds);
+    }
+    setIsEditMode(false);
+    setHistory([]);
+    setInitialSnapshot(null);
+  };
+
   const handleLayoutChange = (layout, allLayouts) => {
-    // Merge minW/minH back in case the library strips them
+    if (!isEditMode) return;
+    pushHistory(layouts, hiddenWidgetIds);
+
     const mappedLayouts = {};
     for (const [bp, l] of Object.entries(allLayouts)) {
       mappedLayouts[bp] = mapLayoutBounds(l);
     }
     setLayouts(mappedLayouts);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(mappedLayouts));
   };
 
   const handleResetLayout = () => {
+    pushHistory(layouts, hiddenWidgetIds);
     setLayouts(DEFAULT_LAYOUTS);
-    setHiddenWidgetIds([]);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(DEFAULT_LAYOUTS));
-    localStorage.setItem(HIDDEN_STORAGE_KEY, JSON.stringify([]));
+    setHiddenWidgetIds(NEW_WIDGET_IDS);
   };
 
   const handleHideWidget = (id) => {
+    pushHistory(layouts, hiddenWidgetIds);
     const updated = [...new Set([...hiddenWidgetIds, id])];
     setHiddenWidgetIds(updated);
-    localStorage.setItem(HIDDEN_STORAGE_KEY, JSON.stringify(updated));
   };
 
   const handleUnhideWidget = (id) => {
+    pushHistory(layouts, hiddenWidgetIds);
     const updated = hiddenWidgetIds.filter(h => h !== id);
     setHiddenWidgetIds(updated);
-    localStorage.setItem(HIDDEN_STORAGE_KEY, JSON.stringify(updated));
     setShowAddMenu(false);
   };
 
@@ -142,7 +257,7 @@ const DashboardWidgetGrid = ({
     <button
       type="button"
       className={portalTarget ? `nav-link ${isEditMode ? 'active' : ''}` : `dashboard-edit-toggle-btn ${isEditMode ? 'active' : ''}`}
-      onClick={() => setIsEditMode(prev => !prev)}
+      onClick={handleToggleEditMode}
       title="Customize dashboard panel positions and sizes"
     >
       {isEditMode ? '✓ Done Editing' : '✏️ Customize Layout'}
@@ -159,7 +274,6 @@ const DashboardWidgetGrid = ({
         <div className="dashboard-grid-toolbar-left">
           {!portalTarget && customizeBtn}
 
-
           {isEditMode && (
             <span className="dashboard-edit-hint">
               Drag by handle (⠿) to reorder, drag any corner/edge to resize, or click (✕) to hide.
@@ -169,6 +283,37 @@ const DashboardWidgetGrid = ({
 
         {isEditMode && (
           <div className="dashboard-grid-toolbar-right">
+            {/* Save Button */}
+            <button
+              type="button"
+              className="dashboard-save-layout-btn"
+              onClick={handleSaveOnly}
+              title="Save current layout changes"
+            >
+              {saveToast || '💾 Save'}
+            </button>
+
+            {/* Undo Button */}
+            <button
+              type="button"
+              className="dashboard-undo-layout-btn"
+              onClick={handleUndo}
+              disabled={history.length === 0}
+              title={history.length > 0 ? `Undo last change (${history.length} in history)` : 'No actions to undo'}
+            >
+              ↩ Undo {history.length > 0 && `(${history.length})`}
+            </button>
+
+            {/* Cancel Button */}
+            <button
+              type="button"
+              className="dashboard-cancel-layout-btn"
+              onClick={handleCancel}
+              title="Discard all changes and exit edit mode"
+            >
+              ✕ Cancel
+            </button>
+
             {/* Add / Unhide Widgets Dropdown */}
             <div className="dashboard-add-widgets-wrapper" ref={addMenuRef}>
               <button
@@ -284,3 +429,4 @@ const DashboardWidgetGrid = ({
 };
 
 export default DashboardWidgetGrid;
+
