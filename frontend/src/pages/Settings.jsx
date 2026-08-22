@@ -85,6 +85,7 @@ export default function Settings({ isLightMode }) {
     sentiment_analysis_frequency_hours: 24,
     watchlist_sentiment_analysis_frequency_hours: 24,
     volatility_hours: 24,
+    toast_notifications_enabled: true,
     tax_cost_basis_method: 'fifo',
     ai_prompts: {
       market_analysis_pre: '',
@@ -2669,8 +2670,35 @@ export default function Settings({ isLightMode }) {
       <div className="settings-grid" style={{ marginTop: '24px' }}>
         {/* Notifications */}
         <div className="settings-page-section">
-          <h3>Notifications</h3>
+          <h3>🔔 Notifications & Alerts</h3>
 
+          <div style={{ marginBottom: 20, padding: '16px', background: 'rgba(255, 255, 255, 0.03)', borderRadius: 8, border: '1px solid rgba(255, 255, 255, 0.08)' }}>
+            <div className="settings-form-group" style={{ marginBottom: 0 }}>
+              <label style={{ display: 'block', marginBottom: 8, color: '#fff', fontWeight: 600 }}>
+                Browser Toast Notifications
+              </label>
+              <div className="settings-checkbox-group">
+                <input
+                  type="checkbox"
+                  checked={settings.toast_notifications_enabled !== false}
+                  onChange={(e) => {
+                    handleInputChange('toast_notifications_enabled', e.target.checked);
+                    localStorage.setItem('crypto_toast_notifications_enabled', e.target.checked ? 'true' : 'false');
+                    window.dispatchEvent(new CustomEvent('app:toast-setting-changed', { detail: { enabled: e.target.checked } }));
+                  }}
+                  className="settings-checkbox"
+                />
+                <span style={{ fontWeight: 500 }}>
+                  Enable instant toast popups in the bottom-right corner
+                </span>
+              </div>
+              <div className="settings-form-help" style={{ marginTop: 6, color: '#94a3b8', fontSize: '0.82rem' }}>
+                Shows modern popup notifications across all pages for completed/filled trades, canceled orders, AI sentiment alerts, and price threshold crossings.
+              </div>
+            </div>
+          </div>
+
+          <h4 style={{ color: '#e2e8f0', marginBottom: 12, fontSize: '0.95rem' }}>📱 Telegram Integration</h4>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
             <div>
               <label style={{ display: 'block', marginBottom: 8, color: '#fff' }}>

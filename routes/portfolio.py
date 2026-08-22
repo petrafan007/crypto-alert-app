@@ -40,7 +40,7 @@ from services.staking_service import (
     binance_us_api_call
 )
 from services.credential_service import get_user_credentials
-from services.notification_service import notify_order_fill
+from services.notification_service import notify_order_fill, create_system_notification, send_telegram_message
 from services.common import _coerce_float, format_price, format_quantity
 from credential_security import decrypt_secret
 from transaction_utils import recalculate_asset_activity
@@ -583,6 +583,34 @@ def api_place_order():
             except Exception as log_e:
                 logger.error(f"Failed to log transaction: {log_e}")
             
+            try:
+                status = order.get('status', 'NEW')
+                executed_qty_val = float(order.get('executedQty', quantity or 0))
+                if status == 'FILLED':
+                    fill_price_val = avg_price if avg_price > 0 else float(price or 0)
+                    total_proceeds_val = proceeds if proceeds > 0 else (executed_qty_val * fill_price_val)
+                    msg = f"✅ ORDER FILLED: {side.upper()} {executed_qty_val} {base_symbol}\nPrice: ${fill_price_val:.4f}\nTotal: ${total_proceeds_val:.2f}"
+                    send_telegram_message(current_user.username, msg)
+                    create_system_notification(
+                        user_id_or_name=current_user.id,
+                        category='order_filled',
+                        symbol=base_symbol,
+                        message=f"Filled {side.upper()} {executed_qty_val} {base_symbol} @ ${fill_price_val:.4f} (Total: ${total_proceeds_val:.2f})",
+                        current_price=fill_price_val,
+                        direction='buy' if side.upper() == 'BUY' else 'sell'
+                    )
+                elif status == 'NEW':
+                    create_system_notification(
+                        user_id_or_name=current_user.id,
+                        category='order_placed',
+                        symbol=base_symbol,
+                        message=f"Placed {side.upper()} {quantity} {base_symbol} {order_type.upper()} order" + (f" @ ${price}" if price else ""),
+                        current_price=float(price or avg_price or 0.0),
+                        direction='buy' if side.upper() == 'BUY' else 'sell'
+                    )
+            except Exception as notif_err:
+                logger.warning(f"Failed to send order notification: {notif_err}")
+
             return jsonify({
                 'success': True,
                 'order_id': order['orderId'],
@@ -1055,6 +1083,18 @@ def api_cancel_order(order_id):
             except Exception as db_err:
                 logger.warning(f"Failed to update local order after cancellation: {db_err}")
                 db.session.rollback()
+
+            try:
+                msg = f"🚫 ORDER CANCELED: {symbol} (Order ID: {order_id})"
+                send_telegram_message(current_user.username, msg)
+                create_system_notification(
+                    user_id_or_name=current_user.id,
+                    category='order_canceled',
+                    symbol=symbol,
+                    message=f"Order {order_id} for {symbol} has been canceled."
+                )
+            except Exception as cancel_notif_err:
+                logger.warning(f"Failed to send cancellation notification: {cancel_notif_err}")
 
             return jsonify({
                 'success': True,

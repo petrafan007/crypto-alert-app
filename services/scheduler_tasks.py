@@ -12,7 +12,7 @@ from services.binance_service import (
     sync_binance_account, binance_rate_limiter, fetch_binance_price
 )
 from services.notification_service import (
-    send_telegram_alert, save_notification_record, send_telegram_message
+    send_telegram_alert, save_notification_record, send_telegram_message, create_system_notification
 )
 from services.portfolio_service import (
     record_true_portfolio_value, compute_portfolio_total_value, record_portfolio_history, get_comprehensive_crypto_data_for_user
@@ -349,6 +349,18 @@ def check_coin_volatility(user, coin, ticker_map, client, volatility_hours, tabl
             if last_alert != "sent":
                 msg = f"⚠️ VOLATILITY ALERT: {symbol} is {direction} {abs(price_change_pct):.2f}% in {volatility_hours}h!"
                 send_telegram_message(user.username, msg)
+                create_system_notification(
+                    user_id_or_name=user.id,
+                    category='volatility_alert',
+                    symbol=symbol,
+                    message=f"Volatility Alert: {symbol} is {direction} {abs(price_change_pct):.2f}% in {volatility_hours}h",
+                    crossing_price=current_price,
+                    current_price=current_price,
+                    direction=direction.lower(),
+                    percent_value=abs(price_change_pct),
+                    table_type=table_type,
+                    coin_id=getattr(coin, 'id', 0)
+                )
                 set_last_alert_state(user.id, symbol, "volatility", "sent", source=table_type, threshold=volatility_threshold)
         else:
             set_last_alert_state(user.id, symbol, "volatility", None, source=table_type, threshold=volatility_threshold)
@@ -552,6 +564,17 @@ def execute_auto_sell(user, coin, pair, current_price, price_drop_pct, threshold
             f"Order ID: {order_id}"
         )
         send_telegram_message(user.username, telegram_msg)
+        create_system_notification(
+            user_id_or_name=user.id,
+            category='auto_sell',
+            symbol=symbol,
+            message=f"Auto-Sell: Sold {executed_qty} {symbol} for {quote_asset} (~${avg_price:.4f}, Proceeds: ${proceeds:.2f})",
+            current_price=avg_price,
+            direction='sell',
+            percent_value=price_drop_pct,
+            table_type=table_type,
+            coin_id=getattr(coin, 'id', 0)
+        )
         logger.info(f"Auto-sell for {symbol} completed successfully. Order ID: {order_id}")
     except Exception as exec_err:
         logger.error(f"Failed to execute auto-sell for {symbol} (User {user.username}): {exec_err}", exc_info=True)
@@ -739,6 +762,17 @@ def execute_auto_buy(user, coin, pair, current_price, price_surge_pct, threshold
             f"Order ID: {order_id}"
         )
         send_telegram_message(user.username, telegram_msg)
+        create_system_notification(
+            user_id_or_name=user.id,
+            category='auto_buy',
+            symbol=symbol,
+            message=f"Auto-Buy: Bought {executed_qty} {symbol} for {quote_currency} (~${avg_price:.4f}, Cost: ${total_cost:.2f})",
+            current_price=avg_price,
+            direction='buy',
+            percent_value=price_surge_pct,
+            table_type=table_type,
+            coin_id=getattr(coin, 'id', 0)
+        )
         logger.info(f"Auto-buy for {symbol} completed successfully. Order ID: {order_id}")
     except Exception as exec_err:
         logger.error(f"Failed to execute auto-buy for {symbol} (User {user.username}): {exec_err}", exc_info=True)

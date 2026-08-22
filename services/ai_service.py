@@ -19,7 +19,7 @@ from services.analysis_service import (
     calculate_symbol_snapshot
 )
 from services.helpers import format_eastern_datetime, get_eastern_now
-from services.notification_service import send_telegram_message
+from services.notification_service import send_telegram_message, create_system_notification
 from routes.helpers import decrypt_secret, is_stablecoin
 
 logger = logging.getLogger(__name__)
@@ -922,6 +922,13 @@ def analyze_single_symbol_sentiment(user_id, username, symbol, is_watchlist=Fals
                     f"Time: {current_datetime}"
                 )
                 send_telegram_message(username, alert_msg)
+                create_system_notification(
+                    user_id_or_name=user_id,
+                    category='sentiment_alert',
+                    symbol=symbol,
+                    message=f"AI Signal: {sentiment_result} — {sentiment_reason}",
+                    table_type='watchlist' if is_watchlist else 'portfolio'
+                )
                 logger.info(f"Sent AI Trading Alert for {symbol} ({sentiment_result})")
 
         return sentiment_result, sentiment_reason

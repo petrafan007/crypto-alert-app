@@ -905,7 +905,8 @@ def api_settings():
                 'ai_provider_fallback', 'ai_model_fallback', 'ai_reasoning_level_fallback',
                 'ai_provider_secondary', 'ai_model_secondary', 'ai_reasoning_level_secondary',
                 'ai_provider_tertiary', 'ai_model_tertiary', 'ai_reasoning_level_tertiary',
-                'ai_reasoning_level'
+                'ai_reasoning_level',
+                'browser_notifications_enabled', 'toast_notifications_enabled'
             ]
 
             for key, value in data.items():
@@ -929,8 +930,9 @@ def api_settings():
 
                 # Explicit column updates
                 if key in allowed_fields:
-                    if key in ['ai_enabled', 'ai_notifications_enabled', 'ai_web_search_enabled']:
-                         setattr(user_setting, key, bool(value))
+                    if key in ['ai_enabled', 'ai_notifications_enabled', 'ai_web_search_enabled', 'browser_notifications_enabled', 'toast_notifications_enabled']:
+                         target_key = 'browser_notifications_enabled' if key == 'toast_notifications_enabled' else key
+                         setattr(user_setting, target_key, bool(value))
                     elif key in ['ai_cache_duration_hours', 'ai_max_tokens', 'sentiment_analysis_frequency_hours', 'watchlist_sentiment_analysis_frequency_hours', 'volatility_hours']:
                         try:
                             parsed_value = int(value)

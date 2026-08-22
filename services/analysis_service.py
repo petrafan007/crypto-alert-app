@@ -194,6 +194,12 @@ def get_user_ai_settings(username: str) -> dict:
                 if hasattr(user_setting, 'volatility_hours'):
                     settings['volatility_hours'] = user_setting.volatility_hours or 24
 
+                b_enabled = getattr(user_setting, 'browser_notifications_enabled', True)
+                if b_enabled is None:
+                    b_enabled = True
+                settings['browser_notifications_enabled'] = bool(b_enabled)
+                settings['toast_notifications_enabled'] = bool(b_enabled)
+
         provider = settings.get('ai_provider', 'openai')
         model = settings.get('ai_model')
 

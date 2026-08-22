@@ -16,6 +16,7 @@ import PrivacyPolicy from './pages/PrivacyPolicy';
 import TermsOfService from './pages/TermsOfService';
 import AcceptableUse from './pages/AcceptableUse';
 import Support from './pages/Support';
+import ToastNotifications from './components/ToastNotifications';
 import { APP_VERSION } from './version';
 import './App.css';
 import './theme.css';
@@ -400,7 +401,8 @@ export default function App() {
         </p>
       </footer>
 
-      {/* OAuth Modal - REMOVED - This was causing duplicate modals */}
+      {/* Global Toast Notifications */}
+      <ToastNotifications isLightMode={isLightMode} />
     </div>
   );
 }
