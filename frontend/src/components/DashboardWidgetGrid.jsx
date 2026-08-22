@@ -107,8 +107,8 @@ const DEFAULT_LAYOUTS = {
   ])
 };
 
-const STORAGE_KEY = 'crypto_dashboard_widget_layout_v1_70';
-const HIDDEN_STORAGE_KEY = 'crypto_dashboard_widget_hidden_v1_70';
+const STORAGE_KEY = 'crypto_dashboard_widget_layout_v1_71';
+const HIDDEN_STORAGE_KEY = 'crypto_dashboard_widget_hidden_v1_71';
 
 const DashboardWidgetGrid = ({
   isLightMode,
@@ -370,6 +370,8 @@ const DashboardWidgetGrid = ({
         draggableHandle=".dashboard-widget-drag-handle"
         isDraggable={isEditMode}
         isResizable={isEditMode}
+        compactType={null}
+        preventCollision={false}
         resizeHandles={['se', 'sw', 'ne', 'nw', 'e', 'w', 'n', 's']}
         margin={[16, 16]}
         containerPadding={[0, 0]}

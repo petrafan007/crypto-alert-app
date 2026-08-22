@@ -122,6 +122,13 @@ The application utilizes a **unified PostgreSQL database**.
 
 ## Version History & Changelog
 
+## v1.71-beta (August 2026)
+
+### Freeform Dashboard Grid Layout & Drag-Drop Snapping Fix
+- **Freeform Layout Positioning (`compactType={null}`)**: Removed aggressive vertical compaction in `ResponsiveGridLayout` so panels no longer jump or snap unexpectedly to fill gaps in upper rows when resizing adjacent panels.
+- **Independent Row Drag & Placement**: Fixed the issue where panels (such as Fear & Greed Index) could not be dropped between lower-row panels or placed into custom row positions below gaps.
+- **Version Bump**: Synchronized metadata to `v1.71-beta`.
+
 ## v1.70-beta (August 2026)
 
 ### Dashboard Layout History Management & 7 New Modular Panels
