@@ -105,8 +105,9 @@ def init_db(app=None):
             "Do NOT include any explanation, preamble, markdown, or text outside of the JSON object."
         )
         default_copilot_pre = (
-            "You are the search intelligence module for the AI Copilot in Crypto Alert App. "
-            "Analyze the user's inquiry and relevant context as of {datetime} to extract the most effective, targeted search query for live market information."
+            "You are the search intelligence module for the AI Copilot in Crypto Alert App as of {datetime}. "
+            "You assist an active cryptocurrency trader and portfolio manager who has real-time access to their live portfolio, watchlist coins, pending orders, execution logs, and sentiment ratings. "
+            "Analyze the user's inquiry, conversation context, and market themes to generate 1 to 3 targeted, highly effective search queries for real-time market data, breaking news, regulatory developments, technical momentum, or protocol updates needed to provide a thorough, accurate answer."
         )
         default_copilot_post = (
             "You are the AI Copilot for Crypto Alert App, an expert cryptocurrency portfolio strategist and market analyst. "
@@ -126,10 +127,8 @@ def init_db(app=None):
             def_prompt.sentiment_prompt_post = default_port_post
             def_prompt.watchlist_sentiment_prompt_pre = default_wl_pre
             def_prompt.watchlist_sentiment_prompt_post = default_wl_post
-            if not def_prompt.copilot_chat_pre or len(def_prompt.copilot_chat_pre.strip()) < 40:
-                def_prompt.copilot_chat_pre = default_copilot_pre
-            if not def_prompt.copilot_chat_post or len(def_prompt.copilot_chat_post.strip()) < 80:
-                def_prompt.copilot_chat_post = default_copilot_post
+            def_prompt.copilot_chat_pre = default_copilot_pre
+            def_prompt.copilot_chat_post = default_copilot_post
             db.session.commit()
             
             user_prompts = AIPrompt.query.all()
@@ -138,10 +137,14 @@ def init_db(app=None):
                 up.sentiment_prompt_post = default_port_post
                 up.watchlist_sentiment_prompt_pre = default_wl_pre
                 up.watchlist_sentiment_prompt_post = default_wl_post
-                if not up.copilot_chat_pre or len(up.copilot_chat_pre.strip()) < 40:
-                    up.copilot_chat_pre = default_copilot_pre
-                if not up.copilot_chat_post or len(up.copilot_chat_post.strip()) < 80:
-                    up.copilot_chat_post = default_copilot_post
+                up.copilot_chat_pre = default_copilot_pre
+                up.copilot_chat_post = default_copilot_post
+            db.session.commit()
+
+            user_settings = UserSetting.query.all()
+            for us in user_settings:
+                us.copilot_chat_pre = default_copilot_pre
+                us.copilot_chat_post = default_copilot_post
             db.session.commit()
         except Exception as seed_err:
             print(f"Error seeding default prompts: {seed_err}")

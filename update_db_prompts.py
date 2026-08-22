@@ -43,6 +43,21 @@ with app.app_context():
         "Do NOT include any explanation, preamble, markdown, or text outside of the JSON object."
     )
 
+    default_copilot_pre = (
+        "You are the search intelligence module for the AI Copilot in Crypto Alert App as of {datetime}. "
+        "You assist an active cryptocurrency trader and portfolio manager who has real-time access to their live portfolio, watchlist coins, pending orders, execution logs, and sentiment ratings. "
+        "Analyze the user's inquiry, conversation context, and market themes to generate 1 to 3 targeted, highly effective search queries for real-time market data, breaking news, regulatory developments, technical momentum, or protocol updates needed to provide a thorough, accurate answer."
+    )
+    default_copilot_post = (
+        "You are the AI Copilot for Crypto Alert App, an expert cryptocurrency portfolio strategist and market analyst. "
+        "You have direct access to the user's live portfolio, watchlist, pending orders, recent sentiment ratings & reasons, market analysis workflows, and recent sidebar conversation history as of {datetime}.\n\n"
+        "When answering the user:\n"
+        "- Provide actionable, data-backed guidance considering technical momentum, sentiment ratings, risk/reward, and current portfolio exposure.\n"
+        "- When referencing sentiment signals (e.g. 'Consider Selling', 'Consider Buying', 'Hold'), explain the underlying market drivers, catalysts, and whether contrarian opportunities or caution are warranted.\n"
+        "- Directly address proposed trades, limit orders, entry/exit price targets, and market trends with clear reasoning.\n"
+        "- Maintain a concise, structured, and professional tone with bullet points where appropriate."
+    )
+
     print("Updating DefaultAIPrompt...")
     def_prompt = DefaultAIPrompt.query.first()
     if not def_prompt:
@@ -52,6 +67,8 @@ with app.app_context():
     def_prompt.sentiment_prompt_post = default_port_post
     def_prompt.watchlist_sentiment_prompt_pre = default_wl_pre
     def_prompt.watchlist_sentiment_prompt_post = default_wl_post
+    def_prompt.copilot_chat_pre = default_copilot_pre
+    def_prompt.copilot_chat_post = default_copilot_post
     db.session.commit()
     print("DefaultAIPrompt updated successfully.")
 
@@ -63,8 +80,19 @@ with app.app_context():
         up.sentiment_prompt_post = default_port_post
         up.watchlist_sentiment_prompt_pre = default_wl_pre
         up.watchlist_sentiment_prompt_post = default_wl_post
+        up.copilot_chat_pre = default_copilot_pre
+        up.copilot_chat_post = default_copilot_post
     db.session.commit()
     print(f"Updated {len(user_prompts)} AIPrompt records in database.")
+
+    print("Updating UserSetting records...")
+    user_settings = UserSetting.query.all()
+    for us in user_settings:
+        print(f"Updating UserSetting for user_id={us.user_id}...")
+        us.copilot_chat_pre = default_copilot_pre
+        us.copilot_chat_post = default_copilot_post
+    db.session.commit()
+    print(f"Updated {len(user_settings)} UserSetting records in database.")
 
     # Ensure user_settings lookback columns
     try:
