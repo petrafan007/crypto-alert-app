@@ -20,7 +20,7 @@ const TradingChart = ({ symbol, onSymbolChange, tradingPairs = [], filterCoin = 
   const volumeSeriesRef = useRef(null);
   const [chartReady, setChartReady] = useState(false);
   const [modalState, setModalState] = useState({ isOpen: false, transactions: [], type: '', dateStr: '' });
-  
+
   // Indicator series refs
   const ma7Ref = useRef(null);
   const ma25Ref = useRef(null);
@@ -32,7 +32,7 @@ const TradingChart = ({ symbol, onSymbolChange, tradingPairs = [], filterCoin = 
   const sellMarkersRef = useRef([]);
   const buyMarkerSeriesRef = useRef(null);
   const sellMarkerSeriesRef = useRef(null);
-  
+
   // Separate chart for RSI, MACD, Stochastic, ATR
   const indicatorContainerRef = useRef(null);
   const indicatorChartRef = useRef(null);
@@ -49,14 +49,14 @@ const TradingChart = ({ symbol, onSymbolChange, tradingPairs = [], filterCoin = 
   const indicatorSyncHandlerRef = useRef(null);
   const resizeHandlerRef = useRef(null);
   const clickHandlerRef = useRef(null);
-  
+
   // State
   const [interval, setInterval] = useState('1d');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [klines, setKlines] = useState([]);
   const [transactions, setTransactions] = useState([]);
-  
+
   // Indicator toggles
   const [indicators, setIndicators] = useState({
     ma7: false,
@@ -70,7 +70,7 @@ const TradingChart = ({ symbol, onSymbolChange, tradingPairs = [], filterCoin = 
     volume: true,
     fibonacci: false
   });
-  
+
   const baseAsset = (symbol || '').endsWith('USD') && !(symbol || '').endsWith('USDT')
     ? (symbol || '').slice(0, -3)
     : (symbol || '').endsWith('USDT')
@@ -90,7 +90,7 @@ const TradingChart = ({ symbol, onSymbolChange, tradingPairs = [], filterCoin = 
 
   const formatCurrency = (value) => {
     if (value === null || value === undefined) return '$0.00';
-  
+
     return Number(value).toLocaleString(undefined, {
       style: 'currency',
       currency: 'USD',
@@ -252,7 +252,7 @@ const TradingChart = ({ symbol, onSymbolChange, tradingPairs = [], filterCoin = 
         const typeHovered = marker.transactions[0]?.side || 'BUY';
         const firstEntry = txs[0];
         const dateStr = new Date(firstEntry.originalTime * 1000).toLocaleDateString();
-        
+
         if (typeHovered === 'BUY') {
           const totalBuyValue = txs.reduce((sum, tx) => sum + (tx.amount * tx.price || 0), 0);
           tooltipContent += `
@@ -292,20 +292,20 @@ const TradingChart = ({ symbol, onSymbolChange, tradingPairs = [], filterCoin = 
   // Fetch initial klines and transactions, then use WebSocket for updates
   useEffect(() => {
     if (!symbol) return;
-    
+
     let ws = null;
-    
+
     const fetchInitialData = async () => {
       setLoading(true);
       setError(null);
-      
+
       try {
         // Fetch initial klines ONCE
         const klinesRes = await axios.get(`/api/trading/klines/${symbol}`, {
           params: { interval, limit: 1000 },
           withCredentials: true
         });
-        
+
         if (klinesRes.data.success) {
           const normalized = klinesRes.data.klines
             .map(k => ({
@@ -321,13 +321,13 @@ const TradingChart = ({ symbol, onSymbolChange, tradingPairs = [], filterCoin = 
 
           setKlines(normalized);
         }
-        
+
         // Fetch transactions (optional)
         try {
           const transRes = await axios.get(`/api/trading/transactions/${symbol}?all_coins=true`, {
             withCredentials: true
           });
-          
+
           if (transRes.data.success) {
             setTransactions(transRes.data.transactions);
           }
@@ -335,17 +335,17 @@ const TradingChart = ({ symbol, onSymbolChange, tradingPairs = [], filterCoin = 
           console.warn('Failed to fetch transactions (chart will still render):', transErr);
           setTransactions([]);
         }
-        
+
         setLoading(false);
-        
+
         // NOW establish WebSocket for live updates
         const stream = `${symbol.toLowerCase()}@kline_${interval}`;
         ws = new WebSocket(`wss://stream.binance.us:9443/ws/${stream}`);
-        
+
         ws.onopen = () => {
           console.log('WebSocket connected for', symbol, interval);
         };
-        
+
         ws.onmessage = (event) => {
           try {
             const data = JSON.parse(event.data);
@@ -359,7 +359,7 @@ const TradingChart = ({ symbol, onSymbolChange, tradingPairs = [], filterCoin = 
                 close: Number(kline.c),
                 volume: Number(kline.v)
               };
-              
+
               setKlines(prev => {
                 const lastCandle = prev[prev.length - 1];
                 if (!lastCandle || newCandle.time > lastCandle.time) {
@@ -376,24 +376,24 @@ const TradingChart = ({ symbol, onSymbolChange, tradingPairs = [], filterCoin = 
             console.error('WebSocket message error:', err);
           }
         };
-        
+
         ws.onerror = (error) => {
           console.error('WebSocket error:', error);
         };
-        
+
         ws.onclose = () => {
           console.log('WebSocket disconnected for', symbol);
         };
-        
+
       } catch (err) {
         console.error('Chart data fetch error:', err);
         setError(err.response?.data?.error || 'Failed to load chart data');
         setLoading(false);
       }
     };
-    
+
     fetchInitialData();
-    
+
     // Cleanup WebSocket on unmount or symbol/interval change
     return () => {
       if (ws) {
@@ -401,24 +401,24 @@ const TradingChart = ({ symbol, onSymbolChange, tradingPairs = [], filterCoin = 
       }
     };
   }, [symbol, interval]);
-  
+
 
   // Initialize chart ONCE
   useEffect(() => {
     if (!chartReady || !chartContainerRef.current || klines.length === 0) {
-      console.log('Chart init prerequisites not met:', { 
-        chartReady, 
+      console.log('Chart init prerequisites not met:', {
+        chartReady,
         hasRef: !!chartContainerRef.current,
-        klinesLength: klines.length 
+        klinesLength: klines.length
       });
       return;
     }
-    
+
     if (chartRef.current) {
       console.log('Chart already initialized');
       return;
     }
-    
+
     const container = chartContainerRef.current;
     if (!container) {
       return;
@@ -433,90 +433,90 @@ const TradingChart = ({ symbol, onSymbolChange, tradingPairs = [], filterCoin = 
     const chartWidth = Math.max(containerWidth, 320);
 
     console.log('Attempting chart creation:', { rawWidth, containerWidth, containerHeight });
-    
+
     if (chartWidth <= 0 || containerHeight === 0) {
       console.log('Container has no dimensions, retrying...');
       return;
     }
-    
+
     try {
-        console.log('Creating chart NOW with dimensions:', chartWidth, 'x', containerHeight);
-        
-        // Create main chart with improved dark mode styling
-        chartRef.current = createChart(container, {
-          width: chartWidth,
-          height: containerHeight,
-          layout: {
-            background: { color: '#0a0e27' },
-            textColor: '#d1d5db',
+      console.log('Creating chart NOW with dimensions:', chartWidth, 'x', containerHeight);
+
+      // Create main chart with improved dark mode styling
+      chartRef.current = createChart(container, {
+        width: chartWidth,
+        height: containerHeight,
+        layout: {
+          background: { color: '#0a0e27' },
+          textColor: '#d1d5db',
+        },
+        watermark: {
+          visible: false,
+        },
+        grid: {
+          vertLines: {
+            color: 'rgba(102, 126, 234, 0.6)',
+            style: 0,
+            visible: true,
           },
-          watermark: {
-            visible: false,
+          horzLines: {
+            color: 'rgba(102, 126, 234, 0.6)',
+            style: 0,
+            visible: true,
           },
-          grid: {
-            vertLines: { 
-              color: 'rgba(102, 126, 234, 0.6)',
-              style: 0,
-              visible: true,
-            },
-            horzLines: { 
-              color: 'rgba(102, 126, 234, 0.6)',
-              style: 0,
-              visible: true,
-            },
+        },
+        crosshair: {
+          mode: 1,
+          vertLine: {
+            color: '#667eea',
+            width: 1,
+            style: 3,
+            labelBackgroundColor: '#667eea',
           },
-          crosshair: {
-            mode: 1,
-            vertLine: {
-              color: '#667eea',
-              width: 1,
-              style: 3,
-              labelBackgroundColor: '#667eea',
-            },
-            horzLine: {
-              color: '#667eea',
-              width: 1,
-              style: 3,
-              labelBackgroundColor: '#667eea',
-            },
+          horzLine: {
+            color: '#667eea',
+            width: 1,
+            style: 3,
+            labelBackgroundColor: '#667eea',
           },
-          leftPriceScale: {
-            visible: false,
-            borderVisible: false,
-            entireTextOnly: true,
+        },
+        leftPriceScale: {
+          visible: false,
+          borderVisible: false,
+          entireTextOnly: true,
+        },
+        rightPriceScale: {
+          borderColor: '#2a2e39',
+          scaleMargins: {
+            top: 0.05,
+            bottom: 0.05,
           },
-          rightPriceScale: {
-            borderColor: '#2a2e39',
-            scaleMargins: {
-              top: 0.05,
-              bottom: 0.05,
-            },
-            autoScale: true,
-            entireTextOnly: true,
-            borderVisible: false,
-            ticksVisible: true,
-            alignLabels: true,
-            minimumWidth: 100,
-          },
-          timeScale: {
-            borderColor: '#2a2e39',
-            timeVisible: true,
-            secondsVisible: false,
-            fixLeftEdge: false,
-            fixRightEdge: false,
-            borderVisible: true,
-            rightOffset: 6,
-            barSpacing: 7,
-            minBarSpacing: 3,
-          },
-          handleScroll: {
-            vertTouchDrag: true,
-          },
-          handleScale: {
-            axisPressedMouseMove: true,
-          },
-        });
-        // Add candlestick series with improved colors
+          autoScale: true,
+          entireTextOnly: true,
+          borderVisible: false,
+          ticksVisible: true,
+          alignLabels: true,
+          minimumWidth: 100,
+        },
+        timeScale: {
+          borderColor: '#2a2e39',
+          timeVisible: true,
+          secondsVisible: false,
+          fixLeftEdge: false,
+          fixRightEdge: false,
+          borderVisible: true,
+          rightOffset: 6,
+          barSpacing: 7,
+          minBarSpacing: 3,
+        },
+        handleScroll: {
+          vertTouchDrag: true,
+        },
+        handleScale: {
+          axisPressedMouseMove: true,
+        },
+      });
+      // Add candlestick series with improved colors
       candlestickSeriesRef.current = chartRef.current.addCandlestickSeries({
         upColor: '#26a69a',
         downColor: '#ef5350',
@@ -527,20 +527,18 @@ const TradingChart = ({ symbol, onSymbolChange, tradingPairs = [], filterCoin = 
         visible: true,
       });
 
-      buyMarkerSeriesRef.current = chartRef.current.addLineSeries({
-        lineWidth: 0,
+      const markerSeriesOptions = {
+        lineColor: 'rgba(0, 0, 0, 0)',
+        lineWidth: 1,
         crosshairMarkerVisible: false,
         priceLineVisible: false,
         lastValueVisible: false,
-      });
-
-      sellMarkerSeriesRef.current = chartRef.current.addLineSeries({
-        lineWidth: 0,
-        crosshairMarkerVisible: false,
-        priceLineVisible: false,
-        lastValueVisible: false,
-      });
+        autoscaleInfoProvider: () => null,
+      };
       
+      buyMarkerSeriesRef.current = chartRef.current.addLineSeries(markerSeriesOptions);
+      sellMarkerSeriesRef.current = chartRef.current.addLineSeries(markerSeriesOptions);
+
       // Add volume series with better styling
       volumeSeriesRef.current = chartRef.current.addHistogramSeries({
         color: '#667eea',
@@ -580,7 +578,7 @@ const TradingChart = ({ symbol, onSymbolChange, tradingPairs = [], filterCoin = 
         visible: false,
         borderVisible: false,
       });
-      
+
       const tooltipEl = document.createElement('div');
       tooltipEl.className = 'chart-marker-tooltip';
       tooltipEl.style.display = 'none';
@@ -613,11 +611,11 @@ const TradingChart = ({ symbol, onSymbolChange, tradingPairs = [], filterCoin = 
         }
 
         const containerBounds = container.getBoundingClientRect();
-        
+
         // Determine if they hover top half (SELL/aboveBar) or bottom half (BUY/belowBar)
         let typeHovered = point.y < (containerBounds.height / 2) ? 'SELL' : 'BUY';
         let txs = markerEntries.filter(m => m.type === typeHovered);
-        
+
         // If they hover top but there are no sells, default to buys (and vice versa)
         if (txs.length === 0) {
           typeHovered = typeHovered === 'BUY' ? 'SELL' : 'BUY';
@@ -627,7 +625,7 @@ const TradingChart = ({ symbol, onSymbolChange, tradingPairs = [], filterCoin = 
         let tooltipContent = '';
         const firstEntry = txs[0];
         const dateStr = new Date(firstEntry.originalTime * 1000).toLocaleDateString();
-        
+
         if (typeHovered === 'BUY') {
           const totalBuyValue = txs.reduce((sum, tx) => sum + (tx.amount * tx.price || 0), 0);
           tooltipContent += `
@@ -679,13 +677,13 @@ const TradingChart = ({ symbol, onSymbolChange, tradingPairs = [], filterCoin = 
         // Determine if they clicked top half (SELL/aboveBar) or bottom half (BUY/belowBar)
         let typeClicked = param.point.y < (containerBounds.height / 2) ? 'SELL' : 'BUY';
         let txs = markerEntries.filter(m => m.type === typeClicked);
-        
+
         // If they clicked top but there are no sells, default to buys (and vice versa)
         if (txs.length === 0) {
           typeClicked = typeClicked === 'BUY' ? 'SELL' : 'BUY';
           txs = markerEntries.filter(m => m.type === typeClicked);
         }
-        
+
         if (txs.length > 0) {
           const firstEntry = txs[0];
           const dateStr = new Date(firstEntry.originalTime * 1000).toLocaleDateString();
@@ -758,12 +756,12 @@ const TradingChart = ({ symbol, onSymbolChange, tradingPairs = [], filterCoin = 
       window.addEventListener('resize', handleResize);
       resizeHandlerRef.current = handleResize;
       handleResize();
-      
+
       console.log('Chart initialized successfully!');
-      
+
       // Set initial data
       candlestickSeriesRef.current.setData(klines);
-      
+
       // Set volume data if enabled
       if (indicators.volume && volumeSeriesRef.current) {
         const volumeData = klines.map(k => ({
@@ -773,10 +771,10 @@ const TradingChart = ({ symbol, onSymbolChange, tradingPairs = [], filterCoin = 
         }));
         volumeSeriesRef.current.setData(volumeData);
       }
-      
+
       // Fit content
       chartRef.current.timeScale().fitContent();
-      
+
     } catch (error) {
       console.error('Failed to create chart:', error);
     }
@@ -811,7 +809,7 @@ const TradingChart = ({ symbol, onSymbolChange, tradingPairs = [], filterCoin = 
       return;
     }
 
-  if (!indicatorChartRef.current) {
+    if (!indicatorChartRef.current) {
       const indicatorEl = indicatorContainerRef.current;
       const indStyles = window.getComputedStyle(indicatorEl);
       const indPaddingLeft = parseFloat(indStyles.paddingLeft || '0');
@@ -830,12 +828,12 @@ const TradingChart = ({ symbol, onSymbolChange, tradingPairs = [], filterCoin = 
           textColor: '#d1d5db',
         },
         grid: {
-          vertLines: { 
+          vertLines: {
             color: 'rgba(102, 126, 234, 0.6)',
             style: 0,
             visible: true,
           },
-          horzLines: { 
+          horzLines: {
             color: 'rgba(102, 126, 234, 0.6)',
             style: 0,
             visible: true,
@@ -878,15 +876,15 @@ const TradingChart = ({ symbol, onSymbolChange, tradingPairs = [], filterCoin = 
       indicatorSyncHandlerRef.current = syncHandler;
     }
   }, [indicators.rsi, indicators.macd, indicators.stoch, indicators.atr, chartReady]);
-  
+
   // Update chart data when klines change
   useEffect(() => {
     if (!chartRef.current || !candlestickSeriesRef.current || klines.length === 0) {
       return;
     }
-    
+
     console.log('Updating chart data with', klines.length, 'candles');
-    
+
     if (klines.length === 0) {
       console.warn('Klines array is empty when attempting to render chart');
       return;
@@ -908,7 +906,7 @@ const TradingChart = ({ symbol, onSymbolChange, tradingPairs = [], filterCoin = 
 
     // Update candlestick data with explicit candle objects
     candlestickSeriesRef.current.setData(candlestickData);
-    
+
     // Update volume data
     if (volumeSeriesRef.current) {
       if (indicators.volume) {
@@ -926,7 +924,7 @@ const TradingChart = ({ symbol, onSymbolChange, tradingPairs = [], filterCoin = 
         chartRef.current.priceScale('volume').applyOptions({ visible: false });
       }
     }
-    
+
     // Fit content to show all data without leaving blank gutters
     chartRef.current.timeScale().fitContent();
     chartRef.current.timeScale().applyOptions({
@@ -935,11 +933,11 @@ const TradingChart = ({ symbol, onSymbolChange, tradingPairs = [], filterCoin = 
       minBarSpacing: 6,
     });
   }, [klines, indicators.volume]);
-  
+
   // Update indicators when toggled
   useEffect(() => {
     if (!chartRef.current || klines.length === 0) return;
-    
+
     // MA 7
     if (indicators.ma7) {
       if (!ma7Ref.current) {
@@ -954,7 +952,7 @@ const TradingChart = ({ symbol, onSymbolChange, tradingPairs = [], filterCoin = 
       chartRef.current.removeSeries(ma7Ref.current);
       ma7Ref.current = null;
     }
-    
+
     // MA 25
     if (indicators.ma25) {
       if (!ma25Ref.current) {
@@ -969,7 +967,7 @@ const TradingChart = ({ symbol, onSymbolChange, tradingPairs = [], filterCoin = 
       chartRef.current.removeSeries(ma25Ref.current);
       ma25Ref.current = null;
     }
-    
+
     // MA 99
     if (indicators.ma99) {
       if (!ma99Ref.current) {
@@ -984,11 +982,11 @@ const TradingChart = ({ symbol, onSymbolChange, tradingPairs = [], filterCoin = 
       chartRef.current.removeSeries(ma99Ref.current);
       ma99Ref.current = null;
     }
-    
+
     // Bollinger Bands
     if (indicators.bb) {
       const bb = calculateBollingerBands(klines, 20, 2);
-      
+
       if (!bbUpperRef.current) {
         bbUpperRef.current = chartRef.current.addLineSeries({
           color: '#9C27B0',
@@ -1015,7 +1013,7 @@ const TradingChart = ({ symbol, onSymbolChange, tradingPairs = [], filterCoin = 
       bbUpperRef.current.setData(bb.upper);
       bbMiddleRef.current.setData(bb.middle);
       bbLowerRef.current.setData(bb.lower);
-      
+
     } else {
       if (bbUpperRef.current) {
         chartRef.current.removeSeries(bbUpperRef.current);
@@ -1030,13 +1028,13 @@ const TradingChart = ({ symbol, onSymbolChange, tradingPairs = [], filterCoin = 
         bbLowerRef.current = null;
       }
     }
-    
+
   }, [klines, indicators.ma7, indicators.ma25, indicators.ma99, indicators.bb]);
-  
+
   // Update RSI
   useEffect(() => {
     if (!indicatorChartRef.current || klines.length === 0) return;
-    
+
     if (indicators.rsi) {
       if (!rsiSeriesRef.current) {
         rsiSeriesRef.current = indicatorChartRef.current.addLineSeries({
@@ -1053,11 +1051,11 @@ const TradingChart = ({ symbol, onSymbolChange, tradingPairs = [], filterCoin = 
         });
       }
       const rsiData = calculateRSI(klines, 14);
-      console.log('Setting RSI data:', rsiData.length, 'points', 'First:', rsiData[0], 'Last:', rsiData[rsiData.length-1]);
+      console.log('Setting RSI data:', rsiData.length, 'points', 'First:', rsiData[0], 'Last:', rsiData[rsiData.length - 1]);
       console.log('Sample RSI values:', rsiData.slice(0, 5));
       console.log('RSI value range:', Math.min(...rsiData.map(d => d.value)), 'to', Math.max(...rsiData.map(d => d.value)));
       rsiSeriesRef.current.setData(rsiData);
-      
+
       // Force resize the indicator chart to match container
       if (indicatorContainerRef.current) {
         const width = indicatorContainerRef.current.clientWidth;
@@ -1065,15 +1063,15 @@ const TradingChart = ({ symbol, onSymbolChange, tradingPairs = [], filterCoin = 
         console.log('Resizing indicator chart to:', width, 'x', height);
         indicatorChartRef.current.resize(width, height);
       }
-      
+
       // Force the chart to fit content
       indicatorChartRef.current.timeScale().fitContent();
-      
+
       // Also fit the price scale
       indicatorChartRef.current.priceScale('right').applyOptions({
         autoScale: true,
       });
-      
+
       // Check if indicator chart canvas is visible
       if (indicatorContainerRef.current) {
         const canvas = indicatorContainerRef.current.querySelector('canvas');
@@ -1092,14 +1090,14 @@ const TradingChart = ({ symbol, onSymbolChange, tradingPairs = [], filterCoin = 
       rsiSeriesRef.current = null;
     }
   }, [klines, indicators.rsi]);
-  
+
   // Update MACD
   useEffect(() => {
     if (!indicatorChartRef.current || klines.length === 0) return;
-    
+
     if (indicators.macd) {
       const macd = calculateMACD(klines);
-      
+
       if (!macdSeriesRef.current) {
         macdSeriesRef.current = indicatorChartRef.current.addLineSeries({
           color: '#2196F3',
@@ -1119,7 +1117,7 @@ const TradingChart = ({ symbol, onSymbolChange, tradingPairs = [], filterCoin = 
           title: '' // NO TITLE
         });
       }
-      
+
       macdSeriesRef.current.setData(macd.macd);
       macdSignalRef.current.setData(macd.signal);
       macdHistogramRef.current.setData(macd.histogram);
@@ -1138,14 +1136,14 @@ const TradingChart = ({ symbol, onSymbolChange, tradingPairs = [], filterCoin = 
       }
     }
   }, [klines, indicators.macd]);
-  
+
   // Update Stochastic
   useEffect(() => {
     if (!indicatorChartRef.current || klines.length === 0) return;
-    
+
     if (indicators.stoch) {
       const stoch = calculateStochastic(klines);
-      
+
       if (!stochKRef.current) {
         stochKRef.current = indicatorChartRef.current.addLineSeries({
           color: '#2196F3',
@@ -1160,7 +1158,7 @@ const TradingChart = ({ symbol, onSymbolChange, tradingPairs = [], filterCoin = 
           title: '%D'
         });
       }
-      
+
       stochKRef.current.setData(stoch.k);
       stochDRef.current.setData(stoch.d);
     } else {
@@ -1174,11 +1172,11 @@ const TradingChart = ({ symbol, onSymbolChange, tradingPairs = [], filterCoin = 
       }
     }
   }, [klines, indicators.stoch]);
-  
+
   // Update ATR
   useEffect(() => {
     if (!indicatorChartRef.current || klines.length === 0) return;
-    
+
     if (indicators.atr) {
       if (!atrSeriesRef.current) {
         atrSeriesRef.current = indicatorChartRef.current.addLineSeries({
@@ -1193,7 +1191,7 @@ const TradingChart = ({ symbol, onSymbolChange, tradingPairs = [], filterCoin = 
       atrSeriesRef.current = null;
     }
   }, [klines, indicators.atr]);
-  
+
   // Add buy/sell markers
   useEffect(() => {
     if (!candlestickSeriesRef.current || !buyMarkerSeriesRef.current || !sellMarkerSeriesRef.current) {
@@ -1242,7 +1240,7 @@ const TradingChart = ({ symbol, onSymbolChange, tradingPairs = [], filterCoin = 
 
     const markerData = {};
     const markersByTime = new Map(); // Track markers by time and type
-    
+
     // Deduplicate transactions and map time correctly
     const uniqueTransactions = [];
     const seenTxIds = new Set();
@@ -1264,10 +1262,10 @@ const TradingChart = ({ symbol, onSymbolChange, tradingPairs = [], filterCoin = 
     });
 
     // Group transactions by time and type
-    uniqueTransactions.forEach((tx, index) => {
+    uniqueTransactions.forEach((tx) => {
       const mappedTime = findClosestTime(tx.normalizedTime);
       const key = `${mappedTime}-${tx.type}`;
-      
+
       if (!markersByTime.has(key)) {
         markersByTime.set(key, {
           type: tx.type,
@@ -1276,7 +1274,7 @@ const TradingChart = ({ symbol, onSymbolChange, tradingPairs = [], filterCoin = 
         });
       }
       markersByTime.get(key).transactions.push(tx);
-      
+
       if (!markerData[mappedTime]) {
         markerData[mappedTime] = [];
       }
@@ -1286,7 +1284,7 @@ const TradingChart = ({ symbol, onSymbolChange, tradingPairs = [], filterCoin = 
         mappedTime,
       });
     });
-    
+
     const buyData = [];
     const sellData = [];
     const buyMarkers = [];
@@ -1304,7 +1302,13 @@ const TradingChart = ({ symbol, onSymbolChange, tradingPairs = [], filterCoin = 
         totalValue += qty * price;
       });
       
-      const avgPrice = totalAmount > 0 ? totalValue / totalAmount : 0;
+      let avgPrice = totalAmount > 0 ? totalValue / totalAmount : 0;
+      if (!avgPrice || avgPrice <= 0) {
+        const kline = klines.find(k => k.time === mappedTime);
+        avgPrice = kline ? kline.close : 0;
+      }
+      
+      if (avgPrice <= 0) return; // skip if invalid
       
       const marker = {
         id: `${type}-${mappedTime}`,
@@ -1335,8 +1339,8 @@ const TradingChart = ({ symbol, onSymbolChange, tradingPairs = [], filterCoin = 
     
     sellMarkerSeriesRef.current.setData(sellData);
     sellMarkerSeriesRef.current.setMarkers(sellMarkers);
-    
-    candlestickSeriesRef.current.setMarkers([]); // Clear any old markers just in case
+
+    candlestickSeriesRef.current.setMarkers([]);
     markerDataRef.current = markerData;
   }, [transactions, klines, interval]);
 
@@ -1372,11 +1376,11 @@ const TradingChart = ({ symbol, onSymbolChange, tradingPairs = [], filterCoin = 
       }
     };
   }, [symbol]);
-  
+
   const toggleIndicator = (name) => {
     setIndicators(prev => ({ ...prev, [name]: !prev[name] }));
   };
-  
+
   const intervals = [
     { value: '1m', label: '1m' },
     { value: '5m', label: '5m' },
@@ -1388,7 +1392,7 @@ const TradingChart = ({ symbol, onSymbolChange, tradingPairs = [], filterCoin = 
     { value: '1w', label: '1W' },
     { value: '1M', label: '1M' }
   ];
-  
+
   return (
     <div className="trading-chart-container">
       <div className="chart-header">
@@ -1426,9 +1430,9 @@ const TradingChart = ({ symbol, onSymbolChange, tradingPairs = [], filterCoin = 
           ))}
         </div>
       </div>
-      
+
       <div className="chart-main-wrapper">
-        <div 
+        <div
           ref={(el) => {
             chartContainerRef.current = el;
             if (el && !chartReady) {
@@ -1436,9 +1440,9 @@ const TradingChart = ({ symbol, onSymbolChange, tradingPairs = [], filterCoin = 
               setChartReady(true);
             }
           }}
-          className="chart-main" 
-          style={{ 
-            width: '100%', 
+          className="chart-main"
+          style={{
+            width: '100%',
             height: '600px',
             minHeight: '600px',
             display: 'block',
@@ -1447,7 +1451,7 @@ const TradingChart = ({ symbol, onSymbolChange, tradingPairs = [], filterCoin = 
             border: 'none',
             boxSizing: 'border-box',
             overflow: 'visible'
-          }} 
+          }}
         />
         {(loading || klines.length === 0) && (
           <div className="chart-overlay">Loading chart data...</div>
@@ -1455,7 +1459,7 @@ const TradingChart = ({ symbol, onSymbolChange, tradingPairs = [], filterCoin = 
         {error && (
           <div className="chart-overlay error">Error: {error}</div>
         )}
-        
+
         <TransactionModal
           isOpen={modalState.isOpen}
           onClose={() => setModalState({ ...modalState, isOpen: false })}
@@ -1464,29 +1468,29 @@ const TradingChart = ({ symbol, onSymbolChange, tradingPairs = [], filterCoin = 
           dateStr={modalState.dateStr}
         />
       </div>
-      
+
       {(indicators.rsi || indicators.macd || indicators.stoch || indicators.atr) && (
         <div ref={indicatorContainerRef} className="chart-indicator" />
       )}
-      
+
       <div className="chart-controls">
         <div className="control-section">
           <span className="section-label">Moving Averages:</span>
-          <button 
+          <button
             className={`toggle-btn ${indicators.ma7 ? 'active' : ''}`}
             onClick={() => toggleIndicator('ma7')}
             title="7-period Moving Average - Shows short-term price trends"
           >
             MA 7
           </button>
-          <button 
+          <button
             className={`toggle-btn ${indicators.ma25 ? 'active' : ''}`}
             onClick={() => toggleIndicator('ma25')}
             title="25-period Moving Average - Shows medium-term price trends"
           >
             MA 25
           </button>
-          <button 
+          <button
             className={`toggle-btn ${indicators.ma99 ? 'active' : ''}`}
             onClick={() => toggleIndicator('ma99')}
             title="99-period Moving Average - Shows long-term price trends"
@@ -1494,31 +1498,31 @@ const TradingChart = ({ symbol, onSymbolChange, tradingPairs = [], filterCoin = 
             MA 99
           </button>
         </div>
-        
+
         <div className="control-section">
           <span className="section-label">Oscillators:</span>
-          <button 
+          <button
             className={`toggle-btn ${indicators.rsi ? 'active' : ''}`}
             onClick={() => toggleIndicator('rsi')}
             title="Relative Strength Index - Measures overbought (>70) and oversold (<30) conditions"
           >
             RSI
           </button>
-          <button 
+          <button
             className={`toggle-btn ${indicators.macd ? 'active' : ''}`}
             onClick={() => toggleIndicator('macd')}
             title="Moving Average Convergence Divergence - Shows trend strength and direction changes"
           >
             MACD
           </button>
-          <button 
+          <button
             className={`toggle-btn ${indicators.stoch ? 'active' : ''}`}
             onClick={() => toggleIndicator('stoch')}
             title="Stochastic Oscillator - Compares closing price to price range over time (overbought >80, oversold <20)"
           >
             Stochastic
           </button>
-          <button 
+          <button
             className={`toggle-btn ${indicators.atr ? 'active' : ''}`}
             onClick={() => toggleIndicator('atr')}
             title="Average True Range - Measures market volatility (higher values = more volatility)"
@@ -1526,17 +1530,17 @@ const TradingChart = ({ symbol, onSymbolChange, tradingPairs = [], filterCoin = 
             ATR
           </button>
         </div>
-        
+
         <div className="control-section">
           <span className="section-label">Other:</span>
-          <button 
+          <button
             className={`toggle-btn ${indicators.bb ? 'active' : ''}`}
             onClick={() => toggleIndicator('bb')}
             title="Bollinger Bands - Shows price volatility with upper/lower bands (price touching bands may indicate reversal)"
           >
             Bollinger Bands
           </button>
-          <button 
+          <button
             className={`toggle-btn ${indicators.volume ? 'active' : ''}`}
             onClick={() => toggleIndicator('volume')}
             title="Trading Volume - Shows number of coins traded (high volume confirms price moves)"
