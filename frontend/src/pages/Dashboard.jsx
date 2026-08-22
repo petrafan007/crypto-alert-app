@@ -149,6 +149,29 @@ function Dashboard({ isLightMode }) {
   const [performanceCoinDraft, setPerformanceCoinDraft] = useState([]);
   const [performanceCoinSearch, setPerformanceCoinSearch] = useState('');
 
+  // Recent Order History filter modal state
+  const [showRecentTradesModal, setShowRecentTradesModal] = useState(false);
+  const [recentTradesConfig, setRecentTradesConfig] = useState(() => {
+    try {
+      const direct = localStorage.getItem('crypto_recent_trades_config_persistent');
+      if (direct) {
+        const parsed = JSON.parse(direct);
+        return {
+          maxOrders: typeof parsed.maxOrders === 'number' ? Math.max(0, Math.min(20, parsed.maxOrders)) : 5,
+          statusFilters: Array.isArray(parsed.statusFilters) && parsed.statusFilters.length > 0
+            ? parsed.statusFilters
+            : ['FILLED', 'NEW', 'CANCELED', 'PARTIALLY_FILLED']
+        };
+      }
+    } catch (e) {}
+    return {
+      maxOrders: 5,
+      statusFilters: ['FILLED', 'NEW', 'CANCELED', 'PARTIALLY_FILLED']
+    };
+  });
+  const [recentTradesDraftMaxOrders, setRecentTradesDraftMaxOrders] = useState(5);
+  const [recentTradesDraftStatuses, setRecentTradesDraftStatuses] = useState(['FILLED', 'NEW', 'CANCELED', 'PARTIALLY_FILLED']);
+
   const tradeQuoteMenuStyle = isMobile
     ? { display: 'flex', flexDirection: 'column', gap: 4, margin: '0 0 4px' }
     : { position: 'fixed', top: openTradeQuoteMenu.position?.top ?? 0, left: openTradeQuoteMenu.position?.left ?? 0, zIndex: 1000, display: 'flex', flexDirection: 'column', gap: 4, minWidth: 154 };
@@ -240,6 +263,27 @@ function Dashboard({ isLightMode }) {
       console.error('Error saving performance hidden coins:', e);
     }
     setShowPerformanceCoinModal(false);
+  };
+
+  const handleOpenRecentTradesModal = () => {
+    setRecentTradesDraftMaxOrders(recentTradesConfig.maxOrders !== undefined ? recentTradesConfig.maxOrders : 5);
+    setRecentTradesDraftStatuses(recentTradesConfig.statusFilters || ['FILLED', 'NEW', 'CANCELED', 'PARTIALLY_FILLED']);
+    setShowRecentTradesModal(true);
+  };
+
+  const handleSaveRecentTradesModal = () => {
+    const clampedMax = Math.max(0, Math.min(20, parseInt(recentTradesDraftMaxOrders, 10) || 0));
+    const newConfig = {
+      maxOrders: clampedMax,
+      statusFilters: recentTradesDraftStatuses.length > 0 ? recentTradesDraftStatuses : ['FILLED']
+    };
+    setRecentTradesConfig(newConfig);
+    try {
+      localStorage.setItem('crypto_recent_trades_config_persistent', JSON.stringify(newConfig));
+    } catch (e) {
+      console.error('Error saving recent trades config:', e);
+    }
+    setShowRecentTradesModal(false);
   };
 
   const toggleTradeQuoteMenu = (type, key, side, event) => {
@@ -2595,6 +2639,7 @@ function Dashboard({ isLightMode }) {
       <DashboardWidgetGrid
         isLightMode={isLightMode}
         onEditPerformanceCoins={handleOpenPerformanceCoinModal}
+        onEditRecentTrades={handleOpenRecentTradesModal}
         renderWidgetContent={(widgetId) => {
           switch (widgetId) {
             case 'allocations':
@@ -2645,13 +2690,8 @@ function Dashboard({ isLightMode }) {
                       Total Holdings (incl. staking & pending)
                     </small>
                   </div>
-                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px', flex: 1, justifyContent: 'center' }}>
-                    <div style={{ fontSize: '32px', fontWeight: 'bold', color: 'var(--primary-color, #38bdf8)', textAlign: 'center' }}>
-                      ${totalValue ? totalValue.toFixed(2) : '0.00'}
-                    </div>
-                    <div style={{ fontSize: '12px', color: 'var(--text-secondary, #94a3b8)', opacity: '0.85', textAlign: 'center' }}>
-                      Includes Binance.US staking balances · Last updated: {new Date().toLocaleTimeString()}
-                    </div>
+                  <div className="portfolio-value-amount" style={{ fontSize: '2rem', fontWeight: '700', color: 'var(--accent-color, #38bdf8)' }}>
+                    ${totalValue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </div>
                 </div>
               );
@@ -2664,7 +2704,7 @@ function Dashboard({ isLightMode }) {
             case 'top_movers':
               return <TopMoversWidget isLightMode={isLightMode} />;
             case 'recent_trades':
-              return <RecentTradesWidget isLightMode={isLightMode} />;
+              return <RecentTradesWidget isLightMode={isLightMode} config={recentTradesConfig} onEdit={handleOpenRecentTradesModal} />;
             case 'ai_pulse':
               return <AIPulseWidget isLightMode={isLightMode} />;
             case 'staking_rewards':
@@ -3646,6 +3686,225 @@ function Dashboard({ isLightMode }) {
                 className="btn btn-primary"
                 style={{ backgroundColor: '#0284c7', borderColor: '#0284c7', color: '#fff', fontWeight: '600' }}
                 onClick={handleSavePerformanceCoinModal}
+              >
+                Save Selection
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Recent Order History Settings Modal */}
+      {showRecentTradesModal && (
+        <div className="modal-overlay" onClick={() => setShowRecentTradesModal(false)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '500px', width: '90%' }}>
+            <div className="modal-header">
+              <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px', margin: 0 }}>
+                <span>✏️</span> Customize Recent Order History
+              </h3>
+              <button className="modal-close" onClick={() => setShowRecentTradesModal(false)}>×</button>
+            </div>
+
+            <div style={{ padding: '18px 20px', display: 'flex', flexDirection: 'column', gap: '18px' }}>
+              {/* Section 1: Maximum Orders to Display */}
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
+                  <label style={{ fontSize: '13px', fontWeight: '700', color: 'var(--text-primary, #fff)' }}>
+                    Max Orders to Display
+                  </label>
+                  <span style={{
+                    fontSize: '13px',
+                    fontWeight: '700',
+                    color: '#38bdf8',
+                    background: 'rgba(56, 189, 248, 0.15)',
+                    padding: '2px 8px',
+                    borderRadius: '6px',
+                    border: '1px solid rgba(56, 189, 248, 0.3)'
+                  }}>
+                    {recentTradesDraftMaxOrders === 0 ? '0 (Hidden)' : `${recentTradesDraftMaxOrders} orders`}
+                  </span>
+                </div>
+                <p style={{ margin: '0 0 10px 0', fontSize: '12px', color: 'var(--text-secondary, #94a3b8)', lineHeight: 1.4 }}>
+                  Select how many recent trades to display in the table (0 to 20):
+                </p>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                  <input
+                    type="range"
+                    min="0"
+                    max="20"
+                    step="1"
+                    value={recentTradesDraftMaxOrders}
+                    onChange={(e) => setRecentTradesDraftMaxOrders(parseInt(e.target.value, 10) || 0)}
+                    style={{
+                      flex: 1,
+                      accentColor: '#0284c7',
+                      cursor: 'pointer'
+                    }}
+                  />
+                  <input
+                    type="number"
+                    min="0"
+                    max="20"
+                    value={recentTradesDraftMaxOrders}
+                    onChange={(e) => {
+                      const val = parseInt(e.target.value, 10);
+                      if (!isNaN(val)) {
+                        setRecentTradesDraftMaxOrders(Math.max(0, Math.min(20, val)));
+                      } else {
+                        setRecentTradesDraftMaxOrders(0);
+                      }
+                    }}
+                    style={{
+                      width: '56px',
+                      padding: '6px 8px',
+                      textAlign: 'center',
+                      borderRadius: '6px',
+                      border: '1px solid var(--border-color, #334155)',
+                      backgroundColor: 'var(--input-bg, #1e293b)',
+                      color: 'var(--text-primary, #fff)',
+                      fontSize: '13px',
+                      fontWeight: '600'
+                    }}
+                  />
+                </div>
+
+                {/* Quick select pills */}
+                <div style={{ display: 'flex', gap: '6px', marginTop: '8px' }}>
+                  {[0, 5, 10, 15, 20].map(val => (
+                    <button
+                      key={val}
+                      type="button"
+                      onClick={() => setRecentTradesDraftMaxOrders(val)}
+                      style={{
+                        padding: '3px 8px',
+                        fontSize: '11px',
+                        fontWeight: '600',
+                        borderRadius: '4px',
+                        cursor: 'pointer',
+                        background: recentTradesDraftMaxOrders === val ? '#0284c7' : 'rgba(255,255,255,0.06)',
+                        color: recentTradesDraftMaxOrders === val ? '#ffffff' : 'var(--text-secondary, #94a3b8)',
+                        border: `1px solid ${recentTradesDraftMaxOrders === val ? '#38bdf8' : 'var(--border-color, rgba(255,255,255,0.1))'}`,
+                        transition: 'all 0.15s ease'
+                      }}
+                    >
+                      {val === 0 ? 'None (0)' : val}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Section 2: Order Status Filters */}
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
+                  <label style={{ fontSize: '13px', fontWeight: '700', color: 'var(--text-primary, #fff)' }}>
+                    Order Statuses to Show
+                  </label>
+                  <div style={{ display: 'flex', gap: '6px' }}>
+                    <button
+                      type="button"
+                      className="btn btn-secondary"
+                      style={{ padding: '2px 8px', fontSize: '11px' }}
+                      onClick={() => setRecentTradesDraftStatuses(['FILLED', 'NEW', 'CANCELED', 'PARTIALLY_FILLED'])}
+                    >
+                      Select All
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-secondary"
+                      style={{ padding: '2px 8px', fontSize: '11px' }}
+                      onClick={() => setRecentTradesDraftStatuses([])}
+                    >
+                      Deselect All
+                    </button>
+                  </div>
+                </div>
+                <p style={{ margin: '0 0 10px 0', fontSize: '12px', color: 'var(--text-secondary, #94a3b8)', lineHeight: 1.4 }}>
+                  Choose which order statuses appear in your recent history feed:
+                </p>
+
+                <div style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '6px',
+                  border: '1px solid var(--border-color, #334155)',
+                  borderRadius: '8px',
+                  padding: '10px',
+                  backgroundColor: 'rgba(0, 0, 0, 0.2)'
+                }}>
+                  {[
+                    { id: 'FILLED', label: 'Filled Orders', desc: 'Completed & fully executed buy/sell trades', color: '#4ade80', bg: 'rgba(34, 197, 94, 0.15)' },
+                    { id: 'NEW', label: 'New / Open Orders', desc: 'Active pending limit or stop orders on Binance', color: '#38bdf8', bg: 'rgba(56, 189, 248, 0.15)' },
+                    { id: 'CANCELED', label: 'Canceled Orders', desc: 'Orders that were cancelled before executing', color: '#94a3b8', bg: 'rgba(148, 163, 184, 0.15)' },
+                    { id: 'PARTIALLY_FILLED', label: 'Partially Filled Orders', desc: 'Orders partially executed but not yet completed', color: '#fbbf24', bg: 'rgba(245, 158, 11, 0.15)' }
+                  ].map(statusItem => {
+                    const isChecked = recentTradesDraftStatuses.includes(statusItem.id);
+                    return (
+                      <label
+                        key={statusItem.id}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          padding: '8px 10px',
+                          borderRadius: '6px',
+                          backgroundColor: isChecked ? 'rgba(56, 189, 248, 0.08)' : 'transparent',
+                          cursor: 'pointer',
+                          transition: 'background-color 0.15s ease'
+                        }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                          <input
+                            type="checkbox"
+                            checked={isChecked}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setRecentTradesDraftStatuses(prev => [...prev, statusItem.id]);
+                              } else {
+                                setRecentTradesDraftStatuses(prev => prev.filter(id => id !== statusItem.id));
+                              }
+                            }}
+                            style={{ cursor: 'pointer', width: '16px', height: '16px' }}
+                          />
+                          <div>
+                            <div style={{ fontWeight: '600', fontSize: '13px', color: 'var(--text-primary, #fff)' }}>
+                              {statusItem.label}
+                            </div>
+                            <div style={{ fontSize: '11px', color: 'var(--text-secondary, #94a3b8)' }}>
+                              {statusItem.desc}
+                            </div>
+                          </div>
+                        </div>
+                        <span style={{
+                          fontSize: '10px',
+                          fontWeight: '700',
+                          padding: '2px 6px',
+                          borderRadius: '4px',
+                          backgroundColor: statusItem.bg,
+                          color: statusItem.color
+                        }}>
+                          {statusItem.id}
+                        </span>
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+
+            <div className="modal-actions" style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', padding: '14px 20px', borderTop: '1px solid var(--border-color, rgba(255,255,255,0.08))' }}>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={() => setShowRecentTradesModal(false)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary"
+                style={{ backgroundColor: '#0284c7', borderColor: '#0284c7', color: '#fff', fontWeight: '600' }}
+                onClick={handleSaveRecentTradesModal}
               >
                 Save Selection
               </button>
