@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
+import CryptoIcon from './CryptoIcon';
 
 const WINDOW_KEYS = [
   { label: '7D', key: 'change_7d' },
@@ -9,7 +10,20 @@ const WINDOW_KEYS = [
   { label: '1H', key: 'change_1h' },
 ];
 
-const PortfolioPerformanceTable = () => {
+const GenericCoinIcon = ({ size = 20 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0, display: 'inline-block', verticalAlign: 'middle' }}>
+    <circle cx="12" cy="12" r="10" fill="url(#coin_gold_grad)" stroke="#EAB308" strokeWidth="1.5" />
+    <path d="M12 6v12M9 8.5h4.5a2 2 0 0 1 0 4H9h5a2 2 0 0 1 0 4H9" stroke="#FFF" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+    <defs>
+      <linearGradient id="coin_gold_grad" x1="2" y1="2" x2="22" y2="22" gradientUnits="userSpaceOnUse">
+        <stop stopColor="#F59E0B" />
+        <stop offset="1" stopColor="#D97706" />
+      </linearGradient>
+    </defs>
+  </svg>
+);
+
+const PortfolioPerformanceTable = ({ hiddenCoins = [] }) => {
   const [performanceData, setPerformanceData] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -56,14 +70,17 @@ const PortfolioPerformanceTable = () => {
     );
   };
 
+  const visibleData = performanceData.filter(
+    (item) => !hiddenCoins.includes(item.symbol)
+  );
+
   return (
     <div className="dashboard-performance-widget widget-panel-inner">
-      <div className="performance-widget-header">
-        <h3 className="chart-title">
-          <span>📊</span>
+      <div className="performance-widget-header" style={{ marginBottom: '12px' }}>
+        <h3 className="chart-title" style={{ display: 'flex', alignItems: 'center', gap: '8px', margin: 0 }}>
+          <GenericCoinIcon size={20} />
           <span>Coin Performance</span>
         </h3>
-        <small>Holdings worth at least $1, excluding stablecoins</small>
       </div>
 
       <div className="performance-table-scroll" aria-live="polite">
@@ -89,16 +106,21 @@ const PortfolioPerformanceTable = () => {
                   {error}
                 </td>
               </tr>
-            ) : performanceData.length === 0 ? (
+            ) : visibleData.length === 0 ? (
               <tr>
                 <td className="performance-message" colSpan={WINDOW_KEYS.length + 1}>
-                  No qualifying coins
+                  {performanceData.length > 0 ? 'All coins hidden in filter' : 'No qualifying coins'}
                 </td>
               </tr>
             ) : (
-              performanceData.map((item) => (
+              visibleData.map((item) => (
                 <tr key={item.symbol}>
-                  <td className="performance-symbol">{item.symbol}</td>
+                  <td className="performance-symbol">
+                    <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
+                      <CryptoIcon symbol={item.symbol} size={18} />
+                      <span style={{ fontWeight: '600' }}>{item.symbol}</span>
+                    </div>
+                  </td>
                   {WINDOW_KEYS.map((w) => (
                     <td key={w.label}>
                       {formatChange(item[w.key])}

@@ -102,6 +102,19 @@ function Dashboard({ isLightMode }) {
     loading: false,
     error: ''
   });
+
+  // Coin Performance filter modal state
+  const [showPerformanceCoinModal, setShowPerformanceCoinModal] = useState(false);
+  const [performanceHiddenCoins, setPerformanceHiddenCoins] = useState(() => {
+    try {
+      const saved = localStorage.getItem('crypto_performance_hidden_coins_v1_69');
+      if (saved) return JSON.parse(saved) || [];
+    } catch (e) {}
+    return [];
+  });
+  const [performanceCoinDraft, setPerformanceCoinDraft] = useState([]);
+  const [performanceCoinSearch, setPerformanceCoinSearch] = useState('');
+
   const tradeQuoteMenuStyle = isMobile
     ? { display: 'flex', flexDirection: 'column', gap: 4, margin: '0 0 4px' }
     : { position: 'fixed', top: openTradeQuoteMenu.position?.top ?? 0, left: openTradeQuoteMenu.position?.left ?? 0, zIndex: 1000, display: 'flex', flexDirection: 'column', gap: 4, minWidth: 154 };
@@ -140,6 +153,47 @@ function Dashboard({ isLightMode }) {
 
   const closeActionMenu = () => setOpenActionMenu({ type: null, key: null, payload: null });
   const closeTradeQuoteMenu = () => setOpenTradeQuoteMenu({ type: null, key: null, side: null, position: null });
+
+  // Close trade quote menu on outside click or scroll
+  useEffect(() => {
+    if (!openTradeQuoteMenu.key) return;
+
+    const handleOutsideClick = (e) => {
+      if (e.target.closest('.trade-quote-menu') || e.target.closest('.trade-action-btn')) {
+        return;
+      }
+      closeTradeQuoteMenu();
+    };
+
+    const handleScroll = (e) => {
+      if (e.target.closest && e.target.closest('.trade-quote-menu')) return;
+      closeTradeQuoteMenu();
+    };
+
+    document.addEventListener('mousedown', handleOutsideClick);
+    window.addEventListener('scroll', handleScroll, true);
+
+    return () => {
+      document.removeEventListener('mousedown', handleOutsideClick);
+      window.removeEventListener('scroll', handleScroll, true);
+    };
+  }, [openTradeQuoteMenu.key]);
+
+  const handleOpenPerformanceCoinModal = () => {
+    setPerformanceCoinDraft([...performanceHiddenCoins]);
+    setPerformanceCoinSearch('');
+    setShowPerformanceCoinModal(true);
+  };
+
+  const handleSavePerformanceCoinModal = () => {
+    setPerformanceHiddenCoins(performanceCoinDraft);
+    try {
+      localStorage.setItem('crypto_performance_hidden_coins_v1_69', JSON.stringify(performanceCoinDraft));
+    } catch (e) {
+      console.error('Error saving performance hidden coins:', e);
+    }
+    setShowPerformanceCoinModal(false);
+  };
 
   const toggleTradeQuoteMenu = (type, key, side, event) => {
     const buttonRect = event?.currentTarget && !isMobile
@@ -2169,6 +2223,7 @@ function Dashboard({ isLightMode }) {
       {/* Interactive Customizable Widgets Grid */}
       <DashboardWidgetGrid
         isLightMode={isLightMode}
+        onEditPerformanceCoins={handleOpenPerformanceCoinModal}
         renderWidgetContent={(widgetId) => {
           switch (widgetId) {
             case 'allocations':
@@ -2234,7 +2289,7 @@ function Dashboard({ isLightMode }) {
             case 'staking':
               return <StakingSummaryWidget />;
             case 'performance':
-              return <PortfolioPerformanceTable />;
+              return <PortfolioPerformanceTable hiddenCoins={performanceHiddenCoins} />;
             default:
               return null;
           }
@@ -2839,6 +2894,182 @@ function Dashboard({ isLightMode }) {
                 disabled={autoSellModal.loading}
               >
                 {autoSellModal.loading ? 'Enabling...' : 'Yes'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Coin Performance Visibility Filter Modal */}
+      {showPerformanceCoinModal && (
+        <div className="modal-overlay" onClick={() => setShowPerformanceCoinModal(false)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '520px', width: '90%' }}>
+            <div className="modal-header">
+              <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px', margin: 0 }}>
+                <span>✏️</span> Customize Coin Performance
+              </h3>
+              <button className="modal-close" onClick={() => setShowPerformanceCoinModal(false)}>×</button>
+            </div>
+
+            <div style={{ padding: '16px 20px' }}>
+              <p style={{ margin: '0 0 12px 0', fontSize: '13px', color: 'var(--text-secondary, #94a3b8)', lineHeight: 1.5 }}>
+                Select which assets from your <strong>Portfolio</strong> and <strong>Watchlist</strong> appear in the Coin Performance panel:
+              </p>
+
+              {/* Search & Bulk Select Controls */}
+              <div style={{ display: 'flex', gap: '8px', marginBottom: '14px', alignItems: 'center' }}>
+                <input
+                  type="text"
+                  placeholder="Search coins (e.g. BTC, ETH)..."
+                  value={performanceCoinSearch}
+                  onChange={(e) => setPerformanceCoinSearch(e.target.value)}
+                  style={{
+                    flex: 1,
+                    padding: '8px 12px',
+                    borderRadius: '6px',
+                    border: '1px solid var(--border-color, #334155)',
+                    backgroundColor: 'var(--input-bg, #1e293b)',
+                    color: 'var(--text-primary, #fff)',
+                    fontSize: '13px'
+                  }}
+                />
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  style={{ padding: '6px 10px', fontSize: '12px', whiteSpace: 'nowrap' }}
+                  onClick={() => {
+                    setPerformanceCoinDraft([]);
+                  }}
+                >
+                  Select All
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  style={{ padding: '6px 10px', fontSize: '12px', whiteSpace: 'nowrap' }}
+                  onClick={() => {
+                    const allSyms = Array.from(new Set([
+                      ...(portfolio || []).map(c => c.symbol),
+                      ...(watchlist || []).map(w => w.symbol)
+                    ])).filter(Boolean);
+                    setPerformanceCoinDraft(allSyms);
+                  }}
+                >
+                  Deselect All
+                </button>
+              </div>
+
+              {/* Coin Checkbox List */}
+              <div style={{
+                maxHeight: '280px',
+                overflowY: 'auto',
+                border: '1px solid var(--border-color, #334155)',
+                borderRadius: '8px',
+                padding: '8px',
+                backgroundColor: 'rgba(0, 0, 0, 0.2)',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '4px'
+              }}>
+                {(() => {
+                  const combined = [];
+                  const seen = new Set();
+
+                  (portfolio || []).forEach(c => {
+                    if (c.symbol && !seen.has(c.symbol.toUpperCase())) {
+                      seen.add(c.symbol.toUpperCase());
+                      combined.push({ symbol: c.symbol.toUpperCase(), source: 'Portfolio' });
+                    }
+                  });
+
+                  (watchlist || []).forEach(w => {
+                    if (w.symbol && !seen.has(w.symbol.toUpperCase())) {
+                      seen.add(w.symbol.toUpperCase());
+                      combined.push({ symbol: w.symbol.toUpperCase(), source: 'Watchlist' });
+                    }
+                  });
+
+                  combined.sort((a, b) => a.symbol.localeCompare(b.symbol));
+
+                  const filtered = combined.filter(c =>
+                    !performanceCoinSearch.trim() ||
+                    c.symbol.toLowerCase().includes(performanceCoinSearch.toLowerCase().trim())
+                  );
+
+                  if (filtered.length === 0) {
+                    return (
+                      <div style={{ textAlign: 'center', padding: '24px', color: '#94a3b8', fontSize: '13px' }}>
+                        No matching coins found.
+                      </div>
+                    );
+                  }
+
+                  return filtered.map(({ symbol, source }) => {
+                    const isVisible = !performanceCoinDraft.includes(symbol);
+                    return (
+                      <label
+                        key={symbol}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          padding: '8px 12px',
+                          borderRadius: '6px',
+                          backgroundColor: isVisible ? 'rgba(56, 189, 248, 0.08)' : 'transparent',
+                          cursor: 'pointer',
+                          transition: 'background-color 0.15s ease'
+                        }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                          <input
+                            type="checkbox"
+                            checked={isVisible}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setPerformanceCoinDraft(prev => prev.filter(s => s !== symbol));
+                              } else {
+                                setPerformanceCoinDraft(prev => [...prev, symbol]);
+                              }
+                            }}
+                            style={{ cursor: 'pointer', width: '16px', height: '16px' }}
+                          />
+                          <CryptoIcon symbol={symbol} size={20} />
+                          <span style={{ fontWeight: '600', fontSize: '14px', color: 'var(--text-primary, #fff)' }}>
+                            {symbol}
+                          </span>
+                        </div>
+                        <span style={{
+                          fontSize: '11px',
+                          padding: '2px 6px',
+                          borderRadius: '4px',
+                          backgroundColor: source === 'Portfolio' ? 'rgba(34, 197, 94, 0.15)' : 'rgba(148, 163, 184, 0.15)',
+                          color: source === 'Portfolio' ? '#4ade80' : '#94a3b8',
+                          fontWeight: '500'
+                        }}>
+                          {source}
+                        </span>
+                      </label>
+                    );
+                  });
+                })()}
+              </div>
+            </div>
+
+            <div className="modal-actions" style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', padding: '14px 20px', borderTop: '1px solid var(--border-color, rgba(255,255,255,0.08))' }}>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={() => setShowPerformanceCoinModal(false)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary"
+                style={{ backgroundColor: '#0284c7', borderColor: '#0284c7', color: '#fff', fontWeight: '600' }}
+                onClick={handleSavePerformanceCoinModal}
+              >
+                Save Selection
               </button>
             </div>
           </div>

@@ -117,7 +117,11 @@
 /* Neon Progress Bar */
 .cbbi-widget .cbbi-progress-bar {
   margin-bottom: 12px;
-  padding: 0 10px;
+  padding: 0 4px;
+  width: 65%;
+  max-width: 220px;
+  margin-left: auto;
+  margin-right: auto;
 }
 
 .cbbi-widget .cbbi-progress-track {

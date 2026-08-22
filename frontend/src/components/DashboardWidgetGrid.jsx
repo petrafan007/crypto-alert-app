@@ -19,10 +19,14 @@ const WIDGETS = [
 
 const getWidgetBounds = (id) => {
   switch (id) {
-    case 'allocations': return { minW: 4, minH: 4 };
-    case 'trend': return { minW: 5, minH: 4 };
+    case 'allocations': return { minW: 3, minH: 3 };
+    case 'trend': return { minW: 4, minH: 3 };
     case 'performance': return { minW: 3, minH: 2 };
-    default: return { minW: 3, minH: 3 };
+    case 'fear_greed': return { minW: 2, minH: 3 };
+    case 'cbbi': return { minW: 2, minH: 3 };
+    case 'portfolio_value': return { minW: 2, minH: 3 };
+    case 'staking': return { minW: 2, minH: 3 };
+    default: return { minW: 2, minH: 3 };
   }
 };
 
@@ -63,7 +67,8 @@ const HIDDEN_STORAGE_KEY = 'crypto_dashboard_widget_hidden_v1_63';
 
 const DashboardWidgetGrid = ({
   isLightMode,
-  renderWidgetContent
+  renderWidgetContent,
+  onEditPerformanceCoins
 }) => {
   const [isEditMode, setIsEditMode] = useState(false);
   const [layouts, setLayouts] = useState(() => {
@@ -232,14 +237,40 @@ const DashboardWidgetGrid = ({
                   <span className="drag-icon">⠿</span>
                   <span className="drag-title">{widget.title}</span>
                 </div>
-                <button
-                  type="button"
-                  className="dashboard-widget-hide-btn"
-                  onClick={() => handleHideWidget(widget.id)}
-                  title="Hide panel from view"
-                >
-                  ✕
-                </button>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  {widget.id === 'performance' && (
+                    <button
+                      type="button"
+                      className="dashboard-widget-edit-coins-btn"
+                      onClick={() => onEditPerformanceCoins?.()}
+                      title="Filter visible coins in Coin Performance"
+                      style={{
+                        background: 'rgba(56, 189, 248, 0.15)',
+                        border: '1px solid rgba(56, 189, 248, 0.3)',
+                        color: '#38bdf8',
+                        cursor: 'pointer',
+                        fontSize: '13px',
+                        padding: '2px 6px',
+                        borderRadius: '4px',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        lineHeight: 1,
+                        transition: 'all 0.2s ease'
+                      }}
+                    >
+                      ✏️
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    className="dashboard-widget-hide-btn"
+                    onClick={() => handleHideWidget(widget.id)}
+                    title="Hide panel from view"
+                  >
+                    ✕
+                  </button>
+                </div>
               </div>
             )}
             <div className="dashboard-widget-body">

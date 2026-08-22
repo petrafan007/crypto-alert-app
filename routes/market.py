@@ -397,16 +397,33 @@ def api_coin_data():
 @market_bp.route("/api/coin-performance")
 @login_required
 def api_coin_performance():
-    """Return performance for visible, non-stablecoin holdings worth at least $1."""
+    """Return performance for portfolio holdings and watchlist coins."""
     try:
+        from services.price_history_service import STABLE_COINS
         coins = Coin.query.filter_by(user_id=current_user.id).all()
-        qualifying = sorted(
-            (coin for coin in coins if is_qualifying_portfolio_coin(coin)),
-            key=lambda coin: (coin.symbol or "").upper(),
-        )
+        watchlist_coins = WatchlistCoin.query.filter_by(user_id=current_user.id).all()
+
+        seen_symbols = set()
+        qualifying = []
+
+        for coin in coins:
+            sym = (coin.symbol or "").strip().upper()
+            price = getattr(coin, 'current', getattr(coin, 'current_price', 0.0)) or 0.0
+            if sym and sym not in seen_symbols and sym not in STABLE_COINS and not getattr(coin, 'hidden', False):
+                seen_symbols.add(sym)
+                qualifying.append((sym, float(price), 'portfolio'))
+
+        for wl in watchlist_coins:
+            sym = (wl.symbol or "").strip().upper()
+            price = getattr(wl, 'current_price', getattr(wl, 'current', 0.0)) or 0.0
+            if sym and sym not in seen_symbols and sym not in STABLE_COINS and not getattr(wl, 'hidden', False):
+                seen_symbols.add(sym)
+                qualifying.append((sym, float(price), 'watchlist'))
+
+        qualifying.sort(key=lambda item: item[0])
         results = [
-            get_symbol_performance(coin.symbol, coin.current)
-            for coin in qualifying
+            {**get_symbol_performance(sym, curr), "source": src}
+            for sym, curr, src in qualifying
         ]
 
         return jsonify({

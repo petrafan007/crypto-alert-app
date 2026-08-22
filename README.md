@@ -122,6 +122,16 @@ The application utilizes a **unified PostgreSQL database**.
 
 ## Version History & Changelog
 
+## v1.69-beta (August 2026)
+
+### Coin Performance Customization & Trade Menu UX Enhancements
+- **Generic Crypto Coin Header Icon**: Replaced the broken icon character next to "Coin Performance" with a clean vector cryptocurrency coin icon.
+- **Removed Header Subtitle Clutter**: Removed the subtext *"Holdings worth at least $1, excluding stablecoins"* for a clean widget layout.
+- **Interactive Coin Filter Modal (`✏️`)**: Added an edit pencil button on the Coin Performance widget header in Customize Layout mode, opening a coin filter modal that allows users to selectively toggle which coins from their Portfolio and Watchlist appear in the performance table.
+- **Multi-Source Performance Calculation**: Enhanced backend `/api/coin-performance` to calculate multi-timeframe price changes (7D, 3D, 1D, 12H, 1H) across both active portfolio holdings and watchlist assets.
+- **Trade Menu Outside-Click & Scroll Dismissal**: Fixed the floating trade action menu (Buy/Sell quote currency & Trigger Auto-Sell) to automatically close whenever clicking outside the menu or scrolling the page/containers.
+- **Version Bump**: Synchronized metadata to `v1.69-beta`.
+
 ## v1.68-beta (August 2026)
 
 ### Pre-Execution Open Order Conflict Resolution for Auto-Sell
