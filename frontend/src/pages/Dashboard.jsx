@@ -133,6 +133,9 @@ function Dashboard({ isLightMode }) {
   const closeTradeQuoteMenu = () => setOpenTradeQuoteMenu({ type: null, key: null, side: null, position: null });
 
   const toggleTradeQuoteMenu = (type, key, side, event) => {
+    const buttonRect = event?.currentTarget && !isMobile
+      ? event.currentTarget.getBoundingClientRect()
+      : null;
     setOpenTradeQuoteMenu(prev =>
       prev.type === type && prev.key === key && prev.side === side
         ? { type: null, key: null, side: null, position: null }
@@ -140,10 +143,10 @@ function Dashboard({ isLightMode }) {
           type,
           key,
           side,
-          position: event && !isMobile
+          position: buttonRect
             ? {
-              top: Math.min(event.currentTarget.getBoundingClientRect().bottom + 6, window.innerHeight - 92),
-              left: Math.min(event.currentTarget.getBoundingClientRect().left, window.innerWidth - 196)
+              top: Math.max(8, Math.min(buttonRect.bottom + 6, window.innerHeight - 92)),
+              left: Math.max(8, Math.min(buttonRect.left, window.innerWidth - 196))
             }
             : null
         }
