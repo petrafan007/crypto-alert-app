@@ -2055,15 +2055,30 @@ def api_trading_pairs():
                 else:
                     other_pairs.append(pair_obj)
             
-            usd_pairs.sort(key=lambda x: x['base_currency'])
-            usdt_pairs.sort(key=lambda x: x['base_currency'])
+            # Prioritize major USDT pairs at the very top (BTC/USDT first)
+            priority_usdt = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'XRPUSDT', 'BNBUSDT', 'ADAUSDT', 'DOGEUSDT', 'SUIUSDT']
+            def _sort_usdt(p):
+                sym = p['id']
+                if sym in priority_usdt:
+                    return (0, priority_usdt.index(sym))
+                return (1, p['base_currency'])
+
+            priority_usd = ['BTCUSD', 'ETHUSD', 'SOLUSD', 'XRPUSD', 'ADAUSD', 'DOGEUSD']
+            def _sort_usd(p):
+                sym = p['id']
+                if sym in priority_usd:
+                    return (0, priority_usd.index(sym))
+                return (1, p['base_currency'])
+
+            usdt_pairs.sort(key=_sort_usdt)
+            usd_pairs.sort(key=_sort_usd)
             other_pairs.sort(key=lambda x: x['base_currency'])
             
-            all_pairs = usd_pairs + usdt_pairs + other_pairs
+            all_pairs = usdt_pairs + usd_pairs + other_pairs
             if all_pairs:
                 _TRADING_PAIRS_CACHE['pairs'] = all_pairs
                 _TRADING_PAIRS_CACHE['timestamp'] = now
-                logger.info(f"Loaded {len(all_pairs)} live Binance.US trading pairs ({len(usd_pairs)} USD pairs, {len(usdt_pairs)} USDT pairs)")
+                logger.info(f"Loaded {len(all_pairs)} live Binance.US trading pairs ({len(usdt_pairs)} USDT pairs, {len(usd_pairs)} USD pairs)")
                 return jsonify({'pairs': all_pairs})
     except Exception as e:
         logger.error(f"Error fetching live Binance.US exchange info: {e}")

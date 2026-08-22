@@ -29,7 +29,7 @@ const Trading = () => {
   const getInitialSymbol = () => {
     try {
       const saved = localStorage.getItem('selectedTradingPair');
-      if (saved && saved !== 'USD' && saved !== 'USDT' && saved !== 'ALL' && saved.length >= 5) {
+      if (saved && saved !== 'USD' && saved !== 'USDT' && saved !== 'ALL' && saved.length >= 5 && saved !== 'ETHUSD') {
         return saved;
       }
     } catch (e) {}
@@ -491,23 +491,23 @@ const Trading = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location.state]);
 
-  // Comprehensive default list of all 54 Binance.US USD pairs + popular USDT pairs
+  // Comprehensive default list of Binance.US pairs (USDT pairs first, then USD pairs)
   const DEFAULT_TRADING_PAIRS = [
-    // All 54 Binance.US USD pairs (sorted alphabetically)
-    'AAVEUSD', 'ADAUSD', 'ALGOUSD', 'ATOMUSD', 'AVAXUSD', 'BCHUSD', 'BNBUSD', 'BONKUSD',
-    'BTCUSD', 'CRVUSD', 'DGBUSD', 'DOGEUSD', 'DOTUSD', 'ENSUSD', 'ETCUSD', 'ETHUSD',
-    'FETUSD', 'FLOKIUSD', 'GALAUSD', 'GRTUSD', 'HBARUSD', 'HYPEUSD', 'ICPUSD', 'IOTAUSD',
-    'JUPUSD', 'LINKUSD', 'LPTUSD', 'LTCUSD', 'MEUSD', 'NEARUSD', 'ONEUSD', 'OPUSD',
-    'PEPEUSD', 'POLUSD', 'RENDERUSD', 'RVNUSD', 'SANDUSD', 'SHIBUSD', 'SOLUSD', 'SUIUSD',
-    'SUSD', 'SUSHIUSD', 'THETAUSD', 'TRUMPUSD', 'TRXUSD', 'UNIUSD', 'USDCUSD', 'USDTUSD',
-    'VETUSD', 'VTHOUSD', 'XLMUSD', 'XRPUSD', 'ZECUSD', 'ZILUSD',
-    // USDT pairs
+    // Primary USDT pairs (BTC/USDT first)
     'BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'XRPUSDT', 'BNBUSDT', 'ADAUSDT', 'DOGEUSDT', 'SUIUSDT',
     'AVAXUSDT', 'LINKUSDT', 'DOTUSDT', 'NEARUSDT', 'PEPEUSDT', 'SHIBUSDT', 'LTCUSDT', 'UNIUSDT',
     'ATOMUSDT', 'ALGOUSDT', 'BCHUSDT', 'TRXUSDT', 'XLMUSDT', 'FETUSDT', 'RENDERUSDT', 'HBARUSDT',
     'ICPUSDT', 'AAVEUSDT', 'CRVUSDT', 'SANDUSDT', 'GALAUSDT', 'CELRUSDT', 'LPTUSDT', 'ONTUSDT',
     'KSMUSDT', 'BONKUSDT', 'FLOKIUSDT', 'INJUSDT', 'ARBUSDT', 'OPUSDT', 'TIAUSDT', 'SEIUSDT',
-    'JUPUSDT', 'ENAUSDT', 'WIFUSDT', 'TRUMPUSDT', 'USDCUSDT'
+    'JUPUSDT', 'ENAUSDT', 'WIFUSDT', 'TRUMPUSDT', 'USDCUSDT',
+    // USD pairs (BTC/USD first)
+    'BTCUSD', 'ETHUSD', 'SOLUSD', 'XRPUSD', 'ADAUSD', 'DOGEUSD', 'AAVEUSD', 'ALGOUSD', 'ATOMUSD',
+    'AVAXUSD', 'BCHUSD', 'BNBUSD', 'BONKUSD', 'CRVUSD', 'DGBUSD', 'DOTUSD', 'ENSUSD', 'ETCUSD',
+    'FETUSD', 'FLOKIUSD', 'GALAUSD', 'GRTUSD', 'HBARUSD', 'HYPEUSD', 'ICPUSD', 'IOTAUSD',
+    'JUPUSD', 'LINKUSD', 'LPTUSD', 'LTCUSD', 'MEUSD', 'NEARUSD', 'ONEUSD', 'OPUSD',
+    'PEPEUSD', 'POLUSD', 'RENDERUSD', 'RVNUSD', 'SANDUSD', 'SHIBUSD', 'SUIUSD',
+    'SUSD', 'SUSHIUSD', 'THETAUSD', 'TRUMPUSD', 'TRXUSD', 'UNIUSD', 'USDCUSD', 'USDTUSD',
+    'VETUSD', 'VTHOUSD', 'XLMUSD', 'ZECUSD', 'ZILUSD'
   ];
 
   const formatPairObject = (p) => {

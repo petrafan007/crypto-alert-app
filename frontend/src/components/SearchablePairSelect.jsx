@@ -97,13 +97,13 @@ const SearchablePairSelect = ({
       flatList.push({ id: 'ALL', display_name: 'All Trading Pairs' });
     }
 
-    if (usdPairs.length > 0) {
-      groups.push({ label: `USD Pairs (${usdPairs.length})`, items: usdPairs });
-      flatList.push(...usdPairs);
-    }
     if (usdtPairs.length > 0) {
       groups.push({ label: `USDT Pairs (${usdtPairs.length})`, items: usdtPairs });
       flatList.push(...usdtPairs);
+    }
+    if (usdPairs.length > 0) {
+      groups.push({ label: `USD Pairs (${usdPairs.length})`, items: usdPairs });
+      flatList.push(...usdPairs);
     }
     if (otherPairs.length > 0) {
       groups.push({ label: `Other Pairs (${otherPairs.length})`, items: otherPairs });
