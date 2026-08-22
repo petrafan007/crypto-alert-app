@@ -191,11 +191,12 @@ const loadPersistedLayouts = () => {
   try {
     for (const key of LEGACY_STORAGE_KEYS) {
       const saved = localStorage.getItem(key);
-      if (saved) {
+      if (saved !== null) {
         const parsed = JSON.parse(saved);
-        if (parsed && typeof parsed === 'object') {
-          // Permanently save to standard key
-          localStorage.setItem(STORAGE_KEY, JSON.stringify(parsed));
+        if (parsed && typeof parsed === 'object' && Object.keys(parsed).length > 0) {
+          if (key !== STORAGE_KEY) {
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(parsed));
+          }
           return parsed;
         }
       }
@@ -210,12 +211,13 @@ const loadPersistedHiddenWidgets = () => {
   try {
     for (const key of LEGACY_HIDDEN_KEYS) {
       const saved = localStorage.getItem(key);
-      if (saved) {
+      if (saved !== null) {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed)) {
-          const merged = Array.from(new Set([...parsed, ...NEW_WIDGET_IDS]));
-          localStorage.setItem(HIDDEN_STORAGE_KEY, JSON.stringify(merged));
-          return merged;
+          if (key !== HIDDEN_STORAGE_KEY) {
+            localStorage.setItem(HIDDEN_STORAGE_KEY, JSON.stringify(parsed));
+          }
+          return parsed;
         }
       }
     }
@@ -251,7 +253,7 @@ const DashboardWidgetGrid = ({
     return () => document.removeEventListener('mousedown', handleOutsideClick);
   }, []);
 
-  // Enter edit mode
+  // Enter / Exit edit mode
   const handleToggleEditMode = () => {
     if (!isEditMode) {
       // Starting edit mode: record initial snapshot and clear history
@@ -262,9 +264,13 @@ const DashboardWidgetGrid = ({
       setHistory([]);
       setIsEditMode(true);
     } else {
-      // Done editing: save and exit
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(layouts));
-      localStorage.setItem(HIDDEN_STORAGE_KEY, JSON.stringify(hiddenWidgetIds));
+      // Done editing: ALWAYS save current layout and hidden widgets to localStorage
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(layouts));
+        localStorage.setItem(HIDDEN_STORAGE_KEY, JSON.stringify(hiddenWidgetIds));
+      } catch (e) {
+        console.error('Error saving dashboard layout on Done Editing:', e);
+      }
       setIsEditMode(false);
       setHistory([]);
       setInitialSnapshot(null);
@@ -494,7 +500,7 @@ const DashboardWidgetGrid = ({
         isDraggable={isEditMode}
         isResizable={isEditMode}
         compactType={null}
-        preventCollision={false}
+        preventCollision={true}
         resizeHandles={['se', 'sw', 'ne', 'nw', 'e', 'w', 'n', 's']}
         margin={[16, 16]}
         containerPadding={[0, 0]}

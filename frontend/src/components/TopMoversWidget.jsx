@@ -10,49 +10,49 @@ const TopMoversWidget = ({ isLightMode }) => {
     let cancelled = false;
     const fetchMovers = async () => {
       try {
-        const [portfolioRes, watchlistRes] = await Promise.allSettled([
-          axios.get('/api/coin-data-live', { withCredentials: true }),
-          axios.get('/api/watchlist-live', { withCredentials: true })
-        ]);
+        const res = await axios.get('/api/coin-performance', { withCredentials: true });
+        const perf = Array.isArray(res.data?.performance) ? res.data.performance : [];
 
-        const allCoins = [];
-        const seen = new Set();
-
-        if (portfolioRes.status === 'fulfilled' && portfolioRes.value.data?.coins) {
-          portfolioRes.value.data.coins.forEach(c => {
-            if (c.symbol && !seen.has(c.symbol.toUpperCase())) {
-              seen.add(c.symbol.toUpperCase());
-              allCoins.push({
-                symbol: c.symbol.toUpperCase(),
-                price: parseFloat(c.current || c.current_price || 0),
-                change: parseFloat(c.percent_change_24h || c.change_24h || 0)
-              });
-            }
+        const validCoins = perf
+          .filter(c => c && c.symbol && !['USD', 'USDT', 'USDC', 'USDG', 'DAI'].includes(c.symbol.toUpperCase()))
+          .map(c => {
+            const rawChange = c.change_1d !== undefined && c.change_1d !== null
+              ? c.change_1d
+              : (c.change_7d || c.change_3d || 0);
+            return {
+              symbol: c.symbol.toUpperCase(),
+              price: Number(c.price || 0),
+              change: Number(rawChange)
+            };
           });
-        }
 
-        if (watchlistRes.status === 'fulfilled' && Array.isArray(watchlistRes.value.data?.watchlist)) {
-          watchlistRes.value.data.watchlist.forEach(w => {
-            if (w.symbol && !seen.has(w.symbol.toUpperCase())) {
-              seen.add(w.symbol.toUpperCase());
-              allCoins.push({
-                symbol: w.symbol.toUpperCase(),
-                price: parseFloat(w.current_price || w.price || 0),
-                change: parseFloat(w.percent_change_24h || w.change_24h || 0)
-              });
-            }
-          });
-        }
+        if (validCoins.length > 0) {
+          // Sort by change descending
+          const sorted = [...validCoins].sort((a, b) => b.change - a.change);
+          const positive = sorted.filter(c => c.change > 0);
+          const negative = sorted.filter(c => c.change < 0);
 
-        // Filter valid coins
-        const validCoins = allCoins.filter(c => c.price > 0 && !['USD', 'USDT', 'USDC'].includes(c.symbol));
-        
-        const sorted = [...validCoins].sort((a, b) => b.change - a.change);
-        const gainers = sorted.slice(0, 3);
-        const losers = [...validCoins].sort((a, b) => a.change - b.change).slice(0, 3);
+          let gainers = [];
+          let losers = [];
 
-        if (!cancelled) {
-          setMovers({ gainers, losers });
+          if (positive.length > 0) {
+            gainers = positive.slice(0, 3);
+          } else {
+            gainers = sorted.slice(0, Math.min(3, Math.ceil(sorted.length / 2)));
+          }
+
+          if (negative.length > 0) {
+            // Sort most negative first for display
+            losers = [...negative].sort((a, b) => a.change - b.change).slice(0, 3);
+          } else if (sorted.length > 1) {
+            losers = [...sorted].reverse().slice(0, Math.min(3, Math.floor(sorted.length / 2)));
+          }
+
+          if (!cancelled) {
+            setMovers({ gainers, losers });
+            setLoading(false);
+          }
+        } else if (!cancelled) {
           setLoading(false);
         }
       } catch (err) {

@@ -10,14 +10,23 @@ const RecentTradesWidget = ({ isLightMode }) => {
     let cancelled = false;
     const fetchTrades = async () => {
       try {
-        const res = await axios.get('/api/orders', { withCredentials: true });
-        if (res.data?.success && Array.isArray(res.data.orders)) {
-          // Get executed / filled orders
-          const filled = res.data.orders.slice(0, 5);
-          if (!cancelled) {
-            setTrades(filled);
-            setLoading(false);
+        let orderList = [];
+        try {
+          const res = await axios.get('/api/trading/real-orders?limit=10', { withCredentials: true });
+          if (Array.isArray(res.data?.orders)) {
+            orderList = res.data.orders;
           }
+        } catch (e) {
+          // Fallback to /api/orders
+          const fallbackRes = await axios.get('/api/orders', { withCredentials: true });
+          if (Array.isArray(fallbackRes.data?.orders)) {
+            orderList = fallbackRes.data.orders;
+          }
+        }
+
+        if (!cancelled) {
+          setTrades(orderList.slice(0, 5));
+          setLoading(false);
         }
       } catch (err) {
         console.error('Failed to load recent trades:', err);

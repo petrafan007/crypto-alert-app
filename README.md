@@ -122,6 +122,14 @@ The application utilizes a **unified PostgreSQL database**.
 
 ## Version History & Changelog
 
+## v1.73-beta (August 2026)
+
+### Recent Trades, Top Movers Data Fix & Done Editing Auto-Save
+- **Recent Order History Feed Fix**: Resolved response handling and endpoint routing in `RecentTradesWidget.jsx` to load live order executions seamlessly from `/api/trading/real-orders` and `/api/orders`.
+- **Top Gainers & Losers (24h) Data Integration**: Connected `TopMoversWidget.jsx` directly to `/api/coin-performance` to calculate and render real-time 24h gainers and dip opportunities across portfolio and watchlist assets.
+- **Done Editing Auto-Save**: Clicking **✓ Done Editing** in the top navbar now explicitly commits and saves layout modifications to persistent browser storage.
+- **Version Bump**: Synchronized metadata to `v1.73-beta`.
+
 ## v1.72-beta (August 2026)
 
 ### Smart Grid Hole-Detection & Default Panel Sizing for Restored Widgets
