@@ -8,6 +8,8 @@
 
 /* Toolbar */
 .dashboard-grid-toolbar {
+  position: relative;
+  z-index: 200; /* Ensure dropdown menu displays above draggable panels */
   display: flex;
   align-items: center;
   justify-content: space-between;
