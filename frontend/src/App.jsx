@@ -164,7 +164,8 @@ export default function App() {
       <nav className="nav-container">
         <div className="nav-content" style={{ flexDirection: 'column' }}>
           {user && (
-            <div className="nav-links" style={{ width: '100%', justifyContent: 'center' }}>
+            <div className="nav-links" style={{ width: '100%', justifyContent: 'center', position: 'relative' }}>
+              <div id="navbar-customize-portal" style={{ position: 'absolute', left: '0', display: 'flex', alignItems: 'center', height: '100%' }}></div>
               <Link to="/" className="nav-link">
                 📊 Dashboard
               </Link>
@@ -213,8 +214,22 @@ export default function App() {
               </button>
             </div>
           )}
-          <div style={{ marginTop: '10px', fontWeight: 'bold', fontSize: '1.5rem', color: 'var(--accent-secondary)' }}>
-            Crypto Alert App
+          <div className="brand-logo">
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className="brand-icon">
+              <path d="M21 12C21 16.9706 16.9706 21 12 21C7.02944 21 3 16.9706 3 12C3 7.02944 7.02944 3 12 3C16.9706 3 21 7.02944 21 12Z" stroke="url(#logo-grad)" strokeWidth="2" strokeLinecap="round"/>
+              <path d="M12 7V12L15 15" stroke="url(#logo-grad)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+              <path d="M12 2L12 4" stroke="#4FACFE" strokeWidth="2" strokeLinecap="round"/>
+              <path d="M12 20L12 22" stroke="#00F2FE" strokeWidth="2" strokeLinecap="round"/>
+              <path d="M22 12L20 12" stroke="#4FACFE" strokeWidth="2" strokeLinecap="round"/>
+              <path d="M4 12L2 12" stroke="#00F2FE" strokeWidth="2" strokeLinecap="round"/>
+              <defs>
+                <linearGradient id="logo-grad" x1="3" y1="3" x2="21" y2="21" gradientUnits="userSpaceOnUse">
+                  <stop stopColor="#00F2FE"/>
+                  <stop offset="1" stopColor="#4FACFE"/>
+                </linearGradient>
+              </defs>
+            </svg>
+            <span>Crypto Alert App</span>
           </div>
         </div>
       </nav>

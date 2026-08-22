@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { Responsive, WidthProvider } from 'react-grid-layout';
 import 'react-grid-layout/css/styles.css';
 import 'react-resizable/css/styles.css';
@@ -130,19 +131,27 @@ const DashboardWidgetGrid = ({
   const hiddenWidgetsList = WIDGETS.filter(w => hiddenWidgetIds.includes(w.id));
   const visibleWidgets = WIDGETS.filter(w => !hiddenWidgetIds.includes(w.id));
 
+  const portalTarget = document.getElementById('navbar-customize-portal');
+
+  const customizeBtn = (
+    <button
+      type="button"
+      className={`dashboard-edit-toggle-btn ${isEditMode ? 'active' : ''}`}
+      onClick={() => setIsEditMode(prev => !prev)}
+      title="Customize dashboard panel positions and sizes"
+      style={{ marginRight: '16px' }}
+    >
+      {isEditMode ? '✓ Done Editing' : '✏️ Customize Layout'}
+    </button>
+  );
+
   return (
     <div className={`dashboard-widget-grid-container ${isEditMode ? 'edit-mode-active' : ''}`}>
       {/* Top Controls Bar */}
       <div className="dashboard-grid-toolbar">
         <div className="dashboard-grid-toolbar-left">
-          <button
-            type="button"
-            className={`dashboard-edit-toggle-btn ${isEditMode ? 'active' : ''}`}
-            onClick={() => setIsEditMode(prev => !prev)}
-            title="Customize dashboard panel positions and sizes"
-          >
-            {isEditMode ? '✓ Done Editing' : '✏️ Customize Layout'}
-          </button>
+          {portalTarget ? createPortal(customizeBtn, portalTarget) : customizeBtn}
+
 
           {isEditMode && (
             <span className="dashboard-edit-hint">

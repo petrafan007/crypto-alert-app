@@ -116,7 +116,7 @@ body {
 html,
 body {
   max-width: 100%;
-  overflow-x: hidden;
+  overflow-x: clip;
 }
 
 /* Ensure all elements use border-box */
@@ -3399,6 +3399,7 @@ body.dark-mode .widget-panel-inner,
 .portfolio-value-widget-card h3 {
   background: linear-gradient(135deg, #e2e8f0 0%, #94a3b8 100%);
   -webkit-background-clip: text;
+  background-clip: text;
   -webkit-text-fill-color: transparent;
 }
 
@@ -3415,6 +3416,7 @@ body.dark-mode .widget-panel-inner,
   font-weight: 700;
   background: linear-gradient(135deg, #e2e8f0 0%, #94a3b8 100%);
   -webkit-background-clip: text;
+  background-clip: text;
   -webkit-text-fill-color: transparent;
   letter-spacing: 0.02em;
 }
@@ -3456,6 +3458,7 @@ body.light-mode .chart-title,
 body.light-mode .portfolio-value-widget-card h3 {
   background: linear-gradient(135deg, #1e293b 0%, #475569 100%);
   -webkit-background-clip: text;
+  background-clip: text;
 }
 
 body.light-mode .portfolio-value-widget-card .value-display {
@@ -3498,6 +3501,7 @@ body.light-mode .time-range-btn:hover {
 .table-container.watchlist-table .table-title {
   background: linear-gradient(135deg, #e2e8f0 0%, #94a3b8 100%);
   -webkit-background-clip: text;
+  background-clip: text;
   -webkit-text-fill-color: transparent;
   font-weight: 800;
   letter-spacing: 0.02em;
@@ -3588,6 +3592,7 @@ body.light-mode .table-container.portfolio-table .table-title,
 body.light-mode .table-container.watchlist-table .table-title {
   background: linear-gradient(135deg, #1e293b 0%, #475569 100%);
   -webkit-background-clip: text;
+  background-clip: text;
 }
 
 body.light-mode .table-container.portfolio-table thead th,
@@ -3611,4 +3616,26 @@ body.light-mode .table-container.watchlist-table tbody tr:hover {
 body.light-mode .table-container.portfolio-table td,
 body.light-mode .table-container.watchlist-table td {
   color: #334155;
+}
+
+/* Brand Logo */
+.brand-logo {
+  margin-top: 12px;
+  font-weight: 900;
+  font-size: 1.8rem;
+  background: linear-gradient(135deg, #00f2fe 0%, #4facfe 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  text-transform: uppercase;
+  letter-spacing: 2px;
+  text-shadow: 0 0 20px rgba(0, 242, 254, 0.4);
+}
+
+.brand-icon {
+  filter: drop-shadow(0 0 8px rgba(0,242,254,0.6));
 }
