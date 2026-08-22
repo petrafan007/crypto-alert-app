@@ -172,13 +172,30 @@ crypto.code-workspace
 crypto-dashboard-source.service
 
 # Internal Development & Planning
-# github_instructions.md
-TODO.md
+*.log
+upgrade.log
+app_debug.log
+alert_state.json
+check_error.js
+refresh_all_sentiments.py
+db-viewer.yml
+release_*.sh
+mock-portfolio-performance-chart.*
+CryptoAppPromptLogic.md
 CryptoDesktopApp.md
-VibecodeInstructions.md
+DATABASE_SCHEMA.md
+PROGRESS.MD
 progress.md
+TODO.md
+VibecodeInstructions.md
+github_instructions.md
+route_checklist.md
+crypto_desktop_app/
+tests/
+migrations/
 
 # Exclude sensitive files explicitly
 jcavallarojr_access_token.json*
 credentials.db*
 cookies*
+
