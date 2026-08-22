@@ -609,14 +609,32 @@ const AIDashboard = () => {
         const isCorrect = sig.outcome_status === 'correct';
         const isWrong = sig.outcome_status === 'wrong';
 
-        const outcomeTxt = isCorrect ? `✅ +${Math.abs(sig.outcome_pct || 0)}%` : isWrong ? `❌ ${sig.outcome_pct || 0}%` : '⏳';
+        const getSentimentAcronym = (sentiment) => {
+          if (!sentiment) return '';
+          const s = sentiment.trim().toLowerCase();
+          if (s === 'consider buying') return 'CB';
+          if (s === 'buy immediately') return 'BI';
+          if (s === 'definitely buy' || s === 'strong buy') return 'DB';
+          if (s === 'consider selling') return 'CS';
+          if (s === 'sell immediately') return 'SI';
+          if (s === 'strong sell' || s === 'avoid') return 'SS';
+          if (s === 'hold') return 'Hold';
+          if (s === 'watch') return 'Watch';
+          return sentiment;
+        };
+
+        const rawDelta = sig.price_delta_pct !== undefined ? sig.price_delta_pct : sig.outcome_pct;
+        const deltaStr = rawDelta !== undefined && rawDelta !== null
+          ? `${rawDelta >= 0 ? '+' : ''}${parseFloat(rawDelta).toFixed(2)}%`
+          : '0.00%';
+        const outcomeTxt = isCorrect ? `✅ ${deltaStr}` : isWrong ? `❌ ${deltaStr}` : `⚖️ ${deltaStr}`;
 
         markers.push({
           time: closestKline.time,
           position: isBullish ? 'belowBar' : isBearish ? 'aboveBar' : 'inBar',
           color: isBullish ? '#00e676' : isBearish ? '#f56565' : '#38bdf8',
           shape: isBullish ? 'arrowUp' : isBearish ? 'arrowDown' : 'circle',
-          text: `${sig.sentiment}: ${outcomeTxt}`,
+          text: `${getSentimentAcronym(sig.sentiment)}: ${outcomeTxt}`,
           id: sig.id,
         });
       }
@@ -978,7 +996,18 @@ const AIDashboard = () => {
                 <span>C: <strong>${hoveredPoint.close?.toLocaleString()}</strong></span>
                 {hoveredPoint.signal && (
                   <span className="hover-signal-badge">
-                    🤖 <strong>{hoveredPoint.signal.sentiment}</strong> @ ${hoveredPoint.signal.price_at_prediction?.toLocaleString()} ({hoveredPoint.signal.outcome_status === 'correct' ? `✅ +${Math.abs(hoveredPoint.signal.outcome_pct)}%` : hoveredPoint.signal.outcome_status === 'wrong' ? `❌ ${hoveredPoint.signal.outcome_pct}%` : '⏳ Tracking'})
+                    {(() => {
+                      const sig = hoveredPoint.signal;
+                      const rawDelta = sig.price_delta_pct !== undefined ? sig.price_delta_pct : sig.outcome_pct;
+                      const deltaStr = rawDelta !== undefined && rawDelta !== null ? `${rawDelta >= 0 ? '+' : ''}${parseFloat(rawDelta).toFixed(2)}%` : '';
+                      const icon = sig.outcome_status === 'correct' ? '✅' : sig.outcome_status === 'wrong' ? '❌' : '⚖️';
+                      const statusTxt = sig.outcome_status === 'tracking' ? '⏳ Tracking' : `${icon} ${deltaStr}`;
+                      return (
+                        <>
+                          🤖 <strong>{sig.sentiment}</strong> @ ${sig.price_at_prediction?.toLocaleString()} ({statusTxt})
+                        </>
+                      );
+                    })()}
                   </span>
                 )}
               </div>
@@ -1091,19 +1120,32 @@ const AIDashboard = () => {
                               </span>
                             </td>
                             <td>
-                              {row.outcome_status === 'correct' ? (
-                                <span className="outcome-pill outcome-correct">
-                                  ✅ Correct (+{Math.abs(row.outcome_pct || 0)}%)
-                                </span>
-                              ) : row.outcome_status === 'wrong' ? (
-                                <span className="outcome-pill outcome-wrong">
-                                  ❌ Wrong ({row.outcome_pct || 0}%)
-                                </span>
-                              ) : (
-                                <span className="outcome-pill outcome-neutral" style={{ background: 'rgba(100, 116, 139, 0.15)', color: 'var(--text-secondary)' }}>
-                                  ⚖️ Neutral ({row.outcome_pct || 0}%)
-                                </span>
-                              )}
+                              {(() => {
+                                const rawDelta = row.price_delta_pct !== undefined ? row.price_delta_pct : row.outcome_pct;
+                                const deltaFormatted = rawDelta !== undefined && rawDelta !== null
+                                  ? `${rawDelta >= 0 ? '+' : ''}${parseFloat(rawDelta).toFixed(2)}%`
+                                  : '0.00%';
+
+                                if (row.outcome_status === 'correct') {
+                                  return (
+                                    <span className="outcome-pill outcome-correct">
+                                      ✅ Correct ({deltaFormatted})
+                                    </span>
+                                  );
+                                } else if (row.outcome_status === 'wrong') {
+                                  return (
+                                    <span className="outcome-pill outcome-wrong">
+                                      ❌ Wrong ({deltaFormatted})
+                                    </span>
+                                  );
+                                } else {
+                                  return (
+                                    <span className="outcome-pill outcome-neutral" style={{ background: 'rgba(100, 116, 139, 0.15)', color: 'var(--text-secondary)' }}>
+                                      ⚖️ Neutral ({deltaFormatted})
+                                    </span>
+                                  );
+                                }
+                              })()}
                             </td>
                           </tr>
                         );

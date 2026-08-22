@@ -227,18 +227,54 @@ export default function ToastNotifications({ isLightMode }) {
 
             <div className="toast-body">
               {toast.symbol && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <div className="toast-symbol-row">
                   <span className="toast-symbol-tag">{toast.symbol}</span>
-                  {config.subTitle && (
-                    <span style={{ fontSize: '0.78rem', color: '#94a3b8' }}>
-                      {config.subTitle}
-                    </span>
-                  )}
                 </div>
               )}
-              <div className="toast-message-text">
-                {toast.message || config.defaultMessage}
-              </div>
+              {(() => {
+                const msg = toast.message || config.defaultMessage || '';
+                
+                // If it is an AI Sentiment Signal
+                if (cat === 'sentiment_alert' || cat === 'ai_sentiment' || msg.includes('AI Signal:')) {
+                  let signalPart = '';
+                  let reasonPart = '';
+                  
+                  if (msg.includes('—')) {
+                    const parts = msg.split('—');
+                    signalPart = parts[0].trim();
+                    reasonPart = parts.slice(1).join('—').trim();
+                  } else if (msg.includes(' - ')) {
+                    const parts = msg.split(' - ');
+                    signalPart = parts[0].trim();
+                    reasonPart = parts.slice(1).join(' - ').trim();
+                  } else {
+                    signalPart = msg;
+                  }
+
+                  if (!signalPart.toLowerCase().startsWith('ai signal:')) {
+                    signalPart = `AI Signal: ${signalPart}`;
+                  }
+
+                  return (
+                    <div className="toast-content-container">
+                      <div className="toast-signal-headline">
+                        {signalPart}
+                      </div>
+                      {reasonPart && (
+                        <div className="toast-reason-text">
+                          {reasonPart}
+                        </div>
+                      )}
+                    </div>
+                  );
+                }
+
+                return (
+                  <div className="toast-message-text">
+                    {msg}
+                  </div>
+                );
+              })()}
             </div>
 
             <div className="toast-progress-container">

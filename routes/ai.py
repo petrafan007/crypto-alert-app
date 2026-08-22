@@ -690,34 +690,28 @@ def api_ai_sentiment_accuracy():
 
                 if entry_price > 0 and eval_price > 0 and not is_latest:
                     price_delta_pct = ((eval_price - entry_price) / entry_price) * 100.0
+                    outcome_pct = round(price_delta_pct, 2)
                     if sent_lower in BULLISH_SIGNALS:
                         bullish_count += 1
                         if price_delta_pct > 0.03:
                             outcome_status = 'correct'
-                            outcome_pct = round(price_delta_pct, 2)
                             bullish_correct += 1
                         elif price_delta_pct < -0.03:
                             outcome_status = 'wrong'
-                            outcome_pct = round(price_delta_pct, 2)
                         else:
                             outcome_status = 'neutral'
-                            outcome_pct = round(price_delta_pct, 2)
                     elif sent_lower in BEARISH_SIGNALS:
                         bearish_count += 1
                         if price_delta_pct < -0.03:
                             outcome_status = 'correct'
-                            outcome_pct = round(abs(price_delta_pct), 2)  # Positive for loss avoided
                             bearish_correct += 1
                         elif price_delta_pct > 0.03:
                             outcome_status = 'wrong'
-                            outcome_pct = round(-price_delta_pct, 2)
                         else:
                             outcome_status = 'neutral'
-                            outcome_pct = 0.0
                     else:
                         neutral_count += 1
                         outcome_status = 'neutral'
-                        outcome_pct = 0.0
                 elif not is_latest:
                     neutral_count += 1
 
@@ -793,6 +787,7 @@ def api_ai_sentiment_accuracy():
                         'eval_target': eval_target,
                         'is_latest': False,
                         'outcome_pct': outcome_pct,
+                        'price_delta_pct': outcome_pct,
                         'outcome_status': outcome_status,
                         'provider': r.provider,
                         'model': r.model,

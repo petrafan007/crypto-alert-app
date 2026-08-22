@@ -190,12 +190,47 @@ body.light-mode .toast-body {
 }
 
 .toast-symbol-tag {
-  font-weight: 700;
+  font-weight: 800;
+  font-size: 0.95rem;
+  letter-spacing: 0.02em;
   color: #f1f5f9;
 }
 
 body.light-mode .toast-symbol-tag {
   color: #0f172a;
+}
+
+.toast-symbol-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 1px;
+}
+
+.toast-content-container {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.toast-signal-headline {
+  font-weight: 700;
+  font-size: 0.92rem;
+  color: var(--toast-accent, #8b5cf6);
+  letter-spacing: 0.01em;
+  margin-top: 1px;
+  margin-bottom: 2px;
+}
+
+.toast-reason-text {
+  font-size: 0.84rem;
+  line-height: 1.45;
+  color: #cbd5e1;
+  word-break: break-word;
+}
+
+body.light-mode .toast-reason-text {
+  color: #334155;
 }
 
 .toast-message-text {
