@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import useNotificationPoller from '../hooks/useNotificationPoller';
 import axios from 'axios';
@@ -150,6 +151,25 @@ function Dashboard({ isLightMode }) {
             }
             : null
         }
+    );
+  };
+
+  const renderDesktopTradeQuoteMenu = () => {
+    if (isMobile || !openTradeQuoteMenu.position || typeof document === 'undefined') return null;
+
+    const { key: symbol, side } = openTradeQuoteMenu;
+    const isBuy = side === 'BUY';
+
+    return createPortal(
+      <div className="trade-quote-menu" style={tradeQuoteMenuStyle} role="menu" aria-label={`${isBuy ? 'Buy' : 'Sell'} ${symbol}`}>
+        <button role="menuitem" onClick={() => { navigateToTrading(symbol, side, 'USD'); closeTradeQuoteMenu(); }}>
+          {isBuy ? 'Buy with USD' : 'Sell for USD'}
+        </button>
+        <button role="menuitem" onClick={() => { navigateToTrading(symbol, side, 'USDT'); closeTradeQuoteMenu(); }}>
+          {isBuy ? 'Buy with USDT' : 'Sell for USDT'}
+        </button>
+      </div>,
+      document.body
     );
   };
 
@@ -2268,24 +2288,12 @@ function Dashboard({ isLightMode }) {
                           >
                             Buy
                           </button>
-                          {openTradeQuoteMenu.type === 'portfolio' && openTradeQuoteMenu.key === coin.symbol && openTradeQuoteMenu.side === 'BUY' && (
-                            <div className="trade-quote-menu" style={tradeQuoteMenuStyle}>
-                              <button onClick={() => { navigateToTrading(coin.symbol, 'BUY', 'USD'); closeTradeQuoteMenu(); }}>Buy with USD</button>
-                              <button onClick={() => { navigateToTrading(coin.symbol, 'BUY', 'USDT'); closeTradeQuoteMenu(); }}>Buy with USDT</button>
-                            </div>
-                          )}
                           <button
                             className="trade-action-btn sell"
                             onClick={(event) => toggleTradeQuoteMenu('portfolio', coin.symbol, 'SELL', event)}
                           >
                             Sell
                           </button>
-                          {openTradeQuoteMenu.type === 'portfolio' && openTradeQuoteMenu.key === coin.symbol && openTradeQuoteMenu.side === 'SELL' && (
-                            <div className="trade-quote-menu" style={tradeQuoteMenuStyle}>
-                              <button onClick={() => { navigateToTrading(coin.symbol, 'SELL', 'USD'); closeTradeQuoteMenu(); }}>Sell for USD</button>
-                              <button onClick={() => { navigateToTrading(coin.symbol, 'SELL', 'USDT'); closeTradeQuoteMenu(); }}>Sell for USDT</button>
-                            </div>
-                          )}
                           <button
                             className="trade-action-btn stake"
                             onClick={() => handleStakeClick(coin)}
@@ -2460,12 +2468,6 @@ function Dashboard({ isLightMode }) {
                         >
                           Buy
                         </button>
-                        {openTradeQuoteMenu.type === 'watchlist' && openTradeQuoteMenu.key === item.symbol && openTradeQuoteMenu.side === 'BUY' && (
-                          <div className="trade-quote-menu" style={tradeQuoteMenuStyle}>
-                            <button onClick={() => { navigateToTrading(item.symbol, 'BUY', 'USD'); closeTradeQuoteMenu(); }}>Buy with USD</button>
-                            <button onClick={() => { navigateToTrading(item.symbol, 'BUY', 'USDT'); closeTradeQuoteMenu(); }}>Buy with USDT</button>
-                          </div>
-                        )}
                         <button
                           className="trade-action-btn delete"
                           onClick={() => deleteWatchlistItem(item.symbol)}
@@ -2538,6 +2540,7 @@ function Dashboard({ isLightMode }) {
 
       {/* Mobile Actions Overlay */}
       {renderMobileActionsOverlay()}
+      {renderDesktopTradeQuoteMenu()}
 
       {/* News Analysis Modal */}
       {showNewsModal && (
