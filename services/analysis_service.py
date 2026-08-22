@@ -130,7 +130,48 @@ def get_user_ai_settings(username: str) -> dict:
             'portfolio_schedule_start_time': '08:00',
             'watchlist_schedule_start_time': '08:00',
             'sentiment_history_lookback_hours': 12,
+            'watchlist_sentiment_history_lookback_hours': 12,
             'volatility_hours': 24,
+            'ai_prompts': {
+                'market_analysis_pre': '',
+                'market_analysis_post': '',
+                'portfolio_review_pre': '',
+                'portfolio_review_post': '',
+                'coin_analysis_pre': '',
+                'coin_analysis_post': '',
+                'sentiment_prompt_pre': (
+                    "You are an intelligent search query generator for cryptocurrency analysis. "
+                    "I currently hold {amount} of {symbol} in my portfolio. "
+                    "Search the web and find the latest news, market sentiment, technical momentum, and major catalysts for {symbol} as of {datetime} to evaluate my position."
+                ),
+                'sentiment_prompt_post': (
+                    "You are a cryptocurrency and financial analysis expert with access to current web search results, live pricing, and historical price/volume data for {symbol} as of {datetime}. "
+                    "I currently hold {amount} of {symbol} in my portfolio. "
+                    "Based on the current live price, the consecutive hourly price & volume history, recent market data, price trends, volume dynamics, catalysts, and risk/reward provided, evaluate whether I should hold, accumulate more, or take profits/cut losses on this holding.\n\n"
+                    "CRITICAL: You MUST respond with ONLY a valid JSON object in this exact format, with no other text before or after it:\n\n"
+                    "{\n"
+                    '  "sentiment": "<one of: Buy Immediately, Consider Buying, Hold, Consider Selling, Sell Immediately>",\n'
+                    '  "reason": "<1-2 sentences explaining your recommendation based on the live price, hourly price/volume dynamics, position risk/reward, and recent news>"\n'
+                    "}\n\n"
+                    "Do NOT include any explanation, preamble, markdown, or text outside of the JSON object."
+                ),
+                'watchlist_sentiment_prompt_pre': (
+                    "You are an intelligent search query generator for cryptocurrency analysis. "
+                    "I am currently monitoring {symbol} on my watchlist as a prospective investment opportunity. "
+                    "Search the web and find the latest news, market sentiment, technical momentum, and major catalysts for {symbol} as of {datetime} to evaluate whether now is a good entry point."
+                ),
+                'watchlist_sentiment_prompt_post': (
+                    "You are a cryptocurrency and financial analysis expert with access to current web search results, live pricing, and historical price/volume data for {symbol} as of {datetime}. "
+                    "I am monitoring {symbol} on my watchlist and evaluating whether to initiate a new position or stay on the sidelines. "
+                    "Based on the current live price, the consecutive hourly price & volume history, recent market data, price trends, volume dynamics, catalysts, and prospective risk/reward provided, evaluate whether I should enter the market, continue monitoring, or avoid this coin.\n\n"
+                    "CRITICAL: You MUST respond with ONLY a valid JSON object in this exact format, with no other text before or after it:\n\n"
+                    "{\n"
+                    '  "sentiment": "<one of: Avoid, Watch, Consider Buying, Definitely Buy>",\n'
+                    '  "reason": "<1-2 sentences explaining your recommendation based on current market conditions, hourly price/volume dynamics, prospective entry risk/reward, and recent news>"\n'
+                    "}\n\n"
+                    "Do NOT include any explanation, preamble, markdown, or text outside of the JSON object."
+                ),
+            },
         }
 
         user_obj = User.query.filter_by(username=username).first()
@@ -188,6 +229,9 @@ def get_user_ai_settings(username: str) -> dict:
 
                 if hasattr(user_setting, 'sentiment_history_lookback_hours'):
                     settings['sentiment_history_lookback_hours'] = user_setting.sentiment_history_lookback_hours or 12
+
+                if hasattr(user_setting, 'watchlist_sentiment_history_lookback_hours'):
+                    settings['watchlist_sentiment_history_lookback_hours'] = user_setting.watchlist_sentiment_history_lookback_hours or 12
 
                 if hasattr(user_setting, 'portfolio_schedule_start_time'):
                     settings['portfolio_schedule_start_time'] = user_setting.portfolio_schedule_start_time or '08:00'

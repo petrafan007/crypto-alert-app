@@ -815,10 +815,13 @@ def analyze_single_symbol_sentiment(user_id, username, symbol, is_watchlist=Fals
 
         price_str = f"${current_price:,.2f}" if current_price is not None else "N/A"
 
-        # Fetch configured N-hours price and volume context
+        # Fetch configured N-hours price and volume context (differentiated for portfolio vs watchlist)
         lookback_hours = 12
         try:
-            lookback_hours = int(user_ai_settings.get('sentiment_history_lookback_hours', 12) or 12)
+            if is_watchlist:
+                lookback_hours = int(user_ai_settings.get('watchlist_sentiment_history_lookback_hours', 12) or 12)
+            else:
+                lookback_hours = int(user_ai_settings.get('sentiment_history_lookback_hours', 12) or 12)
         except Exception:
             lookback_hours = 12
 

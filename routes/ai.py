@@ -1005,7 +1005,7 @@ def api_ai_settings():
                 'ai_analysis_window_end', 'ai_max_tokens', 'ai_web_search_enabled',
                 'tax_manual_invested_updated', 'tax_cost_basis_method',
                 'sentiment_analysis_frequency_hours', 'watchlist_sentiment_analysis_frequency_hours',
-                'sentiment_history_lookback_hours',
+                'sentiment_history_lookback_hours', 'watchlist_sentiment_history_lookback_hours',
                 'volatility_hours', 'copilot_chat_pre', 'copilot_chat_post'
             ]
 
@@ -1039,7 +1039,7 @@ def api_ai_settings():
                     if key in ['ai_enabled', 'ai_notifications_enabled', 'ai_web_search_enabled']:
                          setattr(user_setting, key, bool(value))
                     # For int fields
-                    elif key in ['ai_cache_duration_hours', 'ai_max_tokens', 'sentiment_analysis_frequency_hours', 'watchlist_sentiment_analysis_frequency_hours', 'sentiment_history_lookback_hours', 'volatility_hours']:
+                    elif key in ['ai_cache_duration_hours', 'ai_max_tokens', 'sentiment_analysis_frequency_hours', 'watchlist_sentiment_analysis_frequency_hours', 'sentiment_history_lookback_hours', 'watchlist_sentiment_history_lookback_hours', 'volatility_hours']:
                         try:
                             setattr(user_setting, key, int(value))
                         except:

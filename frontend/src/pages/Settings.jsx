@@ -85,6 +85,7 @@ export default function Settings({ isLightMode }) {
     sentiment_analysis_frequency_hours: 24,
     watchlist_sentiment_analysis_frequency_hours: 24,
     sentiment_history_lookback_hours: 12,
+    watchlist_sentiment_history_lookback_hours: 12,
     volatility_hours: 24,
     toast_notifications_enabled: true,
     tax_cost_basis_method: 'fifo',
@@ -2590,6 +2591,33 @@ export default function Settings({ isLightMode }) {
                         colorScheme: 'dark'
                       }}
                     />
+                  </div>
+
+                  {/* Watchlist Sentiment Price & Volume Lookback Window */}
+                  <div style={{ marginTop: 12 }}>
+                    <label style={{ display: 'block', marginBottom: 6, color: '#fff', fontSize: '12px' }}>
+                      Price & Volume History Lookback Window (hours)
+                    </label>
+                    <input
+                      type="number"
+                      min="1"
+                      max="72"
+                      value={settings.watchlist_sentiment_history_lookback_hours || 12}
+                      onChange={(e) => handleInputChange('watchlist_sentiment_history_lookback_hours', parseInt(e.target.value) || 12)}
+                      style={{
+                        width: '100%',
+                        padding: '8px 12px',
+                        borderRadius: 6,
+                        background: '#232b31',
+                        color: '#fff',
+                        border: '1px solid #555',
+                        boxSizing: 'border-box',
+                        fontSize: '12px'
+                      }}
+                    />
+                    <span style={{ fontSize: '11px', color: '#94a3b8', marginTop: 4, display: 'block' }}>
+                      Hours of hourly price & volume data fed to the AI model for watchlist coins (Default: 12h, e.g. 6, 12, 24, 48).
+                    </span>
                   </div>
                 </div>
                 <div>
