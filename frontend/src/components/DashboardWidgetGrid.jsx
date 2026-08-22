@@ -36,33 +36,32 @@ const NEW_WIDGET_IDS = [
 
 const getWidgetBounds = (id) => {
   switch (id) {
-    case 'allocations': return { minW: 3, minH: 3 };
-    case 'trend': return { minW: 4, minH: 3 };
-    case 'performance': return { minW: 3, minH: 2 };
-    case 'fear_greed': return { minW: 2, minH: 3 };
-    case 'cbbi': return { minW: 2, minH: 3 };
-    case 'portfolio_value': return { minW: 2, minH: 3 };
-    case 'staking': return { minW: 2, minH: 3 };
-    case 'top_movers': return { minW: 3, minH: 3 };
-    case 'recent_trades': return { minW: 3, minH: 3 };
-    case 'ai_pulse': return { minW: 3, minH: 3 };
-    case 'staking_rewards': return { minW: 2, minH: 3 };
-    case 'risk_monitor': return { minW: 2, minH: 3 };
-    case 'quick_trade': return { minW: 3, minH: 3 };
-    case 'gas_monitor': return { minW: 2, minH: 3 };
-    default: return { minW: 2, minH: 3 };
+    case 'allocations': return { minW: 1, minH: 3 };
+    case 'trend': return { minW: 1, minH: 3 };
+    case 'performance': return { minW: 1, minH: 2 };
+    case 'fear_greed': return { minW: 1, minH: 2 };
+    case 'cbbi': return { minW: 1, minH: 2 };
+    case 'portfolio_value': return { minW: 1, minH: 2 };
+    case 'staking': return { minW: 1, minH: 2 };
+    case 'top_movers': return { minW: 1, minH: 3 };
+    case 'recent_trades': return { minW: 1, minH: 3 };
+    case 'ai_pulse': return { minW: 1, minH: 3 };
+    case 'staking_rewards': return { minW: 1, minH: 2 };
+    case 'risk_monitor': return { minW: 1, minH: 2 };
+    case 'quick_trade': return { minW: 1, minH: 2 };
+    case 'gas_monitor': return { minW: 1, minH: 2 };
+    default: return { minW: 1, minH: 2 };
   }
 };
 
 const getWidgetDefaultSize = (id, bp = 'lg') => {
-  if (id === 'allocations') return bp === 'sm' ? { w: 6, h: 4 } : { w: 4, h: 4 };
-  if (id === 'trend') return bp === 'sm' ? { w: 6, h: 4 } : bp === 'md' ? { w: 6, h: 4 } : { w: 8, h: 4 };
-  if (id === 'performance') return bp === 'sm' ? { w: 6, h: 3 } : bp === 'md' ? { w: 10, h: 3 } : { w: 12, h: 3 };
+  if (id === 'allocations') return (bp === 'sm' || bp === 'xs' || bp === 'xxs') ? { w: 6, h: 4 } : { w: 4, h: 4 };
+  if (id === 'trend') return (bp === 'sm' || bp === 'xs' || bp === 'xxs') ? { w: 6, h: 4 } : bp === 'md' ? { w: 6, h: 4 } : { w: 8, h: 4 };
+  if (id === 'performance') return (bp === 'sm' || bp === 'xs' || bp === 'xxs') ? { w: 6, h: 3 } : bp === 'md' ? { w: 10, h: 3 } : { w: 12, h: 3 };
   if (['top_movers', 'recent_trades', 'ai_pulse'].includes(id)) {
-    return bp === 'sm' ? { w: 6, h: 3 } : bp === 'md' ? { w: 5, h: 3 } : { w: 4, h: 3 };
+    return (bp === 'sm' || bp === 'xs' || bp === 'xxs') ? { w: 6, h: 3 } : bp === 'md' ? { w: 5, h: 3 } : { w: 4, h: 3 };
   }
-  // Standard metric cards (fear_greed, cbbi, portfolio_value, staking, staking_rewards, risk_monitor, quick_trade, gas_monitor)
-  return bp === 'sm' ? { w: 6, h: 3 } : bp === 'md' ? { w: 5, h: 3 } : { w: 3, h: 3 };
+  return (bp === 'sm' || bp === 'xs' || bp === 'xxs') ? { w: 6, h: 3 } : bp === 'md' ? { w: 5, h: 3 } : { w: 3, h: 3 };
 };
 
 const findFirstAvailableSpot = (currentLayout, targetW, targetH, totalCols = 12) => {
@@ -155,7 +154,84 @@ const DEFAULT_LAYOUTS = {
     { i: 'risk_monitor', x: 0, y: 34, w: 6, h: 3 },
     { i: 'quick_trade', x: 0, y: 37, w: 6, h: 3 },
     { i: 'gas_monitor', x: 0, y: 40, w: 6, h: 3 }
+  ]),
+  xs: mapLayoutBounds([
+    { i: 'allocations', x: 0, y: 0, w: 4, h: 4 },
+    { i: 'trend', x: 0, y: 4, w: 4, h: 4 },
+    { i: 'portfolio_value', x: 0, y: 8, w: 4, h: 3 },
+    { i: 'fear_greed', x: 0, y: 11, w: 4, h: 3 },
+    { i: 'cbbi', x: 0, y: 14, w: 4, h: 3 },
+    { i: 'staking', x: 0, y: 17, w: 4, h: 3 },
+    { i: 'performance', x: 0, y: 20, w: 4, h: 2 },
+    { i: 'top_movers', x: 0, y: 22, w: 4, h: 3 },
+    { i: 'recent_trades', x: 0, y: 25, w: 4, h: 3 },
+    { i: 'ai_pulse', x: 0, y: 28, w: 4, h: 3 },
+    { i: 'staking_rewards', x: 0, y: 31, w: 4, h: 3 },
+    { i: 'risk_monitor', x: 0, y: 34, w: 4, h: 3 },
+    { i: 'quick_trade', x: 0, y: 37, w: 4, h: 3 },
+    { i: 'gas_monitor', x: 0, y: 40, w: 4, h: 3 }
+  ]),
+  xxs: mapLayoutBounds([
+    { i: 'allocations', x: 0, y: 0, w: 2, h: 4 },
+    { i: 'trend', x: 0, y: 4, w: 2, h: 4 },
+    { i: 'portfolio_value', x: 0, y: 8, w: 2, h: 3 },
+    { i: 'fear_greed', x: 0, y: 11, w: 2, h: 3 },
+    { i: 'cbbi', x: 0, y: 14, w: 2, h: 3 },
+    { i: 'staking', x: 0, y: 17, w: 2, h: 3 },
+    { i: 'performance', x: 0, y: 20, w: 2, h: 2 },
+    { i: 'top_movers', x: 0, y: 22, w: 2, h: 3 },
+    { i: 'recent_trades', x: 0, y: 25, w: 2, h: 3 },
+    { i: 'ai_pulse', x: 0, y: 28, w: 2, h: 3 },
+    { i: 'staking_rewards', x: 0, y: 31, w: 2, h: 3 },
+    { i: 'risk_monitor', x: 0, y: 34, w: 2, h: 3 },
+    { i: 'quick_trade', x: 0, y: 37, w: 2, h: 3 },
+    { i: 'gas_monitor', x: 0, y: 40, w: 2, h: 3 }
   ])
+};
+
+const ensureAllBreakpoints = (rawLayouts) => {
+  const bpCols = { lg: 12, md: 10, sm: 6, xs: 4, xxs: 2 };
+  const result = { ...(rawLayouts || DEFAULT_LAYOUTS) };
+  const baseLayout = (result.lg && result.lg.length > 0) ? result.lg : DEFAULT_LAYOUTS.lg;
+
+  for (const [bp, cols] of Object.entries(bpCols)) {
+    if (!result[bp] || !Array.isArray(result[bp]) || result[bp].length === 0) {
+      let curY = 0;
+      result[bp] = baseLayout.map(item => {
+        const h = item.h || 3;
+        const layoutItem = {
+          i: item.i,
+          x: 0,
+          y: curY,
+          w: cols,
+          h: h,
+          ...getWidgetBounds(item.i)
+        };
+        curY += h;
+        return layoutItem;
+      });
+    } else {
+      const existingIds = new Set(result[bp].map(item => item.i));
+      let maxY = result[bp].reduce((acc, item) => Math.max(acc, (item.y || 0) + (item.h || 1)), 0);
+
+      baseLayout.forEach(item => {
+        if (!existingIds.has(item.i)) {
+          const h = item.h || 3;
+          result[bp].push({
+            i: item.i,
+            x: 0,
+            y: maxY,
+            w: Math.min(item.w || cols, cols),
+            h: h,
+            ...getWidgetBounds(item.i)
+          });
+          maxY += h;
+        }
+      });
+      result[bp] = mapLayoutBounds(result[bp]);
+    }
+  }
+  return result;
 };
 
 const STORAGE_KEY = 'crypto_dashboard_widget_layout_persistent';
@@ -194,17 +270,16 @@ const loadPersistedLayouts = () => {
       if (saved !== null) {
         const parsed = JSON.parse(saved);
         if (parsed && typeof parsed === 'object' && Object.keys(parsed).length > 0) {
-          if (key !== STORAGE_KEY) {
-            localStorage.setItem(STORAGE_KEY, JSON.stringify(parsed));
-          }
-          return parsed;
+          const synchronized = ensureAllBreakpoints(parsed);
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(synchronized));
+          return synchronized;
         }
       }
     }
   } catch (e) {
     console.error('Error loading persisted layouts:', e);
   }
-  return DEFAULT_LAYOUTS;
+  return ensureAllBreakpoints(DEFAULT_LAYOUTS);
 };
 
 const loadPersistedHiddenWidgets = () => {

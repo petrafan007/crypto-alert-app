@@ -2953,8 +2953,9 @@ body.light-mode *[style*="color:'#666'"] {
 
 /* FINAL TABLE CENTERING - OVERRIDE ALL PREVIOUS RULES */
 .table-container {
-  overflow-x: hidden !important;
+  overflow-x: auto !important;
   overflow-y: visible !important;
+  -webkit-overflow-scrolling: touch !important;
   background: var(--card-bg) !important;
   border-radius: 12px !important;
   border: 1px solid var(--card-border) !important;
@@ -3193,15 +3194,88 @@ body.light-mode .table-container.portfolio-table tbody tr.pending-order .symbol-
   }
 
   .nav-link,
-  .nav-button,
-  .theme-switch {
+  .nav-button {
     font-size: 13px !important;
     padding: 6px 10px !important;
     white-space: normal !important;
   }
 
+  .theme-switch {
+    width: 68px !important;
+    height: 34px !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    flex-shrink: 0 !important;
+    position: relative !important;
+    box-sizing: border-box !important;
+    background: var(--bg-tertiary) !important;
+    border-radius: 17px !important;
+    border: 1px solid var(--border-color) !important;
+  }
+
+  .theme-switch .track {
+    position: relative !important;
+    width: 100% !important;
+    height: 100% !important;
+    display: block !important;
+  }
+
+  .theme-switch .thumb {
+    position: absolute !important;
+    top: 3px !important;
+    left: 4px !important;
+    width: 26px !important;
+    height: 26px !important;
+    border-radius: 50% !important;
+    background: var(--card-bg) !important;
+    z-index: 2 !important;
+    transition: transform 0.3s cubic-bezier(0.4, 0.0, 0.2, 1) !important;
+  }
+
+  .theme-switch.light .thumb {
+    transform: translateX(0) !important;
+  }
+
+  .theme-switch.dark .thumb {
+    transform: translateX(34px) !important;
+  }
+
+  .theme-switch .icon {
+    position: absolute !important;
+    top: 0 !important;
+    width: 26px !important;
+    height: 100% !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    font-size: 13px !important;
+    z-index: 3 !important;
+    pointer-events: none !important;
+  }
+
+  .theme-switch .icon.sun {
+    left: 4px !important;
+  }
+
+  .theme-switch .icon.moon {
+    right: 4px !important;
+    left: auto !important;
+  }
+
   .nav-brand {
     font-size: 1.25rem !important;
+  }
+
+  .brand-logo {
+    font-size: 1.35rem !important;
+    justify-content: center !important;
+    text-align: center !important;
+    width: 100% !important;
+    margin: 12px auto 0 auto !important;
+    gap: 8px !important;
   }
 
   .main-content,
@@ -3228,6 +3302,9 @@ body.light-mode .table-container.portfolio-table tbody tr.pending-order .symbol-
     overflow-x: auto !important;
     overflow-y: visible !important;
     -webkit-overflow-scrolling: touch !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    box-sizing: border-box !important;
   }
 
   .table-header {
@@ -3237,11 +3314,13 @@ body.light-mode .table-container.portfolio-table tbody tr.pending-order .symbol-
   }
 
   .table-container table,
+  .portfolio-table table,
+  .watchlist-table table,
   .tax-report-container table,
   .tax-report-page .table-container table,
   .history-table {
     table-layout: auto !important;
-    min-width: 640px !important;
+    min-width: 850px !important;
     width: 100% !important;
   }
 
@@ -3696,14 +3775,16 @@ body.light-mode .table-container.watchlist-table td {
   background: linear-gradient(135deg, #00f2fe 0%, #4facfe 100%);
   -webkit-background-clip: text;
   background-clip: text;
-  background-clip: text;
   -webkit-text-fill-color: transparent;
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 12px;
   text-transform: uppercase;
   letter-spacing: 2px;
   text-shadow: 0 0 20px rgba(0, 242, 254, 0.4);
+  width: 100%;
+  text-align: center;
 }
 
 .brand-icon {
