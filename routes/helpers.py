@@ -814,14 +814,18 @@ from flask import current_app, Response
 
 
 def serve_react_app():
-    """Serve the built React index with cache-busting headers so UI updates ship instantly."""
+    """Serve the built React index with strict cache-busting headers so UI updates ship instantly."""
     index_path = Path(current_app.static_folder or '') / 'index.html'
     logger.info(f"Serving React index from {index_path}")
     try:
         content = index_path.read_text(encoding='utf-8')
     except FileNotFoundError:
         logger.warning("React index file missing, falling back to send_static_file")
-        return current_app.send_static_file('index.html')
+        resp = current_app.send_static_file('index.html')
+        resp.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate, max-age=0'
+        resp.headers['Pragma'] = 'no-cache'
+        resp.headers['Expires'] = '0'
+        return resp
 
     build_token = str(int(index_path.stat().st_mtime))
     logger.info(f"Serving React index with cache-bust token {build_token}")
@@ -833,8 +837,13 @@ def serve_react_app():
             return match.group(0)
         return f'{path}?v={build_token}{quote}'
 
-    content = re.sub(r'(/static/[^"\']+)(["\'])', _add_version, content)
-    return Response(content, mimetype='text/html')
+    # Support /static/, /assets/, and assets/
+    content = re.sub(r'((?:/static/|/assets/|assets/)[^"\']+)(["\'])', _add_version, content)
+    resp = Response(content, mimetype='text/html')
+    resp.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate, max-age=0'
+    resp.headers['Pragma'] = 'no-cache'
+    resp.headers['Expires'] = '0'
+    return resp
 
 __all__ = [name for name in globals() if not name.startswith('__')]
 

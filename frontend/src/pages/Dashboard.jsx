@@ -2767,6 +2767,7 @@ function Dashboard({ isLightMode }) {
             Total Value: ${(totalValue != null ? Number(totalValue) : (portfolio || []).reduce((acc, c) => acc + (parseFloat(c.current_value) || 0), 0)).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USDT
           </div>
         </div>
+        <div className="table-scroll-wrapper">
         <table /* removed colgroup and resizing */ style={{ width: '100%' }}>
           {/* removed dynamic colgroup */}
           <thead>
@@ -2944,6 +2945,7 @@ function Dashboard({ isLightMode }) {
             )}
           </tbody>
         </table>
+        </div>
       </div>
 
       {/* Pending Order Tooltip */}
@@ -2990,6 +2992,7 @@ function Dashboard({ isLightMode }) {
             {addingToWatchlist ? 'Adding...' : 'Add to Watchlist'}
           </button>
         </div>
+        <div className="table-scroll-wrapper">
         <table /* removed colgroup and resizing */ style={{ width: '100%' }}>
           {/* removed dynamic colgroup */}
           <thead>
@@ -3100,6 +3103,7 @@ function Dashboard({ isLightMode }) {
             )}
           </tbody>
         </table>
+        </div>
       </div>
       </div>
 

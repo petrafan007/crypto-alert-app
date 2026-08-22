@@ -299,7 +299,7 @@ const loadPersistedHiddenWidgets = () => {
   } catch (e) {
     console.error('Error loading persisted hidden widgets:', e);
   }
-  return [...NEW_WIDGET_IDS];
+  return []; // Default: show all widgets
 };
 
 const DashboardWidgetGrid = ({
