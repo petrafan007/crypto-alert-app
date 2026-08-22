@@ -1439,22 +1439,22 @@ const AIDashboard = () => {
                     {availableCoinFilters.map(coin => {
                       const isChecked = tempFilterCoins.includes(coin.symbol);
                       return (
-                        <div
+                        <label
                           key={coin.symbol}
                           className={`coin-filter-item ${isChecked ? 'selected' : ''}`}
-                          onClick={() => handleToggleFilterCoin(coin.symbol)}
+                          style={{ cursor: 'pointer' }}
                         >
                           <input
                             type="checkbox"
                             checked={isChecked}
-                            onChange={() => {}} // Handled by container onClick
-                            onClick={(e) => e.stopPropagation()}
+                            onChange={() => handleToggleFilterCoin(coin.symbol)}
                           />
+                          <CryptoIcon symbol={coin.symbol} size={16} />
                           <span className="coin-symbol-title">{coin.symbol}</span>
                           <span className={`source-badge ${coin.source_type === 'portfolio' ? 'source-p' : 'source-w'}`}>
                             {coin.source_type === 'portfolio' ? 'P' : 'W'}
                           </span>
-                        </div>
+                        </label>
                       );
                     })}
                   </div>
