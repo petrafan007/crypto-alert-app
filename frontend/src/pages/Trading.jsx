@@ -652,7 +652,7 @@ const Trading = () => {
   ]);
 
   useEffect(() => {
-    if (activeTab === 'history') {
+    if (activeTab === 'history' || activeTab === 'open_orders') {
       loadOpenOrders();
       loadOrders();
     }
@@ -1584,20 +1584,33 @@ const Trading = () => {
           className={`tab-button ${activeTab === 'order' ? 'active' : ''}`}
           onClick={() => setActiveTab('order')}
         >
-          📝 Place Order
+          <span className="tab-icon">📝</span>
+          <span className="tab-text">Place Order</span>
+        </button>
+        <button
+          className={`tab-button ${activeTab === 'open_orders' ? 'active' : ''}`}
+          onClick={() => setActiveTab('open_orders')}
+        >
+          <span className="tab-icon">⏳</span>
+          <span className="tab-text">Open Orders</span>
+          {openOrders && openOrders.length > 0 && (
+            <span className="tab-badge">{openOrders.length}</span>
+          )}
         </button>
         <button
           className={`tab-button ${activeTab === 'history' ? 'active' : ''}`}
           onClick={() => setActiveTab('history')}
         >
-          📜 Order History
+          <span className="tab-icon">📜</span>
+          <span className="tab-text">Order History</span>
         </button>
         {settings.test_mode_enabled && (
           <button
             className={`tab-button ${activeTab === 'portfolio' ? 'active' : ''}`}
             onClick={() => setActiveTab('portfolio')}
           >
-            💼 Test Portfolio
+            <span className="tab-icon">💼</span>
+            <span className="tab-text">Test Portfolio</span>
           </button>
         )}
       </div>
@@ -1903,16 +1916,34 @@ const Trading = () => {
           </div>
         )}
 
-        {/* ORDER HISTORY TAB */}
-        {activeTab === 'history' && (
-          <div className="order-history-container">
-
-            {/* Open Orders Section */}
-            <div className="open-orders-section">
-              <div className="order-history-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-                  <h2>Open Orders</h2>
-                </div>
+        {/* OPEN ORDERS TAB */}
+        {activeTab === 'open_orders' && (
+          <div className="order-history-container open-orders-container">
+            <div className="order-history-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                <h2>Open Orders {historySymbolFilter !== 'ALL' && <span style={{ fontSize: '0.9rem', color: '#60a5fa', fontWeight: 'normal' }}>({historySymbolFilter})</span>}</h2>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
+                <button
+                  type="button"
+                  onClick={loadOpenOrders}
+                  className="btn btn-secondary"
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    padding: '8px 14px',
+                    borderRadius: '8px',
+                    fontSize: '0.85rem',
+                    cursor: 'pointer',
+                    background: 'rgba(255, 255, 255, 0.08)',
+                    color: '#e2e8f0',
+                    border: '1px solid rgba(255, 255, 255, 0.15)'
+                  }}
+                  title="Refresh open orders"
+                >
+                  🔄 Refresh
+                </button>
                 <div className="history-pair-filter" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                   <label style={{ color: '#94a3b8', fontSize: '0.9rem' }}>Filter Pair:</label>
                   <SearchablePairSelect
@@ -1924,83 +1955,121 @@ const Trading = () => {
                   />
                 </div>
               </div>
-
-              {filteredOpenOrders.length === 0 ? (
-                <div className="empty-state">
-                  <p>No open orders {historySymbolFilter !== 'ALL' ? `for ${historySymbolFilter}` : ''}</p>
-                </div>
-              ) : (
-                <div className="table-container trading-table">
-                  <div className="order-table-scroll">
-                    <table>
-                      <thead>
-                        <tr>
-                          <th>Date</th>
-                          <th>Symbol</th>
-                          <th>Side</th>
-                          <th>Type</th>
-                          <th>Quantity</th>
-                          <th>Price</th>
-                          <th>Filled</th>
-                          <th>Status</th>
-                          <th>Actions</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {filteredOpenOrders.map((order, idx) => (
-                          <tr key={order.id || idx} className="open-order-row">
-                            <td>{formatDate(order.created_at || order.time)}</td>
-                            <td className="symbol-cell">{order.symbol}</td>
-                            <td>
-                              <span className={`badge badge-${order.side.toLowerCase()}`}>
-                                {order.side}
-                              </span>
-                            </td>
-                            <td>{order.order_type || order.type}</td>
-                            <td>{formatNumber(order.quantity || order.origQty, 8)}</td>
-                            <td>{order.price ? `$${formatNumber(order.price)}` : '-'}</td>
-                            <td>{formatNumber(order.filled_quantity || order.executedQty || 0, 8)}</td>
-                            <td>
-                              <span className="badge badge-open">
-                                {order.status}
-                              </span>
-                            </td>
-                            <td>
-                              <button
-                                className="btn btn-danger cancel-order-btn"
-                                onClick={() => openCancelModalForOrder(order)}
-                                disabled={
-                                  cancelModal.loading &&
-                                  cancelModal.order &&
-                                  (cancelModal.order.order_id || cancelModal.order.orderId || cancelModal.order.id) ===
-                                  (order.order_id || order.orderId || order.id)
-                                }
-                              >
-                                Cancel Order
-                              </button>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              )}
             </div>
 
-            {/* All Orders History */}
-            <div className="order-history-header" style={{ marginTop: '2rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
-              <h2>Order History {historySymbolFilter !== 'ALL' && <span style={{ fontSize: '0.9rem', color: '#60a5fa', fontWeight: 'normal' }}>({historySymbolFilter})</span>}</h2>
-              <div className="order-history-toggle">
-                <label className="toggle-switch">
-                  <input
-                    type="checkbox"
-                    checked={showCanceledOrders}
-                    onChange={(e) => setShowCanceledOrders(e.target.checked)}
+            {filteredOpenOrders.length === 0 ? (
+              <div className="empty-state">
+                <p>No open orders {historySymbolFilter !== 'ALL' ? `for ${historySymbolFilter}` : ''}</p>
+              </div>
+            ) : (
+              <div className="table-container trading-table">
+                <div className="order-table-scroll">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Date</th>
+                        <th>Symbol</th>
+                        <th>Side</th>
+                        <th>Type</th>
+                        <th>Quantity</th>
+                        <th>Price</th>
+                        <th>Filled</th>
+                        <th>Status</th>
+                        <th>Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredOpenOrders.map((order, idx) => (
+                        <tr key={order.id || idx} className="open-order-row">
+                          <td>{formatDate(order.created_at || order.time)}</td>
+                          <td className="symbol-cell">{order.symbol}</td>
+                          <td>
+                            <span className={`badge badge-${order.side.toLowerCase()}`}>
+                              {order.side}
+                            </span>
+                          </td>
+                          <td>{order.order_type || order.type}</td>
+                          <td>{formatNumber(order.quantity || order.origQty, 8)}</td>
+                          <td>{order.price ? `$${formatNumber(order.price)}` : '-'}</td>
+                          <td>{formatNumber(order.filled_quantity || order.executedQty || 0, 8)}</td>
+                          <td>
+                            <span className="badge badge-open">
+                              {order.status}
+                            </span>
+                          </td>
+                          <td>
+                            <button
+                              className="btn btn-danger cancel-order-btn"
+                              onClick={() => openCancelModalForOrder(order)}
+                              disabled={
+                                cancelModal.loading &&
+                                cancelModal.order &&
+                                (cancelModal.order.order_id || cancelModal.order.orderId || cancelModal.order.id) ===
+                                (order.order_id || order.orderId || order.id)
+                              }
+                            >
+                              Cancel Order
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ORDER HISTORY TAB */}
+        {activeTab === 'history' && (
+          <div className="order-history-container">
+            <div className="order-history-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                <h2>Order History {historySymbolFilter !== 'ALL' && <span style={{ fontSize: '0.9rem', color: '#60a5fa', fontWeight: 'normal' }}>({historySymbolFilter})</span>}</h2>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
+                <button
+                  type="button"
+                  onClick={loadOrders}
+                  className="btn btn-secondary"
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    padding: '8px 14px',
+                    borderRadius: '8px',
+                    fontSize: '0.85rem',
+                    cursor: 'pointer',
+                    background: 'rgba(255, 255, 255, 0.08)',
+                    color: '#e2e8f0',
+                    border: '1px solid rgba(255, 255, 255, 0.15)'
+                  }}
+                  title="Refresh order history"
+                >
+                  🔄 Refresh
+                </button>
+                <div className="history-pair-filter" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <label style={{ color: '#94a3b8', fontSize: '0.9rem' }}>Filter Pair:</label>
+                  <SearchablePairSelect
+                    value={historySymbolFilter}
+                    onChange={setHistorySymbolFilter}
+                    tradingPairs={tradingPairs}
+                    includeAllOption={true}
+                    placeholder="All Trading Pairs"
                   />
-                  <span className="toggle-slider"></span>
-                </label>
-                <span className="order-history-toggle-label">Show Canceled Orders</span>
+                </div>
+                <div className="order-history-toggle">
+                  <label className="toggle-switch">
+                    <input
+                      type="checkbox"
+                      checked={showCanceledOrders}
+                      onChange={(e) => setShowCanceledOrders(e.target.checked)}
+                    />
+                    <span className="toggle-slider"></span>
+                  </label>
+                  <span className="order-history-toggle-label">Show Canceled Orders</span>
+                </div>
               </div>
             </div>
 
