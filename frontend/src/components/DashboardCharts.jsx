@@ -45,7 +45,7 @@ export function PortfolioPie({ portfolio, isLightMode, totalValue: authoritative
   }, [authoritativeTotalValue, filtered]);
 
   const formattedTotal = useMemo(() => (
-    totalValue.toLocaleString('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 0, maximumFractionDigits: 0 })
+    totalValue.toLocaleString('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 2 })
   ), [totalValue]);
 
   const data = useMemo(() => ({
@@ -84,32 +84,32 @@ export function PortfolioPie({ portfolio, isLightMode, totalValue: authoritative
     },
   }), [isLightMode]);
 
-  // Draws the total portfolio value in the doughnut's center hole
-  const centerTextPlugin = useMemo(() => ({
-    id: 'centerTextPlugin',
-    afterDraw(chart) {
-      const { ctx, chartArea } = chart;
-      if (!chartArea) return;
-      const centerX = (chartArea.left + chartArea.right) / 2;
-      const centerY = (chartArea.top + chartArea.bottom) / 2;
-      ctx.save();
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillStyle = isLightMode ? '#0f172a' : '#f8fafc';
-      ctx.font = "700 16px 'Inter', sans-serif";
-      ctx.fillText(formattedTotal, centerX, centerY - 8);
-      ctx.fillStyle = isLightMode ? '#64748b' : '#94a3b8';
-      ctx.font = "600 10px 'Inter', sans-serif";
-      ctx.fillText('TOTAL VALUE', centerX, centerY + 10);
-      ctx.restore();
-    },
-  }), [formattedTotal, isLightMode]);
-
   return (
     <div style={{ position: 'relative', width: '100%', height: '100%' }}>
       {/* Ring stays centered in the full panel regardless of the legend's width */}
       <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, margin: 'auto', width: '75%', maxWidth: '260px' }}>
-        <Doughnut data={data} options={options} plugins={[centerTextPlugin]} />
+        <Doughnut data={data} options={options} />
+        {/* Rendered as a plain DOM overlay (not a canvas plugin) so it always reflects the
+            latest totalValue on every render, instead of going stale between chart.js redraws */}
+        <div style={{
+          position: 'absolute',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          pointerEvents: 'none'
+        }}>
+          <span style={{ fontSize: '16px', fontWeight: '700', color: isLightMode ? '#0f172a' : '#f8fafc' }}>
+            {formattedTotal}
+          </span>
+          <span style={{ fontSize: '10px', fontWeight: '600', letterSpacing: '0.04em', color: isLightMode ? '#64748b' : '#94a3b8' }}>
+            TOTAL VALUE
+          </span>
+        </div>
       </div>
       <div
         className="custom-scrollbar"
