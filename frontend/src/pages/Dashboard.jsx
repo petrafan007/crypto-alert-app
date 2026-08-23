@@ -108,6 +108,9 @@ function Dashboard({ isLightMode }) {
   const [portfolio, setPortfolio] = useState([]);
   const [watchlist, setWatchlist] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [usdPairBases, setUsdPairBases] = useState(new Set());
+  const [usdtPairBases, setUsdtPairBases] = useState(new Set());
+  const [tradingPairsLoaded, setTradingPairsLoaded] = useState(false);
   const [error, setError] = useState(null);
   const [trendHistory, setTrendHistory] = useState([]);
   const [pendingOrders, setPendingOrders] = useState([]);
@@ -418,6 +421,37 @@ function Dashboard({ isLightMode }) {
     };
     fetchSettings();
   }, []);
+
+  // Load the set of coins that actually have a USD and/or USDT trading pair on Binance.US,
+  // so Buy/Sell/Auto-Buy/Auto-Sell quote-currency options can be hidden when a pair doesn't exist.
+  useEffect(() => {
+    const fetchTradingPairs = async () => {
+      try {
+        const res = await axios.get('/api/trading-pairs', { withCredentials: true });
+        const pairs = Array.isArray(res.data?.pairs) ? res.data.pairs : [];
+        const usdBases = new Set();
+        const usdtBases = new Set();
+        pairs.forEach(p => {
+          const base = (p.base_currency || '').toUpperCase();
+          const quote = (p.quote_currency || '').toUpperCase();
+          if (!base) return;
+          if (quote === 'USD') usdBases.add(base);
+          else if (quote === 'USDT') usdtBases.add(base);
+        });
+        setUsdPairBases(usdBases);
+        setUsdtPairBases(usdtBases);
+      } catch (e) {
+      } finally {
+        setTradingPairsLoaded(true);
+      }
+    };
+    fetchTradingPairs();
+  }, []);
+
+  // Whether a coin actually has a live USD/USDT pair on Binance.US; fails "open" (true)
+  // until the pairs list has loaded so options aren't hidden prematurely.
+  const hasUsdPair = (symbol) => !tradingPairsLoaded || usdPairBases.has((symbol || '').toUpperCase());
+  const hasUsdtPair = (symbol) => !tradingPairsLoaded || usdtPairBases.has((symbol || '').toUpperCase());
 
   const closeActionMenu = () => setOpenActionMenu({ type: null, key: null, payload: null });
   const closeTradeQuoteMenu = () => setOpenTradeQuoteMenu({ type: null, key: null, side: null, position: null });
@@ -762,74 +796,92 @@ function Dashboard({ isLightMode }) {
     const coin = type === 'watchlist'
       ? (watchlist || []).find(w => w.symbol === symbol)
       : (portfolio || []).find(c => c.symbol === symbol);
+    const showUsd = hasUsdPair(symbol);
+    const showUsdt = hasUsdtPair(symbol);
 
     return createPortal(
       <div className="trade-quote-menu" style={tradeQuoteMenuStyle} role="menu" aria-label={`${isBuy ? 'Buy' : 'Sell'} ${symbol}`}>
         {isBuy ? (
           <>
-            <button role="menuitem" onClick={() => { navigateToTrading(symbol, 'BUY', 'USD'); closeTradeQuoteMenu(); }}>
-              Buy with USD
-            </button>
-            <button
-              role="menuitem"
-              onClick={() => {
-                if (!isUsdt) {
-                  navigateToTrading(symbol, 'BUY', 'USDT'); closeTradeQuoteMenu();
-                }
-              }}
-              disabled={isUsdt}
-              title={isUsdt ? 'Cannot purchase USDT with USDT' : undefined}
-            >
-              Buy with USDT
-            </button>
-            <button role="menuitem" onClick={() => { handleTriggerAutoBuyClick(symbol, coin, 'USD', type); closeTradeQuoteMenu(); }}>
-              Trigger Auto-Buy (USD)
-            </button>
-            <button
-              role="menuitem"
-              onClick={() => {
-                if (!isUsdt) {
-                  handleTriggerAutoBuyClick(symbol, coin, 'USDT', type); closeTradeQuoteMenu();
-                }
-              }}
-              disabled={isUsdt}
-              title={isUsdt ? 'Cannot auto-buy USDT with USDT' : undefined}
-            >
-              Trigger Auto-Buy (USDT)
-            </button>
+            {showUsd && (
+              <>
+                <button role="menuitem" onClick={() => { navigateToTrading(symbol, 'BUY', 'USD'); closeTradeQuoteMenu(); }}>
+                  Buy with USD
+                </button>
+                <button role="menuitem" onClick={() => { handleTriggerAutoBuyClick(symbol, coin, 'USD', type); closeTradeQuoteMenu(); }}>
+                  Trigger Auto-Buy (USD)
+                </button>
+              </>
+            )}
+            {showUsdt && (
+              <>
+                <button
+                  role="menuitem"
+                  onClick={() => {
+                    if (!isUsdt) {
+                      navigateToTrading(symbol, 'BUY', 'USDT'); closeTradeQuoteMenu();
+                    }
+                  }}
+                  disabled={isUsdt}
+                  title={isUsdt ? 'Cannot purchase USDT with USDT' : undefined}
+                >
+                  Buy with USDT
+                </button>
+                <button
+                  role="menuitem"
+                  onClick={() => {
+                    if (!isUsdt) {
+                      handleTriggerAutoBuyClick(symbol, coin, 'USDT', type); closeTradeQuoteMenu();
+                    }
+                  }}
+                  disabled={isUsdt}
+                  title={isUsdt ? 'Cannot auto-buy USDT with USDT' : undefined}
+                >
+                  Trigger Auto-Buy (USDT)
+                </button>
+              </>
+            )}
           </>
         ) : (
           <>
-            <button role="menuitem" onClick={() => { navigateToTrading(symbol, 'SELL', 'USD'); closeTradeQuoteMenu(); }}>
-              Sell for USD
-            </button>
-            <button
-              role="menuitem"
-              onClick={() => {
-                if (!isUsdt) {
-                  navigateToTrading(symbol, 'SELL', 'USDT'); closeTradeQuoteMenu();
-                }
-              }}
-              disabled={isUsdt}
-              title={isUsdt ? 'Cannot sell USDT for USDT' : undefined}
-            >
-              Sell for USDT
-            </button>
-            <button role="menuitem" onClick={() => { handleTriggerAutoSellClick(symbol, coin, 'USD', type); closeTradeQuoteMenu(); }}>
-              Trigger Auto-Sell (USD)
-            </button>
-            <button
-              role="menuitem"
-              onClick={() => {
-                if (!isUsdt) {
-                  handleTriggerAutoSellClick(symbol, coin, 'USDT', type); closeTradeQuoteMenu();
-                }
-              }}
-              disabled={isUsdt}
-              title={isUsdt ? 'Cannot auto-sell USDT for USDT' : undefined}
-            >
-              Trigger Auto-Sell (USDT)
-            </button>
+            {showUsd && (
+              <>
+                <button role="menuitem" onClick={() => { navigateToTrading(symbol, 'SELL', 'USD'); closeTradeQuoteMenu(); }}>
+                  Sell for USD
+                </button>
+                <button role="menuitem" onClick={() => { handleTriggerAutoSellClick(symbol, coin, 'USD', type); closeTradeQuoteMenu(); }}>
+                  Trigger Auto-Sell (USD)
+                </button>
+              </>
+            )}
+            {showUsdt && (
+              <>
+                <button
+                  role="menuitem"
+                  onClick={() => {
+                    if (!isUsdt) {
+                      navigateToTrading(symbol, 'SELL', 'USDT'); closeTradeQuoteMenu();
+                    }
+                  }}
+                  disabled={isUsdt}
+                  title={isUsdt ? 'Cannot sell USDT for USDT' : undefined}
+                >
+                  Sell for USDT
+                </button>
+                <button
+                  role="menuitem"
+                  onClick={() => {
+                    if (!isUsdt) {
+                      handleTriggerAutoSellClick(symbol, coin, 'USDT', type); closeTradeQuoteMenu();
+                    }
+                  }}
+                  disabled={isUsdt}
+                  title={isUsdt ? 'Cannot auto-sell USDT for USDT' : undefined}
+                >
+                  Trigger Auto-Sell (USDT)
+                </button>
+              </>
+            )}
           </>
         )}
       </div>,
@@ -2088,32 +2140,40 @@ function Dashboard({ isLightMode }) {
             </button>
             {openTradeQuoteMenu.type === openActionMenu.type && openTradeQuoteMenu.key === openActionMenu.key && openTradeQuoteMenu.side === 'BUY' && (
               <div className="trade-quote-menu" style={tradeQuoteMenuStyle}>
-                <button onClick={() => { navigateToTrading(isPortfolio ? coin.symbol : item.symbol, 'BUY', 'USD'); closeActionMenu(); closeTradeQuoteMenu(); }}>Buy with USD</button>
-                <button
-                  onClick={() => {
-                    const sym = isPortfolio ? coin.symbol : item.symbol;
-                    if (sym !== 'USDT') {
-                      navigateToTrading(sym, 'BUY', 'USDT'); closeActionMenu(); closeTradeQuoteMenu();
-                    }
-                  }}
-                  disabled={(isPortfolio ? coin.symbol : item.symbol) === 'USDT'}
-                  style={(isPortfolio ? coin.symbol : item.symbol) === 'USDT' ? { opacity: 0.4, cursor: 'not-allowed' } : undefined}
-                >
-                  Buy with USDT
-                </button>
-                <button onClick={() => { handleTriggerAutoBuyClick(isPortfolio ? coin.symbol : item.symbol, isPortfolio ? coin : item, 'USD', openActionMenu.type); closeActionMenu(); closeTradeQuoteMenu(); }}>Trigger Auto-Buy (USD)</button>
-                <button
-                  onClick={() => {
-                    const sym = isPortfolio ? coin.symbol : item.symbol;
-                    if (sym !== 'USDT') {
-                      handleTriggerAutoBuyClick(sym, isPortfolio ? coin : item, 'USDT', openActionMenu.type); closeActionMenu(); closeTradeQuoteMenu();
-                    }
-                  }}
-                  disabled={(isPortfolio ? coin.symbol : item.symbol) === 'USDT'}
-                  style={(isPortfolio ? coin.symbol : item.symbol) === 'USDT' ? { opacity: 0.4, cursor: 'not-allowed' } : undefined}
-                >
-                  Trigger Auto-Buy (USDT)
-                </button>
+                {hasUsdPair(isPortfolio ? coin.symbol : item.symbol) && (
+                  <>
+                    <button onClick={() => { navigateToTrading(isPortfolio ? coin.symbol : item.symbol, 'BUY', 'USD'); closeActionMenu(); closeTradeQuoteMenu(); }}>Buy with USD</button>
+                    <button onClick={() => { handleTriggerAutoBuyClick(isPortfolio ? coin.symbol : item.symbol, isPortfolio ? coin : item, 'USD', openActionMenu.type); closeActionMenu(); closeTradeQuoteMenu(); }}>Trigger Auto-Buy (USD)</button>
+                  </>
+                )}
+                {hasUsdtPair(isPortfolio ? coin.symbol : item.symbol) && (
+                  <>
+                    <button
+                      onClick={() => {
+                        const sym = isPortfolio ? coin.symbol : item.symbol;
+                        if (sym !== 'USDT') {
+                          navigateToTrading(sym, 'BUY', 'USDT'); closeActionMenu(); closeTradeQuoteMenu();
+                        }
+                      }}
+                      disabled={(isPortfolio ? coin.symbol : item.symbol) === 'USDT'}
+                      style={(isPortfolio ? coin.symbol : item.symbol) === 'USDT' ? { opacity: 0.4, cursor: 'not-allowed' } : undefined}
+                    >
+                      Buy with USDT
+                    </button>
+                    <button
+                      onClick={() => {
+                        const sym = isPortfolio ? coin.symbol : item.symbol;
+                        if (sym !== 'USDT') {
+                          handleTriggerAutoBuyClick(sym, isPortfolio ? coin : item, 'USDT', openActionMenu.type); closeActionMenu(); closeTradeQuoteMenu();
+                        }
+                      }}
+                      disabled={(isPortfolio ? coin.symbol : item.symbol) === 'USDT'}
+                      style={(isPortfolio ? coin.symbol : item.symbol) === 'USDT' ? { opacity: 0.4, cursor: 'not-allowed' } : undefined}
+                    >
+                      Trigger Auto-Buy (USDT)
+                    </button>
+                  </>
+                )}
               </div>
             )}
 
@@ -2133,30 +2193,38 @@ function Dashboard({ isLightMode }) {
                 </button>
                 {openTradeQuoteMenu.type === openActionMenu.type && openTradeQuoteMenu.key === openActionMenu.key && openTradeQuoteMenu.side === 'SELL' && (
                   <div className="trade-quote-menu" style={tradeQuoteMenuStyle}>
-                    <button onClick={() => { navigateToTrading(coin.symbol, 'SELL', 'USD'); closeActionMenu(); closeTradeQuoteMenu(); }}>Sell for USD</button>
-                    <button
-                      onClick={() => {
-                        if (coin.symbol !== 'USDT') {
-                          navigateToTrading(coin.symbol, 'SELL', 'USDT'); closeActionMenu(); closeTradeQuoteMenu();
-                        }
-                      }}
-                      disabled={coin.symbol === 'USDT'}
-                      style={coin.symbol === 'USDT' ? { opacity: 0.4, cursor: 'not-allowed' } : undefined}
-                    >
-                      Sell for USDT
-                    </button>
-                    <button onClick={() => { handleTriggerAutoSellClick(coin.symbol, coin, 'USD', openActionMenu.type); closeActionMenu(); closeTradeQuoteMenu(); }}>Trigger Auto-Sell (USD)</button>
-                    <button
-                      onClick={() => {
-                        if (coin.symbol !== 'USDT') {
-                          handleTriggerAutoSellClick(coin.symbol, coin, 'USDT', openActionMenu.type); closeActionMenu(); closeTradeQuoteMenu();
-                        }
-                      }}
-                      disabled={coin.symbol === 'USDT'}
-                      style={coin.symbol === 'USDT' ? { opacity: 0.4, cursor: 'not-allowed' } : undefined}
-                    >
-                      Trigger Auto-Sell (USDT)
-                    </button>
+                    {hasUsdPair(coin.symbol) && (
+                      <>
+                        <button onClick={() => { navigateToTrading(coin.symbol, 'SELL', 'USD'); closeActionMenu(); closeTradeQuoteMenu(); }}>Sell for USD</button>
+                        <button onClick={() => { handleTriggerAutoSellClick(coin.symbol, coin, 'USD', openActionMenu.type); closeActionMenu(); closeTradeQuoteMenu(); }}>Trigger Auto-Sell (USD)</button>
+                      </>
+                    )}
+                    {hasUsdtPair(coin.symbol) && (
+                      <>
+                        <button
+                          onClick={() => {
+                            if (coin.symbol !== 'USDT') {
+                              navigateToTrading(coin.symbol, 'SELL', 'USDT'); closeActionMenu(); closeTradeQuoteMenu();
+                            }
+                          }}
+                          disabled={coin.symbol === 'USDT'}
+                          style={coin.symbol === 'USDT' ? { opacity: 0.4, cursor: 'not-allowed' } : undefined}
+                        >
+                          Sell for USDT
+                        </button>
+                        <button
+                          onClick={() => {
+                            if (coin.symbol !== 'USDT') {
+                              handleTriggerAutoSellClick(coin.symbol, coin, 'USDT', openActionMenu.type); closeActionMenu(); closeTradeQuoteMenu();
+                            }
+                          }}
+                          disabled={coin.symbol === 'USDT'}
+                          style={coin.symbol === 'USDT' ? { opacity: 0.4, cursor: 'not-allowed' } : undefined}
+                        >
+                          Trigger Auto-Sell (USDT)
+                        </button>
+                      </>
+                    )}
                   </div>
                 )}
               </>
@@ -2538,7 +2606,8 @@ function Dashboard({ isLightMode }) {
     if (currentType === '#') {
       currentValue = item[valKey] !== null && item[valKey] !== undefined ? parseFloat(item[valKey]).toFixed(2) : '';
     } else if (currentType === '%' || currentType === 'Auto%') {
-      currentValue = item[pctKey] !== null && item[pctKey] !== undefined ? parseFloat(item[pctKey]).toFixed(2) : '';
+      // Treat the model's default 0% as "no alert configured yet" so new coins render blank
+      currentValue = item[pctKey] !== null && item[pctKey] !== undefined && Number(item[pctKey]) !== 0 ? parseFloat(item[pctKey]).toFixed(2) : '';
     }
 
     const handleValueChange = async (newValue) => {

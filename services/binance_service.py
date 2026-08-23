@@ -350,6 +350,7 @@ def sync_real_order_statuses_for_user(user_id, username, client):
             price = float(order_info.get('price') or order.price or 0)
             update_time = order_info.get('updateTime') or order_info.get('time')
 
+            previous_executed_qty = float(order.executed_qty or 0.0)
             status_changed = new_status != (order.status or '').upper()
             qty_changed = abs(executed_qty - (order.executed_qty or 0.0)) > 1e-12
             quote_changed = abs(cumulative_quote - (order.cumulative_quote_qty or 0.0)) > 1e-8
@@ -369,6 +370,28 @@ def sync_real_order_statuses_for_user(user_id, username, client):
             if executed_qty > 0:
                 fill_price = cumulative_quote / executed_qty if cumulative_quote > 0 else price
                 order.avg_fill_price = fill_price
+
+            # Apply any newly-filled quantity (full or partial) to the portfolio right away,
+            # instead of waiting for the next 5-minute account balance sync to catch up.
+            delta_qty = executed_qty - previous_executed_qty
+            if delta_qty > 1e-12:
+                try:
+                    from services.portfolio_service import update_portfolio_from_real_order
+                    fill_price_for_delta = order.avg_fill_price or price
+                    update_portfolio_from_real_order(
+                        user_id=user_id,
+                        symbol=symbol,
+                        side=(order.side or '').upper(),
+                        quantity=delta_qty,
+                        price=fill_price_for_delta,
+                        commission=0.0,
+                        commission_asset=None,
+                        order_id=order.binance_order_id,
+                        quote_quantity=delta_qty * fill_price_for_delta
+                    )
+                    any_updates = True
+                except Exception as portfolio_err:
+                    logger.error(f"Error applying incremental fill to portfolio for order {order_id}: {portfolio_err}")
 
             if update_time:
                 try:
@@ -612,7 +635,12 @@ def update_coins_from_binance_balances(user_id, balances, client=None):
                             existing_coin.current = fresh_price
                     except Exception:
                         pass
-                    
+
+                    # Backfill a missing/zero avg_entry (e.g. left over from an Auto-Buy
+                    # execution or a prior price-fetch failure) with the latest known price.
+                    if (not existing_coin.avg_entry or existing_coin.avg_entry <= 0) and existing_coin.current:
+                        existing_coin.avg_entry = existing_coin.current
+
                     usd_value = total * (existing_coin.current or 0)
                     if existing_coin.hidden and existing_coin.auto_hidden and usd_value >= 1.00:
                         existing_coin.hidden = False
@@ -645,14 +673,9 @@ def update_coins_from_binance_balances(user_id, balances, client=None):
                             db.session.commit()
                             added_count += 1
                         else:
-                            new_coin = Coin(
-                                symbol=asset, user_id=user_id, current=0, amount=total, avg_entry=0,
-                                purchase_date=datetime.utcnow().strftime('%Y-%m-%d'),
-                                is_manual=False, alert_enabled=True, hidden=False, updated_at=datetime.utcnow()
-                            )
-                            db.session.add(new_coin)
-                            db.session.commit()
-                            added_count += 1
+                            # Skip creating the coin this cycle rather than persisting avg_entry=0;
+                            # it will be created with a real price on a subsequent sync pass.
+                            logger.warning(f"Skipping new coin {asset} this cycle: no price available yet")
                     except Exception as e:
                         db.session.rollback()
                         logger.warning(f"Could not add new coin {asset}: {e}")

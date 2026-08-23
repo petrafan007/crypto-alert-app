@@ -9,7 +9,7 @@ from log import logger
 from models import Coin, WatchlistCoin, Notification
 from credentials import User, Credential, UserSetting
 from services.binance_service import (
-    sync_binance_account, binance_rate_limiter, fetch_binance_price
+    sync_binance_account, binance_rate_limiter, fetch_binance_price, sync_real_order_statuses_for_user
 )
 from services.notification_service import (
     send_telegram_alert, save_notification_record, send_telegram_message, create_system_notification
@@ -19,6 +19,7 @@ from services.portfolio_service import (
 )
 from services.credential_service import get_user_credentials
 from services.price_history_service import record_price_history_snapshot
+from trading_models import RealOrder
 
 # Persistent alert states store
 _alert_state_lock = threading.Lock()
@@ -149,6 +150,45 @@ def background_binance_sync_loop(app):
             
             iteration()
             time.sleep(300)
+
+def real_order_status_loop(app):
+    """Lightweight, fast loop that only checks pending real orders' fill status,
+    so newly-filled orders (market or limit) update the portfolio within seconds
+    instead of waiting for the 5-minute full Binance account sync."""
+    logger.info("Starting real order status sync background job")
+    with app.app_context():
+        while True:
+            @safe_background_iteration
+            def iteration():
+                results = db.session.query(User, Credential)\
+                    .join(Credential, User.id == Credential.user_id)\
+                    .filter(Credential._api_key.isnot(None), Credential._api_secret.isnot(None))\
+                    .all()
+
+                for user, cred in results:
+                    if not (cred and cred.api_key and cred.api_secret):
+                        continue
+                    has_pending = RealOrder.query.filter(
+                        RealOrder.user_id == user.id,
+                        RealOrder.status.in_(['NEW', 'PARTIALLY_FILLED', 'PENDING_CANCEL', 'PENDING_CANCELLED', 'STOPPED'])
+                    ).first()
+                    if not has_pending:
+                        continue
+                    try:
+                        from binance.client import Client
+                        client = Client(
+                            api_key=cred.api_key,
+                            api_secret=cred.api_secret,
+                            testnet=False,
+                            tld='us',
+                            requests_params={'timeout': 15}
+                        )
+                        sync_real_order_statuses_for_user(user.id, user.username, client)
+                    except Exception as e:
+                        logger.error(f"Error syncing real order statuses for {user.username}: {e}")
+
+            iteration()
+            time.sleep(15)
 
 def portfolio_alert_loop(app):
     logger.info("=== portfolio_alert_loop STARTED ===")
@@ -738,7 +778,14 @@ def execute_auto_buy(user, coin, pair, current_price, price_surge_pct, threshold
         coin.auto_buy_enabled = False
         coin.auto_buy_triggered_at = datetime.utcnow()
         if table_type == 'portfolio' and hasattr(coin, 'amount'):
-            coin.amount = float(coin.amount or 0.0) + executed_qty
+            old_amount = float(coin.amount or 0.0)
+            old_avg_entry = float(getattr(coin, 'avg_entry', 0.0) or 0.0)
+            new_amount = old_amount + executed_qty
+            # Recompute weighted-average entry price instead of just bumping the amount,
+            # otherwise avg_entry is left stale (or 0) for coins purchased entirely via Auto-Buy.
+            coin.avg_entry = ((old_amount * old_avg_entry) + total_cost) / new_amount if new_amount > 0 else avg_price
+            coin.amount = new_amount
+            coin.current = avg_price
 
         # In-app Notification
         notif = Notification(
@@ -901,7 +948,11 @@ def start_background_jobs(app=None):
     # 1. Binance Portfolio Sync Loop
     sync_thread = threading.Thread(target=background_binance_sync_loop, args=(app,), daemon=True)
     sync_thread.start()
-    
+
+    # 1b. Fast Real Order Status Loop (catches fills within seconds instead of 5 minutes)
+    order_status_thread = threading.Thread(target=real_order_status_loop, args=(app,), daemon=True)
+    order_status_thread.start()
+
     # 2. Portfolio Price Alert Loop
     portfolio_thread = threading.Thread(target=portfolio_alert_loop, args=(app,), daemon=True)
     portfolio_thread.start()
@@ -925,6 +976,7 @@ def start_background_jobs(app=None):
     logger.info("All background threads initiated.")
     return {
         "sync": sync_thread,
+        "order_status": order_status_thread,
         "portfolio": portfolio_thread,
         "watchlist": watchlist_thread,
         "volatility": volatility_thread,

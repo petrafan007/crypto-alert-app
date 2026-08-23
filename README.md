@@ -122,6 +122,16 @@ The application utilizes a **unified PostgreSQL database**.
 
 ## Version History & Changelog
 
+## v1.97-beta (August 2026)
+
+### Pair-Aware Trade Menus, Faster Order-Fill Detection, Auto-Buy Avg Entry Fix & Blank Alert Defaults
+- **Pair-Aware Buy/Sell & Auto-Buy/Auto-Sell Menus**: The Portfolio/Watchlist Buy and Sell dropdowns now only show "with USD"/"for USD" and "Trigger Auto-Buy/Auto-Sell (USD)" options for coins that actually have a live USD pair on Binance.US (same check applied to USDT), based on a new `/api/trading-pairs`-backed lookup, instead of always showing all four options regardless of pair availability.
+- **Faster Order-Fill Detection**: Added a new lightweight `real_order_status_loop` background job that checks only pending real orders every 15 seconds (instead of waiting for the full 5-minute Binance account sync). Newly detected fills — full or partial — now immediately update the coin's amount via `update_portfolio_from_real_order`, so the Portfolio table reflects new trades within seconds instead of up to 5 minutes later.
+- **Auto-Buy Average Entry Price Fix**: Fixed `execute_auto_buy` to properly recompute a weighted-average entry price when a volatility-triggered purchase adds to (or creates) a holding, instead of only bumping the amount and leaving `avg_entry` stale or at 0 — this was the root cause of coins like PURR showing "—" for Avg Entry after an Auto-Buy execution.
+- **Avg Entry Backfill & Safer New-Coin Creation**: The periodic balance sync now backfills a missing/zero `avg_entry` from the latest known price instead of leaving it blank, and no longer creates a brand-new coin record with `avg_entry=0` when a live price isn't available yet (it waits for the next cycle instead).
+- **Blank Price Alerts by Default**: Fixed the Portfolio table's Price Up/Down alert cells defaulting to a non-blank `0.00%` for new coins (caused by the `Coin` model defaulting the alert type to percent-mode with a `0.0` value). New coins now render blank until you configure an alert, matching the Watchlist table's existing behavior.
+- **Version Bump**: Synchronized metadata to `v1.97-beta`.
+
 ## v1.96-beta (August 2026)
 
 ### Allocations Donut Center Value, Always-Visible Widget Edit Buttons, Top Movers Hover Highlight & Uniform Table Rows
