@@ -1523,6 +1523,37 @@ def set_volatility_pct():
     
     return jsonify({"success": False, "error": "Coin not found"})
 
+@system_bp.route('/api/toggle-sentiment-tracking', methods=['POST'])
+@login_required
+def toggle_sentiment_tracking():
+    """Enable or disable AI sentiment tracking for a single portfolio or watchlist coin."""
+    data = request.get_json() or {}
+    table_type = data.get('table_type')
+    enabled = bool(data.get('enabled', True))
+
+    if table_type == 'portfolio':
+        coin_id = data.get('id')
+        coin = Coin.query.filter_by(user_id=current_user.id, id=coin_id).first()
+    elif table_type == 'watchlist':
+        symbol = data.get('symbol')
+        coin = WatchlistCoin.query.filter_by(user_id=current_user.id, symbol=symbol).first()
+    else:
+        return jsonify({"success": False, "error": "Invalid table type"})
+
+    if not coin:
+        return jsonify({"success": False, "error": "Coin not found"})
+
+    coin.sentiment_tracking_enabled = enabled
+    if not enabled:
+        coin.sentiment = 'Not Tracked'
+        coin.sentiment_reason = ''
+    db.session.commit()
+    return jsonify({
+        "success": True,
+        "sentiment_tracking_enabled": enabled,
+        "sentiment": coin.sentiment
+    })
+
 def _get_user_binance_free_balance(user_id, asset):
     """Fetch live free balance of USD or USDT for a user from Binance.US"""
     try:

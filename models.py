@@ -32,6 +32,7 @@ class Coin(db.Model):
     sentiment_model = db.Column(db.String(100), nullable=True)
     sentiment_tier = db.Column(db.String(50), nullable=True)
     sentiment_search_status = db.Column(db.String(100), nullable=True)
+    sentiment_tracking_enabled = db.Column(db.Boolean, default=True)
     note = db.Column(db.Text, default="")
     volatility_pct = db.Column(db.Float, nullable=True)
     last_volatility_alert_time = db.Column(db.DateTime, nullable=True)
@@ -84,6 +85,7 @@ class WatchlistCoin(db.Model):
     sentiment_model = db.Column(db.String(100), nullable=True)
     sentiment_tier = db.Column(db.String(50), nullable=True)
     sentiment_search_status = db.Column(db.String(100), nullable=True)
+    sentiment_tracking_enabled = db.Column(db.Boolean, default=True)
     
     # Composite index for efficient lookups
     __table_args__ = (

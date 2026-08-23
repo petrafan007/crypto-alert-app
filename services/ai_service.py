@@ -1056,6 +1056,7 @@ def run_sentiment_analysis_for_user(user_id, username, force=False, symbol=None)
         else:
             coins = Coin.query.filter_by(user_id=user_id, hidden=False).filter(Coin.amount > 0).all()
             coins = [c for c in coins if not is_stablecoin(c.symbol)]
+            coins = [c for c in coins if getattr(c, 'sentiment_tracking_enabled', True) is not False]
 
         if not coins:
             logger.info(f"No portfolio coins found for sentiment analysis for user {username} (symbol={symbol})")
@@ -1170,6 +1171,7 @@ def run_watchlist_sentiment_analysis_for_user(user_id, username, force=False, sy
         else:
             wl_coins = WatchlistCoin.query.filter_by(user_id=user_id).all()
             wl_coins = [w for w in wl_coins if not is_stablecoin(w.symbol)]
+            wl_coins = [w for w in wl_coins if getattr(w, 'sentiment_tracking_enabled', True) is not False]
 
         if not wl_coins:
             logger.info(f"No watchlist coins found for sentiment analysis for user {username} (symbol={symbol})")

@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import CryptoIcon from './CryptoIcon';
 
-const TopMoversWidget = ({ isLightMode, config, onEdit, ownedSymbols }) => {
+const TopMoversWidget = ({ isLightMode, config, onEdit, ownedSymbols, onCoinClick }) => {
   const [movers, setMovers] = useState({ gainers: [], losers: [] });
   const [loading, setLoading] = useState(true);
   const count = config?.count || 10;
@@ -55,7 +55,8 @@ const TopMoversWidget = ({ isLightMode, config, onEdit, ownedSymbols }) => {
     return (
       <div
         key={item.symbol}
-        title={isOwned ? 'You own this coin' : undefined}
+        title={onCoinClick ? `View ${item.symbol}/USDT chart in Trading${isOwned ? ' · You own this coin' : ''}` : (isOwned ? 'You own this coin' : undefined)}
+        onClick={onCoinClick ? () => onCoinClick(item.symbol) : undefined}
         style={{
           display: 'flex',
           alignItems: 'center',
@@ -63,6 +64,7 @@ const TopMoversWidget = ({ isLightMode, config, onEdit, ownedSymbols }) => {
           fontSize: '12px',
           padding: isOwned ? '2px 6px' : '2px 0',
           borderRadius: '5px',
+          cursor: onCoinClick ? 'pointer' : 'default',
           backgroundColor: isOwned ? (isLightMode ? 'rgba(56, 189, 248, 0.16)' : 'rgba(56, 189, 248, 0.14)') : 'transparent',
           border: isOwned ? '1px solid rgba(56, 189, 248, 0.4)' : '1px solid transparent'
         }}

@@ -2860,51 +2860,56 @@ function Dashboard({ isLightMode }) {
 
     return (
       <div style={{
-        display: 'inline-flex',
+        display: 'grid',
+        gridTemplateColumns: '18px 1fr 18px',
         alignItems: 'center',
-        justifyContent: 'center',
-        gap: '4px',
         width: '100%',
         minWidth: '85px'
       }}>
-        {item.auto_sell_enabled && (
-          <span
-            title={`⚡ Auto-Sell Active: Automatically sells for ${item.auto_sell_quote_currency || 'USDT'} if price drops > ${item.auto_sell_volatility_pct || item.volatility_pct}% in ${volatilityHoursSetting}h.`}
-            style={{ fontSize: '13px', cursor: 'help', color: '#ef4444', filter: 'drop-shadow(0 0 4px rgba(239, 68, 68, 0.7))', flexShrink: 0 }}
-          >
-            ⚡
-          </span>
-        )}
-        <input
-          type="text"
-          defaultValue={volatilityPct}
-          onChange={(e) => {
-            let value = e.target.value.replace(/[^0-9]/g, '');
-            e.target.value = value;
-          }}
-          onKeyPress={handleKeyPress}
-          onBlur={handleBlur}
-          style={{
-            width: '45px',
-            padding: '2px 4px',
-            fontSize: '12px',
-            background: '#1a1f23',
-            color: '#fff',
-            border: (item.auto_sell_enabled || item.auto_buy_enabled) ? '1px solid #38bdf8' : '1px solid #333',
-            borderRadius: '2px',
-            textAlign: 'center',
-            boxShadow: (item.auto_sell_enabled || item.auto_buy_enabled) ? '0 0 6px rgba(56, 189, 248, 0.4)' : 'none'
-          }}
-        />
-        <span style={{ fontSize: '12px' }}>%</span>
-        {item.auto_buy_enabled && (
-          <span
-            title={`🚀 Auto-Buy Active: Automatically purchases with $${parseFloat(item.auto_buy_amount || 0).toFixed(2)} ${item.auto_buy_quote_currency || 'USDT'} if price surges > +${item.auto_buy_volatility_pct || item.volatility_pct}% in ${volatilityHoursSetting}h.`}
-            style={{ fontSize: '13px', cursor: 'help', color: '#22c55e', filter: 'drop-shadow(0 0 4px rgba(34, 197, 94, 0.7))', flexShrink: 0 }}
-          >
-            🚀
-          </span>
-        )}
+        <span style={{ display: 'flex', justifyContent: 'flex-start' }}>
+          {item.auto_sell_enabled && (
+            <span
+              title={`⚡ Auto-Sell Active: Automatically sells for ${item.auto_sell_quote_currency || 'USDT'} if price drops > ${item.auto_sell_volatility_pct || item.volatility_pct}% in ${volatilityHoursSetting}h.`}
+              style={{ fontSize: '13px', cursor: 'help', color: '#ef4444', filter: 'drop-shadow(0 0 4px rgba(239, 68, 68, 0.7))' }}
+            >
+              ⚡
+            </span>
+          )}
+        </span>
+        <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}>
+          <input
+            type="text"
+            defaultValue={volatilityPct}
+            onChange={(e) => {
+              let value = e.target.value.replace(/[^0-9]/g, '');
+              e.target.value = value;
+            }}
+            onKeyPress={handleKeyPress}
+            onBlur={handleBlur}
+            style={{
+              width: '45px',
+              padding: '2px 4px',
+              fontSize: '12px',
+              background: '#1a1f23',
+              color: '#fff',
+              border: (item.auto_sell_enabled || item.auto_buy_enabled) ? '1px solid #38bdf8' : '1px solid #333',
+              borderRadius: '2px',
+              textAlign: 'center',
+              boxShadow: (item.auto_sell_enabled || item.auto_buy_enabled) ? '0 0 6px rgba(56, 189, 248, 0.4)' : 'none'
+            }}
+          />
+          <span style={{ fontSize: '12px' }}>%</span>
+        </span>
+        <span style={{ display: 'flex', justifyContent: 'flex-end' }}>
+          {item.auto_buy_enabled && (
+            <span
+              title={`🚀 Auto-Buy Active: Automatically purchases with $${parseFloat(item.auto_buy_amount || 0).toFixed(2)} ${item.auto_buy_quote_currency || 'USDT'} if price surges > +${item.auto_buy_volatility_pct || item.volatility_pct}% in ${volatilityHoursSetting}h.`}
+              style={{ fontSize: '13px', cursor: 'help', color: '#22c55e', filter: 'drop-shadow(0 0 4px rgba(34, 197, 94, 0.7))' }}
+            >
+              🚀
+            </span>
+          )}
+        </span>
       </div>
     );
   };
@@ -2942,6 +2947,38 @@ function Dashboard({ isLightMode }) {
       }
     } catch (err) {
       console.error('Update volatility pct error:', err);
+    }
+  };
+
+  const handleToggleSentimentTracking = async (item, isWatchlist, e) => {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    const tableType = isWatchlist ? 'watchlist' : 'portfolio';
+    const nextEnabled = item.sentiment_tracking_enabled === false;
+    try {
+      const response = await axios.post('/api/toggle-sentiment-tracking', {
+        id: tableType === 'portfolio' ? item.id : null,
+        symbol: tableType === 'watchlist' ? item.symbol : null,
+        table_type: tableType,
+        enabled: nextEnabled
+      }, { withCredentials: true });
+
+      if (response.data.success) {
+        const applyUpdate = (coin) => ({
+          ...coin,
+          sentiment_tracking_enabled: nextEnabled,
+          sentiment: response.data.sentiment || coin.sentiment
+        });
+        if (isWatchlist) {
+          setWatchlist(prev => prev.map(coin => coin.symbol === item.symbol ? applyUpdate(coin) : coin));
+        } else {
+          setPortfolio(prev => prev.map(coin => coin.id === item.id ? applyUpdate(coin) : coin));
+        }
+      }
+    } catch (err) {
+      console.error('Toggle sentiment tracking error:', err);
     }
   };
 
@@ -3078,6 +3115,24 @@ function Dashboard({ isLightMode }) {
         </td>
       );
     }
+    if (coin.sentiment_tracking_enabled === false) {
+      return (
+        <td
+          title="Sentiment tracking is disabled for this coin. Double-click to re-enable."
+          onDoubleClick={(e) => handleToggleSentimentTracking(coin, isWatchlist, e)}
+          style={{ textAlign: 'center', whiteSpace: 'nowrap', padding: '6px 8px', cursor: 'pointer' }}
+        >
+          <span style={{
+            fontSize: '0.8rem',
+            fontStyle: 'italic',
+            color: 'var(--text-secondary, #94a3b8)',
+            opacity: 0.7
+          }}>
+            🚫 Not Tracked
+          </span>
+        </td>
+      );
+    }
     const rawSentiment = coin.sentiment || (isWatchlist ? 'Watch' : 'Hold');
     const isChecking = rawSentiment === 'Checking now...' || !!refreshingSentiment[coin.symbol];
     const sentiment = isChecking ? 'Checking now...' : rawSentiment;
@@ -3171,7 +3226,8 @@ function Dashboard({ isLightMode }) {
 
     return (
       <td
-        title={tooltip}
+        title={`${tooltip}\n\nDouble-click to disable sentiment tracking for this coin.`}
+        onDoubleClick={(e) => handleToggleSentimentTracking(coin, isWatchlist, e)}
         style={{
           cursor: isChecking ? 'wait' : 'help',
           whiteSpace: 'nowrap',
@@ -3449,7 +3505,7 @@ function Dashboard({ isLightMode }) {
             case 'performance':
               return <PortfolioPerformanceTable hiddenCoins={performanceHiddenCoins} />;
             case 'top_movers':
-              return <TopMoversWidget isLightMode={isLightMode} config={topMoversConfig} onEdit={handleOpenTopMoversModal} ownedSymbols={ownedSymbols} />;
+              return <TopMoversWidget isLightMode={isLightMode} config={topMoversConfig} onEdit={handleOpenTopMoversModal} ownedSymbols={ownedSymbols} onCoinClick={(symbol) => navigateToTrading(symbol, 'BUY', 'USDT')} />;
             case 'recent_trades':
               return <RecentTradesWidget isLightMode={isLightMode} config={recentTradesConfig} onEdit={handleOpenRecentTradesModal} />;
             case 'ai_pulse':
@@ -5097,6 +5153,7 @@ function Dashboard({ isLightMode }) {
                   step="1"
                   value={topMoversDraftCount}
                   onChange={(e) => setTopMoversDraftCount(parseInt(e.target.value, 10) || 10)}
+                  className="slim-range-slider"
                   style={{ flex: 1, accentColor: '#0284c7', cursor: 'pointer' }}
                 />
                 <input

@@ -320,9 +320,9 @@ const TradingChart = ({ symbol, onSymbolChange, tradingPairs = [], filterCoin = 
           setKlines(normalized);
         }
 
-        // Fetch transactions (optional)
+        // Fetch transactions (optional) — scoped to the currently selected trading pair only
         try {
-          const transRes = await axios.get(`/api/trading/transactions/${symbol}?all_coins=true`, {
+          const transRes = await axios.get(`/api/trading/transactions/${symbol}`, {
             withCredentials: true
           });
 

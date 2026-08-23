@@ -122,6 +122,16 @@ The application utilizes a **unified PostgreSQL database**.
 
 ## Version History & Changelog
 
+## v1.95-beta (August 2026)
+
+### Top Movers Polish, Trading Chart Marker Scoping, Volatility Cell Alignment & Per-Coin Sentiment Toggle
+- **Top Gainers & Losers Slider & Navigation**: Restyled the "Coins Per Side" range slider with a slim custom thumb/track so it visually docks flush at min/max (previously appeared to stop short of 25). Clicking any coin in the Top Gainers & Losers widget now navigates to the Trading page with that coin's USDT pair pre-selected for quick chart viewing.
+- **Trading Chart Marker Pair Scoping**: Fixed the Trading Center chart so buy/sell transaction markers only reflect trades for the currently selected pair. Previously the chart fetched transactions with `all_coins=true` and never filtered them, causing every coin's trade history to appear as arrows regardless of which pair's chart was open.
+- **Volatility % Cell Alignment**: Reworked the Portfolio/Watchlist Volatility % cell to a fixed 3-column layout so the ⚡ Auto-Sell and 🚀 Auto-Buy indicators no longer push the centered input/percentage off-center — ⚡ is always anchored to the left edge of the cell and 🚀 to the right edge, independently of the input.
+- **Per-Coin Sentiment Tracking Toggle**: Added the ability to double-click a cell in the Sentiment column (Portfolio or Watchlist) to enable or disable AI sentiment tracking for that specific coin. Disabled coins display a muted "🚫 Not Tracked" label and are skipped by both the scheduled sentiment analysis and "Run Sentiment Analysis Now". New `sentiment_tracking_enabled` column added to `coins` and `watchlist` tables (defaults to enabled) with a new `/api/toggle-sentiment-tracking` endpoint.
+- **Help Documentation Updated**: Documented the Top Movers click-to-chart behavior and the new per-coin sentiment tracking toggle in the Help page.
+- **Version Bump**: Synchronized metadata to `v1.95-beta`.
+
 ## v1.94-beta (August 2026)
 
 ### Market-Wide Top Gainers & Losers with Configurable Count & Ownership Highlighting

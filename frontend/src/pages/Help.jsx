@@ -427,7 +427,7 @@ export default function Help({ isLightMode }) {
                     <li><strong>Total Portfolio Value</strong> — live USD/USDT valuation card</li>
                     <li><strong>Staking Yield Overview</strong> — quick summary of staking APY and rewards</li>
                     <li><strong>7-Day Performance Tickers</strong> — multi-interval % change per coin</li>
-                    <li><strong>Top Gainers & Losers</strong> — 24h momentum across your Portfolio and Watchlist</li>
+                    <li><strong>Top Gainers & Losers</strong> — 24h momentum across every coin Binance.US lists (not just your holdings). Click any coin in the list to jump straight to its chart on the Trading page. An editable ✏️ button lets you set how many coins to show per side, and coins you own are highlighted with a ★ badge</li>
                     <li><strong>Recent Order History</strong> — live feed of your most recent filled trades</li>
                     <li><strong>AI Copilot Market Pulse</strong> — macro sentiment score and catalyst summary</li>
                     <li><strong>Staking Yield & Rewards Tracker</strong> — projected daily/monthly/yearly yield</li>
@@ -470,6 +470,7 @@ export default function Help({ isLightMode }) {
                     <li><strong>Alert Bell 🔔</strong> — set Price Up/Down alert thresholds; auto-saves when you click away (blur) or press Enter</li>
                     <li><strong>Volatility %</strong> — the percentage move used by Auto-Buy/Auto-Sell triggers (see next section)</li>
                     <li><strong>Sentiment badge</strong> — AI recommendation (Strong Buy, Buy, Hold, Consider Selling, Sell) with a 🔄 button for an instant per-coin refresh and a hover tooltip explaining the AI's reasoning</li>
+                    <li><strong>Double-click the Sentiment cell</strong> to toggle AI sentiment tracking on or off for that specific coin — useful if you don't want every coin analyzed. Disabled coins show a muted "🚫 Not Tracked" label; double-click again to re-enable</li>
                     <li><strong>News 📰</strong> — hover for the latest cached AI-generated news summary for that coin</li>
                     <li><strong>Sparkline hover</strong> — hover the price to see a 7-day mini price chart</li>
                     <li><strong>Column sorting & customization</strong> — click column headers to sort, or use the gear icon to show/hide/reorder columns</li>
@@ -489,6 +490,7 @@ export default function Help({ isLightMode }) {
                 <ul style={{ paddingLeft: '20px', marginBottom: '16px', lineHeight: '1.9' }}>
                     <li><strong>Adding a coin</strong> instantly runs a one-time AI sentiment check for it</li>
                     <li><strong>Watchlist sentiment</strong> uses its own 4-tier scale: Avoid, Watch, Consider Buying, Definitely Buy</li>
+                    <li><strong>Double-click the Sentiment cell</strong> to disable or re-enable AI sentiment tracking for that coin, same as in the Portfolio table</li>
                     <li><strong>Buy</strong> — purchase the coin against USD or USDT directly from the Watchlist row</li>
                     <li><strong>Delete</strong> — remove a coin you're no longer tracking</li>
                     <li>Watchlist coins also support <strong>Volatility %</strong> and <strong>Auto-Buy triggers</strong>, just like Portfolio coins</li>
