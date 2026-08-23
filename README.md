@@ -122,6 +122,14 @@ The application utilizes a **unified PostgreSQL database**.
 
 ## Version History & Changelog
 
+## v1.93-beta (August 2026)
+
+### Complete Help & Documentation Overhaul
+- **Table of Contents Navigation**: Replaced the single-page Help document with a grouped, anchor-linked Table of Contents (Getting Started, Account Setup, Dashboard, Portfolio & Watchlist, Automated Protection, Trading & Staking, AI Features, Reports & Settings, Help) with scroll-based active-section highlighting and "Back to Table of Contents" links on every section.
+- **Full Feature Coverage**: Added dedicated sections covering previously undocumented functionality: Security & Non-Custodial Architecture, AI Provider Setup (Primary/Secondary/Tertiary failover, custom prompts, web search grounding), Dashboard Widgets (all 14 widgets), Customizing Your Layout (drag/resize/hide/undo/save), the full Portfolio Table action set (Buy/Sell, Stake, Hide, Notes, Alerts, Sentiment, News), Watchlist, a deep-dive on Auto-Buy & Auto-Sell Volatility Triggers with worked examples, an expanded Trading Center walkthrough, Staking, AI Analysis Page, AI Copilot Sidebar, Tax Report, and Other Settings.
+- **Buy/Sell Terminology Clarification**: Clarified throughout that USD and USDT are simply the two settlement/quote currencies on Binance.US — any listed coin can be bought or sold against either, rather than treating USD/USDT as the only tradable assets.
+- **Version Bump**: Synchronized metadata to `v1.93-beta`.
+
 ## v1.92-beta (August 2026)
 
 ### Table Column Resizing, Actions Alignment, Cancel Menu Clamping, Sort Persistence & Trigger Price Fixes
