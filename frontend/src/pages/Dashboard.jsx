@@ -3497,7 +3497,7 @@ function Dashboard({ isLightMode }) {
                             case 'amount':
                               return (
                                 <td key="amount" style={{ textAlign: 'center' }}>
-                                  {formatCoinAmount(coin.amount, coin.symbol)}
+                                  {coin.pendingPlaceholder ? '0.0000' : (coin.amount !== undefined && coin.amount !== null ? coin.amount.toFixed(4) : '—')}
                                 </td>
                               );
                             case 'current_price':
@@ -3519,13 +3519,13 @@ function Dashboard({ isLightMode }) {
                             case 'down_alert':
                               return (
                                 <td key="down_alert" style={{ textAlign: 'center' }}>
-                                  {renderAlertCell(coin, 'down')}
+                                  {renderPortfolioAlertCell(coin, 'down')}
                                 </td>
                               );
                             case 'up_alert':
                               return (
                                 <td key="up_alert" style={{ textAlign: 'center' }}>
-                                  {renderAlertCell(coin, 'up')}
+                                  {renderPortfolioAlertCell(coin, 'up')}
                                 </td>
                               );
                             case 'volatility_pct':
