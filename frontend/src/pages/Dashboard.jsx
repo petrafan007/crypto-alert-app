@@ -2886,13 +2886,21 @@ function Dashboard({ isLightMode }) {
       const response = await axios.post(endpoint, data, { withCredentials: true });
 
       if (response.data.success) {
+        // Mirror backend sync: keep active auto-buy/auto-sell trigger snapshot values
+        // aligned with the newly edited volatility % so displayed trigger prices update instantly.
+        const applyUpdate = (coin) => ({
+          ...coin,
+          volatility_pct: value,
+          ...(coin.auto_buy_enabled ? { auto_buy_volatility_pct: value } : {}),
+          ...(coin.auto_sell_enabled ? { auto_sell_volatility_pct: value } : {})
+        });
         if (tableType === 'portfolio') {
           setPortfolio(prev => prev.map(coin =>
-            coin.id === item.id ? { ...coin, volatility_pct: value } : coin
+            coin.id === item.id ? applyUpdate(coin) : coin
           ));
         } else {
           setWatchlist(prev => prev.map(coin =>
-            coin.symbol === item.symbol ? { ...coin, volatility_pct: value } : coin
+            coin.symbol === item.symbol ? applyUpdate(coin) : coin
           ));
         }
       }

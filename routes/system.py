@@ -1507,6 +1507,17 @@ def set_volatility_pct():
 
     if coin:
         coin.volatility_pct = volatility_pct
+        try:
+            new_pct = float(volatility_pct) if volatility_pct is not None else None
+        except (ValueError, TypeError):
+            new_pct = None
+        # Keep active auto-buy/auto-sell trigger snapshots in sync so the live
+        # trigger price/threshold reflects the newly edited volatility % immediately.
+        if new_pct is not None:
+            if getattr(coin, 'auto_buy_enabled', False):
+                coin.auto_buy_volatility_pct = new_pct
+            if getattr(coin, 'auto_sell_enabled', False):
+                coin.auto_sell_volatility_pct = new_pct
         db.session.commit()
         return jsonify({"success": True})
     

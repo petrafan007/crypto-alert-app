@@ -122,6 +122,14 @@ The application utilizes a **unified PostgreSQL database**.
 
 ## Version History & Changelog
 
+## v1.92-beta (August 2026)
+
+### Live Volatility % Sync for Auto-Buy/Auto-Sell Trigger Price
+- **Stale Trigger Price Bugfix**: Fixed an issue where editing a coin's Volatility % on the Portfolio table after an Auto-Buy or Auto-Sell trigger was already enabled did not update the trigger's displayed price in the Open Orders tab, Order History, or the Cancel Auto-Buy/Auto-Sell Trigger confirmation modals.
+- **Root Cause**: `auto_buy_volatility_pct`/`auto_sell_volatility_pct` are snapshotted at the moment a trigger is enabled and previously took precedence over the live `volatility_pct` value everywhere they're read, including the actual background execution threshold in the scheduler.
+- **Fix**: `/api/set-volatility-pct` now keeps the active trigger's snapshot percentage in sync with the live Volatility % field whenever it's edited, so both the displayed trigger price and the real execution threshold used by the Auto-Buy/Auto-Sell background monitor update immediately.
+- **Version Bump**: Synchronized metadata to `v1.92-beta`.
+
 ## v1.78-beta (August 2026)
 
 ### Modern Order Placement Redesign, Default Trading Pair Fallback & Convert Dust Table Contrast Fix
