@@ -2061,11 +2061,11 @@ const Trading = () => {
                           </td>
                           <td>{formatOrderType(order.order_type || order.type)}</td>
                           <td>{order.quantity ? formatNumber(order.quantity, 8) : (order.origQty ? formatNumber(order.origQty, 8) : (order.trigger_details || '—'))}</td>
-                          <td>{order.price && Number(order.price) > 0 ? `$${formatNumber(order.price)}` : (order.trigger_details ? '⚡ Trigger' : '—')}</td>
+                          <td>{order.price && Number(order.price) > 0 ? `$${formatNumber(order.price)}` : (order.trigger_price ? `$${formatNumber(order.trigger_price)}` : (order.trigger_details || '—'))}</td>
                           <td>{formatNumber(order.filled_quantity || order.executedQty || 0, 8)}</td>
                           <td>
                             <span className="badge badge-open">
-                              {order.status}
+                              {order.status === 'NEW' ? 'ACTIVE' : (order.status || 'ACTIVE')}
                             </span>
                           </td>
                           <td>
@@ -2181,8 +2181,8 @@ const Trading = () => {
                             <td>{order.price ? `$${formatNumber(order.price)}` : '-'}</td>
                             <td>{formatNumber(order.filled_quantity || 0, 8)}</td>
                             <td>
-                              <span className={`badge badge-${(order.status || 'unknown').toLowerCase()}`}>
-                                {order.status}
+                              <span className={`badge badge-${((order.status === 'NEW' || order.status === 'PARTIALLY_FILLED' ? 'ACTIVE' : order.status) || 'unknown').toLowerCase()}`}>
+                                {order.status === 'NEW' || order.status === 'PARTIALLY_FILLED' ? 'ACTIVE' : order.status}
                               </span>
                             </td>
                             <td>

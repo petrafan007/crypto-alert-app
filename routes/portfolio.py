@@ -865,7 +865,7 @@ def api_pending_orders():
                     'price': price,
                     'stop_price': stop_price,
                     'quantity': quantity,
-                    'status': order.get('status'),
+                    'status': 'ACTIVE' if order.get('status') in ['NEW', 'PARTIALLY_FILLED', 'ACTIVE'] else order.get('status'),
                     'time': order.get('time'),
                     'is_oco': is_oco,
                     'direction': direction,
@@ -3594,17 +3594,29 @@ def get_open_orders():
                     # If Binance fails, we log and still return in-app auto triggers
                     open_orders = []
 
+        formatted_open_orders = []
+        for ord in open_orders:
+            o_dict = ord if isinstance(ord, dict) else (ord.to_dict() if hasattr(ord, 'to_dict') else {})
+            o_copy = dict(o_dict)
+            status = o_copy.get('status', 'ACTIVE')
+            if status in ['NEW', 'PARTIALLY_FILLED']:
+                status = 'ACTIVE'
+            o_copy['status'] = status
+            formatted_open_orders.append(o_copy)
+
         # Collect active in-app Auto-Buy and Auto-Sell triggers
         auto_triggers = []
         user_portfolio_coins = Coin.query.filter_by(user_id=current_user.id).all()
         user_watchlist_coins = WatchlistCoin.query.filter_by(user_id=current_user.id).all()
 
         for c in user_portfolio_coins:
+            ref_price = float(getattr(c, 'current', 0.0) or getattr(c, 'current_price', 0.0) or 0.0)
             if getattr(c, 'auto_buy_enabled', False):
                 quote = (getattr(c, 'auto_buy_quote_currency', None) or 'USDT').upper()
                 pair_sym = f"{c.symbol}{quote}"
-                vol = c.auto_buy_volatility_pct or c.volatility_pct or 0
+                vol = float(c.auto_buy_volatility_pct or c.volatility_pct or 0.0)
                 amt = float(getattr(c, 'auto_buy_amount', 0.0) or 0.0)
+                trigger_price = round(ref_price * (1.0 + vol / 100.0), 6) if ref_price > 0 and vol > 0 else None
                 auto_triggers.append({
                     'id': f"autobuy-portfolio-{c.id}",
                     'orderId': f"autobuy-portfolio-{c.id}",
@@ -3616,7 +3628,8 @@ def get_open_orders():
                     'order_type': 'AUTO_BUY',
                     'origQty': amt,
                     'quantity': amt,
-                    'price': None,
+                    'price': trigger_price,
+                    'trigger_price': trigger_price,
                     'executedQty': 0,
                     'filled_quantity': 0,
                     'status': 'ACTIVE',
@@ -3625,13 +3638,14 @@ def get_open_orders():
                     'is_auto_trigger': True,
                     'trigger_type': 'auto_buy',
                     'table_type': 'portfolio',
-                    'trigger_details': f"+{vol}% surge trigger (${amt:.2f} {quote})"
+                    'trigger_details': f"+{vol}% surge @ ${trigger_price:.4f} (${amt:.2f} {quote})" if trigger_price else f"+{vol}% surge trigger (${amt:.2f} {quote})"
                 })
             if getattr(c, 'auto_sell_enabled', False):
                 quote = (getattr(c, 'auto_sell_quote_currency', None) or 'USDT').upper()
                 pair_sym = f"{c.symbol}{quote}"
-                vol = c.auto_sell_volatility_pct or c.volatility_pct or 0
+                vol = float(c.auto_sell_volatility_pct or c.volatility_pct or 0.0)
                 amt = float(getattr(c, 'amount', 0.0) or getattr(c, 'auto_sell_amount', 0.0) or 0.0)
+                trigger_price = round(ref_price * (1.0 - vol / 100.0), 6) if ref_price > 0 and vol > 0 else None
                 auto_triggers.append({
                     'id': f"autosell-portfolio-{c.id}",
                     'orderId': f"autosell-portfolio-{c.id}",
@@ -3643,7 +3657,8 @@ def get_open_orders():
                     'order_type': 'AUTO_SELL',
                     'origQty': amt,
                     'quantity': amt,
-                    'price': None,
+                    'price': trigger_price,
+                    'trigger_price': trigger_price,
                     'executedQty': 0,
                     'filled_quantity': 0,
                     'status': 'ACTIVE',
@@ -3652,15 +3667,17 @@ def get_open_orders():
                     'is_auto_trigger': True,
                     'trigger_type': 'auto_sell',
                     'table_type': 'portfolio',
-                    'trigger_details': f"-{vol}% drop trigger"
+                    'trigger_details': f"-{vol}% drop @ ${trigger_price:.4f} for {quote}" if trigger_price else f"-{vol}% drop trigger"
                 })
 
         for w in user_watchlist_coins:
+            ref_price = float(getattr(w, 'current', 0.0) or getattr(w, 'current_price', 0.0) or 0.0)
             if getattr(w, 'auto_buy_enabled', False):
                 quote = (getattr(w, 'auto_buy_quote_currency', None) or 'USDT').upper()
                 pair_sym = f"{w.symbol}{quote}"
-                vol = w.auto_buy_volatility_pct or w.volatility_pct or 0
+                vol = float(w.auto_buy_volatility_pct or w.volatility_pct or 0.0)
                 amt = float(getattr(w, 'auto_buy_amount', 0.0) or 0.0)
+                trigger_price = round(ref_price * (1.0 + vol / 100.0), 6) if ref_price > 0 and vol > 0 else None
                 auto_triggers.append({
                     'id': f"autobuy-watchlist-{w.id}",
                     'orderId': f"autobuy-watchlist-{w.id}",
@@ -3672,7 +3689,8 @@ def get_open_orders():
                     'order_type': 'AUTO_BUY',
                     'origQty': amt,
                     'quantity': amt,
-                    'price': None,
+                    'price': trigger_price,
+                    'trigger_price': trigger_price,
                     'executedQty': 0,
                     'filled_quantity': 0,
                     'status': 'ACTIVE',
@@ -3681,12 +3699,14 @@ def get_open_orders():
                     'is_auto_trigger': True,
                     'trigger_type': 'auto_buy',
                     'table_type': 'watchlist',
-                    'trigger_details': f"+{vol}% surge trigger (${amt:.2f} {quote})"
+                    'trigger_details': f"+{vol}% surge @ ${trigger_price:.4f} (${amt:.2f} {quote})" if trigger_price else f"+{vol}% surge trigger (${amt:.2f} {quote})"
                 })
             if getattr(w, 'auto_sell_enabled', False):
                 quote = (getattr(w, 'auto_sell_quote_currency', None) or 'USDT').upper()
                 pair_sym = f"{w.symbol}{quote}"
-                vol = w.auto_sell_volatility_pct or w.volatility_pct or 0
+                vol = float(w.auto_sell_volatility_pct or w.volatility_pct or 0.0)
+                amt = float(getattr(w, 'amount', 0.0) or getattr(w, 'auto_sell_amount', 0.0) or 0.0)
+                trigger_price = round(ref_price * (1.0 - vol / 100.0), 6) if ref_price > 0 and vol > 0 else None
                 auto_triggers.append({
                     'id': f"autosell-watchlist-{w.id}",
                     'orderId': f"autosell-watchlist-{w.id}",
@@ -3696,9 +3716,10 @@ def get_open_orders():
                     'side': 'AUTO_SELL',
                     'type': 'AUTO_SELL',
                     'order_type': 'AUTO_SELL',
-                    'origQty': 0.0,
-                    'quantity': 0.0,
-                    'price': None,
+                    'origQty': amt,
+                    'quantity': amt,
+                    'price': trigger_price,
+                    'trigger_price': trigger_price,
                     'executedQty': 0,
                     'filled_quantity': 0,
                     'status': 'ACTIVE',
@@ -3707,10 +3728,10 @@ def get_open_orders():
                     'is_auto_trigger': True,
                     'trigger_type': 'auto_sell',
                     'table_type': 'watchlist',
-                    'trigger_details': f"-{vol}% drop trigger"
+                    'trigger_details': f"-{vol}% drop @ ${trigger_price:.4f} for {quote}" if trigger_price else f"-{vol}% drop trigger"
                 })
 
-        combined_orders = list(open_orders) + auto_triggers
+        combined_orders = formatted_open_orders + auto_triggers
         return jsonify({
             'success': True,
             'orders': combined_orders

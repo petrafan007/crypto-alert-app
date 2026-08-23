@@ -35,15 +35,25 @@ export default function CancelOrderConfirmModal({
   const quantity = order.quantity || order.origQty || order.amount;
   const price = order.price || order.trigger_price;
 
+  const curPrice = Number(order.current_price || coin?.current_price || coin?.current || 0);
+  const volNum = Number(order.volatility_pct || (isAutoBuy ? (coin?.auto_buy_volatility_pct || coin?.volatility_pct) : (coin?.auto_sell_volatility_pct || coin?.volatility_pct)) || 0);
+  const calculatedTriggerPrice = order.trigger_price || order.price || (
+    curPrice > 0 && !isNaN(volNum) && volNum > 0
+      ? (isAutoBuy ? curPrice * (1 + volNum / 100) : curPrice * (1 - volNum / 100))
+      : null
+  );
+  const formattedTriggerPrice = calculatedTriggerPrice ? `$${Number(calculatedTriggerPrice).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: calculatedTriggerPrice >= 1 ? 2 : 6 })}` : null;
+
   let orderDescription = `${type} ${side}`;
   if (isAutoBuy) {
     const vol = order.volatility_pct || coin?.auto_buy_volatility_pct || coin?.volatility_pct || '—';
     const amt = order.amount || coin?.auto_buy_amount || '—';
     const quote = order.quote_currency || coin?.auto_buy_quote_currency || 'USDT';
-    orderDescription = `Auto-Buy Trigger for ${symbol} (+${vol}% surge with $${amt} ${quote})`;
+    orderDescription = `Auto-Buy Trigger for ${symbol} (+${vol}% surge${formattedTriggerPrice ? ` @ ${formattedTriggerPrice}` : ''} with $${amt} ${quote})`;
   } else if (isAutoSell) {
     const vol = order.volatility_pct || coin?.auto_sell_volatility_pct || coin?.volatility_pct || '—';
-    orderDescription = `Auto-Sell Trigger for ${symbol} (-${vol}% drop)`;
+    const quote = order.quote_currency || coin?.auto_sell_quote_currency || 'USDT';
+    orderDescription = `Auto-Sell Trigger for ${symbol} (-${vol}% drop${formattedTriggerPrice ? ` @ ${formattedTriggerPrice}` : ''} for ${quote})`;
   } else {
     if (quantity) {
       orderDescription += ` of ${quantity} ${symbol}`;
@@ -110,6 +120,12 @@ export default function CancelOrderConfirmModal({
                   <span>Surge Threshold:</span>
                   <strong>+{order.volatility_pct || coin?.auto_buy_volatility_pct || coin?.volatility_pct}%</strong>
                 </div>
+                {formattedTriggerPrice && (
+                  <div className="cancel-order-summary-row">
+                    <span>Trigger Price:</span>
+                    <strong style={{ color: '#38bdf8' }}>{formattedTriggerPrice}</strong>
+                  </div>
+                )}
                 <div className="cancel-order-summary-row">
                   <span>Allocation:</span>
                   <strong>${order.amount || coin?.auto_buy_amount} {order.quote_currency || coin?.auto_buy_quote_currency || 'USDT'}</strong>
@@ -117,10 +133,18 @@ export default function CancelOrderConfirmModal({
               </>
             )}
             {isAutoSell && (
-              <div className="cancel-order-summary-row">
-                <span>Drop Threshold:</span>
-                <strong>-{order.volatility_pct || coin?.auto_sell_volatility_pct || coin?.volatility_pct}%</strong>
-              </div>
+              <>
+                <div className="cancel-order-summary-row">
+                  <span>Drop Threshold:</span>
+                  <strong>-{order.volatility_pct || coin?.auto_sell_volatility_pct || coin?.volatility_pct}%</strong>
+                </div>
+                {formattedTriggerPrice && (
+                  <div className="cancel-order-summary-row">
+                    <span>Trigger Price:</span>
+                    <strong style={{ color: '#f87171' }}>{formattedTriggerPrice}</strong>
+                  </div>
+                )}
+              </>
             )}
             {!isAutoTrigger && price && Number(price) > 0 && (
               <div className="cancel-order-summary-row">

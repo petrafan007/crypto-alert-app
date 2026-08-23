@@ -51,7 +51,7 @@ class TestOrder(db.Model):
             'price': self.price,
             'stop_price': self.stop_price,
             'time_in_force': self.time_in_force,
-            'status': self.status,
+            'status': 'ACTIVE' if self.status in ['NEW', 'PARTIALLY_FILLED', 'ACTIVE'] else self.status,
             'simulated_fill_price': self.simulated_fill_price,
             'simulated_fill_time': self.simulated_fill_time.isoformat() if self.simulated_fill_time else None,
             'created_at': self.created_at.isoformat() if self.created_at else None,
@@ -75,7 +75,7 @@ class RealOrder(db.Model):
     price = Column(Float, nullable=True)
     stop_price = Column(Float, nullable=True)
     time_in_force = Column(String(10), nullable=True)
-    status = Column(String(20), default='NEW')
+    status = Column(String(20), default='ACTIVE')
     binance_order_id = Column(BigInteger, unique=True, nullable=True)
     binance_client_order_id = Column(String(100), nullable=True)
     executed_qty = Column(Float, default=0.0)
@@ -109,7 +109,7 @@ class RealOrder(db.Model):
             'price': self.price,
             'stop_price': self.stop_price,
             'time_in_force': self.time_in_force,
-            'status': self.status,
+            'status': 'ACTIVE' if self.status in ['NEW', 'PARTIALLY_FILLED', 'ACTIVE'] else self.status,
             'binance_order_id': self.binance_order_id,
             'binance_client_order_id': self.binance_client_order_id,
             'executed_qty': self.executed_qty,

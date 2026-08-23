@@ -864,11 +864,16 @@ function Dashboard({ isLightMode }) {
     const sym = (coin.symbol || '').toUpperCase();
     const exchangeOrders = getPendingOrdersForCoin(sym);
     const items = [...exchangeOrders];
+    const curPrice = Number(coin.current_price || coin.current || 0);
 
     if (coin.auto_buy_enabled) {
       const vol = coin.auto_buy_volatility_pct || coin.volatility_pct || '—';
+      const volNum = Number(vol);
       const amt = coin.auto_buy_amount !== undefined && coin.auto_buy_amount !== null ? Number(coin.auto_buy_amount).toFixed(2) : '—';
       const quote = coin.auto_buy_quote_currency || 'USDT';
+      const triggerPrice = curPrice > 0 && !isNaN(volNum) && volNum > 0 ? (curPrice * (1 + volNum / 100)) : null;
+      const formattedPrice = triggerPrice ? `$${triggerPrice >= 1 ? triggerPrice.toFixed(2) : triggerPrice.toFixed(4)}` : null;
+
       items.push({
         id: `autobuy-${coin.id || sym}`,
         isAutoBuy: true,
@@ -878,16 +883,23 @@ function Dashboard({ isLightMode }) {
         symbol: sym,
         volatility_pct: vol,
         amount: amt,
+        price: triggerPrice,
+        trigger_price: triggerPrice,
+        current_price: curPrice,
         quote_currency: quote,
         table_type: coin.table_type || (coin.isWatchlist ? 'watchlist' : 'portfolio'),
         title: `Auto-Buy Surge Trigger (${quote})`,
-        details: `+${vol}% surge trigger ($${amt} ${quote})`
+        details: formattedPrice ? `+${vol}% surge @ ${formattedPrice} ($${amt} ${quote})` : `+${vol}% surge trigger ($${amt} ${quote})`
       });
     }
 
     if (coin.auto_sell_enabled) {
       const vol = coin.auto_sell_volatility_pct || coin.volatility_pct || '—';
+      const volNum = Number(vol);
       const quote = coin.auto_sell_quote_currency || 'USDT';
+      const triggerPrice = curPrice > 0 && !isNaN(volNum) && volNum > 0 ? (curPrice * (1 - volNum / 100)) : null;
+      const formattedPrice = triggerPrice ? `$${triggerPrice >= 1 ? triggerPrice.toFixed(2) : triggerPrice.toFixed(4)}` : null;
+
       items.push({
         id: `autosell-${coin.id || sym}`,
         isAutoSell: true,
@@ -896,10 +908,13 @@ function Dashboard({ isLightMode }) {
         type: 'AUTO_SELL',
         symbol: sym,
         volatility_pct: vol,
+        price: triggerPrice,
+        trigger_price: triggerPrice,
+        current_price: curPrice,
         quote_currency: quote,
         table_type: coin.table_type || (coin.isWatchlist ? 'watchlist' : 'portfolio'),
         title: `Auto-Sell Drop Trigger (${quote})`,
-        details: `-${vol}% drop trigger`
+        details: formattedPrice ? `-${vol}% drop @ ${formattedPrice} for ${quote}` : `-${vol}% drop trigger`
       });
     }
 
@@ -1509,30 +1524,81 @@ function Dashboard({ isLightMode }) {
   };
 
   const sortData = (data, key) => {
-    if (!key) return data;
+    if (!key || !Array.isArray(data)) return data || [];
+
+    const isNumericColumn = [
+      'amount',
+      'current_price',
+      'current_value',
+      'avg_entry',
+      'pct_change',
+      'volatility_pct',
+      'high_low_24h',
+      'volume_24h',
+      'market_cap',
+      'pnl_usd',
+      'allocation_pct',
+      'target_price',
+      'down_alert',
+      'up_alert'
+    ].includes(key);
+
+    const getSortValue = (item) => {
+      if (!item) return null;
+      if (key === 'pnl_usd') {
+        if (item.current_value !== undefined && item.cost_basis !== undefined && item.cost_basis > 0) {
+          return item.current_value - item.cost_basis;
+        }
+        if (item.current_price && item.avg_entry && item.amount) {
+          return item.amount * (item.current_price - item.avg_entry);
+        }
+        return null;
+      }
+      if (key === 'allocation_pct') {
+        return item.current_value !== undefined && item.current_value !== null ? Number(item.current_value) : null;
+      }
+      if (key === 'avg_entry') {
+        const isStable = ['USD', 'USDT', 'USDC', 'BUSD', 'DAI'].includes((item.symbol || '').toUpperCase());
+        if (isStable) return 1.0;
+        return item.avg_entry !== undefined && item.avg_entry !== null ? Number(item.avg_entry) : null;
+      }
+      if (key === 'current_price') {
+        const isStable = ['USD', 'USDT', 'USDC', 'BUSD', 'DAI'].includes((item.symbol || '').toUpperCase());
+        if (isStable) return 1.0;
+        return item.current_price !== undefined && item.current_price !== null ? Number(item.current_price) : null;
+      }
+      if (key === 'pct_change') {
+        return item.pct_change !== undefined && item.pct_change !== null ? Number(item.pct_change) : null;
+      }
+      if (key === 'current_value') {
+        return item.current_value !== undefined && item.current_value !== null ? Number(item.current_value) : null;
+      }
+      if (key === 'sentiment') {
+        return typeof item.sentiment === 'object' ? (item.sentiment?.score ?? item.sentiment?.label ?? '') : (item.sentiment || '');
+      }
+      return item[key];
+    };
 
     return [...data].sort((a, b) => {
-      let aVal = a[key];
-      let bVal = b[key];
+      const aVal = getSortValue(a);
+      const bVal = getSortValue(b);
 
-      // Handle numeric values
-      if (typeof aVal === 'number' && typeof bVal === 'number') {
-        return sortConfig.direction === 'asc' ? aVal - bVal : bVal - aVal;
+      if (isNumericColumn) {
+        const isANull = aVal === null || aVal === undefined || aVal === '' || isNaN(Number(aVal));
+        const isBNull = bVal === null || bVal === undefined || bVal === '' || isNaN(Number(bVal));
+
+        if (isANull && isBNull) return 0;
+        if (isANull) return 1; // nulls always at the bottom
+        if (isBNull) return -1;
+
+        const numA = Number(aVal);
+        const numB = Number(bVal);
+        return sortConfig.direction === 'asc' ? numA - numB : numB - numA;
       }
 
-      // Handle string values
-      if (typeof aVal === 'string' && typeof bVal === 'string') {
-        return sortConfig.direction === 'asc' ?
-          aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
-      }
-
-      // Handle undefined/null values
-      if (aVal === undefined || aVal === null) aVal = '';
-      if (bVal === undefined || bVal === null) bVal = '';
-
-      return sortConfig.direction === 'asc' ?
-        String(aVal).localeCompare(String(bVal)) :
-        String(bVal).localeCompare(String(aVal));
+      const strA = (aVal ?? '').toString().toLowerCase();
+      const strB = (bVal ?? '').toString().toLowerCase();
+      return sortConfig.direction === 'asc' ? strA.localeCompare(strB) : strB.localeCompare(strA);
     });
   };
 
@@ -1754,11 +1820,21 @@ function Dashboard({ isLightMode }) {
       });
     } else {
       const rect = event.currentTarget.getBoundingClientRect();
+      const menuWidth = 360;
+      const padding = 16;
+      let posX = rect.right - menuWidth;
+      if (posX + menuWidth > window.innerWidth - padding) {
+        posX = window.innerWidth - menuWidth - padding;
+      }
+      if (posX < padding) {
+        posX = padding;
+      }
+      const posY = rect.bottom + window.scrollY + 6;
       setCancelContextMenu({
         isOpen: true,
         coin,
-        x: Math.max(10, rect.left),
-        y: rect.bottom + window.scrollY + 4,
+        x: Math.round(posX),
+        y: Math.round(posY),
         orders: coinOrders
       });
     }
