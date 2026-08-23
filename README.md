@@ -122,6 +122,17 @@ The application utilizes a **unified PostgreSQL database**.
 
 ## Version History & Changelog
 
+## v1.98-beta (August 2026)
+
+### Adaptive Dynamic Decimal Precision for Portfolio & Watchlist Prices
+- **Tiered Decimal Formatting for Current Price**: Replaced fixed 2-decimal formatting with adaptive decimal precision scaling based on coin price magnitude across both the Portfolio and Watchlist tables:
+  - **$\ge \$1.00$**: 2 decimal places (e.g. `$45,120.50`, `$1.52`, `$1.00`)
+  - **$\$0.01$ to $\$0.999...$**: 3 decimal places (e.g. `$0.150`, `$0.975`, `$0.042`)
+  - **$\$0.0010$ to $\$0.0099...$**: 4 decimal places (e.g. `$0.0045`, `$0.0089`)
+  - **$\$0.00010$ to $\$0.00099...$**: 5 decimal places (e.g. `$0.00045`, `$0.00082`)
+  - **$<\$0.00010$**: 6 decimal places max (e.g. `$0.000012`, `$0.000085`)
+- **Version Bump**: Synchronized metadata to `v1.98-beta`.
+
 ## v1.97-beta (August 2026)
 
 ### Pair-Aware Trade Menus, Faster Order-Fill Detection, Auto-Buy Avg Entry Fix & Blank Alert Defaults

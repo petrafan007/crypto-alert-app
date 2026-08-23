@@ -2300,6 +2300,35 @@ function Dashboard({ isLightMode }) {
     });
   };
 
+  // Dynamic price formatter based on price magnitude:
+  // >= $1.00: 2 decimals
+  // $0.01 - $0.999...: 3 decimals
+  // $0.001 - $0.0099...: 4 decimals
+  // $0.0001 - $0.00099...: 5 decimals
+  // < $0.0001: 6 decimals
+  const formatDynamicPrice = (price) => {
+    if (price === null || price === undefined || price === '' || isNaN(Number(price))) return '—';
+    const num = Number(price);
+    if (num === 0) return '$0.00';
+    const absNum = Math.abs(num);
+    let decimals = 2;
+    if (absNum >= 1.0) {
+      decimals = 2;
+    } else if (absNum >= 0.01) {
+      decimals = 3;
+    } else if (absNum >= 0.001) {
+      decimals = 4;
+    } else if (absNum >= 0.0001) {
+      decimals = 5;
+    } else {
+      decimals = 6;
+    }
+    return `$${num.toLocaleString('en-US', {
+      minimumFractionDigits: decimals,
+      maximumFractionDigits: decimals
+    })}`;
+  };
+
   // Date formatting helpers that guarantee UTC timestamps are properly parsed and converted to user local time
   const formatLocalDateTime = (dateStr) => {
     if (!dateStr) return '';
@@ -3748,9 +3777,7 @@ function Dashboard({ isLightMode }) {
                                 <td key="current_price" style={{ whiteSpace: 'nowrap', textAlign: 'center' }}>
                                   {isStable
                                     ? '$1.00'
-                                    : coin.current_price
-                                      ? `$${coin.current_price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-                                      : '—'}
+                                    : formatDynamicPrice(coin.current_price)}
                                 </td>
                               );
                             case 'current_value':
@@ -4158,7 +4185,7 @@ function Dashboard({ isLightMode }) {
                             case 'current_price':
                               return (
                                 <td key="current_price" style={{ whiteSpace: 'nowrap', textAlign: 'center' }}>
-                                  {item.current_price ? `$${item.current_price.toFixed(2)}` : '—'}
+                                  {formatDynamicPrice(item.current_price)}
                                 </td>
                               );
                             case 'down_alert':
