@@ -124,11 +124,125 @@ The application utilizes a **unified PostgreSQL database**.
 
 ## v1.92-beta (August 2026)
 
-### Live Volatility % Sync for Auto-Buy/Auto-Sell Trigger Price
-- **Stale Trigger Price Bugfix**: Fixed an issue where editing a coin's Volatility % on the Portfolio table after an Auto-Buy or Auto-Sell trigger was already enabled did not update the trigger's displayed price in the Open Orders tab, Order History, or the Cancel Auto-Buy/Auto-Sell Trigger confirmation modals.
-- **Root Cause**: `auto_buy_volatility_pct`/`auto_sell_volatility_pct` are snapshotted at the moment a trigger is enabled and previously took precedence over the live `volatility_pct` value everywhere they're read, including the actual background execution threshold in the scheduler.
-- **Fix**: `/api/set-volatility-pct` now keeps the active trigger's snapshot percentage in sync with the live Volatility % field whenever it's edited, so both the displayed trigger price and the real execution threshold used by the Auto-Buy/Auto-Sell background monitor update immediately.
+### Table Column Resizing, Actions Alignment, Cancel Menu Clamping, Sort Persistence & Trigger Price Fixes
+- **Live Volatility % Sync for Auto-Buy/Auto-Sell Trigger Price**: Fixed an issue where editing a coin's Volatility % on the Portfolio table after an Auto-Buy or Auto-Sell trigger was already enabled did not update the trigger's displayed price in Open Orders, Order History, or Cancel modals. Synchronized `/api/set-volatility-pct` and state updates so active trigger thresholds update immediately.
+- **Cancel Context Menu Viewport Boundary Clamping**: Resolved right-edge clipping when opening the Cancel Orders dropdown for coins near the right edge of the screen. Implemented responsive viewport boundary detection (`Math.max(16, Math.min(rect.right - 360, window.innerWidth - 376))`) and CSS max-width containment.
+- **Table Column Sort Persistence Across Background Updates**: Fixed an issue where 5-minute background auto-refresh cycles reset or scrambled table sorting. Implemented a robust `getSortValue` numeric comparator handling computed columns (`current_value`, `avg_entry`, `pct_change`, `pnl_usd`, `allocation_pct`) with null safety and continuous `localStorage` persistence.
+- **Calculated Trigger Prices in Tables & Modals**:
+  - Replaced `"TRIGGER"` placeholders in Open Orders with actual calculated trigger dollar amounts (`ref_price * (1 ± vol / 100)`).
+  - Added formatted trigger prices in Cancel dropdown context menus (e.g., `+5% surge @ $1.42 ($50.00 USDT)`).
+  - Added dedicated `Trigger Price: $...` rows in `CancelOrderConfirmModal` and `CancelOrderModal`.
+- **Unified "ACTIVE" Status Across Orders Page & Database**:
+  - Normalized order statuses across Open Orders and Order History to consistently show `ACTIVE` instead of mixed `NEW`/`ACTIVE`.
+  - Retroactively migrated database order records from `NEW` to `ACTIVE`.
+- **Portfolio Data Key & Action Button Alignment Fixes**:
+  - Restored proper payload mapping for `current_value`, `avg_entry`, `pct_change`, and stake value validation.
+  - Increased `actions` column default width (`440px` for Portfolio, `350px` for Watchlist), wrapped action buttons in a flex container (`actions-cell-content`), and removed `overflow: visible` to prevent buttons from spilling outside the table card.
+  - Configured `tableLayout: 'fixed'`, `<colgroup>`, and enhanced `.col-resizer-handle` grab bars with `body.is-resizing-columns` cursor locking.
 - **Version Bump**: Synchronized metadata to `v1.92-beta`.
+
+## v1.91-beta (August 2026)
+
+### Trading Chart Overhaul, Auto-Buy/Sell Tracking & Multi-Order Cancel Workflow
+- **TradingView Charting Overhaul**: Polished candlestick rendering, technical indicator overlays, and crosshair responsiveness in `TradingChart.jsx`.
+- **Auto-Buy & Auto-Sell Visual Tracking**: Added distinct table row highlight color schemes for active Auto-Buy (Electric Violet), Auto-Sell (Magenta), and combined dual triggers (Purple-to-Magenta gradient).
+- **SearchablePairSelect Dropdown Alignment**: Fixed z-index layering and boundary alignment for trading pair selection dropdowns across the Trading Center.
+- **Multi-Order Cancellation Workflow**: Enhanced multi-order resolution allowing users to cancel specific individual exchange orders or automated volatility triggers from a unified contextual menu.
+- **Version Bump**: Synchronized metadata to `v1.91-beta`.
+
+## v1.90-beta (August 2026)
+
+### Table Column Customization, Drag-and-Drop Reordering, Width Resizing & Trading Pair Favorites
+- **Table Column Customization Modal**: Added `TableColumnModal.jsx` allowing users to toggle column visibility, reset defaults, and customize Portfolio and Watchlist table layouts.
+- **Drag-and-Drop Column Reordering**: Integrated HTML5 drag-and-drop column headers allowing custom ordering persisted in `localStorage`.
+- **Interactive Column Resizing**: Added draggable `.col-resizer-handle` dividers on column headers to adjust column widths on the fly.
+- **Trading Pair Favorites**: Added star icon favorites to `SearchablePairSelect.jsx` to quickly bookmark and filter preferred trading pairs.
+- **Cancel Order Button in Portfolio**: Integrated direct Cancel action buttons on Portfolio table rows for coins with pending orders or active triggers.
+- **Version Bump**: Synchronized metadata to `v1.90-beta`.
+
+## v1.89-beta (August 2026)
+
+### Modernized Trading Center Tab Architecture (Place Order, Open Orders, Order History)
+- **Three-Tab Trading Architecture**: Split Trading Center into dedicated **Place Order**, **Open Orders**, and **Order History** tabs with badge count indicators.
+- **Dedicated Open Orders Table**: Added full open orders management view with live cancel actions, pair filtering, and real-time trigger tracking.
+- **Enhanced Order History Table**: Added comprehensive order history view with canceled order toggle, pagination controls, and execution pricing breakdowns.
+- **Version Bump**: Synchronized metadata to `v1.89-beta`.
+
+## v1.88-beta (August 2026)
+
+### AI Copilot Full Portfolio & Watchlist Context Injection
+- **Global Context Pre-Search Prompt**: Overhauled the AI Copilot pre-search generation prompt to inject the user's complete portfolio, watchlist, open orders, and market trends rather than restricting analysis to a single-coin template.
+- **Cross-Asset Market Intelligence**: Enabled multi-asset comparative reasoning and portfolio-wide risk synthesis in AI conversational responses.
+- **Version Bump**: Synchronized metadata to `v1.88-beta`.
+
+## v1.87-beta (August 2026)
+
+### Watchlist Sentiment Lookback Window & Prompt Alignment
+- **Configurable Sentiment Lookback Setting**: Added user setting for Watchlist AI sentiment lookback window.
+- **Pre & Post Prompt Synchronization**: Aligned pre-search query generation and post-search reasoning prompts with configurable price and volume lookback timeframes.
+- **Automated Database Prompt Migrations**: Added `update_db_prompts.py` to upgrade existing user AI prompts during deployment.
+- **Version Bump**: Synchronized metadata to `v1.87-beta`.
+
+## v1.86-beta (August 2026)
+
+### Real-Time Volume Tracking in PriceHistory & 12h Price/Volume Context Injection
+- **Real-Time Volume Tracking**: Added 24h quote volume logging to `PriceHistory` in `price_history_service.py`.
+- **12h Price & Volume Context in AI Sentiment**: Injected 12-hour historical price and volume trend context into AI market sentiment analysis prompts for higher prediction accuracy.
+- **Settings UI Controls**: Added lookback window configuration sliders in `Settings.jsx`.
+- **Version Bump**: Synchronized metadata to `v1.86-beta`.
+
+## v1.85-beta (August 2026)
+
+### Mobile Panel Visibility, Table Horizontal Scrolling & Cache-Busting Headers
+- **Full Mobile Panel Visibility**: Forced default panel visibility on mobile layouts to prevent collapsed or missing dashboard widgets.
+- **Smooth Table Horizontal Scrolling**: Wrapped portfolio and watchlist tables in dedicated scroll containers with enforced min-widths for touch navigation.
+- **Cache-Busting Asset Delivery**: Added cache-control headers and versioned asset parameters to prevent stale mobile browser bundles.
+- **Version Bump**: Synchronized metadata to `v1.85-beta`.
+
+## v1.84-beta (August 2026)
+
+### Mobile Header Centering, Theme Toggle Alignment & Widget Grid Panels
+- **Mobile Header Alignment**: Fixed header logo centering and theme toggle placement on mobile screens.
+- **Widget Grid Responsive Layout**: Refactored `DashboardWidgetGrid.jsx` to adapt dynamically between desktop grid and mobile single-column layouts.
+- **Version Bump**: Synchronized metadata to `v1.84-beta`.
+
+## v1.83-beta (August 2026)
+
+### Multi-Line Toast Signals, Chart Acronyms & Historical Prediction Delta Fix
+- **Multi-Line Toast Notifications**: Formatted toast alert signals across multiple readable lines with distinct emoji headers and asset badges.
+- **Chart Signal Indicators**: Added standardized technical signal acronyms on TradingView chart overlays.
+- **Historical Prediction Ledger Delta Sign Fix**: Corrected outcome percentage delta signs in the AI prediction ledger.
+- **Version Bump**: Synchronized metadata to `v1.83-beta`.
+
+## v1.82-beta (August 2026)
+
+### Global Toast Notifications System
+- **Real-Time Global Toast Notifications**: Added `ToastNotifications.jsx` component for immediate desktop and mobile alerts upon order executions, cancellations, price alerts, and AI sentiment updates.
+- **Notification Settings Toggle**: Added user preference toggle in `Settings.jsx` to enable or mute toast alerts.
+- **Notification Service Integration**: Integrated toast events with `notification_service.py` and `scheduler_tasks.py`.
+- **Version Bump**: Synchronized metadata to `v1.82-beta`.
+
+## v1.81-beta (August 2026)
+
+### Table Dash Fallbacks for Stablecoins & Watchlist Column Repositioning
+- **Stablecoin Table Dashes**: Cleanly displayed dashes (`—`) for USD/USDT Avg Entry, % Change, and Sentiment in Portfolio tables.
+- **Watchlist Column Alignment**: Repositioned the Sentiment column in Watchlist tables for better visual balance.
+- **Version Bump**: Synchronized metadata to `v1.81-beta`.
+
+## v1.80-beta (August 2026)
+
+### Order History Field Mapping & Recent Trades Settings Modal
+- **Recent Trades Field Normalization**: Fixed field mapping in `RecentTradesWidget.jsx` for filled prices, execution timestamps, and fees.
+- **Recent Trades Settings Modal**: Added custom settings modal allowing users to configure maximum displayed orders and status filters.
+- **Version Bump**: Synchronized metadata to `v1.80-beta`.
+
+## v1.79-beta (August 2026)
+
+### Auto-Buy Allocation Accounting in Trading Balances & Sliders
+- **Usable Balance Protection**: Factored in active Auto-Buy reserve allocations when calculating usable quote currency balances in the Trading Center (`routes/portfolio.py` and `Trading.jsx`).
+- **Balance Slider Adjustment**: Adjusted the trading balance slider to prevent orders from exceeding usable balances after Auto-Buy reservations.
+- **Version Bump**: Synchronized metadata to `v1.79-beta`.
+
 
 ## v1.78-beta (August 2026)
 
