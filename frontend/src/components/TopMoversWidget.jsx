@@ -61,7 +61,7 @@ const TopMoversWidget = ({ isLightMode, config, onEdit, ownedSymbols }) => {
           alignItems: 'center',
           justifyContent: 'space-between',
           fontSize: '12px',
-          padding: isOwned ? '3px 6px' : '3px 0',
+          padding: isOwned ? '2px 6px' : '2px 0',
           borderRadius: '5px',
           backgroundColor: isOwned ? (isLightMode ? 'rgba(56, 189, 248, 0.16)' : 'rgba(56, 189, 248, 0.14)') : 'transparent',
           border: isOwned ? '1px solid rgba(56, 189, 248, 0.4)' : '1px solid transparent'
@@ -80,8 +80,8 @@ const TopMoversWidget = ({ isLightMode, config, onEdit, ownedSymbols }) => {
   };
 
   return (
-    <div className="widget-panel-inner" style={{ padding: '16px', height: '100%', display: 'flex', flexDirection: 'column', boxSizing: 'border-box' }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
+    <div className="widget-panel-inner" style={{ padding: '12px', height: '100%', display: 'flex', flexDirection: 'column', boxSizing: 'border-box' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
         <h3 style={{ margin: 0, fontSize: '15px', fontWeight: '700', color: 'var(--text-primary, #fff)', display: 'flex', alignItems: 'center', gap: '6px' }}>
           <span>🔥</span> Top Gainers & Losers (24h)
         </h3>
@@ -117,23 +117,23 @@ const TopMoversWidget = ({ isLightMode, config, onEdit, ownedSymbols }) => {
           No market movement data available.
         </div>
       ) : (
-        <div style={{ flex: 1, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', minHeight: 0, overflowY: 'auto' }}>
+        <div style={{ flex: 1, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', minHeight: 0 }}>
           {/* Gainers */}
-          <div style={{ background: 'rgba(34, 197, 94, 0.06)', border: '1px solid rgba(34, 197, 94, 0.15)', borderRadius: '8px', padding: '8px' }}>
-            <div style={{ fontSize: '11px', fontWeight: '700', color: '#4ade80', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+          <div style={{ background: 'rgba(34, 197, 94, 0.06)', border: '1px solid rgba(34, 197, 94, 0.15)', borderRadius: '8px', padding: '6px', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+            <div style={{ fontSize: '11px', fontWeight: '700', color: '#4ade80', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
               ▲ Top Gainers
             </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', maxHeight: '260px', overflowY: 'auto' }}>
+            <div className="custom-scrollbar" style={{ display: 'flex', flexDirection: 'column', gap: '3px', flex: 1, minHeight: 0, overflowY: 'auto' }}>
               {movers.gainers.map(item => renderRow(item, '#4ade80'))}
             </div>
           </div>
 
           {/* Losers */}
-          <div style={{ background: 'rgba(239, 68, 68, 0.06)', border: '1px solid rgba(239, 68, 68, 0.15)', borderRadius: '8px', padding: '8px' }}>
-            <div style={{ fontSize: '11px', fontWeight: '700', color: '#f87171', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+          <div style={{ background: 'rgba(239, 68, 68, 0.06)', border: '1px solid rgba(239, 68, 68, 0.15)', borderRadius: '8px', padding: '6px', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+            <div style={{ fontSize: '11px', fontWeight: '700', color: '#f87171', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
               ▼ Top Losers
             </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', maxHeight: '260px', overflowY: 'auto' }}>
+            <div className="custom-scrollbar" style={{ display: 'flex', flexDirection: 'column', gap: '3px', flex: 1, minHeight: 0, overflowY: 'auto' }}>
               {movers.losers.map(item => renderRow(item, '#f87171'))}
             </div>
           </div>
