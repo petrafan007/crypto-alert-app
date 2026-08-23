@@ -3443,7 +3443,7 @@ function Dashboard({ isLightMode }) {
                 <div className="chart-panel widget-panel-inner" style={{ height: '100%', padding: '16px', display: 'flex', flexDirection: 'column' }}>
                   <h2 className="chart-title" style={{ margin: '0 0 12px 0', fontSize: '1.1rem' }}>Allocations</h2>
                   <div style={{ flex: 1, minHeight: '260px', width: '100%' }}>
-                    <PortfolioPie portfolio={portfolio} isLightMode={isLightMode} />
+                    <PortfolioPie portfolio={portfolio} isLightMode={isLightMode} totalValue={totalValue} />
                   </div>
                 </div>
               );

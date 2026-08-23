@@ -26,7 +26,7 @@ ChartJS.register(
   Filler
 );
 
-export function PortfolioPie({ portfolio, isLightMode }) {
+export function PortfolioPie({ portfolio, isLightMode, totalValue: authoritativeTotalValue }) {
   const neonPalette = [
     '#38bdf8', '#10b981', '#f59e0b', '#ec4899', '#8b5cf6', '#14b8a6',
     '#ef4444', '#f97316', '#eab308', '#84cc16', '#06b6d4', '#6366f1', '#d946ef'
@@ -35,10 +35,14 @@ export function PortfolioPie({ portfolio, isLightMode }) {
   // Only show coins with value > 0
   const filtered = useMemo(() => (portfolio || []).filter(c => c.current_value > 0), [portfolio]);
 
-  const totalValue = useMemo(
-    () => filtered.reduce((sum, c) => sum + Number(c.current_value || 0), 0),
-    [filtered]
-  );
+  // Prefer the same authoritative total shown in the "Total Portfolio Value" widget
+  // (includes staking and sub-$1 dust) rather than re-summing just the rendered slices.
+  const totalValue = useMemo(() => {
+    if (authoritativeTotalValue !== null && authoritativeTotalValue !== undefined) {
+      return Number(authoritativeTotalValue) || 0;
+    }
+    return filtered.reduce((sum, c) => sum + Number(c.current_value || 0), 0);
+  }, [authoritativeTotalValue, filtered]);
 
   const formattedTotal = useMemo(() => (
     totalValue.toLocaleString('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 0, maximumFractionDigits: 0 })

@@ -129,6 +129,7 @@ The application utilizes a **unified PostgreSQL database**.
 - **Always-Visible Coin Performance Edit Button**: Added a persistent ✏️ edit button directly in the "Coin Performance" widget header, matching Top Gainers & Losers and Recent Order History, so it's accessible without needing to enter "Customize Layout" mode. Removed the now-redundant edit-mode-only pencil icons for Coin Performance and Recent Order History from the widget grid's drag header.
 - **Top Gainers & Losers Row Hover Highlight**: Hovering any coin row in the Top Gainers & Losers widget now highlights the row for clearer visual feedback.
 - **Uniform Portfolio & Watchlist Table Rows**: Removed the alternating zebra-stripe row background on the Portfolio and Watchlist tables — all rows now share the same base background color unless they have an active special state (pending order, Auto-Buy/Auto-Sell highlight).
+- **Allocations Donut Total Value Consistency**: Fixed a mismatch where the doughnut's center total was re-summed only from the coins actually rendered as slices, which could differ from the authoritative "Total Portfolio Value" widget (which includes staking balances and sub-$1 dust). The center value now uses the same authoritative total passed down from the Dashboard, so both numbers always match even when tiny-value coins don't get their own visible slice.
 - **Version Bump**: Synchronized metadata to `v1.96-beta`.
 
 ## v1.95-beta (August 2026)
