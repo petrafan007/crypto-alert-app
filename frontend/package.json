@@ -1,6 +1,6 @@
 {
   "name": "crypto-alert-frontend",
-  "version": "1.93-beta",
+  "version": "1.94-beta",
   "private": true,
   "dependencies": {
     "@emotion/react": "^11.11.1",

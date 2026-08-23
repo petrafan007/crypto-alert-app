@@ -122,6 +122,14 @@ The application utilizes a **unified PostgreSQL database**.
 
 ## Version History & Changelog
 
+## v1.94-beta (August 2026)
+
+### Market-Wide Top Gainers & Losers with Configurable Count & Ownership Highlighting
+- **Exchange-Wide Momentum Data**: The "Top Gainers & Losers (24h)" dashboard widget no longer limits results to your Portfolio/Watchlist holdings. Added `/api/market-movers`, which reuses the existing cached Binance.US 24hr ticker snapshot (`client.get_ticker()`, no symbol filter) to surface `priceChangePercent` across every USD/USDT pair the exchange lists, deduplicated by base asset (preferring the USDT-quoted pair) and excluding stablecoins.
+- **Editable Coin Count**: Added a ✏️ edit button (matching the Recent Order History widget pattern) opening a modal to configure how many gainers and losers to display per side (3–25, default 10), persisted to `localStorage`.
+- **Owned Coin Highlighting**: Any coin in the gainers/losers lists that's currently held in the user's Portfolio is visually highlighted with an accent border and a ★ badge.
+- **Version Bump**: Synchronized metadata to `v1.94-beta`.
+
 ## v1.93-beta (August 2026)
 
 ### Complete Help & Documentation Overhaul

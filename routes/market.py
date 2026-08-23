@@ -504,6 +504,56 @@ def api_coin_performance():
         return jsonify({"success": False, "performance": [], "error": "Unable to load coin performance"}), 500
 
 
+@market_bp.route("/api/market-movers")
+@login_required
+def api_market_movers():
+    """Return 24h price change % across every USD/USDT pair Binance.US lists, deduped by base asset."""
+    try:
+        from services.binance_service import STABLE_COINS
+        tickers = _get_binance_24h_tickers()
+
+        best_by_base = {}
+        for symbol, t in tickers.items():
+            quote = None
+            base = None
+            if symbol.endswith('USDT'):
+                quote = 'USDT'
+                base = symbol[:-4]
+            elif symbol.endswith('USD'):
+                quote = 'USD'
+                base = symbol[:-3]
+            else:
+                continue
+
+            if not base or base in STABLE_COINS:
+                continue
+
+            try:
+                change = float(t.get('priceChangePercent', 0) or 0)
+                price = float(t.get('lastPrice', 0) or 0)
+            except (ValueError, TypeError):
+                continue
+
+            if price <= 0:
+                continue
+
+            # Prefer the USDT-quoted pair when both USD and USDT variants exist for a base asset.
+            existing = best_by_base.get(base)
+            if existing is None or (quote == 'USDT' and existing['quote_currency'] != 'USDT'):
+                best_by_base[base] = {
+                    "symbol": base,
+                    "price": price,
+                    "change": change,
+                    "quote_currency": quote
+                }
+
+        results = sorted(best_by_base.values(), key=lambda c: c['change'], reverse=True)
+        return jsonify({"success": True, "movers": results})
+    except Exception as e:
+        logger.error(f"Error in api_market_movers: {e}", exc_info=True)
+        return jsonify({"success": False, "movers": [], "error": "Unable to load market movers"}), 500
+
+
 @market_bp.route("/api/auto-alert")
 @login_required
 def api_auto_alert():

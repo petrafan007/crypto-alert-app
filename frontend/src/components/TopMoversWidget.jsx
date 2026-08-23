@@ -2,51 +2,32 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import CryptoIcon from './CryptoIcon';
 
-const TopMoversWidget = ({ isLightMode }) => {
+const TopMoversWidget = ({ isLightMode, config, onEdit, ownedSymbols }) => {
   const [movers, setMovers] = useState({ gainers: [], losers: [] });
   const [loading, setLoading] = useState(true);
+  const count = config?.count || 10;
+  const owned = ownedSymbols || new Set();
 
   useEffect(() => {
     let cancelled = false;
     const fetchMovers = async () => {
       try {
-        const res = await axios.get('/api/coin-performance', { withCredentials: true });
-        const perf = Array.isArray(res.data?.performance) ? res.data.performance : [];
+        const res = await axios.get('/api/market-movers', { withCredentials: true });
+        const all = Array.isArray(res.data?.movers) ? res.data.movers : [];
 
-        const validCoins = perf
-          .filter(c => c && c.symbol && !['USD', 'USDT', 'USDC', 'USDG', 'DAI'].includes(c.symbol.toUpperCase()))
-          .map(c => {
-            const rawChange = c.change_1d !== undefined && c.change_1d !== null
-              ? c.change_1d
-              : (c.change_7d || c.change_3d || 0);
-            return {
-              symbol: c.symbol.toUpperCase(),
-              price: Number(c.price || 0),
-              change: Number(rawChange)
-            };
-          });
+        const validCoins = all
+          .filter(c => c && c.symbol)
+          .map(c => ({
+            symbol: c.symbol.toUpperCase(),
+            price: Number(c.price || 0),
+            change: Number(c.change || 0),
+            quote: c.quote_currency || 'USDT'
+          }));
 
         if (validCoins.length > 0) {
-          // Sort by change descending
           const sorted = [...validCoins].sort((a, b) => b.change - a.change);
-          const positive = sorted.filter(c => c.change > 0);
-          const negative = sorted.filter(c => c.change < 0);
-
-          let gainers = [];
-          let losers = [];
-
-          if (positive.length > 0) {
-            gainers = positive.slice(0, 3);
-          } else {
-            gainers = sorted.slice(0, Math.min(3, Math.ceil(sorted.length / 2)));
-          }
-
-          if (negative.length > 0) {
-            // Sort most negative first for display
-            losers = [...negative].sort((a, b) => a.change - b.change).slice(0, 3);
-          } else if (sorted.length > 1) {
-            losers = [...sorted].reverse().slice(0, Math.min(3, Math.floor(sorted.length / 2)));
-          }
+          const gainers = sorted.filter(c => c.change > 0).slice(0, count);
+          const losers = [...sorted].filter(c => c.change < 0).sort((a, b) => a.change - b.change).slice(0, count);
 
           if (!cancelled) {
             setMovers({ gainers, losers });
@@ -67,7 +48,36 @@ const TopMoversWidget = ({ isLightMode }) => {
       cancelled = true;
       clearInterval(interval);
     };
-  }, []);
+  }, [count]);
+
+  const renderRow = (item, color) => {
+    const isOwned = owned.has(item.symbol);
+    return (
+      <div
+        key={item.symbol}
+        title={isOwned ? 'You own this coin' : undefined}
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          fontSize: '12px',
+          padding: isOwned ? '3px 6px' : '3px 0',
+          borderRadius: '5px',
+          backgroundColor: isOwned ? (isLightMode ? 'rgba(56, 189, 248, 0.16)' : 'rgba(56, 189, 248, 0.14)') : 'transparent',
+          border: isOwned ? '1px solid rgba(56, 189, 248, 0.4)' : '1px solid transparent'
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <CryptoIcon symbol={item.symbol} size={16} />
+          <span style={{ fontWeight: '600', color: 'var(--text-primary, #fff)' }}>{item.symbol}</span>
+          {isOwned && <span style={{ fontSize: '9px', fontWeight: '700', color: '#38bdf8' }}>★</span>}
+        </div>
+        <span style={{ color, fontWeight: '600' }}>
+          {item.change >= 0 ? '+' : ''}{item.change.toFixed(2)}%
+        </span>
+      </div>
+    );
+  };
 
   return (
     <div className="widget-panel-inner" style={{ padding: '16px', height: '100%', display: 'flex', flexDirection: 'column', boxSizing: 'border-box' }}>
@@ -75,7 +85,27 @@ const TopMoversWidget = ({ isLightMode }) => {
         <h3 style={{ margin: 0, fontSize: '15px', fontWeight: '700', color: 'var(--text-primary, #fff)', display: 'flex', alignItems: 'center', gap: '6px' }}>
           <span>🔥</span> Top Gainers & Losers (24h)
         </h3>
-        <span style={{ fontSize: '11px', color: '#94a3b8' }}>Live</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <span style={{ fontSize: '11px', color: '#94a3b8' }}>Live · All Binance.US Coins</span>
+          {onEdit && (
+            <button
+              onClick={onEdit}
+              title="Customize Top Gainers & Losers"
+              style={{
+                background: 'rgba(255,255,255,0.08)',
+                border: '1px solid rgba(255,255,255,0.15)',
+                borderRadius: '6px',
+                color: 'var(--text-secondary, #94a3b8)',
+                cursor: 'pointer',
+                fontSize: '12px',
+                padding: '3px 6px',
+                lineHeight: 1
+              }}
+            >
+              ✏️
+            </button>
+          )}
+        </div>
       </div>
 
       {loading ? (
@@ -93,18 +123,8 @@ const TopMoversWidget = ({ isLightMode }) => {
             <div style={{ fontSize: '11px', fontWeight: '700', color: '#4ade80', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
               ▲ Top Gainers
             </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-              {movers.gainers.map(item => (
-                <div key={item.symbol} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '12px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <CryptoIcon symbol={item.symbol} size={16} />
-                    <span style={{ fontWeight: '600', color: 'var(--text-primary, #fff)' }}>{item.symbol}</span>
-                  </div>
-                  <span style={{ color: '#4ade80', fontWeight: '600' }}>
-                    +{item.change >= 0 ? item.change.toFixed(2) : 0}%
-                  </span>
-                </div>
-              ))}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', maxHeight: '260px', overflowY: 'auto' }}>
+              {movers.gainers.map(item => renderRow(item, '#4ade80'))}
             </div>
           </div>
 
@@ -113,18 +133,8 @@ const TopMoversWidget = ({ isLightMode }) => {
             <div style={{ fontSize: '11px', fontWeight: '700', color: '#f87171', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
               ▼ Top Losers
             </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-              {movers.losers.map(item => (
-                <div key={item.symbol} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '12px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <CryptoIcon symbol={item.symbol} size={16} />
-                    <span style={{ fontWeight: '600', color: 'var(--text-primary, #fff)' }}>{item.symbol}</span>
-                  </div>
-                  <span style={{ color: '#f87171', fontWeight: '600' }}>
-                    {item.change <= 0 ? item.change.toFixed(2) : `-${item.change.toFixed(2)}`}%
-                  </span>
-                </div>
-              ))}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', maxHeight: '260px', overflowY: 'auto' }}>
+              {movers.losers.map(item => renderRow(item, '#f87171'))}
             </div>
           </div>
         </div>

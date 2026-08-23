@@ -220,6 +220,11 @@ function Dashboard({ isLightMode }) {
     return cols.reduce((acc, k) => acc + (watchlistColWidths[k] || WATCHLIST_COLUMN_DEFINITIONS[k]?.defaultWidth || 120), 0);
   }, [watchlistColOrder, watchlistVisibleCols, watchlistColWidths]);
 
+  // Symbols currently held in the portfolio, used to highlight owned coins in the Top Movers widget
+  const ownedSymbols = useMemo(() => {
+    return new Set(portfolio.map(c => (c.symbol || '').toUpperCase()).filter(Boolean));
+  }, [portfolio]);
+
   // Modals and context menus
   const [columnModal, setColumnModal] = useState({ isOpen: false, tableType: 'portfolio' });
   const [cancelContextMenu, setCancelContextMenu] = useState({ isOpen: false, coin: null, x: 0, y: 0, orders: [] });
@@ -351,6 +356,20 @@ function Dashboard({ isLightMode }) {
   const [recentTradesDraftMaxOrders, setRecentTradesDraftMaxOrders] = useState(5);
   const [recentTradesDraftStatuses, setRecentTradesDraftStatuses] = useState(['FILLED', 'NEW', 'CANCELED', 'PARTIALLY_FILLED']);
 
+  // Top Gainers & Losers (market-wide) config modal state
+  const [showTopMoversModal, setShowTopMoversModal] = useState(false);
+  const [topMoversConfig, setTopMoversConfig] = useState(() => {
+    try {
+      const saved = localStorage.getItem('crypto_top_movers_config_persistent');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        return { count: Math.max(3, Math.min(25, parseInt(parsed.count, 10) || 10)) };
+      }
+    } catch (e) {}
+    return { count: 10 };
+  });
+  const [topMoversDraftCount, setTopMoversDraftCount] = useState(10);
+
   const tradeQuoteMenuStyle = isMobile
     ? { display: 'flex', flexDirection: 'column', gap: 4, margin: '0 0 4px' }
     : { position: 'fixed', top: openTradeQuoteMenu.position?.top ?? 0, left: openTradeQuoteMenu.position?.left ?? 0, zIndex: 1000, display: 'flex', flexDirection: 'column', gap: 4, minWidth: 154 };
@@ -463,6 +482,23 @@ function Dashboard({ isLightMode }) {
       console.error('Error saving recent trades config:', e);
     }
     setShowRecentTradesModal(false);
+  };
+
+  const handleOpenTopMoversModal = () => {
+    setTopMoversDraftCount(topMoversConfig.count || 10);
+    setShowTopMoversModal(true);
+  };
+
+  const handleSaveTopMoversModal = () => {
+    const clamped = Math.max(3, Math.min(25, parseInt(topMoversDraftCount, 10) || 10));
+    const newConfig = { count: clamped };
+    setTopMoversConfig(newConfig);
+    try {
+      localStorage.setItem('crypto_top_movers_config_persistent', JSON.stringify(newConfig));
+    } catch (e) {
+      console.error('Error saving top movers config:', e);
+    }
+    setShowTopMoversModal(false);
   };
 
   const toggleTradeQuoteMenu = (type, key, side, event) => {
@@ -3413,7 +3449,7 @@ function Dashboard({ isLightMode }) {
             case 'performance':
               return <PortfolioPerformanceTable hiddenCoins={performanceHiddenCoins} />;
             case 'top_movers':
-              return <TopMoversWidget isLightMode={isLightMode} />;
+              return <TopMoversWidget isLightMode={isLightMode} config={topMoversConfig} onEdit={handleOpenTopMoversModal} ownedSymbols={ownedSymbols} />;
             case 'recent_trades':
               return <RecentTradesWidget isLightMode={isLightMode} config={recentTradesConfig} onEdit={handleOpenRecentTradesModal} />;
             case 'ai_pulse':
@@ -5016,6 +5052,119 @@ function Dashboard({ isLightMode }) {
                 onClick={handleSaveRecentTradesModal}
               >
                 Save Selection
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showTopMoversModal && (
+        <div className="modal-overlay" onClick={() => setShowTopMoversModal(false)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '460px', width: '90%' }}>
+            <div className="modal-header">
+              <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px', margin: 0 }}>
+                <span>✏️</span> Customize Top Gainers & Losers
+              </h3>
+              <button className="modal-close" onClick={() => setShowTopMoversModal(false)}>×</button>
+            </div>
+
+            <div style={{ padding: '18px 20px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
+                <label style={{ fontSize: '13px', fontWeight: '700', color: 'var(--text-primary, #fff)' }}>
+                  Coins Per Side
+                </label>
+                <span style={{
+                  fontSize: '13px',
+                  fontWeight: '700',
+                  color: '#38bdf8',
+                  background: 'rgba(56, 189, 248, 0.15)',
+                  padding: '2px 8px',
+                  borderRadius: '6px',
+                  border: '1px solid rgba(56, 189, 248, 0.3)'
+                }}>
+                  Top {topMoversDraftCount} each
+                </span>
+              </div>
+              <p style={{ margin: '0 0 6px 0', fontSize: '12px', color: 'var(--text-secondary, #94a3b8)', lineHeight: 1.4 }}>
+                Choose how many gainers and losers to display across all Binance.US coins (3 to 25 per side):
+              </p>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <input
+                  type="range"
+                  min="3"
+                  max="25"
+                  step="1"
+                  value={topMoversDraftCount}
+                  onChange={(e) => setTopMoversDraftCount(parseInt(e.target.value, 10) || 10)}
+                  style={{ flex: 1, accentColor: '#0284c7', cursor: 'pointer' }}
+                />
+                <input
+                  type="number"
+                  min="3"
+                  max="25"
+                  value={topMoversDraftCount}
+                  onChange={(e) => {
+                    const val = parseInt(e.target.value, 10);
+                    setTopMoversDraftCount(isNaN(val) ? 10 : Math.max(3, Math.min(25, val)));
+                  }}
+                  style={{
+                    width: '56px',
+                    padding: '6px 8px',
+                    textAlign: 'center',
+                    borderRadius: '6px',
+                    border: '1px solid var(--border-color, #334155)',
+                    backgroundColor: 'var(--input-bg, #1e293b)',
+                    color: 'var(--text-primary, #fff)',
+                    fontSize: '13px',
+                    fontWeight: '600'
+                  }}
+                />
+              </div>
+
+              <div style={{ display: 'flex', gap: '6px', marginTop: '4px' }}>
+                {[3, 5, 10, 15, 25].map(val => (
+                  <button
+                    key={val}
+                    type="button"
+                    onClick={() => setTopMoversDraftCount(val)}
+                    style={{
+                      padding: '3px 8px',
+                      fontSize: '11px',
+                      fontWeight: '600',
+                      borderRadius: '4px',
+                      cursor: 'pointer',
+                      background: topMoversDraftCount === val ? '#0284c7' : 'rgba(255,255,255,0.06)',
+                      color: topMoversDraftCount === val ? '#ffffff' : 'var(--text-secondary, #94a3b8)',
+                      border: `1px solid ${topMoversDraftCount === val ? '#38bdf8' : 'var(--border-color, rgba(255,255,255,0.1))'}`,
+                      transition: 'all 0.15s ease'
+                    }}
+                  >
+                    {val}
+                  </button>
+                ))}
+              </div>
+
+              <p style={{ margin: '4px 0 0 0', fontSize: '11px', color: 'var(--text-secondary, #94a3b8)' }}>
+                Coins you currently hold in your Portfolio are highlighted with a ★ badge.
+              </p>
+            </div>
+
+            <div className="modal-actions" style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', padding: '14px 20px', borderTop: '1px solid var(--border-color, rgba(255,255,255,0.08))' }}>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={() => setShowTopMoversModal(false)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary"
+                style={{ backgroundColor: '#0284c7', borderColor: '#0284c7', color: '#fff', fontWeight: '600' }}
+                onClick={handleSaveTopMoversModal}
+              >
+                Save
               </button>
             </div>
           </div>
