@@ -600,10 +600,18 @@ table .trade-action-btn:first-child {
 .portfolio-table td.actions-cell,
 .watchlist-table td.actions-cell {
   white-space: nowrap !important;
-  overflow: visible !important;
-  text-overflow: clip !important;
-  width: auto !important;
-  max-width: none !important;
+  padding: 6px 10px !important;
+  text-align: center !important;
+  overflow: hidden !important;
+}
+
+.actions-cell-content {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  flex-wrap: nowrap;
+  vertical-align: middle;
 }
 
 .trade-action-btn:hover {
@@ -4040,19 +4048,26 @@ body.light-mode .custom-scrollbar::-webkit-scrollbar-thumb:hover {
 .col-resizer-handle {
   position: absolute;
   top: 0;
-  right: 0;
-  width: 8px;
+  right: -5px;
+  width: 10px;
   height: 100%;
   cursor: col-resize;
   user-select: none;
   touch-action: none;
-  z-index: 10;
-  transition: background-color 0.15s;
+  z-index: 25;
+  transition: background-color 0.15s, box-shadow 0.15s;
 }
 
 .col-resizer-handle:hover,
 .col-resizer-handle:active {
   background-color: #38bdf8;
+  box-shadow: 0 0 8px rgba(56, 189, 248, 0.8);
+}
+
+body.is-resizing-columns,
+body.is-resizing-columns * {
+  cursor: col-resize !important;
+  user-select: none !important;
 }
 
 th.drag-over-target {

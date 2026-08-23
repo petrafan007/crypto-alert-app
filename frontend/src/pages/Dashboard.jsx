@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useRef, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import useNotificationPoller from '../hooks/useNotificationPoller';
@@ -28,13 +28,12 @@ import CancelOrderConfirmModal from '../components/CancelOrderConfirmModal';
 const TREND_RANGES = [
   { key: '4H', label: '4H' },
   { key: '12H', label: '12H' },
-  { key: '1D', label: '1D' },
-  { key: '3D', label: '3D' },
+  { key: '24H', label: '24H' },
   { key: '7D', label: '7D' },
-  { key: '4W', label: '4W' },
-  { key: '3M', label: '3M' },
-  { key: '6M', label: '6M' },
+  { key: '30D', label: '30D' },
+  { key: '90D', label: '90D' },
   { key: '1Y', label: '1Y' },
+  { key: 'ALL', label: 'ALL' }
 ];
 
 export const PORTFOLIO_DEFAULT_COLUMNS = [
@@ -71,7 +70,7 @@ export const PORTFOLIO_COLUMN_DEFINITIONS = {
   allocation_pct: { label: 'Allocation %', required: false, sortable: true, defaultWidth: 110, description: 'Percent of portfolio' },
   target_price: { label: 'Target Price', required: false, sortable: false, defaultWidth: 120, description: 'Target take-profit price' },
   last_updated: { label: 'Last Updated', required: false, sortable: false, defaultWidth: 130, description: 'Last price check timestamp' },
-  actions: { label: 'Actions', required: true, sortable: false, defaultWidth: 280, description: 'Trade and manage actions' }
+  actions: { label: 'Actions', required: true, sortable: false, defaultWidth: 440, description: 'Trade and manage actions' }
 };
 
 export const WATCHLIST_DEFAULT_COLUMNS = [
@@ -99,7 +98,7 @@ export const WATCHLIST_COLUMN_DEFINITIONS = {
   market_cap: { label: 'Market Cap', required: false, sortable: false, defaultWidth: 130, description: 'Market capitalization' },
   target_price: { label: 'Target Price', required: false, sortable: false, defaultWidth: 120, description: 'Target price alert' },
   last_updated: { label: 'Last Updated', required: false, sortable: false, defaultWidth: 130, description: 'Last price check timestamp' },
-  actions: { label: 'Actions', required: true, sortable: false, defaultWidth: 180, description: 'Watchlist actions' }
+  actions: { label: 'Actions', required: true, sortable: false, defaultWidth: 350, description: 'Watchlist actions' }
 };
 
 function Dashboard({ isLightMode }) {
@@ -151,7 +150,15 @@ function Dashboard({ isLightMode }) {
   const [portfolioColWidths, setPortfolioColWidths] = useState(() => {
     try {
       const saved = localStorage.getItem('crypto_portfolio_column_widths');
-      if (saved) return JSON.parse(saved);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed && typeof parsed === 'object') {
+          if (parsed.actions && parsed.actions < 420) {
+            parsed.actions = 440;
+          }
+          return parsed;
+        }
+      }
     } catch (e) {}
     return {};
   });
@@ -190,10 +197,28 @@ function Dashboard({ isLightMode }) {
   const [watchlistColWidths, setWatchlistColWidths] = useState(() => {
     try {
       const saved = localStorage.getItem('crypto_watchlist_column_widths');
-      if (saved) return JSON.parse(saved);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed && typeof parsed === 'object') {
+          if (parsed.actions && parsed.actions < 320) {
+            parsed.actions = 350;
+          }
+          return parsed;
+        }
+      }
     } catch (e) {}
     return {};
   });
+
+  const totalPortfolioWidth = useMemo(() => {
+    const cols = portfolioColOrder.filter(k => portfolioVisibleCols.includes(k) && PORTFOLIO_COLUMN_DEFINITIONS[k]);
+    return cols.reduce((acc, k) => acc + (portfolioColWidths[k] || PORTFOLIO_COLUMN_DEFINITIONS[k]?.defaultWidth || 120), 0);
+  }, [portfolioColOrder, portfolioVisibleCols, portfolioColWidths]);
+
+  const totalWatchlistWidth = useMemo(() => {
+    const cols = watchlistColOrder.filter(k => watchlistVisibleCols.includes(k) && WATCHLIST_COLUMN_DEFINITIONS[k]);
+    return cols.reduce((acc, k) => acc + (watchlistColWidths[k] || WATCHLIST_COLUMN_DEFINITIONS[k]?.defaultWidth || 120), 0);
+  }, [watchlistColOrder, watchlistVisibleCols, watchlistColWidths]);
 
   // Modals and context menus
   const [columnModal, setColumnModal] = useState({ isOpen: false, tableType: 'portfolio' });
@@ -1599,17 +1624,36 @@ function Dashboard({ isLightMode }) {
     e.preventDefault();
     e.stopPropagation();
     setIsResizing(true);
+    document.body.classList.add('is-resizing-columns');
+
     const startX = e.clientX;
     const currentWidths = tableType === 'portfolio' ? portfolioColWidths : watchlistColWidths;
     const colDefs = tableType === 'portfolio' ? PORTFOLIO_COLUMN_DEFINITIONS : WATCHLIST_COLUMN_DEFINITIONS;
+    const minW = colKey === 'actions' ? (tableType === 'portfolio' ? 380 : 280) : 60;
     const startWidth = currentWidths[colKey] || colDefs[colKey]?.defaultWidth || 120;
 
+    let latestWidth = startWidth;
+
     const handleMouseMove = (moveEvent) => {
+      moveEvent.preventDefault();
       const delta = moveEvent.clientX - startX;
-      const newWidth = Math.max(70, startWidth + delta);
+      latestWidth = Math.max(minW, Math.round(startWidth + delta));
+      if (tableType === 'portfolio') {
+        setPortfolioColWidths(prev => ({ ...prev, [colKey]: latestWidth }));
+      } else {
+        setWatchlistColWidths(prev => ({ ...prev, [colKey]: latestWidth }));
+      }
+    };
+
+    const handleMouseUp = () => {
+      setIsResizing(false);
+      document.body.classList.remove('is-resizing-columns');
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+
       if (tableType === 'portfolio') {
         setPortfolioColWidths(prev => {
-          const next = { ...prev, [colKey]: newWidth };
+          const next = { ...prev, [colKey]: latestWidth };
           try {
             localStorage.setItem('crypto_portfolio_column_widths', JSON.stringify(next));
           } catch (err) {}
@@ -1617,19 +1661,13 @@ function Dashboard({ isLightMode }) {
         });
       } else {
         setWatchlistColWidths(prev => {
-          const next = { ...prev, [colKey]: newWidth };
+          const next = { ...prev, [colKey]: latestWidth };
           try {
             localStorage.setItem('crypto_watchlist_column_widths', JSON.stringify(next));
           } catch (err) {}
           return next;
         });
       }
-    };
-
-    const handleMouseUp = () => {
-      setIsResizing(false);
-      document.removeEventListener('mousemove', handleMouseMove);
-      document.removeEventListener('mouseup', handleMouseUp);
     };
 
     document.addEventListener('mousemove', handleMouseMove);
@@ -3333,7 +3371,16 @@ function Dashboard({ isLightMode }) {
             </div>
           </div>
           <div className="table-scroll-wrapper">
-            <table style={{ width: '100%' }}>
+            <table style={{ width: `${totalPortfolioWidth}px`, minWidth: '100%', tableLayout: 'fixed', borderCollapse: 'collapse' }}>
+              <colgroup>
+                {portfolioColOrder
+                  .filter((colKey) => portfolioVisibleCols.includes(colKey) && PORTFOLIO_COLUMN_DEFINITIONS[colKey])
+                  .map((colKey) => {
+                    const colDef = PORTFOLIO_COLUMN_DEFINITIONS[colKey] || { defaultWidth: 120 };
+                    const width = portfolioColWidths[colKey] || colDef.defaultWidth;
+                    return <col key={colKey} style={{ width: `${width}px` }} />;
+                  })}
+              </colgroup>
               <thead>
                 <tr>
                   {portfolioColOrder
@@ -3355,14 +3402,16 @@ function Dashboard({ isLightMode }) {
                           onDrop={(e) => handleColDrop('portfolio', colKey, e)}
                           onDragEnd={handleColDragEnd}
                           style={{
-                            width: width ? `${width}px` : undefined,
-                            minWidth: width ? `${width}px` : undefined,
+                            width: `${width}px`,
+                            minWidth: `${width}px`,
+                            maxWidth: `${width}px`,
+                            boxSizing: 'border-box',
                             cursor: isDraggable ? 'grab' : isSortable ? 'pointer' : 'default',
                             position: 'relative'
                           }}
                           title={isDraggable ? 'Click to sort (if sortable) or drag to reorder column' : undefined}
                         >
-                          <div className="table-header-cell-content">
+                          <div className="table-header-cell-content" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                             {isSortable ? renderHeaderLabel(colKey, colDef.label) : colDef.label}
                           </div>
                           <div
@@ -3421,7 +3470,7 @@ function Dashboard({ isLightMode }) {
 
                     return (
                       <tr
-                        key={coin.symbol}
+                        key={coin.id || coin.symbol}
                         className={rowClass}
                         onMouseMove={(e) => handleRowHover(coin, e)}
                         onMouseLeave={handleRowLeave}
@@ -3448,31 +3497,35 @@ function Dashboard({ isLightMode }) {
                             case 'amount':
                               return (
                                 <td key="amount" style={{ textAlign: 'center' }}>
-                                  {coin.pendingPlaceholder ? '0.0000' : (coin.amount !== undefined && coin.amount !== null ? coin.amount.toFixed(4) : '—')}
+                                  {formatCoinAmount(coin.amount, coin.symbol)}
                                 </td>
                               );
                             case 'current_price':
                               return (
                                 <td key="current_price" style={{ whiteSpace: 'nowrap', textAlign: 'center' }}>
-                                  {coin.current_price ? `$${coin.current_price.toFixed(2)}` : '—'}
+                                  {isStable
+                                    ? '$1.00'
+                                    : coin.current_price
+                                      ? `$${coin.current_price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                                      : '—'}
                                 </td>
                               );
                             case 'current_value':
                               return (
                                 <td key="current_value" style={{ whiteSpace: 'nowrap', textAlign: 'center' }}>
-                                  {coin.current_value ? `$${coin.current_value.toFixed(2)}` : '—'}
+                                  {coin.value !== undefined && coin.value !== null ? `$${coin.value.toFixed(2)}` : '—'}
                                 </td>
                               );
                             case 'down_alert':
                               return (
                                 <td key="down_alert" style={{ textAlign: 'center' }}>
-                                  {renderPortfolioAlertCell(coin, 'down')}
+                                  {renderAlertCell(coin, 'down')}
                                 </td>
                               );
                             case 'up_alert':
                               return (
                                 <td key="up_alert" style={{ textAlign: 'center' }}>
-                                  {renderPortfolioAlertCell(coin, 'up')}
+                                  {renderAlertCell(coin, 'up')}
                                 </td>
                               );
                             case 'volatility_pct':
@@ -3484,19 +3537,27 @@ function Dashboard({ isLightMode }) {
                             case 'avg_entry':
                               return (
                                 <td key="avg_entry" style={{ whiteSpace: 'nowrap', textAlign: 'center' }}>
-                                  {isStable ? '—' : (coin.avg_entry ? `$${coin.avg_entry.toFixed(2)}` : '—')}
+                                  {isPlaceholder ? '—' : isStable ? '$1.00' : (coin.avg_buy_price && coin.avg_buy_price > 0 ? `$${coin.avg_buy_price.toFixed(2)}` : '—')}
                                 </td>
                               );
-                            case 'pct_change':
+                            case 'pct_change': {
+                              const pctChange = !isPlaceholder && !isStable && coin.avg_buy_price && coin.avg_buy_price > 0 && coin.current_price
+                                ? ((coin.current_price - coin.avg_buy_price) / coin.avg_buy_price) * 100
+                                : null;
                               return (
                                 <td
                                   key="pct_change"
-                                  className={!isStable && coin.pct_change >= 0 ? 'status-positive' : !isStable && coin.pct_change < 0 ? 'status-negative' : ''}
-                                  style={{ whiteSpace: 'nowrap', textAlign: 'center' }}
+                                  style={{
+                                    whiteSpace: 'nowrap',
+                                    textAlign: 'center',
+                                    color: pctChange !== null ? (pctChange >= 0 ? '#22c55e' : '#ef4444') : undefined,
+                                    fontWeight: '600'
+                                  }}
                                 >
-                                  {isStable ? '—' : (coin.pct_change !== undefined && coin.pct_change !== null ? `${coin.pct_change >= 0 ? '+' : ''}${coin.pct_change.toFixed(2)}%` : '—')}
+                                  {pctChange !== null ? `${pctChange >= 0 ? '+' : ''}${pctChange.toFixed(2)}%` : '—'}
                                 </td>
                               );
+                            }
                             case 'sentiment':
                               return renderSentimentCell(coin, false);
                             case 'high_low_24h':
@@ -3522,27 +3583,28 @@ function Dashboard({ isLightMode }) {
                                 </td>
                               );
                             case 'pnl_usd': {
-                              const pnl = (coin.current_value !== undefined && coin.cost_basis !== undefined && coin.cost_basis > 0)
-                                ? (coin.current_value - coin.cost_basis)
-                                : (coin.current_price && coin.avg_entry && coin.amount)
-                                  ? (coin.amount * (coin.current_price - coin.avg_entry))
-                                  : null;
+                              const pnl = !isPlaceholder && !isStable && coin.avg_buy_price && coin.avg_buy_price > 0 && coin.current_price && coin.amount
+                                ? (coin.current_price - coin.avg_buy_price) * coin.amount
+                                : null;
                               return (
                                 <td
                                   key="pnl_usd"
-                                  className={pnl && pnl >= 0 ? 'status-positive' : pnl && pnl < 0 ? 'status-negative' : ''}
-                                  style={{ whiteSpace: 'nowrap', textAlign: 'center' }}
+                                  style={{
+                                    whiteSpace: 'nowrap',
+                                    textAlign: 'center',
+                                    color: pnl !== null ? (pnl >= 0 ? '#22c55e' : '#ef4444') : undefined,
+                                    fontWeight: '600'
+                                  }}
                                 >
-                                  {isStable || pnl === null ? '—' : `${pnl >= 0 ? '+' : ''}$${pnl.toFixed(2)}`}
+                                  {pnl !== null ? `${pnl >= 0 ? '+' : ''}$${Math.abs(pnl).toFixed(2)}` : '—'}
                                 </td>
                               );
                             }
                             case 'allocation_pct': {
-                              const totVal = Number(totalValue) || (portfolio || []).reduce((acc, c) => acc + (parseFloat(c.current_value) || 0), 0);
-                              const alloc = (totVal > 0 && coin.current_value) ? ((coin.current_value / totVal) * 100) : 0;
+                              const alloc = totalValue && totalValue > 0 && coin.value ? (coin.value / totalValue) * 100 : null;
                               return (
                                 <td key="allocation_pct" style={{ whiteSpace: 'nowrap', textAlign: 'center' }}>
-                                  {alloc > 0 ? `${alloc.toFixed(1)}%` : '—'}
+                                  {alloc !== null ? `${alloc.toFixed(1)}%` : '—'}
                                 </td>
                               );
                             }
@@ -3576,7 +3638,7 @@ function Dashboard({ isLightMode }) {
                                       )}
                                     </>
                                   ) : (
-                                    <>
+                                    <div className="actions-cell-content">
                                       <button
                                         type="button"
                                         onClick={!isPlaceholder ? () => toggleAlert(coin.id, coin.alert_enabled) : undefined}
@@ -3662,7 +3724,7 @@ function Dashboard({ isLightMode }) {
                                       >
                                         Hide
                                       </button>
-                                    </>
+                                    </div>
                                   )}
                                 </td>
                               );
@@ -3733,7 +3795,16 @@ function Dashboard({ isLightMode }) {
             </button>
           </div>
           <div className="table-scroll-wrapper">
-            <table style={{ width: '100%' }}>
+            <table style={{ width: `${totalWatchlistWidth}px`, minWidth: '100%', tableLayout: 'fixed', borderCollapse: 'collapse' }}>
+              <colgroup>
+                {watchlistColOrder
+                  .filter((colKey) => watchlistVisibleCols.includes(colKey) && WATCHLIST_COLUMN_DEFINITIONS[colKey])
+                  .map((colKey) => {
+                    const colDef = WATCHLIST_COLUMN_DEFINITIONS[colKey] || { defaultWidth: 120 };
+                    const width = watchlistColWidths[colKey] || colDef.defaultWidth;
+                    return <col key={colKey} style={{ width: `${width}px` }} />;
+                  })}
+              </colgroup>
               <thead>
                 <tr>
                   {watchlistColOrder
@@ -3755,14 +3826,16 @@ function Dashboard({ isLightMode }) {
                           onDrop={(e) => handleColDrop('watchlist', colKey, e)}
                           onDragEnd={handleColDragEnd}
                           style={{
-                            width: width ? `${width}px` : undefined,
-                            minWidth: width ? `${width}px` : undefined,
+                            width: `${width}px`,
+                            minWidth: `${width}px`,
+                            maxWidth: `${width}px`,
+                            boxSizing: 'border-box',
                             cursor: isDraggable ? 'grab' : isSortable ? 'pointer' : 'default',
                             position: 'relative'
                           }}
                           title={isDraggable ? 'Click to sort (if sortable) or drag to reorder column' : undefined}
                         >
-                          <div className="table-header-cell-content">
+                          <div className="table-header-cell-content" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                             {isSortable ? renderHeaderLabel(colKey, colDef.label) : colDef.label}
                           </div>
                           <div
@@ -3928,7 +4001,7 @@ function Dashboard({ isLightMode }) {
                                       )}
                                     </>
                                   ) : (
-                                    <>
+                                    <div className="actions-cell-content">
                                       <button
                                         type="button"
                                         onClick={() => toggleWatchlistAlert(item.symbol, item.alert_enabled)}
@@ -3993,7 +4066,7 @@ function Dashboard({ isLightMode }) {
                                       >
                                         🗑️
                                       </button>
-                                    </>
+                                    </div>
                                   )}
                                 </td>
                               );

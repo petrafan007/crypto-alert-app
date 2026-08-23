@@ -864,13 +864,14 @@ body.light-mode .action-icon-btn.note-btn:hover {
   font-weight: 500;
 }
 
-/* Ensure Actions cell is fully visible without truncation */
+/* Actions cell styling */
 .actions-cell,
 .portfolio-table td.actions-cell,
 .watchlist-table td.actions-cell {
   white-space: nowrap !important;
-  overflow: visible !important;
-  text-overflow: clip !important;
+  padding: 6px 10px !important;
+  text-align: center !important;
+  overflow: hidden !important;
 }
 
 .portfolio-table .trade-action-btn,
