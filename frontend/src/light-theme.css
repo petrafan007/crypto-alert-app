@@ -803,20 +803,9 @@ body.light-mode .action-icon-btn.note-btn:hover {
   font-size: 13px !important;
 }
 
-/* Ensure columns auto-size and never overflow container */
-.table-container table { table-layout: auto !important; }
-.table-container th, .table-container td { width: auto !important; max-width: none !important; }
-/* Center alert columns in portfolio */
-.portfolio-table thead th:nth-child(6),
-.portfolio-table thead th:nth-child(7),
-.portfolio-table tbody td:nth-child(6),
-.portfolio-table tbody td:nth-child(7) { text-align: center !important; }
-
-/* Compact headers and cells so columns size to content */
+/* Compact headers and cells */
 .table-container thead th { white-space: nowrap; padding: 8px 10px !important; }
 .table-container tbody td { white-space: nowrap; padding: 8px 10px !important; }
-/* Let the last Actions column stay visible by allowing earlier columns to shrink */
-.table-container table { table-layout: auto !important; }
 
 /* Portfolio & Watchlist: compact column widths and clean actions */
 .portfolio-table thead th,
@@ -827,6 +816,54 @@ body.light-mode .action-icon-btn.note-btn:hover {
   white-space: nowrap;
 }
 
+/* Row highlights for Light Theme */
+.light-mode .table-container tr.pending-order,
+.light-mode .table-container tbody tr.pending-order,
+.light-mode .table-container tr.pending-order td,
+.light-mode .table-container tbody tr.pending-order td,
+.light-mode .table-container tr.pending-order .symbol-cell,
+.light-mode .table-container tbody tr.pending-order .symbol-cell {
+  background: rgba(255, 215, 0, 0.5) !important;
+  background-color: rgba(255, 215, 0, 0.5) !important;
+  color: #000000 !important;
+}
+
+.light-mode .table-container tr.auto-buy-active,
+.light-mode .table-container tbody tr.auto-buy-active,
+.light-mode .table-container tr.auto-buy-active td,
+.light-mode .table-container tbody tr.auto-buy-active td,
+.light-mode .table-container tr.auto-buy-active .symbol-cell,
+.light-mode .table-container tbody tr.auto-buy-active .symbol-cell {
+  background: rgba(168, 85, 247, 0.22) !important;
+  background-color: rgba(168, 85, 247, 0.22) !important;
+  color: #1e1b4b !important;
+  font-weight: 500;
+}
+
+.light-mode .table-container tr.auto-sell-active,
+.light-mode .table-container tbody tr.auto-sell-active,
+.light-mode .table-container tr.auto-sell-active td,
+.light-mode .table-container tbody tr.auto-sell-active td,
+.light-mode .table-container tr.auto-sell-active .symbol-cell,
+.light-mode .table-container tbody tr.auto-sell-active .symbol-cell {
+  background: rgba(217, 70, 239, 0.22) !important;
+  background-color: rgba(217, 70, 239, 0.22) !important;
+  color: #4a044e !important;
+  font-weight: 500;
+}
+
+.light-mode .table-container tr.auto-both-active,
+.light-mode .table-container tbody tr.auto-both-active,
+.light-mode .table-container tr.auto-both-active td,
+.light-mode .table-container tbody tr.auto-both-active td,
+.light-mode .table-container tr.auto-both-active .symbol-cell,
+.light-mode .table-container tbody tr.auto-both-active .symbol-cell {
+  background: linear-gradient(90deg, rgba(168, 85, 247, 0.24) 0%, rgba(217, 70, 239, 0.24) 100%) !important;
+  background-color: rgba(168, 85, 247, 0.24) !important;
+  color: #3b0764 !important;
+  font-weight: 500;
+}
+
 /* Ensure Actions cell is fully visible without truncation */
 .actions-cell,
 .portfolio-table td.actions-cell,
@@ -834,8 +871,6 @@ body.light-mode .action-icon-btn.note-btn:hover {
   white-space: nowrap !important;
   overflow: visible !important;
   text-overflow: clip !important;
-  width: auto !important;
-  max-width: none !important;
 }
 
 .portfolio-table .trade-action-btn,
@@ -846,11 +881,6 @@ body.light-mode .action-icon-btn.note-btn:hover {
   margin-left: 4px !important;
   border-radius: 4px !important;
 }
-
-/* Ensure header text is fully visible with padding */
-.table-container thead th { min-width: max-content !important; max-width: none !important; padding: 8px 10px !important; }
-.portfolio-table thead th { min-width: max-content !important; max-width: none !important; }
-.watchlist-table thead th { min-width: max-content !important; max-width: none !important; }
 
 .table-container.portfolio-table thead th.portfolio-header {
   text-align: center !important;

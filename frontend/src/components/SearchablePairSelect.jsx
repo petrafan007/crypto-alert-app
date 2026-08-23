@@ -262,24 +262,30 @@ const SearchablePairSelect = ({
                         role="option"
                         aria-selected={isSelected}
                       >
-                        {!item.isAll && (
-                          <button
-                            type="button"
-                            className={`searchable-pair-star-btn ${isFav ? 'active' : ''}`}
-                            onClick={(e) => toggleFavorite(item.id, e)}
-                            title={isFav ? 'Unpin favorite pair' : 'Pin pair to top'}
-                            aria-label={isFav ? 'Unpin favorite pair' : 'Pin pair to top'}
-                          >
-                            {isFav ? '⭐' : '☆'}
-                          </button>
-                        )}
-                        <div className="searchable-pair-option-label">
-                          <span className="searchable-pair-option-name">{item.display_name || item.id}</span>
-                          {!item.isAll && (
-                            <span className="searchable-pair-option-code">{item.id}</span>
+                        <div className="searchable-pair-option-left">
+                          {!item.isAll ? (
+                            <button
+                              type="button"
+                              className={`searchable-pair-star-btn ${isFav ? 'active' : ''}`}
+                              onClick={(e) => toggleFavorite(item.id, e)}
+                              title={isFav ? 'Unpin favorite pair' : 'Pin pair to top'}
+                              aria-label={isFav ? 'Unpin favorite pair' : 'Pin pair to top'}
+                            >
+                              {isFav ? '⭐' : '☆'}
+                            </button>
+                          ) : (
+                            <span className="searchable-pair-star-placeholder" />
                           )}
+                          <div className="searchable-pair-option-label">
+                            <span className="searchable-pair-option-name">{item.display_name || item.id}</span>
+                            {!item.isAll && (
+                              <span className="searchable-pair-option-code">{item.id}</span>
+                            )}
+                          </div>
                         </div>
-                        {isSelected && <span className="searchable-pair-check">✓</span>}
+                        <div className="searchable-pair-option-right">
+                          {isSelected && <span className="searchable-pair-check">✓</span>}
+                        </div>
                       </div>
                     );
                   })}

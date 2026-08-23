@@ -184,6 +184,7 @@
   font-size: 0.9rem;
   cursor: pointer;
   transition: background 0.1s ease;
+  gap: 0.5rem;
 }
 
 .searchable-pair-option:hover,
@@ -196,6 +197,14 @@
   background: #0369a1;
   color: #ffffff;
   font-weight: 600;
+}
+
+.searchable-pair-option-left {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex: 1;
+  min-width: 0;
 }
 
 .searchable-pair-option-label {
@@ -220,10 +229,22 @@
   color: #bae6fd;
 }
 
+.searchable-pair-option-right {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  width: 20px;
+  flex-shrink: 0;
+}
+
 .searchable-pair-check {
   color: #38bdf8;
   font-weight: bold;
   font-size: 0.95rem;
+}
+
+.searchable-pair-option.selected .searchable-pair-check {
+  color: #ffffff;
 }
 
 .searchable-pair-group.pinned-group {
@@ -240,7 +261,9 @@
   background: transparent;
   border: none;
   cursor: pointer;
-  padding: 2px 6px;
+  padding: 0;
+  width: 22px;
+  height: 22px;
   font-size: 0.95rem;
   line-height: 1;
   color: #94a3b8;
@@ -249,7 +272,13 @@
   align-items: center;
   justify-content: center;
   border-radius: 4px;
-  margin-right: 4px;
+  flex-shrink: 0;
+}
+
+.searchable-pair-star-placeholder {
+  width: 22px;
+  height: 22px;
+  display: inline-block;
   flex-shrink: 0;
 }
 

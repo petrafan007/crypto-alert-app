@@ -12,6 +12,38 @@ import CryptoIcon from '../components/CryptoIcon';
 import './Trading.css';
 import { useLocation, useNavigate } from 'react-router-dom';
 
+export const formatOrderType = (rawType) => {
+  if (!rawType) return 'Limit';
+  const clean = String(rawType).toUpperCase().trim();
+  const map = {
+    'LIMIT': 'Limit',
+    'MARKET': 'Market',
+    'STOP_LOSS': 'Stop Loss',
+    'STOP_LOSS_LIMIT': 'Stop Loss Limit',
+    'TAKE_PROFIT': 'Take Profit',
+    'TAKE_PROFIT_LIMIT': 'Take Profit Limit',
+    'LIMIT_MAKER': 'Limit Maker',
+    'AUTO_BUY': 'Auto-Buy Trigger',
+    'AUTO_SELL': 'Auto-Sell Trigger',
+    'TRAILING_STOP': 'Trailing Stop',
+  };
+  if (map[clean]) return map[clean];
+  return clean
+    .split('_')
+    .map(word => word.charAt(0) + word.slice(1).toLowerCase())
+    .join(' ');
+};
+
+export const formatOrderSide = (rawSide) => {
+  if (!rawSide) return 'Buy';
+  const clean = String(rawSide).toUpperCase().trim();
+  if (clean === 'AUTO_BUY' || clean === 'AUTO-BUY') return 'Auto-Buy';
+  if (clean === 'AUTO_SELL' || clean === 'AUTO-SELL') return 'Auto-Sell';
+  if (clean === 'BUY') return 'Buy';
+  if (clean === 'SELL') return 'Sell';
+  return clean;
+};
+
 const Trading = () => {
   console.log('Trading component rendering...');
   const location = useLocation();
@@ -871,47 +903,86 @@ const Trading = () => {
       return;
     }
 
+    const isAutoTrigger = !!cancelModal.order.is_auto_trigger;
+    const baseSymbol = cancelModal.order.base_symbol || cancelModal.order.symbol;
     const orderId = cancelModal.order.order_id || cancelModal.order.orderId || cancelModal.order.id;
     const symbol = cancelModal.order.symbol;
-
-    if (!orderId || !symbol) {
-      setCancelModal((prev) => ({
-        ...prev,
-        error: 'Unable to determine order reference for cancellation.',
-      }));
-      return;
-    }
 
     setCancelModal((prev) => ({ ...prev, loading: true, error: '' }));
 
     try {
-      const response = await axios.post(
-        `/api/cancel-order/${orderId}`,
-        {
-          symbol,
-          two_factor_code: twoFactorCode,
-        },
-        { withCredentials: true }
-      );
-
-      if (response.data.success) {
-        setCancelModal({ isVisible: false, order: null, error: '', loading: false });
-        setOpenOrders((prev) =>
-          prev.filter((order) => (order.order_id || order.orderId || order.id) !== orderId)
+      if (isAutoTrigger) {
+        const triggerType = cancelModal.order.trigger_type;
+        const endpoint = triggerType === 'auto_buy'
+          ? '/api/portfolio/trigger-auto-buy'
+          : '/api/portfolio/trigger-auto-sell';
+        const response = await axios.post(
+          endpoint,
+          {
+            symbol: baseSymbol,
+            table_type: cancelModal.order.table_type || 'portfolio',
+            enabled: false,
+            two_factor_code: twoFactorCode,
+          },
+          { withCredentials: true }
         );
-        await loadOpenOrders();
-        await loadOrders();
-        setFeedbackModal({
-          isVisible: true,
-          message: `Order ${symbol} #${orderId} cancelled successfully`,
-          type: 'success',
-        });
+
+        if (response.data.success) {
+          setCancelModal({ isVisible: false, order: null, error: '', loading: false });
+          setOpenOrders((prev) =>
+            prev.filter((order) => (order.order_id || order.orderId || order.id) !== orderId)
+          );
+          await loadOpenOrders();
+          setFeedbackModal({
+            isVisible: true,
+            message: `${formatOrderSide(cancelModal.order.side)} trigger for ${baseSymbol} cancelled successfully`,
+            type: 'success',
+          });
+        } else {
+          setCancelModal((prev) => ({
+            ...prev,
+            loading: false,
+            error: response.data.error || 'Failed to cancel trigger.',
+          }));
+        }
       } else {
-        setCancelModal((prev) => ({
-          ...prev,
-          loading: false,
-          error: response.data.error || 'Failed to cancel order.',
-        }));
+        if (!orderId || !symbol) {
+          setCancelModal((prev) => ({
+            ...prev,
+            error: 'Unable to determine order reference for cancellation.',
+            loading: false,
+          }));
+          return;
+        }
+
+        const response = await axios.post(
+          `/api/cancel-order/${orderId}`,
+          {
+            symbol,
+            two_factor_code: twoFactorCode,
+          },
+          { withCredentials: true }
+        );
+
+        if (response.data.success) {
+          setCancelModal({ isVisible: false, order: null, error: '', loading: false });
+          setOpenOrders((prev) =>
+            prev.filter((order) => (order.order_id || order.orderId || order.id) !== orderId)
+          );
+          await loadOpenOrders();
+          await loadOrders();
+          setFeedbackModal({
+            isVisible: true,
+            message: `Order ${symbol} #${orderId} cancelled successfully`,
+            type: 'success',
+          });
+        } else {
+          setCancelModal((prev) => ({
+            ...prev,
+            loading: false,
+            error: response.data.error || 'Failed to cancel order.',
+          }));
+        }
       }
     } catch (error) {
       const message = error.response?.data?.error || error.message || 'Failed to cancel order.';
@@ -1984,13 +2055,13 @@ const Trading = () => {
                           <td>{formatDate(order.created_at || order.time)}</td>
                           <td className="symbol-cell">{order.symbol}</td>
                           <td>
-                            <span className={`badge badge-${order.side.toLowerCase()}`}>
-                              {order.side}
+                            <span className={`badge badge-${(order.side || '').toLowerCase().replace(/_/g, '-')}`}>
+                              {formatOrderSide(order.side)}
                             </span>
                           </td>
-                          <td>{order.order_type || order.type}</td>
-                          <td>{formatNumber(order.quantity || order.origQty, 8)}</td>
-                          <td>{order.price ? `$${formatNumber(order.price)}` : '-'}</td>
+                          <td>{formatOrderType(order.order_type || order.type)}</td>
+                          <td>{order.quantity ? formatNumber(order.quantity, 8) : (order.origQty ? formatNumber(order.origQty, 8) : (order.trigger_details || '—'))}</td>
+                          <td>{order.price && Number(order.price) > 0 ? `$${formatNumber(order.price)}` : (order.trigger_details ? '⚡ Trigger' : '—')}</td>
                           <td>{formatNumber(order.filled_quantity || order.executedQty || 0, 8)}</td>
                           <td>
                             <span className="badge badge-open">
@@ -2101,11 +2172,11 @@ const Trading = () => {
                             <td>{formatDate(order.created_at)}</td>
                             <td className="symbol-cell">{order.symbol}</td>
                             <td>
-                              <span className={`badge badge-${order.side.toLowerCase()}`}>
-                                {order.side}
+                              <span className={`badge badge-${(order.side || '').toLowerCase().replace(/_/g, '-')}`}>
+                                {formatOrderSide(order.side)}
                               </span>
                             </td>
-                            <td>{order.order_type}</td>
+                            <td>{formatOrderType(order.order_type || order.type)}</td>
                             <td>{formatNumber(order.quantity, 8)}</td>
                             <td>{order.price ? `$${formatNumber(order.price)}` : '-'}</td>
                             <td>{formatNumber(order.filled_quantity || 0, 8)}</td>

@@ -201,6 +201,7 @@ function Dashboard({ isLightMode }) {
   const [cancelModalState, setCancelModalState] = useState({ isOpen: false, coin: null, order: null, loading: false, error: null });
   const [draggedColKey, setDraggedColKey] = useState(null);
   const [dragOverColKey, setDragOverColKey] = useState(null);
+  const [isResizing, setIsResizing] = useState(false);
 
   // Sorting state
   const [sortConfig, setSortConfig] = useState(() => {
@@ -829,7 +830,55 @@ function Dashboard({ isLightMode }) {
   // Get pending orders for a specific coin
   const getPendingOrdersForCoin = (symbol) => {
     if (!pendingOrders || !Array.isArray(pendingOrders)) return [];
-    return pendingOrders.filter(order => order.asset === symbol);
+    const sym = (symbol || '').toUpperCase();
+    return pendingOrders.filter(order => (order.asset || '').toUpperCase() === sym || (order.symbol || '').startsWith(sym));
+  };
+
+  const getAllPendingItemsForCoin = (coin) => {
+    if (!coin || !coin.symbol) return [];
+    const sym = (coin.symbol || '').toUpperCase();
+    const exchangeOrders = getPendingOrdersForCoin(sym);
+    const items = [...exchangeOrders];
+
+    if (coin.auto_buy_enabled) {
+      const vol = coin.auto_buy_volatility_pct || coin.volatility_pct || '—';
+      const amt = coin.auto_buy_amount !== undefined && coin.auto_buy_amount !== null ? Number(coin.auto_buy_amount).toFixed(2) : '—';
+      const quote = coin.auto_buy_quote_currency || 'USDT';
+      items.push({
+        id: `autobuy-${coin.id || sym}`,
+        isAutoBuy: true,
+        trigger_type: 'auto_buy',
+        side: 'AUTO-BUY',
+        type: 'AUTO_BUY',
+        symbol: sym,
+        volatility_pct: vol,
+        amount: amt,
+        quote_currency: quote,
+        table_type: coin.table_type || (coin.isWatchlist ? 'watchlist' : 'portfolio'),
+        title: `Auto-Buy Surge Trigger (${quote})`,
+        details: `+${vol}% surge trigger ($${amt} ${quote})`
+      });
+    }
+
+    if (coin.auto_sell_enabled) {
+      const vol = coin.auto_sell_volatility_pct || coin.volatility_pct || '—';
+      const quote = coin.auto_sell_quote_currency || 'USDT';
+      items.push({
+        id: `autosell-${coin.id || sym}`,
+        isAutoSell: true,
+        trigger_type: 'auto_sell',
+        side: 'AUTO-SELL',
+        type: 'AUTO_SELL',
+        symbol: sym,
+        volatility_pct: vol,
+        quote_currency: quote,
+        table_type: coin.table_type || (coin.isWatchlist ? 'watchlist' : 'portfolio'),
+        title: `Auto-Sell Drop Trigger (${quote})`,
+        details: `-${vol}% drop trigger`
+      });
+    }
+
+    return items;
   };
 
   const formatOrderQuantity = (amount) => {
@@ -849,34 +898,50 @@ function Dashboard({ isLightMode }) {
     });
   };
 
-  // Generate tooltip text for pending orders
-  const generateOrderTooltipText = (orders) => {
-    if (orders.length === 0) return '';
+  // Generate tooltip text for pending orders & auto triggers
+  const generateOrderTooltipText = (coin, orders) => {
+    const lines = [];
 
-    const describeOrder = (order) => {
-      const orderTypeName = (order.type || 'LIMIT').replace(/_/g, ' ').toLowerCase();
-      const side = (order.side || '').toLowerCase();
-      const trigger = order.trigger_price
-        ? order.trigger_price.toFixed(4)
-        : order.price
-          ? Number(order.price).toFixed(4)
-          : 'N/A';
-      const orderQuantity = Number(order.quantity ?? 0);
-      const quantityText = formatOrderQuantity(orderQuantity);
-      const assetSymbol = (order.asset || '').toUpperCase();
-      const priceReference = Number(order.trigger_price || order.price || 0);
-      const quoteValue = order.quantity_usdt !== undefined && order.quantity_usdt !== null
-        ? Number(order.quantity_usdt)
-        : orderQuantity * priceReference;
-      const usdText = formatOrderUsd(quoteValue);
-      const sizeDescription = quantityText
-        ? `${quantityText} ${assetSymbol}${usdText ? ` (~${usdText} USDT)` : ''}`
-        : assetSymbol || 'this asset';
+    if (orders && orders.length > 0) {
+      const describeOrder = (order) => {
+        const orderTypeName = (order.type || 'LIMIT').replace(/_/g, ' ').toLowerCase();
+        const side = (order.side || '').toLowerCase();
+        const trigger = order.trigger_price
+          ? order.trigger_price.toFixed(4)
+          : order.price
+            ? Number(order.price).toFixed(4)
+            : 'N/A';
+        const orderQuantity = Number(order.quantity ?? 0);
+        const quantityText = formatOrderQuantity(orderQuantity);
+        const assetSymbol = (order.asset || coin?.symbol || '').toUpperCase();
+        const priceReference = Number(order.trigger_price || order.price || 0);
+        const quoteValue = order.quantity_usdt !== undefined && order.quantity_usdt !== null
+          ? Number(order.quantity_usdt)
+          : orderQuantity * priceReference;
+        const usdText = formatOrderUsd(quoteValue);
+        const sizeDescription = quantityText
+          ? `${quantityText} ${assetSymbol}${usdText ? ` (~${usdText} USDT)` : ''}`
+          : assetSymbol || 'this asset';
 
-      return `Pending ${orderTypeName} ${side} for ${sizeDescription} when price ${order.direction} ${trigger} USDT`;
-    };
+        return `Pending ${orderTypeName} ${side} for ${sizeDescription} when price ${order.direction || ''} ${trigger} USDT`;
+      };
+      lines.push(...orders.map(describeOrder));
+    }
 
-    return orders.map(describeOrder).join('\n');
+    if (coin.auto_buy_enabled) {
+      const vol = coin.auto_buy_volatility_pct || coin.volatility_pct || '—';
+      const amt = coin.auto_buy_amount !== undefined && coin.auto_buy_amount !== null ? Number(coin.auto_buy_amount).toFixed(2) : '—';
+      const quote = coin.auto_buy_quote_currency || 'USDT';
+      lines.push(`⚡ Active Auto-Buy: Automatically purchases with $${amt} ${quote} on +${vol}% surge in ${volatilityHours}h`);
+    }
+
+    if (coin.auto_sell_enabled) {
+      const vol = coin.auto_sell_volatility_pct || coin.volatility_pct || '—';
+      const quote = coin.auto_sell_quote_currency || 'USDT';
+      lines.push(`⚡ Active Auto-Sell: Automatically sells for ${quote} on -${vol}% drop in ${volatilityHours}h`);
+    }
+
+    return lines.join('\n');
   };
 
   // Handle hover on row for pending order tooltip
@@ -897,11 +962,13 @@ function Dashboard({ isLightMode }) {
     }
 
     const orders = getPendingOrdersForCoin(coin.symbol);
-    if (orders.length > 0) {
+    const hasTriggers = coin.auto_buy_enabled || coin.auto_sell_enabled;
+
+    if (orders.length > 0 || hasTriggers) {
       const rect = event.currentTarget.getBoundingClientRect();
       setOrderTooltip({
         visible: true,
-        text: generateOrderTooltipText(orders),
+        text: generateOrderTooltipText(coin, orders),
         x: event.clientX + 15,
         y: rect.top - 60
       });
@@ -1531,6 +1598,7 @@ function Dashboard({ isLightMode }) {
   const handleResizeStart = (tableType, colKey, e) => {
     e.preventDefault();
     e.stopPropagation();
+    setIsResizing(true);
     const startX = e.clientX;
     const currentWidths = tableType === 'portfolio' ? portfolioColWidths : watchlistColWidths;
     const colDefs = tableType === 'portfolio' ? PORTFOLIO_COLUMN_DEFINITIONS : WATCHLIST_COLUMN_DEFINITIONS;
@@ -1559,6 +1627,7 @@ function Dashboard({ isLightMode }) {
     };
 
     const handleMouseUp = () => {
+      setIsResizing(false);
       document.removeEventListener('mousemove', handleMouseMove);
       document.removeEventListener('mouseup', handleMouseUp);
     };
@@ -1671,34 +1740,83 @@ function Dashboard({ isLightMode }) {
   const handleConfirmCancelOrder = async (order, twoFactorCode) => {
     setCancelModalState(prev => ({ ...prev, loading: true, error: null }));
     try {
-      const orderId = order.order_id || order.orderId || order.id;
+      const isAutoBuy = !!order.isAutoBuy || order.trigger_type === 'auto_buy';
+      const isAutoSell = !!order.isAutoSell || order.trigger_type === 'auto_sell';
       const symbol = (order.symbol || cancelModalState.coin?.symbol || '').toUpperCase();
-      const payload = { symbol };
-      if (twoFactorCode) {
-        payload.two_factor_code = twoFactorCode;
-      }
-      const response = await axios.post(`/api/cancel-order/${orderId}`, payload, { withCredentials: true });
 
-      if (response.data.success || response.status === 200) {
-        setPendingOrders(prev => prev.filter(o => (o.order_id || o.orderId || o.id) !== orderId));
-        setPortfolio(prev => prev.map(c => {
-          if ((c.symbol || '').toUpperCase() === symbol) {
-            const remaining = getPendingOrdersForCoin(symbol).filter(o => (o.order_id || o.orderId || o.id) !== orderId);
-            return { ...c, hasPendingOrder: remaining.length > 0 };
-          }
-          return c;
-        }));
+      if (isAutoBuy) {
+        const payload = {
+          symbol,
+          table_type: order.table_type || (cancelModalState.coin?.isWatchlist ? 'watchlist' : 'portfolio'),
+          enabled: false
+        };
+        if (twoFactorCode) payload.two_factor_code = twoFactorCode;
 
-        setCancelModalState({ isOpen: false, coin: null, order: null, loading: false, error: null });
+        const response = await axios.post('/api/portfolio/trigger-auto-buy', payload, { withCredentials: true });
+        if (response.data.success) {
+          setPortfolio(prev => prev.map(c => ((c.symbol || '').toUpperCase() === symbol ? { ...c, auto_buy_enabled: false } : c)));
+          setWatchlist(prev => prev.map(w => ((w.symbol || '').toUpperCase() === symbol ? { ...w, auto_buy_enabled: false } : w)));
+          setCancelModalState({ isOpen: false, coin: null, order: null, loading: false, error: null });
 
-        // Background refresh
-        axios.get('/api/coin-data-live').then(r => r.data?.portfolio && setPortfolio(r.data.portfolio)).catch(() => {});
-        axios.get('/api/pending-orders', { withCredentials: true }).then(r => r.data?.pending_orders && setPendingOrders(r.data.pending_orders)).catch(() => {});
+          // Background refresh
+          axios.get('/api/coin-data-live').then(r => r.data?.portfolio && setPortfolio(r.data.portfolio)).catch(() => {});
+          axios.get('/api/watchlist-live', { withCredentials: true }).then(r => Array.isArray(r.data) && setWatchlist(r.data)).catch(() => {});
+          return { success: true };
+        } else {
+          setCancelModalState(prev => ({ ...prev, loading: false, error: response.data.error || 'Failed to cancel auto-buy trigger' }));
+          return response.data;
+        }
+      } else if (isAutoSell) {
+        const payload = {
+          symbol,
+          table_type: order.table_type || (cancelModalState.coin?.isWatchlist ? 'watchlist' : 'portfolio'),
+          enabled: false
+        };
+        if (twoFactorCode) payload.two_factor_code = twoFactorCode;
 
-        return { success: true };
+        const response = await axios.post('/api/portfolio/trigger-auto-sell', payload, { withCredentials: true });
+        if (response.data.success) {
+          setPortfolio(prev => prev.map(c => ((c.symbol || '').toUpperCase() === symbol ? { ...c, auto_sell_enabled: false } : c)));
+          setWatchlist(prev => prev.map(w => ((w.symbol || '').toUpperCase() === symbol ? { ...w, auto_sell_enabled: false } : w)));
+          setCancelModalState({ isOpen: false, coin: null, order: null, loading: false, error: null });
+
+          // Background refresh
+          axios.get('/api/coin-data-live').then(r => r.data?.portfolio && setPortfolio(r.data.portfolio)).catch(() => {});
+          axios.get('/api/watchlist-live', { withCredentials: true }).then(r => Array.isArray(r.data) && setWatchlist(r.data)).catch(() => {});
+          return { success: true };
+        } else {
+          setCancelModalState(prev => ({ ...prev, loading: false, error: response.data.error || 'Failed to cancel auto-sell trigger' }));
+          return response.data;
+        }
       } else {
-        setCancelModalState(prev => ({ ...prev, loading: false, error: response.data.error || 'Failed to cancel order' }));
-        return response.data;
+        const orderId = order.order_id || order.orderId || order.id;
+        const payload = { symbol };
+        if (twoFactorCode) {
+          payload.two_factor_code = twoFactorCode;
+        }
+        const response = await axios.post(`/api/cancel-order/${orderId}`, payload, { withCredentials: true });
+
+        if (response.data.success || response.status === 200) {
+          setPendingOrders(prev => prev.filter(o => (o.order_id || o.orderId || o.id) !== orderId));
+          setPortfolio(prev => prev.map(c => {
+            if ((c.symbol || '').toUpperCase() === symbol) {
+              const remaining = getPendingOrdersForCoin(symbol).filter(o => (o.order_id || o.orderId || o.id) !== orderId);
+              return { ...c, hasPendingOrder: remaining.length > 0 };
+            }
+            return c;
+          }));
+
+          setCancelModalState({ isOpen: false, coin: null, order: null, loading: false, error: null });
+
+          // Background refresh
+          axios.get('/api/coin-data-live').then(r => r.data?.portfolio && setPortfolio(r.data.portfolio)).catch(() => {});
+          axios.get('/api/pending-orders', { withCredentials: true }).then(r => r.data?.pending_orders && setPendingOrders(r.data.pending_orders)).catch(() => {});
+
+          return { success: true };
+        } else {
+          setCancelModalState(prev => ({ ...prev, loading: false, error: response.data.error || 'Failed to cancel order' }));
+          return response.data;
+        }
       }
     } catch (err) {
       console.error('Cancel order error:', err);
@@ -1906,18 +2024,18 @@ function Dashboard({ isLightMode }) {
                   Stake
                 </button>
                 {(() => {
-                  const coinOrders = getPendingOrdersForCoin(coin.symbol);
-                  const hasOrders = coinOrders.length > 0;
+                  const allPendingItems = getAllPendingItemsForCoin(coin);
+                  const hasOrders = allPendingItems.length > 0;
                   return (
                     <button
                       onClick={(e) => {
                         closeActionMenu();
-                        if (hasOrders) handleCancelButtonClick(coin, coinOrders, e);
+                        if (hasOrders) handleCancelButtonClick(coin, allPendingItems, e);
                       }}
                       disabled={!hasOrders}
                       style={!hasOrders ? { opacity: 0.4, cursor: 'not-allowed' } : { color: '#ef4444' }}
                     >
-                      Cancel Pending ({coinOrders.length})
+                      Cancel Active ({allPendingItems.length})
                     </button>
                   );
                 })()}
@@ -3231,7 +3349,7 @@ function Dashboard({ isLightMode }) {
                           key={colKey}
                           onClick={isSortable ? () => handleSort(colKey) : undefined}
                           className={`portfolio-header ${isSortable ? 'sortable' : ''} ${dragOverColKey === colKey ? 'drag-over-target' : ''}`}
-                          draggable={isDraggable}
+                          draggable={isDraggable && !isResizing}
                           onDragStart={(e) => handleColDragStart('portfolio', colKey, e)}
                           onDragOver={(e) => handleColDragOver('portfolio', colKey, e)}
                           onDrop={(e) => handleColDrop('portfolio', colKey, e)}
@@ -3249,8 +3367,10 @@ function Dashboard({ isLightMode }) {
                           </div>
                           <div
                             className="col-resizer-handle"
+                            draggable={false}
+                            onDragStart={(e) => { e.preventDefault(); e.stopPropagation(); }}
                             onMouseDown={(e) => handleResizeStart('portfolio', colKey, e)}
-                            onClick={(e) => e.stopPropagation()}
+                            onClick={(e) => { e.preventDefault(); e.stopPropagation(); }}
                             title="Drag to resize column width"
                           />
                         </th>
@@ -3284,10 +3404,25 @@ function Dashboard({ isLightMode }) {
                       (k) => portfolioVisibleCols.includes(k) && PORTFOLIO_COLUMN_DEFINITIONS[k]
                     );
 
+                    const hasExchangeOrder = !!coin.hasPendingOrder || getPendingOrdersForCoin(coin.symbol).length > 0;
+                    const isAutoBuy = !!coin.auto_buy_enabled;
+                    const isAutoSell = !!coin.auto_sell_enabled;
+
+                    let rowClass = '';
+                    if (hasExchangeOrder) {
+                      rowClass = 'pending-order';
+                    } else if (isAutoBuy && isAutoSell) {
+                      rowClass = 'auto-both-active';
+                    } else if (isAutoBuy) {
+                      rowClass = 'auto-buy-active';
+                    } else if (isAutoSell) {
+                      rowClass = 'auto-sell-active';
+                    }
+
                     return (
                       <tr
                         key={coin.symbol}
-                        className={coin.hasPendingOrder ? 'pending-order' : ''}
+                        className={rowClass}
                         onMouseMove={(e) => handleRowHover(coin, e)}
                         onMouseLeave={handleRowLeave}
                       >
@@ -3505,15 +3640,15 @@ function Dashboard({ isLightMode }) {
                                         Stake
                                       </button>
                                       {(() => {
-                                        const coinOrders = getPendingOrdersForCoin(coin.symbol);
-                                        const hasOrders = coinOrders.length > 0;
+                                        const allPendingItems = getAllPendingItemsForCoin(coin);
+                                        const hasOrders = allPendingItems.length > 0;
                                         return (
                                           <button
                                             type="button"
                                             className={`trade-action-btn cancel ${!hasOrders ? 'disabled-cancel' : ''}`}
-                                            onClick={(e) => hasOrders && handleCancelButtonClick(coin, coinOrders, e)}
+                                            onClick={(e) => hasOrders && handleCancelButtonClick(coin, allPendingItems, e)}
                                             disabled={!hasOrders}
-                                            title={hasOrders ? `Cancel ${coinOrders.length} pending order(s) for ${coin.symbol}` : 'No pending orders to cancel'}
+                                            title={hasOrders ? `Cancel ${allPendingItems.length} active order(s)/trigger(s) for ${coin.symbol}` : 'No pending orders or active triggers to cancel'}
                                           >
                                             Cancel
                                           </button>
@@ -3614,7 +3749,7 @@ function Dashboard({ isLightMode }) {
                           key={colKey}
                           onClick={isSortable ? () => handleSort(colKey) : undefined}
                           className={`watchlist-header ${isSortable ? 'sortable' : ''} ${dragOverColKey === colKey ? 'drag-over-target' : ''}`}
-                          draggable={isDraggable}
+                          draggable={isDraggable && !isResizing}
                           onDragStart={(e) => handleColDragStart('watchlist', colKey, e)}
                           onDragOver={(e) => handleColDragOver('watchlist', colKey, e)}
                           onDrop={(e) => handleColDrop('watchlist', colKey, e)}
@@ -3632,8 +3767,10 @@ function Dashboard({ isLightMode }) {
                           </div>
                           <div
                             className="col-resizer-handle"
+                            draggable={false}
+                            onDragStart={(e) => { e.preventDefault(); e.stopPropagation(); }}
                             onMouseDown={(e) => handleResizeStart('watchlist', colKey, e)}
-                            onClick={(e) => e.stopPropagation()}
+                            onClick={(e) => { e.preventDefault(); e.stopPropagation(); }}
                             title="Drag to resize column width"
                           />
                         </th>
@@ -3658,8 +3795,28 @@ function Dashboard({ isLightMode }) {
                       (k) => watchlistVisibleCols.includes(k) && WATCHLIST_COLUMN_DEFINITIONS[k]
                     );
 
+                    const hasExchangeOrder = getPendingOrdersForCoin(item.symbol).length > 0;
+                    const isAutoBuy = !!item.auto_buy_enabled;
+                    const isAutoSell = !!item.auto_sell_enabled;
+
+                    let rowClass = '';
+                    if (hasExchangeOrder) {
+                      rowClass = 'pending-order';
+                    } else if (isAutoBuy && isAutoSell) {
+                      rowClass = 'auto-both-active';
+                    } else if (isAutoBuy) {
+                      rowClass = 'auto-buy-active';
+                    } else if (isAutoSell) {
+                      rowClass = 'auto-sell-active';
+                    }
+
                     return (
-                      <tr key={item.symbol}>
+                      <tr
+                        key={item.symbol}
+                        className={rowClass}
+                        onMouseMove={(e) => handleRowHover(item, e)}
+                        onMouseLeave={handleRowLeave}
+                      >
                         {visibleCols.map((colKey) => {
                           switch (colKey) {
                             case 'symbol':
@@ -3709,8 +3866,12 @@ function Dashboard({ isLightMode }) {
                               return (
                                 <td
                                   key="pct_change"
-                                  className={item.pct_change >= 0 ? 'status-positive' : item.pct_change < 0 ? 'status-negative' : ''}
-                                  style={{ whiteSpace: 'nowrap', textAlign: 'center' }}
+                                  style={{
+                                    whiteSpace: 'nowrap',
+                                    textAlign: 'center',
+                                    color: (item.pct_change || 0) >= 0 ? '#22c55e' : '#ef4444',
+                                    fontWeight: '600'
+                                  }}
                                 >
                                   {item.pct_change !== undefined && item.pct_change !== null ? `${item.pct_change >= 0 ? '+' : ''}${item.pct_change.toFixed(2)}%` : '—'}
                                 </td>
@@ -3810,6 +3971,21 @@ function Dashboard({ isLightMode }) {
                                       >
                                         Sell
                                       </button>
+                                      {(() => {
+                                        const allPendingItems = getAllPendingItemsForCoin({ ...item, isWatchlist: true });
+                                        const hasOrders = allPendingItems.length > 0;
+                                        if (!hasOrders) return null;
+                                        return (
+                                          <button
+                                            type="button"
+                                            className="trade-action-btn cancel"
+                                            onClick={(e) => handleCancelButtonClick({ ...item, isWatchlist: true }, allPendingItems, e)}
+                                            title={`Cancel ${allPendingItems.length} active order(s)/trigger(s) for ${item.symbol}`}
+                                          >
+                                            Cancel
+                                          </button>
+                                        );
+                                      })()}
                                       <button
                                         className="trade-action-btn delete"
                                         onClick={() => deleteWatchlistItem(item.symbol)}
@@ -4732,8 +4908,10 @@ function Dashboard({ isLightMode }) {
           </div>
           <div className="cancel-context-list">
             {cancelContextMenu.orders.map((ord, idx) => {
-              const side = (ord.side || 'ORDER').toUpperCase();
-              const type = (ord.type || ord.order_type || 'LIMIT').replace(/_/g, ' ');
+              const isAutoBuy = !!ord.isAutoBuy || ord.trigger_type === 'auto_buy';
+              const isAutoSell = !!ord.isAutoSell || ord.trigger_type === 'auto_sell';
+              const side = isAutoBuy ? 'AUTO-BUY' : isAutoSell ? 'AUTO-SELL' : (ord.side || 'ORDER').toUpperCase();
+              const type = isAutoBuy ? 'Auto-Buy Surge Trigger' : isAutoSell ? 'Auto-Sell Drop Trigger' : (ord.type || ord.order_type || 'LIMIT').replace(/_/g, ' ');
               const qty = ord.quantity || ord.origQty;
               const price = ord.price || ord.trigger_price;
               return (
@@ -4743,12 +4921,16 @@ function Dashboard({ isLightMode }) {
                   className="cancel-context-item"
                   onClick={() => handleSelectOrderFromMenu(ord, cancelContextMenu.coin)}
                 >
-                  <span className={`cancel-item-badge badge-${side.toLowerCase()}`}>{side}</span>
+                  <span className={`cancel-item-badge badge-${side.toLowerCase().replace(/_/g, '-')}`}>{side}</span>
                   <div className="cancel-item-details">
-                    <div className="cancel-item-title">{type} {ord.symbol || cancelContextMenu.coin.symbol}</div>
+                    <div className="cancel-item-title">{type} ({ord.symbol || cancelContextMenu.coin.symbol})</div>
                     <div className="cancel-item-sub">
-                      {qty && `${qty} `}
-                      {price && `@ $${Number(price).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 6 })}`}
+                      {ord.details || (
+                        <>
+                          {qty && `${qty} `}
+                          {price && `@ $${Number(price).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 6 })}`}
+                        </>
+                      )}
                     </div>
                   </div>
                 </button>

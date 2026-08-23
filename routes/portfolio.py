@@ -3561,71 +3561,160 @@ def get_trading_balances(symbol):
 @portfolio_bp.route('/api/trading/open-orders', methods=['GET'])
 @login_required
 def get_open_orders():
-    """Get all open orders"""
+    """Get all open orders including in-app auto triggers"""
     try:
         settings = TradingSettings.query.filter_by(user_id=current_user.id).first()
+        open_orders = []
         
         if settings and settings.test_mode_enabled:
             # Get open test orders
-            open_orders = TestOrder.query.filter_by(
+            test_orders = TestOrder.query.filter_by(
                 user_id=current_user.id
             ).filter(
                 TestOrder.status.in_(['NEW', 'PARTIALLY_FILLED'])
             ).order_by(TestOrder.created_at.desc()).all()
-            
-            return jsonify({
-                'success': True,
-                'orders': [order.to_dict() for order in open_orders]
-            })
+            open_orders = [order.to_dict() for order in test_orders]
         else:
             # Get real open orders from Binance using SQLAlchemy ORM
             creds = Credential.query.filter_by(user_id=current_user.id).first()
             
-            if not creds:
-                return jsonify({
-                    'success': False,
-                    'error': 'No Binance.US trading credentials configured',
-                    'error_code': 'missing_trading_credentials'
-                }), 400
-            
-            # Credential model properties auto-decrypt values
-            trading_api_key = creds.trading_api_key
-            trading_api_secret = creds.trading_api_secret
-            if not trading_api_key or not trading_api_secret:
-                return jsonify({
-                    'success': False,
-                    'error': 'No Binance.US trading credentials configured',
-                    'error_code': 'missing_trading_credentials'
-                }), 400
-            
-            from binance.client import Client
-            client = Client(
-                api_key=trading_api_key,
-                api_secret=trading_api_secret,
-                testnet=False,
-                tld='us'
-            )
-            
-            try:
-                open_orders = client.get_open_orders()
-            except Exception as api_err:
-                err_msg = str(api_err)
-                logger.error(f"Error fetching open orders from Binance: {err_msg}")
-                if "API-key" in err_msg or "Invalid Api-Key" in err_msg or "invalid api-key" in err_msg.lower():
-                    return jsonify({
-                        'success': False,
-                        'error': 'Invalid Binance API credentials',
-                        'error_code': 'invalid_trading_credentials'
-                    }), 400
-                return jsonify({
-                    'success': False,
-                    'error': f'Failed to fetch open orders: {err_msg}'
-                }), 502
-            
-            return jsonify({
-                'success': True,
-                'orders': open_orders
-            })
+            if creds and creds.trading_api_key and creds.trading_api_secret:
+                from binance.client import Client
+                client = Client(
+                    api_key=creds.trading_api_key,
+                    api_secret=creds.trading_api_secret,
+                    testnet=False,
+                    tld='us'
+                )
+                try:
+                    open_orders = client.get_open_orders() or []
+                except Exception as api_err:
+                    err_msg = str(api_err)
+                    logger.error(f"Error fetching open orders from Binance: {err_msg}")
+                    # If Binance fails, we log and still return in-app auto triggers
+                    open_orders = []
+
+        # Collect active in-app Auto-Buy and Auto-Sell triggers
+        auto_triggers = []
+        user_portfolio_coins = Coin.query.filter_by(user_id=current_user.id).all()
+        user_watchlist_coins = WatchlistCoin.query.filter_by(user_id=current_user.id).all()
+
+        for c in user_portfolio_coins:
+            if getattr(c, 'auto_buy_enabled', False):
+                quote = (getattr(c, 'auto_buy_quote_currency', None) or 'USDT').upper()
+                pair_sym = f"{c.symbol}{quote}"
+                vol = c.auto_buy_volatility_pct or c.volatility_pct or 0
+                amt = float(getattr(c, 'auto_buy_amount', 0.0) or 0.0)
+                auto_triggers.append({
+                    'id': f"autobuy-portfolio-{c.id}",
+                    'orderId': f"autobuy-portfolio-{c.id}",
+                    'order_id': f"autobuy-portfolio-{c.id}",
+                    'symbol': pair_sym,
+                    'base_symbol': c.symbol,
+                    'side': 'AUTO_BUY',
+                    'type': 'AUTO_BUY',
+                    'order_type': 'AUTO_BUY',
+                    'origQty': amt,
+                    'quantity': amt,
+                    'price': None,
+                    'executedQty': 0,
+                    'filled_quantity': 0,
+                    'status': 'ACTIVE',
+                    'time': int(time.time() * 1000),
+                    'created_at': getattr(c, 'auto_buy_triggered_at', None) or datetime.utcnow().isoformat(),
+                    'is_auto_trigger': True,
+                    'trigger_type': 'auto_buy',
+                    'table_type': 'portfolio',
+                    'trigger_details': f"+{vol}% surge trigger (${amt:.2f} {quote})"
+                })
+            if getattr(c, 'auto_sell_enabled', False):
+                quote = (getattr(c, 'auto_sell_quote_currency', None) or 'USDT').upper()
+                pair_sym = f"{c.symbol}{quote}"
+                vol = c.auto_sell_volatility_pct or c.volatility_pct or 0
+                amt = float(getattr(c, 'amount', 0.0) or getattr(c, 'auto_sell_amount', 0.0) or 0.0)
+                auto_triggers.append({
+                    'id': f"autosell-portfolio-{c.id}",
+                    'orderId': f"autosell-portfolio-{c.id}",
+                    'order_id': f"autosell-portfolio-{c.id}",
+                    'symbol': pair_sym,
+                    'base_symbol': c.symbol,
+                    'side': 'AUTO_SELL',
+                    'type': 'AUTO_SELL',
+                    'order_type': 'AUTO_SELL',
+                    'origQty': amt,
+                    'quantity': amt,
+                    'price': None,
+                    'executedQty': 0,
+                    'filled_quantity': 0,
+                    'status': 'ACTIVE',
+                    'time': int(time.time() * 1000),
+                    'created_at': getattr(c, 'auto_sell_triggered_at', None) or datetime.utcnow().isoformat(),
+                    'is_auto_trigger': True,
+                    'trigger_type': 'auto_sell',
+                    'table_type': 'portfolio',
+                    'trigger_details': f"-{vol}% drop trigger"
+                })
+
+        for w in user_watchlist_coins:
+            if getattr(w, 'auto_buy_enabled', False):
+                quote = (getattr(w, 'auto_buy_quote_currency', None) or 'USDT').upper()
+                pair_sym = f"{w.symbol}{quote}"
+                vol = w.auto_buy_volatility_pct or w.volatility_pct or 0
+                amt = float(getattr(w, 'auto_buy_amount', 0.0) or 0.0)
+                auto_triggers.append({
+                    'id': f"autobuy-watchlist-{w.id}",
+                    'orderId': f"autobuy-watchlist-{w.id}",
+                    'order_id': f"autobuy-watchlist-{w.id}",
+                    'symbol': pair_sym,
+                    'base_symbol': w.symbol,
+                    'side': 'AUTO_BUY',
+                    'type': 'AUTO_BUY',
+                    'order_type': 'AUTO_BUY',
+                    'origQty': amt,
+                    'quantity': amt,
+                    'price': None,
+                    'executedQty': 0,
+                    'filled_quantity': 0,
+                    'status': 'ACTIVE',
+                    'time': int(time.time() * 1000),
+                    'created_at': getattr(w, 'auto_buy_triggered_at', None) or datetime.utcnow().isoformat(),
+                    'is_auto_trigger': True,
+                    'trigger_type': 'auto_buy',
+                    'table_type': 'watchlist',
+                    'trigger_details': f"+{vol}% surge trigger (${amt:.2f} {quote})"
+                })
+            if getattr(w, 'auto_sell_enabled', False):
+                quote = (getattr(w, 'auto_sell_quote_currency', None) or 'USDT').upper()
+                pair_sym = f"{w.symbol}{quote}"
+                vol = w.auto_sell_volatility_pct or w.volatility_pct or 0
+                auto_triggers.append({
+                    'id': f"autosell-watchlist-{w.id}",
+                    'orderId': f"autosell-watchlist-{w.id}",
+                    'order_id': f"autosell-watchlist-{w.id}",
+                    'symbol': pair_sym,
+                    'base_symbol': w.symbol,
+                    'side': 'AUTO_SELL',
+                    'type': 'AUTO_SELL',
+                    'order_type': 'AUTO_SELL',
+                    'origQty': 0.0,
+                    'quantity': 0.0,
+                    'price': None,
+                    'executedQty': 0,
+                    'filled_quantity': 0,
+                    'status': 'ACTIVE',
+                    'time': int(time.time() * 1000),
+                    'created_at': getattr(w, 'auto_sell_triggered_at', None) or datetime.utcnow().isoformat(),
+                    'is_auto_trigger': True,
+                    'trigger_type': 'auto_sell',
+                    'table_type': 'watchlist',
+                    'trigger_details': f"-{vol}% drop trigger"
+                })
+
+        combined_orders = list(open_orders) + auto_triggers
+        return jsonify({
+            'success': True,
+            'orders': combined_orders
+        })
         
     except Exception as e:
         logger.error(f"Error fetching open orders: {e}")
@@ -4473,14 +4562,26 @@ def api_delete_coin():
 def api_watchlist():
     wl = WatchlistCoin.query.filter_by(user_id=current_user.id, hidden=False).all()
     news_cache = get_user_latest_news_cache(current_user.id)
+    try:
+        from routes.market import _get_binance_24h_tickers
+        ticker_map = _get_binance_24h_tickers()
+    except Exception:
+        ticker_map = {}
     
     # Use stored current prices for instant response
     watchlist_data = []
     for w in wl:
         current_price = w.current_price or 0.0
-        w_news = news_cache.get(w.id) or news_cache.get((w.symbol or '').upper()) or {}
+        w_sym = (w.symbol or '').upper()
+        w_news = news_cache.get(w.id) or news_cache.get(w_sym) or {}
+        ticker_info = ticker_map.get(f"{w_sym}USDT") or ticker_map.get(f"{w_sym}USD") or {}
+        high_24h = float(ticker_info['highPrice']) if ticker_info.get('highPrice') else None
+        low_24h = float(ticker_info['lowPrice']) if ticker_info.get('lowPrice') else None
+        volume_24h = float(ticker_info.get('quoteVolume') or ticker_info.get('volume') or 0.0) if (ticker_info.get('quoteVolume') or ticker_info.get('volume')) else None
+        change_24h = float(ticker_info['priceChangePercent']) if ticker_info.get('priceChangePercent') else None
         
         watchlist_data.append({
+            "id": w.id,
             "symbol": w.symbol,
             "alert_enabled": w.alert_enabled,
             "down_val": w.down_alert,
@@ -4490,6 +4591,10 @@ def api_watchlist():
             "hidden": w.hidden,
             "action": "Watch",  # Simplified to avoid database locks
             "current_price": current_price,
+            "high_24h": high_24h,
+            "low_24h": low_24h,
+            "volume_24h": volume_24h,
+            "change_24h": change_24h,
             "sentiment": w.sentiment or "Watch",
             "sentiment_reason": getattr(w, 'sentiment_reason', "") or "",
             "sentiment_last_updated": w.sentiment_last_updated.isoformat() if getattr(w, 'sentiment_last_updated', None) else None,
@@ -4519,6 +4624,11 @@ def api_watchlist_live():
     """Live watchlist data for background refresh"""
     wl = WatchlistCoin.query.filter_by(user_id=current_user.id, hidden=False).all()
     news_cache = get_user_latest_news_cache(current_user.id)
+    try:
+        from routes.market import _get_binance_24h_tickers
+        ticker_map = _get_binance_24h_tickers()
+    except Exception:
+        ticker_map = {}
     
     # Fetch current prices for all watchlist items
     watchlist_data = []
@@ -4531,7 +4641,14 @@ def api_watchlist_live():
             logger.error(f"Failed to fetch price for {w.symbol}: {e}")
             current_price = w.current_price or 0.0
         
-        w_news = news_cache.get(w.id) or news_cache.get((w.symbol or '').upper()) or {}
+        w_sym = (w.symbol or '').upper()
+        w_news = news_cache.get(w.id) or news_cache.get(w_sym) or {}
+        ticker_info = ticker_map.get(f"{w_sym}USDT") or ticker_map.get(f"{w_sym}USD") or {}
+        high_24h = float(ticker_info['highPrice']) if ticker_info.get('highPrice') else None
+        low_24h = float(ticker_info['lowPrice']) if ticker_info.get('lowPrice') else None
+        volume_24h = float(ticker_info.get('quoteVolume') or ticker_info.get('volume') or 0.0) if (ticker_info.get('quoteVolume') or ticker_info.get('volume')) else None
+        change_24h = float(ticker_info['priceChangePercent']) if ticker_info.get('priceChangePercent') else None
+
         watchlist_data.append({
             "id": w.id,
             "symbol": w.symbol,
@@ -4543,6 +4660,10 @@ def api_watchlist_live():
             "hidden": w.hidden,
             "action": "Watch",
             "current_price": current_price,
+            "high_24h": high_24h,
+            "low_24h": low_24h,
+            "volume_24h": volume_24h,
+            "change_24h": change_24h,
             "sentiment": w.sentiment or "Watch",
             "sentiment_reason": getattr(w, 'sentiment_reason', "") or "",
             "sentiment_last_updated": w.sentiment_last_updated.isoformat() if getattr(w, 'sentiment_last_updated', None) else None,

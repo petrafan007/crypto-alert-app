@@ -3070,20 +3070,56 @@ body.light-mode *[style*="color:'#666'"] {
 }
 
 /* Pending/open order highlight - ENTIRE ROW YELLOW WITH BLACK TEXT */
-.table-container.portfolio-table tr.pending-order,
-.table-container.portfolio-table tbody tr.pending-order,
-.table-container.portfolio-table tr.pending-order td,
-.table-container.portfolio-table tbody tr.pending-order td,
-.table-container.portfolio-table tr.pending-order .symbol-cell,
-.table-container.portfolio-table tbody tr.pending-order .symbol-cell {
+.table-container tr.pending-order,
+.table-container tbody tr.pending-order,
+.table-container tr.pending-order td,
+.table-container tbody tr.pending-order td,
+.table-container tr.pending-order .symbol-cell,
+.table-container tbody tr.pending-order .symbol-cell {
   background: rgba(255, 215, 0, 0.5) !important;
   background-color: rgba(255, 215, 0, 0.5) !important;
   color: #000 !important;
 }
 
+/* Auto-Buy Surge Trigger Active - Electric Violet Highlight */
+.table-container tr.auto-buy-active,
+.table-container tbody tr.auto-buy-active,
+.table-container tr.auto-buy-active td,
+.table-container tbody tr.auto-buy-active td,
+.table-container tr.auto-buy-active .symbol-cell,
+.table-container tbody tr.auto-buy-active .symbol-cell {
+  background: rgba(168, 85, 247, 0.28) !important;
+  background-color: rgba(168, 85, 247, 0.28) !important;
+  color: #f1f5f9 !important;
+}
+
+/* Auto-Sell Drop Trigger Active - Electric Magenta Highlight */
+.table-container tr.auto-sell-active,
+.table-container tbody tr.auto-sell-active,
+.table-container tr.auto-sell-active td,
+.table-container tbody tr.auto-sell-active td,
+.table-container tr.auto-sell-active .symbol-cell,
+.table-container tbody tr.auto-sell-active .symbol-cell {
+  background: rgba(217, 70, 239, 0.28) !important;
+  background-color: rgba(217, 70, 239, 0.28) !important;
+  color: #f1f5f9 !important;
+}
+
+/* Both Auto-Buy and Auto-Sell Active - Electric Violet to Magenta Gradient Highlight */
+.table-container tr.auto-both-active,
+.table-container tbody tr.auto-both-active,
+.table-container tr.auto-both-active td,
+.table-container tbody tr.auto-both-active td,
+.table-container tr.auto-both-active .symbol-cell,
+.table-container tbody tr.auto-both-active .symbol-cell {
+  background: linear-gradient(90deg, rgba(168, 85, 247, 0.32) 0%, rgba(217, 70, 239, 0.32) 100%) !important;
+  background-color: rgba(168, 85, 247, 0.32) !important;
+  color: #f1f5f9 !important;
+}
+
 /* Sentiment contrast protection on pending-order highlighted rows */
-.table-container.portfolio-table tr.pending-order .sentiment-pill-wrapper.pending-highlight-sentiment,
-.table-container.portfolio-table tbody tr.pending-order .sentiment-pill-wrapper.pending-highlight-sentiment {
+.table-container tr.pending-order .sentiment-pill-wrapper.pending-highlight-sentiment,
+.table-container tbody tr.pending-order .sentiment-pill-wrapper.pending-highlight-sentiment {
   background: rgba(15, 23, 42, 0.95) !important;
   border: 1px solid rgba(0, 0, 0, 0.4) !important;
   border-radius: 6px !important;
@@ -3091,8 +3127,8 @@ body.light-mode *[style*="color:'#666'"] {
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35) !important;
 }
 
-.table-container.portfolio-table tr.pending-order .sentiment-pill-wrapper.pending-highlight-sentiment span,
-.table-container.portfolio-table tbody tr.pending-order .sentiment-pill-wrapper.pending-highlight-sentiment span {
+.table-container tr.pending-order .sentiment-pill-wrapper.pending-highlight-sentiment span,
+.table-container tbody tr.pending-order .sentiment-pill-wrapper.pending-highlight-sentiment span {
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6) !important;
 }
 
@@ -3101,7 +3137,6 @@ body.light-mode *[style*="color:'#666'"] {
   display: table !important;
   width: 100% !important;
   border-collapse: collapse !important;
-  table-layout: auto !important;
 }
 
 .table-container.portfolio-table thead {
@@ -3151,28 +3186,97 @@ body.light-mode *[style*="color:'#666'"] {
   display: inline-block;
 }
 
-/* Dark mode - yellow background with BLACK text */
-body.dark-mode .table-container.portfolio-table tr.pending-order,
-body.dark-mode .table-container.portfolio-table tbody tr.pending-order,
-body.dark-mode .table-container.portfolio-table tr.pending-order td,
-body.dark-mode .table-container.portfolio-table tbody tr.pending-order td,
-body.dark-mode .table-container.portfolio-table tr.pending-order .symbol-cell,
-body.dark-mode .table-container.portfolio-table tbody tr.pending-order .symbol-cell {
+/* Dark mode overrides */
+body.dark-mode .table-container tr.pending-order,
+body.dark-mode .table-container tbody tr.pending-order,
+body.dark-mode .table-container tr.pending-order td,
+body.dark-mode .table-container tbody tr.pending-order td,
+body.dark-mode .table-container tr.pending-order .symbol-cell,
+body.dark-mode .table-container tbody tr.pending-order .symbol-cell {
   background: rgba(255, 215, 0, 0.6) !important;
   background-color: rgba(255, 215, 0, 0.6) !important;
   color: #000 !important;
 }
 
-/* Light mode - yellow background with BLACK text */
-body.light-mode .table-container.portfolio-table tr.pending-order,
-body.light-mode .table-container.portfolio-table tbody tr.pending-order,
-body.light-mode .table-container.portfolio-table tr.pending-order td,
-body.light-mode .table-container.portfolio-table tbody tr.pending-order td,
-body.light-mode .table-container.portfolio-table tr.pending-order .symbol-cell,
-body.light-mode .table-container.portfolio-table tbody tr.pending-order .symbol-cell {
+body.dark-mode .table-container tr.auto-buy-active,
+body.dark-mode .table-container tbody tr.auto-buy-active,
+body.dark-mode .table-container tr.auto-buy-active td,
+body.dark-mode .table-container tbody tr.auto-buy-active td,
+body.dark-mode .table-container tr.auto-buy-active .symbol-cell,
+body.dark-mode .table-container tbody tr.auto-buy-active .symbol-cell {
+  background: rgba(168, 85, 247, 0.32) !important;
+  background-color: rgba(168, 85, 247, 0.32) !important;
+  color: #ffffff !important;
+}
+
+body.dark-mode .table-container tr.auto-sell-active,
+body.dark-mode .table-container tbody tr.auto-sell-active,
+body.dark-mode .table-container tr.auto-sell-active td,
+body.dark-mode .table-container tbody tr.auto-sell-active td,
+body.dark-mode .table-container tr.auto-sell-active .symbol-cell,
+body.dark-mode .table-container tbody tr.auto-sell-active .symbol-cell {
+  background: rgba(217, 70, 239, 0.32) !important;
+  background-color: rgba(217, 70, 239, 0.32) !important;
+  color: #ffffff !important;
+}
+
+body.dark-mode .table-container tr.auto-both-active,
+body.dark-mode .table-container tbody tr.auto-both-active,
+body.dark-mode .table-container tr.auto-both-active td,
+body.dark-mode .table-container tbody tr.auto-both-active td,
+body.dark-mode .table-container tr.auto-both-active .symbol-cell,
+body.dark-mode .table-container tbody tr.auto-both-active .symbol-cell {
+  background: linear-gradient(90deg, rgba(168, 85, 247, 0.35) 0%, rgba(217, 70, 239, 0.35) 100%) !important;
+  background-color: rgba(168, 85, 247, 0.35) !important;
+  color: #ffffff !important;
+}
+
+/* Light mode overrides */
+body.light-mode .table-container tr.pending-order,
+body.light-mode .table-container tbody tr.pending-order,
+body.light-mode .table-container tr.pending-order td,
+body.light-mode .table-container tbody tr.pending-order td,
+body.light-mode .table-container tr.pending-order .symbol-cell,
+body.light-mode .table-container tbody tr.pending-order .symbol-cell {
   background: rgba(255, 215, 0, 0.5) !important;
   background-color: rgba(255, 215, 0, 0.5) !important;
   color: #000 !important;
+}
+
+body.light-mode .table-container tr.auto-buy-active,
+body.light-mode .table-container tbody tr.auto-buy-active,
+body.light-mode .table-container tr.auto-buy-active td,
+body.light-mode .table-container tbody tr.auto-buy-active td,
+body.light-mode .table-container tr.auto-buy-active .symbol-cell,
+body.light-mode .table-container tbody tr.auto-buy-active .symbol-cell {
+  background: rgba(168, 85, 247, 0.22) !important;
+  background-color: rgba(168, 85, 247, 0.22) !important;
+  color: #1e1b4b !important;
+  font-weight: 500;
+}
+
+body.light-mode .table-container tr.auto-sell-active,
+body.light-mode .table-container tbody tr.auto-sell-active,
+body.light-mode .table-container tr.auto-sell-active td,
+body.light-mode .table-container tbody tr.auto-sell-active td,
+body.light-mode .table-container tr.auto-sell-active .symbol-cell,
+body.light-mode .table-container tbody tr.auto-sell-active .symbol-cell {
+  background: rgba(217, 70, 239, 0.22) !important;
+  background-color: rgba(217, 70, 239, 0.22) !important;
+  color: #4a044e !important;
+  font-weight: 500;
+}
+
+body.light-mode .table-container tr.auto-both-active,
+body.light-mode .table-container tbody tr.auto-both-active,
+body.light-mode .table-container tr.auto-both-active td,
+body.light-mode .table-container tbody tr.auto-both-active td,
+body.light-mode .table-container tr.auto-both-active .symbol-cell,
+body.light-mode .table-container tbody tr.auto-both-active .symbol-cell {
+  background: linear-gradient(90deg, rgba(168, 85, 247, 0.24) 0%, rgba(217, 70, 239, 0.24) 100%) !important;
+  background-color: rgba(168, 85, 247, 0.24) !important;
+  color: #3b0764 !important;
+  font-weight: 500;
 }
 
 /* Mobile Dashboard Tabs - hidden on desktop */

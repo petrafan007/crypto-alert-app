@@ -18,6 +18,34 @@ from services.price_history_service import (
 from flask import Blueprint
 market_bp = Blueprint('market', __name__)
 
+_ticker_24h_cache = {
+    "timestamp": 0,
+    "data": {}
+}
+
+def _get_binance_24h_tickers():
+    global _ticker_24h_cache
+    now = time.time()
+    if now - _ticker_24h_cache["timestamp"] < 15 and _ticker_24h_cache["data"]:
+        return _ticker_24h_cache["data"]
+
+    try:
+        from binance.client import Client
+        client = Client(tld='us')
+        tickers = client.get_ticker() or []
+        res = {}
+        for t in tickers:
+            if isinstance(t, dict) and 'symbol' in t:
+                res[t['symbol']] = t
+        _ticker_24h_cache = {
+            "timestamp": now,
+            "data": res
+        }
+        return res
+    except Exception as e:
+        logger.error(f"Error fetching 24h tickers from Binance: {e}")
+        return _ticker_24h_cache.get("data", {})
+
 
 @market_bp.route("/api/pionex-price")
 @login_required
@@ -133,6 +161,7 @@ def api_coin_data_live():
                 return 0.0
 
         news_cache = get_user_latest_news_cache(current_user.id)
+        ticker_map = _get_binance_24h_tickers()
 
         for coin in coins:
             try:
@@ -180,6 +209,12 @@ def api_coin_data_live():
                 sentiment = get_coin_sentiment(symbol, coin, current_price, current_user.username)
                 coin_news = news_cache.get(coin.id) or news_cache.get(symbol) or {}
 
+                ticker_info = ticker_map.get(f"{symbol}USDT") or ticker_map.get(f"{symbol}USD") or {}
+                high_24h = float(ticker_info['highPrice']) if ticker_info.get('highPrice') else None
+                low_24h = float(ticker_info['lowPrice']) if ticker_info.get('lowPrice') else None
+                volume_24h = float(ticker_info.get('quoteVolume') or ticker_info.get('volume') or 0.0) if (ticker_info.get('quoteVolume') or ticker_info.get('volume')) else None
+                change_24h = float(ticker_info['priceChangePercent']) if ticker_info.get('priceChangePercent') else None
+
                 logger.error(f"[LIVE] {symbol} included in portfolio response")
                 portfolio.append({
                     "id": coin.id,
@@ -192,6 +227,10 @@ def api_coin_data_live():
                     "current_price": current_price,
                     "current_value": current_value,
                     "pct_change": pct_change,
+                    "high_24h": high_24h,
+                    "low_24h": low_24h,
+                    "volume_24h": volume_24h,
+                    "change_24h": change_24h,
                     "sentiment": sentiment,
                     "sentiment_reason": getattr(coin, 'sentiment_reason', "") or "",
                     "alert_enabled": coin.alert_enabled,
@@ -314,6 +353,7 @@ def api_coin_data():
                 return 0.0
 
         news_cache = get_user_latest_news_cache(current_user.id)
+        ticker_map = _get_binance_24h_tickers()
 
         for coin in coins:
             try:
@@ -347,6 +387,12 @@ def api_coin_data():
                 purchase_date = coin.purchase_date
                 coin_news = news_cache.get(coin.id) or news_cache.get(symbol) or {}
 
+                ticker_info = ticker_map.get(f"{symbol}USDT") or ticker_map.get(f"{symbol}USD") or {}
+                high_24h = float(ticker_info['highPrice']) if ticker_info.get('highPrice') else None
+                low_24h = float(ticker_info['lowPrice']) if ticker_info.get('lowPrice') else None
+                volume_24h = float(ticker_info.get('quoteVolume') or ticker_info.get('volume') or 0.0) if (ticker_info.get('quoteVolume') or ticker_info.get('volume')) else None
+                change_24h = float(ticker_info['priceChangePercent']) if ticker_info.get('priceChangePercent') else None
+
                 # logger.error(f"[DEBUG] {symbol} included in portfolio response")
                 portfolio.append({
                     "id": coin.id,
@@ -360,6 +406,10 @@ def api_coin_data():
                     "cost_basis": cost_basis,
                     "current_value": round(current_value, 6),
                     "pct_change": pct_change,
+                    "high_24h": high_24h,
+                    "low_24h": low_24h,
+                    "volume_24h": volume_24h,
+                    "change_24h": change_24h,
                     "custom_lower_pct": coin.custom_lower_pct,
                     "custom_upper_pct": coin.custom_upper_pct,
                     "custom_lower_type": coin.custom_lower_type or "#",

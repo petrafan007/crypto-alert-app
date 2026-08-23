@@ -30,8 +30,6 @@ const TradingChart = ({ symbol, onSymbolChange, tradingPairs = [], filterCoin = 
   const bbLowerRef = useRef(null);
   const buyMarkersRef = useRef([]);
   const sellMarkersRef = useRef([]);
-  const buyMarkerSeriesRef = useRef(null);
-  const sellMarkerSeriesRef = useRef(null);
 
   // Separate chart for RSI, MACD, Stochastic, ATR
   const indicatorContainerRef = useRef(null);
@@ -505,8 +503,8 @@ const TradingChart = ({ symbol, onSymbolChange, tradingPairs = [], filterCoin = 
           fixLeftEdge: false,
           fixRightEdge: false,
           borderVisible: true,
-          rightOffset: 6,
-          barSpacing: 7,
+          rightOffset: 3,
+          barSpacing: 9,
           minBarSpacing: 3,
         },
         handleScroll: {
@@ -527,19 +525,7 @@ const TradingChart = ({ symbol, onSymbolChange, tradingPairs = [], filterCoin = 
         visible: true,
       });
 
-      const markerSeriesOptions = {
-        lineColor: 'rgba(0, 0, 0, 0)',
-        lineWidth: 1,
-        crosshairMarkerVisible: false,
-        priceLineVisible: false,
-        lastValueVisible: false,
-        autoscaleInfoProvider: () => null,
-      };
-      
-      buyMarkerSeriesRef.current = chartRef.current.addLineSeries(markerSeriesOptions);
-      sellMarkerSeriesRef.current = chartRef.current.addLineSeries(markerSeriesOptions);
-
-      // Add volume series with better styling
+      // Add volume series with stable bottom anchoring
       volumeSeriesRef.current = chartRef.current.addHistogramSeries({
         color: '#667eea',
         priceFormat: {
@@ -549,11 +535,27 @@ const TradingChart = ({ symbol, onSymbolChange, tradingPairs = [], filterCoin = 
         lastValueVisible: false,
         priceLineVisible: false,
         baseLineVisible: false,
+        autoscaleInfoProvider: (original) => {
+          const res = original();
+          if (res !== null && res.priceRange !== null) {
+            return {
+              priceRange: {
+                minValue: 0,
+                maxValue: Math.max(1, res.priceRange.maxValue * 4),
+              },
+              margins: {
+                above: 0,
+                below: 0,
+              },
+            };
+          }
+          return res;
+        },
       });
 
       chartRef.current.priceScale('volume').applyOptions({
         scaleMargins: {
-          top: 0.8,
+          top: 0.75,
           bottom: 0,
         },
         visible: false,
@@ -702,33 +704,33 @@ const TradingChart = ({ symbol, onSymbolChange, tradingPairs = [], filterCoin = 
       chartRef.current.subscribeCrosshairMove(handleCrosshairMove);
       crosshairMoveHandlerRef.current = handleCrosshairMove;
 
-      const MAX_RENDER_CANDLES = 360;
       if (klines.length > 0 && candlestickSeriesRef.current) {
-        const initialSlice = klines.slice(-MAX_RENDER_CANDLES);
-        const initialCandleData = initialSlice.map(({ time, open, high, low, close }) => ({
+        const candleData = klines.map(({ time, open, high, low, close }) => ({
           time,
           open,
           high,
           low,
           close,
         }));
-        candlestickSeriesRef.current.setData(initialCandleData);
+        candlestickSeriesRef.current.setData(candleData);
 
         if (indicators.volume && volumeSeriesRef.current) {
-          const initialVolumeData = initialSlice.map(k => ({
+          const volumeData = klines.map(k => ({
             time: k.time,
             value: Number.isFinite(k.volume) ? k.volume : 0,
             color: k.close >= k.open ? 'rgba(34, 197, 94, 0.5)' : 'rgba(239, 68, 68, 0.5)'
           }));
-          volumeSeriesRef.current.setData(initialVolumeData);
+          volumeSeriesRef.current.setData(volumeData);
+          volumeSeriesRef.current.applyOptions({ visible: true });
         }
 
-        chartRef.current.timeScale().fitContent();
-        chartRef.current.timeScale().applyOptions({
-          rightOffset: 12,
-          barSpacing: 12,
-          minBarSpacing: 6,
-        });
+        const totalBars = klines.length;
+        if (totalBars > 0) {
+          chartRef.current.timeScale().setVisibleLogicalRange({
+            from: Math.max(0, totalBars - 90),
+            to: totalBars + 2
+          });
+        }
       }
 
       // Handle resize so the chart always fills its container
@@ -758,23 +760,6 @@ const TradingChart = ({ symbol, onSymbolChange, tradingPairs = [], filterCoin = 
       handleResize();
 
       console.log('Chart initialized successfully!');
-
-      // Set initial data
-      candlestickSeriesRef.current.setData(klines);
-
-      // Set volume data if enabled
-      if (indicators.volume && volumeSeriesRef.current) {
-        const volumeData = klines.map(k => ({
-          time: k.time,
-          value: k.volume,
-          color: k.close >= k.open ? 'rgba(34, 197, 94, 0.5)' : 'rgba(239, 68, 68, 0.5)'
-        }));
-        volumeSeriesRef.current.setData(volumeData);
-      }
-
-      // Fit content
-      chartRef.current.timeScale().fitContent();
-
     } catch (error) {
       console.error('Failed to create chart:', error);
     }
@@ -890,13 +875,7 @@ const TradingChart = ({ symbol, onSymbolChange, tradingPairs = [], filterCoin = 
       return;
     }
 
-    console.log('First candle sample:', klines[0], 'Last candle sample:', klines[klines.length - 1]);
-    console.table(klines.slice(0, 5));
-
-    const MAX_RENDER_CANDLES = 360;
-    const renderSlice = klines.slice(-MAX_RENDER_CANDLES);
-
-    const candlestickData = renderSlice.map(({ time, open, high, low, close }) => ({
+    const candlestickData = klines.map(({ time, open, high, low, close }) => ({
       time,
       open,
       high,
@@ -904,13 +883,13 @@ const TradingChart = ({ symbol, onSymbolChange, tradingPairs = [], filterCoin = 
       close,
     }));
 
-    // Update candlestick data with explicit candle objects
+    // Update candlestick data with all candles
     candlestickSeriesRef.current.setData(candlestickData);
 
     // Update volume data
     if (volumeSeriesRef.current) {
       if (indicators.volume) {
-        const volumeData = renderSlice.map(k => ({
+        const volumeData = klines.map(k => ({
           time: k.time,
           value: Number.isFinite(k.volume) ? k.volume : 0,
           color: k.close >= k.open ? 'rgba(34, 197, 94, 0.5)' : 'rgba(239, 68, 68, 0.5)'
@@ -925,13 +904,18 @@ const TradingChart = ({ symbol, onSymbolChange, tradingPairs = [], filterCoin = 
       }
     }
 
-    // Fit content to show all data without leaving blank gutters
-    chartRef.current.timeScale().fitContent();
-    chartRef.current.timeScale().applyOptions({
-      rightOffset: 12,
-      barSpacing: 12,
-      minBarSpacing: 6,
-    });
+    const totalBars = klines.length;
+    if (totalBars > 0) {
+      chartRef.current.timeScale().applyOptions({
+        rightOffset: 3,
+        barSpacing: 9,
+        minBarSpacing: 3,
+      });
+      chartRef.current.timeScale().setVisibleLogicalRange({
+        from: Math.max(0, totalBars - 90),
+        to: totalBars + 2
+      });
+    }
   }, [klines, indicators.volume]);
 
   // Update indicators when toggled
@@ -1194,16 +1178,12 @@ const TradingChart = ({ symbol, onSymbolChange, tradingPairs = [], filterCoin = 
 
   // Add buy/sell markers
   useEffect(() => {
-    if (!candlestickSeriesRef.current || !buyMarkerSeriesRef.current || !sellMarkerSeriesRef.current) {
+    if (!candlestickSeriesRef.current) {
       return;
     }
 
     if (!transactions || transactions.length === 0 || klines.length === 0) {
       candlestickSeriesRef.current.setMarkers([]);
-      buyMarkerSeriesRef.current.setData([]);
-      buyMarkerSeriesRef.current.setMarkers([]);
-      sellMarkerSeriesRef.current.setData([]);
-      sellMarkerSeriesRef.current.setMarkers([]);
       markerDataRef.current = {};
       if (markerTooltipRef.current) {
         markerTooltipRef.current.style.display = 'none';
@@ -1285,62 +1265,25 @@ const TradingChart = ({ symbol, onSymbolChange, tradingPairs = [], filterCoin = 
       });
     });
 
-    const buyData = [];
-    const sellData = [];
-    const buyMarkers = [];
-    const sellMarkers = [];
+    const allMarkers = [];
 
     // Create consolidated markers (max 2 per candle: 1 BUY, 1 SELL)
     Array.from(markersByTime.values()).forEach(({ type, mappedTime, transactions }) => {
-      let totalValue = 0;
-      let totalAmount = 0;
-      
-      transactions.forEach(tx => {
-        const qty = parseFloat(tx.amount || tx.quantity || 0);
-        const price = parseFloat(tx.price || tx.filled_price || 0);
-        totalAmount += qty;
-        totalValue += qty * price;
-      });
-      
-      let avgPrice = totalAmount > 0 ? totalValue / totalAmount : 0;
-      if (!avgPrice || avgPrice <= 0) {
-        const kline = klines.find(k => k.time === mappedTime);
-        avgPrice = kline ? kline.close : 0;
-      }
-      
-      if (avgPrice <= 0) return; // skip if invalid
-      
       const marker = {
         id: `${type}-${mappedTime}`,
         time: mappedTime,
-        position: 'inBar',
+        position: type === 'BUY' ? 'belowBar' : 'aboveBar',
         color: type === 'BUY' ? '#22c55e' : '#ef4444',
         shape: type === 'BUY' ? 'arrowUp' : 'arrowDown',
-        // NO TEXT AT ALL - tooltip is handled separately
+        size: 1.2,
       };
-
-      if (type === 'BUY') {
-        buyData.push({ time: mappedTime, value: avgPrice });
-        buyMarkers.push(marker);
-      } else {
-        sellData.push({ time: mappedTime, value: avgPrice });
-        sellMarkers.push(marker);
-      }
+      allMarkers.push(marker);
     });
 
     // sort data by time (required by lightweight-charts)
-    buyData.sort((a, b) => a.time - b.time);
-    buyMarkers.sort((a, b) => a.time - b.time);
-    sellData.sort((a, b) => a.time - b.time);
-    sellMarkers.sort((a, b) => a.time - b.time);
+    allMarkers.sort((a, b) => a.time - b.time);
 
-    buyMarkerSeriesRef.current.setData(buyData);
-    buyMarkerSeriesRef.current.setMarkers(buyMarkers);
-    
-    sellMarkerSeriesRef.current.setData(sellData);
-    sellMarkerSeriesRef.current.setMarkers(sellMarkers);
-
-    candlestickSeriesRef.current.setMarkers([]);
+    candlestickSeriesRef.current.setMarkers(allMarkers);
     markerDataRef.current = markerData;
   }, [transactions, klines, interval]);
 
