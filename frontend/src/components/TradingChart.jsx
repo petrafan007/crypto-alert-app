@@ -28,6 +28,8 @@ const TradingChart = ({ symbol, onSymbolChange, tradingPairs = [], filterCoin = 
   const bbUpperRef = useRef(null);
   const bbMiddleRef = useRef(null);
   const bbLowerRef = useRef(null);
+  const buyMarkerSeriesRef = useRef(null);
+  const sellMarkerSeriesRef = useRef(null);
   const buyMarkersRef = useRef([]);
   const sellMarkersRef = useRef([]);
 
@@ -525,6 +527,26 @@ const TradingChart = ({ symbol, onSymbolChange, tradingPairs = [], filterCoin = 
         visible: true,
       });
 
+      // Transparent line series for exact-price buy execution markers
+      buyMarkerSeriesRef.current = chartRef.current.addLineSeries({
+        color: 'rgba(0, 0, 0, 0)',
+        lineWidth: 0,
+        lastValueVisible: false,
+        priceLineVisible: false,
+        crosshairMarkerVisible: false,
+        autoscaleInfoProvider: () => null,
+      });
+
+      // Transparent line series for exact-price sell execution markers
+      sellMarkerSeriesRef.current = chartRef.current.addLineSeries({
+        color: 'rgba(0, 0, 0, 0)',
+        lineWidth: 0,
+        lastValueVisible: false,
+        priceLineVisible: false,
+        crosshairMarkerVisible: false,
+        autoscaleInfoProvider: () => null,
+      });
+
       // Add volume series with stable bottom anchoring
       volumeSeriesRef.current = chartRef.current.addHistogramSeries({
         color: '#667eea',
@@ -626,7 +648,7 @@ const TradingChart = ({ symbol, onSymbolChange, tradingPairs = [], filterCoin = 
 
         let tooltipContent = '';
         const firstEntry = txs[0];
-        const dateStr = new Date(firstEntry.originalTime * 1000).toLocaleDateString();
+        const dateStr = new Date(firstEntry.originalTime * 1000).toLocaleDateString('en-US', { timeZone: 'America/New_York' });
 
         if (typeHovered === 'BUY') {
           const totalBuyValue = txs.reduce((sum, tx) => sum + (tx.amount * tx.price || 0), 0);
@@ -688,7 +710,7 @@ const TradingChart = ({ symbol, onSymbolChange, tradingPairs = [], filterCoin = 
 
         if (txs.length > 0) {
           const firstEntry = txs[0];
-          const dateStr = new Date(firstEntry.originalTime * 1000).toLocaleDateString();
+          const dateStr = new Date(firstEntry.originalTime * 1000).toLocaleDateString('en-US', { timeZone: 'America/New_York' });
           setModalState({
             isOpen: true,
             transactions: txs,
@@ -1176,14 +1198,22 @@ const TradingChart = ({ symbol, onSymbolChange, tradingPairs = [], filterCoin = 
     }
   }, [klines, indicators.atr]);
 
-  // Add buy/sell markers
+  // Add buy/sell markers at exact execution prices
   useEffect(() => {
     if (!candlestickSeriesRef.current) {
       return;
     }
 
     if (!transactions || transactions.length === 0 || klines.length === 0) {
-      candlestickSeriesRef.current.setMarkers([]);
+      if (candlestickSeriesRef.current) candlestickSeriesRef.current.setMarkers([]);
+      if (buyMarkerSeriesRef.current) {
+        buyMarkerSeriesRef.current.setData([]);
+        buyMarkerSeriesRef.current.setMarkers([]);
+      }
+      if (sellMarkerSeriesRef.current) {
+        sellMarkerSeriesRef.current.setData([]);
+        sellMarkerSeriesRef.current.setMarkers([]);
+      }
       markerDataRef.current = {};
       if (markerTooltipRef.current) {
         markerTooltipRef.current.style.display = 'none';
@@ -1265,25 +1295,57 @@ const TradingChart = ({ symbol, onSymbolChange, tradingPairs = [], filterCoin = 
       });
     });
 
-    const allMarkers = [];
+    const buyPoints = [];
+    const buyMarkers = [];
+    const sellPoints = [];
+    const sellMarkers = [];
 
-    // Create consolidated markers (max 2 per candle: 1 BUY, 1 SELL)
-    Array.from(markersByTime.values()).forEach(({ type, mappedTime, transactions }) => {
-      const marker = {
-        id: `${type}-${mappedTime}`,
-        time: mappedTime,
-        position: type === 'BUY' ? 'belowBar' : 'aboveBar',
-        color: type === 'BUY' ? '#22c55e' : '#ef4444',
-        shape: type === 'BUY' ? 'arrowUp' : 'arrowDown',
-        size: 1.2,
-      };
-      allMarkers.push(marker);
+    // Create consolidated markers placed at the exact weighted average trade price
+    Array.from(markersByTime.values()).forEach(({ type, mappedTime, transactions: txList }) => {
+      const totalCost = txList.reduce((sum, tx) => sum + ((tx.amount || tx.quantity || 1) * (tx.price || 0)), 0);
+      const totalQty = txList.reduce((sum, tx) => sum + (tx.amount || tx.quantity || 1), 0);
+      const avgPrice = totalQty > 0 ? (totalCost / totalQty) : (txList[0]?.price || 0);
+
+      if (type === 'BUY') {
+        buyPoints.push({ time: mappedTime, value: avgPrice });
+        buyMarkers.push({
+          id: `BUY-${mappedTime}`,
+          time: mappedTime,
+          position: 'inBar',
+          color: '#22c55e',
+          shape: 'arrowUp',
+          size: 1.2,
+        });
+      } else {
+        sellPoints.push({ time: mappedTime, value: avgPrice });
+        sellMarkers.push({
+          id: `SELL-${mappedTime}`,
+          time: mappedTime,
+          position: 'inBar',
+          color: '#ef4444',
+          shape: 'arrowDown',
+          size: 1.2,
+        });
+      }
     });
 
-    // sort data by time (required by lightweight-charts)
-    allMarkers.sort((a, b) => a.time - b.time);
+    buyPoints.sort((a, b) => a.time - b.time);
+    buyMarkers.sort((a, b) => a.time - b.time);
+    sellPoints.sort((a, b) => a.time - b.time);
+    sellMarkers.sort((a, b) => a.time - b.time);
 
-    candlestickSeriesRef.current.setMarkers(allMarkers);
+    // Clear candlestick series markers to prevent snapping above/below candles
+    candlestickSeriesRef.current.setMarkers([]);
+
+    if (buyMarkerSeriesRef.current) {
+      buyMarkerSeriesRef.current.setData(buyPoints);
+      buyMarkerSeriesRef.current.setMarkers(buyMarkers);
+    }
+    if (sellMarkerSeriesRef.current) {
+      sellMarkerSeriesRef.current.setData(sellPoints);
+      sellMarkerSeriesRef.current.setMarkers(sellMarkers);
+    }
+
     markerDataRef.current = markerData;
   }, [transactions, klines, interval]);
 

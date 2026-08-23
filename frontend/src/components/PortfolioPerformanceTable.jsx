@@ -76,7 +76,7 @@ const PortfolioPerformanceTable = ({ hiddenCoins = [], onEdit }) => {
 
   return (
     <div className="dashboard-performance-widget widget-panel-inner">
-      <div className="performance-widget-header" style={{ marginBottom: '12px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+      <div className="performance-widget-header" style={{ marginBottom: '8px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <h3 className="chart-title" style={{ display: 'flex', alignItems: 'center', gap: '8px', margin: 0 }}>
           <GenericCoinIcon size={20} />
           <span>Coin Performance</span>
@@ -105,7 +105,7 @@ const PortfolioPerformanceTable = ({ hiddenCoins = [], onEdit }) => {
         )}
       </div>
 
-      <div className="performance-table-scroll" aria-live="polite">
+      <div className="performance-table-scroll custom-scrollbar" aria-live="polite">
         <table className="portfolio-performance-table">
           <thead>
             <tr>

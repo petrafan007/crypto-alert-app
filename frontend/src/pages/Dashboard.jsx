@@ -62,6 +62,7 @@ export const PORTFOLIO_COLUMN_DEFINITIONS = {
   volatility_pct: { label: 'Volatility %', required: false, sortable: true, defaultWidth: 120, description: 'Historical volatility' },
   avg_entry: { label: 'Avg Entry', required: false, sortable: true, defaultWidth: 110, description: 'Average buy price' },
   pct_change: { label: '% Change', required: false, sortable: true, defaultWidth: 110, description: 'Unrealized P&L %' },
+  change_24h: { label: '24h % Change', required: false, sortable: true, defaultWidth: 110, description: '24-hour price change %' },
   sentiment: { label: 'Sentiment', required: false, sortable: true, defaultWidth: 150, description: 'AI market sentiment' },
   high_low_24h: { label: '24h High / Low', required: false, sortable: false, defaultWidth: 140, description: '24-hour high and low range' },
   volume_24h: { label: '24h Volume ($)', required: false, sortable: false, defaultWidth: 130, description: '24-hour trading volume' },
@@ -108,6 +109,16 @@ function Dashboard({ isLightMode }) {
   const [portfolio, setPortfolio] = useState([]);
   const [watchlist, setWatchlist] = useState([]);
   const [loading, setLoading] = useState(true);
+
+  // Helper to preserve pending optimistic watchlist items across background poll intervals
+  const mergeWatchlistPreservingPending = (newList, prevList) => {
+    if (!Array.isArray(newList)) return prevList || [];
+    const newSymbols = new Set(newList.map(c => (c.symbol || '').toUpperCase()));
+    const pendingOptimistic = (prevList || []).filter(c => (c.id && String(c.id).startsWith('temp-')) && !newSymbols.has((c.symbol || '').toUpperCase()));
+    if (pendingOptimistic.length === 0) return newList;
+    return [...pendingOptimistic, ...newList];
+  };
+
   const [usdPairBases, setUsdPairBases] = useState(new Set());
   const [usdtPairBases, setUsdtPairBases] = useState(new Set());
   const [tradingPairsLoaded, setTradingPairsLoaded] = useState(false);
@@ -1243,7 +1254,7 @@ function Dashboard({ isLightMode }) {
               // Handle watchlist
               if (watchlistResponse.status === 'fulfilled') {
                 console.log('Watchlist response:', watchlistResponse.value.data);
-                setWatchlist(watchlistResponse.value.data || []);
+                setWatchlist(prev => mergeWatchlistPreservingPending(watchlistResponse.value.data || [], prev));
               }
 
               // Handle portfolio value
@@ -1287,7 +1298,7 @@ function Dashboard({ isLightMode }) {
 
           // Handle watchlist
           if (watchlistResponse.status === 'fulfilled') {
-            setWatchlist(watchlistResponse.value.data || []);
+            setWatchlist(prev => mergeWatchlistPreservingPending(watchlistResponse.value.data || [], prev));
           }
 
           // Handle portfolio value
@@ -1620,6 +1631,7 @@ function Dashboard({ isLightMode }) {
       'current_value',
       'avg_entry',
       'pct_change',
+      'change_24h',
       'volatility_pct',
       'high_low_24h',
       'volume_24h',
@@ -1657,6 +1669,9 @@ function Dashboard({ isLightMode }) {
       }
       if (key === 'pct_change') {
         return item.pct_change !== undefined && item.pct_change !== null ? Number(item.pct_change) : null;
+      }
+      if (key === 'change_24h') {
+        return item.change_24h !== undefined && item.change_24h !== null ? Number(item.change_24h) : null;
       }
       if (key === 'current_value') {
         return item.current_value !== undefined && item.current_value !== null ? Number(item.current_value) : null;
@@ -1962,7 +1977,7 @@ function Dashboard({ isLightMode }) {
 
           // Background refresh
           axios.get('/api/coin-data-live').then(r => r.data?.portfolio && setPortfolio(r.data.portfolio)).catch(() => {});
-          axios.get('/api/watchlist-live', { withCredentials: true }).then(r => Array.isArray(r.data) && setWatchlist(r.data)).catch(() => {});
+          axios.get('/api/watchlist-live', { withCredentials: true }).then(r => Array.isArray(r.data) && setWatchlist(prev => mergeWatchlistPreservingPending(r.data, prev))).catch(() => {});
           return { success: true };
         } else {
           setCancelModalState(prev => ({ ...prev, loading: false, error: response.data.error || 'Failed to cancel auto-buy trigger' }));
@@ -1984,7 +1999,7 @@ function Dashboard({ isLightMode }) {
 
           // Background refresh
           axios.get('/api/coin-data-live').then(r => r.data?.portfolio && setPortfolio(r.data.portfolio)).catch(() => {});
-          axios.get('/api/watchlist-live', { withCredentials: true }).then(r => Array.isArray(r.data) && setWatchlist(r.data)).catch(() => {});
+          axios.get('/api/watchlist-live', { withCredentials: true }).then(r => Array.isArray(r.data) && setWatchlist(prev => mergeWatchlistPreservingPending(r.data, prev))).catch(() => {});
           return { success: true };
         } else {
           setCancelModalState(prev => ({ ...prev, loading: false, error: response.data.error || 'Failed to cancel auto-sell trigger' }));
@@ -3139,9 +3154,9 @@ function Dashboard({ isLightMode }) {
                   || (attempts > 6 && found.sentiment !== 'Checking now...' && found.sentiment !== 'Watch');
                 
                 if (found.sentiment === 'Checking now...' || !isFinished) {
-                  setWatchlist(res.data.map(item => (item.symbol || '').toUpperCase() === cleanSymbol ? { ...item, sentiment: 'Checking now...' } : item));
+                  setWatchlist(prev => mergeWatchlistPreservingPending(res.data.map(item => (item.symbol || '').toUpperCase() === cleanSymbol ? { ...item, sentiment: 'Checking now...' } : item), prev));
                 } else {
-                  setWatchlist(res.data);
+                  setWatchlist(prev => mergeWatchlistPreservingPending(res.data, prev));
                   clearInterval(pollInterval);
                   setRefreshingSentiment(prev => {
                     const next = { ...prev };
@@ -3186,7 +3201,7 @@ function Dashboard({ isLightMode }) {
           });
           // Final fetch
           if (isWatchlist) {
-            axios.get('/api/watchlist-live', { withCredentials: true }).then(r => r.data && setWatchlist(r.data)).catch(() => {});
+            axios.get('/api/watchlist-live', { withCredentials: true }).then(r => r.data && setWatchlist(prev => mergeWatchlistPreservingPending(r.data, prev))).catch(() => {});
           } else {
             axios.get('/api/coin-data-live').then(r => r.data?.portfolio && setPortfolio(r.data.portfolio)).catch(() => {});
           }
@@ -3825,6 +3840,23 @@ function Dashboard({ isLightMode }) {
                                   }}
                                 >
                                   {isStable ? '—' : (coin.pct_change !== undefined && coin.pct_change !== null ? `${coin.pct_change >= 0 ? '+' : ''}${coin.pct_change.toFixed(2)}%` : '—')}
+                                </td>
+                              );
+                            case 'change_24h':
+                              return (
+                                <td
+                                  key="change_24h"
+                                  className={!isStable && coin.change_24h >= 0 ? 'status-positive' : !isStable && coin.change_24h < 0 ? 'status-negative' : ''}
+                                  style={{
+                                    whiteSpace: 'nowrap',
+                                    textAlign: 'center',
+                                    color: !isStable && coin.change_24h !== undefined && coin.change_24h !== null
+                                      ? (coin.change_24h >= 0 ? '#4ade80' : '#f87171')
+                                      : undefined,
+                                    fontWeight: '600'
+                                  }}
+                                >
+                                  {isStable ? '—' : (coin.change_24h !== undefined && coin.change_24h !== null ? `${coin.change_24h >= 0 ? '+' : ''}${Number(coin.change_24h).toFixed(2)}%` : '—')}
                                 </td>
                               );
                             case 'sentiment':

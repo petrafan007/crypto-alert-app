@@ -122,6 +122,17 @@ The application utilizes a **unified PostgreSQL database**.
 
 ## Version History & Changelog
 
+## v1.99-beta (August 2026)
+
+### Coin Performance Fit & Theme Scrollbars, Portfolio 24h Change, Watchlist Add Fix, Exact Chart Markers & Eastern Time Tables
+- **Coin Performance Panel Fitting & Theme-Aware Scrollbar**: Adjusted cell padding (`5px 8px`) and header spacing in `PortfolioPerformanceTable.jsx` and `theme.css` so 5 coins fit cleanly without triggering vertical scrollbars. Added the sleek theme-aware `.custom-scrollbar` class for instances where 6+ coins are displayed.
+- **24-Hour % Change Column for Portfolio Table**: Added `change_24h` (`24h % Change`) to `PORTFOLIO_COLUMN_DEFINITIONS`, with full sorting and colored percentage display, so users can selectively add 24h market momentum to their Portfolio table via the Table Column Customization modal (`⚙️`).
+- **Watchlist Add/Flicker Bugfix**: Fixed a race condition where background polling (`/api/watchlist-live`) cleared optimistic temporary items before the backend addition completed. Preserved pending optimistic items across background polling updates until server confirmation.
+- **Exact-Price Trading Chart Execution Markers**: Reworked trade execution markers in `TradingChart.jsx` to render on dedicated transparent overlay line series at the exact weighted-average execution price (e.g. $0.15) rather than snapping below the candle low or above the high.
+- **Separate Date & Time Columns in Eastern Time**: Split the combined Date column in both Open Orders and Order History tables (and Test Orders) into separate **Date** and **Time** columns, and formatted all displayed timestamps strictly in **Eastern Time** (`America/New_York`).
+- **UTC Timestamp Normalization & Chronological Sorting**: Fixed a timezone parsing mismatch in `/api/trading/real-orders` where local-time timestamps caused trades to appear out of sequence and hours apart; all order records now normalize to UTC ISO-8601 with chronological descending sort.
+- **Version Bump**: Synchronized metadata to `v1.99-beta`.
+
 ## v1.98-beta (August 2026)
 
 ### Adaptive Dynamic Decimal Precision for Portfolio & Watchlist Prices

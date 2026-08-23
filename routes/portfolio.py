@@ -2062,15 +2062,21 @@ def get_real_orders_only():
             if not value:
                 return None
             try:
-                v = str(value)
+                if isinstance(value, datetime):
+                    if value.tzinfo is None:
+                        return value.replace(tzinfo=timezone.utc).isoformat()
+                    return value.astimezone(timezone.utc).isoformat()
+                v = str(value).strip()
                 if v.endswith('Z'):
-                    v = v.replace('Z', '+00:00')
-                return datetime.fromisoformat(v).isoformat()
-            except Exception:
+                    v = v[:-1] + '+00:00'
+                if '+' in v or (len(v) > 10 and '-' in v[10:]):
+                    return datetime.fromisoformat(v).astimezone(timezone.utc).isoformat()
                 try:
-                    return datetime.strptime(str(value), "%Y-%m-%d %H:%M:%S").isoformat()
+                    return datetime.fromisoformat(v).replace(tzinfo=timezone.utc).isoformat()
                 except Exception:
-                    return str(value)
+                    return datetime.strptime(v, "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc).isoformat()
+            except Exception:
+                return str(value)
 
         def add_order(unique_key, payload):
             if not payload:
@@ -2102,8 +2108,8 @@ def get_real_orders_only():
                 'filled_quantity': float(order.executed_qty or order.quantity or 0.0),
                 'filled_price': float(order.avg_fill_price or order.price or 0.0),
                 'status': order.status or 'UNKNOWN',
-                'created_at': order.created_at.isoformat() if order.created_at else None,
-                'updated_at': order.updated_at.isoformat() if order.updated_at else None,
+                'created_at': normalize_timestamp(order.created_at),
+                'updated_at': normalize_timestamp(order.updated_at),
                 'source': 'app'
             }
             add_order(key, order_dict)
@@ -2199,7 +2205,7 @@ def get_real_orders_only():
 
                                 created_at = o.get('time') or o.get('updateTime')
                                 if created_at:
-                                    created_at_iso = datetime.fromtimestamp(created_at / 1000).isoformat()
+                                    created_at_iso = datetime.fromtimestamp(created_at / 1000, tz=timezone.utc).isoformat()
                                 else:
                                     created_at_iso = None
 
@@ -2228,7 +2234,7 @@ def get_real_orders_only():
                                     'filled_price': filled_price,
                                     'status': o.get('status'),
                                     'created_at': created_at_iso,
-                                    'updated_at': datetime.fromtimestamp(o['updateTime'] / 1000).isoformat() if o.get('updateTime') else created_at_iso,
+                                    'updated_at': datetime.fromtimestamp(o['updateTime'] / 1000, tz=timezone.utc).isoformat() if o.get('updateTime') else created_at_iso,
                                     'source': 'binance'
                                 }
 
@@ -3602,6 +3608,11 @@ def get_open_orders():
             if status in ['NEW', 'PARTIALLY_FILLED']:
                 status = 'ACTIVE'
             o_copy['status'] = status
+            if o_copy.get('time') and not o_copy.get('created_at'):
+                try:
+                    o_copy['created_at'] = datetime.fromtimestamp(o_copy['time'] / 1000, tz=timezone.utc).isoformat()
+                except Exception:
+                    pass
             formatted_open_orders.append(o_copy)
 
         # Collect active in-app Auto-Buy and Auto-Sell triggers
@@ -3634,7 +3645,7 @@ def get_open_orders():
                     'filled_quantity': 0,
                     'status': 'ACTIVE',
                     'time': int(time.time() * 1000),
-                    'created_at': getattr(c, 'auto_buy_triggered_at', None) or datetime.utcnow().isoformat(),
+                    'created_at': getattr(c, 'auto_buy_triggered_at', None).replace(tzinfo=timezone.utc).isoformat() if getattr(c, 'auto_buy_triggered_at', None) else datetime.now(timezone.utc).isoformat(),
                     'is_auto_trigger': True,
                     'trigger_type': 'auto_buy',
                     'table_type': 'portfolio',
@@ -3663,7 +3674,7 @@ def get_open_orders():
                     'filled_quantity': 0,
                     'status': 'ACTIVE',
                     'time': int(time.time() * 1000),
-                    'created_at': getattr(c, 'auto_sell_triggered_at', None) or datetime.utcnow().isoformat(),
+                    'created_at': getattr(c, 'auto_sell_triggered_at', None).replace(tzinfo=timezone.utc).isoformat() if getattr(c, 'auto_sell_triggered_at', None) else datetime.now(timezone.utc).isoformat(),
                     'is_auto_trigger': True,
                     'trigger_type': 'auto_sell',
                     'table_type': 'portfolio',
@@ -3695,7 +3706,7 @@ def get_open_orders():
                     'filled_quantity': 0,
                     'status': 'ACTIVE',
                     'time': int(time.time() * 1000),
-                    'created_at': getattr(w, 'auto_buy_triggered_at', None) or datetime.utcnow().isoformat(),
+                    'created_at': getattr(w, 'auto_buy_triggered_at', None).replace(tzinfo=timezone.utc).isoformat() if getattr(w, 'auto_buy_triggered_at', None) else datetime.now(timezone.utc).isoformat(),
                     'is_auto_trigger': True,
                     'trigger_type': 'auto_buy',
                     'table_type': 'watchlist',
@@ -3724,7 +3735,7 @@ def get_open_orders():
                     'filled_quantity': 0,
                     'status': 'ACTIVE',
                     'time': int(time.time() * 1000),
-                    'created_at': getattr(w, 'auto_sell_triggered_at', None) or datetime.utcnow().isoformat(),
+                    'created_at': getattr(w, 'auto_sell_triggered_at', None).replace(tzinfo=timezone.utc).isoformat() if getattr(w, 'auto_sell_triggered_at', None) else datetime.now(timezone.utc).isoformat(),
                     'is_auto_trigger': True,
                     'trigger_type': 'auto_sell',
                     'table_type': 'watchlist',
@@ -3732,6 +3743,7 @@ def get_open_orders():
                 })
 
         combined_orders = formatted_open_orders + auto_triggers
+        combined_orders.sort(key=lambda o: o.get('created_at') or '', reverse=True)
         return jsonify({
             'success': True,
             'orders': combined_orders

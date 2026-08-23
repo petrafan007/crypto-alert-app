@@ -35,7 +35,7 @@ const TransactionModal = ({ isOpen, onClose, transactions, type, dateStr }) => {
   };
 
   const currentTx = transactions[currentIndex];
-  const txDate = new Date(currentTx.time * 1000).toLocaleString();
+  const txDate = new Date(currentTx.time * 1000).toLocaleString('en-US', { timeZone: 'America/New_York' });
   const txValue = (currentTx.amount * currentTx.price) || 0;
 
   return (

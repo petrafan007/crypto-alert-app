@@ -1498,9 +1498,52 @@ const Trading = () => {
     return parseFloat(num).toFixed(decimals);
   };
 
+  const formatEasternDate = (dateVal) => {
+    if (!dateVal) return '—';
+    let d;
+    if (typeof dateVal === 'number') {
+      d = dateVal > 1e11 ? new Date(dateVal) : new Date(dateVal * 1000);
+    } else {
+      let s = String(dateVal).trim();
+      if (!s.endsWith('Z') && !s.includes('+') && !s.slice(10).includes('-')) {
+        s += 'Z';
+      }
+      d = new Date(s);
+    }
+    if (isNaN(d.getTime())) return '—';
+    return d.toLocaleDateString('en-US', {
+      timeZone: 'America/New_York',
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric'
+    });
+  };
+
+  const formatEasternTime = (dateVal) => {
+    if (!dateVal) return '—';
+    let d;
+    if (typeof dateVal === 'number') {
+      d = dateVal > 1e11 ? new Date(dateVal) : new Date(dateVal * 1000);
+    } else {
+      let s = String(dateVal).trim();
+      if (!s.endsWith('Z') && !s.includes('+') && !s.slice(10).includes('-')) {
+        s += 'Z';
+      }
+      d = new Date(s);
+    }
+    if (isNaN(d.getTime())) return '—';
+    return d.toLocaleTimeString('en-US', {
+      timeZone: 'America/New_York',
+      hour: 'numeric',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: true
+    });
+  };
+
   const formatDate = (dateString) => {
     if (!dateString) return 'N/A';
-    return new Date(dateString).toLocaleString();
+    return `${formatEasternDate(dateString)} ${formatEasternTime(dateString)}`;
   };
 
   const isCanceledStatus = (status) => {
@@ -2039,6 +2082,7 @@ const Trading = () => {
                     <thead>
                       <tr>
                         <th>Date</th>
+                        <th>Time</th>
                         <th>Symbol</th>
                         <th>Side</th>
                         <th>Type</th>
@@ -2052,7 +2096,8 @@ const Trading = () => {
                     <tbody>
                       {filteredOpenOrders.map((order, idx) => (
                         <tr key={order.id || idx} className="open-order-row">
-                          <td>{formatDate(order.created_at || order.time)}</td>
+                          <td style={{ whiteSpace: 'nowrap' }}>{formatEasternDate(order.created_at || order.time)}</td>
+                          <td style={{ whiteSpace: 'nowrap' }}>{formatEasternTime(order.created_at || order.time)}</td>
                           <td className="symbol-cell">{order.symbol}</td>
                           <td>
                             <span className={`badge badge-${(order.side || '').toLowerCase().replace(/_/g, '-')}`}>
@@ -2156,6 +2201,7 @@ const Trading = () => {
                       <thead>
                         <tr>
                           <th>Date</th>
+                          <th>Time</th>
                           <th>Symbol</th>
                           <th>Side</th>
                           <th>Type</th>
@@ -2169,7 +2215,8 @@ const Trading = () => {
                       <tbody>
                         {paginatedOrders.map((order) => (
                           <tr key={order.id}>
-                            <td>{formatDate(order.created_at)}</td>
+                            <td style={{ whiteSpace: 'nowrap' }}>{formatEasternDate(order.created_at)}</td>
+                            <td style={{ whiteSpace: 'nowrap' }}>{formatEasternTime(order.created_at)}</td>
                             <td className="symbol-cell">{order.symbol}</td>
                             <td>
                               <span className={`badge badge-${(order.side || '').toLowerCase().replace(/_/g, '-')}`}>
@@ -2356,6 +2403,7 @@ const Trading = () => {
                     <thead>
                       <tr>
                         <th>Date</th>
+                        <th>Time</th>
                         <th>Symbol</th>
                         <th>Side</th>
                         <th>Type</th>
@@ -2369,7 +2417,8 @@ const Trading = () => {
                     <tbody>
                       {testOrders.map((order) => (
                         <tr key={order.id}>
-                          <td>{new Date(order.created_at).toLocaleString()}</td>
+                          <td style={{ whiteSpace: 'nowrap' }}>{formatEasternDate(order.created_at)}</td>
+                          <td style={{ whiteSpace: 'nowrap' }}>{formatEasternTime(order.created_at)}</td>
                           <td><strong>{order.symbol}</strong></td>
                           <td className={order.side === 'BUY' ? 'status-positive' : 'status-negative'}>
                             {order.side === 'BUY' ? '📈' : '📉'} {order.side}
