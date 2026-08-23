@@ -2056,7 +2056,7 @@ function Dashboard({ isLightMode }) {
                   disabled={
                     !stakeableCoins.includes(coin.symbol) ||
                     isPlaceholder ||
-                    (coin.value && coin.value < 1)
+                    (coin.current_value && coin.current_value < 1)
                   }
                 >
                   Stake
@@ -3513,7 +3513,7 @@ function Dashboard({ isLightMode }) {
                             case 'current_value':
                               return (
                                 <td key="current_value" style={{ whiteSpace: 'nowrap', textAlign: 'center' }}>
-                                  {coin.value !== undefined && coin.value !== null ? `$${coin.value.toFixed(2)}` : '—'}
+                                  {coin.current_value !== undefined && coin.current_value !== null ? `$${coin.current_value.toFixed(2)}` : '—'}
                                 </td>
                               );
                             case 'down_alert':
@@ -3537,27 +3537,26 @@ function Dashboard({ isLightMode }) {
                             case 'avg_entry':
                               return (
                                 <td key="avg_entry" style={{ whiteSpace: 'nowrap', textAlign: 'center' }}>
-                                  {isPlaceholder ? '—' : isStable ? '$1.00' : (coin.avg_buy_price && coin.avg_buy_price > 0 ? `$${coin.avg_buy_price.toFixed(2)}` : '—')}
+                                  {isStable ? '$1.00' : (coin.avg_entry ? `$${coin.avg_entry.toFixed(2)}` : '—')}
                                 </td>
                               );
-                            case 'pct_change': {
-                              const pctChange = !isPlaceholder && !isStable && coin.avg_buy_price && coin.avg_buy_price > 0 && coin.current_price
-                                ? ((coin.current_price - coin.avg_buy_price) / coin.avg_buy_price) * 100
-                                : null;
+                            case 'pct_change':
                               return (
                                 <td
                                   key="pct_change"
+                                  className={!isStable && coin.pct_change >= 0 ? 'status-positive' : !isStable && coin.pct_change < 0 ? 'status-negative' : ''}
                                   style={{
                                     whiteSpace: 'nowrap',
                                     textAlign: 'center',
-                                    color: pctChange !== null ? (pctChange >= 0 ? '#22c55e' : '#ef4444') : undefined,
+                                    color: !isStable && coin.pct_change !== undefined && coin.pct_change !== null
+                                      ? (coin.pct_change >= 0 ? '#22c55e' : '#ef4444')
+                                      : undefined,
                                     fontWeight: '600'
                                   }}
                                 >
-                                  {pctChange !== null ? `${pctChange >= 0 ? '+' : ''}${pctChange.toFixed(2)}%` : '—'}
+                                  {isStable ? '—' : (coin.pct_change !== undefined && coin.pct_change !== null ? `${coin.pct_change >= 0 ? '+' : ''}${coin.pct_change.toFixed(2)}%` : '—')}
                                 </td>
                               );
-                            }
                             case 'sentiment':
                               return renderSentimentCell(coin, false);
                             case 'high_low_24h':
@@ -3583,12 +3582,15 @@ function Dashboard({ isLightMode }) {
                                 </td>
                               );
                             case 'pnl_usd': {
-                              const pnl = !isPlaceholder && !isStable && coin.avg_buy_price && coin.avg_buy_price > 0 && coin.current_price && coin.amount
-                                ? (coin.current_price - coin.avg_buy_price) * coin.amount
-                                : null;
+                              const pnl = (coin.current_value !== undefined && coin.cost_basis !== undefined && coin.cost_basis > 0)
+                                ? (coin.current_value - coin.cost_basis)
+                                : (coin.current_price && coin.avg_entry && coin.amount)
+                                  ? (coin.amount * (coin.current_price - coin.avg_entry))
+                                  : null;
                               return (
                                 <td
                                   key="pnl_usd"
+                                  className={pnl && pnl >= 0 ? 'status-positive' : pnl && pnl < 0 ? 'status-negative' : ''}
                                   style={{
                                     whiteSpace: 'nowrap',
                                     textAlign: 'center',
@@ -3596,15 +3598,16 @@ function Dashboard({ isLightMode }) {
                                     fontWeight: '600'
                                   }}
                                 >
-                                  {pnl !== null ? `${pnl >= 0 ? '+' : ''}$${Math.abs(pnl).toFixed(2)}` : '—'}
+                                  {isStable || pnl === null ? '—' : `${pnl >= 0 ? '+' : ''}$${pnl.toFixed(2)}`}
                                 </td>
                               );
                             }
                             case 'allocation_pct': {
-                              const alloc = totalValue && totalValue > 0 && coin.value ? (coin.value / totalValue) * 100 : null;
+                              const totVal = Number(totalValue) || (portfolio || []).reduce((acc, c) => acc + (parseFloat(c.current_value) || 0), 0);
+                              const alloc = (totVal > 0 && coin.current_value) ? ((coin.current_value / totVal) * 100) : 0;
                               return (
                                 <td key="allocation_pct" style={{ whiteSpace: 'nowrap', textAlign: 'center' }}>
-                                  {alloc !== null ? `${alloc.toFixed(1)}%` : '—'}
+                                  {alloc > 0 ? `${alloc.toFixed(1)}%` : '—'}
                                 </td>
                               );
                             }
@@ -3689,12 +3692,12 @@ function Dashboard({ isLightMode }) {
                                         disabled={
                                           !stakeableCoins.includes(coin.symbol) ||
                                           isPlaceholder ||
-                                          (coin.value && coin.value < 1)
+                                          (coin.current_value && coin.current_value < 1)
                                         }
                                         title={
                                           !stakeableCoins.includes(coin.symbol)
                                             ? 'Staking not available for this coin'
-                                            : (coin.value && coin.value < 1)
+                                            : (coin.current_value && coin.current_value < 1)
                                               ? 'Minimum $1 USDT value required to stake'
                                               : 'Stake this coin'
                                         }
