@@ -23,7 +23,7 @@ const GenericCoinIcon = ({ size = 20 }) => (
   </svg>
 );
 
-const PortfolioPerformanceTable = ({ hiddenCoins = [] }) => {
+const PortfolioPerformanceTable = ({ hiddenCoins = [], onEdit }) => {
   const [performanceData, setPerformanceData] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -76,11 +76,33 @@ const PortfolioPerformanceTable = ({ hiddenCoins = [] }) => {
 
   return (
     <div className="dashboard-performance-widget widget-panel-inner">
-      <div className="performance-widget-header" style={{ marginBottom: '12px' }}>
+      <div className="performance-widget-header" style={{ marginBottom: '12px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <h3 className="chart-title" style={{ display: 'flex', alignItems: 'center', gap: '8px', margin: 0 }}>
           <GenericCoinIcon size={20} />
           <span>Coin Performance</span>
         </h3>
+        {onEdit && (
+          <button
+            type="button"
+            onClick={onEdit}
+            title="Filter visible coins in Coin Performance"
+            style={{
+              background: 'rgba(56, 189, 248, 0.12)',
+              border: '1px solid rgba(56, 189, 248, 0.25)',
+              color: '#38bdf8',
+              cursor: 'pointer',
+              padding: '2px 6px',
+              fontSize: '12px',
+              borderRadius: '4px',
+              lineHeight: 1,
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center'
+            }}
+          >
+            ✏️
+          </button>
+        )}
       </div>
 
       <div className="performance-table-scroll" aria-live="polite">

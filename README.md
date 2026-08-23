@@ -122,6 +122,15 @@ The application utilizes a **unified PostgreSQL database**.
 
 ## Version History & Changelog
 
+## v1.96-beta (August 2026)
+
+### Allocations Donut Center Value, Always-Visible Widget Edit Buttons, Top Movers Hover Highlight & Uniform Table Rows
+- **Allocations Donut Center Total & True Centering**: The "Allocations" doughnut chart now displays the total portfolio value in its center hole via a custom Chart.js plugin. The legend was moved to a self-contained absolutely-positioned column so the ring itself always stays centered within the panel, regardless of the legend's width.
+- **Always-Visible Coin Performance Edit Button**: Added a persistent ✏️ edit button directly in the "Coin Performance" widget header, matching Top Gainers & Losers and Recent Order History, so it's accessible without needing to enter "Customize Layout" mode. Removed the now-redundant edit-mode-only pencil icons for Coin Performance and Recent Order History from the widget grid's drag header.
+- **Top Gainers & Losers Row Hover Highlight**: Hovering any coin row in the Top Gainers & Losers widget now highlights the row for clearer visual feedback.
+- **Uniform Portfolio & Watchlist Table Rows**: Removed the alternating zebra-stripe row background on the Portfolio and Watchlist tables — all rows now share the same base background color unless they have an active special state (pending order, Auto-Buy/Auto-Sell highlight).
+- **Version Bump**: Synchronized metadata to `v1.96-beta`.
+
 ## v1.95-beta (August 2026)
 
 ### Top Movers Polish, Trading Chart Marker Scoping, Volatility Cell Alignment & Per-Coin Sentiment Toggle

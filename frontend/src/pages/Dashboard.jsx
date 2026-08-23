@@ -3436,8 +3436,6 @@ function Dashboard({ isLightMode }) {
       <div className={`dashboard-widgets-section ${isMobile && mobileTab !== 'charts' ? 'mobile-hidden' : ''}`}>
         <DashboardWidgetGrid
           isLightMode={isLightMode}
-        onEditPerformanceCoins={handleOpenPerformanceCoinModal}
-        onEditRecentTrades={handleOpenRecentTradesModal}
         renderWidgetContent={(widgetId) => {
           switch (widgetId) {
             case 'allocations':
@@ -3503,7 +3501,7 @@ function Dashboard({ isLightMode }) {
             case 'staking':
               return <StakingSummaryWidget />;
             case 'performance':
-              return <PortfolioPerformanceTable hiddenCoins={performanceHiddenCoins} />;
+              return <PortfolioPerformanceTable hiddenCoins={performanceHiddenCoins} onEdit={handleOpenPerformanceCoinModal} />;
             case 'top_movers':
               return <TopMoversWidget isLightMode={isLightMode} config={topMoversConfig} onEdit={handleOpenTopMoversModal} ownedSymbols={ownedSymbols} onCoinClick={(symbol) => navigateToTrading(symbol, 'BUY', 'USDT')} />;
             case 'recent_trades':

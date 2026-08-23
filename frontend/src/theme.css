@@ -1111,9 +1111,9 @@ body.dark-mode .time-range-btn.active {
   background: var(--table-row-bg);
 }
 
-/* ALTERNATING ROW COLORS - BOTH DARK IN DARK MODE */
+/* Uniform row background - no zebra striping (except special highlighted rows like pending-order/auto-buy/auto-sell) */
 .table-container tbody tr:nth-child(even) td {
-  background: var(--bg-tertiary);
+  background: var(--table-row-bg);
 }
 
 .table-container tbody tr:nth-child(odd) td {
@@ -1750,7 +1750,7 @@ body.dark-mode .table-container tbody td {
 }
 
 body.dark-mode .table-container tbody tr:nth-child(even) td {
-  background: var(--bg-tertiary) !important;
+  background: var(--table-row-bg) !important;
   color: var(--text-primary) !important;
 }
 
@@ -1795,7 +1795,7 @@ body.light-mode .table-container tbody td {
 }
 
 body.light-mode .table-container tbody tr:nth-child(even) td {
-  background: var(--bg-tertiary) !important;
+  background: var(--table-row-bg) !important;
   color: var(--text-primary) !important;
 }
 
@@ -4041,6 +4041,17 @@ body.light-mode .custom-scrollbar::-webkit-scrollbar-thumb:hover {
   height: 4px;
   border-radius: 2px;
   background: rgba(148, 163, 184, 0.35);
+}
+
+/* Hover highlight for Top Gainers & Losers rows */
+.top-mover-row {
+  transition: background-color 0.15s ease;
+}
+.top-mover-row:hover {
+  background-color: rgba(148, 163, 184, 0.18) !important;
+}
+body.light-mode .top-mover-row:hover {
+  background-color: rgba(100, 116, 139, 0.14) !important;
 }
 
 /* =========================================================

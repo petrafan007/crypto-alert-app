@@ -27,26 +27,35 @@ ChartJS.register(
 );
 
 export function PortfolioPie({ portfolio, isLightMode }) {
+  const neonPalette = [
+    '#38bdf8', '#10b981', '#f59e0b', '#ec4899', '#8b5cf6', '#14b8a6',
+    '#ef4444', '#f97316', '#eab308', '#84cc16', '#06b6d4', '#6366f1', '#d946ef'
+  ];
+
   // Only show coins with value > 0
-  const data = useMemo(() => {
-    const filtered = (portfolio || []).filter(c => c.current_value > 0);
-    const neonPalette = [
-      '#38bdf8', '#10b981', '#f59e0b', '#ec4899', '#8b5cf6', '#14b8a6',
-      '#ef4444', '#f97316', '#eab308', '#84cc16', '#06b6d4', '#6366f1', '#d946ef'
-    ];
-    return {
-      labels: filtered.map(c => c.symbol),
-      datasets: [
-        {
-          data: filtered.map(c => c.current_value),
-          backgroundColor: neonPalette,
-          borderWidth: 3,
-          borderColor: isLightMode ? '#ffffff' : '#0f172a',
-          hoverOffset: 6,
-        },
-      ],
-    };
-  }, [portfolio, isLightMode]);
+  const filtered = useMemo(() => (portfolio || []).filter(c => c.current_value > 0), [portfolio]);
+
+  const totalValue = useMemo(
+    () => filtered.reduce((sum, c) => sum + Number(c.current_value || 0), 0),
+    [filtered]
+  );
+
+  const formattedTotal = useMemo(() => (
+    totalValue.toLocaleString('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 0, maximumFractionDigits: 0 })
+  ), [totalValue]);
+
+  const data = useMemo(() => ({
+    labels: filtered.map(c => c.symbol),
+    datasets: [
+      {
+        data: filtered.map(c => c.current_value),
+        backgroundColor: neonPalette,
+        borderWidth: 3,
+        borderColor: isLightMode ? '#ffffff' : '#0f172a',
+        hoverOffset: 6,
+      },
+    ],
+  }), [filtered, isLightMode]);
 
   const options = useMemo(() => ({
     responsive: true,
@@ -54,14 +63,7 @@ export function PortfolioPie({ portfolio, isLightMode }) {
     cutout: '65%',
     plugins: {
       legend: {
-        position: 'right',
-        labels: {
-          color: isLightMode ? '#475569' : '#e2e8f0',
-          font: { size: 12, family: 'Inter, sans-serif' },
-          usePointStyle: true,
-          pointStyle: 'circle',
-          padding: 16,
-        },
+        display: false,
       },
       tooltip: {
         backgroundColor: isLightMode ? 'rgba(255, 255, 255, 0.95)' : 'rgba(15, 23, 42, 0.95)',
@@ -78,8 +80,64 @@ export function PortfolioPie({ portfolio, isLightMode }) {
     },
   }), [isLightMode]);
 
-  return <Doughnut data={data} options={options} />;
+  // Draws the total portfolio value in the doughnut's center hole
+  const centerTextPlugin = useMemo(() => ({
+    id: 'centerTextPlugin',
+    afterDraw(chart) {
+      const { ctx, chartArea } = chart;
+      if (!chartArea) return;
+      const centerX = (chartArea.left + chartArea.right) / 2;
+      const centerY = (chartArea.top + chartArea.bottom) / 2;
+      ctx.save();
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = isLightMode ? '#0f172a' : '#f8fafc';
+      ctx.font = "700 16px 'Inter', sans-serif";
+      ctx.fillText(formattedTotal, centerX, centerY - 8);
+      ctx.fillStyle = isLightMode ? '#64748b' : '#94a3b8';
+      ctx.font = "600 10px 'Inter', sans-serif";
+      ctx.fillText('TOTAL VALUE', centerX, centerY + 10);
+      ctx.restore();
+    },
+  }), [formattedTotal, isLightMode]);
+
+  return (
+    <div style={{ position: 'relative', width: '100%', height: '100%' }}>
+      {/* Ring stays centered in the full panel regardless of the legend's width */}
+      <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, margin: 'auto', width: '75%', maxWidth: '260px' }}>
+        <Doughnut data={data} options={options} plugins={[centerTextPlugin]} />
+      </div>
+      <div
+        className="custom-scrollbar"
+        style={{
+          position: 'absolute',
+          top: 0,
+          right: 0,
+          bottom: 0,
+          width: '32%',
+          minWidth: '90px',
+          maxWidth: '140px',
+          display: 'flex',
+          flexDirection: 'column',
+          justifyContent: 'center',
+          gap: '6px',
+          overflowY: 'auto',
+          padding: '4px 0'
+        }}
+      >
+        {filtered.map((c, i) => (
+          <div key={c.symbol} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px' }}>
+            <span style={{ width: '9px', height: '9px', borderRadius: '50%', flexShrink: 0, background: neonPalette[i % neonPalette.length] }} />
+            <span style={{ color: isLightMode ? '#475569' : '#e2e8f0', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              {c.symbol}
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 }
+
 
 export function PortfolioTrend({ history, range, isLightMode }) {
   // history: [[timestamp, value], ...]

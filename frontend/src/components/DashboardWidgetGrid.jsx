@@ -304,9 +304,7 @@ const loadPersistedHiddenWidgets = () => {
 
 const DashboardWidgetGrid = ({
   isLightMode,
-  renderWidgetContent,
-  onEditPerformanceCoins,
-  onEditRecentTrades
+  renderWidgetContent
 }) => {
   const [isEditMode, setIsEditMode] = useState(false);
   const [layouts, setLayouts] = useState(loadPersistedLayouts);
@@ -590,54 +588,6 @@ const DashboardWidgetGrid = ({
                   <span className="drag-title">{widget.title}</span>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  {widget.id === 'performance' && (
-                    <button
-                      type="button"
-                      className="dashboard-widget-edit-coins-btn"
-                      onClick={() => onEditPerformanceCoins?.()}
-                      title="Filter visible coins in Coin Performance"
-                      style={{
-                        background: 'rgba(56, 189, 248, 0.15)',
-                        border: '1px solid rgba(56, 189, 248, 0.3)',
-                        color: '#38bdf8',
-                        cursor: 'pointer',
-                        fontSize: '13px',
-                        padding: '2px 6px',
-                        borderRadius: '4px',
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        lineHeight: 1,
-                        transition: 'all 0.2s ease'
-                      }}
-                    >
-                      ✏️
-                    </button>
-                  )}
-                  {widget.id === 'recent_trades' && (
-                    <button
-                      type="button"
-                      className="dashboard-widget-edit-trades-btn"
-                      onClick={() => onEditRecentTrades?.()}
-                      title="Customize Recent Order History display and filters"
-                      style={{
-                        background: 'rgba(56, 189, 248, 0.15)',
-                        border: '1px solid rgba(56, 189, 248, 0.3)',
-                        color: '#38bdf8',
-                        cursor: 'pointer',
-                        fontSize: '13px',
-                        padding: '2px 6px',
-                        borderRadius: '4px',
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        lineHeight: 1,
-                        transition: 'all 0.2s ease'
-                      }}
-                    >
-                      ✏️
-                    </button>
-                  )}
                   <button
                     type="button"
                     className="dashboard-widget-hide-btn"

@@ -55,6 +55,7 @@ const TopMoversWidget = ({ isLightMode, config, onEdit, ownedSymbols, onCoinClic
     return (
       <div
         key={item.symbol}
+        className="top-mover-row"
         title={onCoinClick ? `View ${item.symbol}/USDT chart in Trading${isOwned ? ' · You own this coin' : ''}` : (isOwned ? 'You own this coin' : undefined)}
         onClick={onCoinClick ? () => onCoinClick(item.symbol) : undefined}
         style={{
