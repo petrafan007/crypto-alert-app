@@ -226,8 +226,41 @@
   font-size: 0.95rem;
 }
 
-.searchable-pair-option.selected .searchable-pair-check {
-  color: #ffffff;
+.searchable-pair-group.pinned-group {
+  background: rgba(234, 179, 8, 0.05);
+  border-bottom: 1px solid rgba(234, 179, 8, 0.2);
+  margin-bottom: 4px;
+}
+
+.searchable-pair-group.pinned-group .searchable-pair-group-header {
+  color: #facc15;
+}
+
+.searchable-pair-star-btn {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 2px 6px;
+  font-size: 0.95rem;
+  line-height: 1;
+  color: #94a3b8;
+  transition: all 0.15s ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  margin-right: 4px;
+  flex-shrink: 0;
+}
+
+.searchable-pair-star-btn:hover {
+  transform: scale(1.25);
+  color: #facc15;
+}
+
+.searchable-pair-star-btn.active {
+  color: #facc15;
+  filter: drop-shadow(0 0 4px rgba(250, 204, 21, 0.6));
 }
 
 .searchable-pair-no-results {

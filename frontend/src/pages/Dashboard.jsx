@@ -22,6 +22,8 @@ import QuickTradeWidget from '../components/QuickTradeWidget';
 import GasMonitorWidget from '../components/GasMonitorWidget';
 import { FaSyncAlt } from 'react-icons/fa';
 import CryptoIcon from '../components/CryptoIcon';
+import TableColumnModal from '../components/TableColumnModal';
+import CancelOrderConfirmModal from '../components/CancelOrderConfirmModal';
 
 const TREND_RANGES = [
   { key: '4H', label: '4H' },
@@ -34,6 +36,71 @@ const TREND_RANGES = [
   { key: '6M', label: '6M' },
   { key: '1Y', label: '1Y' },
 ];
+
+export const PORTFOLIO_DEFAULT_COLUMNS = [
+  'symbol',
+  'amount',
+  'current_price',
+  'current_value',
+  'down_alert',
+  'up_alert',
+  'volatility_pct',
+  'avg_entry',
+  'pct_change',
+  'sentiment',
+  'actions'
+];
+
+export const PORTFOLIO_REQUIRED_COLUMNS = ['symbol', 'amount', 'current_price', 'current_value', 'actions'];
+
+export const PORTFOLIO_COLUMN_DEFINITIONS = {
+  symbol: { label: 'Symbol', required: true, sortable: true, defaultWidth: 120, description: 'Asset ticker and icon' },
+  amount: { label: 'Amount', required: true, sortable: true, defaultWidth: 110, description: 'Holdings quantity' },
+  current_price: { label: 'Current Price', required: true, sortable: true, defaultWidth: 120, description: 'Live market rate' },
+  current_value: { label: 'Current Value', required: true, sortable: true, defaultWidth: 120, description: 'Total value in USDT' },
+  down_alert: { label: 'Price Down Alert', required: false, sortable: false, defaultWidth: 140, description: 'Drop price alert' },
+  up_alert: { label: 'Price Up Alert', required: false, sortable: false, defaultWidth: 140, description: 'Surge price alert' },
+  volatility_pct: { label: 'Volatility %', required: false, sortable: true, defaultWidth: 120, description: 'Historical volatility' },
+  avg_entry: { label: 'Avg Entry', required: false, sortable: true, defaultWidth: 110, description: 'Average buy price' },
+  pct_change: { label: '% Change', required: false, sortable: true, defaultWidth: 110, description: 'Unrealized P&L %' },
+  sentiment: { label: 'Sentiment', required: false, sortable: true, defaultWidth: 150, description: 'AI market sentiment' },
+  high_low_24h: { label: '24h High / Low', required: false, sortable: false, defaultWidth: 140, description: '24-hour high and low range' },
+  volume_24h: { label: '24h Volume ($)', required: false, sortable: false, defaultWidth: 130, description: '24-hour trading volume' },
+  market_cap: { label: 'Market Cap', required: false, sortable: false, defaultWidth: 130, description: 'Market capitalization' },
+  pnl_usd: { label: 'Profit & Loss ($)', required: false, sortable: true, defaultWidth: 120, description: 'Unrealized profit in USD' },
+  allocation_pct: { label: 'Allocation %', required: false, sortable: true, defaultWidth: 110, description: 'Percent of portfolio' },
+  target_price: { label: 'Target Price', required: false, sortable: false, defaultWidth: 120, description: 'Target take-profit price' },
+  last_updated: { label: 'Last Updated', required: false, sortable: false, defaultWidth: 130, description: 'Last price check timestamp' },
+  actions: { label: 'Actions', required: true, sortable: false, defaultWidth: 280, description: 'Trade and manage actions' }
+};
+
+export const WATCHLIST_DEFAULT_COLUMNS = [
+  'symbol',
+  'current_price',
+  'down_alert',
+  'up_alert',
+  'volatility_pct',
+  'sentiment',
+  'actions'
+];
+
+export const WATCHLIST_REQUIRED_COLUMNS = ['symbol', 'current_price', 'actions'];
+
+export const WATCHLIST_COLUMN_DEFINITIONS = {
+  symbol: { label: 'Symbol', required: true, sortable: true, defaultWidth: 120, description: 'Asset ticker and icon' },
+  current_price: { label: 'Current Price', required: true, sortable: true, defaultWidth: 120, description: 'Live market rate' },
+  down_alert: { label: 'Price Down Alert', required: false, sortable: false, defaultWidth: 140, description: 'Drop price alert' },
+  up_alert: { label: 'Price Up Alert', required: false, sortable: false, defaultWidth: 140, description: 'Surge price alert' },
+  volatility_pct: { label: 'Volatility %', required: false, sortable: false, defaultWidth: 120, description: 'Historical volatility' },
+  sentiment: { label: 'Sentiment', required: false, sortable: true, defaultWidth: 150, description: 'AI market sentiment' },
+  pct_change: { label: '24h % Change', required: false, sortable: true, defaultWidth: 110, description: '24-hour price change %' },
+  high_low_24h: { label: '24h High / Low', required: false, sortable: false, defaultWidth: 140, description: '24-hour high and low range' },
+  volume_24h: { label: '24h Volume ($)', required: false, sortable: false, defaultWidth: 130, description: '24-hour trading volume' },
+  market_cap: { label: 'Market Cap', required: false, sortable: false, defaultWidth: 130, description: 'Market capitalization' },
+  target_price: { label: 'Target Price', required: false, sortable: false, defaultWidth: 120, description: 'Target price alert' },
+  last_updated: { label: 'Last Updated', required: false, sortable: false, defaultWidth: 130, description: 'Last price check timestamp' },
+  actions: { label: 'Actions', required: true, sortable: false, defaultWidth: 180, description: 'Watchlist actions' }
+};
 
 function Dashboard({ isLightMode }) {
   const { isLoggingOut, user } = useAuth();
@@ -49,6 +116,91 @@ function Dashboard({ isLightMode }) {
   const [trendRange, setTrendRange] = useState('7D');
   const [trendLoading, setTrendLoading] = useState(true);
   const [refreshingSentiment, setRefreshingSentiment] = useState({});
+
+  // Column customization state - Portfolio
+  const [portfolioVisibleCols, setPortfolioVisibleCols] = useState(() => {
+    try {
+      const saved = localStorage.getItem('crypto_portfolio_visible_columns');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          PORTFOLIO_REQUIRED_COLUMNS.forEach(rc => {
+            if (!parsed.includes(rc)) parsed.push(rc);
+          });
+          return parsed;
+        }
+      }
+    } catch (e) {}
+    return [...PORTFOLIO_DEFAULT_COLUMNS];
+  });
+
+  const [portfolioColOrder, setPortfolioColOrder] = useState(() => {
+    try {
+      const saved = localStorage.getItem('crypto_portfolio_column_order');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          let filtered = parsed.filter(c => c !== 'symbol' && c !== 'actions' && PORTFOLIO_COLUMN_DEFINITIONS[c]);
+          return ['symbol', ...filtered, 'actions'];
+        }
+      }
+    } catch (e) {}
+    return [...PORTFOLIO_DEFAULT_COLUMNS];
+  });
+
+  const [portfolioColWidths, setPortfolioColWidths] = useState(() => {
+    try {
+      const saved = localStorage.getItem('crypto_portfolio_column_widths');
+      if (saved) return JSON.parse(saved);
+    } catch (e) {}
+    return {};
+  });
+
+  // Column customization state - Watchlist
+  const [watchlistVisibleCols, setWatchlistVisibleCols] = useState(() => {
+    try {
+      const saved = localStorage.getItem('crypto_watchlist_visible_columns');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          WATCHLIST_REQUIRED_COLUMNS.forEach(rc => {
+            if (!parsed.includes(rc)) parsed.push(rc);
+          });
+          return parsed;
+        }
+      }
+    } catch (e) {}
+    return [...WATCHLIST_DEFAULT_COLUMNS];
+  });
+
+  const [watchlistColOrder, setWatchlistColOrder] = useState(() => {
+    try {
+      const saved = localStorage.getItem('crypto_watchlist_column_order');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          let filtered = parsed.filter(c => c !== 'symbol' && c !== 'actions' && WATCHLIST_COLUMN_DEFINITIONS[c]);
+          return ['symbol', ...filtered, 'actions'];
+        }
+      }
+    } catch (e) {}
+    return [...WATCHLIST_DEFAULT_COLUMNS];
+  });
+
+  const [watchlistColWidths, setWatchlistColWidths] = useState(() => {
+    try {
+      const saved = localStorage.getItem('crypto_watchlist_column_widths');
+      if (saved) return JSON.parse(saved);
+    } catch (e) {}
+    return {};
+  });
+
+  // Modals and context menus
+  const [columnModal, setColumnModal] = useState({ isOpen: false, tableType: 'portfolio' });
+  const [cancelContextMenu, setCancelContextMenu] = useState({ isOpen: false, coin: null, x: 0, y: 0, orders: [] });
+  const [cancelModalState, setCancelModalState] = useState({ isOpen: false, coin: null, order: null, loading: false, error: null });
+  const [draggedColKey, setDraggedColKey] = useState(null);
+  const [dragOverColKey, setDragOverColKey] = useState(null);
 
   // Sorting state
   const [sortConfig, setSortConfig] = useState(() => {
@@ -1308,6 +1460,270 @@ function Dashboard({ isLightMode }) {
     );
   };
 
+  // Drag and drop column reordering
+  const handleColDragStart = (tableType, colKey, e) => {
+    if (colKey === 'symbol' || colKey === 'actions') {
+      e.preventDefault();
+      return;
+    }
+    setDraggedColKey({ tableType, colKey });
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', colKey);
+  };
+
+  const handleColDragOver = (tableType, targetColKey, e) => {
+    if (!draggedColKey || draggedColKey.tableType !== tableType) return;
+    if (targetColKey === 'symbol' || targetColKey === 'actions') return;
+    if (draggedColKey.colKey === targetColKey) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    setDragOverColKey(targetColKey);
+  };
+
+  const handleColDrop = (tableType, targetColKey, e) => {
+    e.preventDefault();
+    setDragOverColKey(null);
+    if (!draggedColKey || draggedColKey.tableType !== tableType) return;
+    const sourceColKey = draggedColKey.colKey;
+    setDraggedColKey(null);
+
+    if (sourceColKey === targetColKey) return;
+    if (targetColKey === 'symbol' || targetColKey === 'actions') return;
+    if (sourceColKey === 'symbol' || sourceColKey === 'actions') return;
+
+    if (tableType === 'portfolio') {
+      setPortfolioColOrder(prev => {
+        const list = [...prev];
+        const sourceIdx = list.indexOf(sourceColKey);
+        const targetIdx = list.indexOf(targetColKey);
+        if (sourceIdx < 0 || targetIdx < 0) return prev;
+        list.splice(sourceIdx, 1);
+        list.splice(targetIdx, 0, sourceColKey);
+        const result = ['symbol', ...list.filter(c => c !== 'symbol' && c !== 'actions'), 'actions'];
+        try {
+          localStorage.setItem('crypto_portfolio_column_order', JSON.stringify(result));
+        } catch (err) {}
+        return result;
+      });
+    } else {
+      setWatchlistColOrder(prev => {
+        const list = [...prev];
+        const sourceIdx = list.indexOf(sourceColKey);
+        const targetIdx = list.indexOf(targetColKey);
+        if (sourceIdx < 0 || targetIdx < 0) return prev;
+        list.splice(sourceIdx, 1);
+        list.splice(targetIdx, 0, sourceColKey);
+        const result = ['symbol', ...list.filter(c => c !== 'symbol' && c !== 'actions'), 'actions'];
+        try {
+          localStorage.setItem('crypto_watchlist_column_order', JSON.stringify(result));
+        } catch (err) {}
+        return result;
+      });
+    }
+  };
+
+  const handleColDragEnd = () => {
+    setDraggedColKey(null);
+    setDragOverColKey(null);
+  };
+
+  // Column resizing
+  const handleResizeStart = (tableType, colKey, e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const startX = e.clientX;
+    const currentWidths = tableType === 'portfolio' ? portfolioColWidths : watchlistColWidths;
+    const colDefs = tableType === 'portfolio' ? PORTFOLIO_COLUMN_DEFINITIONS : WATCHLIST_COLUMN_DEFINITIONS;
+    const startWidth = currentWidths[colKey] || colDefs[colKey]?.defaultWidth || 120;
+
+    const handleMouseMove = (moveEvent) => {
+      const delta = moveEvent.clientX - startX;
+      const newWidth = Math.max(70, startWidth + delta);
+      if (tableType === 'portfolio') {
+        setPortfolioColWidths(prev => {
+          const next = { ...prev, [colKey]: newWidth };
+          try {
+            localStorage.setItem('crypto_portfolio_column_widths', JSON.stringify(next));
+          } catch (err) {}
+          return next;
+        });
+      } else {
+        setWatchlistColWidths(prev => {
+          const next = { ...prev, [colKey]: newWidth };
+          try {
+            localStorage.setItem('crypto_watchlist_column_widths', JSON.stringify(next));
+          } catch (err) {}
+          return next;
+        });
+      }
+    };
+
+    const handleMouseUp = () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+  };
+
+  // Column modal handlers
+  const handleSavePortfolioColumns = (newCols) => {
+    setPortfolioVisibleCols(newCols);
+    setPortfolioColOrder(prev => {
+      const order = [...prev];
+      newCols.forEach(c => {
+        if (!order.includes(c)) {
+          const actionsIdx = order.indexOf('actions');
+          if (actionsIdx >= 0) order.splice(actionsIdx, 0, c);
+          else order.push(c);
+        }
+      });
+      try {
+        localStorage.setItem('crypto_portfolio_column_order', JSON.stringify(order));
+      } catch (err) {}
+      return order;
+    });
+    try {
+      localStorage.setItem('crypto_portfolio_visible_columns', JSON.stringify(newCols));
+    } catch (err) {}
+  };
+
+  const handleResetPortfolioColumns = () => {
+    setPortfolioVisibleCols([...PORTFOLIO_DEFAULT_COLUMNS]);
+    setPortfolioColOrder([...PORTFOLIO_DEFAULT_COLUMNS]);
+    setPortfolioColWidths({});
+    try {
+      localStorage.removeItem('crypto_portfolio_visible_columns');
+      localStorage.removeItem('crypto_portfolio_column_order');
+      localStorage.removeItem('crypto_portfolio_column_widths');
+    } catch (err) {}
+  };
+
+  const handleSaveWatchlistColumns = (newCols) => {
+    setWatchlistVisibleCols(newCols);
+    setWatchlistColOrder(prev => {
+      const order = [...prev];
+      newCols.forEach(c => {
+        if (!order.includes(c)) {
+          const actionsIdx = order.indexOf('actions');
+          if (actionsIdx >= 0) order.splice(actionsIdx, 0, c);
+          else order.push(c);
+        }
+      });
+      try {
+        localStorage.setItem('crypto_watchlist_column_order', JSON.stringify(order));
+      } catch (err) {}
+      return order;
+    });
+    try {
+      localStorage.setItem('crypto_watchlist_visible_columns', JSON.stringify(newCols));
+    } catch (err) {}
+  };
+
+  const handleResetWatchlistColumns = () => {
+    setWatchlistVisibleCols([...WATCHLIST_DEFAULT_COLUMNS]);
+    setWatchlistColOrder([...WATCHLIST_DEFAULT_COLUMNS]);
+    setWatchlistColWidths({});
+    try {
+      localStorage.removeItem('crypto_watchlist_visible_columns');
+      localStorage.removeItem('crypto_watchlist_column_order');
+      localStorage.removeItem('crypto_watchlist_column_widths');
+    } catch (err) {}
+  };
+
+  // Cancel order handlers
+  const handleCancelButtonClick = (coin, coinOrders, event) => {
+    event.stopPropagation();
+    if (!coinOrders || coinOrders.length === 0) return;
+
+    if (coinOrders.length === 1) {
+      setCancelModalState({
+        isOpen: true,
+        coin,
+        order: coinOrders[0],
+        loading: false,
+        error: null
+      });
+    } else {
+      const rect = event.currentTarget.getBoundingClientRect();
+      setCancelContextMenu({
+        isOpen: true,
+        coin,
+        x: Math.max(10, rect.left),
+        y: rect.bottom + window.scrollY + 4,
+        orders: coinOrders
+      });
+    }
+  };
+
+  const handleSelectOrderFromMenu = (order, coin) => {
+    setCancelContextMenu({ isOpen: false, coin: null, x: 0, y: 0, orders: [] });
+    setCancelModalState({
+      isOpen: true,
+      coin,
+      order,
+      loading: false,
+      error: null
+    });
+  };
+
+  const handleConfirmCancelOrder = async (order, twoFactorCode) => {
+    setCancelModalState(prev => ({ ...prev, loading: true, error: null }));
+    try {
+      const orderId = order.order_id || order.orderId || order.id;
+      const symbol = (order.symbol || cancelModalState.coin?.symbol || '').toUpperCase();
+      const payload = { symbol };
+      if (twoFactorCode) {
+        payload.two_factor_code = twoFactorCode;
+      }
+      const response = await axios.post(`/api/cancel-order/${orderId}`, payload, { withCredentials: true });
+
+      if (response.data.success || response.status === 200) {
+        setPendingOrders(prev => prev.filter(o => (o.order_id || o.orderId || o.id) !== orderId));
+        setPortfolio(prev => prev.map(c => {
+          if ((c.symbol || '').toUpperCase() === symbol) {
+            const remaining = getPendingOrdersForCoin(symbol).filter(o => (o.order_id || o.orderId || o.id) !== orderId);
+            return { ...c, hasPendingOrder: remaining.length > 0 };
+          }
+          return c;
+        }));
+
+        setCancelModalState({ isOpen: false, coin: null, order: null, loading: false, error: null });
+
+        // Background refresh
+        axios.get('/api/coin-data-live').then(r => r.data?.portfolio && setPortfolio(r.data.portfolio)).catch(() => {});
+        axios.get('/api/pending-orders', { withCredentials: true }).then(r => r.data?.pending_orders && setPendingOrders(r.data.pending_orders)).catch(() => {});
+
+        return { success: true };
+      } else {
+        setCancelModalState(prev => ({ ...prev, loading: false, error: response.data.error || 'Failed to cancel order' }));
+        return response.data;
+      }
+    } catch (err) {
+      console.error('Cancel order error:', err);
+      const errMsg = err.response?.data?.error || err.message || 'Failed to cancel order';
+      const requires2fa = err.response?.data?.requires_2fa;
+      setCancelModalState(prev => ({ ...prev, loading: false, error: errMsg }));
+      if (requires2fa) {
+        return { requires_2fa: true };
+      }
+      throw err;
+    }
+  };
+
+  useEffect(() => {
+    const handleOutsideClick = () => {
+      if (cancelContextMenu.isOpen) {
+        setCancelContextMenu({ isOpen: false, coin: null, x: 0, y: 0, orders: [] });
+      }
+    };
+    if (cancelContextMenu.isOpen) {
+      document.addEventListener('click', handleOutsideClick);
+      return () => document.removeEventListener('click', handleOutsideClick);
+    }
+  }, [cancelContextMenu.isOpen]);
+
   // Note functions
   const openNoteModal = (coin) => {
     setEditingNote(coin);
@@ -1478,16 +1894,34 @@ function Dashboard({ isLightMode }) {
               </>
             )}
             {isPortfolio && (
-              <button
-                onClick={() => { handleStakeClick(coin); closeActionMenu(); }}
-                disabled={
-                  !stakeableCoins.includes(coin.symbol) ||
-                  isPlaceholder ||
-                  (coin.value && coin.value < 1)
-                }
-              >
-                Stake
-              </button>
+              <>
+                <button
+                  onClick={() => { handleStakeClick(coin); closeActionMenu(); }}
+                  disabled={
+                    !stakeableCoins.includes(coin.symbol) ||
+                    isPlaceholder ||
+                    (coin.value && coin.value < 1)
+                  }
+                >
+                  Stake
+                </button>
+                {(() => {
+                  const coinOrders = getPendingOrdersForCoin(coin.symbol);
+                  const hasOrders = coinOrders.length > 0;
+                  return (
+                    <button
+                      onClick={(e) => {
+                        closeActionMenu();
+                        if (hasOrders) handleCancelButtonClick(coin, coinOrders, e);
+                      }}
+                      disabled={!hasOrders}
+                      style={!hasOrders ? { opacity: 0.4, cursor: 'not-allowed' } : { color: '#ef4444' }}
+                    >
+                      Cancel Pending ({coinOrders.length})
+                    </button>
+                  );
+                })()}
+              </>
             )}
             <button
               onClick={() => {
@@ -2763,350 +3197,642 @@ function Dashboard({ isLightMode }) {
       <div className={`dashboard-tables-section ${isMobile && mobileTab !== 'tables' ? 'mobile-hidden' : ''}`}>
         {/* Portfolio Table */}
         <div className="table-container portfolio-table">
-        <div className="table-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px', marginBottom: '8px' }}>
-          <h2 className="table-title" style={{ margin: 0 }}>Portfolio</h2>
-          <div style={{ fontSize: '15px', fontWeight: '700', color: 'var(--accent-primary, #4fd1c5)', letterSpacing: '0.3px' }}>
-            Total Value: ${(totalValue != null ? Number(totalValue) : (portfolio || []).reduce((acc, c) => acc + (parseFloat(c.current_value) || 0), 0)).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USDT
+          <div className="table-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px', marginBottom: '8px' }}>
+            <h2 className="table-title" style={{ margin: 0 }}>Portfolio</h2>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <div style={{ fontSize: '15px', fontWeight: '700', color: 'var(--accent-primary, #4fd1c5)', letterSpacing: '0.3px' }}>
+                Total Value: ${(totalValue != null ? Number(totalValue) : (portfolio || []).reduce((acc, c) => acc + (parseFloat(c.current_value) || 0), 0)).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USDT
+              </div>
+              <button
+                type="button"
+                className="table-customize-columns-btn"
+                onClick={() => setColumnModal({ isOpen: true, tableType: 'portfolio' })}
+                title="Customize Portfolio Columns"
+                aria-label="Customize Portfolio Columns"
+              >
+                ✏️
+              </button>
+            </div>
           </div>
-        </div>
-        <div className="table-scroll-wrapper">
-        <table /* removed colgroup and resizing */ style={{ width: '100%' }}>
-          {/* removed dynamic colgroup */}
-          <thead>
-            <tr>
-              <th onClick={() => handleSort('symbol')} className="portfolio-header sortable">
-                {renderHeaderLabel('symbol', 'Symbol')}
-              </th>
-              <th onClick={() => handleSort('amount')} className="portfolio-header sortable">
-                {renderHeaderLabel('amount', 'Amount')}
-              </th>
-              <th onClick={() => handleSort('current_price')} className="portfolio-header sortable">
-                {renderHeaderLabel('current_price', 'Current Price')}
-              </th>
-              <th onClick={() => handleSort('current_value')} className="portfolio-header sortable">
-                {renderHeaderLabel('current_value', 'Current Value')}
-              </th>
-              <th className="portfolio-header">Price Down Alert</th>
-              <th className="portfolio-header">Price Up Alert</th>
-              <th onClick={() => handleSort('volatility_pct')} className="portfolio-header sortable">
-                {renderHeaderLabel('volatility_pct', 'Volatility %')}
-              </th>
-              <th onClick={() => handleSort('avg_entry')} className="portfolio-header sortable">
-                {renderHeaderLabel('avg_entry', 'Avg Entry')}
-              </th>
-              <th onClick={() => handleSort('pct_change')} className="portfolio-header sortable">
-                {renderHeaderLabel('pct_change', '% Change')}
-              </th>
-              <th onClick={() => handleSort('sentiment')} className="portfolio-header sortable">
-                {renderHeaderLabel('sentiment', 'Sentiment')}
-              </th>
-              <th className="portfolio-header">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {!Array.isArray(portfolio) || portfolio.length === 0 ? (
-              <tr>
-                <td colSpan="11" className="no-data">
-                  No portfolio data available
-                </td>
-              </tr>
-            ) : (
-              sortData(portfolio, sortConfig.key).map((coin) => {
-                const sym = (coin.symbol || '').toUpperCase().trim();
-                const isStable = ['USD', 'USDT', 'USDC', 'BUSD', 'DAI', 'TUSD', 'USDP'].includes(sym);
-                const isPlaceholder = !!coin.pendingPlaceholder || !coin.id;
-                const alertTitle = isPlaceholder
-                  ? 'Alerts unavailable for pending-only entries'
-                  : coin.alert_enabled
-                    ? 'Alerts enabled'
-                    : 'Alerts disabled';
-                const alertToggleClass = `alert-toggle ${coin.alert_enabled ? 'alert-enabled' : 'alert-disabled'}${isPlaceholder ? ' alert-disabled' : ''}`;
+          <div className="table-scroll-wrapper">
+            <table style={{ width: '100%' }}>
+              <thead>
+                <tr>
+                  {portfolioColOrder
+                    .filter((colKey) => portfolioVisibleCols.includes(colKey) && PORTFOLIO_COLUMN_DEFINITIONS[colKey])
+                    .map((colKey) => {
+                      const colDef = PORTFOLIO_COLUMN_DEFINITIONS[colKey] || { label: colKey };
+                      const isSortable = !!colDef.sortable;
+                      const isDraggable = colKey !== 'symbol' && colKey !== 'actions';
+                      const width = portfolioColWidths[colKey] || colDef.defaultWidth;
 
-                return (
-                  <tr
-                    key={coin.symbol}
-                    className={coin.hasPendingOrder ? 'pending-order' : ''}
-                    onMouseMove={(e) => handleRowHover(coin, e)}
-                    onMouseLeave={handleRowLeave}
-                  >
+                      return (
+                        <th
+                          key={colKey}
+                          onClick={isSortable ? () => handleSort(colKey) : undefined}
+                          className={`portfolio-header ${isSortable ? 'sortable' : ''} ${dragOverColKey === colKey ? 'drag-over-target' : ''}`}
+                          draggable={isDraggable}
+                          onDragStart={(e) => handleColDragStart('portfolio', colKey, e)}
+                          onDragOver={(e) => handleColDragOver('portfolio', colKey, e)}
+                          onDrop={(e) => handleColDrop('portfolio', colKey, e)}
+                          onDragEnd={handleColDragEnd}
+                          style={{
+                            width: width ? `${width}px` : undefined,
+                            minWidth: width ? `${width}px` : undefined,
+                            cursor: isDraggable ? 'grab' : isSortable ? 'pointer' : 'default',
+                            position: 'relative'
+                          }}
+                          title={isDraggable ? 'Click to sort (if sortable) or drag to reorder column' : undefined}
+                        >
+                          <div className="table-header-cell-content">
+                            {isSortable ? renderHeaderLabel(colKey, colDef.label) : colDef.label}
+                          </div>
+                          <div
+                            className="col-resizer-handle"
+                            onMouseDown={(e) => handleResizeStart('portfolio', colKey, e)}
+                            onClick={(e) => e.stopPropagation()}
+                            title="Drag to resize column width"
+                          />
+                        </th>
+                      );
+                    })}
+                </tr>
+              </thead>
+              <tbody>
+                {!Array.isArray(portfolio) || portfolio.length === 0 ? (
+                  <tr>
                     <td
-                      className="symbol-cell"
-                      onMouseEnter={(e) => handleSymbolHover(coin.symbol, e)}
-                      onMouseLeave={handleSymbolLeave}
-                      onClick={() => handleChartClick(coin.symbol)}
-                      style={{ cursor: 'pointer' }}
-                      title="Hover for 7-day chart, click to open on Binance"
+                      colSpan={portfolioColOrder.filter((k) => portfolioVisibleCols.includes(k) && PORTFOLIO_COLUMN_DEFINITIONS[k]).length || 11}
+                      className="no-data"
+                      style={{ textAlign: 'center' }}
                     >
-                      <div className="coin-symbol-container" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', justifyContent: 'center' }}>
-                        <CryptoIcon symbol={coin.symbol} size={20} />
-                        <span>{coin.symbol}</span>
-                      </div>
-                    </td>
-                    <td>{coin.pendingPlaceholder ? '0.0000' : (coin.amount !== undefined && coin.amount !== null ? coin.amount.toFixed(4) : '—')}</td>
-                    <td style={{ whiteSpace: 'nowrap' }}>{coin.current_price ? `$${coin.current_price.toFixed(2)}` : '—'}</td>
-                    <td style={{ whiteSpace: 'nowrap', textAlign: 'center' }}>{coin.current_value ? `$${coin.current_value.toFixed(2)}` : '—'}</td>
-                    <td style={{ textAlign: 'center' }}>{renderPortfolioAlertCell(coin, 'down')}</td>
-                    <td style={{ textAlign: 'center' }}>{renderPortfolioAlertCell(coin, 'up')}</td>
-                    <td style={{ textAlign: 'center' }}>{renderVolatilityCell(coin, 'portfolio')}</td>
-                    <td style={{ whiteSpace: 'nowrap', textAlign: 'center' }}>{isStable ? '—' : (coin.avg_entry ? `$${coin.avg_entry.toFixed(2)}` : '—')}</td>
-                    <td className={!isStable && coin.pct_change >= 0 ? 'status-positive' : !isStable && coin.pct_change < 0 ? 'status-negative' : ''} style={{ whiteSpace: 'nowrap', textAlign: 'center' }}>
-                      {isStable ? '—' : (coin.pct_change !== undefined && coin.pct_change !== null ? `${coin.pct_change >= 0 ? '+' : ''}${coin.pct_change.toFixed(2)}%` : '—')}
-                    </td>
-                    {renderSentimentCell(coin, false)}
-                    <td className="actions-cell" style={{ whiteSpace: 'nowrap', position: 'relative', textAlign: 'center' }}>
-                      {isMobile ? (
-                        <>
-                          <button
-                            className="actions-dropdown-btn"
-                            onClick={(e) => toggleActionMenu('portfolio', coin.symbol, e, { coin, isPlaceholder })}
-                          >
-                            Actions
-                          </button>
-                          {openActionMenu.type === 'portfolio' && openActionMenu.key === coin.symbol && (
-                            <div style={{ display: 'none' }} />
-                          )}
-                        </>
-                      ) : (
-                        <>
-                          <button
-                            type="button"
-                            onClick={!isPlaceholder ? () => toggleAlert(coin.id, coin.alert_enabled) : undefined}
-                            className={`action-icon-btn alert-btn ${coin.alert_enabled ? 'alert-enabled' : 'alert-disabled'}`}
-                            title={alertTitle}
-                            disabled={isPlaceholder}
-                            style={{ cursor: isPlaceholder ? 'not-allowed' : 'pointer' }}
-                          >
-                            🔔
-                          </button>
-                          <button
-                            type="button"
-                            className="action-icon-btn news-btn"
-                            title={getNewsTooltip(coin)}
-                            onClick={() => openNews(coin.symbol)}
-                          >
-                            📰
-                          </button>
-                          <button
-                            type="button"
-                            className="action-icon-btn note-btn"
-                            title={coin.note ? `Note: ${coin.note}` : 'Add note'}
-                            onClick={() => openNoteModal(coin)}
-                          >
-                            ✏️
-                          </button>
-                          <button
-                            className="trade-action-btn buy"
-                            onClick={(event) => coin.symbol !== 'USD' && toggleTradeQuoteMenu('portfolio', coin.symbol, 'BUY', event)}
-                            disabled={coin.symbol === 'USD'}
-                            title={coin.symbol === 'USD' ? 'Cannot purchase fiat USD' : 'Buy'}
-                            style={coin.symbol === 'USD' ? { opacity: 0.4, cursor: 'not-allowed' } : undefined}
-                          >
-                            Buy
-                          </button>
-                          <button
-                            className="trade-action-btn sell"
-                            onClick={(event) => coin.symbol !== 'USD' && toggleTradeQuoteMenu('portfolio', coin.symbol, 'SELL', event)}
-                            disabled={coin.symbol === 'USD'}
-                            title={coin.symbol === 'USD' ? 'Cannot sell fiat USD' : 'Sell'}
-                            style={coin.symbol === 'USD' ? { opacity: 0.4, cursor: 'not-allowed' } : undefined}
-                          >
-                            Sell
-                          </button>
-                          <button
-                            className="trade-action-btn stake"
-                            onClick={() => handleStakeClick(coin)}
-                            disabled={
-                              !stakeableCoins.includes(coin.symbol) ||
-                              isPlaceholder ||
-                              (coin.value && coin.value < 1)
-                            }
-                            title={
-                              !stakeableCoins.includes(coin.symbol)
-                                ? 'Staking not available for this coin'
-                                : (coin.value && coin.value < 1)
-                                  ? 'Minimum $1 USDT value required to stake'
-                                  : 'Stake this coin'
-                            }
-                          >
-                            Stake
-                          </button>
-                          <button
-                            className="trade-action-btn hide"
-                            onClick={() => { if (!isPlaceholder) { hideCoin(coin.id); } }}
-                            title={isPlaceholder ? 'Cannot hide pending-only entries' : 'Hide coin'}
-                            disabled={isPlaceholder}
-                          >
-                            Hide
-                          </button>
-                        </>
-                      )}
+                      No portfolio data available
                     </td>
                   </tr>
-                );
-              })
-            )}
-          </tbody>
-        </table>
-        </div>
-      </div>
+                ) : (
+                  sortData(portfolio, sortConfig.key).map((coin) => {
+                    const sym = (coin.symbol || '').toUpperCase().trim();
+                    const isStable = ['USD', 'USDT', 'USDC', 'BUSD', 'DAI', 'TUSD', 'USDP'].includes(sym);
+                    const isPlaceholder = !!coin.pendingPlaceholder || !coin.id;
+                    const alertTitle = isPlaceholder
+                      ? 'Alerts unavailable for pending-only entries'
+                      : coin.alert_enabled
+                        ? 'Alerts enabled'
+                        : 'Alerts disabled';
 
-      {/* Pending Order Tooltip */}
-      {orderTooltip.visible && (
-        <div
-          className="pending-order-tooltip"
-          style={{
-            position: 'fixed',
-            left: `${orderTooltip.x}px`,
-            top: `${orderTooltip.y}px`,
-            backgroundColor: 'rgba(255, 215, 0, 0.95)',
-            color: 'black',
-            padding: '10px 15px',
-            borderRadius: '6px',
-            fontSize: '14px',
-            fontWeight: '500',
-            maxWidth: '350px',
-            zIndex: 10000,
-            pointerEvents: 'none',
-            boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
-            border: '2px solid rgba(0,0,0,0.2)',
-            whiteSpace: 'pre-line'
-          }}
-        >
-          {orderTooltip.text}
-        </div>
-      )}
+                    const visibleCols = portfolioColOrder.filter(
+                      (k) => portfolioVisibleCols.includes(k) && PORTFOLIO_COLUMN_DEFINITIONS[k]
+                    );
 
-      {/* Watchlist Section */}
-      <div className="table-container watchlist-table">
-        <div className="table-header">
-          <h2 className="table-title">Watchlist</h2>
+                    return (
+                      <tr
+                        key={coin.symbol}
+                        className={coin.hasPendingOrder ? 'pending-order' : ''}
+                        onMouseMove={(e) => handleRowHover(coin, e)}
+                        onMouseLeave={handleRowLeave}
+                      >
+                        {visibleCols.map((colKey) => {
+                          switch (colKey) {
+                            case 'symbol':
+                              return (
+                                <td
+                                  key="symbol"
+                                  className="symbol-cell"
+                                  onMouseEnter={(e) => handleSymbolHover(coin.symbol, e)}
+                                  onMouseLeave={handleSymbolLeave}
+                                  onClick={() => handleChartClick(coin.symbol)}
+                                  style={{ cursor: 'pointer', textAlign: 'center' }}
+                                  title="Hover for 7-day chart, click to open on Binance"
+                                >
+                                  <div className="coin-symbol-container" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', justifyContent: 'center' }}>
+                                    <CryptoIcon symbol={coin.symbol} size={20} />
+                                    <span>{coin.symbol}</span>
+                                  </div>
+                                </td>
+                              );
+                            case 'amount':
+                              return (
+                                <td key="amount" style={{ textAlign: 'center' }}>
+                                  {coin.pendingPlaceholder ? '0.0000' : (coin.amount !== undefined && coin.amount !== null ? coin.amount.toFixed(4) : '—')}
+                                </td>
+                              );
+                            case 'current_price':
+                              return (
+                                <td key="current_price" style={{ whiteSpace: 'nowrap', textAlign: 'center' }}>
+                                  {coin.current_price ? `$${coin.current_price.toFixed(2)}` : '—'}
+                                </td>
+                              );
+                            case 'current_value':
+                              return (
+                                <td key="current_value" style={{ whiteSpace: 'nowrap', textAlign: 'center' }}>
+                                  {coin.current_value ? `$${coin.current_value.toFixed(2)}` : '—'}
+                                </td>
+                              );
+                            case 'down_alert':
+                              return (
+                                <td key="down_alert" style={{ textAlign: 'center' }}>
+                                  {renderPortfolioAlertCell(coin, 'down')}
+                                </td>
+                              );
+                            case 'up_alert':
+                              return (
+                                <td key="up_alert" style={{ textAlign: 'center' }}>
+                                  {renderPortfolioAlertCell(coin, 'up')}
+                                </td>
+                              );
+                            case 'volatility_pct':
+                              return (
+                                <td key="volatility_pct" style={{ textAlign: 'center' }}>
+                                  {renderVolatilityCell(coin, 'portfolio')}
+                                </td>
+                              );
+                            case 'avg_entry':
+                              return (
+                                <td key="avg_entry" style={{ whiteSpace: 'nowrap', textAlign: 'center' }}>
+                                  {isStable ? '—' : (coin.avg_entry ? `$${coin.avg_entry.toFixed(2)}` : '—')}
+                                </td>
+                              );
+                            case 'pct_change':
+                              return (
+                                <td
+                                  key="pct_change"
+                                  className={!isStable && coin.pct_change >= 0 ? 'status-positive' : !isStable && coin.pct_change < 0 ? 'status-negative' : ''}
+                                  style={{ whiteSpace: 'nowrap', textAlign: 'center' }}
+                                >
+                                  {isStable ? '—' : (coin.pct_change !== undefined && coin.pct_change !== null ? `${coin.pct_change >= 0 ? '+' : ''}${coin.pct_change.toFixed(2)}%` : '—')}
+                                </td>
+                              );
+                            case 'sentiment':
+                              return renderSentimentCell(coin, false);
+                            case 'high_low_24h':
+                              return (
+                                <td key="high_low_24h" style={{ whiteSpace: 'nowrap', textAlign: 'center', fontSize: '0.85rem' }}>
+                                  {coin.high_24h && coin.low_24h ? (
+                                    <span>
+                                      <span style={{ color: '#4ade80' }}>${coin.high_24h >= 1 ? coin.high_24h.toFixed(2) : coin.high_24h.toFixed(4)}</span> / <span style={{ color: '#f87171' }}>${coin.low_24h >= 1 ? coin.low_24h.toFixed(2) : coin.low_24h.toFixed(4)}</span>
+                                    </span>
+                                  ) : '—'}
+                                </td>
+                              );
+                            case 'volume_24h':
+                              return (
+                                <td key="volume_24h" style={{ whiteSpace: 'nowrap', textAlign: 'center' }}>
+                                  {coin.volume_24h ? `$${Number(coin.volume_24h).toLocaleString('en-US', { maximumFractionDigits: 0 })}` : '—'}
+                                </td>
+                              );
+                            case 'market_cap':
+                              return (
+                                <td key="market_cap" style={{ whiteSpace: 'nowrap', textAlign: 'center' }}>
+                                  {coin.market_cap ? `$${Number(coin.market_cap).toLocaleString('en-US', { maximumFractionDigits: 0 })}` : (coin.rank ? `#${coin.rank}` : '—')}
+                                </td>
+                              );
+                            case 'pnl_usd': {
+                              const pnl = (coin.current_value !== undefined && coin.cost_basis !== undefined && coin.cost_basis > 0)
+                                ? (coin.current_value - coin.cost_basis)
+                                : (coin.current_price && coin.avg_entry && coin.amount)
+                                  ? (coin.amount * (coin.current_price - coin.avg_entry))
+                                  : null;
+                              return (
+                                <td
+                                  key="pnl_usd"
+                                  className={pnl && pnl >= 0 ? 'status-positive' : pnl && pnl < 0 ? 'status-negative' : ''}
+                                  style={{ whiteSpace: 'nowrap', textAlign: 'center' }}
+                                >
+                                  {isStable || pnl === null ? '—' : `${pnl >= 0 ? '+' : ''}$${pnl.toFixed(2)}`}
+                                </td>
+                              );
+                            }
+                            case 'allocation_pct': {
+                              const totVal = Number(totalValue) || (portfolio || []).reduce((acc, c) => acc + (parseFloat(c.current_value) || 0), 0);
+                              const alloc = (totVal > 0 && coin.current_value) ? ((coin.current_value / totVal) * 100) : 0;
+                              return (
+                                <td key="allocation_pct" style={{ whiteSpace: 'nowrap', textAlign: 'center' }}>
+                                  {alloc > 0 ? `${alloc.toFixed(1)}%` : '—'}
+                                </td>
+                              );
+                            }
+                            case 'target_price': {
+                              const target = coin.target_price || coin.custom_upper_val || coin.up_alert || null;
+                              return (
+                                <td key="target_price" style={{ whiteSpace: 'nowrap', textAlign: 'center' }}>
+                                  {target ? `$${Number(target).toFixed(2)}` : '—'}
+                                </td>
+                              );
+                            }
+                            case 'last_updated':
+                              return (
+                                <td key="last_updated" style={{ whiteSpace: 'nowrap', textAlign: 'center', fontSize: '0.82rem', color: '#94a3b8' }}>
+                                  {coin.last_updated || 'Live'}
+                                </td>
+                              );
+                            case 'actions':
+                              return (
+                                <td key="actions" className="actions-cell" style={{ whiteSpace: 'nowrap', position: 'relative', textAlign: 'center' }}>
+                                  {isMobile ? (
+                                    <>
+                                      <button
+                                        className="actions-dropdown-btn"
+                                        onClick={(e) => toggleActionMenu('portfolio', coin.symbol, e, { coin, isPlaceholder })}
+                                      >
+                                        Actions
+                                      </button>
+                                      {openActionMenu.type === 'portfolio' && openActionMenu.key === coin.symbol && (
+                                        <div style={{ display: 'none' }} />
+                                      )}
+                                    </>
+                                  ) : (
+                                    <>
+                                      <button
+                                        type="button"
+                                        onClick={!isPlaceholder ? () => toggleAlert(coin.id, coin.alert_enabled) : undefined}
+                                        className={`action-icon-btn alert-btn ${coin.alert_enabled ? 'alert-enabled' : 'alert-disabled'}`}
+                                        title={alertTitle}
+                                        disabled={isPlaceholder}
+                                        style={{ cursor: isPlaceholder ? 'not-allowed' : 'pointer' }}
+                                      >
+                                        🔔
+                                      </button>
+                                      <button
+                                        type="button"
+                                        className="action-icon-btn news-btn"
+                                        title={getNewsTooltip(coin)}
+                                        onClick={() => openNews(coin.symbol)}
+                                      >
+                                        📰
+                                      </button>
+                                      <button
+                                        type="button"
+                                        className="action-icon-btn note-btn"
+                                        title={coin.note ? `Note: ${coin.note}` : 'Add note'}
+                                        onClick={() => openNoteModal(coin)}
+                                      >
+                                        ✏️
+                                      </button>
+                                      <button
+                                        className="trade-action-btn buy"
+                                        onClick={(event) => coin.symbol !== 'USD' && toggleTradeQuoteMenu('portfolio', coin.symbol, 'BUY', event)}
+                                        disabled={coin.symbol === 'USD'}
+                                        title={coin.symbol === 'USD' ? 'Cannot purchase fiat USD' : 'Buy'}
+                                        style={coin.symbol === 'USD' ? { opacity: 0.4, cursor: 'not-allowed' } : undefined}
+                                      >
+                                        Buy
+                                      </button>
+                                      <button
+                                        className="trade-action-btn sell"
+                                        onClick={(event) => coin.symbol !== 'USD' && toggleTradeQuoteMenu('portfolio', coin.symbol, 'SELL', event)}
+                                        disabled={coin.symbol === 'USD'}
+                                        title={coin.symbol === 'USD' ? 'Cannot sell fiat USD' : 'Sell'}
+                                        style={coin.symbol === 'USD' ? { opacity: 0.4, cursor: 'not-allowed' } : undefined}
+                                      >
+                                        Sell
+                                      </button>
+                                      <button
+                                        className="trade-action-btn stake"
+                                        onClick={() => handleStakeClick(coin)}
+                                        disabled={
+                                          !stakeableCoins.includes(coin.symbol) ||
+                                          isPlaceholder ||
+                                          (coin.value && coin.value < 1)
+                                        }
+                                        title={
+                                          !stakeableCoins.includes(coin.symbol)
+                                            ? 'Staking not available for this coin'
+                                            : (coin.value && coin.value < 1)
+                                              ? 'Minimum $1 USDT value required to stake'
+                                              : 'Stake this coin'
+                                        }
+                                      >
+                                        Stake
+                                      </button>
+                                      {(() => {
+                                        const coinOrders = getPendingOrdersForCoin(coin.symbol);
+                                        const hasOrders = coinOrders.length > 0;
+                                        return (
+                                          <button
+                                            type="button"
+                                            className={`trade-action-btn cancel ${!hasOrders ? 'disabled-cancel' : ''}`}
+                                            onClick={(e) => hasOrders && handleCancelButtonClick(coin, coinOrders, e)}
+                                            disabled={!hasOrders}
+                                            title={hasOrders ? `Cancel ${coinOrders.length} pending order(s) for ${coin.symbol}` : 'No pending orders to cancel'}
+                                          >
+                                            Cancel
+                                          </button>
+                                        );
+                                      })()}
+                                      <button
+                                        className="trade-action-btn hide"
+                                        onClick={() => { if (!isPlaceholder) { hideCoin(coin.id); } }}
+                                        title={isPlaceholder ? 'Cannot hide pending-only entries' : 'Hide coin'}
+                                        disabled={isPlaceholder}
+                                      >
+                                        Hide
+                                      </button>
+                                    </>
+                                  )}
+                                </td>
+                              );
+                            default:
+                              return <td key={colKey}>—</td>;
+                          }
+                        })}
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
-        <div className="watchlist-input">
-          <input
-            type="text"
-            placeholder="Symbol (e.g. SOL, BTC)"
-            className="watchlist-symbol-input"
-            value={watchlistSymbol}
-            onChange={(e) => setWatchlistSymbol(e.target.value)}
-            disabled={addingToWatchlist}
-          />
-          <button className="btn" onClick={addToWatchlist} disabled={addingToWatchlist}>
-            {addingToWatchlist ? 'Adding...' : 'Add to Watchlist'}
-          </button>
-        </div>
-        <div className="table-scroll-wrapper">
-        <table /* removed colgroup and resizing */ style={{ width: '100%' }}>
-          {/* removed dynamic colgroup */}
-          <thead>
-            <tr>
-              <th onClick={() => handleSort('symbol')} style={{ cursor: 'pointer' }}>
-                Symbol {getSortIcon('symbol')}
-              </th>
-              <th onClick={() => handleSort('current_price')} style={{ cursor: 'pointer' }}>
-                Current Price {getSortIcon('current_price')}
-              </th>
-              <th>Price Down Alert</th>
-              <th>Price Up Alert</th>
-              <th>Volatility %</th>
-              <th onClick={() => handleSort('sentiment')} style={{ cursor: 'pointer' }}>
-                Sentiment {getSortIcon('sentiment')}
-              </th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {!Array.isArray(watchlist) || watchlist.length === 0 ? (
-              <tr>
-                <td colSpan="7" className="no-data" style={{ textAlign: 'center' }}>
-                  No watchlist items
-                </td>
-              </tr>
-            ) : (
-              sortData(watchlist, sortConfig.key).map((item) => (
-                <tr key={item.symbol}>
-                  <td
-                    className="symbol-cell"
-                    style={{ textAlign: 'center', cursor: 'pointer' }}
-                    onMouseEnter={(e) => handleSymbolHover(item.symbol, e)}
-                    onMouseLeave={handleSymbolLeave}
-                    onClick={() => handleChartClick(item.symbol)}
-                    title="Hover for 7-day chart, click to open on Binance"
-                  >
-                    <div className="coin-symbol-container" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', justifyContent: 'center' }}>
-                      <CryptoIcon symbol={item.symbol} size={20} />
-                      <span>{item.symbol}</span>
-                    </div>
-                  </td>
-                  <td style={{ whiteSpace: 'nowrap', textAlign: 'center' }}>{item.current_price ? `$${item.current_price.toFixed(2)}` : '—'}</td>
-                  <td style={{ textAlign: 'center' }}>{renderWatchlistAlertCell(item, 'down')}</td>
-                  <td style={{ textAlign: 'center' }}>{renderWatchlistAlertCell(item, 'up')}</td>
-                  <td style={{ textAlign: 'center' }}>{renderVolatilityCell(item, 'watchlist')}</td>
-                  {renderSentimentCell(item, true)}
-                  <td className="actions-cell" style={{ textAlign: 'center', whiteSpace: 'nowrap', position: 'relative' }}>
-                    {isMobile ? (
-                      <>
-                        <button
-                          className="actions-dropdown-btn"
-                          onClick={(e) => toggleActionMenu('watchlist', item.symbol, e, { item })}
+
+        {/* Pending Order Tooltip */}
+        {orderTooltip.visible && (
+          <div
+            className="pending-order-tooltip"
+            style={{
+              position: 'fixed',
+              left: `${orderTooltip.x}px`,
+              top: `${orderTooltip.y}px`,
+              backgroundColor: 'rgba(255, 215, 0, 0.95)',
+              color: 'black',
+              padding: '10px 15px',
+              borderRadius: '6px',
+              fontSize: '14px',
+              fontWeight: '500',
+              maxWidth: '350px',
+              zIndex: 10000,
+              pointerEvents: 'none',
+              boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
+              border: '2px solid rgba(0,0,0,0.2)',
+              whiteSpace: 'pre-line'
+            }}
+          >
+            {orderTooltip.text}
+          </div>
+        )}
+
+        {/* Watchlist Section */}
+        <div className="table-container watchlist-table">
+          <div className="table-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+            <h2 className="table-title" style={{ margin: 0 }}>Watchlist</h2>
+            <button
+              type="button"
+              className="table-customize-columns-btn"
+              onClick={() => setColumnModal({ isOpen: true, tableType: 'watchlist' })}
+              title="Customize Watchlist Columns"
+              aria-label="Customize Watchlist Columns"
+            >
+              ✏️
+            </button>
+          </div>
+          <div className="watchlist-input">
+            <input
+              type="text"
+              placeholder="Symbol (e.g. SOL, BTC)"
+              className="watchlist-symbol-input"
+              value={watchlistSymbol}
+              onChange={(e) => setWatchlistSymbol(e.target.value)}
+              disabled={addingToWatchlist}
+            />
+            <button className="btn" onClick={addToWatchlist} disabled={addingToWatchlist}>
+              {addingToWatchlist ? 'Adding...' : 'Add to Watchlist'}
+            </button>
+          </div>
+          <div className="table-scroll-wrapper">
+            <table style={{ width: '100%' }}>
+              <thead>
+                <tr>
+                  {watchlistColOrder
+                    .filter((colKey) => watchlistVisibleCols.includes(colKey) && WATCHLIST_COLUMN_DEFINITIONS[colKey])
+                    .map((colKey) => {
+                      const colDef = WATCHLIST_COLUMN_DEFINITIONS[colKey] || { label: colKey };
+                      const isSortable = !!colDef.sortable;
+                      const isDraggable = colKey !== 'symbol' && colKey !== 'actions';
+                      const width = watchlistColWidths[colKey] || colDef.defaultWidth;
+
+                      return (
+                        <th
+                          key={colKey}
+                          onClick={isSortable ? () => handleSort(colKey) : undefined}
+                          className={`watchlist-header ${isSortable ? 'sortable' : ''} ${dragOverColKey === colKey ? 'drag-over-target' : ''}`}
+                          draggable={isDraggable}
+                          onDragStart={(e) => handleColDragStart('watchlist', colKey, e)}
+                          onDragOver={(e) => handleColDragOver('watchlist', colKey, e)}
+                          onDrop={(e) => handleColDrop('watchlist', colKey, e)}
+                          onDragEnd={handleColDragEnd}
+                          style={{
+                            width: width ? `${width}px` : undefined,
+                            minWidth: width ? `${width}px` : undefined,
+                            cursor: isDraggable ? 'grab' : isSortable ? 'pointer' : 'default',
+                            position: 'relative'
+                          }}
+                          title={isDraggable ? 'Click to sort (if sortable) or drag to reorder column' : undefined}
                         >
-                          Actions
-                        </button>
-                        {openActionMenu.type === 'watchlist' && openActionMenu.key === item.symbol && (
-                          <div style={{ display: 'none' }} />
-                        )}
-                      </>
-                    ) : (
-                      <>
-                        <button
-                          type="button"
-                          onClick={() => toggleWatchlistAlert(item.symbol, item.alert_enabled)}
-                          className={`action-icon-btn alert-btn ${item.alert_enabled ? 'alert-enabled' : 'alert-disabled'}`}
-                          title={item.alert_enabled ? 'Alerts enabled' : 'Alerts disabled'}
-                        >
-                          🔔
-                        </button>
-                        <button
-                          type="button"
-                          className="action-icon-btn news-btn"
-                          title={getNewsTooltip(item)}
-                          onClick={() => openNews(item.symbol)}
-                        >
-                          📰
-                        </button>
-                        <button
-                          type="button"
-                          className="action-icon-btn note-btn"
-                          title={item.note ? `Note: ${item.note}` : 'Add note'}
-                          onClick={() => openNoteModal(item)}
-                        >
-                          ✏️
-                        </button>
-                        <button
-                          className="trade-action-btn buy"
-                          onClick={(event) => item.symbol !== 'USD' && toggleTradeQuoteMenu('watchlist', item.symbol, 'BUY', event)}
-                          disabled={item.symbol === 'USD'}
-                          title={item.symbol === 'USD' ? 'Cannot purchase fiat USD' : 'Buy'}
-                          style={item.symbol === 'USD' ? { opacity: 0.4, cursor: 'not-allowed' } : undefined}
-                        >
-                          Buy
-                        </button>
-                        <button
-                          className="trade-action-btn delete"
-                          onClick={() => deleteWatchlistItem(item.symbol)}
-                          title="Delete from watchlist"
-                        >
-                          Delete
-                        </button>
-                      </>
-                    )}
-                  </td>
+                          <div className="table-header-cell-content">
+                            {isSortable ? renderHeaderLabel(colKey, colDef.label) : colDef.label}
+                          </div>
+                          <div
+                            className="col-resizer-handle"
+                            onMouseDown={(e) => handleResizeStart('watchlist', colKey, e)}
+                            onClick={(e) => e.stopPropagation()}
+                            title="Drag to resize column width"
+                          />
+                        </th>
+                      );
+                    })}
                 </tr>
-              ))
-            )}
-          </tbody>
-        </table>
+              </thead>
+              <tbody>
+                {!Array.isArray(watchlist) || watchlist.length === 0 ? (
+                  <tr>
+                    <td
+                      colSpan={watchlistColOrder.filter((k) => watchlistVisibleCols.includes(k) && WATCHLIST_COLUMN_DEFINITIONS[k]).length || 7}
+                      className="no-data"
+                      style={{ textAlign: 'center' }}
+                    >
+                      No watchlist items
+                    </td>
+                  </tr>
+                ) : (
+                  sortData(watchlist, sortConfig.key).map((item) => {
+                    const visibleCols = watchlistColOrder.filter(
+                      (k) => watchlistVisibleCols.includes(k) && WATCHLIST_COLUMN_DEFINITIONS[k]
+                    );
+
+                    return (
+                      <tr key={item.symbol}>
+                        {visibleCols.map((colKey) => {
+                          switch (colKey) {
+                            case 'symbol':
+                              return (
+                                <td
+                                  key="symbol"
+                                  className="symbol-cell"
+                                  style={{ textAlign: 'center', cursor: 'pointer' }}
+                                  onMouseEnter={(e) => handleSymbolHover(item.symbol, e)}
+                                  onMouseLeave={handleSymbolLeave}
+                                  onClick={() => handleChartClick(item.symbol)}
+                                  title="Hover for 7-day chart, click to open on Binance"
+                                >
+                                  <div className="coin-symbol-container" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', justifyContent: 'center' }}>
+                                    <CryptoIcon symbol={item.symbol} size={20} />
+                                    <span>{item.symbol}</span>
+                                  </div>
+                                </td>
+                              );
+                            case 'current_price':
+                              return (
+                                <td key="current_price" style={{ whiteSpace: 'nowrap', textAlign: 'center' }}>
+                                  {item.current_price ? `$${item.current_price.toFixed(2)}` : '—'}
+                                </td>
+                              );
+                            case 'down_alert':
+                              return (
+                                <td key="down_alert" style={{ textAlign: 'center' }}>
+                                  {renderWatchlistAlertCell(item, 'down')}
+                                </td>
+                              );
+                            case 'up_alert':
+                              return (
+                                <td key="up_alert" style={{ textAlign: 'center' }}>
+                                  {renderWatchlistAlertCell(item, 'up')}
+                                </td>
+                              );
+                            case 'volatility_pct':
+                              return (
+                                <td key="volatility_pct" style={{ textAlign: 'center' }}>
+                                  {renderVolatilityCell(item, 'watchlist')}
+                                </td>
+                              );
+                            case 'sentiment':
+                              return renderSentimentCell(item, true);
+                            case 'pct_change':
+                              return (
+                                <td
+                                  key="pct_change"
+                                  className={item.pct_change >= 0 ? 'status-positive' : item.pct_change < 0 ? 'status-negative' : ''}
+                                  style={{ whiteSpace: 'nowrap', textAlign: 'center' }}
+                                >
+                                  {item.pct_change !== undefined && item.pct_change !== null ? `${item.pct_change >= 0 ? '+' : ''}${item.pct_change.toFixed(2)}%` : '—'}
+                                </td>
+                              );
+                            case 'high_low_24h':
+                              return (
+                                <td key="high_low_24h" style={{ whiteSpace: 'nowrap', textAlign: 'center', fontSize: '0.85rem' }}>
+                                  {item.high_24h && item.low_24h ? (
+                                    <span>
+                                      <span style={{ color: '#4ade80' }}>${item.high_24h >= 1 ? item.high_24h.toFixed(2) : item.high_24h.toFixed(4)}</span> / <span style={{ color: '#f87171' }}>${item.low_24h >= 1 ? item.low_24h.toFixed(2) : item.low_24h.toFixed(4)}</span>
+                                    </span>
+                                  ) : '—'}
+                                </td>
+                              );
+                            case 'volume_24h':
+                              return (
+                                <td key="volume_24h" style={{ whiteSpace: 'nowrap', textAlign: 'center' }}>
+                                  {item.volume_24h ? `$${Number(item.volume_24h).toLocaleString('en-US', { maximumFractionDigits: 0 })}` : '—'}
+                                </td>
+                              );
+                            case 'market_cap':
+                              return (
+                                <td key="market_cap" style={{ whiteSpace: 'nowrap', textAlign: 'center' }}>
+                                  {item.market_cap ? `$${Number(item.market_cap).toLocaleString('en-US', { maximumFractionDigits: 0 })}` : (item.rank ? `#${item.rank}` : '—')}
+                                </td>
+                              );
+                            case 'target_price': {
+                              const target = item.target_price || item.custom_upper_val || item.up_alert || null;
+                              return (
+                                <td key="target_price" style={{ whiteSpace: 'nowrap', textAlign: 'center' }}>
+                                  {target ? `$${Number(target).toFixed(2)}` : '—'}
+                                </td>
+                              );
+                            }
+                            case 'last_updated':
+                              return (
+                                <td key="last_updated" style={{ whiteSpace: 'nowrap', textAlign: 'center', fontSize: '0.82rem', color: '#94a3b8' }}>
+                                  {item.last_updated || 'Live'}
+                                </td>
+                              );
+                            case 'actions':
+                              return (
+                                <td key="actions" className="actions-cell" style={{ textAlign: 'center', whiteSpace: 'nowrap', position: 'relative' }}>
+                                  {isMobile ? (
+                                    <>
+                                      <button
+                                        className="actions-dropdown-btn"
+                                        onClick={(e) => toggleActionMenu('watchlist', item.symbol, e, { item })}
+                                      >
+                                        Actions
+                                      </button>
+                                      {openActionMenu.type === 'watchlist' && openActionMenu.key === item.symbol && (
+                                        <div style={{ display: 'none' }} />
+                                      )}
+                                    </>
+                                  ) : (
+                                    <>
+                                      <button
+                                        type="button"
+                                        onClick={() => toggleWatchlistAlert(item.symbol, item.alert_enabled)}
+                                        className={`action-icon-btn alert-btn ${item.alert_enabled ? 'alert-enabled' : 'alert-disabled'}`}
+                                        title={item.alert_enabled ? 'Alerts enabled' : 'Alerts disabled'}
+                                      >
+                                        🔔
+                                      </button>
+                                      <button
+                                        type="button"
+                                        className="action-icon-btn news-btn"
+                                        title={getNewsTooltip(item)}
+                                        onClick={() => openNews(item.symbol)}
+                                      >
+                                        📰
+                                      </button>
+                                      <button
+                                        type="button"
+                                        className="action-icon-btn note-btn"
+                                        title={item.note ? `Note: ${item.note}` : 'Add note'}
+                                        onClick={() => openNoteModal(item)}
+                                      >
+                                        ✏️
+                                      </button>
+                                      <button
+                                        className="trade-action-btn buy"
+                                        onClick={(event) => item.symbol !== 'USD' && toggleTradeQuoteMenu('watchlist', item.symbol, 'BUY', event)}
+                                        disabled={item.symbol === 'USD'}
+                                        title={item.symbol === 'USD' ? 'Cannot purchase fiat USD' : 'Buy'}
+                                        style={item.symbol === 'USD' ? { opacity: 0.4, cursor: 'not-allowed' } : undefined}
+                                      >
+                                        Buy
+                                      </button>
+                                      <button
+                                        className="trade-action-btn sell"
+                                        onClick={(event) => item.symbol !== 'USD' && toggleTradeQuoteMenu('watchlist', item.symbol, 'SELL', event)}
+                                        disabled={item.symbol === 'USD'}
+                                        title={item.symbol === 'USD' ? 'Cannot sell fiat USD' : 'Sell'}
+                                        style={item.symbol === 'USD' ? { opacity: 0.4, cursor: 'not-allowed' } : undefined}
+                                      >
+                                        Sell
+                                      </button>
+                                      <button
+                                        className="trade-action-btn delete"
+                                        onClick={() => deleteWatchlistItem(item.symbol)}
+                                        title="Delete from watchlist"
+                                      >
+                                        🗑️
+                                      </button>
+                                    </>
+                                  )}
+                                </td>
+                              );
+                            default:
+                              return <td key={colKey}>—</td>;
+                          }
+                        })}
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
-      </div>
       </div>
 
       {/* Note Modal */}
@@ -3956,6 +4682,78 @@ function Dashboard({ isLightMode }) {
                 Save Selection
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Table Column Customization Modal */}
+      <TableColumnModal
+        isOpen={columnModal.isOpen}
+        onClose={() => setColumnModal(prev => ({ ...prev, isOpen: false }))}
+        tableType={columnModal.tableType}
+        columnDefinitions={columnModal.tableType === 'portfolio' ? PORTFOLIO_COLUMN_DEFINITIONS : WATCHLIST_COLUMN_DEFINITIONS}
+        visibleColumns={columnModal.tableType === 'portfolio' ? portfolioVisibleCols : watchlistVisibleCols}
+        onSave={columnModal.tableType === 'portfolio' ? handleSavePortfolioColumns : handleSaveWatchlistColumns}
+        onReset={columnModal.tableType === 'portfolio' ? handleResetPortfolioColumns : handleResetWatchlistColumns}
+      />
+
+      {/* Cancel Order Confirmation Modal */}
+      <CancelOrderConfirmModal
+        isOpen={cancelModalState.isOpen}
+        onClose={() => setCancelModalState({ isOpen: false, coin: null, order: null, loading: false, error: null })}
+        order={cancelModalState.order}
+        coin={cancelModalState.coin}
+        onConfirm={handleConfirmCancelOrder}
+        loading={cancelModalState.loading}
+        error={cancelModalState.error}
+      />
+
+      {/* Floating Cancel Orders Context Menu */}
+      {cancelContextMenu.isOpen && cancelContextMenu.coin && (
+        <div
+          className="cancel-orders-context-menu"
+          style={{
+            position: 'absolute',
+            left: `${cancelContextMenu.x}px`,
+            top: `${cancelContextMenu.y}px`,
+            zIndex: 2000
+          }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="cancel-context-header">
+            <span>Cancel Order ({cancelContextMenu.coin.symbol})</span>
+            <button
+              type="button"
+              className="cancel-context-close"
+              onClick={() => setCancelContextMenu({ isOpen: false, coin: null, x: 0, y: 0, orders: [] })}
+            >
+              ✕
+            </button>
+          </div>
+          <div className="cancel-context-list">
+            {cancelContextMenu.orders.map((ord, idx) => {
+              const side = (ord.side || 'ORDER').toUpperCase();
+              const type = (ord.type || ord.order_type || 'LIMIT').replace(/_/g, ' ');
+              const qty = ord.quantity || ord.origQty;
+              const price = ord.price || ord.trigger_price;
+              return (
+                <button
+                  key={ord.order_id || ord.id || idx}
+                  type="button"
+                  className="cancel-context-item"
+                  onClick={() => handleSelectOrderFromMenu(ord, cancelContextMenu.coin)}
+                >
+                  <span className={`cancel-item-badge badge-${side.toLowerCase()}`}>{side}</span>
+                  <div className="cancel-item-details">
+                    <div className="cancel-item-title">{type} {ord.symbol || cancelContextMenu.coin.symbol}</div>
+                    <div className="cancel-item-sub">
+                      {qty && `${qty} `}
+                      {price && `@ $${Number(price).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 6 })}`}
+                    </div>
+                  </div>
+                </button>
+              );
+            })}
           </div>
         </div>
       )}

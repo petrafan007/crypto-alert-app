@@ -3898,3 +3898,204 @@ body.light-mode .custom-scrollbar::-webkit-scrollbar-thumb {
 body.light-mode .custom-scrollbar::-webkit-scrollbar-thumb:hover {
   background: #64748b;
 }
+
+/* =========================================================
+   Table Customization & Column Resizing / Reordering (v1.90)
+   ========================================================= */
+
+.table-customize-columns-btn {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: #94a3b8;
+  font-size: 14px;
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  line-height: 1;
+  padding: 0;
+}
+
+.table-customize-columns-btn:hover {
+  background: rgba(56, 189, 248, 0.15);
+  border-color: #38bdf8;
+  color: #ffffff;
+  transform: scale(1.05);
+}
+
+.table-scroll-wrapper {
+  overflow-x: auto;
+  position: relative;
+  width: 100%;
+}
+
+.col-resizer-handle {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 8px;
+  height: 100%;
+  cursor: col-resize;
+  user-select: none;
+  touch-action: none;
+  z-index: 10;
+  transition: background-color 0.15s;
+}
+
+.col-resizer-handle:hover,
+.col-resizer-handle:active {
+  background-color: #38bdf8;
+}
+
+th.drag-over-target {
+  outline: 2px dashed #38bdf8 !important;
+  background: rgba(56, 189, 248, 0.18) !important;
+}
+
+.trade-action-btn.cancel {
+  background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%) !important;
+  color: #ffffff !important;
+  border: 1px solid #b91c1c !important;
+}
+
+.trade-action-btn.cancel:hover:not(:disabled) {
+  background: #b91c1c !important;
+  box-shadow: 0 2px 8px rgba(220, 38, 38, 0.5) !important;
+}
+
+.trade-action-btn.cancel:disabled,
+.trade-action-btn.cancel.disabled-cancel {
+  background: rgba(148, 163, 184, 0.15) !important;
+  color: rgba(148, 163, 184, 0.4) !important;
+  border-color: rgba(148, 163, 184, 0.2) !important;
+  cursor: not-allowed !important;
+  opacity: 0.6;
+  box-shadow: none !important;
+}
+
+/* Cancel Orders Context Menu */
+.cancel-orders-context-menu {
+  background: #0f172a;
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  border-radius: 10px;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.8), 0 0 15px rgba(239, 68, 68, 0.2);
+  min-width: 250px;
+  max-width: 340px;
+  overflow: hidden;
+  animation: fadeInDown 0.15s ease-out;
+  color: #f8fafc;
+}
+
+.cancel-context-header {
+  padding: 8px 12px;
+  background: rgba(239, 68, 68, 0.12);
+  border-bottom: 1px solid rgba(239, 68, 68, 0.2);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #fca5a5;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.cancel-context-close {
+  background: transparent;
+  border: none;
+  color: #94a3b8;
+  font-size: 0.85rem;
+  cursor: pointer;
+  padding: 0 4px;
+}
+
+.cancel-context-list {
+  display: flex;
+  flex-direction: column;
+  padding: 4px;
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.cancel-context-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  text-align: left;
+  transition: all 0.15s;
+  color: #cbd5e1;
+  width: 100%;
+}
+
+.cancel-context-item:hover {
+  background: rgba(239, 68, 68, 0.15);
+  color: #ffffff;
+}
+
+.cancel-item-badge {
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.cancel-item-details {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow: hidden;
+}
+
+.cancel-item-title {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #f1f5f9;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cancel-item-sub {
+  font-size: 0.75rem;
+  color: #94a3b8;
+  white-space: nowrap;
+}
+
+/* Light Mode Overrides */
+body.light-mode .table-customize-columns-btn {
+  background: rgba(0, 0, 0, 0.05);
+  border-color: rgba(0, 0, 0, 0.12);
+  color: #64748b;
+}
+
+body.light-mode .table-customize-columns-btn:hover {
+  background: rgba(2, 132, 199, 0.1);
+  border-color: #0284c7;
+  color: #0284c7;
+}
+
+body.light-mode .cancel-orders-context-menu {
+  background: #ffffff;
+  border-color: #fca5a5;
+  color: #0f172a;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.15);
+}
+
+body.light-mode .cancel-context-header {
+  background: #fef2f2;
+  color: #991b1b;
+}
+
+body.light-mode .cancel-item-title {
+  color: #0f172a;
+}
+

@@ -43,6 +43,33 @@ const SearchablePairSelect = ({
     }
   }, [isOpen]);
 
+  const [favorites, setFavorites] = useState(() => {
+    try {
+      const saved = localStorage.getItem('crypto_favorite_trading_pairs');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  const toggleFavorite = (pairId, e) => {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    setFavorites((prev) => {
+      const next = prev.includes(pairId)
+        ? prev.filter((id) => id !== pairId)
+        : [...prev, pairId];
+      try {
+        localStorage.setItem('crypto_favorite_trading_pairs', JSON.stringify(next));
+      } catch (err) {
+        console.error('Error saving favorite trading pairs:', err);
+      }
+      return next;
+    });
+  };
+
   // Selected display label
   const selectedLabel = useMemo(() => {
     if (value === 'ALL' || (!value && includeAllOption)) {
@@ -68,18 +95,22 @@ const SearchablePairSelect = ({
       return id.includes(query) || name.includes(query) || base.includes(query) || quote.includes(query);
     };
 
+    const pinnedPairs = [];
     const usdPairs = [];
     const usdtPairs = [];
     const otherPairs = [];
 
     tradingPairs.forEach(p => {
       if (matchesQuery(p)) {
+        if (favorites.includes(p.id)) {
+          pinnedPairs.push(p);
+        }
         const isUsd = p.quote_currency === 'USD' || (p.id && p.id.endsWith('USD') && !p.id.endsWith('USDT'));
         const isUsdt = p.quote_currency === 'USDT' || (p.id && p.id.endsWith('USDT'));
-        if (isUsd) {
-          usdPairs.push(p);
-        } else if (isUsdt) {
+        if (isUsdt) {
           usdtPairs.push(p);
+        } else if (isUsd) {
+          usdPairs.push(p);
         } else {
           otherPairs.push(p);
         }
@@ -97,6 +128,10 @@ const SearchablePairSelect = ({
       flatList.push({ id: 'ALL', display_name: 'All Trading Pairs' });
     }
 
+    if (pinnedPairs.length > 0) {
+      groups.push({ label: `⭐ Pinned / Favorites (${pinnedPairs.length})`, items: pinnedPairs, isPinnedGroup: true });
+      flatList.push(...pinnedPairs);
+    }
     if (usdtPairs.length > 0) {
       groups.push({ label: `USDT Pairs (${usdtPairs.length})`, items: usdtPairs });
       flatList.push(...usdtPairs);
@@ -111,7 +146,7 @@ const SearchablePairSelect = ({
     }
 
     return { filteredGroups: groups, flatFilteredList: flatList };
-  }, [tradingPairs, searchQuery, includeAllOption]);
+  }, [tradingPairs, searchQuery, includeAllOption, favorites]);
 
   const handleSelect = (pairId) => {
     onChange(pairId);
@@ -212,20 +247,32 @@ const SearchablePairSelect = ({
               </div>
             ) : (
               filteredGroups.map((group, groupIdx) => (
-                <div key={group.label || groupIdx} className="searchable-pair-group">
+                <div key={group.label || groupIdx} className={`searchable-pair-group ${group.isPinnedGroup ? 'pinned-group' : ''}`}>
                   <div className="searchable-pair-group-header">{group.label}</div>
-                  {group.items.map((item) => {
+                  {group.items.map((item, itemIdx) => {
                     const isSelected = value === item.id || (!value && item.id === 'ALL');
                     const isHighlighted = flatFilteredList[highlightedIndex]?.id === item.id;
+                    const isFav = favorites.includes(item.id);
 
                     return (
                       <div
-                        key={item.id}
+                        key={`${group.label}-${item.id}-${itemIdx}`}
                         className={`searchable-pair-option ${isSelected ? 'selected' : ''} ${isHighlighted ? 'highlighted' : ''}`}
                         onClick={() => handleSelect(item.id)}
                         role="option"
                         aria-selected={isSelected}
                       >
+                        {!item.isAll && (
+                          <button
+                            type="button"
+                            className={`searchable-pair-star-btn ${isFav ? 'active' : ''}`}
+                            onClick={(e) => toggleFavorite(item.id, e)}
+                            title={isFav ? 'Unpin favorite pair' : 'Pin pair to top'}
+                            aria-label={isFav ? 'Unpin favorite pair' : 'Pin pair to top'}
+                          >
+                            {isFav ? '⭐' : '☆'}
+                          </button>
+                        )}
                         <div className="searchable-pair-option-label">
                           <span className="searchable-pair-option-name">{item.display_name || item.id}</span>
                           {!item.isAll && (
