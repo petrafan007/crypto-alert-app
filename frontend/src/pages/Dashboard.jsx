@@ -4281,15 +4281,6 @@ function Dashboard({ isLightMode }) {
                                       >
                                         Buy
                                       </button>
-                                      <button
-                                        className="trade-action-btn sell"
-                                        onClick={(event) => item.symbol !== 'USD' && toggleTradeQuoteMenu('watchlist', item.symbol, 'SELL', event)}
-                                        disabled={item.symbol === 'USD'}
-                                        title={item.symbol === 'USD' ? 'Cannot sell fiat USD' : 'Sell'}
-                                        style={item.symbol === 'USD' ? { opacity: 0.4, cursor: 'not-allowed' } : undefined}
-                                      >
-                                        Sell
-                                      </button>
                                       {(() => {
                                         const allPendingItems = getAllPendingItemsForCoin({ ...item, isWatchlist: true });
                                         const hasOrders = allPendingItems.length > 0;

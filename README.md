@@ -130,6 +130,7 @@ The application utilizes a **unified PostgreSQL database**.
 - **Auto-Buy Average Entry Price Fix**: Fixed `execute_auto_buy` to properly recompute a weighted-average entry price when a volatility-triggered purchase adds to (or creates) a holding, instead of only bumping the amount and leaving `avg_entry` stale or at 0 — this was the root cause of coins like PURR showing "—" for Avg Entry after an Auto-Buy execution.
 - **Avg Entry Backfill & Safer New-Coin Creation**: The periodic balance sync now backfills a missing/zero `avg_entry` from the latest known price instead of leaving it blank, and no longer creates a brand-new coin record with `avg_entry=0` when a live price isn't available yet (it waits for the next cycle instead).
 - **Blank Price Alerts by Default**: Fixed the Portfolio table's Price Up/Down alert cells defaulting to a non-blank `0.00%` for new coins (caused by the `Coin` model defaulting the alert type to percent-mode with a `0.0` value). New coins now render blank until you configure an alert, matching the Watchlist table's existing behavior.
+- **Removed Watchlist Sell Button**: Removed the redundant Sell button from Watchlist table rows, keeping Watchlist focused exclusively on monitoring and opportunistic buy orders.
 - **Version Bump**: Synchronized metadata to `v1.97-beta`.
 
 ## v1.96-beta (August 2026)
