@@ -1739,6 +1739,20 @@ function Dashboard({ isLightMode }) {
     });
   };
 
+  // Newly-added watchlist coins are still missing most server-computed fields (current_value,
+  // 24h stats, etc.), so running them through sortData alongside confirmed rows can shove them
+  // to the bottom (or anywhere) depending on the active sort column, making them look like they
+  // "disappeared". Pin any still-unconfirmed additions to the top, unsorted, and only sort the
+  // rest of the list.
+  const getDisplayWatchlist = () => {
+    if (!Array.isArray(watchlist)) return [];
+    const pendingSymbols = new Set(pendingAddedWatchlistSymbolsRef.current.keys());
+    if (pendingSymbols.size === 0) return sortData(watchlist, sortConfig.key);
+    const pendingRows = watchlist.filter(w => pendingSymbols.has((w.symbol || '').toUpperCase()));
+    const confirmedRows = watchlist.filter(w => !pendingSymbols.has((w.symbol || '').toUpperCase()));
+    return [...pendingRows, ...sortData(confirmedRows, sortConfig.key)];
+  };
+
   const getSortIcon = (key) => {
     if (sortConfig.key !== key) return '';
     return sortConfig.direction === 'asc' ? '▲' : '▼';
@@ -4235,7 +4249,7 @@ function Dashboard({ isLightMode }) {
                     </td>
                   </tr>
                 ) : (
-                  sortData(watchlist, sortConfig.key).map((item) => {
+                  getDisplayWatchlist().map((item) => {
                     const visibleCols = watchlistColOrder.filter(
                       (k) => watchlistVisibleCols.includes(k) && WATCHLIST_COLUMN_DEFINITIONS[k]
                     );
