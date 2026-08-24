@@ -2421,9 +2421,9 @@ const Trading = () => {
                           <td style={{ whiteSpace: 'nowrap' }}>{formatEasternTime(order.created_at)}</td>
                           <td><strong>{order.symbol}</strong></td>
                           <td className={order.side === 'BUY' ? 'status-positive' : 'status-negative'}>
-                            {order.side === 'BUY' ? '📈' : '📉'} {order.side}
+                            {order.side === 'BUY' ? '📈' : '📉'} {formatOrderSide(order.side)}
                           </td>
-                          <td>{order.type}</td>
+                          <td>{formatOrderType(order.type)}</td>
                           <td>{formatNumber(order.quantity, 8)}</td>
                           <td>{order.price ? '$' + formatNumber(order.price) : '-'}</td>
                           <td>{order.simulated_fill_price ? '$' + formatNumber(order.simulated_fill_price) : '-'}</td>

@@ -23,6 +23,45 @@ export default function TwoFactorModal({ isVisible, onClose, onVerify, orderDeta
     return value;
   };
 
+  const ORDER_TYPE_LABELS = {
+    LIMIT: 'Limit',
+    MARKET: 'Market',
+    STOP_LOSS: 'Stop Loss',
+    STOP_LOSS_LIMIT: 'Stop Loss Limit',
+    TAKE_PROFIT: 'Take Profit',
+    TAKE_PROFIT_LIMIT: 'Take Profit Limit',
+    LIMIT_MAKER: 'Limit Maker',
+    OCO: 'OCO (One-Cancels-Other)',
+    STAKING: 'Staking'
+  };
+
+  const formatOrderTypeLabel = (rawType) => {
+    if (!rawType) return 'Market';
+    const clean = String(rawType).toUpperCase().trim();
+    if (ORDER_TYPE_LABELS[clean]) return ORDER_TYPE_LABELS[clean];
+    return clean
+      .split('_')
+      .map(word => word.charAt(0) + word.slice(1).toLowerCase())
+      .join(' ');
+  };
+
+  // Splits a Binance pair like "BTCUSDT" into base/quote so the action reads e.g. "Sell BTC for USDT"
+  const splitSymbol = (symbol) => {
+    const sym = symbol || '';
+    const quoteAsset = /USDT$/i.test(sym) ? 'USDT' : (/USD$/i.test(sym) ? 'USD' : '');
+    const baseAsset = quoteAsset ? sym.slice(0, sym.length - quoteAsset.length) : sym;
+    return { baseAsset, quoteAsset };
+  };
+
+  const formatOrderActionLabel = (details) => {
+    if (!details) return '';
+    const side = (details.side || 'BUY').toUpperCase();
+    const { baseAsset, quoteAsset } = splitSymbol(details.symbol);
+    if (side === 'STAKE') return `Stake ${baseAsset}`;
+    if (side === 'SELL') return `Sell ${baseAsset}${quoteAsset ? ` for ${quoteAsset}` : ''}`;
+    return `Buy ${baseAsset}${quoteAsset ? ` with ${quoteAsset}` : ''}`;
+  };
+
   const formatPrice = (value) => {
     const numeric = parseFloat(value);
     if (!Number.isFinite(numeric) || numeric === 0) {
@@ -140,12 +179,12 @@ export default function TwoFactorModal({ isVisible, onClose, onVerify, orderDeta
               <div className="order-detail-row">
                 <span className="label">Action:</span>
                 <span className={`value ${orderDetails.side.toLowerCase()}`}>
-                  {orderDetails.side} {orderDetails.symbol}
+                  {formatOrderActionLabel(orderDetails)}
                 </span>
               </div>
               <div className="order-detail-row">
                 <span className="label">Type:</span>
-                <span className="value">{orderDetails.type}</span>
+                <span className="value">{formatOrderTypeLabel(orderDetails.type)}</span>
               </div>
               <div className="order-detail-row">
                 <span className="label">Quantity:</span>

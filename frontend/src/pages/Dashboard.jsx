@@ -110,6 +110,13 @@ function Dashboard({ isLightMode }) {
   const [watchlist, setWatchlist] = useState([]);
   const [loading, setLoading] = useState(true);
   const pendingAddedWatchlistSymbolsRef = useRef(new Map());
+  // Watchlist background fetches (poll cycles, sentiment refresh, etc.) can resolve out of
+  // order over the network (a slower older request finishing after a faster newer one).
+  // Track an issue counter + the highest sequence actually applied so a late/stale response
+  // can never overwrite state with data older than what's already been rendered.
+  const watchlistFetchIdRef = useRef(0);
+  const watchlistAppliedIdRef = useRef(0);
+  const nextWatchlistFetchId = () => ++watchlistFetchIdRef.current;
 
   // Helper to preserve pending optimistic watchlist items across background poll intervals
   const mergeWatchlistPreservingPending = (newList, prevList) => {
@@ -129,6 +136,19 @@ function Dashboard({ isLightMode }) {
 
     if (pendingItems.length === 0) return newList;
     return [...pendingItems, ...newList];
+  };
+
+  // Applies a freshly-fetched watchlist list to state, but only if fetchId is not older than
+  // the most recently applied fetch — discards stale, out-of-order responses instead of
+  // letting them clobber newer data (this is what caused newly-added coins to flicker away).
+  const applyWatchlistUpdate = (newList, fetchId) => {
+    if (typeof fetchId === 'number' && fetchId < watchlistAppliedIdRef.current) {
+      return;
+    }
+    if (typeof fetchId === 'number') {
+      watchlistAppliedIdRef.current = fetchId;
+    }
+    setWatchlist(prev => mergeWatchlistPreservingPending(newList, prev));
   };
 
   const [usdPairBases, setUsdPairBases] = useState(new Set());
@@ -1258,6 +1278,7 @@ function Dashboard({ isLightMode }) {
           // For initial load, fetch other data in background without blocking
           // Use setTimeout to make it truly non-blocking
           setTimeout(() => {
+            const wFetchId = nextWatchlistFetchId();
             Promise.allSettled([
               axios.get('/api/watchlist'),
               axios.get(`/api/true-portfolio-value?ts=${Date.now()}`)
@@ -1266,7 +1287,7 @@ function Dashboard({ isLightMode }) {
               // Handle watchlist
               if (watchlistResponse.status === 'fulfilled') {
                 console.log('Watchlist response:', watchlistResponse.value.data);
-                setWatchlist(prev => mergeWatchlistPreservingPending(watchlistResponse.value.data || [], prev));
+                applyWatchlistUpdate(watchlistResponse.value.data || [], wFetchId);
               }
 
               // Handle portfolio value
@@ -1279,6 +1300,7 @@ function Dashboard({ isLightMode }) {
           }, 100); // Small delay to ensure portfolio loads first
         } else {
           // For background refresh, wait for all data including live portfolio data
+          const wFetchId = nextWatchlistFetchId();
           const [watchlistResponse, portfolioValueResponse, livePortfolioResponse, ordersResponse] = await Promise.allSettled([
             axios.get('/api/watchlist-live'),
             axios.get(`/api/true-portfolio-value?ts=${Date.now()}`),
@@ -1310,7 +1332,7 @@ function Dashboard({ isLightMode }) {
 
           // Handle watchlist
           if (watchlistResponse.status === 'fulfilled') {
-            setWatchlist(prev => mergeWatchlistPreservingPending(watchlistResponse.value.data || [], prev));
+            applyWatchlistUpdate(watchlistResponse.value.data || [], wFetchId);
           }
 
           // Handle portfolio value
@@ -1989,7 +2011,10 @@ function Dashboard({ isLightMode }) {
 
           // Background refresh
           axios.get('/api/coin-data-live').then(r => r.data?.portfolio && setPortfolio(r.data.portfolio)).catch(() => {});
-          axios.get('/api/watchlist-live', { withCredentials: true }).then(r => Array.isArray(r.data) && setWatchlist(prev => mergeWatchlistPreservingPending(r.data, prev))).catch(() => {});
+          {
+            const wFetchId = nextWatchlistFetchId();
+            axios.get('/api/watchlist-live', { withCredentials: true }).then(r => Array.isArray(r.data) && applyWatchlistUpdate(r.data, wFetchId)).catch(() => {});
+          }
           return { success: true };
         } else {
           setCancelModalState(prev => ({ ...prev, loading: false, error: response.data.error || 'Failed to cancel auto-buy trigger' }));
@@ -2011,7 +2036,10 @@ function Dashboard({ isLightMode }) {
 
           // Background refresh
           axios.get('/api/coin-data-live').then(r => r.data?.portfolio && setPortfolio(r.data.portfolio)).catch(() => {});
-          axios.get('/api/watchlist-live', { withCredentials: true }).then(r => Array.isArray(r.data) && setWatchlist(prev => mergeWatchlistPreservingPending(r.data, prev))).catch(() => {});
+          {
+            const wFetchId = nextWatchlistFetchId();
+            axios.get('/api/watchlist-live', { withCredentials: true }).then(r => Array.isArray(r.data) && applyWatchlistUpdate(r.data, wFetchId)).catch(() => {});
+          }
           return { success: true };
         } else {
           setCancelModalState(prev => ({ ...prev, loading: false, error: response.data.error || 'Failed to cancel auto-sell trigger' }));
@@ -3172,6 +3200,7 @@ function Dashboard({ isLightMode }) {
         attempts++;
         try {
           if (isWatchlist) {
+            const wFetchId = nextWatchlistFetchId();
             const res = await axios.get('/api/watchlist-live', { withCredentials: true });
             if (res.data) {
               const found = res.data.find(x => (x.symbol || '').toUpperCase() === cleanSymbol);
@@ -3180,9 +3209,9 @@ function Dashboard({ isLightMode }) {
                   || (attempts > 6 && found.sentiment !== 'Checking now...' && found.sentiment !== 'Watch');
                 
                 if (found.sentiment === 'Checking now...' || !isFinished) {
-                  setWatchlist(prev => mergeWatchlistPreservingPending(res.data.map(item => (item.symbol || '').toUpperCase() === cleanSymbol ? { ...item, sentiment: 'Checking now...' } : item), prev));
+                  applyWatchlistUpdate(res.data.map(item => (item.symbol || '').toUpperCase() === cleanSymbol ? { ...item, sentiment: 'Checking now...' } : item), wFetchId);
                 } else {
-                  setWatchlist(prev => mergeWatchlistPreservingPending(res.data, prev));
+                  applyWatchlistUpdate(res.data, wFetchId);
                   clearInterval(pollInterval);
                   setRefreshingSentiment(prev => {
                     const next = { ...prev };
@@ -3227,7 +3256,8 @@ function Dashboard({ isLightMode }) {
           });
           // Final fetch
           if (isWatchlist) {
-            axios.get('/api/watchlist-live', { withCredentials: true }).then(r => r.data && setWatchlist(prev => mergeWatchlistPreservingPending(r.data, prev))).catch(() => {});
+            const wFetchId = nextWatchlistFetchId();
+            axios.get('/api/watchlist-live', { withCredentials: true }).then(r => r.data && applyWatchlistUpdate(r.data, wFetchId)).catch(() => {});
           } else {
             axios.get('/api/coin-data-live').then(r => r.data?.portfolio && setPortfolio(r.data.portfolio)).catch(() => {});
           }
