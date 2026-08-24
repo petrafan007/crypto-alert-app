@@ -1103,13 +1103,13 @@ function Dashboard({ isLightMode }) {
       const vol = coin.auto_buy_volatility_pct || coin.volatility_pct || '—';
       const amt = coin.auto_buy_amount !== undefined && coin.auto_buy_amount !== null ? Number(coin.auto_buy_amount).toFixed(2) : '—';
       const quote = coin.auto_buy_quote_currency || 'USDT';
-      lines.push(`⚡ Active Auto-Buy: Automatically purchases with $${amt} ${quote} on +${vol}% surge in ${volatilityHours}h`);
+      lines.push(`⚡ Active Auto-Buy: Automatically purchases with $${amt} ${quote} on +${vol}% surge in ${volatilityHoursSetting}h`);
     }
 
     if (coin.auto_sell_enabled) {
       const vol = coin.auto_sell_volatility_pct || coin.volatility_pct || '—';
       const quote = coin.auto_sell_quote_currency || 'USDT';
-      lines.push(`⚡ Active Auto-Sell: Automatically sells for ${quote} on -${vol}% drop in ${volatilityHours}h`);
+      lines.push(`⚡ Active Auto-Sell: Automatically sells for ${quote} on -${vol}% drop in ${volatilityHoursSetting}h`);
     }
 
     return lines.join('\n');
