@@ -3049,8 +3049,8 @@ function Dashboard({ isLightMode }) {
       }}>
         <span style={{ display: 'flex', justifyContent: 'flex-start' }}>
           {item.auto_sell_enabled && (
+            // Details shown in the unified row hover box (generateOrderTooltipText) instead of a separate native tooltip
             <span
-              title={`⚡ Auto-Sell Active: Automatically sells for ${item.auto_sell_quote_currency || 'USDT'} if price drops > ${item.auto_sell_volatility_pct || item.volatility_pct}% in ${volatilityHoursSetting}h.`}
               style={{ fontSize: '13px', cursor: 'help', color: '#ef4444', filter: 'drop-shadow(0 0 4px rgba(239, 68, 68, 0.7))' }}
             >
               ⚡
@@ -3083,8 +3083,8 @@ function Dashboard({ isLightMode }) {
         </span>
         <span style={{ display: 'flex', justifyContent: 'flex-end' }}>
           {item.auto_buy_enabled && (
+            // Details shown in the unified row hover box (generateOrderTooltipText) instead of a separate native tooltip
             <span
-              title={`🚀 Auto-Buy Active: Automatically purchases with $${parseFloat(item.auto_buy_amount || 0).toFixed(2)} ${item.auto_buy_quote_currency || 'USDT'} if price surges > +${item.auto_buy_volatility_pct || item.volatility_pct}% in ${volatilityHoursSetting}h.`}
               style={{ fontSize: '13px', cursor: 'help', color: '#22c55e', filter: 'drop-shadow(0 0 4px rgba(34, 197, 94, 0.7))' }}
             >
               🚀
