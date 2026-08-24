@@ -372,6 +372,50 @@ export default function TaxReport({ isLightMode }) {
     return filtered;
   };
 
+  const filteredTransactions = useMemo(() => {
+    if (!taxData?.transactions) return [];
+    let filtered = taxData.transactions;
+    if (selectedAsset !== 'all') {
+      filtered = filtered.filter(tx => tx.asset === selectedAsset);
+    }
+    if (selectedYear !== 'all') {
+      filtered = filtered.filter(tx => (tx.date || '').startsWith(selectedYear));
+    }
+    return filtered;
+  }, [taxData, selectedAsset, selectedYear]);
+
+  const filterSummary = useMemo(() => {
+    let realizedGainLoss = 0;
+    let shortTermGains = 0;
+    let longTermGains = 0;
+    let totalProceeds = 0;
+    let totalCostBasis = 0;
+    let totalFees = 0;
+
+    filteredTransactions.forEach(tx => {
+      const gl = parseFloat(tx.gain_loss) || 0;
+      realizedGainLoss += gl;
+      if (tx.gain_loss_type === 'short_term' || (!tx.gain_loss_type && gl !== 0)) {
+        shortTermGains += gl;
+      } else if (tx.gain_loss_type === 'long_term') {
+        longTermGains += gl;
+      }
+      totalProceeds += parseFloat(tx.proceeds) || 0;
+      totalCostBasis += parseFloat(tx.cost_basis) || 0;
+      totalFees += parseFloat(tx.fee) || 0;
+    });
+
+    return {
+      realizedGainLoss,
+      shortTermGains,
+      longTermGains,
+      totalProceeds,
+      totalCostBasis,
+      totalFees,
+      count: filteredTransactions.length
+    };
+  }, [filteredTransactions]);
+
   const getYears = () => {
     if (!taxData) return [];
     const years = [...new Set(taxData.transactions.map(tx => tx.date.substring(0, 4)))];
@@ -410,40 +454,7 @@ export default function TaxReport({ isLightMode }) {
     );
   }
 
-  const filteredTransactions = filterTransactions();
   const filteredAndSortedTransactions = applyFilters(sortData(filteredTransactions, sortConfig.key));
-
-  const filterSummary = useMemo(() => {
-    let realizedGainLoss = 0;
-    let shortTermGains = 0;
-    let longTermGains = 0;
-    let totalProceeds = 0;
-    let totalCostBasis = 0;
-    let totalFees = 0;
-
-    filteredTransactions.forEach(tx => {
-      const gl = parseFloat(tx.gain_loss) || 0;
-      realizedGainLoss += gl;
-      if (tx.gain_loss_type === 'short_term' || (!tx.gain_loss_type && gl !== 0)) {
-        shortTermGains += gl;
-      } else if (tx.gain_loss_type === 'long_term') {
-        longTermGains += gl;
-      }
-      totalProceeds += parseFloat(tx.proceeds) || 0;
-      totalCostBasis += parseFloat(tx.cost_basis) || 0;
-      totalFees += parseFloat(tx.fee) || 0;
-    });
-
-    return {
-      realizedGainLoss,
-      shortTermGains,
-      longTermGains,
-      totalProceeds,
-      totalCostBasis,
-      totalFees,
-      count: filteredTransactions.length
-    };
-  }, [filteredTransactions]);
 
   const manualInvestedAmount = parseFloat(taxData?.summary?.manual_invested_amount ?? 0) || 0;
   const manualInvestedUpdatedAt = taxData?.summary?.manual_invested_updated_at

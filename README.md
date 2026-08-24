@@ -122,6 +122,14 @@ The application utilizes a **unified PostgreSQL database**.
 
 ## Version History & Changelog
 
+## v2.0.2 (August 2026)
+
+### Zero-Balance Pending Order Auto-Hide, High-Contrast Sentiment Pills & Tax Report Hook Fix
+- **Zero-Balance Pending Order Cancellation Auto-Hide**: Fixed an issue where canceling a pending order for an asset the user did not own (e.g. TRUMP with `0.0000` holdings) left the coin visible in the Portfolio table. Both the frontend state and backend order cancellation endpoints now automatically detect when a canceled order was the last remaining order for a zero-balance coin, immediately removing the entry from the table and resetting `force_visible = False`, `hidden = True`, and `auto_hidden = True` in the database.
+- **High-Contrast "Not Tracked" Sentiment Badge on Yellow Rows**: Wrapped disabled/untracked sentiment badges in the same high-contrast dark capsule container (`rgba(15, 23, 42, 0.92)`) used for active recommendations on yellow highlighted pending-order rows, ensuring "🚫 Not Tracked" text remains vivid, crisp, and easily readable.
+- **Tax Report React Error #310 Resolution**: Fixed a `Minified React error #310` ("Rendered more hooks than during previous render") on `/tax-report` caused by `useMemo` hooks being placed below conditional `if (loading)` and `if (error)` early returns. Reordered all hook declarations before conditional returns, ensuring 100% stable hook call order across every render.
+- **Version Bump**: Transitioned version to `v2.0.2`.
+
 ## v2.0.1 (August 2026)
 
 ### Volatility Alert Zero-Balance & Hidden Coin Filtering

@@ -1368,19 +1368,34 @@ function Dashboard({ isLightMode }) {
               incomingMap.forEach((val, key) => {
                 prevMap.set(key, { ...(prevMap.get(key) || {}), ...val });
               });
-              // Return stable array preserving previous order, append any new ones
+              // Return stable array preserving previous order, filtering out zero-balance coins that no longer have pending orders
               const updated = [];
               const seen = new Set();
               prev.forEach(p => {
                 const key = (p.symbol || '').toUpperCase();
-                updated.push(prevMap.get(key));
-                seen.add(key);
+                const item = prevMap.get(key);
+                if (item) {
+                  const hasHoldings = Number(item.amount || 0) > 0.00000001;
+                  const hasPending = pendingSymbolsLive.has(key);
+                  const inIncoming = incomingMap.has(key);
+                  if (hasHoldings || hasPending || (inIncoming && item.force_visible)) {
+                    updated.push(item);
+                  }
+                  seen.add(key);
+                }
               });
               // Append any new symbols not in previous
               incoming.forEach(c => {
                 const key = (c.symbol || '').toUpperCase();
                 if (!seen.has(key)) {
-                  updated.push(prevMap.get(key));
+                  const item = prevMap.get(key);
+                  if (item) {
+                    const hasHoldings = Number(item.amount || 0) > 0.00000001;
+                    const hasPending = pendingSymbolsLive.has(key);
+                    if (hasHoldings || hasPending || item.force_visible) {
+                      updated.push(item);
+                    }
+                  }
                 }
               });
               return updated;
@@ -2066,14 +2081,27 @@ function Dashboard({ isLightMode }) {
         const response = await axios.post(`/api/cancel-order/${orderId}`, payload, { withCredentials: true });
 
         if (response.data.success || response.status === 200) {
+          const baseSymbol = (symbol || '').replace(/USDT$/i, '').replace(/USD$/i, '').toUpperCase();
           setPendingOrders(prev => prev.filter(o => (o.order_id || o.orderId || o.id) !== orderId));
-          setPortfolio(prev => prev.map(c => {
-            if ((c.symbol || '').toUpperCase() === symbol) {
-              const remaining = getPendingOrdersForCoin(symbol).filter(o => (o.order_id || o.orderId || o.id) !== orderId);
-              return { ...c, hasPendingOrder: remaining.length > 0 };
-            }
-            return c;
-          }));
+          setPortfolio(prev => {
+            const remaining = getPendingOrdersForCoin(symbol).filter(o => (o.order_id || o.orderId || o.id) !== orderId);
+            return prev
+              .map(c => {
+                const cSym = (c.symbol || '').toUpperCase();
+                if (cSym === symbol || cSym === baseSymbol) {
+                  return { ...c, hasPendingOrder: remaining.length > 0 };
+                }
+                return c;
+              })
+              .filter(c => {
+                const cSym = (c.symbol || '').toUpperCase();
+                const isTarget = cSym === symbol || cSym === baseSymbol;
+                if (isTarget && remaining.length === 0 && Number(c.amount || 0) <= 0.00000001) {
+                  return false;
+                }
+                return true;
+              });
+          });
 
           setCancelModalState({ isOpen: false, coin: null, order: null, loading: false, error: null });
 
@@ -3296,6 +3324,7 @@ function Dashboard({ isLightMode }) {
         </td>
       );
     }
+    const hasPendingOrder = !!coin.hasPendingOrder || getPendingOrdersForCoin(coin.symbol).length > 0;
     if (coin.sentiment_tracking_enabled === false) {
       return (
         <td
@@ -3303,14 +3332,30 @@ function Dashboard({ isLightMode }) {
           onDoubleClick={(e) => handleToggleSentimentTracking(coin, isWatchlist, e)}
           style={{ textAlign: 'center', whiteSpace: 'nowrap', padding: '6px 8px', cursor: 'pointer' }}
         >
-          <span style={{
-            fontSize: '0.8rem',
-            fontStyle: 'italic',
-            color: 'var(--text-secondary, #94a3b8)',
-            opacity: 0.7
-          }}>
-            🚫 Not Tracked
-          </span>
+          <div
+            className={`sentiment-pill-wrapper ${hasPendingOrder ? 'pending-highlight-sentiment' : ''}`}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '6px',
+              background: hasPendingOrder ? 'rgba(15, 23, 42, 0.92)' : 'transparent',
+              padding: hasPendingOrder ? '3px 8px' : '0',
+              borderRadius: hasPendingOrder ? '6px' : '0',
+              border: hasPendingOrder ? '1px solid rgba(0, 0, 0, 0.35)' : 'none',
+              boxShadow: hasPendingOrder ? '0 1px 4px rgba(0, 0, 0, 0.4)' : 'none'
+            }}
+          >
+            <span style={{
+              fontSize: '0.8rem',
+              fontStyle: 'italic',
+              color: hasPendingOrder ? '#cbd5e1' : 'var(--text-secondary, #94a3b8)',
+              fontWeight: hasPendingOrder ? '600' : 'normal',
+              opacity: hasPendingOrder ? 1.0 : 0.7
+            }}>
+              🚫 Not Tracked
+            </span>
+          </div>
         </td>
       );
     }
@@ -3417,17 +3462,17 @@ function Dashboard({ isLightMode }) {
         }}
       >
         <div
-          className={`sentiment-pill-wrapper ${coin.hasPendingOrder ? 'pending-highlight-sentiment' : ''}`}
+          className={`sentiment-pill-wrapper ${hasPendingOrder ? 'pending-highlight-sentiment' : ''}`}
           style={{
             display: 'inline-flex',
             alignItems: 'center',
             justifyContent: 'center',
             gap: '6px',
-            background: coin.hasPendingOrder ? 'rgba(15, 23, 42, 0.92)' : 'transparent',
-            padding: coin.hasPendingOrder ? '3px 8px' : '0',
-            borderRadius: coin.hasPendingOrder ? '6px' : '0',
-            border: coin.hasPendingOrder ? '1px solid rgba(0, 0, 0, 0.35)' : 'none',
-            boxShadow: coin.hasPendingOrder ? '0 1px 4px rgba(0, 0, 0, 0.4)' : 'none'
+            background: hasPendingOrder ? 'rgba(15, 23, 42, 0.92)' : 'transparent',
+            padding: hasPendingOrder ? '3px 8px' : '0',
+            borderRadius: hasPendingOrder ? '6px' : '0',
+            border: hasPendingOrder ? '1px solid rgba(0, 0, 0, 0.35)' : 'none',
+            boxShadow: hasPendingOrder ? '0 1px 4px rgba(0, 0, 0, 0.4)' : 'none'
           }}
         >
           <span
@@ -3443,7 +3488,7 @@ function Dashboard({ isLightMode }) {
               display: 'inline-flex',
               alignItems: 'center',
               whiteSpace: 'nowrap',
-              textShadow: coin.hasPendingOrder ? '0 1px 2px rgba(0,0,0,0.6)' : 'none'
+              textShadow: hasPendingOrder ? '0 1px 2px rgba(0,0,0,0.6)' : 'none'
             }}
           >
             {label}
@@ -3456,7 +3501,7 @@ function Dashboard({ isLightMode }) {
             style={{
               background: 'transparent',
               border: 'none',
-              color: isChecking ? '#38bdf8' : (coin.hasPendingOrder ? '#94a3b8' : 'rgba(255, 255, 255, 0.45)'),
+              color: isChecking ? '#38bdf8' : (hasPendingOrder ? '#94a3b8' : 'rgba(255, 255, 255, 0.45)'),
               cursor: isChecking ? 'not-allowed' : 'pointer',
               padding: '2px',
               borderRadius: '4px',
@@ -3475,7 +3520,7 @@ function Dashboard({ isLightMode }) {
             }}
             onMouseLeave={(e) => {
               if (!isChecking) {
-                e.currentTarget.style.color = coin.hasPendingOrder ? '#94a3b8' : 'rgba(255, 255, 255, 0.45)';
+                e.currentTarget.style.color = hasPendingOrder ? '#94a3b8' : 'rgba(255, 255, 255, 0.45)';
                 e.currentTarget.style.background = 'transparent';
               }
             }}
