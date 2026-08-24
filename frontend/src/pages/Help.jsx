@@ -396,16 +396,17 @@ export default function Help({ isLightMode }) {
             {/* Two-Factor Authentication */}
             <Section id="two-factor-auth" icon={<FaShieldAlt />} title="Two-Factor Authentication (2FA)">
                 <p style={{ marginBottom: '16px' }}>
-                    Add an extra layer of security to trade execution with TOTP-based 2FA (compatible with Google
+                    Add an extra layer of security to account login and trade execution with TOTP-based 2FA (compatible with Google
                     Authenticator, Bitwarden, Authy, etc.). This is <strong>separate</strong> from your Binance.US
                     account's own 2FA — it protects this app itself, so anyone with access to your browser session
-                    still can't place trades without your authenticator code.
+                    or login credentials still can't log in or place trades without your authenticator code.
                 </p>
 
                 <ol style={{ paddingLeft: '20px', lineHeight: '1.8' }}>
                     <li>Enable 2FA in Settings and scan the QR code with an authenticator app</li>
                     <li>Verify by entering the 6-digit code</li>
-                    <li>When "Require 2FA for Trading" is enabled, you'll need to confirm each order (and each Cancel Auto-Buy/Auto-Sell Trigger action) with a code</li>
+                    <li>When 2FA is enabled on your profile, you will be prompted for your 6-digit code upon logging in</li>
+                    <li>When "Require 2FA for Trading" is enabled, you will also need to confirm each order, dust conversion, and Cancel Auto-Buy/Auto-Sell Trigger action with a code</li>
                 </ol>
 
                 <Tip>
@@ -573,6 +574,7 @@ export default function Help({ isLightMode }) {
                     Manage Binance.US staking positions for supported proof-of-stake assets directly in the app.
                 </p>
                 <ul style={{ paddingLeft: '20px', marginBottom: '16px', lineHeight: '1.9' }}>
+                    <li><strong>Real-Time APY Synchronization</strong> — reward rates and estimated APY/APR percentages are pulled directly in real time from live Binance.US staking endpoints</li>
                     <li><strong>One-click Stake / Unstake</strong> — deposit into or redeem from a staking position</li>
                     <li><strong>Daily Reward Tracking</strong> — today's rewards, average APY, actively staked amount, and pending releases</li>
                 </ul>
@@ -586,8 +588,10 @@ export default function Help({ isLightMode }) {
                 <ul style={{ paddingLeft: '20px', marginBottom: '16px', lineHeight: '1.9' }}>
                     <li><strong>Market Analysis</strong> — current market trends and opportunities, grounded in live web search</li>
                     <li><strong>Portfolio Review</strong> — comprehensive risk assessment, allocation breakdown, and recommendations</li>
-                    <li><strong>Historical Prediction Ledger</strong> — every past sentiment call paired with its actual price outcome, so you can see how accurate the AI has been over time</li>
-                    <li><strong>AI Model Leaderboard</strong> — accuracy comparison across whichever AI providers/models you've used</li>
+                    <li><strong>Historical Prediction Ledger</strong> — every past sentiment call paired with its actual price outcome to measure accuracy over time. Supports interactive coin filtering in the table header, and default sorting strictly by updated date/time descending</li>
+                    <li><strong>AI Outcome Neutral Threshold</strong> — configurable in Settings (default 5.00%); Hold/Watch predictions are evaluated as Neutral only if price stays within the threshold %, otherwise marked as Wrong if the market made a large move</li>
+                    <li><strong>Automatic Coin Inclusion</strong> — newly added portfolio coins are automatically checked off and included by default in all charts, list views, and thesis evaluations</li>
+                    <li><strong>AI Model Leaderboard</strong> — empirical accuracy comparison across whichever AI providers/models you've used</li>
                 </ul>
             </Section>
 
@@ -610,9 +614,10 @@ export default function Help({ isLightMode }) {
                 </p>
                 <ul style={{ paddingLeft: '20px', marginBottom: '16px', lineHeight: '1.9' }}>
                     <li><strong>Cost basis method</strong> — choose FIFO, LIFO, or HIFO in Settings → Tax Configuration</li>
-                    <li><strong>Tax-year filtering</strong> — generate a report scoped to a specific year</li>
-                    <li><strong>Unified transaction ledger</strong> — every buy, sell, deposit, withdrawal, staking reward, and fee</li>
-                    <li><strong>CSV export</strong> — download your full report from Settings for your records</li>
+                    <li><strong>Tax-year filtering</strong> — generate annual reports scoped to a specific tax year (e.g. 2026, 2025, 2024...) or all time</li>
+                    <li><strong>Short-Term vs. Long-Term Capital Gains</strong> — automatically calculates holding periods and breaks down short-term vs. long-term gains</li>
+                    <li><strong>Unified transaction ledger</strong> — every buy, sell, deposit, withdrawal, staking reward, and fee formatted in Eastern Time</li>
+                    <li><strong>CSV & Excel export</strong> — download filtered annual tax summaries and transaction logs for your tax records</li>
                 </ul>
             </Section>
 

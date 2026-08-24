@@ -26,18 +26,51 @@ auth_bp = Blueprint('auth', __name__)
 
 @auth_bp.route("/api/login", methods=["POST"])
 def api_login():
-    """API endpoint for logging in. Returns JSON only."""
-    data = request.get_json() or request.form
-    username = data.get("username")
+    """API endpoint for logging in. Returns JSON only, with 2FA verification if enabled on profile."""
+    import pyotp
+    from trading_models import TradingSettings
+
+    data = request.get_json() or request.form or {}
+    username = (data.get("username") or "").strip()
     password = data.get("password")
+    two_factor_code = (data.get("two_factor_code") or data.get("code") or "").strip()
+
     if not username or not password:
         return jsonify({"success": False, "error": "Username and password required."}), 400
+
     user = User.query.filter_by(username=username).first()
-    if user and user.check_password(password):
-        login_user(user, remember=True)
-        session.permanent = True
-        return jsonify({"success": True, "user": {"username": user.username, "id": user.id}})
-    return jsonify({"success": False, "error": "Invalid username or password."}), 401
+    if not user or not user.check_password(password):
+        return jsonify({"success": False, "error": "Invalid username or password."}), 401
+
+    # Check if user has 2FA enabled on profile
+    settings = TradingSettings.query.filter_by(user_id=user.id).first()
+    if settings and settings.totp_secret:
+        if not two_factor_code:
+            return jsonify({
+                "success": False,
+                "requires_2fa": True,
+                "message": "Two-factor authentication code required."
+            }), 200
+
+        try:
+            totp = pyotp.TOTP(settings.totp_secret)
+            if not totp.verify(two_factor_code, valid_window=1):
+                return jsonify({
+                    "success": False,
+                    "requires_2fa": True,
+                    "error": "Invalid 2FA code. Please try again."
+                }), 401
+        except Exception as totp_err:
+            logger.error(f"Error validating login 2FA for {username}: {totp_err}")
+            return jsonify({
+                "success": False,
+                "requires_2fa": True,
+                "error": "Failed to verify 2FA code."
+            }), 401
+
+    login_user(user, remember=True)
+    session.permanent = True
+    return jsonify({"success": True, "user": {"username": user.username, "id": user.id}})
 
 @auth_bp.route("/api/logout", methods=["POST"])
 @login_required

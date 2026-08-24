@@ -246,6 +246,8 @@ def get_user_ai_settings(username: str) -> dict:
                 if hasattr(user_setting, 'volatility_hours'):
                     settings['volatility_hours'] = user_setting.volatility_hours or 24
 
+                settings['ai_outcome_neutral_threshold_pct'] = float(getattr(user_setting, 'ai_outcome_neutral_threshold_pct', 5.0) or 5.0)
+
                 b_enabled = getattr(user_setting, 'browser_notifications_enabled', True)
                 if b_enabled is None:
                     b_enabled = True

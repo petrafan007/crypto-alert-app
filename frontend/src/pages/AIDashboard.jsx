@@ -192,23 +192,35 @@ const AIDashboard = () => {
   const [klinesLoading, setKlinesLoading] = useState(false);
   const [hoveredPoint, setHoveredPoint] = useState(null);
 
-  // Coin filter modal state
+  // Coin filter state - stores explicitly excluded symbols so any newly added portfolio coins default to INCLUDED (checked)
   const [showCoinFilterModal, setShowCoinFilterModal] = useState(false);
-  const [selectedFilterCoins, setSelectedFilterCoins] = useState(() => {
+  const [showLedgerCoinDropdown, setShowLedgerCoinDropdown] = useState(false);
+  const [ledgerCoinSearch, setLedgerCoinSearch] = useState('');
+  const [excludedFilterCoins, setExcludedFilterCoins] = useState(() => {
     try {
-      const saved = localStorage.getItem('sentiment_table_coin_filter');
+      const saved = localStorage.getItem('sentiment_table_excluded_coins');
       if (saved) {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed)) return parsed;
       }
-    } catch (e) {
-      console.warn('Failed to parse coin filter:', e);
-    }
-    return null;
+    } catch (e) {}
+    return [];
   });
   const [tempFilterCoins, setTempFilterCoins] = useState([]);
 
-  // Ledger sort state
+  // Close ledger coin filter dropdown on outside click
+  useEffect(() => {
+    if (!showLedgerCoinDropdown) return;
+    const handleOutsideClick = (e) => {
+      if (!e.target.closest('.ledger-coin-filter-dropdown') && !e.target.closest('.ledger-coin-filter-toggle-btn')) {
+        setShowLedgerCoinDropdown(false);
+      }
+    };
+    document.addEventListener('click', handleOutsideClick);
+    return () => document.removeEventListener('click', handleOutsideClick);
+  }, [showLedgerCoinDropdown]);
+
+  // Ledger sort state (non-persisted, defaults to updated Date & Time descending on reload)
   const [ledgerSortConfig, setLedgerSortConfig] = useState(null);
 
   const requestLedgerSort = (key) => {
@@ -396,6 +408,11 @@ const AIDashboard = () => {
     return Array.from(map.values()).sort((a, b) => a.symbol.localeCompare(b.symbol));
   }, [accuracyData]);
 
+  const activeFilterCoins = useMemo(() => {
+    const excludedSet = new Set(excludedFilterCoins);
+    return availableCoinFilters.map(c => c.symbol).filter(sym => !excludedSet.has(sym));
+  }, [availableCoinFilters, excludedFilterCoins]);
+
   // Dynamic recommendation and multi-model breakdowns
   const { recommendationBreakdown, modelBreakdown } = useMemo(() => {
     if (!accuracyData) {
@@ -403,7 +420,7 @@ const AIDashboard = () => {
     }
 
     const availableFilterList = availableCoinFilters || [];
-    const isFiltering = selectedFilterCoins !== null && selectedFilterCoins.length < availableFilterList.length;
+    const isFiltering = excludedFilterCoins.length > 0;
 
     // If not actively filtering coins, default to server-aggregated breakdowns
     if (!isFiltering) {
@@ -413,7 +430,6 @@ const AIDashboard = () => {
       };
     }
 
-    const activeFilterCoins = selectedFilterCoins || availableFilterList.map(c => c.symbol);
     const filteredHistory = (accuracyData.history || []).filter(row => row && row.symbol && activeFilterCoins.includes(row.symbol));
 
     const recStats = {};
@@ -466,13 +482,10 @@ const AIDashboard = () => {
       recommendationBreakdown: recBreakdown.length > 0 ? recBreakdown : (accuracyData.recommendation_breakdown || []),
       modelBreakdown: modBreakdown.length > 0 ? modBreakdown : (accuracyData.model_breakdown || [])
     };
-  }, [accuracyData, selectedFilterCoins, availableCoinFilters]);
+  }, [accuracyData, activeFilterCoins, excludedFilterCoins, availableCoinFilters]);
 
   const handleOpenCoinFilterModal = () => {
-    const currentSelected = selectedFilterCoins !== null
-      ? selectedFilterCoins
-      : availableCoinFilters.map(c => c.symbol);
-    setTempFilterCoins([...currentSelected]);
+    setTempFilterCoins([...activeFilterCoins]);
     setShowCoinFilterModal(true);
   };
 
@@ -491,13 +504,40 @@ const AIDashboard = () => {
   };
 
   const handleApplyCoinFilter = () => {
-    setSelectedFilterCoins(tempFilterCoins);
+    const selectedSet = new Set(tempFilterCoins);
+    const newExcluded = availableCoinFilters.map(c => c.symbol).filter(sym => !selectedSet.has(sym));
+    setExcludedFilterCoins(newExcluded);
     try {
-      localStorage.setItem('sentiment_table_coin_filter', JSON.stringify(tempFilterCoins));
+      localStorage.setItem('sentiment_table_excluded_coins', JSON.stringify(newExcluded));
     } catch (e) {
-      console.warn('Failed to save coin filter to localStorage:', e);
+      console.warn('Failed to save excluded coin filter to localStorage:', e);
     }
     setShowCoinFilterModal(false);
+  };
+
+  const handleToggleSingleCoinInFilter = (symbol) => {
+    setExcludedFilterCoins(prev => {
+      const next = prev.includes(symbol) ? prev.filter(s => s !== symbol) : [...prev, symbol];
+      try {
+        localStorage.setItem('sentiment_table_excluded_coins', JSON.stringify(next));
+      } catch (e) {}
+      return next;
+    });
+  };
+
+  const handleSelectAllInDropdown = () => {
+    setExcludedFilterCoins([]);
+    try {
+      localStorage.setItem('sentiment_table_excluded_coins', JSON.stringify([]));
+    } catch (e) {}
+  };
+
+  const handleDeselectAllInDropdown = () => {
+    const all = availableCoinFilters.map(c => c.symbol);
+    setExcludedFilterCoins(all);
+    try {
+      localStorage.setItem('sentiment_table_excluded_coins', JSON.stringify(all));
+    } catch (e) {}
   };
 
   // Initialize and update Lightweight-Charts instance
@@ -881,7 +921,7 @@ const AIDashboard = () => {
             title="Configure which coins are displayed"
             style={{ fontSize: '13px', padding: '8px 14px', marginRight: '8px' }}
           >
-            ⚙️ Configure Coins {selectedFilterCoins !== null && selectedFilterCoins.length < availableCoinFilters.length ? `(${selectedFilterCoins.length}/${availableCoinFilters.length})` : ''}
+            ⚙️ Configure Coins {excludedFilterCoins.length > 0 ? `(${activeFilterCoins.length}/${availableCoinFilters.length})` : ''}
           </button>
           <button
             className="btn btn-secondary"
@@ -1031,7 +1071,124 @@ const AIDashboard = () => {
               <table className="prediction-ledger-table">
                 <thead>
                   <tr>
-                    <th onClick={() => requestLedgerSort('symbol')} style={{ textAlign: 'center', cursor: 'pointer' }}>Coin{getSortIcon('symbol')}</th>
+                    <th style={{ textAlign: 'center', position: 'relative' }}>
+                      <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', justifyContent: 'center' }}>
+                        <span onClick={() => requestLedgerSort('symbol')} style={{ cursor: 'pointer' }}>
+                          Coin{getSortIcon('symbol')}
+                        </span>
+                        <button
+                          type="button"
+                          className="ledger-coin-filter-toggle-btn"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setShowLedgerCoinDropdown(prev => !prev);
+                          }}
+                          title="Filter coins displayed in ledger"
+                          style={{
+                            background: excludedFilterCoins.length > 0 ? '#0284c7' : 'rgba(56, 189, 248, 0.15)',
+                            border: '1px solid rgba(56, 189, 248, 0.35)',
+                            color: excludedFilterCoins.length > 0 ? '#fff' : '#38bdf8',
+                            borderRadius: '4px',
+                            padding: '2px 6px',
+                            fontSize: '11px',
+                            cursor: 'pointer',
+                            lineHeight: 1
+                          }}
+                        >
+                          ⚙️
+                        </button>
+                      </div>
+                      {showLedgerCoinDropdown && (
+                        <div
+                          className="ledger-coin-filter-dropdown"
+                          onClick={(e) => e.stopPropagation()}
+                          style={{
+                            position: 'absolute',
+                            top: 'calc(100% + 4px)',
+                            left: '0',
+                            zIndex: 1000,
+                            backgroundColor: isLightMode ? '#ffffff' : '#1e293b',
+                            border: '1px solid var(--border-color, #334155)',
+                            borderRadius: '8px',
+                            padding: '12px',
+                            boxShadow: '0 10px 30px rgba(0,0,0,0.5)',
+                            minWidth: '220px',
+                            maxWidth: '280px',
+                            textAlign: 'left',
+                            color: 'var(--text-primary, #fff)'
+                          }}
+                        >
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                            <span style={{ fontSize: '12px', fontWeight: 'bold' }}>Filter Coins ({activeFilterCoins.length}/{availableCoinFilters.length})</span>
+                            <button
+                              type="button"
+                              onClick={() => setShowLedgerCoinDropdown(false)}
+                              style={{ background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', fontSize: '14px' }}
+                            >
+                              ✕
+                            </button>
+                          </div>
+                          <div style={{ display: 'flex', gap: '6px', marginBottom: '8px' }}>
+                            <button
+                              type="button"
+                              className="btn btn-secondary"
+                              onClick={handleSelectAllInDropdown}
+                              style={{ fontSize: '11px', padding: '3px 8px', flex: 1 }}
+                            >
+                              Select All
+                            </button>
+                            <button
+                              type="button"
+                              className="btn btn-secondary"
+                              onClick={handleDeselectAllInDropdown}
+                              style={{ fontSize: '11px', padding: '3px 8px', flex: 1 }}
+                            >
+                              Select None
+                            </button>
+                          </div>
+                          <input
+                            type="text"
+                            placeholder="Search coins..."
+                            value={ledgerCoinSearch}
+                            onChange={(e) => setLedgerCoinSearch(e.target.value)}
+                            style={{
+                              width: '100%',
+                              padding: '4px 8px',
+                              fontSize: '12px',
+                              borderRadius: '4px',
+                              border: '1px solid var(--border-color, #334155)',
+                              background: isLightMode ? '#f8fafc' : '#0f172a',
+                              color: 'var(--text-primary, #fff)',
+                              marginBottom: '8px',
+                              boxSizing: 'border-box'
+                            }}
+                          />
+                          <div className="custom-scrollbar" style={{ maxHeight: '180px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                            {availableCoinFilters
+                              .filter(c => !ledgerCoinSearch || c.symbol.toLowerCase().includes(ledgerCoinSearch.toLowerCase()))
+                              .map(coin => {
+                                const isChecked = activeFilterCoins.includes(coin.symbol);
+                                return (
+                                  <label
+                                    key={coin.symbol}
+                                    style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', cursor: 'pointer', padding: '2px 4px', borderRadius: '4px' }}
+                                  >
+                                    <input
+                                      type="checkbox"
+                                      checked={isChecked}
+                                      onChange={() => handleToggleSingleCoinInFilter(coin.symbol)}
+                                      style={{ cursor: 'pointer' }}
+                                    />
+                                    <CryptoIcon symbol={coin.symbol} size={14} />
+                                    <span style={{ fontWeight: 600 }}>{coin.symbol}</span>
+                                    <span style={{ fontSize: '10px', opacity: 0.6 }}>({coin.source_type === 'portfolio' ? 'P' : 'W'})</span>
+                                  </label>
+                                );
+                              })}
+                          </div>
+                        </div>
+                      )}
+                    </th>
                     <th onClick={() => requestLedgerSort('price_at_prediction')} style={{ cursor: 'pointer' }}>Signal Price{getSortIcon('price_at_prediction')}</th>
                     <th onClick={() => requestLedgerSort('created_at')} style={{ cursor: 'pointer' }}>Signal Date{getSortIcon('created_at')}</th>
                     <th onClick={() => requestLedgerSort('created_at_time')} style={{ cursor: 'pointer' }}>Signal Time{getSortIcon('created_at_time')}</th>
@@ -1044,10 +1201,6 @@ const AIDashboard = () => {
                 </thead>
                 <tbody>
                   {(() => {
-                    const availableFilterList = availableCoinFilters || [];
-                    const activeFilterCoins = selectedFilterCoins !== null
-                      ? selectedFilterCoins
-                      : availableFilterList.map(c => c.symbol);
                     let displayHistory = (accuracyData?.history || []).filter(row =>
                       row && row.symbol && activeFilterCoins.includes(row.symbol) && !row.is_latest && row.outcome_status !== 'tracking'
                     );
@@ -1073,6 +1226,13 @@ const AIDashboard = () => {
                         if (valA < valB) return ledgerSortConfig.direction === 'asc' ? -1 : 1;
                         if (valA > valB) return ledgerSortConfig.direction === 'asc' ? 1 : -1;
                         return 0;
+                      });
+                    } else if (displayHistory.length > 0) {
+                      // Default sort: strictly by updated Date & Time descending
+                      displayHistory = [...displayHistory].sort((a, b) => {
+                        const timeA = new Date(a.evaluated_at || a.created_at || 0).getTime();
+                        const timeB = new Date(b.evaluated_at || b.created_at || 0).getTime();
+                        return timeB - timeA;
                       });
                     }
 

@@ -644,6 +644,9 @@ def api_ai_sentiment_accuracy():
         BULLISH_SIGNALS = {'definitely buy', 'consider buying', 'buy immediately', 'strong buy', 'buy'}
         BEARISH_SIGNALS = {'consider selling', 'sell immediately', 'avoid', 'strong sell', 'do not buy', 'sell'}
 
+        user_setting = UserSetting.query.filter_by(user_id=user_id).first()
+        neutral_thresh = float(getattr(user_setting, 'ai_outcome_neutral_threshold_pct', 5.0) or 5.0)
+
         # 3. Group records by coin symbol to evaluate interval-to-interval
         coin_groups = {}
         for r in records:
@@ -710,8 +713,13 @@ def api_ai_sentiment_accuracy():
                         else:
                             outcome_status = 'neutral'
                     else:
-                        neutral_count += 1
-                        outcome_status = 'neutral'
+                        # Neutral signal ('Hold', 'Watch')
+                        # If price moved >= neutral_thresh % in either direction, holding/watching was wrong.
+                        if abs(price_delta_pct) >= neutral_thresh:
+                            outcome_status = 'wrong'
+                        else:
+                            outcome_status = 'neutral'
+                            neutral_count += 1
                 elif not is_latest:
                     neutral_count += 1
 
@@ -1006,7 +1014,7 @@ def api_ai_settings():
                 'tax_manual_invested_updated', 'tax_cost_basis_method',
                 'sentiment_analysis_frequency_hours', 'watchlist_sentiment_analysis_frequency_hours',
                 'sentiment_history_lookback_hours', 'watchlist_sentiment_history_lookback_hours',
-                'volatility_hours', 'copilot_chat_pre', 'copilot_chat_post'
+                'volatility_hours', 'ai_outcome_neutral_threshold_pct', 'copilot_chat_pre', 'copilot_chat_post'
             ]
 
             for key, value in data.items():
@@ -1045,7 +1053,7 @@ def api_ai_settings():
                         except:
                             pass
                     # For float fields
-                    elif key in ['ai_confidence_threshold']:
+                    elif key in ['ai_confidence_threshold', 'ai_outcome_neutral_threshold_pct']:
                         try:
                             setattr(user_setting, key, float(value))
                         except:

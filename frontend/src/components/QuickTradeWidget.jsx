@@ -10,7 +10,15 @@ const QuickTradeWidget = ({ isLightMode, portfolio = [] }) => {
   const availableCoins = ['BTC', 'ETH', 'SOL', 'BNB', 'XRP', 'DOGE', 'ONT'];
 
   const handleGoToTrade = () => {
-    navigate(`/trading?pair=${selectedCoin}USDT`);
+    navigate('/trading', {
+      state: {
+        tradePrefill: {
+          symbol: `${selectedCoin}USDT`,
+          side: side === 'SELL' ? 'SELL' : 'BUY',
+          baseCoin: selectedCoin
+        }
+      }
+    });
   };
 
   return (

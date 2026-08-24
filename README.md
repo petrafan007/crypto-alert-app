@@ -122,6 +122,19 @@ The application utilizes a **unified PostgreSQL database**.
 
 ## Version History & Changelog
 
+## v2.0.0 (August 2026)
+
+### Official Release 2.0: OCO Balance Fix, 2FA Login Verification, AI Prediction Neutral Threshold, Real-Time Staking APY & Tax Report Upgrades
+- **2FA Verification on Login Screen**: Added two-factor authentication verification to the login flow. When a user has 2FA enabled on their profile, entering their username and password automatically opens a 6-digit TOTP code input step before granting access.
+- **OCO Order Balance Check Fix**: Fixed a bug where OCO sell orders checked quote asset balances (e.g. USDT) instead of base asset balances (e.g. PURR), rejecting valid sell orders when USDT balance was $0.00. The quote balance check is now properly scoped to Buy orders, and Sell orders validate available base asset balance.
+- **AI Recommendation Outcome Neutral Threshold**: Added a configurable `AI Outcome Neutral Threshold (%)` setting in Settings (default 5.00%). Predictions of "Hold" or "Watch" are now evaluated as Neutral only if price movement remains within $\pm\text{threshold}\%$; if price moved $\ge \text{threshold}\%$ up or down, the hold recommendation is accurately evaluated as Wrong (missed opportunity or unmitigated loss).
+- **Historical Prediction Ledger Coin Filter & Default Sort**: Added an interactive coin filter dropdown directly in the "Coin" table header on the Historical Prediction Ledger with Select All, Deselect All, and individual coin toggles. Fixed default table sorting strictly to updated Date & Time descending, ensuring temporary column header sorts reset cleanly on reload.
+- **Auto-Inclusion of New Portfolio Coins in AI Analysis**: Newly acquired portfolio coins are now automatically checked and included by default across all AI analysis list views, charts, and prediction ledgers.
+- **Real-Time Staking APY & Reward Rate Sync**: Ensured staking reward rates and estimated APY/APR percentages are continuously normalized and synchronized in real time from live Binance.US staking endpoints (`/sapi/v1/staking/asset`).
+- **Tax Report Upgrades & Annual Filtering**: Added annual tax year selectors (e.g. 2026, 2025, 2024, or All Years), dynamic summary metrics for Realized Gain/Loss, Short-Term vs. Long-Term capital gains separation, and enhanced CSV export naming.
+- **Quick Trade Terminal Routing**: Updated the Quick Trade widget to use React Router navigation state prefill so the selected coin and order side (Buy/Sell) apply immediately on the Trading page.
+- **Version Bump**: Transitioned official release version to `v2.0.0`.
+
 ## v1.99-beta (August 2026)
 
 ### Coin Performance Fit & Theme Scrollbars, Portfolio 24h Change, Watchlist Add Fix, Exact Chart Markers & Eastern Time Tables

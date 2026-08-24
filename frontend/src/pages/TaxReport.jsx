@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import axios from 'axios';
 import CryptoIcon from '../components/CryptoIcon';
 
@@ -325,35 +325,34 @@ export default function TaxReport({ isLightMode }) {
   const exportToCSV = () => {
     if (!taxData) return;
     
-    const headers = ['Date', 'Type', 'Asset', 'Amount', 'Price Traded At', 'Proceeds', 'Fee', 'Cost Basis', 'Gain/Loss', 'Gain/Loss Type', 'TxID'];
+    const headers = ['Date (ET)', 'Type', 'Asset', 'Amount', 'Price Traded At', 'Proceeds', 'Fee', 'Cost Basis', 'Gain/Loss', 'Gain/Loss Type', 'TxID'];
     const csvContent = [
       headers.join(','),
-      ...applyFilters(sortData(taxData.transactions, sortConfig.key)).map(tx => [
-        tx.date,
-        tx.type,
-        tx.asset,
+      ...applyFilters(sortData(filteredTransactions, sortConfig.key)).map(tx => [
+        `"${tx.date}"`,
+        `"${tx.type}"`,
+        `"${tx.asset}"`,
         tx.amount,
         tx.price_sold_at || '',
         tx.proceeds,
         tx.fee,
         tx.cost_basis,
-        tx.gain_loss,
-        tx.gain_loss_type,
-        tx.txid
+        tx.gain_loss !== null && tx.gain_loss !== undefined ? tx.gain_loss : '',
+        `"${tx.gain_loss_type || ''}"`,
+        `"${tx.txid || ''}"`
       ].join(','))
     ].join('\n');
     
-    const blob = new Blob([csvContent], { type: 'text/csv' });
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'tax_report.csv';
+    a.download = `tax_report_${selectedYear !== 'all' ? selectedYear : 'all_years'}_${selectedAsset !== 'all' ? selectedAsset : 'all_assets'}.csv`;
     a.click();
     window.URL.revokeObjectURL(url);
   };
 
   const exportToExcel = () => {
-    // For now, just export as CSV with .xlsx extension
     exportToCSV();
   };
 
@@ -413,9 +412,42 @@ export default function TaxReport({ isLightMode }) {
 
   const filteredTransactions = filterTransactions();
   const filteredAndSortedTransactions = applyFilters(sortData(filteredTransactions, sortConfig.key));
+
+  const filterSummary = useMemo(() => {
+    let realizedGainLoss = 0;
+    let shortTermGains = 0;
+    let longTermGains = 0;
+    let totalProceeds = 0;
+    let totalCostBasis = 0;
+    let totalFees = 0;
+
+    filteredTransactions.forEach(tx => {
+      const gl = parseFloat(tx.gain_loss) || 0;
+      realizedGainLoss += gl;
+      if (tx.gain_loss_type === 'short_term' || (!tx.gain_loss_type && gl !== 0)) {
+        shortTermGains += gl;
+      } else if (tx.gain_loss_type === 'long_term') {
+        longTermGains += gl;
+      }
+      totalProceeds += parseFloat(tx.proceeds) || 0;
+      totalCostBasis += parseFloat(tx.cost_basis) || 0;
+      totalFees += parseFloat(tx.fee) || 0;
+    });
+
+    return {
+      realizedGainLoss,
+      shortTermGains,
+      longTermGains,
+      totalProceeds,
+      totalCostBasis,
+      totalFees,
+      count: filteredTransactions.length
+    };
+  }, [filteredTransactions]);
+
   const manualInvestedAmount = parseFloat(taxData?.summary?.manual_invested_amount ?? 0) || 0;
   const manualInvestedUpdatedAt = taxData?.summary?.manual_invested_updated_at
-    ? new Date(taxData.summary.manual_invested_updated_at).toLocaleString()
+    ? new Date(taxData.summary.manual_invested_updated_at).toLocaleString('en-US', { timeZone: 'America/New_York' })
     : null;
 
   return (
@@ -569,9 +601,23 @@ export default function TaxReport({ isLightMode }) {
         {taxData && (
           <div className="tax-summary-cards">
             <div className="tax-summary-card">
-              <h3>Total Gain/Loss</h3>
-              <div className={`value ${taxData.summary.total_gain_loss >= 0 ? 'positive' : 'negative'}`}>
-                {formatCurrency(taxData.summary.total_gain_loss)}
+              <h3>{selectedYear !== 'all' ? `Realized Gain/Loss (${selectedYear})` : 'Total Gain/Loss'}</h3>
+              <div className={`value ${(selectedYear !== 'all' ? filterSummary.realizedGainLoss : taxData.summary.total_gain_loss) >= 0 ? 'positive' : 'negative'}`}>
+                {formatCurrency(selectedYear !== 'all' ? filterSummary.realizedGainLoss : taxData.summary.total_gain_loss)}
+              </div>
+            </div>
+
+            <div className="tax-summary-card">
+              <h3>Short-Term Gain/Loss</h3>
+              <div className={`value ${filterSummary.shortTermGains >= 0 ? 'positive' : 'negative'}`}>
+                {formatCurrency(filterSummary.shortTermGains)}
+              </div>
+            </div>
+
+            <div className="tax-summary-card">
+              <h3>Long-Term Gain/Loss</h3>
+              <div className={`value ${filterSummary.longTermGains >= 0 ? 'positive' : 'negative'}`}>
+                {formatCurrency(filterSummary.longTermGains)}
               </div>
             </div>
 
@@ -583,9 +629,9 @@ export default function TaxReport({ isLightMode }) {
             </div>
 
             <div className="tax-summary-card">
-              <h3>Total Transactions</h3>
+              <h3>Transactions {selectedYear !== 'all' ? `(${selectedYear})` : ''}</h3>
               <div className="value">
-                {taxData.summary.total_transactions}
+                {filterSummary.count}
               </div>
             </div>
           </div>

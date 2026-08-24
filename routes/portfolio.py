@@ -3869,51 +3869,51 @@ def place_test_oco_order():
         # For simulation assume taker fee for immediate fills
         fee_rate = fee_info.get('taker', 0.001)
 
-        # Balance check: ensure user has enough quote asset (e.g., USDT) to cover limit order + fees
-        # Get balances from Binance account (or simulated account for test mode)
+        # Balance check: ensure user has enough quote asset for BUY, or enough base asset for SELL
         try:
             account_info = client.get_account()
-            # Properly extract base and quote assets
+            balances = {b['asset']: float(b['free']) for b in account_info.get('balances', [])}
+        except Exception:
+            balances = {}
+
+        if side == 'BUY':
             if symbol.endswith('USD') and not symbol.endswith('USDT'):
                 quote_asset = 'USD'
             else:
                 quote_asset = 'USDT'
-                
-            balances = {b['asset']: float(b['free']) for b in account_info.get('balances', [])}
             available_quote = balances.get(quote_asset, 0.0)
-        except Exception:
-            available_quote = None
-
-        # Calculate required quote - for OCO buy, we must afford the most expensive leg
-        check_price = max(price, stop_limit_price) if side == 'BUY' else price
-        required_quote = quantity * check_price
-        estimated_fee = required_quote * fee_rate
-
-        if available_quote is not None and (required_quote + estimated_fee) > available_quote:
-            # Try to reduce quantity in steps until it fits available balance
-            step = filters['stepSize']
-            from decimal import Decimal
-            qty_dec = Decimal(str(quantity))
-            step_dec = Decimal(str(step))
-            price_dec = Decimal(str(price))
-            fee_rate_dec = Decimal(str(fee_rate))
-            max_qty = Decimal(str(filters['maxQty']))
-            min_qty = Decimal(str(filters['minQty']))
-
-            while qty_dec >= min_qty:
-                req = qty_dec * price_dec
-                fee_est = req * fee_rate_dec
-                if (req + fee_est) <= Decimal(str(available_quote)):
-                    break
-                qty_dec -= step_dec
-
-            if qty_dec < min_qty:
-                return jsonify({'success': False, 'error': 'Insufficient balance to place OCO order even after adjusting quantity.'}), 400
-
-            # Format quantity back
-            quantity = float(format_quantity(float(qty_dec), filters['stepSize']))
-            required_quote = quantity * price
+            check_price = max(price, stop_limit_price)
+            required_quote = quantity * check_price
             estimated_fee = required_quote * fee_rate
+
+            if available_quote is not None and (required_quote + estimated_fee) > available_quote:
+                step = filters['stepSize']
+                from decimal import Decimal
+                qty_dec = Decimal(str(quantity))
+                step_dec = Decimal(str(step))
+                price_dec = Decimal(str(check_price))
+                fee_rate_dec = Decimal(str(fee_rate))
+                min_qty = Decimal(str(filters['minQty']))
+
+                while qty_dec >= min_qty:
+                    req = qty_dec * price_dec
+                    fee_est = req * fee_rate_dec
+                    if (req + fee_est) <= Decimal(str(available_quote)):
+                        break
+                    qty_dec -= step_dec
+
+                if qty_dec < min_qty:
+                    return jsonify({'success': False, 'error': f'Insufficient {quote_asset} balance to place OCO buy order.'}), 400
+
+                quantity = float(format_quantity(float(qty_dec), filters['stepSize']))
+        elif side == 'SELL':
+            base_asset = symbol.replace('USDT', '').replace('USD', '')
+            available_base = balances.get(base_asset, 0.0)
+            if available_base is not None and quantity > available_base:
+                adjusted_quantity = float(format_quantity(available_base, filters['stepSize']))
+                if adjusted_quantity < filters['minQty']:
+                    return jsonify({'success': False, 'error': f'Insufficient {base_asset} balance. Available: {available_base:.8f}'}), 400
+                quantity = adjusted_quantity
 
         # Create test order records (OCO creates 2 orders)
         # Limit order (simulate filled leg)
@@ -4074,102 +4074,72 @@ def place_real_oco_order():
             if not valid:
                 return jsonify({'success': False, 'error': f'{p_name}: {collar_err}'}), 400
         
-        # For BUY orders, check USDT balance and adjust quantity if needed to account for fees
+        # Balance validation before submitting OCO order
         if side == 'BUY':
-            try:
-                # Get account balance
-                account = client.get_account()
-                # Properly extract base and quote assets
-                if symbol.endswith('USD') and not symbol.endswith('USDT'):
-                    quote_asset = 'USD'
-                elif symbol.endswith('USDT'):
-                    quote_asset = 'USDT'
-                else:
-                    quote_asset = 'USDT'
-
-                available_balance = 0.0
-                for balance in account['balances']:
-                    if balance['asset'] == quote_asset:
-                        available_balance = float(balance['free'])
-                        break
-                
-                # Calculate required balance including 0.1% Binance fee
-                # For OCO buy, we must afford the most expensive of the two orders
-                check_price = max(price, stop_limit_price) if side == 'BUY' else price
-                required_balance = quantity * check_price * 1.001  # Add 0.1% for trading fee
-                
-                logger.info(f"OCO Balance Check: Available {quote_asset}: {available_balance:.8f}, Required: {required_balance:.8f}")
-                
-                # If insufficient balance, try to reduce quantity slightly to fit within available balance
-                if required_balance > available_balance:
-                    # Calculate maximum quantity we can afford with fees using the safety price
-                    max_affordable_quantity = (available_balance * 0.999) / check_price  # Leave 0.1% buffer for fees
-                    adjusted_quantity = format_quantity(max_affordable_quantity, filters['stepSize'])
-                    
-                    # Check if adjusted quantity is still valid
-                    if adjusted_quantity >= filters['minQty']:
-                        logger.warning(f"Adjusted OCO quantity from {quantity} to {adjusted_quantity} due to balance constraints")
-                        quantity = adjusted_quantity
-                    else:
-                        return jsonify({
-                            'success': False, 
-                            'error': f'Insufficient {quote_asset} balance. Available: {available_balance:.8f}, Required: {required_balance:.8f} (including fees)'
-                        }), 400
-                        
-            except Exception as balance_err:
-                logger.error(f"Balance check failed: {balance_err}")
-                # Continue anyway - let Binance reject if truly insufficient
-        
-        # Place real OCO order
-        try:
-            # Use API-provided fees and validate balance similar to test path
-            fee_info = get_trade_fee_for_symbol(client, symbol) or {'maker': 0.001, 'taker': 0.001}
-            fee_rate = fee_info.get('taker', 0.001)
-
-            # Get balances
             try:
                 # Properly extract quote asset
                 if symbol.endswith('USD') and not symbol.endswith('USDT'):
                     quote_asset = 'USD'
-                elif symbol.endswith('USDT'):
-                    quote_asset = 'USDT'
                 else:
                     quote_asset = 'USDT'
-                
-                account_info = client.get_account()
-                balances = {b['asset']: float(b['free']) for b in account_info.get('balances', [])}
-                available_quote = balances.get(quote_asset, 0.0)
-            except Exception:
-                available_quote = None
 
-            # Calculate required quote for the limit leg
-            required_quote = quantity * price
-            estimated_fee = required_quote * fee_rate
-
-            if available_quote is not None and (required_quote + estimated_fee) > available_quote:
-                # Try to reduce quantity to fit
-                step = filters['stepSize']
-                from decimal import Decimal
-                qty_dec = Decimal(str(quantity))
-                step_dec = Decimal(str(step))
-                price_dec = Decimal(str(price))
-                fee_rate_dec = Decimal(str(fee_rate))
-                min_qty = Decimal(str(filters['minQty']))
-
-                while qty_dec >= min_qty:
-                    req = qty_dec * price_dec
-                    fee_est = req * fee_rate_dec
-                    if (req + fee_est) <= Decimal(str(available_quote)):
+                account = client.get_account()
+                available_balance = 0.0
+                for balance in account.get('balances', []):
+                    if balance['asset'] == quote_asset:
+                        available_balance = float(balance['free'])
                         break
-                    qty_dec -= step_dec
 
-                if qty_dec < min_qty:
-                    return jsonify({'success': False, 'error': 'Insufficient balance to place OCO order even after adjusting quantity.'}), 400
+                fee_info = get_trade_fee_for_symbol(client, symbol) or {'maker': 0.001, 'taker': 0.001}
+                fee_rate = float(fee_info.get('taker', 0.001))
 
-                quantity = float(format_quantity(float(qty_dec), filters['stepSize']))
-                required_quote = quantity * price
-                estimated_fee = required_quote * fee_rate
+                # For OCO buy, we must afford the most expensive of the two legs
+                check_price = max(price, stop_limit_price)
+                required_balance = quantity * check_price * (1.0 + fee_rate + 0.001)
 
+                logger.info(f"OCO Buy Balance Check: Available {quote_asset}: {available_balance:.8f}, Required: {required_balance:.8f}")
+
+                if required_balance > available_balance:
+                    max_affordable_quantity = (available_balance * 0.999) / (check_price * (1.0 + fee_rate))
+                    adjusted_quantity = format_quantity(max_affordable_quantity, filters['stepSize'])
+
+                    if adjusted_quantity >= filters['minQty']:
+                        logger.warning(f"Adjusted OCO buy quantity from {quantity} to {adjusted_quantity} due to balance constraints")
+                        quantity = adjusted_quantity
+                    else:
+                        return jsonify({
+                            'success': False,
+                            'error': f'Insufficient {quote_asset} balance to place buy order. Available: {available_balance:.8f}, Required: {required_balance:.8f} (including fees)'
+                        }), 400
+            except Exception as balance_err:
+                logger.error(f"OCO buy balance check failed: {balance_err}")
+        elif side == 'SELL':
+            try:
+                base_asset = symbol.replace('USDT', '').replace('USD', '')
+                account = client.get_account()
+                available_base = 0.0
+                for balance in account.get('balances', []):
+                    if balance['asset'] == base_asset:
+                        available_base = float(balance['free'])
+                        break
+
+                logger.info(f"OCO Sell Balance Check: Available {base_asset}: {available_base:.8f}, Required: {quantity:.8f}")
+
+                if quantity > available_base:
+                    adjusted_quantity = format_quantity(available_base, filters['stepSize'])
+                    if adjusted_quantity >= filters['minQty']:
+                        logger.warning(f"Adjusted OCO sell quantity from {quantity} to {adjusted_quantity} to match available {base_asset} balance")
+                        quantity = adjusted_quantity
+                    else:
+                        return jsonify({
+                            'success': False,
+                            'error': f'Insufficient {base_asset} balance to place sell order. Available: {available_base:.8f}, Required: {quantity:.8f}'
+                        }), 400
+            except Exception as balance_err:
+                logger.error(f"OCO sell base balance check failed: {balance_err}")
+
+        # Place real OCO order on Binance.US
+        try:
             order_response = client.create_oco_order(
                 symbol=symbol,
                 side=side,
@@ -4875,9 +4845,25 @@ def api_staking_assets():
         response = binance_us_api_call(cred, '/sapi/v1/staking/asset', method='GET', use_trading_keys=True)
         
         if response.status_code == 200:
-            staking_assets = response.json()
-            logger.info(f"Retrieved {len(staking_assets)} staking assets from Binance.US")
-            return jsonify(staking_assets)
+            raw_payload = response.json()
+            staking_assets = raw_payload.get('data', []) if isinstance(raw_payload, dict) else (raw_payload or [])
+            normalized_assets = []
+            for asset in staking_assets:
+                if not isinstance(asset, dict):
+                    continue
+                a_copy = dict(asset)
+                raw_rate = a_copy.get('apy') or a_copy.get('apr') or a_copy.get('annualPercentageRate') or a_copy.get('rewardRate') or a_copy.get('estApr') or a_copy.get('interestRate') or 0.0
+                try:
+                    rate_num = float(str(raw_rate).replace('%', '').strip())
+                    if rate_num > 1.0:
+                        rate_num = rate_num / 100.0
+                except Exception:
+                    rate_num = 0.0
+                a_copy['apy'] = rate_num
+                a_copy['apr'] = rate_num
+                normalized_assets.append(a_copy)
+            logger.info(f"Retrieved {len(normalized_assets)} staking assets from Binance.US")
+            return jsonify(normalized_assets)
         else:
             logger.error(f"Binance.US staking API error: {response.status_code} - {response.text}")
             return jsonify([])

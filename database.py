@@ -63,6 +63,7 @@ def init_db(app=None):
             ("price_history", "quote_volume", "FLOAT DEFAULT 0.0"),
             ("user_settings", "sentiment_history_lookback_hours", "INTEGER DEFAULT 12"),
             ("user_settings", "watchlist_sentiment_history_lookback_hours", "INTEGER DEFAULT 12"),
+            ("user_settings", "ai_outcome_neutral_threshold_pct", "FLOAT DEFAULT 5.0"),
             ("coins", "sentiment_tracking_enabled", "BOOLEAN DEFAULT TRUE"),
             ("watchlist", "sentiment_tracking_enabled", "BOOLEAN DEFAULT TRUE")
         ]

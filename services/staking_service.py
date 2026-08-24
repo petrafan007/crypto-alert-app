@@ -299,8 +299,14 @@ def build_staking_balance_view(cred, asset_param=None):
             price = fetch_binance_price(asset) or get_local_price(asset)
             current_value = amount * price if price else 0.0
             
-            metadata = get_asset_metadata(asset, staked.get('productId'))
-            apy = _coerce_float(metadata.get('apy') or metadata.get('apr') or staked.get('apy'), 0.0)
+            metadata = get_asset_metadata(asset, staked.get('productId')) or {}
+            raw_apy = metadata.get('apy') or metadata.get('apr') or metadata.get('annualPercentageRate') or metadata.get('rewardRate') or metadata.get('estApr') or staked.get('apy') or staked.get('apr') or 0.0
+            try:
+                apy = float(str(raw_apy).replace('%', '').strip())
+                if apy > 1.0:
+                    apy = apy / 100.0
+            except Exception:
+                apy = 0.0
 
             pos = {
                 'asset': asset, 'amount': amount, 'currentValue': round(current_value, 2),

@@ -80,6 +80,7 @@ export default function Settings({ isLightMode }) {
     // AI Settings
     ai_risk_tolerance: 'moderate',
     ai_confidence_threshold: 75,
+    ai_outcome_neutral_threshold_pct: 5.0,
     ai_notifications_enabled: true,
     ai_analysis_frequency: 'daily',
     sentiment_analysis_frequency_hours: 24,
@@ -2149,6 +2150,32 @@ export default function Settings({ isLightMode }) {
             />
             <p style={{ color: '#666', fontSize: '12px', marginTop: 4 }}>
               Maximum tokens for AI responses (500-8000)
+            </p>
+          </div>
+
+          <div>
+            <label style={{ display: 'block', marginBottom: 8, color: '#fff' }}>
+              AI Outcome Neutral Threshold (%)
+            </label>
+            <input
+              type="number"
+              step="0.01"
+              min="0.1"
+              max="50"
+              value={settings.ai_outcome_neutral_threshold_pct ?? 5.0}
+              onChange={(e) => handleInputChange('ai_outcome_neutral_threshold_pct', parseFloat(e.target.value) || 0)}
+              style={{
+                width: 'calc(100% - 24px)',
+                padding: '8px 12px',
+                borderRadius: 6,
+                background: '#1a1f23',
+                color: '#fff',
+                border: '1px solid #444',
+                boxSizing: 'border-box'
+              }}
+            />
+            <p style={{ color: '#666', fontSize: '12px', marginTop: 4 }}>
+              Max % price move for "Hold" or "Watch" to be evaluated as Neutral (exceeding this evaluates as Wrong)
             </p>
           </div>
         </div>

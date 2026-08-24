@@ -85,7 +85,7 @@ export function AuthProvider({ children }) {
     }
   };
 
-  const login = async (username, password) => {
+  const login = async (username, password, twoFactorCode = '') => {
     try {
       // Reset logout flags
       window.globalIsLoggingOut = false;
@@ -93,10 +93,19 @@ export function AuthProvider({ children }) {
       // Use JSON for API login
       const response = await axios.post('/api/login', {
         username,
-        password
+        password,
+        two_factor_code: twoFactorCode
       }, {
         withCredentials: true
       });
+
+      if (response.data && response.data.requires_2fa) {
+        return {
+          success: false,
+          requires_2fa: true,
+          message: response.data.message || 'Two-factor authentication required'
+        };
+      }
 
       // If login successful, set user from response
       if (response.data && response.data.user_id && response.data.username) {
@@ -111,6 +120,13 @@ export function AuthProvider({ children }) {
       return { success: true };
     } catch (error) {
       console.error('Login error:', error);
+      if (error.response?.data?.requires_2fa) {
+        return {
+          success: false,
+          requires_2fa: true,
+          error: error.response.data.error || 'Invalid 2FA code'
+        };
+      }
       return {
         success: false,
         error: error.response?.data?.error || 'Login failed'
