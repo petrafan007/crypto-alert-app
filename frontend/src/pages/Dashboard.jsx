@@ -496,12 +496,61 @@ function Dashboard({ isLightMode }) {
   const hasUsdPair = (symbol) => !tradingPairsLoaded || usdPairBases.has((symbol || '').toUpperCase());
   const hasUsdtPair = (symbol) => !tradingPairsLoaded || usdtPairBases.has((symbol || '').toUpperCase());
 
-  // Helper to fetch user's live quote currency balance (USD or USDT) from portfolio
+  // Helper to fetch user's live usable/uncommitted quote currency balance (USD or USDT)
+  // Deducts both:
+  // 1. Locked quote funds in pending open limit/stop BUY orders (e.g. pending buy order on BTCUSDT)
+  // 2. Reserved allocations in active Auto-Buy triggers for that quote currency
   const getQuoteBalance = (quote) => {
     const cleanQuote = (quote || '').toUpperCase();
     const found = (portfolio || []).find(c => (c.symbol || '').toUpperCase() === cleanQuote);
-    if (!found) return 0.0;
-    return Math.max(0, Number(found.amount ?? found.current_value ?? 0));
+    const rawBal = found ? Math.max(0, Number(found.amount ?? found.current_value ?? 0)) : 0.0;
+    if (rawBal <= 0) return 0.0;
+
+    // Sum all quote funds locked in pending exchange BUY orders
+    let lockedInBuyOrders = 0.0;
+    if (Array.isArray(pendingOrders)) {
+      pendingOrders.forEach(order => {
+        const orderSide = (order.side || '').toUpperCase();
+        const orderSym = (order.symbol || '').toUpperCase();
+        if (orderSide === 'BUY') {
+          const matchesQuote = (cleanQuote === 'USDT' && orderSym.endsWith('USDT')) ||
+            (cleanQuote === 'USD' && orderSym.endsWith('USD') && !orderSym.endsWith('USDT'));
+          if (matchesQuote) {
+            const orderQty = Number(order.quantity ?? 0);
+            const refPrice = Number(order.trigger_price || order.price || 0);
+            const quoteCost = order.quantity_usdt !== undefined && order.quantity_usdt !== null
+              ? Number(order.quantity_usdt)
+              : orderQty * refPrice;
+            if (!isNaN(quoteCost) && quoteCost > 0) {
+              lockedInBuyOrders += quoteCost;
+            }
+          }
+        }
+      });
+    }
+
+    // Sum active Auto-Buy allocations across portfolio and watchlist for this quote currency
+    let reservedInAutoBuys = 0.0;
+    (portfolio || []).forEach(c => {
+      if (c && c.auto_buy_enabled) {
+        const cQuote = (c.auto_buy_quote_currency || 'USDT').toUpperCase();
+        if (cQuote === cleanQuote) {
+          const amt = Number(c.auto_buy_amount || 0);
+          if (!isNaN(amt) && amt > 0) reservedInAutoBuys += amt;
+        }
+      }
+    });
+    (watchlist || []).forEach(w => {
+      if (w && w.auto_buy_enabled) {
+        const wQuote = (w.auto_buy_quote_currency || 'USDT').toUpperCase();
+        if (wQuote === cleanQuote) {
+          const amt = Number(w.auto_buy_amount || 0);
+          if (!isNaN(amt) && amt > 0) reservedInAutoBuys += amt;
+        }
+      }
+    });
+
+    return Math.max(0, rawBal - lockedInBuyOrders - reservedInAutoBuys);
   };
 
   // Helper to determine Buy eligibility based on pair availability and minimum $1.00 balance
