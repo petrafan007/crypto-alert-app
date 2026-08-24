@@ -122,6 +122,14 @@ The application utilizes a **unified PostgreSQL database**.
 
 ## Version History & Changelog
 
+## v2.0.6 (August 2026)
+
+### Persistent Minimized AI Copilot & Full-Edge Resizing
+- **Windows-Style Minimize Tab**: The floating AI Copilot now has a minimize control. A sticky `AI Copilot` tab remains at the bottom-left of every application page while minimized, replacing the sidebar opener; clicking it restores the same floating chat.
+- **Persistent Window State**: Minimized status, normal-window location, dimensions, and maximized state are saved locally. A minimized Copilot remains minimized through refreshes, page navigation, logout, and later login; restoring it returns to its previous position and size.
+- **Resize From Every Edge and Corner**: The floating chat can now be resized with dedicated pointer handles on all four sides and all four corners, while retaining its viewport bounds and minimum usable dimensions.
+- **Version Bump**: Transitioned version to `v2.0.6`.
+
 ## v2.0.5 (August 2026)
 
 ### Rich AI Copilot Responses & Resizable Floating Chat

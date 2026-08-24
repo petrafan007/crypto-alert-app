@@ -17,12 +17,46 @@ const COPILOT_MARKDOWN_SCHEMA = {
   }
 };
 
+const FLOATING_WINDOW_STATE_KEY = 'ai_copilot_floating_window_state_v1';
+const FLOATING_WINDOW_MIN_WIDTH = 380;
+const FLOATING_WINDOW_MIN_HEIGHT = 420;
+const FLOATING_WINDOW_INSET = 12;
+
+const readFloatingWindowState = () => {
+  const fallback = { minimized: false, maximized: false, position: null, size: null };
+  if (typeof window === 'undefined') return fallback;
+
+  try {
+    const saved = JSON.parse(window.localStorage.getItem(FLOATING_WINDOW_STATE_KEY) || 'null');
+    if (!saved || typeof saved !== 'object') return fallback;
+
+    const isFiniteNumber = (value) => Number.isFinite(value);
+    const position = isFiniteNumber(saved.position?.left) && isFiniteNumber(saved.position?.top)
+      ? { left: saved.position.left, top: saved.position.top }
+      : null;
+    const size = isFiniteNumber(saved.size?.width) && isFiniteNumber(saved.size?.height)
+      ? { width: saved.size.width, height: saved.size.height }
+      : null;
+
+    return {
+      minimized: Boolean(saved.minimized),
+      maximized: Boolean(saved.maximized),
+      position,
+      size
+    };
+  } catch {
+    return fallback;
+  }
+};
+
 export default function AICopilotSidebar() {
   const { isLoggingOut } = useAuth();
   const [isOpen, setIsOpen] = useState(false);
   const [isFloating, setIsFloating] = useState(false);
-  const [isMaximized, setIsMaximized] = useState(false);
-  const [floatingPosition, setFloatingPosition] = useState(null);
+  const [isMaximized, setIsMaximized] = useState(() => readFloatingWindowState().maximized);
+  const [isMinimized, setIsMinimized] = useState(() => readFloatingWindowState().minimized);
+  const [floatingPosition, setFloatingPosition] = useState(() => readFloatingWindowState().position);
+  const [floatingSize, setFloatingSize] = useState(() => readFloatingWindowState().size);
   const [conversations, setConversations] = useState([]);
   const [message, setMessage] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -32,6 +66,7 @@ export default function AICopilotSidebar() {
   const messagesEndRef = useRef(null);
   const floatingWindowRef = useRef(null);
   const floatingDragRef = useRef(null);
+  const floatingResizeRef = useRef(null);
   const [aiEnabled, setAiEnabled] = useState(true);
   const [selectAll, setSelectAll] = useState(false);
   const [selectedMessages, setSelectedMessages] = useState(new Set());
@@ -51,6 +86,17 @@ export default function AICopilotSidebar() {
   const messageRefs = useRef(new Map());
   const previousActiveHit = useRef(null);
   const limit = 20;
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    window.localStorage.setItem(FLOATING_WINDOW_STATE_KEY, JSON.stringify({
+      minimized: isMinimized,
+      maximized: isMaximized,
+      position: floatingPosition,
+      size: floatingSize
+    }));
+  }, [floatingPosition, floatingSize, isMaximized, isMinimized]);
 
   const registerMessageRef = (id, node, isThinking = false) => {
     if (node && !isThinking) {
@@ -221,30 +267,57 @@ export default function AICopilotSidebar() {
   const openFloatingWindow = () => {
     setIsOpen(false);
     setIsFloating(true);
-    setIsMaximized(false);
-    setFloatingPosition(null);
+    setIsMinimized(false);
     window.setTimeout(scrollToBottom, 100);
   };
 
   const closeFloatingWindow = () => {
     setIsFloating(false);
     setIsMaximized(false);
-    setFloatingPosition(null);
+    setIsMinimized(false);
     setIsOpen(false);
+  };
+
+  const captureFloatingWindowBounds = () => {
+    const windowElement = floatingWindowRef.current;
+    if (!windowElement) return null;
+
+    const rect = windowElement.getBoundingClientRect();
+    const bounds = {
+      left: rect.left,
+      top: rect.top,
+      width: rect.width,
+      height: rect.height
+    };
+    setFloatingPosition({ left: bounds.left, top: bounds.top });
+    setFloatingSize({ width: bounds.width, height: bounds.height });
+    return bounds;
+  };
+
+  const minimizeFloatingWindow = () => {
+    if (!isMaximized) captureFloatingWindowBounds();
+    setIsMinimized(true);
+    setIsFloating(false);
+    setIsOpen(false);
+  };
+
+  const restoreMinimizedWindow = () => {
+    setIsMinimized(false);
+    setIsOpen(false);
+    setIsFloating(true);
+    window.setTimeout(scrollToBottom, 100);
   };
 
   const handleFloatingDragStart = (event) => {
     if (isMaximized || event.button !== 0 || event.target.closest('button')) return;
 
-    const windowElement = floatingWindowRef.current;
-    if (!windowElement) return;
+    const bounds = captureFloatingWindowBounds();
+    if (!bounds) return;
 
-    const rect = windowElement.getBoundingClientRect();
     floatingDragRef.current = {
-      offsetX: event.clientX - rect.left,
-      offsetY: event.clientY - rect.top
+      offsetX: event.clientX - bounds.left,
+      offsetY: event.clientY - bounds.top
     };
-    setFloatingPosition({ left: rect.left, top: rect.top });
     event.currentTarget.setPointerCapture?.(event.pointerId);
   };
 
@@ -254,11 +327,10 @@ export default function AICopilotSidebar() {
     if (!drag || !windowElement) return;
 
     const rect = windowElement.getBoundingClientRect();
-    const inset = 12;
-    const maxLeft = Math.max(inset, window.innerWidth - rect.width - inset);
-    const maxTop = Math.max(inset, window.innerHeight - rect.height - inset);
-    const left = Math.min(maxLeft, Math.max(inset, event.clientX - drag.offsetX));
-    const top = Math.min(maxTop, Math.max(inset, event.clientY - drag.offsetY));
+    const maxLeft = Math.max(FLOATING_WINDOW_INSET, window.innerWidth - rect.width - FLOATING_WINDOW_INSET);
+    const maxTop = Math.max(FLOATING_WINDOW_INSET, window.innerHeight - rect.height - FLOATING_WINDOW_INSET);
+    const left = Math.min(maxLeft, Math.max(FLOATING_WINDOW_INSET, event.clientX - drag.offsetX));
+    const top = Math.min(maxTop, Math.max(FLOATING_WINDOW_INSET, event.clientY - drag.offsetY));
     setFloatingPosition({ left, top });
   };
 
@@ -269,9 +341,64 @@ export default function AICopilotSidebar() {
     }
   };
 
+  const handleFloatingResizeStart = (event, direction) => {
+    if (isMaximized || event.button !== 0) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+    const bounds = captureFloatingWindowBounds();
+    if (!bounds) return;
+
+    floatingResizeRef.current = {
+      ...bounds,
+      direction,
+      startX: event.clientX,
+      startY: event.clientY
+    };
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+  };
+
+  const handleFloatingResizeMove = (event) => {
+    const resize = floatingResizeRef.current;
+    if (!resize) return;
+
+    const minWidth = Math.min(FLOATING_WINDOW_MIN_WIDTH, window.innerWidth - (FLOATING_WINDOW_INSET * 2));
+    const minHeight = Math.min(FLOATING_WINDOW_MIN_HEIGHT, window.innerHeight - (FLOATING_WINDOW_INSET * 2));
+    const right = resize.left + resize.width;
+    const bottom = resize.top + resize.height;
+    const deltaX = event.clientX - resize.startX;
+    const deltaY = event.clientY - resize.startY;
+    let { left, top, width, height } = resize;
+
+    if (resize.direction.includes('e')) {
+      width = Math.max(minWidth, Math.min(window.innerWidth - FLOATING_WINDOW_INSET - left, resize.width + deltaX));
+    }
+    if (resize.direction.includes('w')) {
+      width = Math.max(minWidth, Math.min(right - FLOATING_WINDOW_INSET, resize.width - deltaX));
+      left = right - width;
+    }
+    if (resize.direction.includes('s')) {
+      height = Math.max(minHeight, Math.min(window.innerHeight - FLOATING_WINDOW_INSET - top, resize.height + deltaY));
+    }
+    if (resize.direction.includes('n')) {
+      height = Math.max(minHeight, Math.min(bottom - FLOATING_WINDOW_INSET, resize.height - deltaY));
+      top = bottom - height;
+    }
+
+    setFloatingPosition({ left, top });
+    setFloatingSize({ width, height });
+  };
+
+  const handleFloatingResizeEnd = (event) => {
+    floatingResizeRef.current = null;
+    if (event.currentTarget.hasPointerCapture?.(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+  };
+
   const toggleFloatingMaximize = () => {
+    if (!isMaximized) captureFloatingWindowBounds();
     setIsMaximized((maximized) => !maximized);
-    setFloatingPosition(null);
   };
 
   const fetchConversations = async (loadMore = false, force = false) => {
@@ -912,13 +1039,20 @@ export default function AICopilotSidebar() {
 
   return (
     <div className={`ai-copilot-wrapper ${isOpen && !isFloating ? 'open' : ''} ${isFloating ? 'floating-open' : ''}`} data-theme-wrapper>
-      {!isFloating && (
+      {!isFloating && !isMinimized && (
         <button type="button" className="ai-copilot-toggle" onClick={() => setIsOpen((open) => !open)} aria-label="Toggle AI Copilot">
           <span className="toggle-icon">🤖</span>
         </button>
       )}
 
-      <aside className="ai-copilot-sidebar" aria-hidden={!isOpen || isFloating}>
+      {isMinimized && (
+        <button type="button" className="ai-copilot-minimized-tab" onClick={restoreMinimizedWindow} title="Restore AI Copilot" aria-label="Restore minimized AI Copilot">
+          <span aria-hidden="true">🤖</span>
+          <span>AI Copilot</span>
+        </button>
+      )}
+
+      <aside className="ai-copilot-sidebar" aria-hidden={!isOpen || isFloating || isMinimized}>
         {!isFloating && renderCopilotContent(true)}
       </aside>
 
@@ -926,7 +1060,12 @@ export default function AICopilotSidebar() {
         <section
           ref={floatingWindowRef}
           className={`ai-copilot-floating-window ${isMaximized ? 'maximized' : ''}`}
-          style={floatingPosition ? { left: `${floatingPosition.left}px`, top: `${floatingPosition.top}px`, right: 'auto' } : undefined}
+          style={!isMaximized && floatingPosition ? {
+            left: `${floatingPosition.left}px`,
+            top: `${floatingPosition.top}px`,
+            right: 'auto',
+            ...(floatingSize ? { width: `${floatingSize.width}px`, height: `${floatingSize.height}px` } : {})
+          } : undefined}
           role="dialog"
           aria-label="AI Copilot floating chat window"
         >
@@ -940,6 +1079,7 @@ export default function AICopilotSidebar() {
           >
             <span>🤖 AI Copilot</span>
             <div className="floating-window-actions">
+              <button type="button" onClick={minimizeFloatingWindow} title="Minimize AI Copilot" aria-label="Minimize AI Copilot">—</button>
               <button type="button" onClick={toggleFloatingMaximize} title={isMaximized ? 'Restore window size' : 'Maximize window'} aria-label={isMaximized ? 'Restore window size' : 'Maximize window'}>
                 {isMaximized ? '❐' : '□'}
               </button>
@@ -947,6 +1087,17 @@ export default function AICopilotSidebar() {
             </div>
           </div>
           <div className="floating-window-content">{renderCopilotContent(false)}</div>
+          {!isMaximized && ['n', 'ne', 'e', 'se', 's', 'sw', 'w', 'nw'].map((direction) => (
+            <div
+              key={direction}
+              className={`floating-window-resize-handle resize-${direction}`}
+              onPointerDown={(event) => handleFloatingResizeStart(event, direction)}
+              onPointerMove={handleFloatingResizeMove}
+              onPointerUp={handleFloatingResizeEnd}
+              onPointerCancel={handleFloatingResizeEnd}
+              aria-hidden="true"
+            />
+          ))}
         </section>
       )}
     </div>
