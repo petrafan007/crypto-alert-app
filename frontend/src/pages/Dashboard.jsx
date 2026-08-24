@@ -4120,7 +4120,12 @@ function Dashboard({ isLightMode }) {
         </div>
 
         {/* Pending Order Tooltip */}
-        {orderTooltip.visible && (
+        {/* Rendered via portal because `.table-container` sets `contain: layout`, which makes
+            it a containing block for `position: fixed` descendants — without the portal, this
+            box's fixed coordinates are resolved relative to the table instead of the viewport,
+            so it renders correctly only for rows near the top of the table and drifts off-screen
+            for rows further down (e.g. it looked "missing" on any row past the first couple). */}
+        {orderTooltip.visible && typeof document !== 'undefined' && createPortal(
           <div
             className="pending-order-tooltip"
             style={{
@@ -4142,7 +4147,8 @@ function Dashboard({ isLightMode }) {
             }}
           >
             {orderTooltip.text}
-          </div>
+          </div>,
+          document.body
         )}
 
         {/* Watchlist Section */}
