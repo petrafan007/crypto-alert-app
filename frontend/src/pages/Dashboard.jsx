@@ -1117,15 +1117,13 @@ function Dashboard({ isLightMode }) {
 
   // Handle hover on row for pending order tooltip
   const handleRowHover = (coin, event) => {
-    // Check if hovering over excluded elements: symbol-cell, buttons, inputs, selects
+    // Only exclude the symbol cell (separate news/sentiment hover) and buttons; inputs/selects
+    // (e.g. the Volatility % cell where the Auto-Buy/Auto-Sell icons live) must NOT suppress
+    // this tooltip, otherwise hovering the very icon that indicates a trigger hides the box.
     const target = event.target;
     const isExcluded = target.closest('.symbol-cell') ||
       target.tagName === 'BUTTON' ||
-      target.tagName === 'INPUT' ||
-      target.tagName === 'SELECT' ||
-      target.closest('button') ||
-      target.closest('input') ||
-      target.closest('select');
+      target.closest('button');
 
     if (isExcluded) {
       handleRowLeave();
