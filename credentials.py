@@ -378,6 +378,7 @@ class UserSetting(db.Model):
     watchlist_schedule_start_time = db.Column(db.String, default='08:00')
     volatility_hours = db.Column(db.Integer, default=24)
     ai_outcome_neutral_threshold_pct = db.Column(db.Float, default=5.0)
+    max_slippage_pct = db.Column(db.Float, default=2.0)
 
 class DesktopToken(db.Model):
     __tablename__ = "desktop_tokens"

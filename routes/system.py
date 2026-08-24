@@ -901,7 +901,7 @@ def api_settings():
                 'tax_cost_basis_method', 'copilot_chat_pre', 'copilot_chat_post',
                 'sentiment_analysis_frequency_hours', 'watchlist_sentiment_analysis_frequency_hours',
                 'portfolio_schedule_start_time', 'watchlist_schedule_start_time',
-                'volatility_hours',
+                'volatility_hours', 'ai_outcome_neutral_threshold_pct', 'max_slippage_pct',
                 'ai_provider_fallback', 'ai_model_fallback', 'ai_reasoning_level_fallback',
                 'ai_provider_secondary', 'ai_model_secondary', 'ai_reasoning_level_secondary',
                 'ai_provider_tertiary', 'ai_model_tertiary', 'ai_reasoning_level_tertiary',
@@ -941,7 +941,7 @@ def api_settings():
                             setattr(user_setting, key, parsed_value)
                         except:
                             pass
-                    elif key in ['ai_confidence_threshold']:
+                    elif key in ['ai_confidence_threshold', 'ai_outcome_neutral_threshold_pct', 'max_slippage_pct']:
                         try:
                             setattr(user_setting, key, float(value))
                         except:

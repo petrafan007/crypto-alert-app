@@ -81,6 +81,7 @@ export default function Settings({ isLightMode }) {
     ai_risk_tolerance: 'moderate',
     ai_confidence_threshold: 75,
     ai_outcome_neutral_threshold_pct: 5.0,
+    max_slippage_pct: 2.0,
     ai_notifications_enabled: true,
     ai_analysis_frequency: 'daily',
     sentiment_analysis_frequency_hours: 24,
@@ -2883,32 +2884,61 @@ export default function Settings({ isLightMode }) {
 
       {/* Portfolio Table Settings */}
       <div className="settings-page-section" style={{ marginTop: '24px' }}>
-        <h3>Portfolio Table Settings</h3>
-        <div style={{ maxWidth: 360, marginTop: 16 }}>
-          <label style={{ display: 'block', marginBottom: 8, color: '#fff' }}>
-            Volatility Hours
-          </label>
-          <input
-            type="number"
-            min="1"
-            max="999"
-            step="1"
-            value={settings.volatility_hours ?? 24}
-            onChange={(e) => handleInputChange('volatility_hours', e.target.value)}
-            style={{
-              width: '100%',
-              padding: '12px',
-              borderRadius: 6,
-              background: '#1a1f23',
-              color: '#fff',
-              border: '1px solid #444',
-              boxSizing: 'border-box',
-              fontSize: '16px'
-            }}
-          />
-          <p className="settings-form-help">
-            Volatility alerts compare each coin&apos;s current price with its price at the start of this many hours.
-          </p>
+        <h3>Portfolio Table & Execution Safety Settings</h3>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginTop: 16 }}>
+          <div>
+            <label style={{ display: 'block', marginBottom: 8, color: '#fff' }}>
+              Volatility Hours
+            </label>
+            <input
+              type="number"
+              min="1"
+              max="999"
+              step="1"
+              value={settings.volatility_hours ?? 24}
+              onChange={(e) => handleInputChange('volatility_hours', e.target.value)}
+              style={{
+                width: '100%',
+                padding: '12px',
+                borderRadius: 6,
+                background: '#1a1f23',
+                color: '#fff',
+                border: '1px solid #444',
+                boxSizing: 'border-box',
+                fontSize: '16px'
+              }}
+            />
+            <p className="settings-form-help">
+              Volatility drop/surge comparison lookback window in hours.
+            </p>
+          </div>
+
+          <div>
+            <label style={{ display: 'block', marginBottom: 8, color: '#fff' }}>
+              Max Allowed Slippage (%)
+            </label>
+            <input
+              type="number"
+              min="0.1"
+              max="15.0"
+              step="0.1"
+              value={settings.max_slippage_pct ?? 2.0}
+              onChange={(e) => handleInputChange('max_slippage_pct', parseFloat(e.target.value) || 2.0)}
+              style={{
+                width: '100%',
+                padding: '12px',
+                borderRadius: 6,
+                background: '#1a1f23',
+                color: '#fff',
+                border: '1px solid #444',
+                boxSizing: 'border-box',
+                fontSize: '16px'
+              }}
+            />
+            <p className="settings-form-help">
+              Pre-flight order book depth simulation aborts Auto-Sell/Auto-Buy if estimated slippage exceeds this %; orders execute with IOC limit price floors to guarantee protection.
+            </p>
+          </div>
         </div>
       </div>
 

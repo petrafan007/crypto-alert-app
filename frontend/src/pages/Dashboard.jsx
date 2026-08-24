@@ -109,14 +109,26 @@ function Dashboard({ isLightMode }) {
   const [portfolio, setPortfolio] = useState([]);
   const [watchlist, setWatchlist] = useState([]);
   const [loading, setLoading] = useState(true);
+  const pendingAddedWatchlistSymbolsRef = useRef(new Map());
 
   // Helper to preserve pending optimistic watchlist items across background poll intervals
   const mergeWatchlistPreservingPending = (newList, prevList) => {
     if (!Array.isArray(newList)) return prevList || [];
     const newSymbols = new Set(newList.map(c => (c.symbol || '').toUpperCase()));
-    const pendingOptimistic = (prevList || []).filter(c => (c.id && String(c.id).startsWith('temp-')) && !newSymbols.has((c.symbol || '').toUpperCase()));
-    if (pendingOptimistic.length === 0) return newList;
-    return [...pendingOptimistic, ...newList];
+
+    // Clean up confirmed additions from the ref map if they are now present in the server's list
+    for (const [sym] of pendingAddedWatchlistSymbolsRef.current.entries()) {
+      if (newSymbols.has(sym)) {
+        pendingAddedWatchlistSymbolsRef.current.delete(sym);
+      }
+    }
+
+    // Collect all unconfirmed additions that the server's list doesn't have yet
+    const pendingItems = Array.from(pendingAddedWatchlistSymbolsRef.current.values())
+      .filter(item => !newSymbols.has((item.symbol || '').toUpperCase()));
+
+    if (pendingItems.length === 0) return newList;
+    return [...pendingItems, ...newList];
   };
 
   const [usdPairBases, setUsdPairBases] = useState(new Set());
@@ -2586,6 +2598,9 @@ function Dashboard({ isLightMode }) {
       note: ''
     };
 
+    // Track in ref so background poll intervals (/api/watchlist-live) cannot wipe it out before the server responds
+    pendingAddedWatchlistSymbolsRef.current.set(cleanSym, tempItem);
+
     setWatchlist(prev => {
       if (prev.some(c => (c.symbol || '').toUpperCase() === cleanSym)) return prev;
       return [tempItem, ...prev];
@@ -2612,6 +2627,8 @@ function Dashboard({ isLightMode }) {
           up_val: null,
           note: ''
         };
+        // Update ref with server-confirmed item
+        pendingAddedWatchlistSymbolsRef.current.set(cleanSym, itemFromServer);
         setWatchlist(prev => {
           const index = prev.findIndex(c => c.id === tempId || (c.symbol || '').toUpperCase() === cleanSym);
           if (index !== -1) {
@@ -2623,11 +2640,13 @@ function Dashboard({ isLightMode }) {
         });
       } else {
         // Revert on failure
-        setWatchlist(prev => prev.filter(c => c.id !== tempId));
+        pendingAddedWatchlistSymbolsRef.current.delete(cleanSym);
+        setWatchlist(prev => prev.filter(c => c.id !== tempId && (c.symbol || '').toUpperCase() !== cleanSym));
       }
     } catch (err) {
       console.error('Add to watchlist error:', err);
-      setWatchlist(prev => prev.filter(c => c.id !== tempId));
+      pendingAddedWatchlistSymbolsRef.current.delete(cleanSym);
+      setWatchlist(prev => prev.filter(c => c.id !== tempId && (c.symbol || '').toUpperCase() !== cleanSym));
     } finally {
       setAddingToWatchlist(false);
     }

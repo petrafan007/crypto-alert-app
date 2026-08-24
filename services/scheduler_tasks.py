@@ -537,14 +537,102 @@ def execute_auto_sell(user, coin, pair, current_price, price_drop_pct, threshold
             db.session.commit()
             return
 
-        logger.info(f"Placing market sell order on Binance for {formatted_qty} {symbol} ({pair})...")
-        order = client.order_market_sell(
-            symbol=pair,
-            quantity=formatted_qty
-        )
+        # Step 4: 2-Tier Slippage & Capital Protection (Depth Simulation + IOC Limit Price Floor)
+        user_settings = UserSetting.query.filter_by(user_id=user.id).first()
+        max_slippage_pct = float(getattr(user_settings, 'max_slippage_pct', 2.0) or 2.0)
+
+        # Tier 1: Simulate order book fill against live bids
+        try:
+            depth = client.get_order_book(symbol=pair, limit=50)
+            bids = depth.get('bids', [])
+            if not bids:
+                logger.error(f"Auto-Sell for {symbol}: Order book has no bids! Aborting to protect capital.")
+                return
+
+            needed_qty = formatted_qty
+            simulated_proceeds = 0.0
+            filled_qty = 0.0
+
+            for b_price_str, b_qty_str in bids:
+                b_p = float(b_price_str)
+                b_q = float(b_qty_str)
+                take_q = min(b_q, needed_qty - filled_qty)
+                simulated_proceeds += take_q * b_p
+                filled_qty += take_q
+                if filled_qty >= needed_qty - 1e-8:
+                    break
+
+            if filled_qty < needed_qty - 1e-8:
+                logger.error(f"Auto-Sell for {symbol}: Insufficient order book depth (only {filled_qty:.4f}/{needed_qty:.4f} fillable). Aborting to protect capital.")
+                return
+
+            simulated_avg_price = simulated_proceeds / needed_qty if needed_qty > 0 else 0.0
+            simulated_slippage_pct = ((current_price - simulated_avg_price) / current_price) * 100.0 if current_price > 0 else 0.0
+
+            if simulated_slippage_pct > max_slippage_pct:
+                logger.error(
+                    f"🛑 AUTO-SELL ABORTED for {symbol}: Simulated slippage of {simulated_slippage_pct:.2f}% exceeds max allowed {max_slippage_pct:.2f}% "
+                    f"(Estimated fill: ${simulated_avg_price:.4f} vs market ${current_price:.4f}). Protecting capital."
+                )
+                msg = (
+                    f"🛑 <b>AUTO-SELL ABORTED (CAPITAL PROTECTED)</b>\n"
+                    f"Coin: <b>{symbol}</b> ({pair})\n"
+                    f"Reason: Order book is too thin! Selling {formatted_qty} {symbol} would cause <b>{simulated_slippage_pct:.2f}% slippage</b> (Max allowed: {max_slippage_pct:.2f}%).\n"
+                    f"Market Price: ${current_price:.4f}\n"
+                    f"Estimated Fill: ${simulated_avg_price:.4f}\n"
+                    f"Action: Order halted. Your {symbol} balance remains safe in your account."
+                )
+                send_telegram_message(user.username, msg)
+                create_system_notification(
+                    user_id_or_name=user.id,
+                    category='auto_sell_aborted',
+                    symbol=symbol,
+                    message=f"Auto-Sell Aborted: Order book for {symbol} is too thin ({simulated_slippage_pct:.2f}% slippage vs {max_slippage_pct:.2f}% limit). Capital protected.",
+                    current_price=current_price,
+                    direction='sell',
+                    percent_value=simulated_slippage_pct,
+                    table_type=table_type,
+                    coin_id=getattr(coin, 'id', 0)
+                )
+                return
+        except Exception as depth_err:
+            logger.warning(f"Could not perform depth simulation for {symbol}: {depth_err}")
+
+        # Tier 2: Submit with IOC Limit Price Floor (Guaranteed by Binance matching engine)
+        from services.common import format_price
+        price_floor = current_price * (1.0 - (max_slippage_pct / 100.0))
+        formatted_price_floor = format_price(price_floor, filters.get('tickSize', 0.0001))
+
+        logger.info(f"Placing protected IOC limit sell order on Binance for {formatted_qty} {symbol} ({pair}) at floor ${formatted_price_floor:.4f}...")
+        try:
+            order = client.create_order(
+                symbol=pair,
+                side='SELL',
+                type='LIMIT',
+                timeInForce='IOC',
+                quantity=formatted_qty,
+                price=str(formatted_price_floor)
+            )
+        except Exception as ioc_err:
+            logger.warning(f"IOC order failed for {pair} ({ioc_err}), falling back to market sell with verified depth...")
+            order = client.order_market_sell(
+                symbol=pair,
+                quantity=formatted_qty
+            )
 
         order_id = order.get('orderId', 'unknown')
-        executed_qty = float(order.get('executedQty', formatted_qty))
+        executed_qty = float(order.get('executedQty', 0))
+
+        if executed_qty <= 0:
+            logger.warning(f"Auto-Sell IOC order for {symbol} expired unfilled (price dropped below floor ${formatted_price_floor:.4f}). Capital protected.")
+            msg = (
+                f"🛑 <b>AUTO-SELL EXPIRED UNFILLED (CAPITAL PROTECTED)</b>\n"
+                f"Coin: <b>{symbol}</b> ({pair})\n"
+                f"Reason: Price moved below protection floor of ${formatted_price_floor:.4f} (Max slippage {max_slippage_pct:.2f}%).\n"
+                f"Action: Order cancelled with zero loss."
+            )
+            send_telegram_message(user.username, msg)
+            return
         fills = order.get('fills', [])
         total_commission = 0.0
         avg_price = 0.0
@@ -728,21 +816,109 @@ def execute_auto_buy(user, coin, pair, current_price, price_surge_pct, threshold
         except Exception:
             pass
 
-        logger.info(f"Placing market buy order on Binance for ~${actual_spend:.2f} {quote_currency} of {symbol} ({pair})...")
+        # Step 4: 2-Tier Slippage & Capital Protection (Depth Simulation + IOC Limit Price Ceiling)
+        user_settings = UserSetting.query.filter_by(user_id=user.id).first()
+        max_slippage_pct = float(getattr(user_settings, 'max_slippage_pct', 2.0) or 2.0)
+
+        # Tier 1: Simulate order book fill against live asks
         try:
-            order = client.order_market_buy(
+            depth = client.get_order_book(symbol=pair, limit=50)
+            asks = depth.get('asks', [])
+            if not asks:
+                logger.error(f"Auto-Buy for {symbol}: Order book has no asks! Aborting to protect capital.")
+                return
+
+            needed_qty = formatted_qty
+            simulated_cost = 0.0
+            filled_qty = 0.0
+
+            for a_price_str, a_qty_str in asks:
+                a_p = float(a_price_str)
+                a_q = float(a_qty_str)
+                take_q = min(a_q, needed_qty - filled_qty)
+                simulated_cost += take_q * a_p
+                filled_qty += take_q
+                if filled_qty >= needed_qty - 1e-8:
+                    break
+
+            if filled_qty < needed_qty - 1e-8:
+                logger.error(f"Auto-Buy for {symbol}: Insufficient order book depth (only {filled_qty:.4f}/{needed_qty:.4f} fillable). Aborting to protect capital.")
+                return
+
+            simulated_avg_price = simulated_cost / needed_qty if needed_qty > 0 else 0.0
+            simulated_slippage_pct = ((simulated_avg_price - current_price) / current_price) * 100.0 if current_price > 0 else 0.0
+
+            if simulated_slippage_pct > max_slippage_pct:
+                logger.error(
+                    f"🛑 AUTO-BUY ABORTED for {symbol}: Simulated slippage of +{simulated_slippage_pct:.2f}% exceeds max allowed {max_slippage_pct:.2f}% "
+                    f"(Estimated fill: ${simulated_avg_price:.4f} vs market ${current_price:.4f}). Protecting capital."
+                )
+                msg = (
+                    f"🛑 <b>AUTO-BUY ABORTED (CAPITAL PROTECTED)</b>\n"
+                    f"Coin: <b>{symbol}</b> ({pair})\n"
+                    f"Reason: Order book is too thin! Buying {formatted_qty} {symbol} would cause <b>+{simulated_slippage_pct:.2f}% slippage</b> (Max allowed: {max_slippage_pct:.2f}%).\n"
+                    f"Market Price: ${current_price:.4f}\n"
+                    f"Estimated Fill: ${simulated_avg_price:.4f}\n"
+                    f"Action: Order halted. Your {quote_currency} balance remains safe in your account."
+                )
+                send_telegram_message(user.username, msg)
+                create_system_notification(
+                    user_id_or_name=user.id,
+                    category='auto_buy_aborted',
+                    symbol=symbol,
+                    message=f"Auto-Buy Aborted: Order book for {symbol} is too thin (+{simulated_slippage_pct:.2f}% slippage vs {max_slippage_pct:.2f}% limit). Capital protected.",
+                    current_price=current_price,
+                    direction='buy',
+                    percent_value=simulated_slippage_pct,
+                    table_type=table_type,
+                    coin_id=getattr(coin, 'id', 0)
+                )
+                return
+        except Exception as depth_err:
+            logger.warning(f"Could not perform depth simulation for {symbol}: {depth_err}")
+
+        # Tier 2: Submit with IOC Limit Price Ceiling
+        from services.common import format_price
+        price_ceiling = current_price * (1.0 + (max_slippage_pct / 100.0))
+        formatted_price_ceiling = format_price(price_ceiling, filters.get('tickSize', 0.0001))
+
+        logger.info(f"Placing protected IOC limit buy order on Binance for {formatted_qty} {symbol} ({pair}) at ceiling ${formatted_price_ceiling:.4f}...")
+        try:
+            order = client.create_order(
                 symbol=pair,
-                quantity=formatted_qty
+                side='BUY',
+                type='LIMIT',
+                timeInForce='IOC',
+                quantity=formatted_qty,
+                price=str(formatted_price_ceiling)
             )
-        except Exception as buy_err:
-            logger.error(f"Market buy failed with quantity {formatted_qty}: {buy_err}. Retrying with quoteOrderQty...")
-            order = client.order_market_buy(
-                symbol=pair,
-                quoteOrderQty=round(actual_spend, 2)
-            )
+        except Exception as ioc_err:
+            logger.warning(f"IOC buy order failed for {pair} ({ioc_err}), falling back to market buy with verified depth...")
+            try:
+                order = client.order_market_buy(
+                    symbol=pair,
+                    quantity=formatted_qty
+                )
+            except Exception as buy_err:
+                logger.error(f"Market buy failed with quantity {formatted_qty}: {buy_err}. Retrying with quoteOrderQty...")
+                order = client.order_market_buy(
+                    symbol=pair,
+                    quoteOrderQty=round(actual_spend, 2)
+                )
 
         order_id = order.get('orderId', 'unknown')
-        executed_qty = float(order.get('executedQty', formatted_qty))
+        executed_qty = float(order.get('executedQty', 0))
+
+        if executed_qty <= 0:
+            logger.warning(f"Auto-Buy IOC order for {symbol} expired unfilled (price surged above ceiling ${formatted_price_ceiling:.4f}). Capital protected.")
+            msg = (
+                f"🛑 <b>AUTO-BUY EXPIRED UNFILLED (CAPITAL PROTECTED)</b>\n"
+                f"Coin: <b>{symbol}</b> ({pair})\n"
+                f"Reason: Price moved above protection ceiling of ${formatted_price_ceiling:.4f} (Max slippage {max_slippage_pct:.2f}%).\n"
+                f"Action: Order cancelled with zero loss."
+            )
+            send_telegram_message(user.username, msg)
+            return
         fills = order.get('fills', [])
         total_commission = 0.0
         avg_price = 0.0
