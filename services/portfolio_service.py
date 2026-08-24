@@ -119,6 +119,8 @@ def get_portfolio_data_for_user(user_id):
             try:
                 symbol = coin.symbol.upper()
                 amount = float(coin.amount or 0.0)
+                if amount < 0.0001:
+                    continue
                 
                 if symbol in ['USD', 'USDT', 'USDC', 'DAI']:
                     current_price = 1.0
@@ -494,8 +496,7 @@ def update_portfolio_from_real_order(user_id, symbol, side, quantity, price, com
                 logger.info(f"Updated coin {base_asset}: New amount={coin.amount}, New avg_entry=${coin.avg_entry:.2f}")
             
             if coin:
-                total_value = (coin.amount or 0) * price
-                if total_value >= 1.0:
+                if (coin.amount or 0) >= 0.0001:
                     coin.hidden = False
                     coin.auto_hidden = False
                     coin.force_visible = False

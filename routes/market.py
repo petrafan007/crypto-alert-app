@@ -193,6 +193,10 @@ def api_coin_data_live():
                 if apply_auto_visibility_rules(coin, current_value):
                     visibility_changed = True
 
+                if amount < 0.0001:
+                    logger.error(f"[LIVE] {symbol} skipped: amount below portfolio minimum")
+                    continue
+
                 if coin.hidden:
                     logger.error(f"[LIVE] {symbol} skipped: hidden flag")
                     continue
@@ -272,6 +276,8 @@ def api_coin_data_live():
                     current_value = amount * (current_price or 0)
                     cid = getattr(coin, 'id', None)
                     fallback_news = news_cache.get(cid, {}) if cid else {}
+                    if amount < 0.0001:
+                        continue
                     logger.error(f"[LIVE] {symbol} fallback included in portfolio response")
                     portfolio.append({
                         "id": getattr(coin, 'id', None),
@@ -374,6 +380,9 @@ def api_coin_data():
 
                 if apply_auto_visibility_rules(coin, current_value):
                     visibility_changed = True
+
+                if amount < 0.0001:
+                    continue
 
                 if coin.hidden:
                     # logger.error(f"[DEBUG] {symbol} skipped: hidden flag")

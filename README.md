@@ -122,6 +122,15 @@ The application utilizes a **unified PostgreSQL database**.
 
 ## Version History & Changelog
 
+## v2.0.4 (August 2026)
+
+### Light-Mode Trading Visibility, Password-Manager 2FA & Pending-Buy Watchlist Routing
+- **High-Contrast Light-Mode Trading Controls**: Fixed the light-mode hover treatment for inactive Buy/Sell and every Order Type selector so text remains dark and readable instead of turning nearly white against the pale control background.
+- **Immediate Password-Manager 2FA Availability**: The trade-confirmation TOTP field now uses the browser-standard `one-time-code` autocomplete hint and is focused after the modal renders, so password managers can offer the six-digit code without requiring an extra click outside and back into the field.
+- **No-Position Sell Protection**: Portfolio Sell controls are now greyed out and disabled, on desktop and mobile, unless the position contains at least `0.0001` of the asset.
+- **Pending Buy Orders Belong to Watchlist**: Unfilled BUY orders for zero-balance assets no longer create Portfolio rows. They automatically create or unhide the corresponding Watchlist entry—including for orders created directly on Binance.US—where the existing row hover card shows the pending-order details. An asset joins Portfolio only once its filled amount reaches `0.0001`.
+- **Version Bump**: Transitioned version to `v2.0.4`.
+
 ## v2.0.3 (August 2026)
 
 ### Quote-Balance Aware Buy & Auto-Buy Action Controls

@@ -779,16 +779,17 @@ def get_user_latest_news_cache(user_id):
         logger.error(f"Error fetching latest news cache for user {user_id}: {e}")
         return {}
 
-def apply_auto_visibility_rules(coin, current_value):
-    """Apply automatic hide/unhide rules based on USD value thresholds."""
+def apply_auto_visibility_rules(coin, _current_value):
+    """Apply automatic Portfolio visibility rules based on the held amount."""
     changed = False
     try:
-        value = float(current_value or 0.0)
+        amount = float(getattr(coin, 'amount', 0) or 0)
     except (TypeError, ValueError):
-        value = 0.0
+        amount = 0.0
 
-    # More lenient threshold: unhide if > $0.10, hide if < $0.01
-    if value >= 0.10:
+    # Filled positions are Portfolio holdings from 0.0001 units upward. Below
+    # that, an unfilled/pending BUY stays represented in the Watchlist instead.
+    if amount >= 0.0001:
         if getattr(coin, 'auto_hidden', False):
             if getattr(coin, 'hidden', False):
                 coin.hidden = False
@@ -796,7 +797,7 @@ def apply_auto_visibility_rules(coin, current_value):
             coin.auto_hidden = False
             changed = True
         # If manually hidden, we respect it unless it's auto_hidden
-    elif value < 0.01:
+    else:
         if not getattr(coin, 'force_visible', False) and not getattr(coin, 'is_manual', False):
             if not getattr(coin, 'hidden', False):
                 coin.hidden = True
@@ -846,4 +847,3 @@ def serve_react_app():
     return resp
 
 __all__ = [name for name in globals() if not name.startswith('__')]
-

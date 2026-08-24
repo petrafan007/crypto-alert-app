@@ -103,6 +103,8 @@ export const WATCHLIST_COLUMN_DEFINITIONS = {
 };
 
 function Dashboard({ isLightMode }) {
+  // Pending buys belong in Watchlist until a real position reaches this amount.
+  const MINIMUM_PORTFOLIO_AMOUNT = 0.0001;
   const { isLoggingOut, user } = useAuth();
   const navigate = useNavigate();
   const [totalValue, setTotalValue] = useState(null);
@@ -1334,7 +1336,7 @@ function Dashboard({ isLightMode }) {
             // ignore if not authed yet; we still render portfolio
           }
           const rawPortfolio = Array.isArray(portfolioResponse.data.portfolio)
-            ? portfolioResponse.data.portfolio
+            ? portfolioResponse.data.portfolio.filter((coin) => Number(coin.amount || 0) >= MINIMUM_PORTFOLIO_AMOUNT)
             : [];
 
           const withFlags = rawPortfolio.map((c) => ({
@@ -1343,55 +1345,8 @@ function Dashboard({ isLightMode }) {
             pendingPlaceholder: false
           }));
 
-          const existingSymbols = new Set(
-            withFlags.map((coin) => (coin.symbol || '').toUpperCase())
-          );
-          const placeholderMap = {};
-
-          pendingOrdersData.forEach((order) => {
-            const assetSymbol = (order.asset || '').toUpperCase();
-            if (!assetSymbol || existingSymbols.has(assetSymbol)) {
-              return;
-            }
-            if (!placeholderMap[assetSymbol]) {
-              const referencePrice = Number(order.trigger_price || order.price || 0);
-              placeholderMap[assetSymbol] = {
-                id: `pending-${assetSymbol}`,
-                symbol: assetSymbol,
-                initial_price: 0,
-                avg_entry: 0,
-                initial_value: 0,
-                purchase_date: null,
-                current_price: referencePrice,
-                amount: 0,
-                cost_basis: 0,
-                current_value: 0,
-                pct_change: 0,
-                custom_lower_pct: null,
-                custom_upper_pct: null,
-                custom_lower_type: '#',
-                custom_upper_type: '#',
-                custom_lower_val: null,
-                custom_upper_val: null,
-                down_alert: null,
-                up_alert: null,
-                alert_enabled: true,
-                favorite: false,
-                hidden: false,
-                has_note: false,
-                hasPendingOrder: true,
-                sentiment: 'Pending Order',
-                force_visible: true,
-                pendingPlaceholder: true
-              };
-              existingSymbols.add(assetSymbol);
-            }
-          });
-
-          const placeholderCoins = Object.values(placeholderMap);
-          const combinedPortfolio = [...withFlags, ...placeholderCoins];
-          if (combinedPortfolio.length > 0 || isInitialLoad) {
-            setPortfolio(combinedPortfolio);
+          if (withFlags.length > 0 || isInitialLoad) {
+            setPortfolio(withFlags);
           }
           if (isInitialLoad) {
             setLoading(false);
@@ -1485,7 +1440,9 @@ function Dashboard({ isLightMode }) {
           // Build pending symbols set from orders
           let pendingSymbolsLive = new Set();
           if (ordersResponse.status === 'fulfilled' && ordersResponse.value?.data?.pending_orders) {
-            (ordersResponse.value.data.pending_orders || []).forEach(order => {
+            const refreshedPendingOrders = ordersResponse.value.data.pending_orders || [];
+            setPendingOrders(refreshedPendingOrders);
+            refreshedPendingOrders.forEach(order => {
               if (order.asset) {
                 pendingSymbolsLive.add(order.asset.toUpperCase());
               }
@@ -1519,10 +1476,8 @@ function Dashboard({ isLightMode }) {
                 const key = (p.symbol || '').toUpperCase();
                 const item = prevMap.get(key);
                 if (item) {
-                  const hasHoldings = Number(item.amount || 0) > 0.00000001;
-                  const hasPending = pendingSymbolsLive.has(key);
-                  const inIncoming = incomingMap.has(key);
-                  if (hasHoldings || hasPending || (inIncoming && item.force_visible)) {
+                  const hasHoldings = Number(item.amount || 0) >= MINIMUM_PORTFOLIO_AMOUNT;
+                  if (hasHoldings) {
                     updated.push(item);
                   }
                   seen.add(key);
@@ -1534,9 +1489,8 @@ function Dashboard({ isLightMode }) {
                 if (!seen.has(key)) {
                   const item = prevMap.get(key);
                   if (item) {
-                    const hasHoldings = Number(item.amount || 0) > 0.00000001;
-                    const hasPending = pendingSymbolsLive.has(key);
-                    if (hasHoldings || hasPending || item.force_visible) {
+                    const hasHoldings = Number(item.amount || 0) >= MINIMUM_PORTFOLIO_AMOUNT;
+                    if (hasHoldings) {
                       updated.push(item);
                     }
                   }
@@ -2454,17 +2408,18 @@ function Dashboard({ isLightMode }) {
               );
             })()}
 
-            {/* Sell button - only available for Portfolio, disabled for USD */}
+            {/* Sell button - only available for held Portfolio positions. */}
             {isPortfolio && (
               <>
                 <button
                   onClick={(event) => {
-                    if (coin.symbol !== 'USD') {
+                    if (coin.symbol !== 'USD' && Number(coin.amount || 0) >= MINIMUM_PORTFOLIO_AMOUNT) {
                       toggleTradeQuoteMenu(openActionMenu.type, openActionMenu.key, 'SELL', event);
                     }
                   }}
-                  disabled={coin.symbol === 'USD'}
-                  style={coin.symbol === 'USD' ? { opacity: 0.4, cursor: 'not-allowed' } : undefined}
+                  disabled={coin.symbol === 'USD' || Number(coin.amount || 0) < MINIMUM_PORTFOLIO_AMOUNT}
+                  title={coin.symbol === 'USD' ? 'Cannot sell fiat USD' : Number(coin.amount || 0) < MINIMUM_PORTFOLIO_AMOUNT ? 'You do not own enough of this coin to sell' : 'Sell'}
+                  style={coin.symbol === 'USD' || Number(coin.amount || 0) < MINIMUM_PORTFOLIO_AMOUNT ? { opacity: 0.4, cursor: 'not-allowed' } : undefined}
                 >
                   Sell
                 </button>
@@ -4286,10 +4241,10 @@ function Dashboard({ isLightMode }) {
                                       })()}
                                       <button
                                         className="trade-action-btn sell"
-                                        onClick={(event) => coin.symbol !== 'USD' && toggleTradeQuoteMenu('portfolio', coin.symbol, 'SELL', event)}
-                                        disabled={coin.symbol === 'USD'}
-                                        title={coin.symbol === 'USD' ? 'Cannot sell fiat USD' : 'Sell'}
-                                        style={coin.symbol === 'USD' ? { opacity: 0.4, cursor: 'not-allowed' } : undefined}
+                                        onClick={(event) => Number(coin.amount || 0) >= MINIMUM_PORTFOLIO_AMOUNT && coin.symbol !== 'USD' && toggleTradeQuoteMenu('portfolio', coin.symbol, 'SELL', event)}
+                                        disabled={coin.symbol === 'USD' || Number(coin.amount || 0) < MINIMUM_PORTFOLIO_AMOUNT}
+                                        title={coin.symbol === 'USD' ? 'Cannot sell fiat USD' : Number(coin.amount || 0) < MINIMUM_PORTFOLIO_AMOUNT ? 'You do not own enough of this coin to sell' : 'Sell'}
+                                        style={coin.symbol === 'USD' || Number(coin.amount || 0) < MINIMUM_PORTFOLIO_AMOUNT ? { opacity: 0.4, cursor: 'not-allowed' } : undefined}
                                       >
                                         Sell
                                       </button>

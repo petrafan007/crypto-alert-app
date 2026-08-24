@@ -1,18 +1,31 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import './TwoFactorModal.css';
 
 export default function TwoFactorModal({ isVisible, onClose, onVerify, orderDetails }) {
   const [code, setCode] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const codeInputRef = useRef(null);
 
   // Reset state when modal visibility changes
   useEffect(() => {
-    if (isVisible) {
-      setCode('');
-      setError('');
-      setLoading(false);
-    }
+    if (!isVisible) return undefined;
+
+    setCode('');
+    setError('');
+    setLoading(false);
+
+    // Password managers discover one-time-code inputs after the newly opened
+    // modal has painted and the input has focus.
+    const focusCodeInput = () => codeInputRef.current?.focus({ preventScroll: true });
+    focusCodeInput();
+    const animationFrame = window.requestAnimationFrame(focusCodeInput);
+    const timer = window.setTimeout(focusCodeInput, 150);
+
+    return () => {
+      window.cancelAnimationFrame(animationFrame);
+      window.clearTimeout(timer);
+    };
   }, [isVisible]);
 
   const formatQuantity = (value) => {
@@ -218,6 +231,7 @@ export default function TwoFactorModal({ isVisible, onClose, onVerify, orderDeta
               </label>
               <input
                 id="twoFactorCode"
+                name="one-time-code"
                 type="text"
                 inputMode="numeric"
                 pattern="[0-9]*"
@@ -228,7 +242,8 @@ export default function TwoFactorModal({ isVisible, onClose, onVerify, orderDeta
                 className="two-factor-input"
                 autoFocus
                 disabled={loading}
-                autoComplete="off"
+                autoComplete="one-time-code"
+                ref={codeInputRef}
               />
               <p className="help-text">
                 Enter the code from your authenticator app (e.g., Bitwarden, Google Authenticator)

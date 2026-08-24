@@ -834,7 +834,7 @@ def api_pending_orders():
             
             # Parse and format orders for frontend
             pending_orders = []
-            asset_visibility = {}
+            pending_buy_assets = {}
             for order in open_orders:
                 symbol = order.get('symbol', '')
                 # Extract asset from symbol (remove USDT or USD suffix)
@@ -869,8 +869,8 @@ def api_pending_orders():
                 quote_amount = quantity * (trigger_price or price or 0.0)
                 asset_upper = asset.upper()
                 ref_price = trigger_price or price or 0.0
-                if asset_upper:
-                    asset_visibility[asset_upper] = max(asset_visibility.get(asset_upper, 0.0), ref_price)
+                if asset_upper and side == 'BUY':
+                    pending_buy_assets[asset_upper] = max(pending_buy_assets.get(asset_upper, 0.0), ref_price)
                 
                 pending_orders.append({
                     'order_id': order.get('orderId'),
@@ -890,48 +890,39 @@ def api_pending_orders():
                 })
             
             coin_updates = False
-            for asset_symbol, price_hint in asset_visibility.items():
+            # An unfilled BUY is a watch target, not a portfolio position. This
+            # also captures BUY orders created directly on Binance.US.
+            for asset_symbol, price_hint in pending_buy_assets.items():
                 coin = Coin.query.filter_by(user_id=current_user.id, symbol=asset_symbol).first()
-                if coin:
-                    if coin.hidden:
-                        coin.hidden = False
+                if coin and float(coin.amount or 0) >= 0.0001:
+                    continue
+
+                watch = WatchlistCoin.query.filter_by(user_id=current_user.id, symbol=asset_symbol).first()
+                if watch:
+                    if watch.hidden:
+                        watch.hidden = False
                         coin_updates = True
-                    if coin.auto_hidden:
-                        coin.auto_hidden = False
-                        coin_updates = True
-                    if not coin.force_visible:
-                        coin.force_visible = True
-                        coin_updates = True
-                    if coin.amount is None:
-                        coin.amount = 0.0
-                        coin_updates = True
-                    if price_hint and (not coin.current or coin.current == 0):
-                        coin.current = price_hint
+                    if price_hint and (not watch.current_price or watch.current_price == 0):
+                        watch.current_price = price_hint
                         coin_updates = True
                 else:
-                    coin = Coin(
+                    db.session.add(WatchlistCoin(
                         user_id=current_user.id,
                         symbol=asset_symbol,
-                        amount=0.0,
-                        current=price_hint or 0.0,
-                        avg_entry=0.0,
-                        initial_value=0.0,
-                        purchase_date=datetime.utcnow().strftime('%Y-%m-%d'),
-                        alert_enabled=True,
-                        is_manual=False,
+                        current_price=price_hint or 0.0,
                         hidden=False,
-                        auto_hidden=False,
-                        force_visible=True
-                    )
-                    db.session.add(coin)
+                        alert_enabled=False,
+                        action='Watch',
+                        sentiment='Watch'
+                    ))
                     coin_updates = True
 
-            # Clean up zero-balance coins that no longer have pending orders
-            active_assets = {a.upper() for a in asset_visibility.keys()}
+            # A zero/dust Coin record may exist from older versions. Never let
+            # it surface as a pending-order Portfolio row; the Watchlist above
+            # is the home for an unfilled BUY instead.
             all_user_coins = Coin.query.filter_by(user_id=current_user.id).all()
             for c in all_user_coins:
-                c_sym = (c.symbol or '').upper()
-                if c_sym not in active_assets and float(c.amount or 0) <= 0.00000001:
+                if float(c.amount or 0) < 0.0001:
                     if c.force_visible or not c.hidden:
                         c.force_visible = False
                         c.hidden = True

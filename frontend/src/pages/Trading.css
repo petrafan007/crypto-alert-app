@@ -857,6 +857,23 @@ body:not(.dark-mode) .order-slider-section {
   border-color: #e2e8f0;
 }
 
+/* The dark-mode hover rule turns this text white. Override it in light mode
+   so inactive Buy/Sell and order-type options stay readable on hover. */
+body.light-mode .order-side-btn,
+body.light-mode .order-type-btn,
+body:not(.dark-mode) .order-side-btn,
+body:not(.dark-mode) .order-type-btn {
+  color: #475569;
+}
+
+body.light-mode .order-side-btn:hover:not(.active),
+body.light-mode .order-type-btn:hover:not(.active),
+body:not(.dark-mode) .order-side-btn:hover:not(.active),
+body:not(.dark-mode) .order-type-btn:hover:not(.active) {
+  background: #e2e8f0;
+  color: #0f172a;
+}
+
 body.light-mode .order-styled-input,
 body:not(.dark-mode) .order-styled-input {
   background: #ffffff;
@@ -1893,4 +1910,3 @@ body.light-mode .portfolio-table td strong {
   color: #ffffff;
   font-weight: 600;
 }
-
