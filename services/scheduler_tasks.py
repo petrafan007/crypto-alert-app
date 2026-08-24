@@ -362,6 +362,14 @@ def watchlist_alert_loop(app):
 def check_coin_volatility(user, coin, ticker_map, client, volatility_hours, table_type):
     """Check volatility against the configured number of completed hourly candles."""
     try:
+        if table_type == 'portfolio':
+            # Skip hidden coins with zero balance that are not forced visible
+            if bool(getattr(coin, 'hidden', False)) and float(getattr(coin, 'amount', 0) or 0) <= 0 and not bool(getattr(coin, 'force_visible', False)):
+                return
+        elif table_type == 'watchlist':
+            if bool(getattr(coin, 'hidden', False)):
+                return
+
         symbol = coin.symbol.upper()
         volatility_threshold = float(coin.volatility_pct or 0)
         if volatility_threshold <= 0: return
@@ -415,7 +423,9 @@ def check_auto_sell_for_coin(user, coin, ticker_map, client, volatility_hours=24
     try:
         if not getattr(coin, 'auto_sell_enabled', False):
             return
-        if table_type == 'portfolio' and (not coin.amount or float(coin.amount) <= 0):
+        if table_type == 'portfolio' and (not coin.amount or float(coin.amount) <= 0 or (bool(getattr(coin, 'hidden', False)) and not bool(getattr(coin, 'force_visible', False)))):
+            return
+        if table_type == 'watchlist' and bool(getattr(coin, 'hidden', False)):
             return
 
         symbol = coin.symbol.upper()
@@ -714,6 +724,10 @@ def check_auto_buy_for_coin(user, coin, ticker_map, client, volatility_hours=24,
     """
     try:
         if not getattr(coin, 'auto_buy_enabled', False):
+            return
+        if table_type == 'portfolio' and bool(getattr(coin, 'hidden', False)) and float(getattr(coin, 'amount', 0) or 0) <= 0 and not bool(getattr(coin, 'force_visible', False)):
+            return
+        if table_type == 'watchlist' and bool(getattr(coin, 'hidden', False)):
             return
 
         alloc_amount = float(getattr(coin, 'auto_buy_amount', 0.0) or 0.0)
@@ -1014,10 +1028,12 @@ def volatility_alert_loop(app):
                     volatility_hours = max(1, min(volatility_hours, 999))
                     coins = Coin.query.filter(
                         Coin.user_id == user.id,
+                        or_(Coin.hidden == False, Coin.amount > 0, Coin.force_visible == True),
                         or_(Coin.volatility_pct > 0, Coin.auto_sell_enabled == True, Coin.auto_buy_enabled == True)
                     ).all()
                     watchlist_coins = WatchlistCoin.query.filter(
                         WatchlistCoin.user_id == user.id,
+                        WatchlistCoin.hidden == False,
                         or_(WatchlistCoin.volatility_pct > 0, WatchlistCoin.auto_sell_enabled == True, WatchlistCoin.auto_buy_enabled == True)
                     ).all()
                     

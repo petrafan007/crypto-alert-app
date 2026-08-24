@@ -1161,15 +1161,15 @@ def run_watchlist_sentiment_analysis_for_user(user_id, username, force=False, sy
                 logger.info(f"Skipping watchlist sentiment analysis for stablecoin {symbol}")
                 return 0
             try:
-                w_init = WatchlistCoin.query.filter_by(user_id=user_id, symbol=symbol.upper().strip()).first()
+                w_init = WatchlistCoin.query.filter_by(user_id=user_id, symbol=symbol.upper().strip(), hidden=False).first()
                 if w_init:
                     w_init.sentiment = "Checking now..."
                     db.session.commit()
             except Exception:
                 db.session.rollback()
-            wl_coins = WatchlistCoin.query.filter_by(user_id=user_id, symbol=symbol.upper().strip()).all()
+            wl_coins = WatchlistCoin.query.filter_by(user_id=user_id, symbol=symbol.upper().strip(), hidden=False).all()
         else:
-            wl_coins = WatchlistCoin.query.filter_by(user_id=user_id).all()
+            wl_coins = WatchlistCoin.query.filter_by(user_id=user_id, hidden=False).all()
             wl_coins = [w for w in wl_coins if not is_stablecoin(w.symbol)]
             wl_coins = [w for w in wl_coins if getattr(w, 'sentiment_tracking_enabled', True) is not False]
 

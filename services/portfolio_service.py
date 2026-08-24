@@ -512,6 +512,7 @@ def update_portfolio_from_real_order(user_id, symbol, side, quantity, price, com
                     coin.auto_hidden = True
                     coin.force_visible = False
                     coin.alert_enabled = False
+                    coin.auto_sell_enabled = False
                     ensure_auto_watchlist_entry(user_id, base_asset, price)
                 else:
                     remove_auto_watchlist_entry(user_id, base_asset)

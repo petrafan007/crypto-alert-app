@@ -4538,6 +4538,8 @@ def hide_coin():
             coin.alert_enabled = False
             coin.force_visible = False
             coin.auto_hidden = False
+            coin.auto_sell_enabled = False
+            coin.auto_buy_enabled = False
         else:
             coin.auto_hidden = False
             coin.force_visible = True

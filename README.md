@@ -122,6 +122,14 @@ The application utilizes a **unified PostgreSQL database**.
 
 ## Version History & Changelog
 
+## v2.0.1 (August 2026)
+
+### Volatility Alert Zero-Balance & Hidden Coin Filtering
+- **Volatility Alert Loop Filter Hardening**: Fixed a bug where background volatility price-swing monitors (`volatility_alert_loop`) continued dispatching Telegram alerts and system notifications for closed portfolio positions (coins with `0.00` balance and `hidden = True`, such as PURR) and hidden watchlist coins. The query and handler now strictly require portfolio coins to be visible (`hidden = False`, `amount > 0`, or `force_visible = True`) and watchlist coins to be unhidden (`hidden = False`).
+- **Hidden & Closed Position Trigger Auto-Disable**: Hiding a coin via `/api/hide-coin` or auto-hiding when selling 100% of a holding now automatically resets `auto_sell_enabled` and `auto_buy_enabled` to `False` to prevent orphaned background triggers on zero-balance assets.
+- **Watchlist Background AI Sentiment Query Filter**: Updated background scheduled sentiment analysis to filter exclusively for unhidden watchlist coins (`WatchlistCoin.hidden == False`), preventing background LLM token consumption on deleted/hidden watchlist items.
+- **Version Bump**: Bumped release version to `v2.0.1`.
+
 ## v2.0.0 (August 2026)
 
 ### Official Release 2.0: OCO Balance Fix, 2FA Login Verification, AI Prediction Neutral Threshold, Real-Time Staking APY & Tax Report Upgrades
