@@ -1,4 +1,4 @@
 import packageMetadata from '../package.json';
 
-export const APP_VERSION = '2.0.4';
+export const APP_VERSION = '2.0.5';
 export const APP_VERSION_TAG = `v${APP_VERSION}`;

@@ -122,6 +122,14 @@ The application utilizes a **unified PostgreSQL database**.
 
 ## Version History & Changelog
 
+## v2.0.5 (August 2026)
+
+### Rich AI Copilot Responses & Resizable Floating Chat
+- **Full Rich-Content Copilot Rendering**: AI Copilot messages now render GitHub-flavored Markdown instead of displaying its syntax as plain text, including headings, bold/italic/strikethrough and underline, ordered and unordered lists, links, quotes, code, tables, and images. The renderer sanitizes all AI-provided HTML before display, allowing useful formatting while blocking scripts, unsafe attributes, and embedded content.
+- **True AI Tables**: Pipe-delimited responses such as market-comparison tables now render as readable, scrollable tables with styled headers and rows in the Copilot.
+- **Floating Copilot Window**: Added the top-right expand control to the sidebar. It closes the sidebar and opens the same active conversation in an independent floating chat window that can be resized, maximized/restored, or closed with `×`; closing it leaves the Copilot closed.
+- **Version Bump**: Transitioned version to `v2.0.5`.
+
 ## v2.0.4 (August 2026)
 
 ### Light-Mode Trading Visibility, Password-Manager 2FA & Pending-Buy Watchlist Routing

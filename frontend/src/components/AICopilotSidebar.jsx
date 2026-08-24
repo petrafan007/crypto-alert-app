@@ -1,11 +1,27 @@
 import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import rehypeRaw from 'rehype-raw';
+import rehypeSanitize, { defaultSchema } from 'rehype-sanitize';
 import './AICopilotSidebar.css';
 import { useAuth } from './AuthContext';
+
+const COPILOT_MARKDOWN_SCHEMA = {
+  ...defaultSchema,
+  tagNames: [...new Set([...(defaultSchema.tagNames || []), 'u', 's', 'del', 'mark', 'kbd'])],
+  attributes: {
+    ...defaultSchema.attributes,
+    a: [...(defaultSchema.attributes.a || []), 'target', 'rel'],
+    img: [...(defaultSchema.attributes.img || []), 'src', 'alt', 'title', 'width', 'height']
+  }
+};
 
 export default function AICopilotSidebar() {
   const { isLoggingOut } = useAuth();
   const [isOpen, setIsOpen] = useState(false);
+  const [isFloating, setIsFloating] = useState(false);
+  const [isMaximized, setIsMaximized] = useState(false);
   const [conversations, setConversations] = useState([]);
   const [message, setMessage] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -197,6 +213,19 @@ export default function AICopilotSidebar() {
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'auto' }); // Instant scroll, no smooth animation
+  };
+
+  const openFloatingWindow = () => {
+    setIsOpen(false);
+    setIsFloating(true);
+    setIsMaximized(false);
+    window.setTimeout(scrollToBottom, 100);
+  };
+
+  const closeFloatingWindow = () => {
+    setIsFloating(false);
+    setIsMaximized(false);
+    setIsOpen(false);
   };
 
   const fetchConversations = async (loadMore = false, force = false) => {
@@ -692,243 +721,175 @@ export default function AICopilotSidebar() {
     return `${cleanDate} at ${timeStr || ''}`.trim();
   };
 
-  // Safely render text with clickable links, preserving newlines
-  const normalizeAnchors = (str) => str.replace(
-    /<a\s+[^>]*href=(["'])(.*?)\1[^>]*>(.*?)<\/a>/gi,
-    (_, __, url, text) => `[${text}](${url})`
-  );
-
-  const escapeHtml = (str) => str
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-
-  const linkify = (str) => {
-    let html = escapeHtml(normalizeAnchors(str));
-
-    const buildLink = (rawUrl, label) => {
-      const normalizedUrl = rawUrl.startsWith('http') ? rawUrl : `https:${rawUrl}`;
-      const safeLabel = label || rawUrl;
-      return `<a href="${normalizedUrl}" target="_blank" rel="noopener noreferrer">${safeLabel}</a>`;
-    };
-
-    // Markdown-style [text](url) links, allowing protocol-relative URLs
-    html = html.replace(/\[([^\]]+)\]\(((?:https?:)?\/\/[^)\s]+)\)/g, (_, text, url) => buildLink(url, text));
-
-    // Plain URLs including protocol-relative variants
-    html = html.replace(/((?:https?:)?\/\/[^\s)\]]+)/g, (match) => buildLink(match));
-
-    // Newlines to <br>
-    html = html.replace(/\n/g, '<br/>');
-    return { __html: html };
-  };
-
-  return (
-    <div className={`ai-copilot-wrapper ${isOpen ? 'open' : ''}`} data-theme-wrapper>
-      {/* Sidebar Toggle Button */}
-      <div className="ai-copilot-toggle" onClick={() => setIsOpen(!isOpen)}>
-        <div className="toggle-icon">🤖</div>
-      </div>
-
-      {/* AI Copilot Sidebar */}
-      <div className="ai-copilot-sidebar">
-        <div className="sidebar-header">
-          <h3>🤖 AI Copilot</h3>
-          <div className="header-controls">
-            <div className="checkbox-row" style={{ display: 'flex', gap: '15px' }}>
-              <label className="auto-refresh-toggle">
-                <input
-                  type="checkbox"
-                  checked={showAutomation}
-                  onChange={(e) => setShowAutomation(e.target.checked)}
-                />
-                <span>Show workflows</span>
-              </label>
-              <label className="select-all-toggle">
-                <input
-                  type="checkbox"
-                  checked={selectAll}
-                  onChange={toggleSelectAll}
-                />
-                <span>Select All</span>
-              </label>
-            </div>
-            {selectedMessages.size > 0 && (
-              <div className="bulk-actions">
-                <button
-                  className="btn btn-danger btn-sm"
-                  onClick={bulkDelete}
-                  title="Delete selected messages"
-                >
-                  Delete ({selectedMessages.size})
-                </button>
-                <button
-                  className="btn btn-success btn-sm"
-                  onClick={bulkArchive}
-                  title="Archive selected messages"
-                >
-                  Archive ({selectedMessages.size})
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Search Bar */}
-        <div className="search-section">
-          <div className="search-input">
-            <input
-              type="text"
-              placeholder="Search conversations..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  e.preventDefault();
-                  handleSearch();
-                }
-              }}
-            />
-            <button onClick={handleSearch} className="search-btn">
-              🔍
+  const renderCopilotContent = (showSidebarTitle = true) => (
+    <>
+      <div className="sidebar-header">
+        {showSidebarTitle && (
+          <div className="copilot-title-row">
+            <h3>🤖 AI Copilot</h3>
+            <button
+              type="button"
+              className="copilot-window-btn"
+              onClick={openFloatingWindow}
+              title="Open AI Copilot in a floating window"
+              aria-label="Open AI Copilot in a floating window"
+            >
+              ⧉
             </button>
           </div>
-          {activeSearchTerm && (
-            <div className="search-status">
-              <span>
-                {searchHits.length
-                  ? `Result ${currentHitIndex >= 0 ? currentHitIndex + 1 : 0} of ${searchHits.length}`
-                  : 'No results found'}
-              </span>
-              <div className="search-controls">
-                <button onClick={goToPreviousHit} disabled={!searchHits.length} title="Previous match">
-                  ↑
-                </button>
-                <button onClick={goToNextHit} disabled={!searchHits.length} title="Next match">
-                  ↓
-                </button>
-                <button onClick={clearSearch} title="Clear search">
-                  ✖
-                </button>
-              </div>
+        )}
+        <div className="header-controls">
+          <div className="checkbox-row" style={{ display: 'flex', gap: '15px' }}>
+            <label className="auto-refresh-toggle">
+              <input type="checkbox" checked={showAutomation} onChange={(e) => setShowAutomation(e.target.checked)} />
+              <span>Show workflows</span>
+            </label>
+            <label className="select-all-toggle">
+              <input type="checkbox" checked={selectAll} onChange={toggleSelectAll} />
+              <span>Select All</span>
+            </label>
+          </div>
+          {selectedMessages.size > 0 && (
+            <div className="bulk-actions">
+              <button className="btn btn-danger btn-sm" onClick={bulkDelete} title="Delete selected messages">
+                Delete ({selectedMessages.size})
+              </button>
+              <button className="btn btn-success btn-sm" onClick={bulkArchive} title="Archive selected messages">
+                Archive ({selectedMessages.size})
+              </button>
             </div>
           )}
         </div>
+      </div>
 
-        {/* Conversations */}
-        <div className="conversations-container">
-          <div className="conversations-list">
-
-            {/* Load More Button - positioned at top for history */}
-            {hasMore && conversations.length > 0 && (
-              <div className="load-more-container">
-                <button
-                  className="load-more-btn"
-                  onClick={loadMoreMessages}
-                  disabled={isLoadingMore}
-                >
-                  {isLoadingMore ? '⏳ Loading...' : `📥 Load older messages (${Math.max(totalCount - conversations.length, 0)} remaining)`}
-                </button>
-              </div>
-            )}
-
-            {!aiEnabled && (
-              <div className="ai-disabled-message">
-                <div className="message-header">
-                  <span className="prompt-type">
-                    ⚠️ AI Disabled
-                  </span>
-                  <span className="message-time">
-                    Now
-                  </span>
-                </div>
-                <div className="message-body">
-                  You need to add your AI integration information in settings to use the AI Copilot
-                </div>
-              </div>
-            )}
-            {conversations.map((conv) => (
-              <div key={conv.id} className={`conversation-message ${conv.sender}`}>
-                <div className="message-header">
-                  <div className="message-meta">
-                    <input
-                      type="checkbox"
-                      checked={selectedMessages.has(conv.id)}
-                      onChange={() => toggleSelectMessage(conv.id)}
-                      className="message-checkbox"
-                    />
-                    <span
-                      className="prompt-type"
-                      title={getAiTooltip(conv)}
-                      style={conv.sender === 'ai' ? { cursor: 'help' } : {}}
-                    >
-                      {getPromptTypeIcon(conv.prompt_type)} {getPromptTypeLabel(conv.prompt_type, conv.sender)}
-                    </span>
-                  </div>
-                  <div className="message-time-actions">
-                    <span className="message-datetime">
-                      {formatEasternDateTime(conv.date, conv.time, conv.created_at)}
-                    </span>
-                    <div className="message-actions">
-                      <button
-                        className="action-btn archive-btn"
-                        onClick={() => archiveMessage(conv.id)}
-                        title="Archive message"
-                      >
-                        📁
-                      </button>
-                      <button
-                        className="action-btn delete-btn"
-                        onClick={() => deleteMessage(conv.id)}
-                        title="Delete message"
-                      >
-                        🗑️
-                      </button>
-                    </div>
-                  </div>
-                </div>
-                <div
-                  className="message-body"
-                  ref={(node) => registerMessageRef(conv.id, node, conv.thinking)}
-                >
-                  {conv.thinking ? (
-                    <em>Thinking{thinkingDots}</em>
-                  ) : (
-                    <div dangerouslySetInnerHTML={linkify(conv.body || '')} />
-                  )}
-                </div>
-              </div>
-            ))}
-
-
-
-            <div ref={messagesEndRef} />
-          </div>
+      <div className="search-section">
+        <div className="search-input">
+          <input
+            type="text"
+            placeholder="Search conversations..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                handleSearch();
+              }
+            }}
+          />
+          <button onClick={handleSearch} className="search-btn" aria-label="Search conversations">🔍</button>
         </div>
-
-        {/* Message Input */}
-        <div className="message-input-section">
-          <div className="input-container">
-            <textarea
-              value={message}
-              onChange={(e) => setMessage(e.target.value)}
-              onKeyPress={handleKeyPress}
-              placeholder={aiEnabled ? "Ask me anything about your portfolio or trading..." : "AI is disabled. Enable in Settings to chat."}
-              rows={3}
-              disabled={isLoading || !aiEnabled}
-            />
-            <button
-              onClick={handleSendMessage}
-              disabled={isLoading || !message.trim() || !aiEnabled}
-              className="send-btn"
-            >
-              {isLoading ? '⏳' : aiEnabled ? '➤' : '🚫'}
-            </button>
+        {activeSearchTerm && (
+          <div className="search-status">
+            <span>{searchHits.length ? `Result ${currentHitIndex >= 0 ? currentHitIndex + 1 : 0} of ${searchHits.length}` : 'No results found'}</span>
+            <div className="search-controls">
+              <button onClick={goToPreviousHit} disabled={!searchHits.length} title="Previous match">↑</button>
+              <button onClick={goToNextHit} disabled={!searchHits.length} title="Next match">↓</button>
+              <button onClick={clearSearch} title="Clear search">✖</button>
+            </div>
           </div>
+        )}
+      </div>
+
+      <div className="conversations-container">
+        <div className="conversations-list">
+          {hasMore && conversations.length > 0 && (
+            <div className="load-more-container">
+              <button className="load-more-btn" onClick={loadMoreMessages} disabled={isLoadingMore}>
+                {isLoadingMore ? '⏳ Loading...' : `📥 Load older messages (${Math.max(totalCount - conversations.length, 0)} remaining)`}
+              </button>
+            </div>
+          )}
+
+          {!aiEnabled && (
+            <div className="ai-disabled-message">
+              <div className="message-header"><span className="prompt-type">⚠️ AI Disabled</span><span className="message-time">Now</span></div>
+              <div className="message-body">You need to add your AI integration information in settings to use the AI Copilot</div>
+            </div>
+          )}
+
+          {conversations.map((conv) => (
+            <div key={conv.id} className={`conversation-message ${conv.sender}`}>
+              <div className="message-header">
+                <div className="message-meta">
+                  <input type="checkbox" checked={selectedMessages.has(conv.id)} onChange={() => toggleSelectMessage(conv.id)} className="message-checkbox" />
+                  <span className="prompt-type" title={getAiTooltip(conv)} style={conv.sender === 'ai' ? { cursor: 'help' } : {}}>
+                    {getPromptTypeIcon(conv.prompt_type)} {getPromptTypeLabel(conv.prompt_type, conv.sender)}
+                  </span>
+                </div>
+                <div className="message-time-actions">
+                  <span className="message-datetime">{formatEasternDateTime(conv.date, conv.time, conv.created_at)}</span>
+                  <div className="message-actions">
+                    <button className="action-btn archive-btn" onClick={() => archiveMessage(conv.id)} title="Archive message">📁</button>
+                    <button className="action-btn delete-btn" onClick={() => deleteMessage(conv.id)} title="Delete message">🗑️</button>
+                  </div>
+                </div>
+              </div>
+              <div className="message-body rich-message-body" ref={(node) => registerMessageRef(conv.id, node, conv.thinking)}>
+                {conv.thinking ? (
+                  <em>Thinking{thinkingDots}</em>
+                ) : (
+                  <ReactMarkdown
+                    remarkPlugins={[remarkGfm]}
+                    rehypePlugins={[rehypeRaw, [rehypeSanitize, COPILOT_MARKDOWN_SCHEMA]]}
+                    components={{
+                      a: ({ node, ...props }) => <a {...props} target="_blank" rel="noopener noreferrer" />,
+                      img: ({ node, ...props }) => <img {...props} loading="lazy" />
+                    }}
+                  >
+                    {conv.body || ''}
+                  </ReactMarkdown>
+                )}
+              </div>
+            </div>
+          ))}
+          <div ref={messagesEndRef} />
         </div>
       </div>
+
+      <div className="message-input-section">
+        <div className="input-container">
+          <textarea
+            value={message}
+            onChange={(e) => setMessage(e.target.value)}
+            onKeyPress={handleKeyPress}
+            placeholder={aiEnabled ? 'Ask me anything about your portfolio or trading...' : 'AI is disabled. Enable in Settings to chat.'}
+            rows={3}
+            disabled={isLoading || !aiEnabled}
+          />
+          <button onClick={handleSendMessage} disabled={isLoading || !message.trim() || !aiEnabled} className="send-btn">
+            {isLoading ? '⏳' : aiEnabled ? '➤' : '🚫'}
+          </button>
+        </div>
+      </div>
+    </>
+  );
+
+  return (
+    <div className={`ai-copilot-wrapper ${isOpen && !isFloating ? 'open' : ''} ${isFloating ? 'floating-open' : ''}`} data-theme-wrapper>
+      {!isFloating && (
+        <button type="button" className="ai-copilot-toggle" onClick={() => setIsOpen((open) => !open)} aria-label="Toggle AI Copilot">
+          <span className="toggle-icon">🤖</span>
+        </button>
+      )}
+
+      <aside className="ai-copilot-sidebar" aria-hidden={!isOpen || isFloating}>
+        {!isFloating && renderCopilotContent(true)}
+      </aside>
+
+      {isFloating && (
+        <section className={`ai-copilot-floating-window ${isMaximized ? 'maximized' : ''}`} role="dialog" aria-label="AI Copilot floating chat window">
+          <div className="floating-window-titlebar">
+            <span>🤖 AI Copilot</span>
+            <div className="floating-window-actions">
+              <button type="button" onClick={() => setIsMaximized((maximized) => !maximized)} title={isMaximized ? 'Restore window size' : 'Maximize window'} aria-label={isMaximized ? 'Restore window size' : 'Maximize window'}>
+                {isMaximized ? '❐' : '□'}
+              </button>
+              <button type="button" onClick={closeFloatingWindow} title="Close AI Copilot" aria-label="Close AI Copilot">×</button>
+            </div>
+          </div>
+          <div className="floating-window-content">{renderCopilotContent(false)}</div>
+        </section>
+      )}
     </div>
   );
 }
