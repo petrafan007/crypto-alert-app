@@ -496,6 +496,74 @@ function Dashboard({ isLightMode }) {
   const hasUsdPair = (symbol) => !tradingPairsLoaded || usdPairBases.has((symbol || '').toUpperCase());
   const hasUsdtPair = (symbol) => !tradingPairsLoaded || usdtPairBases.has((symbol || '').toUpperCase());
 
+  // Helper to fetch user's live quote currency balance (USD or USDT) from portfolio
+  const getQuoteBalance = (quote) => {
+    const cleanQuote = (quote || '').toUpperCase();
+    const found = (portfolio || []).find(c => (c.symbol || '').toUpperCase() === cleanQuote);
+    if (!found) return 0.0;
+    return Math.max(0, Number(found.amount ?? found.current_value ?? 0));
+  };
+
+  // Helper to determine Buy eligibility based on pair availability and minimum $1.00 balance
+  const getBuyEligibility = (symbol) => {
+    const sym = (symbol || '').toUpperCase();
+    if (sym === 'USD') {
+      return {
+        canBuy: false,
+        canBuyUsd: false,
+        canBuyUsdt: false,
+        hasUsd: false,
+        hasUsdt: false,
+        usdBalance: 0,
+        usdtBalance: 0,
+        reason: 'Cannot purchase fiat USD'
+      };
+    }
+    const hasUsd = hasUsdPair(sym);
+    const hasUsdt = hasUsdtPair(sym);
+    const isUsdt = sym === 'USDT';
+    const usdBal = getQuoteBalance('USD');
+    const usdtBal = getQuoteBalance('USDT');
+
+    const canBuyUsd = hasUsd && usdBal >= 1.00;
+    const canBuyUsdt = hasUsdt && !isUsdt && usdtBal >= 1.00;
+    const canBuy = canBuyUsd || canBuyUsdt;
+
+    let reason = '';
+    if (!hasUsd && !hasUsdt) {
+      reason = 'No active USD or USDT trading pairs available';
+    } else if (hasUsd && !hasUsdt) {
+      if (usdBal < 1.00) {
+        reason = `Insufficient USD balance ($${usdBal.toFixed(2)} / min $1.00)`;
+      }
+    } else if (!hasUsd && hasUsdt) {
+      if (isUsdt) {
+        reason = 'Cannot purchase USDT with USDT';
+      } else if (usdtBal < 1.00) {
+        reason = `Insufficient USDT balance ($${usdtBal.toFixed(2)} / min $1.00)`;
+      }
+    } else {
+      if (isUsdt) {
+        if (usdBal < 1.00) {
+          reason = `Insufficient USD balance ($${usdBal.toFixed(2)} / min $1.00)`;
+        }
+      } else if (usdBal < 1.00 && usdtBal < 1.00) {
+        reason = `Insufficient quote balance: Minimum $1.00 USD or USDT required (USD: $${usdBal.toFixed(2)}, USDT: $${usdtBal.toFixed(2)})`;
+      }
+    }
+
+    return {
+      canBuy,
+      canBuyUsd,
+      canBuyUsdt,
+      hasUsd,
+      hasUsdt,
+      usdBalance: usdBal,
+      usdtBalance: usdtBal,
+      reason
+    };
+  };
+
   const closeActionMenu = () => setOpenActionMenu({ type: null, key: null, payload: null });
   const closeTradeQuoteMenu = () => setOpenTradeQuoteMenu({ type: null, key: null, side: null, position: null });
 
@@ -841,6 +909,7 @@ function Dashboard({ isLightMode }) {
       : (portfolio || []).find(c => c.symbol === symbol);
     const showUsd = hasUsdPair(symbol);
     const showUsdt = hasUsdtPair(symbol);
+    const buyEligibility = isBuy ? getBuyEligibility(symbol) : null;
 
     return createPortal(
       <div className="trade-quote-menu" style={tradeQuoteMenuStyle} role="menu" aria-label={`${isBuy ? 'Buy' : 'Sell'} ${symbol}`}>
@@ -848,10 +917,32 @@ function Dashboard({ isLightMode }) {
           <>
             {showUsd && (
               <>
-                <button role="menuitem" onClick={() => { navigateToTrading(symbol, 'BUY', 'USD'); closeTradeQuoteMenu(); }}>
+                <button
+                  role="menuitem"
+                  onClick={() => {
+                    if (buyEligibility?.canBuyUsd) {
+                      navigateToTrading(symbol, 'BUY', 'USD');
+                      closeTradeQuoteMenu();
+                    }
+                  }}
+                  disabled={!buyEligibility?.canBuyUsd}
+                  title={!buyEligibility?.canBuyUsd ? `Insufficient USD balance ($${(buyEligibility?.usdBalance ?? 0).toFixed(2)} / min $1.00)` : undefined}
+                  style={!buyEligibility?.canBuyUsd ? { opacity: 0.4, cursor: 'not-allowed' } : undefined}
+                >
                   Buy with USD
                 </button>
-                <button role="menuitem" onClick={() => { handleTriggerAutoBuyClick(symbol, coin, 'USD', type); closeTradeQuoteMenu(); }}>
+                <button
+                  role="menuitem"
+                  onClick={() => {
+                    if (buyEligibility?.canBuyUsd) {
+                      handleTriggerAutoBuyClick(symbol, coin, 'USD', type);
+                      closeTradeQuoteMenu();
+                    }
+                  }}
+                  disabled={!buyEligibility?.canBuyUsd}
+                  title={!buyEligibility?.canBuyUsd ? `Insufficient USD balance ($${(buyEligibility?.usdBalance ?? 0).toFixed(2)} / min $1.00)` : undefined}
+                  style={!buyEligibility?.canBuyUsd ? { opacity: 0.4, cursor: 'not-allowed' } : undefined}
+                >
                   Trigger Auto-Buy (USD)
                 </button>
               </>
@@ -861,24 +952,28 @@ function Dashboard({ isLightMode }) {
                 <button
                   role="menuitem"
                   onClick={() => {
-                    if (!isUsdt) {
-                      navigateToTrading(symbol, 'BUY', 'USDT'); closeTradeQuoteMenu();
+                    if (buyEligibility?.canBuyUsdt) {
+                      navigateToTrading(symbol, 'BUY', 'USDT');
+                      closeTradeQuoteMenu();
                     }
                   }}
-                  disabled={isUsdt}
-                  title={isUsdt ? 'Cannot purchase USDT with USDT' : undefined}
+                  disabled={!buyEligibility?.canBuyUsdt}
+                  title={isUsdt ? 'Cannot purchase USDT with USDT' : (!buyEligibility?.canBuyUsdt ? `Insufficient USDT balance ($${(buyEligibility?.usdtBalance ?? 0).toFixed(2)} / min $1.00)` : undefined)}
+                  style={!buyEligibility?.canBuyUsdt ? { opacity: 0.4, cursor: 'not-allowed' } : undefined}
                 >
                   Buy with USDT
                 </button>
                 <button
                   role="menuitem"
                   onClick={() => {
-                    if (!isUsdt) {
-                      handleTriggerAutoBuyClick(symbol, coin, 'USDT', type); closeTradeQuoteMenu();
+                    if (buyEligibility?.canBuyUsdt) {
+                      handleTriggerAutoBuyClick(symbol, coin, 'USDT', type);
+                      closeTradeQuoteMenu();
                     }
                   }}
-                  disabled={isUsdt}
-                  title={isUsdt ? 'Cannot auto-buy USDT with USDT' : undefined}
+                  disabled={!buyEligibility?.canBuyUsdt}
+                  title={isUsdt ? 'Cannot auto-buy USDT with USDT' : (!buyEligibility?.canBuyUsdt ? `Insufficient USDT balance ($${(buyEligibility?.usdtBalance ?? 0).toFixed(2)} / min $1.00)` : undefined)}
+                  style={!buyEligibility?.canBuyUsdt ? { opacity: 0.4, cursor: 'not-allowed' } : undefined}
                 >
                   Trigger Auto-Buy (USDT)
                 </button>
@@ -2221,56 +2316,94 @@ function Dashboard({ isLightMode }) {
             </button>
             <button onClick={() => { openNews(isPortfolio ? coin.symbol : item.symbol); closeActionMenu(); }}>News</button>
             {/* Buy button */}
-            <button
-              onClick={(event) => {
-                const sym = isPortfolio ? coin.symbol : item.symbol;
-                if (sym !== 'USD') {
-                  toggleTradeQuoteMenu(openActionMenu.type, openActionMenu.key, 'BUY', event);
-                }
-              }}
-              disabled={(isPortfolio ? coin.symbol : item.symbol) === 'USD'}
-              style={(isPortfolio ? coin.symbol : item.symbol) === 'USD' ? { opacity: 0.4, cursor: 'not-allowed' } : undefined}
-            >
-              Buy
-            </button>
-            {openTradeQuoteMenu.type === openActionMenu.type && openTradeQuoteMenu.key === openActionMenu.key && openTradeQuoteMenu.side === 'BUY' && (
-              <div className="trade-quote-menu" style={tradeQuoteMenuStyle}>
-                {hasUsdPair(isPortfolio ? coin.symbol : item.symbol) && (
-                  <>
-                    <button onClick={() => { navigateToTrading(isPortfolio ? coin.symbol : item.symbol, 'BUY', 'USD'); closeActionMenu(); closeTradeQuoteMenu(); }}>Buy with USD</button>
-                    <button onClick={() => { handleTriggerAutoBuyClick(isPortfolio ? coin.symbol : item.symbol, isPortfolio ? coin : item, 'USD', openActionMenu.type); closeActionMenu(); closeTradeQuoteMenu(); }}>Trigger Auto-Buy (USD)</button>
-                  </>
-                )}
-                {hasUsdtPair(isPortfolio ? coin.symbol : item.symbol) && (
-                  <>
-                    <button
-                      onClick={() => {
-                        const sym = isPortfolio ? coin.symbol : item.symbol;
-                        if (sym !== 'USDT') {
-                          navigateToTrading(sym, 'BUY', 'USDT'); closeActionMenu(); closeTradeQuoteMenu();
-                        }
-                      }}
-                      disabled={(isPortfolio ? coin.symbol : item.symbol) === 'USDT'}
-                      style={(isPortfolio ? coin.symbol : item.symbol) === 'USDT' ? { opacity: 0.4, cursor: 'not-allowed' } : undefined}
-                    >
-                      Buy with USDT
-                    </button>
-                    <button
-                      onClick={() => {
-                        const sym = isPortfolio ? coin.symbol : item.symbol;
-                        if (sym !== 'USDT') {
-                          handleTriggerAutoBuyClick(sym, isPortfolio ? coin : item, 'USDT', openActionMenu.type); closeActionMenu(); closeTradeQuoteMenu();
-                        }
-                      }}
-                      disabled={(isPortfolio ? coin.symbol : item.symbol) === 'USDT'}
-                      style={(isPortfolio ? coin.symbol : item.symbol) === 'USDT' ? { opacity: 0.4, cursor: 'not-allowed' } : undefined}
-                    >
-                      Trigger Auto-Buy (USDT)
-                    </button>
-                  </>
-                )}
-              </div>
-            )}
+            {(() => {
+              const sym = isPortfolio ? coin.symbol : item.symbol;
+              const buyElig = getBuyEligibility(sym);
+              return (
+                <>
+                  <button
+                    onClick={(event) => {
+                      if (buyElig.canBuy) {
+                        toggleTradeQuoteMenu(openActionMenu.type, openActionMenu.key, 'BUY', event);
+                      }
+                    }}
+                    disabled={!buyElig.canBuy}
+                    title={buyElig.canBuy ? 'Buy' : (buyElig.reason || 'Insufficient balance to buy')}
+                    style={!buyElig.canBuy ? { opacity: 0.4, cursor: 'not-allowed' } : undefined}
+                  >
+                    Buy
+                  </button>
+                  {openTradeQuoteMenu.type === openActionMenu.type && openTradeQuoteMenu.key === openActionMenu.key && openTradeQuoteMenu.side === 'BUY' && (
+                    <div className="trade-quote-menu" style={tradeQuoteMenuStyle}>
+                      {hasUsdPair(sym) && (
+                        <>
+                          <button
+                            onClick={() => {
+                              if (buyElig.canBuyUsd) {
+                                navigateToTrading(sym, 'BUY', 'USD');
+                                closeActionMenu();
+                                closeTradeQuoteMenu();
+                              }
+                            }}
+                            disabled={!buyElig.canBuyUsd}
+                            title={!buyElig.canBuyUsd ? `Insufficient USD balance ($${buyElig.usdBalance.toFixed(2)} / min $1.00)` : undefined}
+                            style={!buyElig.canBuyUsd ? { opacity: 0.4, cursor: 'not-allowed' } : undefined}
+                          >
+                            Buy with USD
+                          </button>
+                          <button
+                            onClick={() => {
+                              if (buyElig.canBuyUsd) {
+                                handleTriggerAutoBuyClick(sym, isPortfolio ? coin : item, 'USD', openActionMenu.type);
+                                closeActionMenu();
+                                closeTradeQuoteMenu();
+                              }
+                            }}
+                            disabled={!buyElig.canBuyUsd}
+                            title={!buyElig.canBuyUsd ? `Insufficient USD balance ($${buyElig.usdBalance.toFixed(2)} / min $1.00)` : undefined}
+                            style={!buyElig.canBuyUsd ? { opacity: 0.4, cursor: 'not-allowed' } : undefined}
+                          >
+                            Trigger Auto-Buy (USD)
+                          </button>
+                        </>
+                      )}
+                      {hasUsdtPair(sym) && (
+                        <>
+                          <button
+                            onClick={() => {
+                              if (buyElig.canBuyUsdt) {
+                                navigateToTrading(sym, 'BUY', 'USDT');
+                                closeActionMenu();
+                                closeTradeQuoteMenu();
+                              }
+                            }}
+                            disabled={!buyElig.canBuyUsdt}
+                            title={sym === 'USDT' ? 'Cannot purchase USDT with USDT' : (!buyElig.canBuyUsdt ? `Insufficient USDT balance ($${buyElig.usdtBalance.toFixed(2)} / min $1.00)` : undefined)}
+                            style={!buyElig.canBuyUsdt ? { opacity: 0.4, cursor: 'not-allowed' } : undefined}
+                          >
+                            Buy with USDT
+                          </button>
+                          <button
+                            onClick={() => {
+                              if (buyElig.canBuyUsdt) {
+                                handleTriggerAutoBuyClick(sym, isPortfolio ? coin : item, 'USDT', openActionMenu.type);
+                                closeActionMenu();
+                                closeTradeQuoteMenu();
+                              }
+                            }}
+                            disabled={!buyElig.canBuyUsdt}
+                            title={sym === 'USDT' ? 'Cannot auto-buy USDT with USDT' : (!buyElig.canBuyUsdt ? `Insufficient USDT balance ($${buyElig.usdtBalance.toFixed(2)} / min $1.00)` : undefined)}
+                            style={!buyElig.canBuyUsdt ? { opacity: 0.4, cursor: 'not-allowed' } : undefined}
+                          >
+                            Trigger Auto-Buy (USDT)
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  )}
+                </>
+              );
+            })()}
 
             {/* Sell button - only available for Portfolio, disabled for USD */}
             {isPortfolio && (
@@ -4088,15 +4221,20 @@ function Dashboard({ isLightMode }) {
                                       >
                                         ✏️
                                       </button>
-                                      <button
-                                        className="trade-action-btn buy"
-                                        onClick={(event) => coin.symbol !== 'USD' && toggleTradeQuoteMenu('portfolio', coin.symbol, 'BUY', event)}
-                                        disabled={coin.symbol === 'USD'}
-                                        title={coin.symbol === 'USD' ? 'Cannot purchase fiat USD' : 'Buy'}
-                                        style={coin.symbol === 'USD' ? { opacity: 0.4, cursor: 'not-allowed' } : undefined}
-                                      >
-                                        Buy
-                                      </button>
+                                      {(() => {
+                                        const buyElig = getBuyEligibility(coin.symbol);
+                                        return (
+                                          <button
+                                            className="trade-action-btn buy"
+                                            onClick={(event) => buyElig.canBuy && toggleTradeQuoteMenu('portfolio', coin.symbol, 'BUY', event)}
+                                            disabled={!buyElig.canBuy}
+                                            title={buyElig.canBuy ? 'Buy' : (buyElig.reason || 'Insufficient balance to buy')}
+                                            style={!buyElig.canBuy ? { opacity: 0.4, cursor: 'not-allowed' } : undefined}
+                                          >
+                                            Buy
+                                          </button>
+                                        );
+                                      })()}
                                       <button
                                         className="trade-action-btn sell"
                                         onClick={(event) => coin.symbol !== 'USD' && toggleTradeQuoteMenu('portfolio', coin.symbol, 'SELL', event)}
@@ -4461,15 +4599,20 @@ function Dashboard({ isLightMode }) {
                                       >
                                         ✏️
                                       </button>
-                                      <button
-                                        className="trade-action-btn buy"
-                                        onClick={(event) => item.symbol !== 'USD' && toggleTradeQuoteMenu('watchlist', item.symbol, 'BUY', event)}
-                                        disabled={item.symbol === 'USD'}
-                                        title={item.symbol === 'USD' ? 'Cannot purchase fiat USD' : 'Buy'}
-                                        style={item.symbol === 'USD' ? { opacity: 0.4, cursor: 'not-allowed' } : undefined}
-                                      >
-                                        Buy
-                                      </button>
+                                      {(() => {
+                                        const buyElig = getBuyEligibility(item.symbol);
+                                        return (
+                                          <button
+                                            className="trade-action-btn buy"
+                                            onClick={(event) => buyElig.canBuy && toggleTradeQuoteMenu('watchlist', item.symbol, 'BUY', event)}
+                                            disabled={!buyElig.canBuy}
+                                            title={buyElig.canBuy ? 'Buy' : (buyElig.reason || 'Insufficient balance to buy')}
+                                            style={!buyElig.canBuy ? { opacity: 0.4, cursor: 'not-allowed' } : undefined}
+                                          >
+                                            Buy
+                                          </button>
+                                        );
+                                      })()}
                                       {(() => {
                                         const allPendingItems = getAllPendingItemsForCoin({ ...item, isWatchlist: true });
                                         const hasOrders = allPendingItems.length > 0;

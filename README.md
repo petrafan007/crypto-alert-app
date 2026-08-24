@@ -122,6 +122,14 @@ The application utilizes a **unified PostgreSQL database**.
 
 ## Version History & Changelog
 
+## v2.0.3 (August 2026)
+
+### Quote-Balance Aware Buy & Auto-Buy Action Controls
+- **Dynamic Quote Balance & Minimum $1.00 Validation**: Added real-time available quote currency balance evaluation (USD and USDT) for all Portfolio and Watchlist trade action buttons.
+- **Main "Buy" Action Button Auto-Disabling**: The primary "Buy" button across both Portfolio and Watchlist tables (desktop and mobile) is now completely grayed out and disabled (`opacity: 0.4`, `cursor: not-allowed`) if the user holds less than the $1.00 minimum across all available quote currencies for that asset (e.g. `< $1.00` in both USD and USDT). Hovering over the disabled button displays an explanatory tooltip detailing the required quote balance.
+- **Granular Quote Menu Item Disabling**: Inside the Buy quote currency dropdown (`Buy with USD`, `Trigger Auto-Buy (USD)`, `Buy with USDT`, `Trigger Auto-Buy (USDT)`), individual quote options are independently grayed out and disabled if the user's available balance in that specific quote currency is below $1.00, with dynamic hover tooltips displaying current available balance vs. minimum required.
+- **Version Bump**: Transitioned version to `v2.0.3`.
+
 ## v2.0.2 (August 2026)
 
 ### Zero-Balance Pending Order Auto-Hide, High-Contrast Sentiment Pills & Tax Report Hook Fix
