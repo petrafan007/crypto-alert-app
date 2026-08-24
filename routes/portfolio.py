@@ -11,6 +11,7 @@ from models import Coin, WatchlistCoin, Notification, PriceHistory
 from credentials import Credential, User, UserSetting
 from core.extensions import db
 from log import logger
+from services.price_history_service import ensure_price_history
 from routes.helpers import *
 
 # Database & Models
@@ -53,6 +54,21 @@ def update_test_portfolio(*args, **kwargs): pass # TODO
 
 # Blueprint Definition
 portfolio_bp = Blueprint('portfolio', __name__)
+
+
+def _run_price_history_backfill_bg(symbols):
+    """Fire-and-forget 7-day price history backfill for one or more symbols, safe to call from a request thread."""
+    app = current_app._get_current_object()
+
+    def _worker():
+        with app.app_context():
+            for sym in symbols:
+                try:
+                    ensure_price_history(sym)
+                except Exception as e:
+                    logger.warning(f"Backfill price history failed for {sym}: {e}")
+
+    threading.Thread(target=_worker, daemon=True).start()
 
 
 
@@ -4278,7 +4294,7 @@ def api_sync_coins():
                 
                 # Use Binance only for price history
                 try:
-                    backfill_7d_prices([symbol])  # Pass as list since function expects list of symbols
+                    ensure_price_history(symbol)  # Fetch/store 7 days of hourly history for this symbol
                     logger.info(f"Backfill completed for {symbol}")
                     synced_count += 1
                 except Exception as e:
@@ -4529,7 +4545,7 @@ def hide_coin():
         logger.info(f"Coin {coin.symbol} hidden status updated to: {coin.hidden}")
         # If unhidden, trigger backfill for this coin
         if not hidden:
-            threading.Thread(target=backfill_7d_prices, args=([coin.symbol],), daemon=True).start()
+            _run_price_history_backfill_bg([coin.symbol])
         return jsonify({"success": True})
     else:
         logger.error(f"Coin not found: coin_id={coin_id}, user_id={current_user.id}")
@@ -4749,7 +4765,7 @@ def api_watchlist_add():
     db.session.commit()
 
     # Trigger backfill for this symbol in a background thread
-    threading.Thread(target=backfill_7d_prices, args=([symbol],), daemon=True).start()
+    _run_price_history_backfill_bg([symbol])
 
     # Trigger on-the-spot sentiment check in a background thread so add is instantaneous
     user_id = current_user.id
