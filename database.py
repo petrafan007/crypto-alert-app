@@ -75,6 +75,12 @@ def init_db(app=None):
             except Exception as ex:
                 print(f"Migration note for {table}.{col}: {ex}")
 
+        try:
+            with db.engine.begin() as conn:
+                conn.execute(db.text("UPDATE coins SET avg_entry = 0.0 WHERE amount <= 0.00000001 AND symbol != 'USD' AND avg_entry > 0"))
+        except Exception:
+            pass
+
         # Seed default prompts if empty
         default_port_pre = (
             "You are an intelligent search query generator for cryptocurrency analysis. "

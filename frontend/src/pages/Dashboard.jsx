@@ -1196,8 +1196,8 @@ function Dashboard({ isLightMode }) {
               placeholderMap[assetSymbol] = {
                 id: `pending-${assetSymbol}`,
                 symbol: assetSymbol,
-                initial_price: referencePrice,
-                avg_entry: referencePrice,
+                initial_price: 0,
+                avg_entry: 0,
                 initial_value: 0,
                 purchase_date: null,
                 current_price: referencePrice,
@@ -2559,14 +2559,13 @@ function Dashboard({ isLightMode }) {
 
   // Delete watchlist item function
   const deleteWatchlistItem = async (symbol) => {
+    const cleanSym = (symbol || '').toUpperCase().trim();
+    pendingAddedWatchlistSymbolsRef.current.delete(cleanSym);
+    setWatchlist(prev => prev.filter(item => (item.symbol || '').toUpperCase().trim() !== cleanSym));
     try {
-      const response = await axios.post('/api/watchlist/remove', {
-        symbol: symbol
+      await axios.post('/api/watchlist/remove', {
+        symbol: cleanSym
       }, { withCredentials: true });
-
-      if (response.data.success) {
-        setWatchlist(prev => prev.filter(item => item.symbol !== symbol));
-      }
     } catch (err) {
       console.error('Delete watchlist item error:', err);
     }
@@ -2574,7 +2573,7 @@ function Dashboard({ isLightMode }) {
 
   // Add to watchlist function
   const addToWatchlist = async (e) => {
-    e.preventDefault();
+    if (e) e.preventDefault();
     const cleanSym = watchlistSymbol.trim().toUpperCase();
     if (!cleanSym) return;
 
@@ -2586,7 +2585,10 @@ function Dashboard({ isLightMode }) {
     const tempItem = {
       id: tempId,
       symbol: cleanSym,
-      current_price: null,
+      current_price: 0,
+      current_value: 0,
+      pct_change: 0,
+      change_24h: 0,
       alert_enabled: false,
       favorite: false,
       sentiment: 'Checking now...',
@@ -2595,14 +2597,15 @@ function Dashboard({ isLightMode }) {
       volatility_pct: null,
       down_val: null,
       up_val: null,
-      note: ''
+      note: '',
+      hidden: false
     };
 
     // Track in ref so background poll intervals (/api/watchlist-live) cannot wipe it out before the server responds
     pendingAddedWatchlistSymbolsRef.current.set(cleanSym, tempItem);
 
     setWatchlist(prev => {
-      if (prev.some(c => (c.symbol || '').toUpperCase() === cleanSym)) return prev;
+      if (prev.some(c => (c.symbol || '').toUpperCase().trim() === cleanSym)) return prev;
       return [tempItem, ...prev];
     });
 
@@ -2617,6 +2620,9 @@ function Dashboard({ isLightMode }) {
           id: response.data.id || tempId,
           symbol: cleanSym,
           current_price: response.data.current_price || 0,
+          current_value: 0,
+          pct_change: 0,
+          change_24h: 0,
           alert_enabled: false,
           favorite: false,
           sentiment: 'Checking now...',
@@ -2625,12 +2631,13 @@ function Dashboard({ isLightMode }) {
           volatility_pct: null,
           down_val: null,
           up_val: null,
-          note: ''
+          note: '',
+          hidden: false
         };
         // Update ref with server-confirmed item
         pendingAddedWatchlistSymbolsRef.current.set(cleanSym, itemFromServer);
         setWatchlist(prev => {
-          const index = prev.findIndex(c => c.id === tempId || (c.symbol || '').toUpperCase() === cleanSym);
+          const index = prev.findIndex(c => c.id === tempId || (c.symbol || '').toUpperCase().trim() === cleanSym);
           if (index !== -1) {
             const copy = [...prev];
             copy[index] = { ...copy[index], ...itemFromServer };
@@ -2641,12 +2648,12 @@ function Dashboard({ isLightMode }) {
       } else {
         // Revert on failure
         pendingAddedWatchlistSymbolsRef.current.delete(cleanSym);
-        setWatchlist(prev => prev.filter(c => c.id !== tempId && (c.symbol || '').toUpperCase() !== cleanSym));
+        setWatchlist(prev => prev.filter(c => c.id !== tempId && (c.symbol || '').toUpperCase().trim() !== cleanSym));
       }
     } catch (err) {
       console.error('Add to watchlist error:', err);
       pendingAddedWatchlistSymbolsRef.current.delete(cleanSym);
-      setWatchlist(prev => prev.filter(c => c.id !== tempId && (c.symbol || '').toUpperCase() !== cleanSym));
+      setWatchlist(prev => prev.filter(c => c.id !== tempId && (c.symbol || '').toUpperCase().trim() !== cleanSym));
     } finally {
       setAddingToWatchlist(false);
     }
@@ -3838,29 +3845,34 @@ function Dashboard({ isLightMode }) {
                                   {renderVolatilityCell(coin, 'portfolio')}
                                 </td>
                               );
-                            case 'avg_entry':
+                            case 'avg_entry': {
+                              const hasHoldings = !coin.pendingPlaceholder && Number(coin.amount) > 0.00000001;
                               return (
                                 <td key="avg_entry" style={{ whiteSpace: 'nowrap', textAlign: 'center' }}>
-                                  {isStable ? '$1.00' : (coin.avg_entry ? `$${coin.avg_entry.toFixed(2)}` : '—')}
+                                  {isStable ? '$1.00' : (hasHoldings && coin.avg_entry ? `$${coin.avg_entry.toFixed(2)}` : '—')}
                                 </td>
                               );
-                            case 'pct_change':
+                            }
+                            case 'pct_change': {
+                              const hasHoldings = !isStable && !coin.pendingPlaceholder && Number(coin.amount) > 0.00000001 && Number(coin.avg_entry) > 0;
+                              const hasPct = hasHoldings && coin.pct_change !== undefined && coin.pct_change !== null;
                               return (
                                 <td
                                   key="pct_change"
-                                  className={!isStable && coin.pct_change >= 0 ? 'status-positive' : !isStable && coin.pct_change < 0 ? 'status-negative' : ''}
+                                  className={hasPct && coin.pct_change >= 0 ? 'status-positive' : hasPct && coin.pct_change < 0 ? 'status-negative' : ''}
                                   style={{
                                     whiteSpace: 'nowrap',
                                     textAlign: 'center',
-                                    color: !isStable && coin.pct_change !== undefined && coin.pct_change !== null
+                                    color: hasPct
                                       ? (coin.pct_change >= 0 ? '#22c55e' : '#ef4444')
                                       : undefined,
                                     fontWeight: '600'
                                   }}
                                 >
-                                  {isStable ? '—' : (coin.pct_change !== undefined && coin.pct_change !== null ? `${coin.pct_change >= 0 ? '+' : ''}${coin.pct_change.toFixed(2)}%` : '—')}
+                                  {hasPct ? `${coin.pct_change >= 0 ? '+' : ''}${coin.pct_change.toFixed(2)}%` : '—'}
                                 </td>
                               );
+                            }
                             case 'change_24h':
                               return (
                                 <td
@@ -4112,6 +4124,12 @@ function Dashboard({ isLightMode }) {
               className="watchlist-symbol-input"
               value={watchlistSymbol}
               onChange={(e) => setWatchlistSymbol(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  addToWatchlist(e);
+                }
+              }}
               disabled={addingToWatchlist}
             />
             <button className="btn" onClick={addToWatchlist} disabled={addingToWatchlist}>

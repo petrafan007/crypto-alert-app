@@ -898,7 +898,7 @@ def api_pending_orders():
                         symbol=asset_symbol,
                         amount=0.0,
                         current=price_hint or 0.0,
-                        avg_entry=price_hint or 0.0,
+                        avg_entry=0.0,
                         initial_value=0.0,
                         purchase_date=datetime.utcnow().strftime('%Y-%m-%d'),
                         alert_enabled=True,
@@ -4700,15 +4700,19 @@ def api_watchlist_live():
 @portfolio_bp.route("/api/watchlist/add", methods=["POST"])
 @login_required
 def api_watchlist_add():
-    data = request.get_json()
+    data = request.get_json() or {}
     symbol = data.get("symbol", "").upper().strip()
     if not symbol:
         return jsonify({"success": False, "error": "Missing symbol"}), 400
+
     exists = WatchlistCoin.query.filter_by(user_id=current_user.id, symbol=symbol).first()
     if exists:
+        if exists.hidden:
+            exists.hidden = False
+            db.session.commit()
         return jsonify({
             "success": True, 
-            "message": "Symbol already in watchlist",
+            "message": "Symbol added to watchlist",
             "item": {
                 "id": exists.id,
                 "symbol": exists.symbol,
@@ -4717,7 +4721,7 @@ def api_watchlist_add():
                 "up_val": exists.up_alert,
                 "note": exists.note,
                 "favorite": exists.favorite,
-                "hidden": exists.hidden,
+                "hidden": False,
                 "action": "Watch",
                 "current_price": exists.current_price or 0.0,
                 "sentiment": exists.sentiment or "Watch",
@@ -4727,6 +4731,7 @@ def api_watchlist_add():
                 "sentiment_model": getattr(exists, 'sentiment_model', None),
                 "sentiment_tier": getattr(exists, 'sentiment_tier', None),
                 "sentiment_search_status": getattr(exists, 'sentiment_search_status', None),
+                "sentiment_tracking_enabled": getattr(exists, 'sentiment_tracking_enabled', True) is not False,
                 "volatility_pct": exists.volatility_pct,
                 "cached_news": "",
                 "cached_news_date": None
@@ -4739,7 +4744,7 @@ def api_watchlist_add():
     except Exception as e:
         logger.warning(f"Failed to fetch initial price for {symbol}: {e}")
 
-    wl = WatchlistCoin(symbol=symbol, user_id=current_user.id, current_price=current_price)
+    wl = WatchlistCoin(symbol=symbol, user_id=current_user.id, current_price=current_price, hidden=False, alert_enabled=False)
     db.session.add(wl)
     db.session.commit()
 
@@ -4782,7 +4787,7 @@ def api_watchlist_add():
             "up_val": wl.up_alert,
             "note": wl.note,
             "favorite": wl.favorite,
-            "hidden": wl.hidden,
+            "hidden": False,
             "action": "Watch",
             "current_price": current_price,
             "sentiment": "Checking now...",
@@ -4792,6 +4797,7 @@ def api_watchlist_add():
             "sentiment_model": None,
             "sentiment_tier": None,
             "sentiment_search_status": None,
+            "sentiment_tracking_enabled": True,
             "volatility_pct": wl.volatility_pct,
             "cached_news": "",
             "cached_news_date": None

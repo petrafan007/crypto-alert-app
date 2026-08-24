@@ -201,9 +201,9 @@ def api_coin_data_live():
                     logger.error(f"[LIVE] {symbol} skipped: amount <= 0 and not force_visible")
                     continue
 
-                avg_entry_val = _to_float(coin.avg_entry)
+                avg_entry_val = _to_float(coin.avg_entry) if amount > 0.00000001 else 0.0
                 pct_change = 0.0
-                if avg_entry_val > 0:
+                if amount > 0.00000001 and avg_entry_val > 0:
                     pct_change = ((current_price - avg_entry_val) / avg_entry_val) * 100
 
                 sentiment = get_coin_sentiment(symbol, coin, current_price, current_user.username)
@@ -383,9 +383,9 @@ def api_coin_data():
                     # logger.error(f"[DEBUG] {symbol} skipped: amount <= 0 and not force_visible")
                     continue
 
-                cost_basis = get_cost_basis_for_asset(current_user.id, symbol)
-                avg_entry_val = _to_float(coin.avg_entry)
-                pct_change = round(((current_price - avg_entry_val) / avg_entry_val * 100), 6) if avg_entry_val and current_price else 0.0
+                cost_basis = get_cost_basis_for_asset(current_user.id, symbol) if amount > 0.00000001 else 0.0
+                avg_entry_val = _to_float(coin.avg_entry) if amount > 0.00000001 else 0.0
+                pct_change = round(((current_price - avg_entry_val) / avg_entry_val * 100), 6) if (amount > 0.00000001 and avg_entry_val > 0 and current_price) else 0.0
                 purchase_date = coin.purchase_date
                 coin_news = news_cache.get(coin.id) or news_cache.get(symbol) or {}
 
