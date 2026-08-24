@@ -22,6 +22,7 @@ export default function AICopilotSidebar() {
   const [isOpen, setIsOpen] = useState(false);
   const [isFloating, setIsFloating] = useState(false);
   const [isMaximized, setIsMaximized] = useState(false);
+  const [floatingPosition, setFloatingPosition] = useState(null);
   const [conversations, setConversations] = useState([]);
   const [message, setMessage] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -29,6 +30,8 @@ export default function AICopilotSidebar() {
   const [activeSearchTerm, setActiveSearchTerm] = useState('');
   const [conversationId, setConversationId] = useState(null);
   const messagesEndRef = useRef(null);
+  const floatingWindowRef = useRef(null);
+  const floatingDragRef = useRef(null);
   const [aiEnabled, setAiEnabled] = useState(true);
   const [selectAll, setSelectAll] = useState(false);
   const [selectedMessages, setSelectedMessages] = useState(new Set());
@@ -219,13 +222,56 @@ export default function AICopilotSidebar() {
     setIsOpen(false);
     setIsFloating(true);
     setIsMaximized(false);
+    setFloatingPosition(null);
     window.setTimeout(scrollToBottom, 100);
   };
 
   const closeFloatingWindow = () => {
     setIsFloating(false);
     setIsMaximized(false);
+    setFloatingPosition(null);
     setIsOpen(false);
+  };
+
+  const handleFloatingDragStart = (event) => {
+    if (isMaximized || event.button !== 0 || event.target.closest('button')) return;
+
+    const windowElement = floatingWindowRef.current;
+    if (!windowElement) return;
+
+    const rect = windowElement.getBoundingClientRect();
+    floatingDragRef.current = {
+      offsetX: event.clientX - rect.left,
+      offsetY: event.clientY - rect.top
+    };
+    setFloatingPosition({ left: rect.left, top: rect.top });
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+  };
+
+  const handleFloatingDragMove = (event) => {
+    const drag = floatingDragRef.current;
+    const windowElement = floatingWindowRef.current;
+    if (!drag || !windowElement) return;
+
+    const rect = windowElement.getBoundingClientRect();
+    const inset = 12;
+    const maxLeft = Math.max(inset, window.innerWidth - rect.width - inset);
+    const maxTop = Math.max(inset, window.innerHeight - rect.height - inset);
+    const left = Math.min(maxLeft, Math.max(inset, event.clientX - drag.offsetX));
+    const top = Math.min(maxTop, Math.max(inset, event.clientY - drag.offsetY));
+    setFloatingPosition({ left, top });
+  };
+
+  const handleFloatingDragEnd = (event) => {
+    floatingDragRef.current = null;
+    if (event.currentTarget.hasPointerCapture?.(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+  };
+
+  const toggleFloatingMaximize = () => {
+    setIsMaximized((maximized) => !maximized);
+    setFloatingPosition(null);
   };
 
   const fetchConversations = async (loadMore = false, force = false) => {
@@ -877,11 +923,24 @@ export default function AICopilotSidebar() {
       </aside>
 
       {isFloating && (
-        <section className={`ai-copilot-floating-window ${isMaximized ? 'maximized' : ''}`} role="dialog" aria-label="AI Copilot floating chat window">
-          <div className="floating-window-titlebar">
+        <section
+          ref={floatingWindowRef}
+          className={`ai-copilot-floating-window ${isMaximized ? 'maximized' : ''}`}
+          style={floatingPosition ? { left: `${floatingPosition.left}px`, top: `${floatingPosition.top}px`, right: 'auto' } : undefined}
+          role="dialog"
+          aria-label="AI Copilot floating chat window"
+        >
+          <div
+            className={`floating-window-titlebar ${isMaximized ? 'maximized' : ''}`}
+            onPointerDown={handleFloatingDragStart}
+            onPointerMove={handleFloatingDragMove}
+            onPointerUp={handleFloatingDragEnd}
+            onPointerCancel={handleFloatingDragEnd}
+            title={isMaximized ? undefined : 'Drag to move the AI Copilot window'}
+          >
             <span>🤖 AI Copilot</span>
             <div className="floating-window-actions">
-              <button type="button" onClick={() => setIsMaximized((maximized) => !maximized)} title={isMaximized ? 'Restore window size' : 'Maximize window'} aria-label={isMaximized ? 'Restore window size' : 'Maximize window'}>
+              <button type="button" onClick={toggleFloatingMaximize} title={isMaximized ? 'Restore window size' : 'Maximize window'} aria-label={isMaximized ? 'Restore window size' : 'Maximize window'}>
                 {isMaximized ? '❐' : '□'}
               </button>
               <button type="button" onClick={closeFloatingWindow} title="Close AI Copilot" aria-label="Close AI Copilot">×</button>

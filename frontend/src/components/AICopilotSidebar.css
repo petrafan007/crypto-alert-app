@@ -565,12 +565,24 @@
   color: #4fd1c5;
   font-size: 15px;
   font-weight: 700;
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
+}
+
+.floating-window-titlebar:not(.maximized):active {
+  cursor: grabbing;
+}
+
+.floating-window-titlebar.maximized {
+  cursor: default;
 }
 
 .floating-window-actions {
   display: flex;
   align-items: center;
   gap: 6px;
+  touch-action: auto;
 }
 
 .floating-window-actions button:last-child {
