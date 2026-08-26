@@ -38,6 +38,7 @@ export default function TradeTimelineChart({ symbol, onSymbolChange, tradingPair
   const [trades, setTrades] = useState([]);
   const [status, setStatus] = useState('loading');
   const [error, setError] = useState('');
+  const [hoveredTrades, setHoveredTrades] = useState(null);
   const [modal, setModal] = useState({ isOpen: false, transactions: [], type: 'BUY', dateStr: '' });
   const normalized = normalizePair(symbol);
   const { base, quote } = pairAssets(normalized);
@@ -46,6 +47,7 @@ export default function TradeTimelineChart({ symbol, onSymbolChange, tradingPair
     const controller = new AbortController();
     setStatus('loading');
     setError('');
+    setHoveredTrades(null);
     Promise.all([
       axios.get(`/api/trading/klines/${normalized}`, { params: { interval: '1d', limit: 1000 }, signal: controller.signal, withCredentials: true }),
       axios.get('/api/trading/real-orders', { params: { limit: 'all', symbol: normalized }, signal: controller.signal, withCredentials: true }),
@@ -70,7 +72,7 @@ export default function TradeTimelineChart({ symbol, onSymbolChange, tradingPair
       const candle = prices.reduce((closest, point) => Math.abs(point.time - trade.time) < Math.abs(closest.time - trade.time) ? point : closest, prices[0]);
       if (!candle || Math.abs(candle.time - trade.time) > 172800) return;
       const key = String(candle.time);
-      if (!byDay.has(key)) byDay.set(key, { time: candle.time, trades: [] });
+      if (!byDay.has(key)) byDay.set(key, { time: candle.time, price: candle.value, trades: [] });
       byDay.get(key).trades.push(trade);
     });
     const markers = [];
@@ -78,15 +80,12 @@ export default function TradeTimelineChart({ symbol, onSymbolChange, tradingPair
       ['BUY', 'SELL'].forEach(type => {
         const items = group.trades.filter(t => t.type === type);
         if (!items.length) return;
-        const amount = items.reduce((sum, trade) => sum + trade.amount, 0);
-        const value = items.reduce((sum, trade) => sum + trade.amount * trade.price, 0);
-        const average = value / amount;
         markers.push({
           time: group.time,
           position: type === 'BUY' ? 'belowBar' : 'aboveBar',
           color: type === 'BUY' ? '#22c55e' : '#ef4444',
           shape: type === 'BUY' ? 'arrowUp' : 'arrowDown',
-          text: `${type} ${fmt(amount, 8)} ${base} @ ${fmt(average, average < 1 ? 8 : 2)} · ${fmt(value, 2)} ${quote}`,
+          size: 2,
         });
       });
     });
@@ -97,10 +96,10 @@ export default function TradeTimelineChart({ symbol, onSymbolChange, tradingPair
     if (!hostRef.current || !prices.length) return undefined;
     const dark = !isLightMode;
     const chart = createChart(hostRef.current, {
-      width: hostRef.current.clientWidth, height: 610,
+      width: Math.max(320, Math.floor(hostRef.current.getBoundingClientRect().width)), height: 610,
       layout: { background: { color: dark ? '#0b1220' : '#ffffff' }, textColor: dark ? '#cbd5e1' : '#334155' },
       grid: { vertLines: { color: dark ? '#17213a' : '#e2e8f0' }, horzLines: { color: dark ? '#17213a' : '#e2e8f0' } },
-      rightPriceScale: { visible: true, borderColor: dark ? '#334155' : '#cbd5e1' },
+      rightPriceScale: { visible: true, minimumWidth: 84, borderColor: dark ? '#334155' : '#cbd5e1', scaleMargins: { top: 0.1, bottom: 0.1 } },
       leftPriceScale: { visible: false },
       timeScale: { borderColor: dark ? '#334155' : '#cbd5e1', timeVisible: false, tickMarkFormatter: time => {
         const date = new Date(Number(time) * 1000);
@@ -108,24 +107,60 @@ export default function TradeTimelineChart({ symbol, onSymbolChange, tradingPair
       } },
       crosshair: { mode: 1 },
     });
-    const series = chart.addLineSeries({ color: '#38bdf8', lineWidth: 2, priceLineVisible: true });
+    const series = chart.addLineSeries({ color: '#38bdf8', lineWidth: 2, priceLineVisible: true, lastValueVisible: true });
     series.setData(prices);
     series.setMarkers(chartData.markers);
     chart.timeScale().fitContent();
     markerGroupsRef.current = chartData.groups;
-    const click = param => {
-      if (!param.time) return;
+    const resolveMarker = param => {
+      if (!param?.time || !param.point) return null;
       const group = markerGroupsRef.current.get(String(param.time));
-      if (!group?.trades?.length) return;
-      const dateStr = new Date(group.time * 1000).toLocaleDateString('en-US', { timeZone: 'UTC', year: 'numeric', month: 'long', day: 'numeric' });
-      setModal({ isOpen: true, transactions: group.trades, type: group.trades[0].type, dateStr });
+      if (!group?.trades?.length) return null;
+      const lineY = series.priceToCoordinate(group.price);
+      if (lineY === null || Math.abs(param.point.y - lineY) > 72 || Math.abs(param.point.y - lineY) < 5) return null;
+      const type = param.point.y > lineY ? 'BUY' : 'SELL';
+      const transactions = group.trades.filter(trade => trade.type === type);
+      if (!transactions.length) return null;
+      return { group, type, transactions };
     };
+    const hover = param => {
+      const marker = resolveMarker(param);
+      if (!marker) {
+        setHoveredTrades(null);
+        return;
+      }
+      const host = hostRef.current;
+      const tooltipWidth = 350;
+      const tooltipHeight = Math.min(300, 112 + marker.transactions.length * 42);
+      const rightCandidate = host.offsetLeft + param.point.x + 18;
+      const left = rightCandidate + tooltipWidth <= host.parentElement.clientWidth
+        ? rightCandidate
+        : host.offsetLeft + param.point.x - tooltipWidth - 18;
+      setHoveredTrades({
+        ...marker,
+        left: Math.max(10, Math.min(left, host.parentElement.clientWidth - tooltipWidth - 10)),
+        top: Math.max(10, Math.min(host.offsetTop + param.point.y - 30, host.parentElement.clientHeight - tooltipHeight - 10)),
+      });
+    };
+    const click = param => {
+      const marker = resolveMarker(param);
+      if (!marker) return;
+      const { group, type, transactions } = marker;
+      const dateStr = new Date(group.time * 1000).toLocaleDateString('en-US', { timeZone: 'UTC', year: 'numeric', month: 'long', day: 'numeric' });
+      setModal({ isOpen: true, transactions, type, dateStr });
+    };
+    chart.subscribeCrosshairMove(hover);
     chart.subscribeClick(click);
-    const observer = new ResizeObserver(entries => chart.applyOptions({ width: entries[0].contentRect.width }));
+    const resizeChart = () => {
+      const width = Math.max(320, Math.floor(hostRef.current?.getBoundingClientRect().width || 0));
+      chart.resize(width, 610);
+    };
+    const observer = new ResizeObserver(() => window.requestAnimationFrame(resizeChart));
     observer.observe(hostRef.current);
+    window.requestAnimationFrame(resizeChart);
     chartRef.current = chart;
     seriesRef.current = series;
-    return () => { observer.disconnect(); chart.unsubscribeClick(click); chart.remove(); chartRef.current = null; seriesRef.current = null; };
+    return () => { observer.disconnect(); chart.unsubscribeCrosshairMove(hover); chart.unsubscribeClick(click); chart.remove(); chartRef.current = null; seriesRef.current = null; };
   }, [chartData, isLightMode, prices]);
 
   return (
@@ -136,7 +171,25 @@ export default function TradeTimelineChart({ symbol, onSymbolChange, tradingPair
       </header>
       <div className="trade-timeline-legend"><span className="buy">↑ Purchase</span><span className="sell">↓ Sale</span><span>Y-axis: {quote} price</span><span>X-axis: year and month</span></div>
       <div className="trade-timeline-chart-shell">
-        <div ref={hostRef} className="trade-timeline-chart" />
+        <div className="trade-timeline-chart-frame">
+          <div ref={hostRef} className="trade-timeline-chart" />
+        </div>
+        {hoveredTrades && (
+          <div className={`trade-marker-tooltip ${hoveredTrades.type.toLowerCase()}`} style={{ left: hoveredTrades.left, top: hoveredTrades.top }} role="tooltip">
+            <strong>{hoveredTrades.type === 'BUY' ? '↑ Purchase' : '↓ Sale'} · {base}/{quote}</strong>
+            <time>{new Date(hoveredTrades.group.time * 1000).toLocaleDateString('en-US', { timeZone: 'UTC', year: 'numeric', month: 'long', day: 'numeric' })}</time>
+            <div className="trade-marker-tooltip-list">
+              {hoveredTrades.transactions.map(trade => (
+                <div className="trade-marker-tooltip-row" key={trade.id}>
+                  <span>{new Date(trade.time * 1000).toLocaleString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short' })}</span>
+                  <span>{fmt(trade.amount, 8)} {base} @ {fmt(trade.price, trade.price < 1 ? 8 : 2)} {quote}</span>
+                  <b>{fmt(trade.amount * trade.price, 2)} {quote}</b>
+                </div>
+              ))}
+            </div>
+            <small>Click the arrow for full transaction details.</small>
+          </div>
+        )}
         {status === 'loading' && <div className="trade-timeline-status">Loading {base}/{quote} price and trade history…</div>}
         {status === 'error' && <div className="trade-timeline-status error">{error}</div>}
         {status === 'ready' && !trades.length && <div className="trade-timeline-empty">No completed {base}/{quote} purchases or sales were found. The price line remains available.</div>}

@@ -122,6 +122,14 @@ The application utilizes a **unified PostgreSQL database**.
 
 ## Version History & Changelog
 
+## v2.12.0 (August 2026)
+
+### Arrow-Only Trade Markers, Hover Details & Chart Edge Repair
+- **Uncluttered Trade Plot**: Removed every buy/sell label from the price plotting surface. Completed trades are represented only by green up arrows and red down arrows, eliminating overlapping text.
+- **Trade Hover Tooltips**: Hovering directly over an arrow now shows its exact execution date/time, base-asset amount, execution price, and USD/USDT value. Multiple executions represented by the same dated arrow are listed together, and clicking still opens full transaction details.
+- **Protected Chart Edges**: The Lightweight Chart now measures and resizes from its actual inner container, reserves a minimum width for the right price scale, adds safe padding around the canvas, and preserves top/bottom scale margins so axes, prices, and arrows are not clipped.
+- **Version Bump**: Transitioned version to `v2.12.0`.
+
 ## v2.11.0 (August 2026)
 
 ### Exact-Pair Trade Chart & Evidence-Based AI Outcome Grading
