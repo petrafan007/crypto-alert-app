@@ -13,9 +13,11 @@ export const CHART_RANGES = [
 ];
 
 export const DEFAULT_CHART_RANGE = '30d';
+export const DEFAULT_SENTIMENT_CHART_RANGE = '3d';
 
-export const getChartRange = value => CHART_RANGES.find(range => range.value === value)
-  || CHART_RANGES.find(range => range.value === DEFAULT_CHART_RANGE);
+export const getChartRange = (value, fallback = DEFAULT_CHART_RANGE) => CHART_RANGES.find(range => range.value === value)
+  || CHART_RANGES.find(range => range.value === fallback)
+  || CHART_RANGES[0];
 
 export const formatChartTick = (time, rangeValue) => {
   const date = new Date(Number(time) * 1000);

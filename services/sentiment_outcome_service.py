@@ -52,6 +52,10 @@ CORRECT_THRESHOLD_FIELDS = {
 }
 DEFAULT_SENTIMENT_THRESHOLD_PCT = 5.0
 DEFAULT_HOLD_STEADY_PCT = 1.0
+DEFAULT_SENTIMENT_CHART_RANGE = '3d'
+SENTIMENT_CHART_RANGE_VALUES = frozenset({
+    '1d', '3d', '5d', '7d', '14d', '30d', '90d', '180d', '365d', '730d', 'all',
+})
 
 _SIGNAL_ALIASES = {
     'buy immediately': 'buy_immediately',
@@ -77,6 +81,14 @@ BEARISH_SIGNALS = {
     label for label, key in _SIGNAL_ALIASES.items()
     if SENTIMENT_VARIABLES[key]['direction'] == 'down'
 }
+
+
+def validate_sentiment_chart_range(value):
+    """Return a normalized chart range and an optional validation error."""
+    normalized = str(value or '').strip().lower()
+    if normalized not in SENTIMENT_CHART_RANGE_VALUES:
+        return None, 'Choose a valid Sentiment Chart range from 1 Day through All Available.'
+    return normalized, None
 
 
 def validate_sentiment_threshold_payload(data, require_all=False):

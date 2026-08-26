@@ -75,6 +75,7 @@ def init_db(app=None):
             ("user_settings", "sentiment_consider_selling_wrong_pct", "FLOAT DEFAULT 5.0"),
             ("user_settings", "sentiment_sell_immediately_correct_pct", "FLOAT DEFAULT 5.0"),
             ("user_settings", "sentiment_sell_immediately_wrong_pct", "FLOAT DEFAULT 5.0"),
+            ("user_settings", "sentiment_chart_default_range", "VARCHAR(10) DEFAULT '3d'"),
             ("user_settings", "max_slippage_pct", "FLOAT DEFAULT 2.0"),
             ("coins", "sentiment_tracking_enabled", "BOOLEAN DEFAULT TRUE"),
             ("watchlist", "sentiment_tracking_enabled", "BOOLEAN DEFAULT TRUE")

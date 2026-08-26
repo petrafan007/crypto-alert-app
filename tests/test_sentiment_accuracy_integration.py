@@ -6,6 +6,7 @@ from flask import Flask
 from core.extensions import db
 from credentials import User, UserSetting
 from models import SentimentHistory
+from services.analysis_service import get_user_ai_settings
 from services.sentiment_outcome_service import build_sentiment_accuracy_response
 
 
@@ -81,6 +82,18 @@ class SentimentAccuracyIntegrationTests(unittest.TestCase):
         self.assertEqual(report['summary']['evaluated_signals'], 3)
         self.assertEqual(report['summary']['bullish_count'], 1)
         self.assertEqual(report['summary']['bearish_count'], 1)
+
+    def test_sentiment_chart_range_is_persisted_with_a_safe_default(self):
+        settings = UserSetting.query.filter_by(user_id=self.user_id).first()
+        self.assertEqual(get_user_ai_settings('sentiment-test')['sentiment_chart_default_range'], '3d')
+
+        settings.sentiment_chart_default_range = '90d'
+        db.session.commit()
+        self.assertEqual(get_user_ai_settings('sentiment-test')['sentiment_chart_default_range'], '90d')
+
+        settings.sentiment_chart_default_range = 'invalid'
+        db.session.commit()
+        self.assertEqual(get_user_ai_settings('sentiment-test')['sentiment_chart_default_range'], '3d')
 
 
 if __name__ == '__main__':

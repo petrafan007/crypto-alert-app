@@ -145,6 +145,7 @@ def get_user_ai_settings(username: str) -> dict:
             'sentiment_consider_selling_wrong_pct': 5.0,
             'sentiment_sell_immediately_correct_pct': 5.0,
             'sentiment_sell_immediately_wrong_pct': 5.0,
+            'sentiment_chart_default_range': '3d',
             'ai_prompts': {
                 'market_analysis_pre': '',
                 'market_analysis_post': '',
@@ -257,13 +258,23 @@ def get_user_ai_settings(username: str) -> dict:
 
                 settings['ai_outcome_neutral_threshold_pct'] = float(getattr(user_setting, 'ai_outcome_neutral_threshold_pct', 5.0) or 5.0)
                 from services.sentiment_outcome_service import (
+                    DEFAULT_SENTIMENT_CHART_RANGE,
                     HOLD_VARIABLE,
+                    SENTIMENT_CHART_RANGE_VALUES,
                     SENTIMENT_THRESHOLD_FIELDS,
                 )
                 for field in SENTIMENT_THRESHOLD_FIELDS:
                     default_value = 1.0 if field == HOLD_VARIABLE['steady_field'] else 5.0
                     stored_value = getattr(user_setting, field, None)
                     settings[field] = float(default_value if stored_value is None else stored_value)
+                stored_chart_range = str(
+                    getattr(user_setting, 'sentiment_chart_default_range', '') or ''
+                ).strip().lower()
+                settings['sentiment_chart_default_range'] = (
+                    stored_chart_range
+                    if stored_chart_range in SENTIMENT_CHART_RANGE_VALUES
+                    else DEFAULT_SENTIMENT_CHART_RANGE
+                )
                 settings['max_slippage_pct'] = float(getattr(user_setting, 'max_slippage_pct', 2.0) or 2.0)
 
                 b_enabled = getattr(user_setting, 'browser_notifications_enabled', True)

@@ -887,6 +887,7 @@ def api_settings():
             data = request.get_json() or {}
             from services.sentiment_outcome_service import (
                 SENTIMENT_THRESHOLD_FIELDS,
+                validate_sentiment_chart_range,
                 validate_sentiment_threshold_payload,
             )
             if any(field in data for field in SENTIMENT_THRESHOLD_FIELDS):
@@ -900,6 +901,17 @@ def api_settings():
                         "errors": threshold_errors,
                     }), 400
                 data.update(threshold_values)
+            if 'sentiment_chart_default_range' in data:
+                chart_range, chart_range_error = validate_sentiment_chart_range(
+                    data['sentiment_chart_default_range']
+                )
+                if chart_range_error:
+                    return jsonify({
+                        "success": False,
+                        "message": chart_range_error,
+                        "errors": {"sentiment_chart_default_range": chart_range_error},
+                    }), 400
+                data['sentiment_chart_default_range'] = chart_range
             
             # --- START UserSetting Logic ---
             # Update UserSetting columns
@@ -917,6 +929,7 @@ def api_settings():
                 'sentiment_analysis_frequency_hours', 'watchlist_sentiment_analysis_frequency_hours',
                 'portfolio_schedule_start_time', 'watchlist_schedule_start_time',
                 'volatility_hours', 'ai_outcome_neutral_threshold_pct', 'max_slippage_pct',
+                'sentiment_chart_default_range',
                 *SENTIMENT_THRESHOLD_FIELDS,
                 'ai_provider_fallback', 'ai_model_fallback', 'ai_reasoning_level_fallback',
                 'ai_provider_secondary', 'ai_model_secondary', 'ai_reasoning_level_secondary',

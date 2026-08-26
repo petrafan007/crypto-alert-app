@@ -7,6 +7,7 @@
 .trade-timeline-pair-select .searchable-pair-select-container { display:block; width:100%; }
 .trade-timeline-range-control { display:flex; flex-direction:column; gap:.35rem; flex:0 0 180px; color:#94a3b8; font-size:.7rem; font-weight:800; letter-spacing:.06em; text-transform:uppercase; }
 .trade-timeline-range-control select { min-height:40px; padding:.5rem .7rem; border:1px solid #475569; border-radius:8px; background:#1e293b; color:#f8fafc; font-size:.82rem; font-weight:700; text-transform:none; }
+.trade-timeline-range-control small { font-size:.65rem; font-weight:600; letter-spacing:0; text-transform:none; }
 .trade-timeline-legend { display:flex; flex-wrap:wrap; gap:1rem; padding:.65rem 1.25rem; color:#94a3b8; font-size:.78rem; border-bottom:1px solid #1e293b; }
 .trade-timeline-legend .buy { color:#4ade80; font-weight:800; }
 .trade-timeline-legend .sell { color:#f87171; font-weight:800; }

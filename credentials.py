@@ -389,6 +389,7 @@ class UserSetting(db.Model):
     sentiment_consider_selling_wrong_pct = db.Column(db.Float, default=5.0)
     sentiment_sell_immediately_correct_pct = db.Column(db.Float, default=5.0)
     sentiment_sell_immediately_wrong_pct = db.Column(db.Float, default=5.0)
+    sentiment_chart_default_range = db.Column(db.String(10), default='3d')
     max_slippage_pct = db.Column(db.Float, default=2.0)
 
 class DesktopToken(db.Model):

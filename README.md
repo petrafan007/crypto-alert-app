@@ -122,6 +122,15 @@ The application utilizes a **unified PostgreSQL database**.
 
 ## Version History & Changelog
 
+## v2.16.0 (August 2026)
+
+### Persistent Three-Day Sentiment Chart Range
+- **Three-Day Initial Default**: The AI Analysis Sentiment Chart now opens at 3 Days for users who have not selected a preferred range.
+- **Per-User Persistence**: Selecting any supported range from 1D through ALL immediately saves that choice as the user's default for future visits and sessions.
+- **Trade Chart Isolation**: The personal Trade Chart retains its existing 1 Month default; only the Sentiment Chart default changed.
+- **Validated Storage**: Added a user setting, API validation, automatic database migration, and safe fallback for invalid or legacy values.
+- **Version Bump**: Transitioned version to `v2.16.0`.
+
 ## v2.15.0 (August 2026)
 
 ### Zero-Boundary Directional Rules & Steady-Range Hold Validation

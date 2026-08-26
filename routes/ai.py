@@ -634,6 +634,7 @@ def api_ai_settings():
 
             from services.sentiment_outcome_service import (
                 SENTIMENT_THRESHOLD_FIELDS,
+                validate_sentiment_chart_range,
                 validate_sentiment_threshold_payload,
             )
             if any(field in data for field in SENTIMENT_THRESHOLD_FIELDS):
@@ -647,6 +648,17 @@ def api_ai_settings():
                         "errors": threshold_errors,
                     }), 400
                 data.update(threshold_values)
+            if 'sentiment_chart_default_range' in data:
+                chart_range, chart_range_error = validate_sentiment_chart_range(
+                    data['sentiment_chart_default_range']
+                )
+                if chart_range_error:
+                    return jsonify({
+                        "success": False,
+                        "message": chart_range_error,
+                        "errors": {"sentiment_chart_default_range": chart_range_error},
+                    }), 400
+                data['sentiment_chart_default_range'] = chart_range
             
             # Map of allowed fields to update
             allowed_fields = [
@@ -661,7 +673,8 @@ def api_ai_settings():
                 'sentiment_analysis_frequency_hours', 'watchlist_sentiment_analysis_frequency_hours',
                 'sentiment_history_lookback_hours', 'watchlist_sentiment_history_lookback_hours',
                 'volatility_hours', 'ai_outcome_neutral_threshold_pct', 'copilot_chat_pre',
-                'copilot_chat_post', *SENTIMENT_THRESHOLD_FIELDS
+                'copilot_chat_post', 'sentiment_chart_default_range',
+                *SENTIMENT_THRESHOLD_FIELDS
             ]
 
             for key, value in data.items():

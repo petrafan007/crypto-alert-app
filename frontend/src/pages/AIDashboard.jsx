@@ -4,7 +4,7 @@ import { useAuth } from '../components/AuthContext';
 import ApiKeyRequiredModal from '../components/ApiKeyRequiredModal';
 import CryptoIcon from '../components/CryptoIcon';
 import SentimentTimelineChart from '../components/SentimentTimelineChart';
-import { DEFAULT_CHART_RANGE } from '../utils/chartRanges';
+import { DEFAULT_SENTIMENT_CHART_RANGE, getChartRange } from '../utils/chartRanges';
 import './AIDashboard.css';
 
 const formatEasternTime = (isoString) => {
@@ -187,7 +187,7 @@ const AIDashboard = () => {
   // === AI SENTIMENT ACCURACY & THESIS TRACKER STATE ===
   const [accuracyData, setAccuracyData] = useState(null);
   const [accuracyLoading, setAccuracyLoading] = useState(false);
-  const [dateRange, setDateRange] = useState(DEFAULT_CHART_RANGE);
+  const [dateRange, setDateRange] = useState(DEFAULT_SENTIMENT_CHART_RANGE);
 
   // Coin filter state - stores explicitly excluded symbols so any newly added portfolio coins default to INCLUDED (checked)
   const [showCoinFilterModal, setShowCoinFilterModal] = useState(false);
@@ -247,12 +247,12 @@ const AIDashboard = () => {
           console.error('Failed to check API key status:', err);
         }
 
-        const enabled = await checkAiStatus();
+        const { enabled, preferredRange } = await checkAiStatus();
         setLoading(false);
         if (enabled) {
           await Promise.all([
             loadLatestResults(),
-            fetchAccuracyData(DEFAULT_CHART_RANGE)
+            fetchAccuracyData(preferredRange)
           ]);
         }
       }
@@ -470,15 +470,36 @@ const AIDashboard = () => {
 
   const checkAiStatus = async () => {
     try {
-      if (isLoggingOut || window.globalIsLoggingOut) return false;
+      if (isLoggingOut || window.globalIsLoggingOut) {
+        return { enabled: false, preferredRange: DEFAULT_SENTIMENT_CHART_RANGE };
+      }
       const response = await axios.get('/api/ai/settings', { withCredentials: true });
       const enabled = response.data.ai_enabled === true || response.data.ai_enabled === 'true';
+      const preferredRange = getChartRange(
+        response.data.sentiment_chart_default_range,
+        DEFAULT_SENTIMENT_CHART_RANGE,
+      ).value;
       setAiEnabled(enabled);
-      return enabled;
+      setDateRange(preferredRange);
+      return { enabled, preferredRange };
     } catch (error) {
       console.error('Error checking AI status:', error);
       setAiEnabled(true);
-      return true;
+      setDateRange(DEFAULT_SENTIMENT_CHART_RANGE);
+      return { enabled: true, preferredRange: DEFAULT_SENTIMENT_CHART_RANGE };
+    }
+  };
+
+  const handleSentimentRangeChange = async (nextRange) => {
+    const normalizedRange = getChartRange(nextRange, DEFAULT_SENTIMENT_CHART_RANGE).value;
+    setDateRange(normalizedRange);
+    fetchAccuracyData(normalizedRange);
+    try {
+      await axios.post('/api/ai/settings', {
+        sentiment_chart_default_range: normalizedRange,
+      }, { withCredentials: true });
+    } catch (error) {
+      console.error('Unable to save the Sentiment Chart default range:', error);
     }
   };
 
@@ -691,10 +712,7 @@ const AIDashboard = () => {
         <SentimentTimelineChart
           signals={accuracyData?.history || []}
           range={dateRange}
-          onRangeChange={(nextRange) => {
-            setDateRange(nextRange);
-            fetchAccuracyData(nextRange);
-          }}
+          onRangeChange={handleSentimentRangeChange}
           availableSymbols={availableSymbols}
           isLightMode={isLightMode}
         />

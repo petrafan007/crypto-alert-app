@@ -3,11 +3,13 @@ from types import SimpleNamespace
 
 from services.sentiment_outcome_service import (
     CORRECT_THRESHOLD_FIELDS,
+    DEFAULT_SENTIMENT_CHART_RANGE,
     HOLD_VARIABLE,
     SENTIMENT_THRESHOLD_FIELDS,
     evaluate_sentiment_outcome,
     get_sentiment_thresholds,
     pair_next_sentiment_checks,
+    validate_sentiment_chart_range,
     validate_sentiment_threshold_payload,
 )
 
@@ -132,6 +134,13 @@ class SentimentOutcomeTests(unittest.TestCase):
         self.assertEqual(thresholds['buy_immediately']['wrong_pct'], 0)
         self.assertEqual(thresholds['sell_immediately']['wrong_pct'], 0)
         self.assertEqual(thresholds['hold']['steady_pct'], 0)
+
+    def test_sentiment_chart_range_validation(self):
+        self.assertEqual(DEFAULT_SENTIMENT_CHART_RANGE, '3d')
+        self.assertEqual(validate_sentiment_chart_range('90D'), ('90d', None))
+        value, error = validate_sentiment_chart_range('2d')
+        self.assertIsNone(value)
+        self.assertIn('valid Sentiment Chart range', error)
 
     def test_checks_pair_only_with_the_same_coin_and_source(self):
         records = [
