@@ -901,7 +901,8 @@ const AIDashboard = () => {
     top_model: 'Not enough validated data'
   };
 
-  const formatRate = value => Number.isFinite(Number(value)) ? `${Number(value).toFixed(1)}%` : '—';
+  const hasRate = value => value !== null && value !== undefined && value !== '' && Number.isFinite(Number(value));
+  const formatRate = value => hasRate(value) ? `${Number(value).toFixed(1)}%` : '—';
 
   const availableSymbols = accuracyData?.available_symbols || ['BTC', 'ETH', 'ONT', 'SOL', 'XRP'];
 
@@ -1360,10 +1361,10 @@ const AIDashboard = () => {
                       <div key={idx} className="dist-item">
                         <div className="dist-header">
                           <span>{rec.sentiment} ({rec.total} calls)</span>
-                          <strong>{rec.win_rate}% Win Rate</strong>
+                          <strong>{formatRate(rec.win_rate)} Win Rate</strong>
                         </div>
                         <div className="progress-bar-track">
-                          <div className="progress-bar-fill" style={{ width: `${rec.win_rate}%`, backgroundColor: barCol }} />
+                          <div className="progress-bar-fill" style={{ width: `${hasRate(rec.win_rate) ? rec.win_rate : 0}%`, backgroundColor: barCol }} />
                         </div>
                         <div className="leaderboard-counts">
                           <span>{rec.correct} Correct</span>
@@ -1393,13 +1394,13 @@ const AIDashboard = () => {
                           <strong>{getProviderName(m.provider)}</strong>
                           <span className="model-subname">({m.model}) • {getTierName(m.tier)}</span>
                         </div>
-                        <div className="model-winrate">{m.win_rate}% Win Rate</div>
+                        <div className="model-winrate">{formatRate(m.win_rate)} Win Rate</div>
                       </div>
                       <div className="progress-bar-track">
                         <div
                           className="progress-bar-fill"
                           style={{
-                            width: `${m.win_rate}%`,
+                            width: `${hasRate(m.win_rate) ? m.win_rate : 0}%`,
                             backgroundColor: idx === 0 ? '#00e676' : idx === 1 ? '#38bdf8' : '#a855f7'
                           }}
                         />
