@@ -186,7 +186,7 @@ const AIDashboard = () => {
   // === AI SENTIMENT ACCURACY & THESIS TRACKER STATE ===
   const [accuracyData, setAccuracyData] = useState(null);
   const [accuracyLoading, setAccuracyLoading] = useState(false);
-  const [dateRange, setDateRange] = useState('7d'); // Default: 7D
+  const [dateRange, setDateRange] = useState('3d'); // Default: 3D
   const [selectedCoin, setSelectedCoin] = useState('BTC');
   const [klines, setKlines] = useState([]);
   const [klinesLoading, setKlinesLoading] = useState(false);
@@ -260,7 +260,7 @@ const AIDashboard = () => {
         if (enabled) {
           await Promise.all([
             loadLatestResults(),
-            fetchAccuracyData('7d')
+            fetchAccuracyData('3d')
           ]);
         }
       }
@@ -302,7 +302,7 @@ const AIDashboard = () => {
       case '30d': return { interval: '4h', limit: 180 };
       case '90d': return { interval: '1d', limit: 90 };
       case 'all': return { interval: '1d', limit: 365 };
-      default: return { interval: '1h', limit: 168 };
+      default: return { interval: '15m', limit: 288 };
     }
   };
 
@@ -474,7 +474,7 @@ const AIDashboard = () => {
 
     const modBreakdown = Object.values(modStats).map(m => {
       const mEval = m.correct + m.wrong;
-      m.win_rate = mEval > 0 ? Number(((m.correct / mEval) * 100).toFixed(1)) : (m.total > 0 ? 80.0 : 0.0);
+      m.win_rate = mEval > 0 ? Number(((m.correct / mEval) * 100).toFixed(1)) : null;
       return m;
     }).sort((a, b) => b.win_rate - a.win_rate);
 
@@ -667,7 +667,11 @@ const AIDashboard = () => {
         const deltaStr = rawDelta !== undefined && rawDelta !== null
           ? `${rawDelta >= 0 ? '+' : ''}${parseFloat(rawDelta).toFixed(2)}%`
           : '0.00%';
-        const outcomeTxt = isCorrect ? `✅ ${deltaStr}` : isWrong ? `❌ ${deltaStr}` : `⚖️ ${deltaStr}`;
+        const outcomeTxt = sig.outcome_status === 'tracking'
+          ? '⏳ Tracking'
+          : sig.outcome_status === 'unscored'
+            ? '— Unscored'
+            : isCorrect ? `✅ ${deltaStr}` : isWrong ? `❌ ${deltaStr}` : `⚖️ ${deltaStr}`;
 
         markers.push({
           time: closestKline.time,
@@ -889,12 +893,15 @@ const AIDashboard = () => {
   }
 
   const summary = accuracyData?.summary || {
-    overall_accuracy: 74.8,
-    bullish_win_rate: 78.2,
-    bearish_win_rate: 69.4,
+    overall_accuracy: null,
+    bullish_win_rate: null,
+    bearish_win_rate: null,
     total_signals: 0,
-    top_model: 'Google Gemini (82.1%)'
+    evaluated_signals: 0,
+    top_model: 'Not enough validated data'
   };
+
+  const formatRate = value => Number.isFinite(Number(value)) ? `${Number(value).toFixed(1)}%` : '—';
 
   const availableSymbols = accuracyData?.available_symbols || ['BTC', 'ETH', 'ONT', 'SOL', 'XRP'];
 
@@ -942,20 +949,20 @@ const AIDashboard = () => {
         <div className="accuracy-kpi-grid">
           <div className="accuracy-kpi-card overall">
             <div className="kpi-label">Overall Accuracy</div>
-            <div className="kpi-value glow-text">{summary.overall_accuracy}%</div>
-            <div className="kpi-subtext">Across {summary.total_signals} total signals</div>
+            <div className="kpi-value glow-text">{formatRate(summary.overall_accuracy)}</div>
+            <div className="kpi-subtext">{summary.evaluated_signals || 0} decisive of {summary.total_signals} signals; neutral/tracking excluded</div>
           </div>
 
           <div className="accuracy-kpi-card bullish">
             <div className="kpi-label">Bullish Win Rate</div>
-            <div className="kpi-value text-green">{summary.bullish_win_rate}%</div>
-            <div className="kpi-subtext">Profitable Buy recommendations</div>
+            <div className="kpi-value text-green">{formatRate(summary.bullish_win_rate)}</div>
+            <div className="kpi-subtext">Buy/Hold theses after their configured horizon</div>
           </div>
 
           <div className="accuracy-kpi-card bearish">
             <div className="kpi-label">Bearish Win Rate</div>
-            <div className="kpi-value text-red">{summary.bearish_win_rate}%</div>
-            <div className="kpi-subtext">Correctly avoided price drops</div>
+            <div className="kpi-value text-red">{formatRate(summary.bearish_win_rate)}</div>
+            <div className="kpi-subtext">Sell/Watch theses after their configured horizon</div>
           </div>
 
           <div className="accuracy-kpi-card model">
@@ -1005,9 +1012,9 @@ const AIDashboard = () => {
                   }}
                 >
                   <option value="1d">1 Day (1D)</option>
-                  <option value="3d">3 Days (3D)</option>
+                  <option value="3d">3 Days (3D) - Default</option>
                   <option value="5d">5 Days (5D)</option>
-                  <option value="7d">7 Days (7D) - Default</option>
+                  <option value="7d">7 Days (7D)</option>
                   <option value="14d">14 Days (14D)</option>
                   <option value="30d">30 Days (30D)</option>
                   <option value="90d">90 Days (90D)</option>
@@ -1268,7 +1275,7 @@ const AIDashboard = () => {
                             <td className="date-cell">{row.date || '—'}</td>
                             <td className="time-cell">{row.time || '—'}</td>
                             <td className="price-cell">
-                              {`$${parseFloat(row.evaluation_price || 0) > 100
+                              {row.evaluation_price == null ? '—' : `$${parseFloat(row.evaluation_price || 0) > 100
                                 ? parseFloat(row.evaluation_price || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })
                                 : parseFloat(row.evaluation_price || 0).toFixed(4)}`}
                             </td>
@@ -1288,20 +1295,26 @@ const AIDashboard = () => {
 
                                 if (row.outcome_status === 'correct') {
                                   return (
-                                    <span className="outcome-pill outcome-correct">
+                                    <span className="outcome-pill outcome-correct" title={row.outcome_reason || ''}>
                                       ✅ Correct ({deltaFormatted})
                                     </span>
                                   );
                                 } else if (row.outcome_status === 'wrong') {
                                   return (
-                                    <span className="outcome-pill outcome-wrong">
+                                    <span className="outcome-pill outcome-wrong" title={row.outcome_reason || ''}>
                                       ❌ Wrong ({deltaFormatted})
+                                    </span>
+                                  );
+                                } else if (row.outcome_status === 'neutral') {
+                                  return (
+                                    <span className="outcome-pill outcome-neutral" title={row.outcome_reason || ''} style={{ background: 'rgba(100, 116, 139, 0.15)', color: 'var(--text-secondary)' }}>
+                                      ⚖️ Neutral ({deltaFormatted})
                                     </span>
                                   );
                                 } else {
                                   return (
-                                    <span className="outcome-pill outcome-neutral" style={{ background: 'rgba(100, 116, 139, 0.15)', color: 'var(--text-secondary)' }}>
-                                      ⚖️ Neutral ({deltaFormatted})
+                                    <span className="outcome-pill outcome-neutral" title={row.outcome_reason || ''}>
+                                      — Not Scored
                                     </span>
                                   );
                                 }

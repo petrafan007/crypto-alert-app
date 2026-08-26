@@ -591,7 +591,7 @@ export default function Help({ isLightMode }) {
                     <li><strong>Market Analysis</strong> — current market trends and opportunities, grounded in live web search</li>
                     <li><strong>Portfolio Review</strong> — comprehensive risk assessment, allocation breakdown, and recommendations</li>
                     <li><strong>Historical Prediction Ledger</strong> — every past sentiment call paired with its actual price outcome to measure accuracy over time. Supports interactive coin filtering in the table header, and default sorting strictly by updated date/time descending</li>
-                    <li><strong>AI Outcome Neutral Threshold</strong> — configurable in Settings (default 5.00%); Hold/Watch predictions are evaluated as Neutral only if price stays within the threshold %, otherwise marked as Wrong if the market made a large move</li>
+                    <li><strong>AI Outcome Neutral Threshold</strong> — configurable in Settings (default 5.00%); all predictions inside the ± threshold are inconclusive and excluded from win rates. Larger moves are graded at the configured portfolio/watchlist evaluation horizon according to the signal's intended direction.</li>
                     <li><strong>Automatic Coin Inclusion</strong> — newly added portfolio coins are automatically checked off and included by default in all charts, list views, and thesis evaluations</li>
                     <li><strong>AI Model Leaderboard</strong> — empirical accuracy comparison across whichever AI providers/models you've used</li>
                 </ul>

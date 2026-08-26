@@ -133,28 +133,38 @@ def init_db(app=None):
             if not def_prompt:
                 def_prompt = DefaultAIPrompt()
                 db.session.add(def_prompt)
-            def_prompt.sentiment_prompt_pre = default_port_pre
-            def_prompt.sentiment_prompt_post = default_port_post
-            def_prompt.watchlist_sentiment_prompt_pre = default_wl_pre
-            def_prompt.watchlist_sentiment_prompt_post = default_wl_post
-            def_prompt.copilot_chat_pre = default_copilot_pre
-            def_prompt.copilot_chat_post = default_copilot_post
+            for field, value in {
+                'sentiment_prompt_pre': default_port_pre,
+                'sentiment_prompt_post': default_port_post,
+                'watchlist_sentiment_prompt_pre': default_wl_pre,
+                'watchlist_sentiment_prompt_post': default_wl_post,
+                'copilot_chat_pre': default_copilot_pre,
+                'copilot_chat_post': default_copilot_post,
+            }.items():
+                if getattr(def_prompt, field, None) is None:
+                    setattr(def_prompt, field, value)
             db.session.commit()
             
             user_prompts = AIPrompt.query.all()
             for up in user_prompts:
-                up.sentiment_prompt_pre = default_port_pre
-                up.sentiment_prompt_post = default_port_post
-                up.watchlist_sentiment_prompt_pre = default_wl_pre
-                up.watchlist_sentiment_prompt_post = default_wl_post
-                up.copilot_chat_pre = default_copilot_pre
-                up.copilot_chat_post = default_copilot_post
+                for field, value in {
+                    'sentiment_prompt_pre': default_port_pre,
+                    'sentiment_prompt_post': default_port_post,
+                    'watchlist_sentiment_prompt_pre': default_wl_pre,
+                    'watchlist_sentiment_prompt_post': default_wl_post,
+                    'copilot_chat_pre': default_copilot_pre,
+                    'copilot_chat_post': default_copilot_post,
+                }.items():
+                    if getattr(up, field, None) is None:
+                        setattr(up, field, value)
             db.session.commit()
 
             user_settings = UserSetting.query.all()
             for us in user_settings:
-                us.copilot_chat_pre = default_copilot_pre
-                us.copilot_chat_post = default_copilot_post
+                if getattr(us, 'copilot_chat_pre', None) is None:
+                    us.copilot_chat_pre = default_copilot_pre
+                if getattr(us, 'copilot_chat_post', None) is None:
+                    us.copilot_chat_post = default_copilot_post
             db.session.commit()
         except Exception as seed_err:
             print(f"Error seeding default prompts: {seed_err}")

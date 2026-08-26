@@ -192,10 +192,12 @@ github_instructions.md
 route_checklist.md
 crypto_desktop_app/
 tests/
+!tests/
+tests/*
+!tests/test_sentiment_outcome_service.py
 migrations/
 
 # Exclude sensitive files explicitly
 jcavallarojr_access_token.json*
 credentials.db*
 cookies*
-

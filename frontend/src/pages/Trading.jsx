@@ -5,6 +5,7 @@ import TwoFactorModal from '../components/TwoFactorModal';
 import ConvertDustModal from '../components/ConvertDustModal';
 import CancelOrderModal from '../components/CancelOrderModal';
 import TradingViewAdvancedChart from '../components/TradingViewAdvancedChart';
+import TradeTimelineChart from '../components/TradeTimelineChart';
 import TradePermissionModal from '../components/TradePermissionModal';
 import ApiKeyRequiredModal from '../components/ApiKeyRequiredModal';
 import SearchablePairSelect from '../components/SearchablePairSelect';
@@ -1746,6 +1747,13 @@ const Trading = ({ isLightMode = false }) => {
           <span className="tab-icon">📜</span>
           <span className="tab-text">Order History</span>
         </button>
+        <button
+          className={`tab-button ${activeTab === 'trade_chart' ? 'active' : ''}`}
+          onClick={() => setActiveTab('trade_chart')}
+        >
+          <span className="tab-icon">📈</span>
+          <span className="tab-text">Trade Chart</span>
+        </button>
         {settings.test_mode_enabled && (
           <button
             className={`tab-button ${activeTab === 'portfolio' ? 'active' : ''}`}
@@ -2164,6 +2172,15 @@ const Trading = ({ isLightMode = false }) => {
               </div>
             )}
           </div>
+        )}
+
+        {activeTab === 'trade_chart' && (
+          <TradeTimelineChart
+            symbol={orderForm.symbol}
+            onSymbolChange={handleSymbolChange}
+            tradingPairs={tradingPairs}
+            isLightMode={isLightMode}
+          />
         )}
 
         {/* ORDER HISTORY TAB */}

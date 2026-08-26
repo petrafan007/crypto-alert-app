@@ -2176,7 +2176,7 @@ export default function Settings({ isLightMode }) {
               }}
             />
             <p style={{ color: '#666', fontSize: '12px', marginTop: 4 }}>
-              Max % price move for "Hold" or "Watch" to be evaluated as Neutral (exceeding this evaluates as Wrong)
+              Minimum meaningful price move used to grade every AI signal. Moves inside ± this value are Neutral and excluded from accuracy; larger moves are graded according to the recommendation and portfolio/watchlist context.
             </p>
           </div>
         </div>

@@ -17,7 +17,7 @@
   - **Dual-Quote Currency Trading**: Instant one-click spot trading for both **USD** and **USDT** quote pairs directly from Portfolio and Watchlist rows.
   - **Advanced Order Execution**: Support for Market Orders, Limit Orders, Stop-Loss Limit, and OCO (One-Cancels-the-Other) protective orders.
   - **Searchable Pair Selector**: Real-time typeahead search across all 54+ active Binance.US USD pairs and 200+ USDT pairs.
-  - **TradingView Advanced Chart & Personal Trade Timeline**: Free hosted Advanced Chart with native symbol search, 80+ indicators, 100+ drawing tools, comparisons, date ranges, details, hotlists, calendar, export/popup controls, and a pair-aware dated Binance.US buy/sell timeline.
+  - **TradingView Advanced Chart & Personal Trade Chart**: Free hosted Advanced Chart with native symbol search, 80+ indicators, 100+ drawing tools, comparisons, date ranges, details, hotlists, calendar, and export/popup controls, plus a separate exact-pair line chart with Binance.US buy/sell markers.
   - **Paginated Order History**: Independent order history tab with 20-row pagination and symbol filtering.
 
 - **🛡️ Autonomous Crash Protection & Volatility Auto-Sell**
@@ -122,13 +122,26 @@ The application utilizes a **unified PostgreSQL database**.
 
 ## Version History & Changelog
 
+## v2.11.0 (August 2026)
+
+### Exact-Pair Trade Chart & Evidence-Based AI Outcome Grading
+- **Dedicated Trade Chart Tab**: Added a basic price-line chart immediately to the right of Order History. It follows the app-selected exact Binance.US pair, uses a right-side quote-price Y-axis and year/month X-axis, and overlays completed purchases with up arrows and sales with down arrows.
+- **Complete Execution Labels**: Trade markers show base-asset amount, execution price, and USD/USDT value. Clicking a dated marker opens the full transaction details, including every exact execution timestamp represented on that date.
+- **TradingView Cleanup**: Removed the unrequested Pair-Aware Activity section beneath the Advanced Chart. TradingView remains dedicated to its free native symbol search, indicators (including moving averages, oscillators, and Bollinger Bands), drawings, comparisons, and market tools.
+- **Fixed-Horizon Sentiment Validation**: Replaced next-refresh comparisons with recorded market prices at each signal's configured portfolio or watchlist analysis horizon. Portfolio and watchlist records are evaluated independently, eliminating cross-source and irregular-refresh contradictions.
+- **Consistent Outcome Semantics**: The configured neutral threshold now applies to every recommendation. Moves inside the ± band are inconclusive and excluded from win rates; decisive Buy/Hold, Sell, and Watch outcomes are graded according to their intended, context-aware direction.
+- **No Fabricated Accuracy**: Removed seeded history and placeholder win rates. Tracking, neutral, unavailable-price, and unsupported signals are reported separately and never counted as wins or losses; a top model requires at least three decisive outcomes.
+- **Three-Day Default**: The AI sentiment price chart and accuracy request now default to the past three days.
+- **Prompt Preservation**: Application startup now fills only missing AI prompt fields and preserves every existing customization during service upgrades and restarts.
+- **Version Bump**: Transitioned version to `v2.11.0`.
+
 ## v2.1.0 (August 2026)
 
 ### TradingView Advanced Chart, BTC/USDT Navigation Default & Dated Personal Trades
 - **Reliable Trading Navigation Default**: Clicking `Trading` from any page—or clicking it again while already in the Trading Center—now resets the authoritative order/chart pair to `BTC/USDT`. Contextual Buy/Sell and Quick Trade links retain priority and still open their requested pair and side.
 - **Full Free TradingView Advanced Chart**: Replaced the Trading Center's custom Lightweight Charts view with TradingView's hosted Advanced Chart, configured with its top, bottom, and drawing toolbars; native symbol search; chart styles and intervals; 80+ built-in indicators; 100+ drawing tools; symbol comparison; date ranges; volume and legend; details; hotlists; economic calendar; image export; Binance.US watchlist; and full-size popup.
 - **Built-In Indicator Coverage**: Moving averages, RSI, MACD, Stochastic, ATR, Bollinger Bands, and Volume remain available from TradingView's `Indicators` menu. The redundant MA/Oscillator/Other button row below the former chart has been removed.
-- **Pair-Aware My Trades Timeline**: Preserved personal Binance.US activity in a dedicated timeline directly below the TradingView widget. Buys and sells are scoped to the app-selected coin, grouped by Eastern Time execution date, and show exact time, price, amount, quote value, aggregate totals, and click-through transaction details.
+- **Pair-Aware My Trades Timeline**: Initially added personal Binance.US activity beneath TradingView; this presentation was superseded by the dedicated Trade Chart tab in v2.11.0.
 - **Safe Pair Synchronization**: The app's Binance.US selector remains authoritative for the executable order ticket, balances, fees, chart default, and personal trade history. TradingView's cross-origin built-in selector remains available for independent research without silently changing the pair an order would execute against.
 - **Theme & Responsive Support**: The widget reinitializes with the application's light/dark theme and uses responsive desktop, tablet, and mobile chart heights, while preserving TradingView attribution and loading/error feedback.
 - **Version Bump**: Transitioned version to `v2.1.0`.
@@ -219,7 +232,7 @@ The application utilizes a **unified PostgreSQL database**.
 - **2FA Verification on Login Screen**: Added two-factor authentication verification to the login flow. When a user has 2FA enabled on their profile, entering their username and password automatically opens a 6-digit TOTP code input step before granting access.
 - **Watchlist Add 0ms Persistence**: Fixed a race condition where background polling wiped out newly added coins before the server add completed by locking optimistic additions in an un-wipeable ref map until confirmed.
 - **OCO Order Balance Check Fix**: Fixed a bug where OCO sell orders checked quote asset balances (e.g. USDT) instead of base asset balances (e.g. PURR), rejecting valid sell orders when USDT balance was $0.00. The quote balance check is now properly scoped to Buy orders, and Sell orders validate available base asset balance.
-- **AI Recommendation Outcome Neutral Threshold**: Added a configurable `AI Outcome Neutral Threshold (%)` setting in Settings (default 5.00%). Predictions of "Hold" or "Watch" are now evaluated as Neutral only if price movement remains within $\pm\text{threshold}\%$; if price moved $\ge \text{threshold}\%$ up or down, the hold recommendation is accurately evaluated as Wrong (missed opportunity or unmitigated loss).
+- **AI Recommendation Outcome Neutral Threshold**: Added a configurable `AI Outcome Neutral Threshold (%)` setting in Settings (default 5.00%). As of v2.11.0, the threshold applies consistently to every recommendation and neutral moves are excluded from accuracy.
 - **Historical Prediction Ledger Coin Filter & Default Sort**: Added an interactive coin filter dropdown directly in the "Coin" table header on the Historical Prediction Ledger with Select All, Deselect All, and individual coin toggles. Fixed default table sorting strictly to updated Date & Time descending, ensuring temporary column header sorts reset cleanly on reload.
 - **Auto-Inclusion of New Portfolio Coins in AI Analysis**: Newly acquired portfolio coins are now automatically checked and included by default across all AI analysis list views, charts, and prediction ledgers.
 - **Real-Time Staking APY & Reward Rate Sync**: Ensured staking reward rates and estimated APY/APR percentages are continuously normalized and synchronized in real time from live Binance.US staking endpoints (`/sapi/v1/staking/asset`).
