@@ -884,7 +884,22 @@ def api_settings():
         encryption_persisted = is_persisted_key_available()
         
         if request.method == "POST":
-            data = request.get_json()
+            data = request.get_json() or {}
+            from services.sentiment_outcome_service import (
+                SENTIMENT_THRESHOLD_FIELDS,
+                validate_sentiment_threshold_payload,
+            )
+            if any(field in data for field in SENTIMENT_THRESHOLD_FIELDS):
+                threshold_values, threshold_errors = validate_sentiment_threshold_payload(
+                    data, require_all=True
+                )
+                if threshold_errors:
+                    return jsonify({
+                        "success": False,
+                        "message": "Every sentiment Correct and Wrong value is required, must be at least 0.01%, and may use no more than two decimal places.",
+                        "errors": threshold_errors,
+                    }), 400
+                data.update(threshold_values)
             
             # --- START UserSetting Logic ---
             # Update UserSetting columns
@@ -902,6 +917,7 @@ def api_settings():
                 'sentiment_analysis_frequency_hours', 'watchlist_sentiment_analysis_frequency_hours',
                 'portfolio_schedule_start_time', 'watchlist_schedule_start_time',
                 'volatility_hours', 'ai_outcome_neutral_threshold_pct', 'max_slippage_pct',
+                *SENTIMENT_THRESHOLD_FIELDS,
                 'ai_provider_fallback', 'ai_model_fallback', 'ai_reasoning_level_fallback',
                 'ai_provider_secondary', 'ai_model_secondary', 'ai_reasoning_level_secondary',
                 'ai_provider_tertiary', 'ai_model_tertiary', 'ai_reasoning_level_tertiary',
@@ -941,7 +957,7 @@ def api_settings():
                             setattr(user_setting, key, parsed_value)
                         except:
                             pass
-                    elif key in ['ai_confidence_threshold', 'ai_outcome_neutral_threshold_pct', 'max_slippage_pct']:
+                    elif key in ['ai_confidence_threshold', 'ai_outcome_neutral_threshold_pct', 'max_slippage_pct', *SENTIMENT_THRESHOLD_FIELDS]:
                         try:
                             setattr(user_setting, key, float(value))
                         except:

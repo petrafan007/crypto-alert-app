@@ -378,6 +378,16 @@ class UserSetting(db.Model):
     watchlist_schedule_start_time = db.Column(db.String, default='08:00')
     volatility_hours = db.Column(db.Integer, default=24)
     ai_outcome_neutral_threshold_pct = db.Column(db.Float, default=5.0)
+    sentiment_buy_immediately_correct_pct = db.Column(db.Float, default=5.0)
+    sentiment_buy_immediately_wrong_pct = db.Column(db.Float, default=5.0)
+    sentiment_consider_buying_correct_pct = db.Column(db.Float, default=5.0)
+    sentiment_consider_buying_wrong_pct = db.Column(db.Float, default=5.0)
+    sentiment_hold_correct_pct = db.Column(db.Float, default=5.0)
+    sentiment_hold_wrong_pct = db.Column(db.Float, default=5.0)
+    sentiment_consider_selling_correct_pct = db.Column(db.Float, default=5.0)
+    sentiment_consider_selling_wrong_pct = db.Column(db.Float, default=5.0)
+    sentiment_sell_immediately_correct_pct = db.Column(db.Float, default=5.0)
+    sentiment_sell_immediately_wrong_pct = db.Column(db.Float, default=5.0)
     max_slippage_pct = db.Column(db.Float, default=2.0)
 
 class DesktopToken(db.Model):

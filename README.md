@@ -122,6 +122,19 @@ The application utilizes a **unified PostgreSQL database**.
 
 ## Version History & Changelog
 
+## v2.14.0 (August 2026)
+
+### Consecutive-Check Sentiment Grading & Configurable Outcome Rules
+- **Consecutive Same-Coin Validation**: Every recorded recommendation is now graded by comparing its recorded coin price with the price at the immediately following sentiment check for the same coin and portfolio/watchlist source. The newest check remains Tracking until its next check exists.
+- **Five Independent Rule Sets**: Added a dedicated `Sentiment Variable Settings` section with separate Correct and Wrong percentage magnitudes for Buy Immediately, Consider Buying, Hold, Consider Selling, and Sell Immediately—ten persistent values in total.
+- **Explicit Directional Boundaries**: Buy Immediately, Consider Buying, and Hold expect upward movement; Consider Selling and Sell Immediately expect downward movement. Correct and Wrong are independent positive magnitudes applied in opposite directions, exact boundary matches are decisive, and every move strictly between the two boundaries is Neutral.
+- **Validated Configuration**: Every field is required, must be at least `0.01`, cannot be negative, and accepts no more than two decimal places. Both the browser and API reject invalid values, while each completed rule pair displays a live explanation of its Correct, Wrong, and Neutral ranges.
+- **Stable Signal Colors**: Sentiment Chart markers remain recommendation-colored only: H blue, CB light green, BI dark green, CS light red, and SI dark red. Outcome grading cannot change a marker's recommendation color.
+- **Detailed Hover Comparisons**: Compact chart labels remain unchanged, while hover details now identify the previous and next check price/time, elapsed time, active thresholds, price change, outcome, and exact grading explanation.
+- **Ledger Terminology**: Renamed Updated Price/Date/Time columns to Next Check Price/Date/Time and revised AI Analysis and Help copy to describe consecutive-check validation accurately.
+- **Upgrade-Safe Storage**: Added automatic database migration coverage for all ten values, with conservative 5.00% defaults for existing and new installations.
+- **Version Bump**: Transitioned version to `v2.14.0`.
+
 ## v2.13.0 (August 2026)
 
 ### Date-Ranged Trade History & In-Place Sentiment Chart

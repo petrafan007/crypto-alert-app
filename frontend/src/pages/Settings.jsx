@@ -9,6 +9,24 @@ import { APP_VERSION_TAG } from '../version';
 
 const CURRENT_APP_VERSION = APP_VERSION_TAG;
 
+const SENTIMENT_VARIABLES = [
+  { label: 'Buy Immediately', code: 'BI', direction: 'up', correctKey: 'sentiment_buy_immediately_correct_pct', wrongKey: 'sentiment_buy_immediately_wrong_pct' },
+  { label: 'Consider Buying', code: 'CB', direction: 'up', correctKey: 'sentiment_consider_buying_correct_pct', wrongKey: 'sentiment_consider_buying_wrong_pct' },
+  { label: 'Hold', code: 'H', direction: 'up', correctKey: 'sentiment_hold_correct_pct', wrongKey: 'sentiment_hold_wrong_pct' },
+  { label: 'Consider Selling', code: 'CS', direction: 'down', correctKey: 'sentiment_consider_selling_correct_pct', wrongKey: 'sentiment_consider_selling_wrong_pct' },
+  { label: 'Sell Immediately', code: 'SI', direction: 'down', correctKey: 'sentiment_sell_immediately_correct_pct', wrongKey: 'sentiment_sell_immediately_wrong_pct' },
+];
+
+const sentimentThresholdError = value => {
+  const raw = String(value ?? '').trim();
+  if (!raw) return 'A value is required.';
+  if (!/^\d+(?:\.\d{1,2})?$/.test(raw)) return 'Enter a positive number with no more than two decimal places.';
+  if (Number(raw) < 0.01) return 'Enter a value of at least 0.01%.';
+  return '';
+};
+
+const formatThreshold = value => Number(value).toFixed(2);
+
 const getDefaultModel = (provider, options) => {
   if (!options || !provider) return '';
   const models = options[provider] || [];
@@ -81,6 +99,16 @@ export default function Settings({ isLightMode }) {
     ai_risk_tolerance: 'moderate',
     ai_confidence_threshold: 75,
     ai_outcome_neutral_threshold_pct: 5.0,
+    sentiment_buy_immediately_correct_pct: '5.00',
+    sentiment_buy_immediately_wrong_pct: '5.00',
+    sentiment_consider_buying_correct_pct: '5.00',
+    sentiment_consider_buying_wrong_pct: '5.00',
+    sentiment_hold_correct_pct: '5.00',
+    sentiment_hold_wrong_pct: '5.00',
+    sentiment_consider_selling_correct_pct: '5.00',
+    sentiment_consider_selling_wrong_pct: '5.00',
+    sentiment_sell_immediately_correct_pct: '5.00',
+    sentiment_sell_immediately_wrong_pct: '5.00',
     max_slippage_pct: 2.0,
     ai_notifications_enabled: true,
     ai_analysis_frequency: 'daily',
@@ -369,6 +397,13 @@ export default function Settings({ isLightMode }) {
       if (!Number.isInteger(volatilityHours) || volatilityHours < 1) {
         errors.push("Volatility Hours must be a whole number of at least 1.");
       }
+
+      SENTIMENT_VARIABLES.forEach(variable => {
+        const correctError = sentimentThresholdError(settings[variable.correctKey]);
+        const wrongError = sentimentThresholdError(settings[variable.wrongKey]);
+        if (correctError) errors.push(`${variable.label} Correct: ${correctError}`);
+        if (wrongError) errors.push(`${variable.label} Wrong: ${wrongError}`);
+      });
 
       if (errors.length > 0) {
         setMessage(errors.join(" "));
@@ -2154,31 +2189,6 @@ export default function Settings({ isLightMode }) {
             </p>
           </div>
 
-          <div>
-            <label style={{ display: 'block', marginBottom: 8, color: '#fff' }}>
-              AI Outcome Neutral Threshold (%)
-            </label>
-            <input
-              type="number"
-              step="0.01"
-              min="0.1"
-              max="50"
-              value={settings.ai_outcome_neutral_threshold_pct ?? 5.0}
-              onChange={(e) => handleInputChange('ai_outcome_neutral_threshold_pct', parseFloat(e.target.value) || 0)}
-              style={{
-                width: 'calc(100% - 24px)',
-                padding: '8px 12px',
-                borderRadius: 6,
-                background: '#1a1f23',
-                color: '#fff',
-                border: '1px solid #444',
-                boxSizing: 'border-box'
-              }}
-            />
-            <p style={{ color: '#666', fontSize: '12px', marginTop: 4 }}>
-              Minimum meaningful price move used to grade every AI signal. Moves inside ± this value are Neutral and excluded from accuracy; larger moves are graded according to the recommendation and portfolio/watchlist context.
-            </p>
-          </div>
         </div>
 
         <div style={{ marginTop: 16 }}>
@@ -2749,6 +2759,69 @@ export default function Settings({ isLightMode }) {
           </div>
         </div>
       </div>
+
+      <section className="settings-page-section sentiment-variable-settings" style={{ marginTop: '24px' }}>
+        <h3>🎯 Sentiment Variable Settings</h3>
+        <p>
+          Define how much the coin price must move between one sentiment check and the next check for the previous recommendation to be Correct or Wrong. Enter positive percentage magnitudes only; the app applies the appropriate direction. Values are independent and exact boundaries are decisive.
+        </p>
+        <div className="sentiment-variable-grid">
+          {SENTIMENT_VARIABLES.map(variable => {
+            const correctValue = settings[variable.correctKey];
+            const wrongValue = settings[variable.wrongKey];
+            const correctError = sentimentThresholdError(correctValue);
+            const wrongError = sentimentThresholdError(wrongValue);
+            const valuesAreValid = !correctError && !wrongError;
+            const correct = valuesAreValid ? formatThreshold(correctValue) : '';
+            const wrong = valuesAreValid ? formatThreshold(wrongValue) : '';
+            const neutralText = variable.direction === 'up'
+              ? `Correct at +${correct}% or higher. Wrong at -${wrong}% or lower. Any move between -${wrong}% and +${correct}% is Neutral.`
+              : `Correct at -${correct}% or lower. Wrong at +${wrong}% or higher. Any move between -${correct}% and +${wrong}% is Neutral.`;
+            return <article className="sentiment-variable-row" key={variable.code}>
+              <header>
+                <span className={`sentiment-variable-code sentiment-variable-code-${variable.code.toLowerCase()}`}>{variable.code}</span>
+                <div>
+                  <h4>{variable.label}</h4>
+                  <small>{variable.direction === 'up' ? 'Expects price to increase' : 'Expects price to decrease'}</small>
+                </div>
+              </header>
+              <div className="sentiment-variable-inputs">
+                <label>
+                  <span>Correct (%)</span>
+                  <input
+                    type="number"
+                    inputMode="decimal"
+                    step="0.01"
+                    min="0.01"
+                    value={correctValue ?? ''}
+                    onChange={event => handleInputChange(variable.correctKey, event.target.value)}
+                    className={correctError ? 'sentiment-threshold-invalid' : ''}
+                    aria-invalid={Boolean(correctError)}
+                    aria-describedby={`${variable.correctKey}-error`}
+                  />
+                  {correctError && <small id={`${variable.correctKey}-error`} className="sentiment-threshold-error">{correctError}</small>}
+                </label>
+                <label>
+                  <span>Wrong (%)</span>
+                  <input
+                    type="number"
+                    inputMode="decimal"
+                    step="0.01"
+                    min="0.01"
+                    value={wrongValue ?? ''}
+                    onChange={event => handleInputChange(variable.wrongKey, event.target.value)}
+                    className={wrongError ? 'sentiment-threshold-invalid' : ''}
+                    aria-invalid={Boolean(wrongError)}
+                    aria-describedby={`${variable.wrongKey}-error`}
+                  />
+                  {wrongError && <small id={`${variable.wrongKey}-error`} className="sentiment-threshold-error">{wrongError}</small>}
+                </label>
+              </div>
+              {valuesAreValid && <p className="sentiment-neutral-help">{neutralText}</p>}
+            </article>;
+          })}
+        </div>
+      </section>
 
       {/* Notifications & Tax Configuration - Side by Side */}
       <div className="settings-grid" style={{ marginTop: '24px' }}>

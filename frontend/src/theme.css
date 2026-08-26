@@ -2567,6 +2567,100 @@ body.light-mode .settings-page-container div[style*="background:'#1a1f23'"] {
   margin-top: 4px;
 }
 
+.sentiment-variable-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.sentiment-variable-row {
+  padding: 16px;
+  border: 1px solid var(--card-border);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--input-bg) 80%, transparent);
+}
+
+.sentiment-variable-row > header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.sentiment-variable-row h4 {
+  margin: 0 0 2px;
+  color: var(--text-primary);
+}
+
+.sentiment-variable-row header small {
+  color: var(--text-secondary);
+}
+
+.sentiment-variable-code {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 34px;
+  height: 34px;
+  padding: 0 7px;
+  border-radius: 999px;
+  color: #07111f;
+  font-weight: 800;
+}
+
+.sentiment-variable-code-bi { background: #16a34a; color: #fff; }
+.sentiment-variable-code-cb { background: #86efac; }
+.sentiment-variable-code-h { background: #38bdf8; }
+.sentiment-variable-code-cs { background: #fca5a5; }
+.sentiment-variable-code-si { background: #dc2626; color: #fff; }
+
+.sentiment-variable-inputs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.sentiment-variable-inputs label > span {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.sentiment-variable-inputs input {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 9px 10px;
+  border: 1px solid var(--input-border);
+  border-radius: 6px;
+  background: var(--input-bg);
+  color: var(--text-primary);
+}
+
+.sentiment-variable-inputs input.sentiment-threshold-invalid {
+  border-color: #ef4444 !important;
+  box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.14);
+}
+
+.sentiment-threshold-error {
+  display: block;
+  margin-top: 5px;
+  color: #f87171;
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.sentiment-variable-row .sentiment-neutral-help {
+  margin: 12px 0 0;
+  padding: 10px 12px;
+  border-left: 3px solid var(--accent-primary);
+  border-radius: 5px;
+  background: rgba(79, 209, 197, 0.08);
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
 .settings-button {
   background: var(--accent-primary);
   color: var(--text-inverse);
@@ -3703,6 +3797,11 @@ body.light-mode .table-container tbody tr.auto-both-active .symbol-cell {
   }
 
   .settings-grid {
+    grid-template-columns: 1fr !important;
+  }
+
+  .sentiment-variable-grid,
+  .sentiment-variable-inputs {
     grid-template-columns: 1fr !important;
   }
 

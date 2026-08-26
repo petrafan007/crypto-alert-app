@@ -27,6 +27,16 @@ const formatPrice = value => Number(value || 0).toLocaleString(undefined, { mini
 const formatDelta = value => value === null || value === undefined || !Number.isFinite(Number(value))
   ? ''
   : ` (${Number(value) >= 0 ? '+' : ''}${Number(value).toFixed(1)}%)`;
+const formatEasternTime = value => {
+  if (!value) return 'Waiting for the next check';
+  const raw = String(value);
+  const timestamp = new Date(/[zZ]$|[+-]\d\d:\d\d$/.test(raw) ? raw : `${raw}Z`);
+  if (Number.isNaN(timestamp.getTime())) return 'Unknown time';
+  return timestamp.toLocaleString('en-US', {
+    timeZone: 'America/New_York', month: 'short', day: 'numeric', year: 'numeric',
+    hour: 'numeric', minute: '2-digit', timeZoneName: 'short',
+  });
+};
 
 export default function SentimentTimelineChart({ signals = [], range, onRangeChange, availableSymbols = [], isLightMode = false }) {
   const hostRef = useRef(null);
@@ -85,7 +95,7 @@ export default function SentimentTimelineChart({ signals = [], range, onRangeCha
     const lineByTime = new Map(prices.map(point => [String(point.time), point]));
     signals.filter(signal => signal.symbol === base && (signal.source_type || 'portfolio') === 'portfolio')
       .forEach(signal => {
-        const style = SIGNAL_STYLES[String(signal.sentiment || '').toLowerCase()];
+        const style = SIGNAL_STYLES[String(signal.sentiment || '').trim().toLowerCase()];
         const signalTime = Number(signal.created_timestamp || Math.floor(new Date(signal.created_at).getTime() / 1000));
         if (!style || !Number.isFinite(signalTime) || !prices.length) return;
         const candle = prices.reduce((closest, point) => Math.abs(point.time - signalTime) < Math.abs(closest.time - signalTime) ? point : closest, prices[0]);
@@ -143,7 +153,7 @@ export default function SentimentTimelineChart({ signals = [], range, onRangeCha
       if (lineY === null || Math.abs(param.point.y - lineY) > 30) return setHoveredSignals(null);
       const host = hostRef.current;
       const tooltipWidth = 370;
-      const tooltipHeight = Math.min(390, 118 + group.signals.length * 118);
+      const tooltipHeight = Math.min(480, 135 + group.signals.length * 170);
       const rightCandidate = host.offsetLeft + param.point.x + 18;
       const left = rightCandidate + tooltipWidth <= host.parentElement.clientWidth ? rightCandidate : host.offsetLeft + param.point.x - tooltipWidth - 18;
       setHoveredSignals({
@@ -179,9 +189,18 @@ export default function SentimentTimelineChart({ signals = [], range, onRangeCha
           <strong>{base}/{quote} AI Sentiment</strong>
           <div className="sentiment-marker-tooltip-list">{hoveredSignals.signals.map(signal => <article key={signal.id}>
             <header><span><i style={{ background: signal.style.color }} />{signal.style.code} · {signal.sentiment}</span><b>{formatDelta(signal.price_delta_pct ?? signal.outcome_pct).trim() || 'Tracking'}</b></header>
-            <time>{new Date(signal.signalTime * 1000).toLocaleString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short' })}</time>
+            <time>{formatEasternTime(new Date(signal.signalTime * 1000).toISOString())}</time>
             <p>{signal.sentiment_reason || 'No thesis explanation was recorded.'}</p>
-            <small>Signal price: {formatPrice(signal.price_at_prediction)} {quote} · Outcome: {signal.outcome_status || 'tracking'}{signal.evaluation_price ? ` · Evaluated at ${formatPrice(signal.evaluation_price)} ${quote}` : ''}</small>
+            <div className="sentiment-comparison">
+              <small>Previous check: {formatPrice(signal.price_at_prediction)} {quote}</small>
+              <small>Next check: {signal.evaluation_price ? `${formatPrice(signal.evaluation_price)} ${quote} · ${formatEasternTime(signal.evaluated_at)}` : 'Waiting for the next check'}</small>
+              {Number.isFinite(Number(signal.evaluation_hours)) && <small>Time between checks: {Number(signal.evaluation_hours).toFixed(2)} hours</small>}
+              {signal.correct_threshold_pct != null && signal.wrong_threshold_pct != null && <small>
+                {signal.threshold_setting || signal.sentiment} rules: Correct {signal.style.code === 'CS' || signal.style.code === 'SI' ? 'at or below -' : 'at or above +'}{Number(signal.correct_threshold_pct).toFixed(2)}%; Wrong {signal.style.code === 'CS' || signal.style.code === 'SI' ? 'at or above +' : 'at or below -'}{Number(signal.wrong_threshold_pct).toFixed(2)}%
+              </small>}
+              <small>Result: {(signal.outcome_status || 'tracking').replace(/^./, character => character.toUpperCase())}{formatDelta(signal.price_delta_pct ?? signal.outcome_pct)}</small>
+            </div>
+            <small className="sentiment-outcome-reason">{signal.outcome_reason || 'Waiting for the next sentiment check for this coin.'}</small>
           </article>)}</div>
         </div>}
         {loading && <div className="trade-timeline-status">Loading {base}/{quote} sentiment history…</div>}

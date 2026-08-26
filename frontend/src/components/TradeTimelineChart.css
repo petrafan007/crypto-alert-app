@@ -66,6 +66,9 @@
 .sentiment-marker-tooltip article header span { display:inline-flex; align-items:center; gap:.35rem; font-weight:800; }
 .sentiment-marker-tooltip article time,.sentiment-marker-tooltip article small { color:#94a3b8; }
 .sentiment-marker-tooltip article p { margin:.35rem 0; line-height:1.45; }
+.sentiment-comparison { display:grid; gap:.18rem; margin:.45rem 0; }
+.sentiment-comparison small { display:block; }
+.sentiment-outcome-reason { display:block; margin-top:.35rem; line-height:1.4; color:#cbd5e1 !important; }
 .trade-timeline-status { position:absolute; inset:0; display:grid; place-items:center; padding:2rem; background:rgba(11,18,32,.94); color:#cbd5e1; font-weight:700; text-align:center; }
 .trade-timeline-status.error { color:#fecaca; background:rgba(69,10,10,.94); }
 .trade-timeline-empty { position:absolute; left:50%; bottom:1rem; transform:translateX(-50%); padding:.55rem .8rem; border-radius:8px; background:rgba(15,23,42,.88); color:#94a3b8; font-size:.78rem; pointer-events:none; }

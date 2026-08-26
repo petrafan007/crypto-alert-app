@@ -501,7 +501,7 @@ def ai_dashboard_page():
 @ai_bp.route('/api/ai/sentiment-accuracy', methods=['GET'])
 @login_required
 def api_ai_sentiment_accuracy():
-    """Return read-only, fixed-horizon accuracy for recorded sentiment signals."""
+    """Return read-only, consecutive-check accuracy for recorded sentiment signals."""
     try:
         from services.sentiment_outcome_service import build_sentiment_accuracy_response
 
@@ -631,6 +631,22 @@ def api_ai_settings():
             if not user_setting:
                 user_setting = UserSetting(user_id=user_obj.id)
                 db.session.add(user_setting)
+
+            from services.sentiment_outcome_service import (
+                SENTIMENT_THRESHOLD_FIELDS,
+                validate_sentiment_threshold_payload,
+            )
+            if any(field in data for field in SENTIMENT_THRESHOLD_FIELDS):
+                threshold_values, threshold_errors = validate_sentiment_threshold_payload(
+                    data, require_all=True
+                )
+                if threshold_errors:
+                    return jsonify({
+                        "success": False,
+                        "message": "Every sentiment Correct and Wrong value is required, must be at least 0.01%, and may use no more than two decimal places.",
+                        "errors": threshold_errors,
+                    }), 400
+                data.update(threshold_values)
             
             # Map of allowed fields to update
             allowed_fields = [
@@ -644,7 +660,8 @@ def api_ai_settings():
                 'tax_manual_invested_updated', 'tax_cost_basis_method',
                 'sentiment_analysis_frequency_hours', 'watchlist_sentiment_analysis_frequency_hours',
                 'sentiment_history_lookback_hours', 'watchlist_sentiment_history_lookback_hours',
-                'volatility_hours', 'ai_outcome_neutral_threshold_pct', 'copilot_chat_pre', 'copilot_chat_post'
+                'volatility_hours', 'ai_outcome_neutral_threshold_pct', 'copilot_chat_pre',
+                'copilot_chat_post', *SENTIMENT_THRESHOLD_FIELDS
             ]
 
             for key, value in data.items():
@@ -683,7 +700,7 @@ def api_ai_settings():
                         except:
                             pass
                     # For float fields
-                    elif key in ['ai_confidence_threshold', 'ai_outcome_neutral_threshold_pct']:
+                    elif key in ['ai_confidence_threshold', 'ai_outcome_neutral_threshold_pct', *SENTIMENT_THRESHOLD_FIELDS]:
                         try:
                             setattr(user_setting, key, float(value))
                         except:

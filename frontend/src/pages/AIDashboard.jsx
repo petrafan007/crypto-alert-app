@@ -672,13 +672,13 @@ const AIDashboard = () => {
           <div className="accuracy-kpi-card bullish">
             <div className="kpi-label">Bullish Win Rate</div>
             <div className="kpi-value text-green">{formatRate(summary.bullish_win_rate)}</div>
-            <div className="kpi-subtext">Buy/Hold theses after their configured horizon</div>
+            <div className="kpi-subtext">Buy/Hold theses measured at the next same-coin check</div>
           </div>
 
           <div className="accuracy-kpi-card bearish">
             <div className="kpi-label">Bearish Win Rate</div>
             <div className="kpi-value text-red">{formatRate(summary.bearish_win_rate)}</div>
-            <div className="kpi-subtext">Sell/Watch theses after their configured horizon</div>
+            <div className="kpi-subtext">Sell/Watch theses measured at the next same-coin check</div>
           </div>
 
           <div className="accuracy-kpi-card model">
@@ -836,9 +836,9 @@ const AIDashboard = () => {
                     <th onClick={() => requestLedgerSort('price_at_prediction')} style={{ cursor: 'pointer' }}>Signal Price{getSortIcon('price_at_prediction')}</th>
                     <th onClick={() => requestLedgerSort('created_at')} style={{ cursor: 'pointer' }}>Signal Date{getSortIcon('created_at')}</th>
                     <th onClick={() => requestLedgerSort('created_at_time')} style={{ cursor: 'pointer' }}>Signal Time{getSortIcon('created_at_time')}</th>
-                    <th onClick={() => requestLedgerSort('evaluation_price')} style={{ cursor: 'pointer' }}>Updated Price{getSortIcon('evaluation_price')}</th>
-                    <th onClick={() => requestLedgerSort('evaluated_at')} style={{ cursor: 'pointer' }}>Updated Date{getSortIcon('evaluated_at')}</th>
-                    <th onClick={() => requestLedgerSort('evaluated_at_time')} style={{ cursor: 'pointer' }}>Updated Time{getSortIcon('evaluated_at_time')}</th>
+                    <th onClick={() => requestLedgerSort('evaluation_price')} style={{ cursor: 'pointer' }}>Next Check Price{getSortIcon('evaluation_price')}</th>
+                    <th onClick={() => requestLedgerSort('evaluated_at')} style={{ cursor: 'pointer' }}>Next Check Date{getSortIcon('evaluated_at')}</th>
+                    <th onClick={() => requestLedgerSort('evaluated_at_time')} style={{ cursor: 'pointer' }}>Next Check Time{getSortIcon('evaluated_at_time')}</th>
                     <th onClick={() => requestLedgerSort('sentiment')} style={{ cursor: 'pointer' }}>AI Recommendation{getSortIcon('sentiment')}</th>
                     <th onClick={() => requestLedgerSort('outcome_status')} style={{ cursor: 'pointer' }}>Outcome{getSortIcon('outcome_status')}</th>
                   </tr>

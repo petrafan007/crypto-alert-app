@@ -136,6 +136,16 @@ def get_user_ai_settings(username: str) -> dict:
             'sentiment_history_lookback_hours': 12,
             'watchlist_sentiment_history_lookback_hours': 12,
             'volatility_hours': 24,
+            'sentiment_buy_immediately_correct_pct': 5.0,
+            'sentiment_buy_immediately_wrong_pct': 5.0,
+            'sentiment_consider_buying_correct_pct': 5.0,
+            'sentiment_consider_buying_wrong_pct': 5.0,
+            'sentiment_hold_correct_pct': 5.0,
+            'sentiment_hold_wrong_pct': 5.0,
+            'sentiment_consider_selling_correct_pct': 5.0,
+            'sentiment_consider_selling_wrong_pct': 5.0,
+            'sentiment_sell_immediately_correct_pct': 5.0,
+            'sentiment_sell_immediately_wrong_pct': 5.0,
             'ai_prompts': {
                 'market_analysis_pre': '',
                 'market_analysis_post': '',
@@ -247,6 +257,9 @@ def get_user_ai_settings(username: str) -> dict:
                     settings['volatility_hours'] = user_setting.volatility_hours or 24
 
                 settings['ai_outcome_neutral_threshold_pct'] = float(getattr(user_setting, 'ai_outcome_neutral_threshold_pct', 5.0) or 5.0)
+                from services.sentiment_outcome_service import SENTIMENT_THRESHOLD_FIELDS
+                for field in SENTIMENT_THRESHOLD_FIELDS:
+                    settings[field] = float(getattr(user_setting, field, 5.0) or 5.0)
                 settings['max_slippage_pct'] = float(getattr(user_setting, 'max_slippage_pct', 2.0) or 2.0)
 
                 b_enabled = getattr(user_setting, 'browser_notifications_enabled', True)
@@ -407,4 +420,3 @@ def get_ai_conversations(user_id, limit=20, offset=0):
 def log_ai_communication(user_id, prompt_type, message):
     # simplified
     pass
-
