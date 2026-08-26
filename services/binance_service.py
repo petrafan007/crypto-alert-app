@@ -470,8 +470,13 @@ def process_binance_trades(user_id, trades):
                 amount = -qty
             
             txid = f"binance_{trade['id']}_{symbol}"
-            existing_tx = AllActivity.query.filter_by(txid=txid).first()
-            if not existing_tx:
+            aggregate_order_txid = f"binance_{trade['orderId']}_{symbol}"
+            existing_tx = AllActivity.query.filter_by(user_id=user_id, txid=txid).first()
+            existing_aggregate = AllActivity.query.filter_by(
+                user_id=user_id,
+                txid=aggregate_order_txid,
+            ).first()
+            if not existing_tx and not existing_aggregate:
                 new_activity = AllActivity(
                     date=trade_time,
                     type=trade_type,

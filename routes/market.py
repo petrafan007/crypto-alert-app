@@ -206,6 +206,11 @@ def api_coin_data_live():
                     continue
 
                 avg_entry_val = _to_float(coin.avg_entry) if amount > 0.00000001 else 0.0
+                cost_basis = get_cost_basis_for_asset(
+                    current_user.id,
+                    symbol,
+                    target_amount=amount,
+                ) if amount > 0.00000001 else 0.0
                 pct_change = 0.0
                 if amount > 0.00000001 and avg_entry_val > 0:
                     pct_change = ((current_price - avg_entry_val) / avg_entry_val) * 100
@@ -230,6 +235,7 @@ def api_coin_data_live():
                     "purchase_date": coin.purchase_date,
                     "current_price": current_price,
                     "current_value": current_value,
+                    "cost_basis": cost_basis,
                     "pct_change": pct_change,
                     "high_24h": high_24h,
                     "low_24h": low_24h,
@@ -392,7 +398,11 @@ def api_coin_data():
                     # logger.error(f"[DEBUG] {symbol} skipped: amount <= 0 and not force_visible")
                     continue
 
-                cost_basis = get_cost_basis_for_asset(current_user.id, symbol) if amount > 0.00000001 else 0.0
+                cost_basis = get_cost_basis_for_asset(
+                    current_user.id,
+                    symbol,
+                    target_amount=amount,
+                ) if amount > 0.00000001 else 0.0
                 avg_entry_val = _to_float(coin.avg_entry) if amount > 0.00000001 else 0.0
                 pct_change = round(((current_price - avg_entry_val) / avg_entry_val * 100), 6) if (amount > 0.00000001 and avg_entry_val > 0 and current_price) else 0.0
                 purchase_date = coin.purchase_date

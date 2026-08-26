@@ -38,6 +38,8 @@ const TREND_RANGES = [
   { key: 'ALL', label: 'ALL' }
 ];
 
+const COLLAPSED_ACTIONS_WIDTH = 104;
+
 export const PORTFOLIO_DEFAULT_COLUMNS = [
   'symbol',
   'amount',
@@ -120,6 +122,8 @@ function Dashboard({ isLightMode }) {
   // can never overwrite state with data older than what's already been rendered.
   const watchlistFetchIdRef = useRef(0);
   const watchlistAppliedIdRef = useRef(0);
+  const portfolioScrollRef = useRef(null);
+  const watchlistScrollRef = useRef(null);
   const nextWatchlistFetchId = () => ++watchlistFetchIdRef.current;
 
   // Helper to preserve pending optimistic watchlist items across background poll intervals
@@ -334,9 +338,31 @@ function Dashboard({ isLightMode }) {
   const [notification, setNotification] = useState({ show: false, message: '', type: 'info' });
   const [isMobile, setIsMobile] = useState(false);
   const [mobileTab, setMobileTab] = useState('charts'); // 'charts' | 'tables'
-  const [openActionMenu, setOpenActionMenu] = useState({ type: null, key: null, payload: null });
+  const [openActionMenu, setOpenActionMenu] = useState({ type: null, key: null, payload: null, position: null });
   const [openTradeQuoteMenu, setOpenTradeQuoteMenu] = useState({ type: null, key: null, side: null, position: null });
+  const [collapsedTableActions, setCollapsedTableActions] = useState({ portfolio: false, watchlist: false });
   const [volatilityHoursSetting, setVolatilityHoursSetting] = useState(24);
+
+  const portfolioActionsCollapsed = isMobile || collapsedTableActions.portfolio;
+  const watchlistActionsCollapsed = isMobile || collapsedTableActions.watchlist;
+  const portfolioExpandedActionsWidth = portfolioColWidths.actions || PORTFOLIO_COLUMN_DEFINITIONS.actions.defaultWidth;
+  const watchlistExpandedActionsWidth = watchlistColWidths.actions || WATCHLIST_COLUMN_DEFINITIONS.actions.defaultWidth;
+  const renderedPortfolioWidth = portfolioActionsCollapsed
+    ? totalPortfolioWidth - portfolioExpandedActionsWidth + COLLAPSED_ACTIONS_WIDTH
+    : totalPortfolioWidth;
+  const renderedWatchlistWidth = watchlistActionsCollapsed
+    ? totalWatchlistWidth - watchlistExpandedActionsWidth + COLLAPSED_ACTIONS_WIDTH
+    : totalWatchlistWidth;
+  const getPortfolioColumnWidth = (colKey) => (
+    colKey === 'actions' && portfolioActionsCollapsed
+      ? COLLAPSED_ACTIONS_WIDTH
+      : (portfolioColWidths[colKey] || PORTFOLIO_COLUMN_DEFINITIONS[colKey]?.defaultWidth || 120)
+  );
+  const getWatchlistColumnWidth = (colKey) => (
+    colKey === 'actions' && watchlistActionsCollapsed
+      ? COLLAPSED_ACTIONS_WIDTH
+      : (watchlistColWidths[colKey] || WATCHLIST_COLUMN_DEFINITIONS[colKey]?.defaultWidth || 120)
+  );
   const [autoSellModal, setAutoSellModal] = useState({
     isOpen: false,
     symbol: '',
@@ -423,7 +449,7 @@ function Dashboard({ isLightMode }) {
 
   const tradeQuoteMenuStyle = isMobile
     ? { display: 'flex', flexDirection: 'column', gap: 4, margin: '0 0 4px' }
-    : { position: 'fixed', top: openTradeQuoteMenu.position?.top ?? 0, left: openTradeQuoteMenu.position?.left ?? 0, zIndex: 1000, display: 'flex', flexDirection: 'column', gap: 4, minWidth: 154 };
+    : { position: 'fixed', top: openTradeQuoteMenu.position?.top ?? 0, left: openTradeQuoteMenu.position?.left ?? 0, zIndex: 10001, display: 'flex', flexDirection: 'column', gap: 4, width: 220, maxHeight: 'calc(100vh - 16px)', overflowY: 'auto' };
 
   // Toast for backend notifications
   useNotificationPoller(user && user.id, notif => {
@@ -618,7 +644,7 @@ function Dashboard({ isLightMode }) {
     };
   };
 
-  const closeActionMenu = () => setOpenActionMenu({ type: null, key: null, payload: null });
+  const closeActionMenu = () => setOpenActionMenu({ type: null, key: null, payload: null, position: null });
   const closeTradeQuoteMenu = () => setOpenTradeQuoteMenu({ type: null, key: null, side: null, position: null });
 
   // Close trade quote menu on outside click or scroll
@@ -645,6 +671,71 @@ function Dashboard({ isLightMode }) {
       window.removeEventListener('scroll', handleScroll, true);
     };
   }, [openTradeQuoteMenu.key]);
+
+  // Collapse and pin Actions whenever the full action controls would make a table
+  // wider than its viewport. Measure against the expanded width to avoid oscillating
+  // after the compact column itself reduces the rendered table width.
+  useEffect(() => {
+    const measureOverflow = () => {
+      const next = {
+        portfolio: !!portfolioScrollRef.current && totalPortfolioWidth > portfolioScrollRef.current.clientWidth + 1,
+        watchlist: !!watchlistScrollRef.current && totalWatchlistWidth > watchlistScrollRef.current.clientWidth + 1,
+      };
+      setCollapsedTableActions(prev => (
+        prev.portfolio === next.portfolio && prev.watchlist === next.watchlist ? prev : next
+      ));
+    };
+
+    measureOverflow();
+    const observer = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(measureOverflow) : null;
+    if (observer && portfolioScrollRef.current) observer.observe(portfolioScrollRef.current);
+    if (observer && watchlistScrollRef.current) observer.observe(watchlistScrollRef.current);
+    window.addEventListener('resize', measureOverflow);
+
+    return () => {
+      if (observer) observer.disconnect();
+      window.removeEventListener('resize', measureOverflow);
+    };
+  }, [totalPortfolioWidth, totalWatchlistWidth, loading, mobileTab]);
+
+  // Context menus belong to a visible table row. Close them as soon as the user
+  // scrolls the page/table, resizes the viewport, or clicks anywhere else.
+  useEffect(() => {
+    if (!openActionMenu.key) return;
+
+    const handleOutsideClick = (event) => {
+      if (
+        event.target.closest('.desktop-actions-context-menu') ||
+        event.target.closest('.actions-bottom-sheet') ||
+        event.target.closest('.actions-dropdown-btn') ||
+        event.target.closest('.trade-quote-menu')
+      ) return;
+      closeTradeQuoteMenu();
+      closeActionMenu();
+    };
+    const handleScroll = (event) => {
+      if (event.target.closest && (
+        event.target.closest('.desktop-actions-context-menu') ||
+        event.target.closest('.actions-bottom-sheet') ||
+        event.target.closest('.trade-quote-menu')
+      )) return;
+      closeTradeQuoteMenu();
+      closeActionMenu();
+    };
+    const handleResize = () => {
+      closeTradeQuoteMenu();
+      closeActionMenu();
+    };
+
+    document.addEventListener('mousedown', handleOutsideClick);
+    window.addEventListener('scroll', handleScroll, true);
+    window.addEventListener('resize', handleResize);
+    return () => {
+      document.removeEventListener('mousedown', handleOutsideClick);
+      window.removeEventListener('scroll', handleScroll, true);
+      window.removeEventListener('resize', handleResize);
+    };
+  }, [openActionMenu.key]);
 
   const handleOpenPerformanceCoinModal = () => {
     setPerformanceCoinDraft([...performanceHiddenCoins]);
@@ -704,6 +795,30 @@ function Dashboard({ isLightMode }) {
     const buttonRect = event?.currentTarget && !isMobile
       ? event.currentTarget.getBoundingClientRect()
       : null;
+    const isContextSubmenu = !!event?.currentTarget?.closest?.('.desktop-actions-context-menu');
+    const submenuWidth = 220;
+    const submenuItems = (hasUsdPair(key) ? 2 : 0) + (hasUsdtPair(key) ? 2 : 0);
+    const submenuHeight = Math.max(52, submenuItems * 40 + 12);
+    let submenuPosition = null;
+    if (buttonRect) {
+      if (isContextSubmenu) {
+        const fitsRight = buttonRect.right + 6 + submenuWidth <= window.innerWidth - 8;
+        submenuPosition = {
+          top: Math.max(8, Math.min(buttonRect.top, window.innerHeight - submenuHeight - 8)),
+          left: fitsRight
+            ? buttonRect.right + 6
+            : Math.max(8, buttonRect.left - submenuWidth - 6),
+        };
+      } else {
+        const belowTop = buttonRect.bottom + 6;
+        submenuPosition = {
+          top: belowTop + submenuHeight <= window.innerHeight - 8
+            ? belowTop
+            : Math.max(8, buttonRect.top - submenuHeight - 6),
+          left: Math.max(8, Math.min(buttonRect.left, window.innerWidth - submenuWidth - 8)),
+        };
+      }
+    }
     setOpenTradeQuoteMenu(prev =>
       prev.type === type && prev.key === key && prev.side === side
         ? { type: null, key: null, side: null, position: null }
@@ -711,12 +826,7 @@ function Dashboard({ isLightMode }) {
           type,
           key,
           side,
-          position: buttonRect
-            ? {
-              top: Math.max(8, Math.min(buttonRect.bottom + 6, window.innerHeight - 130)),
-              left: Math.max(8, Math.min(buttonRect.left, window.innerWidth - 196))
-            }
-            : null
+          position: submenuPosition
         }
     );
   };
@@ -977,6 +1087,7 @@ function Dashboard({ isLightMode }) {
                     if (buyEligibility?.canBuyUsd) {
                       navigateToTrading(symbol, 'BUY', 'USD');
                       closeTradeQuoteMenu();
+                      closeActionMenu();
                     }
                   }}
                   disabled={!buyEligibility?.canBuyUsd}
@@ -991,6 +1102,7 @@ function Dashboard({ isLightMode }) {
                     if (buyEligibility?.canBuyUsd) {
                       handleTriggerAutoBuyClick(symbol, coin, 'USD', type);
                       closeTradeQuoteMenu();
+                      closeActionMenu();
                     }
                   }}
                   disabled={!buyEligibility?.canBuyUsd}
@@ -1009,6 +1121,7 @@ function Dashboard({ isLightMode }) {
                     if (buyEligibility?.canBuyUsdt) {
                       navigateToTrading(symbol, 'BUY', 'USDT');
                       closeTradeQuoteMenu();
+                      closeActionMenu();
                     }
                   }}
                   disabled={!buyEligibility?.canBuyUsdt}
@@ -1023,6 +1136,7 @@ function Dashboard({ isLightMode }) {
                     if (buyEligibility?.canBuyUsdt) {
                       handleTriggerAutoBuyClick(symbol, coin, 'USDT', type);
                       closeTradeQuoteMenu();
+                      closeActionMenu();
                     }
                   }}
                   disabled={!buyEligibility?.canBuyUsdt}
@@ -1038,10 +1152,10 @@ function Dashboard({ isLightMode }) {
           <>
             {showUsd && (
               <>
-                <button role="menuitem" onClick={() => { navigateToTrading(symbol, 'SELL', 'USD'); closeTradeQuoteMenu(); }}>
+                <button role="menuitem" onClick={() => { navigateToTrading(symbol, 'SELL', 'USD'); closeTradeQuoteMenu(); closeActionMenu(); }}>
                   Sell for USD
                 </button>
-                <button role="menuitem" onClick={() => { handleTriggerAutoSellClick(symbol, coin, 'USD', type); closeTradeQuoteMenu(); }}>
+                <button role="menuitem" onClick={() => { handleTriggerAutoSellClick(symbol, coin, 'USD', type); closeTradeQuoteMenu(); closeActionMenu(); }}>
                   Trigger Auto-Sell (USD)
                 </button>
               </>
@@ -1052,7 +1166,7 @@ function Dashboard({ isLightMode }) {
                   role="menuitem"
                   onClick={() => {
                     if (!isUsdt) {
-                      navigateToTrading(symbol, 'SELL', 'USDT'); closeTradeQuoteMenu();
+                      navigateToTrading(symbol, 'SELL', 'USDT'); closeTradeQuoteMenu(); closeActionMenu();
                     }
                   }}
                   disabled={isUsdt}
@@ -1064,7 +1178,7 @@ function Dashboard({ isLightMode }) {
                   role="menuitem"
                   onClick={() => {
                     if (!isUsdt) {
-                      handleTriggerAutoSellClick(symbol, coin, 'USDT', type); closeTradeQuoteMenu();
+                      handleTriggerAutoSellClick(symbol, coin, 'USDT', type); closeTradeQuoteMenu(); closeActionMenu();
                     }
                   }}
                   disabled={isUsdt}
@@ -1082,11 +1196,24 @@ function Dashboard({ isLightMode }) {
   };
 
   const toggleActionMenu = (type, key, event, payload = null) => {
-    if (!isMobile) return;
+    event?.preventDefault?.();
+    event?.stopPropagation?.();
+    closeTradeQuoteMenu();
+    const rect = event?.currentTarget?.getBoundingClientRect?.();
+    const menuWidth = 224;
+    const estimatedHeight = type === 'portfolio' ? 390 : 270;
+    const position = rect && !isMobile
+      ? {
+          left: Math.max(8, Math.min(rect.right - menuWidth, window.innerWidth - menuWidth - 8)),
+          top: rect.bottom + estimatedHeight <= window.innerHeight - 8
+            ? rect.bottom + 6
+            : Math.max(8, Math.min(rect.top, window.innerHeight - estimatedHeight - 8)),
+        }
+      : null;
     setOpenActionMenu(prev =>
       prev.type === type && prev.key === key
-        ? { type: null, key: null, payload: null }
-        : { type, key, payload }
+        ? { type: null, key: null, payload: null, position: null }
+        : { type, key, payload, position }
     );
   };
 
@@ -1806,11 +1933,11 @@ function Dashboard({ isLightMode }) {
     const getSortValue = (item) => {
       if (!item) return null;
       if (key === 'pnl_usd') {
-        if (item.current_value !== undefined && item.cost_basis !== undefined && item.cost_basis > 0) {
-          return item.current_value - item.cost_basis;
-        }
         if (item.current_price && item.avg_entry && item.amount) {
           return item.amount * (item.current_price - item.avg_entry);
+        }
+        if (item.current_value !== undefined && item.cost_basis !== undefined && item.cost_basis > 0) {
+          return item.current_value - item.cost_basis;
         }
         return null;
       }
@@ -2272,6 +2399,9 @@ function Dashboard({ isLightMode }) {
         setPortfolio(prev => prev.map(coin =>
           coin.id === editingNote.id ? { ...coin, note: noteText } : coin
         ));
+        setWatchlist(prev => prev.map(item =>
+          item.id === editingNote.id ? { ...item, note: noteText } : item
+        ));
         setShowNoteModal(false);
         setEditingNote(null);
         setNoteText('');
@@ -2333,6 +2463,7 @@ function Dashboard({ isLightMode }) {
               {isPortfolio ? (coin.alert_enabled ? 'Disable Alerts' : 'Enable Alerts') : (item.alert_enabled ? 'Disable Alerts' : 'Enable Alerts')}
             </button>
             <button onClick={() => { openNews(isPortfolio ? coin.symbol : item.symbol); closeActionMenu(); }}>News</button>
+            <button onClick={() => { openNoteModal(isPortfolio ? coin : item); closeActionMenu(); }}>Notes</button>
             {/* Buy button */}
             {(() => {
               const sym = isPortfolio ? coin.symbol : item.symbol;
@@ -2506,6 +2637,22 @@ function Dashboard({ isLightMode }) {
                 })()}
               </>
             )}
+            {isWatchlist && (() => {
+              const watchlistItem = { ...item, isWatchlist: true };
+              const allPendingItems = getAllPendingItemsForCoin(watchlistItem);
+              const hasOrders = allPendingItems.length > 0;
+              return (
+                <button
+                  onClick={(e) => {
+                    closeActionMenu();
+                    if (hasOrders) handleCancelButtonClick(watchlistItem, allPendingItems, e);
+                  }}
+                  disabled={!hasOrders}
+                >
+                  Cancel Active ({allPendingItems.length})
+                </button>
+              );
+            })()}
             <button
               onClick={() => {
                 if (isPortfolio && !isPlaceholder) hideCoin(coin.id);
@@ -2514,11 +2661,114 @@ function Dashboard({ isLightMode }) {
               }}
               disabled={isPortfolio ? isPlaceholder : false}
             >
-              {isPortfolio ? 'Hide' : 'Delete'}
+              Hide
             </button>
           </div>
         </div>
       </div>
+    );
+  };
+
+  const renderDesktopActionsContextMenu = () => {
+    if (isMobile || !openActionMenu.type || !openActionMenu.payload || !openActionMenu.position || typeof document === 'undefined') {
+      return null;
+    }
+
+    const isPortfolio = openActionMenu.type === 'portfolio' && openActionMenu.payload.coin;
+    const isWatchlist = openActionMenu.type === 'watchlist' && openActionMenu.payload.item;
+    if (!isPortfolio && !isWatchlist) return null;
+
+    const coin = isPortfolio ? openActionMenu.payload.coin : null;
+    const item = isWatchlist ? openActionMenu.payload.item : null;
+    const subject = isPortfolio ? coin : item;
+    const symbol = subject.symbol;
+    const isPlaceholder = isPortfolio ? openActionMenu.payload.isPlaceholder : false;
+    const buyEligibility = getBuyEligibility(symbol);
+    const pendingSubject = isWatchlist ? { ...item, isWatchlist: true } : coin;
+    const allPendingItems = getAllPendingItemsForCoin(pendingSubject);
+    const hasOrders = allPendingItems.length > 0;
+    const canSell = isPortfolio && coin.symbol !== 'USD' && Number(coin.amount || 0) >= MINIMUM_PORTFOLIO_AMOUNT;
+    const canStake = isPortfolio && stakeableCoins.includes(coin.symbol) && !isPlaceholder && (!coin.current_value || coin.current_value >= 1);
+
+    return createPortal(
+      <div
+        className="desktop-actions-context-menu"
+        style={{ top: openActionMenu.position.top, left: openActionMenu.position.left }}
+        role="menu"
+        aria-label={`${symbol} actions`}
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <div className="desktop-actions-context-menu__header">{symbol} Actions</div>
+        <button
+          role="menuitem"
+          onClick={() => {
+            if (isPortfolio && !isPlaceholder) toggleAlert(coin.id, coin.alert_enabled);
+            if (isWatchlist) toggleWatchlistAlert(item.symbol, item.alert_enabled);
+            closeActionMenu();
+          }}
+          disabled={isPlaceholder}
+        >
+          <span>🔔</span>{subject.alert_enabled ? 'Disable Alerts' : 'Enable Alerts'}
+        </button>
+        <button role="menuitem" onClick={() => { openNews(symbol); closeActionMenu(); }}>
+          <span>📰</span>News
+        </button>
+        <button role="menuitem" onClick={() => { openNoteModal(subject); closeActionMenu(); }}>
+          <span>✏️</span>Notes
+        </button>
+        <button
+          className="trade-action-btn desktop-actions-context-menu__submenu-trigger"
+          role="menuitem"
+          onClick={(event) => buyEligibility.canBuy && toggleTradeQuoteMenu(openActionMenu.type, openActionMenu.key, 'BUY', event)}
+          disabled={!buyEligibility.canBuy}
+          title={buyEligibility.canBuy ? 'Buy' : (buyEligibility.reason || 'Insufficient balance to buy')}
+        >
+          <span>🟢</span>Buy<span className="desktop-actions-context-menu__chevron">›</span>
+        </button>
+        {isPortfolio && (
+          <button
+            className="trade-action-btn desktop-actions-context-menu__submenu-trigger"
+            role="menuitem"
+            onClick={(event) => canSell && toggleTradeQuoteMenu(openActionMenu.type, openActionMenu.key, 'SELL', event)}
+            disabled={!canSell}
+            title={coin.symbol === 'USD' ? 'Cannot sell fiat USD' : !canSell ? 'You do not own enough of this coin to sell' : 'Sell'}
+          >
+            <span>🔴</span>Sell<span className="desktop-actions-context-menu__chevron">›</span>
+          </button>
+        )}
+        {isPortfolio && (
+          <button
+            role="menuitem"
+            onClick={() => { if (canStake) handleStakeClick(coin); closeActionMenu(); }}
+            disabled={!canStake}
+          >
+            <span>🔷</span>Stake
+          </button>
+        )}
+        <button
+          role="menuitem"
+          className="desktop-actions-context-menu__danger"
+          onClick={(event) => {
+            closeActionMenu();
+            if (hasOrders) handleCancelButtonClick(pendingSubject, allPendingItems, event);
+          }}
+          disabled={!hasOrders}
+        >
+          <span>✖</span>Cancel{hasOrders ? ` (${allPendingItems.length})` : ''}
+        </button>
+        <button
+          role="menuitem"
+          onClick={() => {
+            if (isPortfolio && !isPlaceholder) hideCoin(coin.id);
+            if (isWatchlist) deleteWatchlistItem(item.symbol);
+            closeActionMenu();
+          }}
+          disabled={isPlaceholder}
+        >
+          <span>🙈</span>Hide
+        </button>
+      </div>,
+      document.body
     );
   };
 
@@ -3922,14 +4172,14 @@ function Dashboard({ isLightMode }) {
               </button>
             </div>
           </div>
-          <div className="table-scroll-wrapper">
-            <table style={{ width: `${totalPortfolioWidth}px`, minWidth: '100%', tableLayout: 'fixed', borderCollapse: 'collapse' }}>
+          <div className="table-scroll-wrapper" ref={portfolioScrollRef}>
+            <table style={{ width: `${renderedPortfolioWidth}px`, minWidth: '100%', tableLayout: 'fixed', borderCollapse: 'collapse' }}>
               <colgroup>
                 {portfolioColOrder
                   .filter((colKey) => portfolioVisibleCols.includes(colKey) && PORTFOLIO_COLUMN_DEFINITIONS[colKey])
                   .map((colKey) => {
                     const colDef = PORTFOLIO_COLUMN_DEFINITIONS[colKey] || { defaultWidth: 120 };
-                    const width = portfolioColWidths[colKey] || colDef.defaultWidth;
+                    const width = getPortfolioColumnWidth(colKey);
                     return <col key={colKey} style={{ width: `${width}px` }} />;
                   })}
               </colgroup>
@@ -3941,13 +4191,13 @@ function Dashboard({ isLightMode }) {
                       const colDef = PORTFOLIO_COLUMN_DEFINITIONS[colKey] || { label: colKey };
                       const isSortable = !!colDef.sortable;
                       const isDraggable = colKey !== 'symbol' && colKey !== 'actions';
-                      const width = portfolioColWidths[colKey] || colDef.defaultWidth;
+                      const width = getPortfolioColumnWidth(colKey);
 
                       return (
                         <th
                           key={colKey}
                           onClick={isSortable ? () => handleSort(colKey) : undefined}
-                          className={`portfolio-header ${isSortable ? 'sortable' : ''} ${dragOverColKey === colKey ? 'drag-over-target' : ''}`}
+                          className={`portfolio-header ${isSortable ? 'sortable' : ''} ${dragOverColKey === colKey ? 'drag-over-target' : ''} ${colKey === 'actions' && !isMobile && portfolioActionsCollapsed ? 'actions-header--collapsed' : ''}`}
                           draggable={isDraggable && !isResizing}
                           onDragStart={(e) => handleColDragStart('portfolio', colKey, e)}
                           onDragOver={(e) => handleColDragOver('portfolio', colKey, e)}
@@ -4154,10 +4404,10 @@ function Dashboard({ isLightMode }) {
                                 </td>
                               );
                             case 'pnl_usd': {
-                              const pnl = (coin.current_value !== undefined && coin.cost_basis !== undefined && coin.cost_basis > 0)
-                                ? (coin.current_value - coin.cost_basis)
-                                : (coin.current_price && coin.avg_entry && coin.amount)
-                                  ? (coin.amount * (coin.current_price - coin.avg_entry))
+                              const pnl = (coin.current_price && coin.avg_entry && coin.amount)
+                                ? (coin.amount * (coin.current_price - coin.avg_entry))
+                                : (coin.current_value !== undefined && coin.cost_basis !== undefined && coin.cost_basis > 0)
+                                  ? (coin.current_value - coin.cost_basis)
                                   : null;
                               return (
                                 <td
@@ -4199,8 +4449,8 @@ function Dashboard({ isLightMode }) {
                               );
                             case 'actions':
                               return (
-                                <td key="actions" className="actions-cell" style={{ whiteSpace: 'nowrap', position: 'relative', textAlign: 'center' }}>
-                                  {isMobile ? (
+                                <td key="actions" className={`actions-cell ${!isMobile && portfolioActionsCollapsed ? 'actions-cell--collapsed' : ''}`} style={{ whiteSpace: 'nowrap', position: 'relative', textAlign: 'center' }}>
+                                  {portfolioActionsCollapsed ? (
                                     <>
                                       <button
                                         className="actions-dropdown-btn"
@@ -4386,14 +4636,14 @@ function Dashboard({ isLightMode }) {
               {addingToWatchlist ? 'Adding...' : 'Add to Watchlist'}
             </button>
           </div>
-          <div className="table-scroll-wrapper">
-            <table style={{ width: `${totalWatchlistWidth}px`, minWidth: '100%', tableLayout: 'fixed', borderCollapse: 'collapse' }}>
+          <div className="table-scroll-wrapper" ref={watchlistScrollRef}>
+            <table style={{ width: `${renderedWatchlistWidth}px`, minWidth: '100%', tableLayout: 'fixed', borderCollapse: 'collapse' }}>
               <colgroup>
                 {watchlistColOrder
                   .filter((colKey) => watchlistVisibleCols.includes(colKey) && WATCHLIST_COLUMN_DEFINITIONS[colKey])
                   .map((colKey) => {
                     const colDef = WATCHLIST_COLUMN_DEFINITIONS[colKey] || { defaultWidth: 120 };
-                    const width = watchlistColWidths[colKey] || colDef.defaultWidth;
+                    const width = getWatchlistColumnWidth(colKey);
                     return <col key={colKey} style={{ width: `${width}px` }} />;
                   })}
               </colgroup>
@@ -4405,13 +4655,13 @@ function Dashboard({ isLightMode }) {
                       const colDef = WATCHLIST_COLUMN_DEFINITIONS[colKey] || { label: colKey };
                       const isSortable = !!colDef.sortable;
                       const isDraggable = colKey !== 'symbol' && colKey !== 'actions';
-                      const width = watchlistColWidths[colKey] || colDef.defaultWidth;
+                      const width = getWatchlistColumnWidth(colKey);
 
                       return (
                         <th
                           key={colKey}
                           onClick={isSortable ? () => handleSort(colKey) : undefined}
-                          className={`watchlist-header ${isSortable ? 'sortable' : ''} ${dragOverColKey === colKey ? 'drag-over-target' : ''}`}
+                          className={`watchlist-header ${isSortable ? 'sortable' : ''} ${dragOverColKey === colKey ? 'drag-over-target' : ''} ${colKey === 'actions' && !isMobile && watchlistActionsCollapsed ? 'actions-header--collapsed' : ''}`}
                           draggable={isDraggable && !isResizing}
                           onDragStart={(e) => handleColDragStart('watchlist', colKey, e)}
                           onDragOver={(e) => handleColDragOver('watchlist', colKey, e)}
@@ -4579,8 +4829,8 @@ function Dashboard({ isLightMode }) {
                               );
                             case 'actions':
                               return (
-                                <td key="actions" className="actions-cell" style={{ textAlign: 'center', whiteSpace: 'nowrap', position: 'relative' }}>
-                                  {isMobile ? (
+                                <td key="actions" className={`actions-cell ${!isMobile && watchlistActionsCollapsed ? 'actions-cell--collapsed' : ''}`} style={{ textAlign: 'center', whiteSpace: 'nowrap', position: 'relative' }}>
+                                  {watchlistActionsCollapsed ? (
                                     <>
                                       <button
                                         className="actions-dropdown-btn"
@@ -4727,6 +4977,7 @@ function Dashboard({ isLightMode }) {
 
       {/* Mobile Actions Overlay */}
       {renderMobileActionsOverlay()}
+      {renderDesktopActionsContextMenu()}
       {renderDesktopTradeQuoteMenu()}
 
       {/* News Analysis Modal */}

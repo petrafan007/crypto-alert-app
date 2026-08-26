@@ -122,6 +122,15 @@ The application utilizes a **unified PostgreSQL database**.
 
 ## Version History & Changelog
 
+## v2.0.9 (August 2026)
+
+### Responsive Table Actions & Accurate Position P&L
+- **Overflow-Aware Actions Column**: Portfolio and Watchlist automatically replace expanded row controls with one compact `Actions` button whenever the configured columns exceed the table viewport. The compact column remains pinned at the right edge so actions are reachable without horizontal scrolling.
+- **Viewport-Safe Context Menus**: The row context menu exposes Alerts, News, Notes, Buy, Sell, Stake, Cancel, and Hide where supported. Buy and Sell retain their USD/USDT and Auto-Buy/Auto-Sell submenus; menus flip and clamp to stay on-screen and close on outside clicks, page/table scrolling, viewport resizing, or another menu opening.
+- **Correct Current-Position P&L**: Profit & Loss now prioritizes the actual held amount, current price, and average entry price. Backend FIFO cost basis is reconciled to the live held quantity, preventing duplicate historical activity rows from doubling the displayed position cost.
+- **Binance Activity Deduplication**: Order-level and trade-fill synchronization now recognize one another by Binance order ID before changing balances or inserting activity, preventing the same fill from being recorded twice.
+- **Version Bump**: Transitioned version to `v2.0.9`.
+
 ## v2.0.8 (August 2026)
 
 ### Portfolio Trend Live-Range Hotfix

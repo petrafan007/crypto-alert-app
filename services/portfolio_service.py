@@ -485,6 +485,19 @@ def update_portfolio_from_real_order(user_id, symbol, side, quantity, price, com
     try:
         base_asset = symbol.replace('USDT', '').replace('USD', '')
         quote_asset = 'USDT' if symbol.endswith('USDT') else 'USD' if symbol.endswith('USD') else None
+        txid = f"binance_{order_id}_{symbol}"
+        existing_activity = AllActivity.query.filter(
+            AllActivity.user_id == user_id,
+            AllActivity.asset == base_asset,
+            db.or_(
+                AllActivity.txid == txid,
+                AllActivity.details.contains(f"Order ID: {order_id},"),
+            ),
+        ).first()
+        if existing_activity:
+            logger.info(f"Skipped duplicate portfolio update for Binance order {order_id}")
+            return
+
         executed_quote = float(quote_quantity) if quote_quantity else quantity * price
         
         commission_asset = (commission_asset or '').upper()
@@ -588,8 +601,6 @@ def update_portfolio_from_real_order(user_id, symbol, side, quantity, price, com
                 coin.avg_entry = 0.0
         
         transaction_date = datetime.utcnow()
-        txid = f"binance_{order_id}_{symbol}"
-
         if side == 'BUY':
             cost_basis = executed_quote + commission_usd
             proceeds = None
@@ -602,7 +613,7 @@ def update_portfolio_from_real_order(user_id, symbol, side, quantity, price, com
 
         description = f"{side} {quantity} {base_asset} @ ${price:.2f}"
         details = f"Order ID: {order_id}, Commission: {commission} {commission_asset}"
-        
+
         new_activity = AllActivity(
             date=transaction_date,
             type=side,
