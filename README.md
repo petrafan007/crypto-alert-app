@@ -122,6 +122,13 @@ The application utilizes a **unified PostgreSQL database**.
 
 ## Version History & Changelog
 
+## v2.12.1 (August 2026)
+
+### Trade Chart Axis Clipping Hotfix
+- **Root-Cause Axis Repair**: Scoped-reset the application's global `table`, `tr`, and `td` rules inside Lightweight Charts. Those global rules were adding a top margin, cell padding, borders, fixed table layout, white backgrounds, and hidden overflow to the chart library's internal layout table, pushing the X-axis out of view and clipping the right-side Y-axis.
+- **Full Axis Visibility**: The internal chart table now retains its intended zero-spacing layout so year/month labels, the complete right-side price scale, chart border, and arrow markers remain inside the visible canvas.
+- **Version Bump**: Transitioned version to `v2.12.1`.
+
 ## v2.12.0 (August 2026)
 
 ### Arrow-Only Trade Markers, Hover Details & Chart Edge Repair

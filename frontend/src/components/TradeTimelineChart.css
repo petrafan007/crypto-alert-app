@@ -9,6 +9,39 @@
 .trade-timeline-chart-shell { position:relative; box-sizing:border-box; width:100%; min-width:0; min-height:638px; overflow:hidden; background:#0b1220; }
 .trade-timeline-chart-frame { box-sizing:border-box; width:100%; min-width:0; padding:14px 18px 14px 14px; overflow:hidden; }
 .trade-timeline-chart { box-sizing:border-box; width:100%; min-width:0; height:610px; overflow:hidden; }
+/* Lightweight Charts uses an internal table. Neutralize the application's global
+   table/cell rules, which otherwise add margins, padding, borders and fixed layout
+   that physically push both axis canvases outside the visible chart area. */
+.trade-timeline-chart .tv-lightweight-charts table {
+  box-sizing:border-box !important;
+  width:100% !important;
+  height:100% !important;
+  margin:0 !important;
+  border:0 !important;
+  border-collapse:separate !important;
+  border-spacing:0 !important;
+  table-layout:auto !important;
+  background:transparent !important;
+}
+.trade-timeline-chart .tv-lightweight-charts tr,
+.trade-timeline-chart .tv-lightweight-charts tr:nth-child(even),
+.trade-timeline-chart .tv-lightweight-charts tr:hover {
+  margin:0 !important;
+  border:0 !important;
+  background:transparent !important;
+}
+.trade-timeline-chart .tv-lightweight-charts td,
+.trade-timeline-chart .tv-lightweight-charts tr:nth-child(even) td,
+.trade-timeline-chart .tv-lightweight-charts tr:hover td {
+  box-sizing:border-box !important;
+  margin:0 !important;
+  padding:0 !important;
+  border:0 !important;
+  background:transparent !important;
+  overflow:visible !important;
+  text-align:initial !important;
+  text-overflow:clip !important;
+}
 .trade-marker-tooltip { position:absolute; z-index:6; box-sizing:border-box; width:350px; max-width:calc(100% - 20px); padding:.75rem .85rem; border:1px solid #22c55e; border-radius:10px; background:rgba(2,6,23,.96); box-shadow:0 12px 30px rgba(0,0,0,.45); color:#e2e8f0; font-size:.75rem; line-height:1.35; pointer-events:none; }
 .trade-marker-tooltip.sell { border-color:#ef4444; }
 .trade-marker-tooltip > strong,.trade-marker-tooltip > time { display:block; }
