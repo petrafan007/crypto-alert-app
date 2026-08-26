@@ -122,6 +122,15 @@ The application utilizes a **unified PostgreSQL database**.
 
 ## Version History & Changelog
 
+## v2.18.0 (August 2026)
+
+### Evaluation-Anchored Sentiment Grades
+- **Correct Check Alignment**: Every completed grade is now plotted at the next same-coin/source sentiment check—the exact timestamp and price used to evaluate the prior recommendation—instead of appearing one check early.
+- **Original Signal Inside Marker**: Each green Correct, blue Neutral, or red Wrong outcome circle contains the original H, CB, BI, CS, or SI recommendation being graded.
+- **Clear Outcome Context**: Visible labels continue to show the outcome and signed percentage move, while hover details explicitly preserve the original sentiment timestamp and identify the next check that completed its grade.
+- **Regression Coverage**: Added API assertions tying each evaluation timestamp to the paired next sentiment record and ensuring the latest ungraded record remains Tracking and absent from the chart.
+- **Version Bump**: Transitioned version to `v2.18.0`.
+
 ## v2.17.0 (August 2026)
 
 ### Outcome-Centered Sentiment Chart & Accuracy Verification

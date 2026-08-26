@@ -454,6 +454,7 @@ def build_sentiment_accuracy_response(user_id, timeframe='30d', selected_tier=No
             return f'{aware.month:02d}/{aware.day:02d}/{str(aware.year)[-2:]}', aware.strftime('%I:%M %p').lstrip('0')
 
         created_utc = _as_utc(record.created_at)
+        evaluated_utc = _as_utc(evaluated_at)
         date_str, time_str = display_parts(record.created_at)
         eval_date, eval_time = display_parts(evaluated_at)
         history.append({
@@ -478,6 +479,7 @@ def build_sentiment_accuracy_response(user_id, timeframe='30d', selected_tier=No
             'created_at': record.created_at.isoformat() if record.created_at else None,
             'evaluated_at': evaluated_at.isoformat() if evaluated_at else None,
             'created_timestamp': int(created_utc.timestamp()) if created_utc else 0,
+            'evaluated_timestamp': int(evaluated_utc.timestamp()) if evaluated_utc else None,
             'is_latest': next_record is None,
         })
 

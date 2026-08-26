@@ -66,8 +66,13 @@ class SentimentAccuracyIntegrationTests(unittest.TestCase):
         second = history[self.records[3].id]
         hold = history[self.records[4].id]
         latest = history[self.records[5].id]
+        expected_eval_time = self.records[3].created_at
+        if expected_eval_time.tzinfo is None:
+            expected_eval_time = expected_eval_time.replace(tzinfo=timezone.utc)
 
         self.assertEqual(first['evaluation_price'], 104)
+        self.assertEqual(first['evaluated_at'], self.records[3].created_at.isoformat())
+        self.assertEqual(first['evaluated_timestamp'], int(expected_eval_time.timestamp()))
         self.assertEqual(first['outcome_status'], 'correct')
         self.assertEqual(first['price_delta_pct'], 4)
         self.assertEqual(second['evaluation_price'], 100)
@@ -78,6 +83,7 @@ class SentimentAccuracyIntegrationTests(unittest.TestCase):
         self.assertEqual(hold['upside_wrong_threshold_pct'], 5)
         self.assertEqual(latest['outcome_status'], 'tracking')
         self.assertIsNone(latest['evaluation_price'])
+        self.assertIsNone(latest['evaluated_timestamp'])
         self.assertEqual(first['evaluation_method'], 'next_sentiment_check')
         self.assertEqual(report['summary']['evaluated_signals'], 3)
         self.assertEqual(report['summary']['bullish_count'], 1)

@@ -51,6 +51,7 @@ const formatEasternTime = value => {
 export default function SentimentTimelineChart({ signals = [], range, onRangeChange, availableSymbols = [], isLightMode = false }) {
   const hostRef = useRef(null);
   const markerGroupsRef = useRef(new Map());
+  const [markerBadges, setMarkerBadges] = useState([]);
   const [selectedPair, setSelectedPair] = useState('BTCUSDT');
   const [tradingPairs, setTradingPairs] = useState(() => availableSymbols.map(symbol => formatPair(`${symbol}USDT`)));
   const [prices, setPrices] = useState([]);
@@ -111,15 +112,16 @@ export default function SentimentTimelineChart({ signals = [], range, onRangeCha
       .forEach(signal => {
         const style = SIGNAL_STYLES[String(signal.sentiment || '').trim().toLowerCase()];
         const outcomeStyle = OUTCOME_STYLES[signal.outcome_status];
-        const signalTime = Number(signal.created_timestamp || Math.floor(new Date(signal.created_at).getTime() / 1000));
-        if (!style || !outcomeStyle || !Number.isFinite(signalTime) || !prices.length) return;
-        const candle = prices.reduce((closest, point) => Math.abs(point.time - signalTime) < Math.abs(closest.time - signalTime) ? point : closest, prices[0]);
-        if (!candle || Math.abs(candle.time - signalTime) > rangeConfig.intervalSeconds * 2) return;
-        const signalPrice = Number(signal.price_at_prediction) > 0 ? Number(signal.price_at_prediction) : candle.value;
-        const key = String(signalTime);
-        lineByTime.set(key, { time: signalTime, value: signalPrice });
-        if (!groups.has(key)) groups.set(key, { time: signalTime, price: signalPrice, signals: [] });
-        groups.get(key).signals.push({ ...signal, style, outcomeStyle, signalTime });
+        const originalSignalTime = Number(signal.created_timestamp || Math.floor(new Date(signal.created_at).getTime() / 1000));
+        const evaluationTime = Number(signal.evaluated_timestamp || Math.floor(new Date(signal.evaluated_at).getTime() / 1000));
+        const evaluationPrice = Number(signal.evaluation_price);
+        if (!style || !outcomeStyle || !Number.isFinite(originalSignalTime) || !Number.isFinite(evaluationTime) || evaluationPrice <= 0 || !prices.length) return;
+        const candle = prices.reduce((closest, point) => Math.abs(point.time - evaluationTime) < Math.abs(closest.time - evaluationTime) ? point : closest, prices[0]);
+        if (!candle || Math.abs(candle.time - evaluationTime) > rangeConfig.intervalSeconds * 2) return;
+        const key = String(evaluationTime);
+        lineByTime.set(key, { time: evaluationTime, value: evaluationPrice });
+        if (!groups.has(key)) groups.set(key, { time: evaluationTime, price: evaluationPrice, signals: [] });
+        groups.get(key).signals.push({ ...signal, style, outcomeStyle, originalSignalTime, evaluationTime });
       });
 
     const markers = [];
@@ -160,6 +162,26 @@ export default function SentimentTimelineChart({ signals = [], range, onRangeCha
     chart.timeScale().fitContent();
     markerGroupsRef.current = chartData.groups;
 
+    const updateMarkerBadges = () => {
+      const host = hostRef.current;
+      if (!host) return;
+      const badges = chartData.markers.flatMap(marker => {
+        const group = chartData.groups.get(String(marker.time));
+        const signal = group?.signals?.[0];
+        const x = chart.timeScale().timeToCoordinate(marker.time);
+        const y = group ? series.priceToCoordinate(group.price) : null;
+        if (!signal || x === null || y === null || x < 0 || y < 0 || x > host.clientWidth || y > host.clientHeight) return [];
+        return [{
+          id: marker.id,
+          code: signal.style.code,
+          color: signal.outcomeStyle.color,
+          left: host.offsetLeft + x,
+          top: host.offsetTop + y,
+        }];
+      });
+      setMarkerBadges(badges);
+    };
+
     const hover = param => {
       if (!param?.time || !param.point) return setHoveredSignals(null);
       const group = markerGroupsRef.current.get(String(param.time));
@@ -178,11 +200,20 @@ export default function SentimentTimelineChart({ signals = [], range, onRangeCha
       });
     };
     chart.subscribeCrosshairMove(hover);
-    const resizeChart = () => chart.resize(Math.max(320, Math.floor(hostRef.current?.getBoundingClientRect().width || 0)), 610);
+    const resizeChart = () => {
+      chart.resize(Math.max(320, Math.floor(hostRef.current?.getBoundingClientRect().width || 0)), 610);
+      window.requestAnimationFrame(updateMarkerBadges);
+    };
     const observer = new ResizeObserver(() => window.requestAnimationFrame(resizeChart));
     observer.observe(hostRef.current);
-    window.requestAnimationFrame(resizeChart);
-    return () => { observer.disconnect(); chart.unsubscribeCrosshairMove(hover); chart.remove(); };
+    chart.timeScale().subscribeVisibleTimeRangeChange(updateMarkerBadges);
+    window.requestAnimationFrame(() => { resizeChart(); updateMarkerBadges(); });
+    return () => {
+      observer.disconnect();
+      chart.timeScale().unsubscribeVisibleTimeRangeChange(updateMarkerBadges);
+      chart.unsubscribeCrosshairMove(hover);
+      chart.remove();
+    };
   }, [chartData, isLightMode, prices, range]);
 
   return (
@@ -200,12 +231,15 @@ export default function SentimentTimelineChart({ signals = [], range, onRangeCha
       </div>
       <div className="trade-timeline-chart-shell">
         <div className="trade-timeline-chart-frame"><div ref={hostRef} className="trade-timeline-chart" /></div>
+        <div className="sentiment-marker-badge-layer" aria-hidden="true">
+          {markerBadges.map(marker => <span key={marker.id} className="sentiment-marker-badge" style={{ left: marker.left, top: marker.top, background: marker.color }}>{marker.code}</span>)}
+        </div>
         {hoveredSignals && <div className="sentiment-marker-tooltip" style={{ left: hoveredSignals.left, top: hoveredSignals.top }} role="tooltip">
           <strong>{base}/{quote} AI Sentiment</strong>
           <div className="sentiment-marker-tooltip-list">{hoveredSignals.signals.map(signal => <article key={signal.id}>
             <header><span>{signal.style.code} · {signal.sentiment}</span><b>{formatDelta(signal.price_delta_pct ?? signal.outcome_pct).trim()}</b></header>
             <div className="sentiment-tooltip-outcome">Outcome: <i style={{ background: signal.outcomeStyle.color }} /><b>{signal.outcomeStyle.label}</b></div>
-            <time>{formatEasternTime(new Date(signal.signalTime * 1000).toISOString())}</time>
+            <time>Original sentiment: {formatEasternTime(new Date(signal.originalSignalTime * 1000).toISOString())}</time>
             <p>{signal.sentiment_reason || 'No thesis explanation was recorded.'}</p>
             <div className="sentiment-comparison">
               <small>Previous check: {formatPrice(signal.price_at_prediction)} {quote}</small>
