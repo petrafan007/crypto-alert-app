@@ -26,9 +26,11 @@ import TableColumnModal from '../components/TableColumnModal';
 import CancelOrderConfirmModal from '../components/CancelOrderConfirmModal';
 
 const TREND_RANGES = [
+  { key: '1H', label: '1H' },
   { key: '4H', label: '4H' },
   { key: '12H', label: '12H' },
   { key: '24H', label: '24H' },
+  { key: '3D', label: '3D' },
   { key: '7D', label: '7D' },
   { key: '30D', label: '30D' },
   { key: '90D', label: '90D' },
@@ -3823,7 +3825,7 @@ function Dashboard({ isLightMode }) {
                       <PortfolioTrend history={trendHistory} range={trendRange} isLightMode={isLightMode} />
                     )}
                   </div>
-                  <div className="time-range-container" style={{ marginTop: '8px', display: 'flex', justifyContent: 'center', gap: '4px', flexWrap: 'wrap' }}>
+                  <div className="time-range-container portfolio-trend-ranges">
                     {TREND_RANGES.map(range => (
                       <button
                         key={range.key}

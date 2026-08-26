@@ -150,6 +150,7 @@ export function PortfolioTrend({ history, range, isLightMode }) {
   // Get time scale configuration for each range
   const getTimeConfig = (rangeKey) => {
     const configs = {
+      '1H': { unit: 'minute', stepSize: 15 },
       '4H': { unit: 'hour', stepSize: 1, displayFormat: 'HH:mm' },
       '12H': { unit: 'hour', stepSize: 2, displayFormat: 'HH:mm MMM dd' },
       '1D': { unit: 'hour', stepSize: 4, displayFormat: 'HH:mm' },
@@ -158,12 +159,17 @@ export function PortfolioTrend({ history, range, isLightMode }) {
       '4W': { unit: 'week', stepSize: 1, displayFormat: 'MMM dd' },
       '3M': { unit: 'month', stepSize: 1, displayFormat: 'MMM yyyy' },
       '6M': { unit: 'month', stepSize: 1, displayFormat: 'MMM yyyy' },
-      '1Y': { unit: 'month', stepSize: 1, displayFormat: 'MMM yyyy' }
+      '1Y': { unit: 'month', stepSize: 1, displayFormat: 'MMM yyyy' },
+      // Let Chart.js choose sensible tick spacing for an arbitrary all-time span.
+      'ALL': { unit: false }
     };
     return configs[rangeKey] || configs['1D'];
   };
 
   const timeConfig = getTimeConfig(range);
+  const historySpanMs = safeHistory.length > 1
+    ? safeHistory[safeHistory.length - 1][0] - safeHistory[0][0]
+    : 0;
 
   const data = useMemo(() => ({
     labels: safeHistory.map(([t, _]) => new Date(t)),
@@ -230,7 +236,7 @@ export function PortfolioTrend({ history, range, isLightMode }) {
               day: 'numeric',
               hour: range.includes('H') || range === '1D' || range === '3D' ? 'numeric' : undefined,
               minute: range.includes('H') || range === '1D' || range === '3D' ? '2-digit' : undefined,
-              year: range.includes('M') || range === '1Y' ? 'numeric' : undefined
+              year: range === 'ALL' || range.includes('M') || range === '1Y' ? 'numeric' : undefined
             });
           },
           label: function(context) {
@@ -243,9 +249,10 @@ export function PortfolioTrend({ history, range, isLightMode }) {
       x: {
         type: 'time',
         time: {
-          unit: timeConfig.unit,
+          unit: timeConfig.unit || undefined,
           stepSize: timeConfig.stepSize,
           displayFormats: {
+            minute: 'HH:mm',
             hour: 'HH:mm',
             day: 'MMM dd',
             week: 'MMM dd',
@@ -254,13 +261,18 @@ export function PortfolioTrend({ history, range, isLightMode }) {
           tooltipFormat: 'MMM dd, yyyy HH:mm'
         },
         ticks: {
-          source: 'data',
+          source: range === 'ALL' ? 'auto' : 'data',
           color: isLightMode ? '#64748b' : '#94a3b8',
           font: { size: 11, family: 'Inter, sans-serif' },
-          maxTicksLimit: safeHistory.length,
+          maxTicksLimit: range === 'ALL' ? 7 : Math.min(safeHistory.length, 7),
           callback: function(value, index) {
             const date = new Date(value);
-            if (range.includes('H') || range === '1D') {
+            if (range === 'ALL') {
+              if (historySpanMs <= 31 * 24 * 60 * 60 * 1000) {
+                return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+              }
+              return date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+            } else if (range.includes('H') || range === '1D') {
               return date.toLocaleString('en-US', { hour: 'numeric', minute: '2-digit' });
             } else if (range === '3D') {
               return date.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric' });
@@ -283,7 +295,12 @@ export function PortfolioTrend({ history, range, isLightMode }) {
           color: isLightMode ? '#64748b' : '#94a3b8',
           font: { size: 11, family: 'Inter, sans-serif' },
           callback: function(value) {
-            return '$' + value.toLocaleString();
+            return Number(value).toLocaleString('en-US', {
+              style: 'currency',
+              currency: 'USD',
+              minimumFractionDigits: 2,
+              maximumFractionDigits: 2,
+            });
           }
         },
         grid: {
@@ -293,7 +310,7 @@ export function PortfolioTrend({ history, range, isLightMode }) {
         border: { display: false },
       },
     },
-  }), [range, safeHistory.length, timeConfig, isLightMode]);
+  }), [range, safeHistory.length, timeConfig, isLightMode, historySpanMs]);
 
   return <Line data={data} options={options} />;
 }

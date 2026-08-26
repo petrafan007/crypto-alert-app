@@ -729,6 +729,25 @@ textarea:focus {
   font-weight: 600;
 }
 
+/* Ten portfolio-trend ranges must fit their widget without a horizontal scrollbar. */
+.portfolio-trend-ranges {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 3px;
+  justify-content: center;
+  margin-top: 8px;
+  min-width: 0;
+}
+
+.portfolio-trend-ranges .time-range-btn {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 4px 6px;
+  font-size: 0.7rem;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
 /* Dark mode specific for time range buttons */
 body.dark-mode .time-range-btn {
   background: #000 !important;
@@ -4260,4 +4279,3 @@ body.light-mode .cancel-context-header {
 body.light-mode .cancel-item-title {
   color: #0f172a;
 }
-

@@ -122,6 +122,15 @@ The application utilizes a **unified PostgreSQL database**.
 
 ## Version History & Changelog
 
+## v2.0.7 (August 2026)
+
+### Portfolio Trend Ranges, All-Time Labels & USD Precision
+- **New 1H and 3D ranges**: Added one-hour and three-day Portfolio Trend controls, with 15-minute and 12-hour data intervals respectively.
+- **True all-time trend**: The `ALL` range now reads the complete stored portfolio-value history from its first recorded snapshot through the present, instead of falling back to the one-day series. Its adaptive labels include the day or year as needed, so month-only ticks no longer repeat as `Aug`.
+- **Consistent currency axis**: Portfolio Trend Y-axis labels now always display USD with exactly two decimal places.
+- **Compact range controls**: Reduced the range-button sizing so all ten controls fit the chart widget without horizontal scrolling.
+- **Version Bump**: Transitioned version to `v2.0.7`.
+
 ## v2.0.6 (August 2026)
 
 ### Persistent Minimized AI Copilot & Full-Edge Resizing

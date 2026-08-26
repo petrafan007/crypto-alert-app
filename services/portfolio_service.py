@@ -14,6 +14,7 @@ _snapshot_cooldown = {}
 _SNAPSHOT_COOLDOWN_SECS = 30
 
 PORTFOLIO_HISTORY_RANGE_CONFIG = {
+    "1H": {"duration_ms": 1 * 60 * 60 * 1000, "increment_ms": 15 * 60 * 1000, "points": 5},
     "4H": {"duration_ms": 4 * 60 * 60 * 1000, "increment_ms": 1 * 60 * 60 * 1000, "points": 4},
     "12H": {"duration_ms": 12 * 60 * 60 * 1000, "increment_ms": 2 * 60 * 60 * 1000, "points": 6},
     "1D": {"duration_ms": 24 * 60 * 60 * 1000, "increment_ms": 4 * 60 * 60 * 1000, "points": 6},
@@ -297,20 +298,24 @@ def trigger_portfolio_snapshot(user_id: int, username: str) -> None:
 
 def _compute_portfolio_history_series(user_id, range_key):
     """Return evenly spaced portfolio history points straight from stored values."""
+    is_all_time = range_key == "ALL"
     config = PORTFOLIO_HISTORY_RANGE_CONFIG.get(range_key, PORTFOLIO_HISTORY_RANGE_CONFIG["1D"])
     now_ms = int(time.time() * 1000)
-    duration_ms = config["duration_ms"]
-    start_ms = now_ms - duration_ms
-
     end_ts = math.ceil(now_ms / 1000)
-    start_ts = max(0, math.floor(start_ms / 1000) - 3600)
 
-    # Query portfolio history using ORM
-    raw_rows = PortfolioValueHistory.query.filter(
+    # ALL deliberately has no cutoff: it spans the first recorded portfolio
+    # value through the present. Other ranges include a small buffer so the
+    # opening point can carry the latest value into the selected period.
+    query = PortfolioValueHistory.query.filter(
         PortfolioValueHistory.user_id == user_id,
-        PortfolioValueHistory.timestamp >= datetime.utcfromtimestamp(start_ts),
         PortfolioValueHistory.timestamp <= datetime.utcfromtimestamp(end_ts)
-    ).order_by(PortfolioValueHistory.timestamp.asc()).all()
+    )
+    if not is_all_time:
+        start_ms = now_ms - config["duration_ms"]
+        start_ts = max(0, math.floor(start_ms / 1000) - 3600)
+        query = query.filter(PortfolioValueHistory.timestamp >= datetime.utcfromtimestamp(start_ts))
+
+    raw_rows = query.order_by(PortfolioValueHistory.timestamp.asc()).all()
 
     if not raw_rows:
         return []
@@ -319,13 +324,26 @@ def _compute_portfolio_history_series(user_id, range_key):
     if not raw_data:
         return []
 
+    if is_all_time:
+        start_ms = raw_data[0][0]
+        duration_ms = max(now_ms - start_ms, 1)
+        # Cap the response while preserving a useful, evenly distributed view
+        # from the first portfolio snapshot through the current moment.
+        points = min(500, max(2, math.ceil(duration_ms / (24 * 60 * 60 * 1000)) + 1))
+        increment_ms = duration_ms / (points - 1)
+    else:
+        duration_ms = config["duration_ms"]
+        start_ms = now_ms - duration_ms
+        points = config["points"]
+        increment_ms = config["increment_ms"]
+
     chart_data = []
     data_len = len(raw_data)
     data_idx = 0
     current_value = raw_data[0][1]
 
-    for i in range(config["points"]):
-        target_ms = now_ms - (config["points"] - 1 - i) * config["increment_ms"]
+    for i in range(points):
+        target_ms = round(start_ms + i * increment_ms)
 
         while data_idx < data_len and raw_data[data_idx][0] <= target_ms:
             current_value = raw_data[data_idx][1]
