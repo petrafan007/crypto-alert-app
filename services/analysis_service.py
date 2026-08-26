@@ -141,6 +141,7 @@ def get_user_ai_settings(username: str) -> dict:
             'sentiment_consider_buying_correct_pct': 5.0,
             'sentiment_consider_buying_wrong_pct': 5.0,
             'sentiment_hold_steady_pct': 1.0,
+            'sentiment_hold_wrong_pct': 5.0,
             'sentiment_consider_selling_correct_pct': 5.0,
             'sentiment_consider_selling_wrong_pct': 5.0,
             'sentiment_sell_immediately_correct_pct': 5.0,

@@ -122,6 +122,17 @@ The application utilizes a **unified PostgreSQL database**.
 
 ## Version History & Changelog
 
+## v2.19.0 (August 2026)
+
+### Configurable Hold Outcomes & Transparent Accuracy KPIs
+- **Independent Hold Wrong Threshold**: Activated one symmetric `Wrong Threshold (±%)` setting for Hold, replacing the hardcoded dependency on Consider Buying and Consider Selling thresholds.
+- **Strict Hold Validation**: Hold Wrong must be greater than Hold Steady, both values accept at most two decimal places, and invalid combinations are rejected consistently by the browser and API.
+- **Explicit Neutral Band**: Settings and chart hover help now state that Hold is Correct inside the steady range, Wrong at or beyond the symmetric Wrong threshold, and Neutral strictly between those boundaries.
+- **KPI Calculation Audit**: Reverified Overall, Bullish, and Bearish rates against decisive Correct/Wrong outcomes. Hold contributes to Overall but not directional rates; Neutral, Tracking, and Unscored outcomes remain excluded from all rate denominators.
+- **Visible KPI Evidence**: Each scorecard now displays its Correct numerator and decisive denominator, making valid 0% directional results directly auditable.
+- **Regression Coverage**: Added mixed-outcome and zero-directional-rate tests plus symmetric Hold boundary and persistence validation.
+- **Version Bump**: Transitioned version to `v2.19.0`.
+
 ## v2.18.0 (August 2026)
 
 ### Evaluation-Anchored Sentiment Grades

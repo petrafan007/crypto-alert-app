@@ -44,6 +44,7 @@ class SentimentAccuracyIntegrationTests(unittest.TestCase):
             sentiment_sell_immediately_correct_pct=3,
             sentiment_sell_immediately_wrong_pct=1,
             sentiment_hold_steady_pct=1,
+            sentiment_hold_wrong_pct=4,
         ))
 
         start = datetime.now(timezone.utc) - timedelta(hours=5)
@@ -80,7 +81,8 @@ class SentimentAccuracyIntegrationTests(unittest.TestCase):
         self.assertEqual(hold['evaluation_price'], 105)
         self.assertEqual(hold['outcome_status'], 'wrong')
         self.assertEqual(hold['steady_threshold_pct'], 1)
-        self.assertEqual(hold['upside_wrong_threshold_pct'], 5)
+        self.assertEqual(hold['upside_wrong_threshold_pct'], 4)
+        self.assertEqual(hold['downside_wrong_threshold_pct'], 4)
         self.assertEqual(latest['outcome_status'], 'tracking')
         self.assertIsNone(latest['evaluation_price'])
         self.assertIsNone(latest['evaluated_timestamp'])
@@ -91,7 +93,40 @@ class SentimentAccuracyIntegrationTests(unittest.TestCase):
         self.assertEqual(report['summary']['overall_accuracy'], 66.7)
         self.assertEqual(report['summary']['bullish_win_rate'], 100.0)
         self.assertEqual(report['summary']['bearish_win_rate'], 100.0)
+        self.assertEqual(report['summary']['correct_count'], 2)
+        self.assertEqual(report['summary']['wrong_count'], 1)
+        self.assertEqual(report['summary']['bullish_correct_count'], 1)
+        self.assertEqual(report['summary']['bullish_wrong_count'], 0)
+        self.assertEqual(report['summary']['bearish_correct_count'], 1)
+        self.assertEqual(report['summary']['bearish_wrong_count'], 0)
         self.assertEqual(report['model_breakdown'][0]['win_rate'], 66.7)
+
+    def test_zero_directional_rates_are_reported_when_all_decisive_calls_are_wrong(self):
+        db.session.query(SentimentHistory).delete(synchronize_session=False)
+        db.session.commit()
+        db.session.expunge_all()
+        start = datetime.now(timezone.utc) - timedelta(hours=4)
+        records = [
+            SentimentHistory(user_id=self.user_id, symbol='BTC', source_type='portfolio', sentiment='Buy Immediately', price_at_prediction=100, created_at=start),
+            SentimentHistory(user_id=self.user_id, symbol='BTC', source_type='portfolio', sentiment='Hold', price_at_prediction=99, created_at=start + timedelta(hours=1)),
+            SentimentHistory(user_id=self.user_id, symbol='ETH', source_type='portfolio', sentiment='Sell Immediately', price_at_prediction=100, created_at=start),
+            SentimentHistory(user_id=self.user_id, symbol='ETH', source_type='portfolio', sentiment='Hold', price_at_prediction=101, created_at=start + timedelta(hours=1)),
+            SentimentHistory(user_id=self.user_id, symbol='SOL', source_type='portfolio', sentiment='Hold', price_at_prediction=100, created_at=start),
+            SentimentHistory(user_id=self.user_id, symbol='SOL', source_type='portfolio', sentiment='Hold', price_at_prediction=100.5, created_at=start + timedelta(hours=1)),
+        ]
+        db.session.add_all(records)
+        db.session.commit()
+
+        summary = build_sentiment_accuracy_response(self.user_id, timeframe='all')['summary']
+        self.assertEqual(summary['correct_count'], 1)
+        self.assertEqual(summary['wrong_count'], 2)
+        self.assertEqual(summary['overall_accuracy'], 33.3)
+        self.assertEqual(summary['bullish_correct_count'], 0)
+        self.assertEqual(summary['bullish_wrong_count'], 1)
+        self.assertEqual(summary['bullish_win_rate'], 0.0)
+        self.assertEqual(summary['bearish_correct_count'], 0)
+        self.assertEqual(summary['bearish_wrong_count'], 1)
+        self.assertEqual(summary['bearish_win_rate'], 0.0)
 
     def test_sentiment_chart_range_is_persisted_with_a_safe_default(self):
         settings = UserSetting.query.filter_by(user_id=self.user_id).first()

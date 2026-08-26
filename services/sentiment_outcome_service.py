@@ -35,6 +35,7 @@ HOLD_VARIABLE = {
     'label': 'Hold',
     'direction': 'steady',
     'steady_field': 'sentiment_hold_steady_pct',
+    'wrong_field': 'sentiment_hold_wrong_pct',
 }
 
 SENTIMENT_VARIABLES = {
@@ -46,7 +47,7 @@ SENTIMENT_THRESHOLD_FIELDS = tuple(
     field
     for definition in DIRECTIONAL_SENTIMENT_VARIABLES.values()
     for field in (definition['correct_field'], definition['wrong_field'])
-) + (HOLD_VARIABLE['steady_field'],)
+) + (HOLD_VARIABLE['steady_field'], HOLD_VARIABLE['wrong_field'])
 CORRECT_THRESHOLD_FIELDS = {
     definition['correct_field'] for definition in DIRECTIONAL_SENTIMENT_VARIABLES.values()
 }
@@ -119,16 +120,10 @@ def validate_sentiment_threshold_payload(data, require_all=False):
         values[field] = float(value)
 
     steady_field = HOLD_VARIABLE['steady_field']
-    buying_correct_field = DIRECTIONAL_SENTIMENT_VARIABLES['consider_buying']['correct_field']
-    selling_correct_field = DIRECTIONAL_SENTIMENT_VARIABLES['consider_selling']['correct_field']
-    if all(field in values for field in (steady_field, buying_correct_field, selling_correct_field)):
-        buying_boundary = values[buying_correct_field]
-        selling_boundary = values[selling_correct_field]
-        if values[steady_field] >= min(buying_boundary, selling_boundary):
-            errors[steady_field] = (
-                'Hold steady range must be smaller than both the Consider Buying '
-                'and Consider Selling Correct thresholds.'
-            )
+    hold_wrong_field = HOLD_VARIABLE['wrong_field']
+    if steady_field in values and hold_wrong_field in values:
+        if values[hold_wrong_field] <= values[steady_field]:
+            errors[hold_wrong_field] = 'Hold Wrong Threshold must be greater than the Hold Steady Range.'
     return values, errors
 
 
@@ -159,11 +154,19 @@ def get_sentiment_thresholds(settings=None):
         steady = DEFAULT_HOLD_STEADY_PCT
     if steady < 0:
         steady = DEFAULT_HOLD_STEADY_PCT
+    hold_wrong = getattr(settings, HOLD_VARIABLE['wrong_field'], DEFAULT_SENTIMENT_THRESHOLD_PCT) if settings else DEFAULT_SENTIMENT_THRESHOLD_PCT
+    try:
+        hold_wrong = float(hold_wrong)
+    except (TypeError, ValueError):
+        hold_wrong = DEFAULT_SENTIMENT_THRESHOLD_PCT
+    if hold_wrong <= steady:
+        hold_wrong = DEFAULT_SENTIMENT_THRESHOLD_PCT if DEFAULT_SENTIMENT_THRESHOLD_PCT > steady else steady + 0.01
     result['hold'] = {
         **HOLD_VARIABLE,
         'steady_pct': steady,
-        'upside_wrong_pct': result['consider_buying']['correct_pct'],
-        'downside_wrong_pct': result['consider_selling']['correct_pct'],
+        'wrong_pct': hold_wrong,
+        'upside_wrong_pct': hold_wrong,
+        'downside_wrong_pct': hold_wrong,
     }
     return result
 
@@ -177,13 +180,11 @@ def evaluate_sentiment_outcome(sentiment, source_type, entry_price, evaluation_p
                                correct_threshold_pct=DEFAULT_SENTIMENT_THRESHOLD_PCT,
                                wrong_threshold_pct=DEFAULT_SENTIMENT_THRESHOLD_PCT,
                                hold_steady_pct=DEFAULT_HOLD_STEADY_PCT,
-                               hold_upside_wrong_pct=DEFAULT_SENTIMENT_THRESHOLD_PCT,
-                               hold_downside_wrong_pct=DEFAULT_SENTIMENT_THRESHOLD_PCT):
+                               hold_wrong_pct=DEFAULT_SENTIMENT_THRESHOLD_PCT):
     """Grade a signal using the price recorded by the next same-coin check.
 
     Directional rules use independent Correct and Wrong boundaries. Hold uses a
-    steady band around zero and derives its wrong boundaries from the Consider
-    Buying and Consider Selling Correct thresholds.
+    symmetric steady and Wrong bands around zero, with Neutral between them.
     """
     del source_type  # Retained in the public signature for backwards compatibility.
     try:
@@ -192,12 +193,10 @@ def evaluate_sentiment_outcome(sentiment, source_type, entry_price, evaluation_p
         correct_threshold_value = Decimal(str(correct_threshold_pct))
         wrong_threshold_value = Decimal(str(wrong_threshold_pct))
         steady_threshold_value = Decimal(str(hold_steady_pct))
-        upside_wrong_threshold_value = Decimal(str(hold_upside_wrong_pct))
-        downside_wrong_threshold_value = Decimal(str(hold_downside_wrong_pct))
+        hold_wrong_threshold_value = Decimal(str(hold_wrong_pct))
         decimal_values = (
             entry_value, evaluated_value, correct_threshold_value,
-            wrong_threshold_value, steady_threshold_value,
-            upside_wrong_threshold_value, downside_wrong_threshold_value,
+            wrong_threshold_value, steady_threshold_value, hold_wrong_threshold_value,
         )
         if not all(value.is_finite() for value in decimal_values):
             raise InvalidOperation
@@ -221,28 +220,25 @@ def evaluate_sentiment_outcome(sentiment, source_type, entry_price, evaluation_p
     correct_threshold = float(correct_threshold_value)
     wrong_threshold = float(wrong_threshold_value)
     steady_threshold = float(steady_threshold_value)
-    upside_wrong_threshold = float(upside_wrong_threshold_value)
-    downside_wrong_threshold = float(downside_wrong_threshold_value)
+    hold_wrong_threshold = float(hold_wrong_threshold_value)
 
     if direction == 'steady':
         if steady_threshold_value < 0:
             return {'status': 'unscored', 'delta_pct': None, 'direction': direction,
                     'reason': 'Hold steady range cannot be negative.'}
-        if (upside_wrong_threshold_value <= steady_threshold_value
-                or downside_wrong_threshold_value <= steady_threshold_value):
+        if hold_wrong_threshold_value <= steady_threshold_value:
             return {'status': 'unscored', 'delta_pct': None, 'direction': direction,
-                    'reason': 'Hold steady range must be smaller than both action boundaries.'}
+                    'reason': 'Hold Wrong Threshold must be greater than the Hold Steady Range.'}
         if abs(delta_value) <= steady_threshold_value:
             status = 'correct'
-        elif (delta_value >= upside_wrong_threshold_value
-              or delta_value <= -downside_wrong_threshold_value):
+        elif abs(delta_value) >= hold_wrong_threshold_value:
             status = 'wrong'
         else:
             status = 'neutral'
         boundary_text = (
             f'Correct requires a move from -{steady_threshold:.2f}% through +{steady_threshold:.2f}%. '
-            f'Wrong requires at least +{upside_wrong_threshold:.2f}% (Consider Buying warranted) '
-            f'or -{downside_wrong_threshold:.2f}% or lower (Consider Selling warranted).'
+            f'Wrong requires a move of ±{hold_wrong_threshold:.2f}% or farther. '
+            f'Moves strictly between the steady and Wrong boundaries are Neutral.'
         )
         return {
             'status': status,
@@ -250,8 +246,9 @@ def evaluate_sentiment_outcome(sentiment, source_type, entry_price, evaluation_p
             'direction': direction,
             'setting_key': setting_key,
             'steady_threshold_pct': steady_threshold,
-            'upside_wrong_threshold_pct': upside_wrong_threshold,
-            'downside_wrong_threshold_pct': downside_wrong_threshold,
+            'wrong_threshold_pct': hold_wrong_threshold,
+            'upside_wrong_threshold_pct': hold_wrong_threshold,
+            'downside_wrong_threshold_pct': hold_wrong_threshold,
             'reason': (
                 f'From this sentiment check to the next check, price moved {rounded:+.2f}%. '
                 f'{boundary_text} This outcome is {status.title()}.'
@@ -397,8 +394,7 @@ def build_sentiment_accuracy_response(user_id, timeframe='30d', selected_tier=No
                         record.price_at_prediction,
                         evaluation_price,
                         hold_steady_pct=threshold['steady_pct'],
-                        hold_upside_wrong_pct=threshold['upside_wrong_pct'],
-                        hold_downside_wrong_pct=threshold['downside_wrong_pct'],
+                        hold_wrong_pct=threshold['wrong_pct'],
                     )
                 else:
                     grade = evaluate_sentiment_outcome(
@@ -511,7 +507,12 @@ def build_sentiment_accuracy_response(user_id, timeframe='30d', selected_tier=No
             'bullish_win_rate': round(directional['bullish']['correct'] * 100 / bullish_decisive, 1) if bullish_decisive else None,
             'bearish_win_rate': round(directional['bearish']['correct'] * 100 / bearish_decisive, 1) if bearish_decisive else None,
             'total_signals': total, 'evaluated_signals': decisive,
+            'correct_count': counts['correct'], 'wrong_count': counts['wrong'],
             'bullish_count': bullish_decisive, 'bearish_count': bearish_decisive,
+            'bullish_correct_count': directional['bullish']['correct'],
+            'bullish_wrong_count': directional['bullish']['wrong'],
+            'bearish_correct_count': directional['bearish']['correct'],
+            'bearish_wrong_count': directional['bearish']['wrong'],
             'neutral_count': counts['neutral'], 'tracking_count': counts['tracking'],
             'unscored_count': counts['unscored'], 'top_model': top_model,
             'evaluation_method': 'consecutive_sentiment_checks',

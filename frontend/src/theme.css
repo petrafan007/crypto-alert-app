@@ -2620,11 +2620,6 @@ body.light-mode .settings-page-container div[style*="background:'#1a1f23'"] {
   gap: 12px;
 }
 
-.sentiment-variable-inputs.sentiment-hold-input {
-  grid-template-columns: minmax(0, 1fr);
-  max-width: 360px;
-}
-
 .sentiment-variable-inputs label > span {
   display: block;
   margin-bottom: 6px;

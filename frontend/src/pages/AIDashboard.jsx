@@ -687,19 +687,19 @@ const AIDashboard = () => {
           <div className="accuracy-kpi-card overall">
             <div className="kpi-label">Overall Accuracy</div>
             <div className="kpi-value glow-text">{formatRate(summary.overall_accuracy)}</div>
-            <div className="kpi-subtext">{summary.evaluated_signals || 0} decisive of {summary.total_signals} signals; neutral/tracking excluded</div>
+            <div className="kpi-subtext">{summary.correct_count || 0} Correct / {summary.evaluated_signals || 0} decisive of {summary.total_signals} signals; neutral/tracking excluded</div>
           </div>
 
           <div className="accuracy-kpi-card bullish">
             <div className="kpi-label">Bullish Win Rate</div>
             <div className="kpi-value text-green">{formatRate(summary.bullish_win_rate)}</div>
-            <div className="kpi-subtext">Buy theses measured at the next same-coin check</div>
+            <div className="kpi-subtext">{summary.bullish_correct_count || 0} Correct / {summary.bullish_count || 0} decisive Buy theses</div>
           </div>
 
           <div className="accuracy-kpi-card bearish">
             <div className="kpi-label">Bearish Win Rate</div>
             <div className="kpi-value text-red">{formatRate(summary.bearish_win_rate)}</div>
-            <div className="kpi-subtext">Sell/Watch theses measured at the next same-coin check</div>
+            <div className="kpi-subtext">{summary.bearish_correct_count || 0} Correct / {summary.bearish_count || 0} decisive Sell/Watch theses</div>
           </div>
 
           <div className="accuracy-kpi-card model">

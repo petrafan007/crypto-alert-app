@@ -897,7 +897,7 @@ def api_settings():
                 if threshold_errors:
                     return jsonify({
                         "success": False,
-                        "message": "Sentiment values are invalid. Correct thresholds must be at least 0.01%; directional Wrong and Hold steady values may be 0.00%; all values allow at most two decimal places.",
+                        "message": "Sentiment values are invalid. Directional Correct thresholds must be at least 0.01%; directional Wrong and Hold steady values may be 0.00%; Hold Wrong must be greater than Hold steady; all values allow at most two decimal places.",
                         "errors": threshold_errors,
                     }), 400
                 data.update(threshold_values)
