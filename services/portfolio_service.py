@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from core.extensions import db
 from models import Coin
 from trading_models import PortfolioValueHistory, AllActivity
@@ -15,15 +15,14 @@ _SNAPSHOT_COOLDOWN_SECS = 30
 
 PORTFOLIO_HISTORY_RANGE_CONFIG = {
     "1H": {"duration_ms": 1 * 60 * 60 * 1000, "increment_ms": 15 * 60 * 1000, "points": 5},
-    "4H": {"duration_ms": 4 * 60 * 60 * 1000, "increment_ms": 1 * 60 * 60 * 1000, "points": 4},
-    "12H": {"duration_ms": 12 * 60 * 60 * 1000, "increment_ms": 2 * 60 * 60 * 1000, "points": 6},
-    "1D": {"duration_ms": 24 * 60 * 60 * 1000, "increment_ms": 4 * 60 * 60 * 1000, "points": 6},
-    "3D": {"duration_ms": 72 * 60 * 60 * 1000, "increment_ms": 12 * 60 * 60 * 1000, "points": 6},
-    "7D": {"duration_ms": 168 * 60 * 60 * 1000, "increment_ms": 24 * 60 * 60 * 1000, "points": 7},
-    "4W": {"duration_ms": 4 * 7 * 24 * 60 * 60 * 1000, "increment_ms": 7 * 24 * 60 * 60 * 1000, "points": 4},
-    "3M": {"duration_ms": 90 * 24 * 60 * 60 * 1000, "increment_ms": 30 * 24 * 60 * 60 * 1000, "points": 3},
-    "6M": {"duration_ms": 180 * 24 * 60 * 60 * 1000, "increment_ms": 30 * 24 * 60 * 60 * 1000, "points": 6},
-    "1Y": {"duration_ms": 365 * 24 * 60 * 60 * 1000, "increment_ms": 30 * 24 * 60 * 60 * 1000, "points": 12},
+    "4H": {"duration_ms": 4 * 60 * 60 * 1000, "points": 5},
+    "12H": {"duration_ms": 12 * 60 * 60 * 1000, "points": 7},
+    "24H": {"duration_ms": 24 * 60 * 60 * 1000, "points": 7},
+    "3D": {"duration_ms": 72 * 60 * 60 * 1000, "points": 7},
+    "7D": {"duration_ms": 7 * 24 * 60 * 60 * 1000, "points": 8},
+    "30D": {"duration_ms": 30 * 24 * 60 * 60 * 1000, "points": 7},
+    "90D": {"duration_ms": 90 * 24 * 60 * 60 * 1000, "points": 7},
+    "1Y": {"duration_ms": 365 * 24 * 60 * 60 * 1000, "points": 13},
 }
 
 def compute_portfolio_total_value(user_id, username=None, cred=None, include_staking=True):
@@ -299,7 +298,7 @@ def trigger_portfolio_snapshot(user_id: int, username: str) -> None:
 def _compute_portfolio_history_series(user_id, range_key):
     """Return evenly spaced portfolio history points straight from stored values."""
     is_all_time = range_key == "ALL"
-    config = PORTFOLIO_HISTORY_RANGE_CONFIG.get(range_key, PORTFOLIO_HISTORY_RANGE_CONFIG["1D"])
+    config = PORTFOLIO_HISTORY_RANGE_CONFIG.get(range_key, PORTFOLIO_HISTORY_RANGE_CONFIG["24H"])
     now_ms = int(time.time() * 1000)
     end_ts = math.ceil(now_ms / 1000)
 
@@ -320,7 +319,17 @@ def _compute_portfolio_history_series(user_id, range_key):
     if not raw_rows:
         return []
 
-    raw_data = [(int(row.timestamp.timestamp()) * 1000, round(float(row.value), 2)) for row in raw_rows if row.value is not None]
+    # PostgreSQL returns these UTC timestamps as naive datetime objects. Calling
+    # timestamp() directly interprets them in the server's local timezone and
+    # shifts the chart points four/five hours into the future.
+    raw_data = [
+        (
+            int(row.timestamp.replace(tzinfo=timezone.utc).timestamp() * 1000),
+            round(float(row.value), 2),
+        )
+        for row in raw_rows
+        if row.value is not None and row.timestamp is not None
+    ]
     if not raw_data:
         return []
 
@@ -335,7 +344,8 @@ def _compute_portfolio_history_series(user_id, range_key):
         duration_ms = config["duration_ms"]
         start_ms = now_ms - duration_ms
         points = config["points"]
-        increment_ms = config["increment_ms"]
+        # Include both the exact start of the selected range and the present.
+        increment_ms = duration_ms / (points - 1)
 
     chart_data = []
     data_len = len(raw_data)

@@ -160,6 +160,7 @@ function Dashboard({ isLightMode }) {
   const [tradingPairsLoaded, setTradingPairsLoaded] = useState(false);
   const [error, setError] = useState(null);
   const [trendHistory, setTrendHistory] = useState([]);
+  const [trendHistoryRange, setTrendHistoryRange] = useState(null);
   const [pendingOrders, setPendingOrders] = useState([]);
   const [orderTooltip, setOrderTooltip] = useState({ isVisible: false, text: '', position: { x: 0, y: 0 } });
   const [trendRange, setTrendRange] = useState('7D');
@@ -1532,23 +1533,35 @@ function Dashboard({ isLightMode }) {
   }, []);
 
   useEffect(() => {
+    const controller = new AbortController();
+
     async function fetchTrend() {
       setTrendLoading(true);
       try {
-        const res = await axios.get(`/api/true-portfolio-history?range=${trendRange}`, { withCredentials: true });
-        setTrendHistory(res.data || []);
+        const res = await axios.get(`/api/true-portfolio-history?range=${trendRange}`, {
+          withCredentials: true,
+          signal: controller.signal,
+        });
+        if (!controller.signal.aborted) {
+          setTrendHistory(res.data || []);
+          setTrendHistoryRange(trendRange);
+        }
       } catch (err) {
+        if (controller.signal.aborted || axios.isCancel(err)) return;
         console.error('Trend fetch error:', err);
         // Check for authentication error
         if (err.response && (err.response.status === 302 || err.response.status === 401)) {
           setNeedsLogin(true);
         } else {
           setTrendHistory([]);
+          setTrendHistoryRange(trendRange);
         }
+      } finally {
+        if (!controller.signal.aborted) setTrendLoading(false);
       }
-      setTrendLoading(false);
     }
     fetchTrend();
+    return () => controller.abort();
   }, [trendRange]);
 
   // Fetch stakeable coins
@@ -3817,12 +3830,12 @@ function Dashboard({ isLightMode }) {
                 <div className="chart-panel widget-panel-inner" style={{ height: '100%', padding: '16px', display: 'flex', flexDirection: 'column' }}>
                   <h2 className="chart-title" style={{ margin: '0 0 12px 0', fontSize: '1.1rem' }}>Portfolio Trend</h2>
                   <div style={{ flex: 1, minHeight: '220px', width: '100%' }}>
-                    {trendLoading ? (
+                    {trendLoading || trendHistoryRange !== trendRange ? (
                       <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%', color: '#94a3b8' }}>
                         Loading trend...
                       </div>
                     ) : (
-                      <PortfolioTrend history={trendHistory} range={trendRange} isLightMode={isLightMode} />
+                      <PortfolioTrend key={trendRange} history={trendHistory} range={trendRange} isLightMode={isLightMode} />
                     )}
                   </div>
                   <div className="time-range-container portfolio-trend-ranges">

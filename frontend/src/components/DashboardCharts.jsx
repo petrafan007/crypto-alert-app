@@ -153,17 +153,16 @@ export function PortfolioTrend({ history, range, isLightMode }) {
       '1H': { unit: 'minute', stepSize: 15 },
       '4H': { unit: 'hour', stepSize: 1, displayFormat: 'HH:mm' },
       '12H': { unit: 'hour', stepSize: 2, displayFormat: 'HH:mm MMM dd' },
-      '1D': { unit: 'hour', stepSize: 4, displayFormat: 'HH:mm' },
+      '24H': { unit: 'hour', stepSize: 4, displayFormat: 'HH:mm' },
       '3D': { unit: 'hour', stepSize: 12, displayFormat: 'MMM dd HH:mm' },
       '7D': { unit: 'day', stepSize: 1, displayFormat: 'MMM dd' },
-      '4W': { unit: 'week', stepSize: 1, displayFormat: 'MMM dd' },
-      '3M': { unit: 'month', stepSize: 1, displayFormat: 'MMM yyyy' },
-      '6M': { unit: 'month', stepSize: 1, displayFormat: 'MMM yyyy' },
+      '30D': { unit: 'week', stepSize: 1, displayFormat: 'MMM dd' },
+      '90D': { unit: 'month', stepSize: 1, displayFormat: 'MMM yyyy' },
       '1Y': { unit: 'month', stepSize: 1, displayFormat: 'MMM yyyy' },
       // Let Chart.js choose sensible tick spacing for an arbitrary all-time span.
       'ALL': { unit: false }
     };
-    return configs[rangeKey] || configs['1D'];
+    return configs[rangeKey] || configs['24H'];
   };
 
   const timeConfig = getTimeConfig(range);
@@ -234,8 +233,8 @@ export function PortfolioTrend({ history, range, isLightMode }) {
             return date.toLocaleString('en-US', {
               month: 'short',
               day: 'numeric',
-              hour: range.includes('H') || range === '1D' || range === '3D' ? 'numeric' : undefined,
-              minute: range.includes('H') || range === '1D' || range === '3D' ? '2-digit' : undefined,
+              hour: range.includes('H') || range === '3D' ? 'numeric' : undefined,
+              minute: range.includes('H') || range === '3D' ? '2-digit' : undefined,
               year: range === 'ALL' || range.includes('M') || range === '1Y' ? 'numeric' : undefined
             });
           },
@@ -272,11 +271,11 @@ export function PortfolioTrend({ history, range, isLightMode }) {
                 return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
               }
               return date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
-            } else if (range.includes('H') || range === '1D') {
+            } else if (range.includes('H')) {
               return date.toLocaleString('en-US', { hour: 'numeric', minute: '2-digit' });
             } else if (range === '3D') {
               return date.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric' });
-            } else if (range === '7D' || range === '4W') {
+            } else if (range === '7D' || range === '30D') {
               return date.toLocaleString('en-US', { month: 'short', day: 'numeric' });
             } else {
               return date.toLocaleString('en-US', { month: 'short', year: range === '1Y' ? 'numeric' : undefined });

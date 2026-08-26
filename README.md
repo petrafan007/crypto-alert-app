@@ -122,6 +122,14 @@ The application utilizes a **unified PostgreSQL database**.
 
 ## Version History & Changelog
 
+## v2.0.8 (August 2026)
+
+### Portfolio Trend Live-Range Hotfix
+- **Short-range value correction**: Fixed UTC portfolio-history timestamps being interpreted in the server's Eastern timezone, which shifted snapshots into the future and made the 1H and 4H charts appear flat despite changing stored values.
+- **Crash-free range switching**: Range requests are now cancellation-safe and tied to the range that produced their data. The chart remounts only with matching data, preventing an `ALL` or `1Y` dataset from being rendered temporarily on the 1-minute scale when switching back to 1H or 4H.
+- **Exact range endpoints**: Every finite trend range now includes both its true starting time and the current time, and the frontend/backend keys for 24H, 30D, and 90D are fully aligned.
+- **Version Bump**: Transitioned version to `v2.0.8`.
+
 ## v2.0.7 (August 2026)
 
 ### Portfolio Trend Ranges, All-Time Labels & USD Precision
