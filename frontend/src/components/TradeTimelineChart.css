@@ -65,6 +65,8 @@
 .sentiment-marker-tooltip article { padding:.6rem 0; border-top:1px solid rgba(148,163,184,.2); }
 .sentiment-marker-tooltip article header { display:flex; justify-content:space-between; gap:.65rem; }
 .sentiment-marker-tooltip article header span { display:inline-flex; align-items:center; gap:.35rem; font-weight:800; }
+.sentiment-tooltip-outcome { display:flex; align-items:center; gap:.4rem; margin:.35rem 0; color:#cbd5e1; font-size:.78rem; }
+.sentiment-tooltip-outcome b { color:#f8fafc; }
 .sentiment-marker-tooltip article time,.sentiment-marker-tooltip article small { color:#94a3b8; }
 .sentiment-marker-tooltip article p { margin:.35rem 0; line-height:1.45; }
 .sentiment-comparison { display:grid; gap:.18rem; margin:.45rem 0; }
@@ -80,4 +82,6 @@ body.light-mode .trade-timeline-chart-shell,.light-mode .trade-timeline-chart-sh
 body.light-mode .trade-marker-tooltip,.light-mode .trade-marker-tooltip { background:rgba(255,255,255,.98); color:#334155; box-shadow:0 12px 30px rgba(15,23,42,.18); }
 body.light-mode .trade-marker-tooltip-row b,.light-mode .trade-marker-tooltip-row b { color:#0f172a; }
 body.light-mode .sentiment-marker-tooltip,.light-mode .sentiment-marker-tooltip { background:rgba(255,255,255,.98); color:#334155; box-shadow:0 12px 30px rgba(15,23,42,.18); }
+body.light-mode .sentiment-tooltip-outcome,.light-mode .sentiment-tooltip-outcome { color:#475569; }
+body.light-mode .sentiment-tooltip-outcome b,.light-mode .sentiment-tooltip-outcome b { color:#0f172a; }
 @media (max-width:760px) { .trade-timeline-header { align-items:stretch; flex-direction:column; } .trade-timeline-controls { align-items:stretch; flex-direction:column; width:100%; } .trade-timeline-pair-select,.trade-timeline-range-control { flex:1 1 auto; width:100%; min-width:0; } }

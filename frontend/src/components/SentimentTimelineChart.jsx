@@ -6,11 +6,17 @@ import { CHART_RANGES, formatChartTick, getChartRange } from '../utils/chartRang
 import './TradeTimelineChart.css';
 
 const SIGNAL_STYLES = {
-  'hold': { code: 'H', color: '#38bdf8' },
-  'consider buying': { code: 'CB', color: '#86efac' },
-  'buy immediately': { code: 'BI', color: '#16a34a' },
-  'consider selling': { code: 'CS', color: '#fca5a5' },
-  'sell immediately': { code: 'SI', color: '#dc2626' },
+  'hold': { code: 'H' },
+  'consider buying': { code: 'CB' },
+  'buy immediately': { code: 'BI' },
+  'consider selling': { code: 'CS' },
+  'sell immediately': { code: 'SI' },
+};
+
+const OUTCOME_STYLES = {
+  correct: { label: 'Correct', color: '#22c55e' },
+  neutral: { label: 'Neutral', color: '#38bdf8' },
+  wrong: { label: 'Wrong', color: '#ef4444' },
 };
 
 const normalizePair = value => String(value || 'BTCUSDT').toUpperCase().replace(/[^A-Z0-9]/g, '');
@@ -24,9 +30,13 @@ const formatPair = pair => {
   return { ...metadata, id, base_currency: metadata.base_currency || base, quote_currency: metadata.quote_currency || quote, display_name: metadata.display_name || `${base}/${quote}` };
 };
 const formatPrice = value => Number(value || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: Number(value) < 1 ? 8 : 2 });
-const formatDelta = value => value === null || value === undefined || !Number.isFinite(Number(value))
-  ? ''
-  : ` (${Number(value) >= 0 ? '+' : ''}${Number(value).toFixed(1)}%)`;
+const formatDelta = value => {
+  if (value === null || value === undefined || !Number.isFinite(Number(value))) return '';
+  const numeric = Number(value);
+  const decimals = Math.abs(numeric) > 0 && Math.abs(numeric) < 0.01 ? 4 : 2;
+  const displayed = numeric === 0 ? (0).toFixed(decimals) : numeric.toFixed(decimals);
+  return ` (${numeric > 0 ? '+' : ''}${displayed}%)`;
+};
 const formatEasternTime = value => {
   if (!value) return 'Waiting for the next check';
   const raw = String(value);
@@ -93,18 +103,23 @@ export default function SentimentTimelineChart({ signals = [], range, onRangeCha
   const chartData = useMemo(() => {
     const groups = new Map();
     const lineByTime = new Map(prices.map(point => [String(point.time), point]));
-    signals.filter(signal => signal.symbol === base && (signal.source_type || 'portfolio') === 'portfolio')
+    signals.filter(signal => (
+      signal.symbol === base
+      && (signal.source_type || 'portfolio') === 'portfolio'
+      && OUTCOME_STYLES[signal.outcome_status]
+    ))
       .forEach(signal => {
         const style = SIGNAL_STYLES[String(signal.sentiment || '').trim().toLowerCase()];
+        const outcomeStyle = OUTCOME_STYLES[signal.outcome_status];
         const signalTime = Number(signal.created_timestamp || Math.floor(new Date(signal.created_at).getTime() / 1000));
-        if (!style || !Number.isFinite(signalTime) || !prices.length) return;
+        if (!style || !outcomeStyle || !Number.isFinite(signalTime) || !prices.length) return;
         const candle = prices.reduce((closest, point) => Math.abs(point.time - signalTime) < Math.abs(closest.time - signalTime) ? point : closest, prices[0]);
         if (!candle || Math.abs(candle.time - signalTime) > rangeConfig.intervalSeconds * 2) return;
         const signalPrice = Number(signal.price_at_prediction) > 0 ? Number(signal.price_at_prediction) : candle.value;
         const key = String(signalTime);
         lineByTime.set(key, { time: signalTime, value: signalPrice });
         if (!groups.has(key)) groups.set(key, { time: signalTime, price: signalPrice, signals: [] });
-        groups.get(key).signals.push({ ...signal, style, signalTime });
+        groups.get(key).signals.push({ ...signal, style, outcomeStyle, signalTime });
       });
 
     const markers = [];
@@ -114,9 +129,9 @@ export default function SentimentTimelineChart({ signals = [], range, onRangeCha
         time: group.time,
         position: 'inBar',
         shape: 'circle',
-        color: signal.style.color,
+        color: signal.outcomeStyle.color,
         size: 1.5,
-        text: `${signal.style.code}${formatDelta(signal.price_delta_pct ?? signal.outcome_pct)}`,
+        text: `${signal.outcomeStyle.label}${formatDelta(signal.price_delta_pct ?? signal.outcome_pct)}`,
         id: String(signal.id),
       });
     });
@@ -180,15 +195,16 @@ export default function SentimentTimelineChart({ signals = [], range, onRangeCha
         </div>
       </header>
       <div className="sentiment-chart-legend">
-        {Object.values(SIGNAL_STYLES).map(style => <span key={style.code}><i style={{ background: style.color }} />{style.code}</span>)}
-        <span>Labels show outcome move, e.g. BI (+5.5%)</span>
+        {Object.entries(OUTCOME_STYLES).map(([status, style]) => <span key={status}><i style={{ background: style.color }} />{style.label}</span>)}
+        <span>Markers show completed outcomes and the move to the next sentiment check</span>
       </div>
       <div className="trade-timeline-chart-shell">
         <div className="trade-timeline-chart-frame"><div ref={hostRef} className="trade-timeline-chart" /></div>
         {hoveredSignals && <div className="sentiment-marker-tooltip" style={{ left: hoveredSignals.left, top: hoveredSignals.top }} role="tooltip">
           <strong>{base}/{quote} AI Sentiment</strong>
           <div className="sentiment-marker-tooltip-list">{hoveredSignals.signals.map(signal => <article key={signal.id}>
-            <header><span><i style={{ background: signal.style.color }} />{signal.style.code} · {signal.sentiment}</span><b>{formatDelta(signal.price_delta_pct ?? signal.outcome_pct).trim() || 'Tracking'}</b></header>
+            <header><span>{signal.style.code} · {signal.sentiment}</span><b>{formatDelta(signal.price_delta_pct ?? signal.outcome_pct).trim()}</b></header>
+            <div className="sentiment-tooltip-outcome">Outcome: <i style={{ background: signal.outcomeStyle.color }} /><b>{signal.outcomeStyle.label}</b></div>
             <time>{formatEasternTime(new Date(signal.signalTime * 1000).toISOString())}</time>
             <p>{signal.sentiment_reason || 'No thesis explanation was recorded.'}</p>
             <div className="sentiment-comparison">
@@ -208,7 +224,7 @@ export default function SentimentTimelineChart({ signals = [], range, onRangeCha
         </div>}
         {loading && <div className="trade-timeline-status">Loading {base}/{quote} sentiment history…</div>}
         {error && <div className="trade-timeline-status error">{error}</div>}
-        {!loading && !error && !chartData.markers.length && <div className="trade-timeline-empty">No requested portfolio sentiment signals were recorded for {base} in this range.</div>}
+        {!loading && !error && !chartData.markers.length && <div className="trade-timeline-empty">No completed portfolio sentiment grades were recorded for {base} in this range.</div>}
       </div>
     </section>
   );

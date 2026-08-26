@@ -246,7 +246,7 @@ def evaluate_sentiment_outcome(sentiment, source_type, entry_price, evaluation_p
         )
         return {
             'status': status,
-            'delta_pct': rounded,
+            'delta_pct': delta,
             'direction': direction,
             'setting_key': setting_key,
             'steady_threshold_pct': steady_threshold,
@@ -295,7 +295,7 @@ def evaluate_sentiment_outcome(sentiment, source_type, entry_price, evaluation_p
 
     return {
         'status': status,
-        'delta_pct': rounded,
+        'delta_pct': delta,
         'direction': direction,
         'setting_key': setting_key,
         'correct_threshold_pct': correct_threshold,

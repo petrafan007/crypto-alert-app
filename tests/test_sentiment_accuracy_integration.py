@@ -82,6 +82,10 @@ class SentimentAccuracyIntegrationTests(unittest.TestCase):
         self.assertEqual(report['summary']['evaluated_signals'], 3)
         self.assertEqual(report['summary']['bullish_count'], 1)
         self.assertEqual(report['summary']['bearish_count'], 1)
+        self.assertEqual(report['summary']['overall_accuracy'], 66.7)
+        self.assertEqual(report['summary']['bullish_win_rate'], 100.0)
+        self.assertEqual(report['summary']['bearish_win_rate'], 100.0)
+        self.assertEqual(report['model_breakdown'][0]['win_rate'], 66.7)
 
     def test_sentiment_chart_range_is_persisted_with_a_safe_default(self):
         settings = UserSetting.query.filter_by(user_id=self.user_id).first()

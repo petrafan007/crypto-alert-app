@@ -42,6 +42,14 @@ class SentimentOutcomeTests(unittest.TestCase):
         self.assertEqual(result['status'], 'correct')
         self.assertEqual(result['delta_pct'], 5)
 
+    def test_small_price_move_preserves_its_direction(self):
+        result = evaluate_sentiment_outcome(
+            'Consider Buying', 'portfolio', 100, 99.999, 2.5, 0
+        )
+        self.assertEqual(result['status'], 'wrong')
+        self.assertLess(result['delta_pct'], 0)
+        self.assertAlmostEqual(result['delta_pct'], -0.001, places=6)
+
     def test_bearish_zero_wrong_boundary(self):
         self.assertEqual(self.grade('Sell Immediately', 95)['status'], 'correct')
         self.assertEqual(self.grade('Consider Selling', 99.99)['status'], 'neutral')

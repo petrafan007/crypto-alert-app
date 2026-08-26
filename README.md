@@ -122,6 +122,16 @@ The application utilizes a **unified PostgreSQL database**.
 
 ## Version History & Changelog
 
+## v2.17.0 (August 2026)
+
+### Outcome-Centered Sentiment Chart & Accuracy Verification
+- **Outcome-Based Markers**: Sentiment Chart marker colors and visible labels now represent the completed grade: green Correct, blue Neutral, and red Wrong.
+- **Original Recommendation Preserved**: Hover details retain the original H, CB, BI, CS, or SI signal and add an explicit colored `Outcome` row immediately above its timestamp.
+- **Completed Grades Only**: Tracking and Unscored signals are excluded from the chart until a subsequent same-coin/source check produces a grade.
+- **Direction-Preserving Precision**: Outcome movements display at least two decimals and automatically use four decimals for nonzero moves below 0.01%, eliminating misleading `+0.0%` and `-0.0%` labels.
+- **Accuracy Audit**: Independently verified overall, bullish, bearish, and per-model rates against decisive Correct/Wrong counts, and added regression assertions for the KPI formulas.
+- **Version Bump**: Transitioned version to `v2.17.0`.
+
 ## v2.16.0 (August 2026)
 
 ### Persistent Three-Day Sentiment Chart Range
