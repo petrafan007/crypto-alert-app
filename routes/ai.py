@@ -507,7 +507,7 @@ def api_ai_sentiment_accuracy():
 
         report = build_sentiment_accuracy_response(
             current_user.id,
-            request.args.get('timeframe', '3d'),
+            request.args.get('timeframe', '30d'),
             request.args.get('tier'),
         )
         return jsonify(report)

@@ -117,147 +117,6 @@
   color: var(--text-secondary, #64748b);
 }
 
-/* Price Chart Card */
-.price-sentiment-chart-card {
-  background: var(--card-bg, #1e293b);
-  border: 1px solid var(--card-border, #334155);
-  border-radius: 10px;
-  padding: 20px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
-}
-
-.chart-header-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 16px;
-  margin-bottom: 16px;
-}
-
-.chart-title-area h3 {
-  margin: 0 0 4px 0;
-  font-size: 17px;
-  color: var(--text-primary, #f8fafc);
-}
-
-.chart-subtitle {
-  font-size: 12px;
-  color: var(--text-secondary, #94a3b8);
-}
-
-.chart-dropdowns-area {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  flex-wrap: wrap;
-}
-
-.dropdown-wrapper {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.dropdown-label {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text-secondary, #94a3b8);
-  margin: 0;
-}
-
-.chart-select-dropdown {
-  background: var(--bg-tertiary, #0f172a);
-  color: var(--text-primary, #f8fafc);
-  border: 1px solid var(--border-color, #334155);
-  border-radius: 6px;
-  padding: 6px 12px;
-  font-size: 13px;
-  font-weight: 600;
-  cursor: pointer;
-  outline: none;
-  transition: all 0.2s ease;
-}
-
-.chart-select-dropdown:hover,
-.chart-select-dropdown:focus {
-  border-color: var(--accent-primary, #38bdf8);
-}
-
-.chart-viewport-wrapper {
-  border-radius: 8px;
-  overflow: hidden;
-  border: 1px solid var(--border-color, #334155);
-  background: var(--bg-tertiary, #0f172a);
-  padding: 0 !important;
-  margin: 0 !important;
-  box-sizing: border-box;
-  width: 100%;
-  position: relative;
-}
-
-/* ========================================================================= */
-/* CRITICAL: LIGHTWEIGHT CHARTS CSS RESET TO PREVENT GLOBAL CSS CORRUPTION   */
-/* ========================================================================= */
-.chart-viewport-wrapper .tv-lightweight-charts {
-  position: relative !important;
-  background: transparent !important;
-}
-
-.chart-viewport-wrapper .tv-lightweight-charts table,
-.chart-viewport-wrapper .tv-lightweight-charts td,
-.chart-viewport-wrapper .tv-lightweight-charts tr {
-  margin: 0 !important;
-  padding: 0 !important;
-  border: none !important;
-  background: transparent !important;
-}
-
-.chart-viewport-wrapper .tv-lightweight-charts canvas {
-  display: block !important;
-  visibility: visible !important;
-  opacity: 1 !important;
-}
-
-.chart-loading-overlay {
-  position: absolute;
-  inset: 0;
-  background: rgba(15, 23, 42, 0.8);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 10;
-  border-radius: 8px;
-  font-size: 13px;
-  color: var(--accent-primary, #38bdf8);
-}
-
-.chart-hover-bar {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  flex-wrap: wrap;
-  padding: 8px 14px;
-  background: rgba(15, 23, 42, 0.95);
-  border-top: 1px solid var(--border-color, #334155);
-  font-size: 12px;
-  color: var(--text-primary, #cbd5e1);
-}
-
-.hover-time {
-  color: var(--accent-primary, #38bdf8);
-  font-weight: 600;
-}
-
-.hover-signal-badge {
-  background: rgba(56, 189, 248, 0.15);
-  border: 1px solid rgba(56, 189, 248, 0.3);
-  border-radius: 4px;
-  padding: 2px 8px;
-  color: #fff;
-  font-weight: 600;
-}
-
 /* ========================================================================= */
 /* 2. VISUALIZER 2: PREDICTION LEDGER & BENCHMARKS */
 /* ========================================================================= */
@@ -807,7 +666,6 @@ body.light-mode .ai-dashboard {
 }
 
 body.light-mode .accuracy-kpi-card,
-body.light-mode .price-sentiment-chart-card,
 body.light-mode .prediction-table-card,
 body.light-mode .benchmark-card,
 body.light-mode .side-by-side-card {
@@ -820,16 +678,9 @@ body.light-mode .kpi-value {
   color: #0f172a;
 }
 
-body.light-mode .chart-title-area h3,
 body.light-mode .table-header-row h3,
 body.light-mode .benchmark-card h3 {
   color: #0f172a;
-}
-
-body.light-mode .chart-select-dropdown {
-  background: #f8fafc;
-  color: #0f172a;
-  border-color: #cbd5e1;
 }
 
 body.light-mode .prediction-table-container {
@@ -891,15 +742,4 @@ body.light-mode .analysis-content.compact-scroll {
 body.light-mode .workflow-result.compact {
   background: #ffffff;
   border-color: #cbd5e1;
-}
-
-body.light-mode .chart-viewport-wrapper {
-  background: #ffffff;
-  border-color: #cbd5e1;
-}
-
-body.light-mode .chart-hover-bar {
-  background: #f8fafc;
-  border-top-color: #e2e8f0;
-  color: #0f172a;
 }

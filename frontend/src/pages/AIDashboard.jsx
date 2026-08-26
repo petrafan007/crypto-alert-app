@@ -1,9 +1,10 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import axios from 'axios';
-import { createChart } from 'lightweight-charts';
 import { useAuth } from '../components/AuthContext';
 import ApiKeyRequiredModal from '../components/ApiKeyRequiredModal';
 import CryptoIcon from '../components/CryptoIcon';
+import SentimentTimelineChart from '../components/SentimentTimelineChart';
+import { DEFAULT_CHART_RANGE } from '../utils/chartRanges';
 import './AIDashboard.css';
 
 const formatEasternTime = (isoString) => {
@@ -186,11 +187,7 @@ const AIDashboard = () => {
   // === AI SENTIMENT ACCURACY & THESIS TRACKER STATE ===
   const [accuracyData, setAccuracyData] = useState(null);
   const [accuracyLoading, setAccuracyLoading] = useState(false);
-  const [dateRange, setDateRange] = useState('3d'); // Default: 3D
-  const [selectedCoin, setSelectedCoin] = useState('BTC');
-  const [klines, setKlines] = useState([]);
-  const [klinesLoading, setKlinesLoading] = useState(false);
-  const [hoveredPoint, setHoveredPoint] = useState(null);
+  const [dateRange, setDateRange] = useState(DEFAULT_CHART_RANGE);
 
   // Coin filter state - stores explicitly excluded symbols so any newly added portfolio coins default to INCLUDED (checked)
   const [showCoinFilterModal, setShowCoinFilterModal] = useState(false);
@@ -236,11 +233,6 @@ const AIDashboard = () => {
     return ledgerSortConfig.direction === 'asc' ? ' ▲' : ' ▼';
   };
 
-  // Chart DOM container and instance refs
-  const chartContainerRef = useRef(null);
-  const chartInstanceRef = useRef(null);
-  const candlestickSeriesRef = useRef(null);
-
   useEffect(() => {
     const init = async () => {
       if (!authLoading && user) {
@@ -260,7 +252,7 @@ const AIDashboard = () => {
         if (enabled) {
           await Promise.all([
             loadLatestResults(),
-            fetchAccuracyData('3d')
+            fetchAccuracyData(DEFAULT_CHART_RANGE)
           ]);
         }
       }
@@ -278,11 +270,6 @@ const AIDashboard = () => {
       });
       if (res.data && res.data.success) {
         setAccuracyData(res.data);
-        if (res.data.available_symbols && res.data.available_symbols.length > 0) {
-          if (!selectedCoin || !res.data.available_symbols.includes(selectedCoin)) {
-            setSelectedCoin(res.data.available_symbols[0]);
-          }
-        }
       }
     } catch (err) {
       console.error('Error fetching sentiment accuracy data:', err);
@@ -290,65 +277,6 @@ const AIDashboard = () => {
       setAccuracyLoading(false);
     }
   };
-
-  // Map date range to Binance klines interval and limit
-  const getKlinesParams = (range) => {
-    switch (range) {
-      case '1d': return { interval: '5m', limit: 288 };
-      case '3d': return { interval: '15m', limit: 288 };
-      case '5d': return { interval: '30m', limit: 240 };
-      case '7d': return { interval: '1h', limit: 168 };
-      case '14d': return { interval: '2h', limit: 168 };
-      case '30d': return { interval: '4h', limit: 180 };
-      case '90d': return { interval: '1d', limit: 90 };
-      case 'all': return { interval: '1d', limit: 365 };
-      default: return { interval: '15m', limit: 288 };
-    }
-  };
-
-  // Fetch Kline / Candlestick data when selectedCoin or dateRange changes
-  useEffect(() => {
-    const fetchKlines = async () => {
-      if (!selectedCoin) return;
-      setKlinesLoading(true);
-      try {
-        const { interval, limit } = getKlinesParams(dateRange);
-        const res = await axios.get(`/api/trading/klines/${selectedCoin}`, {
-          params: { interval, limit },
-          withCredentials: true,
-        });
-
-        if (res.data && Array.isArray(res.data.klines)) {
-          // Format klines for lightweight-charts
-          const formatted = res.data.klines.map(k => ({
-            time: typeof k.time === 'string' ? Math.floor(new Date(k.time).getTime() / 1000) : Math.round(Number(k.time)),
-            open: parseFloat(k.open),
-            high: parseFloat(k.high),
-            low: parseFloat(k.low),
-            close: parseFloat(k.close),
-          })).sort((a, b) => a.time - b.time);
-
-          // Deduplicate timestamps (lightweight-charts requires strictly increasing times)
-          const deduped = [];
-          const seen = new Set();
-          for (const item of formatted) {
-            if (!seen.has(item.time)) {
-              seen.add(item.time);
-              deduped.push(item);
-            }
-          }
-          setKlines(deduped);
-        }
-      } catch (err) {
-        console.error(`Error fetching klines for ${selectedCoin}:`, err);
-        setKlines([]);
-      } finally {
-        setKlinesLoading(false);
-      }
-    };
-
-    fetchKlines();
-  }, [selectedCoin, dateRange]);
 
   // Compute per-coin historical accuracy for hover tooltips
   const coinAccuracyMap = useMemo(() => {
@@ -539,219 +467,6 @@ const AIDashboard = () => {
       localStorage.setItem('sentiment_table_excluded_coins', JSON.stringify(all));
     } catch (e) {}
   };
-
-  // Initialize and update Lightweight-Charts instance
-  useEffect(() => {
-    if (!chartContainerRef.current || klines.length === 0) return;
-
-    const container = chartContainerRef.current;
-    container.innerHTML = '';
-
-    if (chartInstanceRef.current) {
-      chartInstanceRef.current.remove();
-      chartInstanceRef.current = null;
-    }
-
-    const containerWidth = container.clientWidth || 800;
-    const height = 420;
-
-    const bgCol = isLightMode ? '#ffffff' : '#0f172a';
-    const textCol = isLightMode ? '#475569' : '#94a3b8';
-    const gridCol = isLightMode ? 'rgba(0, 0, 0, 0.06)' : 'rgba(255, 255, 255, 0.05)';
-    const borderCol = isLightMode ? '#e2e8f0' : '#334155';
-
-    const chart = createChart(container, {
-      width: containerWidth,
-      height,
-      layout: {
-        background: { color: bgCol },
-        textColor: textCol,
-      },
-      grid: {
-        vertLines: { color: gridCol },
-        horzLines: { color: gridCol },
-      },
-      crosshair: {
-        mode: 1,
-      },
-      rightPriceScale: {
-        visible: true,
-        borderColor: borderCol,
-        autoScale: true,
-        entireTextOnly: false,
-        alignLabels: true,
-        scaleMargins: {
-          top: 0.1,
-          bottom: 0.1,
-        },
-        minimumWidth: 120,
-      },
-      timeScale: {
-        borderColor: borderCol,
-        timeVisible: true,
-        secondsVisible: false,
-        fixLeftEdge: true,
-        fixRightEdge: false,
-        borderVisible: true,
-        rightOffset: 6,
-      },
-      handleScroll: {
-        mouseWheel: true,
-        pressedMouseMove: true,
-        horzTouchDrag: true,
-        vertTouchDrag: false,
-      },
-      handleScale: {
-        axisPressedMouseMove: true,
-        mouseWheel: true,
-        pinch: true,
-      },
-    });
-
-    chartInstanceRef.current = chart;
-
-    // Candlestick Series
-    const candleSeries = chart.addCandlestickSeries({
-      upColor: '#00e676',
-      downColor: '#f56565',
-      borderUpColor: '#00e676',
-      borderDownColor: '#f56565',
-      wickUpColor: '#00e676',
-      wickDownColor: '#f56565',
-    });
-    candlestickSeriesRef.current = candleSeries;
-    candleSeries.setData(klines);
-
-    // Filter sentiment signals for the active coin
-    const signalsForCoin = (accuracyData?.history || []).filter(h => h.symbol === selectedCoin);
-
-    // Build trading markers
-    const markers = [];
-    signalsForCoin.forEach(sig => {
-      const sigEpoch = sig.created_timestamp || (sig.created_at ? Math.floor(new Date(sig.created_at).getTime() / 1000) : 0);
-      if (!sigEpoch) return;
-
-      // Find closest candle time
-      let closestKline = klines[0];
-      let minDiff = Infinity;
-      for (const k of klines) {
-        const diff = Math.abs(k.time - sigEpoch);
-        if (diff < minDiff) {
-          minDiff = diff;
-          closestKline = k;
-        }
-      }
-
-      if (closestKline) {
-        const sentLower = (sig.sentiment || '').toLowerCase();
-        const isBullish = ['definitely buy', 'consider buying', 'buy immediately', 'strong buy', 'buy'].includes(sentLower);
-        const isBearish = ['consider selling', 'sell immediately', 'avoid', 'strong sell', 'do not buy', 'sell'].includes(sentLower);
-        const isCorrect = sig.outcome_status === 'correct';
-        const isWrong = sig.outcome_status === 'wrong';
-
-        const getSentimentAcronym = (sentiment) => {
-          if (!sentiment) return '';
-          const s = sentiment.trim().toLowerCase();
-          if (s === 'consider buying') return 'CB';
-          if (s === 'buy immediately') return 'BI';
-          if (s === 'definitely buy' || s === 'strong buy') return 'DB';
-          if (s === 'consider selling') return 'CS';
-          if (s === 'sell immediately') return 'SI';
-          if (s === 'strong sell' || s === 'avoid') return 'SS';
-          if (s === 'hold') return 'Hold';
-          if (s === 'watch') return 'Watch';
-          return sentiment;
-        };
-
-        const rawDelta = sig.price_delta_pct !== undefined ? sig.price_delta_pct : sig.outcome_pct;
-        const deltaStr = rawDelta !== undefined && rawDelta !== null
-          ? `${rawDelta >= 0 ? '+' : ''}${parseFloat(rawDelta).toFixed(2)}%`
-          : '0.00%';
-        const outcomeTxt = sig.outcome_status === 'tracking'
-          ? '⏳ Tracking'
-          : sig.outcome_status === 'unscored'
-            ? '— Unscored'
-            : isCorrect ? `✅ ${deltaStr}` : isWrong ? `❌ ${deltaStr}` : `⚖️ ${deltaStr}`;
-
-        markers.push({
-          time: closestKline.time,
-          position: isBullish ? 'belowBar' : isBearish ? 'aboveBar' : 'inBar',
-          color: isBullish ? '#00e676' : isBearish ? '#f56565' : '#38bdf8',
-          shape: isBullish ? 'arrowUp' : isBearish ? 'arrowDown' : 'circle',
-          text: `${getSentimentAcronym(sig.sentiment)}: ${outcomeTxt}`,
-          id: sig.id,
-        });
-      }
-    });
-
-    // Sort markers ascending by time (required by lightweight-charts)
-    markers.sort((a, b) => a.time - b.time);
-    candleSeries.setMarkers(markers);
-
-    // Crosshair tooltip listener
-    chart.subscribeCrosshairMove(param => {
-      if (!param || !param.time || !param.seriesData.get(candleSeries)) {
-        setHoveredPoint(null);
-        return;
-      }
-      const data = param.seriesData.get(candleSeries);
-      const epochSec = param.time;
-      const d = new Date(epochSec * 1000);
-      const timeStr = d.toLocaleString('en-US', { timeZone: 'America/New_York', month: 'numeric', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true, timeZoneName: 'short' });
-
-      // Check if any sentiment signal coincides with this candle
-      const matchedSig = signalsForCoin.find(s => {
-        const sEpoch = s.created_timestamp || (s.created_at ? Math.floor(new Date(s.created_at).getTime() / 1000) : 0);
-        return Math.abs(sEpoch - epochSec) < 3600 * 2;
-      });
-
-      setHoveredPoint({
-        timeStr,
-        open: data.open,
-        high: data.high,
-        low: data.low,
-        close: data.close,
-        signal: matchedSig
-      });
-    });
-
-    // Fit content so the entire date range is visible without zooming in prematurely
-    chart.timeScale().fitContent();
-
-    // Use ResizeObserver and window resize listener
-    const handleResize = () => {
-      if (chartInstanceRef.current && container) {
-        const styles = window.getComputedStyle(container);
-        const paddingLeftPx = parseFloat(styles.paddingLeft || '0');
-        const paddingRightPx = parseFloat(styles.paddingRight || '0');
-        const nextWidth = container.clientWidth - paddingLeftPx - paddingRightPx;
-        chartInstanceRef.current.resize(Math.max(nextWidth, 320), height);
-      }
-    };
-
-    window.addEventListener('resize', handleResize);
-
-    const resizeObserver = new ResizeObserver((entries) => {
-      for (const entry of entries) {
-        if (entry.contentRect && chartInstanceRef.current) {
-          const w = Math.floor(entry.contentRect.width);
-          if (w > 0) {
-            chartInstanceRef.current.resize(w, height);
-          }
-        }
-      }
-    });
-    resizeObserver.observe(container);
-
-    return () => {
-      window.removeEventListener('resize', handleResize);
-      resizeObserver.disconnect();
-      if (chartInstanceRef.current) {
-        chartInstanceRef.current.remove();
-        chartInstanceRef.current = null;
-      }
-    };
-  }, [klines, selectedCoin, accuracyData, isLightMode]);
 
   const checkAiStatus = async () => {
     try {
@@ -973,95 +688,16 @@ const AIDashboard = () => {
           </div>
         </div>
 
-        {/* Interactive TradingView-Powered Price & Sentiment Chart Card */}
-        <div className="price-sentiment-chart-card">
-          <div className="chart-header-row">
-            <div className="chart-title-area">
-              <h3>📈 {selectedCoin}/USDT Price Action with Overlaid AI Sentiment Signals</h3>
-              <span className="chart-subtitle">
-                Interactive real-time candlesticks with AI signal markers. Drag to pan left/right, scroll wheel to zoom.
-              </span>
-            </div>
-
-            {/* Two Dropdown Selectors */}
-            <div className="chart-dropdowns-area">
-              {/* Dropdown 1: Coin Selector */}
-              <div className="dropdown-wrapper">
-                <label htmlFor="coin-select" className="dropdown-label">Coin:</label>
-                <select
-                  id="coin-select"
-                  className="chart-select-dropdown"
-                  value={selectedCoin}
-                  onChange={(e) => setSelectedCoin(e.target.value)}
-                >
-                  {availableSymbols.map(sym => (
-                    <option key={sym} value={sym}>{sym}</option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Dropdown 2: Date Range Selector */}
-              <div className="dropdown-wrapper">
-                <label htmlFor="range-select" className="dropdown-label">Range:</label>
-                <select
-                  id="range-select"
-                  className="chart-select-dropdown"
-                  value={dateRange}
-                  onChange={(e) => {
-                    setDateRange(e.target.value);
-                    fetchAccuracyData(e.target.value);
-                  }}
-                >
-                  <option value="1d">1 Day (1D)</option>
-                  <option value="3d">3 Days (3D) - Default</option>
-                  <option value="5d">5 Days (5D)</option>
-                  <option value="7d">7 Days (7D)</option>
-                  <option value="14d">14 Days (14D)</option>
-                  <option value="30d">30 Days (30D)</option>
-                  <option value="90d">90 Days (90D)</option>
-                  <option value="all">All Available</option>
-                </select>
-              </div>
-            </div>
-          </div>
-
-          {/* Interactive Chart Container */}
-          <div className="chart-viewport-wrapper" style={{ position: 'relative', width: '100%', minHeight: '420px' }}>
-            {klinesLoading && (
-              <div className="chart-loading-overlay">
-                <span>Loading price candles for {selectedCoin}...</span>
-              </div>
-            )}
-            <div ref={chartContainerRef} style={{ width: '100%', height: '420px' }} />
-
-            {/* Live Hover Info Bar */}
-            {hoveredPoint && (
-              <div className="chart-hover-bar">
-                <span className="hover-time">📅 {hoveredPoint.timeStr}</span>
-                <span>O: <strong>${hoveredPoint.open?.toLocaleString()}</strong></span>
-                <span>H: <strong>${hoveredPoint.high?.toLocaleString()}</strong></span>
-                <span>L: <strong>${hoveredPoint.low?.toLocaleString()}</strong></span>
-                <span>C: <strong>${hoveredPoint.close?.toLocaleString()}</strong></span>
-                {hoveredPoint.signal && (
-                  <span className="hover-signal-badge">
-                    {(() => {
-                      const sig = hoveredPoint.signal;
-                      const rawDelta = sig.price_delta_pct !== undefined ? sig.price_delta_pct : sig.outcome_pct;
-                      const deltaStr = rawDelta !== undefined && rawDelta !== null ? `${rawDelta >= 0 ? '+' : ''}${parseFloat(rawDelta).toFixed(2)}%` : '';
-                      const icon = sig.outcome_status === 'correct' ? '✅' : sig.outcome_status === 'wrong' ? '❌' : '⚖️';
-                      const statusTxt = sig.outcome_status === 'tracking' ? '⏳ Tracking' : `${icon} ${deltaStr}`;
-                      return (
-                        <>
-                          🤖 <strong>{sig.sentiment}</strong> @ ${sig.price_at_prediction?.toLocaleString()} ({statusTxt})
-                        </>
-                      );
-                    })()}
-                  </span>
-                )}
-              </div>
-            )}
-          </div>
-        </div>
+        <SentimentTimelineChart
+          signals={accuracyData?.history || []}
+          range={dateRange}
+          onRangeChange={(nextRange) => {
+            setDateRange(nextRange);
+            fetchAccuracyData(nextRange);
+          }}
+          availableSymbols={availableSymbols}
+          isLightMode={isLightMode}
+        />
       </div>
 
       {/* ========================================================================= */}

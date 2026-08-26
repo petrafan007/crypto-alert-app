@@ -3,6 +3,7 @@ import axios from 'axios';
 import { createChart } from 'lightweight-charts';
 import SearchablePairSelect from './SearchablePairSelect';
 import TransactionModal from './TransactionModal';
+import { CHART_RANGES, DEFAULT_CHART_RANGE, formatChartTick, getChartRange } from '../utils/chartRanges';
 import './TradeTimelineChart.css';
 
 const normalizePair = value => String(value || 'BTCUSDT').toUpperCase().replace(/[^A-Z0-9]/g, '');
@@ -38,10 +39,12 @@ export default function TradeTimelineChart({ symbol, onSymbolChange, tradingPair
   const [trades, setTrades] = useState([]);
   const [status, setStatus] = useState('loading');
   const [error, setError] = useState('');
+  const [range, setRange] = useState(DEFAULT_CHART_RANGE);
   const [hoveredTrades, setHoveredTrades] = useState(null);
   const [modal, setModal] = useState({ isOpen: false, transactions: [], type: 'BUY', dateStr: '' });
   const normalized = normalizePair(symbol);
   const { base, quote } = pairAssets(normalized);
+  const rangeConfig = getChartRange(range);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -49,7 +52,7 @@ export default function TradeTimelineChart({ symbol, onSymbolChange, tradingPair
     setError('');
     setHoveredTrades(null);
     Promise.all([
-      axios.get(`/api/trading/klines/${normalized}`, { params: { interval: '1d', limit: 1000 }, signal: controller.signal, withCredentials: true }),
+      axios.get(`/api/trading/klines/${normalized}`, { params: { interval: rangeConfig.interval, limit: rangeConfig.limit }, signal: controller.signal, withCredentials: true }),
       axios.get('/api/trading/real-orders', { params: { limit: 'all', symbol: normalized }, signal: controller.signal, withCredentials: true }),
     ]).then(([market, orders]) => {
       const line = (market.data?.klines || []).map(k => ({ time: Math.floor(Number(k.time)), value: Number(k.close) }))
@@ -64,13 +67,13 @@ export default function TradeTimelineChart({ symbol, onSymbolChange, tradingPair
       setStatus('error');
     });
     return () => controller.abort();
-  }, [base, normalized]);
+  }, [base, normalized, rangeConfig.interval, rangeConfig.limit]);
 
   const chartData = useMemo(() => {
     const byDay = new Map();
     trades.forEach(trade => {
       const candle = prices.reduce((closest, point) => Math.abs(point.time - trade.time) < Math.abs(closest.time - trade.time) ? point : closest, prices[0]);
-      if (!candle || Math.abs(candle.time - trade.time) > 172800) return;
+      if (!candle || Math.abs(candle.time - trade.time) > rangeConfig.intervalSeconds * 2) return;
       const key = String(candle.time);
       if (!byDay.has(key)) byDay.set(key, { time: candle.time, price: candle.value, trades: [] });
       byDay.get(key).trades.push(trade);
@@ -90,7 +93,7 @@ export default function TradeTimelineChart({ symbol, onSymbolChange, tradingPair
       });
     });
     return { markers: markers.sort((a, b) => a.time - b.time), groups: byDay };
-  }, [base, prices, quote, trades]);
+  }, [prices, rangeConfig.intervalSeconds, trades]);
 
   useEffect(() => {
     if (!hostRef.current || !prices.length) return undefined;
@@ -101,10 +104,7 @@ export default function TradeTimelineChart({ symbol, onSymbolChange, tradingPair
       grid: { vertLines: { color: dark ? '#17213a' : '#e2e8f0' }, horzLines: { color: dark ? '#17213a' : '#e2e8f0' } },
       rightPriceScale: { visible: true, minimumWidth: 84, borderColor: dark ? '#334155' : '#cbd5e1', scaleMargins: { top: 0.1, bottom: 0.1 } },
       leftPriceScale: { visible: false },
-      timeScale: { borderColor: dark ? '#334155' : '#cbd5e1', timeVisible: false, tickMarkFormatter: time => {
-        const date = new Date(Number(time) * 1000);
-        return date.toLocaleDateString('en-US', { year: 'numeric', month: 'short', timeZone: 'UTC' });
-      } },
+      timeScale: { borderColor: dark ? '#334155' : '#cbd5e1', timeVisible: range === '1d', secondsVisible: false, tickMarkFormatter: time => formatChartTick(time, range) },
       crosshair: { mode: 1 },
     });
     const series = chart.addLineSeries({ color: '#38bdf8', lineWidth: 2, priceLineVisible: true, lastValueVisible: true });
@@ -161,15 +161,25 @@ export default function TradeTimelineChart({ symbol, onSymbolChange, tradingPair
     chartRef.current = chart;
     seriesRef.current = series;
     return () => { observer.disconnect(); chart.unsubscribeCrosshairMove(hover); chart.unsubscribeClick(click); chart.remove(); chartRef.current = null; seriesRef.current = null; };
-  }, [chartData, isLightMode, prices]);
+  }, [chartData, isLightMode, prices, range]);
 
   return (
     <section className="trade-timeline-card">
       <header className="trade-timeline-header">
-        <div><h2>My {base}/{quote} Trade Chart</h2><p>Daily price history with exact-pair purchases and sales. Click an arrow for exact execution times and details.</p></div>
-        <SearchablePairSelect value={normalized} onChange={onSymbolChange} tradingPairs={tradingPairs} placeholder="Search trading pairs…" />
+        <div><h2>My {base}/{quote} Trade Chart</h2><p>Price history with exact-pair purchases and sales. Click an arrow for exact execution times and details.</p></div>
+        <div className="trade-timeline-controls">
+          <div className="trade-timeline-pair-select">
+            <SearchablePairSelect value={normalized} onChange={onSymbolChange} tradingPairs={tradingPairs} placeholder="Search trading pairs…" />
+          </div>
+          <label className="trade-timeline-range-control">
+            <span>Range</span>
+            <select value={range} onChange={event => setRange(event.target.value)} aria-label="Trade Chart date range">
+              {CHART_RANGES.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
+            </select>
+          </label>
+        </div>
       </header>
-      <div className="trade-timeline-legend"><span className="buy">↑ Purchase</span><span className="sell">↓ Sale</span><span>Y-axis: {quote} price</span><span>X-axis: year and month</span></div>
+      <div className="trade-timeline-legend"><span className="buy">↑ Purchase</span><span className="sell">↓ Sale</span><span>Y-axis: {quote} price</span><span>X-axis: date and time</span></div>
       <div className="trade-timeline-chart-shell">
         <div className="trade-timeline-chart-frame">
           <div ref={hostRef} className="trade-timeline-chart" />

@@ -122,6 +122,17 @@ The application utilizes a **unified PostgreSQL database**.
 
 ## Version History & Changelog
 
+## v2.13.0 (August 2026)
+
+### Date-Ranged Trade History & In-Place Sentiment Chart
+- **One-Month Trade Chart Default**: The dedicated Trade Chart now opens at 1 Month instead of displaying roughly two years, with selectable 1D, 3D, 5D, 1W, 2W, 1M, 3M, 6M, 1Y, 2Y, and ALL ranges.
+- **Pair-Aware Range Controls**: Both personal trade history and sentiment history retain their searchable Binance.US pair selectors and fetch price resolution appropriate to the selected period.
+- **AI Chart Replaced In Place**: Replaced the existing `BTC/USDT Price Action with Overlaid AI Sentiment Signals` visualization on AI Analysis with `Sentiment Chart`. No additional Trading tab was created.
+- **Exact Signal Vocabulary**: Portfolio recommendations use H (blue), CB (light green), BI (dark green), CS (light red), and SI (dark red) dots. The plot shows only compact labels such as `BI (+5.5%)`; hovering the corresponding dot reveals its exact timestamp, full recommendation, thesis, signal/evaluation prices, measured move, and outcome.
+- **Shared Edge-Safe Layout**: Sentiment Chart uses the same responsive frame, right-side quote-price scale, adaptive time axis, and scoped Lightweight Charts table reset that keeps both axes fully visible on Trade Chart.
+- **Long-Range Accuracy Support**: Sentiment reporting now honors 6-month, 1-year, and 2-year request windows, while ALL remains uncapped by a sentiment-history cutoff.
+- **Version Bump**: Transitioned version to `v2.13.0`.
+
 ## v2.12.1 (August 2026)
 
 ### Trade Chart Axis Clipping Hotfix

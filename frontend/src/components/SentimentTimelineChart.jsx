@@ -1,0 +1,193 @@
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import axios from 'axios';
+import { createChart } from 'lightweight-charts';
+import SearchablePairSelect from './SearchablePairSelect';
+import { CHART_RANGES, formatChartTick, getChartRange } from '../utils/chartRanges';
+import './TradeTimelineChart.css';
+
+const SIGNAL_STYLES = {
+  'hold': { code: 'H', color: '#38bdf8' },
+  'consider buying': { code: 'CB', color: '#86efac' },
+  'buy immediately': { code: 'BI', color: '#16a34a' },
+  'consider selling': { code: 'CS', color: '#fca5a5' },
+  'sell immediately': { code: 'SI', color: '#dc2626' },
+};
+
+const normalizePair = value => String(value || 'BTCUSDT').toUpperCase().replace(/[^A-Z0-9]/g, '');
+const pairAssets = symbol => symbol.endsWith('USDT')
+  ? { base: symbol.slice(0, -4), quote: 'USDT' }
+  : { base: symbol.endsWith('USD') ? symbol.slice(0, -3) : symbol, quote: symbol.endsWith('USD') ? 'USD' : 'USDT' };
+const formatPair = pair => {
+  const id = pair?.id || pair?.symbol || String(pair || '');
+  const { base, quote } = pairAssets(id);
+  const metadata = typeof pair === 'object' && pair ? pair : {};
+  return { ...metadata, id, base_currency: metadata.base_currency || base, quote_currency: metadata.quote_currency || quote, display_name: metadata.display_name || `${base}/${quote}` };
+};
+const formatPrice = value => Number(value || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: Number(value) < 1 ? 8 : 2 });
+const formatDelta = value => value === null || value === undefined || !Number.isFinite(Number(value))
+  ? ''
+  : ` (${Number(value) >= 0 ? '+' : ''}${Number(value).toFixed(1)}%)`;
+
+export default function SentimentTimelineChart({ signals = [], range, onRangeChange, availableSymbols = [], isLightMode = false }) {
+  const hostRef = useRef(null);
+  const markerGroupsRef = useRef(new Map());
+  const [selectedPair, setSelectedPair] = useState('BTCUSDT');
+  const [tradingPairs, setTradingPairs] = useState(() => availableSymbols.map(symbol => formatPair(`${symbol}USDT`)));
+  const [prices, setPrices] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [hoveredSignals, setHoveredSignals] = useState(null);
+  const normalizedPair = normalizePair(selectedPair);
+  const { base, quote } = pairAssets(normalizedPair);
+  const rangeConfig = getChartRange(range);
+
+  useEffect(() => {
+    axios.get('/api/trading-pairs', { withCredentials: true }).then(response => {
+      if (Array.isArray(response.data?.pairs) && response.data.pairs.length) {
+        setTradingPairs(response.data.pairs.map(formatPair));
+      }
+    }).catch(errorValue => console.error('Unable to load Sentiment Chart pairs:', errorValue));
+  }, []);
+
+  useEffect(() => {
+    if (!tradingPairs.length && availableSymbols.length) {
+      setTradingPairs(availableSymbols.map(symbol => formatPair(`${symbol}USDT`)));
+    }
+  }, [availableSymbols, tradingPairs.length]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    setLoading(true);
+    setError('');
+    setHoveredSignals(null);
+    axios.get(`/api/trading/klines/${normalizedPair}`, {
+      params: { interval: rangeConfig.interval, limit: rangeConfig.limit },
+      signal: controller.signal,
+      withCredentials: true,
+    }).then(response => {
+      const nextPrices = (response.data?.klines || []).map(point => ({
+        time: Math.floor(Number(point.time)), value: Number(point.close),
+      })).filter(point => Number.isFinite(point.time) && Number.isFinite(point.value))
+        .sort((a, b) => a.time - b.time);
+      setPrices(nextPrices);
+      setLoading(false);
+    }).catch(errorValue => {
+      if (errorValue.code === 'ERR_CANCELED' || errorValue.name === 'CanceledError') return;
+      setPrices([]);
+      setError(errorValue.response?.data?.error || errorValue.message || 'Unable to load sentiment price history.');
+      setLoading(false);
+    });
+    return () => controller.abort();
+  }, [normalizedPair, rangeConfig.interval, rangeConfig.limit]);
+
+  const chartData = useMemo(() => {
+    const groups = new Map();
+    const lineByTime = new Map(prices.map(point => [String(point.time), point]));
+    signals.filter(signal => signal.symbol === base && (signal.source_type || 'portfolio') === 'portfolio')
+      .forEach(signal => {
+        const style = SIGNAL_STYLES[String(signal.sentiment || '').toLowerCase()];
+        const signalTime = Number(signal.created_timestamp || Math.floor(new Date(signal.created_at).getTime() / 1000));
+        if (!style || !Number.isFinite(signalTime) || !prices.length) return;
+        const candle = prices.reduce((closest, point) => Math.abs(point.time - signalTime) < Math.abs(closest.time - signalTime) ? point : closest, prices[0]);
+        if (!candle || Math.abs(candle.time - signalTime) > rangeConfig.intervalSeconds * 2) return;
+        const signalPrice = Number(signal.price_at_prediction) > 0 ? Number(signal.price_at_prediction) : candle.value;
+        const key = String(signalTime);
+        lineByTime.set(key, { time: signalTime, value: signalPrice });
+        if (!groups.has(key)) groups.set(key, { time: signalTime, price: signalPrice, signals: [] });
+        groups.get(key).signals.push({ ...signal, style, signalTime });
+      });
+
+    const markers = [];
+    groups.forEach(group => {
+      const signal = group.signals[0];
+      markers.push({
+        time: group.time,
+        position: 'inBar',
+        shape: 'circle',
+        color: signal.style.color,
+        size: 1.5,
+        text: `${signal.style.code}${formatDelta(signal.price_delta_pct ?? signal.outcome_pct)}`,
+        id: String(signal.id),
+      });
+    });
+    return {
+      groups,
+      lineData: Array.from(lineByTime.values()).sort((a, b) => a.time - b.time),
+      markers: markers.sort((a, b) => a.time - b.time),
+    };
+  }, [base, prices, rangeConfig.intervalSeconds, signals]);
+
+  useEffect(() => {
+    if (!hostRef.current || !prices.length) return undefined;
+    const dark = !isLightMode;
+    const chart = createChart(hostRef.current, {
+      width: Math.max(320, Math.floor(hostRef.current.getBoundingClientRect().width)), height: 610,
+      layout: { background: { color: dark ? '#0b1220' : '#ffffff' }, textColor: dark ? '#cbd5e1' : '#334155' },
+      grid: { vertLines: { color: dark ? '#17213a' : '#e2e8f0' }, horzLines: { color: dark ? '#17213a' : '#e2e8f0' } },
+      rightPriceScale: { visible: true, minimumWidth: 84, borderColor: dark ? '#334155' : '#cbd5e1', scaleMargins: { top: .1, bottom: .1 } },
+      leftPriceScale: { visible: false },
+      timeScale: { borderColor: dark ? '#334155' : '#cbd5e1', timeVisible: range === '1d', secondsVisible: false, tickMarkFormatter: time => formatChartTick(time, range) },
+      crosshair: { mode: 1 },
+    });
+    const series = chart.addLineSeries({ color: '#38bdf8', lineWidth: 2, priceLineVisible: true, lastValueVisible: true });
+    series.setData(chartData.lineData);
+    series.setMarkers(chartData.markers);
+    chart.timeScale().fitContent();
+    markerGroupsRef.current = chartData.groups;
+
+    const hover = param => {
+      if (!param?.time || !param.point) return setHoveredSignals(null);
+      const group = markerGroupsRef.current.get(String(param.time));
+      if (!group?.signals?.length) return setHoveredSignals(null);
+      const lineY = series.priceToCoordinate(group.price);
+      if (lineY === null || Math.abs(param.point.y - lineY) > 30) return setHoveredSignals(null);
+      const host = hostRef.current;
+      const tooltipWidth = 370;
+      const tooltipHeight = Math.min(390, 118 + group.signals.length * 118);
+      const rightCandidate = host.offsetLeft + param.point.x + 18;
+      const left = rightCandidate + tooltipWidth <= host.parentElement.clientWidth ? rightCandidate : host.offsetLeft + param.point.x - tooltipWidth - 18;
+      setHoveredSignals({
+        ...group,
+        left: Math.max(10, Math.min(left, host.parentElement.clientWidth - tooltipWidth - 10)),
+        top: Math.max(10, Math.min(host.offsetTop + param.point.y - 30, host.parentElement.clientHeight - tooltipHeight - 10)),
+      });
+    };
+    chart.subscribeCrosshairMove(hover);
+    const resizeChart = () => chart.resize(Math.max(320, Math.floor(hostRef.current?.getBoundingClientRect().width || 0)), 610);
+    const observer = new ResizeObserver(() => window.requestAnimationFrame(resizeChart));
+    observer.observe(hostRef.current);
+    window.requestAnimationFrame(resizeChart);
+    return () => { observer.disconnect(); chart.unsubscribeCrosshairMove(hover); chart.remove(); };
+  }, [chartData, isLightMode, prices, range]);
+
+  return (
+    <section className="trade-timeline-card sentiment-timeline-card">
+      <header className="trade-timeline-header">
+        <div><h2>Sentiment Chart</h2><p>{base}/{quote} price history with concise AI sentiment signals. Hover a dot for the full thesis and outcome.</p></div>
+        <div className="trade-timeline-controls">
+          <div className="trade-timeline-pair-select"><SearchablePairSelect value={normalizedPair} onChange={setSelectedPair} tradingPairs={tradingPairs} placeholder="Search trading pairs…" /></div>
+          <label className="trade-timeline-range-control"><span>Range</span><select value={range} onChange={event => onRangeChange(event.target.value)} aria-label="Sentiment Chart date range">{CHART_RANGES.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
+        </div>
+      </header>
+      <div className="sentiment-chart-legend">
+        {Object.values(SIGNAL_STYLES).map(style => <span key={style.code}><i style={{ background: style.color }} />{style.code}</span>)}
+        <span>Labels show outcome move, e.g. BI (+5.5%)</span>
+      </div>
+      <div className="trade-timeline-chart-shell">
+        <div className="trade-timeline-chart-frame"><div ref={hostRef} className="trade-timeline-chart" /></div>
+        {hoveredSignals && <div className="sentiment-marker-tooltip" style={{ left: hoveredSignals.left, top: hoveredSignals.top }} role="tooltip">
+          <strong>{base}/{quote} AI Sentiment</strong>
+          <div className="sentiment-marker-tooltip-list">{hoveredSignals.signals.map(signal => <article key={signal.id}>
+            <header><span><i style={{ background: signal.style.color }} />{signal.style.code} · {signal.sentiment}</span><b>{formatDelta(signal.price_delta_pct ?? signal.outcome_pct).trim() || 'Tracking'}</b></header>
+            <time>{new Date(signal.signalTime * 1000).toLocaleString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short' })}</time>
+            <p>{signal.sentiment_reason || 'No thesis explanation was recorded.'}</p>
+            <small>Signal price: {formatPrice(signal.price_at_prediction)} {quote} · Outcome: {signal.outcome_status || 'tracking'}{signal.evaluation_price ? ` · Evaluated at ${formatPrice(signal.evaluation_price)} ${quote}` : ''}</small>
+          </article>)}</div>
+        </div>}
+        {loading && <div className="trade-timeline-status">Loading {base}/{quote} sentiment history…</div>}
+        {error && <div className="trade-timeline-status error">{error}</div>}
+        {!loading && !error && !chartData.markers.length && <div className="trade-timeline-empty">No requested portfolio sentiment signals were recorded for {base} in this range.</div>}
+      </div>
+    </section>
+  );
+}

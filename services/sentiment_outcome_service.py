@@ -77,14 +77,17 @@ def _as_utc(value):
     return value.replace(tzinfo=dt_timezone.utc) if value.tzinfo is None else value.astimezone(dt_timezone.utc)
 
 
-def build_sentiment_accuracy_response(user_id, timeframe='3d', selected_tier=None):
+def build_sentiment_accuracy_response(user_id, timeframe='30d', selected_tier=None):
     """Build an accuracy report without mutating signal history."""
     from credentials import UserSetting
     from models import Coin, PriceHistory, SentimentHistory, WatchlistCoin
 
     stablecoins = {'USDT', 'USDC', 'USD', 'BUSD', 'DAI', 'TUSD', 'FDUSD', 'USDD', 'USDP'}
-    days = {'1d': 1, '3d': 3, '5d': 5, '7d': 7, '14d': 14, '30d': 30, '90d': 90}
-    timeframe = (timeframe or '3d').lower()
+    days = {
+        '1d': 1, '3d': 3, '5d': 5, '7d': 7, '14d': 14, '30d': 30,
+        '90d': 90, '180d': 180, '365d': 365, '730d': 730,
+    }
+    timeframe = (timeframe or '30d').lower()
     query = SentimentHistory.query.filter_by(user_id=user_id).filter(
         ~SentimentHistory.symbol.in_(list(stablecoins))
     )
