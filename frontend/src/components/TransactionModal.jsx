@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import './TransactionModal.css';
 
-const TransactionModal = ({ isOpen, onClose, transactions, type, dateStr }) => {
+const TransactionModal = ({ isOpen, onClose, transactions, type, dateStr, quoteAsset = 'USDT' }) => {
   const [currentIndex, setCurrentIndex] = useState(0);
 
   useEffect(() => {
@@ -25,20 +26,19 @@ const TransactionModal = ({ isOpen, onClose, transactions, type, dateStr }) => {
     setCurrentIndex((prev) => (prev < transactions.length - 1 ? prev + 1 : 0));
   };
 
-  const formatCurrency = (val) => {
-    return Number(val).toLocaleString(undefined, {
-      style: 'currency',
-      currency: 'USD',
+  const formatQuoteValue = (val) => {
+    const formatted = Number(val).toLocaleString(undefined, {
       minimumFractionDigits: 2,
       maximumFractionDigits: 6
     });
+    return quoteAsset === 'USD' ? `$${formatted}` : `${formatted} ${quoteAsset}`;
   };
 
   const currentTx = transactions[currentIndex];
   const txDate = new Date(currentTx.time * 1000).toLocaleString('en-US', { timeZone: 'America/New_York' });
   const txValue = (currentTx.amount * currentTx.price) || 0;
 
-  return (
+  return createPortal(
     <div className="tx-modal-overlay" onClick={onClose}>
       <div className="tx-modal-content" onClick={e => e.stopPropagation()}>
         <button className="tx-modal-close" onClick={onClose}>×</button>
@@ -66,16 +66,16 @@ const TransactionModal = ({ isOpen, onClose, transactions, type, dateStr }) => {
             </div>
             <div className="tx-detail-row">
               <span className="tx-label">Coin Price:</span>
-              <span className="tx-value">{formatCurrency(currentTx.price)}</span>
+              <span className="tx-value">{formatQuoteValue(currentTx.price)}</span>
             </div>
             <div className="tx-detail-row">
               <span className="tx-label">Amount:</span>
               <span className="tx-value">{currentTx.amount} {currentTx.asset}</span>
             </div>
             <div className="tx-detail-row">
-              <span className="tx-label">Value (USDT):</span>
+              <span className="tx-label">Value ({quoteAsset}):</span>
               <span className="tx-value" style={{ color: type === 'BUY' ? '#22c55e' : '#ef4444', fontWeight: 'bold' }}>
-                {formatCurrency(txValue)}
+                {formatQuoteValue(txValue)}
               </span>
             </div>
           </div>
@@ -91,7 +91,8 @@ const TransactionModal = ({ isOpen, onClose, transactions, type, dateStr }) => {
           </div>
         )}
       </div>
-    </div>
+    </div>,
+    document.body
   );
 };
 

@@ -4,7 +4,7 @@ import OrderFeedbackModal from '../components/OrderFeedbackModal';
 import TwoFactorModal from '../components/TwoFactorModal';
 import ConvertDustModal from '../components/ConvertDustModal';
 import CancelOrderModal from '../components/CancelOrderModal';
-import TradingChart from '../components/TradingChart';
+import TradingViewAdvancedChart from '../components/TradingViewAdvancedChart';
 import TradePermissionModal from '../components/TradePermissionModal';
 import ApiKeyRequiredModal from '../components/ApiKeyRequiredModal';
 import SearchablePairSelect from '../components/SearchablePairSelect';
@@ -44,7 +44,9 @@ export const formatOrderSide = (rawSide) => {
   return clean;
 };
 
-const Trading = () => {
+const DEFAULT_TRADING_PAIR = 'BTCUSDT';
+
+const Trading = ({ isLightMode = false }) => {
   console.log('Trading component rendering...');
   const location = useLocation();
   const navigate = useNavigate();
@@ -57,15 +59,23 @@ const Trading = () => {
     require_2fa: false
   });
 
-  // Initialize symbol with localStorage persistence or fallback to BTCUSDT
+  // Quick Trade navigation wins, while the main Trading nav always resets to BTC/USDT.
+  // Direct refreshes retain the current pair for continuity.
   const getInitialSymbol = () => {
+    const prefilledSymbol = location.state?.tradePrefill?.symbol;
+    if (prefilledSymbol) {
+      return prefilledSymbol;
+    }
+    if (location.state?.resetTradingPair) {
+      return DEFAULT_TRADING_PAIR;
+    }
     try {
       const saved = localStorage.getItem('selectedTradingPair');
       if (saved && saved !== 'USD' && saved !== 'USDT' && saved !== 'ALL' && saved.length >= 5 && saved !== 'ETHUSD') {
         return saved;
       }
     } catch (e) {}
-    return 'BTCUSDT';
+    return DEFAULT_TRADING_PAIR;
   };
 
   // Order Form State
@@ -495,6 +505,7 @@ const Trading = () => {
   useEffect(() => {
     if (location.state?.tradePrefill) {
       const { symbol, side, baseCoin } = location.state.tradePrefill;
+      setActiveTab('order');
       if (symbol) {
         try {
           localStorage.setItem('selectedTradingPair', symbol);
@@ -511,6 +522,23 @@ const Trading = () => {
         symbol: symbol || prev.symbol,
         side: side || prev.side,
         type: prev.type,
+        quantity: '',
+        price: '',
+        stopPrice: '',
+        stopLimitPrice: ''
+      }));
+      setQuoteQuantity('');
+      setBalancePercentage(0);
+      navigate('.', { replace: true, state: {} });
+    } else if (location.state?.resetTradingPair) {
+      setActiveTab('order');
+      try {
+        localStorage.setItem('selectedTradingPair', DEFAULT_TRADING_PAIR);
+      } catch (e) {}
+      setFilterCoin(null);
+      setOrderForm((prev) => ({
+        ...prev,
+        symbol: DEFAULT_TRADING_PAIR,
         quantity: '',
         price: '',
         stopPrice: '',
@@ -1736,14 +1764,15 @@ const Trading = () => {
         {activeTab === 'order' && (
           <div className="order-form-container">
             {/* Trading Chart - Full Width */}
-            <TradingChart
-              key={orderForm.symbol}
+            <TradingViewAdvancedChart
               symbol={orderForm.symbol}
               onSymbolChange={handleSymbolChange}
               tradingPairs={displayedTradingPairs}
+              watchlistPairs={tradingPairs}
               totalPairsCount={tradingPairs.length}
               filterCoin={filterCoin}
               onResetFilter={() => setFilterCoin(null)}
+              isLightMode={isLightMode}
             />
 
             {/* Redesigned Order Placement Header Cards */}

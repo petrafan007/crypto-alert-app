@@ -17,7 +17,7 @@
   - **Dual-Quote Currency Trading**: Instant one-click spot trading for both **USD** and **USDT** quote pairs directly from Portfolio and Watchlist rows.
   - **Advanced Order Execution**: Support for Market Orders, Limit Orders, Stop-Loss Limit, and OCO (One-Cancels-the-Other) protective orders.
   - **Searchable Pair Selector**: Real-time typeahead search across all 54+ active Binance.US USD pairs and 200+ USDT pairs.
-  - **High-Performance TradingView Charts**: Lightweight Charts engine with candlestick series, volume histogram, technical indicators (MA7, MA25, MA99, Bollinger Bands, RSI, MACD, Stochastic, ATR), and exact-price buy/sell execution markers.
+  - **TradingView Advanced Chart & Personal Trade Timeline**: Free hosted Advanced Chart with native symbol search, 80+ indicators, 100+ drawing tools, comparisons, date ranges, details, hotlists, calendar, export/popup controls, and a pair-aware dated Binance.US buy/sell timeline.
   - **Paginated Order History**: Independent order history tab with 20-row pagination and symbol filtering.
 
 - **🛡️ Autonomous Crash Protection & Volatility Auto-Sell**
@@ -121,6 +121,17 @@ The application utilizes a **unified PostgreSQL database**.
 ---
 
 ## Version History & Changelog
+
+## v2.1.0 (August 2026)
+
+### TradingView Advanced Chart, BTC/USDT Navigation Default & Dated Personal Trades
+- **Reliable Trading Navigation Default**: Clicking `Trading` from any page—or clicking it again while already in the Trading Center—now resets the authoritative order/chart pair to `BTC/USDT`. Contextual Buy/Sell and Quick Trade links retain priority and still open their requested pair and side.
+- **Full Free TradingView Advanced Chart**: Replaced the Trading Center's custom Lightweight Charts view with TradingView's hosted Advanced Chart, configured with its top, bottom, and drawing toolbars; native symbol search; chart styles and intervals; 80+ built-in indicators; 100+ drawing tools; symbol comparison; date ranges; volume and legend; details; hotlists; economic calendar; image export; Binance.US watchlist; and full-size popup.
+- **Built-In Indicator Coverage**: Moving averages, RSI, MACD, Stochastic, ATR, Bollinger Bands, and Volume remain available from TradingView's `Indicators` menu. The redundant MA/Oscillator/Other button row below the former chart has been removed.
+- **Pair-Aware My Trades Timeline**: Preserved personal Binance.US activity in a dedicated timeline directly below the TradingView widget. Buys and sells are scoped to the app-selected coin, grouped by Eastern Time execution date, and show exact time, price, amount, quote value, aggregate totals, and click-through transaction details.
+- **Safe Pair Synchronization**: The app's Binance.US selector remains authoritative for the executable order ticket, balances, fees, chart default, and personal trade history. TradingView's cross-origin built-in selector remains available for independent research without silently changing the pair an order would execute against.
+- **Theme & Responsive Support**: The widget reinitializes with the application's light/dark theme and uses responsive desktop, tablet, and mobile chart heights, while preserving TradingView attribution and loading/error feedback.
+- **Version Bump**: Transitioned version to `v2.1.0`.
 
 ## v2.0.9 (August 2026)
 

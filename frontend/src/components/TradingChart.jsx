@@ -1471,6 +1471,7 @@ const TradingChart = ({ symbol, onSymbolChange, tradingPairs = [], filterCoin = 
           transactions={modalState.transactions}
           type={modalState.type}
           dateStr={modalState.dateStr}
+          quoteAsset={quoteAsset}
         />
       </div>
 

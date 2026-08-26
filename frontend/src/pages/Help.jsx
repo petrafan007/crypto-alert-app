@@ -555,8 +555,10 @@ export default function Help({ isLightMode }) {
                     quote against; they are not the only things you can buy or sell.
                 </p>
                 <ul style={{ paddingLeft: '20px', marginBottom: '16px', lineHeight: '1.9' }}>
-                    <li><strong>Searchable pair selector</strong> — type a ticker (e.g. "SOL") to instantly filter across hundreds of pairs</li>
-                    <li><strong>Chart & indicators</strong> — candlesticks, volume, MA7/MA25/MA99, Bollinger Bands, RSI, MACD, Stochastic, and ATR, plus exact-price buy/sell execution markers</li>
+                    <li><strong>Two searchable symbol tools</strong> — use the app's Binance.US pair selector to keep the chart, order ticket, balances, and personal history synchronized; TradingView's built-in search is also available for independent market research</li>
+                    <li><strong>TradingView Advanced Chart</strong> — candlesticks and other chart styles, 80+ indicators, 100+ drawing tools, comparisons, configurable price scales, date ranges, details, hotlists, economic calendar, image export, and a full-size popup</li>
+                    <li><strong>Moving averages & oscillators</strong> — Moving Average, RSI, MACD, Stochastic, ATR, Bollinger Bands, and Volume are available from TradingView's built-in <em>Indicators</em> menu, replacing the former controls below the chart</li>
+                    <li><strong>My Trades timeline</strong> — pair-aware Binance.US buys and sells remain directly below the chart, grouped by execution date with exact time, price, amount, value, and a transaction-details view</li>
                     <li><strong>Order types</strong> — Market, Limit, Stop-Loss, Stop-Loss-Limit, Take-Profit, Take-Profit-Limit, OCO (One-Cancels-the-Other), and Limit Maker (availability depends on the selected pair)</li>
                     <li><strong>Order Placement panel</strong> — MAX balance button, quote-quantity 2-way sync, a percentage slider (0/25/50/75/100%), and an order summary with estimated fees</li>
                     <li><strong>Open Orders tab</strong> — all pending real exchange orders plus any active Auto-Buy/Auto-Sell triggers</li>

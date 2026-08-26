@@ -177,7 +177,11 @@ export default function App() {
               <Link to="/ai-analysis" className="nav-link">
                 🤖 AI Analysis
               </Link>
-              <Link to="/trading" className="nav-link">
+              <Link
+                to="/trading"
+                state={{ resetTradingPair: true }}
+                className="nav-link"
+              >
                 📈 Trading
               </Link>
               <Link to="/staking" className="nav-link">
