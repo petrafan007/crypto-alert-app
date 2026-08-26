@@ -643,7 +643,7 @@ def api_ai_settings():
                 if threshold_errors:
                     return jsonify({
                         "success": False,
-                        "message": "Every sentiment Correct and Wrong value is required, must be at least 0.01%, and may use no more than two decimal places.",
+                        "message": "Sentiment values are invalid. Correct thresholds must be at least 0.01%; directional Wrong and Hold steady values may be 0.00%; all values allow at most two decimal places.",
                         "errors": threshold_errors,
                     }), 400
                 data.update(threshold_values)

@@ -195,6 +195,9 @@ export default function SentimentTimelineChart({ signals = [], range, onRangeCha
               <small>Previous check: {formatPrice(signal.price_at_prediction)} {quote}</small>
               <small>Next check: {signal.evaluation_price ? `${formatPrice(signal.evaluation_price)} ${quote} · ${formatEasternTime(signal.evaluated_at)}` : 'Waiting for the next check'}</small>
               {Number.isFinite(Number(signal.evaluation_hours)) && <small>Time between checks: {Number(signal.evaluation_hours).toFixed(2)} hours</small>}
+              {signal.style.code === 'H' && signal.steady_threshold_pct != null && <small>
+                Hold rules: Correct within ±{Number(signal.steady_threshold_pct).toFixed(2)}%; Wrong at or above +{Number(signal.upside_wrong_threshold_pct).toFixed(2)}% or at or below -{Number(signal.downside_wrong_threshold_pct).toFixed(2)}%; otherwise Neutral
+              </small>}
               {signal.correct_threshold_pct != null && signal.wrong_threshold_pct != null && <small>
                 {signal.threshold_setting || signal.sentiment} rules: Correct {signal.style.code === 'CS' || signal.style.code === 'SI' ? 'at or below -' : 'at or above +'}{Number(signal.correct_threshold_pct).toFixed(2)}%; Wrong {signal.style.code === 'CS' || signal.style.code === 'SI' ? 'at or above +' : 'at or below -'}{Number(signal.wrong_threshold_pct).toFixed(2)}%
               </small>}

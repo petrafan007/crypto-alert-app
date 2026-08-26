@@ -122,6 +122,19 @@ The application utilizes a **unified PostgreSQL database**.
 
 ## Version History & Changelog
 
+## v2.15.0 (August 2026)
+
+### Zero-Boundary Directional Rules & Steady-Range Hold Validation
+- **Zero Is a Valid Wrong Boundary**: Buy Immediately, Consider Buying, Consider Selling, and Sell Immediately now accept `0.00%` for Wrong. With a bullish Correct value of 5.00 and Wrong of 0.00, zero or any decline is Wrong, a gain strictly between 0.00% and 5.00% is Neutral, and 5.00% or higher is Correct. Selling rules apply the exact inverse.
+- **Meaningful Correct Thresholds**: Directional Correct values retain a 0.01% minimum, preventing an ambiguous zero point from satisfying both Correct and Wrong. Directional Correct and Wrong magnitudes remain otherwise independent.
+- **Hold Is No Longer Bullish**: Hold now explicitly means the price is expected to remain steady. It is excluded from bullish and bearish win-rate calculations and retains its blue H chart marker.
+- **Dedicated Hold Steady Range**: Replaced Hold Correct/Wrong inputs with one `Steady Range (±%)` value that may be 0.00%. Moves inside the range, including its exact boundaries, make Hold Correct.
+- **Action-Aware Hold Failures**: Hold becomes Wrong on the upside when price reaches the Consider Buying Correct threshold, or on the downside when it reaches the Consider Selling Correct threshold. Moves outside the steady range but before either action boundary are Neutral.
+- **Contradiction-Proof Validation**: Hold steady range must be smaller than both action thresholds. All nine active sentiment values are required, non-negative, and limited to two decimal places, with clear browser and API errors.
+- **Updated Explanations**: Settings now says `Expects price to remain steady` for Hold and generates exact live boundary help. Sentiment Chart hover details display the Hold steady band and both derived action boundaries.
+- **Upgrade-Safe Storage**: Added an automatic `sentiment_hold_steady_pct` database migration with a 1.00% default while retaining legacy v2.14 Hold columns for schema compatibility.
+- **Version Bump**: Transitioned version to `v2.15.0`.
+
 ## v2.14.0 (August 2026)
 
 ### Consecutive-Check Sentiment Grading & Configurable Outcome Rules

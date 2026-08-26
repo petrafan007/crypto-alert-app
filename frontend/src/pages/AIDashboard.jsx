@@ -672,7 +672,7 @@ const AIDashboard = () => {
           <div className="accuracy-kpi-card bullish">
             <div className="kpi-label">Bullish Win Rate</div>
             <div className="kpi-value text-green">{formatRate(summary.bullish_win_rate)}</div>
-            <div className="kpi-subtext">Buy/Hold theses measured at the next same-coin check</div>
+            <div className="kpi-subtext">Buy theses measured at the next same-coin check</div>
           </div>
 
           <div className="accuracy-kpi-card bearish">

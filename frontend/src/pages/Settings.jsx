@@ -10,18 +10,31 @@ import { APP_VERSION_TAG } from '../version';
 const CURRENT_APP_VERSION = APP_VERSION_TAG;
 
 const SENTIMENT_VARIABLES = [
-  { label: 'Buy Immediately', code: 'BI', direction: 'up', correctKey: 'sentiment_buy_immediately_correct_pct', wrongKey: 'sentiment_buy_immediately_wrong_pct' },
-  { label: 'Consider Buying', code: 'CB', direction: 'up', correctKey: 'sentiment_consider_buying_correct_pct', wrongKey: 'sentiment_consider_buying_wrong_pct' },
-  { label: 'Hold', code: 'H', direction: 'up', correctKey: 'sentiment_hold_correct_pct', wrongKey: 'sentiment_hold_wrong_pct' },
-  { label: 'Consider Selling', code: 'CS', direction: 'down', correctKey: 'sentiment_consider_selling_correct_pct', wrongKey: 'sentiment_consider_selling_wrong_pct' },
-  { label: 'Sell Immediately', code: 'SI', direction: 'down', correctKey: 'sentiment_sell_immediately_correct_pct', wrongKey: 'sentiment_sell_immediately_wrong_pct' },
+  { label: 'Buy Immediately', code: 'BI', kind: 'directional', direction: 'up', correctKey: 'sentiment_buy_immediately_correct_pct', wrongKey: 'sentiment_buy_immediately_wrong_pct' },
+  { label: 'Consider Buying', code: 'CB', kind: 'directional', direction: 'up', correctKey: 'sentiment_consider_buying_correct_pct', wrongKey: 'sentiment_consider_buying_wrong_pct' },
+  { label: 'Hold', code: 'H', kind: 'hold', steadyKey: 'sentiment_hold_steady_pct' },
+  { label: 'Consider Selling', code: 'CS', kind: 'directional', direction: 'down', correctKey: 'sentiment_consider_selling_correct_pct', wrongKey: 'sentiment_consider_selling_wrong_pct' },
+  { label: 'Sell Immediately', code: 'SI', kind: 'directional', direction: 'down', correctKey: 'sentiment_sell_immediately_correct_pct', wrongKey: 'sentiment_sell_immediately_wrong_pct' },
 ];
 
-const sentimentThresholdError = value => {
+const sentimentThresholdError = (value, minimum = 0.01) => {
   const raw = String(value ?? '').trim();
   if (!raw) return 'A value is required.';
-  if (!/^\d+(?:\.\d{1,2})?$/.test(raw)) return 'Enter a positive number with no more than two decimal places.';
-  if (Number(raw) < 0.01) return 'Enter a value of at least 0.01%.';
+  if (!/^\d+(?:\.\d{1,2})?$/.test(raw)) return 'Enter a non-negative number with no more than two decimal places.';
+  if (Number(raw) < minimum) return `Enter a value of at least ${minimum.toFixed(2)}%.`;
+  return '';
+};
+
+const holdSteadyError = settings => {
+  const basicError = sentimentThresholdError(settings.sentiment_hold_steady_pct, 0);
+  if (basicError) return basicError;
+  const buyingError = sentimentThresholdError(settings.sentiment_consider_buying_correct_pct);
+  const sellingError = sentimentThresholdError(settings.sentiment_consider_selling_correct_pct);
+  if (buyingError || sellingError) return '';
+  if (Number(settings.sentiment_hold_steady_pct) >= Math.min(
+    Number(settings.sentiment_consider_buying_correct_pct),
+    Number(settings.sentiment_consider_selling_correct_pct),
+  )) return 'Must be smaller than both Consider Buying and Consider Selling Correct thresholds.';
   return '';
 };
 
@@ -103,8 +116,7 @@ export default function Settings({ isLightMode }) {
     sentiment_buy_immediately_wrong_pct: '5.00',
     sentiment_consider_buying_correct_pct: '5.00',
     sentiment_consider_buying_wrong_pct: '5.00',
-    sentiment_hold_correct_pct: '5.00',
-    sentiment_hold_wrong_pct: '5.00',
+    sentiment_hold_steady_pct: '1.00',
     sentiment_consider_selling_correct_pct: '5.00',
     sentiment_consider_selling_wrong_pct: '5.00',
     sentiment_sell_immediately_correct_pct: '5.00',
@@ -399,8 +411,13 @@ export default function Settings({ isLightMode }) {
       }
 
       SENTIMENT_VARIABLES.forEach(variable => {
+        if (variable.kind === 'hold') {
+          const steadyError = holdSteadyError(settings);
+          if (steadyError) errors.push(`Hold Steady Range: ${steadyError}`);
+          return;
+        }
         const correctError = sentimentThresholdError(settings[variable.correctKey]);
-        const wrongError = sentimentThresholdError(settings[variable.wrongKey]);
+        const wrongError = sentimentThresholdError(settings[variable.wrongKey], 0);
         if (correctError) errors.push(`${variable.label} Correct: ${correctError}`);
         if (wrongError) errors.push(`${variable.label} Wrong: ${wrongError}`);
       });
@@ -2763,20 +2780,64 @@ export default function Settings({ isLightMode }) {
       <section className="settings-page-section sentiment-variable-settings" style={{ marginTop: '24px' }}>
         <h3>🎯 Sentiment Variable Settings</h3>
         <p>
-          Define how much the coin price must move between one sentiment check and the next check for the previous recommendation to be Correct or Wrong. Enter positive percentage magnitudes only; the app applies the appropriate direction. Values are independent and exact boundaries are decisive.
+          Grade each recommendation using the price change between consecutive checks for the same coin and source. Scheduled frequency controls the normal interval, while the chart shows the actual elapsed time. Directional Wrong values and the Hold steady range may be 0.00%; exact boundaries are decisive.
         </p>
         <div className="sentiment-variable-grid">
           {SENTIMENT_VARIABLES.map(variable => {
+            if (variable.kind === 'hold') {
+              const steadyValue = settings[variable.steadyKey];
+              const steadyError = holdSteadyError(settings);
+              const buyingCorrectError = sentimentThresholdError(settings.sentiment_consider_buying_correct_pct);
+              const sellingCorrectError = sentimentThresholdError(settings.sentiment_consider_selling_correct_pct);
+              const valuesAreValid = !steadyError && !buyingCorrectError && !sellingCorrectError;
+              const steady = valuesAreValid ? formatThreshold(steadyValue) : '';
+              const buyingBoundary = valuesAreValid ? formatThreshold(settings.sentiment_consider_buying_correct_pct) : '';
+              const sellingBoundary = valuesAreValid ? formatThreshold(settings.sentiment_consider_selling_correct_pct) : '';
+              const correctText = Number(steadyValue) === 0
+                ? 'Correct only when the price change is exactly 0.00%.'
+                : `Correct from -${steady}% through +${steady}%.`;
+              return <article className="sentiment-variable-row" key={variable.code}>
+                <header>
+                  <span className="sentiment-variable-code sentiment-variable-code-h">H</span>
+                  <div>
+                    <h4>Hold</h4>
+                    <small>Expects price to remain steady</small>
+                  </div>
+                </header>
+                <div className="sentiment-variable-inputs sentiment-hold-input">
+                  <label>
+                    <span>Steady Range (±%)</span>
+                    <input
+                      type="number"
+                      inputMode="decimal"
+                      step="0.01"
+                      min="0"
+                      value={steadyValue ?? ''}
+                      onChange={event => handleInputChange(variable.steadyKey, event.target.value)}
+                      className={steadyError ? 'sentiment-threshold-invalid' : ''}
+                      aria-invalid={Boolean(steadyError)}
+                      aria-describedby={`${variable.steadyKey}-error`}
+                    />
+                    {steadyError && <small id={`${variable.steadyKey}-error`} className="sentiment-threshold-error">{steadyError}</small>}
+                  </label>
+                </div>
+                {valuesAreValid && <p className="sentiment-neutral-help">
+                  {correctText} Wrong at +{buyingBoundary}% or higher because Consider Buying was warranted, or -{sellingBoundary}% or lower because Consider Selling was warranted. Moves outside the steady range but before either action boundary are Neutral.
+                </p>}
+              </article>;
+            }
+
             const correctValue = settings[variable.correctKey];
             const wrongValue = settings[variable.wrongKey];
             const correctError = sentimentThresholdError(correctValue);
-            const wrongError = sentimentThresholdError(wrongValue);
+            const wrongError = sentimentThresholdError(wrongValue, 0);
             const valuesAreValid = !correctError && !wrongError;
             const correct = valuesAreValid ? formatThreshold(correctValue) : '';
             const wrong = valuesAreValid ? formatThreshold(wrongValue) : '';
+            const wrongBoundary = Number(wrongValue) === 0 ? '0.00' : `${variable.direction === 'up' ? '-' : '+'}${wrong}`;
             const neutralText = variable.direction === 'up'
-              ? `Correct at +${correct}% or higher. Wrong at -${wrong}% or lower. Any move between -${wrong}% and +${correct}% is Neutral.`
-              : `Correct at -${correct}% or lower. Wrong at +${wrong}% or higher. Any move between -${correct}% and +${wrong}% is Neutral.`;
+              ? `Correct at +${correct}% or higher. Wrong at ${wrongBoundary}% or lower. Any move strictly between ${wrongBoundary}% and +${correct}% is Neutral.`
+              : `Correct at -${correct}% or lower. Wrong at ${wrongBoundary}% or higher. Any move strictly between -${correct}% and ${wrongBoundary}% is Neutral.`;
             return <article className="sentiment-variable-row" key={variable.code}>
               <header>
                 <span className={`sentiment-variable-code sentiment-variable-code-${variable.code.toLowerCase()}`}>{variable.code}</span>
@@ -2807,7 +2868,7 @@ export default function Settings({ isLightMode }) {
                     type="number"
                     inputMode="decimal"
                     step="0.01"
-                    min="0.01"
+                    min="0"
                     value={wrongValue ?? ''}
                     onChange={event => handleInputChange(variable.wrongKey, event.target.value)}
                     className={wrongError ? 'sentiment-threshold-invalid' : ''}

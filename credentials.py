@@ -384,6 +384,7 @@ class UserSetting(db.Model):
     sentiment_consider_buying_wrong_pct = db.Column(db.Float, default=5.0)
     sentiment_hold_correct_pct = db.Column(db.Float, default=5.0)
     sentiment_hold_wrong_pct = db.Column(db.Float, default=5.0)
+    sentiment_hold_steady_pct = db.Column(db.Float, default=1.0)
     sentiment_consider_selling_correct_pct = db.Column(db.Float, default=5.0)
     sentiment_consider_selling_wrong_pct = db.Column(db.Float, default=5.0)
     sentiment_sell_immediately_correct_pct = db.Column(db.Float, default=5.0)

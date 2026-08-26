@@ -42,6 +42,7 @@ class SentimentAccuracyIntegrationTests(unittest.TestCase):
             sentiment_buy_immediately_wrong_pct=1,
             sentiment_sell_immediately_correct_pct=3,
             sentiment_sell_immediately_wrong_pct=1,
+            sentiment_hold_steady_pct=1,
         ))
 
         start = datetime.now(timezone.utc) - timedelta(hours=5)
@@ -51,6 +52,7 @@ class SentimentAccuracyIntegrationTests(unittest.TestCase):
             SentimentHistory(user_id=user.id, symbol='BTC', source_type='watchlist', sentiment='Watch', price_at_prediction=90, created_at=start + timedelta(minutes=20)),
             SentimentHistory(user_id=user.id, symbol='BTC', source_type='portfolio', sentiment='Sell Immediately', price_at_prediction=104, created_at=start + timedelta(hours=1)),
             SentimentHistory(user_id=user.id, symbol='BTC', source_type='portfolio', sentiment='Hold', price_at_prediction=100, created_at=start + timedelta(hours=2)),
+            SentimentHistory(user_id=user.id, symbol='BTC', source_type='portfolio', sentiment='Consider Buying', price_at_prediction=105, created_at=start + timedelta(hours=3)),
         ]
         db.session.add_all(self.records)
         db.session.commit()
@@ -61,16 +63,24 @@ class SentimentAccuracyIntegrationTests(unittest.TestCase):
 
         first = history[self.records[0].id]
         second = history[self.records[3].id]
-        latest = history[self.records[4].id]
+        hold = history[self.records[4].id]
+        latest = history[self.records[5].id]
 
         self.assertEqual(first['evaluation_price'], 104)
         self.assertEqual(first['outcome_status'], 'correct')
         self.assertEqual(first['price_delta_pct'], 4)
         self.assertEqual(second['evaluation_price'], 100)
         self.assertEqual(second['outcome_status'], 'correct')
+        self.assertEqual(hold['evaluation_price'], 105)
+        self.assertEqual(hold['outcome_status'], 'wrong')
+        self.assertEqual(hold['steady_threshold_pct'], 1)
+        self.assertEqual(hold['upside_wrong_threshold_pct'], 5)
         self.assertEqual(latest['outcome_status'], 'tracking')
         self.assertIsNone(latest['evaluation_price'])
         self.assertEqual(first['evaluation_method'], 'next_sentiment_check')
+        self.assertEqual(report['summary']['evaluated_signals'], 3)
+        self.assertEqual(report['summary']['bullish_count'], 1)
+        self.assertEqual(report['summary']['bearish_count'], 1)
 
 
 if __name__ == '__main__':

@@ -70,6 +70,7 @@ def init_db(app=None):
             ("user_settings", "sentiment_consider_buying_wrong_pct", "FLOAT DEFAULT 5.0"),
             ("user_settings", "sentiment_hold_correct_pct", "FLOAT DEFAULT 5.0"),
             ("user_settings", "sentiment_hold_wrong_pct", "FLOAT DEFAULT 5.0"),
+            ("user_settings", "sentiment_hold_steady_pct", "FLOAT DEFAULT 1.0"),
             ("user_settings", "sentiment_consider_selling_correct_pct", "FLOAT DEFAULT 5.0"),
             ("user_settings", "sentiment_consider_selling_wrong_pct", "FLOAT DEFAULT 5.0"),
             ("user_settings", "sentiment_sell_immediately_correct_pct", "FLOAT DEFAULT 5.0"),

@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone as dt_timezone
 from decimal import Decimal, InvalidOperation
 
 
-SENTIMENT_VARIABLES = {
+DIRECTIONAL_SENTIMENT_VARIABLES = {
     'buy_immediately': {
         'label': 'Buy Immediately',
         'direction': 'up',
@@ -16,12 +16,6 @@ SENTIMENT_VARIABLES = {
         'direction': 'up',
         'correct_field': 'sentiment_consider_buying_correct_pct',
         'wrong_field': 'sentiment_consider_buying_wrong_pct',
-    },
-    'hold': {
-        'label': 'Hold',
-        'direction': 'up',
-        'correct_field': 'sentiment_hold_correct_pct',
-        'wrong_field': 'sentiment_hold_wrong_pct',
     },
     'consider_selling': {
         'label': 'Consider Selling',
@@ -37,12 +31,27 @@ SENTIMENT_VARIABLES = {
     },
 }
 
+HOLD_VARIABLE = {
+    'label': 'Hold',
+    'direction': 'steady',
+    'steady_field': 'sentiment_hold_steady_pct',
+}
+
+SENTIMENT_VARIABLES = {
+    **DIRECTIONAL_SENTIMENT_VARIABLES,
+    'hold': HOLD_VARIABLE,
+}
+
 SENTIMENT_THRESHOLD_FIELDS = tuple(
     field
-    for definition in SENTIMENT_VARIABLES.values()
+    for definition in DIRECTIONAL_SENTIMENT_VARIABLES.values()
     for field in (definition['correct_field'], definition['wrong_field'])
-)
+) + (HOLD_VARIABLE['steady_field'],)
+CORRECT_THRESHOLD_FIELDS = {
+    definition['correct_field'] for definition in DIRECTIONAL_SENTIMENT_VARIABLES.values()
+}
 DEFAULT_SENTIMENT_THRESHOLD_PCT = 5.0
+DEFAULT_HOLD_STEADY_PCT = 1.0
 
 _SIGNAL_ALIASES = {
     'buy immediately': 'buy_immediately',
@@ -64,7 +73,10 @@ BULLISH_SIGNALS = {
     label for label, key in _SIGNAL_ALIASES.items()
     if SENTIMENT_VARIABLES[key]['direction'] == 'up'
 }
-BEARISH_SIGNALS = set(_SIGNAL_ALIASES) - BULLISH_SIGNALS
+BEARISH_SIGNALS = {
+    label for label, key in _SIGNAL_ALIASES.items()
+    if SENTIMENT_VARIABLES[key]['direction'] == 'down'
+}
 
 
 def validate_sentiment_threshold_payload(data, require_all=False):
@@ -83,22 +95,35 @@ def validate_sentiment_threshold_payload(data, require_all=False):
         try:
             value = Decimal(str(raw_value).strip())
         except (InvalidOperation, ValueError):
-            errors[field] = 'Enter a positive number with no more than two decimal places.'
+            errors[field] = 'Enter a non-negative number with no more than two decimal places.'
             continue
-        if not value.is_finite() or value < Decimal('0.01'):
-            errors[field] = 'Enter a value of at least 0.01%.'
+        minimum = Decimal('0.01') if field in CORRECT_THRESHOLD_FIELDS else Decimal('0.00')
+        if not value.is_finite() or value < minimum:
+            errors[field] = f'Enter a value of at least {minimum:.2f}%.'
             continue
         if value.as_tuple().exponent < -2:
             errors[field] = 'Use no more than two decimal places.'
             continue
         values[field] = float(value)
+
+    steady_field = HOLD_VARIABLE['steady_field']
+    buying_correct_field = DIRECTIONAL_SENTIMENT_VARIABLES['consider_buying']['correct_field']
+    selling_correct_field = DIRECTIONAL_SENTIMENT_VARIABLES['consider_selling']['correct_field']
+    if all(field in values for field in (steady_field, buying_correct_field, selling_correct_field)):
+        buying_boundary = values[buying_correct_field]
+        selling_boundary = values[selling_correct_field]
+        if values[steady_field] >= min(buying_boundary, selling_boundary):
+            errors[steady_field] = (
+                'Hold steady range must be smaller than both the Consider Buying '
+                'and Consider Selling Correct thresholds.'
+            )
     return values, errors
 
 
 def get_sentiment_thresholds(settings=None):
-    """Return the five configured correct/wrong threshold pairs."""
+    """Return four directional rule sets plus the special Hold rule."""
     result = {}
-    for key, definition in SENTIMENT_VARIABLES.items():
+    for key, definition in DIRECTIONAL_SENTIMENT_VARIABLES.items():
         correct = getattr(settings, definition['correct_field'], DEFAULT_SENTIMENT_THRESHOLD_PCT) if settings else DEFAULT_SENTIMENT_THRESHOLD_PCT
         wrong = getattr(settings, definition['wrong_field'], DEFAULT_SENTIMENT_THRESHOLD_PCT) if settings else DEFAULT_SENTIMENT_THRESHOLD_PCT
         try:
@@ -108,13 +133,26 @@ def get_sentiment_thresholds(settings=None):
             correct = wrong = DEFAULT_SENTIMENT_THRESHOLD_PCT
         if correct < 0.01:
             correct = DEFAULT_SENTIMENT_THRESHOLD_PCT
-        if wrong < 0.01:
+        if wrong < 0:
             wrong = DEFAULT_SENTIMENT_THRESHOLD_PCT
         result[key] = {
             **definition,
             'correct_pct': correct,
             'wrong_pct': wrong,
         }
+    steady = getattr(settings, HOLD_VARIABLE['steady_field'], DEFAULT_HOLD_STEADY_PCT) if settings else DEFAULT_HOLD_STEADY_PCT
+    try:
+        steady = float(steady)
+    except (TypeError, ValueError):
+        steady = DEFAULT_HOLD_STEADY_PCT
+    if steady < 0:
+        steady = DEFAULT_HOLD_STEADY_PCT
+    result['hold'] = {
+        **HOLD_VARIABLE,
+        'steady_pct': steady,
+        'upside_wrong_pct': result['consider_buying']['correct_pct'],
+        'downside_wrong_pct': result['consider_selling']['correct_pct'],
+    }
     return result
 
 
@@ -125,30 +163,39 @@ def _resolve_signal(sentiment):
 
 def evaluate_sentiment_outcome(sentiment, source_type, entry_price, evaluation_price,
                                correct_threshold_pct=DEFAULT_SENTIMENT_THRESHOLD_PCT,
-                               wrong_threshold_pct=DEFAULT_SENTIMENT_THRESHOLD_PCT):
+                               wrong_threshold_pct=DEFAULT_SENTIMENT_THRESHOLD_PCT,
+                               hold_steady_pct=DEFAULT_HOLD_STEADY_PCT,
+                               hold_upside_wrong_pct=DEFAULT_SENTIMENT_THRESHOLD_PCT,
+                               hold_downside_wrong_pct=DEFAULT_SENTIMENT_THRESHOLD_PCT):
     """Grade a signal using the price recorded by the next same-coin check.
 
-    Correct and wrong thresholds are positive, independent magnitudes applied in
-    opposite directions. Exact boundary matches are decisive; the open interval
-    between those boundaries is neutral.
+    Directional rules use independent Correct and Wrong boundaries. Hold uses a
+    steady band around zero and derives its wrong boundaries from the Consider
+    Buying and Consider Selling Correct thresholds.
     """
     del source_type  # Retained in the public signature for backwards compatibility.
     try:
-        entry = float(entry_price)
-        evaluated = float(evaluation_price)
-        correct_threshold = float(correct_threshold_pct)
-        wrong_threshold = float(wrong_threshold_pct)
-    except (TypeError, ValueError):
+        entry_value = Decimal(str(entry_price))
+        evaluated_value = Decimal(str(evaluation_price))
+        correct_threshold_value = Decimal(str(correct_threshold_pct))
+        wrong_threshold_value = Decimal(str(wrong_threshold_pct))
+        steady_threshold_value = Decimal(str(hold_steady_pct))
+        upside_wrong_threshold_value = Decimal(str(hold_upside_wrong_pct))
+        downside_wrong_threshold_value = Decimal(str(hold_downside_wrong_pct))
+        decimal_values = (
+            entry_value, evaluated_value, correct_threshold_value,
+            wrong_threshold_value, steady_threshold_value,
+            upside_wrong_threshold_value, downside_wrong_threshold_value,
+        )
+        if not all(value.is_finite() for value in decimal_values):
+            raise InvalidOperation
+    except (InvalidOperation, TypeError, ValueError):
         return {'status': 'unscored', 'delta_pct': None, 'direction': None,
                 'reason': 'The signal price, next-check price, or threshold is invalid.'}
 
-    if entry <= 0 or evaluated <= 0:
+    if entry_value <= 0 or evaluated_value <= 0:
         return {'status': 'unscored', 'delta_pct': None, 'direction': None,
                 'reason': 'The signal price or next-check price is unavailable.'}
-    if correct_threshold < 0.01 or wrong_threshold < 0.01:
-        return {'status': 'unscored', 'delta_pct': None, 'direction': None,
-                'reason': 'Correct and Wrong thresholds must each be at least 0.01%.'}
-
     setting_key = _resolve_signal(sentiment)
     if not setting_key:
         return {'status': 'unscored', 'delta_pct': None, 'direction': None,
@@ -156,15 +203,61 @@ def evaluate_sentiment_outcome(sentiment, source_type, entry_price, evaluation_p
 
     definition = SENTIMENT_VARIABLES[setting_key]
     direction = definition['direction']
-    delta = ((evaluated - entry) / entry) * 100.0
+    delta_value = ((evaluated_value - entry_value) / entry_value) * Decimal('100')
+    delta = float(delta_value)
     rounded = round(delta, 2)
+    correct_threshold = float(correct_threshold_value)
+    wrong_threshold = float(wrong_threshold_value)
+    steady_threshold = float(steady_threshold_value)
+    upside_wrong_threshold = float(upside_wrong_threshold_value)
+    downside_wrong_threshold = float(downside_wrong_threshold_value)
+
+    if direction == 'steady':
+        if steady_threshold_value < 0:
+            return {'status': 'unscored', 'delta_pct': None, 'direction': direction,
+                    'reason': 'Hold steady range cannot be negative.'}
+        if (upside_wrong_threshold_value <= steady_threshold_value
+                or downside_wrong_threshold_value <= steady_threshold_value):
+            return {'status': 'unscored', 'delta_pct': None, 'direction': direction,
+                    'reason': 'Hold steady range must be smaller than both action boundaries.'}
+        if abs(delta_value) <= steady_threshold_value:
+            status = 'correct'
+        elif (delta_value >= upside_wrong_threshold_value
+              or delta_value <= -downside_wrong_threshold_value):
+            status = 'wrong'
+        else:
+            status = 'neutral'
+        boundary_text = (
+            f'Correct requires a move from -{steady_threshold:.2f}% through +{steady_threshold:.2f}%. '
+            f'Wrong requires at least +{upside_wrong_threshold:.2f}% (Consider Buying warranted) '
+            f'or -{downside_wrong_threshold:.2f}% or lower (Consider Selling warranted).'
+        )
+        return {
+            'status': status,
+            'delta_pct': rounded,
+            'direction': direction,
+            'setting_key': setting_key,
+            'steady_threshold_pct': steady_threshold,
+            'upside_wrong_threshold_pct': upside_wrong_threshold,
+            'downside_wrong_threshold_pct': downside_wrong_threshold,
+            'reason': (
+                f'From this sentiment check to the next check, price moved {rounded:+.2f}%. '
+                f'{boundary_text} This outcome is {status.title()}.'
+            ),
+        }
+
+    if correct_threshold_value < Decimal('0.01') or wrong_threshold_value < 0:
+        return {'status': 'unscored', 'delta_pct': None, 'direction': direction,
+                'reason': 'Correct must be at least 0.01%; Wrong cannot be negative.'}
 
     if direction == 'up':
-        correct_boundary = correct_threshold
-        wrong_boundary = -wrong_threshold
-        if delta >= correct_boundary:
+        correct_boundary_value = correct_threshold_value
+        wrong_boundary_value = -wrong_threshold_value
+        correct_boundary = float(correct_boundary_value)
+        wrong_boundary = float(wrong_boundary_value)
+        if delta_value >= correct_boundary_value:
             status = 'correct'
-        elif delta <= wrong_boundary:
+        elif delta_value <= wrong_boundary_value:
             status = 'wrong'
         else:
             status = 'neutral'
@@ -173,11 +266,13 @@ def evaluate_sentiment_outcome(sentiment, source_type, entry_price, evaluation_p
             f'Wrong requires {wrong_boundary:.2f}% or lower.'
         )
     else:
-        correct_boundary = -correct_threshold
-        wrong_boundary = wrong_threshold
-        if delta <= correct_boundary:
+        correct_boundary_value = -correct_threshold_value
+        wrong_boundary_value = wrong_threshold_value
+        correct_boundary = float(correct_boundary_value)
+        wrong_boundary = float(wrong_boundary_value)
+        if delta_value <= correct_boundary_value:
             status = 'correct'
-        elif delta >= wrong_boundary:
+        elif delta_value >= wrong_boundary_value:
             status = 'wrong'
         else:
             status = 'neutral'
@@ -283,14 +378,25 @@ def build_sentiment_accuracy_response(user_id, timeframe='30d', selected_tier=No
             if created_utc and evaluated_utc:
                 elapsed_hours = round((evaluated_utc - created_utc).total_seconds() / 3600, 2)
             if threshold:
-                grade = evaluate_sentiment_outcome(
-                    sentiment,
-                    source,
-                    record.price_at_prediction,
-                    evaluation_price,
-                    threshold['correct_pct'],
-                    threshold['wrong_pct'],
-                )
+                if setting_key == 'hold':
+                    grade = evaluate_sentiment_outcome(
+                        sentiment,
+                        source,
+                        record.price_at_prediction,
+                        evaluation_price,
+                        hold_steady_pct=threshold['steady_pct'],
+                        hold_upside_wrong_pct=threshold['upside_wrong_pct'],
+                        hold_downside_wrong_pct=threshold['downside_wrong_pct'],
+                    )
+                else:
+                    grade = evaluate_sentiment_outcome(
+                        sentiment,
+                        source,
+                        record.price_at_prediction,
+                        evaluation_price,
+                        threshold['correct_pct'],
+                        threshold['wrong_pct'],
+                    )
                 status = grade['status']
                 delta = grade['delta_pct']
                 reason = grade['reason']
@@ -346,8 +452,11 @@ def build_sentiment_accuracy_response(user_id, timeframe='30d', selected_tier=No
             'price_delta_pct': delta, 'outcome_status': status,
             'outcome_reason': reason, 'evaluation_hours': elapsed_hours,
             'evaluation_method': 'next_sentiment_check' if evaluated_at else None,
-            'correct_threshold_pct': threshold['correct_pct'] if threshold else None,
-            'wrong_threshold_pct': threshold['wrong_pct'] if threshold else None,
+            'correct_threshold_pct': threshold.get('correct_pct') if threshold else None,
+            'wrong_threshold_pct': threshold.get('wrong_pct') if threshold else None,
+            'steady_threshold_pct': threshold.get('steady_pct') if threshold else None,
+            'upside_wrong_threshold_pct': threshold.get('upside_wrong_pct') if threshold else None,
+            'downside_wrong_threshold_pct': threshold.get('downside_wrong_pct') if threshold else None,
             'neutral_lower_pct': neutral_lower, 'neutral_upper_pct': neutral_upper,
             'threshold_setting': threshold['label'] if threshold else None,
             'provider': record.provider, 'model': record.model, 'tier': record.tier,

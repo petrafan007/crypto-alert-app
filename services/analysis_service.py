@@ -140,8 +140,7 @@ def get_user_ai_settings(username: str) -> dict:
             'sentiment_buy_immediately_wrong_pct': 5.0,
             'sentiment_consider_buying_correct_pct': 5.0,
             'sentiment_consider_buying_wrong_pct': 5.0,
-            'sentiment_hold_correct_pct': 5.0,
-            'sentiment_hold_wrong_pct': 5.0,
+            'sentiment_hold_steady_pct': 1.0,
             'sentiment_consider_selling_correct_pct': 5.0,
             'sentiment_consider_selling_wrong_pct': 5.0,
             'sentiment_sell_immediately_correct_pct': 5.0,
@@ -257,9 +256,14 @@ def get_user_ai_settings(username: str) -> dict:
                     settings['volatility_hours'] = user_setting.volatility_hours or 24
 
                 settings['ai_outcome_neutral_threshold_pct'] = float(getattr(user_setting, 'ai_outcome_neutral_threshold_pct', 5.0) or 5.0)
-                from services.sentiment_outcome_service import SENTIMENT_THRESHOLD_FIELDS
+                from services.sentiment_outcome_service import (
+                    HOLD_VARIABLE,
+                    SENTIMENT_THRESHOLD_FIELDS,
+                )
                 for field in SENTIMENT_THRESHOLD_FIELDS:
-                    settings[field] = float(getattr(user_setting, field, 5.0) or 5.0)
+                    default_value = 1.0 if field == HOLD_VARIABLE['steady_field'] else 5.0
+                    stored_value = getattr(user_setting, field, None)
+                    settings[field] = float(default_value if stored_value is None else stored_value)
                 settings['max_slippage_pct'] = float(getattr(user_setting, 'max_slippage_pct', 2.0) or 2.0)
 
                 b_enabled = getattr(user_setting, 'browser_notifications_enabled', True)

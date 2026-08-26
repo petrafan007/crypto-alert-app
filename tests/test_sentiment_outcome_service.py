@@ -2,44 +2,76 @@ import unittest
 from types import SimpleNamespace
 
 from services.sentiment_outcome_service import (
+    CORRECT_THRESHOLD_FIELDS,
+    HOLD_VARIABLE,
     SENTIMENT_THRESHOLD_FIELDS,
     evaluate_sentiment_outcome,
+    get_sentiment_thresholds,
     pair_next_sentiment_checks,
     validate_sentiment_threshold_payload,
 )
 
 
 class SentimentOutcomeTests(unittest.TestCase):
-    def grade(self, sentiment, end, correct=3, wrong=1):
+    def grade(self, sentiment, end, correct=5, wrong=0, steady=1, hold_up=5, hold_down=5):
         return evaluate_sentiment_outcome(
-            sentiment, 'portfolio', 100, end, correct, wrong
+            sentiment,
+            'portfolio',
+            100,
+            end,
+            correct,
+            wrong,
+            steady,
+            hold_up,
+            hold_down,
         )
 
-    def test_bullish_correct_neutral_and_wrong_boundaries(self):
-        self.assertEqual(self.grade('Buy Immediately', 103)['status'], 'correct')
-        self.assertEqual(self.grade('Consider Buying', 99)['status'], 'wrong')
-        self.assertEqual(self.grade('Hold', 101)['status'], 'neutral')
+    def test_bullish_zero_wrong_boundary(self):
+        self.assertEqual(self.grade('Buy Immediately', 105)['status'], 'correct')
+        self.assertEqual(self.grade('Buy Immediately', 100.001)['status'], 'neutral')
+        self.assertEqual(self.grade('Consider Buying', 100.01)['status'], 'neutral')
+        self.assertEqual(self.grade('Consider Buying', 100)['status'], 'wrong')
+        self.assertEqual(self.grade('Consider Buying', 99.99)['status'], 'wrong')
 
-    def test_bearish_correct_neutral_and_wrong_boundaries(self):
-        self.assertEqual(self.grade('Sell Immediately', 97)['status'], 'correct')
-        self.assertEqual(self.grade('Consider Selling', 101)['status'], 'wrong')
-        self.assertEqual(self.grade('Sell Immediately', 99)['status'], 'neutral')
+    def test_exact_decimal_boundary_is_not_lost_to_float_rounding(self):
+        result = evaluate_sentiment_outcome(
+            'Buy Immediately', 'portfolio', 19, 19 * 1.05, 5, 0
+        )
+        self.assertEqual(result['status'], 'correct')
+        self.assertEqual(result['delta_pct'], 5)
 
-    def test_exact_boundaries_are_decisive(self):
-        self.assertEqual(self.grade('Hold', 103)['status'], 'correct')
-        self.assertEqual(self.grade('Hold', 99)['status'], 'wrong')
-        self.assertEqual(self.grade('Consider Selling', 97)['status'], 'correct')
-        self.assertEqual(self.grade('Consider Selling', 101)['status'], 'wrong')
+    def test_bearish_zero_wrong_boundary(self):
+        self.assertEqual(self.grade('Sell Immediately', 95)['status'], 'correct')
+        self.assertEqual(self.grade('Consider Selling', 99.99)['status'], 'neutral')
+        self.assertEqual(self.grade('Consider Selling', 100)['status'], 'wrong')
+        self.assertEqual(self.grade('Consider Selling', 100.01)['status'], 'wrong')
 
-    def test_correct_and_wrong_thresholds_are_independent(self):
+    def test_hold_has_steady_neutral_and_wrong_regions(self):
+        self.assertEqual(self.grade('Hold', 101, hold_down=4)['status'], 'correct')
+        self.assertEqual(self.grade('Hold', 99, hold_down=4)['status'], 'correct')
+        self.assertEqual(self.grade('Hold', 103, hold_down=4)['status'], 'neutral')
+        self.assertEqual(self.grade('Hold', 97, hold_down=4)['status'], 'neutral')
+        self.assertEqual(self.grade('Hold', 105, hold_down=4)['status'], 'wrong')
+        self.assertEqual(self.grade('Hold', 96, hold_down=4)['status'], 'wrong')
+
+    def test_hold_can_use_zero_as_steady_range(self):
+        self.assertEqual(self.grade('Hold', 100, steady=0)['status'], 'correct')
+        self.assertEqual(self.grade('Hold', 100.01, steady=0)['status'], 'neutral')
+        self.assertEqual(self.grade('Hold', 95, steady=0)['status'], 'wrong')
+
+    def test_hold_rejects_overlapping_action_boundaries(self):
+        result = self.grade('Hold', 101, steady=5, hold_up=5, hold_down=6)
+        self.assertEqual(result['status'], 'unscored')
+
+    def test_directional_correct_and_wrong_thresholds_are_independent(self):
         result = self.grade('Buy Immediately', 98, correct=2, wrong=3)
         self.assertEqual(result['status'], 'neutral')
         self.assertEqual(result['neutral_lower_pct'], -3)
         self.assertEqual(result['neutral_upper_pct'], 2)
 
-    def test_legacy_watchlist_labels_use_the_five_configured_families(self):
-        self.assertEqual(self.grade('Definitely Buy', 103)['status'], 'correct')
-        self.assertEqual(self.grade('Watch', 97)['status'], 'correct')
+    def test_legacy_watchlist_labels_use_directional_families(self):
+        self.assertEqual(self.grade('Definitely Buy', 105)['status'], 'correct')
+        self.assertEqual(self.grade('Watch', 95)['status'], 'correct')
         self.assertEqual(self.grade('Avoid', 101)['status'], 'wrong')
 
     def test_unknown_or_invalid_signal_is_unscored(self):
@@ -49,25 +81,57 @@ class SentimentOutcomeTests(unittest.TestCase):
             'unscored',
         )
 
-    def test_threshold_payload_requires_positive_two_decimal_values(self):
-        valid = {field: '1.25' for field in SENTIMENT_THRESHOLD_FIELDS}
-        values, errors = validate_sentiment_threshold_payload(valid, require_all=True)
+    def test_threshold_payload_accepts_zero_only_where_semantically_valid(self):
+        payload = {
+            field: ('5.00' if field in CORRECT_THRESHOLD_FIELDS else '0.00')
+            for field in SENTIMENT_THRESHOLD_FIELDS
+        }
+        values, errors = validate_sentiment_threshold_payload(payload, require_all=True)
         self.assertFalse(errors)
-        self.assertEqual(values[SENTIMENT_THRESHOLD_FIELDS[0]], 1.25)
+        self.assertEqual(values[HOLD_VARIABLE['steady_field']], 0)
 
-        invalid = dict(valid)
-        invalid[SENTIMENT_THRESHOLD_FIELDS[0]] = '0'
-        invalid[SENTIMENT_THRESHOLD_FIELDS[1]] = '1.234'
-        _, errors = validate_sentiment_threshold_payload(invalid, require_all=True)
-        self.assertIn(SENTIMENT_THRESHOLD_FIELDS[0], errors)
-        self.assertIn(SENTIMENT_THRESHOLD_FIELDS[1], errors)
+        correct_field = next(iter(CORRECT_THRESHOLD_FIELDS))
+        payload[correct_field] = '0.00'
+        _, errors = validate_sentiment_threshold_payload(payload, require_all=True)
+        self.assertIn(correct_field, errors)
 
-    def test_threshold_payload_requires_all_ten_fields(self):
+    def test_threshold_payload_enforces_precision_and_hold_relationship(self):
+        payload = {
+            field: ('5.00' if field in CORRECT_THRESHOLD_FIELDS else '1.00')
+            for field in SENTIMENT_THRESHOLD_FIELDS
+        }
+        payload[HOLD_VARIABLE['steady_field']] = '1.234'
+        _, errors = validate_sentiment_threshold_payload(payload, require_all=True)
+        self.assertIn(HOLD_VARIABLE['steady_field'], errors)
+
+        payload[HOLD_VARIABLE['steady_field']] = '5.00'
+        _, errors = validate_sentiment_threshold_payload(payload, require_all=True)
+        self.assertIn(HOLD_VARIABLE['steady_field'], errors)
+
+    def test_threshold_payload_requires_all_nine_fields(self):
         values, errors = validate_sentiment_threshold_payload(
             {SENTIMENT_THRESHOLD_FIELDS[0]: '2.00'}, require_all=True
         )
         self.assertEqual(values[SENTIMENT_THRESHOLD_FIELDS[0]], 2.0)
         self.assertEqual(len(errors), len(SENTIMENT_THRESHOLD_FIELDS) - 1)
+        self.assertEqual(len(SENTIMENT_THRESHOLD_FIELDS), 9)
+
+    def test_saved_zero_thresholds_are_not_replaced_by_defaults(self):
+        settings = SimpleNamespace(
+            sentiment_buy_immediately_correct_pct=5,
+            sentiment_buy_immediately_wrong_pct=0,
+            sentiment_consider_buying_correct_pct=5,
+            sentiment_consider_buying_wrong_pct=0,
+            sentiment_consider_selling_correct_pct=5,
+            sentiment_consider_selling_wrong_pct=0,
+            sentiment_sell_immediately_correct_pct=5,
+            sentiment_sell_immediately_wrong_pct=0,
+            sentiment_hold_steady_pct=0,
+        )
+        thresholds = get_sentiment_thresholds(settings)
+        self.assertEqual(thresholds['buy_immediately']['wrong_pct'], 0)
+        self.assertEqual(thresholds['sell_immediately']['wrong_pct'], 0)
+        self.assertEqual(thresholds['hold']['steady_pct'], 0)
 
     def test_checks_pair_only_with_the_same_coin_and_source(self):
         records = [
