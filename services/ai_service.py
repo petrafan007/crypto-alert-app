@@ -166,7 +166,9 @@ def call_ai_with_web_search(
     amount=None,
     is_fallback_attempt=False,
     tier_index=0,
-    use_cache=False
+    use_cache=False,
+    search_lookback_hours=12,
+    forecast_horizon_hours=None,
 ):
     """
     AGENTIC AI WORKFLOW - 3-STAGE PROCESS WITH 3-TIER CASCADE FAILOVER:
@@ -419,8 +421,8 @@ def call_ai_with_web_search(
         # Stage 1: Queries
         if prompt_type in ['sentiment_analysis', 'watchlist_sentiment_analysis']:
             search_queries = [
-                f"{symbol_value} crypto current price latest news past 12 hours today",
-                f"{symbol_value} cryptocurrency market sentiment news past 12 hours"
+                f"{symbol_value} crypto current price latest news past {search_lookback_hours} hours today",
+                f"{symbol_value} cryptocurrency market sentiment news past {search_lookback_hours} hours"
             ]
         elif prompt_type in ['copilot', 'manual']:
             # Fast deterministic query for real-time Copilot chat without multi-second LLM query overhead
@@ -436,7 +438,8 @@ def call_ai_with_web_search(
                 search_queries = [f"{symbol_value} crypto news market analysis today"]
 
         # Stage 2: Web Searches
-        # Enforce strict 12-24h freshness for Brave Search API
+        # Brave's closest supported freshness filter is past-day; the query
+        # itself carries the user's exact configured lookback window.
         search_summaries = []
         search_sources = set()
         freshness_filter = "pd"  # Brave Search API past-day (24h) parameter
@@ -527,11 +530,13 @@ def call_ai_with_web_search(
                     symbol=symbol,
                     include_db_context=include_db_context,
                     amount=amount,
-                    tier_index=next_tier_index
+                    tier_index=next_tier_index,
+                    search_lookback_hours=search_lookback_hours,
+                    forecast_horizon_hours=forecast_horizon_hours,
                 )
         raise
 
-def record_sentiment_history(user_id, symbol, sentiment, sentiment_reason, price_at_prediction, provider=None, model=None, tier=None, source_type='portfolio', coin_id=None, search_status=None):
+def record_sentiment_history(user_id, symbol, sentiment, sentiment_reason, price_at_prediction, provider=None, model=None, tier=None, source_type='portfolio', coin_id=None, search_status=None, forecast_horizon_hours=24, grading_config=None):
     """Save an AI sentiment recommendation snapshot into sentiment_history for accuracy tracking."""
     try:
         from models import SentimentHistory
@@ -550,7 +555,11 @@ def record_sentiment_history(user_id, symbol, sentiment, sentiment_reason, price
             tier=tier,
             sentiment_search_status=search_status,
             created_at=now,
-            outcome_status='tracking'
+            outcome_status='tracking',
+            forecast_horizon_hours=float(forecast_horizon_hours),
+            target_evaluation_at=now + timedelta(hours=float(forecast_horizon_hours)),
+            evaluation_method='fixed_horizon',
+            grading_config=grading_config,
         )
         db.session.add(hist)
         db.session.commit()
@@ -815,15 +824,31 @@ def analyze_single_symbol_sentiment(user_id, username, symbol, is_watchlist=Fals
 
         price_str = f"${current_price:,.2f}" if current_price is not None else "N/A"
 
-        # Fetch configured N-hours price and volume context (differentiated for portfolio vs watchlist)
+        # Fetch the configured history window and bind this prediction to a
+        # separate, fixed future evaluation horizon.
         lookback_hours = 12
+        forecast_horizon_hours = 24
         try:
             if is_watchlist:
-                lookback_hours = int(user_ai_settings.get('watchlist_sentiment_history_lookback_hours', 12) or 12)
+                lookback_hours = int(settings.get('watchlist_sentiment_history_lookback_hours', 12) or 12)
+                forecast_horizon_hours = int(settings.get('watchlist_sentiment_forecast_horizon_hours', 24) or 24)
             else:
-                lookback_hours = int(user_ai_settings.get('sentiment_history_lookback_hours', 12) or 12)
+                lookback_hours = int(settings.get('sentiment_history_lookback_hours', 12) or 12)
+                forecast_horizon_hours = int(settings.get('sentiment_forecast_horizon_hours', 24) or 24)
         except Exception:
-            lookback_hours = 12
+            lookback_hours, forecast_horizon_hours = 12, 24
+        lookback_hours = max(1, min(72, lookback_hours))
+        forecast_horizon_hours = max(1, min(168, forecast_horizon_hours))
+
+        from services.sentiment_outcome_service import (
+            format_forecast_rules, get_sentiment_thresholds, serialize_grading_config,
+        )
+        grading_thresholds = get_sentiment_thresholds(
+            UserSetting.query.filter_by(user_id=user_id).first()
+        )
+        grading_config = serialize_grading_config(grading_thresholds)
+        rule_text = format_forecast_rules(grading_thresholds, is_watchlist=is_watchlist)
+        forecast_target = datetime.now(timezone.utc) + timedelta(hours=forecast_horizon_hours)
 
         from services.price_history_service import get_last_nh_price_and_volume
         _, price_vol_history_text = get_last_nh_price_and_volume(symbol, lookback_hours=lookback_hours)
@@ -834,7 +859,12 @@ def analyze_single_symbol_sentiment(user_id, username, symbol, is_watchlist=Fals
             f"current_price: {price_str}\n"
             f"amount: {amount}\n"
             f"datetime: {current_datetime}\n"
-            f"IMPORTANT NOTE: The current live price is {price_str}. Base all sentiment, momentum, support/resistance, volume dynamics, and short-term outlook strictly on this live price, the hourly price & volume history below, and fresh news/market data from the past {lookback_hours} hours.\n\n"
+            f"history_lookback_hours: {lookback_hours}\n"
+            f"forecast_horizon_hours: {forecast_horizon_hours}\n"
+            f"forecast_target_utc: {forecast_target.isoformat()}\n"
+            f"IMPORTANT: Make exactly one recommendation for the price move from the current live price to the fixed target above. Do not grade against the next analysis run. A manual refresh creates another independent forecast and does not shorten this horizon.\n"
+            f"Use only the allowed recommendation labels and calibrate the choice to these exact grading boundaries:\n{rule_text}\n"
+            f"The current live price is {price_str}. Base momentum, support/resistance, volume dynamics, and the forecast strictly on this live price, the hourly price & volume history below, and fresh news/market data from the past {lookback_hours} hours.\n\n"
             f"{price_vol_history_text}\n"
         )
 
@@ -847,7 +877,9 @@ def analyze_single_symbol_sentiment(user_id, username, symbol, is_watchlist=Fals
             user_id=user_id,
             prompt_type=prompt_type,
             symbol=symbol,
-            amount=amount
+            amount=amount,
+            search_lookback_hours=lookback_hours,
+            forecast_horizon_hours=forecast_horizon_hours,
         )
 
         sentiment_text = ""
@@ -913,7 +945,9 @@ def analyze_single_symbol_sentiment(user_id, username, symbol, is_watchlist=Fals
             tier=resp_tier,
             source_type='watchlist' if is_watchlist else 'portfolio',
             coin_id=resolved_coin_id,
-            search_status=resp_search_status
+            search_status=resp_search_status,
+            forecast_horizon_hours=forecast_horizon_hours,
+            grading_config=grading_config,
         )
 
         log_ai_conversation(user_id, prompt_type, "user", actual_stage3_prompt, symbol=symbol, coin_id=resolved_coin_id, provider=resp_provider, model=resp_model, tier=resp_tier)
@@ -1228,4 +1262,3 @@ def run_watchlist_sentiment_analysis_for_user(user_id, username, force=False, sy
         if not symbol:
             with _running_sentiment_lock:
                 _running_sentiment_users.discard(user_id)
-

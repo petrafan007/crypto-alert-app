@@ -125,6 +125,8 @@ export default function Settings({ isLightMode }) {
     watchlist_sentiment_analysis_frequency_hours: 24,
     sentiment_history_lookback_hours: 12,
     watchlist_sentiment_history_lookback_hours: 12,
+    sentiment_forecast_horizon_hours: 24,
+    watchlist_sentiment_forecast_horizon_hours: 24,
     volatility_hours: 24,
     toast_notifications_enabled: true,
     tax_cost_basis_method: 'fifo',
@@ -406,6 +408,18 @@ export default function Settings({ isLightMode }) {
       if (!Number.isInteger(volatilityHours) || volatilityHours < 1) {
         errors.push("Volatility Hours must be a whole number of at least 1.");
       }
+
+      [
+        ['Portfolio history lookback', settings.sentiment_history_lookback_hours, 72],
+        ['Watchlist history lookback', settings.watchlist_sentiment_history_lookback_hours, 72],
+        ['Portfolio forecast horizon', settings.sentiment_forecast_horizon_hours, 168],
+        ['Watchlist forecast horizon', settings.watchlist_sentiment_forecast_horizon_hours, 168],
+      ].forEach(([label, rawValue, maximum]) => {
+        const value = Number(rawValue);
+        if (!Number.isInteger(value) || value < 1 || value > maximum) {
+          errors.push(`${label} must be a whole number from 1 through ${maximum} hours.`);
+        }
+      });
 
       SENTIMENT_VARIABLES.forEach(variable => {
         if (variable.kind === 'hold') {
@@ -2482,6 +2496,23 @@ export default function Settings({ isLightMode }) {
                     />
                   </div>
 
+                  <div style={{ marginTop: 12 }}>
+                    <label style={{ display: 'block', marginBottom: 6, color: '#fff', fontSize: '12px' }}>
+                      Forecast Evaluation Horizon (hours)
+                    </label>
+                    <input
+                      type="number"
+                      min="1"
+                      max="168"
+                      value={settings.sentiment_forecast_horizon_hours ?? 24}
+                      onChange={(e) => handleInputChange('sentiment_forecast_horizon_hours', e.target.value)}
+                      style={{ width: '100%', padding: '8px 12px', borderRadius: 6, background: '#232b31', color: '#fff', border: '1px solid #555', boxSizing: 'border-box', fontSize: '12px' }}
+                    />
+                    <span style={{ fontSize: '11px', color: '#94a3b8', marginTop: 4, display: 'block' }}>
+                      Every prediction is graded at this fixed future horizon. Manual refreshes create separate forecasts and cannot close earlier ones.
+                    </span>
+                  </div>
+
                   {/* Portfolio Schedule Start Time */}
                   <div style={{ marginTop: 12 }}>
                     <label style={{ display: 'block', marginBottom: 6, color: '#fff', fontSize: '12px' }}>
@@ -2621,6 +2652,23 @@ export default function Settings({ isLightMode }) {
                         fontSize: '12px'
                       }}
                     />
+                  </div>
+
+                  <div style={{ marginTop: 12 }}>
+                    <label style={{ display: 'block', marginBottom: 6, color: '#fff', fontSize: '12px' }}>
+                      Forecast Evaluation Horizon (hours)
+                    </label>
+                    <input
+                      type="number"
+                      min="1"
+                      max="168"
+                      value={settings.watchlist_sentiment_forecast_horizon_hours ?? 24}
+                      onChange={(e) => handleInputChange('watchlist_sentiment_forecast_horizon_hours', e.target.value)}
+                      style={{ width: '100%', padding: '8px 12px', borderRadius: 6, background: '#232b31', color: '#fff', border: '1px solid #555', boxSizing: 'border-box', fontSize: '12px' }}
+                    />
+                    <span style={{ fontSize: '11px', color: '#94a3b8', marginTop: 4, display: 'block' }}>
+                      Every prediction is graded at this fixed future horizon. Manual refreshes create separate forecasts and cannot close earlier ones.
+                    </span>
                   </div>
 
                   {/* Watchlist Schedule Start Time */}
@@ -2778,7 +2826,7 @@ export default function Settings({ isLightMode }) {
       <section className="settings-page-section sentiment-variable-settings" style={{ marginTop: '24px' }}>
         <h3>🎯 Sentiment Variable Settings</h3>
         <p>
-          Grade each recommendation using the price change between consecutive checks for the same coin and source. Scheduled frequency controls the normal interval, while the chart shows the actual elapsed time. Directional Wrong values and the Hold steady range may be 0.00%; the Hold Wrong Threshold must be greater than its steady range. Exact boundaries are decisive.
+          Grade each new recommendation at its fixed forecast horizon using the rule values saved with that prediction. Existing history remains visible as legacy next-check evaluation. Directional Wrong values and the Hold steady range may be 0.00%; the Hold Wrong Threshold must be greater than its steady range. Exact boundaries are decisive.
         </p>
         <div className="sentiment-variable-grid">
           {SENTIMENT_VARIABLES.map(variable => {

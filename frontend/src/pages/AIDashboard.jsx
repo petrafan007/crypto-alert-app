@@ -687,7 +687,7 @@ const AIDashboard = () => {
           <div className="accuracy-kpi-card overall">
             <div className="kpi-label">Overall Accuracy</div>
             <div className="kpi-value glow-text">{formatRate(summary.overall_accuracy)}</div>
-            <div className="kpi-subtext">{summary.correct_count || 0} Correct / {summary.evaluated_signals || 0} decisive of {summary.total_signals} signals; neutral/tracking excluded</div>
+            <div className="kpi-subtext">{summary.correct_count || 0} Correct / {summary.evaluated_signals || 0} decisive of {summary.total_signals} fixed-horizon signals; neutral/tracking excluded{summary.legacy_total_signals ? ` · ${summary.legacy_total_signals} legacy visible below` : ''}</div>
           </div>
 
           <div className="accuracy-kpi-card bullish">
@@ -854,9 +854,9 @@ const AIDashboard = () => {
                     <th onClick={() => requestLedgerSort('price_at_prediction')} style={{ cursor: 'pointer' }}>Signal Price{getSortIcon('price_at_prediction')}</th>
                     <th onClick={() => requestLedgerSort('created_at')} style={{ cursor: 'pointer' }}>Signal Date{getSortIcon('created_at')}</th>
                     <th onClick={() => requestLedgerSort('created_at_time')} style={{ cursor: 'pointer' }}>Signal Time{getSortIcon('created_at_time')}</th>
-                    <th onClick={() => requestLedgerSort('evaluation_price')} style={{ cursor: 'pointer' }}>Next Check Price{getSortIcon('evaluation_price')}</th>
-                    <th onClick={() => requestLedgerSort('evaluated_at')} style={{ cursor: 'pointer' }}>Next Check Date{getSortIcon('evaluated_at')}</th>
-                    <th onClick={() => requestLedgerSort('evaluated_at_time')} style={{ cursor: 'pointer' }}>Next Check Time{getSortIcon('evaluated_at_time')}</th>
+                    <th onClick={() => requestLedgerSort('evaluation_price')} style={{ cursor: 'pointer' }}>Evaluation Price{getSortIcon('evaluation_price')}</th>
+                    <th onClick={() => requestLedgerSort('evaluated_at')} style={{ cursor: 'pointer' }}>Evaluation Date{getSortIcon('evaluated_at')}</th>
+                    <th onClick={() => requestLedgerSort('evaluated_at_time')} style={{ cursor: 'pointer' }}>Evaluation Time{getSortIcon('evaluated_at_time')}</th>
                     <th onClick={() => requestLedgerSort('sentiment')} style={{ cursor: 'pointer' }}>AI Recommendation{getSortIcon('sentiment')}</th>
                     <th onClick={() => requestLedgerSort('outcome_status')} style={{ cursor: 'pointer' }}>Outcome{getSortIcon('outcome_status')}</th>
                   </tr>
@@ -984,8 +984,8 @@ const AIDashboard = () => {
                       <tr>
                         <td colSpan="9" style={{ textAlign: 'center', padding: '32px', color: 'var(--text-secondary)' }}>
                           {accuracyData?.history?.length > 0
-                            ? 'No validated prediction pairs matching the selected coin filters yet.'
-                            : 'No validated prediction pairs yet. Historical pairs will appear once consecutive sentiment checks and pricing are recorded to measure outcome.'}
+                            ? 'No completed sentiment outcomes match the selected coin filters yet.'
+                            : 'No completed sentiment outcomes yet. New predictions appear after their fixed forecast horizons are reached.'}
                         </td>
                       </tr>
                     );

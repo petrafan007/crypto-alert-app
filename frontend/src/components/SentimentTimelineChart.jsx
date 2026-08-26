@@ -227,7 +227,7 @@ export default function SentimentTimelineChart({ signals = [], range, onRangeCha
       </header>
       <div className="sentiment-chart-legend">
         {Object.entries(OUTCOME_STYLES).map(([status, style]) => <span key={status}><i style={{ background: style.color }} />{style.label}</span>)}
-        <span>Markers show completed outcomes and the move to the next sentiment check</span>
+        <span>Markers show completed fixed-horizon outcomes; preserved legacy grades use next-check evaluation</span>
       </div>
       <div className="trade-timeline-chart-shell">
         <div className="trade-timeline-chart-frame"><div ref={hostRef} className="trade-timeline-chart" /></div>
@@ -242,9 +242,10 @@ export default function SentimentTimelineChart({ signals = [], range, onRangeCha
             <time>Original sentiment: {formatEasternTime(new Date(signal.originalSignalTime * 1000).toISOString())}</time>
             <p>{signal.sentiment_reason || 'No thesis explanation was recorded.'}</p>
             <div className="sentiment-comparison">
-              <small>Previous check: {formatPrice(signal.price_at_prediction)} {quote}</small>
-              <small>Next check: {signal.evaluation_price ? `${formatPrice(signal.evaluation_price)} ${quote} · ${formatEasternTime(signal.evaluated_at)}` : 'Waiting for the next check'}</small>
-              {Number.isFinite(Number(signal.evaluation_hours)) && <small>Time between checks: {Number(signal.evaluation_hours).toFixed(2)} hours</small>}
+              <small>Signal price: {formatPrice(signal.price_at_prediction)} {quote}</small>
+              <small>{signal.evaluation_method === 'fixed_horizon' ? 'Horizon evaluation' : 'Legacy next check'}: {signal.evaluation_price ? `${formatPrice(signal.evaluation_price)} ${quote} · ${formatEasternTime(signal.evaluated_at)}` : 'Tracking'}</small>
+              {Number.isFinite(Number(signal.evaluation_hours)) && <small>Evaluation interval: {Number(signal.evaluation_hours).toFixed(2)} hours</small>}
+              <small>Method: {signal.evaluation_method === 'fixed_horizon' ? `Fixed ${Number(signal.forecast_horizon_hours).toFixed(0)}h forecast horizon` : 'Legacy next-check evaluation'}</small>
               {signal.style.code === 'H' && signal.steady_threshold_pct != null && <small>
                 Hold rules: Correct within ±{Number(signal.steady_threshold_pct).toFixed(2)}%; Wrong at ±{Number(signal.upside_wrong_threshold_pct).toFixed(2)}% or farther; moves strictly between those boundaries are Neutral
               </small>}
@@ -253,7 +254,7 @@ export default function SentimentTimelineChart({ signals = [], range, onRangeCha
               </small>}
               <small>Result: {(signal.outcome_status || 'tracking').replace(/^./, character => character.toUpperCase())}{formatDelta(signal.price_delta_pct ?? signal.outcome_pct)}</small>
             </div>
-            <small className="sentiment-outcome-reason">{signal.outcome_reason || 'Waiting for the next sentiment check for this coin.'}</small>
+            <small className="sentiment-outcome-reason">{signal.outcome_reason || 'Waiting for the fixed forecast horizon.'}</small>
           </article>)}</div>
         </div>}
         {loading && <div className="trade-timeline-status">Loading {base}/{quote} sentiment history…</div>}

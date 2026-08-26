@@ -1112,6 +1112,21 @@ def sentiment_analysis_loop(app):
             # Check every 30 minutes
             time.sleep(1800)
 
+
+def sentiment_outcome_evaluation_loop(app):
+    """Grade predictions at their own fixed target time, independent of AI refreshes."""
+    from services.sentiment_outcome_service import evaluate_pending_fixed_horizon_sentiments
+    logger.info("=== sentiment_outcome_evaluation_loop STARTED ===")
+    with app.app_context():
+        while True:
+            @safe_background_iteration
+            def iteration():
+                evaluated = evaluate_pending_fixed_horizon_sentiments()
+                if evaluated:
+                    logger.info("Graded %s fixed-horizon sentiment prediction(s).", evaluated)
+            iteration()
+            time.sleep(60)
+
 _background_tasks_started = False
 _background_tasks_lock = threading.Lock()
 
@@ -1164,6 +1179,10 @@ def start_background_jobs(app=None):
     # 6. Periodic Sentiment Analysis Loop
     sentiment_thread = threading.Thread(target=sentiment_analysis_loop, args=(app,), daemon=True)
     sentiment_thread.start()
+
+    # 7. Fixed-horizon grading loop (manual refreshes cannot close prior forecasts)
+    sentiment_outcome_thread = threading.Thread(target=sentiment_outcome_evaluation_loop, args=(app,), daemon=True)
+    sentiment_outcome_thread.start()
     
     logger.info("All background threads initiated.")
     return {
@@ -1173,5 +1192,6 @@ def start_background_jobs(app=None):
         "watchlist": watchlist_thread,
         "volatility": volatility_thread,
         "ai_retention": retention_thread,
-        "sentiment": sentiment_thread
+        "sentiment": sentiment_thread,
+        "sentiment_outcomes": sentiment_outcome_thread,
     }

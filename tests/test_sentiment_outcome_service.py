@@ -11,6 +11,7 @@ from services.sentiment_outcome_service import (
     pair_next_sentiment_checks,
     validate_sentiment_chart_range,
     validate_sentiment_threshold_payload,
+    validate_sentiment_window_payload,
 )
 
 
@@ -168,6 +169,22 @@ class SentimentOutcomeTests(unittest.TestCase):
         self.assertEqual(pairs[2].id, 5)
         self.assertNotIn(3, pairs)
         self.assertNotIn(6, pairs)
+
+    def test_sentiment_windows_require_bounded_whole_hours(self):
+        values, errors = validate_sentiment_window_payload({
+            'sentiment_history_lookback_hours': '48',
+            'watchlist_sentiment_forecast_horizon_hours': 168,
+        })
+        self.assertFalse(errors)
+        self.assertEqual(values['sentiment_history_lookback_hours'], 48)
+        self.assertEqual(values['watchlist_sentiment_forecast_horizon_hours'], 168)
+
+        _, errors = validate_sentiment_window_payload({
+            'sentiment_history_lookback_hours': 0,
+            'sentiment_forecast_horizon_hours': 168.5,
+            'watchlist_sentiment_forecast_horizon_hours': 169,
+        })
+        self.assertEqual(len(errors), 3)
 
 
 if __name__ == '__main__':

@@ -501,7 +501,7 @@ def ai_dashboard_page():
 @ai_bp.route('/api/ai/sentiment-accuracy', methods=['GET'])
 @login_required
 def api_ai_sentiment_accuracy():
-    """Return read-only, consecutive-check accuracy for recorded sentiment signals."""
+    """Return fixed-horizon KPIs plus preserved legacy sentiment history."""
     try:
         from services.sentiment_outcome_service import build_sentiment_accuracy_response
 
@@ -636,7 +636,12 @@ def api_ai_settings():
                 SENTIMENT_THRESHOLD_FIELDS,
                 validate_sentiment_chart_range,
                 validate_sentiment_threshold_payload,
+                validate_sentiment_window_payload,
             )
+            window_values, window_errors = validate_sentiment_window_payload(data)
+            if window_errors:
+                return jsonify({"success": False, "message": "Sentiment windows are invalid.", "errors": window_errors}), 400
+            data.update(window_values)
             if any(field in data for field in SENTIMENT_THRESHOLD_FIELDS):
                 threshold_values, threshold_errors = validate_sentiment_threshold_payload(
                     data, require_all=True
@@ -672,6 +677,7 @@ def api_ai_settings():
                 'tax_manual_invested_updated', 'tax_cost_basis_method',
                 'sentiment_analysis_frequency_hours', 'watchlist_sentiment_analysis_frequency_hours',
                 'sentiment_history_lookback_hours', 'watchlist_sentiment_history_lookback_hours',
+                'sentiment_forecast_horizon_hours', 'watchlist_sentiment_forecast_horizon_hours',
                 'volatility_hours', 'ai_outcome_neutral_threshold_pct', 'copilot_chat_pre',
                 'copilot_chat_post', 'sentiment_chart_default_range',
                 *SENTIMENT_THRESHOLD_FIELDS
@@ -707,7 +713,7 @@ def api_ai_settings():
                     if key in ['ai_enabled', 'ai_notifications_enabled', 'ai_web_search_enabled']:
                          setattr(user_setting, key, bool(value))
                     # For int fields
-                    elif key in ['ai_cache_duration_hours', 'ai_max_tokens', 'sentiment_analysis_frequency_hours', 'watchlist_sentiment_analysis_frequency_hours', 'sentiment_history_lookback_hours', 'watchlist_sentiment_history_lookback_hours', 'volatility_hours']:
+                    elif key in ['ai_cache_duration_hours', 'ai_max_tokens', 'sentiment_analysis_frequency_hours', 'watchlist_sentiment_analysis_frequency_hours', 'sentiment_history_lookback_hours', 'watchlist_sentiment_history_lookback_hours', 'sentiment_forecast_horizon_hours', 'watchlist_sentiment_forecast_horizon_hours', 'volatility_hours']:
                         try:
                             setattr(user_setting, key, int(value))
                         except:

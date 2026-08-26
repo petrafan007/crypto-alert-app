@@ -122,6 +122,18 @@ The application utilizes a **unified PostgreSQL database**.
 
 ## Version History & Changelog
 
+## v2.20.0 (August 2026)
+
+### Fixed-Horizon Sentiment Accuracy — Phase 1
+- **Independent Forecast Horizons**: Added separate 1–168 hour portfolio and watchlist forecast horizons. Existing installations transition seamlessly by inheriting their current analysis frequencies until an explicit horizon is saved.
+- **Refresh-Safe Grading**: Every new prediction stores its own target timestamp and is graded at that target independently of later scheduled or manual sentiment runs.
+- **Stable Rule Snapshots**: Each prediction preserves the exact sentiment thresholds active when it was created, so later Settings changes cannot retroactively rewrite its grade.
+- **Lookback Repair & Prompt Alignment**: Fixed the ignored history-lookback setting, made sentiment web searches use that configured window, and now give the AI the exact forecast horizon, target time, allowed labels, and grading boundaries.
+- **Seamless Legacy History**: Existing next-check grades remain visible and labeled as legacy, while Overall, Bullish, Bearish, recommendation, and model KPIs use only the new fixed-horizon cohort.
+- **Background Evaluation**: Added a minute-level evaluator that uses the closest recorded target-time market price and leaves a forecast Tracking when a trustworthy target-time price is unavailable.
+- **Regression Coverage**: Added tests for legacy/KPI separation, fixed-horizon independence, threshold snapshots, frequency fallback, and bounded whole-hour settings.
+- **Version Bump**: Transitioned version to `v2.20.0`.
+
 ## v2.19.0 (August 2026)
 
 ### Configurable Hold Outcomes & Transparent Accuracy KPIs

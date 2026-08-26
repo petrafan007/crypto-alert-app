@@ -1,5 +1,6 @@
 """Deterministic grading and reporting for recorded AI sentiment signals."""
 
+import json
 from datetime import datetime, timedelta, timezone as dt_timezone
 from decimal import Decimal, InvalidOperation
 
@@ -57,6 +58,12 @@ DEFAULT_SENTIMENT_CHART_RANGE = '3d'
 SENTIMENT_CHART_RANGE_VALUES = frozenset({
     '1d', '3d', '5d', '7d', '14d', '30d', '90d', '180d', '365d', '730d', 'all',
 })
+SENTIMENT_LOOKBACK_FIELDS = (
+    'sentiment_history_lookback_hours', 'watchlist_sentiment_history_lookback_hours',
+)
+SENTIMENT_FORECAST_HORIZON_FIELDS = (
+    'sentiment_forecast_horizon_hours', 'watchlist_sentiment_forecast_horizon_hours',
+)
 
 _SIGNAL_ALIASES = {
     'buy immediately': 'buy_immediately',
@@ -90,6 +97,31 @@ def validate_sentiment_chart_range(value):
     if normalized not in SENTIMENT_CHART_RANGE_VALUES:
         return None, 'Choose a valid Sentiment Chart range from 1 Day through All Available.'
     return normalized, None
+
+
+def validate_sentiment_window_payload(data):
+    """Validate optional history and forecast window settings."""
+    values, errors = {}, {}
+    limits = {
+        **{field: (1, 72) for field in SENTIMENT_LOOKBACK_FIELDS},
+        **{field: (1, 168) for field in SENTIMENT_FORECAST_HORIZON_FIELDS},
+    }
+    for field, (minimum, maximum) in limits.items():
+        if field not in (data or {}):
+            continue
+        raw_value = data.get(field)
+        try:
+            if isinstance(raw_value, bool) or float(raw_value) != int(float(raw_value)):
+                raise ValueError
+            value = int(float(raw_value))
+        except (TypeError, ValueError):
+            errors[field] = f'Enter a whole number from {minimum} through {maximum}.'
+            continue
+        if not minimum <= value <= maximum:
+            errors[field] = f'Enter a whole number from {minimum} through {maximum}.'
+            continue
+        values[field] = value
+    return values, errors
 
 
 def validate_sentiment_threshold_payload(data, require_all=False):
@@ -181,7 +213,7 @@ def evaluate_sentiment_outcome(sentiment, source_type, entry_price, evaluation_p
                                wrong_threshold_pct=DEFAULT_SENTIMENT_THRESHOLD_PCT,
                                hold_steady_pct=DEFAULT_HOLD_STEADY_PCT,
                                hold_wrong_pct=DEFAULT_SENTIMENT_THRESHOLD_PCT):
-    """Grade a signal using the price recorded by the next same-coin check.
+    """Grade a signal using its entry price and designated evaluation price.
 
     Directional rules use independent Correct and Wrong boundaries. Hold uses a
     symmetric steady and Wrong bands around zero, with Neutral between them.
@@ -250,7 +282,7 @@ def evaluate_sentiment_outcome(sentiment, source_type, entry_price, evaluation_p
             'upside_wrong_threshold_pct': hold_wrong_threshold,
             'downside_wrong_threshold_pct': hold_wrong_threshold,
             'reason': (
-                f'From this sentiment check to the next check, price moved {rounded:+.2f}%. '
+                f'From this sentiment check to its evaluation point, price moved {rounded:+.2f}%. '
                 f'{boundary_text} This outcome is {status.title()}.'
             ),
         }
@@ -300,7 +332,7 @@ def evaluate_sentiment_outcome(sentiment, source_type, entry_price, evaluation_p
         'neutral_lower_pct': min(correct_boundary, wrong_boundary),
         'neutral_upper_pct': max(correct_boundary, wrong_boundary),
         'reason': (
-            f'From this sentiment check to the next check, price moved {rounded:+.2f}%. '
+            f'From this sentiment check to its evaluation point, price moved {rounded:+.2f}%. '
             f'{boundary_text} This outcome is {status.title()}.'
         ),
     }
@@ -323,6 +355,141 @@ def pair_next_sentiment_checks(records):
             next_record_by_id[previous.id] = record
         previous_by_group[group] = record
     return next_record_by_id
+
+
+def serialize_grading_config(thresholds):
+    """Create a stable JSON snapshot so future settings changes do not rewrite a forecast."""
+    return json.dumps(thresholds, sort_keys=True, separators=(',', ':'))
+
+
+def format_forecast_rules(thresholds, is_watchlist=False):
+    """Describe the exact labels and deterministic grading rules to the model."""
+    labels = (
+        [('Definitely Buy', 'buy_immediately'), ('Consider Buying', 'consider_buying'),
+         ('Watch', 'consider_selling'), ('Avoid', 'sell_immediately')]
+        if is_watchlist else
+        [('Buy Immediately', 'buy_immediately'), ('Consider Buying', 'consider_buying'),
+         ('Hold', 'hold'), ('Consider Selling', 'consider_selling'),
+         ('Sell Immediately', 'sell_immediately')]
+    )
+    lines = []
+    for label, key in labels:
+        rule = thresholds[key]
+        if key == 'hold':
+            lines.append(
+                f'- {label}: correct when the move stays within ±{rule["steady_pct"]:.2f}%; '
+                f'wrong at ±{rule["wrong_pct"]:.2f}% or farther; otherwise neutral.'
+            )
+        elif rule['direction'] == 'up':
+            lines.append(
+                f'- {label}: correct at +{rule["correct_pct"]:.2f}% or higher; '
+                f'wrong at -{rule["wrong_pct"]:.2f}% or lower; otherwise neutral.'
+            )
+        else:
+            lines.append(
+                f'- {label}: correct at -{rule["correct_pct"]:.2f}% or lower; '
+                f'wrong at +{rule["wrong_pct"]:.2f}% or higher; otherwise neutral.'
+            )
+    return '\n'.join(lines)
+
+
+def _grading_config_for_record(record, fallback_thresholds):
+    if getattr(record, 'grading_config', None):
+        try:
+            parsed = json.loads(record.grading_config)
+            if isinstance(parsed, dict):
+                return parsed
+        except (TypeError, ValueError):
+            pass
+    return fallback_thresholds
+
+
+def _grade_record(record, evaluation_price, thresholds):
+    setting_key = _resolve_signal(record.sentiment)
+    threshold = thresholds.get(setting_key) if setting_key else None
+    if not threshold:
+        return ({'status': 'unscored', 'delta_pct': None, 'direction': None,
+                 'reason': 'This recommendation has no configured outcome rule.'}, None)
+    if setting_key == 'hold':
+        grade = evaluate_sentiment_outcome(
+            record.sentiment, record.source_type, record.price_at_prediction, evaluation_price,
+            hold_steady_pct=threshold['steady_pct'], hold_wrong_pct=threshold['wrong_pct'],
+        )
+    else:
+        grade = evaluate_sentiment_outcome(
+            record.sentiment, record.source_type, record.price_at_prediction, evaluation_price,
+            threshold['correct_pct'], threshold['wrong_pct'],
+        )
+    return grade, threshold
+
+
+def _resolve_fixed_horizon_price(record, target_at, now_utc):
+    """Resolve the closest recorded price; use live price only near the target."""
+    import time
+    from models import PriceHistory
+
+    target_timestamp = int(_as_utc(target_at).timestamp())
+    tolerance_seconds = 15 * 60
+    lower = target_timestamp - tolerance_seconds
+    upper = target_timestamp + tolerance_seconds
+    rows = PriceHistory.query.filter(
+        PriceHistory.symbol == (record.symbol or '').upper(),
+        PriceHistory.timestamp >= lower,
+        PriceHistory.timestamp <= upper,
+    ).all()
+    closest = min(rows, key=lambda row: abs(int(row.timestamp) - target_timestamp), default=None)
+    if closest and float(closest.price or 0) > 0:
+        evaluated_at = datetime.fromtimestamp(int(closest.timestamp), tz=dt_timezone.utc)
+        return float(closest.price), evaluated_at
+
+    if abs((_as_utc(now_utc) - _as_utc(target_at)).total_seconds()) <= tolerance_seconds:
+        try:
+            from routes.helpers import fetch_crypto_price
+            price = float(fetch_crypto_price(record.symbol) or 0)
+            if price > 0:
+                return price, datetime.fromtimestamp(int(time.time()), tz=dt_timezone.utc)
+        except Exception:
+            pass
+    return None, None
+
+
+def evaluate_pending_fixed_horizon_sentiments(now=None, price_resolver=None):
+    """Persist due fixed-horizon outcomes without depending on another AI run."""
+    from core.extensions import db
+    from credentials import UserSetting
+    from models import SentimentHistory
+
+    now_utc = _as_utc(now or datetime.now(dt_timezone.utc))
+    due = SentimentHistory.query.filter(
+        SentimentHistory.evaluation_method == 'fixed_horizon',
+        SentimentHistory.target_evaluation_at.isnot(None),
+        SentimentHistory.target_evaluation_at <= now_utc.replace(tzinfo=None),
+        SentimentHistory.outcome_evaluated_at.is_(None),
+    ).order_by(SentimentHistory.target_evaluation_at.asc()).all()
+    settings_cache = {}
+    evaluated = 0
+    for record in due:
+        resolver = price_resolver or _resolve_fixed_horizon_price
+        resolved = resolver(record, _as_utc(record.target_evaluation_at), now_utc)
+        if isinstance(resolved, tuple):
+            evaluation_price, evaluated_at = resolved
+        else:
+            evaluation_price, evaluated_at = resolved, record.target_evaluation_at
+        if not evaluation_price or float(evaluation_price) <= 0:
+            continue
+        if record.user_id not in settings_cache:
+            settings = UserSetting.query.filter_by(user_id=record.user_id).first()
+            settings_cache[record.user_id] = get_sentiment_thresholds(settings)
+        thresholds = _grading_config_for_record(record, settings_cache[record.user_id])
+        grade, _ = _grade_record(record, float(evaluation_price), thresholds)
+        record.outcome_price = float(evaluation_price)
+        record.outcome_pct = grade.get('delta_pct')
+        record.outcome_status = grade.get('status') or 'unscored'
+        record.outcome_evaluated_at = (_as_utc(evaluated_at) or now_utc).replace(tzinfo=None)
+        evaluated += 1
+    if evaluated:
+        db.session.commit()
+    return evaluated
 
 
 def build_sentiment_accuracy_response(user_id, timeframe='30d', selected_tier=None):
@@ -360,6 +527,7 @@ def build_sentiment_accuracy_response(user_id, timeframe='30d', selected_tier=No
     counts = {'correct': 0, 'wrong': 0, 'neutral': 0, 'tracking': 0, 'unscored': 0}
     directional = {'bullish': {'correct': 0, 'wrong': 0}, 'bearish': {'correct': 0, 'wrong': 0}}
     distribution = {'buy': 0, 'sell': 0, 'watch': 0}
+    legacy_total = 0
 
     for record in records:
         symbol = (record.symbol or '').upper()
@@ -367,19 +535,35 @@ def build_sentiment_accuracy_response(user_id, timeframe='30d', selected_tier=No
         sentiment = (record.sentiment or '').strip()
         label = sentiment.lower()
         setting_key = _resolve_signal(sentiment)
-        threshold = configured_thresholds.get(setting_key) if setting_key else None
+        is_fixed_horizon = (getattr(record, 'evaluation_method', None) == 'fixed_horizon')
+        record_thresholds = _grading_config_for_record(record, configured_thresholds)
+        threshold = record_thresholds.get(setting_key) if setting_key else None
         next_record = next_record_by_id.get(record.id)
         status = 'tracking'
         delta = None
         evaluation_price = None
         evaluated_at = None
         elapsed_hours = None
-        reason = 'Waiting for the next sentiment check for this coin.'
+        reason = 'Waiting for the fixed forecast horizon.' if is_fixed_horizon else 'Waiting for the next sentiment check for this coin.'
         direction = threshold['direction'] if threshold else None
         neutral_lower = None
         neutral_upper = None
 
-        if next_record is not None:
+        if is_fixed_horizon and record.outcome_evaluated_at is not None:
+            evaluation_price = float(record.outcome_price or 0)
+            evaluated_at = record.outcome_evaluated_at
+            created_utc = _as_utc(record.created_at)
+            evaluated_utc = _as_utc(evaluated_at)
+            if created_utc and evaluated_utc:
+                elapsed_hours = round((evaluated_utc - created_utc).total_seconds() / 3600, 2)
+            grade, threshold = _grade_record(record, evaluation_price, record_thresholds)
+            status = record.outcome_status or grade['status']
+            delta = record.outcome_pct if record.outcome_pct is not None else grade['delta_pct']
+            reason = grade['reason']
+            direction = grade.get('direction')
+            neutral_lower = grade.get('neutral_lower_pct')
+            neutral_upper = grade.get('neutral_upper_pct')
+        elif not is_fixed_horizon and next_record is not None:
             evaluation_price = float(next_record.price_at_prediction or 0)
             evaluated_at = next_record.created_at
             created_utc = _as_utc(record.created_at)
@@ -387,24 +571,7 @@ def build_sentiment_accuracy_response(user_id, timeframe='30d', selected_tier=No
             if created_utc and evaluated_utc:
                 elapsed_hours = round((evaluated_utc - created_utc).total_seconds() / 3600, 2)
             if threshold:
-                if setting_key == 'hold':
-                    grade = evaluate_sentiment_outcome(
-                        sentiment,
-                        source,
-                        record.price_at_prediction,
-                        evaluation_price,
-                        hold_steady_pct=threshold['steady_pct'],
-                        hold_wrong_pct=threshold['wrong_pct'],
-                    )
-                else:
-                    grade = evaluate_sentiment_outcome(
-                        sentiment,
-                        source,
-                        record.price_at_prediction,
-                        evaluation_price,
-                        threshold['correct_pct'],
-                        threshold['wrong_pct'],
-                    )
+                grade, threshold = _grade_record(record, evaluation_price, record_thresholds)
                 status = grade['status']
                 delta = grade['delta_pct']
                 reason = grade['reason']
@@ -415,33 +582,40 @@ def build_sentiment_accuracy_response(user_id, timeframe='30d', selected_tier=No
                 status = 'unscored'
                 reason = 'This recommendation has no configured outcome rule.'
 
-        counts[status] += 1
+        if is_fixed_horizon:
+            counts[status] += 1
+        else:
+            legacy_total += 1
         if label in BULLISH_SIGNALS:
-            distribution['buy'] += 1
+            if is_fixed_horizon:
+                distribution['buy'] += 1
             bucket = 'bullish'
         elif label in BEARISH_SIGNALS:
-            distribution['sell'] += 1
+            if is_fixed_horizon:
+                distribution['sell'] += 1
             bucket = 'bearish'
         else:
-            distribution['watch'] += 1
+            if is_fixed_horizon:
+                distribution['watch'] += 1
             bucket = None
-        if bucket and status in ('correct', 'wrong'):
+        if is_fixed_horizon and bucket and status in ('correct', 'wrong'):
             directional[bucket][status] += 1
 
-        rec = rec_stats.setdefault(sentiment.title() or 'Unknown', {
-            'sentiment': sentiment.title() or 'Unknown', 'total': 0, 'correct': 0,
-            'wrong': 0, 'neutral': 0, 'tracking': 0, 'unscored': 0
-        })
-        rec['total'] += 1
-        rec[status] += 1
-        model_key = record.model or 'Unknown Model'
-        model = model_stats.setdefault(model_key, {
-            'model': model_key, 'provider': record.provider or 'AI',
-            'tier': record.tier or 'primary', 'total': 0, 'correct': 0,
-            'wrong': 0, 'neutral': 0, 'tracking': 0, 'unscored': 0
-        })
-        model['total'] += 1
-        model[status] += 1
+        if is_fixed_horizon:
+            rec = rec_stats.setdefault(sentiment.title() or 'Unknown', {
+                'sentiment': sentiment.title() or 'Unknown', 'total': 0, 'correct': 0,
+                'wrong': 0, 'neutral': 0, 'tracking': 0, 'unscored': 0
+            })
+            rec['total'] += 1
+            rec[status] += 1
+            model_key = record.model or 'Unknown Model'
+            model = model_stats.setdefault(model_key, {
+                'model': model_key, 'provider': record.provider or 'AI',
+                'tier': record.tier or 'primary', 'total': 0, 'correct': 0,
+                'wrong': 0, 'neutral': 0, 'tracking': 0, 'unscored': 0
+            })
+            model['total'] += 1
+            model[status] += 1
 
         def display_parts(value):
             if not value:
@@ -460,7 +634,9 @@ def build_sentiment_accuracy_response(user_id, timeframe='30d', selected_tier=No
             'evaluation_price': evaluation_price, 'outcome_pct': delta,
             'price_delta_pct': delta, 'outcome_status': status,
             'outcome_reason': reason, 'evaluation_hours': elapsed_hours,
-            'evaluation_method': 'next_sentiment_check' if evaluated_at else None,
+            'evaluation_method': ('fixed_horizon' if is_fixed_horizon else ('next_sentiment_check' if evaluated_at else 'legacy_next_check')),
+            'forecast_horizon_hours': record.forecast_horizon_hours if is_fixed_horizon else None,
+            'target_evaluation_at': record.target_evaluation_at.isoformat() if is_fixed_horizon and record.target_evaluation_at else None,
             'correct_threshold_pct': threshold.get('correct_pct') if threshold else None,
             'wrong_threshold_pct': threshold.get('wrong_pct') if threshold else None,
             'steady_threshold_pct': threshold.get('steady_pct') if threshold else None,
@@ -476,7 +652,7 @@ def build_sentiment_accuracy_response(user_id, timeframe='30d', selected_tier=No
             'evaluated_at': evaluated_at.isoformat() if evaluated_at else None,
             'created_timestamp': int(created_utc.timestamp()) if created_utc else 0,
             'evaluated_timestamp': int(evaluated_utc.timestamp()) if evaluated_utc else None,
-            'is_latest': next_record is None,
+            'is_latest': status == 'tracking',
         })
 
     def finalize(values):
@@ -493,7 +669,7 @@ def build_sentiment_accuracy_response(user_id, timeframe='30d', selected_tier=No
     decisive = counts['correct'] + counts['wrong']
     bullish_decisive = sum(directional['bullish'].values())
     bearish_decisive = sum(directional['bearish'].values())
-    total = len(records)
+    total = sum(counts.values())
 
     portfolio_symbols = Coin.query.filter_by(user_id=user_id).with_entities(Coin.symbol).all()
     watchlist_symbols = WatchlistCoin.query.filter_by(user_id=user_id).with_entities(WatchlistCoin.symbol).all()
@@ -515,7 +691,8 @@ def build_sentiment_accuracy_response(user_id, timeframe='30d', selected_tier=No
             'bearish_wrong_count': directional['bearish']['wrong'],
             'neutral_count': counts['neutral'], 'tracking_count': counts['tracking'],
             'unscored_count': counts['unscored'], 'top_model': top_model,
-            'evaluation_method': 'consecutive_sentiment_checks',
+            'evaluation_method': 'fixed_horizon',
+            'legacy_total_signals': legacy_total,
             'sentiment_thresholds': configured_thresholds,
         },
         'recommendation_breakdown': rec_breakdown,

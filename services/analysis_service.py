@@ -133,8 +133,12 @@ def get_user_ai_settings(username: str) -> dict:
             ),
             'portfolio_schedule_start_time': '08:00',
             'watchlist_schedule_start_time': '08:00',
+            'sentiment_analysis_frequency_hours': 24,
+            'watchlist_sentiment_analysis_frequency_hours': 24,
             'sentiment_history_lookback_hours': 12,
             'watchlist_sentiment_history_lookback_hours': 12,
+            'sentiment_forecast_horizon_hours': 24,
+            'watchlist_sentiment_forecast_horizon_hours': 24,
             'volatility_hours': 24,
             'sentiment_buy_immediately_correct_pct': 5.0,
             'sentiment_buy_immediately_wrong_pct': 5.0,
@@ -247,6 +251,15 @@ def get_user_ai_settings(username: str) -> dict:
 
                 if hasattr(user_setting, 'watchlist_sentiment_history_lookback_hours'):
                     settings['watchlist_sentiment_history_lookback_hours'] = user_setting.watchlist_sentiment_history_lookback_hours or 12
+
+                portfolio_frequency = settings.get('sentiment_analysis_frequency_hours', 24)
+                watchlist_frequency = settings.get('watchlist_sentiment_analysis_frequency_hours', 24)
+                settings['sentiment_forecast_horizon_hours'] = (
+                    getattr(user_setting, 'sentiment_forecast_horizon_hours', None) or portfolio_frequency
+                )
+                settings['watchlist_sentiment_forecast_horizon_hours'] = (
+                    getattr(user_setting, 'watchlist_sentiment_forecast_horizon_hours', None) or watchlist_frequency
+                )
 
                 if hasattr(user_setting, 'portfolio_schedule_start_time'):
                     settings['portfolio_schedule_start_time'] = user_setting.portfolio_schedule_start_time or '08:00'

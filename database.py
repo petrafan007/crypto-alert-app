@@ -63,6 +63,8 @@ def init_db(app=None):
             ("price_history", "quote_volume", "FLOAT DEFAULT 0.0"),
             ("user_settings", "sentiment_history_lookback_hours", "INTEGER DEFAULT 12"),
             ("user_settings", "watchlist_sentiment_history_lookback_hours", "INTEGER DEFAULT 12"),
+            ("user_settings", "sentiment_forecast_horizon_hours", "INTEGER"),
+            ("user_settings", "watchlist_sentiment_forecast_horizon_hours", "INTEGER"),
             ("user_settings", "ai_outcome_neutral_threshold_pct", "FLOAT DEFAULT 5.0"),
             ("user_settings", "sentiment_buy_immediately_correct_pct", "FLOAT DEFAULT 5.0"),
             ("user_settings", "sentiment_buy_immediately_wrong_pct", "FLOAT DEFAULT 5.0"),
@@ -78,7 +80,11 @@ def init_db(app=None):
             ("user_settings", "sentiment_chart_default_range", "VARCHAR(10) DEFAULT '3d'"),
             ("user_settings", "max_slippage_pct", "FLOAT DEFAULT 2.0"),
             ("coins", "sentiment_tracking_enabled", "BOOLEAN DEFAULT TRUE"),
-            ("watchlist", "sentiment_tracking_enabled", "BOOLEAN DEFAULT TRUE")
+            ("watchlist", "sentiment_tracking_enabled", "BOOLEAN DEFAULT TRUE"),
+            ("sentiment_history", "forecast_horizon_hours", "FLOAT"),
+            ("sentiment_history", "target_evaluation_at", "TIMESTAMP"),
+            ("sentiment_history", "evaluation_method", "VARCHAR(32)"),
+            ("sentiment_history", "grading_config", "TEXT")
         ]
         for table, col, col_type in columns_to_ensure:
             try:

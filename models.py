@@ -300,6 +300,10 @@ class SentimentHistory(db.Model):
     outcome_pct = db.Column(db.Float, nullable=True)
     outcome_status = db.Column(db.String(20), default='tracking')  # 'correct', 'wrong', 'tracking', 'neutral'
     outcome_evaluated_at = db.Column(db.DateTime, nullable=True)
+    forecast_horizon_hours = db.Column(db.Float, nullable=True)
+    target_evaluation_at = db.Column(db.DateTime, nullable=True)
+    evaluation_method = db.Column(db.String(32), nullable=True)
+    grading_config = db.Column(db.Text, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     __table_args__ = (
@@ -307,4 +311,3 @@ class SentimentHistory(db.Model):
         db.Index('ix_sentiment_history_symbol', 'symbol'),
         db.Index('ix_sentiment_history_created_at', 'created_at'),
     )
-
