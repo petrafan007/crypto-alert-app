@@ -10,6 +10,7 @@ import TradePermissionModal from '../components/TradePermissionModal';
 import ApiKeyRequiredModal from '../components/ApiKeyRequiredModal';
 import SearchablePairSelect from '../components/SearchablePairSelect';
 import CryptoIcon from '../components/CryptoIcon';
+import AIDashboard from './AIDashboard';
 import './Trading.css';
 import { useLocation, useNavigate } from 'react-router-dom';
 
@@ -109,7 +110,9 @@ const Trading = ({ isLightMode = false }) => {
   const [portfolio, setPortfolio] = useState([]);
   const [testOrders, setTestOrders] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [activeTab, setActiveTab] = useState('order'); // 'order', 'history', 'portfolio'
+  const [activeTab, setActiveTab] = useState(() => (
+    new URLSearchParams(location.search).get('tab') === 'ai-analysis' ? 'ai_analysis' : 'order'
+  ));
   const [showCanceledOrders, setShowCanceledOrders] = useState(false);
   const [historySymbolFilter, setHistorySymbolFilter] = useState('ALL');
   const [historyPage, setHistoryPage] = useState(1);
@@ -729,6 +732,14 @@ const Trading = ({ isLightMode = false }) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab]);
 
+  // Preserve a bookmarked legacy AI Analysis link while keeping the analysis
+  // workspace inside the Binance.US trading experience.
+  useEffect(() => {
+    if (new URLSearchParams(location.search).get('tab') === 'ai-analysis') {
+      setActiveTab('ai_analysis');
+    }
+  }, [location.search]);
+
   const loadTradingSettings = async () => {
     try {
       const response = await axios.get('/api/trading/settings', { withCredentials: true });
@@ -815,7 +826,9 @@ const Trading = ({ isLightMode = false }) => {
       const response = await axios.get('/api/trading/real-orders?limit=all', { withCredentials: true });
       if (response.data.success) {
         const normalized = (response.data.orders || []).map(normalizeOrderRecord);
-        setOrders(normalized);
+        // This page is the Binance.US workspace. Webull history belongs to its
+        // dedicated workspace and the combined Orders destination.
+        setOrders(normalized.filter((order) => String(order.source || '').toLowerCase() !== 'webull'));
       }
     } catch (error) {
       console.error('Failed to load orders:', error);
@@ -1637,7 +1650,7 @@ const Trading = ({ isLightMode = false }) => {
       />
       <div className="trading-header">
         <div className="trading-header-left">
-          <h1 style={{ fontSize: '2rem', margin: 0 }}>🔄 Trading Center</h1>
+          <h1 style={{ fontSize: '2rem', margin: 0 }}>🔄 Binance.US Trading</h1>
 
           {/* Test Mode Banner */}
           {settings.test_mode_enabled && (
@@ -1762,6 +1775,13 @@ const Trading = ({ isLightMode = false }) => {
         >
           <span className="tab-icon">📈</span>
           <span className="tab-text">Trade Chart</span>
+        </button>
+        <button
+          className={`tab-button ${activeTab === 'ai_analysis' ? 'active' : ''}`}
+          onClick={() => setActiveTab('ai_analysis')}
+        >
+          <span className="tab-icon">🤖</span>
+          <span className="tab-text">AI Analysis</span>
         </button>
         {settings.test_mode_enabled && (
           <button
@@ -2191,6 +2211,8 @@ const Trading = ({ isLightMode = false }) => {
             isLightMode={isLightMode}
           />
         )}
+
+        {activeTab === 'ai_analysis' && <AIDashboard />}
 
         {/* ORDER HISTORY TAB */}
         {activeTab === 'history' && (

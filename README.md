@@ -122,6 +122,13 @@ The application utilizes a **unified PostgreSQL database**.
 
 ## Version History & Changelog
 
+## v2.30.0 (August 2026)
+
+- **Exchange-Aware Navigation**: Replaced the single Trading link with an extensible exchange menu for Binance.US and Webull, moved AI Analysis into the Binance.US Trading tabs, and preserved existing `/trading` and `/ai-analysis` links for continuity.
+- **Dedicated Webull Workspace**: Added the read-only Webull Trading page with Place Order, Open Orders, Order History, Trade Chart, and AI Analysis tabs. Webull rows remain visibly read-only and never expose Binance.US trading actions.
+- **Combined Orders**: Added a top-level Orders destination that combines Binance.US and Webull open orders and history with explicit source labels. Webull open orders are retrieved through a read-only API path and are managed in Webull.
+- **Documentation**: Updated the in-app Help and exchange-aware implementation checklist to describe the new navigation, source boundaries, and staged Webull AI plan.
+
 ## v2.29.0 (August 2026)
 
 - **Dashboard Account Scope**: Added a persistent, right-aligned Dashboard selector for All Accounts, Binance.US, and Webull. Portfolio rows, allocations, totals, risk values, and Binance-only controls now respect the selected scope; Webull-only selections explicitly avoid Binance actions.

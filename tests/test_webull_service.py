@@ -7,6 +7,7 @@ from services.webull_service import (
     create_webull_access_token,
     generate_webull_signature,
     get_webull_accounts,
+    get_webull_open_orders,
     get_webull_portfolio_preview,
     normalize_webull_environment,
     parse_webull_expiry,
@@ -106,6 +107,21 @@ class WebullServiceTests(unittest.TestCase):
             'account_id': '1234', 'account_type': 'STOCK', 'account_name': 'Individual',
             'balance': {'total_cash_balance': '10'}, 'positions': [{'symbol': 'AAPL'}],
         }])
+
+    def test_open_orders_are_read_only_and_tagged_with_the_source_account(self):
+        accounts = [{'account_id': '1234', 'account_type': 'STOCK', 'account_name': 'Individual'}]
+        response = Mock(status_code=200)
+        response.json.return_value = {'data': {'orders': [{'order_id': 'order-1', 'symbol': 'AAPL'}]}}
+        with patch('services.webull_service.get_webull_accounts', return_value=accounts), \
+             patch('services.webull_service._webull_request', return_value=response) as request_mock:
+            orders = get_webull_open_orders('app-key', 'app-secret', access_token='private-token')
+
+        self.assertEqual(orders, [{
+            'order_id': 'order-1', 'symbol': 'AAPL',
+            '_webull_account_id': '1234', '_webull_account_type': 'STOCK',
+        }])
+        self.assertEqual(request_mock.call_args.args[4], '/trading/orders/open-orders/list')
+        self.assertEqual(request_mock.call_args.kwargs['query_params']['account_id'], '1234')
 
     def test_signature_matches_webulls_documented_example(self):
         signature = generate_webull_signature(

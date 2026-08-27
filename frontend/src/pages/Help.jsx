@@ -558,15 +558,18 @@ export default function Help({ isLightMode }) {
             {/* Trading Center */}
             <Section id="trading-center" icon={<FaChartLine />} title="Trading Center">
                 <p style={{ marginBottom: '16px' }}>
-                    The Trading Center lets you execute spot trades for <strong>any</strong> coin Binance.US lists —
+                    Use the <strong>Trading</strong> menu to choose a dedicated exchange workspace. <strong>Binance.US Trading</strong> lets you execute spot trades for <strong>any</strong> coin Binance.US lists —
                     54+ USD pairs and 200+ USDT pairs. USD and USDT are simply the two settlement currencies you can
                     quote against; they are not the only things you can buy or sell.
                 </p>
                 <ul style={{ paddingLeft: '20px', marginBottom: '16px', lineHeight: '1.9' }}>
+                    <li><strong>Exchange-specific workspaces</strong> — Binance.US Trading is isolated to Binance.US balances, pairs, and orders. Webull Trading shows imported Webull positions and Webull orders, clearly marked read-only; placing, changing, and cancelling Webull orders remains in Webull.</li>
+                    <li><strong>Combined Orders</strong> — the top-level Orders destination combines Binance.US and Webull open orders and history while preserving each order's exchange label. Use the owning exchange to manage an open order.</li>
                     <li><strong>Two searchable symbol tools</strong> — use the app's Binance.US pair selector to keep the chart, order ticket, balances, and personal history synchronized; TradingView's built-in search is also available for independent market research</li>
                     <li><strong>TradingView Advanced Chart</strong> — candlesticks and other chart styles, 80+ indicators, 100+ drawing tools, comparisons, configurable price scales, date ranges, details, hotlists, economic calendar, image export, and a full-size popup</li>
                     <li><strong>Moving averages & oscillators</strong> — Moving Average, RSI, MACD, Stochastic, ATR, Bollinger Bands, and Volume are available from TradingView's built-in <em>Indicators</em> menu, replacing the former controls below the chart</li>
                     <li><strong>Trade Chart tab</strong> — pair-aware Binance.US buys and sells appear as uncluttered up/down arrows over a price line, with exact time, price, amount, and value available on hover. Search any supported pair and choose a range from 1D through ALL; the default is 1 Month.</li>
+                    <li><strong>AI Analysis tab</strong> — the former global AI Analysis destination now lives inside Binance.US Trading. It retains the existing crypto sentiment, ledger, and AI workflow features.</li>
                     <li><strong>Order types</strong> — Market, Limit, Stop-Loss, Stop-Loss-Limit, Take-Profit, Take-Profit-Limit, OCO (One-Cancels-the-Other), and Limit Maker (availability depends on the selected pair)</li>
                     <li><strong>Order Placement panel</strong> — MAX balance button, quote-quantity 2-way sync, a percentage slider (0/25/50/75/100%), and an order summary with estimated fees</li>
                     <li><strong>Open Orders tab</strong> — all pending real exchange orders plus any active Auto-Buy/Auto-Sell triggers</li>
@@ -593,7 +596,7 @@ export default function Help({ isLightMode }) {
             {/* AI Analysis */}
             <Section id="ai-analysis" icon={<FaRobot />} title="AI Analysis Page">
                 <p style={{ marginBottom: '16px' }}>
-                    A dedicated page for deeper, on-demand AI intelligence beyond the per-coin sentiment badges:
+                    AI Analysis is available as a tab within <strong>Binance.US Trading</strong>, providing deeper, on-demand crypto intelligence beyond the per-coin sentiment badges. Webull's AI tab keeps product types separate: Webull crypto will use the shared crypto framework once its market-data mapping is enabled, while stocks, ETFs, and options wait for their dedicated analysis inputs and prompts.
                 </p>
                 <ul style={{ paddingLeft: '20px', marginBottom: '16px', lineHeight: '1.9' }}>
                     <li><strong>Market Analysis</strong> — current market trends and opportunities, grounded in live web search</li>

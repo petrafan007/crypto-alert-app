@@ -264,6 +264,37 @@ button.nav-link {
   display: inline-block;
 }
 
+.nav-menu {
+  position: relative;
+  display: inline-flex;
+}
+
+.nav-menu-popover {
+  position: absolute;
+  z-index: 1000;
+  top: calc(100% + 4px);
+  left: 0;
+  min-width: 150px;
+  padding: 6px;
+  border: 1px solid var(--border-color, rgba(148, 163, 184, 0.35));
+  border-radius: 8px;
+  background: var(--bg-secondary, #16213e);
+  box-shadow: 0 12px 24px rgba(0, 0, 0, 0.28);
+}
+
+.nav-menu-popover a {
+  display: block;
+  padding: 8px 10px;
+  border-radius: 6px;
+  color: var(--text-primary);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.nav-menu-popover a:hover {
+  background: var(--bg-tertiary);
+}
+
 .nav-button {
   background: var(--accent-secondary);
   color: var(--button-text);

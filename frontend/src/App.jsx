@@ -6,8 +6,9 @@ import Dashboard from './pages/Dashboard';
 import Login from './pages/Login';
 import Signup from './pages/Signup';
 import Trading from './pages/Trading';
+import WebullTrading from './pages/WebullTrading';
+import Orders from './pages/Orders';
 import Settings from './pages/Settings';
-import AIDashboard from './pages/AIDashboard';
 import AICopilotSidebar from './components/AICopilotSidebar';
 import Staking from './pages/Staking';
 import TaxReport from './pages/TaxReport';
@@ -54,6 +55,7 @@ export default function App() {
   const [hiddenCoins, setHiddenCoins] = useState([]);
   const [selectedHiddenCoins, setSelectedHiddenCoins] = useState([]);
   const [selectAllHidden, setSelectAllHidden] = useState(false);
+  const [showTradingMenu, setShowTradingMenu] = useState(false);
   const [isLightMode, setIsLightMode] = useState(() => {
     const stored = localStorage.getItem('theme');
     return stored ? stored === 'light' : false;
@@ -174,15 +176,25 @@ export default function App() {
                   📊 Dashboard
                 </Link>
               )}
-              <Link to="/ai-analysis" className="nav-link">
-                🤖 AI Analysis
-              </Link>
-              <Link
-                to="/trading"
-                state={{ resetTradingPair: true }}
-                className="nav-link"
-              >
-                📈 Trading
+              <div className="nav-menu" onMouseLeave={() => setShowTradingMenu(false)}>
+                <button
+                  type="button"
+                  className="nav-link"
+                  aria-haspopup="menu"
+                  aria-expanded={showTradingMenu}
+                  onClick={() => setShowTradingMenu((shown) => !shown)}
+                >
+                  📈 Trading ▾
+                </button>
+                {showTradingMenu && (
+                  <div className="nav-menu-popover" role="menu">
+                    <Link to="/trading/binance" state={{ resetTradingPair: true }} role="menuitem" onClick={() => setShowTradingMenu(false)}>Binance.US</Link>
+                    <Link to="/trading/webull" role="menuitem" onClick={() => setShowTradingMenu(false)}>Webull</Link>
+                  </div>
+                )}
+              </div>
+              <Link to="/orders" className="nav-link">
+                📋 Orders
               </Link>
               <Link to="/staking" className="nav-link">
                 💰 Staking
@@ -265,10 +277,23 @@ export default function App() {
                 <Trading />
               </ProtectedRoute>
             } />
-            <Route path="/ai-analysis" element={
+            <Route path="/trading/binance" element={
               <ProtectedRoute isLightMode={isLightMode}>
-                <AIDashboard />
+                <Trading />
               </ProtectedRoute>
+            } />
+            <Route path="/trading/webull" element={
+              <ProtectedRoute isLightMode={isLightMode}>
+                <WebullTrading />
+              </ProtectedRoute>
+            } />
+            <Route path="/orders" element={
+              <ProtectedRoute isLightMode={isLightMode}>
+                <Orders />
+              </ProtectedRoute>
+            } />
+            <Route path="/ai-analysis" element={
+              <Navigate to="/trading/binance?tab=ai-analysis" replace />
             } />
             <Route path="/settings" element={
               <ProtectedRoute isLightMode={isLightMode}>

@@ -37,6 +37,7 @@ from services.webull_service import (
     check_webull_access_token,
     create_webull_access_token,
     get_webull_accounts,
+    get_webull_open_orders,
     get_webull_portfolio_preview,
     normalize_webull_environment,
     parse_webull_expiry,
@@ -1613,6 +1614,33 @@ def api_webull_portfolio_sync():
         db.session.rollback()
         logger.error('Webull portfolio import failed: %s', exc, exc_info=True)
         return jsonify({'success': False, 'message': 'Unable to import the Webull portfolio.'}), 500
+
+
+@system_bp.route('/api/webull/open-orders', methods=['GET'])
+@login_required
+def api_webull_open_orders():
+    """Return Webull open orders for read-only combined order views."""
+    try:
+        credential = Credential.query.filter_by(user_id=current_user.id).first()
+        setting = UserSetting.query.filter_by(user_id=current_user.id).first()
+        environment = normalize_webull_environment(getattr(setting, 'webull_environment', None) or 'production')
+        if (
+            not credential or credential.webull_token_status != 'NORMAL'
+            or credential.webull_token_environment != environment or not credential.webull_access_token
+        ):
+            return jsonify({'success': True, 'orders': [], 'message': 'Webull is not connected.'})
+
+        orders = get_webull_open_orders(
+            credential.webull_app_key, credential.webull_app_secret,
+            environment, credential.webull_access_token,
+        )
+        return jsonify({'success': True, 'orders': orders})
+    except WebullConnectionError as exc:
+        logger.warning('Webull open-order lookup failed: %s', exc)
+        return jsonify({'success': False, 'orders': [], 'message': str(exc)}), 400
+    except Exception as exc:
+        logger.error('Webull open-order lookup failed: %s', exc, exc_info=True)
+        return jsonify({'success': False, 'orders': [], 'message': 'Unable to load Webull open orders.'}), 500
 
 
 

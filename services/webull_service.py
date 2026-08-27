@@ -261,6 +261,45 @@ def get_webull_order_history(app_key, app_secret, environment='production', acce
     return records
 
 
+def get_webull_open_orders(app_key, app_secret, environment='production', access_token=None, page_size=100):
+    """Return open orders for every authenticated Webull account, read-only.
+
+    This intentionally uses only order-list APIs.  It is used to present a
+    combined order view in the app and never creates, changes, or cancels a
+    Webull order.
+    """
+    records = []
+    safe_page_size = max(1, min(int(page_size or 100), 100))
+    for index, account in enumerate(get_webull_accounts(app_key, app_secret, environment, access_token)):
+        if index:
+            time.sleep(2.05)
+        account_id = account['account_id']
+        params = {'account_id': account_id, 'page_size': safe_page_size}
+        response = _webull_request(
+            app_key, app_secret, environment, 'GET', '/trading/orders/open-orders/list',
+            query_params=params, access_token=access_token,
+        )
+        if getattr(response, 'status_code', None) == 404:
+            response = _webull_request(
+                app_key, app_secret, environment, 'GET', '/openapi/trade/order/open',
+                query_params=params, access_token=access_token,
+            )
+        payload = _response_payload(response, 'open-orders request')
+        items = payload.get('data', payload) if isinstance(payload, dict) else payload
+        if isinstance(items, dict):
+            items = items.get('orders') or items.get('items') or items.get('list') or []
+        if not isinstance(items, list):
+            continue
+        for order in items:
+            if isinstance(order, dict):
+                records.append({
+                    **order,
+                    '_webull_account_id': account_id,
+                    '_webull_account_type': account.get('account_type'),
+                })
+    return records
+
+
 def create_webull_access_token(app_key, app_secret, environment='production'):
     """Request a Webull token. Production commonly returns PENDING until app/SMS approval."""
     # Match Webull's official Python SDK first. The newer documentation lists a

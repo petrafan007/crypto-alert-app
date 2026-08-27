@@ -1,6 +1,6 @@
 # Exchange-Aware Navigation & Account Views — Review Checklist
 
-Status: **Draft for user review — no implementation authorized yet**  
+Status: **Implemented in v2.30.0 — reviewed product decisions applied**
 Scope: Replace the current Binance-centric navigation model with explicit Binance.US, Webull, and All Accounts contexts.
 
 ## Confirmed product decisions
@@ -71,13 +71,13 @@ Scope: Replace the current Binance-centric navigation model with explicit Binanc
 - [ ] CHK032 Are performance and rate-limit requirements specified for pages that query multiple Webull accounts and Binance.US simultaneously? [Non-Functional, Dependency]
 - [ ] CHK033 Is the release/version plan defined, including documentation updates and a rollback path if one provider is unavailable after deployment? [Release Readiness, Gap]
 
-## Proposed implementation sequence — pending approval
+## Implementation sequence
 
 1. [x] Define shared exchange/account context and Dashboard selector behavior.
-2. Split the existing Binance.US Trading experience and embed its AI Analysis tab.
-3. Add the dedicated Webull trading shell with explicitly approved capabilities.
-4. Add the combined Orders center with source- and account-safe data handling.
-5. Update Help, test all context-switching and empty/error states, then release and upgrade.
+2. [x] Split the existing Binance.US Trading experience and embed its AI Analysis tab.
+3. [x] Add the dedicated Webull trading shell with explicitly approved capabilities.
+4. [x] Add the combined Orders center with source- and account-safe data handling.
+5. [x] Update Help, test all context-switching and empty/error states, then release and upgrade.
 
 ## Decisions still needed before implementation
 
