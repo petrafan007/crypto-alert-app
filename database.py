@@ -40,6 +40,13 @@ def init_db(app=None):
             ("credentials", "webull_token_environment", "VARCHAR(20)"),
             ("credentials", "webull_token_status", "VARCHAR(20)"),
             ("credentials", "webull_token_expires_at", "TIMESTAMP"),
+            ("webull_holdings", "webull_position_id", "VARCHAR(100)"),
+            ("webull_holdings", "instrument_id", "VARCHAR(100)"),
+            ("webull_holdings", "underlying_symbol", "VARCHAR(40)"),
+            ("webull_holdings", "option_expiration", "VARCHAR(20)"),
+            ("webull_holdings", "option_strike", "FLOAT"),
+            ("webull_holdings", "option_type", "VARCHAR(12)"),
+            ("webull_holdings", "option_multiplier", "FLOAT"),
             ("coins", "sentiment_reason", "TEXT"),
             ("watchlist", "sentiment_reason", "TEXT"),
             ("coins", "cached_news", "TEXT"),
@@ -110,6 +117,15 @@ def init_db(app=None):
                     conn.execute(db.text(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {col} {col_type}"))
             except Exception as ex:
                 print(f"Migration note for {table}.{col}: {ex}")
+
+        try:
+            with db.engine.begin() as conn:
+                conn.execute(db.text(
+                    "CREATE INDEX IF NOT EXISTS ix_webull_holding_option_contract "
+                    "ON webull_holdings (user_id, instrument_id)"
+                ))
+        except Exception as ex:
+            print(f"Migration note for webull option contract index: {ex}")
 
         try:
             with db.engine.begin() as conn:

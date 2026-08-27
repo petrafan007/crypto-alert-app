@@ -12,7 +12,7 @@
   - **Market Gauges & Performance**: Built-in Fear & Greed Index, CBBI Bull Run Peak Confidence metric, Staking Yield overview, and 7-day multi-interval performance tickers.
   - **True Portfolio Trend Charts**: Saved, user-selectable quick ranges from 1H through All-time with live portfolio net-worth updates.
   - **Cryptocurrency Vector Icons**: Rich, high-resolution coin icons for effortless asset recognition across all tables.
-  - **Webull Read-Only Views**: Imported Webull equities, ETFs, and crypto can appear alongside Binance.US holdings, with exchange-aware order views and a Webull price chart that overlays completed Webull trades. Option charts remain unavailable until their contract mapping is supported.
+  - **Webull Read-Only Views**: Imported Webull equities, ETFs, crypto, and contract-mapped options can appear alongside Binance.US holdings, with exchange-aware order views and Webull price charts that overlay completed Webull trades. Option charts, quotes, and Greeks remain contract-specific and safely report missing OPRA data.
 
 - **⚡ Professional Trading Terminal (USD & USDT)**
   - **Dual-Quote Currency Trading**: Instant one-click spot trading for both **USD** and **USDT** quote pairs directly from Portfolio and Watchlist rows.
@@ -122,6 +122,14 @@ The application utilizes a **unified PostgreSQL database**.
 ---
 
 ## Version History & Changelog
+
+## v2.33.0 (August 2026)
+
+### Webull Options Data Foundation
+
+- **Contract-safe option positions**: Webull imports now preserve a position's contract ID, underlying, expiration, strike, call/put type, and multiplier whenever Webull supplies them. A static contract lookup can resolve a missing ID only when it finds one unambiguous match—never by guessing from the underlying.
+- **Option-specific chart and quote data**: The Webull Trade Chart now requests option bars, quote data, and Greeks through Webull's dedicated option endpoints using the resolved contract ID. The option panel shows its contract identity, quote/IV, and available Greeks. It will never substitute an underlying equity chart.
+- **Entitlement-aware behavior**: The app clearly retains the contract details while reporting unavailable option quotes when OPRA OpenAPI data is not entitled, delayed, closed, or temporarily unavailable. No options order endpoint is used.
 
 ## v2.32.0 (August 2026)
 

@@ -18,7 +18,7 @@ const WEBULL_RANGES = {
   all: { interval: 'W', limit: 1000, intervalSeconds: 604800 },
 };
 
-const CHARTABLE_TYPES = new Set(['CRYPTO', 'STOCK', 'EQUITY', 'ETF']);
+const CHARTABLE_TYPES = new Set(['CRYPTO', 'STOCK', 'EQUITY', 'ETF', 'OPTION']);
 const toTimestamp = (value) => {
   const numeric = Number(value);
   if (Number.isFinite(numeric) && numeric > 0) return Math.floor(numeric > 1e11 ? numeric / 1000 : numeric);
@@ -48,6 +48,8 @@ export default function WebullTradeTimelineChart({ holdings = [], orders = [], i
   const [status, setStatus] = useState('idle');
   const [error, setError] = useState('');
   const [hoveredTrades, setHoveredTrades] = useState(null);
+  const [optionMarketData, setOptionMarketData] = useState(null);
+  const [optionMarketMessage, setOptionMarketMessage] = useState('');
   const chartConfig = WEBULL_RANGES[range] || WEBULL_RANGES[DEFAULT_CHART_RANGE];
   const chartableHolding = useMemo(() => holdings.find(isChartable), [holdings]);
   const selectedHolding = useMemo(
@@ -57,6 +59,7 @@ export default function WebullTradeTimelineChart({ holdings = [], orders = [], i
   const selectedIsChartable = isChartable(selectedHolding);
   const symbol = String(selectedHolding?.symbol || '').toUpperCase();
   const instrumentType = String(selectedHolding?.instrument_type || '').toUpperCase();
+  const isOption = instrumentType === 'OPTION';
 
   useEffect(() => {
     const selectionStillExists = holdings.some((holding) => String(holding.id) === selectedId);
@@ -71,7 +74,7 @@ export default function WebullTradeTimelineChart({ holdings = [], orders = [], i
     const controller = new AbortController();
     setStatus('loading'); setError(''); setHoveredTrades(null);
     axios.get('/api/webull/market-bars', {
-      params: { symbol, instrument_type: instrumentType, interval: chartConfig.interval, limit: chartConfig.limit },
+      params: { holding_id: selectedHolding.id, interval: chartConfig.interval, limit: chartConfig.limit },
       withCredentials: true, signal: controller.signal,
     }).then((response) => {
       const normalized = (response.data?.bars || []).map((bar) => ({ time: toTimestamp(bar.time), value: Number(bar.close) }))
@@ -84,6 +87,24 @@ export default function WebullTradeTimelineChart({ holdings = [], orders = [], i
     });
     return () => controller.abort();
   }, [chartConfig.interval, chartConfig.limit, instrumentType, selectedHolding, selectedIsChartable, symbol]);
+
+  useEffect(() => {
+    if (!selectedHolding || !isOption) {
+      setOptionMarketData(null); setOptionMarketMessage('');
+      return undefined;
+    }
+    const controller = new AbortController();
+    setOptionMarketData(null); setOptionMarketMessage('Loading option contract details…');
+    axios.get('/api/webull/option-market-data', { params: { holding_id: selectedHolding.id }, withCredentials: true, signal: controller.signal })
+      .then((response) => {
+        setOptionMarketData(response.data || null);
+        setOptionMarketMessage(response.data?.message || '');
+      }).catch((requestError) => {
+        if (requestError.code === 'ERR_CANCELED' || requestError.name === 'CanceledError') return;
+        setOptionMarketData(null); setOptionMarketMessage(requestError.response?.data?.message || 'Unable to load option contract details.');
+      });
+    return () => controller.abort();
+  }, [isOption, selectedHolding]);
 
   const fills = useMemo(() => (orders || [])
     .filter((order) => String(order?.symbol || order?.ticker || '').toUpperCase() === symbol)
@@ -156,7 +177,8 @@ export default function WebullTradeTimelineChart({ holdings = [], orders = [], i
         <label className="trade-timeline-range-control"><span>Range</span><select value={range} onChange={(event) => setRange(event.target.value)} aria-label="Webull Trade Chart date range">{CHART_RANGES.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
       </div>
     </header>
-    {!selectedIsChartable ? <div className="empty-state webull-chart-notice"><h3>{symbol} chart unavailable</h3><p>Option charts need a Webull contract identifier, which is not yet mapped. This prevents a chart from being shown for the wrong option contract.</p></div> : <>
+    {!selectedIsChartable ? <div className="empty-state webull-chart-notice"><h3>{symbol} chart unavailable</h3><p>This Webull instrument type does not have a supported chart.</p></div> : <>
+      {isOption && <OptionContractDetails marketData={optionMarketData} message={optionMarketMessage} currency={currency} />}
       <div className="trade-timeline-legend"><span className="buy">↑ Purchase</span><span className="sell">↓ Sale</span><span>Y-axis: {currency} price</span><span>X-axis: date and time</span><span>Webull · read-only</span></div>
       <div className="trade-timeline-chart-shell"><div className="trade-timeline-chart-frame"><div ref={hostRef} className="trade-timeline-chart" /></div>
         {hoveredTrades && <div className={`trade-marker-tooltip ${hoveredTrades.side.toLowerCase()}`} style={{ left: hoveredTrades.left, top: hoveredTrades.top }} role="tooltip"><strong>{hoveredTrades.side === 'BUY' ? '↑ Purchase' : '↓ Sale'} · {symbol}</strong><time>{new Date(hoveredTrades.group.time * 1000).toLocaleDateString('en-US', { timeZone: 'UTC', year: 'numeric', month: 'long', day: 'numeric' })}</time><div className="trade-marker-tooltip-list">{hoveredTrades.trades.map((trade) => <div className="trade-marker-tooltip-row" key={trade.id}><span>{new Date(trade.time * 1000).toLocaleString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short' })}</span><span>{number(trade.quantity, 8)} {symbol} @ {number(trade.price, trade.price < 1 ? 8 : 2)} {currency}</span><b>{number(trade.quantity * trade.price, 2)} {currency}</b></div>)}</div></div>}
@@ -166,4 +188,14 @@ export default function WebullTradeTimelineChart({ holdings = [], orders = [], i
       </div>
     </>}
   </section>;
+}
+
+function OptionContractDetails({ marketData, message, currency }) {
+  const contract = marketData?.contract;
+  const quote = marketData?.quote;
+  const decimal = (value, digits = 4) => Number.isFinite(Number(value)) ? Number(value).toLocaleString(undefined, { maximumFractionDigits: digits }) : '—';
+  return <div className="webull-option-details" aria-live="polite">
+    {contract ? <><strong>{contract.label}</strong><span>Contract ID: {contract.instrument_id}</span><span>Multiplier: {decimal(contract.multiplier, 0)}</span></> : <strong>Option contract details</strong>}
+    {quote ? <><span>Last: {decimal(quote.last_price)} {currency}</span><span>Bid / Ask: {decimal(quote.bid)} / {decimal(quote.ask)}</span><span>IV: {Number.isFinite(Number(quote.implied_volatility)) ? `${(Number(quote.implied_volatility) * 100).toFixed(2)}%` : '—'}</span><span>Δ {decimal(quote.delta)} · Γ {decimal(quote.gamma)} · Θ {decimal(quote.theta)} · Vega {decimal(quote.vega)}</span></> : <span>{message || 'Option quote unavailable.'}</span>}
+  </div>;
 }

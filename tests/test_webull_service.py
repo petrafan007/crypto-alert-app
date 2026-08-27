@@ -8,6 +8,7 @@ from services.webull_service import (
     generate_webull_signature,
     get_webull_accounts,
     get_webull_market_bars,
+    get_webull_option_snapshot,
     get_webull_order_history,
     get_webull_open_orders,
     get_webull_portfolio_preview,
@@ -162,7 +163,7 @@ class WebullServiceTests(unittest.TestCase):
             'close': 102.0, 'volume': 12.0,
         }])
 
-    def test_market_bars_use_stock_endpoint_and_reject_options_without_calling_webull(self):
+    def test_market_bars_use_stock_endpoint_and_options_require_a_contract_id(self):
         response = Mock(status_code=200)
         response.json.return_value = {'data': [{'time': 1787832000, 'close': '250'}]}
         with patch('services.webull_service._webull_request', return_value=response) as request_mock:
@@ -172,12 +173,32 @@ class WebullServiceTests(unittest.TestCase):
             )
             self.assertEqual(request_mock.call_args.args[4], '/market-data/stocks/bars/get')
             self.assertEqual(bars[0]['close'], 250.0)
-            with self.assertRaisesRegex(WebullConnectionError, 'option charts'):
+            with self.assertRaisesRegex(WebullConnectionError, 'contract identifier'):
                 get_webull_market_bars(
                     'app-key', 'app-secret', access_token='private-token',
                     symbol='AAPL260918C00100000', instrument_type='OPTION', interval='D', limit=20,
                 )
         self.assertEqual(request_mock.call_count, 1)
+
+    def test_option_bars_and_snapshot_use_option_endpoints_and_keep_contract_identity(self):
+        bars_response = Mock(status_code=200)
+        bars_response.json.return_value = {'data': {'bars': [{'timestamp': 1787832000000, 'c': '3.25'}]}}
+        quote_response = Mock(status_code=200)
+        quote_response.json.return_value = {'data': [{'symbol': 'AAPL260918C00100000', 'instrument_id': 'opt-1', 'last_price': '3.25', 'bid': '3.2', 'ask': '3.3', 'greeks': {'delta': '0.51', 'gamma': '0.04', 'theta': '-0.02', 'vega': '0.11'}}]}
+        with patch('services.webull_service._webull_request', side_effect=[bars_response, quote_response]) as request_mock:
+            bars = get_webull_market_bars(
+                'app-key', 'app-secret', access_token='private-token', symbol='AAPL260918C00100000',
+                instrument_type='OPTION', instrument_id='opt-1', interval='D', limit=20,
+            )
+            quote = get_webull_option_snapshot(
+                'app-key', 'app-secret', access_token='private-token', symbol='AAPL260918C00100000', instrument_id='opt-1',
+            )
+        self.assertEqual(bars[0]['close'], 3.25)
+        self.assertEqual(request_mock.call_args_list[0].args[4], '/market-data/options/bars/list')
+        self.assertEqual(request_mock.call_args_list[0].kwargs['query_params']['instrument_id'], 'opt-1')
+        self.assertEqual(request_mock.call_args_list[1].args[4], '/market-data/options/snapshots/list')
+        self.assertEqual(quote['delta'], 0.51)
+        self.assertEqual(quote['theta'], -0.02)
 
     def test_signature_matches_webulls_documented_example(self):
         signature = generate_webull_signature(

@@ -19,7 +19,7 @@ from sqlalchemy import text
 
 # Database & Models
 from core.extensions import db
-from models import Notification, Coin, WatchlistCoin, AIPrompt, DefaultAIPrompt
+from models import Notification, Coin, WatchlistCoin, AIPrompt, DefaultAIPrompt, WebullHolding
 from credentials import User, UserSetting, Credential
 
 # Log
@@ -38,6 +38,7 @@ from services.webull_service import (
     create_webull_access_token,
     get_webull_accounts,
     get_webull_market_bars,
+    get_webull_option_snapshot,
     get_webull_open_orders,
     get_webull_portfolio_preview,
     normalize_webull_environment,
@@ -45,6 +46,7 @@ from services.webull_service import (
     test_webull_connection,
 )
 from services.webull_import_service import import_webull_portfolio_snapshot
+from services.webull_option_service import option_contract_label, resolve_option_contract
 
 # Stub/Direct logic for system helpers
 def fetch_binance_price(symbol): 
@@ -1649,6 +1651,16 @@ def api_webull_open_orders():
 def api_webull_market_bars():
     """Return read-only Webull historical bars for a selected imported holding."""
     try:
+        holding_ref = str(request.args.get('holding_id') or '').strip()
+        if holding_ref.startswith('webull-'):
+            holding_ref = holding_ref.split('webull-', 1)[1]
+        try:
+            holding_id = int(holding_ref)
+        except (TypeError, ValueError):
+            return jsonify({'success': False, 'bars': [], 'message': 'Choose an imported Webull holding before loading market data.'}), 400
+        holding = WebullHolding.query.filter_by(id=holding_id, user_id=current_user.id).first()
+        if not holding:
+            return jsonify({'success': False, 'bars': [], 'message': 'That Webull holding is unavailable.'}), 404
         credential = Credential.query.filter_by(user_id=current_user.id).first()
         setting = UserSetting.query.filter_by(user_id=current_user.id).first()
         environment = normalize_webull_environment(getattr(setting, 'webull_environment', None) or 'production')
@@ -1658,13 +1670,20 @@ def api_webull_market_bars():
         ):
             return jsonify({'success': False, 'bars': [], 'message': 'Verify your Webull connection before loading market data.'}), 400
 
+        if str(holding.instrument_type or '').upper() == 'OPTION' and not holding.instrument_id:
+            holding = resolve_option_contract(
+                holding, credential.webull_app_key, credential.webull_app_secret,
+                environment, credential.webull_access_token,
+            )
+
         bars = get_webull_market_bars(
             credential.webull_app_key, credential.webull_app_secret, environment,
             credential.webull_access_token,
-            symbol=request.args.get('symbol'),
-            instrument_type=request.args.get('instrument_type'),
+            symbol=holding.symbol,
+            instrument_type=holding.instrument_type,
             interval=request.args.get('interval', 'D'),
             limit=request.args.get('limit', 120),
+            instrument_id=holding.instrument_id,
         )
         return jsonify({'success': True, 'bars': bars})
     except WebullConnectionError as exc:
@@ -1673,6 +1692,49 @@ def api_webull_market_bars():
     except Exception as exc:
         logger.error('Webull market-data lookup failed: %s', exc, exc_info=True)
         return jsonify({'success': False, 'bars': [], 'message': 'Unable to load Webull market data.'}), 500
+
+
+@system_bp.route('/api/webull/option-market-data', methods=['GET'])
+@login_required
+def api_webull_option_market_data():
+    """Return one option's immutable contract identity and read-only quote/Greeks."""
+    try:
+        holding_ref = str(request.args.get('holding_id') or '').strip()
+        if holding_ref.startswith('webull-'):
+            holding_ref = holding_ref.split('webull-', 1)[1]
+        holding = WebullHolding.query.filter_by(id=int(holding_ref), user_id=current_user.id).first()
+        if not holding or str(holding.instrument_type or '').upper() != 'OPTION':
+            return jsonify({'success': False, 'message': 'Choose an imported Webull option holding.'}), 404
+        credential = Credential.query.filter_by(user_id=current_user.id).first()
+        setting = UserSetting.query.filter_by(user_id=current_user.id).first()
+        environment = normalize_webull_environment(getattr(setting, 'webull_environment', None) or 'production')
+        if not credential or credential.webull_token_status != 'NORMAL' or credential.webull_token_environment != environment or not credential.webull_access_token:
+            return jsonify({'success': False, 'message': 'Verify your Webull connection before loading option market data.'}), 400
+        if not holding.instrument_id:
+            holding = resolve_option_contract(holding, credential.webull_app_key, credential.webull_app_secret, environment, credential.webull_access_token)
+        contract = {
+            'label': option_contract_label(holding), 'symbol': holding.symbol,
+            'instrument_id': holding.instrument_id, 'underlying_symbol': holding.underlying_symbol,
+            'expiration': holding.option_expiration, 'strike': holding.option_strike,
+            'type': holding.option_type, 'multiplier': holding.option_multiplier,
+        }
+        try:
+            quote = get_webull_option_snapshot(
+                credential.webull_app_key, credential.webull_app_secret, environment,
+                credential.webull_access_token, symbol=holding.symbol, instrument_id=holding.instrument_id,
+            )
+            return jsonify({'success': True, 'contract': contract, 'quote': quote, 'quote_available': True})
+        except WebullConnectionError as quote_exc:
+            # The static contract remains useful even if OPRA is not entitled,
+            # delayed, closed, or temporarily unavailable.
+            return jsonify({'success': True, 'contract': contract, 'quote': None, 'quote_available': False, 'message': str(quote_exc)})
+    except (TypeError, ValueError):
+        return jsonify({'success': False, 'message': 'Choose an imported Webull option holding.'}), 400
+    except WebullConnectionError as exc:
+        return jsonify({'success': False, 'message': str(exc)}), 400
+    except Exception as exc:
+        logger.error('Webull option market-data lookup failed: %s', exc, exc_info=True)
+        return jsonify({'success': False, 'message': 'Unable to load Webull option market data.'}), 500
 
 
 

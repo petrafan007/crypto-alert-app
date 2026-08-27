@@ -15,6 +15,34 @@ def _number(value, default=0.0):
         return default
 
 
+def _first_value(payload, *keys):
+    for key in keys:
+        value = payload.get(key) if isinstance(payload, dict) else None
+        if value not in (None, ''):
+            return value
+    return None
+
+
+def _normalise_option_metadata(position):
+    """Extract option contract identity from current and legacy Webull payloads."""
+    if str(position.get('instrument_type') or '').upper() != 'OPTION':
+        return {}
+    details = next((position.get(key) for key in ('option', 'option_contract', 'optionContract', 'instrument') if isinstance(position.get(key), dict)), {})
+
+    def detail_value(*keys):
+        return _first_value(position, *keys) or _first_value(details, *keys)
+
+    return {
+        'webull_position_id': detail_value('position_id', 'positionId', 'id'),
+        'instrument_id': detail_value('instrument_id', 'instrumentId', 'contract_id', 'contractId', 'option_id', 'optionId'),
+        'underlying_symbol': detail_value('underlying_symbol', 'underlyingSymbol', 'underlying'),
+        'option_expiration': detail_value('option_expire_date', 'optionExpireDate', 'expiration_date', 'expirationDate', 'expiry_date'),
+        'option_strike': _number(detail_value('strike_price', 'strikePrice', 'strike'), None),
+        'option_type': detail_value('option_type', 'optionType', 'put_call', 'putCall'),
+        'option_multiplier': _number(detail_value('multiplier', 'contract_multiplier', 'contractMultiplier'), None),
+    }
+
+
 def import_webull_portfolio_snapshot(user_id, preview):
     """Upsert the latest all-account Webull snapshot for one user.
 
@@ -72,6 +100,8 @@ def import_webull_portfolio_snapshot(user_id, preview):
             holding.current_value = _number(explicit_value, holding.quantity * _number(position.get('last_price')))
             holding.unrealized_profit_loss = _number(position.get('unrealized_profit_loss'), None)
             holding.currency = str(position.get('currency') or snapshot.currency or 'USD')
+            for field, value in _normalise_option_metadata(position).items():
+                setattr(holding, field, str(value).upper() if field == 'option_type' and value else value)
             holding.synced_at = now
             imported_positions += 1
 
@@ -112,6 +142,13 @@ def get_webull_portfolio_rows(user_id):
             'pct_change': pct, 'webull_unrealized_pnl': pnl,
             'source': 'webull', 'source_label': 'Webull', 'is_external': True,
             'instrument_type': holding.instrument_type or 'Security', 'currency': holding.currency or 'USD',
+            'webull_position_id': holding.webull_position_id,
+            'instrument_id': holding.instrument_id,
+            'underlying_symbol': holding.underlying_symbol,
+            'option_expiration': holding.option_expiration,
+            'option_strike': holding.option_strike,
+            'option_type': holding.option_type,
+            'option_multiplier': holding.option_multiplier,
             'last_updated': holding.synced_at.isoformat() if holding.synced_at else None,
             'sentiment_tracking_enabled': False, 'alert_enabled': False,
         })

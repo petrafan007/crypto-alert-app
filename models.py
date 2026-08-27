@@ -86,6 +86,16 @@ class WebullHolding(db.Model):
     account_id = db.Column(db.String(80), nullable=False)
     symbol = db.Column(db.String(40), nullable=False)
     instrument_type = db.Column(db.String(60), nullable=True)
+    # Contract identity is required for options.  It is stored independently
+    # from the display symbol so an option can never be confused with its
+    # underlying equity or another strike/expiration.
+    webull_position_id = db.Column(db.String(100), nullable=True)
+    instrument_id = db.Column(db.String(100), nullable=True)
+    underlying_symbol = db.Column(db.String(40), nullable=True)
+    option_expiration = db.Column(db.String(20), nullable=True)
+    option_strike = db.Column(db.Float, nullable=True)
+    option_type = db.Column(db.String(12), nullable=True)
+    option_multiplier = db.Column(db.Float, nullable=True)
     quantity = db.Column(db.Float, default=0.0)
     last_price = db.Column(db.Float, nullable=True)
     cost_price = db.Column(db.Float, nullable=True)
@@ -97,6 +107,7 @@ class WebullHolding(db.Model):
     __table_args__ = (
         db.UniqueConstraint('user_id', 'account_id', 'symbol', 'instrument_type', name='uq_webull_holding_user_account_symbol_type'),
         db.Index('ix_webull_holding_user', 'user_id'),
+        db.Index('ix_webull_holding_option_contract', 'user_id', 'instrument_id'),
     )
 
 

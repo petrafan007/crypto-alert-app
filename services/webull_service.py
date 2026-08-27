@@ -19,10 +19,10 @@ WEBULL_ENVIRONMENTS = {
     'sandbox': 'api.sandbox.webull.com',
 }
 
-# The chart intentionally only asks Webull for instruments whose market-data
-# APIs can be selected unambiguously.  Option symbols require their contract
-# identifiers and are deliberately excluded until that mapping is implemented.
-WEBULL_CHARTABLE_INSTRUMENT_TYPES = {'CRYPTO', 'STOCK', 'EQUITY', 'ETF'}
+# The chart only asks Webull for instruments whose market-data API is
+# unambiguous. Options are allowed only when their own contract identifier is
+# supplied; the underlying equity is never substituted.
+WEBULL_CHARTABLE_INSTRUMENT_TYPES = {'CRYPTO', 'STOCK', 'EQUITY', 'ETF', 'OPTION'}
 WEBULL_MARKET_INTERVALS = {'M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D', 'W', 'M'}
 
 
@@ -318,7 +318,7 @@ def _normalise_webull_bar(bar):
 
 def get_webull_market_bars(
     app_key, app_secret, environment='production', access_token=None, *,
-    symbol, instrument_type, interval='D', limit=120,
+    symbol, instrument_type, interval='D', limit=120, instrument_id=None,
 ):
     """Fetch read-only historical bars for a supported Webull instrument.
 
@@ -336,18 +336,29 @@ def get_webull_market_bars(
     if not clean_symbol:
         raise WebullConnectionError('Choose a Webull symbol before loading its chart.')
     if clean_type not in WEBULL_CHARTABLE_INSTRUMENT_TYPES:
-        raise WebullConnectionError('Webull option charts are unavailable until option contract mapping is added.')
+        raise WebullConnectionError('This Webull instrument type does not have a supported chart.')
     if clean_interval not in WEBULL_MARKET_INTERVALS:
         raise WebullConnectionError('Choose a supported Webull chart interval.')
 
     is_crypto = clean_type == 'CRYPTO'
+    is_option = clean_type == 'OPTION'
     if is_crypto and not clean_symbol.endswith('USD'):
         clean_symbol = f'{clean_symbol}USD'
-    path = '/market-data/crypto/bars/list' if is_crypto else '/market-data/stocks/bars/get'
+    if is_option and not instrument_id:
+        raise WebullConnectionError('This option has no Webull contract identifier yet. Refresh the Webull portfolio import after the contract is available.')
+    path = (
+        '/market-data/crypto/bars/list' if is_crypto else
+        '/market-data/options/bars/list' if is_option else
+        '/market-data/stocks/bars/get'
+    )
     # ``count`` is the stock-bars API pagination size; ``limit`` is retained
     # for crypto bars.  Supplying both keeps the normalizer compatible with
     # approved OpenAPI versions that accept either spelling.
     params = {'symbol': clean_symbol, 'interval': clean_interval, 'count': safe_limit, 'limit': safe_limit}
+    if is_option:
+        # Current OpenAPI deployments use one of these aliases. Sending both
+        # preserves compatibility without ever substituting the underlying.
+        params.update({'instrument_id': str(instrument_id), 'contract_id': str(instrument_id)})
     payload = _response_payload(
         _webull_request(
             app_key, app_secret, environment, 'GET', path,
@@ -361,6 +372,100 @@ def get_webull_market_bars(
         if bar:
             bars_by_time[bar['time']] = bar
     return [bars_by_time[timestamp] for timestamp in sorted(bars_by_time)]
+
+
+def _first_option_record(payload):
+    records = _webull_records(payload)
+    if records:
+        return records[0]
+    if isinstance(payload, dict):
+        direct = payload.get('data', payload)
+        if isinstance(direct, dict):
+            return direct
+    return None
+
+
+def _normalise_option_snapshot(payload):
+    """Extract quote and Greeks from documented/legacy option snapshot shapes."""
+    raw = _first_option_record(payload)
+    if not isinstance(raw, dict):
+        return None
+
+    def value(*names):
+        for name in names:
+            candidate = raw.get(name)
+            if candidate not in (None, ''):
+                return candidate
+        return None
+
+    def number(*names):
+        try:
+            candidate = value(*names)
+            return float(candidate) if candidate not in (None, '') else None
+        except (TypeError, ValueError):
+            return None
+
+    greeks = raw.get('greeks') if isinstance(raw.get('greeks'), dict) else {}
+    return {
+        'symbol': value('symbol', 'contract_symbol'),
+        'instrument_id': value('instrument_id', 'instrumentId', 'contract_id', 'contractId'),
+        'last_price': number('last_price', 'price', 'close', 'last'),
+        'bid': number('bid', 'bid_price', 'bidPrice'),
+        'ask': number('ask', 'ask_price', 'askPrice'),
+        'volume': number('volume'),
+        'open_interest': number('open_interest', 'openInterest'),
+        'implied_volatility': number('implied_volatility', 'impliedVolatility', 'iv'),
+        'delta': number('delta') if number('delta') is not None else _numeric_greek(greeks, 'delta'),
+        'gamma': number('gamma') if number('gamma') is not None else _numeric_greek(greeks, 'gamma'),
+        'theta': number('theta') if number('theta') is not None else _numeric_greek(greeks, 'theta'),
+        'vega': number('vega') if number('vega') is not None else _numeric_greek(greeks, 'vega'),
+        'rho': number('rho') if number('rho') is not None else _numeric_greek(greeks, 'rho'),
+        'as_of': value('timestamp', 'time', 'last_trade_time', 'trade_time'),
+    }
+
+
+def _numeric_greek(greeks, key):
+    try:
+        value = greeks.get(key)
+        return float(value) if value not in (None, '') else None
+    except (AttributeError, TypeError, ValueError):
+        return None
+
+
+def get_webull_option_snapshot(app_key, app_secret, environment='production', access_token=None, *, symbol, instrument_id):
+    """Fetch a read-only option quote/Greeks snapshot for one mapped contract."""
+    if not instrument_id:
+        raise WebullConnectionError('This option has no Webull contract identifier yet.')
+    payload = _response_payload(
+        _webull_request(
+            app_key, app_secret, environment, 'GET', '/market-data/options/snapshots/list',
+            query_params={
+                'symbol': str(symbol or '').upper(), 'symbols': str(symbol or '').upper(),
+                'instrument_id': str(instrument_id), 'contract_id': str(instrument_id),
+            }, access_token=access_token,
+        ),
+        'option market-data request',
+    )
+    snapshot = _normalise_option_snapshot(payload)
+    if not snapshot:
+        raise WebullConnectionError('Webull returned no option quote for this contract.')
+    return snapshot
+
+
+def get_webull_option_contracts(app_key, app_secret, environment='production', access_token=None, *, underlying_symbol):
+    """Fetch static contracts for one underlying; no trading endpoint is used."""
+    clean_underlying = ''.join(char for char in str(underlying_symbol or '').upper() if char.isalnum())
+    if not clean_underlying:
+        raise WebullConnectionError('An option underlying symbol is required to resolve a contract.')
+    payload = _response_payload(
+        _webull_request(
+            app_key, app_secret, environment, 'GET', '/trading/instruments/options/contracts/list',
+            query_params={'symbol': clean_underlying, 'underlying_symbol': clean_underlying, 'status': 'ACTIVE', 'page_size': 100},
+            access_token=access_token,
+        ),
+        'option-contract lookup',
+    )
+    return _webull_records(payload)
 
 
 def get_webull_order_history(app_key, app_secret, environment='production', access_token=None, page_size=100):

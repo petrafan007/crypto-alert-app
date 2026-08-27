@@ -9,6 +9,9 @@
 .trade-timeline-range-control select { min-height:40px; padding:.5rem .7rem; border:1px solid #475569; border-radius:8px; background:#1e293b; color:#f8fafc; font-size:.82rem; font-weight:700; text-transform:none; }
 .trade-timeline-range-control small { font-size:.65rem; font-weight:600; letter-spacing:0; text-transform:none; }
 .trade-timeline-legend { display:flex; flex-wrap:wrap; gap:1rem; padding:.65rem 1.25rem; color:#94a3b8; font-size:.78rem; border-bottom:1px solid #1e293b; }
+.webull-option-details { display:flex; flex-wrap:wrap; align-items:center; gap:.45rem 1rem; padding:.7rem 1.25rem; border-bottom:1px solid #1e293b; background:rgba(30,41,59,.6); color:#cbd5e1; font-size:.76rem; }
+.webull-option-details strong { color:#a5b4fc; }
+.webull-option-details span { white-space:nowrap; }
 .trade-timeline-legend .buy { color:#4ade80; font-weight:800; }
 .trade-timeline-legend .sell { color:#f87171; font-weight:800; }
 .sentiment-chart-legend { display:flex; flex-wrap:wrap; gap:.7rem 1rem; padding:.65rem 1.25rem; border-bottom:1px solid #1e293b; color:#94a3b8; font-size:.76rem; }
@@ -81,6 +84,7 @@ body.light-mode .trade-timeline-card,.light-mode .trade-timeline-card { backgrou
 body.light-mode .trade-timeline-header,.light-mode .trade-timeline-header { background:#f8fafc; border-color:#cbd5e1; }
 body.light-mode .trade-timeline-range-control select,.light-mode .trade-timeline-range-control select { border-color:#cbd5e1; background:#fff; color:#0f172a; }
 body.light-mode .trade-timeline-chart-shell,.light-mode .trade-timeline-chart-shell { background:#fff; }
+body.light-mode .webull-option-details,.light-mode .webull-option-details { background:#f8fafc; border-color:#e2e8f0; color:#475569; }
 body.light-mode .sentiment-marker-badge,.light-mode .sentiment-marker-badge { border-color:#fff; }
 body.light-mode .trade-marker-tooltip,.light-mode .trade-marker-tooltip { background:rgba(255,255,255,.98); color:#334155; box-shadow:0 12px 30px rgba(15,23,42,.18); }
 body.light-mode .trade-marker-tooltip-row b,.light-mode .trade-marker-tooltip-row b { color:#0f172a; }

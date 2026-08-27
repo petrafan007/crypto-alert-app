@@ -1,6 +1,6 @@
 # Exchange-Aware Navigation & Account Views — Review Checklist
 
-Status: **Implemented through v2.32.0 — reviewed product decisions applied**
+Status: **Implemented through v2.33.0 — reviewed product decisions applied**
 Scope: Replace the current Binance-centric navigation model with explicit Binance.US, Webull, and All Accounts contexts.
 
 ## Confirmed product decisions
@@ -14,7 +14,7 @@ Scope: Replace the current Binance-centric navigation model with explicit Binanc
 - [x] Binance.US Trading receives **AI Analysis** as a tab.
 - [x] A dedicated **Webull Trading** page is added with Place Order, Open Orders, Order History, Trade Chart, and AI Analysis tabs.
 - [x] Webull order placement remains read-only until its dedicated execution interface is fully designed and approved.
-- [x] Webull AI stores provider-neutral, read-only signals: crypto and equities/ETFs use distinct prompt families, fixed forecast horizons, immutable grading configurations, and the same manual/scheduled lifecycle. Scheduling is opt-in and disabled by default; options remain unavailable pending contract-level data mapping.
+- [x] Webull AI stores provider-neutral, read-only signals: crypto and equities/ETFs use distinct prompt families, fixed forecast horizons, immutable grading configurations, and the same manual/scheduled lifecycle. Scheduling is opt-in and disabled by default; options now have contract-level chart/quote identity but remain unavailable to AI pending an options-specific risk model.
 - [x] A new top-level **Orders** destination replaces AI Analysis and provides combined Open Orders and Order History for all accounts.
 - [x] Combined order views must visibly retain their exchange/source identity.
 
@@ -49,8 +49,8 @@ Scope: Replace the current Binance-centric navigation model with explicit Binanc
 - [x] CHK016 Webull Place Order is read-only for this release and remains staged behind a separate execution-interface approval. [Decision]
 - [ ] CHK017 If Webull placing is enabled, are supported products, order types, account selection, pre-trade review, 2FA, and confirmation requirements defined? [Completeness, Dependency]
 - [ ] CHK018 Are the Webull Open Orders and Order History inclusion rules defined for equities, options, futures, crypto, and multi-leg/combo orders? [Completeness, Gap]
-- [x] CHK019 Webull Trade Chart supports imported equities/ETFs and crypto with Webull historical bars and that symbol's completed Webull order markers. Imported options remain selectable but clearly state that the chart is unavailable until contract mapping is implemented; futures remain out of scope. [Decision]
-- [x] CHK020 Webull crypto and equities/ETFs use separated prompt families and a provider-neutral stored-signal lifecycle. Scheduled runs are opt-in; no Webull signal can place, amend, or cancel an order. Options require contract-level prompt/data mapping and remain unavailable. [Decision]
+- [x] CHK019 Webull Trade Chart supports imported equities/ETFs, crypto, and contract-mapped options with their own Webull historical bars and completed order markers. Option quote/Greeks data uses a dedicated endpoint and reports missing OPRA entitlement without substituting the underlying. Futures remain out of scope. [Decision]
+- [x] CHK020 Webull crypto and equities/ETFs use separated prompt families and a provider-neutral stored-signal lifecycle. Scheduled runs are opt-in; no Webull signal can place, amend, or cancel an order. Options now have contract-level chart/quote identity but remain unavailable to AI pending an options-specific prompt and risk model. [Decision]
 - [ ] CHK021 Are read-only degradation requirements specified for expired Webull authorization, API rate limits, or unsupported Webull account types? [Exception Coverage, Gap]
 
 ### Combined Orders destination
