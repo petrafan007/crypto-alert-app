@@ -3,8 +3,11 @@ from unittest.mock import Mock, patch
 
 from services.webull_service import (
     WebullConnectionError,
+    check_webull_access_token,
+    create_webull_access_token,
     generate_webull_signature,
     normalize_webull_environment,
+    parse_webull_expiry,
     test_webull_connection as check_webull_connection,
 )
 
@@ -36,6 +39,34 @@ class WebullServiceTests(unittest.TestCase):
         with patch('services.webull_service.get_webull_account_list', return_value=response):
             with self.assertRaisesRegex(WebullConnectionError, 'HTTP 401'):
                 check_webull_connection('app-key', 'app-secret')
+
+    def test_create_token_normalizes_pending_response_without_exposing_token(self):
+        response = Mock(status_code=200)
+        response.json.return_value = {
+            'token': 'private-token', 'status': 'PENDING', 'expires': '2026-08-27T12:00:00Z'
+        }
+        with patch('services.webull_service._webull_request', return_value=response) as request_mock:
+            result = create_webull_access_token('app-key', 'app-secret', 'production')
+
+        self.assertEqual(result['status'], 'PENDING')
+        self.assertEqual(result['token'], 'private-token')
+        self.assertEqual(request_mock.call_args.args[4], '/auth/tokens/create')
+
+    def test_check_token_posts_the_saved_token(self):
+        response = Mock(status_code=200)
+        response.json.return_value = {
+            'data': {'token': 'private-token', 'status': 'NORMAL', 'expires': 1787832000}
+        }
+        with patch('services.webull_service._webull_request', return_value=response) as request_mock:
+            result = check_webull_access_token('app-key', 'app-secret', 'private-token', 'sandbox')
+
+        self.assertEqual(result['status'], 'NORMAL')
+        self.assertEqual(request_mock.call_args.kwargs['body'], {'token': 'private-token'})
+        self.assertIsNotNone(parse_webull_expiry(result['expires']))
+
+    def test_expiry_parser_accepts_webull_epoch_milliseconds(self):
+        parsed = parse_webull_expiry(1787832000000)
+        self.assertEqual(parsed.year, 2026)
 
     def test_signature_matches_webulls_documented_example(self):
         signature = generate_webull_signature(

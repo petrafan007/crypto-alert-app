@@ -122,6 +122,14 @@ The application utilizes a **unified PostgreSQL database**.
 
 ## Version History & Changelog
 
+## v2.24.2 (August 2026)
+
+### Webull Production 2FA Verification
+- **Secure Token Lifecycle**: Added encrypted, environment-bound storage for Webull’s access token, with token creation, status checks, expiry tracking, and automatic clearing whenever the Webull credentials or selected environment change.
+- **Guided Approval Flow**: Settings now starts the Webull app/SMS verification request, gives the exact in-app approval steps, and checks the pending verification without exposing the token or secrets to the browser.
+- **Read-only Validation**: Once Webull reports a normal token, the app performs only the existing signed account-list check. Position sync, portfolio merging, and trading remain out of scope.
+- **Version Bump**: Transitioned version to `v2.24.2`.
+
 ## v2.24.1 (August 2026)
 
 ### Webull Runtime Compatibility Fix

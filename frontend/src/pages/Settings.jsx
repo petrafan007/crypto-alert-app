@@ -578,6 +578,58 @@ export default function Settings({ isLightMode }) {
     }
   };
 
+  const startWebullVerification = async () => {
+    if (!settings.webull_configured) {
+      setMessage('❌ Save your Webull App Key and App Secret before starting verification.');
+      setMessageType('error');
+      return;
+    }
+
+    setTestingWebull(true);
+    setMessage('');
+    setMessageType('');
+    try {
+      const response = await axios.post('/api/webull-token/initiate', {}, { withCredentials: true });
+      const result = response.data || {};
+      setSettings(prev => ({
+        ...prev,
+        webull_token_status: result.status || prev.webull_token_status,
+        webull_token_expires_at: result.expires_at || prev.webull_token_expires_at,
+      }));
+      setMessage(`${result.success ? '✅' : '📱'} ${result.message || 'Webull verification started.'}`);
+      setMessageType(result.success ? 'success' : (result.verification_required ? 'success' : 'error'));
+    } catch (error) {
+      console.error('Error starting Webull verification:', error);
+      setMessage(`❌ ${error.response?.data?.message || 'Unable to start Webull verification.'}`);
+      setMessageType('error');
+    } finally {
+      setTestingWebull(false);
+    }
+  };
+
+  const checkWebullVerification = async () => {
+    setTestingWebull(true);
+    setMessage('');
+    setMessageType('');
+    try {
+      const response = await axios.post('/api/webull-token/status', {}, { withCredentials: true });
+      const result = response.data || {};
+      setSettings(prev => ({
+        ...prev,
+        webull_token_status: result.status || prev.webull_token_status,
+        webull_token_expires_at: result.expires_at || prev.webull_token_expires_at,
+      }));
+      setMessage(`${result.success ? '✅' : '📱'} ${result.message || 'Webull verification status checked.'}`);
+      setMessageType(result.success ? 'success' : (result.verification_required ? 'success' : 'error'));
+    } catch (error) {
+      console.error('Error checking Webull verification:', error);
+      setMessage(`❌ ${error.response?.data?.message || 'Unable to check Webull verification.'}`);
+      setMessageType('error');
+    } finally {
+      setTestingWebull(false);
+    }
+  };
+
   // Handle Sync Coins button click
   const handleSyncCoins = async () => {
     setSyncing(true);
@@ -1373,11 +1425,22 @@ export default function Settings({ isLightMode }) {
               autoComplete="new-password"
             />
             <p className="settings-form-help">
-              Both values are encrypted at rest and are never returned to the browser after saving. Save Settings first, then test the stored connection—or test newly entered values directly.
+              Both values are encrypted at rest and are never returned to the browser after saving. Save Settings first, then start the Webull verification flow.
             </p>
+            {settings.webull_token_status === 'PENDING' && (
+              <div className="settings-form-help" style={{ marginTop: '10px', padding: '12px', background: 'rgba(79, 209, 197, 0.10)', borderLeft: '3px solid #4fd1c5', borderRadius: '4px' }}>
+                <strong>Verification awaiting approval.</strong><br />
+                In Webull, go to <strong>Menu → Messages → OpenAPI Notifications</strong>, open the newest message, select <strong>Check Now</strong>, and confirm the SMS code. Then click <strong>Check Webull Verification</strong> below. Webull expires an unverified request after five minutes.
+              </div>
+            )}
+            {settings.webull_token_status === 'NORMAL' && (
+              <p className="settings-form-help" style={{ marginTop: '10px', color: '#38d39f' }}>
+                ✓ Webull verification is active for {settings.webull_environment === 'production' ? 'Production' : 'Sandbox'}.
+              </p>
+            )}
             <button
-              onClick={testWebullConnection}
-              disabled={testingWebull || (!settings.webull_configured && (!settings.webull_app_key || !settings.webull_app_secret))}
+              onClick={startWebullVerification}
+              disabled={testingWebull || !settings.webull_configured}
               style={{
                 marginTop: '10px',
                 padding: '8px 16px',
@@ -1392,8 +1455,33 @@ export default function Settings({ isLightMode }) {
                 transition: 'all 0.2s'
               }}
             >
-              {testingWebull ? 'Testing Connection...' : 'Test API Connection'}
+              {testingWebull
+                ? 'Contacting Webull...'
+                : settings.webull_token_status === 'NORMAL'
+                  ? 'Test API Connection'
+                  : 'Connect and Verify in Webull'}
             </button>
+            {settings.webull_token_status === 'PENDING' && (
+              <button
+                onClick={checkWebullVerification}
+                disabled={testingWebull}
+                style={{
+                  marginTop: '10px',
+                  padding: '8px 16px',
+                  backgroundColor: testingWebull ? '#6c757d' : '#2563eb',
+                  color: '#fff',
+                  border: 'none',
+                  borderRadius: '4px',
+                  cursor: testingWebull ? 'not-allowed' : 'pointer',
+                  fontSize: '14px',
+                  width: '100%',
+                  fontWeight: 'bold',
+                  transition: 'all 0.2s'
+                }}
+              >
+                {testingWebull ? 'Checking Verification...' : 'Check Webull Verification'}
+              </button>
+            )}
           </div>
         </div>
 

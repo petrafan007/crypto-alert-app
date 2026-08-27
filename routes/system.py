@@ -34,7 +34,10 @@ from services.analysis_service import get_user_ai_settings
 from services.notification_service import save_notification_record
 from services.webull_service import (
     WebullConnectionError,
+    check_webull_access_token,
+    create_webull_access_token,
     normalize_webull_environment,
+    parse_webull_expiry,
     test_webull_connection,
 )
 
@@ -960,6 +963,11 @@ def api_settings():
         
         if request.method == "POST":
             data = request.get_json() or {}
+            existing_webull_environment = getattr(
+                UserSetting.query.filter_by(user_id=current_user.id).first(),
+                'webull_environment',
+                None,
+            ) or 'production'
             from services.sentiment_outcome_service import (
                 SENTIMENT_THRESHOLD_FIELDS,
                 validate_sentiment_chart_range,
@@ -1098,6 +1106,14 @@ def api_settings():
                         }), 400
 
             try:
+                webull_credentials_changed = any(
+                    data.get(field) and data[field] != '********'
+                    for field in ('webull_app_key', 'webull_app_secret')
+                )
+                webull_environment_changed = (
+                    'webull_environment' in data
+                    and data['webull_environment'] != existing_webull_environment
+                )
                 if 'api_key' in data:
                     cred.api_key = data['api_key']
                 if 'api_secret' in data:
@@ -1106,6 +1122,10 @@ def api_settings():
                     cred.webull_app_key = data['webull_app_key']
                 if data.get('webull_app_secret') and data['webull_app_secret'] != '********':
                     cred.webull_app_secret = data['webull_app_secret']
+                if webull_credentials_changed or webull_environment_changed:
+                    # A Webull access token is bound to the app credentials and
+                    # environment that created it. Do not ever reuse it elsewhere.
+                    cred.clear_webull_access_token()
                 # DEPRECATED: trading_api_key/secret are now unified with api_key/secret
                 # We do NOT update them here to prevent overwriting with stale frontend data
                 if 'openai_key' in data:
@@ -1222,6 +1242,16 @@ def api_settings():
             # encrypted values are available so the UI can safely mask them.
             "webull_configured": bool(cred.webull_app_key and cred.webull_app_secret),
             "webull_environment": getattr(webull_settings, 'webull_environment', None) or 'production',
+            "webull_token_status": (
+                getattr(cred, 'webull_token_status', None)
+                if getattr(cred, 'webull_token_environment', None)
+                == (getattr(webull_settings, 'webull_environment', None) or 'production')
+                else None
+            ),
+            "webull_token_expires_at": (
+                cred.webull_token_expires_at.isoformat()
+                if getattr(cred, 'webull_token_expires_at', None) else None
+            ),
             # Legacy fields maintained for frontend compatibility if needed, but values redirected
             "trading_api_key": getattr(cred, 'trading_api_key', None),
             "trading_api_secret": getattr(cred, 'trading_api_secret', None),
@@ -1277,6 +1307,7 @@ def api_test_webull_connection():
         app_key = data.get('webull_app_key')
         app_secret = data.get('webull_app_secret')
         environment = data.get('webull_environment', 'production')
+        credentials = None
 
         # A masked field means the user is testing already-saved credentials.
         if app_key == '********':
@@ -1288,7 +1319,10 @@ def api_test_webull_connection():
             app_key = app_key or getattr(credentials, 'webull_app_key', None)
             app_secret = app_secret or getattr(credentials, 'webull_app_secret', None)
 
-        result = test_webull_connection(app_key, app_secret, environment)
+        stored_token = None
+        if credentials and getattr(credentials, 'webull_token_environment', None) == environment:
+            stored_token = getattr(credentials, 'webull_access_token', None)
+        result = test_webull_connection(app_key, app_secret, environment, stored_token)
         account_types = ', '.join(result['account_types']) or 'no account types returned'
         return jsonify({
             'success': True,
@@ -1303,6 +1337,148 @@ def api_test_webull_connection():
     except Exception as exc:
         logger.error('Webull connection test failed: %s', exc, exc_info=True)
         return jsonify({'success': False, 'message': 'Unable to test the Webull connection.'}), 500
+
+
+def _webull_token_payload(token_details, environment, *, account_result=None):
+    """Return token state without leaking the token or App credentials to the browser."""
+    status = token_details['status']
+    payload = {
+        'success': status == 'NORMAL',
+        'status': status,
+        'environment': environment,
+        'expires_at': token_details.get('expires'),
+        'verification_required': status == 'PENDING',
+    }
+    if status == 'PENDING':
+        payload['message'] = (
+            'Webull sent a verification request. In the Webull app, open Menu → Messages → '
+            'OpenAPI Notifications, open the latest message, choose Check Now, and confirm the SMS code. '
+            'Then return here and select Check Webull Verification within five minutes.'
+        )
+    elif status == 'NORMAL':
+        accounts = account_result or {}
+        account_types = ', '.join(accounts.get('account_types', [])) or 'no account types returned'
+        payload.update({
+            'success': True,
+            'account_count': accounts.get('account_count', 0),
+            'account_types': accounts.get('account_types', []),
+            'message': (
+                f'Webull {environment} connection verified. Found '
+                f"{accounts.get('account_count', 0)} account(s): {account_types}."
+            ),
+        })
+    else:
+        payload['message'] = f'Webull reported the verification token as {status}. Start verification again.'
+    return payload
+
+
+def _store_webull_token(credential, token_details, environment):
+    credential.webull_access_token = token_details['token']
+    credential.webull_token_environment = environment
+    credential.webull_token_status = token_details['status']
+    credential.webull_token_expires_at = parse_webull_expiry(token_details.get('expires'))
+
+
+@system_bp.route('/api/webull-token/initiate', methods=['POST'])
+@login_required
+def api_initiate_webull_token():
+    """Create the server-side Webull token and begin its app/SMS verification flow."""
+    try:
+        credential = Credential.query.filter_by(user_id=current_user.id).first()
+        setting = UserSetting.query.filter_by(user_id=current_user.id).first()
+        environment = normalize_webull_environment(getattr(setting, 'webull_environment', None) or 'production')
+        if not credential or not credential.webull_app_key or not credential.webull_app_secret:
+            return jsonify({
+                'success': False,
+                'message': 'Save your Webull App Key and App Secret before starting verification.',
+            }), 400
+
+        # Do not issue duplicate SMS challenges while an existing request is active.
+        if (
+            credential.webull_access_token
+            and credential.webull_token_environment == environment
+            and credential.webull_token_status == 'PENDING'
+        ):
+            return jsonify(_webull_token_payload({
+                'status': 'PENDING', 'expires': credential.webull_token_expires_at.isoformat()
+                if credential.webull_token_expires_at else None,
+            }, environment))
+        if (
+            credential.webull_access_token
+            and credential.webull_token_environment == environment
+            and credential.webull_token_status == 'NORMAL'
+        ):
+            account_result = test_webull_connection(
+                credential.webull_app_key, credential.webull_app_secret, environment,
+                credential.webull_access_token,
+            )
+            return jsonify(_webull_token_payload({
+                'status': 'NORMAL', 'expires': credential.webull_token_expires_at.isoformat()
+                if credential.webull_token_expires_at else None,
+            }, environment, account_result=account_result))
+
+        token_details = create_webull_access_token(
+            credential.webull_app_key, credential.webull_app_secret, environment
+        )
+        _store_webull_token(credential, token_details, environment)
+        db.session.commit()
+
+        account_result = None
+        if token_details['status'] == 'NORMAL':
+            account_result = test_webull_connection(
+                credential.webull_app_key, credential.webull_app_secret, environment,
+                credential.webull_access_token,
+            )
+        return jsonify(_webull_token_payload(token_details, environment, account_result=account_result))
+    except WebullConnectionError as exc:
+        db.session.rollback()
+        return jsonify({'success': False, 'message': str(exc)}), 400
+    except Exception as exc:
+        db.session.rollback()
+        logger.error('Webull token initiation failed: %s', exc, exc_info=True)
+        return jsonify({'success': False, 'message': 'Unable to start Webull verification.'}), 500
+
+
+@system_bp.route('/api/webull-token/status', methods=['POST'])
+@login_required
+def api_check_webull_token_status():
+    """Check a pending Webull token after the user approves it in the Webull app."""
+    try:
+        credential = Credential.query.filter_by(user_id=current_user.id).first()
+        setting = UserSetting.query.filter_by(user_id=current_user.id).first()
+        environment = normalize_webull_environment(getattr(setting, 'webull_environment', None) or 'production')
+        if not credential or not credential.webull_access_token:
+            return jsonify({'success': False, 'message': 'Start Webull verification first.'}), 400
+        if credential.webull_token_environment != environment:
+            credential.clear_webull_access_token()
+            db.session.commit()
+            return jsonify({'success': False, 'message': 'The saved Webull token belongs to another environment. Start verification again.'}), 400
+
+        token_details = check_webull_access_token(
+            credential.webull_app_key, credential.webull_app_secret,
+            credential.webull_access_token, environment,
+        )
+        _store_webull_token(credential, token_details, environment)
+        if token_details['status'] in {'INVALID', 'EXPIRED'}:
+            credential.clear_webull_access_token()
+            db.session.commit()
+            return jsonify(_webull_token_payload(token_details, environment))
+
+        account_result = None
+        if token_details['status'] == 'NORMAL':
+            account_result = test_webull_connection(
+                credential.webull_app_key, credential.webull_app_secret, environment,
+                credential.webull_access_token,
+            )
+        db.session.commit()
+        return jsonify(_webull_token_payload(token_details, environment, account_result=account_result))
+    except WebullConnectionError as exc:
+        db.session.rollback()
+        return jsonify({'success': False, 'message': str(exc)}), 400
+    except Exception as exc:
+        db.session.rollback()
+        logger.error('Webull token status check failed: %s', exc, exc_info=True)
+        return jsonify({'success': False, 'message': 'Unable to check Webull verification.'}), 500
 
 
 

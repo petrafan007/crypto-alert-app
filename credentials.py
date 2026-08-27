@@ -53,6 +53,10 @@ class Credential(db.Model):
     # as all other credentials and are never returned by the settings API.
     _webull_app_key = db.Column("webull_app_key", db.String)
     _webull_app_secret = db.Column("webull_app_secret", db.String)
+    _webull_access_token = db.Column("webull_access_token", db.String)
+    webull_token_environment = db.Column(db.String(20))
+    webull_token_status = db.Column(db.String(20))
+    webull_token_expires_at = db.Column(db.DateTime)
     
     # DEPRECATED: Trading API Keys (merged into main api_key)
     # These columns exist in DB but should be ignored/wiped.
@@ -124,6 +128,21 @@ class Credential(db.Model):
     @webull_app_secret.setter
     def webull_app_secret(self, value):
         self._webull_app_secret = normalize_secret_for_storage(value)
+
+    @property
+    def webull_access_token(self):
+        return decrypt_secret(self._webull_access_token)
+
+    @webull_access_token.setter
+    def webull_access_token(self, value):
+        self._webull_access_token = normalize_secret_for_storage(value)
+
+    def clear_webull_access_token(self):
+        """Forget the environment-bound Webull 2FA token without touching App credentials."""
+        self._webull_access_token = None
+        self.webull_token_environment = None
+        self.webull_token_status = None
+        self.webull_token_expires_at = None
 
     @property
     def trading_api_key(self):
