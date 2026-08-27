@@ -32,6 +32,11 @@ from services.binance_service import sync_portfolio_from_binance
 from services.portfolio_service import record_true_portfolio_value
 from services.analysis_service import get_user_ai_settings
 from services.notification_service import save_notification_record
+from services.webull_service import (
+    WebullConnectionError,
+    normalize_webull_environment,
+    test_webull_connection,
+)
 
 # Stub/Direct logic for system helpers
 def fetch_binance_price(symbol): 
@@ -999,6 +1004,11 @@ def api_settings():
                         "errors": {"automated_trigger_confirmation_minutes": "Enter a whole number from 1 through 1440."},
                     }), 400
                 data['automated_trigger_confirmation_minutes'] = confirmation_minutes
+            if 'webull_environment' in data:
+                try:
+                    data['webull_environment'] = normalize_webull_environment(data['webull_environment'])
+                except WebullConnectionError as exc:
+                    return jsonify({"success": False, "message": str(exc)}), 400
             
             # --- START UserSetting Logic ---
             # Update UserSetting columns
@@ -1018,6 +1028,7 @@ def api_settings():
                 'sentiment_forecast_horizon_hours', 'watchlist_sentiment_forecast_horizon_hours',
                 'portfolio_schedule_start_time', 'watchlist_schedule_start_time',
                 'volatility_hours', 'automated_trigger_confirmation_minutes', 'ai_outcome_neutral_threshold_pct', 'max_slippage_pct',
+                'webull_environment',
                 'sentiment_chart_default_range',
                 *SENTIMENT_THRESHOLD_FIELDS,
                 'ai_provider_fallback', 'ai_model_fallback', 'ai_reasoning_level_fallback',
@@ -1091,6 +1102,10 @@ def api_settings():
                     cred.api_key = data['api_key']
                 if 'api_secret' in data:
                     cred.api_secret = data['api_secret']
+                if data.get('webull_app_key') and data['webull_app_key'] != '********':
+                    cred.webull_app_key = data['webull_app_key']
+                if data.get('webull_app_secret') and data['webull_app_secret'] != '********':
+                    cred.webull_app_secret = data['webull_app_secret']
                 # DEPRECATED: trading_api_key/secret are now unified with api_key/secret
                 # We do NOT update them here to prevent overwriting with stale frontend data
                 if 'openai_key' in data:
@@ -1197,11 +1212,16 @@ def api_settings():
                 }), 500
         
         response = ai_settings.copy()
+        webull_settings = UserSetting.query.filter_by(user_id=current_user.id).first()
         
         # Overlay credentials
         response.update({
             "api_key": cred.api_key,
             "api_secret": cred.api_secret,
+            # Webull credentials remain server-side. Only expose whether both
+            # encrypted values are available so the UI can safely mask them.
+            "webull_configured": bool(cred.webull_app_key and cred.webull_app_secret),
+            "webull_environment": getattr(webull_settings, 'webull_environment', None) or 'production',
             # Legacy fields maintained for frontend compatibility if needed, but values redirected
             "trading_api_key": getattr(cred, 'trading_api_key', None),
             "trading_api_secret": getattr(cred, 'trading_api_secret', None),
@@ -1246,6 +1266,43 @@ def api_settings():
         logger.error(f"Get settings error: {str(e)}")
         db.session.rollback()
         return jsonify({"error": str(e)}), 500
+
+
+@system_bp.route('/api/test-webull-connection', methods=['POST'])
+@login_required
+def api_test_webull_connection():
+    """Verify Webull credentials with a read-only account-list request."""
+    try:
+        data = request.get_json(silent=True) or {}
+        app_key = data.get('webull_app_key')
+        app_secret = data.get('webull_app_secret')
+        environment = data.get('webull_environment', 'production')
+
+        # A masked field means the user is testing already-saved credentials.
+        if app_key == '********':
+            app_key = None
+        if app_secret == '********':
+            app_secret = None
+        if not app_key or not app_secret:
+            credentials = Credential.query.filter_by(user_id=current_user.id).first()
+            app_key = app_key or getattr(credentials, 'webull_app_key', None)
+            app_secret = app_secret or getattr(credentials, 'webull_app_secret', None)
+
+        result = test_webull_connection(app_key, app_secret, environment)
+        account_types = ', '.join(result['account_types']) or 'no account types returned'
+        return jsonify({
+            'success': True,
+            'message': (
+                f"Webull {result['environment']} connection successful. "
+                f"Found {result['account_count']} account(s): {account_types}."
+            ),
+            **result,
+        })
+    except WebullConnectionError as exc:
+        return jsonify({'success': False, 'message': str(exc)}), 400
+    except Exception as exc:
+        logger.error('Webull connection test failed: %s', exc, exc_info=True)
+        return jsonify({'success': False, 'message': 'Unable to test the Webull connection.'}), 500
 
 
 

@@ -635,6 +635,7 @@ export default function Help({ isLightMode }) {
                 <ul style={{ paddingLeft: '20px', marginBottom: '16px', lineHeight: '1.9' }}>
                     <li><strong>Portfolio Table &amp; Execution Safety Settings</strong> — set the Volatility Hours comparison window and the 1–1,440 minute Automated Trigger Confirmation Window used by both Auto-Buy and Auto-Sell. The default confirmation window is 15 minutes and a price recovery resets a pending timer.</li>
                     <li><strong>Sync Coins</strong> — force an immediate balance sync with Binance.US</li>
+                    <li><strong>Webull OpenAPI Connection</strong> — securely save and test your Webull App Key and App Secret against the selected Production or Sandbox environment. This connection-verification step does not yet sync Webull positions or enable Webull trading.</li>
                     <li><strong>Run Sentiment Analysis Now</strong> — trigger a full AI sentiment pass on demand</li>
                     <li><strong>Include Beta</strong> — opt in to beta releases when upgrading</li>
                     <li><strong>AI Integrations Enabled</strong> — toggle all configured AI integrations from the Settings header. API keys, Telegram credentials, and the News API key are masked on screen; every configured provider has a consistent <strong>Test API Connection</strong> button.</li>

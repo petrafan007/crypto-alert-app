@@ -48,6 +48,11 @@ class Credential(db.Model):
     # API Keys (Unified for Portfolio, Trading, and Price Tracking)
     _api_key = db.Column("api_key", db.String)  # Encrypted Binance API Key
     _api_secret = db.Column("api_secret", db.String)  # Encrypted Binance API Secret
+
+    # Webull OpenAPI credentials. These use the same encrypted-at-rest handling
+    # as all other credentials and are never returned by the settings API.
+    _webull_app_key = db.Column("webull_app_key", db.String)
+    _webull_app_secret = db.Column("webull_app_secret", db.String)
     
     # DEPRECATED: Trading API Keys (merged into main api_key)
     # These columns exist in DB but should be ignored/wiped.
@@ -103,6 +108,22 @@ class Credential(db.Model):
     @api_secret.setter
     def api_secret(self, value):
         self._api_secret = normalize_secret_for_storage(value)
+
+    @property
+    def webull_app_key(self):
+        return decrypt_secret(self._webull_app_key)
+
+    @webull_app_key.setter
+    def webull_app_key(self, value):
+        self._webull_app_key = normalize_secret_for_storage(value)
+
+    @property
+    def webull_app_secret(self):
+        return decrypt_secret(self._webull_app_secret)
+
+    @webull_app_secret.setter
+    def webull_app_secret(self, value):
+        self._webull_app_secret = normalize_secret_for_storage(value)
 
     @property
     def trading_api_key(self):
@@ -380,6 +401,7 @@ class UserSetting(db.Model):
     watchlist_schedule_start_time = db.Column(db.String, default='08:00')
     volatility_hours = db.Column(db.Integer, default=24)
     automated_trigger_confirmation_minutes = db.Column(db.Integer, default=15)
+    webull_environment = db.Column(db.String(20), default='production')
     ai_outcome_neutral_threshold_pct = db.Column(db.Float, default=5.0)
     sentiment_buy_immediately_correct_pct = db.Column(db.Float, default=5.0)
     sentiment_buy_immediately_wrong_pct = db.Column(db.Float, default=5.0)

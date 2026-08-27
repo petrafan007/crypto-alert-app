@@ -122,6 +122,16 @@ The application utilizes a **unified PostgreSQL database**.
 
 ## Version History & Changelog
 
+## v2.24.0 (August 2026)
+
+### Webull Connection Foundation
+- **Encrypted Webull Credentials**: Added dedicated Webull App Key and App Secret storage using the app's existing encrypted-at-rest credential handling. Saved Webull secrets are never returned by the Settings API; the UI receives only a configured status and masked inputs.
+- **Production and Sandbox Setup**: Settings now lets you select the matching Webull API environment, save its credentials, and use a read-only account-list request to test the connection.
+- **Safety Gate**: This release does not sync Webull positions, combine portfolios, place Webull orders, or enable options trading. Those remain subsequent gated steps after a successful credential test.
+- **Official SDK**: Added Webull's official Python OpenAPI SDK (`webull-openapi-python-sdk==2.0.18`).
+- **Help Update**: Documented the new connection setup and its current read-only scope.
+- **Version Bump**: Transitioned version to `v2.24.0`.
+
 ## v2.23.0 (August 2026)
 
 ### Dashboard Trading Navigation

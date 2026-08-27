@@ -65,6 +65,10 @@ export default function Settings({ isLightMode }) {
     api_key: '',
     api_secret: '',
     binance_testnet: true,
+    webull_app_key: '',
+    webull_app_secret: '',
+    webull_environment: 'production',
+    webull_configured: false,
     openai_key: '',
     zai_key: '',
     perplexity_key: '',
@@ -152,6 +156,7 @@ export default function Settings({ isLightMode }) {
   const [message, setMessage] = useState('');
   const [messageType, setMessageType] = useState(''); // 'success' or 'error'
   const [testingBinance, setTestingBinance] = useState(false);
+  const [testingWebull, setTestingWebull] = useState(false);
   const [testingTrading, setTestingTrading] = useState(false);
   const [testingPrimaryAi, setTestingPrimaryAi] = useState(false);
   const [primaryAiTestResult, setPrimaryAiTestResult] = useState(null);
@@ -254,6 +259,8 @@ export default function Settings({ isLightMode }) {
       delete sanitizedSettingsResponse.credentials_encryption_key_configured;
       delete sanitizedSettingsResponse.credentials_encryption_key_persisted;
       sanitizedSettingsResponse.credentials_encryption_key = encryptionConfigured ? '********' : '';
+      sanitizedSettingsResponse.webull_app_key = sanitizedSettingsResponse.webull_configured ? '********' : '';
+      sanitizedSettingsResponse.webull_app_secret = sanitizedSettingsResponse.webull_configured ? '********' : '';
 
       setSettings((prev) => {
         const mergedSettings = {
@@ -456,6 +463,12 @@ export default function Settings({ isLightMode }) {
       ) {
         delete payload.credentials_encryption_key;
       }
+      if (payload.webull_app_key === '********' || !payload.webull_app_key?.trim()) {
+        delete payload.webull_app_key;
+      }
+      if (payload.webull_app_secret === '********' || !payload.webull_app_secret?.trim()) {
+        delete payload.webull_app_secret;
+      }
 
       const settingsResponse = await axios.post('/api/settings', payload, {
         withCredentials: true,
@@ -534,6 +547,34 @@ export default function Settings({ isLightMode }) {
       setMessageType('error');
     } finally {
       setTestingBinance(false);
+    }
+  };
+
+  const testWebullConnection = async () => {
+    setTestingWebull(true);
+    setMessage('');
+    setMessageType('');
+
+    try {
+      const response = await axios.post('/api/test-webull-connection', {
+        webull_app_key: settings.webull_app_key,
+        webull_app_secret: settings.webull_app_secret,
+        webull_environment: settings.webull_environment,
+      }, { withCredentials: true });
+
+      if (response.data.success) {
+        setMessage(`✅ ${response.data.message}`);
+        setMessageType('success');
+      } else {
+        setMessage(`❌ ${response.data.message || 'Webull API connection failed.'}`);
+        setMessageType('error');
+      }
+    } catch (error) {
+      console.error('Error testing Webull connection:', error);
+      setMessage(`❌ ${error.response?.data?.message || 'Failed to connect to the Webull API.'}`);
+      setMessageType('error');
+    } finally {
+      setTestingWebull(false);
     }
   };
 
@@ -1286,6 +1327,72 @@ export default function Settings({ isLightMode }) {
               }}
             >
               {testingBinance ? 'Testing Connection...' : 'Test API Connection'}
+            </button>
+          </div>
+        </div>
+
+        {/* Webull OpenAPI is intentionally read-only until its account/position sync phase. */}
+        <div className="settings-page-section">
+          <h3>Webull OpenAPI Connection</h3>
+          <p>
+            Connect your personal Webull Trading API application. This step only verifies account access; it does <strong>not</strong> import positions, place orders, or enable trading yet.
+          </p>
+
+          <div className="settings-form-group">
+            <label>Environment</label>
+            <select
+              value={settings.webull_environment || 'production'}
+              onChange={(e) => handleInputChange('webull_environment', e.target.value)}
+            >
+              <option value="production">Production — my live Webull account</option>
+              <option value="sandbox">Sandbox — Webull test account</option>
+            </select>
+            <p className="settings-form-help">
+              Choose the environment that issued your App Key and App Secret. Production credentials must not be tested against Sandbox.
+            </p>
+          </div>
+
+          <div className="settings-form-group">
+            <label>App Key</label>
+            <input
+              type="password"
+              value={settings.webull_app_key || ''}
+              onChange={(e) => handleInputChange('webull_app_key', e.target.value)}
+              placeholder="Enter Webull App Key"
+              autoComplete="off"
+            />
+          </div>
+
+          <div className="settings-form-group">
+            <label>App Secret</label>
+            <input
+              type="password"
+              value={settings.webull_app_secret || ''}
+              onChange={(e) => handleInputChange('webull_app_secret', e.target.value)}
+              placeholder="Enter Webull App Secret"
+              autoComplete="new-password"
+            />
+            <p className="settings-form-help">
+              Both values are encrypted at rest and are never returned to the browser after saving. Save Settings first, then test the stored connection—or test newly entered values directly.
+            </p>
+            <button
+              onClick={testWebullConnection}
+              disabled={testingWebull || (!settings.webull_configured && (!settings.webull_app_key || !settings.webull_app_secret))}
+              style={{
+                marginTop: '10px',
+                padding: '8px 16px',
+                backgroundColor: testingWebull ? '#6c757d' : '#4fd1c5',
+                color: '#0f172a',
+                border: 'none',
+                borderRadius: '4px',
+                cursor: testingWebull ? 'not-allowed' : 'pointer',
+                fontSize: '14px',
+                width: '100%',
+                fontWeight: 'bold',
+                transition: 'all 0.2s'
+              }}
+            >
+              {testingWebull ? 'Testing Connection...' : 'Test API Connection'}
             </button>
           </div>
         </div>
