@@ -26,7 +26,7 @@ ChartJS.register(
   Filler
 );
 
-export function PortfolioPie({ portfolio, isLightMode, totalValue: authoritativeTotalValue }) {
+export function PortfolioPie({ portfolio, isLightMode, totalValue: authoritativeTotalValue, onCoinClick }) {
   const neonPalette = [
     '#38bdf8', '#10b981', '#f59e0b', '#ec4899', '#8b5cf6', '#14b8a6',
     '#ef4444', '#f97316', '#eab308', '#84cc16', '#06b6d4', '#6366f1', '#d946ef'
@@ -79,6 +79,11 @@ export function PortfolioPie({ portfolio, isLightMode, totalValue: authoritative
     responsive: true,
     maintainAspectRatio: false,
     cutout: '65%',
+    onClick: (_event, elements) => {
+      const sliceIndex = elements?.[0]?.index;
+      const symbol = filtered[sliceIndex]?.symbol;
+      if (symbol && onCoinClick) onCoinClick(symbol);
+    },
     plugins: {
       legend: {
         display: false,
@@ -96,7 +101,7 @@ export function PortfolioPie({ portfolio, isLightMode, totalValue: authoritative
         boxPadding: 6,
       },
     },
-  }), [isLightMode]);
+  }), [filtered, isLightMode, onCoinClick]);
 
   return (
     <div style={{ position: 'relative', width: '100%', height: '100%' }}>

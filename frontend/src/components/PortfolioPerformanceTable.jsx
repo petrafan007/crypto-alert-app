@@ -23,7 +23,7 @@ const GenericCoinIcon = ({ size = 20 }) => (
   </svg>
 );
 
-const PortfolioPerformanceTable = ({ hiddenCoins = [], onEdit }) => {
+const PortfolioPerformanceTable = ({ hiddenCoins = [], onEdit, onCoinClick }) => {
   const [performanceData, setPerformanceData] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -138,10 +138,19 @@ const PortfolioPerformanceTable = ({ hiddenCoins = [], onEdit }) => {
               visibleData.map((item) => (
                 <tr key={item.symbol}>
                   <td className="performance-symbol">
-                    <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
+                    <button
+                      type="button"
+                      onClick={() => onCoinClick?.(item.symbol)}
+                      title={`Open ${item.symbol} in Trading`}
+                      style={{
+                        display: 'inline-flex', alignItems: 'center', gap: '8px', padding: 0,
+                        border: 'none', background: 'none', color: 'inherit', cursor: 'pointer',
+                        font: 'inherit', textAlign: 'left'
+                      }}
+                    >
                       <CryptoIcon symbol={item.symbol} size={18} />
                       <span style={{ fontWeight: '600' }}>{item.symbol}</span>
-                    </div>
+                    </button>
                   </td>
                   {WINDOW_KEYS.map((w) => (
                     <td key={w.label}>

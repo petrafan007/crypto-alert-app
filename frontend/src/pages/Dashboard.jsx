@@ -1281,10 +1281,16 @@ function Dashboard({ isLightMode }) {
     if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current);
   };
 
+  // Open dashboard assets on their preferred live Binance.US market. USD and USDT are
+  // quote currencies, so either one maps to the tradable USDT/USD market.
   const handleChartClick = (symbol) => {
-    const cleanBase = String(symbol || '').toUpperCase().replace(/USDT$|USD$/, '');
-    // USDT is preferred; USD is an explicit fallback only when the USDT pair is unavailable.
-    const quote = hasUsdtPair(cleanBase) ? 'USDT' : hasUsdPair(cleanBase) ? 'USD' : null;
+    const cleanSymbol = String(symbol || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+    const cleanBase = ['USD', 'USDT', 'USDTUSD'].includes(cleanSymbol)
+      ? 'USDT'
+      : cleanSymbol.replace(/USDT$|USD$/, '');
+    const quote = cleanBase === 'USDT'
+      ? 'USD'
+      : hasUsdtPair(cleanBase) ? 'USDT' : hasUsdPair(cleanBase) ? 'USD' : null;
     if (!quote) {
       setNotification({ show: true, message: `No Binance.US USD or USDT trading pair is available for ${cleanBase}.`, type: 'error' });
       setTimeout(() => setNotification({ show: false, message: '', type: 'info' }), 5000);
@@ -4107,7 +4113,7 @@ function Dashboard({ isLightMode }) {
                 <div className="chart-panel widget-panel-inner" style={{ height: '100%', padding: '16px', display: 'flex', flexDirection: 'column' }}>
                   <h2 className="chart-title" style={{ margin: '0 0 12px 0', fontSize: '1.1rem' }}>Allocations</h2>
                   <div style={{ flex: 1, minHeight: '260px', width: '100%' }}>
-                    <PortfolioPie portfolio={portfolio} isLightMode={isLightMode} totalValue={totalValue} />
+                    <PortfolioPie portfolio={portfolio} isLightMode={isLightMode} totalValue={totalValue} onCoinClick={handleChartClick} />
                   </div>
                 </div>
               );
@@ -4176,11 +4182,11 @@ function Dashboard({ isLightMode }) {
             case 'staking':
               return <StakingSummaryWidget />;
             case 'performance':
-              return <PortfolioPerformanceTable hiddenCoins={performanceHiddenCoins} onEdit={handleOpenPerformanceCoinModal} />;
+              return <PortfolioPerformanceTable hiddenCoins={performanceHiddenCoins} onEdit={handleOpenPerformanceCoinModal} onCoinClick={handleChartClick} />;
             case 'top_movers':
               return <TopMoversWidget isLightMode={isLightMode} config={topMoversConfig} onEdit={handleOpenTopMoversModal} ownedSymbols={ownedSymbols} onCoinClick={(symbol) => navigateToTrading(symbol, 'BUY', 'USDT')} />;
             case 'recent_trades':
-              return <RecentTradesWidget isLightMode={isLightMode} config={recentTradesConfig} onEdit={handleOpenRecentTradesModal} />;
+              return <RecentTradesWidget isLightMode={isLightMode} config={recentTradesConfig} onEdit={handleOpenRecentTradesModal} onCoinClick={handleChartClick} />;
             case 'ai_pulse':
               return <AIPulseWidget isLightMode={isLightMode} />;
             case 'staking_rewards':

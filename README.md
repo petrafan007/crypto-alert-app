@@ -122,6 +122,14 @@ The application utilizes a **unified PostgreSQL database**.
 
 ## Version History & Changelog
 
+## v2.23.0 (August 2026)
+
+### Dashboard Trading Navigation
+- **Allocation Slice Navigation**: Clicking an Allocations donut slice now opens that asset in the local Trading page.
+- **Consistent Coin Links**: Coin symbols in Coin Performance and Recent Order History now open the same preferred market.
+- **Correct Quote Selection**: Dashboard navigation prefers a live `COIN/USDT` pair, falls back to `COIN/USD` only when necessary, and routes USD or USDT itself to the valid `USDT/USD` market.
+- **Version Bump**: Transitioned version to `v2.23.0`.
+
 ## v2.22.2 (August 2026)
 
 ### Reliable GitHub Release Upgrades

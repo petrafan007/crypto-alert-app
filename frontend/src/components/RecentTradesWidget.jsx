@@ -96,7 +96,7 @@ const getStatusBadgeStyle = (status) => {
   }
 };
 
-const RecentTradesWidget = ({ isLightMode, config, onEdit }) => {
+const RecentTradesWidget = ({ isLightMode, config, onEdit, onCoinClick }) => {
   const [allTrades, setAllTrades] = useState([]);
   const [loading, setLoading] = useState(true);
 
@@ -266,10 +266,20 @@ const RecentTradesWidget = ({ isLightMode, config, onEdit }) => {
                   >
                     {parsed.isBuy ? 'BUY' : 'SELL'}
                   </span>
-                  <CryptoIcon symbol={parsed.baseSymbol} size={16} />
-                  <span style={{ fontWeight: '600', color: 'var(--text-primary, #fff)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {parsed.symbol}
-                  </span>
+                  <button
+                    type="button"
+                    onClick={() => onCoinClick?.(parsed.baseSymbol)}
+                    title={`Open ${parsed.baseSymbol} in Trading`}
+                    style={{
+                      display: 'inline-flex', alignItems: 'center', gap: '5px', minWidth: 0,
+                      padding: 0, border: 'none', background: 'none', cursor: 'pointer', font: 'inherit'
+                    }}
+                  >
+                    <CryptoIcon symbol={parsed.baseSymbol} size={16} />
+                    <span style={{ fontWeight: '600', color: 'var(--text-primary, #fff)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {parsed.symbol}
+                    </span>
+                  </button>
                 </div>
 
                 <div style={{ textAlign: 'right', flexShrink: 0, marginLeft: '8px' }}>
