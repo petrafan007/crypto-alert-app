@@ -282,6 +282,11 @@ button.nav-link {
   box-shadow: 0 12px 24px rgba(0, 0, 0, 0.28);
 }
 
+body.dark-mode .nav-menu-popover {
+  background: #16213e;
+  border-color: rgba(148, 163, 184, 0.35);
+}
+
 .nav-menu-popover a {
   display: block;
   padding: 8px 10px;

@@ -4,6 +4,7 @@ import CryptoIcon from '../components/CryptoIcon';
 import './Trading.css';
 
 const OPEN_STATUSES = new Set(['OPEN', 'NEW', 'WORKING', 'PENDING', 'PARTIALLY_FILLED', 'PARTIALLY FILLED']);
+const PAGE_SIZES = [20, 50, 100, 200];
 
 const number = (value, digits = 2) => {
   const parsed = Number(value);
@@ -28,8 +29,13 @@ const normalizeOrder = (order) => ({
   filled_quantity: order.filled_quantity ?? order.executed_quantity ?? order.filled_qty,
   price: order.price ?? order.limit_price ?? order.order_price,
   status: order.status || order.order_status || '—',
-  created_at: order.created_at || order.create_time || order.placed_time || order.update_time,
+  created_at: order.created_at || order.create_time || order.placed_time || order.place_time || order.filled_time_at || order.update_time,
 });
+
+function Pagination({ page, setPage, pageSize, setPageSize, total }) {
+  const pages = Math.max(1, Math.ceil(total / pageSize));
+  return <div className="order-history-pagination"><div className="order-history-pagination-info">Showing {total ? (page - 1) * pageSize + 1 : 0}–{Math.min(page * pageSize, total)} of {total} orders</div><div className="order-history-pagination-controls"><label className="order-page-size-label">Rows <select value={pageSize} onChange={(event) => { setPageSize(Number(event.target.value)); setPage(1); }}>{PAGE_SIZES.map((size) => <option key={size} value={size}>{size}</option>)}</select></label><button type="button" className="pagination-btn" onClick={() => setPage((current) => Math.max(1, current - 1))} disabled={page === 1}>‹ Prev</button><span className="order-page-indicator">Page {page} of {pages}</span><button type="button" className="pagination-btn" onClick={() => setPage((current) => Math.min(pages, current + 1))} disabled={page === pages}>Next ›</button></div></div>;
+}
 
 function WebullOrderTable({ orders, emptyText }) {
   if (!orders.length) return <div className="empty-state"><p>{emptyText}</p></div>;
@@ -59,6 +65,8 @@ export default function WebullTrading() {
   const [openOrders, setOpenOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [historyPage, setHistoryPage] = useState(1);
+  const [historyPageSize, setHistoryPageSize] = useState(50);
 
   const load = async () => {
     setLoading(true); setError('');
@@ -83,6 +91,10 @@ export default function WebullTrading() {
   const cryptoHoldings = useMemo(() => holdings.filter((item) => /crypto|coin|token/i.test(item.instrument_type || '')), [holdings]);
   const securityHoldings = useMemo(() => holdings.filter((item) => !cryptoHoldings.includes(item)), [holdings, cryptoHoldings]);
   const displayOpenOrders = useMemo(() => openOrders.filter((order) => OPEN_STATUSES.has(String(order.status).toUpperCase()) || !order.status), [openOrders]);
+  const sortedHistory = useMemo(() => [...history].sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || ''))), [history]);
+  const historyPages = Math.max(1, Math.ceil(sortedHistory.length / historyPageSize));
+  const paginatedHistory = useMemo(() => sortedHistory.slice((historyPage - 1) * historyPageSize, historyPage * historyPageSize), [sortedHistory, historyPage, historyPageSize]);
+  useEffect(() => { if (historyPage > historyPages) setHistoryPage(historyPages); }, [historyPage, historyPages]);
 
   return (
     <div className="trading-page" style={{ padding: '20px', maxWidth: '1500px', margin: '0 auto' }}>
@@ -102,7 +114,7 @@ export default function WebullTrading() {
         {loading ? <div className="empty-state"><p>Loading Webull data…</p></div> : <>
           {activeTab === 'order' && <div className="order-form-container"><div className="empty-state"><h2>Webull order placement is read-only</h2><p>Use Webull to place, amend, or cancel orders. Your imported Webull positions remain visible here and on the Dashboard.</p></div><WebullHoldings holdings={holdings} /></div>}
           {activeTab === 'open_orders' && <section className="order-history-container"><h2>Webull Open Orders</h2><WebullOrderTable orders={displayOpenOrders} emptyText="No Webull open orders found." /></section>}
-          {activeTab === 'history' && <section className="order-history-container"><h2>Webull Order History</h2><WebullOrderTable orders={history} emptyText="No Webull order history is available yet." /></section>}
+          {activeTab === 'history' && <section className="order-history-container"><h2>Webull Order History</h2><WebullOrderTable orders={paginatedHistory} emptyText="No Webull order history is available yet." /><Pagination page={historyPage} setPage={setHistoryPage} pageSize={historyPageSize} setPageSize={setHistoryPageSize} total={sortedHistory.length} /></section>}
           {activeTab === 'trade_chart' && <section className="order-history-container"><h2>Webull Trade Chart</h2><div className="empty-state"><p>Webull charts will be added after its instrument-specific market-data mapping is in place. This avoids showing a crypto price chart for an equity, ETF, or option.</p></div><WebullHoldings holdings={holdings} compact /></section>}
           {activeTab === 'ai_analysis' && <section className="order-history-container"><h2>Webull AI Analysis</h2><div className="empty-state"><p>Webull crypto will use the existing crypto analysis framework after its market-data mapping is enabled. Equities, ETFs, and options intentionally remain unanalysed until their dedicated prompts and data inputs are available.</p></div><div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '12px' }}><div className="trading-asset-card"><strong>Crypto</strong><span>{cryptoHoldings.length} imported holding(s) · shared crypto prompt family pending market mapping</span></div><div className="trading-asset-card"><strong>Stocks / ETFs / options</strong><span>{securityHoldings.length} imported holding(s) · dedicated analysis family not yet enabled</span></div></div></section>}
         </>}

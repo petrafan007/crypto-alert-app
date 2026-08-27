@@ -1,6 +1,6 @@
 # Exchange-Aware Navigation & Account Views — Review Checklist
 
-Status: **Implemented in v2.30.0 — reviewed product decisions applied**
+Status: **Implemented through v2.30.1 — reviewed product decisions applied**
 Scope: Replace the current Binance-centric navigation model with explicit Binance.US, Webull, and All Accounts contexts.
 
 ## Confirmed product decisions

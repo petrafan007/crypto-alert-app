@@ -7,6 +7,7 @@ from services.webull_service import (
     create_webull_access_token,
     generate_webull_signature,
     get_webull_accounts,
+    get_webull_order_history,
     get_webull_open_orders,
     get_webull_portfolio_preview,
     normalize_webull_environment,
@@ -122,6 +123,25 @@ class WebullServiceTests(unittest.TestCase):
         }])
         self.assertEqual(request_mock.call_args.args[4], '/trading/orders/open-orders/list')
         self.assertEqual(request_mock.call_args.kwargs['query_params']['account_id'], '1234')
+
+    def test_order_history_flattens_grouped_order_items(self):
+        accounts = [{'account_id': '1234', 'account_type': 'STOCK', 'account_name': 'Individual'}]
+        response = Mock(status_code=200)
+        response.json.return_value = {'data': {'items': [{
+            'client_order_id': 'parent-order', 'status': 'FILLED',
+            'filled_time_at': '2026-08-27T12:00:00Z',
+            'items': [{'symbol': 'AAPL', 'side': 'BUY', 'order_type': 'LIMIT', 'total_quantity': '2'}],
+        }]}}
+        with patch('services.webull_service.get_webull_accounts', return_value=accounts), \
+             patch('services.webull_service._webull_request', return_value=response):
+            orders = get_webull_order_history('app-key', 'app-secret', access_token='private-token')
+
+        self.assertEqual(orders, [{
+            'client_order_id': 'parent-order', 'status': 'FILLED',
+            'filled_time_at': '2026-08-27T12:00:00Z', 'symbol': 'AAPL',
+            'side': 'BUY', 'order_type': 'LIMIT', 'total_quantity': '2',
+            '_webull_account_id': '1234', '_webull_account_type': 'STOCK',
+        }])
 
     def test_signature_matches_webulls_documented_example(self):
         signature = generate_webull_signature(

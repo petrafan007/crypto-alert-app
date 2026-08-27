@@ -461,7 +461,7 @@ export default function Help({ isLightMode }) {
             <Section id="portfolio-table" icon={<FaListAlt />} title="Portfolio Table">
                 <p style={{ marginBottom: '16px' }}>
                     The Portfolio table lists every coin you hold on Binance.US worth at least $1.00 (or manually
-                    unhidden). It can also display imported Webull positions, which are marked with a Webull badge
+                    unhidden). It can also display imported Webull positions, marked with a bull source icon; hover it to identify Webull. Binance.US rows use the Binance icon. The icon immediately after the source identifies crypto versus traditional assets.
                     and are strictly read-only: they do not support Binance.US trading, alerts, AI sentiment, news,
                     staking, notes, or hiding. Each Binance.US row supports a full set of actions:
                 </p>
@@ -573,7 +573,7 @@ export default function Help({ isLightMode }) {
                     <li><strong>Order types</strong> — Market, Limit, Stop-Loss, Stop-Loss-Limit, Take-Profit, Take-Profit-Limit, OCO (One-Cancels-the-Other), and Limit Maker (availability depends on the selected pair)</li>
                     <li><strong>Order Placement panel</strong> — MAX balance button, quote-quantity 2-way sync, a percentage slider (0/25/50/75/100%), and an order summary with estimated fees</li>
                     <li><strong>Open Orders tab</strong> — all pending real exchange orders plus any active Auto-Buy/Auto-Sell triggers</li>
-                    <li><strong>Order History tab</strong> — paginated (20 rows/page) history of filled and cancelled orders, filterable by pair. The Origin badge distinguishes manual orders, Auto-Sell/Auto-Buy execution, and a manual order canceled by Auto-Sell to release its balance.</li>
+                    <li><strong>Order History tabs</strong> — Binance.US, Webull, and combined Orders histories are paginated at 50 rows by default. Choose 20, 50, 100, or 200 rows per page. The Binance.US Origin badge distinguishes manual orders, Auto-Sell/Auto-Buy execution, and a manual order canceled by Auto-Sell to release its balance.</li>
                     <li><strong>Convert Dust</strong> — sweep small leftover balances into a supported asset in one action</li>
                 </ul>
                 <Tip>

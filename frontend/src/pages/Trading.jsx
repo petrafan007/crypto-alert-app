@@ -116,7 +116,7 @@ const Trading = ({ isLightMode = false }) => {
   const [showCanceledOrders, setShowCanceledOrders] = useState(false);
   const [historySymbolFilter, setHistorySymbolFilter] = useState('ALL');
   const [historyPage, setHistoryPage] = useState(1);
-  const HISTORY_PAGE_SIZE = 20;
+  const [historyPageSize, setHistoryPageSize] = useState(50);
 
   // Modal state for feedback
   const [feedbackModal, setFeedbackModal] = useState({
@@ -1620,7 +1620,7 @@ const Trading = ({ isLightMode = false }) => {
     setHistoryPage(1);
   }, [historySymbolFilter, showCanceledOrders]);
 
-  const totalHistoryPages = Math.max(1, Math.ceil(filteredOrders.length / HISTORY_PAGE_SIZE));
+  const totalHistoryPages = Math.max(1, Math.ceil(filteredOrders.length / historyPageSize));
 
   useEffect(() => {
     if (historyPage > totalHistoryPages) {
@@ -1629,9 +1629,9 @@ const Trading = ({ isLightMode = false }) => {
   }, [historyPage, totalHistoryPages]);
 
   const paginatedOrders = useMemo(() => {
-    const startIndex = (historyPage - 1) * HISTORY_PAGE_SIZE;
-    return filteredOrders.slice(startIndex, startIndex + HISTORY_PAGE_SIZE);
-  }, [filteredOrders, historyPage]);
+    const startIndex = (historyPage - 1) * historyPageSize;
+    return filteredOrders.slice(startIndex, startIndex + historyPageSize);
+  }, [filteredOrders, historyPage, historyPageSize]);
 
   return (
     <div className="trading-container" style={{ minHeight: '100vh', padding: '20px', color: 'white' }}>
@@ -2263,6 +2263,11 @@ const Trading = ({ isLightMode = false }) => {
                   </label>
                   <span className="order-history-toggle-label">Show Canceled Orders</span>
                 </div>
+                <label className="order-page-size-label">Rows
+                  <select value={historyPageSize} onChange={(event) => { setHistoryPageSize(Number(event.target.value)); setHistoryPage(1); }}>
+                    {[20, 50, 100, 200].map((size) => <option key={size} value={size}>{size}</option>)}
+                  </select>
+                </label>
               </div>
             </div>
 
@@ -2325,7 +2330,7 @@ const Trading = ({ isLightMode = false }) => {
                 {filteredOrders.length > 0 && (
                   <div className="order-history-pagination">
                     <div className="order-history-pagination-info">
-                      Showing {(historyPage - 1) * HISTORY_PAGE_SIZE + 1}–{Math.min(historyPage * HISTORY_PAGE_SIZE, filteredOrders.length)} of {filteredOrders.length} orders
+                      Showing {(historyPage - 1) * historyPageSize + 1}–{Math.min(historyPage * historyPageSize, filteredOrders.length)} of {filteredOrders.length} orders
                     </div>
                     {totalHistoryPages > 1 && (
                       <div className="order-history-pagination-controls">

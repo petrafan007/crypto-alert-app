@@ -131,7 +131,9 @@
 
 .order-table-scroll {
   max-height: min(calc(var(--order-row-height, 46px) * 50), 70vh);
-  overflow-y: auto;
+  overflow: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(148, 163, 184, 0.8) rgba(15, 23, 42, 0.14);
 }
 
 .order-table-scroll::-webkit-scrollbar {
@@ -141,6 +143,10 @@
 .order-table-scroll::-webkit-scrollbar-thumb {
   background: rgba(255, 255, 255, 0.2);
   border-radius: 4px;
+}
+
+.order-table-scroll::-webkit-scrollbar-track {
+  background: rgba(15, 23, 42, 0.14);
 }
 
 @media (max-width: 768px) {
@@ -1879,6 +1885,72 @@ body.light-mode .portfolio-table td strong {
   display: flex;
   align-items: center;
   gap: 0.4rem;
+}
+
+.order-page-size-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: #94a3b8;
+  font-size: 0.85rem;
+  white-space: nowrap;
+}
+
+.order-page-size-label select {
+  padding: 0.35rem 0.5rem;
+  border: 1px solid #334155;
+  border-radius: 6px;
+  background: #1e293b;
+  color: #f8fafc;
+  font: inherit;
+}
+
+.order-page-indicator {
+  color: #94a3b8;
+  font-size: 0.85rem;
+  white-space: nowrap;
+}
+
+body.light-mode .order-table-scroll {
+  scrollbar-color: #64748b #e2e8f0;
+}
+
+body.light-mode .order-table-scroll::-webkit-scrollbar-track {
+  background: #e2e8f0;
+}
+
+body.light-mode .order-table-scroll::-webkit-scrollbar-thumb {
+  background: #64748b;
+  border: 2px solid #e2e8f0;
+}
+
+body.light-mode .order-history-pagination {
+  border-top-color: #cbd5e1;
+}
+
+body.light-mode .order-page-size-label,
+body.light-mode .order-page-indicator,
+body.light-mode .order-history-pagination-info {
+  color: #475569;
+}
+
+body.light-mode .order-page-size-label select,
+body.light-mode .pagination-btn {
+  background: #ffffff;
+  border-color: #94a3b8;
+  color: #1e293b;
+}
+
+body.light-mode .pagination-btn:hover:not(:disabled) {
+  background: #e0f2fe;
+  border-color: #0284c7;
+  color: #075985;
+}
+
+body.light-mode .pagination-btn.active {
+  background: #0284c7;
+  border-color: #0284c7;
+  color: #ffffff;
 }
 
 .pagination-btn {

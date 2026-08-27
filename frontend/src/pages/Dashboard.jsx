@@ -19,7 +19,8 @@ import StakingYieldWidget from '../components/StakingYieldWidget';
 import RiskMonitorWidget from '../components/RiskMonitorWidget';
 import QuickTradeWidget from '../components/QuickTradeWidget';
 import GasMonitorWidget from '../components/GasMonitorWidget';
-import { FaSyncAlt } from 'react-icons/fa';
+import { FaBitcoin, FaDollarSign, FaSyncAlt } from 'react-icons/fa';
+import { SiBinance } from 'react-icons/si';
 import CryptoIcon from '../components/CryptoIcon';
 import TableColumnModal from '../components/TableColumnModal';
 import CancelOrderConfirmModal from '../components/CancelOrderConfirmModal';
@@ -4345,6 +4346,7 @@ function Dashboard({ isLightMode }) {
                   sortData(scopedPortfolio, sortConfig.key).map((coin) => {
                     const sym = (coin.symbol || '').toUpperCase().trim();
                     const isExternal = coin.is_external === true || coin.source === 'webull';
+                    const isCryptoAsset = !isExternal || /crypto|coin|token/i.test(coin.instrument_type || '');
                     const isStable = ['USD', 'USDT', 'USDC', 'BUSD', 'DAI', 'TUSD', 'USDP'].includes(sym);
                     const isPlaceholder = !!coin.pendingPlaceholder || !coin.id;
                     const alertTitle = isPlaceholder
@@ -4400,7 +4402,20 @@ function Dashboard({ isLightMode }) {
                                   <div className="coin-symbol-container" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', justifyContent: 'center' }}>
                                     <CryptoIcon symbol={coin.symbol} size={20} />
                                     <span>{coin.symbol}</span>
-                                    {isExternal && <span style={{ fontSize: '0.7rem', color: '#60a5fa', border: '1px solid rgba(96,165,250,.55)', borderRadius: '4px', padding: '1px 4px' }}>Webull</span>}
+                                    <span
+                                      title={isExternal ? 'Webull' : 'Binance'}
+                                      aria-label={isExternal ? 'Webull' : 'Binance'}
+                                      style={{ display: 'inline-flex', alignItems: 'center', color: isExternal ? '#60a5fa' : '#f3ba2f', fontSize: '1rem' }}
+                                    >
+                                      {isExternal ? '🐂' : <SiBinance />}
+                                    </span>
+                                    <span
+                                      title={isCryptoAsset ? 'Crypto asset' : 'Traditional asset'}
+                                      aria-label={isCryptoAsset ? 'Crypto asset' : 'Traditional asset'}
+                                      style={{ display: 'inline-flex', alignItems: 'center', color: isCryptoAsset ? '#f7931a' : 'var(--text-secondary, #64748b)', fontSize: '0.92rem' }}
+                                    >
+                                      {isCryptoAsset ? <FaBitcoin /> : <FaDollarSign />}
+                                    </span>
                                   </div>
                                 </td>
                               );

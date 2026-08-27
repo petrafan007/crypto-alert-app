@@ -122,6 +122,13 @@ The application utilizes a **unified PostgreSQL database**.
 
 ## Version History & Changelog
 
+## v2.30.1 (August 2026)
+
+- **Reliable Exchange Menu**: Fixed the Trading exchange menu to remain open while moving into it, close only on an outside click or Escape, and respect the active light/dark theme.
+- **Correct Webull Order Rows**: Flattened Webull grouped order responses so their actual order-leg symbols, sides, types, quantities, timestamps, and statuses display instead of `UNKNOWN` placeholders.
+- **Complete Orders Views**: Combined Open Orders now falls back to qualifying Binance.US all-order records when the dedicated open-order response lags. Combined history retains Webull rows, all history views paginate at 50 by default with 20/50/100/200 choices, and light mode uses a visible table scrollbar.
+- **Compact Portfolio Identity**: Portfolio rows now use hoverable Binance and Webull source icons, followed by a crypto or traditional-asset icon, conserving table space without losing context.
+
 ## v2.30.0 (August 2026)
 
 - **Exchange-Aware Navigation**: Replaced the single Trading link with an extensible exchange menu for Binance.US and Webull, moved AI Analysis into the Binance.US Trading tabs, and preserved existing `/trading` and `/ai-analysis` links for continuity.

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, useLocation, Link } from 'react-router-dom';
 import { useAuth } from './components/AuthContext';
 import axios from 'axios';
@@ -56,6 +56,7 @@ export default function App() {
   const [selectedHiddenCoins, setSelectedHiddenCoins] = useState([]);
   const [selectAllHidden, setSelectAllHidden] = useState(false);
   const [showTradingMenu, setShowTradingMenu] = useState(false);
+  const tradingMenuRef = useRef(null);
   const [isLightMode, setIsLightMode] = useState(() => {
     const stored = localStorage.getItem('theme');
     return stored ? stored === 'light' : false;
@@ -90,6 +91,26 @@ export default function App() {
     }
     return () => clearTimeout(timeout);
   }, [isLightMode]);
+
+  // Keep the exchange menu open while moving from its trigger into the
+  // popover. Dismiss only from an intentional outside click or Escape.
+  useEffect(() => {
+    if (!showTradingMenu) return undefined;
+    const dismiss = (event) => {
+      if (tradingMenuRef.current && !tradingMenuRef.current.contains(event.target)) {
+        setShowTradingMenu(false);
+      }
+    };
+    const dismissOnEscape = (event) => {
+      if (event.key === 'Escape') setShowTradingMenu(false);
+    };
+    document.addEventListener('mousedown', dismiss);
+    document.addEventListener('keydown', dismissOnEscape);
+    return () => {
+      document.removeEventListener('mousedown', dismiss);
+      document.removeEventListener('keydown', dismissOnEscape);
+    };
+  }, [showTradingMenu]);
 
 
 
@@ -176,7 +197,7 @@ export default function App() {
                   📊 Dashboard
                 </Link>
               )}
-              <div className="nav-menu" onMouseLeave={() => setShowTradingMenu(false)}>
+              <div ref={tradingMenuRef} className="nav-menu">
                 <button
                   type="button"
                   className="nav-link"

@@ -224,6 +224,39 @@ def get_webull_portfolio_preview(app_key, app_secret, environment='production', 
     return preview
 
 
+def _flatten_webull_order_groups(records):
+    """Flatten Webull's grouped historical/combo-order response shape.
+
+    Webull returns a top-level order group with the shared timestamps and
+    status, while the executable leg(s)—including the symbol—live in ``items``
+    or ``orders``.  Rendering the group itself produces empty/UNKNOWN values.
+    Preserve the parent fields and emit one real row per underlying order.
+    """
+    flattened = []
+    for record in records or []:
+        if not isinstance(record, dict):
+            continue
+        children = record.get('items') or record.get('orders') or record.get('legs')
+        if not isinstance(children, list) or not children:
+            flattened.append(record)
+            continue
+        parent = {key: value for key, value in record.items() if key not in {'items', 'orders', 'legs'}}
+        emitted = False
+        for child in children:
+            if not isinstance(child, dict):
+                continue
+            # Child values identify the actual instrument; parent values carry
+            # timestamps/status for grouped orders.  A child only overrides a
+            # parent when it supplies a meaningful value.
+            merged = dict(parent)
+            merged.update({key: value for key, value in child.items() if value not in (None, '')})
+            flattened.append(merged)
+            emitted = True
+        if not emitted:
+            flattened.append(parent)
+    return flattened
+
+
 def get_webull_order_history(app_key, app_secret, environment='production', access_token=None, page_size=100):
     """Return recent historical orders for every authenticated Webull account.
 
@@ -255,7 +288,7 @@ def get_webull_order_history(app_key, app_secret, environment='production', acce
             items = items.get('orders') or items.get('items') or items.get('list') or []
         if not isinstance(items, list):
             continue
-        for order in items:
+        for order in _flatten_webull_order_groups(items):
             if isinstance(order, dict):
                 records.append({**order, '_webull_account_id': account_id, '_webull_account_type': account.get('account_type')})
     return records
@@ -290,7 +323,7 @@ def get_webull_open_orders(app_key, app_secret, environment='production', access
             items = items.get('orders') or items.get('items') or items.get('list') or []
         if not isinstance(items, list):
             continue
-        for order in items:
+        for order in _flatten_webull_order_groups(items):
             if isinstance(order, dict):
                 records.append({
                     **order,

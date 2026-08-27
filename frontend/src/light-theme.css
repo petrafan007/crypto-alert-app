@@ -64,7 +64,7 @@ button.nav-link {
   display: inline-block;
 }
 
-.nav-menu-popover {
+body.light-mode .nav-menu-popover {
   background: #fff;
   border-color: #cbd5e1;
   box-shadow: 0 12px 24px rgba(15, 23, 42, 0.18);

@@ -2374,8 +2374,14 @@ def get_real_orders_only():
                         'quantity': float_or_zero(quantity), 'price': float_or_zero(price),
                         'filled_quantity': float_or_zero(filled_quantity), 'filled_price': float_or_zero(filled_price),
                         'status': order.get('status') or order.get('order_status') or 'UNKNOWN',
-                        'created_at': normalize_timestamp(order.get('created_at') or order.get('create_time') or order.get('placed_time')),
-                        'updated_at': normalize_timestamp(order.get('updated_at') or order.get('update_time') or order.get('filled_time')),
+                        'created_at': normalize_timestamp(
+                            order.get('created_at') or order.get('create_time') or order.get('placed_time')
+                            or order.get('place_time') or order.get('submitted_time') or order.get('filled_time_at')
+                        ),
+                        'updated_at': normalize_timestamp(
+                            order.get('updated_at') or order.get('update_time') or order.get('filled_time')
+                            or order.get('filled_time_at') or order.get('last_updated_time')
+                        ),
                         'source': 'webull', 'origin': 'webull', 'origin_label': 'Webull',
                         'instrument_type': order.get('instrument_type'),
                         'webull_account_type': order.get('_webull_account_type'),
