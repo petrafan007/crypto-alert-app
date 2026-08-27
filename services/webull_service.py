@@ -146,12 +146,12 @@ def get_webull_account_list(app_key, app_secret, environment='production', acces
 
 def create_webull_access_token(app_key, app_secret, environment='production'):
     """Request a Webull token. Production commonly returns PENDING until app/SMS approval."""
-    # The current public API documents the plural endpoint. The official SDK still
-    # uses the legacy OpenAPI endpoint, so only fall back when the documented path
-    # is not available; never create a second token after a substantive response.
-    response = _webull_request(app_key, app_secret, environment, 'POST', '/auth/tokens/create', body={})
-    if getattr(response, 'status_code', None) == 404:
-        response = _webull_request(app_key, app_secret, environment, 'POST', '/openapi/auth/token/create', body={})
+    # Match Webull's official Python SDK first. The newer documentation lists a
+    # plural path, but production currently rejects our App-Key signature there
+    # before it reaches the token flow. Its SDK uses this OpenAPI path.
+    response = _webull_request(app_key, app_secret, environment, 'POST', '/openapi/auth/token/create', body={})
+    if getattr(response, 'status_code', None) in {401, 404}:
+        response = _webull_request(app_key, app_secret, environment, 'POST', '/auth/tokens/create', body={})
     return _token_details(_response_payload(response, 'token creation'), 'token creation')
 
 
@@ -160,11 +160,11 @@ def check_webull_access_token(app_key, app_secret, access_token, environment='pr
     if not access_token:
         raise WebullConnectionError('Start Webull verification before checking its status.')
     response = _webull_request(
-        app_key, app_secret, environment, 'POST', '/auth/tokens/check', body={'token': access_token}
+        app_key, app_secret, environment, 'POST', '/openapi/auth/token/check', body={'token': access_token}
     )
-    if getattr(response, 'status_code', None) == 404:
+    if getattr(response, 'status_code', None) in {401, 404}:
         response = _webull_request(
-            app_key, app_secret, environment, 'POST', '/openapi/auth/token/check', body={'token': access_token}
+            app_key, app_secret, environment, 'POST', '/auth/tokens/check', body={'token': access_token}
         )
     return _token_details(_response_payload(response, 'token status check'), 'token status check')
 

@@ -122,6 +122,12 @@ The application utilizes a **unified PostgreSQL database**.
 
 ## Version History & Changelog
 
+## v2.24.3 (August 2026)
+
+### Webull Token Endpoint Compatibility
+- **SDK-first Token Requests**: Webull token creation and status checks now use the endpoint used by Webull's official Python SDK first, with the newer documented endpoint retained as a compatibility fallback.
+- **Version Bump**: Transitioned version to `v2.24.3`.
+
 ## v2.24.2 (August 2026)
 
 ### Webull Production 2FA Verification

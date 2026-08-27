@@ -50,7 +50,7 @@ class WebullServiceTests(unittest.TestCase):
 
         self.assertEqual(result['status'], 'PENDING')
         self.assertEqual(result['token'], 'private-token')
-        self.assertEqual(request_mock.call_args.args[4], '/auth/tokens/create')
+        self.assertEqual(request_mock.call_args.args[4], '/openapi/auth/token/create')
 
     def test_check_token_posts_the_saved_token(self):
         response = Mock(status_code=200)
@@ -63,6 +63,19 @@ class WebullServiceTests(unittest.TestCase):
         self.assertEqual(result['status'], 'NORMAL')
         self.assertEqual(request_mock.call_args.kwargs['body'], {'token': 'private-token'})
         self.assertIsNotNone(parse_webull_expiry(result['expires']))
+
+    def test_token_creation_retries_the_documented_path_after_sdk_path_auth_failure(self):
+        rejected = Mock(status_code=401, text='Unauthorized')
+        accepted = Mock(status_code=200)
+        accepted.json.return_value = {
+            'token': 'private-token', 'status': 'PENDING', 'expires': '2026-08-27T12:00:00Z'
+        }
+        with patch('services.webull_service._webull_request', side_effect=[rejected, accepted]) as request_mock:
+            result = create_webull_access_token('app-key', 'app-secret')
+
+        self.assertEqual(result['status'], 'PENDING')
+        self.assertEqual(request_mock.call_count, 2)
+        self.assertEqual(request_mock.call_args_list[1].args[4], '/auth/tokens/create')
 
     def test_expiry_parser_accepts_webull_epoch_milliseconds(self):
         parsed = parse_webull_expiry(1787832000000)
