@@ -13,6 +13,7 @@ import StakingSummaryWidget from '../components/StakingSummaryWidget';
 import PortfolioPerformanceTable from '../components/PortfolioPerformanceTable';
 import DashboardWidgetGrid from '../components/DashboardWidgetGrid';
 import TopMoversWidget from '../components/TopMoversWidget';
+import TopStockMoversWidget from '../components/TopStockMoversWidget';
 import RecentTradesWidget from '../components/RecentTradesWidget';
 import AIPulseWidget from '../components/AIPulseWidget';
 import StakingYieldWidget from '../components/StakingYieldWidget';
@@ -124,6 +125,8 @@ function Dashboard({ isLightMode }) {
   const [accountScope, setAccountScope] = useState(() => localStorage.getItem('dashboard_account_scope') || 'all');
   const [portfolio, setPortfolio] = useState([]);
   const [watchlist, setWatchlist] = useState([]);
+  const [portfolioAssetFilter, setPortfolioAssetFilter] = useState(() => localStorage.getItem('dashboard_portfolio_asset_filter') || 'all');
+  const [watchlistAssetFilter, setWatchlistAssetFilter] = useState(() => localStorage.getItem('dashboard_watchlist_asset_filter') || 'all');
   const [loading, setLoading] = useState(true);
   const pendingAddedWatchlistSymbolsRef = useRef(new Map());
   // Watchlist background fetches (poll cycles, sentiment refresh, etc.) can resolve out of
@@ -314,6 +317,41 @@ function Dashboard({ isLightMode }) {
     return new Set(scopedPortfolio.map(c => (c.symbol || '').toUpperCase()).filter(Boolean));
   }, [scopedPortfolio]);
 
+  const isTraditionalAsset = (asset) => Boolean(
+    (asset?.is_external === true || asset?.source === 'webull')
+    && !/crypto|coin|token/i.test(asset?.instrument_type || '')
+  );
+  const matchesAssetFilter = (asset, filter) => (
+    filter === 'all' || (filter === 'traditional' ? isTraditionalAsset(asset) : !isTraditionalAsset(asset))
+  );
+
+  const ownedStockSymbols = useMemo(() => {
+    return new Set(
+      portfolio
+        .filter(c => (c.is_external === true || c.source === 'webull') && isTraditionalAsset(c))
+        .map(c => (c.symbol || '').toUpperCase())
+        .filter(Boolean)
+    );
+  }, [portfolio]);
+
+  const displayedPortfolio = useMemo(
+    () => scopedPortfolio.filter(asset => matchesAssetFilter(asset, portfolioAssetFilter)),
+    [scopedPortfolio, portfolioAssetFilter]
+  );
+  const displayedWatchlist = useMemo(
+    () => getDisplayWatchlist().filter(asset => matchesAssetFilter(asset, watchlistAssetFilter)),
+    [watchlist, watchlistAssetFilter, sortConfig]
+  );
+  const changeAssetFilter = (table, nextFilter) => {
+    if (table === 'portfolio') {
+      setPortfolioAssetFilter(nextFilter);
+      localStorage.setItem('dashboard_portfolio_asset_filter', nextFilter);
+    } else {
+      setWatchlistAssetFilter(nextFilter);
+      localStorage.setItem('dashboard_watchlist_asset_filter', nextFilter);
+    }
+  };
+
   const changeAccountScope = (nextScope) => {
     setAccountScope(nextScope);
     localStorage.setItem('dashboard_account_scope', nextScope);
@@ -475,7 +513,7 @@ function Dashboard({ isLightMode }) {
   const [recentTradesDraftMaxOrders, setRecentTradesDraftMaxOrders] = useState(5);
   const [recentTradesDraftStatuses, setRecentTradesDraftStatuses] = useState(['FILLED', 'NEW', 'CANCELED', 'PARTIALLY_FILLED']);
 
-  // Top Gainers & Losers (market-wide) config modal state
+  // Top Crypto Gainers & Losers (market-wide) config modal state
   const [showTopMoversModal, setShowTopMoversModal] = useState(false);
   const [topMoversConfig, setTopMoversConfig] = useState(() => {
     try {
@@ -488,6 +526,20 @@ function Dashboard({ isLightMode }) {
     return { count: 10 };
   });
   const [topMoversDraftCount, setTopMoversDraftCount] = useState(10);
+
+  // Top Stock Gainers & Losers (market-wide) config modal state
+  const [showTopStockMoversModal, setShowTopStockMoversModal] = useState(false);
+  const [topStockMoversConfig, setTopStockMoversConfig] = useState(() => {
+    try {
+      const saved = localStorage.getItem('stock_top_movers_config_persistent');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        return { count: Math.max(3, Math.min(50, parseInt(parsed.count, 10) || 10)) };
+      }
+    } catch (e) {}
+    return { count: 10 };
+  });
+  const [topStockMoversDraftCount, setTopStockMoversDraftCount] = useState(10);
 
   const tradeQuoteMenuStyle = isMobile
     ? { display: 'flex', flexDirection: 'column', gap: 4, margin: '0 0 4px' }
@@ -835,6 +887,23 @@ function Dashboard({ isLightMode }) {
       console.error('Error saving top movers config:', e);
     }
     setShowTopMoversModal(false);
+  };
+
+  const handleOpenTopStockMoversModal = () => {
+    setTopStockMoversDraftCount(topStockMoversConfig.count || 10);
+    setShowTopStockMoversModal(true);
+  };
+
+  const handleSaveTopStockMoversModal = () => {
+    const clamped = Math.max(3, Math.min(50, parseInt(topStockMoversDraftCount, 10) || 10));
+    const newConfig = { count: clamped };
+    setTopStockMoversConfig(newConfig);
+    try {
+      localStorage.setItem('stock_top_movers_config_persistent', JSON.stringify(newConfig));
+    } catch (e) {
+      console.error('Error saving stock top movers config:', e);
+    }
+    setShowTopStockMoversModal(false);
   };
 
   const toggleTradeQuoteMenu = (type, key, side, event) => {
@@ -1737,7 +1806,7 @@ function Dashboard({ isLightMode }) {
     async function fetchTrend() {
       setTrendLoading(true);
       try {
-        const res = await axios.get(`/api/true-portfolio-history?range=${trendRange}`, {
+        const res = await axios.get(`/api/true-portfolio-history?range=${trendRange}&account_scope=${accountScope}`, {
           withCredentials: true,
           signal: controller.signal,
         });
@@ -1761,7 +1830,7 @@ function Dashboard({ isLightMode }) {
     }
     fetchTrend();
     return () => controller.abort();
-  }, [trendRange]);
+  }, [trendRange, accountScope]);
 
   // Fetch stakeable coins
   useEffect(() => {
@@ -3229,6 +3298,7 @@ function Dashboard({ isLightMode }) {
 
         const data = {
           id: item.id,
+          table_type: item.source === 'webull' ? 'webull' : 'portfolio',
           type: direction,
           pct_type: currentType,
           value: roundedValue
@@ -3316,6 +3386,7 @@ function Dashboard({ isLightMode }) {
 
         const data = {
           id: item.id,
+          table_type: item.source === 'webull' ? 'webull' : 'portfolio',
           type: direction,
           pct_type: newType,
           value: null // Clear value when changing type
@@ -3371,6 +3442,7 @@ function Dashboard({ isLightMode }) {
         justifyContent: 'center'
       }}>
         <input
+          key={`${item.id}-${direction}-${currentType}`}
           type="text"
           defaultValue={currentValue}
           disabled={isAutoType}
@@ -3415,7 +3487,7 @@ function Dashboard({ isLightMode }) {
         >
           <option value="#">#</option>
           <option value="%">%</option>
-          <option value="Auto%">Auto%</option>
+          {item.source !== 'webull' && <option value="Auto%">Auto%</option>}
         </select>
       </div>
     );
@@ -3480,6 +3552,7 @@ function Dashboard({ isLightMode }) {
         justifyContent: 'center'
       }}>
         <input
+          key={`${item.id || item.symbol}-${direction}`}
           type="text"
           defaultValue={currentValue}
           onChange={(e) => {
@@ -3599,7 +3672,7 @@ function Dashboard({ isLightMode }) {
     try {
       const endpoint = '/api/set-volatility-pct';
       const data = {
-        id: tableType === 'portfolio' ? item.id : null,
+        id: tableType === 'portfolio' || tableType === 'webull' ? item.id : null,
         symbol: tableType === 'watchlist' ? item.symbol : null,
         table_type: tableType,
         volatility_pct: value
@@ -3616,7 +3689,7 @@ function Dashboard({ isLightMode }) {
           ...(coin.auto_buy_enabled ? { auto_buy_volatility_pct: value } : {}),
           ...(coin.auto_sell_enabled ? { auto_sell_volatility_pct: value } : {})
         });
-        if (tableType === 'portfolio') {
+        if (tableType === 'portfolio' || tableType === 'webull') {
           setPortfolio(prev => prev.map(coin =>
             coin.id === item.id ? applyUpdate(coin) : coin
           ));
@@ -3636,11 +3709,11 @@ function Dashboard({ isLightMode }) {
       e.preventDefault();
       e.stopPropagation();
     }
-    const tableType = isWatchlist ? 'watchlist' : 'portfolio';
+    const tableType = item.source === 'webull' ? 'webull' : (isWatchlist ? 'watchlist' : 'portfolio');
     const nextEnabled = item.sentiment_tracking_enabled === false;
     try {
       const response = await axios.post('/api/toggle-sentiment-tracking', {
-        id: tableType === 'portfolio' ? item.id : null,
+        id: tableType === 'portfolio' || tableType === 'webull' ? item.id : null,
         symbol: tableType === 'watchlist' ? item.symbol : null,
         table_type: tableType,
         enabled: nextEnabled
@@ -3679,10 +3752,12 @@ function Dashboard({ isLightMode }) {
     return tier.charAt(0).toUpperCase() + tier.slice(1).toLowerCase();
   };
 
-  const handleSingleSentimentRefresh = async (symbol, isWatchlist, e) => {
+  const handleSingleSentimentRefresh = async (target, isWatchlist, e) => {
     if (e) {
       e.stopPropagation();
     }
+    const externalHolding = target && typeof target === 'object' && target.source === 'webull' ? target : null;
+    const symbol = externalHolding ? externalHolding.symbol : target;
     if (!symbol) return;
     const cleanSymbol = symbol.toUpperCase().trim();
     if (['USD', 'USDT', 'USDC', 'BUSD', 'DAI', 'TUSD', 'USDP'].includes(cleanSymbol)) return;
@@ -3694,6 +3769,39 @@ function Dashboard({ isLightMode }) {
     const initialLastUpdated = currentCoin?.sentiment_last_updated || null;
 
     setRefreshingSentiment(prev => ({ ...prev, [cleanSymbol]: true }));
+
+    if (externalHolding) {
+      try {
+        const response = await axios.post('/api/webull/ai-analysis', {
+          holding_id: externalHolding.id,
+        }, { withCredentials: true });
+        const signal = response.data?.signal;
+        if (response.data?.success && signal) {
+          setPortfolio(prev => prev.map(coin => coin.id === externalHolding.id ? {
+            ...coin,
+            sentiment: signal.recommendation,
+            sentiment_reason: signal.reason || '',
+            sentiment_last_updated: signal.created_at || new Date().toISOString(),
+            sentiment_provider: signal.ai_provider,
+            sentiment_model: signal.provider_model,
+            sentiment_tier: signal.ai_tier,
+            sentiment_search_status: signal.search_status,
+          } : coin));
+        } else {
+          throw new Error(response.data?.message || 'Unable to refresh Webull sentiment.');
+        }
+      } catch (err) {
+        console.error('Failed to trigger Webull sentiment refresh:', err);
+        setNotification({ show: true, message: err.response?.data?.message || err.message || 'Unable to refresh Webull sentiment.', type: 'error' });
+      } finally {
+        setRefreshingSentiment(prev => {
+          const next = { ...prev };
+          delete next[cleanSymbol];
+          return next;
+        });
+      }
+      return;
+    }
     
     // Optimistically update local state to "Checking now..."
     if (isWatchlist) {
@@ -3969,7 +4077,7 @@ function Dashboard({ isLightMode }) {
           </span>
           <button
             type="button"
-            onClick={(e) => handleSingleSentimentRefresh(coin.symbol, isWatchlist, e)}
+            onClick={(e) => handleSingleSentimentRefresh(coin, isWatchlist, e)}
             disabled={isChecking}
             title={isChecking ? 'Analysis in progress...' : `Refresh sentiment for ${coin.symbol}`}
             style={{
@@ -4183,7 +4291,7 @@ function Dashboard({ isLightMode }) {
                         Loading trend...
                       </div>
                     ) : (
-                      <PortfolioTrend key={trendRange} history={trendHistory} range={trendRange} isLightMode={isLightMode} />
+                      <PortfolioTrend key={`${trendRange}-${accountScope}`} history={trendHistory} range={trendRange} isLightMode={isLightMode} />
                     )}
                   </div>
                   <div className="time-range-container portfolio-trend-ranges">
@@ -4232,8 +4340,10 @@ function Dashboard({ isLightMode }) {
                 : <PortfolioPerformanceTable hiddenCoins={performanceHiddenCoins} onEdit={handleOpenPerformanceCoinModal} onCoinClick={handleChartClick} />;
             case 'top_movers':
               return <TopMoversWidget isLightMode={isLightMode} config={topMoversConfig} onEdit={handleOpenTopMoversModal} ownedSymbols={ownedSymbols} onCoinClick={(symbol) => navigateToTrading(symbol, 'BUY', 'USDT')} />;
+            case 'top_stock_movers':
+              return <TopStockMoversWidget isLightMode={isLightMode} config={topStockMoversConfig} onEdit={handleOpenTopStockMoversModal} ownedSymbols={ownedStockSymbols} onStockClick={() => navigate('/trading/webull')} />;
             case 'recent_trades':
-              return <RecentTradesWidget isLightMode={isLightMode} config={recentTradesConfig} onEdit={handleOpenRecentTradesModal} onCoinClick={handleChartClick} />;
+              return <RecentTradesWidget isLightMode={isLightMode} config={recentTradesConfig} onEdit={handleOpenRecentTradesModal} onCoinClick={handleChartClick} accountScope={accountScope} />;
             case 'ai_pulse':
               return <AIPulseWidget isLightMode={isLightMode} />;
             case 'staking_rewards':
@@ -4263,6 +4373,14 @@ function Dashboard({ isLightMode }) {
               <div style={{ fontSize: '15px', fontWeight: '700', color: 'var(--accent-primary, #4fd1c5)', letterSpacing: '0.3px' }}>
                 Total Value: ${Number(scopedTotalValue || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
               </div>
+              <label title="Filter portfolio assets by type" style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', fontSize: '0.8rem', color: 'var(--text-secondary, #94a3b8)' }}>
+                {portfolioAssetFilter === 'traditional' ? <FaDollarSign /> : portfolioAssetFilter === 'crypto' ? <FaBitcoin /> : '◉'}
+                <select value={portfolioAssetFilter} onChange={(event) => changeAssetFilter('portfolio', event.target.value)} aria-label="Portfolio asset type" style={{ padding: '4px 24px 4px 6px', borderRadius: '5px', border: '1px solid var(--border-color)', background: 'var(--bg-tertiary)', color: 'var(--text-primary)', fontWeight: 700 }}>
+                  <option value="all">All</option>
+                  <option value="crypto">₿ Crypto</option>
+                  <option value="traditional">$ Traditional</option>
+                </select>
+              </label>
               <button
                 type="button"
                 className="table-customize-columns-btn"
@@ -4332,7 +4450,7 @@ function Dashboard({ isLightMode }) {
                 </tr>
               </thead>
               <tbody>
-                {!Array.isArray(scopedPortfolio) || scopedPortfolio.length === 0 ? (
+                {!Array.isArray(displayedPortfolio) || displayedPortfolio.length === 0 ? (
                   <tr>
                     <td
                       colSpan={portfolioColOrder.filter((k) => portfolioVisibleCols.includes(k) && PORTFOLIO_COLUMN_DEFINITIONS[k]).length || 11}
@@ -4343,7 +4461,7 @@ function Dashboard({ isLightMode }) {
                     </td>
                   </tr>
                 ) : (
-                  sortData(scopedPortfolio, sortConfig.key).map((coin) => {
+                  sortData(displayedPortfolio, sortConfig.key).map((coin) => {
                     const sym = (coin.symbol || '').toUpperCase().trim();
                     const isExternal = coin.is_external === true || coin.source === 'webull';
                     const isCryptoAsset = !isExternal || /crypto|coin|token/i.test(coin.instrument_type || '');
@@ -4384,7 +4502,7 @@ function Dashboard({ isLightMode }) {
                         {visibleCols.map((colKey) => {
                           // Imported brokerage positions are displayed alongside Binance
                           // holdings, but they must never inherit Binance-only controls.
-                          if (isExternal && !['symbol', 'amount', 'current_price', 'current_value', 'avg_entry', 'pct_change', 'pnl_usd', 'allocation_pct', 'last_updated'].includes(colKey)) {
+                          if (isExternal && !['symbol', 'amount', 'current_price', 'current_value', 'down_alert', 'up_alert', 'volatility_pct', 'avg_entry', 'pct_change', 'sentiment', 'pnl_usd', 'allocation_pct', 'last_updated'].includes(colKey)) {
                             return <td key={colKey} style={{ textAlign: 'center', color: 'var(--text-secondary, #94a3b8)' }}>—</td>;
                           }
                           switch (colKey) {
@@ -4458,7 +4576,7 @@ function Dashboard({ isLightMode }) {
                             case 'volatility_pct':
                               return (
                                 <td key="volatility_pct" style={{ textAlign: 'center' }}>
-                                  {renderVolatilityCell(coin, 'portfolio')}
+                                  {renderVolatilityCell(coin, isExternal ? 'webull' : 'portfolio')}
                                 </td>
                               );
                             case 'avg_entry': {
@@ -4741,15 +4859,25 @@ function Dashboard({ isLightMode }) {
         <div className="table-container watchlist-table">
           <div className="table-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
             <h2 className="table-title" style={{ margin: 0 }}>Watchlist</h2>
-            <button
-              type="button"
-              className="table-customize-columns-btn"
-              onClick={() => setColumnModal({ isOpen: true, tableType: 'watchlist' })}
-              title="Customize Watchlist Columns"
-              aria-label="Customize Watchlist Columns"
-            >
-              ✏️
-            </button>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <label title="Filter watchlist assets by type" style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', fontSize: '0.8rem', color: 'var(--text-secondary, #94a3b8)' }}>
+                {watchlistAssetFilter === 'traditional' ? <FaDollarSign /> : watchlistAssetFilter === 'crypto' ? <FaBitcoin /> : '◉'}
+                <select value={watchlistAssetFilter} onChange={(event) => changeAssetFilter('watchlist', event.target.value)} aria-label="Watchlist asset type" style={{ padding: '4px 24px 4px 6px', borderRadius: '5px', border: '1px solid var(--border-color)', background: 'var(--bg-tertiary)', color: 'var(--text-primary)', fontWeight: 700 }}>
+                  <option value="all">All</option>
+                  <option value="crypto">₿ Crypto</option>
+                  <option value="traditional">$ Traditional</option>
+                </select>
+              </label>
+              <button
+                type="button"
+                className="table-customize-columns-btn"
+                onClick={() => setColumnModal({ isOpen: true, tableType: 'watchlist' })}
+                title="Customize Watchlist Columns"
+                aria-label="Customize Watchlist Columns"
+              >
+                ✏️
+              </button>
+            </div>
           </div>
           <div className="watchlist-input">
             <input
@@ -4828,7 +4956,7 @@ function Dashboard({ isLightMode }) {
                 </tr>
               </thead>
               <tbody>
-                {!Array.isArray(watchlist) || watchlist.length === 0 ? (
+                {!Array.isArray(displayedWatchlist) || displayedWatchlist.length === 0 ? (
                   <tr>
                     <td
                       colSpan={watchlistColOrder.filter((k) => watchlistVisibleCols.includes(k) && WATCHLIST_COLUMN_DEFINITIONS[k]).length || 7}
@@ -4839,7 +4967,7 @@ function Dashboard({ isLightMode }) {
                     </td>
                   </tr>
                 ) : (
-                  getDisplayWatchlist().map((item) => {
+                  displayedWatchlist.map((item) => {
                     const visibleCols = watchlistColOrder.filter(
                       (k) => watchlistVisibleCols.includes(k) && WATCHLIST_COLUMN_DEFINITIONS[k]
                     );
@@ -4882,6 +5010,13 @@ function Dashboard({ isLightMode }) {
                                   <div className="coin-symbol-container" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', justifyContent: 'center' }}>
                                     <CryptoIcon symbol={item.symbol} size={20} />
                                     <span>{item.symbol}</span>
+                                    <span
+                                      title={isTraditionalAsset(item) ? 'Traditional asset' : 'Crypto asset'}
+                                      aria-label={isTraditionalAsset(item) ? 'Traditional asset' : 'Crypto asset'}
+                                      style={{ display: 'inline-flex', alignItems: 'center', color: isTraditionalAsset(item) ? 'var(--text-secondary, #64748b)' : '#f7931a', fontSize: '0.92rem' }}
+                                    >
+                                      {isTraditionalAsset(item) ? <FaDollarSign /> : <FaBitcoin />}
+                                    </span>
                                   </div>
                                 </td>
                               );
@@ -5914,7 +6049,7 @@ function Dashboard({ isLightMode }) {
           <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '460px', width: '90%' }}>
             <div className="modal-header">
               <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px', margin: 0 }}>
-                <span>✏️</span> Customize Top Gainers & Losers
+                <span>✏️</span> Customize Top Crypto Gainers & Losers
               </h3>
               <button className="modal-close" onClick={() => setShowTopMoversModal(false)}>×</button>
             </div>
@@ -6015,6 +6150,120 @@ function Dashboard({ isLightMode }) {
                 className="btn btn-primary"
                 style={{ backgroundColor: '#0284c7', borderColor: '#0284c7', color: '#fff', fontWeight: '600' }}
                 onClick={handleSaveTopMoversModal}
+              >
+                Save
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showTopStockMoversModal && (
+        <div className="modal-overlay" onClick={() => setShowTopStockMoversModal(false)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '460px', width: '90%' }}>
+            <div className="modal-header">
+              <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px', margin: 0 }}>
+                <span>✏️</span> Customize Top Stock Gainers & Losers
+              </h3>
+              <button className="modal-close" onClick={() => setShowTopStockMoversModal(false)}>×</button>
+            </div>
+
+            <div style={{ padding: '18px 20px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
+                <label style={{ fontSize: '13px', fontWeight: '700', color: 'var(--text-primary, #fff)' }}>
+                  Stocks Per Side
+                </label>
+                <span style={{
+                  fontSize: '13px',
+                  fontWeight: '700',
+                  color: '#38bdf8',
+                  background: 'rgba(56, 189, 248, 0.15)',
+                  padding: '2px 8px',
+                  borderRadius: '6px',
+                  border: '1px solid rgba(56, 189, 248, 0.3)'
+                }}>
+                  Top {topStockMoversDraftCount} each
+                </span>
+              </div>
+              <p style={{ margin: '0 0 6px 0', fontSize: '12px', color: 'var(--text-secondary, #94a3b8)', lineHeight: 1.4 }}>
+                Choose how many gainers and losers to display across U.S. stocks (3 to 50 per side):
+              </p>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <input
+                  type="range"
+                  min="3"
+                  max="50"
+                  step="1"
+                  value={topStockMoversDraftCount}
+                  onChange={(e) => setTopStockMoversDraftCount(parseInt(e.target.value, 10) || 10)}
+                  className="slim-range-slider"
+                  style={{ flex: 1, accentColor: '#0284c7', cursor: 'pointer' }}
+                />
+                <input
+                  type="number"
+                  min="3"
+                  max="50"
+                  value={topStockMoversDraftCount}
+                  onChange={(e) => {
+                    const val = parseInt(e.target.value, 10);
+                    setTopStockMoversDraftCount(isNaN(val) ? 10 : Math.max(3, Math.min(50, val)));
+                  }}
+                  style={{
+                    width: '56px',
+                    padding: '6px 8px',
+                    textAlign: 'center',
+                    borderRadius: '6px',
+                    border: '1px solid var(--border-color, #334155)',
+                    backgroundColor: 'var(--input-bg, #1e293b)',
+                    color: 'var(--text-primary, #fff)',
+                    fontSize: '13px',
+                    fontWeight: '600'
+                  }}
+                />
+              </div>
+
+              <div style={{ display: 'flex', gap: '6px', marginTop: '4px' }}>
+                {[3, 5, 10, 25, 50].map(val => (
+                  <button
+                    key={val}
+                    type="button"
+                    onClick={() => setTopStockMoversDraftCount(val)}
+                    style={{
+                      padding: '3px 8px',
+                      fontSize: '11px',
+                      fontWeight: '600',
+                      borderRadius: '4px',
+                      cursor: 'pointer',
+                      background: topStockMoversDraftCount === val ? '#0284c7' : 'rgba(255,255,255,0.06)',
+                      color: topStockMoversDraftCount === val ? '#ffffff' : 'var(--text-secondary, #94a3b8)',
+                      border: `1px solid ${topStockMoversDraftCount === val ? '#38bdf8' : 'var(--border-color, rgba(255,255,255,0.1))'}`,
+                      transition: 'all 0.15s ease'
+                    }}
+                  >
+                    {val}
+                  </button>
+                ))}
+              </div>
+
+              <p style={{ margin: '4px 0 0 0', fontSize: '11px', color: 'var(--text-secondary, #94a3b8)' }}>
+                Stocks you currently hold in your Webull account are highlighted with a ★ badge.
+              </p>
+            </div>
+
+            <div className="modal-actions" style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', padding: '14px 20px', borderTop: '1px solid var(--border-color, rgba(255,255,255,0.08))' }}>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={() => setShowTopStockMoversModal(false)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary"
+                style={{ backgroundColor: '#0284c7', borderColor: '#0284c7', color: '#fff', fontWeight: '600' }}
+                onClick={handleSaveTopStockMoversModal}
               >
                 Save
               </button>

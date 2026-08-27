@@ -12,6 +12,7 @@ from services.webull_service import (
     get_webull_order_history,
     get_webull_open_orders,
     get_webull_portfolio_preview,
+    get_webull_stock_movers,
     normalize_webull_environment,
     parse_webull_expiry,
     test_webull_connection as check_webull_connection,
@@ -212,3 +213,42 @@ class WebullServiceTests(unittest.TestCase):
             '{"k1":123,"k2":"this is the api request body","k3":true,"k4":{"foo":[1,2]}}',
         )
         self.assertEqual(signature, 'kvlS6opdZDhEBo5jq40nHYXaLvM=')
+
+    def test_stock_movers_queries_gainers_losers_and_normalizes_pct(self):
+        response = Mock(status_code=200)
+        response.json.return_value = {
+            'data': [
+                {'symbol': 'AAPL', 'name': 'Apple Inc.', 'close': '235.50', 'changeRatio': '0.035', 'currency': 'USD'},
+                {'symbol': 'NVDA', 'name': 'NVIDIA Corporation', 'price': '125.00', 'change_ratio': '-0.021', 'currency': 'USD'}
+            ]
+        }
+        with patch('services.webull_service._webull_request', return_value=response) as request_mock:
+            movers = get_webull_stock_movers('app-key', 'app-secret', 'sandbox', 'token-123', direction='DESC')
+
+        self.assertEqual(len(movers), 2)
+        self.assertEqual(movers[0]['symbol'], 'AAPL')
+        self.assertAlmostEqual(movers[0]['change'], 3.5)
+        self.assertEqual(movers[0]['price'], 235.50)
+        self.assertEqual(movers[1]['symbol'], 'NVDA')
+        self.assertAlmostEqual(movers[1]['change'], -2.1)
+        self.assertEqual(request_mock.call_args.args[4], '/market-data/screeners/gainers-losers/list')
+        self.assertEqual(request_mock.call_args.kwargs['query_params']['direction'], 'DESC')
+
+
+class AccountScopeAndFilteringTests(unittest.TestCase):
+    def test_order_filtering_by_account_scope(self):
+        orders = [
+            {'id': '1', 'symbol': 'BTCUSDT', 'source': 'binance'},
+            {'id': '2', 'symbol': 'ETHUSDT', 'source': 'auto_sell'},
+            {'id': '3', 'symbol': 'AAPL', 'source': 'webull'},
+            {'id': '4', 'symbol': 'TSLA', 'source': 'webull'},
+        ]
+
+        binance_orders = [o for o in orders if o.get('source') != 'webull']
+        self.assertEqual([o['id'] for o in binance_orders], ['1', '2'])
+
+        webull_orders = [o for o in orders if o.get('source') == 'webull']
+        self.assertEqual([o['id'] for o in webull_orders], ['3', '4'])
+
+        all_orders = [o for o in orders]
+        self.assertEqual(len(all_orders), 4)

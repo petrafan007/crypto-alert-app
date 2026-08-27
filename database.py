@@ -47,6 +47,16 @@ def init_db(app=None):
             ("webull_holdings", "option_strike", "FLOAT"),
             ("webull_holdings", "option_type", "VARCHAR(12)"),
             ("webull_holdings", "option_multiplier", "FLOAT"),
+            ("webull_holdings", "custom_lower_type", "VARCHAR(10) DEFAULT '#'"),
+            ("webull_holdings", "custom_upper_type", "VARCHAR(10) DEFAULT '#'"),
+            ("webull_holdings", "custom_lower_val", "FLOAT"),
+            ("webull_holdings", "custom_upper_val", "FLOAT"),
+            ("webull_holdings", "custom_lower_pct", "FLOAT"),
+            ("webull_holdings", "custom_upper_pct", "FLOAT"),
+            ("webull_holdings", "alert_enabled", "BOOLEAN DEFAULT FALSE"),
+            ("webull_holdings", "volatility_pct", "FLOAT"),
+            ("webull_holdings", "sentiment_tracking_enabled", "BOOLEAN DEFAULT TRUE"),
+            ("portfolio_value_history", "source", "VARCHAR(20) DEFAULT 'all'"),
             ("coins", "sentiment_reason", "TEXT"),
             ("watchlist", "sentiment_reason", "TEXT"),
             ("coins", "cached_news", "TEXT"),
@@ -126,6 +136,12 @@ def init_db(app=None):
                 ))
         except Exception as ex:
             print(f"Migration note for webull option contract index: {ex}")
+
+        try:
+            with db.engine.begin() as conn:
+                conn.execute(db.text("UPDATE portfolio_value_history SET source = 'all' WHERE source IS NULL"))
+        except Exception as ex:
+            print(f"Migration note for portfolio history source: {ex}")
 
         try:
             with db.engine.begin() as conn:

@@ -3,7 +3,7 @@
 from datetime import datetime
 
 from core.extensions import db
-from models import WebullAccountSnapshot, WebullHolding
+from models import ExternalSentimentSignal, WebullAccountSnapshot, WebullHolding
 
 
 def _number(value, default=0.0):
@@ -122,6 +122,12 @@ def import_webull_portfolio_snapshot(user_id, preview):
         WebullAccountSnapshot.query.filter_by(user_id=user_id).delete(synchronize_session=False)
 
     db.session.commit()
+    # Keep a source-specific trend series for the dashboard's Webull filter.
+    # This is only a value snapshot; it does not submit or alter a Webull order.
+    total_value = get_webull_total_value(user_id)
+    if total_value > 0:
+        from services.portfolio_service import record_portfolio_history
+        record_portfolio_history(user_id, total_value, source='webull')
     return {'accounts': imported_accounts, 'positions': imported_positions, 'synced_at': now}
 
 
@@ -135,6 +141,10 @@ def get_webull_portfolio_rows(user_id):
         value = _number(holding.current_value)
         pnl = _number(holding.unrealized_profit_loss, None)
         pct = ((current - cost) / cost * 100) if current is not None and cost and cost > 0 else None
+        latest_signal = ExternalSentimentSignal.query.filter_by(
+            user_id=user_id, provider='webull', symbol=holding.symbol,
+            instrument_type=str(holding.instrument_type or '').upper(),
+        ).order_by(ExternalSentimentSignal.created_at.desc()).first()
         rows.append({
             'id': f'webull-{holding.id}', 'symbol': holding.symbol, 'amount': amount,
             'current_price': current, 'current_value': value, 'avg_entry': cost,
@@ -150,7 +160,22 @@ def get_webull_portfolio_rows(user_id):
             'option_type': holding.option_type,
             'option_multiplier': holding.option_multiplier,
             'last_updated': holding.synced_at.isoformat() if holding.synced_at else None,
-            'sentiment_tracking_enabled': False, 'alert_enabled': False,
+            'custom_lower_type': holding.custom_lower_type or '#',
+            'custom_upper_type': holding.custom_upper_type or '#',
+            'custom_lower_val': holding.custom_lower_val,
+            'custom_upper_val': holding.custom_upper_val,
+            'custom_lower_pct': holding.custom_lower_pct,
+            'custom_upper_pct': holding.custom_upper_pct,
+            'volatility_pct': holding.volatility_pct,
+            'alert_enabled': bool(holding.alert_enabled),
+            'sentiment_tracking_enabled': holding.sentiment_tracking_enabled is not False,
+            'sentiment': (latest_signal.recommendation if latest_signal else 'Hold') if holding.sentiment_tracking_enabled is not False else 'Not Tracked',
+            'sentiment_reason': latest_signal.reason if latest_signal else '',
+            'sentiment_last_updated': latest_signal.created_at.isoformat() if latest_signal and latest_signal.created_at else None,
+            'sentiment_provider': latest_signal.ai_provider if latest_signal else None,
+            'sentiment_model': latest_signal.provider_model if latest_signal else None,
+            'sentiment_tier': latest_signal.ai_tier if latest_signal else None,
+            'sentiment_search_status': latest_signal.search_status if latest_signal else None,
         })
     return rows
 

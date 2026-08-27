@@ -239,6 +239,9 @@ class PortfolioValueHistory(db.Model):
     date = Column(String(30), nullable=True)
     timestamp = Column(DateTime, nullable=True)
     value = Column(Float, nullable=False)
+    # ``all`` preserves the legacy total-series meaning.  Source-specific
+    # snapshots are written alongside it after multi-account support.
+    source = Column(String(20), nullable=False, default='all')
     change_24h = Column(Float, nullable=True)
     change_pct_24h = Column(Float, nullable=True)
     

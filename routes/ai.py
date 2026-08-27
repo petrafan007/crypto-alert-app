@@ -53,15 +53,25 @@ def webull_ai_analysis():
         data = request.get_json(silent=True) or {}
         symbol = str(data.get('symbol') or '').strip().upper()
         instrument_type = str(data.get('instrument_type') or '').strip().upper()
-        if not symbol:
+        holding_id = str(data.get('holding_id') or '').removeprefix('webull-')
+        if not symbol and not holding_id:
             return jsonify({'success': False, 'message': 'Choose an imported Webull holding first.'}), 400
 
-        holding_query = WebullHolding.query.filter_by(user_id=current_user.id, symbol=symbol)
-        if instrument_type:
-            holding_query = holding_query.filter_by(instrument_type=instrument_type)
-        holding = holding_query.first()
+        holding = None
+        if holding_id:
+            try:
+                holding = WebullHolding.query.filter_by(user_id=current_user.id, id=int(holding_id)).first()
+            except (TypeError, ValueError):
+                return jsonify({'success': False, 'message': 'Choose an imported Webull holding first.'}), 400
+        else:
+            holding_query = WebullHolding.query.filter_by(user_id=current_user.id, symbol=symbol)
+            if instrument_type:
+                holding_query = holding_query.filter_by(instrument_type=instrument_type)
+            holding = holding_query.first()
         if not holding:
             return jsonify({'success': False, 'message': 'That holding is not in your imported Webull portfolio.'}), 404
+        if holding.sentiment_tracking_enabled is False:
+            return jsonify({'success': False, 'message': 'Enable sentiment tracking for this Webull holding before refreshing it.'}), 400
 
         signal, market = create_webull_signal(current_user, holding, origin='manual')
         return jsonify({

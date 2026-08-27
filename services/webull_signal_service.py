@@ -122,6 +122,8 @@ def run_scheduled_webull_signals():
             continue
         holdings = WebullHolding.query.filter(WebullHolding.user_id == user.id).all()
         for holding in holdings:
+            if holding.sentiment_tracking_enabled is False:
+                continue
             instrument_type = str(holding.instrument_type or '').upper()
             if instrument_type not in SUPPORTED_WEBULL_SIGNAL_TYPES:
                 continue

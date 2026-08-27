@@ -33,7 +33,7 @@ PORTFOLIO_HISTORY_RANGE_CONFIG = {
     "3Y": {"duration_ms": 3 * 365 * 24 * 60 * 60 * 1000, "points": 13},
 }
 
-def compute_portfolio_total_value(user_id, username=None, cred=None, include_staking=True):
+def compute_portfolio_total_value(user_id, username=None, cred=None, include_staking=True, include_webull=True):
     """Return the portfolio total exactly as displayed in the dashboard widget."""
     total_value = 0.0
     regular_total = 0.0
@@ -69,11 +69,12 @@ def compute_portfolio_total_value(user_id, username=None, cred=None, include_sta
 
     # Imported brokerage accounts are read-only snapshots. Their account-level
     # net-liquidation value includes cash and avoids double-counting positions.
-    try:
-        from services.webull_import_service import get_webull_total_value
-        total_value += get_webull_total_value(user_id)
-    except Exception as webull_err:
-        logger.error(f"Webull aggregation error for user {user_id}: {webull_err}")
+    if include_webull:
+        try:
+            from services.webull_import_service import get_webull_total_value
+            total_value += get_webull_total_value(user_id)
+        except Exception as webull_err:
+            logger.error(f"Webull aggregation error for user {user_id}: {webull_err}")
 
     return total_value
 
@@ -97,7 +98,12 @@ def record_true_portfolio_value():
                 total_value = round(total_value, 2)
 
                 if total_value > 0:
-                    record_portfolio_history(user.id, total_value)
+                    record_portfolio_history(user.id, total_value, source='all')
+                    binance_value = compute_portfolio_total_value(
+                        user.id, username=user.username, cred=cred_obj, include_webull=False
+                    )
+                    if binance_value > 0:
+                        record_portfolio_history(user.id, round(binance_value, 2), source='binance')
                     logger.info(f"Recorded portfolio value of ${total_value:.2f} for user {user.username}")
 
             except Exception as e:
@@ -107,12 +113,13 @@ def record_true_portfolio_value():
     except Exception as e:
         logger.error(f"Error in record_true_portfolio_value: {e}")
 
-def record_portfolio_history(user_id, value):
+def record_portfolio_history(user_id, value, source='all'):
     """Utility function to record portfolio value in history table"""
     try:
         history_record = PortfolioValueHistory(
             user_id=user_id,
             value=value,
+            source=source,
             timestamp=datetime.utcnow(),
             date=datetime.utcnow().strftime('%Y-%m-%d')
         )
@@ -309,7 +316,7 @@ def trigger_portfolio_snapshot(user_id: int, username: str) -> None:
 
     threading.Thread(target=_run, daemon=True).start()
 
-def _compute_portfolio_history_series(user_id, range_key):
+def _compute_portfolio_history_series(user_id, range_key, account_scope='all'):
     """Return evenly spaced portfolio history points straight from stored values."""
     is_all_time = range_key == "ALL"
     config = PORTFOLIO_HISTORY_RANGE_CONFIG.get(range_key, PORTFOLIO_HISTORY_RANGE_CONFIG["24H"])
@@ -323,6 +330,22 @@ def _compute_portfolio_history_series(user_id, range_key):
         PortfolioValueHistory.user_id == user_id,
         PortfolioValueHistory.timestamp <= datetime.utcfromtimestamp(end_ts)
     )
+    normalized_scope = str(account_scope or 'all').lower()
+    if normalized_scope == 'binance':
+        binance_exists = PortfolioValueHistory.query.filter(
+            PortfolioValueHistory.user_id == user_id,
+            PortfolioValueHistory.source == 'binance'
+        ).first() is not None
+        if binance_exists:
+            query = query.filter(PortfolioValueHistory.source == 'binance')
+        else:
+            query = query.filter((PortfolioValueHistory.source == 'all') | PortfolioValueHistory.source.is_(None))
+    elif normalized_scope == 'webull':
+        query = query.filter(PortfolioValueHistory.source == 'webull')
+    else:
+        # Existing entries predate source-aware history and retain the original
+        # total-portfolio meaning, so ``all`` includes legacy NULL values too.
+        query = query.filter((PortfolioValueHistory.source == 'all') | PortfolioValueHistory.source.is_(None))
     if not is_all_time:
         start_ms = now_ms - config["duration_ms"]
         start_ts = max(0, math.floor(start_ms / 1000) - 3600)

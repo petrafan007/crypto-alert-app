@@ -1,49 +1,62 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import CryptoIcon from './CryptoIcon';
+import { FaDollarSign } from 'react-icons/fa';
 
-const TopMoversWidget = ({ isLightMode, config, onEdit, ownedSymbols, onCoinClick }) => {
+const TopStockMoversWidget = ({ isLightMode, config, onEdit, ownedSymbols, onStockClick }) => {
   const [movers, setMovers] = useState({ gainers: [], losers: [] });
   const [loading, setLoading] = useState(true);
+  const [errorMessage, setErrorMessage] = useState('');
   const count = config?.count || 10;
   const owned = ownedSymbols || new Set();
 
   useEffect(() => {
     let cancelled = false;
-    const fetchMovers = async () => {
+    const fetchStockMovers = async () => {
       try {
-        const res = await axios.get('/api/market-movers', { withCredentials: true });
-        const all = Array.isArray(res.data?.movers) ? res.data.movers : [];
+        const res = await axios.get('/api/webull/stock-movers', { withCredentials: true });
+        if (cancelled) return;
 
-        const validCoins = all
-          .filter(c => c && c.symbol)
-          .map(c => ({
-            symbol: c.symbol.toUpperCase(),
-            price: Number(c.price || 0),
-            change: Number(c.change || 0),
-            quote: c.quote_currency || 'USDT'
-          }));
+        if (res.data?.success) {
+          const rawGainers = Array.isArray(res.data?.gainers) ? res.data.gainers : [];
+          const rawLosers = Array.isArray(res.data?.losers) ? res.data.losers : [];
 
-        if (validCoins.length > 0) {
-          const sorted = [...validCoins].sort((a, b) => b.change - a.change);
-          const gainers = sorted.filter(c => c.change > 0).slice(0, count);
-          const losers = [...sorted].filter(c => c.change < 0).sort((a, b) => a.change - b.change).slice(0, count);
+          const formatItems = (list) =>
+            list
+              .filter(item => item && item.symbol)
+              .map(item => ({
+                symbol: String(item.symbol).toUpperCase(),
+                name: item.name || '',
+                price: Number(item.price || 0),
+                change: Number(item.change || 0),
+                currency: item.currency || 'USD',
+              }));
 
-          if (!cancelled) {
-            setMovers({ gainers, losers });
-            setLoading(false);
-          }
-        } else if (!cancelled) {
+          const sortedGainers = formatItems(rawGainers)
+            .sort((a, b) => b.change - a.change)
+            .slice(0, count);
+
+          const sortedLosers = formatItems(rawLosers)
+            .sort((a, b) => a.change - b.change)
+            .slice(0, count);
+
+          setMovers({ gainers: sortedGainers, losers: sortedLosers });
+          setErrorMessage('');
+          setLoading(false);
+        } else {
+          setErrorMessage(res.data?.message || 'Unable to load U.S. stock movers.');
           setLoading(false);
         }
       } catch (err) {
-        console.error('Failed to load top movers:', err);
-        if (!cancelled) setLoading(false);
+        if (!cancelled) {
+          const msg = err.response?.data?.message || err.message || 'Connect Webull to view U.S. stock movers.';
+          setErrorMessage(msg);
+          setLoading(false);
+        }
       }
     };
 
-    fetchMovers();
-    const interval = setInterval(fetchMovers, 30000);
+    fetchStockMovers();
+    const interval = setInterval(fetchStockMovers, 30000);
     return () => {
       cancelled = true;
       clearInterval(interval);
@@ -52,12 +65,14 @@ const TopMoversWidget = ({ isLightMode, config, onEdit, ownedSymbols, onCoinClic
 
   const renderRow = (item, color) => {
     const isOwned = owned.has(item.symbol);
+    const titleText = `${item.name ? `${item.name} (${item.symbol})` : item.symbol}${item.price > 0 ? ` · $${item.price.toFixed(2)}` : ''}${isOwned ? ' · You own this stock' : ''}`;
+
     return (
       <div
         key={item.symbol}
         className="top-mover-row"
-        title={onCoinClick ? `View ${item.symbol}/USDT chart in Trading${isOwned ? ' · You own this coin' : ''}` : (isOwned ? 'You own this coin' : undefined)}
-        onClick={onCoinClick ? () => onCoinClick(item.symbol) : undefined}
+        title={titleText}
+        onClick={onStockClick ? () => onStockClick(item.symbol) : undefined}
         style={{
           display: 'flex',
           alignItems: 'center',
@@ -65,19 +80,30 @@ const TopMoversWidget = ({ isLightMode, config, onEdit, ownedSymbols, onCoinClic
           fontSize: '12px',
           padding: isOwned ? '2px 6px' : '2px 0',
           borderRadius: '5px',
-          cursor: onCoinClick ? 'pointer' : 'default',
+          cursor: onStockClick ? 'pointer' : 'default',
           backgroundColor: isOwned ? (isLightMode ? 'rgba(56, 189, 248, 0.16)' : 'rgba(56, 189, 248, 0.14)') : 'transparent',
           border: isOwned ? '1px solid rgba(56, 189, 248, 0.4)' : '1px solid transparent'
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-          <CryptoIcon symbol={item.symbol} size={16} />
-          <span style={{ fontWeight: '600', color: 'var(--text-primary, #fff)' }}>{item.symbol}</span>
-          {isOwned && <span style={{ fontSize: '9px', fontWeight: '700', color: '#38bdf8' }}>★</span>}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0 }}>
+          <span style={{ display: 'inline-flex', alignItems: 'center', color: 'var(--text-secondary, #94a3b8)', fontSize: '0.8rem', flexShrink: 0 }}>
+            <FaDollarSign />
+          </span>
+          <span style={{ fontWeight: '600', color: 'var(--text-primary, #fff)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+            {item.symbol}
+          </span>
+          {isOwned && <span style={{ fontSize: '9px', fontWeight: '700', color: '#38bdf8', flexShrink: 0 }}>★</span>}
         </div>
-        <span style={{ color, fontWeight: '600' }}>
-          {item.change >= 0 ? '+' : ''}{item.change.toFixed(2)}%
-        </span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
+          {item.price > 0 && (
+            <span style={{ fontSize: '11px', color: 'var(--text-secondary, #94a3b8)' }}>
+              ${item.price.toFixed(2)}
+            </span>
+          )}
+          <span style={{ color, fontWeight: '600' }}>
+            {item.change >= 0 ? '+' : ''}{item.change.toFixed(2)}%
+          </span>
+        </div>
       </div>
     );
   };
@@ -86,14 +112,14 @@ const TopMoversWidget = ({ isLightMode, config, onEdit, ownedSymbols, onCoinClic
     <div className="widget-panel-inner" style={{ padding: '12px', height: '100%', display: 'flex', flexDirection: 'column', boxSizing: 'border-box' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
         <h3 style={{ margin: 0, fontSize: '15px', fontWeight: '700', color: 'var(--text-primary, #fff)', display: 'flex', alignItems: 'center', gap: '6px' }}>
-          <span>🔥</span> Top Crypto Gainers & Losers (24h)
+          <span>📈</span> Top Stock Gainers & Losers (24h)
         </h3>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <span style={{ fontSize: '11px', color: '#94a3b8' }}>Live · All Binance.US Coins</span>
+          <span style={{ fontSize: '11px', color: '#94a3b8' }}>Live · U.S. Stocks</span>
           {onEdit && (
             <button
               onClick={onEdit}
-              title="Customize Top Crypto Gainers & Losers"
+              title="Customize Top Stock Gainers & Losers"
               style={{
                 background: 'rgba(255,255,255,0.08)',
                 border: '1px solid rgba(255,255,255,0.15)',
@@ -113,11 +139,16 @@ const TopMoversWidget = ({ isLightMode, config, onEdit, ownedSymbols, onCoinClic
 
       {loading ? (
         <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#94a3b8', fontSize: '13px' }}>
-          Loading market momentum...
+          Loading stock momentum...
+        </div>
+      ) : errorMessage ? (
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: '#94a3b8', fontSize: '13px', textAlign: 'center', padding: '10px', gap: '6px' }}>
+          <span>{errorMessage}</span>
+          <span style={{ fontSize: '11px', color: 'var(--accent-primary, #38bdf8)' }}>Connect Webull in Settings &gt; Exchange Setup</span>
         </div>
       ) : movers.gainers.length === 0 && movers.losers.length === 0 ? (
         <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#94a3b8', fontSize: '13px' }}>
-          No market movement data available.
+          No stock market movement data available.
         </div>
       ) : (
         <div style={{ flex: 1, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', minHeight: 0 }}>
@@ -146,4 +177,4 @@ const TopMoversWidget = ({ isLightMode, config, onEdit, ownedSymbols, onCoinClic
   );
 };
 
-export default TopMoversWidget;
+export default TopStockMoversWidget;

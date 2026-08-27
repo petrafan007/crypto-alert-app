@@ -97,7 +97,7 @@ const getStatusBadgeStyle = (status) => {
   }
 };
 
-const RecentTradesWidget = ({ isLightMode, config, onEdit, onCoinClick }) => {
+const RecentTradesWidget = ({ isLightMode, config, onEdit, onCoinClick, accountScope = 'all' }) => {
   const [allTrades, setAllTrades] = useState([]);
   const [loading, setLoading] = useState(true);
 
@@ -112,7 +112,7 @@ const RecentTradesWidget = ({ isLightMode, config, onEdit, onCoinClick }) => {
       try {
         let orderList = [];
         try {
-          const res = await axios.get('/api/trading/real-orders?limit=50', { withCredentials: true });
+          const res = await axios.get(`/api/trading/real-orders?limit=50&account_scope=${accountScope}`, { withCredentials: true });
           if (Array.isArray(res.data?.orders)) {
             orderList = res.data.orders;
           }
@@ -140,7 +140,7 @@ const RecentTradesWidget = ({ isLightMode, config, onEdit, onCoinClick }) => {
       cancelled = true;
       clearInterval(interval);
     };
-  }, []);
+  }, [accountScope]);
 
   // Filter and parse orders
   const parsedOrders = allTrades.map(order => ({
@@ -149,7 +149,11 @@ const RecentTradesWidget = ({ isLightMode, config, onEdit, onCoinClick }) => {
   }));
 
   const filteredOrders = parsedOrders.filter(({ parsed }) => {
-    return statusFilters.includes(parsed.status) || statusFilters.includes(parsed.rawStatus);
+    const statusMatch = statusFilters.includes(parsed.status) || statusFilters.includes(parsed.rawStatus);
+    if (!statusMatch) return false;
+    if (accountScope === 'binance') return parsed.source !== 'webull';
+    if (accountScope === 'webull') return parsed.source === 'webull';
+    return true;
   });
 
   const visibleOrders = maxOrders > 0 ? filteredOrders.slice(0, maxOrders) : [];
@@ -162,6 +166,7 @@ const RecentTradesWidget = ({ isLightMode, config, onEdit, onCoinClick }) => {
         </h3>
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
           <span style={{ fontSize: '11px', color: '#94a3b8' }}>
+            {accountScope === 'webull' ? 'Webull · ' : accountScope === 'binance' ? 'Binance.US · ' : ''}
             {maxOrders === 0 ? '0 Orders' : `Latest ${maxOrders}`}
           </span>
           {onEdit && (

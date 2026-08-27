@@ -15,7 +15,8 @@ const WIDGETS = [
   { id: 'performance', title: '7-Day Performance' },
   { id: 'allocations', title: 'Asset Allocations' },
   { id: 'trend', title: 'Portfolio Trend' },
-  { id: 'top_movers', title: 'Top Gainers & Losers' },
+  { id: 'top_movers', title: 'Top Crypto Gainers & Losers' },
+  { id: 'top_stock_movers', title: 'Top Stock Gainers & Losers' },
   { id: 'recent_trades', title: 'Recent Trade History' },
   { id: 'ai_pulse', title: 'AI Copilot Market Pulse' },
   { id: 'staking_rewards', title: 'Staking Yield Tracker' },
@@ -26,6 +27,7 @@ const WIDGETS = [
 
 const NEW_WIDGET_IDS = [
   'top_movers',
+  'top_stock_movers',
   'recent_trades',
   'ai_pulse',
   'staking_rewards',
@@ -44,6 +46,7 @@ const getWidgetBounds = (id) => {
     case 'portfolio_value': return { minW: 1, minH: 2 };
     case 'staking': return { minW: 1, minH: 2 };
     case 'top_movers': return { minW: 1, minH: 3 };
+    case 'top_stock_movers': return { minW: 1, minH: 3 };
     case 'recent_trades': return { minW: 1, minH: 3 };
     case 'ai_pulse': return { minW: 1, minH: 3 };
     case 'staking_rewards': return { minW: 1, minH: 2 };
@@ -58,7 +61,7 @@ const getWidgetDefaultSize = (id, bp = 'lg') => {
   if (id === 'allocations') return (bp === 'sm' || bp === 'xs' || bp === 'xxs') ? { w: 6, h: 4 } : { w: 4, h: 4 };
   if (id === 'trend') return (bp === 'sm' || bp === 'xs' || bp === 'xxs') ? { w: 6, h: 4 } : bp === 'md' ? { w: 6, h: 4 } : { w: 8, h: 4 };
   if (id === 'performance') return (bp === 'sm' || bp === 'xs' || bp === 'xxs') ? { w: 6, h: 3 } : bp === 'md' ? { w: 10, h: 3 } : { w: 12, h: 3 };
-  if (['top_movers', 'recent_trades', 'ai_pulse'].includes(id)) {
+  if (['top_movers', 'top_stock_movers', 'recent_trades', 'ai_pulse'].includes(id)) {
     return (bp === 'sm' || bp === 'xs' || bp === 'xxs') ? { w: 6, h: 3 } : bp === 'md' ? { w: 5, h: 3 } : { w: 4, h: 3 };
   }
   return (bp === 'sm' || bp === 'xs' || bp === 'xxs') ? { w: 6, h: 3 } : bp === 'md' ? { w: 5, h: 3 } : { w: 3, h: 3 };
@@ -121,7 +124,8 @@ const DEFAULT_LAYOUTS = {
     { i: 'staking_rewards', x: 0, y: 12, w: 3, h: 3 },
     { i: 'risk_monitor', x: 3, y: 12, w: 3, h: 3 },
     { i: 'quick_trade', x: 6, y: 12, w: 3, h: 3 },
-    { i: 'gas_monitor', x: 9, y: 12, w: 3, h: 3 }
+    { i: 'gas_monitor', x: 9, y: 12, w: 3, h: 3 },
+    { i: 'top_stock_movers', x: 0, y: 15, w: 4, h: 3 }
   ]),
   md: mapLayoutBounds([
     { i: 'allocations', x: 0, y: 0, w: 4, h: 4 },
@@ -137,7 +141,8 @@ const DEFAULT_LAYOUTS = {
     { i: 'staking_rewards', x: 5, y: 15, w: 5, h: 3 },
     { i: 'risk_monitor', x: 0, y: 18, w: 5, h: 3 },
     { i: 'quick_trade', x: 5, y: 18, w: 5, h: 3 },
-    { i: 'gas_monitor', x: 0, y: 21, w: 5, h: 3 }
+    { i: 'gas_monitor', x: 0, y: 21, w: 5, h: 3 },
+    { i: 'top_stock_movers', x: 0, y: 24, w: 5, h: 3 }
   ]),
   sm: mapLayoutBounds([
     { i: 'allocations', x: 0, y: 0, w: 6, h: 4 },
@@ -153,7 +158,8 @@ const DEFAULT_LAYOUTS = {
     { i: 'staking_rewards', x: 0, y: 31, w: 6, h: 3 },
     { i: 'risk_monitor', x: 0, y: 34, w: 6, h: 3 },
     { i: 'quick_trade', x: 0, y: 37, w: 6, h: 3 },
-    { i: 'gas_monitor', x: 0, y: 40, w: 6, h: 3 }
+    { i: 'gas_monitor', x: 0, y: 40, w: 6, h: 3 },
+    { i: 'top_stock_movers', x: 0, y: 43, w: 6, h: 3 }
   ]),
   xs: mapLayoutBounds([
     { i: 'allocations', x: 0, y: 0, w: 4, h: 4 },
@@ -169,7 +175,8 @@ const DEFAULT_LAYOUTS = {
     { i: 'staking_rewards', x: 0, y: 31, w: 4, h: 3 },
     { i: 'risk_monitor', x: 0, y: 34, w: 4, h: 3 },
     { i: 'quick_trade', x: 0, y: 37, w: 4, h: 3 },
-    { i: 'gas_monitor', x: 0, y: 40, w: 4, h: 3 }
+    { i: 'gas_monitor', x: 0, y: 40, w: 4, h: 3 },
+    { i: 'top_stock_movers', x: 0, y: 43, w: 4, h: 3 }
   ]),
   xxs: mapLayoutBounds([
     { i: 'allocations', x: 0, y: 0, w: 2, h: 4 },
@@ -185,7 +192,8 @@ const DEFAULT_LAYOUTS = {
     { i: 'staking_rewards', x: 0, y: 31, w: 2, h: 3 },
     { i: 'risk_monitor', x: 0, y: 34, w: 2, h: 3 },
     { i: 'quick_trade', x: 0, y: 37, w: 2, h: 3 },
-    { i: 'gas_monitor', x: 0, y: 40, w: 2, h: 3 }
+    { i: 'gas_monitor', x: 0, y: 40, w: 2, h: 3 },
+    { i: 'top_stock_movers', x: 0, y: 43, w: 2, h: 3 }
   ])
 };
 

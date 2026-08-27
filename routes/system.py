@@ -39,6 +39,7 @@ from services.webull_service import (
     get_webull_accounts,
     get_webull_market_bars,
     get_webull_option_snapshot,
+    get_webull_stock_movers,
     get_webull_open_orders,
     get_webull_portfolio_preview,
     normalize_webull_environment,
@@ -47,6 +48,15 @@ from services.webull_service import (
 )
 from services.webull_import_service import import_webull_portfolio_snapshot
 from services.webull_option_service import option_contract_label, resolve_option_contract
+
+
+def _webull_holding_for_current_user(holding_id):
+    """Resolve a dashboard ``webull-<id>`` reference without trusting its owner."""
+    raw_id = str(holding_id or '').removeprefix('webull-')
+    try:
+        return WebullHolding.query.filter_by(id=int(raw_id), user_id=current_user.id).first()
+    except (TypeError, ValueError):
+        return None
 
 # Stub/Direct logic for system helpers
 def fetch_binance_price(symbol): 
@@ -1646,6 +1656,35 @@ def api_webull_open_orders():
         return jsonify({'success': False, 'orders': [], 'message': 'Unable to load Webull open orders.'}), 500
 
 
+@system_bp.route('/api/webull/stock-movers', methods=['GET'])
+@login_required
+def api_webull_stock_movers():
+    """Return top U.S. stock movers from Webull's read-only market screener."""
+    try:
+        credential = Credential.query.filter_by(user_id=current_user.id).first()
+        setting = UserSetting.query.filter_by(user_id=current_user.id).first()
+        environment = normalize_webull_environment(getattr(setting, 'webull_environment', None) or 'production')
+        if (
+            not credential or credential.webull_token_status != 'NORMAL'
+            or credential.webull_token_environment != environment or not credential.webull_access_token
+        ):
+            return jsonify({'success': False, 'movers': [], 'message': 'Connect Webull to load U.S. stock movers.'}), 400
+        gainers = get_webull_stock_movers(
+            credential.webull_app_key, credential.webull_app_secret, environment,
+            credential.webull_access_token, direction='DESC',
+        )
+        losers = get_webull_stock_movers(
+            credential.webull_app_key, credential.webull_app_secret, environment,
+            credential.webull_access_token, direction='ASC',
+        )
+        return jsonify({'success': True, 'gainers': gainers, 'losers': losers})
+    except WebullConnectionError as exc:
+        return jsonify({'success': False, 'movers': [], 'message': str(exc)}), 400
+    except Exception as exc:
+        logger.error('Webull stock-movers lookup failed: %s', exc, exc_info=True)
+        return jsonify({'success': False, 'movers': [], 'message': 'Unable to load U.S. stock movers.'}), 500
+
+
 @system_bp.route('/api/webull/market-bars', methods=['GET'])
 @login_required
 def api_webull_market_bars():
@@ -1894,6 +1933,33 @@ def set_alert():
 def set_custom_pct_type():
     d = request.get_json()
     logger.info(f"[set-custom-pct-type] Received data: {d}")
+    if d.get('table_type') == 'webull':
+        holding = _webull_holding_for_current_user(d.get('id'))
+        if not holding:
+            return jsonify({"error": "Webull holding not found"}), 404
+        direction = d.get('type', '')
+        pct_type = d.get('pct_type', '#')
+        if direction not in {'down', 'up'} or pct_type not in {'#', '%'}:
+            return jsonify({"error": "Webull alerts use a price or percentage threshold."}), 400
+        try:
+            value = round(float(d.get('value')), 2) if d.get('value') not in ('', None) else None
+        except (TypeError, ValueError):
+            return jsonify({"error": "Alert value must be a number."}), 400
+        prefix = 'custom_lower' if direction == 'down' else 'custom_upper'
+        setattr(holding, f'{prefix}_type', pct_type)
+        setattr(holding, f'{prefix}_val', value if pct_type == '#' else None)
+        setattr(holding, f'{prefix}_pct', value if pct_type == '%' else None)
+        holding.alert_enabled = bool(
+            holding.custom_lower_val is not None or holding.custom_lower_pct is not None
+            or holding.custom_upper_val is not None or holding.custom_upper_pct is not None
+        )
+        db.session.commit()
+        return jsonify({
+            'success': True, 'alert_enabled': holding.alert_enabled,
+            'custom_lower_type': holding.custom_lower_type, 'custom_lower_val': holding.custom_lower_val,
+            'custom_lower_pct': holding.custom_lower_pct, 'custom_upper_type': holding.custom_upper_type,
+            'custom_upper_val': holding.custom_upper_val, 'custom_upper_pct': holding.custom_upper_pct,
+        })
     
     coin = Coin.query.filter_by(id=d["id"], user_id=current_user.id).first()
     if not coin:
@@ -2103,7 +2169,9 @@ def set_volatility_pct():
     table_type = data.get('table_type')
     volatility_pct = data.get('volatility_pct')
 
-    if table_type == 'portfolio':
+    if table_type == 'webull':
+        coin = _webull_holding_for_current_user(data.get('id'))
+    elif table_type == 'portfolio':
         coin_id = data.get('id')
         coin = Coin.query.filter_by(user_id=current_user.id, id=coin_id).first()
     elif table_type == 'watchlist':
@@ -2138,7 +2206,9 @@ def toggle_sentiment_tracking():
     table_type = data.get('table_type')
     enabled = bool(data.get('enabled', True))
 
-    if table_type == 'portfolio':
+    if table_type == 'webull':
+        coin = _webull_holding_for_current_user(data.get('id'))
+    elif table_type == 'portfolio':
         coin_id = data.get('id')
         coin = Coin.query.filter_by(user_id=current_user.id, id=coin_id).first()
     elif table_type == 'watchlist':
@@ -2152,13 +2222,14 @@ def toggle_sentiment_tracking():
 
     coin.sentiment_tracking_enabled = enabled
     if not enabled:
-        coin.sentiment = 'Not Tracked'
-        coin.sentiment_reason = ''
+        if table_type != 'webull':
+            coin.sentiment = 'Not Tracked'
+            coin.sentiment_reason = ''
     db.session.commit()
     return jsonify({
         "success": True,
         "sentiment_tracking_enabled": enabled,
-        "sentiment": coin.sentiment
+        "sentiment": getattr(coin, 'sentiment', None) or ('Hold' if enabled else 'Not Tracked')
     })
 
 def _get_user_binance_free_balance(user_id, asset):

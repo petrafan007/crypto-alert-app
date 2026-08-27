@@ -468,6 +468,40 @@ def get_webull_option_contracts(app_key, app_secret, environment='production', a
     return _webull_records(payload)
 
 
+def get_webull_stock_movers(app_key, app_secret, environment='production', access_token=None, *, direction='DESC'):
+    """Return the documented U.S. stock daily gainers or losers screener."""
+    safe_direction = 'ASC' if str(direction).upper() == 'ASC' else 'DESC'
+    payload = _response_payload(
+        _webull_request(
+            app_key, app_secret, environment, 'GET', '/market-data/screeners/gainers-losers/list',
+            query_params={
+                'category': 'US_STOCK', 'rank_type': 'D1',
+                'sort_by': 'CHANGE_RATIO', 'direction': safe_direction,
+            },
+            access_token=access_token,
+        ),
+        'stock-movers request',
+    )
+    movers = []
+    for record in _webull_records(payload):
+        if not isinstance(record, dict) or not record.get('symbol'):
+            continue
+        try:
+            # Webull documents change_ratio as a decimal (0.0111 = 1.11%).
+            change = float(record.get('change_ratio', record.get('changeRatio', 0)) or 0) * 100
+        except (TypeError, ValueError):
+            change = 0.0
+        try:
+            price = float(record.get('price', record.get('close', 0)) or 0)
+        except (TypeError, ValueError):
+            price = 0.0
+        movers.append({
+            'symbol': str(record.get('symbol')).upper(), 'name': record.get('name'),
+            'price': price, 'change': change, 'currency': record.get('currency') or 'USD',
+        })
+    return movers
+
+
 def get_webull_order_history(app_key, app_secret, environment='production', access_token=None, page_size=100):
     """Return recent historical orders for every authenticated Webull account.
 

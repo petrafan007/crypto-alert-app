@@ -96,6 +96,17 @@ class WebullHolding(db.Model):
     option_strike = db.Column(db.Float, nullable=True)
     option_type = db.Column(db.String(12), nullable=True)
     option_multiplier = db.Column(db.Float, nullable=True)
+    # Monitoring preferences are deliberately local to Crypto Alert App.  They
+    # never grant Webull trading permission or create an order at Webull.
+    custom_lower_type = db.Column(db.String(10), default='#')
+    custom_upper_type = db.Column(db.String(10), default='#')
+    custom_lower_val = db.Column(db.Float, nullable=True)
+    custom_upper_val = db.Column(db.Float, nullable=True)
+    custom_lower_pct = db.Column(db.Float, nullable=True)
+    custom_upper_pct = db.Column(db.Float, nullable=True)
+    alert_enabled = db.Column(db.Boolean, default=False)
+    volatility_pct = db.Column(db.Float, nullable=True)
+    sentiment_tracking_enabled = db.Column(db.Boolean, default=True)
     quantity = db.Column(db.Float, default=0.0)
     last_price = db.Column(db.Float, nullable=True)
     cost_price = db.Column(db.Float, nullable=True)
