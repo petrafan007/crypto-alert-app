@@ -122,6 +122,10 @@ The application utilizes a **unified PostgreSQL database**.
 
 ## Version History & Changelog
 
+## v2.29.0 (August 2026)
+
+- **Dashboard Account Scope**: Added a persistent, right-aligned Dashboard selector for All Accounts, Binance.US, and Webull. Portfolio rows, allocations, totals, risk values, and Binance-only controls now respect the selected scope; Webull-only selections explicitly avoid Binance actions.
+
 ## v2.28.0 (August 2026)
 
 - **Unified Webull Order History**: The existing Trading and Recent Order History views now merge read-only historical Webull orders across all connected accounts. Each appears with a Webull origin label and cannot open Binance.US trading or any order-management action.

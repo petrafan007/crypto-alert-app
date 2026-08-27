@@ -43,6 +43,7 @@ from services.staking_service import (
 )
 from services.credential_service import get_user_credentials
 from services.webull_service import WebullConnectionError, get_webull_order_history, normalize_webull_environment
+from services.webull_import_service import get_webull_total_value
 from services.notification_service import notify_order_fill, create_system_notification, send_telegram_message
 from services.common import _coerce_float, format_price, format_quantity
 from credential_security import decrypt_secret
@@ -267,6 +268,30 @@ def api_true_portfolio_value():
     except Exception as e:
         logger.error(f"Database portfolio value error: {str(e)}")
         return jsonify({"total_value": 0.0})
+
+
+@portfolio_bp.route('/api/account-summary')
+@login_required
+def api_account_summary():
+    """Return dashboard totals by provider without exposing account identifiers."""
+    try:
+        all_accounts = float(compute_portfolio_total_value(
+            current_user.id, username=getattr(current_user, 'username', None)
+        ) or 0.0)
+        webull = float(get_webull_total_value(current_user.id) or 0.0)
+        # compute_portfolio_total_value includes the Webull account-level net value.
+        binance = max(0.0, all_accounts - webull)
+        return jsonify({
+            'success': True,
+            'totals': {
+                'all': round(all_accounts, 2),
+                'binance': round(binance, 2),
+                'webull': round(webull, 2),
+            },
+        })
+    except Exception as exc:
+        logger.error('Account summary error: %s', exc, exc_info=True)
+        return jsonify({'success': False, 'totals': {'all': 0.0, 'binance': 0.0, 'webull': 0.0}}), 500
 
 
 @portfolio_bp.route("/api/true-portfolio-value-live")

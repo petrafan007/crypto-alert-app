@@ -119,6 +119,8 @@ function Dashboard({ isLightMode }) {
   const { isLoggingOut, user } = useAuth();
   const navigate = useNavigate();
   const [totalValue, setTotalValue] = useState(null);
+  const [accountTotals, setAccountTotals] = useState({ all: 0, binance: 0, webull: 0 });
+  const [accountScope, setAccountScope] = useState(() => localStorage.getItem('dashboard_account_scope') || 'all');
   const [portfolio, setPortfolio] = useState([]);
   const [watchlist, setWatchlist] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -294,9 +296,27 @@ function Dashboard({ isLightMode }) {
   }, [watchlistColOrder, watchlistVisibleCols, watchlistColWidths]);
 
   // Symbols currently held in the portfolio, used to highlight owned coins in the Top Movers widget
+  const scopedPortfolio = useMemo(() => {
+    if (accountScope === 'binance') return portfolio.filter(item => !(item.is_external === true || item.source === 'webull'));
+    if (accountScope === 'webull') return portfolio.filter(item => item.is_external === true || item.source === 'webull');
+    return portfolio;
+  }, [portfolio, accountScope]);
+
+  const scopedTotalValue = useMemo(() => {
+    const apiTotal = Number(accountTotals[accountScope] ?? 0);
+    if (apiTotal > 0 || accountScope === 'webull') return apiTotal;
+    if (accountScope === 'all' && totalValue != null) return Number(totalValue) || 0;
+    return scopedPortfolio.reduce((sum, item) => sum + (Number(item.current_value) || 0), 0);
+  }, [accountScope, accountTotals, totalValue, scopedPortfolio]);
+
   const ownedSymbols = useMemo(() => {
-    return new Set(portfolio.map(c => (c.symbol || '').toUpperCase()).filter(Boolean));
-  }, [portfolio]);
+    return new Set(scopedPortfolio.map(c => (c.symbol || '').toUpperCase()).filter(Boolean));
+  }, [scopedPortfolio]);
+
+  const changeAccountScope = (nextScope) => {
+    setAccountScope(nextScope);
+    localStorage.setItem('dashboard_account_scope', nextScope);
+  };
 
   // Modals and context menus
   const [columnModal, setColumnModal] = useState({ isOpen: false, tableType: 'portfolio' });
@@ -1550,9 +1570,10 @@ function Dashboard({ isLightMode }) {
             const wFetchId = nextWatchlistFetchId();
             Promise.allSettled([
               axios.get('/api/watchlist'),
-              axios.get(`/api/true-portfolio-value?ts=${Date.now()}`)
+              axios.get(`/api/true-portfolio-value?ts=${Date.now()}`),
+              axios.get('/api/account-summary')
               // Don't fetch trend history here - let the useEffect handle it
-            ]).then(([watchlistResponse, portfolioValueResponse]) => {
+            ]).then(([watchlistResponse, portfolioValueResponse, accountSummaryResponse]) => {
               // Handle watchlist
               if (watchlistResponse.status === 'fulfilled') {
                 console.log('Watchlist response:', watchlistResponse.value.data);
@@ -1565,16 +1586,20 @@ function Dashboard({ isLightMode }) {
                 console.log(`[DEBUG] Received Total Portfolio Value: ${totalVal}`, portfolioValueResponse.value.data);
                 setTotalValue(totalVal || 0);
               }
+              if (accountSummaryResponse.status === 'fulfilled') {
+                setAccountTotals(accountSummaryResponse.value.data?.totals || { all: 0, binance: 0, webull: 0 });
+              }
             });
           }, 100); // Small delay to ensure portfolio loads first
         } else {
           // For background refresh, wait for all data including live portfolio data
           const wFetchId = nextWatchlistFetchId();
-          const [watchlistResponse, portfolioValueResponse, livePortfolioResponse, ordersResponse] = await Promise.allSettled([
+          const [watchlistResponse, portfolioValueResponse, livePortfolioResponse, ordersResponse, accountSummaryResponse] = await Promise.allSettled([
             axios.get('/api/watchlist-live'),
             axios.get(`/api/true-portfolio-value?ts=${Date.now()}`),
             axios.get('/api/coin-data-live'),
-            axios.get('/api/pending-orders', { withCredentials: true })
+            axios.get('/api/pending-orders', { withCredentials: true }),
+            axios.get('/api/account-summary')
             // Don't fetch trend history in background refresh - it's handled by useEffect
           ]);
 
@@ -1608,6 +1633,9 @@ function Dashboard({ isLightMode }) {
           if (portfolioValueResponse.status === 'fulfilled') {
             setTotalValue(portfolioValueResponse.value.data.total_value || 0);
           }
+          if (accountSummaryResponse.status === 'fulfilled') {
+            setAccountTotals(accountSummaryResponse.value.data?.totals || { all: 0, binance: 0, webull: 0 });
+          }
 
           // Build pending symbols set from orders
           let pendingSymbolsLive = new Set();
@@ -1625,9 +1653,10 @@ function Dashboard({ isLightMode }) {
           if (livePortfolioResponse.status === 'fulfilled' && livePortfolioResponse.value.data.portfolio && livePortfolioResponse.value.data.portfolio.length > 0) {
             const incoming = livePortfolioResponse.value.data.portfolio;
             const incomingMap = new Map();
+            const portfolioRowKey = (item) => `${item?.source === 'webull' || item?.is_external ? 'webull' : 'binance'}:${item?.id || (item?.symbol || '').toUpperCase()}`;
             incoming.forEach(c => {
               const sym = (c.symbol || '').toUpperCase();
-              incomingMap.set(sym, {
+              incomingMap.set(portfolioRowKey(c), {
                 ...c,
                 hasPendingOrder: pendingSymbolsLive.has(sym),
                 pendingPlaceholder: false
@@ -1636,7 +1665,7 @@ function Dashboard({ isLightMode }) {
 
             setPortfolio(prev => {
               const prevMap = new Map();
-              prev.forEach(p => prevMap.set((p.symbol || '').toUpperCase(), p));
+              prev.forEach(p => prevMap.set(portfolioRowKey(p), p));
               // Update or add incoming coins
               incomingMap.forEach((val, key) => {
                 prevMap.set(key, { ...(prevMap.get(key) || {}), ...val });
@@ -1645,7 +1674,7 @@ function Dashboard({ isLightMode }) {
               const updated = [];
               const seen = new Set();
               prev.forEach(p => {
-                const key = (p.symbol || '').toUpperCase();
+                const key = portfolioRowKey(p);
                 const item = prevMap.get(key);
                 if (item) {
                   const hasHoldings = Number(item.amount || 0) >= MINIMUM_PORTFOLIO_AMOUNT;
@@ -1657,7 +1686,7 @@ function Dashboard({ isLightMode }) {
               });
               // Append any new symbols not in previous
               incoming.forEach(c => {
-                const key = (c.symbol || '').toUpperCase();
+                const key = portfolioRowKey(c);
                 if (!seen.has(key)) {
                   const item = prevMap.get(key);
                   if (item) {
@@ -4082,6 +4111,21 @@ function Dashboard({ isLightMode }) {
           </button>
         </div>
       )}
+      <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', margin: '4px 0 14px', padding: '0 2px' }}>
+        <label style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', color: 'var(--text-secondary, #94a3b8)', fontSize: '0.78rem', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+          Accounts
+          <select
+            value={accountScope}
+            onChange={(event) => changeAccountScope(event.target.value)}
+            aria-label="Dashboard account scope"
+            style={{ minWidth: '170px', padding: '8px 30px 8px 10px', borderRadius: '7px', border: '1px solid rgba(56, 189, 248, 0.35)', background: 'var(--panel-bg, #172033)', color: 'var(--text-primary, #e2e8f0)', fontWeight: 700, cursor: 'pointer' }}
+          >
+            <option value="all">All Accounts</option>
+            <option value="binance">Binance.US</option>
+            <option value="webull">Webull</option>
+          </select>
+        </label>
+      </div>
       {/* Mobile-Only Charts vs Tables Segmented Tab Bar */}
       {isMobile && (
         <div className="mobile-dashboard-tabs">
@@ -4113,7 +4157,7 @@ function Dashboard({ isLightMode }) {
                 <div className="chart-panel widget-panel-inner" style={{ height: '100%', padding: '16px', display: 'flex', flexDirection: 'column' }}>
                   <h2 className="chart-title" style={{ margin: '0 0 12px 0', fontSize: '1.1rem' }}>Allocations</h2>
                   <div style={{ flex: 1, minHeight: '260px', width: '100%' }}>
-                    <PortfolioPie portfolio={portfolio} isLightMode={isLightMode} totalValue={totalValue} onCoinClick={handleChartClick} />
+                    <PortfolioPie portfolio={scopedPortfolio} isLightMode={isLightMode} totalValue={scopedTotalValue} onCoinClick={accountScope === 'webull' ? undefined : handleChartClick} />
                   </div>
                 </div>
               );
@@ -4169,10 +4213,10 @@ function Dashboard({ isLightMode }) {
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px', flex: 1, justifyContent: 'center' }}>
                     <div style={{ fontSize: '32px', fontWeight: 'bold', color: 'var(--primary-color, #38bdf8)', textAlign: 'center' }}>
-                      ${totalValue != null ? Number(totalValue).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '0.00'}
+                      ${Number(scopedTotalValue || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </div>
                     <div style={{ fontSize: '12px', color: 'var(--text-secondary, #94a3b8)', opacity: '0.85', textAlign: 'center' }}>
-                      Includes Binance.US staking balances · Last updated: {new Date().toLocaleTimeString()}
+                      {accountScope === 'all' ? 'All connected accounts' : accountScope === 'binance' ? 'Binance.US, including staking balances' : 'Webull imported account value'} · Last updated: {new Date().toLocaleTimeString()}
                     </div>
                   </div>
                 </div>
@@ -4182,7 +4226,9 @@ function Dashboard({ isLightMode }) {
             case 'staking':
               return <StakingSummaryWidget />;
             case 'performance':
-              return <PortfolioPerformanceTable hiddenCoins={performanceHiddenCoins} onEdit={handleOpenPerformanceCoinModal} onCoinClick={handleChartClick} />;
+              return accountScope === 'webull'
+                ? <div className="widget-panel-inner" style={{ padding: '18px', color: 'var(--text-secondary, #94a3b8)' }}>Webull performance history will be added with its dedicated equity and options market-data integration.</div>
+                : <PortfolioPerformanceTable hiddenCoins={performanceHiddenCoins} onEdit={handleOpenPerformanceCoinModal} onCoinClick={handleChartClick} />;
             case 'top_movers':
               return <TopMoversWidget isLightMode={isLightMode} config={topMoversConfig} onEdit={handleOpenTopMoversModal} ownedSymbols={ownedSymbols} onCoinClick={(symbol) => navigateToTrading(symbol, 'BUY', 'USDT')} />;
             case 'recent_trades':
@@ -4192,9 +4238,11 @@ function Dashboard({ isLightMode }) {
             case 'staking_rewards':
               return <StakingYieldWidget isLightMode={isLightMode} />;
             case 'risk_monitor':
-              return <RiskMonitorWidget isLightMode={isLightMode} portfolio={portfolio} totalValue={totalValue} />;
+              return <RiskMonitorWidget isLightMode={isLightMode} portfolio={scopedPortfolio} totalValue={scopedTotalValue} />;
             case 'quick_trade':
-              return <QuickTradeWidget isLightMode={isLightMode} portfolio={portfolio} />;
+              return accountScope === 'webull'
+                ? <div className="widget-panel-inner" style={{ padding: '18px', color: 'var(--text-secondary, #94a3b8)' }}>Webull trading is read-only until its dedicated execution interface is approved.</div>
+                : <QuickTradeWidget isLightMode={isLightMode} portfolio={scopedPortfolio} />;
             case 'gas_monitor':
               return <GasMonitorWidget isLightMode={isLightMode} />;
             default:
@@ -4212,7 +4260,7 @@ function Dashboard({ isLightMode }) {
             <h2 className="table-title" style={{ margin: 0 }}>Portfolio</h2>
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
               <div style={{ fontSize: '15px', fontWeight: '700', color: 'var(--accent-primary, #4fd1c5)', letterSpacing: '0.3px' }}>
-                Total Value: ${(totalValue != null ? Number(totalValue) : (portfolio || []).reduce((acc, c) => acc + (parseFloat(c.current_value) || 0), 0)).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USDT
+                Total Value: ${Number(scopedTotalValue || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
               </div>
               <button
                 type="button"
@@ -4283,7 +4331,7 @@ function Dashboard({ isLightMode }) {
                 </tr>
               </thead>
               <tbody>
-                {!Array.isArray(portfolio) || portfolio.length === 0 ? (
+                {!Array.isArray(scopedPortfolio) || scopedPortfolio.length === 0 ? (
                   <tr>
                     <td
                       colSpan={portfolioColOrder.filter((k) => portfolioVisibleCols.includes(k) && PORTFOLIO_COLUMN_DEFINITIONS[k]).length || 11}
@@ -4294,7 +4342,7 @@ function Dashboard({ isLightMode }) {
                     </td>
                   </tr>
                 ) : (
-                  sortData(portfolio, sortConfig.key).map((coin) => {
+                  sortData(scopedPortfolio, sortConfig.key).map((coin) => {
                     const sym = (coin.symbol || '').toUpperCase().trim();
                     const isExternal = coin.is_external === true || coin.source === 'webull';
                     const isStable = ['USD', 'USDT', 'USDC', 'BUSD', 'DAI', 'TUSD', 'USDP'].includes(sym);
@@ -4487,7 +4535,7 @@ function Dashboard({ isLightMode }) {
                               );
                             }
                             case 'allocation_pct': {
-                              const totVal = Number(totalValue) || (portfolio || []).reduce((acc, c) => acc + (parseFloat(c.current_value) || 0), 0);
+                              const totVal = Number(scopedTotalValue) || (scopedPortfolio || []).reduce((acc, c) => acc + (parseFloat(c.current_value) || 0), 0);
                               const alloc = (totVal > 0 && coin.current_value) ? ((coin.current_value / totVal) * 100) : 0;
                               return (
                                 <td key="allocation_pct" style={{ whiteSpace: 'nowrap', textAlign: 'center' }}>
@@ -4666,6 +4714,11 @@ function Dashboard({ isLightMode }) {
         )}
 
         {/* Watchlist Section */}
+        {accountScope === 'webull' ? (
+          <div className="table-container watchlist-table" style={{ padding: '22px', color: 'var(--text-secondary, #94a3b8)', textAlign: 'center' }}>
+            Binance.US Watchlist is hidden while viewing Webull-only accounts.
+          </div>
+        ) : (
         <div className="table-container watchlist-table">
           <div className="table-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
             <h2 className="table-title" style={{ margin: 0 }}>Watchlist</h2>
@@ -4982,6 +5035,7 @@ function Dashboard({ isLightMode }) {
             </table>
           </div>
         </div>
+        )}
       </div>
 
       {/* Note Modal */}
