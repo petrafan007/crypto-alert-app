@@ -13,6 +13,8 @@ from services.webull_service import (
     get_webull_open_orders,
     get_webull_portfolio_preview,
     get_webull_stock_movers,
+    place_webull_order,
+    cancel_webull_order,
     normalize_webull_environment,
     parse_webull_expiry,
     test_webull_connection as check_webull_connection,
@@ -233,6 +235,57 @@ class WebullServiceTests(unittest.TestCase):
         self.assertAlmostEqual(movers[1]['change'], -2.1)
         self.assertEqual(request_mock.call_args.args[4], '/market-data/screeners/gainers-losers/list')
         self.assertEqual(request_mock.call_args.kwargs['query_params']['direction'], 'DESC')
+
+    def test_place_webull_order_payload_and_response(self):
+        response = Mock(status_code=200)
+        response.json.return_value = {
+            'data': {'order_id': 'wb-ord-123'}
+        }
+        with patch('services.webull_service._webull_request', return_value=response) as request_mock:
+            result = place_webull_order(
+                'app-key', 'app-secret', 'sandbox', 'token-123',
+                account_id='acc-999',
+                symbol='AAPL',
+                instrument_type='EQUITY',
+                side='BUY',
+                order_type='LIMIT',
+                quantity=10,
+                limit_price=220.50,
+                time_in_force='DAY',
+            )
+
+        self.assertTrue(result['success'])
+        self.assertEqual(result['order_id'], 'wb-ord-123')
+        self.assertEqual(result['symbol'], 'AAPL')
+        self.assertEqual(result['side'], 'BUY')
+        self.assertEqual(result['quantity'], 10.0)
+        self.assertEqual(request_mock.call_args.args[4], '/openapi/account/orders/place')
+        body = request_mock.call_args.kwargs['body']
+        self.assertEqual(body['account_id'], 'acc-999')
+        self.assertEqual(len(body['orders']), 1)
+        self.assertEqual(body['orders'][0]['symbol'], 'AAPL')
+        self.assertEqual(body['orders'][0]['limit_price'], '220.50')
+
+    def test_cancel_webull_order_payload_and_response(self):
+        response = Mock(status_code=200)
+        response.json.return_value = {
+            'data': {'status': 'CANCELLED'}
+        }
+        with patch('services.webull_service._webull_request', return_value=response) as request_mock:
+            result = cancel_webull_order(
+                'app-key', 'app-secret', 'sandbox', 'token-123',
+                account_id='acc-999',
+                order_id='wb-ord-123',
+                client_order_id='client-123',
+            )
+
+        self.assertTrue(result['success'])
+        self.assertEqual(request_mock.call_args.args[4], '/openapi/account/orders/cancel')
+        body = request_mock.call_args.kwargs['body']
+        self.assertEqual(body['account_id'], 'acc-999')
+        self.assertEqual(body['order_id'], 'wb-ord-123')
+        self.assertEqual(body['client_order_id'], 'client-123')
+
 
 
 class AccountScopeAndFilteringTests(unittest.TestCase):

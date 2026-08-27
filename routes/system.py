@@ -42,6 +42,8 @@ from services.webull_service import (
     get_webull_stock_movers,
     get_webull_open_orders,
     get_webull_portfolio_preview,
+    place_webull_order,
+    cancel_webull_order,
     normalize_webull_environment,
     parse_webull_expiry,
     test_webull_connection,
@@ -1654,6 +1656,114 @@ def api_webull_open_orders():
     except Exception as exc:
         logger.error('Webull open-order lookup failed: %s', exc, exc_info=True)
         return jsonify({'success': False, 'orders': [], 'message': 'Unable to load Webull open orders.'}), 500
+
+
+@system_bp.route('/api/webull/orders/place', methods=['POST'])
+@login_required
+def api_webull_place_order():
+    """Place a live order through Webull OpenAPI."""
+    try:
+        credential = Credential.query.filter_by(user_id=current_user.id).first()
+        setting = UserSetting.query.filter_by(user_id=current_user.id).first()
+        environment = normalize_webull_environment(getattr(setting, 'webull_environment', None) or 'production')
+        if (
+            not credential or credential.webull_token_status != 'NORMAL'
+            or credential.webull_token_environment != environment or not credential.webull_access_token
+        ):
+            return jsonify({'success': False, 'message': 'Webull is not connected or token has expired.'}), 400
+
+        data = request.get_json(silent=True) or {}
+        account_id = data.get('account_id')
+        symbol = data.get('symbol')
+        instrument_type = data.get('instrument_type', 'EQUITY')
+        side = data.get('side')
+        order_type = data.get('order_type')
+        quantity = data.get('quantity')
+        limit_price = data.get('limit_price')
+        time_in_force = data.get('time_in_force', 'DAY')
+        support_trading_session = data.get('support_trading_session', 'CORE')
+
+        if not account_id:
+            return jsonify({'success': False, 'message': 'Choose a Webull account to trade with.'}), 400
+        if not symbol:
+            return jsonify({'success': False, 'message': 'Choose an instrument symbol.'}), 400
+        if not side:
+            return jsonify({'success': False, 'message': 'Choose an order side (BUY or SELL).'}), 400
+        if not order_type:
+            return jsonify({'success': False, 'message': 'Choose an order type (MARKET or LIMIT).'}), 400
+        if not quantity:
+            return jsonify({'success': False, 'message': 'Enter an order quantity.'}), 400
+
+        result = place_webull_order(
+            credential.webull_app_key, credential.webull_app_secret,
+            environment, credential.webull_access_token,
+            account_id=account_id,
+            symbol=symbol,
+            instrument_type=instrument_type,
+            side=side,
+            order_type=order_type,
+            quantity=quantity,
+            limit_price=limit_price,
+            time_in_force=time_in_force,
+            support_trading_session=support_trading_session,
+        )
+        logger.info(f"Webull order placed successfully: user={current_user.id} account={account_id} symbol={symbol} side={side} order_id={result.get('order_id')}")
+        return jsonify({
+            'success': True,
+            'order': result,
+            'message': f"Webull {side} order for {quantity} {symbol} submitted successfully.",
+        })
+    except WebullConnectionError as exc:
+        logger.warning('Webull order placement failed: %s', exc)
+        return jsonify({'success': False, 'message': str(exc)}), 400
+    except Exception as exc:
+        logger.error('Webull order placement unexpected error: %s', exc, exc_info=True)
+        return jsonify({'success': False, 'message': f'Order placement failed: {exc}'}), 500
+
+
+@system_bp.route('/api/webull/orders/cancel', methods=['POST'])
+@login_required
+def api_webull_cancel_order():
+    """Cancel an open Webull order."""
+    try:
+        credential = Credential.query.filter_by(user_id=current_user.id).first()
+        setting = UserSetting.query.filter_by(user_id=current_user.id).first()
+        environment = normalize_webull_environment(getattr(setting, 'webull_environment', None) or 'production')
+        if (
+            not credential or credential.webull_token_status != 'NORMAL'
+            or credential.webull_token_environment != environment or not credential.webull_access_token
+        ):
+            return jsonify({'success': False, 'message': 'Webull is not connected or token has expired.'}), 400
+
+        data = request.get_json(silent=True) or {}
+        account_id = data.get('account_id') or data.get('_webull_account_id')
+        client_order_id = data.get('client_order_id')
+        order_id = data.get('order_id') or data.get('orderId') or data.get('id')
+
+        if not account_id:
+            return jsonify({'success': False, 'message': 'Account ID is required to cancel Webull order.'}), 400
+        if not client_order_id and not order_id:
+            return jsonify({'success': False, 'message': 'Order identifier is required to cancel.'}), 400
+
+        result = cancel_webull_order(
+            credential.webull_app_key, credential.webull_app_secret,
+            environment, credential.webull_access_token,
+            account_id=account_id,
+            client_order_id=client_order_id,
+            order_id=order_id,
+        )
+        logger.info(f"Webull order cancelled: user={current_user.id} account={account_id} order={order_id or client_order_id}")
+        return jsonify({
+            'success': True,
+            'result': result,
+            'message': 'Webull order cancelled successfully.',
+        })
+    except WebullConnectionError as exc:
+        logger.warning('Webull order cancellation failed: %s', exc)
+        return jsonify({'success': False, 'message': str(exc)}), 400
+    except Exception as exc:
+        logger.error('Webull order cancellation error: %s', exc, exc_info=True)
+        return jsonify({'success': False, 'message': f'Order cancellation failed: {exc}'}), 500
 
 
 @system_bp.route('/api/webull/stock-movers', methods=['GET'])

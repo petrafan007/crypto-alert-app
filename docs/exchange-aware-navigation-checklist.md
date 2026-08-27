@@ -1,6 +1,6 @@
 # Exchange-Aware Navigation & Account Views — Review Checklist
 
-Status: **Implemented through v2.33.0 — reviewed product decisions applied**
+Status: **Implemented through v2.34.0 — reviewed product decisions applied**
 Scope: Replace the current Binance-centric navigation model with explicit Binance.US, Webull, and All Accounts contexts.
 
 ## Confirmed product decisions
@@ -13,7 +13,7 @@ Scope: Replace the current Binance-centric navigation model with explicit Binanc
 - [x] The top-level **AI Analysis** navigation item is removed.
 - [x] Binance.US Trading receives **AI Analysis** as a tab.
 - [x] A dedicated **Webull Trading** page is added with Place Order, Open Orders, Order History, Trade Chart, and AI Analysis tabs.
-- [x] Webull order placement remains read-only until its dedicated execution interface is fully designed and approved.
+- [x] Webull active order execution is implemented in v2.34.0 for equities/ETFs and crypto with pre-trade review and open order cancellation; options execution remains staged pending options risk model.
 - [x] Webull AI stores provider-neutral, read-only signals: crypto and equities/ETFs use distinct prompt families, fixed forecast horizons, immutable grading configurations, and the same manual/scheduled lifecycle. Scheduling is opt-in and disabled by default; options now have contract-level chart/quote identity but remain unavailable to AI pending an options-specific risk model.
 - [x] A new top-level **Orders** destination replaces AI Analysis and provides combined Open Orders and Order History for all accounts.
 - [x] Combined order views must visibly retain their exchange/source identity.
@@ -46,8 +46,8 @@ Scope: Replace the current Binance-centric navigation model with explicit Binanc
 
 ### Webull Trading context
 
-- [x] CHK016 Webull Place Order is read-only for this release and remains staged behind a separate execution-interface approval. [Decision]
-- [ ] CHK017 If Webull placing is enabled, are supported products, order types, account selection, pre-trade review, 2FA, and confirmation requirements defined? [Completeness, Dependency]
+- [x] CHK016 Webull Place Order supports live execution for equities/ETFs and crypto as of v2.34.0. [Decision]
+- [x] CHK017 Webull order placement supports Equities, ETFs, and Crypto with Market and Limit order types, account selection, pre-trade review modal, and confirmation safeguards. [Implemented in v2.34.0]
 - [ ] CHK018 Are the Webull Open Orders and Order History inclusion rules defined for equities, options, futures, crypto, and multi-leg/combo orders? [Completeness, Gap]
 - [x] CHK019 Webull Trade Chart supports imported equities/ETFs, crypto, and contract-mapped options with their own Webull historical bars and completed order markers. Option quote/Greeks data uses a dedicated endpoint and reports missing OPRA entitlement without substituting the underlying. Futures remain out of scope. [Decision]
 - [x] CHK020 Webull crypto and equities/ETFs use separated prompt families and a provider-neutral stored-signal lifecycle. Scheduled runs are opt-in; no Webull signal can place, amend, or cancel an order. Options now have contract-level chart/quote identity but remain unavailable to AI pending an options-specific prompt and risk model. [Decision]
@@ -58,7 +58,7 @@ Scope: Replace the current Binance-centric navigation model with explicit Binanc
 - [ ] CHK022 Is the combined Orders page’s exact tab structure and default tab defined? [Clarity, Gap]
 - [ ] CHK023 Are source labels, account labels, product/instrument labels, and sort precedence specified for a mixed order ledger? [Completeness, Gap]
 - [ ] CHK024 Are filters specified for exchange, account, symbol, product type, status, and time range? [Completeness, Gap]
-- [ ] CHK025 Is cancellation/management behavior explicitly constrained to the owning exchange and account, with no cross-exchange fallback? [Safety, Completeness]
+- [x] CHK025 Cancellation behavior is explicitly constrained to the owning exchange and account (routed to Webull OpenAPI or Binance.US with no cross-exchange fallback). [Implemented in v2.34.0]
 - [ ] CHK026 Are latency and freshness expectations defined separately for Binance.US and Webull order data? [Non-Functional, Gap]
 
 ### Data integrity, security, and release scope

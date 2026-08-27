@@ -615,3 +615,130 @@ def test_webull_connection(app_key, app_secret, environment='production', access
         'account_count': len(accounts),
         'account_types': account_types,
     }
+
+
+def place_webull_order(
+    app_key, app_secret, environment='production', access_token=None, *,
+    account_id, symbol, instrument_type, side, order_type, quantity,
+    limit_price=None, time_in_force='DAY', support_trading_session='CORE',
+    client_order_id=None,
+):
+    """Place a live order on Webull for equities, ETFs, or crypto."""
+    if not account_id:
+        raise WebullConnectionError('Select a Webull account to place the order.')
+    clean_symbol = str(symbol or '').strip().upper()
+    if not clean_symbol:
+        raise WebullConnectionError('A valid instrument symbol is required.')
+    clean_side = str(side or '').strip().upper()
+    if clean_side not in {'BUY', 'SELL', 'SHORT'}:
+        raise WebullConnectionError('Order side must be BUY or SELL.')
+    clean_type = str(order_type or '').strip().upper()
+    if clean_type not in {'MARKET', 'LIMIT', 'STOP', 'STOP_LIMIT'}:
+        raise WebullConnectionError('Choose a supported order type: MARKET or LIMIT.')
+    clean_instrument = str(instrument_type or 'EQUITY').strip().upper()
+    if clean_instrument in {'CRYPTO', 'COIN', 'TOKEN'}:
+        clean_instrument = 'CRYPTO'
+        if not clean_symbol.endswith('USD'):
+            clean_symbol = f'{clean_symbol}USD'
+    elif clean_instrument in {'ETF', 'STOCK', 'SECURITY', 'EQUITY'}:
+        clean_instrument = 'EQUITY'
+    else:
+        clean_instrument = 'EQUITY'
+
+    try:
+        qty = float(quantity)
+        if qty <= 0:
+            raise ValueError()
+    except (TypeError, ValueError):
+        raise WebullConnectionError('Order quantity must be a positive number.')
+
+    order_payload = {
+        'combo_type': 'NORMAL',
+        'client_order_id': client_order_id or uuid4().hex,
+        'symbol': clean_symbol,
+        'instrument_type': clean_instrument,
+        'order_type': clean_type,
+        'side': clean_side,
+        'quantity': str(qty) if clean_instrument == 'CRYPTO' or qty != int(qty) else str(int(qty)),
+        'time_in_force': str(time_in_force or 'DAY').upper(),
+        'support_trading_session': str(support_trading_session or 'CORE').upper(),
+    }
+    if clean_type in {'LIMIT', 'STOP_LIMIT'}:
+        try:
+            px = float(limit_price)
+            if px <= 0:
+                raise ValueError()
+            order_payload['limit_price'] = f'{px:.4f}' if px < 1 else f'{px:.2f}'
+        except (TypeError, ValueError):
+            raise WebullConnectionError('Limit orders require a valid price greater than 0.')
+
+    request_body = {
+        'account_id': str(account_id),
+        'orders': [order_payload],
+    }
+
+    response = _webull_request(
+        app_key, app_secret, environment, 'POST', '/openapi/account/orders/place',
+        body=request_body, access_token=access_token,
+    )
+    if getattr(response, 'status_code', None) in {404, 405}:
+        response = _webull_request(
+            app_key, app_secret, environment, 'POST', '/trading/orders/stock/place',
+            body=request_body, access_token=access_token,
+        )
+
+    payload = _response_payload(response, 'order placement')
+    data = payload.get('data', payload) if isinstance(payload, dict) else payload
+    order_id = None
+    if isinstance(data, dict):
+        order_id = data.get('order_id') or data.get('orderId')
+        items = data.get('orders') or data.get('items')
+        if not order_id and isinstance(items, list) and items:
+            first = items[0]
+            if isinstance(first, dict):
+                order_id = first.get('order_id') or first.get('orderId')
+    return {
+        'success': True,
+        'order_id': order_id or order_payload['client_order_id'],
+        'client_order_id': order_payload['client_order_id'],
+        'symbol': clean_symbol,
+        'side': clean_side,
+        'order_type': clean_type,
+        'quantity': qty,
+        'raw': data,
+    }
+
+
+def cancel_webull_order(
+    app_key, app_secret, environment='production', access_token=None, *,
+    account_id, client_order_id=None, order_id=None,
+):
+    """Cancel an open order on Webull."""
+    if not account_id:
+        raise WebullConnectionError('Account ID is required to cancel a Webull order.')
+    if not client_order_id and not order_id:
+        raise WebullConnectionError('Either client_order_id or order_id is required.')
+
+    body = {'account_id': str(account_id)}
+    if client_order_id:
+        body['client_order_id'] = str(client_order_id)
+    if order_id:
+        body['order_id'] = str(order_id)
+
+    response = _webull_request(
+        app_key, app_secret, environment, 'POST', '/openapi/account/orders/cancel',
+        body=body, access_token=access_token,
+    )
+    if getattr(response, 'status_code', None) in {404, 405}:
+        response = _webull_request(
+            app_key, app_secret, environment, 'POST', '/trading/orders/stock/cancel',
+            body=body, access_token=access_token,
+        )
+
+    payload = _response_payload(response, 'order cancellation')
+    return {
+        'success': True,
+        'order_id': order_id or client_order_id,
+        'raw': payload.get('data', payload) if isinstance(payload, dict) else payload,
+    }
+
