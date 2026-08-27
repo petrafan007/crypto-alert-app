@@ -1,6 +1,6 @@
 # Crypto Alert App
 
-**Crypto Alert App** is a comprehensive, non-custodial cryptocurrency portfolio management and trading platform for Binance.US, with read-only Webull portfolio, order, and chart views. It provides users with real-time portfolio tracking, automated price alerts, one-click Binance.US trading, built-in staking management, and AI-powered market sentiment analysis.
+**Crypto Alert App** is a comprehensive, non-custodial cryptocurrency portfolio management and trading platform for Binance.US, with read-only Webull portfolio, order, chart, and stored AI-signal views. It provides users with real-time portfolio tracking, automated price alerts, one-click Binance.US trading, built-in staking management, and AI-powered market sentiment analysis.
 
 **Last Updated**: August 2026
 
@@ -122,6 +122,14 @@ The application utilizes a **unified PostgreSQL database**.
 ---
 
 ## Version History & Changelog
+
+## v2.32.0 (August 2026)
+
+### Webull Stored AI Signals
+
+- **Correct-by-construction signal lifecycle**: Webull crypto and equity/ETF analysis now creates a stored, provider-neutral forecast with its entry price, prompt family, fixed horizon, immutable grading settings, and eventual outcome. It is deliberately separate from Binance's history/chart implementation, so external instruments never masquerade as Binance symbols.
+- **Manual and scheduled use the same pipeline**: The Webull AI tab can create an on-demand stored signal and lists its tracking or graded outcome. Optional scheduling uses the exact same pipeline with separate crypto and equity/ETF cadence and forecast settings; it is off by default so connecting Webull cannot create surprise AI usage. Equity/ETF signals and grading wait for regular U.S. market hours rather than using a stale close.
+- **Read-only safety and asset separation**: Crypto and equity/ETF prompts are separated; Webull analysis never sends an order. Options remain clearly unavailable until contract-level identifier and market-data mapping are implemented.
 
 ## v2.31.0 (August 2026)
 

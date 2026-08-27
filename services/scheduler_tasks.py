@@ -1204,6 +1204,7 @@ def prune_old_ai_conversations(app):
 def sentiment_analysis_loop(app):
     """Background loop to periodically run sentiment analysis for enabled users according to their frequency settings."""
     from services.ai_service import run_sentiment_analysis_for_user, run_watchlist_sentiment_analysis_for_user
+    from services.webull_signal_service import run_scheduled_webull_signals
     logger.info("=== sentiment_analysis_loop STARTED ===")
     with app.app_context():
         while True:
@@ -1219,6 +1220,12 @@ def sentiment_analysis_loop(app):
                         run_watchlist_sentiment_analysis_for_user(user.id, user.username, force=False)
                     except Exception as e:
                         logger.error(f"Error in background watchlist sentiment analysis for {user.username}: {e}")
+                try:
+                    created = run_scheduled_webull_signals()
+                    if created:
+                        logger.info("Created %s scheduled read-only Webull signal(s).", created)
+                except Exception as e:
+                    logger.error("Error in scheduled Webull signal analysis: %s", e)
             iteration()
             # Check every 30 minutes
             time.sleep(1800)
@@ -1227,12 +1234,14 @@ def sentiment_analysis_loop(app):
 def sentiment_outcome_evaluation_loop(app):
     """Grade predictions at their own fixed target time, independent of AI refreshes."""
     from services.sentiment_outcome_service import evaluate_pending_fixed_horizon_sentiments
+    from services.webull_signal_service import evaluate_due_webull_signals
     logger.info("=== sentiment_outcome_evaluation_loop STARTED ===")
     with app.app_context():
         while True:
             @safe_background_iteration
             def iteration():
                 evaluated = evaluate_pending_fixed_horizon_sentiments()
+                evaluated += evaluate_due_webull_signals()
                 if evaluated:
                     logger.info("Graded %s fixed-horizon sentiment prediction(s).", evaluated)
             iteration()

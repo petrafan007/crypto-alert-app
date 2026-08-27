@@ -99,6 +99,51 @@ class WebullHolding(db.Model):
         db.Index('ix_webull_holding_user', 'user_id'),
     )
 
+
+class ExternalSentimentSignal(db.Model):
+    """A broker-neutral, stored AI signal for non-Binance instruments.
+
+    This is deliberately separate from ``SentimentHistory``: that legacy table
+    drives the Binance chart and depends on Binance price-history rows.  A
+    connector supplies the instrument and evaluation price for this table, so
+    future broker integrations can use the same lifecycle without pretending a
+    stock or ETF is a Binance coin.
+    """
+    __tablename__ = 'external_sentiment_signals'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, nullable=False)
+    provider = db.Column(db.String(40), nullable=False)  # e.g. webull
+    account_id = db.Column(db.String(80), nullable=True)
+    symbol = db.Column(db.String(80), nullable=False)
+    instrument_type = db.Column(db.String(40), nullable=False)
+    prompt_family = db.Column(db.String(40), nullable=False)  # crypto or equity
+    recommendation = db.Column(db.String(50), nullable=False)
+    reason = db.Column(db.Text, nullable=True)
+    market_context = db.Column(db.Text, nullable=True)
+    entry_price = db.Column(db.Float, nullable=False)
+    currency = db.Column(db.String(12), default='USD')
+    provider_model = db.Column(db.String(100), nullable=True)
+    ai_provider = db.Column(db.String(50), nullable=True)
+    ai_tier = db.Column(db.String(50), nullable=True)
+    search_status = db.Column(db.String(100), nullable=True)
+    origin = db.Column(db.String(20), default='manual')  # manual or scheduled
+    forecast_horizon_hours = db.Column(db.Float, nullable=False, default=24.0)
+    target_evaluation_at = db.Column(db.DateTime, nullable=False)
+    grading_config = db.Column(db.Text, nullable=True)
+    outcome_price = db.Column(db.Float, nullable=True)
+    outcome_pct = db.Column(db.Float, nullable=True)
+    outcome_status = db.Column(db.String(20), default='tracking')
+    outcome_reason = db.Column(db.Text, nullable=True)
+    outcome_evaluated_at = db.Column(db.DateTime, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+    __table_args__ = (
+        db.Index('ix_external_sentiment_user_created', 'user_id', 'created_at'),
+        db.Index('ix_external_sentiment_due', 'provider', 'target_evaluation_at'),
+        db.Index('ix_external_sentiment_instrument', 'user_id', 'provider', 'symbol', 'instrument_type'),
+    )
+
 # User model is defined in credentials.py
 
 class WatchlistCoin(db.Model):

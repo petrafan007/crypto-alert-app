@@ -6,7 +6,7 @@ import json
 import time
 from flask import Blueprint, send_file, request, jsonify, render_template, current_app, redirect, url_for
 from flask_login import current_user, login_required, login_user, logout_user
-from models import Coin, WatchlistCoin, Notification, PriceHistory, AIPrompt, AIConversation
+from models import Coin, WatchlistCoin, Notification, PriceHistory, AIPrompt, AIConversation, WebullHolding
 from credentials import Credential, User, UserSetting
 from core.extensions import db
 from log import logger
@@ -28,6 +28,9 @@ from services.analysis_service import (
     get_ai_cache, set_ai_cache, get_user_ai_settings, is_ai_enabled, get_user_ai_prompts, log_ai_communication, 
     calculate_symbol_snapshot, calculate_volatility
 )
+from services.webull_service import WebullConnectionError
+from services.external_signal_service import signal_to_dict
+from services.webull_signal_service import create_webull_signal
 from services.portfolio_service import get_comprehensive_crypto_data_for_user
 from services.ai_service import (
     call_ai_with_web_search, web_search, run_sentiment_analysis_for_user,
@@ -40,6 +43,90 @@ import numpy as np
 
 # Blueprint Definition
 ai_bp = Blueprint('ai', __name__)
+
+
+@ai_bp.route('/api/webull/ai-analysis', methods=['POST'])
+@login_required
+def webull_ai_analysis():
+    """Create one stored, read-only Webull signal for a selected holding."""
+    try:
+        data = request.get_json(silent=True) or {}
+        symbol = str(data.get('symbol') or '').strip().upper()
+        instrument_type = str(data.get('instrument_type') or '').strip().upper()
+        if not symbol:
+            return jsonify({'success': False, 'message': 'Choose an imported Webull holding first.'}), 400
+
+        holding_query = WebullHolding.query.filter_by(user_id=current_user.id, symbol=symbol)
+        if instrument_type:
+            holding_query = holding_query.filter_by(instrument_type=instrument_type)
+        holding = holding_query.first()
+        if not holding:
+            return jsonify({'success': False, 'message': 'That holding is not in your imported Webull portfolio.'}), 404
+
+        signal, market = create_webull_signal(current_user, holding, origin='manual')
+        return jsonify({
+            'success': True,
+            'signal': signal_to_dict(signal),
+            'market': market,
+            'message': 'Stored a read-only Webull signal. It will be graded at its forecast horizon; no Webull order was sent.',
+        })
+    except ValueError as exc:
+        return jsonify({'success': False, 'message': str(exc)}), 422
+    except WebullConnectionError as exc:
+        logger.warning('Webull AI research market-data lookup failed: %s', exc)
+        return jsonify({'success': False, 'message': str(exc)}), 400
+    except Exception as exc:
+        logger.error('Webull AI research failed: %s', exc, exc_info=True)
+        return jsonify({'success': False, 'message': 'Unable to generate the Webull signal right now.'}), 500
+
+
+@ai_bp.route('/api/webull/ai-signals', methods=['GET'])
+@login_required
+def webull_ai_signals():
+    """Return stored Webull signals without mixing them into Binance history."""
+    from models import ExternalSentimentSignal
+    symbol = str(request.args.get('symbol') or '').strip().upper()
+    query = ExternalSentimentSignal.query.filter_by(user_id=current_user.id, provider='webull')
+    if symbol:
+        query = query.filter_by(symbol=symbol)
+    limit = min(max(int(request.args.get('limit', 50) or 50), 1), 200)
+    signals = query.order_by(ExternalSentimentSignal.created_at.desc()).limit(limit).all()
+    return jsonify({'success': True, 'signals': [signal_to_dict(signal) for signal in signals]})
+
+
+@ai_bp.route('/api/webull/ai-settings', methods=['GET', 'PUT'])
+@login_required
+def webull_ai_settings():
+    """Configure safe, opt-in scheduling for the provider-neutral signal pipeline."""
+    settings = UserSetting.query.filter_by(user_id=current_user.id).first()
+    if not settings:
+        settings = UserSetting(user_id=current_user.id)
+        db.session.add(settings)
+        db.session.commit()
+    fields = {
+        'webull_ai_scheduling_enabled': 'boolean',
+        'webull_crypto_sentiment_frequency_hours': 'integer',
+        'webull_equity_sentiment_frequency_hours': 'integer',
+        'webull_crypto_sentiment_horizon_hours': 'integer',
+        'webull_equity_sentiment_horizon_hours': 'integer',
+    }
+    if request.method == 'PUT':
+        payload = request.get_json(silent=True) or {}
+        for field, kind in fields.items():
+            if field not in payload:
+                continue
+            if kind == 'boolean':
+                setattr(settings, field, bool(payload[field]))
+            else:
+                try:
+                    value = int(payload[field])
+                except (TypeError, ValueError):
+                    return jsonify({'success': False, 'message': 'Schedule and forecast values must be whole hours.'}), 400
+                if value < 1 or value > 720:
+                    return jsonify({'success': False, 'message': 'Schedule and forecast values must be between 1 and 720 hours.'}), 400
+                setattr(settings, field, value)
+        db.session.commit()
+    return jsonify({'success': True, 'settings': {field: getattr(settings, field) for field in fields}})
 
 
 # --- AI Provider Connection Test Endpoints ---

@@ -422,6 +422,14 @@ class UserSetting(db.Model):
     automated_trigger_confirmation_minutes = db.Column(db.Integer, default=15)
     webull_environment = db.Column(db.String(20), default='production')
     webull_account_selection_mode = db.Column(db.String(20), default='all')
+    # Disabled by default so connecting Webull never starts paid AI requests.
+    # When enabled, manual and scheduled runs write the same broker-neutral
+    # signal records and use their own asset-class cadence/horizon.
+    webull_ai_scheduling_enabled = db.Column(db.Boolean, default=False)
+    webull_crypto_sentiment_frequency_hours = db.Column(db.Integer, default=24)
+    webull_equity_sentiment_frequency_hours = db.Column(db.Integer, default=24)
+    webull_crypto_sentiment_horizon_hours = db.Column(db.Integer, default=24)
+    webull_equity_sentiment_horizon_hours = db.Column(db.Integer, default=24)
     ai_outcome_neutral_threshold_pct = db.Column(db.Float, default=5.0)
     sentiment_buy_immediately_correct_pct = db.Column(db.Float, default=5.0)
     sentiment_buy_immediately_wrong_pct = db.Column(db.Float, default=5.0)

@@ -68,20 +68,35 @@ export default function WebullTrading({ isLightMode = false }) {
   const [error, setError] = useState('');
   const [historyPage, setHistoryPage] = useState(1);
   const [historyPageSize, setHistoryPageSize] = useState(50);
+  const [signals, setSignals] = useState([]);
+  const [signalSettings, setSignalSettings] = useState({
+    webull_ai_scheduling_enabled: false,
+    webull_crypto_sentiment_frequency_hours: 24,
+    webull_equity_sentiment_frequency_hours: 24,
+    webull_crypto_sentiment_horizon_hours: 24,
+    webull_equity_sentiment_horizon_hours: 24,
+  });
+  const [selectedSignalHolding, setSelectedSignalHolding] = useState('');
+  const [signalBusy, setSignalBusy] = useState(false);
+  const [signalMessage, setSignalMessage] = useState('');
 
   const load = async () => {
     setLoading(true); setError('');
     try {
-      const [portfolioResponse, historyResponse, openResponse] = await Promise.all([
+      const [portfolioResponse, historyResponse, openResponse, signalsResponse, signalSettingsResponse] = await Promise.all([
         axios.get('/api/coin-data-live', { withCredentials: true }),
         axios.get('/api/trading/real-orders?limit=all', { withCredentials: true }),
         axios.get('/api/webull/open-orders', { withCredentials: true }),
+        axios.get('/api/webull/ai-signals?limit=50', { withCredentials: true }),
+        axios.get('/api/webull/ai-settings', { withCredentials: true }),
       ]);
       setHoldings((portfolioResponse.data?.portfolio || []).filter((item) => item?.is_external || item?.source === 'webull'));
       setHistory((historyResponse.data?.orders || [])
         .filter((order) => String(order?.source || '').toLowerCase() === 'webull')
         .map(normalizeOrder));
       setOpenOrders((openResponse.data?.orders || []).map(normalizeOrder));
+      setSignals(signalsResponse.data?.signals || []);
+      setSignalSettings((current) => ({ ...current, ...(signalSettingsResponse.data?.settings || {}) }));
       if (openResponse.data?.success === false) setError(openResponse.data?.message || 'Unable to load Webull open orders.');
     } catch (requestError) {
       setError(requestError.response?.data?.message || 'Unable to load the Webull workspace.');
@@ -96,6 +111,34 @@ export default function WebullTrading({ isLightMode = false }) {
   const historyPages = Math.max(1, Math.ceil(sortedHistory.length / historyPageSize));
   const paginatedHistory = useMemo(() => sortedHistory.slice((historyPage - 1) * historyPageSize, historyPage * historyPageSize), [sortedHistory, historyPage, historyPageSize]);
   useEffect(() => { if (historyPage > historyPages) setHistoryPage(historyPages); }, [historyPage, historyPages]);
+  const analyzableHoldings = useMemo(() => holdings.filter((holding) => ['CRYPTO', 'STOCK', 'EQUITY', 'ETF'].includes(String(holding.instrument_type || '').toUpperCase())), [holdings]);
+  useEffect(() => {
+    if (!selectedSignalHolding && analyzableHoldings.length) setSelectedSignalHolding(`${analyzableHoldings[0].symbol}|${analyzableHoldings[0].instrument_type}`);
+  }, [analyzableHoldings, selectedSignalHolding]);
+
+  const createSignal = async () => {
+    const [symbol, instrument_type] = selectedSignalHolding.split('|');
+    if (!symbol) return;
+    setSignalBusy(true); setSignalMessage('');
+    try {
+      const response = await axios.post('/api/webull/ai-analysis', { symbol, instrument_type }, { withCredentials: true });
+      setSignals((current) => [response.data.signal, ...current]);
+      setSignalMessage(response.data.message || 'Stored a new read-only signal.');
+    } catch (requestError) {
+      setSignalMessage(requestError.response?.data?.message || 'Unable to create the Webull signal.');
+    } finally { setSignalBusy(false); }
+  };
+
+  const saveSignalSettings = async () => {
+    setSignalBusy(true); setSignalMessage('');
+    try {
+      const response = await axios.put('/api/webull/ai-settings', signalSettings, { withCredentials: true });
+      setSignalSettings((current) => ({ ...current, ...(response.data?.settings || {}) }));
+      setSignalMessage('Webull AI schedule settings saved. Scheduling is opt-in and remains read-only.');
+    } catch (requestError) {
+      setSignalMessage(requestError.response?.data?.message || 'Unable to save Webull AI settings.');
+    } finally { setSignalBusy(false); }
+  };
 
   return (
     <div className="trading-page" style={{ padding: '20px', maxWidth: '1500px', margin: '0 auto' }}>
@@ -117,11 +160,17 @@ export default function WebullTrading({ isLightMode = false }) {
           {activeTab === 'open_orders' && <section className="order-history-container"><h2>Webull Open Orders</h2><WebullOrderTable orders={displayOpenOrders} emptyText="No Webull open orders found." /></section>}
           {activeTab === 'history' && <section className="order-history-container"><h2>Webull Order History</h2><WebullOrderTable orders={paginatedHistory} emptyText="No Webull order history is available yet." /><Pagination page={historyPage} setPage={setHistoryPage} pageSize={historyPageSize} setPageSize={setHistoryPageSize} total={sortedHistory.length} /></section>}
           {activeTab === 'trade_chart' && <section className="order-history-container"><WebullTradeTimelineChart holdings={holdings} orders={history} isLightMode={isLightMode} /></section>}
-          {activeTab === 'ai_analysis' && <section className="order-history-container"><h2>Webull AI Analysis</h2><div className="empty-state"><p>Webull crypto will use the existing crypto analysis framework after its market-data mapping is enabled. Equities, ETFs, and options intentionally remain unanalysed until their dedicated prompts and data inputs are available.</p></div><div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '12px' }}><div className="trading-asset-card"><strong>Crypto</strong><span>{cryptoHoldings.length} imported holding(s) · shared crypto prompt family pending market mapping</span></div><div className="trading-asset-card"><strong>Stocks / ETFs / options</strong><span>{securityHoldings.length} imported holding(s) · dedicated analysis family not yet enabled</span></div></div></section>}
+          {activeTab === 'ai_analysis' && <section className="order-history-container"><h2>Webull AI Analysis</h2><p style={{ color: 'var(--text-secondary, #94a3b8)', marginTop: 0 }}>Stored research signals use distinct crypto and equity/ETF prompt paths, are graded at their saved forecast horizon, and never submit a Webull order. Options remain unavailable until contract-level mapping is added.</p><div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'end', margin: '18px 0' }}><label style={{ display: 'grid', gap: 6, minWidth: 240 }}><span>Imported holding</span><select value={selectedSignalHolding} onChange={(event) => setSelectedSignalHolding(event.target.value)}>{analyzableHoldings.map((holding) => <option key={`${holding.id}-${holding.instrument_type}`} value={`${holding.symbol}|${holding.instrument_type}`}>{holding.symbol} · {holding.instrument_type}</option>)}</select></label><button type="button" className="btn btn-primary" disabled={!selectedSignalHolding || signalBusy} onClick={createSignal}>{signalBusy ? 'Creating…' : 'Create Stored Signal'}</button></div>{signalMessage && <div className="modern-real-warning" style={{ marginBottom: 16 }}>{signalMessage}</div>}<div className="trading-asset-card" style={{ marginBottom: 18 }}><strong>Optional scheduled signals</strong><div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'end', marginTop: 12 }}><label style={{ display: 'flex', gap: 8, alignItems: 'center' }}><input type="checkbox" checked={!!signalSettings.webull_ai_scheduling_enabled} onChange={(event) => setSignalSettings((current) => ({ ...current, webull_ai_scheduling_enabled: event.target.checked }))} /> Enable scheduled read-only signals</label>{[['webull_crypto_sentiment_frequency_hours', 'Crypto cadence (hours)'], ['webull_crypto_sentiment_horizon_hours', 'Crypto forecast (hours)'], ['webull_equity_sentiment_frequency_hours', 'Equity / ETF cadence (hours)'], ['webull_equity_sentiment_horizon_hours', 'Equity / ETF forecast (hours)']].map(([key, label]) => <label key={key} style={{ display: 'grid', gap: 6 }}><span>{label}</span><input type="number" min="1" max="720" value={signalSettings[key]} onChange={(event) => setSignalSettings((current) => ({ ...current, [key]: event.target.value }))} style={{ width: 150 }} /></label>)}<button type="button" className="btn btn-secondary" disabled={signalBusy} onClick={saveSignalSettings}>Save schedule</button></div></div><WebullSignalTable signals={signals} /></section>}
         </>}
       </div>
     </div>
   );
+}
+
+function WebullSignalTable({ signals }) {
+  if (!signals.length) return <div className="empty-state"><p>No stored Webull signals yet. Current signals remain tracking until their saved evaluation time.</p></div>;
+  const outcomeColor = { correct: '#22c55e', neutral: '#38bdf8', wrong: '#ef4444', tracking: '#fbbf24' };
+  return <div className="table-container trading-table"><div className="order-table-scroll"><table><thead><tr><th>Created</th><th>Symbol</th><th>Asset Class</th><th>Signal</th><th>Forecast</th><th>Outcome</th><th>Origin</th></tr></thead><tbody>{signals.map((signal) => <tr key={signal.id}><td>{formatDate(signal.created_at)}</td><td>{signal.symbol}</td><td>{signal.instrument_type}</td><td><strong>{signal.recommendation}</strong><br /><small>{signal.reason}</small></td><td>{signal.forecast_horizon_hours}h · target {formatDate(signal.target_evaluation_at)}</td><td style={{ color: outcomeColor[signal.outcome_status] || 'inherit' }}>{signal.outcome_status || 'tracking'}{signal.outcome_pct != null ? ` (${Number(signal.outcome_pct).toFixed(2)}%)` : ''}</td><td>{signal.origin}</td></tr>)}</tbody></table></div></div>;
 }
 
 function WebullHoldings({ holdings, compact = false }) {

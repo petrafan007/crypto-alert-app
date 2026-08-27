@@ -596,7 +596,7 @@ export default function Help({ isLightMode }) {
             {/* AI Analysis */}
             <Section id="ai-analysis" icon={<FaRobot />} title="AI Analysis Page">
                 <p style={{ marginBottom: '16px' }}>
-                    AI Analysis is available as a tab within <strong>Binance.US Trading</strong>, providing deeper, on-demand crypto intelligence beyond the per-coin sentiment badges. Webull's AI tab keeps product types separate: Webull crypto, stocks, ETFs, and options remain without an AI recommendation until their dedicated prompts and data inputs are enabled; the Webull Trade Chart does not enable or infer an AI recommendation.
+                    AI Analysis is available as a tab within <strong>Binance.US Trading</strong>, providing deeper, on-demand crypto intelligence beyond the per-coin sentiment badges. Webull's AI tab keeps product types separate: imported Webull crypto and stocks/ETFs can create stored, read-only signals with their own prompt family, saved forecast horizon, and later graded outcome. Equity/ETF signals and grading wait for regular U.S. market hours rather than relying on a stale closing price. Optional scheduled Webull signals are off by default and use that same lifecycle. They never place an order. Options remain unavailable until dedicated contract-level market data and prompt inputs are mapped; the Webull Trade Chart does not enable or infer an AI recommendation.
                 </p>
                 <ul style={{ paddingLeft: '20px', marginBottom: '16px', lineHeight: '1.9' }}>
                     <li><strong>Market Analysis</strong> — current market trends and opportunities, grounded in live web search</li>

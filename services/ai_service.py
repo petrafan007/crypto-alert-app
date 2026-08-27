@@ -24,6 +24,27 @@ from routes.helpers import decrypt_secret, is_stablecoin
 
 logger = logging.getLogger(__name__)
 
+WEBULL_CRYPTO_SEARCH_PROMPT = (
+    "Generate 1 to 2 targeted current-market search queries for the Webull crypto holding {symbol} as of {datetime}. "
+    "Focus on price catalysts, liquidity, market structure, and material crypto news."
+)
+WEBULL_CRYPTO_RESEARCH_PROMPT = (
+    "You are a crypto market analyst. Use the supplied Webull market context and current web results for {symbol} as of {datetime}. "
+    "Assess the fixed forecast horizon supplied by the application, including price movement, liquidity, market structure, catalysts, risks, and data limitations. "
+    "Return ONLY JSON: {\"sentiment\": \"<Buy Immediately|Consider Buying|Hold|Consider Selling|Sell Immediately>\", \"reason\": \"<1-2 concise sentences>\"}. "
+    "This is research only: do not claim to execute, place, amend, or cancel a trade."
+)
+WEBULL_EQUITY_SEARCH_PROMPT = (
+    "Generate 1 to 2 targeted current-market search queries for the Webull equity or ETF {symbol} as of {datetime}. "
+    "Focus on company or fund news, earnings or filings when relevant, sector catalysts, and material price-moving developments."
+)
+WEBULL_EQUITY_RESEARCH_PROMPT = (
+    "You are an equity and ETF market analyst. Use the supplied Webull market context and current web results for {symbol} as of {datetime}. "
+    "Assess the fixed forecast horizon supplied by the application, including company/fund and sector catalysts, price movement, material risks, and data limitations. "
+    "Do not use cryptocurrency assumptions. Return ONLY JSON: {\"sentiment\": \"<Buy Immediately|Consider Buying|Hold|Consider Selling|Sell Immediately>\", \"reason\": \"<1-2 concise sentences>\"}. "
+    "This is research only: do not claim to execute, place, amend, or cancel a trade."
+)
+
 _running_sentiment_users = set()
 _running_sentiment_lock = threading.Lock()
 
@@ -133,8 +154,8 @@ def web_search(query, max_results=2, username=None, freshness="pd"):
     }]
 
 
-def news_api_search(symbol, username, lookback_hours=24, max_results=4):
-    """Fetch recent crypto news from the user's configured NewsAPI integration.
+def news_api_search(symbol, username, lookback_hours=24, max_results=4, asset_context='crypto'):
+    """Fetch recent asset-appropriate news from the user's configured NewsAPI integration.
 
     This is deliberately separate from general web search: when a user supplies a
     NewsAPI key, every AI workflow that asks for fresh news receives those actual
@@ -149,11 +170,12 @@ def news_api_search(symbol, username, lookback_hours=24, max_results=4):
 
         hours = max(1, min(int(lookback_hours or 24), 720))
         published_after = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat(timespec='seconds')
+        topic = 'cryptocurrency' if str(asset_context).lower() == 'crypto' else 'stock OR equity OR ETF'
         response = requests.get(
             'https://newsapi.org/v2/everything',
             headers={'X-Api-Key': api_key},
             params={
-                'q': f'({str(symbol or "crypto").upper()} OR cryptocurrency)',
+                'q': f'({str(symbol or "market").upper()} OR {topic})',
                 'language': 'en',
                 'sortBy': 'publishedAt',
                 'from': published_after,
@@ -324,6 +346,10 @@ def call_ai_with_web_search(
             'watchlist_sentiment_analysis': getattr(ai_prompts, 'watchlist_sentiment_prompt_pre', None),
             'copilot': getattr(ai_prompts, 'copilot_chat_pre', None) or user_ai_settings.get('copilot_chat_pre'),
             'manual': getattr(ai_prompts, 'copilot_chat_pre', None) or user_ai_settings.get('copilot_chat_pre'),
+            # Webull crypto may honor the user's existing crypto research prompt;
+            # securities intentionally use a distinct prompt family.
+            'webull_crypto_analysis': getattr(ai_prompts, 'coin_analysis_pre', None) or WEBULL_CRYPTO_SEARCH_PROMPT,
+            'webull_equity_analysis': WEBULL_EQUITY_SEARCH_PROMPT,
         }
 
         stage1_template = stage1_prompt_map.get(prompt_type)
@@ -470,6 +496,8 @@ def call_ai_with_web_search(
                 f"{symbol_value} crypto current price latest news past {search_lookback_hours} hours today",
                 f"{symbol_value} cryptocurrency market sentiment news past {search_lookback_hours} hours"
             ]
+        elif prompt_type == 'webull_equity_analysis':
+            search_queries = [f"{symbol_value} stock or ETF latest news earnings sector catalysts today"]
         elif prompt_type in ['copilot', 'manual']:
             # Fast deterministic query for real-time Copilot chat without multi-second LLM query overhead
             search_queries = [
@@ -494,7 +522,8 @@ def call_ai_with_web_search(
         symbol_mentioned = False
         clean_sym = (symbol_value or '').upper()
 
-        for item in news_api_search(clean_sym, username, search_lookback_hours, max_results=4):
+        asset_context = 'equity' if prompt_type == 'webull_equity_analysis' else 'crypto'
+        for item in news_api_search(clean_sym, username, search_lookback_hours, max_results=4, asset_context=asset_context):
             src = item.get('source', '')
             if src:
                 search_sources.add(src)
@@ -546,6 +575,8 @@ def call_ai_with_web_search(
             'watchlist_sentiment_analysis': getattr(ai_prompts, 'watchlist_sentiment_prompt_post', None),
             'copilot': getattr(ai_prompts, 'copilot_chat_post', None) or user_ai_settings.get('copilot_chat_post'),
             'manual': getattr(ai_prompts, 'copilot_chat_post', None) or user_ai_settings.get('copilot_chat_post'),
+            'webull_crypto_analysis': getattr(ai_prompts, 'coin_analysis_post', None) or WEBULL_CRYPTO_RESEARCH_PROMPT,
+            'webull_equity_analysis': WEBULL_EQUITY_RESEARCH_PROMPT,
         }
         stage3_template = stage3_prompt_map.get(prompt_type)
         if not stage3_template:

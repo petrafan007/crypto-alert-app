@@ -5,7 +5,7 @@ from core.extensions import db
 def init_db(app=None):
     """Initialize the database with all models"""
     # Import models here to avoid circular imports
-    from models import Coin, WatchlistCoin, Notification, AIPrompt, DefaultAIPrompt, StakedCoin, StakingReward, AIConversation, AICache, AIAnalysisSchedule, PriceHistory, WebullAccountSnapshot, WebullHolding
+    from models import Coin, WatchlistCoin, Notification, AIPrompt, DefaultAIPrompt, StakedCoin, StakingReward, AIConversation, AICache, AIAnalysisSchedule, PriceHistory, WebullAccountSnapshot, WebullHolding, ExternalSentimentSignal
     from credentials import User, Credential, UserSetting, DesktopToken
     from trading_models import TestOrder, RealOrder, TestPortfolio, TradingSettings, AllActivity, PortfolioValueHistory, StakingOrder
     
@@ -29,6 +29,11 @@ def init_db(app=None):
             ("user_settings", "automated_trigger_confirmation_minutes", "INTEGER DEFAULT 15"),
             ("user_settings", "webull_environment", "VARCHAR(20) DEFAULT 'production'"),
             ("user_settings", "webull_account_selection_mode", "VARCHAR(20) DEFAULT 'all'"),
+            ("user_settings", "webull_ai_scheduling_enabled", "BOOLEAN DEFAULT FALSE"),
+            ("user_settings", "webull_crypto_sentiment_frequency_hours", "INTEGER DEFAULT 24"),
+            ("user_settings", "webull_equity_sentiment_frequency_hours", "INTEGER DEFAULT 24"),
+            ("user_settings", "webull_crypto_sentiment_horizon_hours", "INTEGER DEFAULT 24"),
+            ("user_settings", "webull_equity_sentiment_horizon_hours", "INTEGER DEFAULT 24"),
             ("credentials", "webull_app_key", "VARCHAR"),
             ("credentials", "webull_app_secret", "VARCHAR"),
             ("credentials", "webull_access_token", "VARCHAR"),
