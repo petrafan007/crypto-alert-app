@@ -7,6 +7,7 @@ from services.webull_service import (
     create_webull_access_token,
     generate_webull_signature,
     get_webull_accounts,
+    get_webull_portfolio_preview,
     normalize_webull_environment,
     parse_webull_expiry,
     test_webull_connection as check_webull_connection,
@@ -93,6 +94,18 @@ class WebullServiceTests(unittest.TestCase):
     def test_expiry_parser_accepts_webull_epoch_milliseconds(self):
         parsed = parse_webull_expiry(1787832000000)
         self.assertEqual(parsed.year, 2026)
+
+    def test_portfolio_preview_uses_all_discovered_accounts_without_importing(self):
+        accounts = [{'account_id': '1234', 'account_type': 'STOCK', 'account_name': 'Individual'}]
+        with patch('services.webull_service.get_webull_accounts', return_value=accounts), \
+             patch('services.webull_service.get_webull_account_balance', return_value={'total_cash_balance': '10'}), \
+             patch('services.webull_service.get_webull_account_positions', return_value=[{'symbol': 'AAPL'}]):
+            preview = get_webull_portfolio_preview('app-key', 'app-secret', access_token='private-token')
+
+        self.assertEqual(preview, [{
+            'account_id': '1234', 'account_type': 'STOCK', 'account_name': 'Individual',
+            'balance': {'total_cash_balance': '10'}, 'positions': [{'symbol': 'AAPL'}],
+        }])
 
     def test_signature_matches_webulls_documented_example(self):
         signature = generate_webull_signature(

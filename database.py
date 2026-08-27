@@ -28,6 +28,7 @@ def init_db(app=None):
             ("user_settings", "volatility_hours", "INTEGER DEFAULT 24"),
             ("user_settings", "automated_trigger_confirmation_minutes", "INTEGER DEFAULT 15"),
             ("user_settings", "webull_environment", "VARCHAR(20) DEFAULT 'production'"),
+            ("user_settings", "webull_account_selection_mode", "VARCHAR(20) DEFAULT 'all'"),
             ("credentials", "webull_app_key", "VARCHAR"),
             ("credentials", "webull_app_secret", "VARCHAR"),
             ("credentials", "webull_access_token", "VARCHAR"),

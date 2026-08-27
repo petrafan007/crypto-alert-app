@@ -37,6 +37,7 @@ from services.webull_service import (
     check_webull_access_token,
     create_webull_access_token,
     get_webull_accounts,
+    get_webull_portfolio_preview,
     normalize_webull_environment,
     parse_webull_expiry,
     test_webull_connection,
@@ -966,7 +967,7 @@ def api_settings():
             data = request.get_json() or {}
             existing_webull_environment = getattr(
                 UserSetting.query.filter_by(user_id=current_user.id).first(),
-                'webull_environment',
+                'webull_environment', 'webull_account_selection_mode',
                 None,
             ) or 'production'
             from services.sentiment_outcome_service import (
@@ -1243,6 +1244,7 @@ def api_settings():
             # encrypted values are available so the UI can safely mask them.
             "webull_configured": bool(cred.webull_app_key and cred.webull_app_secret),
             "webull_environment": getattr(webull_settings, 'webull_environment', None) or 'production',
+            "webull_account_selection_mode": getattr(webull_settings, 'webull_account_selection_mode', None) or 'all',
             "webull_token_status": (
                 getattr(cred, 'webull_token_status', None)
                 if getattr(cred, 'webull_token_environment', None)
@@ -1523,6 +1525,61 @@ def api_webull_accounts():
     except Exception as exc:
         logger.error('Webull account discovery failed: %s', exc, exc_info=True)
         return jsonify({'success': False, 'message': 'Unable to discover Webull accounts.'}), 500
+
+
+@system_bp.route('/api/webull/portfolio-preview', methods=['GET'])
+@login_required
+def api_webull_portfolio_preview():
+    """Read and display all user-selected Webull balances/positions; never writes portfolio data."""
+    try:
+        credential = Credential.query.filter_by(user_id=current_user.id).first()
+        setting = UserSetting.query.filter_by(user_id=current_user.id).first()
+        environment = normalize_webull_environment(getattr(setting, 'webull_environment', None) or 'production')
+        selection_mode = getattr(setting, 'webull_account_selection_mode', None) or 'all'
+        if selection_mode != 'all':
+            return jsonify({'success': False, 'message': 'No Webull accounts are selected for preview.'}), 400
+        if (
+            not credential or credential.webull_token_status != 'NORMAL'
+            or credential.webull_token_environment != environment or not credential.webull_access_token
+        ):
+            return jsonify({'success': False, 'message': 'Verify your Webull connection before loading the preview.'}), 400
+
+        preview = get_webull_portfolio_preview(
+            credential.webull_app_key, credential.webull_app_secret,
+            environment, credential.webull_access_token,
+        )
+        accounts = []
+        for account in preview:
+            balance = account.get('balance') if isinstance(account.get('balance'), dict) else {}
+            positions = account.get('positions') or []
+            accounts.append({
+                'account_type': account['account_type'],
+                'account_name': account['account_name'],
+                'account_id_masked': f"••••{account['account_id'][-4:]}",
+                'balance': {
+                    key: balance.get(key) for key in (
+                        'total_asset_currency', 'total_cash_balance', 'total_market_value',
+                        'total_net_liquidation_value', 'total_unrealized_profit_loss', 'total_day_profit_loss',
+                    )
+                },
+                'positions': [{
+                    key: position.get(key) for key in (
+                        'symbol', 'instrument_type', 'quantity', 'last_price', 'cost_price',
+                        'unrealized_profit_loss', 'currency',
+                    )
+                } for position in positions if isinstance(position, dict)],
+            })
+        return jsonify({
+            'success': True,
+            'selection_mode': 'all',
+            'accounts': accounts,
+            'message': f'Loaded a read-only preview for {len(accounts)} Webull account(s).',
+        })
+    except WebullConnectionError as exc:
+        return jsonify({'success': False, 'message': str(exc)}), 400
+    except Exception as exc:
+        logger.error('Webull portfolio preview failed: %s', exc, exc_info=True)
+        return jsonify({'success': False, 'message': 'Unable to load the Webull portfolio preview.'}), 500
 
 
 

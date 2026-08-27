@@ -160,6 +160,9 @@ export default function Settings({ isLightMode }) {
   const [loadingWebullAccounts, setLoadingWebullAccounts] = useState(false);
   const [webullAccounts, setWebullAccounts] = useState([]);
   const [webullAccountsMessage, setWebullAccountsMessage] = useState('');
+  const [loadingWebullPreview, setLoadingWebullPreview] = useState(false);
+  const [webullPortfolioPreview, setWebullPortfolioPreview] = useState([]);
+  const [webullPreviewMessage, setWebullPreviewMessage] = useState('');
   const [testingTrading, setTestingTrading] = useState(false);
   const [testingPrimaryAi, setTestingPrimaryAi] = useState(false);
   const [primaryAiTestResult, setPrimaryAiTestResult] = useState(null);
@@ -653,6 +656,23 @@ export default function Settings({ isLightMode }) {
       setWebullAccountsMessage(`Unable to discover accounts: ${error.response?.data?.message || 'Please verify the Webull connection.'}`);
     } finally {
       setLoadingWebullAccounts(false);
+    }
+  };
+
+  const loadWebullPortfolioPreview = async () => {
+    setLoadingWebullPreview(true);
+    setWebullPreviewMessage('');
+    try {
+      const response = await axios.get('/api/webull/portfolio-preview', { withCredentials: true });
+      const result = response.data || {};
+      setWebullPortfolioPreview(Array.isArray(result.accounts) ? result.accounts : []);
+      setWebullPreviewMessage(result.message || 'Webull portfolio preview loaded.');
+    } catch (error) {
+      console.error('Error loading Webull portfolio preview:', error);
+      setWebullPortfolioPreview([]);
+      setWebullPreviewMessage(`Unable to load preview: ${error.response?.data?.message || 'Please try again.'}`);
+    } finally {
+      setLoadingWebullPreview(false);
     }
   };
 
@@ -1539,6 +1559,42 @@ export default function Settings({ isLightMode }) {
                     ))}
                   </div>
                 )}
+                <div style={{ marginTop: '14px', paddingTop: '12px', borderTop: '1px solid rgba(79, 209, 197, 0.20)' }}>
+                  <strong>Portfolio Preview</strong>
+                  <p className="settings-form-help" style={{ margin: '4px 0 10px' }}>
+                    All connected Webull accounts are selected. This fetches a live, read-only preview of balances and open positions; it does not merge or save them into the dashboard yet.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={loadWebullPortfolioPreview}
+                    disabled={loadingWebullPreview}
+                    style={{ padding: '7px 12px', backgroundColor: loadingWebullPreview ? '#6c757d' : '#0f766e', color: '#fff', border: 'none', borderRadius: '4px', cursor: loadingWebullPreview ? 'not-allowed' : 'pointer', fontSize: '13px', fontWeight: 'bold' }}
+                  >
+                    {loadingWebullPreview ? 'Loading Preview...' : 'Load Read-Only Portfolio Preview'}
+                  </button>
+                  {webullPreviewMessage && <p className="settings-form-help" style={{ margin: '10px 0 0' }}>{webullPreviewMessage}</p>}
+                  {webullPortfolioPreview.map((account, index) => (
+                    <div key={`${account.account_type}-${account.account_id_masked}-${index}`} style={{ marginTop: '10px', padding: '10px', borderRadius: '4px', background: 'rgba(15, 23, 42, 0.45)' }}>
+                      <strong>{account.account_type || 'Webull Account'} · {account.account_id_masked}</strong>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', marginTop: '8px', fontSize: '13px' }}>
+                        <span>Net value: <strong>{account.balance?.total_net_liquidation_value ?? '—'} {account.balance?.total_asset_currency || ''}</strong></span>
+                        <span>Cash: <strong>{account.balance?.total_cash_balance ?? '—'}</strong></span>
+                        <span>Market value: <strong>{account.balance?.total_market_value ?? '—'}</strong></span>
+                        <span>Open P&amp;L: <strong>{account.balance?.total_unrealized_profit_loss ?? '—'}</strong></span>
+                      </div>
+                      {account.positions?.length > 0 ? (
+                        <div style={{ marginTop: '9px', display: 'grid', gap: '5px', fontSize: '13px' }}>
+                          {account.positions.map((position, positionIndex) => (
+                            <div key={`${position.symbol}-${position.instrument_type}-${positionIndex}`} style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', flexWrap: 'wrap' }}>
+                              <span><strong>{position.symbol || 'Unknown'}</strong> · {position.instrument_type || 'Position'} · Qty {position.quantity ?? '—'}</span>
+                              <span>Last {position.last_price ?? '—'} · Open P&amp;L {position.unrealized_profit_loss ?? '—'}</span>
+                            </div>
+                          ))}
+                        </div>
+                      ) : <p className="settings-form-help" style={{ margin: '9px 0 0' }}>No open positions returned for this account.</p>}
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
           </div>

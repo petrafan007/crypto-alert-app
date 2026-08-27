@@ -122,6 +122,13 @@ The application utilizes a **unified PostgreSQL database**.
 
 ## Version History & Changelog
 
+## v2.26.0 (August 2026)
+
+### Webull All-Accounts Portfolio Preview
+- **All-Accounts Selection**: Added a persisted all-connected-Webull-accounts selection mode, so the approved choice also includes newly discovered accounts.
+- **Read-only Portfolio Preview**: Settings can retrieve each selected account's balance summary and open positions under Webull's production rate limits. It does not merge, persist, trade, or change Binance.US data.
+- **Version Bump**: Transitioned version to `v2.26.0`.
+
 ## v2.25.0 (August 2026)
 
 ### Webull Account Discovery

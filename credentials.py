@@ -421,6 +421,7 @@ class UserSetting(db.Model):
     volatility_hours = db.Column(db.Integer, default=24)
     automated_trigger_confirmation_minutes = db.Column(db.Integer, default=15)
     webull_environment = db.Column(db.String(20), default='production')
+    webull_account_selection_mode = db.Column(db.String(20), default='all')
     ai_outcome_neutral_threshold_pct = db.Column(db.Float, default=5.0)
     sentiment_buy_immediately_correct_pct = db.Column(db.Float, default=5.0)
     sentiment_buy_immediately_wrong_pct = db.Column(db.Float, default=5.0)

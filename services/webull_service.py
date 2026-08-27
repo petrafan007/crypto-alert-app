@@ -5,6 +5,7 @@ import hashlib
 import hmac
 from datetime import datetime, timezone
 import json
+import time
 from urllib.parse import quote
 from uuid import uuid4
 
@@ -58,7 +59,7 @@ def generate_webull_signature(path, query_params, app_key, app_secret, host, tim
     return base64.b64encode(signature_bytes).decode('utf-8')
 
 
-def _webull_request(app_key, app_secret, environment, method, path, *, body=None, access_token=None):
+def _webull_request(app_key, app_secret, environment, method, path, *, query_params=None, body=None, access_token=None):
     """Make one signed Webull request without exposing any secret in logs or responses."""
     if not app_key or not app_secret:
         raise WebullConnectionError('Webull App Key and App Secret are required.')
@@ -68,8 +69,9 @@ def _webull_request(app_key, app_secret, environment, method, path, *, body=None
     body_string = json.dumps(body, separators=(',', ':')) if body is not None else None
     timestamp = datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
     nonce = uuid4().hex
+    query_params = query_params or {}
     signature = generate_webull_signature(
-        path, {}, app_key, app_secret, host, timestamp, nonce, body_string
+        path, query_params, app_key, app_secret, host, timestamp, nonce, body_string
     )
     headers = {
         'x-app-key': app_key,
@@ -91,6 +93,7 @@ def _webull_request(app_key, app_secret, environment, method, path, *, body=None
             method,
             f'https://{host}{path}',
             headers=headers,
+            params=query_params,
             data=body_string,
             timeout=15,
         )
@@ -169,6 +172,56 @@ def get_webull_accounts(app_key, app_secret, environment='production', access_to
             'account_name': str(account.get('account_name') or account.get('accountName') or account.get('name') or ''),
         })
     return accounts
+
+
+def _get_webull_account_resource(app_key, app_secret, environment, access_token, account_id, legacy_path, current_path):
+    response = _webull_request(
+        app_key, app_secret, environment, 'GET', legacy_path,
+        query_params={'account_id': account_id}, access_token=access_token,
+    )
+    if getattr(response, 'status_code', None) == 404:
+        response = _webull_request(
+            app_key, app_secret, environment, 'GET', current_path,
+            query_params={'account_id': account_id}, access_token=access_token,
+        )
+    return _response_payload(response, 'account resource request')
+
+
+def get_webull_account_balance(app_key, app_secret, environment, access_token, account_id):
+    """Fetch one selected account's balance, without persisting it."""
+    payload = _get_webull_account_resource(
+        app_key, app_secret, environment, access_token, account_id,
+        '/openapi/assets/balance', '/trading/assets/balances/get',
+    )
+    return payload.get('data', payload) if isinstance(payload, dict) else payload
+
+
+def get_webull_account_positions(app_key, app_secret, environment, access_token, account_id):
+    """Fetch one selected account's open positions, without persisting them."""
+    payload = _get_webull_account_resource(
+        app_key, app_secret, environment, access_token, account_id,
+        '/openapi/assets/positions', '/trading/assets/positions/list',
+    )
+    positions = payload.get('data', payload) if isinstance(payload, dict) else payload
+    if isinstance(positions, dict):
+        positions = positions.get('positions') or positions.get('items') or []
+    return positions if isinstance(positions, list) else []
+
+
+def get_webull_portfolio_preview(app_key, app_secret, environment='production', access_token=None):
+    """Read selected accounts' balances and positions for preview only; performs no imports or trading."""
+    preview = []
+    for index, account in enumerate(get_webull_accounts(app_key, app_secret, environment, access_token)):
+        if index:
+            # Production balance/position requests are limited to two per two seconds.
+            time.sleep(2.05)
+        account_id = account['account_id']
+        preview.append({
+            **account,
+            'balance': get_webull_account_balance(app_key, app_secret, environment, access_token, account_id),
+            'positions': get_webull_account_positions(app_key, app_secret, environment, access_token, account_id),
+        })
+    return preview
 
 
 def create_webull_access_token(app_key, app_secret, environment='production'):
