@@ -122,6 +122,12 @@ The application utilizes a **unified PostgreSQL database**.
 
 ## Version History & Changelog
 
+## v2.22.1 (August 2026)
+
+### Portfolio Trend Control Consistency
+- **Theme-Aware Portfolio Trend Edit Control**: Styled the Portfolio Trend range-picker pencil to match the compact edit controls used by other dashboard panels. Its size, border, background, hover state, focus treatment, and contrast now follow the active light or dark theme instead of relying on browser-default button styling.
+- **Version Bump**: Transitioned version to `v2.22.1`.
+
 ## v2.22.0 (August 2026)
 
 ### Automated Trigger Confirmation & AI Analysis Stability

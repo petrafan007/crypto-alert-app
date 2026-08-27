@@ -56,6 +56,35 @@
   box-shadow: 0 0 15px rgba(56, 189, 248, 0.5);
 }
 
+/* Compact panel-level edit controls (for example, Portfolio Trend ranges). */
+.widget-edit-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  min-height: 22px;
+  padding: 2px 5px;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  background: var(--bg-tertiary);
+  color: var(--accent-primary);
+  cursor: pointer;
+  font-size: 11px;
+  line-height: 1;
+  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.widget-edit-btn:hover {
+  border-color: var(--accent-primary);
+  background: var(--accent-primary);
+  color: var(--button-text);
+}
+
+.widget-edit-btn:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 2px;
+}
+
 .dashboard-edit-hint {
   color: #94a3b8;
   font-size: 0.85rem;
