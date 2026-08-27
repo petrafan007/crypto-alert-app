@@ -122,6 +122,10 @@ The application utilizes a **unified PostgreSQL database**.
 
 ## Version History & Changelog
 
+## v2.30.2 (August 2026)
+
+- **Webull Brand Mark**: Replaced the temporary emoji in Portfolio source identity with the supplied blue Webull bull mark. It remains compact and exposes “Webull” on hover.
+
 ## v2.30.1 (August 2026)
 
 - **Reliable Exchange Menu**: Fixed the Trading exchange menu to remain open while moving into it, close only on an outside click or Escape, and respect the active light/dark theme.
