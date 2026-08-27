@@ -5,9 +5,6 @@ import { useAuth } from '../components/AuthContext';
 import { FaToggleOn, FaToggleOff, FaInfoCircle } from 'react-icons/fa';
 import { useSearchParams } from 'react-router-dom';
 import OnboardingModal from '../components/OnboardingModal';
-import { APP_VERSION_TAG } from '../version';
-
-const CURRENT_APP_VERSION = APP_VERSION_TAG;
 
 const SENTIMENT_VARIABLES = [
   { label: 'Buy Immediately', code: 'BI', kind: 'directional', direction: 'up', correctKey: 'sentiment_buy_immediately_correct_pct', wrongKey: 'sentiment_buy_immediately_wrong_pct' },
@@ -176,6 +173,7 @@ export default function Settings({ isLightMode }) {
   const [includeBeta, setIncludeBeta] = useState(true);
   const [availableVersion, setAvailableVersion] = useState(null);
   const [isFetchingVersion, setIsFetchingVersion] = useState(false);
+  const [versionLookupError, setVersionLookupError] = useState('');
 
   // 2FA State
   const [twoFactorEnabled, setTwoFactorEnabled] = useState(false);
@@ -763,8 +761,23 @@ export default function Settings({ isLightMode }) {
   const fetchLatestVersion = async (wantsBeta) => {
     setIsFetchingVersion(true);
     setAvailableVersion(null);
+    setVersionLookupError('');
     try {
-      setAvailableVersion(CURRENT_APP_VERSION);
+      const response = await axios.get('/api/system/latest-release', {
+        params: {
+          include_beta: wantsBeta,
+          cache_bust: Date.now(),
+        },
+        headers: { 'Cache-Control': 'no-cache' },
+        withCredentials: true,
+      });
+      if (!response.data?.tag_name) {
+        throw new Error('GitHub did not return a release tag');
+      }
+      setAvailableVersion(response.data.tag_name);
+    } catch (error) {
+      console.error('Latest GitHub release lookup failed:', error);
+      setVersionLookupError(error.response?.data?.error || 'Unable to retrieve the latest GitHub release. Please try again.');
     } finally {
       setIsFetchingVersion(false);
     }
@@ -787,12 +800,9 @@ export default function Settings({ isLightMode }) {
     setMessage('Upgrade initiated. Please wait, the page will automatically refresh when complete...');
     setMessageType('success');
     try {
-      const payload = {};
-      if (availableVersion) {
-        payload.target_version = availableVersion;
-      }
-      
-      const response = await axios.post('/api/system/upgrade', payload, { withCredentials: true });
+      const response = await axios.post('/api/system/upgrade', {
+        include_beta: includeBeta,
+      }, { withCredentials: true });
       if (response.data.success) {
         let serverWentDown = false;
         const pollInterval = setInterval(async () => {
@@ -1031,6 +1041,10 @@ export default function Settings({ isLightMode }) {
                   </style>
                   <span>Checking for latest version from GitHub...</span>
                 </div>
+              ) : versionLookupError ? (
+                <p style={{ margin: 0, color: '#f56565', fontSize: '1rem', lineHeight: '1.6' }}>
+                  {versionLookupError}
+                </p>
               ) : (
                 <p style={{ margin: 0, color: isLightMode ? '#4a5568' : '#e2e8f0', fontSize: '1rem', lineHeight: '1.6' }}>
                   Are you sure you want to pull the latest version {availableVersion ? (
@@ -1065,16 +1079,16 @@ export default function Settings({ isLightMode }) {
               </button>
               <button
                 onClick={confirmUpgrade}
-                disabled={isFetchingVersion}
+                disabled={isFetchingVersion || !availableVersion}
                 style={{
                   padding: '10px 20px',
                   borderRadius: '6px',
                   border: 'none',
-                  background: isFetchingVersion ? '#4a5568' : '#ecc94b',
+                  background: isFetchingVersion || !availableVersion ? '#4a5568' : '#ecc94b',
                   color: '#000',
                   fontSize: '14px',
                   fontWeight: 'bold',
-                  cursor: isFetchingVersion ? 'not-allowed' : 'pointer',
+                  cursor: isFetchingVersion || !availableVersion ? 'not-allowed' : 'pointer',
                   boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)'
                 }}
               >

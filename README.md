@@ -122,6 +122,15 @@ The application utilizes a **unified PostgreSQL database**.
 
 ## Version History & Changelog
 
+## v2.22.2 (August 2026)
+
+### Reliable GitHub Release Upgrades
+- **Live Release Lookup**: The in-app Upgrade App modal now queries GitHub's releases API whenever it opens or its beta preference changes. It no longer presents the version embedded in the running frontend as though it were the newest release.
+- **Stale-Target Protection**: The upgrade request independently resolves GitHub's newest eligible release immediately before invoking the upgrade script, ignores any stale client version, and refuses to run if GitHub cannot be reached. Responses are explicitly non-cacheable.
+- **Accurate Upgrade UI**: The confirmation button remains disabled until GitHub returns a valid release tag, and the page shows a clear lookup error instead of silently falling back to an old version.
+- **Personal Instance Deployment**: This release is deployed to the configured personal instance as part of its release workflow.
+- **Version Bump**: Transitioned version to `v2.22.2`.
+
 ## v2.22.1 (August 2026)
 
 ### Portfolio Trend Control Consistency

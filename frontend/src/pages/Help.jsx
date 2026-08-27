@@ -638,7 +638,7 @@ export default function Help({ isLightMode }) {
                     <li><strong>Run Sentiment Analysis Now</strong> — trigger a full AI sentiment pass on demand</li>
                     <li><strong>Include Beta</strong> — opt in to beta releases when upgrading</li>
                     <li><strong>AI Integrations Enabled</strong> — toggle all configured AI integrations from the Settings header. API keys, Telegram credentials, and the News API key are masked on screen; every configured provider has a consistent <strong>Test API Connection</strong> button.</li>
-                    <li><strong>Upgrade App</strong> — pull and apply the latest released version</li>
+                    <li><strong>Upgrade App</strong> — queries GitHub live for the latest eligible published release, shows that exact tag for confirmation, then rechecks GitHub immediately before installing it. Beta releases are included only when Include Beta is enabled.</li>
                     <li><strong>Delete Account</strong> — permanently removes your credentials, 2FA, settings, and tax data (export your tax report first!)</li>
                 </ul>
             </Section>

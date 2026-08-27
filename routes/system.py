@@ -55,6 +55,56 @@ from flask import make_response, send_file
 system_bp = Blueprint('system', __name__)
 
 
+GITHUB_RELEASES_API_URL = 'https://api.github.com/repos/petrafan007/crypto-alert-app/releases'
+
+
+def _is_prerelease(release):
+    """Return whether a GitHub release is a beta/prerelease."""
+    tag_name = str(release.get('tag_name') or '')
+    return bool(release.get('prerelease')) or '-' in tag_name
+
+
+def fetch_latest_github_release(include_beta=False):
+    """Fetch the newest eligible published release from GitHub without caching it."""
+    response = requests.get(
+        GITHUB_RELEASES_API_URL,
+        headers={
+            'Accept': 'application/vnd.github+json',
+            'User-Agent': 'Crypto-Alert-App-Updater',
+        },
+        params={'per_page': 100},
+        timeout=10,
+    )
+    response.raise_for_status()
+    releases = response.json()
+    if not isinstance(releases, list):
+        raise ValueError('GitHub returned an invalid release list')
+
+    eligible_releases = [
+        release for release in releases
+        if not release.get('draft')
+        and release.get('tag_name')
+        and (include_beta or not _is_prerelease(release))
+    ]
+    if not eligible_releases:
+        raise LookupError('No eligible GitHub release is available')
+
+    # GitHub returns releases newest first, but explicitly comparing timestamps
+    # keeps the result correct if its response ordering ever changes.
+    return max(
+        eligible_releases,
+        key=lambda release: release.get('published_at') or release.get('created_at') or '',
+    )
+
+
+def _include_beta_from_value(value, default=True):
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() in {'1', 'true', 'yes', 'on'}
+
+
 
 # Extension login endpoint (JWT)
 @system_bp.route('/api/extension/login', methods=['POST'])
@@ -549,7 +599,7 @@ def logs_html():
 @system_bp.route('/api/system/upgrade', methods=['POST'])
 @login_required
 def api_system_upgrade():
-    """Trigger the auto-upgrade script to pull the latest version from GitHub"""
+    """Trigger the upgrade script for the latest eligible GitHub release."""
     try:
         import subprocess
         # Check if user is admin (optional, assuming current_user is validated)
@@ -561,14 +611,10 @@ def api_system_upgrade():
             
         log_path = os.path.join(root_dir, 'upgrade_background.log')
         
-        target_version = ""
-        if request.is_json:
-            target_version = request.json.get("target_version", "")
-        
-        # Sanitize target_version (only allow alphanumeric, dots, and hyphens)
-        import re
-        if target_version and not re.match(r'^[\w\.\-]+$', target_version):
-            return jsonify({"success": False, "error": "Invalid version format"}), 400
+        payload = request.get_json(silent=True) or {}
+        include_beta = _include_beta_from_value(payload.get('include_beta'), default=True)
+        latest_release = fetch_latest_github_release(include_beta=include_beta)
+        target_version = latest_release['tag_name']
 
         # Run the script in the background so it doesn't kill the request midway
         # We redirect output to a log file
@@ -591,11 +637,35 @@ def api_system_upgrade():
         
         return jsonify({
             "success": True, 
-            "message": "Upgrade initiated. The system will pull the latest version and restart shortly."
+            "message": f"Upgrade to {target_version} initiated. The app will restart shortly.",
+            "target_version": target_version,
         })
+    except (requests.RequestException, LookupError, ValueError) as e:
+        logger.error(f"Unable to resolve the latest GitHub release: {e}")
+        return jsonify({"success": False, "error": "Unable to retrieve the latest GitHub release. Please try again."}), 502
     except Exception as e:
         logger.error(f"Error triggering upgrade: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
+
+
+@system_bp.route('/api/system/latest-release', methods=['GET'])
+@login_required
+def api_system_latest_release():
+    """Return the latest published GitHub release for the in-app updater."""
+    try:
+        include_beta = _include_beta_from_value(request.args.get('include_beta'), default=True)
+        release = fetch_latest_github_release(include_beta=include_beta)
+        response = jsonify({
+            'tag_name': release['tag_name'],
+            'name': release.get('name') or release['tag_name'],
+            'published_at': release.get('published_at'),
+            'prerelease': _is_prerelease(release),
+        })
+        response.headers['Cache-Control'] = 'no-store, max-age=0'
+        return response
+    except (requests.RequestException, LookupError, ValueError) as e:
+        logger.error(f"Unable to retrieve the latest GitHub release: {e}")
+        return jsonify({"error": "Unable to retrieve the latest GitHub release. Please try again."}), 502
 
 
 @system_bp.route("/dashboard.html")
