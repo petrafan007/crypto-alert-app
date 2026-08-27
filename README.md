@@ -122,6 +122,10 @@ The application utilizes a **unified PostgreSQL database**.
 
 ## Version History & Changelog
 
+## v2.28.0 (August 2026)
+
+- **Unified Webull Order History**: The existing Trading and Recent Order History views now merge read-only historical Webull orders across all connected accounts. Each appears with a Webull origin label and cannot open Binance.US trading or any order-management action.
+
 ## v2.27.0 (August 2026)
 
 - **Unified Webull Portfolio Import**: Import the validated all-account Webull preview into a persistent, read-only portfolio snapshot. Webull holdings appear alongside Binance.US holdings with a visible Webull badge, while account-level net-liquidation values contribute to dashboard totals and future portfolio-history samples without double-counting cash.

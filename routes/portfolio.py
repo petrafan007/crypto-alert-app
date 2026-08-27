@@ -42,6 +42,7 @@ from services.staking_service import (
     binance_us_api_call
 )
 from services.credential_service import get_user_credentials
+from services.webull_service import WebullConnectionError, get_webull_order_history, normalize_webull_environment
 from services.notification_service import notify_order_fill, create_system_notification, send_telegram_message
 from services.common import _coerce_float, format_price, format_quantity
 from credential_security import decrypt_secret
@@ -2113,6 +2114,11 @@ def get_real_orders_only():
                     if value.tzinfo is None:
                         return value.replace(tzinfo=timezone.utc).isoformat()
                     return value.astimezone(timezone.utc).isoformat()
+                if isinstance(value, (int, float)) or (isinstance(value, str) and value.strip().isdigit()):
+                    timestamp = float(value)
+                    if timestamp > 100000000000:
+                        timestamp /= 1000
+                    return datetime.fromtimestamp(timestamp, tz=timezone.utc).isoformat()
                 v = str(value).strip()
                 if v.endswith('Z'):
                     v = v[:-1] + '+00:00'
@@ -2304,6 +2310,56 @@ def get_real_orders_only():
                 logger.warning("No Binance credentials found for real order history")
         except Exception as cred_err:
             logger.warning(f"Could not fetch Binance order history: {cred_err}")
+
+        # Merge read-only Webull historical orders. They use their own unique
+        # source keys and may represent equities, options, futures, or crypto;
+        # none are treated as Binance tradable symbols.
+        try:
+            webull_credential = Credential.query.filter_by(user_id=current_user.id).first()
+            webull_setting = UserSetting.query.filter_by(user_id=current_user.id).first()
+            webull_environment = normalize_webull_environment(
+                getattr(webull_setting, 'webull_environment', None) or 'production'
+            )
+            if (
+                webull_credential and webull_credential.webull_token_status == 'NORMAL'
+                and webull_credential.webull_token_environment == webull_environment
+                and webull_credential.webull_access_token
+            ):
+                webull_orders = get_webull_order_history(
+                    webull_credential.webull_app_key, webull_credential.webull_app_secret,
+                    webull_environment, webull_credential.webull_access_token, page_size=100,
+                )
+                for order in webull_orders:
+                    order_id = order.get('order_id') or order.get('orderId') or order.get('client_order_id') or order.get('clientOrderId')
+                    symbol = str(order.get('symbol') or order.get('ticker') or 'UNKNOWN').upper()
+                    account_id = str(order.get('_webull_account_id') or '')
+                    quantity = order.get('total_quantity', order.get('quantity', order.get('order_quantity', 0)))
+                    filled_quantity = order.get('filled_quantity', order.get('executed_quantity', order.get('filled_qty', 0)))
+                    price = order.get('limit_price', order.get('price', order.get('order_price', 0)))
+                    filled_price = order.get('average_filled_price', order.get('avg_fill_price', order.get('filled_price', price)))
+                    def float_or_zero(value):
+                        try:
+                            return float(value or 0)
+                        except (TypeError, ValueError):
+                            return 0.0
+                    payload = {
+                        'id': order_id or f'webull-{account_id}-{symbol}', 'symbol': symbol,
+                        'side': order.get('side') or 'UNKNOWN',
+                        'order_type': order.get('order_type') or order.get('type') or 'UNKNOWN',
+                        'quantity': float_or_zero(quantity), 'price': float_or_zero(price),
+                        'filled_quantity': float_or_zero(filled_quantity), 'filled_price': float_or_zero(filled_price),
+                        'status': order.get('status') or order.get('order_status') or 'UNKNOWN',
+                        'created_at': normalize_timestamp(order.get('created_at') or order.get('create_time') or order.get('placed_time')),
+                        'updated_at': normalize_timestamp(order.get('updated_at') or order.get('update_time') or order.get('filled_time')),
+                        'source': 'webull', 'origin': 'webull', 'origin_label': 'Webull',
+                        'instrument_type': order.get('instrument_type'),
+                        'webull_account_type': order.get('_webull_account_type'),
+                    }
+                    add_order(f"webull-{account_id}-{payload['id']}", payload)
+        except WebullConnectionError as webull_err:
+            logger.warning(f"Could not fetch Webull order history: {webull_err}")
+        except Exception as webull_err:
+            logger.warning(f"Unexpected Webull order-history error: {webull_err}")
 
         # Merge historical records from all_activities (fills from other sources)
         for activity in activity_records:

@@ -480,7 +480,8 @@ export default function Help({ isLightMode }) {
                 </ul>
                 <Example>
                     Clicking "Sell" → "USDT" on your ETH row opens the Trading Center pre-filtered to the ETH/USDT
-                    pair with the Sell side selected — it does not sell USDT, it sells ETH for USDT.
+                    pair with the Sell side selected — it does not sell USDT, it sells ETH for USDT. Webull orders are
+                    shown with a Webull origin badge in Order History and are read-only; they never open Binance.US trading.
                 </Example>
             </Section>
 

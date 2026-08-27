@@ -77,7 +77,8 @@ export const parseOrderData = (order) => {
     total,
     status,
     rawStatus,
-    orderType: (order.order_type || order.type || 'LIMIT').toUpperCase()
+    orderType: (order.order_type || order.type || 'LIMIT').toUpperCase(),
+    source: String(order.source || order.origin || '').toLowerCase()
   };
 };
 
@@ -266,20 +267,20 @@ const RecentTradesWidget = ({ isLightMode, config, onEdit, onCoinClick }) => {
                   >
                     {parsed.isBuy ? 'BUY' : 'SELL'}
                   </span>
-                  <button
-                    type="button"
-                    onClick={() => onCoinClick?.(parsed.baseSymbol)}
-                    title={`Open ${parsed.baseSymbol} in Trading`}
+                  <div
+                    title={parsed.source === 'webull' ? 'Webull order — read-only' : `Open ${parsed.baseSymbol} in Trading`}
+                    onClick={parsed.source === 'webull' ? undefined : () => onCoinClick?.(parsed.baseSymbol)}
                     style={{
                       display: 'inline-flex', alignItems: 'center', gap: '5px', minWidth: 0,
-                      padding: 0, border: 'none', background: 'none', cursor: 'pointer', font: 'inherit'
+                      padding: 0, border: 'none', background: 'none', cursor: parsed.source === 'webull' ? 'default' : 'pointer', font: 'inherit'
                     }}
                   >
                     <CryptoIcon symbol={parsed.baseSymbol} size={16} />
                     <span style={{ fontWeight: '600', color: 'var(--text-primary, #fff)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {parsed.symbol}
                     </span>
-                  </button>
+                    {parsed.source === 'webull' && <span style={{ color: '#60a5fa', fontSize: '9px', fontWeight: '700' }}>WEBULL</span>}
+                  </div>
                 </div>
 
                 <div style={{ textAlign: 'right', flexShrink: 0, marginLeft: '8px' }}>

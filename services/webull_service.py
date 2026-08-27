@@ -224,6 +224,43 @@ def get_webull_portfolio_preview(app_key, app_secret, environment='production', 
     return preview
 
 
+def get_webull_order_history(app_key, app_secret, environment='production', access_token=None, page_size=100):
+    """Return recent historical orders for every authenticated Webull account.
+
+    This only uses Webull's historical-order query endpoint. It never queries
+    open orders and cannot place, amend, or cancel an order.
+    """
+    records = []
+    safe_page_size = max(1, min(int(page_size or 100), 100))
+    for index, account in enumerate(get_webull_accounts(app_key, app_secret, environment, access_token)):
+        if index:
+            # Production Order History is limited to two requests per two seconds.
+            time.sleep(2.05)
+        account_id = account['account_id']
+        params = {'account_id': account_id, 'page_size': safe_page_size}
+        response = _webull_request(
+            app_key, app_secret, environment, 'GET', '/trading/orders/historical-orders/list',
+            query_params=params, access_token=access_token,
+        )
+        # Retain the legacy path as a compatibility fallback for older approved
+        # Webull applications, just as the account resources do.
+        if getattr(response, 'status_code', None) == 404:
+            response = _webull_request(
+                app_key, app_secret, environment, 'GET', '/openapi/trade/order/history',
+                query_params=params, access_token=access_token,
+            )
+        payload = _response_payload(response, 'order-history request')
+        items = payload.get('data', payload) if isinstance(payload, dict) else payload
+        if isinstance(items, dict):
+            items = items.get('orders') or items.get('items') or items.get('list') or []
+        if not isinstance(items, list):
+            continue
+        for order in items:
+            if isinstance(order, dict):
+                records.append({**order, '_webull_account_id': account_id, '_webull_account_type': account.get('account_type')})
+    return records
+
+
 def create_webull_access_token(app_key, app_secret, environment='production'):
     """Request a Webull token. Production commonly returns PENDING until app/SMS approval."""
     # Match Webull's official Python SDK first. The newer documentation lists a

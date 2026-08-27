@@ -50,6 +50,7 @@ const getOrderOrigin = (order) => {
   if (origin === 'auto_sell' || order?.trigger_type === 'auto_sell') return { label: 'Auto-Sell', color: '#f87171', background: 'rgba(239, 68, 68, 0.15)' };
   if (origin === 'auto_sell_cancellation') return { label: 'Canceled by Auto-Sell', color: '#fbbf24', background: 'rgba(245, 158, 11, 0.15)' };
   if (origin === 'auto_buy' || order?.trigger_type === 'auto_buy') return { label: 'Auto-Buy', color: '#4ade80', background: 'rgba(34, 197, 94, 0.15)' };
+  if (origin === 'webull') return { label: 'Webull', color: '#60a5fa', background: 'rgba(96, 165, 250, 0.15)' };
   return { label: 'Manual', color: '#cbd5e1', background: 'rgba(148, 163, 184, 0.12)' };
 };
 
