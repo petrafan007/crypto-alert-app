@@ -144,6 +144,33 @@ def get_webull_account_list(app_key, app_secret, environment='production', acces
     )
 
 
+def get_webull_accounts(app_key, app_secret, environment='production', access_token=None):
+    """Return the authenticated user's Webull accounts using the established read-only endpoint."""
+    payload = _response_payload(
+        get_webull_account_list(app_key, app_secret, environment, access_token),
+        'account-list request',
+    )
+    records = payload.get('data', payload) if isinstance(payload, dict) else payload
+    if isinstance(records, dict):
+        records = records.get('accounts') or records.get('items') or []
+    if not isinstance(records, list):
+        raise WebullConnectionError('Webull returned an unreadable account-list response.')
+
+    accounts = []
+    for account in records:
+        if not isinstance(account, dict):
+            continue
+        account_id = account.get('account_id') or account.get('accountId') or account.get('id')
+        if account_id is None:
+            continue
+        accounts.append({
+            'account_id': str(account_id),
+            'account_type': str(account.get('account_type') or account.get('accountType') or account.get('type') or 'Unknown'),
+            'account_name': str(account.get('account_name') or account.get('accountName') or account.get('name') or ''),
+        })
+    return accounts
+
+
 def create_webull_access_token(app_key, app_secret, environment='production'):
     """Request a Webull token. Production commonly returns PENDING until app/SMS approval."""
     # Match Webull's official Python SDK first. The newer documentation lists a
@@ -171,26 +198,10 @@ def check_webull_access_token(app_key, app_secret, access_token, environment='pr
 
 def test_webull_connection(app_key, app_secret, environment='production', access_token=None):
     """Verify credentials with the read-only account-list endpoint."""
-    response = get_webull_account_list(app_key, app_secret, environment, access_token)
-
-    status_code = getattr(response, 'status_code', None)
-    if status_code != 200:
-        detail = getattr(response, 'text', '') or 'Webull did not accept these credentials.'
-        raise WebullConnectionError(f'Webull connection failed (HTTP {status_code}): {detail}')
-
-    try:
-        payload = response.json()
-    except Exception as exc:
-        raise WebullConnectionError('Webull returned an unreadable account-list response.') from exc
-
-    accounts = payload.get('data', []) if isinstance(payload, dict) else payload
-    if not isinstance(accounts, list):
-        accounts = []
+    accounts = get_webull_accounts(app_key, app_secret, environment, access_token)
 
     account_types = sorted({
-        str(account.get('account_type') or account.get('type') or 'Unknown')
-        for account in accounts
-        if isinstance(account, dict)
+        account['account_type'] for account in accounts
     })
     return {
         'environment': normalize_webull_environment(environment),

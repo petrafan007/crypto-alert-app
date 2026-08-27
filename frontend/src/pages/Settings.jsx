@@ -157,6 +157,9 @@ export default function Settings({ isLightMode }) {
   const [messageType, setMessageType] = useState(''); // 'success' or 'error'
   const [testingBinance, setTestingBinance] = useState(false);
   const [testingWebull, setTestingWebull] = useState(false);
+  const [loadingWebullAccounts, setLoadingWebullAccounts] = useState(false);
+  const [webullAccounts, setWebullAccounts] = useState([]);
+  const [webullAccountsMessage, setWebullAccountsMessage] = useState('');
   const [testingTrading, setTestingTrading] = useState(false);
   const [testingPrimaryAi, setTestingPrimaryAi] = useState(false);
   const [primaryAiTestResult, setPrimaryAiTestResult] = useState(null);
@@ -596,6 +599,9 @@ export default function Settings({ isLightMode }) {
         webull_token_status: result.status || prev.webull_token_status,
         webull_token_expires_at: result.expires_at || prev.webull_token_expires_at,
       }));
+      if (result.success) {
+        await fetchWebullAccounts();
+      }
       setMessage(`${result.success ? '✅' : '📱'} ${result.message || 'Webull verification started.'}`);
       setMessageType(result.success ? 'success' : (result.verification_required ? 'success' : 'error'));
     } catch (error) {
@@ -619,6 +625,9 @@ export default function Settings({ isLightMode }) {
         webull_token_status: result.status || prev.webull_token_status,
         webull_token_expires_at: result.expires_at || prev.webull_token_expires_at,
       }));
+      if (result.success) {
+        await fetchWebullAccounts();
+      }
       setMessage(`${result.success ? '✅' : '📱'} ${result.message || 'Webull verification status checked.'}`);
       setMessageType(result.success ? 'success' : (result.verification_required ? 'success' : 'error'));
     } catch (error) {
@@ -627,6 +636,23 @@ export default function Settings({ isLightMode }) {
       setMessageType('error');
     } finally {
       setTestingWebull(false);
+    }
+  };
+
+  const fetchWebullAccounts = async () => {
+    setLoadingWebullAccounts(true);
+    setWebullAccountsMessage('');
+    try {
+      const response = await axios.get('/api/webull/accounts', { withCredentials: true });
+      const result = response.data || {};
+      setWebullAccounts(Array.isArray(result.accounts) ? result.accounts : []);
+      setWebullAccountsMessage(result.message || 'Webull accounts refreshed.');
+    } catch (error) {
+      console.error('Error discovering Webull accounts:', error);
+      setWebullAccounts([]);
+      setWebullAccountsMessage(`Unable to discover accounts: ${error.response?.data?.message || 'Please verify the Webull connection.'}`);
+    } finally {
+      setLoadingWebullAccounts(false);
     }
   };
 
@@ -1481,6 +1507,39 @@ export default function Settings({ isLightMode }) {
               >
                 {testingWebull ? 'Checking Verification...' : 'Check Webull Verification'}
               </button>
+            )}
+            {settings.webull_token_status === 'NORMAL' && (
+              <div style={{ marginTop: '16px', padding: '14px', border: '1px solid rgba(79, 209, 197, 0.35)', borderRadius: '6px', background: 'rgba(79, 209, 197, 0.05)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap' }}>
+                  <div>
+                    <strong>Connected Webull Accounts</strong>
+                    <p className="settings-form-help" style={{ margin: '4px 0 0' }}>
+                      Discovery is read-only. Balances, positions, orders, and portfolio data have not been imported.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={fetchWebullAccounts}
+                    disabled={loadingWebullAccounts}
+                    style={{ padding: '7px 12px', backgroundColor: loadingWebullAccounts ? '#6c757d' : '#2563eb', color: '#fff', border: 'none', borderRadius: '4px', cursor: loadingWebullAccounts ? 'not-allowed' : 'pointer', fontSize: '13px', fontWeight: 'bold' }}
+                  >
+                    {loadingWebullAccounts ? 'Discovering...' : 'Refresh Accounts'}
+                  </button>
+                </div>
+                {webullAccountsMessage && (
+                  <p className="settings-form-help" style={{ margin: '12px 0 0' }}>{webullAccountsMessage}</p>
+                )}
+                {webullAccounts.length > 0 && (
+                  <div style={{ marginTop: '10px', display: 'grid', gap: '8px' }}>
+                    {webullAccounts.map((account, index) => (
+                      <div key={`${account.account_type}-${account.account_id_masked}-${index}`} style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'center', padding: '9px 10px', borderRadius: '4px', background: 'rgba(15, 23, 42, 0.42)' }}>
+                        <span><strong>{account.account_type || 'Webull Account'}</strong>{account.account_name ? ` — ${account.account_name}` : ''}</span>
+                        <span style={{ fontFamily: 'monospace', opacity: 0.85 }}>{account.account_id_masked}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             )}
           </div>
         </div>

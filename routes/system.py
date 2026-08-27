@@ -36,6 +36,7 @@ from services.webull_service import (
     WebullConnectionError,
     check_webull_access_token,
     create_webull_access_token,
+    get_webull_accounts,
     normalize_webull_environment,
     parse_webull_expiry,
     test_webull_connection,
@@ -1479,6 +1480,49 @@ def api_check_webull_token_status():
         db.session.rollback()
         logger.error('Webull token status check failed: %s', exc, exc_info=True)
         return jsonify({'success': False, 'message': 'Unable to check Webull verification.'}), 500
+
+
+@system_bp.route('/api/webull/accounts', methods=['GET'])
+@login_required
+def api_webull_accounts():
+    """Discover Webull accounts only; no balances, positions, orders, or data import occurs here."""
+    try:
+        credential = Credential.query.filter_by(user_id=current_user.id).first()
+        setting = UserSetting.query.filter_by(user_id=current_user.id).first()
+        environment = normalize_webull_environment(getattr(setting, 'webull_environment', None) or 'production')
+        if (
+            not credential
+            or credential.webull_token_status != 'NORMAL'
+            or credential.webull_token_environment != environment
+            or not credential.webull_access_token
+        ):
+            return jsonify({
+                'success': False,
+                'message': 'Verify your Webull connection before discovering accounts.',
+            }), 400
+
+        accounts = get_webull_accounts(
+            credential.webull_app_key, credential.webull_app_secret,
+            environment, credential.webull_access_token,
+        )
+        # An account ID is not needed in the browser at this stage. Mask it until
+        # the user explicitly chooses which account(s) to integrate next.
+        display_accounts = [{
+            'account_type': account['account_type'],
+            'account_name': account['account_name'],
+            'account_id_masked': f"••••{account['account_id'][-4:]}",
+        } for account in accounts]
+        return jsonify({
+            'success': True,
+            'environment': environment,
+            'accounts': display_accounts,
+            'message': f'Found {len(display_accounts)} Webull account(s).',
+        })
+    except WebullConnectionError as exc:
+        return jsonify({'success': False, 'message': str(exc)}), 400
+    except Exception as exc:
+        logger.error('Webull account discovery failed: %s', exc, exc_info=True)
+        return jsonify({'success': False, 'message': 'Unable to discover Webull accounts.'}), 500
 
 
 

@@ -6,6 +6,7 @@ from services.webull_service import (
     check_webull_access_token,
     create_webull_access_token,
     generate_webull_signature,
+    get_webull_accounts,
     normalize_webull_environment,
     parse_webull_expiry,
     test_webull_connection as check_webull_connection,
@@ -33,6 +34,18 @@ class WebullServiceTests(unittest.TestCase):
             'account_count': 2,
             'account_types': ['OPTION', 'STOCK'],
         })
+
+    def test_account_discovery_accepts_enveloped_webull_account_lists(self):
+        response = Mock(status_code=200)
+        response.json.return_value = {
+            'data': {'accounts': [{'accountId': '12345678', 'accountType': 'OPTION', 'accountName': 'Options'}]}
+        }
+        with patch('services.webull_service.get_webull_account_list', return_value=response):
+            accounts = get_webull_accounts('app-key', 'app-secret', access_token='private-token')
+
+        self.assertEqual(accounts, [{
+            'account_id': '12345678', 'account_type': 'OPTION', 'account_name': 'Options'
+        }])
 
     def test_non_success_response_is_not_treated_as_connected(self):
         response = Mock(status_code=401, text='Unauthorized')

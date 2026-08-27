@@ -122,6 +122,13 @@ The application utilizes a **unified PostgreSQL database**.
 
 ## Version History & Changelog
 
+## v2.25.0 (August 2026)
+
+### Webull Account Discovery
+- **Read-only Discovery**: After a verified Webull connection, Settings retrieves the associated account list and shows account types with masked IDs.
+- **Selection Gate**: Discovery intentionally does not import balances, positions, activities, or orders. It provides the information needed for the user to decide which Webull account(s) should be included next.
+- **Version Bump**: Transitioned version to `v2.25.0`.
+
 ## v2.24.3 (August 2026)
 
 ### Webull Token Endpoint Compatibility
