@@ -54,6 +54,51 @@ class Coin(db.Model):
         db.Index('ix_coins_user_symbol', 'user_id', 'symbol'),
     )
 
+
+class WebullAccountSnapshot(db.Model):
+    """Latest read-only account summary imported from Webull."""
+    __tablename__ = 'webull_account_snapshots'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, nullable=False)
+    account_id = db.Column(db.String(80), nullable=False)
+    account_type = db.Column(db.String(80), nullable=True)
+    account_name = db.Column(db.String(160), nullable=True)
+    currency = db.Column(db.String(12), default='USD')
+    total_net_liquidation_value = db.Column(db.Float, default=0.0)
+    total_cash_balance = db.Column(db.Float, default=0.0)
+    total_market_value = db.Column(db.Float, default=0.0)
+    total_unrealized_profit_loss = db.Column(db.Float, nullable=True)
+    synced_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+    __table_args__ = (
+        db.UniqueConstraint('user_id', 'account_id', name='uq_webull_account_snapshot_user_account'),
+        db.Index('ix_webull_account_snapshot_user', 'user_id'),
+    )
+
+
+class WebullHolding(db.Model):
+    """Latest read-only Webull position snapshot; never a Binance trading record."""
+    __tablename__ = 'webull_holdings'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, nullable=False)
+    account_id = db.Column(db.String(80), nullable=False)
+    symbol = db.Column(db.String(40), nullable=False)
+    instrument_type = db.Column(db.String(60), nullable=True)
+    quantity = db.Column(db.Float, default=0.0)
+    last_price = db.Column(db.Float, nullable=True)
+    cost_price = db.Column(db.Float, nullable=True)
+    current_value = db.Column(db.Float, default=0.0)
+    unrealized_profit_loss = db.Column(db.Float, nullable=True)
+    currency = db.Column(db.String(12), default='USD')
+    synced_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+    __table_args__ = (
+        db.UniqueConstraint('user_id', 'account_id', 'symbol', 'instrument_type', name='uq_webull_holding_user_account_symbol_type'),
+        db.Index('ix_webull_holding_user', 'user_id'),
+    )
+
 # User model is defined in credentials.py
 
 class WatchlistCoin(db.Model):

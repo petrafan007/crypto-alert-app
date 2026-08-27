@@ -4,6 +4,7 @@ import time
 from flask import send_file, request, jsonify, render_template, current_app, redirect, url_for
 from flask_login import current_user, login_required, login_user, logout_user
 from models import Coin, WatchlistCoin, Notification, PriceHistory
+from services.webull_import_service import get_webull_portfolio_rows
 from credentials import Credential, User, UserSetting
 from core.extensions import db
 from log import logger
@@ -479,6 +480,9 @@ def api_coin_data():
         if visibility_changed or price_changed:
             db.session.commit()
 
+        # Webull snapshots are deliberately appended as read-only, exchange-sourced
+        # rows. They never become Coin records or Binance trade candidates.
+        portfolio.extend(get_webull_portfolio_rows(current_user.id))
         # logger.error(f"[DEBUG] Final portfolio response: {[c['symbol'] for c in portfolio]}")
         return jsonify({"portfolio": portfolio})
     except Exception as e:

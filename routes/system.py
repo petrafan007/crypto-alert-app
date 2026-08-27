@@ -42,6 +42,7 @@ from services.webull_service import (
     parse_webull_expiry,
     test_webull_connection,
 )
+from services.webull_import_service import import_webull_portfolio_snapshot
 
 # Stub/Direct logic for system helpers
 def fetch_binance_price(symbol): 
@@ -1580,6 +1581,38 @@ def api_webull_portfolio_preview():
     except Exception as exc:
         logger.error('Webull portfolio preview failed: %s', exc, exc_info=True)
         return jsonify({'success': False, 'message': 'Unable to load the Webull portfolio preview.'}), 500
+
+
+@system_bp.route('/api/webull/portfolio-sync', methods=['POST'])
+@login_required
+def api_webull_portfolio_sync():
+    """Import a current all-account Webull snapshot for unified, read-only display."""
+    try:
+        credential = Credential.query.filter_by(user_id=current_user.id).first()
+        setting = UserSetting.query.filter_by(user_id=current_user.id).first()
+        environment = normalize_webull_environment(getattr(setting, 'webull_environment', None) or 'production')
+        if getattr(setting, 'webull_account_selection_mode', None) not in (None, 'all'):
+            return jsonify({'success': False, 'message': 'No Webull accounts are selected for import.'}), 400
+        if (
+            not credential or credential.webull_token_status != 'NORMAL'
+            or credential.webull_token_environment != environment or not credential.webull_access_token
+        ):
+            return jsonify({'success': False, 'message': 'Verify your Webull connection before importing its portfolio.'}), 400
+        preview = get_webull_portfolio_preview(
+            credential.webull_app_key, credential.webull_app_secret, environment, credential.webull_access_token,
+        )
+        result = import_webull_portfolio_snapshot(current_user.id, preview)
+        return jsonify({
+            'success': True, 'accounts': result['accounts'], 'positions': result['positions'],
+            'message': f"Imported {result['positions']} Webull position(s) from {result['accounts']} account(s). Webull rows are read-only.",
+        })
+    except WebullConnectionError as exc:
+        db.session.rollback()
+        return jsonify({'success': False, 'message': str(exc)}), 400
+    except Exception as exc:
+        db.session.rollback()
+        logger.error('Webull portfolio import failed: %s', exc, exc_info=True)
+        return jsonify({'success': False, 'message': 'Unable to import the Webull portfolio.'}), 500
 
 
 

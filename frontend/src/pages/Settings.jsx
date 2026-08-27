@@ -163,6 +163,8 @@ export default function Settings({ isLightMode }) {
   const [loadingWebullPreview, setLoadingWebullPreview] = useState(false);
   const [webullPortfolioPreview, setWebullPortfolioPreview] = useState([]);
   const [webullPreviewMessage, setWebullPreviewMessage] = useState('');
+  const [syncingWebullPortfolio, setSyncingWebullPortfolio] = useState(false);
+  const [webullImportMessage, setWebullImportMessage] = useState('');
   const [testingTrading, setTestingTrading] = useState(false);
   const [testingPrimaryAi, setTestingPrimaryAi] = useState(false);
   const [primaryAiTestResult, setPrimaryAiTestResult] = useState(null);
@@ -673,6 +675,21 @@ export default function Settings({ isLightMode }) {
       setWebullPreviewMessage(`Unable to load preview: ${error.response?.data?.message || 'Please try again.'}`);
     } finally {
       setLoadingWebullPreview(false);
+    }
+  };
+
+  const syncWebullPortfolio = async () => {
+    setSyncingWebullPortfolio(true);
+    setWebullImportMessage('');
+    try {
+      const response = await axios.post('/api/webull/portfolio-sync', {}, { withCredentials: true });
+      const result = response.data || {};
+      setWebullImportMessage(result.message || 'Webull portfolio imported.');
+    } catch (error) {
+      console.error('Error importing Webull portfolio:', error);
+      setWebullImportMessage(`Unable to import Webull portfolio: ${error.response?.data?.message || 'Please try again.'}`);
+    } finally {
+      setSyncingWebullPortfolio(false);
     }
   };
 
@@ -1572,7 +1589,16 @@ export default function Settings({ isLightMode }) {
                   >
                     {loadingWebullPreview ? 'Loading Preview...' : 'Load Read-Only Portfolio Preview'}
                   </button>
+                  <button
+                    type="button"
+                    onClick={syncWebullPortfolio}
+                    disabled={syncingWebullPortfolio}
+                    style={{ marginLeft: '8px', padding: '7px 12px', backgroundColor: syncingWebullPortfolio ? '#6c757d' : '#2563eb', color: '#fff', border: 'none', borderRadius: '4px', cursor: syncingWebullPortfolio ? 'not-allowed' : 'pointer', fontSize: '13px', fontWeight: 'bold' }}
+                  >
+                    {syncingWebullPortfolio ? 'Importing...' : 'Import into Unified Portfolio'}
+                  </button>
                   {webullPreviewMessage && <p className="settings-form-help" style={{ margin: '10px 0 0' }}>{webullPreviewMessage}</p>}
+                  {webullImportMessage && <p className="settings-form-help" style={{ margin: '10px 0 0' }}>{webullImportMessage}</p>}
                   {webullPortfolioPreview.map((account, index) => (
                     <div key={`${account.account_type}-${account.account_id_masked}-${index}`} style={{ marginTop: '10px', padding: '10px', borderRadius: '4px', background: 'rgba(15, 23, 42, 0.45)' }}>
                       <strong>{account.account_type || 'Webull Account'} · {account.account_id_masked}</strong>

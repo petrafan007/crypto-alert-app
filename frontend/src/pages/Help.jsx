@@ -461,7 +461,9 @@ export default function Help({ isLightMode }) {
             <Section id="portfolio-table" icon={<FaListAlt />} title="Portfolio Table">
                 <p style={{ marginBottom: '16px' }}>
                     The Portfolio table lists every coin you hold on Binance.US worth at least $1.00 (or manually
-                    unhidden). Each row supports a full set of actions:
+                    unhidden). It can also display imported Webull positions, which are marked with a Webull badge
+                    and are strictly read-only: they do not support Binance.US trading, alerts, AI sentiment, news,
+                    staking, notes, or hiding. Each Binance.US row supports a full set of actions:
                 </p>
                 <ul style={{ paddingLeft: '20px', marginBottom: '16px', lineHeight: '1.9' }}>
                     <li><strong>Buy / Sell</strong> — trade <em>any coin in the row</em> against USD or USDT (Binance.US's two settlement/quote currencies); selecting "Buy with USDT" means using your USDT balance to purchase that coin, not buying USDT itself</li>

@@ -49,25 +49,31 @@ def compute_portfolio_total_value(user_id, username=None, cred=None, include_sta
         logger.error(f"Portfolio aggregation error for user {user_id}: {portfolio_err}")
         return 0.0
 
-    if not include_staking:
-        return total_value
+    if include_staking:
+        try:
+            if cred is None:
+                resolved_username = username
+                if not resolved_username:
+                    user_obj = User.query.get(user_id)
+                    if user_obj:
+                        resolved_username = user_obj.username
+                if resolved_username:
+                    cred = get_user_credentials(resolved_username)
+            if cred:
+                from services.staking_service import calculate_staking_value_for_user
+                staking_active, staking_pending = calculate_staking_value_for_user(cred, user_id)
+                staking_total = staking_active + staking_pending
+                total_value += staking_total
+        except Exception as staking_err:
+            logger.error(f"Staking aggregation error for user {user_id}: {staking_err}")
 
+    # Imported brokerage accounts are read-only snapshots. Their account-level
+    # net-liquidation value includes cash and avoids double-counting positions.
     try:
-        if cred is None:
-            resolved_username = username
-            if not resolved_username:
-                user_obj = User.query.get(user_id)
-                if user_obj:
-                    resolved_username = user_obj.username
-            if resolved_username:
-                cred = get_user_credentials(resolved_username)
-        if cred:
-            from services.staking_service import calculate_staking_value_for_user
-            staking_active, staking_pending = calculate_staking_value_for_user(cred, user_id)
-            staking_total = staking_active + staking_pending
-            total_value += staking_total
-    except Exception as staking_err:
-        logger.error(f"Staking aggregation error for user {user_id}: {staking_err}")
+        from services.webull_import_service import get_webull_total_value
+        total_value += get_webull_total_value(user_id)
+    except Exception as webull_err:
+        logger.error(f"Webull aggregation error for user {user_id}: {webull_err}")
 
     return total_value
 

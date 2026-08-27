@@ -122,6 +122,11 @@ The application utilizes a **unified PostgreSQL database**.
 
 ## Version History & Changelog
 
+## v2.27.0 (August 2026)
+
+- **Unified Webull Portfolio Import**: Import the validated all-account Webull preview into a persistent, read-only portfolio snapshot. Webull holdings appear alongside Binance.US holdings with a visible Webull badge, while account-level net-liquidation values contribute to dashboard totals and future portfolio-history samples without double-counting cash.
+- **Exchange Safety Boundary**: Imported Webull rows cannot use Binance.US alerts, AI sentiment, news, staking, hide, auto-trading, or Buy/Sell controls. Binance.US trading behavior is unchanged.
+
 ## v2.26.0 (August 2026)
 
 ### Webull All-Accounts Portfolio Preview

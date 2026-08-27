@@ -4296,6 +4296,7 @@ function Dashboard({ isLightMode }) {
                 ) : (
                   sortData(portfolio, sortConfig.key).map((coin) => {
                     const sym = (coin.symbol || '').toUpperCase().trim();
+                    const isExternal = coin.is_external === true || coin.source === 'webull';
                     const isStable = ['USD', 'USDT', 'USDC', 'BUSD', 'DAI', 'TUSD', 'USDP'].includes(sym);
                     const isPlaceholder = !!coin.pendingPlaceholder || !coin.id;
                     const alertTitle = isPlaceholder
@@ -4331,21 +4332,27 @@ function Dashboard({ isLightMode }) {
                         onMouseLeave={handleRowLeave}
                       >
                         {visibleCols.map((colKey) => {
+                          // Imported brokerage positions are displayed alongside Binance
+                          // holdings, but they must never inherit Binance-only controls.
+                          if (isExternal && !['symbol', 'amount', 'current_price', 'current_value', 'avg_entry', 'pct_change', 'pnl_usd', 'allocation_pct', 'last_updated'].includes(colKey)) {
+                            return <td key={colKey} style={{ textAlign: 'center', color: 'var(--text-secondary, #94a3b8)' }}>—</td>;
+                          }
                           switch (colKey) {
                             case 'symbol':
                               return (
                                 <td
                                   key="symbol"
                                   className="symbol-cell"
-                                  onMouseEnter={(e) => handleSymbolHover(coin.symbol, e)}
-                                  onMouseLeave={handleSymbolLeave}
-                                  onClick={() => handleChartClick(coin.symbol)}
-                                  style={{ cursor: 'pointer', textAlign: 'center' }}
-                                  title="Hover for 7-day chart, click to open its local Trading pair"
+                                  onMouseEnter={isExternal ? undefined : (e) => handleSymbolHover(coin.symbol, e)}
+                                  onMouseLeave={isExternal ? undefined : handleSymbolLeave}
+                                  onClick={isExternal ? undefined : () => handleChartClick(coin.symbol)}
+                                  style={{ cursor: isExternal ? 'default' : 'pointer', textAlign: 'center' }}
+                                  title={isExternal ? `Imported from ${coin.source_label || 'Webull'} — read-only` : 'Hover for 7-day chart, click to open its local Trading pair'}
                                 >
                                   <div className="coin-symbol-container" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', justifyContent: 'center' }}>
                                     <CryptoIcon symbol={coin.symbol} size={20} />
                                     <span>{coin.symbol}</span>
+                                    {isExternal && <span style={{ fontSize: '0.7rem', color: '#60a5fa', border: '1px solid rgba(96,165,250,.55)', borderRadius: '4px', padding: '1px 4px' }}>Webull</span>}
                                   </div>
                                 </td>
                               );
@@ -4457,7 +4464,9 @@ function Dashboard({ isLightMode }) {
                                 </td>
                               );
                             case 'pnl_usd': {
-                              const pnl = (coin.current_price && coin.avg_entry && coin.amount)
+                              const pnl = isExternal && coin.webull_unrealized_pnl !== undefined && coin.webull_unrealized_pnl !== null
+                                ? Number(coin.webull_unrealized_pnl)
+                                : (coin.current_price && coin.avg_entry && coin.amount)
                                 ? (coin.amount * (coin.current_price - coin.avg_entry))
                                 : (coin.current_value !== undefined && coin.cost_basis !== undefined && coin.cost_basis > 0)
                                   ? (coin.current_value - coin.cost_basis)
