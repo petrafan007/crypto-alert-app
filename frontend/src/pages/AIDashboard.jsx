@@ -236,22 +236,6 @@ const AIDashboard = () => {
     return ledgerSortConfig.direction === 'asc' ? ' ▲' : ' ▼';
   };
 
-  const completedLedgerRows = useMemo(() => (
-    (accuracyData?.history || []).filter(row =>
-      row && row.symbol && activeFilterCoins.includes(row.symbol) && !row.is_latest && row.outcome_status !== 'tracking'
-    )
-  ), [accuracyData, activeFilterCoins]);
-
-  const ledgerPageCount = Math.max(1, Math.ceil(completedLedgerRows.length / ledgerPageSize));
-
-  useEffect(() => {
-    setLedgerPage(previous => Math.min(previous, ledgerPageCount));
-  }, [ledgerPageCount]);
-
-  useEffect(() => {
-    setLedgerPage(1);
-  }, [activeFilterCoins, ledgerPageSize]);
-
   useEffect(() => {
     const init = async () => {
       if (!authLoading && user) {
@@ -359,6 +343,22 @@ const AIDashboard = () => {
     const excludedSet = new Set(excludedFilterCoins);
     return availableCoinFilters.map(c => c.symbol).filter(sym => !excludedSet.has(sym));
   }, [availableCoinFilters, excludedFilterCoins]);
+
+  const completedLedgerRows = useMemo(() => (
+    (accuracyData?.history || []).filter(row =>
+      row && row.symbol && activeFilterCoins.includes(row.symbol) && !row.is_latest && row.outcome_status !== 'tracking'
+    )
+  ), [accuracyData, activeFilterCoins]);
+
+  const ledgerPageCount = Math.max(1, Math.ceil(completedLedgerRows.length / ledgerPageSize));
+
+  useEffect(() => {
+    setLedgerPage(previous => Math.min(previous, ledgerPageCount));
+  }, [ledgerPageCount]);
+
+  useEffect(() => {
+    setLedgerPage(1);
+  }, [activeFilterCoins, ledgerPageSize]);
 
   // Dynamic recommendation and multi-model breakdowns
   const { recommendationBreakdown, modelBreakdown } = useMemo(() => {

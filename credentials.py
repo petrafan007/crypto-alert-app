@@ -379,6 +379,7 @@ class UserSetting(db.Model):
     portfolio_schedule_start_time = db.Column(db.String, default='08:00')
     watchlist_schedule_start_time = db.Column(db.String, default='08:00')
     volatility_hours = db.Column(db.Integer, default=24)
+    automated_trigger_confirmation_minutes = db.Column(db.Integer, default=15)
     ai_outcome_neutral_threshold_pct = db.Column(db.Float, default=5.0)
     sentiment_buy_immediately_correct_pct = db.Column(db.Float, default=5.0)
     sentiment_buy_immediately_wrong_pct = db.Column(db.Float, default=5.0)

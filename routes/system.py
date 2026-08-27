@@ -917,6 +917,18 @@ def api_settings():
                         "errors": {"sentiment_chart_default_range": chart_range_error},
                     }), 400
                 data['sentiment_chart_default_range'] = chart_range
+            if 'automated_trigger_confirmation_minutes' in data:
+                try:
+                    confirmation_minutes = int(data['automated_trigger_confirmation_minutes'])
+                except (TypeError, ValueError):
+                    confirmation_minutes = 0
+                if not 1 <= confirmation_minutes <= 1440:
+                    return jsonify({
+                        "success": False,
+                        "message": "Automated Trigger Confirmation Window must be a whole number from 1 through 1440 minutes.",
+                        "errors": {"automated_trigger_confirmation_minutes": "Enter a whole number from 1 through 1440."},
+                    }), 400
+                data['automated_trigger_confirmation_minutes'] = confirmation_minutes
             
             # --- START UserSetting Logic ---
             # Update UserSetting columns
@@ -935,7 +947,7 @@ def api_settings():
                 'sentiment_history_lookback_hours', 'watchlist_sentiment_history_lookback_hours',
                 'sentiment_forecast_horizon_hours', 'watchlist_sentiment_forecast_horizon_hours',
                 'portfolio_schedule_start_time', 'watchlist_schedule_start_time',
-                'volatility_hours', 'ai_outcome_neutral_threshold_pct', 'max_slippage_pct',
+                'volatility_hours', 'automated_trigger_confirmation_minutes', 'ai_outcome_neutral_threshold_pct', 'max_slippage_pct',
                 'sentiment_chart_default_range',
                 *SENTIMENT_THRESHOLD_FIELDS,
                 'ai_provider_fallback', 'ai_model_fallback', 'ai_reasoning_level_fallback',
@@ -969,7 +981,7 @@ def api_settings():
                     if key in ['ai_enabled', 'ai_notifications_enabled', 'ai_web_search_enabled', 'browser_notifications_enabled', 'toast_notifications_enabled']:
                          target_key = 'browser_notifications_enabled' if key == 'toast_notifications_enabled' else key
                          setattr(user_setting, target_key, bool(value))
-                    elif key in ['ai_cache_duration_hours', 'ai_max_tokens', 'sentiment_analysis_frequency_hours', 'watchlist_sentiment_analysis_frequency_hours', 'sentiment_history_lookback_hours', 'watchlist_sentiment_history_lookback_hours', 'sentiment_forecast_horizon_hours', 'watchlist_sentiment_forecast_horizon_hours', 'volatility_hours']:
+                    elif key in ['ai_cache_duration_hours', 'ai_max_tokens', 'sentiment_analysis_frequency_hours', 'watchlist_sentiment_analysis_frequency_hours', 'sentiment_history_lookback_hours', 'watchlist_sentiment_history_lookback_hours', 'sentiment_forecast_horizon_hours', 'watchlist_sentiment_forecast_horizon_hours', 'volatility_hours', 'automated_trigger_confirmation_minutes']:
                         try:
                             parsed_value = int(value)
                             if key == 'volatility_hours' and parsed_value < 1:
@@ -1633,6 +1645,7 @@ def trigger_auto_sell():
         
         user_setting = UserSetting.query.filter_by(user_id=current_user.id).first()
         vol_hours = int(getattr(user_setting, 'volatility_hours', 24) or 24)
+        confirmation_minutes = int(getattr(user_setting, 'automated_trigger_confirmation_minutes', 15) or 15)
         
         coin = None
         if table_type == 'watchlist':
@@ -1664,18 +1677,21 @@ def trigger_auto_sell():
             coin.auto_sell_volatility_pct = pct_val
             coin.auto_sell_quote_currency = quote_currency
             coin.auto_sell_triggered_at = None
+            coin.auto_sell_confirmation_started_at = None
             db.session.commit()
-            logger.info(f"Auto-sell ({quote_currency}) enabled for user {current_user.username}: {coin.symbol} at {pct_val}% drop in {vol_hours}h.")
+            logger.info(f"Auto-sell ({quote_currency}) enabled for user {current_user.username}: {coin.symbol} at {pct_val}% drop in {vol_hours}h with {confirmation_minutes}m confirmation.")
             return jsonify({
                 "success": True,
-                "message": f"Auto-sell enabled for {coin.symbol}. It will automatically sell for {quote_currency} if the price drops more than {pct_val:.1f}% within {vol_hours} hour(s).",
+                "message": f"Auto-sell enabled for {coin.symbol}. It will automatically sell for {quote_currency} only if the price remains down more than {pct_val:.1f}% across the {vol_hours}-hour lookback for {confirmation_minutes} consecutive minute(s).",
                 "auto_sell_enabled": True,
                 "auto_sell_quote_currency": quote_currency,
                 "volatility_pct": pct_val,
-                "volatility_hours": vol_hours
+                "volatility_hours": vol_hours,
+                "automated_trigger_confirmation_minutes": confirmation_minutes
             })
         else:
             coin.auto_sell_enabled = False
+            coin.auto_sell_confirmation_started_at = None
             db.session.commit()
             logger.info(f"Auto-sell disabled for user {current_user.username}: {coin.symbol}")
             return jsonify({
@@ -1773,6 +1789,7 @@ def trigger_auto_buy():
 
         user_setting = UserSetting.query.filter_by(user_id=current_user.id).first()
         vol_hours = int(getattr(user_setting, 'volatility_hours', 24) or 24)
+        confirmation_minutes = int(getattr(user_setting, 'automated_trigger_confirmation_minutes', 15) or 15)
 
         coin = None
         if table_type == 'watchlist':
@@ -1847,20 +1864,23 @@ def trigger_auto_buy():
             coin.auto_buy_quote_currency = quote_currency
             coin.auto_buy_amount = alloc_amount
             coin.auto_buy_triggered_at = None
+            coin.auto_buy_confirmation_started_at = None
             db.session.commit()
 
-            logger.info(f"Auto-buy ({quote_currency}) enabled for user {current_user.username}: {coin.symbol} (${alloc_amount:.2f}) at +{pct_val}% surge in {vol_hours}h.")
+            logger.info(f"Auto-buy ({quote_currency}) enabled for user {current_user.username}: {coin.symbol} (${alloc_amount:.2f}) at +{pct_val}% surge in {vol_hours}h with {confirmation_minutes}m confirmation.")
             return jsonify({
                 "success": True,
-                "message": f"Auto-buy enabled for {coin.symbol}. It will automatically purchase with ${alloc_amount:.2f} {quote_currency} if the price surges more than {pct_val:.1f}% within {vol_hours} hour(s).",
+                "message": f"Auto-buy enabled for {coin.symbol}. It will automatically purchase with ${alloc_amount:.2f} {quote_currency} only if the price remains up more than {pct_val:.1f}% across the {vol_hours}-hour lookback for {confirmation_minutes} consecutive minute(s).",
                 "auto_buy_enabled": True,
                 "auto_buy_amount": alloc_amount,
                 "auto_buy_quote_currency": quote_currency,
                 "volatility_pct": pct_val,
-                "volatility_hours": vol_hours
+                "volatility_hours": vol_hours,
+                "automated_trigger_confirmation_minutes": confirmation_minutes
             })
         else:
             coin.auto_buy_enabled = False
+            coin.auto_buy_confirmation_started_at = None
             db.session.commit()
             logger.info(f"Auto-buy disabled for user {current_user.username}: {coin.symbol}")
             return jsonify({

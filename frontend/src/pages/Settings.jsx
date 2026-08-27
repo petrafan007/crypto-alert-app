@@ -128,6 +128,7 @@ export default function Settings({ isLightMode }) {
     sentiment_forecast_horizon_hours: 24,
     watchlist_sentiment_forecast_horizon_hours: 24,
     volatility_hours: 24,
+    automated_trigger_confirmation_minutes: 15,
     toast_notifications_enabled: true,
     tax_cost_basis_method: 'fifo',
     ai_prompts: {
@@ -407,6 +408,10 @@ export default function Settings({ isLightMode }) {
       const volatilityHours = Number(settings.volatility_hours);
       if (!Number.isInteger(volatilityHours) || volatilityHours < 1) {
         errors.push("Volatility Hours must be a whole number of at least 1.");
+      }
+      const confirmationMinutes = Number(settings.automated_trigger_confirmation_minutes);
+      if (!Number.isInteger(confirmationMinutes) || confirmationMinutes < 1 || confirmationMinutes > 1440) {
+        errors.push("Automated Trigger Confirmation Window must be a whole number from 1 through 1440 minutes.");
       }
 
       [
@@ -3098,6 +3103,33 @@ export default function Settings({ isLightMode }) {
             />
             <p className="settings-form-help">
               Volatility drop/surge comparison lookback window in hours.
+            </p>
+          </div>
+
+          <div>
+            <label style={{ display: 'block', marginBottom: 8, color: '#fff' }}>
+              Automated Trigger Confirmation Window (Minutes)
+            </label>
+            <input
+              type="number"
+              min="1"
+              max="1440"
+              step="1"
+              value={settings.automated_trigger_confirmation_minutes ?? 15}
+              onChange={(e) => handleInputChange('automated_trigger_confirmation_minutes', e.target.value)}
+              style={{
+                width: '100%',
+                padding: '12px',
+                borderRadius: 6,
+                background: '#1a1f23',
+                color: '#fff',
+                border: '1px solid #444',
+                boxSizing: 'border-box',
+                fontSize: '16px'
+              }}
+            />
+            <p className="settings-form-help">
+              Default: 15 minutes. Auto-Buy and Auto-Sell must remain beyond their configured volatility threshold for this entire window before an order is placed. If the price recovers across the threshold, the timer resets.
             </p>
           </div>
 

@@ -511,8 +511,8 @@ export default function Help({ isLightMode }) {
                     the current price, this determines the trigger point:
                 </p>
                 <ul style={{ paddingLeft: '20px', marginBottom: '16px', lineHeight: '1.9' }}>
-                    <li><strong>Auto-Sell</strong> fires if the price drops by more than Volatility % within the configured Volatility Hours window (default 24h, adjustable in Settings → Portfolio Table Settings)</li>
-                    <li><strong>Auto-Buy</strong> fires if the price surges by more than Volatility % within that same window</li>
+                    <li><strong>Auto-Sell</strong> begins confirmation if the price drops by more than Volatility % within the configured Volatility Hours window (default 24h, adjustable in Settings → Portfolio Table &amp; Execution Safety Settings)</li>
+                    <li><strong>Auto-Buy</strong> begins confirmation if the price surges by more than Volatility % within that same window</li>
                 </ul>
                 <Example>
                     If XRP is at $3.00 and you set Volatility % to 5, enabling Auto-Sell arms a trigger around
@@ -520,6 +520,11 @@ export default function Help({ isLightMode }) {
                     Volatility % field afterward immediately recalculates and updates both the live trigger price
                     shown in Open Orders and the actual threshold the background monitor uses.
                 </Example>
+
+                <SubHeading>Confirmation against temporary swings</SubHeading>
+                <p style={{ marginBottom: '16px' }}>
+                    <strong>Automated Trigger Confirmation Window (Minutes)</strong> is shared by Auto-Buy and Auto-Sell and defaults to 15 minutes. The threshold must remain met for the complete window before the app submits an order. If any background check finds that the price has recovered across the threshold, that trigger's timer is cleared and it must qualify again from the beginning. This prevents a brief, volatile spike or dip from immediately executing a trade.
+                </p>
 
                 <SubHeading>Setting it up</SubHeading>
                 <ol style={{ paddingLeft: '20px', lineHeight: '1.8' }}>
@@ -628,7 +633,7 @@ export default function Help({ isLightMode }) {
             {/* Other Settings */}
             <Section id="other-settings" icon={<FaCog />} title="Other Settings">
                 <ul style={{ paddingLeft: '20px', marginBottom: '16px', lineHeight: '1.9' }}>
-                    <li><strong>Portfolio Table Settings</strong> — set the Volatility Hours window used by Auto-Buy/Auto-Sell threshold checks</li>
+                    <li><strong>Portfolio Table &amp; Execution Safety Settings</strong> — set the Volatility Hours comparison window and the 1–1,440 minute Automated Trigger Confirmation Window used by both Auto-Buy and Auto-Sell. The default confirmation window is 15 minutes and a price recovery resets a pending timer.</li>
                     <li><strong>Sync Coins</strong> — force an immediate balance sync with Binance.US</li>
                     <li><strong>Run Sentiment Analysis Now</strong> — trigger a full AI sentiment pass on demand</li>
                     <li><strong>Include Beta</strong> — opt in to beta releases when upgrading</li>

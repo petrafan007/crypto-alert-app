@@ -140,6 +140,7 @@ def get_user_ai_settings(username: str) -> dict:
             'sentiment_forecast_horizon_hours': 24,
             'watchlist_sentiment_forecast_horizon_hours': 24,
             'volatility_hours': 24,
+            'automated_trigger_confirmation_minutes': 15,
             'sentiment_buy_immediately_correct_pct': 5.0,
             'sentiment_buy_immediately_wrong_pct': 5.0,
             'sentiment_consider_buying_correct_pct': 5.0,
@@ -269,6 +270,9 @@ def get_user_ai_settings(username: str) -> dict:
 
                 if hasattr(user_setting, 'volatility_hours'):
                     settings['volatility_hours'] = user_setting.volatility_hours or 24
+
+                if hasattr(user_setting, 'automated_trigger_confirmation_minutes'):
+                    settings['automated_trigger_confirmation_minutes'] = user_setting.automated_trigger_confirmation_minutes or 15
 
                 settings['ai_outcome_neutral_threshold_pct'] = float(getattr(user_setting, 'ai_outcome_neutral_threshold_pct', 5.0) or 5.0)
                 from services.sentiment_outcome_service import (

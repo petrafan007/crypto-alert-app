@@ -4689,11 +4689,13 @@ def api_watchlist():
             "auto_sell_volatility_pct": getattr(w, 'auto_sell_volatility_pct', None),
             "auto_sell_quote_currency": getattr(w, 'auto_sell_quote_currency', 'USDT') or 'USDT',
             "auto_sell_triggered_at": w.auto_sell_triggered_at.isoformat() if getattr(w, 'auto_sell_triggered_at', None) else None,
+            "auto_sell_confirmation_started_at": w.auto_sell_confirmation_started_at.isoformat() if getattr(w, 'auto_sell_confirmation_started_at', None) else None,
             "auto_buy_enabled": getattr(w, 'auto_buy_enabled', False),
             "auto_buy_volatility_pct": getattr(w, 'auto_buy_volatility_pct', None),
             "auto_buy_quote_currency": getattr(w, 'auto_buy_quote_currency', 'USDT') or 'USDT',
             "auto_buy_amount": getattr(w, 'auto_buy_amount', None),
             "auto_buy_triggered_at": w.auto_buy_triggered_at.isoformat() if getattr(w, 'auto_buy_triggered_at', None) else None,
+            "auto_buy_confirmation_started_at": w.auto_buy_confirmation_started_at.isoformat() if getattr(w, 'auto_buy_confirmation_started_at', None) else None,
             "cached_news": w_news.get('text', ''),
             "cached_news_date": w_news.get('created_at', None)
         })
@@ -4759,11 +4761,13 @@ def api_watchlist_live():
             "auto_sell_volatility_pct": getattr(w, 'auto_sell_volatility_pct', None),
             "auto_sell_quote_currency": getattr(w, 'auto_sell_quote_currency', 'USDT') or 'USDT',
             "auto_sell_triggered_at": w.auto_sell_triggered_at.isoformat() if getattr(w, 'auto_sell_triggered_at', None) else None,
+            "auto_sell_confirmation_started_at": w.auto_sell_confirmation_started_at.isoformat() if getattr(w, 'auto_sell_confirmation_started_at', None) else None,
             "auto_buy_enabled": getattr(w, 'auto_buy_enabled', False),
             "auto_buy_volatility_pct": getattr(w, 'auto_buy_volatility_pct', None),
             "auto_buy_quote_currency": getattr(w, 'auto_buy_quote_currency', 'USDT') or 'USDT',
             "auto_buy_amount": getattr(w, 'auto_buy_amount', None),
             "auto_buy_triggered_at": w.auto_buy_triggered_at.isoformat() if getattr(w, 'auto_buy_triggered_at', None) else None,
+            "auto_buy_confirmation_started_at": w.auto_buy_confirmation_started_at.isoformat() if getattr(w, 'auto_buy_confirmation_started_at', None) else None,
             "cached_news": w_news.get('text', ''),
             "cached_news_date": w_news.get('created_at', None)
         })

@@ -24,6 +24,8 @@ from trading_models import RealOrder
 # Persistent alert states store
 _alert_state_lock = threading.Lock()
 ALERT_STATE_FILE = "alert_state.json"
+DEFAULT_AUTOMATED_TRIGGER_CONFIRMATION_MINUTES = 15
+MAX_AUTOMATED_TRIGGER_CONFIRMATION_MINUTES = 1440
 
 def _load_alert_states():
     if os.path.exists(ALERT_STATE_FILE):
@@ -70,6 +72,53 @@ def set_last_alert_state(user_id, symbol, direction, value, source=None, thresho
         else:
             states[key] = value
         _save_alert_states(states)
+
+def normalize_automated_trigger_confirmation_minutes(value):
+    """Return a safe whole-minute confirmation window for automatic trading triggers."""
+    try:
+        minutes = int(value)
+    except (TypeError, ValueError):
+        return DEFAULT_AUTOMATED_TRIGGER_CONFIRMATION_MINUTES
+    return max(1, min(minutes, MAX_AUTOMATED_TRIGGER_CONFIRMATION_MINUTES))
+
+def evaluate_automated_trigger_confirmation(started_at, condition_holds, now, confirmation_minutes):
+    """Advance one persistent trigger-confirmation window without placing an order.
+
+    A confirmed threshold starts a clock.  A later valid check that no longer satisfies
+    the threshold clears that clock, so a new confirmation period is required after a
+    temporary recovery.  The return value is ``(next_started_at, confirmed, action)``.
+    """
+    if not condition_holds:
+        return None, False, 'reset' if started_at else 'inactive'
+
+    if started_at is None:
+        return now, False, 'started'
+
+    if getattr(started_at, 'tzinfo', None) is not None:
+        started_at = started_at.replace(tzinfo=None)
+    if started_at > now:
+        return now, False, 'started'
+
+    required_seconds = normalize_automated_trigger_confirmation_minutes(confirmation_minutes) * 60
+    if (now - started_at).total_seconds() >= required_seconds:
+        return started_at, True, 'confirmed'
+    return started_at, False, 'pending'
+
+def _advance_automated_trigger_confirmation(coin, field_name, condition_holds, confirmation_minutes, now=None):
+    """Persist the state of a coin's Auto-Buy or Auto-Sell confirmation window."""
+    now = now or datetime.utcnow()
+    started_at = getattr(coin, field_name, None)
+    next_started_at, confirmed, action = evaluate_automated_trigger_confirmation(
+        started_at, condition_holds, now, confirmation_minutes
+    )
+    if next_started_at != started_at:
+        setattr(coin, field_name, next_started_at)
+    return confirmed, action, next_started_at
+
+def _reset_automated_trigger_confirmation(coin, field_name):
+    """Clear a pending confirmation when its trigger is disabled or no longer eligible."""
+    if getattr(coin, field_name, None) is not None:
+        setattr(coin, field_name, None)
 
 def safe_background_iteration(f):
     def wrapper(*args, **kwargs):
@@ -415,22 +464,28 @@ def check_coin_volatility(user, coin, ticker_map, client, volatility_hours, tabl
     except Exception as e:
         logger.error(f"Error checking volatility for {coin.symbol}: {e}")
 
-def check_auto_sell_for_coin(user, coin, ticker_map, client, volatility_hours=24, table_type='portfolio'):
+def check_auto_sell_for_coin(user, coin, ticker_map, client, volatility_hours=24, confirmation_minutes=DEFAULT_AUTOMATED_TRIGGER_CONFIRMATION_MINUTES, table_type='portfolio'):
     """
     Check if an auto-sell enabled coin has dropped more than its threshold over volatility_hours,
-    and execute an automatic market sell for its configured quote currency (USDT or USD) if triggered.
+    and execute an automatic market sell only after the threshold remains true for the
+    configured confirmation window.
     """
     try:
+        confirmation_field = 'auto_sell_confirmation_started_at'
         if not getattr(coin, 'auto_sell_enabled', False):
+            _reset_automated_trigger_confirmation(coin, confirmation_field)
             return
         if table_type == 'portfolio' and (not coin.amount or float(coin.amount) <= 0 or (bool(getattr(coin, 'hidden', False)) and not bool(getattr(coin, 'force_visible', False)))):
+            _reset_automated_trigger_confirmation(coin, confirmation_field)
             return
         if table_type == 'watchlist' and bool(getattr(coin, 'hidden', False)):
+            _reset_automated_trigger_confirmation(coin, confirmation_field)
             return
 
         symbol = coin.symbol.upper()
         threshold = float(getattr(coin, 'auto_sell_volatility_pct', None) or coin.volatility_pct or 0)
         if threshold <= 0:
+            _reset_automated_trigger_confirmation(coin, confirmation_field)
             return
 
         target_quote = (getattr(coin, 'auto_sell_quote_currency', None) or 'USDT').upper()
@@ -457,17 +512,33 @@ def check_auto_sell_for_coin(user, coin, ticker_map, client, volatility_hours=24
         # Calculate price drop percentage (positive when price drops)
         price_drop_pct = ((start_price - current_price) / start_price) * 100
 
-        if price_drop_pct >= threshold:
-            logger.warning(
-                f"🚨 AUTO-SELL TRIGGERED for User {user.username}: {symbol} dropped {price_drop_pct:.2f}% "
-                f"(Threshold: {threshold}%) in {volatility_hours}h from ${start_price:.4f} to ${current_price:.4f}"
+        confirmation_minutes = normalize_automated_trigger_confirmation_minutes(confirmation_minutes)
+        confirmed, confirmation_action, confirmation_started_at = _advance_automated_trigger_confirmation(
+            coin,
+            confirmation_field,
+            price_drop_pct >= threshold,
+            confirmation_minutes,
+        )
+        if confirmation_action == 'started':
+            logger.info(
+                "Auto-sell confirmation started for %s: %.2f%% drop meets %.2f%% threshold; waiting %sm.",
+                symbol, price_drop_pct, threshold, confirmation_minutes,
             )
-            execute_auto_sell(user, coin, pair, current_price, price_drop_pct, threshold, volatility_hours, client, table_type)
+        elif confirmation_action == 'reset':
+            logger.info("Auto-sell confirmation reset for %s: drop recovered to %.2f%%.", symbol, price_drop_pct)
+
+        if confirmed:
+            logger.warning(
+                f"🚨 AUTO-SELL CONFIRMED for User {user.username}: {symbol} stayed down {price_drop_pct:.2f}% "
+                f"(Threshold: {threshold}%) in {volatility_hours}h for {confirmation_minutes}m "
+                f"from ${start_price:.4f} to ${current_price:.4f}"
+            )
+            execute_auto_sell(user, coin, pair, current_price, price_drop_pct, threshold, volatility_hours, confirmation_minutes, client, table_type)
     except Exception as e:
         logger.error(f"Error checking auto-sell for {getattr(coin, 'symbol', '?')}: {e}", exc_info=True)
 
-def execute_auto_sell(user, coin, pair, current_price, price_drop_pct, threshold, volatility_hours, client, table_type='portfolio'):
-    """Execute automatic market sell upon volatility drop trigger, cancelling conflicting open orders first."""
+def execute_auto_sell(user, coin, pair, current_price, price_drop_pct, threshold, volatility_hours, confirmation_minutes, client, table_type='portfolio'):
+    """Execute an auto-sell after its drop threshold passed the confirmation window."""
     from models import Notification
     from trading_models import AllActivity
     from services.binance_service import get_symbol_filters
@@ -540,6 +611,7 @@ def execute_auto_sell(user, coin, pair, current_price, price_drop_pct, threshold
         if sell_qty <= 0:
             logger.warning(f"No available balance to sell for {symbol} after open order cancellation. Disabling auto-sell.")
             coin.auto_sell_enabled = False
+            coin.auto_sell_confirmation_started_at = None
             db.session.commit()
             return
 
@@ -551,6 +623,7 @@ def execute_auto_sell(user, coin, pair, current_price, price_drop_pct, threshold
         if formatted_qty < min_qty or (formatted_qty * current_price) < min_notional:
             logger.warning(f"Auto-sell quantity {formatted_qty} {symbol} is below minQty ({min_qty}) or minNotional ({min_notional}). Disabling auto-sell.")
             coin.auto_sell_enabled = False
+            coin.auto_sell_confirmation_started_at = None
             db.session.commit()
             return
 
@@ -684,6 +757,7 @@ def execute_auto_sell(user, coin, pair, current_price, price_drop_pct, threshold
         # Update coin record
         coin.auto_sell_enabled = False
         coin.auto_sell_triggered_at = datetime.utcnow()
+        coin.auto_sell_confirmation_started_at = None
         if hasattr(coin, 'amount') and coin.amount:
             coin.amount = max(0.0, float(coin.amount) - executed_qty)
 
@@ -691,7 +765,7 @@ def execute_auto_sell(user, coin, pair, current_price, price_drop_pct, threshold
         notif = Notification(
             user_id=user.id,
             title=f"🚨 Auto-Sell Executed: {symbol}",
-            message=f"Automatically sold {executed_qty} {symbol} for {quote_asset} at ~${avg_price:.4f} after a {price_drop_pct:.2f}% price drop in {volatility_hours}h (Threshold: {threshold}%).{cancel_note} Order ID: {order_id}",
+            message=f"Automatically sold {executed_qty} {symbol} for {quote_asset} at ~${avg_price:.4f} after a {price_drop_pct:.2f}% price drop in {volatility_hours}h held for {confirmation_minutes}m (Threshold: {threshold}%).{cancel_note} Order ID: {order_id}",
             created_at=datetime.utcnow()
         )
         db.session.add(notif)
@@ -702,7 +776,7 @@ def execute_auto_sell(user, coin, pair, current_price, price_drop_pct, threshold
             f"🚨 <b>AUTO-SELL EXECUTED</b>\n"
             f"Coin: <b>{symbol}</b>\n"
             f"Action: Sold <b>{executed_qty} {symbol}</b> for <b>{quote_asset}</b>\n"
-            f"Trigger: Dropped <b>{price_drop_pct:.2f}%</b> in {volatility_hours}h (Threshold: <b>{threshold}%</b>)\n"
+            f"Trigger: Dropped <b>{price_drop_pct:.2f}%</b> in {volatility_hours}h and held for <b>{confirmation_minutes}m</b> (Threshold: <b>{threshold}%</b>)\n"
             f"Exec Price: ~${avg_price:.4f}\n"
             f"Proceeds: ${proceeds:.2f} {quote_asset}\n"
             f"{f'Cancelled Orders: {len(cancelled_orders)}\n' if cancelled_orders else ''}"
@@ -724,26 +798,33 @@ def execute_auto_sell(user, coin, pair, current_price, price_drop_pct, threshold
     except Exception as exec_err:
         logger.error(f"Failed to execute auto-sell for {symbol} (User {user.username}): {exec_err}", exc_info=True)
 
-def check_auto_buy_for_coin(user, coin, ticker_map, client, volatility_hours=24, table_type='portfolio'):
+def check_auto_buy_for_coin(user, coin, ticker_map, client, volatility_hours=24, confirmation_minutes=DEFAULT_AUTOMATED_TRIGGER_CONFIRMATION_MINUTES, table_type='portfolio'):
     """
     Check if an auto-buy enabled coin has surged more than its threshold in volatility_hours,
-    and execute an automatic market buy using allocated quote currency (USDT or USD) if triggered.
+    and execute an automatic market buy only after the threshold remains true for the
+    configured confirmation window.
     """
     try:
+        confirmation_field = 'auto_buy_confirmation_started_at'
         if not getattr(coin, 'auto_buy_enabled', False):
+            _reset_automated_trigger_confirmation(coin, confirmation_field)
             return
         if table_type == 'portfolio' and bool(getattr(coin, 'hidden', False)) and float(getattr(coin, 'amount', 0) or 0) <= 0 and not bool(getattr(coin, 'force_visible', False)):
+            _reset_automated_trigger_confirmation(coin, confirmation_field)
             return
         if table_type == 'watchlist' and bool(getattr(coin, 'hidden', False)):
+            _reset_automated_trigger_confirmation(coin, confirmation_field)
             return
 
         alloc_amount = float(getattr(coin, 'auto_buy_amount', 0.0) or 0.0)
         if alloc_amount < 1.00:
+            _reset_automated_trigger_confirmation(coin, confirmation_field)
             return
 
         symbol = coin.symbol.upper()
         threshold = float(getattr(coin, 'auto_buy_volatility_pct', None) or coin.volatility_pct or 0)
         if threshold <= 0:
+            _reset_automated_trigger_confirmation(coin, confirmation_field)
             return
 
         target_quote = (getattr(coin, 'auto_buy_quote_currency', None) or 'USDT').upper()
@@ -769,17 +850,33 @@ def check_auto_buy_for_coin(user, coin, ticker_map, client, volatility_hours=24,
         # Calculate price surge percentage (positive when price increases)
         price_surge_pct = ((current_price - start_price) / start_price) * 100
 
-        if price_surge_pct >= threshold:
-            logger.warning(
-                f"🚀 AUTO-BUY TRIGGERED for User {user.username}: {symbol} surged +{price_surge_pct:.2f}% "
-                f"(Threshold: +{threshold}%) in {volatility_hours}h from ${start_price:.4f} to ${current_price:.4f}"
+        confirmation_minutes = normalize_automated_trigger_confirmation_minutes(confirmation_minutes)
+        confirmed, confirmation_action, confirmation_started_at = _advance_automated_trigger_confirmation(
+            coin,
+            confirmation_field,
+            price_surge_pct >= threshold,
+            confirmation_minutes,
+        )
+        if confirmation_action == 'started':
+            logger.info(
+                "Auto-buy confirmation started for %s: +%.2f%% surge meets +%.2f%% threshold; waiting %sm.",
+                symbol, price_surge_pct, threshold, confirmation_minutes,
             )
-            execute_auto_buy(user, coin, pair, current_price, price_surge_pct, threshold, volatility_hours, alloc_amount, target_quote, client, table_type)
+        elif confirmation_action == 'reset':
+            logger.info("Auto-buy confirmation reset for %s: surge recovered to +%.2f%%.", symbol, price_surge_pct)
+
+        if confirmed:
+            logger.warning(
+                f"🚀 AUTO-BUY CONFIRMED for User {user.username}: {symbol} stayed up +{price_surge_pct:.2f}% "
+                f"(Threshold: +{threshold}%) in {volatility_hours}h for {confirmation_minutes}m "
+                f"from ${start_price:.4f} to ${current_price:.4f}"
+            )
+            execute_auto_buy(user, coin, pair, current_price, price_surge_pct, threshold, volatility_hours, confirmation_minutes, alloc_amount, target_quote, client, table_type)
     except Exception as e:
         logger.error(f"Error checking auto-buy for {getattr(coin, 'symbol', '?')}: {e}", exc_info=True)
 
-def execute_auto_buy(user, coin, pair, current_price, price_surge_pct, threshold, volatility_hours, alloc_amount, quote_currency, client, table_type='portfolio'):
-    """Execute automatic market buy upon volatility surge trigger."""
+def execute_auto_buy(user, coin, pair, current_price, price_surge_pct, threshold, volatility_hours, confirmation_minutes, alloc_amount, quote_currency, client, table_type='portfolio'):
+    """Execute an auto-buy after its surge threshold passed the confirmation window."""
     from models import Notification
     from trading_models import AllActivity
     from services.binance_service import get_symbol_filters
@@ -794,6 +891,7 @@ def execute_auto_buy(user, coin, pair, current_price, price_surge_pct, threshold
         if free_quote_bal < 1.00:
             logger.warning(f"Auto-Buy for {symbol}: Insufficient {quote_currency} balance (${free_quote_bal:.2f}). Disabling auto-buy.")
             coin.auto_buy_enabled = False
+            coin.auto_buy_confirmation_started_at = None
             db.session.commit()
             return
 
@@ -801,6 +899,7 @@ def execute_auto_buy(user, coin, pair, current_price, price_surge_pct, threshold
         if actual_spend < 1.00:
             logger.warning(f"Auto-Buy for {symbol}: Available spend (${actual_spend:.2f}) is below $1.00. Disabling auto-buy.")
             coin.auto_buy_enabled = False
+            coin.auto_buy_confirmation_started_at = None
             db.session.commit()
             return
 
@@ -819,6 +918,7 @@ def execute_auto_buy(user, coin, pair, current_price, price_surge_pct, threshold
         if formatted_qty < min_qty or (formatted_qty * current_price) < min_notional:
             logger.warning(f"Auto-buy calculated quantity {formatted_qty} {symbol} is below minQty ({min_qty}) or minNotional ({min_notional}). Disabling auto-buy.")
             coin.auto_buy_enabled = False
+            coin.auto_buy_confirmation_started_at = None
             db.session.commit()
             return
 
@@ -974,6 +1074,7 @@ def execute_auto_buy(user, coin, pair, current_price, price_surge_pct, threshold
         # Update coin record
         coin.auto_buy_enabled = False
         coin.auto_buy_triggered_at = datetime.utcnow()
+        coin.auto_buy_confirmation_started_at = None
         if table_type == 'portfolio' and hasattr(coin, 'amount'):
             old_amount = float(coin.amount or 0.0)
             old_avg_entry = float(getattr(coin, 'avg_entry', 0.0) or 0.0)
@@ -988,7 +1089,7 @@ def execute_auto_buy(user, coin, pair, current_price, price_surge_pct, threshold
         notif = Notification(
             user_id=user.id,
             title=f"🚀 Auto-Buy Executed: {symbol}",
-            message=f"Automatically purchased {executed_qty} {symbol} with ${total_cost:.2f} {quote_currency} at ~${avg_price:.4f} after a +{price_surge_pct:.2f}% surge in {volatility_hours}h (Threshold: +{threshold}%).{cancel_note} Order ID: {order_id}",
+            message=f"Automatically purchased {executed_qty} {symbol} with ${total_cost:.2f} {quote_currency} at ~${avg_price:.4f} after a +{price_surge_pct:.2f}% surge in {volatility_hours}h held for {confirmation_minutes}m (Threshold: +{threshold}%).{cancel_note} Order ID: {order_id}",
             created_at=datetime.utcnow()
         )
         db.session.add(notif)
@@ -999,7 +1100,7 @@ def execute_auto_buy(user, coin, pair, current_price, price_surge_pct, threshold
             f"🚀 <b>AUTO-BUY EXECUTED</b>\n"
             f"Coin: <b>{symbol}</b>\n"
             f"Action: Bought <b>{executed_qty} {symbol}</b> with <b>${total_cost:.2f} {quote_currency}</b>\n"
-            f"Trigger: Surged <b>+{price_surge_pct:.2f}%</b> in {volatility_hours}h (Threshold: <b>+{threshold}%</b>)\n"
+            f"Trigger: Surged <b>+{price_surge_pct:.2f}%</b> in {volatility_hours}h and held for <b>{confirmation_minutes}m</b> (Threshold: <b>+{threshold}%</b>)\n"
             f"Exec Price: ~${avg_price:.4f}\n"
             f"Total Cost: ${total_cost:.2f} {quote_currency}\n"
             f"{f'Cancelled Buy Orders: {len(cancelled_orders)}\n' if cancelled_orders else ''}"
@@ -1033,6 +1134,9 @@ def volatility_alert_loop(app):
                     user_settings = UserSetting.query.filter_by(user_id=user.id).first()
                     volatility_hours = int(getattr(user_settings, 'volatility_hours', 24) or 24)
                     volatility_hours = max(1, min(volatility_hours, 999))
+                    confirmation_minutes = normalize_automated_trigger_confirmation_minutes(
+                        getattr(user_settings, 'automated_trigger_confirmation_minutes', DEFAULT_AUTOMATED_TRIGGER_CONFIRMATION_MINUTES)
+                    )
                     coins = Coin.query.filter(
                         Coin.user_id == user.id,
                         or_(Coin.hidden == False, Coin.amount > 0, Coin.force_visible == True),
@@ -1064,16 +1168,16 @@ def volatility_alert_loop(app):
                         if coin.volatility_pct and float(coin.volatility_pct) > 0:
                             check_coin_volatility(user, coin, ticker_map, client, volatility_hours, 'portfolio')
                         if getattr(coin, 'auto_sell_enabled', False):
-                            check_auto_sell_for_coin(user, coin, ticker_map, client, volatility_hours, 'portfolio')
+                            check_auto_sell_for_coin(user, coin, ticker_map, client, volatility_hours, confirmation_minutes, 'portfolio')
                         if getattr(coin, 'auto_buy_enabled', False):
-                            check_auto_buy_for_coin(user, coin, ticker_map, client, volatility_hours, 'portfolio')
+                            check_auto_buy_for_coin(user, coin, ticker_map, client, volatility_hours, confirmation_minutes, 'portfolio')
                     for coin in watchlist_coins:
                         if coin.volatility_pct and float(coin.volatility_pct) > 0:
                             check_coin_volatility(user, coin, ticker_map, client, volatility_hours, 'watchlist')
                         if getattr(coin, 'auto_sell_enabled', False):
-                            check_auto_sell_for_coin(user, coin, ticker_map, client, volatility_hours, 'watchlist')
+                            check_auto_sell_for_coin(user, coin, ticker_map, client, volatility_hours, confirmation_minutes, 'watchlist')
                         if getattr(coin, 'auto_buy_enabled', False):
-                            check_auto_buy_for_coin(user, coin, ticker_map, client, volatility_hours, 'watchlist')
+                            check_auto_buy_for_coin(user, coin, ticker_map, client, volatility_hours, confirmation_minutes, 'watchlist')
             iteration()
             time.sleep(120)
 

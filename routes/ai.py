@@ -664,6 +664,18 @@ def api_ai_settings():
                         "errors": {"sentiment_chart_default_range": chart_range_error},
                     }), 400
                 data['sentiment_chart_default_range'] = chart_range
+            if 'automated_trigger_confirmation_minutes' in data:
+                try:
+                    confirmation_minutes = int(data['automated_trigger_confirmation_minutes'])
+                except (TypeError, ValueError):
+                    confirmation_minutes = 0
+                if not 1 <= confirmation_minutes <= 1440:
+                    return jsonify({
+                        "success": False,
+                        "message": "Automated Trigger Confirmation Window must be a whole number from 1 through 1440 minutes.",
+                        "errors": {"automated_trigger_confirmation_minutes": "Enter a whole number from 1 through 1440."},
+                    }), 400
+                data['automated_trigger_confirmation_minutes'] = confirmation_minutes
             
             # Map of allowed fields to update
             allowed_fields = [
@@ -678,7 +690,7 @@ def api_ai_settings():
                 'sentiment_analysis_frequency_hours', 'watchlist_sentiment_analysis_frequency_hours',
                 'sentiment_history_lookback_hours', 'watchlist_sentiment_history_lookback_hours',
                 'sentiment_forecast_horizon_hours', 'watchlist_sentiment_forecast_horizon_hours',
-                'volatility_hours', 'ai_outcome_neutral_threshold_pct', 'copilot_chat_pre',
+                'volatility_hours', 'automated_trigger_confirmation_minutes', 'ai_outcome_neutral_threshold_pct', 'copilot_chat_pre',
                 'copilot_chat_post', 'sentiment_chart_default_range',
                 *SENTIMENT_THRESHOLD_FIELDS
             ]
@@ -713,9 +725,10 @@ def api_ai_settings():
                     if key in ['ai_enabled', 'ai_notifications_enabled', 'ai_web_search_enabled']:
                          setattr(user_setting, key, bool(value))
                     # For int fields
-                    elif key in ['ai_cache_duration_hours', 'ai_max_tokens', 'sentiment_analysis_frequency_hours', 'watchlist_sentiment_analysis_frequency_hours', 'sentiment_history_lookback_hours', 'watchlist_sentiment_history_lookback_hours', 'sentiment_forecast_horizon_hours', 'watchlist_sentiment_forecast_horizon_hours', 'volatility_hours']:
+                    elif key in ['ai_cache_duration_hours', 'ai_max_tokens', 'sentiment_analysis_frequency_hours', 'watchlist_sentiment_analysis_frequency_hours', 'sentiment_history_lookback_hours', 'watchlist_sentiment_history_lookback_hours', 'sentiment_forecast_horizon_hours', 'watchlist_sentiment_forecast_horizon_hours', 'volatility_hours', 'automated_trigger_confirmation_minutes']:
                         try:
-                            setattr(user_setting, key, int(value))
+                            parsed_value = int(value)
+                            setattr(user_setting, key, parsed_value)
                         except:
                             pass
                     # For float fields

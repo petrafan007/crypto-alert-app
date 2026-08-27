@@ -122,6 +122,16 @@ The application utilizes a **unified PostgreSQL database**.
 
 ## Version History & Changelog
 
+## v2.22.0 (August 2026)
+
+### Automated Trigger Confirmation & AI Analysis Stability
+- **Automated Trigger Confirmation Window**: Added a shared, persistent per-user confirmation window for both Auto-Buy and Auto-Sell, defaulting to 15 minutes and configurable from 1–1,440 minutes in Portfolio Table & Execution Safety Settings.
+- **Swing-Resistant Execution**: A qualifying price surge or drop now starts a timer rather than immediately placing an order. The applicable volatility condition must still be met when the confirmation window elapses; any recovery across the threshold resets the timer. Existing Auto-Sell 2% maximum-slippage protection remains in place.
+- **Clear Trigger Context**: Auto-Buy/Auto-Sell activation dialogs and dashboard details now explain the active confirmation duration and show when a qualifying trigger is currently being confirmed.
+- **AI Analysis Crash Fix**: Corrected an initialization-order error in the Historical Prediction Ledger that could crash the AI Analysis page before rendering.
+- **Help Update**: Documented the confirmation-window behavior and recovery reset rules.
+- **Version Bump**: Transitioned version to `v2.22.0`.
+
 ## v2.21.0 (August 2026)
 
 ### Dashboard, Settings & Order History Improvements

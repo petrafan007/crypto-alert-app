@@ -360,6 +360,7 @@ function Dashboard({ isLightMode }) {
   const [openTradeQuoteMenu, setOpenTradeQuoteMenu] = useState({ type: null, key: null, side: null, position: null });
   const [collapsedTableActions, setCollapsedTableActions] = useState({ portfolio: false, watchlist: false });
   const [volatilityHoursSetting, setVolatilityHoursSetting] = useState(24);
+  const [automatedTriggerConfirmationMinutes, setAutomatedTriggerConfirmationMinutes] = useState(15);
 
   const portfolioActionsCollapsed = isMobile || collapsedTableActions.portfolio;
   const watchlistActionsCollapsed = isMobile || collapsedTableActions.watchlist;
@@ -389,6 +390,7 @@ function Dashboard({ isLightMode }) {
     quoteCurrency: 'USDT',
     volatilityPct: 0,
     volatilityHours: 24,
+    confirmationMinutes: 15,
     loading: false,
     error: ''
   });
@@ -401,6 +403,7 @@ function Dashboard({ isLightMode }) {
     amount: '',
     volatilityPct: 0,
     volatilityHours: 24,
+    confirmationMinutes: 15,
     freeBalance: 0,
     reservedBalance: 0,
     availableBalance: 0,
@@ -508,6 +511,10 @@ function Dashboard({ isLightMode }) {
         const vh = res.data?.volatility_hours ?? res.data?.settings?.volatility_hours;
         if (vh !== undefined && vh !== null && vh !== '') {
           setVolatilityHoursSetting(parseInt(vh, 10) || 24);
+        }
+        const confirmation = res.data?.automated_trigger_confirmation_minutes ?? res.data?.settings?.automated_trigger_confirmation_minutes;
+        if (confirmation !== undefined && confirmation !== null && confirmation !== '') {
+          setAutomatedTriggerConfirmationMinutes(parseInt(confirmation, 10) || 15);
         }
       } catch (e) {}
     };
@@ -870,6 +877,7 @@ function Dashboard({ isLightMode }) {
       quoteCurrency: quoteCurrency,
       volatilityPct: volPct > 0 ? volPct : (coin?.auto_sell_volatility_pct || 5),
       volatilityHours: volatilityHoursSetting,
+      confirmationMinutes: automatedTriggerConfirmationMinutes,
       loading: false,
       error: ''
     });
@@ -963,6 +971,7 @@ function Dashboard({ isLightMode }) {
       amount: currentAlloc,
       volatilityPct: volPct > 0 ? volPct : (coin?.auto_buy_volatility_pct || 5),
       volatilityHours: volatilityHoursSetting,
+      confirmationMinutes: automatedTriggerConfirmationMinutes,
       freeBalance: 0,
       reservedBalance: 0,
       availableBalance: 0,
@@ -1321,7 +1330,7 @@ function Dashboard({ isLightMode }) {
         quote_currency: quote,
         table_type: coin.table_type || (coin.isWatchlist ? 'watchlist' : 'portfolio'),
         title: `Auto-Buy Surge Trigger (${quote})`,
-        details: formattedPrice ? `+${vol}% surge @ ${formattedPrice} ($${amt} ${quote})` : `+${vol}% surge trigger ($${amt} ${quote})`
+        details: `${formattedPrice ? `+${vol}% surge @ ${formattedPrice} ($${amt} ${quote})` : `+${vol}% surge trigger ($${amt} ${quote})`} · ${coin.auto_buy_confirmation_started_at ? 'Confirmation in progress' : `Requires ${automatedTriggerConfirmationMinutes}m confirmation`}`
       });
     }
 
@@ -1346,7 +1355,7 @@ function Dashboard({ isLightMode }) {
         quote_currency: quote,
         table_type: coin.table_type || (coin.isWatchlist ? 'watchlist' : 'portfolio'),
         title: `Auto-Sell Drop Trigger (${quote})`,
-        details: formattedPrice ? `-${vol}% drop @ ${formattedPrice} for ${quote}` : `-${vol}% drop trigger`
+        details: `${formattedPrice ? `-${vol}% drop @ ${formattedPrice} for ${quote}` : `-${vol}% drop trigger`} · ${coin.auto_sell_confirmation_started_at ? 'Confirmation in progress' : `Requires ${automatedTriggerConfirmationMinutes}m confirmation`}`
       });
     }
 
@@ -1404,13 +1413,15 @@ function Dashboard({ isLightMode }) {
       const vol = coin.auto_buy_volatility_pct || coin.volatility_pct || '—';
       const amt = coin.auto_buy_amount !== undefined && coin.auto_buy_amount !== null ? Number(coin.auto_buy_amount).toFixed(2) : '—';
       const quote = coin.auto_buy_quote_currency || 'USDT';
-      lines.push(`⚡ Active Auto-Buy: Automatically purchases with $${amt} ${quote} on +${vol}% surge in ${volatilityHoursSetting}h`);
+      const pending = coin.auto_buy_confirmation_started_at ? ' (confirmation in progress)' : '';
+      lines.push(`⚡ Active Auto-Buy: Automatically purchases with $${amt} ${quote} on +${vol}% surge in ${volatilityHoursSetting}h only after it holds for ${automatedTriggerConfirmationMinutes}m${pending}`);
     }
 
     if (coin.auto_sell_enabled) {
       const vol = coin.auto_sell_volatility_pct || coin.volatility_pct || '—';
       const quote = coin.auto_sell_quote_currency || 'USDT';
-      lines.push(`⚡ Active Auto-Sell: Automatically sells for ${quote} on -${vol}% drop in ${volatilityHoursSetting}h`);
+      const pending = coin.auto_sell_confirmation_started_at ? ' (confirmation in progress)' : '';
+      lines.push(`⚡ Active Auto-Sell: Automatically sells for ${quote} on -${vol}% drop in ${volatilityHoursSetting}h only after it holds for ${automatedTriggerConfirmationMinutes}m${pending}`);
     }
 
     return lines.join('\n');
@@ -5175,7 +5186,7 @@ function Dashboard({ isLightMode }) {
             </div>
             <div style={{ padding: '20px 24px' }}>
               <p style={{ fontSize: '14px', lineHeight: '1.6', margin: '0 0 16px', color: 'var(--text-primary, #e2e8f0)' }}>
-                You are about to enable an automatic sale of <strong>{autoSellModal.symbol} for {autoSellModal.quoteCurrency}</strong> when the price drops more than <strong>{autoSellModal.volatilityPct}%</strong> within the past <strong>{autoSellModal.volatilityHours} hour(s)</strong> (configured in Settings). Are you sure you want to do this?
+                You are about to enable an automatic sale of <strong>{autoSellModal.symbol} for {autoSellModal.quoteCurrency}</strong> when the price drops more than <strong>{autoSellModal.volatilityPct}%</strong> within the past <strong>{autoSellModal.volatilityHours} hour(s)</strong>. The drop must remain beyond that threshold for <strong>{autoSellModal.confirmationMinutes} consecutive minute(s)</strong> before an order is placed; a recovery resets the timer. Are you sure you want to do this?
               </p>
 
               {autoSellModal.coin?.auto_sell_enabled && (
@@ -5249,7 +5260,7 @@ function Dashboard({ isLightMode }) {
             </div>
             <div style={{ padding: '20px 24px' }}>
               <p style={{ fontSize: '14px', lineHeight: '1.6', margin: '0 0 16px', color: 'var(--text-primary, #e2e8f0)' }}>
-                You are about to enable an automatic purchase of <strong>{autoBuyModal.symbol} with {autoBuyModal.quoteCurrency}</strong> when the price surges more than <strong>{autoBuyModal.volatilityPct}%</strong> within the past <strong>{autoBuyModal.volatilityHours} hour(s)</strong> (configured in Settings).
+                You are about to enable an automatic purchase of <strong>{autoBuyModal.symbol} with {autoBuyModal.quoteCurrency}</strong> when the price surges more than <strong>{autoBuyModal.volatilityPct}%</strong> within the past <strong>{autoBuyModal.volatilityHours} hour(s)</strong>. The surge must remain beyond that threshold for <strong>{autoBuyModal.confirmationMinutes} consecutive minute(s)</strong> before an order is placed; a recovery resets the timer.
               </p>
 
               {/* Immediate insufficient balance banner */}
