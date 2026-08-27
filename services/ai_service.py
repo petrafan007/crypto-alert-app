@@ -132,6 +132,52 @@ def web_search(query, max_results=2, username=None, freshness="pd"):
         'source': 'System'
     }]
 
+
+def news_api_search(symbol, username, lookback_hours=24, max_results=4):
+    """Fetch recent crypto news from the user's configured NewsAPI integration.
+
+    This is deliberately separate from general web search: when a user supplies a
+    NewsAPI key, every AI workflow that asks for fresh news receives those actual
+    NewsAPI articles as grounding context. General web search remains a useful
+    supplemental market-data source rather than silently replacing NewsAPI.
+    """
+    try:
+        cred = get_user_credentials(username)
+        api_key = (getattr(cred, 'news_api', None) or '').strip() if cred else ''
+        if not api_key:
+            return []
+
+        hours = max(1, min(int(lookback_hours or 24), 720))
+        published_after = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat(timespec='seconds')
+        response = requests.get(
+            'https://newsapi.org/v2/everything',
+            headers={'X-Api-Key': api_key},
+            params={
+                'q': f'({str(symbol or "crypto").upper()} OR cryptocurrency)',
+                'language': 'en',
+                'sortBy': 'publishedAt',
+                'from': published_after,
+                'pageSize': max(1, min(int(max_results), 20)),
+            },
+            timeout=12,
+        )
+        if response.status_code != 200:
+            logger.warning('NewsAPI request failed for %s: HTTP %s', symbol, response.status_code)
+            return []
+
+        results = []
+        for article in (response.json().get('articles') or [])[:max_results]:
+            results.append({
+                'title': article.get('title') or 'Untitled article',
+                'snippet': (article.get('description') or article.get('content') or '')[:300],
+                'url': article.get('url') or '',
+                'source': f"NewsAPI ({(article.get('source') or {}).get('name') or 'news'})",
+            })
+        return results
+    except Exception as exc:
+        logger.warning('NewsAPI search failed for %s: %s', symbol, exc)
+        return []
+
 class AIResponseWrapper:
     """Wrapper to provide uniform `.choices[0].message.content` interface."""
     def __init__(self, text, tier="primary", provider=None, model=None, search_status=None):
@@ -437,7 +483,8 @@ def call_ai_with_web_search(
                 logger.warning(f"Stage 1 query generation error: {e}. Using fallback query.")
                 search_queries = [f"{symbol_value} crypto news market analysis today"]
 
-        # Stage 2: Web Searches
+        # Stage 2: NewsAPI plus web searches. If a NewsAPI key is configured, its
+        # results are always included before supplemental web-market context.
         # Brave's closest supported freshness filter is past-day; the query
         # itself carries the user's exact configured lookback window.
         search_summaries = []
@@ -446,6 +493,16 @@ def call_ai_with_web_search(
         valid_search_results = 0
         symbol_mentioned = False
         clean_sym = (symbol_value or '').upper()
+
+        for item in news_api_search(clean_sym, username, search_lookback_hours, max_results=4):
+            src = item.get('source', '')
+            if src:
+                search_sources.add(src)
+            valid_search_results += 1
+            title_snip = f"{item.get('title', '')} {item.get('snippet', '')}".upper()
+            if clean_sym and clean_sym in title_snip:
+                symbol_mentioned = True
+            search_summaries.append(f"- {item.get('title')}: {item.get('snippet')} ({item.get('url')})")
 
         for q in search_queries:
             if not q: continue
@@ -464,7 +521,10 @@ def call_ai_with_web_search(
         search_text = "\n".join(search_summaries) if search_summaries else "No recent search results found."
 
         # Compute search status string
-        if any('Brave' in s for s in search_sources):
+        if any('NewsAPI' in s for s in search_sources):
+            supplemental = ' + web search' if any(('Brave' in s or 'DuckDuckGo' in s) for s in search_sources) else ''
+            search_status = f"NewsAPI ({valid_search_results} results{supplemental})"
+        elif any('Brave' in s for s in search_sources):
             if valid_search_results > 0:
                 if symbol_mentioned:
                     search_status = f"Brave Search ({valid_search_results} results found)"

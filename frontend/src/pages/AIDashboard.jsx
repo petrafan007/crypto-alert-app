@@ -219,6 +219,8 @@ const AIDashboard = () => {
 
   // Ledger sort state (non-persisted, defaults to updated Date & Time descending on reload)
   const [ledgerSortConfig, setLedgerSortConfig] = useState(null);
+  const [ledgerPage, setLedgerPage] = useState(1);
+  const [ledgerPageSize, setLedgerPageSize] = useState(20);
 
   const requestLedgerSort = (key) => {
     let direction = 'desc';
@@ -226,12 +228,29 @@ const AIDashboard = () => {
       direction = 'asc';
     }
     setLedgerSortConfig({ key, direction });
+    setLedgerPage(1);
   };
 
   const getSortIcon = (key) => {
     if (!ledgerSortConfig || ledgerSortConfig.key !== key) return '';
     return ledgerSortConfig.direction === 'asc' ? ' ▲' : ' ▼';
   };
+
+  const completedLedgerRows = useMemo(() => (
+    (accuracyData?.history || []).filter(row =>
+      row && row.symbol && activeFilterCoins.includes(row.symbol) && !row.is_latest && row.outcome_status !== 'tracking'
+    )
+  ), [accuracyData, activeFilterCoins]);
+
+  const ledgerPageCount = Math.max(1, Math.ceil(completedLedgerRows.length / ledgerPageSize));
+
+  useEffect(() => {
+    setLedgerPage(previous => Math.min(previous, ledgerPageCount));
+  }, [ledgerPageCount]);
+
+  useEffect(() => {
+    setLedgerPage(1);
+  }, [activeFilterCoins, ledgerPageSize]);
 
   useEffect(() => {
     const init = async () => {
@@ -726,7 +745,19 @@ const AIDashboard = () => {
           {/* Historical Prediction Ledger Table */}
           <div className="prediction-table-card">
             <div className="table-header-row">
-              <h3>📋 Historical Prediction Ledger & Thesis Validation</h3>
+              <h3>📋 Historical Prediction Ledger</h3>
+              <div className="ledger-pagination-controls" aria-label="Historical Prediction Ledger pagination">
+                <label>
+                  Rows
+                  <select value={ledgerPageSize} onChange={(event) => setLedgerPageSize(Number(event.target.value))}>
+                    {[20, 50, 100, 200].map(size => <option key={size} value={size}>{size}</option>)}
+                  </select>
+                </label>
+                <span>{completedLedgerRows.length ? `${(ledgerPage - 1) * ledgerPageSize + 1}–${Math.min(ledgerPage * ledgerPageSize, completedLedgerRows.length)} of ${completedLedgerRows.length}` : '0 records'}</span>
+                <button type="button" onClick={() => setLedgerPage(page => Math.max(1, page - 1))} disabled={ledgerPage <= 1}>‹</button>
+                <span>Page {ledgerPage} / {ledgerPageCount}</span>
+                <button type="button" onClick={() => setLedgerPage(page => Math.min(ledgerPageCount, page + 1))} disabled={ledgerPage >= ledgerPageCount}>›</button>
+              </div>
             </div>
 
             <div className="prediction-table-container">
@@ -863,9 +894,7 @@ const AIDashboard = () => {
                 </thead>
                 <tbody>
                   {(() => {
-                    let displayHistory = (accuracyData?.history || []).filter(row =>
-                      row && row.symbol && activeFilterCoins.includes(row.symbol) && !row.is_latest && row.outcome_status !== 'tracking'
-                    );
+                    let displayHistory = [...completedLedgerRows];
 
                     if (ledgerSortConfig && displayHistory.length > 0) {
                       displayHistory = [...displayHistory].sort((a, b) => {
@@ -899,7 +928,8 @@ const AIDashboard = () => {
                     }
 
                     if (displayHistory && displayHistory.length > 0) {
-                      return displayHistory.map((row) => {
+                      const pageRows = displayHistory.slice((ledgerPage - 1) * ledgerPageSize, ledgerPage * ledgerPageSize);
+                      return pageRows.map((row) => {
                         if (!row) return null;
                         const isBullish = ['definitely buy', 'consider buying', 'buy immediately', 'strong buy', 'buy'].includes((row.sentiment || '').toLowerCase());
                         const isBearish = ['consider selling', 'sell immediately', 'avoid', 'strong sell', 'do not buy', 'sell'].includes((row.sentiment || '').toLowerCase());

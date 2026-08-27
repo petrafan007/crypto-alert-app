@@ -18,11 +18,19 @@ PORTFOLIO_HISTORY_RANGE_CONFIG = {
     "4H": {"duration_ms": 4 * 60 * 60 * 1000, "points": 5},
     "12H": {"duration_ms": 12 * 60 * 60 * 1000, "points": 7},
     "24H": {"duration_ms": 24 * 60 * 60 * 1000, "points": 7},
+    "2D": {"duration_ms": 2 * 24 * 60 * 60 * 1000, "points": 7},
     "3D": {"duration_ms": 72 * 60 * 60 * 1000, "points": 7},
+    "4D": {"duration_ms": 4 * 24 * 60 * 60 * 1000, "points": 8},
+    "5D": {"duration_ms": 5 * 24 * 60 * 60 * 1000, "points": 8},
+    "6D": {"duration_ms": 6 * 24 * 60 * 60 * 1000, "points": 8},
     "7D": {"duration_ms": 7 * 24 * 60 * 60 * 1000, "points": 8},
+    "14D": {"duration_ms": 14 * 24 * 60 * 60 * 1000, "points": 8},
     "30D": {"duration_ms": 30 * 24 * 60 * 60 * 1000, "points": 7},
+    "60D": {"duration_ms": 60 * 24 * 60 * 60 * 1000, "points": 8},
     "90D": {"duration_ms": 90 * 24 * 60 * 60 * 1000, "points": 7},
     "1Y": {"duration_ms": 365 * 24 * 60 * 60 * 1000, "points": 13},
+    "2Y": {"duration_ms": 2 * 365 * 24 * 60 * 60 * 1000, "points": 13},
+    "3Y": {"duration_ms": 3 * 365 * 24 * 60 * 60 * 1000, "points": 13},
 }
 
 def compute_portfolio_total_value(user_id, username=None, cred=None, include_staking=True):

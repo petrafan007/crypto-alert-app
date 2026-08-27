@@ -504,6 +504,13 @@ def execute_auto_sell(user, coin, pair, current_price, price_drop_pct, threshold
                                 local_order.status = 'CANCELED'
                                 local_order.canceled_at = datetime.utcnow()
                                 local_order.updated_at = datetime.utcnow()
+                                try:
+                                    prior_response = json.loads(local_order.order_response or '{}')
+                                except Exception:
+                                    prior_response = {}
+                                prior_response['origin'] = 'auto_sell_cancellation'
+                                prior_response['origin_label'] = 'Canceled by Auto-Sell'
+                                local_order.order_response = json.dumps(prior_response)
                         except Exception as loc_err:
                             logger.warning(f"Could not update local RealOrder for #{ord_id}: {loc_err}")
                     except Exception as cancel_err:

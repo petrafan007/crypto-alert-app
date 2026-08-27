@@ -95,7 +95,7 @@ export default function App() {
   const handleUnhideCoins = async () => {
     try {
       const response = await axios.get('/api/hidden-coins', { withCredentials: true });
-      setHiddenCoins(response.data || []);
+      setHiddenCoins((response.data || []).filter(coin => coin?.id && String(coin.symbol || '').trim()));
       setShowUnhideModal(true);
     } catch (err) {
       console.error('Failed to fetch hidden coins:', err);

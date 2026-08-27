@@ -1092,22 +1092,6 @@ export default function Settings({ isLightMode }) {
 
         {/* Top Right Action Buttons */}
         <div className="settings-action-buttons" style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '12px', flexWrap: 'wrap', marginLeft: 'auto' }}>
-          <div className="settings-status">
-            <div
-              style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', userSelect: 'none' }}
-              onClick={() => handleInputChange('ai_enabled', !settings.ai_enabled)}
-            >
-              <span className={`me-2 fw-bold ${settings.ai_enabled ? 'text-success' : 'text-muted'}`}>
-                {settings.ai_enabled ? 'AI Integration Enabled' : 'AI Integration Disabled'}
-              </span>
-              {settings.ai_enabled ? (
-                <FaToggleOn size={32} color="#4fd1c5" />
-              ) : (
-                <FaToggleOff size={32} color="#6c757d" />
-              )}
-            </div>
-          </div>
-
           <button
             onClick={handleForceAnalysis}
             disabled={forcingAnalysis}
@@ -1176,7 +1160,7 @@ export default function Settings({ isLightMode }) {
             Reset Password
           </button>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
             <button
               onClick={handleOpenUpgradeModal}
               disabled={upgrading}
@@ -1193,14 +1177,28 @@ export default function Settings({ isLightMode }) {
             >
               {upgrading ? 'Upgrading...' : 'Upgrade App'}
             </button>
-            <label style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', color: isLightMode ? '#2d3748' : '#e2e8f0', userSelect: 'none', margin: 0 }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', color: isLightMode ? '#2d3748' : '#e2e8f0', userSelect: 'none', margin: 0 }}>
               <input
                 type="checkbox"
                 checked={includeBeta}
                 onChange={(e) => setIncludeBeta(e.target.checked)}
-                style={{ marginRight: '8px', cursor: 'pointer' }}
+                style={{ position: 'absolute', opacity: 0, pointerEvents: 'none' }}
               />
+              {includeBeta ? <FaToggleOn size={30} color="#4fd1c5" /> : <FaToggleOff size={30} color="#6c757d" />}
               Include Beta Versions
+            </label>
+            <label
+              style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', color: isLightMode ? '#2d3748' : '#e2e8f0', userSelect: 'none', margin: 0 }}
+              title="Enable or disable all AI integrations"
+            >
+              <input
+                type="checkbox"
+                checked={!!settings.ai_enabled}
+                onChange={(e) => handleInputChange('ai_enabled', e.target.checked)}
+                style={{ position: 'absolute', opacity: 0, pointerEvents: 'none' }}
+              />
+              {settings.ai_enabled ? <FaToggleOn size={30} color="#4fd1c5" /> : <FaToggleOff size={30} color="#6c757d" />}
+              AI Integrations Enabled
             </label>
           </div>
         </div>
@@ -1603,10 +1601,9 @@ export default function Settings({ isLightMode }) {
             <button
               onClick={testPrimaryAiConnection}
               disabled={!settings.ai_provider || testingPrimaryAi}
-              className={`settings-button secondary ${(!settings.ai_provider || testingPrimaryAi) ? 'disabled' : ''}`}
-              style={{ marginTop: '8px' }}
+              style={{ marginTop: '10px', padding: '8px 16px', backgroundColor: (!settings.ai_provider || testingPrimaryAi) ? '#6c757d' : '#f0b90b', color: 'black', border: 'none', borderRadius: '4px', cursor: (!settings.ai_provider || testingPrimaryAi) ? 'not-allowed' : 'pointer', fontSize: '14px', width: '100%', fontWeight: 'bold', transition: 'all 0.2s' }}
             >
-              {testingPrimaryAi ? 'Testing...' : 'Test AI Integration'}
+              {testingPrimaryAi ? 'Testing Connection...' : 'Test API Connection'}
             </button>
             {primaryAiTestResult && (
               <div className={`settings-status ${primaryAiTestResult.success ? 'success' : 'error'}`} style={{ marginTop: '8px' }}>
@@ -1756,10 +1753,9 @@ export default function Settings({ isLightMode }) {
             <button
               onClick={testFallbackConnection}
               disabled={!(settings.ai_provider_secondary || settings.ai_provider_fallback) || testingFallback}
-              className={`settings-button secondary ${(!(settings.ai_provider_secondary || settings.ai_provider_fallback) || testingFallback) ? 'disabled' : ''}`}
-              style={{ marginTop: '8px' }}
+              style={{ marginTop: '10px', padding: '8px 16px', backgroundColor: (!(settings.ai_provider_secondary || settings.ai_provider_fallback) || testingFallback) ? '#6c757d' : '#f0b90b', color: 'black', border: 'none', borderRadius: '4px', cursor: (!(settings.ai_provider_secondary || settings.ai_provider_fallback) || testingFallback) ? 'not-allowed' : 'pointer', fontSize: '14px', width: '100%', fontWeight: 'bold', transition: 'all 0.2s' }}
             >
-              {testingFallback ? 'Testing...' : 'Test AI Integration'}
+              {testingFallback ? 'Testing Connection...' : 'Test API Connection'}
             </button>
             {fallbackTestResult && (
               <div className={`settings-status ${fallbackTestResult.success ? 'success' : 'error'}`} style={{ marginTop: '8px' }}>
@@ -1909,10 +1905,9 @@ export default function Settings({ isLightMode }) {
             <button
               onClick={testTertiaryAiConnection}
               disabled={!settings.ai_provider_tertiary || testingTertiaryAi}
-              className={`settings-button secondary ${(!settings.ai_provider_tertiary || testingTertiaryAi) ? 'disabled' : ''}`}
-              style={{ marginTop: '8px' }}
+              style={{ marginTop: '10px', padding: '8px 16px', backgroundColor: (!settings.ai_provider_tertiary || testingTertiaryAi) ? '#6c757d' : '#f0b90b', color: 'black', border: 'none', borderRadius: '4px', cursor: (!settings.ai_provider_tertiary || testingTertiaryAi) ? 'not-allowed' : 'pointer', fontSize: '14px', width: '100%', fontWeight: 'bold', transition: 'all 0.2s' }}
             >
-              {testingTertiaryAi ? 'Testing...' : 'Test AI Integration'}
+              {testingTertiaryAi ? 'Testing Connection...' : 'Test API Connection'}
             </button>
             {tertiaryAiTestResult && (
               <div className={`settings-status ${tertiaryAiTestResult.success ? 'success' : 'error'}`} style={{ marginTop: '8px' }}>
@@ -2982,7 +2977,7 @@ export default function Settings({ isLightMode }) {
                 Telegram Bot Token
               </label>
               <input
-                type="text"
+                type="password"
                 value={settings.telegram_token || ''}
                 onChange={(e) => handleInputChange('telegram_token', e.target.value)}
                 placeholder="Enter Telegram Bot Token"
@@ -3003,7 +2998,7 @@ export default function Settings({ isLightMode }) {
                 Telegram Chat ID
               </label>
               <input
-                type="text"
+                type="password"
                 value={settings.telegram_chat_id || ''}
                 onChange={(e) => handleInputChange('telegram_chat_id', e.target.value)}
                 placeholder="Enter Telegram Chat ID"
@@ -3025,7 +3020,7 @@ export default function Settings({ isLightMode }) {
               News API Key
             </label>
             <input
-              type="text"
+              type="password"
               value={settings.news_api || ''}
               onChange={(e) => handleInputChange('news_api', e.target.value)}
               placeholder="Enter News API Key"

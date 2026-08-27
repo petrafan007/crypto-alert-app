@@ -815,10 +815,10 @@ textarea:focus {
   font-weight: 600;
 }
 
-/* Ten portfolio-trend ranges must fit their widget without a horizontal scrollbar. */
+/* User-selected portfolio trend ranges wrap cleanly instead of clipping the chart panel. */
 .portfolio-trend-ranges {
   display: flex;
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
   gap: 3px;
   justify-content: center;
   margin-top: 8px;
@@ -826,7 +826,7 @@ textarea:focus {
 }
 
 .portfolio-trend-ranges .time-range-btn {
-  flex: 1 1 0;
+  flex: 1 1 42px;
   min-width: 0;
   padding: 4px 6px;
   font-size: 0.7rem;

@@ -421,14 +421,14 @@ export default function Help({ isLightMode }) {
                     and the market. Available widgets include:
                 </p>
                 <ul style={{ paddingLeft: '20px', marginBottom: '16px', lineHeight: '1.9' }}>
-                    <li><strong>Allocations Donut</strong> — breakdown of your holdings by asset weight</li>
-                    <li><strong>Portfolio Trend Chart</strong> — net worth over 1D, 7D, 30D, 1Y, and All-time</li>
+                    <li><strong>Allocations Donut</strong> — breakdown of your holdings by asset weight, with the total value plus tracked dollar and percentage P&amp;L centered in the donut</li>
+                    <li><strong>Portfolio Trend Chart</strong> — net worth history with a ✏️ range selector. Choose which quick range buttons you want displayed: 1H, 4H, 12H, 24H, 2D–7D, 14D, 30D, 60D, 90D, 1Y, 2Y, 3Y, and All-time.</li>
                     <li><strong>Fear & Greed Index</strong> — overall market sentiment gauge</li>
                     <li><strong>CBBI Bull Run Index</strong> — Bull Run Peak Confidence metric</li>
                     <li><strong>Total Portfolio Value</strong> — live USD/USDT valuation card</li>
                     <li><strong>Staking Yield Overview</strong> — quick summary of staking APY and rewards</li>
                     <li><strong>7-Day Performance Tickers</strong> — multi-interval % change per coin</li>
-                    <li><strong>Top Gainers & Losers</strong> — 24h momentum across every coin Binance.US lists (not just your holdings). Click any coin in the list to jump straight to its chart on the Trading page. An editable ✏️ button lets you set how many coins to show per side, and coins you own are highlighted with a ★ badge</li>
+                    <li><strong>Top Gainers & Losers</strong> — 24h momentum across every coin Binance.US lists (not just your holdings). Click any coin in the list to jump straight to its local Trading chart. An editable ✏️ button lets you set 3–50 coins per side, and coins you own are highlighted with a ★ badge</li>
                     <li><strong>Recent Order History</strong> — live feed of your most recent filled trades</li>
                     <li><strong>AI Copilot Market Pulse</strong> — macro sentiment score and catalyst summary</li>
                     <li><strong>Staking Yield & Rewards Tracker</strong> — projected daily/monthly/yearly yield</li>
@@ -562,7 +562,7 @@ export default function Help({ isLightMode }) {
                     <li><strong>Order types</strong> — Market, Limit, Stop-Loss, Stop-Loss-Limit, Take-Profit, Take-Profit-Limit, OCO (One-Cancels-the-Other), and Limit Maker (availability depends on the selected pair)</li>
                     <li><strong>Order Placement panel</strong> — MAX balance button, quote-quantity 2-way sync, a percentage slider (0/25/50/75/100%), and an order summary with estimated fees</li>
                     <li><strong>Open Orders tab</strong> — all pending real exchange orders plus any active Auto-Buy/Auto-Sell triggers</li>
-                    <li><strong>Order History tab</strong> — paginated (20 rows/page) history of filled and cancelled orders, filterable by pair</li>
+                    <li><strong>Order History tab</strong> — paginated (20 rows/page) history of filled and cancelled orders, filterable by pair. The Origin badge distinguishes manual orders, Auto-Sell/Auto-Buy execution, and a manual order canceled by Auto-Sell to release its balance.</li>
                     <li><strong>Convert Dust</strong> — sweep small leftover balances into a supported asset in one action</li>
                 </ul>
                 <Tip>
@@ -590,11 +590,12 @@ export default function Help({ isLightMode }) {
                 <ul style={{ paddingLeft: '20px', marginBottom: '16px', lineHeight: '1.9' }}>
                     <li><strong>Market Analysis</strong> — current market trends and opportunities, grounded in live web search</li>
                     <li><strong>Portfolio Review</strong> — comprehensive risk assessment, allocation breakdown, and recommendations</li>
-                    <li><strong>Sentiment Chart</strong> — a pair-aware price line showing only completed sentiment grades at the next same-coin check that performed each evaluation. Green Correct, blue Neutral, and red Wrong circles contain the original H/CB/BI/CS/SI recommendation being graded; tracking signals remain hidden. Hover tooltips preserve the original sentiment timestamp and identify the next check price and time. New users default to 3 Days, the selector supports 1D through ALL, and each selection is saved as that user's default.</li>
-                    <li><strong>Historical Prediction Ledger</strong> — new sentiment calls are graded at their configured fixed forecast horizon, independent of scheduled or manual refreshes. Earlier history remains visible as legacy next-check evaluation. The ledger shows signal and evaluation prices and timestamps, supports coin filtering, and sorts by evaluation time.</li>
+                    <li><strong>Sentiment Chart</strong> — a pair-aware price line showing only completed sentiment grades. Green Correct, blue Neutral, and red Wrong circles contain the original H/CB/BI/CS/SI recommendation being graded; tracking signals remain hidden. Hover tooltips preserve the original sentiment timestamp and evaluation detail. New users default to 3 Days, the selector supports 1D through ALL, and each selection is saved as that user's default.</li>
+                    <li><strong>Historical Prediction Ledger</strong> — sentiment calls are graded at their configured fixed forecast horizon, independent of scheduled or manual refreshes. The ledger shows signal and evaluation prices and timestamps, supports coin filtering and sorting, and paginates 20 rows by default with 20, 50, 100, and 200-row options.</li>
                     <li><strong>Sentiment Variable Settings</strong> — directional recommendations have independent Correct and Wrong percentage boundaries; directional Wrong may be 0.00%. Hold uses a configurable Steady Range (±%) and one symmetric Wrong Threshold (±%) that must be greater than Steady. Hold is Correct inside Steady, Wrong at or beyond its Wrong threshold, and Neutral strictly between those boundaries.</li>
                     <li><strong>Automatic Coin Inclusion</strong> — newly added portfolio coins are automatically checked off and included by default in all charts, list views, and thesis evaluations</li>
                     <li><strong>AI Model Leaderboard</strong> — empirical accuracy comparison across whichever AI providers/models you've used</li>
+                    <li><strong>NewsAPI grounding</strong> — when a News API key is configured, AI workflows that request current news include fresh NewsAPI articles alongside supplemental market web-search context.</li>
                 </ul>
             </Section>
 
@@ -631,6 +632,7 @@ export default function Help({ isLightMode }) {
                     <li><strong>Sync Coins</strong> — force an immediate balance sync with Binance.US</li>
                     <li><strong>Run Sentiment Analysis Now</strong> — trigger a full AI sentiment pass on demand</li>
                     <li><strong>Include Beta</strong> — opt in to beta releases when upgrading</li>
+                    <li><strong>AI Integrations Enabled</strong> — toggle all configured AI integrations from the Settings header. API keys, Telegram credentials, and the News API key are masked on screen; every configured provider has a consistent <strong>Test API Connection</strong> button.</li>
                     <li><strong>Upgrade App</strong> — pull and apply the latest released version</li>
                     <li><strong>Delete Account</strong> — permanently removes your credentials, 2FA, settings, and tax data (export your tax report first!)</li>
                 </ul>

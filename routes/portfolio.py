@@ -4,6 +4,7 @@ import requests
 import threading
 import json
 import time
+import re
 import traceback
 from flask import Blueprint, send_file, request, jsonify, render_template, current_app, redirect, url_for, session, make_response
 from flask_login import current_user, login_required, login_user, logout_user
@@ -2144,6 +2145,11 @@ def get_real_orders_only():
 
         for order in stored_orders:
             key = f"binance-{order.symbol}-{order.binance_order_id}" if order.binance_order_id else f"real-{order.id}"
+            try:
+                stored_metadata = json.loads(order.order_response or '{}')
+            except Exception:
+                stored_metadata = {}
+            origin = stored_metadata.get('origin') or 'manual'
             order_dict = {
                 'id': order.binance_order_id or f"real-{order.id}",
                 'symbol': order.symbol,
@@ -2156,7 +2162,10 @@ def get_real_orders_only():
                 'status': order.status or 'UNKNOWN',
                 'created_at': normalize_timestamp(order.created_at),
                 'updated_at': normalize_timestamp(order.updated_at),
-                'source': 'app'
+                'source': 'app',
+                'origin': origin,
+                'origin_label': stored_metadata.get('origin_label') or ('Canceled by Auto-Sell' if origin == 'auto_sell_cancellation' else 'Manual'),
+                'trigger_type': 'auto_sell' if origin == 'auto_sell_cancellation' else None,
             }
             add_order(key, order_dict)
 
@@ -2299,8 +2308,13 @@ def get_real_orders_only():
         # Merge historical records from all_activities (fills from other sources)
         for activity in activity_records:
             details_json = activity.get('__details_json__') or {}
-            order_id = details_json.get('order_id') or activity.get('txid')
+            txid = str(activity.get('txid') or '')
+            is_auto_sell = txid.startswith('auto_sell_') or 'Auto-Sell executed' in (activity.get('details') or '')
+            order_id = details_json.get('order_id') or (txid.removeprefix('auto_sell_') if is_auto_sell else txid)
             product_id = details_json.get('product_id')
+            if is_auto_sell and not product_id and activity.get('asset'):
+                quote_match = re.search(r'\b(USDT|USD)\b', activity.get('details') or '')
+                product_id = f"{str(activity['asset']).upper()}-{quote_match.group(1) if quote_match else 'USDT'}"
             if not order_id or not product_id:
                 continue
 
@@ -2333,10 +2347,26 @@ def get_real_orders_only():
                 'status': activity.get('status', 'FILLED') or 'FILLED',
                 'created_at': normalize_timestamp(details_json.get('created_time') or activity.get('date')),
                 'updated_at': normalize_timestamp(details_json.get('last_fill_time') or details_json.get('created_time') or activity.get('date')),
-                'source': 'history'
+                'source': 'auto_sell' if is_auto_sell else 'history',
+                'origin': 'auto_sell' if is_auto_sell else 'history',
+                'origin_label': 'Auto-Sell' if is_auto_sell else 'Historical Import',
+                'trigger_type': 'auto_sell' if is_auto_sell else None,
             }
 
             add_order(f"binance-{payload['symbol']}-{order_id}", payload)
+
+        # Auto-sell must cancel any conflicting open orders before it can sell the
+        # released balance. Preserve that causal chain in historical Order History.
+        auto_sell_cancellations = set()
+        for activity in activity_records:
+            details = activity.get('details') or ''
+            if str(activity.get('txid') or '').startswith('auto_sell_') or 'Auto-Sell executed' in details:
+                auto_sell_cancellations.update(re.findall(r'#(\d+)', details))
+        for payload in combined_orders.values():
+            if str(payload.get('id')) in auto_sell_cancellations and str(payload.get('status', '')).upper() == 'CANCELED':
+                payload['origin'] = 'auto_sell_cancellation'
+                payload['origin_label'] = 'Canceled by Auto-Sell'
+                payload['trigger_type'] = 'auto_sell'
 
         # Sort and limit
         order_list = list(combined_orders.values())
@@ -4873,7 +4903,10 @@ def api_hidden_coins():
         except Exception as e:
             logger.error(f"Failed to update coin prices: {str(e)}")
             db.session.rollback()
-        coins = Coin.query.filter_by(user_id=current_user.id, hidden=True).all()
+        # Legacy/sync artifacts without a ticker are not actionable coins and used
+        # to render as a blank checkbox in the Unhide Coins modal.
+        coins = [coin for coin in Coin.query.filter_by(user_id=current_user.id, hidden=True).all()
+                 if str(getattr(coin, 'symbol', '') or '').strip()]
         logger.debug(f"Hidden coins for user {current_user.id}: {[c.symbol for c in coins]}")
         result = [coin_to_dict(c) for c in coins]
         logger.debug(f"/api/hidden-coins result: {result}")

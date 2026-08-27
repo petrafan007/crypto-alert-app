@@ -48,6 +48,20 @@ export function PortfolioPie({ portfolio, isLightMode, totalValue: authoritative
     totalValue.toLocaleString('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 2 })
   ), [totalValue]);
 
+  const portfolioPnl = useMemo(() => {
+    const basisTracked = (portfolio || []).filter(coin => (
+      Number(coin?.amount) > 0 && Number(coin?.avg_entry) > 0 &&
+      Number.isFinite(Number(coin?.current_price ?? coin?.price))
+    ));
+    const costBasis = basisTracked.reduce((sum, coin) => sum + Number(coin.amount) * Number(coin.avg_entry), 0);
+    const currentValue = basisTracked.reduce((sum, coin) => sum + (
+      Number(coin.current_value) || Number(coin.amount) * Number(coin.current_price ?? coin.price)
+    ), 0);
+    if (!(costBasis > 0)) return null;
+    const value = currentValue - costBasis;
+    return { value, percent: (value / costBasis) * 100 };
+  }, [portfolio]);
+
   const data = useMemo(() => ({
     labels: filtered.map(c => c.symbol),
     datasets: [
@@ -101,7 +115,9 @@ export function PortfolioPie({ portfolio, isLightMode, totalValue: authoritative
           flexDirection: 'column',
           alignItems: 'center',
           justifyContent: 'center',
-          pointerEvents: 'none'
+          pointerEvents: 'none',
+          textAlign: 'center',
+          padding: '0 14px'
         }}>
           <span style={{ fontSize: '16px', fontWeight: '700', color: isLightMode ? '#0f172a' : '#f8fafc' }}>
             {formattedTotal}
@@ -109,6 +125,11 @@ export function PortfolioPie({ portfolio, isLightMode, totalValue: authoritative
           <span style={{ fontSize: '10px', fontWeight: '600', letterSpacing: '0.04em', color: isLightMode ? '#64748b' : '#94a3b8' }}>
             TOTAL VALUE
           </span>
+          {portfolioPnl && (
+            <span style={{ marginTop: '3px', fontSize: '10px', fontWeight: '700', color: portfolioPnl.value >= 0 ? '#22c55e' : '#ef4444', whiteSpace: 'nowrap' }}>
+              {portfolioPnl.value >= 0 ? '+' : ''}{portfolioPnl.value.toLocaleString('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 2 })} ({portfolioPnl.percent >= 0 ? '+' : ''}{portfolioPnl.percent.toFixed(2)}%)
+            </span>
+          )}
         </div>
       </div>
       <div
@@ -154,11 +175,19 @@ export function PortfolioTrend({ history, range, isLightMode }) {
       '4H': { unit: 'hour', stepSize: 1, displayFormat: 'HH:mm' },
       '12H': { unit: 'hour', stepSize: 2, displayFormat: 'HH:mm MMM dd' },
       '24H': { unit: 'hour', stepSize: 4, displayFormat: 'HH:mm' },
+      '2D': { unit: 'hour', stepSize: 8, displayFormat: 'MMM dd HH:mm' },
       '3D': { unit: 'hour', stepSize: 12, displayFormat: 'MMM dd HH:mm' },
+      '4D': { unit: 'day', stepSize: 1, displayFormat: 'MMM dd' },
+      '5D': { unit: 'day', stepSize: 1, displayFormat: 'MMM dd' },
+      '6D': { unit: 'day', stepSize: 1, displayFormat: 'MMM dd' },
       '7D': { unit: 'day', stepSize: 1, displayFormat: 'MMM dd' },
+      '14D': { unit: 'day', stepSize: 2, displayFormat: 'MMM dd' },
       '30D': { unit: 'week', stepSize: 1, displayFormat: 'MMM dd' },
+      '60D': { unit: 'week', stepSize: 1, displayFormat: 'MMM dd' },
       '90D': { unit: 'month', stepSize: 1, displayFormat: 'MMM yyyy' },
       '1Y': { unit: 'month', stepSize: 1, displayFormat: 'MMM yyyy' },
+      '2Y': { unit: 'month', stepSize: 2, displayFormat: 'MMM yyyy' },
+      '3Y': { unit: 'month', stepSize: 3, displayFormat: 'MMM yyyy' },
       // Let Chart.js choose sensible tick spacing for an arbitrary all-time span.
       'ALL': { unit: false }
     };

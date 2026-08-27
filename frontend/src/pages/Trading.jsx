@@ -45,6 +45,14 @@ export const formatOrderSide = (rawSide) => {
   return clean;
 };
 
+const getOrderOrigin = (order) => {
+  const origin = String(order?.origin || order?.source || '').toLowerCase();
+  if (origin === 'auto_sell' || order?.trigger_type === 'auto_sell') return { label: 'Auto-Sell', color: '#f87171', background: 'rgba(239, 68, 68, 0.15)' };
+  if (origin === 'auto_sell_cancellation') return { label: 'Canceled by Auto-Sell', color: '#fbbf24', background: 'rgba(245, 158, 11, 0.15)' };
+  if (origin === 'auto_buy' || order?.trigger_type === 'auto_buy') return { label: 'Auto-Buy', color: '#4ade80', background: 'rgba(34, 197, 94, 0.15)' };
+  return { label: 'Manual', color: '#cbd5e1', background: 'rgba(148, 163, 184, 0.12)' };
+};
+
 const DEFAULT_TRADING_PAIR = 'BTCUSDT';
 
 const Trading = ({ isLightMode = false }) => {
@@ -2251,6 +2259,7 @@ const Trading = ({ isLightMode = false }) => {
                           <th>Symbol</th>
                           <th>Side</th>
                           <th>Type</th>
+                          <th>Origin</th>
                           <th>Quantity</th>
                           <th>Price</th>
                           <th>Filled</th>
@@ -2270,6 +2279,7 @@ const Trading = ({ isLightMode = false }) => {
                               </span>
                             </td>
                             <td>{formatOrderType(order.order_type || order.type)}</td>
+                            {(() => { const origin = getOrderOrigin(order); return <td><span className="badge" style={{ color: origin.color, background: origin.background, border: `1px solid ${origin.color}55` }}>{origin.label}</span></td>; })()}
                             <td>{formatNumber(order.quantity, 8)}</td>
                             <td>{order.price ? `$${formatNumber(order.price)}` : '-'}</td>
                             <td>{formatNumber(order.filled_quantity || 0, 8)}</td>

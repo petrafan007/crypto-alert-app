@@ -5,7 +5,6 @@ import useNotificationPoller from '../hooks/useNotificationPoller';
 import axios from 'axios';
 import { PortfolioPie, PortfolioTrend } from '../components/DashboardCharts';
 import PriceHistoryPopup from '../components/PriceHistoryPopup';
-import { getTradeUrl } from '../utils/exchangeUtils';
 import AIAnalysisModal from '../components/AIAnalysisModal';
 import { useAuth } from '../components/AuthContext';
 import FearGreedWidget from '../components/FearGreedWidget';
@@ -30,11 +29,19 @@ const TREND_RANGES = [
   { key: '4H', label: '4H' },
   { key: '12H', label: '12H' },
   { key: '24H', label: '24H' },
+  { key: '2D', label: '2D' },
   { key: '3D', label: '3D' },
+  { key: '4D', label: '4D' },
+  { key: '5D', label: '5D' },
+  { key: '6D', label: '6D' },
   { key: '7D', label: '7D' },
+  { key: '14D', label: '14D' },
   { key: '30D', label: '30D' },
+  { key: '60D', label: '60D' },
   { key: '90D', label: '90D' },
   { key: '1Y', label: '1Y' },
+  { key: '2Y', label: '2Y' },
+  { key: '3Y', label: '3Y' },
   { key: 'ALL', label: 'ALL' }
 ];
 
@@ -168,6 +175,17 @@ function Dashboard({ isLightMode }) {
   const [pendingOrders, setPendingOrders] = useState([]);
   const [orderTooltip, setOrderTooltip] = useState({ isVisible: false, text: '', position: { x: 0, y: 0 } });
   const [trendRange, setTrendRange] = useState('7D');
+  const [showTrendRangeModal, setShowTrendRangeModal] = useState(false);
+  const [visibleTrendRangeKeys, setVisibleTrendRangeKeys] = useState(() => {
+    try {
+      const stored = JSON.parse(localStorage.getItem('crypto_portfolio_trend_visible_ranges') || 'null');
+      const valid = Array.isArray(stored) ? stored.filter(key => TREND_RANGES.some(range => range.key === key)) : [];
+      return valid.length ? valid : TREND_RANGES.map(range => range.key);
+    } catch (e) {
+      return TREND_RANGES.map(range => range.key);
+    }
+  });
+  const [trendRangeDraft, setTrendRangeDraft] = useState([]);
   const [trendLoading, setTrendLoading] = useState(true);
   const [refreshingSentiment, setRefreshingSentiment] = useState({});
 
@@ -440,7 +458,7 @@ function Dashboard({ isLightMode }) {
       const saved = localStorage.getItem('crypto_top_movers_config_persistent');
       if (saved) {
         const parsed = JSON.parse(saved);
-        return { count: Math.max(3, Math.min(25, parseInt(parsed.count, 10) || 10)) };
+        return { count: Math.max(3, Math.min(50, parseInt(parsed.count, 10) || 10)) };
       }
     } catch (e) {}
     return { count: 10 };
@@ -780,7 +798,7 @@ function Dashboard({ isLightMode }) {
   };
 
   const handleSaveTopMoversModal = () => {
-    const clamped = Math.max(3, Math.min(25, parseInt(topMoversDraftCount, 10) || 10));
+    const clamped = Math.max(3, Math.min(50, parseInt(topMoversDraftCount, 10) || 10));
     const newConfig = { count: clamped };
     setTopMoversConfig(newConfig);
     try {
@@ -1255,8 +1273,15 @@ function Dashboard({ isLightMode }) {
   };
 
   const handleChartClick = (symbol) => {
-    // Open the exchange in a new tab
-    window.open(getTradeUrl(symbol), '_blank');
+    const cleanBase = String(symbol || '').toUpperCase().replace(/USDT$|USD$/, '');
+    // USDT is preferred; USD is an explicit fallback only when the USDT pair is unavailable.
+    const quote = hasUsdtPair(cleanBase) ? 'USDT' : hasUsdPair(cleanBase) ? 'USD' : null;
+    if (!quote) {
+      setNotification({ show: true, message: `No Binance.US USD or USDT trading pair is available for ${cleanBase}.`, type: 'error' });
+      setTimeout(() => setNotification({ show: false, message: '', type: 'info' }), 5000);
+      return;
+    }
+    navigateToTrading(cleanBase, 'BUY', quote);
   };
 
   // Get pending orders for a specific coin
@@ -4078,7 +4103,18 @@ function Dashboard({ isLightMode }) {
             case 'trend':
               return (
                 <div className="chart-panel widget-panel-inner" style={{ height: '100%', padding: '16px', display: 'flex', flexDirection: 'column' }}>
-                  <h2 className="chart-title" style={{ margin: '0 0 12px 0', fontSize: '1.1rem' }}>Portfolio Trend</h2>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                    <h2 className="chart-title" style={{ margin: 0, fontSize: '1.1rem' }}>Portfolio Trend</h2>
+                    <button
+                      type="button"
+                      className="widget-edit-btn"
+                      title="Choose displayed portfolio trend ranges"
+                      aria-label="Customize portfolio trend ranges"
+                      onClick={() => { setTrendRangeDraft(visibleTrendRangeKeys); setShowTrendRangeModal(true); }}
+                    >
+                      ✏️
+                    </button>
+                  </div>
                   <div style={{ flex: 1, minHeight: '220px', width: '100%' }}>
                     {trendLoading || trendHistoryRange !== trendRange ? (
                       <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%', color: '#94a3b8' }}>
@@ -4089,7 +4125,7 @@ function Dashboard({ isLightMode }) {
                     )}
                   </div>
                   <div className="time-range-container portfolio-trend-ranges">
-                    {TREND_RANGES.map(range => (
+                    {TREND_RANGES.filter(range => visibleTrendRangeKeys.includes(range.key)).map(range => (
                       <button
                         key={range.key}
                         onClick={() => setTrendRange(range.key)}
@@ -4288,7 +4324,7 @@ function Dashboard({ isLightMode }) {
                                   onMouseLeave={handleSymbolLeave}
                                   onClick={() => handleChartClick(coin.symbol)}
                                   style={{ cursor: 'pointer', textAlign: 'center' }}
-                                  title="Hover for 7-day chart, click to open on Binance"
+                                  title="Hover for 7-day chart, click to open its local Trading pair"
                                 >
                                   <div className="coin-symbol-container" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', justifyContent: 'center' }}>
                                     <CryptoIcon symbol={coin.symbol} size={20} />
@@ -4743,7 +4779,7 @@ function Dashboard({ isLightMode }) {
                                   onMouseEnter={(e) => handleSymbolHover(item.symbol, e)}
                                   onMouseLeave={handleSymbolLeave}
                                   onClick={() => handleChartClick(item.symbol)}
-                                  title="Hover for 7-day chart, click to open on Binance"
+                                  title="Hover for 7-day chart, click to open its local Trading pair"
                                 >
                                   <div className="coin-symbol-container" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', justifyContent: 'center' }}>
                                     <CryptoIcon symbol={item.symbol} size={20} />
@@ -5802,14 +5838,14 @@ function Dashboard({ isLightMode }) {
                 </span>
               </div>
               <p style={{ margin: '0 0 6px 0', fontSize: '12px', color: 'var(--text-secondary, #94a3b8)', lineHeight: 1.4 }}>
-                Choose how many gainers and losers to display across all Binance.US coins (3 to 25 per side):
+                Choose how many gainers and losers to display across all Binance.US coins (3 to 50 per side):
               </p>
 
               <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                 <input
                   type="range"
                   min="3"
-                  max="25"
+                  max="50"
                   step="1"
                   value={topMoversDraftCount}
                   onChange={(e) => setTopMoversDraftCount(parseInt(e.target.value, 10) || 10)}
@@ -5819,11 +5855,11 @@ function Dashboard({ isLightMode }) {
                 <input
                   type="number"
                   min="3"
-                  max="25"
+                  max="50"
                   value={topMoversDraftCount}
                   onChange={(e) => {
                     const val = parseInt(e.target.value, 10);
-                    setTopMoversDraftCount(isNaN(val) ? 10 : Math.max(3, Math.min(25, val)));
+                    setTopMoversDraftCount(isNaN(val) ? 10 : Math.max(3, Math.min(50, val)));
                   }}
                   style={{
                     width: '56px',
@@ -5840,7 +5876,7 @@ function Dashboard({ isLightMode }) {
               </div>
 
               <div style={{ display: 'flex', gap: '6px', marginTop: '4px' }}>
-                {[3, 5, 10, 15, 25].map(val => (
+                {[3, 5, 10, 25, 50].map(val => (
                   <button
                     key={val}
                     type="button"
@@ -5898,6 +5934,52 @@ function Dashboard({ isLightMode }) {
         onSave={columnModal.tableType === 'portfolio' ? handleSavePortfolioColumns : handleSaveWatchlistColumns}
         onReset={columnModal.tableType === 'portfolio' ? handleResetPortfolioColumns : handleResetWatchlistColumns}
       />
+
+      {showTrendRangeModal && (
+        <div className="modal-overlay" onClick={() => setShowTrendRangeModal(false)}>
+          <div className="modal-content" onClick={(event) => event.stopPropagation()} style={{ width: 'min(92vw, 620px)' }}>
+            <div className="modal-header">
+              <h3 style={{ margin: 0 }}>✏️ Portfolio Trend Ranges</h3>
+              <button className="modal-close" onClick={() => setShowTrendRangeModal(false)}>×</button>
+            </div>
+            <div className="modal-body">
+              <p style={{ marginTop: 0, color: 'var(--text-secondary, #94a3b8)' }}>Choose the range buttons displayed below your Portfolio Trend chart.</p>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(86px, 1fr))', gap: '10px' }}>
+                {TREND_RANGES.map(range => {
+                  const checked = trendRangeDraft.includes(range.key);
+                  return (
+                    <label key={range.key} style={{ display: 'flex', alignItems: 'center', gap: '7px', padding: '8px', border: '1px solid var(--border-color, #334155)', borderRadius: '7px', cursor: 'pointer' }}>
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => setTrendRangeDraft(previous => checked ? previous.filter(key => key !== range.key) : [...previous, range.key])}
+                      />
+                      <span>{range.label}</span>
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+            <div className="modal-actions">
+              <button className="btn btn-secondary" onClick={() => setShowTrendRangeModal(false)}>Cancel</button>
+              <button
+                className="btn btn-primary"
+                disabled={!trendRangeDraft.length}
+                onClick={() => {
+                  const next = TREND_RANGES.filter(range => trendRangeDraft.includes(range.key)).map(range => range.key);
+                  if (!next.length) return;
+                  setVisibleTrendRangeKeys(next);
+                  localStorage.setItem('crypto_portfolio_trend_visible_ranges', JSON.stringify(next));
+                  if (!next.includes(trendRange)) setTrendRange(next[0]);
+                  setShowTrendRangeModal(false);
+                }}
+              >
+                Save Ranges
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Cancel Order Confirmation Modal */}
       <CancelOrderConfirmModal

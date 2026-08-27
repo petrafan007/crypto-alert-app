@@ -168,9 +168,10 @@ export default function TradeTimelineChart({ symbol, onSymbolChange, tradingPair
       <header className="trade-timeline-header">
         <div><h2>My {base}/{quote} Trade Chart</h2><p>Price history with exact-pair purchases and sales. Click an arrow for exact execution times and details.</p></div>
         <div className="trade-timeline-controls">
-          <div className="trade-timeline-pair-select">
+          <label className="trade-timeline-pair-select">
+            <span>Coin Pair</span>
             <SearchablePairSelect value={normalized} onChange={onSymbolChange} tradingPairs={tradingPairs} placeholder="Search trading pairs…" />
-          </div>
+          </label>
           <label className="trade-timeline-range-control">
             <span>Range</span>
             <select value={range} onChange={event => setRange(event.target.value)} aria-label="Trade Chart date range">

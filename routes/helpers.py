@@ -17,7 +17,7 @@ import json
 import jwt
 from cryptography.fernet import Fernet
 import os
-from flask import request, jsonify, make_response, current_app as app
+from flask import request, jsonify, make_response, current_app as app, has_request_context
 from credential_security import decrypt_secret
 from services.trading_service import get_cost_basis_for_asset, calculate_avg_entry_fifo
 from services.credential_service import get_user_credentials
@@ -135,6 +135,38 @@ def get_last_7d_prices(symbol):
     except Exception as e:
         logger.error(f"Error in get_last_7d_prices: {e}")
         return []
+
+
+def fetch_news_sentiment(symbol, username=None):
+    """Return a bounded lightweight news sentiment score from configured NewsAPI.
+
+    Legacy recommendation/alert helpers call this function directly. Resolving the
+    active username at request time ensures those news consumers use the same
+    NewsAPI integration as the primary AI workflows instead of a missing stub.
+    """
+    try:
+        if not username and has_request_context():
+            from flask_login import current_user
+            if getattr(current_user, 'is_authenticated', False):
+                username = current_user.username
+        if not username:
+            return 0.0
+
+        from services.ai_service import news_api_search
+        articles = news_api_search(symbol, username, lookback_hours=24, max_results=10)
+        if not articles:
+            return 0.0
+
+        positive = {'gain', 'gains', 'rise', 'rises', 'surge', 'surges', 'bullish', 'rally', 'rallies', 'approval', 'adoption', 'upgrade'}
+        negative = {'drop', 'drops', 'fall', 'falls', 'plunge', 'plunges', 'bearish', 'hack', 'lawsuit', 'ban', 'liquidation', 'liquidations'}
+        score = 0
+        for article in articles:
+            words = set((f"{article.get('title', '')} {article.get('snippet', '')}").lower().split())
+            score += len(words & positive) - len(words & negative)
+        return max(-1.0, min(1.0, score / max(len(articles) * 2, 1)))
+    except Exception as exc:
+        logger.warning(f"News sentiment lookup failed for {symbol}: {exc}")
+        return 0.0
 
 def create_extension_jwt(user):
     if not jwt:

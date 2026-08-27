@@ -2,8 +2,8 @@
 .trade-timeline-header { display:flex; align-items:center; justify-content:space-between; gap:1rem; padding:1rem 1.25rem; background:#0f172a; border-bottom:1px solid #334155; }
 .trade-timeline-header h2 { margin:0 0 .25rem; font-size:1.25rem; }
 .trade-timeline-header p { margin:0; color:#94a3b8; font-size:.82rem; }
-.trade-timeline-controls { display:flex; align-items:flex-end; justify-content:flex-end; gap:.75rem; width:min(100%,620px); }
-.trade-timeline-pair-select { flex:1 1 330px; min-width:240px; }
+.trade-timeline-controls { display:flex; align-items:flex-start; justify-content:flex-end; gap:.75rem; width:min(100%,620px); }
+.trade-timeline-pair-select { display:flex; flex-direction:column; gap:.35rem; flex:1 1 330px; min-width:240px; color:#94a3b8; font-size:.7rem; font-weight:800; letter-spacing:.06em; text-transform:uppercase; }
 .trade-timeline-pair-select .searchable-pair-select-container { display:block; width:100%; }
 .trade-timeline-range-control { display:flex; flex-direction:column; gap:.35rem; flex:0 0 180px; color:#94a3b8; font-size:.7rem; font-weight:800; letter-spacing:.06em; text-transform:uppercase; }
 .trade-timeline-range-control select { min-height:40px; padding:.5rem .7rem; border:1px solid #475569; border-radius:8px; background:#1e293b; color:#f8fafc; font-size:.82rem; font-weight:700; text-transform:none; }

@@ -221,7 +221,7 @@ export default function SentimentTimelineChart({ signals = [], range, onRangeCha
       <header className="trade-timeline-header">
         <div><h2>Sentiment Chart</h2><p>{base}/{quote} price history with concise AI sentiment signals. Hover a dot for the full thesis and outcome.</p></div>
         <div className="trade-timeline-controls">
-          <div className="trade-timeline-pair-select"><SearchablePairSelect value={normalizedPair} onChange={setSelectedPair} tradingPairs={tradingPairs} placeholder="Search trading pairs…" /></div>
+          <label className="trade-timeline-pair-select"><span>Coin Pair</span><SearchablePairSelect value={normalizedPair} onChange={setSelectedPair} tradingPairs={tradingPairs} placeholder="Search trading pairs…" /></label>
           <label className="trade-timeline-range-control" title="Changing this range saves it as your default"><span>Range</span><select value={range} onChange={event => onRangeChange(event.target.value)} aria-label="Sentiment Chart date range">{CHART_RANGES.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select><small>Changes save as your default</small></label>
         </div>
       </header>

@@ -10,7 +10,7 @@
   - **Live Binance.US Sync**: Real-time balance and transaction history synchronization with Binance.US.
   - **Interactive Customizable Dashboard Grid**: Modern drag-and-drop (`⠿`) reordering, multi-handle resizing, and custom panel visibility for all upper dashboard widgets.
   - **Market Gauges & Performance**: Built-in Fear & Greed Index, CBBI Bull Run Peak Confidence metric, Staking Yield overview, and 7-day multi-interval performance tickers.
-  - **True Portfolio Trend Charts**: Multi-timeframe portfolio net worth graphs (1D, 7D, 30D, 1Y, All-time) with live updates.
+  - **True Portfolio Trend Charts**: Saved, user-selectable quick ranges from 1H through All-time with live portfolio net-worth updates.
   - **Cryptocurrency Vector Icons**: Rich, high-resolution coin icons for effortless asset recognition across all tables.
 
 - **⚡ Professional Trading Terminal (USD & USDT)**
@@ -21,7 +21,7 @@
   - **Paginated Order History**: Independent order history tab with 20-row pagination and symbol filtering.
 
 - **🛡️ Autonomous Crash Protection & Volatility Auto-Sell**
-  - **Executive Volatility Auto-Sell**: Set custom 1-hour drop thresholds (e.g. >5%) per coin. If a market dump occurs, the background daemon automatically executes a market sell into USDT to protect capital.
+  - **Executive Volatility Auto-Sell**: Set custom 1-hour drop thresholds (e.g. >5%) per coin. If a market dump occurs, the background daemon cancels conflicting orders, then executes a protected sell into USDT to protect capital.
   - **Pre-Execution Conflict Resolution**: Automatically scans and cancels conflicting open orders (limit/stop-loss) to unlock 100% of your coin's balance before placing emergency sales.
   - **Granular Price & Volatility Alerts**: Automated 24/7 background monitors with instant multi-channel push alerts via Telegram and desktop notifications.
 
@@ -110,7 +110,7 @@ The application utilizes a **unified PostgreSQL database**.
 
 ## External Integrations
 - **Binance.US API (EXCLUSIVE)**: Use `tld='us'` for all client initializations.
-- **AI Analysis**: Multi-provider support (OpenAI, Z.AI, Perplexity, Gemini). Integrated web search (Brave Search with DuckDuckGo fallback).
+- **AI Analysis**: Multi-provider support (OpenAI, Z.AI, Perplexity, Gemini). Integrated NewsAPI grounding plus web search (Brave Search with DuckDuckGo fallback).
 - **Telegram API**: Price alert notifications via Bot API.
 
 ---
@@ -121,6 +121,20 @@ The application utilizes a **unified PostgreSQL database**.
 ---
 
 ## Version History & Changelog
+
+## v2.21.0 (August 2026)
+
+### Dashboard, Settings & Order History Improvements
+- **Aligned Sentiment Controls**: Coin Pair and Range controls now share a consistent labeled layout in Sentiment and Trade charts.
+- **Dashboard Customization**: Top Gainers & Losers supports up to 50 coins per side. The Allocations donut centers total value with tracked dollar/percentage P&L, and Portfolio Trend has a saved picker for its visible quick ranges from 1H through All-time.
+- **Local Trading Navigation**: Portfolio and Watchlist ticker clicks now open the matching local Trading pair, preferring `COIN/USDT` and falling back to `COIN/USD` only when needed.
+- **Settings Safety & Consistency**: Telegram bot token, Telegram chat ID, and News API key are masked; all AI provider tests use the same `Test API Connection` control; Include Beta and AI Integrations Enabled are paired header toggles.
+- **NewsAPI Grounding**: AI workflows that request current news now include the configured NewsAPI feed before supplemental web-search results.
+- **Ledger Usability**: Renamed the Historical Prediction Ledger, added 20/50/100/200-row pagination, and corrected sticky-header/filter layering so the Coin filter remains visible and clickable while scrolling.
+- **Order Origin Audit Trail**: Order History labels manual, Auto-Sell/Auto-Buy, and `Canceled by Auto-Sell` records. Auto-Sell cancellations are persisted and the actual automated sell is imported from the activity ledger.
+- **Unhide Modal Cleanup**: Invalid hidden records without a coin ticker are omitted instead of rendering as blank checkboxes.
+- **Help Update**: Updated in-app Help for the current dashboard, settings, news, trading, ledger, and sentiment behavior.
+- **Version Bump**: Transitioned version to `v2.21.0`.
 
 ## v2.20.1 (August 2026)
 
