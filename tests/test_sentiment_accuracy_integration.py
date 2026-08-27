@@ -95,7 +95,7 @@ class SentimentAccuracyIntegrationTests(unittest.TestCase):
         self.assertEqual(first['evaluation_method'], 'next_sentiment_check')
         self.assertEqual(report['summary']['evaluated_signals'], 0)
         self.assertEqual(report['summary']['total_signals'], 0)
-        self.assertEqual(report['summary']['legacy_total_signals'], 6)
+        self.assertNotIn('legacy_total_signals', report['summary'])
         self.assertIsNone(report['summary']['overall_accuracy'])
         self.assertEqual(report['model_breakdown'], [])
 

@@ -687,7 +687,7 @@ const AIDashboard = () => {
           <div className="accuracy-kpi-card overall">
             <div className="kpi-label">Overall Accuracy</div>
             <div className="kpi-value glow-text">{formatRate(summary.overall_accuracy)}</div>
-            <div className="kpi-subtext">{summary.correct_count || 0} Correct / {summary.evaluated_signals || 0} decisive of {summary.total_signals} fixed-horizon signals; neutral/tracking excluded{summary.legacy_total_signals ? ` · ${summary.legacy_total_signals} legacy visible below` : ''}</div>
+            <div className="kpi-subtext">{summary.correct_count || 0} Correct / {summary.evaluated_signals || 0} decisive of {summary.total_signals} fixed-horizon signals; neutral/tracking excluded</div>
           </div>
 
           <div className="accuracy-kpi-card bullish">

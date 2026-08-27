@@ -527,7 +527,6 @@ def build_sentiment_accuracy_response(user_id, timeframe='30d', selected_tier=No
     counts = {'correct': 0, 'wrong': 0, 'neutral': 0, 'tracking': 0, 'unscored': 0}
     directional = {'bullish': {'correct': 0, 'wrong': 0}, 'bearish': {'correct': 0, 'wrong': 0}}
     distribution = {'buy': 0, 'sell': 0, 'watch': 0}
-    legacy_total = 0
 
     for record in records:
         symbol = (record.symbol or '').upper()
@@ -584,8 +583,6 @@ def build_sentiment_accuracy_response(user_id, timeframe='30d', selected_tier=No
 
         if is_fixed_horizon:
             counts[status] += 1
-        else:
-            legacy_total += 1
         if label in BULLISH_SIGNALS:
             if is_fixed_horizon:
                 distribution['buy'] += 1
@@ -692,7 +689,6 @@ def build_sentiment_accuracy_response(user_id, timeframe='30d', selected_tier=No
             'neutral_count': counts['neutral'], 'tracking_count': counts['tracking'],
             'unscored_count': counts['unscored'], 'top_model': top_model,
             'evaluation_method': 'fixed_horizon',
-            'legacy_total_signals': legacy_total,
             'sentiment_thresholds': configured_thresholds,
         },
         'recommendation_breakdown': rec_breakdown,

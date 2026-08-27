@@ -122,6 +122,12 @@ The application utilizes a **unified PostgreSQL database**.
 
 ## Version History & Changelog
 
+## v2.20.1 (August 2026)
+
+### Accuracy Card Cleanup
+- **Removed Permanent Legacy Counter**: Removed the `legacy visible below` count from the Overall Accuracy card and its API summary payload. Legacy rows remain available in historical views without permanently cluttering the headline KPI.
+- **Version Bump**: Transitioned version to `v2.20.1`.
+
 ## v2.20.0 (August 2026)
 
 ### Fixed-Horizon Sentiment Accuracy — Phase 1
