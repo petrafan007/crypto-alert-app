@@ -1,5 +1,14 @@
 """Read-only Webull OpenAPI connection helpers."""
 
+import base64
+import hashlib
+import hmac
+from datetime import datetime, timezone
+from urllib.parse import quote
+from uuid import uuid4
+
+import requests
+
 from log import logger
 
 
@@ -20,31 +29,65 @@ def normalize_webull_environment(environment):
     return value
 
 
-def create_webull_trade_client(app_key, app_secret, environment='production'):
-    """Create an official Webull Trading API client without placing any orders."""
+def generate_webull_signature(path, query_params, app_key, app_secret, host, timestamp, nonce, body_string=None):
+    """Generate the HMAC-SHA1 signature required by Webull OpenAPI."""
+    signing_parameters = {
+        **(query_params or {}),
+        'host': host,
+        'x-app-key': app_key,
+        'x-signature-algorithm': 'HMAC-SHA1',
+        'x-signature-nonce': nonce,
+        'x-signature-version': '1.0',
+        'x-timestamp': timestamp,
+    }
+    parameter_string = '&'.join(
+        f'{key}={signing_parameters[key]}' for key in sorted(signing_parameters)
+    )
+    signing_string = f'{path}&{parameter_string}'
+    if body_string:
+        body_hash = hashlib.md5(body_string.encode('utf-8')).hexdigest().upper()
+        signing_string = f'{signing_string}&{body_hash}'
+
+    encoded_string = quote(signing_string, safe='')
+    signature_bytes = hmac.new(
+        f'{app_secret}&'.encode('utf-8'),
+        encoded_string.encode('utf-8'),
+        hashlib.sha1,
+    ).digest()
+    return base64.b64encode(signature_bytes).decode('utf-8')
+
+
+def get_webull_account_list(app_key, app_secret, environment='production'):
+    """Call Webull's read-only account-list endpoint with a signed request."""
     if not app_key or not app_secret:
         raise WebullConnectionError('Webull App Key and App Secret are required.')
 
-    try:
-        from webull.core.client import ApiClient
-        from webull.trade.trade_client import TradeClient
-    except ImportError as exc:
-        raise WebullConnectionError('The Webull SDK is not installed on this server.') from exc
-
     normalized_environment = normalize_webull_environment(environment)
-    api_client = ApiClient(app_key, app_secret, 'us')
-    api_client.add_endpoint('us', WEBULL_ENVIRONMENTS[normalized_environment])
-    return TradeClient(api_client)
+    host = WEBULL_ENVIRONMENTS[normalized_environment]
+    path = '/openapi/account/list'
+    timestamp = datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+    nonce = uuid4().hex
+    signature = generate_webull_signature(
+        path, {}, app_key, app_secret, host, timestamp, nonce
+    )
+    headers = {
+        'x-app-key': app_key,
+        'x-timestamp': timestamp,
+        'x-signature': signature,
+        'x-signature-algorithm': 'HMAC-SHA1',
+        'x-signature-version': '1.0',
+        'x-signature-nonce': nonce,
+        'x-version': 'v2',
+    }
+    try:
+        return requests.get(f'https://{host}{path}', headers=headers, timeout=15)
+    except requests.RequestException as exc:
+        raise WebullConnectionError(f'Webull connection failed: {exc}') from exc
 
 
 def test_webull_connection(app_key, app_secret, environment='production'):
     """Verify credentials with the read-only account-list endpoint."""
-    client = create_webull_trade_client(app_key, app_secret, environment)
-    try:
-        response = client.account_v2.get_account_list()
-    except Exception as exc:
-        logger.warning('Webull account-list connection check failed: %s', exc)
-        raise WebullConnectionError(f'Webull connection failed: {exc}') from exc
+    response = get_webull_account_list(app_key, app_secret, environment)
 
     status_code = getattr(response, 'status_code', None)
     if status_code != 200:

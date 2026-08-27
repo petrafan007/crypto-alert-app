@@ -122,13 +122,20 @@ The application utilizes a **unified PostgreSQL database**.
 
 ## Version History & Changelog
 
+## v2.24.1 (August 2026)
+
+### Webull Runtime Compatibility Fix
+- **No Encryption Downgrade**: Replaced the incompatible Webull SDK runtime dependency with a focused, read-only Webull account-list client that follows Webull's documented HMAC-SHA1 signing protocol. The app retains its current cryptography security dependency.
+- **Verified Request Signing**: Added a regression test against Webull's published signature example, alongside connection-response tests.
+- **Version Bump**: Transitioned version to `v2.24.1`.
+
 ## v2.24.0 (August 2026)
 
 ### Webull Connection Foundation
 - **Encrypted Webull Credentials**: Added dedicated Webull App Key and App Secret storage using the app's existing encrypted-at-rest credential handling. Saved Webull secrets are never returned by the Settings API; the UI receives only a configured status and masked inputs.
 - **Production and Sandbox Setup**: Settings now lets you select the matching Webull API environment, save its credentials, and use a read-only account-list request to test the connection.
 - **Safety Gate**: This release does not sync Webull positions, combine portfolios, place Webull orders, or enable options trading. Those remain subsequent gated steps after a successful credential test.
-- **Official SDK**: Added Webull's official Python OpenAPI SDK (`webull-openapi-python-sdk==2.0.18`).
+- **Webull API Compatibility**: Uses Webull's documented request-signing protocol for the connection check while preserving the app's existing credential-encryption dependencies.
 - **Help Update**: Documented the new connection setup and its current read-only scope.
 - **Version Bump**: Transitioned version to `v2.24.0`.
 
