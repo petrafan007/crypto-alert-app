@@ -7,6 +7,7 @@ from services.webull_service import (
     create_webull_access_token,
     generate_webull_signature,
     get_webull_accounts,
+    get_webull_market_bars,
     get_webull_order_history,
     get_webull_open_orders,
     get_webull_portfolio_preview,
@@ -142,6 +143,41 @@ class WebullServiceTests(unittest.TestCase):
             'side': 'BUY', 'order_type': 'LIMIT', 'total_quantity': '2',
             '_webull_account_id': '1234', '_webull_account_type': 'STOCK',
         }])
+
+    def test_market_bars_choose_the_crypto_endpoint_and_normalize_epoch_milliseconds(self):
+        response = Mock(status_code=200)
+        response.json.return_value = {'data': {'bars': [
+            {'timestamp': 1787832000000, 'o': '100', 'h': '105', 'l': '99', 'c': '102', 'v': '12'},
+        ]}}
+        with patch('services.webull_service._webull_request', return_value=response) as request_mock:
+            bars = get_webull_market_bars(
+                'app-key', 'app-secret', access_token='private-token',
+                symbol='BTCUSD', instrument_type='crypto', interval='h1', limit=50,
+            )
+
+        self.assertEqual(request_mock.call_args.args[4], '/market-data/crypto/bars/list')
+        self.assertEqual(request_mock.call_args.kwargs['query_params']['interval'], 'H1')
+        self.assertEqual(bars, [{
+            'time': 1787832000, 'open': 100.0, 'high': 105.0, 'low': 99.0,
+            'close': 102.0, 'volume': 12.0,
+        }])
+
+    def test_market_bars_use_stock_endpoint_and_reject_options_without_calling_webull(self):
+        response = Mock(status_code=200)
+        response.json.return_value = {'data': [{'time': 1787832000, 'close': '250'}]}
+        with patch('services.webull_service._webull_request', return_value=response) as request_mock:
+            bars = get_webull_market_bars(
+                'app-key', 'app-secret', access_token='private-token',
+                symbol='AAPL', instrument_type='ETF', interval='D', limit=20,
+            )
+            self.assertEqual(request_mock.call_args.args[4], '/market-data/stocks/bars/get')
+            self.assertEqual(bars[0]['close'], 250.0)
+            with self.assertRaisesRegex(WebullConnectionError, 'option charts'):
+                get_webull_market_bars(
+                    'app-key', 'app-secret', access_token='private-token',
+                    symbol='AAPL260918C00100000', instrument_type='OPTION', interval='D', limit=20,
+                )
+        self.assertEqual(request_mock.call_count, 1)
 
     def test_signature_matches_webulls_documented_example(self):
         signature = generate_webull_signature(

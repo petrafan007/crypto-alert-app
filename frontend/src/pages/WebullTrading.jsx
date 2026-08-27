@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
 import CryptoIcon from '../components/CryptoIcon';
+import WebullTradeTimelineChart from '../components/WebullTradeTimelineChart';
 import './Trading.css';
 
 const OPEN_STATUSES = new Set(['OPEN', 'NEW', 'WORKING', 'PENDING', 'PARTIALLY_FILLED', 'PARTIALLY FILLED']);
@@ -58,7 +59,7 @@ function WebullOrderTable({ orders, emptyText }) {
   );
 }
 
-export default function WebullTrading() {
+export default function WebullTrading({ isLightMode = false }) {
   const [activeTab, setActiveTab] = useState('order');
   const [holdings, setHoldings] = useState([]);
   const [history, setHistory] = useState([]);
@@ -115,7 +116,7 @@ export default function WebullTrading() {
           {activeTab === 'order' && <div className="order-form-container"><div className="empty-state"><h2>Webull order placement is read-only</h2><p>Use Webull to place, amend, or cancel orders. Your imported Webull positions remain visible here and on the Dashboard.</p></div><WebullHoldings holdings={holdings} /></div>}
           {activeTab === 'open_orders' && <section className="order-history-container"><h2>Webull Open Orders</h2><WebullOrderTable orders={displayOpenOrders} emptyText="No Webull open orders found." /></section>}
           {activeTab === 'history' && <section className="order-history-container"><h2>Webull Order History</h2><WebullOrderTable orders={paginatedHistory} emptyText="No Webull order history is available yet." /><Pagination page={historyPage} setPage={setHistoryPage} pageSize={historyPageSize} setPageSize={setHistoryPageSize} total={sortedHistory.length} /></section>}
-          {activeTab === 'trade_chart' && <section className="order-history-container"><h2>Webull Trade Chart</h2><div className="empty-state"><p>Webull charts will be added after its instrument-specific market-data mapping is in place. This avoids showing a crypto price chart for an equity, ETF, or option.</p></div><WebullHoldings holdings={holdings} compact /></section>}
+          {activeTab === 'trade_chart' && <section className="order-history-container"><WebullTradeTimelineChart holdings={holdings} orders={history} isLightMode={isLightMode} /></section>}
           {activeTab === 'ai_analysis' && <section className="order-history-container"><h2>Webull AI Analysis</h2><div className="empty-state"><p>Webull crypto will use the existing crypto analysis framework after its market-data mapping is enabled. Equities, ETFs, and options intentionally remain unanalysed until their dedicated prompts and data inputs are available.</p></div><div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '12px' }}><div className="trading-asset-card"><strong>Crypto</strong><span>{cryptoHoldings.length} imported holding(s) · shared crypto prompt family pending market mapping</span></div><div className="trading-asset-card"><strong>Stocks / ETFs / options</strong><span>{securityHoldings.length} imported holding(s) · dedicated analysis family not yet enabled</span></div></div></section>}
         </>}
       </div>

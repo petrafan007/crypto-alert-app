@@ -37,6 +37,7 @@ from services.webull_service import (
     check_webull_access_token,
     create_webull_access_token,
     get_webull_accounts,
+    get_webull_market_bars,
     get_webull_open_orders,
     get_webull_portfolio_preview,
     normalize_webull_environment,
@@ -1641,6 +1642,37 @@ def api_webull_open_orders():
     except Exception as exc:
         logger.error('Webull open-order lookup failed: %s', exc, exc_info=True)
         return jsonify({'success': False, 'orders': [], 'message': 'Unable to load Webull open orders.'}), 500
+
+
+@system_bp.route('/api/webull/market-bars', methods=['GET'])
+@login_required
+def api_webull_market_bars():
+    """Return read-only Webull historical bars for a selected imported holding."""
+    try:
+        credential = Credential.query.filter_by(user_id=current_user.id).first()
+        setting = UserSetting.query.filter_by(user_id=current_user.id).first()
+        environment = normalize_webull_environment(getattr(setting, 'webull_environment', None) or 'production')
+        if (
+            not credential or credential.webull_token_status != 'NORMAL'
+            or credential.webull_token_environment != environment or not credential.webull_access_token
+        ):
+            return jsonify({'success': False, 'bars': [], 'message': 'Verify your Webull connection before loading market data.'}), 400
+
+        bars = get_webull_market_bars(
+            credential.webull_app_key, credential.webull_app_secret, environment,
+            credential.webull_access_token,
+            symbol=request.args.get('symbol'),
+            instrument_type=request.args.get('instrument_type'),
+            interval=request.args.get('interval', 'D'),
+            limit=request.args.get('limit', 120),
+        )
+        return jsonify({'success': True, 'bars': bars})
+    except WebullConnectionError as exc:
+        logger.warning('Webull market-data lookup failed: %s', exc)
+        return jsonify({'success': False, 'bars': [], 'message': str(exc)}), 400
+    except Exception as exc:
+        logger.error('Webull market-data lookup failed: %s', exc, exc_info=True)
+        return jsonify({'success': False, 'bars': [], 'message': 'Unable to load Webull market data.'}), 500
 
 
 

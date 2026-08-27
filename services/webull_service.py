@@ -19,6 +19,12 @@ WEBULL_ENVIRONMENTS = {
     'sandbox': 'api.sandbox.webull.com',
 }
 
+# The chart intentionally only asks Webull for instruments whose market-data
+# APIs can be selected unambiguously.  Option symbols require their contract
+# identifiers and are deliberately excluded until that mapping is implemented.
+WEBULL_CHARTABLE_INSTRUMENT_TYPES = {'CRYPTO', 'STOCK', 'EQUITY', 'ETF'}
+WEBULL_MARKET_INTERVALS = {'M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D', 'W', 'M'}
+
 
 class WebullConnectionError(Exception):
     """Raised when a Webull credential or account-list check fails."""
@@ -255,6 +261,106 @@ def _flatten_webull_order_groups(records):
         if not emitted:
             flattened.append(parent)
     return flattened
+
+
+def _webull_records(payload):
+    """Extract list-shaped records from direct and enveloped Webull payloads."""
+    records = payload.get('data', payload) if isinstance(payload, dict) else payload
+    if isinstance(records, dict):
+        for key in ('bars', 'items', 'list', 'records', 'data'):
+            candidate = records.get(key)
+            if isinstance(candidate, list):
+                records = candidate
+                break
+    return records if isinstance(records, list) else []
+
+
+def _webull_bar_timestamp(value):
+    """Normalize epoch seconds, milliseconds, and ISO timestamps for chart use."""
+    if isinstance(value, (int, float)):
+        return int(value / 1000 if value > 100000000000 else value)
+    try:
+        numeric = float(str(value))
+        return int(numeric / 1000 if numeric > 100000000000 else numeric)
+    except (TypeError, ValueError):
+        pass
+    try:
+        return int(datetime.fromisoformat(str(value).replace('Z', '+00:00')).timestamp())
+    except (TypeError, ValueError):
+        return None
+
+
+def _normalise_webull_bar(bar):
+    """Return a lightweight-charts-compatible OHLCV bar or ``None``."""
+    if not isinstance(bar, dict):
+        return None
+    timestamp = _webull_bar_timestamp(
+        bar.get('time') or bar.get('timestamp') or bar.get('bar_time') or bar.get('trade_time') or bar.get('t')
+    )
+    close = bar.get('close', bar.get('c', bar.get('last_price', bar.get('price'))))
+    try:
+        close = float(close)
+    except (TypeError, ValueError):
+        return None
+    if not timestamp or close <= 0:
+        return None
+    result = {'time': timestamp, 'close': close}
+    for target, aliases in {
+        'open': ('open', 'o'), 'high': ('high', 'h'), 'low': ('low', 'l'), 'volume': ('volume', 'v'),
+    }.items():
+        value = next((bar.get(alias) for alias in aliases if bar.get(alias) is not None), None)
+        try:
+            result[target] = float(value) if value is not None else close
+        except (TypeError, ValueError):
+            result[target] = close
+    return result
+
+
+def get_webull_market_bars(
+    app_key, app_secret, environment='production', access_token=None, *,
+    symbol, instrument_type, interval='D', limit=120,
+):
+    """Fetch read-only historical bars for a supported Webull instrument.
+
+    Stocks/ETFs and crypto use separate documented Webull endpoints.  The
+    caller must label the instrument type so a stock can never fall through to
+    a crypto endpoint.  No order-management endpoint is used here.
+    """
+    clean_symbol = ''.join(char for char in str(symbol or '').upper() if char.isalnum())
+    clean_type = str(instrument_type or '').strip().upper()
+    clean_interval = str(interval or 'D').strip().upper()
+    try:
+        safe_limit = max(1, min(int(limit or 120), 1200))
+    except (TypeError, ValueError):
+        safe_limit = 120
+    if not clean_symbol:
+        raise WebullConnectionError('Choose a Webull symbol before loading its chart.')
+    if clean_type not in WEBULL_CHARTABLE_INSTRUMENT_TYPES:
+        raise WebullConnectionError('Webull option charts are unavailable until option contract mapping is added.')
+    if clean_interval not in WEBULL_MARKET_INTERVALS:
+        raise WebullConnectionError('Choose a supported Webull chart interval.')
+
+    is_crypto = clean_type == 'CRYPTO'
+    if is_crypto and not clean_symbol.endswith('USD'):
+        clean_symbol = f'{clean_symbol}USD'
+    path = '/market-data/crypto/bars/list' if is_crypto else '/market-data/stocks/bars/get'
+    # ``count`` is the stock-bars API pagination size; ``limit`` is retained
+    # for crypto bars.  Supplying both keeps the normalizer compatible with
+    # approved OpenAPI versions that accept either spelling.
+    params = {'symbol': clean_symbol, 'interval': clean_interval, 'count': safe_limit, 'limit': safe_limit}
+    payload = _response_payload(
+        _webull_request(
+            app_key, app_secret, environment, 'GET', path,
+            query_params=params, access_token=access_token,
+        ),
+        'market-data request',
+    )
+    bars_by_time = {}
+    for raw_bar in _webull_records(payload):
+        bar = _normalise_webull_bar(raw_bar)
+        if bar:
+            bars_by_time[bar['time']] = bar
+    return [bars_by_time[timestamp] for timestamp in sorted(bars_by_time)]
 
 
 def get_webull_order_history(app_key, app_secret, environment='production', access_token=None, page_size=100):

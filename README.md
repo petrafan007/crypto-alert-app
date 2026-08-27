@@ -1,6 +1,6 @@
 # Crypto Alert App
 
-**Crypto Alert App** is a comprehensive, non-custodial cryptocurrency portfolio management and trading platform designed exclusively for Binance.US. It provides users with real-time portfolio tracking, automated price alerts, one-click trading, built-in staking management, and AI-powered market sentiment analysis. 
+**Crypto Alert App** is a comprehensive, non-custodial cryptocurrency portfolio management and trading platform for Binance.US, with read-only Webull portfolio, order, and chart views. It provides users with real-time portfolio tracking, automated price alerts, one-click Binance.US trading, built-in staking management, and AI-powered market sentiment analysis.
 
 **Last Updated**: August 2026
 
@@ -12,6 +12,7 @@
   - **Market Gauges & Performance**: Built-in Fear & Greed Index, CBBI Bull Run Peak Confidence metric, Staking Yield overview, and 7-day multi-interval performance tickers.
   - **True Portfolio Trend Charts**: Saved, user-selectable quick ranges from 1H through All-time with live portfolio net-worth updates.
   - **Cryptocurrency Vector Icons**: Rich, high-resolution coin icons for effortless asset recognition across all tables.
+  - **Webull Read-Only Views**: Imported Webull equities, ETFs, and crypto can appear alongside Binance.US holdings, with exchange-aware order views and a Webull price chart that overlays completed Webull trades. Option charts remain unavailable until their contract mapping is supported.
 
 - **⚡ Professional Trading Terminal (USD & USDT)**
   - **Dual-Quote Currency Trading**: Instant one-click spot trading for both **USD** and **USDT** quote pairs directly from Portfolio and Watchlist rows.
@@ -121,6 +122,15 @@ The application utilizes a **unified PostgreSQL database**.
 ---
 
 ## Version History & Changelog
+
+## v2.31.0 (August 2026)
+
+### Webull Trade Chart
+
+- **Read-only charting for imported Webull holdings**: The Webull Trade Chart now selects an imported holding and renders its Webull price history across 1D through ALL, defaulting to 1 Month.
+- **Correct asset routing**: Equities and ETFs use Webull stock historical bars; crypto uses Webull crypto historical bars. Completed Webull purchases and sales are overlaid only for the selected symbol.
+- **Safe options handling**: Imported option positions are selectable but show a clear unavailable state until an option-contract identifier mapping is implemented, preventing a chart for the wrong contract.
+
 
 ## v2.30.2 (August 2026)
 
