@@ -23,7 +23,7 @@ const GenericCoinIcon = ({ size = 20 }) => (
   </svg>
 );
 
-const PortfolioPerformanceTable = ({ hiddenCoins = [], onEdit, onCoinClick }) => {
+const PortfolioPerformanceTable = ({ hiddenCoins = [], excludeSymbols = null, onEdit, onCoinClick }) => {
   const [performanceData, setPerformanceData] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -71,7 +71,7 @@ const PortfolioPerformanceTable = ({ hiddenCoins = [], onEdit, onCoinClick }) =>
   };
 
   const visibleData = performanceData.filter(
-    (item) => !hiddenCoins.includes(item.symbol)
+    (item) => !hiddenCoins.includes(item.symbol) && (!excludeSymbols || !excludeSymbols.has(item.symbol?.toUpperCase()))
   );
 
   return (

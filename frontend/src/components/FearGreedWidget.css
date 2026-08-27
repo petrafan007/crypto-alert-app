@@ -37,6 +37,17 @@
   flex: 1;
   display: flex;
   flex-direction: column;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+}
+
+.fear-greed-widget .fg-center-content {
+  flex: 1;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
   justify-content: center;
 }
 
@@ -45,7 +56,7 @@
   flex-direction: column;
   align-items: center;
   gap: 12px;
-  margin-bottom: 20px;
+  margin-bottom: 16px;
 }
 
 /* Glossy Circle */
@@ -107,7 +118,7 @@
 
 /* Neon Progress Bar */
 .fear-greed-widget .fg-progress-bar {
-  margin-bottom: 12px;
+  margin-bottom: 0;
   padding: 0 4px;
   width: 65%;
   max-width: 220px;
@@ -152,7 +163,7 @@
   font-size: 0.75rem;
   color: #64748b;
   opacity: 0.8;
-  margin-top: auto;
+  padding-top: 4px;
 }
 
 /* Light Mode Overrides */

@@ -334,6 +334,13 @@ function Dashboard({ isLightMode }) {
     );
   }, [portfolio]);
 
+  const traditionalSymbols = useMemo(() => {
+    const syms = new Set();
+    (portfolio || []).filter(isTraditionalAsset).forEach(c => c.symbol && syms.add(c.symbol.toUpperCase()));
+    (watchlist || []).filter(isTraditionalAsset).forEach(w => w.symbol && syms.add(w.symbol.toUpperCase()));
+    return syms;
+  }, [portfolio, watchlist]);
+
   const displayedPortfolio = useMemo(
     () => scopedPortfolio.filter(asset => matchesAssetFilter(asset, portfolioAssetFilter)),
     [scopedPortfolio, portfolioAssetFilter]
@@ -4337,7 +4344,7 @@ function Dashboard({ isLightMode }) {
             case 'performance':
               return accountScope === 'webull'
                 ? <div className="widget-panel-inner" style={{ padding: '18px', color: 'var(--text-secondary, #94a3b8)' }}>Webull performance history will be added with its dedicated equity and options market-data integration.</div>
-                : <PortfolioPerformanceTable hiddenCoins={performanceHiddenCoins} onEdit={handleOpenPerformanceCoinModal} onCoinClick={handleChartClick} />;
+                : <PortfolioPerformanceTable hiddenCoins={performanceHiddenCoins} excludeSymbols={traditionalSymbols} onEdit={handleOpenPerformanceCoinModal} onCoinClick={handleChartClick} />;
             case 'top_movers':
               return <TopMoversWidget isLightMode={isLightMode} config={topMoversConfig} onEdit={handleOpenTopMoversModal} ownedSymbols={ownedSymbols} onCoinClick={(symbol) => navigateToTrading(symbol, 'BUY', 'USDT')} />;
             case 'top_stock_movers':
@@ -5698,8 +5705,8 @@ function Dashboard({ isLightMode }) {
                   style={{ padding: '6px 10px', fontSize: '12px', whiteSpace: 'nowrap' }}
                   onClick={() => {
                     const allSyms = Array.from(new Set([
-                      ...(portfolio || []).map(c => c.symbol),
-                      ...(watchlist || []).map(w => w.symbol)
+                      ...(portfolio || []).filter(c => !isTraditionalAsset(c)).map(c => c.symbol),
+                      ...(watchlist || []).filter(w => !isTraditionalAsset(w)).map(w => w.symbol)
                     ])).filter(Boolean);
                     setPerformanceCoinDraft(allSyms);
                   }}
@@ -5724,14 +5731,14 @@ function Dashboard({ isLightMode }) {
                   const combined = [];
                   const seen = new Set();
 
-                  (portfolio || []).forEach(c => {
+                  (portfolio || []).filter(c => !isTraditionalAsset(c)).forEach(c => {
                     if (c.symbol && !seen.has(c.symbol.toUpperCase())) {
                       seen.add(c.symbol.toUpperCase());
                       combined.push({ symbol: c.symbol.toUpperCase(), source: 'Portfolio' });
                     }
                   });
 
-                  (watchlist || []).forEach(w => {
+                  (watchlist || []).filter(w => !isTraditionalAsset(w)).forEach(w => {
                     if (w.symbol && !seen.has(w.symbol.toUpperCase())) {
                       seen.add(w.symbol.toUpperCase());
                       combined.push({ symbol: w.symbol.toUpperCase(), source: 'Watchlist' });

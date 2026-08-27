@@ -96,36 +96,38 @@ const FearGreedWidget = () => {
         <h3>Fear & Greed Index</h3>
       </div>
       <div className="widget-content">
-        <div className="fg-main-display">
-          <div 
-            className="fg-value-circle"
-            style={{ borderColor: getColorByValue(value) }}
-          >
-            <span className="fg-value" style={{ color: getColorByValue(value) }}>
-              {value}
-            </span>
-          </div>
-          <div className="fg-classification">
-            <span className="fg-icon">{getClassificationIcon(classification)}</span>
-            <span className="fg-text">{classification}</span>
-          </div>
-        </div>
-        <div className="fg-progress-bar">
-          <div className="fg-progress-track">
+        <div className="fg-center-content">
+          <div className="fg-main-display">
             <div 
-              className="fg-progress-fill"
-              style={{ 
-                width: `${value}%`,
-                backgroundColor: getColorByValue(value)
-              }}
-            ></div>
+              className="fg-value-circle"
+              style={{ borderColor: getColorByValue(value) }}
+            >
+              <span className="fg-value" style={{ color: getColorByValue(value) }}>
+                {value}
+              </span>
+            </div>
+            <div className="fg-classification">
+              <span className="fg-icon">{getClassificationIcon(classification)}</span>
+              <span className="fg-text">{classification}</span>
+            </div>
           </div>
-          <div className="fg-scale">
-            <span>0</span>
-            <span>25</span>
-            <span>50</span>
-            <span>75</span>
-            <span>100</span>
+          <div className="fg-progress-bar">
+            <div className="fg-progress-track">
+              <div 
+                className="fg-progress-fill"
+                style={{ 
+                  width: `${value}%`,
+                  backgroundColor: getColorByValue(value)
+                }}
+              ></div>
+            </div>
+            <div className="fg-scale">
+              <span>0</span>
+              <span>25</span>
+              <span>50</span>
+              <span>75</span>
+              <span>100</span>
+            </div>
           </div>
         </div>
         <div className="fg-footer">

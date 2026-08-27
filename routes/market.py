@@ -507,6 +507,8 @@ def api_coin_performance():
         qualifying = []
 
         for coin in coins:
+            if getattr(coin, 'is_external', False) or getattr(coin, 'source', None) == 'webull':
+                continue
             sym = (coin.symbol or "").strip().upper()
             price = getattr(coin, 'current', getattr(coin, 'current_price', 0.0)) or 0.0
             if sym and sym not in seen_symbols and sym not in STABLE_COINS and not getattr(coin, 'hidden', False):
@@ -514,6 +516,8 @@ def api_coin_performance():
                 qualifying.append((sym, float(price), 'portfolio'))
 
         for wl in watchlist_coins:
+            if getattr(wl, 'is_external', False) or getattr(wl, 'source', None) == 'webull':
+                continue
             sym = (wl.symbol or "").strip().upper()
             price = getattr(wl, 'current_price', getattr(wl, 'current', 0.0)) or 0.0
             if sym and sym not in seen_symbols and sym not in STABLE_COINS and not getattr(wl, 'hidden', False):

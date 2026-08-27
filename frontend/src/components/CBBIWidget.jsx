@@ -116,44 +116,46 @@ const CBBIWidget = () => {
         <small>Peak Confidence</small>
       </div>
       <div className="widget-content">
-        <div className="cbbi-main-display">
-          <div 
-            className="cbbi-value-circle"
-            style={{ borderColor: getColorByValue(value) }}
-          >
-            <span className="cbbi-value" style={{ color: getColorByValue(value) }}>
-              {percentage}%
-            </span>
-          </div>
-          <div className="cbbi-risk-level">
-            <span className="cbbi-icon">{getRiskIcon(value)}</span>
-            <span className="cbbi-text">{getRiskLevel(value)}</span>
-          </div>
-        </div>
-        
-        <div className="cbbi-progress-bar">
-          <div className="cbbi-progress-track">
+        <div className="cbbi-center-content">
+          <div className="cbbi-main-display">
             <div 
-              className="cbbi-progress-fill"
-              style={{ 
-                width: `${percentage}%`,
-                backgroundColor: getColorByValue(value)
-              }}
-            ></div>
+              className="cbbi-value-circle"
+              style={{ borderColor: getColorByValue(value) }}
+            >
+              <span className="cbbi-value" style={{ color: getColorByValue(value) }}>
+                {percentage}%
+              </span>
+            </div>
+            <div className="cbbi-risk-level">
+              <span className="cbbi-icon">{getRiskIcon(value)}</span>
+              <span className="cbbi-text">{getRiskLevel(value)}</span>
+            </div>
           </div>
-          <div className="cbbi-scale">
-            <span>0%</span>
-            <span>25%</span>
-            <span>50%</span>
-            <span>75%</span>
-            <span>100%</span>
+          
+          <div className="cbbi-progress-bar">
+            <div className="cbbi-progress-track">
+              <div 
+                className="cbbi-progress-fill"
+                style={{ 
+                  width: `${percentage}%`,
+                  backgroundColor: getColorByValue(value)
+                }}
+              ></div>
+            </div>
+            <div className="cbbi-scale">
+              <span>0%</span>
+              <span>25%</span>
+              <span>50%</span>
+              <span>75%</span>
+              <span>100%</span>
+            </div>
           </div>
-        </div>
-        
-        <div className="cbbi-info">
-          <p className="cbbi-description">
-            Confidence we are at crypto market peak
-          </p>
+          
+          <div className="cbbi-info">
+            <p className="cbbi-description">
+              Confidence we are at crypto market peak
+            </p>
+          </div>
         </div>
         
         <div className="cbbi-footer">

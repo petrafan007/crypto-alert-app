@@ -104,55 +104,56 @@ export function PortfolioPie({ portfolio, isLightMode, totalValue: authoritative
   }), [filtered, isLightMode, onCoinClick]);
 
   return (
-    <div style={{ position: 'relative', width: '100%', height: '100%' }}>
-      {/* Ring stays centered in the full panel regardless of the legend's width */}
-      <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, margin: 'auto', width: '75%', maxWidth: '260px' }}>
-        <Doughnut data={data} options={options} />
-        {/* Rendered as a plain DOM overlay (not a canvas plugin) so it always reflects the
-            latest totalValue on every render, instead of going stale between chart.js redraws */}
-        <div style={{
-          position: 'absolute',
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          justifyContent: 'center',
-          pointerEvents: 'none',
-          textAlign: 'center',
-          padding: '0 14px'
-        }}>
-          <span style={{ fontSize: '16px', fontWeight: '700', color: isLightMode ? '#0f172a' : '#f8fafc' }}>
-            {formattedTotal}
-          </span>
-          <span style={{ fontSize: '10px', fontWeight: '600', letterSpacing: '0.04em', color: isLightMode ? '#64748b' : '#94a3b8' }}>
-            TOTAL VALUE
-          </span>
-          {portfolioPnl && (
-            <span style={{ marginTop: '3px', fontSize: '10px', fontWeight: '700', color: portfolioPnl.value >= 0 ? '#22c55e' : '#ef4444', whiteSpace: 'nowrap' }}>
-              {portfolioPnl.value >= 0 ? '+' : ''}{portfolioPnl.value.toLocaleString('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 2 })} ({portfolioPnl.percent >= 0 ? '+' : ''}{portfolioPnl.percent.toFixed(2)}%)
+    <div style={{ display: 'flex', alignItems: 'center', width: '100%', height: '100%', position: 'relative', overflow: 'hidden' }}>
+      {/* Donut chart container: fills available space to the left of the legend */}
+      <div style={{ position: 'relative', flex: 1, height: '100%', minWidth: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <div style={{ position: 'relative', width: '100%', height: '100%', maxWidth: '260px', maxHeight: '260px' }}>
+          <Doughnut data={data} options={options} />
+          {/* Rendered as a plain DOM overlay (not a canvas plugin) so it always reflects the
+              latest totalValue on every render, instead of going stale between chart.js redraws */}
+          <div style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            pointerEvents: 'none',
+            textAlign: 'center',
+            padding: '0 14px'
+          }}>
+            <span style={{ fontSize: '16px', fontWeight: '700', color: isLightMode ? '#0f172a' : '#f8fafc' }}>
+              {formattedTotal}
             </span>
-          )}
+            <span style={{ fontSize: '10px', fontWeight: '600', letterSpacing: '0.04em', color: isLightMode ? '#64748b' : '#94a3b8' }}>
+              TOTAL VALUE
+            </span>
+            {portfolioPnl && (
+              <span style={{ marginTop: '3px', fontSize: '10px', fontWeight: '700', color: portfolioPnl.value >= 0 ? '#22c55e' : '#ef4444', whiteSpace: 'nowrap' }}>
+                {portfolioPnl.value >= 0 ? '+' : ''}{portfolioPnl.value.toLocaleString('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 2 })} ({portfolioPnl.percent >= 0 ? '+' : ''}{portfolioPnl.percent.toFixed(2)}%)
+              </span>
+            )}
+          </div>
         </div>
       </div>
+      {/* Legend on the far right: never overlaps with donut */}
       <div
         className="custom-scrollbar"
         style={{
-          position: 'absolute',
-          top: 0,
-          right: 0,
-          bottom: 0,
-          width: '32%',
-          minWidth: '90px',
-          maxWidth: '140px',
+          width: 'auto',
+          minWidth: '85px',
+          maxWidth: '120px',
+          height: '100%',
           display: 'flex',
           flexDirection: 'column',
           justifyContent: 'center',
           gap: '6px',
           overflowY: 'auto',
-          padding: '4px 0'
+          padding: '4px 8px 4px 4px',
+          flexShrink: 0
         }}
       >
         {filtered.map((c, i) => (
