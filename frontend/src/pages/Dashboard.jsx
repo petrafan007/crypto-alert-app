@@ -339,8 +339,8 @@ function Dashboard({ isLightMode }) {
     [scopedPortfolio, portfolioAssetFilter]
   );
   const displayedWatchlist = useMemo(
-    () => getDisplayWatchlist().filter(asset => matchesAssetFilter(asset, watchlistAssetFilter)),
-    [watchlist, watchlistAssetFilter, sortConfig]
+    () => watchlist.filter(asset => matchesAssetFilter(asset, watchlistAssetFilter)),
+    [watchlist, watchlistAssetFilter]
   );
   const changeAssetFilter = (table, nextFilter) => {
     if (table === 'portfolio') {
@@ -2138,12 +2138,12 @@ function Dashboard({ isLightMode }) {
   // to the bottom (or anywhere) depending on the active sort column, making them look like they
   // "disappeared". Pin any still-unconfirmed additions to the top, unsorted, and only sort the
   // rest of the list.
-  const getDisplayWatchlist = () => {
-    if (!Array.isArray(watchlist)) return [];
+  const getDisplayWatchlist = (list = displayedWatchlist) => {
+    if (!Array.isArray(list)) return [];
     const pendingSymbols = new Set(pendingAddedWatchlistSymbolsRef.current.keys());
-    if (pendingSymbols.size === 0) return sortData(watchlist, sortConfig.key);
-    const pendingRows = watchlist.filter(w => pendingSymbols.has((w.symbol || '').toUpperCase()));
-    const confirmedRows = watchlist.filter(w => !pendingSymbols.has((w.symbol || '').toUpperCase()));
+    if (pendingSymbols.size === 0) return sortData(list, sortConfig.key);
+    const pendingRows = list.filter(w => pendingSymbols.has((w.symbol || '').toUpperCase()));
+    const confirmedRows = list.filter(w => !pendingSymbols.has((w.symbol || '').toUpperCase()));
     return [...pendingRows, ...sortData(confirmedRows, sortConfig.key)];
   };
 
@@ -4967,7 +4967,7 @@ function Dashboard({ isLightMode }) {
                     </td>
                   </tr>
                 ) : (
-                  displayedWatchlist.map((item) => {
+                  getDisplayWatchlist(displayedWatchlist).map((item) => {
                     const visibleCols = watchlistColOrder.filter(
                       (k) => watchlistVisibleCols.includes(k) && WATCHLIST_COLUMN_DEFINITIONS[k]
                     );
