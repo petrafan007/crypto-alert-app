@@ -500,9 +500,12 @@ def call_ai_with_web_search(
             search_queries = [f"{symbol_value} stock or ETF latest news earnings sector catalysts today"]
         elif prompt_type in ['copilot', 'manual']:
             # Fast deterministic query for real-time Copilot chat without multi-second LLM query overhead
-            search_queries = [
-                f"{symbol_value} cryptocurrency market price trend sentiment today"
-            ]
+            if symbol_value in ['PORTFOLIO', 'CRYPTO', '']:
+                search_queries = ["crypto market price trend bitcoin ethereum sentiment today"]
+            elif symbol_value in ['AAPL', 'NVDA', 'TSLA', 'SPCX', 'SPY', 'QQQ', 'MSFT', 'AMZN', 'GOOGL', 'META']:
+                search_queries = [f"{symbol_value} stock market price catalysts sentiment today"]
+            else:
+                search_queries = [f"{symbol_value} cryptocurrency market price trend sentiment today"]
         else:
             try:
                 search_queries_text = _execute_ai_call(stage1_messages, p_max_tokens=300)

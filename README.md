@@ -123,6 +123,14 @@ The application utilizes a **unified PostgreSQL database**.
 
 ## Version History & Changelog
 
+## v2.41.0 (August 2026)
+
+- **Comprehensive Database Context for AI Copilot**: The AI Copilot now receives complete real-time awareness across your entire portfolio ecosystem, including active pending orders, full multi-asset balances, complete watchlist telemetry, and recent transaction history.
+- **Intelligent OCO Bracket Awareness**: Open OCO (One-Cancels-the-Other) buy and sell orders are now properly identified and grouped by their `orderListId`, presenting the upper stop-loss limit trigger/limit price, the lower limit-maker price, exact quantities, and mutual cancellation rules to the AI.
+- **Context-Aware Conversational Symbol Resolution**: When questions ask about orders (e.g. "Do you think my pending OCO order is sensible?"), the Copilot intelligently resolves intent by inspecting active exchange orders and recent conversation context rather than defaulting to an arbitrary portfolio holding.
+- **Multi-Asset Holdings & Webull Integration**: Integrated imported Webull equities, ETFs, crypto, and option contracts alongside Binance.US spot balances and cash reserves (USDT/USD), displaying combined portfolio net worth.
+- **Transaction History & Watchlist Feed**: Recent completed trade executions (with realized gains/losses, cost basis, and fees) and active watchlist coins (with live prices, alert thresholds, and sentiment notes) are now continuously fed into the Copilot.
+
 ## v2.40.4 (August 2026)
 
 - **Order History & Combined Orders Fee Columns**: Added a dedicated Fee column to both the Binance.US Order History table and the Combined Orders table, displaying exact transaction commissions (e.g. BNB or USD).
