@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
 import CryptoIcon from '../components/CryptoIcon';
+import WebullTradingViewChart from '../components/WebullTradingViewChart';
 import WebullTradeTimelineChart from '../components/WebullTradeTimelineChart';
 import './Trading.css';
 
@@ -116,15 +117,22 @@ export default function WebullTrading({ isLightMode = false }) {
   const [error, setError] = useState('');
   const [cancellingOrderId, setCancellingOrderId] = useState(null);
 
-  // Order Placement Form State
-  const [orderSide, setOrderSide] = useState('BUY');
-  const [orderInstrument, setOrderInstrument] = useState('EQUITY');
-  const [orderSymbol, setOrderSymbol] = useState('');
-  const [orderType, setOrderType] = useState('LIMIT');
-  const [orderPrice, setOrderPrice] = useState('');
-  const [orderQuantity, setOrderQuantity] = useState('');
-  const [timeInForce, setTimeInForce] = useState('DAY');
-  const [tradingSession, setTradingSession] = useState('CORE');
+  // Selected Instrument & Chart state
+  const [selectedSymbol, setSelectedSymbol] = useState('AAPL');
+  const [selectedInstrumentType, setSelectedInstrumentType] = useState('EQUITY');
+  const [livePrice, setLivePrice] = useState(0);
+
+  // Order Placement Form State (mirroring Binance.US Trading)
+  const [orderForm, setOrderForm] = useState({
+    side: 'BUY',
+    type: 'LIMIT',
+    quantity: '',
+    quoteQuantity: '',
+    price: '',
+    timeInForce: 'DAY',
+    tradingSession: 'CORE',
+  });
+  const [balancePercentage, setBalancePercentage] = useState(0);
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [orderSubmitting, setOrderSubmitting] = useState(false);
   const [orderFeedback, setOrderFeedback] = useState({ type: '', message: '' });
@@ -155,7 +163,8 @@ export default function WebullTrading({ isLightMode = false }) {
         axios.get('/api/webull/ai-settings', { withCredentials: true }),
         axios.get('/api/webull/portfolio-preview', { withCredentials: true }).catch(() => ({ data: { accounts: [] } })),
       ]);
-      setHoldings((portfolioResponse.data?.portfolio || []).filter((item) => item?.is_external || item?.source === 'webull'));
+      const importedHoldings = (portfolioResponse.data?.portfolio || []).filter((item) => item?.is_external || item?.source === 'webull');
+      setHoldings(importedHoldings);
       setHistory((historyResponse.data?.orders || [])
         .filter((order) => String(order?.source || '').toLowerCase() === 'webull')
         .map(normalizeOrder));
@@ -169,6 +178,18 @@ export default function WebullTrading({ isLightMode = false }) {
         setSelectedAccountId(discoveredAccounts[0].account_id);
       }
 
+      // If holdings exist and selectedSymbol is default, pick the first holding
+      if (importedHoldings.length > 0 && selectedSymbol === 'AAPL') {
+        const first = importedHoldings[0];
+        setSelectedSymbol(first.symbol);
+        const isCrypto = /crypto|coin|token/i.test(first.instrument_type || '');
+        setSelectedInstrumentType(isCrypto ? 'CRYPTO' : 'EQUITY');
+        if (first.current_price) {
+          setLivePrice(Number(first.current_price));
+          setOrderForm((prev) => ({ ...prev, price: Number(first.current_price).toFixed(2) }));
+        }
+      }
+
       if (openResponse.data?.success === false) setError(openResponse.data?.message || 'Unable to load Webull open orders.');
     } catch (requestError) {
       setError(requestError.response?.data?.message || 'Unable to load the Webull workspace.');
@@ -177,84 +198,149 @@ export default function WebullTrading({ isLightMode = false }) {
 
   useEffect(() => { load(); }, []);
 
+  // Sync active account and cash balance
   const activeAccount = useMemo(() => accounts.find((a) => a.account_id === selectedAccountId) || accounts[0], [accounts, selectedAccountId]);
   const cashBalance = useMemo(() => {
     if (!activeAccount?.balance) return 0;
     const b = activeAccount.balance;
     return Number(b.total_cash_balance ?? b.cash_balance ?? b.settled_cash ?? b.cashBalance ?? 0);
   }, [activeAccount]);
-  const netLiquidation = useMemo(() => {
-    if (!activeAccount?.balance) return 0;
-    const b = activeAccount.balance;
-    return Number(b.net_liquidation_value ?? b.netLiquidationValue ?? b.total_market_value ?? 0);
-  }, [activeAccount]);
 
-  const cryptoHoldings = useMemo(() => holdings.filter((item) => /crypto|coin|token/i.test(item.instrument_type || '')), [holdings]);
-  const securityHoldings = useMemo(() => holdings.filter((item) => !cryptoHoldings.includes(item)), [holdings, cryptoHoldings]);
-  const displayOpenOrders = useMemo(() => openOrders.filter((order) => OPEN_STATUSES.has(String(order.status).toUpperCase()) || !order.status), [openOrders]);
-  const sortedHistory = useMemo(() => [...history].sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || ''))), [history]);
-  const historyPages = Math.max(1, Math.ceil(sortedHistory.length / historyPageSize));
-  const paginatedHistory = useMemo(() => sortedHistory.slice((historyPage - 1) * historyPageSize, historyPage * historyPageSize), [sortedHistory, historyPage, historyPageSize]);
-  useEffect(() => { if (historyPage > historyPages) setHistoryPage(historyPages); }, [historyPage, historyPages]);
-  const analyzableHoldings = useMemo(() => holdings.filter((holding) => ['CRYPTO', 'STOCK', 'EQUITY', 'ETF'].includes(String(holding.instrument_type || '').toUpperCase())), [holdings]);
+  // Holding for the currently selected symbol
+  const currentHolding = useMemo(() => {
+    const clean = selectedSymbol.toUpperCase();
+    return holdings.find((h) => h.symbol.toUpperCase() === clean || h.symbol.toUpperCase() === clean.replace(/USD$/, ''));
+  }, [holdings, selectedSymbol]);
+
+  const heldQuantity = useMemo(() => Number(currentHolding?.amount || 0), [currentHolding]);
+  const heldValue = useMemo(() => Number(currentHolding?.current_value || (heldQuantity * livePrice) || 0), [currentHolding, heldQuantity, livePrice]);
+
+  // Update live price and limit price when symbol or holdings change
   useEffect(() => {
-    if (!selectedSignalHolding && analyzableHoldings.length) setSelectedSignalHolding(`${analyzableHoldings[0].symbol}|${analyzableHoldings[0].instrument_type}`);
-  }, [analyzableHoldings, selectedSignalHolding]);
-
-  // Handle Quick Pick from Holdings
-  const handleSelectHolding = (holding) => {
-    setOrderSymbol(holding.symbol);
-    const isCrypto = /crypto|coin|token/i.test(holding.instrument_type || '');
-    setOrderInstrument(isCrypto ? 'CRYPTO' : 'EQUITY');
-    if (holding.current_price) {
-      setOrderPrice(Number(holding.current_price).toFixed(2));
+    if (currentHolding?.current_price) {
+      const px = Number(currentHolding.current_price);
+      setLivePrice(px);
+      setOrderForm((prev) => (prev.price ? prev : { ...prev, price: px.toFixed(2) }));
+    } else {
+      // Fetch latest market bar for quote
+      const cleanSymbol = selectedInstrumentType === 'CRYPTO' && !selectedSymbol.endsWith('USD') ? `${selectedSymbol}USD` : selectedSymbol;
+      axios.get(`/api/webull/market-bars?symbol=${cleanSymbol}&instrument_type=${selectedInstrumentType}&limit=1`, { withCredentials: true })
+        .then((res) => {
+          const bars = res.data?.bars || [];
+          if (bars.length > 0 && bars[bars.length - 1]?.close) {
+            const px = Number(bars[bars.length - 1].close);
+            setLivePrice(px);
+            setOrderForm((prev) => (prev.price ? prev : { ...prev, price: px.toFixed(2) }));
+          }
+        })
+        .catch(() => {});
     }
+  }, [selectedSymbol, selectedInstrumentType, currentHolding]);
+
+  // Handlers for Instrument change from Top TradingView Chart
+  const handleInstrumentChange = ({ symbol, instrumentType }) => {
+    setSelectedSymbol(symbol);
+    setSelectedInstrumentType(instrumentType);
+    setBalancePercentage(0);
+    setOrderForm((prev) => ({
+      ...prev,
+      quantity: '',
+      quoteQuantity: '',
+      price: '',
+    }));
   };
 
-  // Percentage allocation shortcut
-  const handlePercentClick = (pct) => {
-    const price = Number(orderPrice) || 1;
-    if (orderSide === 'BUY') {
-      if (cashBalance > 0 && price > 0) {
+  // Dual Input Quantity / Value calculations
+  const effectivePrice = useMemo(() => {
+    if (orderForm.type === 'LIMIT' && Number(orderForm.price) > 0) {
+      return Number(orderForm.price);
+    }
+    return livePrice > 0 ? livePrice : (Number(orderForm.price) || 1);
+  }, [orderForm.type, orderForm.price, livePrice]);
+
+  const handleBaseQuantityChange = (val) => {
+    const qty = val.replace(/[^0-9.]/g, '');
+    const numQty = parseFloat(qty) || 0;
+    const computedVal = numQty > 0 && effectivePrice > 0 ? (numQty * effectivePrice).toFixed(2) : '';
+    setOrderForm((prev) => ({ ...prev, quantity: qty, quoteQuantity: computedVal }));
+  };
+
+  const handleQuoteQuantityChange = (val) => {
+    const quoteVal = val.replace(/[^0-9.]/g, '');
+    const numQuote = parseFloat(quoteVal) || 0;
+    const computedQty = numQuote > 0 && effectivePrice > 0
+      ? (selectedInstrumentType === 'CRYPTO' ? (numQuote / effectivePrice).toFixed(6) : String(Math.floor(numQuote / effectivePrice)))
+      : '';
+    setOrderForm((prev) => ({ ...prev, quoteQuantity: quoteVal, quantity: computedQty }));
+  };
+
+  const handlePriceChange = (val) => {
+    const px = val.replace(/[^0-9.]/g, '');
+    setOrderForm((prev) => {
+      const numQty = parseFloat(prev.quantity) || 0;
+      const numPx = parseFloat(px) || 0;
+      const computedQuote = numQty > 0 && numPx > 0 ? (numQty * numPx).toFixed(2) : prev.quoteQuantity;
+      return { ...prev, price: px, quoteQuantity: computedQuote };
+    });
+  };
+
+  // Slider change handler
+  const handleSliderChange = (pct) => {
+    setBalancePercentage(pct);
+    if (pct === 0) {
+      setOrderForm((prev) => ({ ...prev, quantity: '', quoteQuantity: '' }));
+      return;
+    }
+    if (orderForm.side === 'BUY') {
+      if (cashBalance > 0 && effectivePrice > 0) {
         const targetDollars = cashBalance * (pct / 100);
-        const qty = orderInstrument === 'CRYPTO' ? (targetDollars / price).toFixed(6) : Math.floor(targetDollars / price);
-        setOrderQuantity(String(qty > 0 ? qty : ''));
+        const qty = selectedInstrumentType === 'CRYPTO'
+          ? (targetDollars / effectivePrice).toFixed(6)
+          : String(Math.floor(targetDollars / effectivePrice));
+        setOrderForm((prev) => ({
+          ...prev,
+          quantity: qty,
+          quoteQuantity: targetDollars.toFixed(2),
+        }));
       }
     } else {
-      const match = holdings.find((h) => h.symbol === orderSymbol);
-      if (match && Number(match.amount) > 0) {
-        const qty = (Number(match.amount) * (pct / 100));
-        setOrderQuantity(orderInstrument === 'CRYPTO' ? qty.toFixed(6) : String(Math.floor(qty)));
+      if (heldQuantity > 0) {
+        const targetQty = (heldQuantity * (pct / 100));
+        const formattedQty = selectedInstrumentType === 'CRYPTO' ? targetQty.toFixed(6) : String(Math.floor(targetQty));
+        const computedVal = (parseFloat(formattedQty) * effectivePrice).toFixed(2);
+        setOrderForm((prev) => ({
+          ...prev,
+          quantity: formattedQty,
+          quoteQuantity: computedVal,
+        }));
       }
     }
   };
 
-  // Estimated Total
-  const estimatedTotal = useMemo(() => {
-    const qty = Number(orderQuantity) || 0;
-    const px = Number(orderPrice) || 0;
-    return qty * px;
-  }, [orderQuantity, orderPrice]);
+  const orderTotal = useMemo(() => {
+    const qty = parseFloat(orderForm.quantity) || 0;
+    return qty * effectivePrice;
+  }, [orderForm.quantity, effectivePrice]);
 
-  // Pre-trade validation & review
-  const handleReviewOrder = (e) => {
+  // Pre-trade submit handler
+  const handleOrderSubmit = (e) => {
     e.preventDefault();
     setOrderFeedback({ type: '', message: '' });
     if (!selectedAccountId) {
       setOrderFeedback({ type: 'error', message: 'Please select a Webull account.' });
       return;
     }
-    if (!orderSymbol.trim()) {
-      setOrderFeedback({ type: 'error', message: 'Please enter an instrument symbol.' });
+    if (!selectedSymbol.trim()) {
+      setOrderFeedback({ type: 'error', message: 'Please select an instrument.' });
       return;
     }
-    const qty = Number(orderQuantity);
+    const qty = parseFloat(orderForm.quantity);
     if (!qty || qty <= 0) {
-      setOrderFeedback({ type: 'error', message: 'Please enter a valid positive quantity.' });
+      setOrderFeedback({ type: 'error', message: 'Please enter a valid order quantity.' });
       return;
     }
-    if (orderType === 'LIMIT') {
-      const px = Number(orderPrice);
+    if (orderForm.type === 'LIMIT') {
+      const px = parseFloat(orderForm.price);
       if (!px || px <= 0) {
         setOrderFeedback({ type: 'error', message: 'Limit orders require a limit price greater than $0.' });
         return;
@@ -263,27 +349,28 @@ export default function WebullTrading({ isLightMode = false }) {
     setShowConfirmModal(true);
   };
 
-  // Submit Order to Backend
+  // Transmit order to Webull OpenAPI
   const handleConfirmSubmit = async () => {
     setOrderSubmitting(true);
     try {
       const payload = {
         account_id: selectedAccountId,
-        symbol: orderSymbol.trim().toUpperCase(),
-        instrument_type: orderInstrument,
-        side: orderSide,
-        order_type: orderType,
-        quantity: Number(orderQuantity),
-        limit_price: orderType === 'LIMIT' ? Number(orderPrice) : undefined,
-        time_in_force: timeInForce,
-        support_trading_session: tradingSession,
+        symbol: selectedSymbol.trim().toUpperCase(),
+        instrument_type: selectedInstrumentType,
+        side: orderForm.side,
+        order_type: orderForm.type,
+        quantity: Number(orderForm.quantity),
+        limit_price: orderForm.type === 'LIMIT' ? Number(orderForm.price) : undefined,
+        time_in_force: orderForm.timeInForce,
+        support_trading_session: orderForm.tradingSession,
       };
 
       const response = await axios.post('/api/webull/orders/place', payload, { withCredentials: true });
       if (response.data?.success) {
         setOrderFeedback({ type: 'success', message: response.data.message || 'Webull order placed successfully!' });
         setShowConfirmModal(false);
-        setOrderQuantity('');
+        setOrderForm((prev) => ({ ...prev, quantity: '', quoteQuantity: '' }));
+        setBalancePercentage(0);
         await load();
       } else {
         setOrderFeedback({ type: 'error', message: response.data?.message || 'Failed to place Webull order.' });
@@ -300,7 +387,7 @@ export default function WebullTrading({ isLightMode = false }) {
     }
   };
 
-  // Cancel Open Order
+  // Open Orders cancellation
   const handleCancelOpenOrder = async (order) => {
     if (!window.confirm(`Are you sure you want to cancel the open Webull order for ${order.symbol}?`)) {
       return;
@@ -327,6 +414,16 @@ export default function WebullTrading({ isLightMode = false }) {
       setCancellingOrderId(null);
     }
   };
+
+  const displayOpenOrders = useMemo(() => openOrders.filter((order) => OPEN_STATUSES.has(String(order.status).toUpperCase()) || !order.status), [openOrders]);
+  const sortedHistory = useMemo(() => [...history].sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || ''))), [history]);
+  const historyPages = Math.max(1, Math.ceil(sortedHistory.length / historyPageSize));
+  const paginatedHistory = useMemo(() => sortedHistory.slice((historyPage - 1) * historyPageSize, historyPage * historyPageSize), [sortedHistory, historyPage, historyPageSize]);
+  useEffect(() => { if (historyPage > historyPages) setHistoryPage(historyPages); }, [historyPage, historyPages]);
+  const analyzableHoldings = useMemo(() => holdings.filter((holding) => ['CRYPTO', 'STOCK', 'EQUITY', 'ETF'].includes(String(holding.instrument_type || '').toUpperCase())), [holdings]);
+  useEffect(() => {
+    if (!selectedSignalHolding && analyzableHoldings.length) setSelectedSignalHolding(`${analyzableHoldings[0].symbol}|${analyzableHoldings[0].instrument_type}`);
+  }, [analyzableHoldings, selectedSignalHolding]);
 
   const createSignal = async () => {
     const [symbol, instrument_type] = selectedSignalHolding.split('|');
@@ -366,11 +463,22 @@ export default function WebullTrading({ isLightMode = false }) {
 
       {error && <div className="modern-real-warning" style={{ marginBottom: '16px' }}>⚠️ {error}</div>}
       {orderFeedback.message && (
-        <div className={orderFeedback.type === 'error' ? 'modern-real-warning' : 'modern-real-success'} style={{ marginBottom: '16px', padding: '12px 16px', borderRadius: '8px', background: orderFeedback.type === 'error' ? 'rgba(239, 68, 68, 0.15)' : 'rgba(16, 185, 129, 0.15)', color: orderFeedback.type === 'error' ? '#ef4444' : '#10b981', border: `1px solid ${orderFeedback.type === 'error' ? 'rgba(239, 68, 68, 0.3)' : 'rgba(16, 185, 129, 0.3)'}` }}>
+        <div
+          className={orderFeedback.type === 'error' ? 'modern-real-warning' : 'modern-real-success'}
+          style={{
+            marginBottom: '16px',
+            padding: '12px 16px',
+            borderRadius: '8px',
+            background: orderFeedback.type === 'error' ? 'rgba(239, 68, 68, 0.15)' : 'rgba(16, 185, 129, 0.15)',
+            color: orderFeedback.type === 'error' ? '#ef4444' : '#10b981',
+            border: `1px solid ${orderFeedback.type === 'error' ? 'rgba(239, 68, 68, 0.3)' : 'rgba(16, 185, 129, 0.3)'}`,
+          }}
+        >
           {orderFeedback.type === 'error' ? '⚠️' : '✅'} {orderFeedback.message}
         </div>
       )}
 
+      {/* Navigation Tabs */}
       <div className="trading-tabs">
         <button className={`tab-button ${activeTab === 'order' ? 'active' : ''}`} onClick={() => setActiveTab('order')}>
           📝 <span className="tab-text">Place Order</span>
@@ -395,260 +503,301 @@ export default function WebullTrading({ isLightMode = false }) {
           <div className="empty-state"><p>Loading Webull data…</p></div>
         ) : (
           <>
+            {/* PLACE ORDER TAB */}
             {activeTab === 'order' && (
               <div className="order-form-container">
-                <div className="trading-asset-card" style={{ padding: '24px', borderRadius: '12px', background: 'var(--card-bg, #1e293b)', border: '1px solid rgba(255,255,255,0.08)', marginBottom: '24px' }}>
-                  {/* Account Selector & Buying Power Card */}
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px', borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: '16px', marginBottom: '20px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                      <span style={{ fontWeight: 600, color: 'var(--text-secondary, #94a3b8)' }}>Webull Account:</span>
-                      <select
-                        value={selectedAccountId}
-                        onChange={(e) => setSelectedAccountId(e.target.value)}
-                        style={{ padding: '8px 14px', borderRadius: '8px', background: 'var(--input-bg, #0f172a)', color: '#fff', border: '1px solid rgba(255,255,255,0.15)', fontSize: '14px', cursor: 'pointer' }}
-                      >
-                        {accounts.length ? (
-                          accounts.map((acc) => (
-                            <option key={acc.account_id} value={acc.account_id}>
-                              {acc.account_name || 'Account'} ({acc.account_type || 'Individual'}) - {acc.account_id}
-                            </option>
-                          ))
-                        ) : (
-                          <option value="">No Accounts Discovered</option>
-                        )}
-                      </select>
+                {/* 1. Full-Width TradingView Advanced Chart with Category & Instrument Selector */}
+                <WebullTradingViewChart
+                  symbol={selectedSymbol}
+                  instrumentType={selectedInstrumentType}
+                  onInstrumentChange={handleInstrumentChange}
+                  holdings={holdings}
+                  isLightMode={isLightMode}
+                />
+
+                {/* 2. Redesigned Order Placement Header Cards (matching Binance.US) */}
+                <div className="trading-order-header-cards">
+                  {/* Selected Asset Available Card */}
+                  <div className="trading-asset-card">
+                    <CryptoIcon symbol={selectedSymbol} size={32} />
+                    <div className="trading-asset-card-details">
+                      <span className="trading-asset-card-label">{selectedSymbol} Available</span>
+                      <span className="trading-asset-card-value">
+                        {number(heldQuantity, selectedInstrumentType === 'CRYPTO' ? 6 : 2)}{' '}
+                        <small>{selectedInstrumentType === 'CRYPTO' ? selectedSymbol.replace(/USD$/, '') : 'Shares'}</small>
+                      </span>
+                      {heldValue > 0 && (
+                        <span className="trading-asset-card-sub">
+                          ≈ ${number(heldValue)} USD
+                        </span>
+                      )}
                     </div>
-                    <div style={{ display: 'flex', gap: '20px', alignItems: 'center' }}>
-                      <div>
-                        <small style={{ color: '#94a3b8', display: 'block' }}>Cash Balance</small>
-                        <strong style={{ fontSize: '1.1rem', color: '#38bdf8' }}>${number(cashBalance)}</strong>
+                  </div>
+
+                  {/* Cash / Buying Power Card with Webull Account Selector */}
+                  <div className="trading-asset-card">
+                    <CryptoIcon symbol="USD" size={32} />
+                    <div className="trading-asset-card-details" style={{ width: '100%' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                        <span className="trading-asset-card-label">USD Cash Available</span>
+                        {accounts.length > 1 && (
+                          <select
+                            value={selectedAccountId}
+                            onChange={(e) => setSelectedAccountId(e.target.value)}
+                            style={{
+                              padding: '2px 8px',
+                              borderRadius: '6px',
+                              background: 'rgba(0,0,0,0.3)',
+                              color: '#94a3b8',
+                              border: '1px solid rgba(255,255,255,0.15)',
+                              fontSize: '11px',
+                              cursor: 'pointer',
+                            }}
+                          >
+                            {accounts.map((acc) => (
+                              <option key={acc.account_id} value={acc.account_id}>
+                                {acc.account_name || 'Account'} ({acc.account_id})
+                              </option>
+                            ))}
+                          </select>
+                        )}
                       </div>
-                      <div>
-                        <small style={{ color: '#94a3b8', display: 'block' }}>Net Liquidation</small>
-                        <strong style={{ fontSize: '1.1rem', color: '#a78bfa' }}>${number(netLiquidation)}</strong>
+                      <span className="trading-asset-card-value">
+                        ${number(cashBalance)} <small>USD</small>
+                      </span>
+                      <span className="trading-asset-card-sub">
+                        {activeAccount?.account_name || 'Individual'} ({selectedAccountId}) · Ready to trade
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Real-time Price Card */}
+                  <div className="trading-asset-card trading-price-card">
+                    <div className="trading-price-header">
+                      <span className="trading-asset-card-label">Real-time Price</span>
+                      <span className="live-pulse-dot" />
+                    </div>
+                    <div className="trading-asset-card-value price-highlight">
+                      {livePrice > 0 ? `$${number(livePrice, livePrice >= 1 ? 2 : 4)}` : 'Market Price'}{' '}
+                      <small>USD</small>
+                    </div>
+                    <span className="trading-asset-card-sub">Instant Market Rate</span>
+                  </div>
+                </div>
+
+                {/* 3. Redesigned Modern Order Panel (matching Binance.US) */}
+                <form onSubmit={handleOrderSubmit} className="trading-order-panel">
+                  {/* Row 1: Order Side & Order Types */}
+                  <div className="order-control-row">
+                    <div className="order-control-group side-group">
+                      <label className="order-field-label">Order Side</label>
+                      <div className="order-side-segmented">
+                        <button
+                          type="button"
+                          className={`order-side-btn buy-side ${orderForm.side === 'BUY' ? 'active' : ''}`}
+                          onClick={() => {
+                            setOrderForm((prev) => ({ ...prev, side: 'BUY' }));
+                            setBalancePercentage(0);
+                          }}
+                        >
+                          📈 Buy
+                        </button>
+                        <button
+                          type="button"
+                          className={`order-side-btn sell-side ${orderForm.side === 'SELL' ? 'active' : ''}`}
+                          onClick={() => {
+                            setOrderForm((prev) => ({ ...prev, side: 'SELL' }));
+                            setBalancePercentage(0);
+                          }}
+                        >
+                          📉 Sell
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="order-control-group type-group">
+                      <label className="order-field-label">Order Types</label>
+                      <div className="order-type-segmented">
+                        <button
+                          type="button"
+                          className={`order-type-btn ${orderForm.type === 'LIMIT' ? 'active' : ''}`}
+                          onClick={() => setOrderForm((prev) => ({ ...prev, type: 'LIMIT' }))}
+                        >
+                          Limit
+                        </button>
+                        <button
+                          type="button"
+                          className={`order-type-btn ${orderForm.type === 'MARKET' ? 'active' : ''}`}
+                          onClick={() => setOrderForm((prev) => ({ ...prev, type: 'MARKET' }))}
+                        >
+                          Market
+                        </button>
                       </div>
                     </div>
                   </div>
 
-                  {/* Quick Pick Holdings */}
-                  {holdings.length > 0 && (
-                    <div style={{ marginBottom: '20px' }}>
-                      <small style={{ color: '#94a3b8', display: 'block', marginBottom: '8px' }}>Quick Pick from Imported Portfolio:</small>
-                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
-                        {holdings.slice(0, 10).map((h) => (
-                          <button
-                            key={h.id}
-                            type="button"
-                            onClick={() => handleSelectHolding(h)}
-                            style={{
-                              padding: '6px 12px',
-                              borderRadius: '20px',
-                              border: orderSymbol === h.symbol ? '1px solid #38bdf8' : '1px solid rgba(255,255,255,0.1)',
-                              background: orderSymbol === h.symbol ? 'rgba(56, 189, 248, 0.2)' : 'rgba(255,255,255,0.04)',
-                              color: orderSymbol === h.symbol ? '#38bdf8' : '#e2e8f0',
-                              fontSize: '12px',
-                              cursor: 'pointer',
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: '6px',
-                            }}
-                          >
-                            <strong>{h.symbol}</strong>
-                            {h.current_price && <span>${number(h.current_price)}</span>}
-                          </button>
-                        ))}
+                  {/* Row 2: Quantity and Quote Value Inputs */}
+                  <div className="order-inputs-row">
+                    <div className="order-input-group">
+                      <label className="order-field-label" htmlFor="quantity">
+                        Quantity ({selectedSymbol})
+                      </label>
+                      <div className="order-input-wrapper">
+                        <input
+                          id="quantity"
+                          type="text"
+                          inputMode="decimal"
+                          value={orderForm.quantity}
+                          onChange={(e) => handleBaseQuantityChange(e.target.value)}
+                          placeholder="0.0000"
+                          className="order-styled-input"
+                          required
+                          autoComplete="off"
+                        />
+                        <button
+                          type="button"
+                          className="input-max-btn"
+                          onClick={() => handleSliderChange(100)}
+                          title="Use 100% Available Balance"
+                        >
+                          MAX
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="order-input-group">
+                      <label className="order-field-label" htmlFor="quoteQuantity">
+                        Order Value ($ USD)
+                      </label>
+                      <div className="order-input-wrapper">
+                        <input
+                          id="quoteQuantity"
+                          type="text"
+                          inputMode="decimal"
+                          value={orderForm.quoteQuantity}
+                          onChange={(e) => handleQuoteQuantityChange(e.target.value)}
+                          placeholder="$0.00"
+                          className="order-styled-input"
+                          autoComplete="off"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Limit Price Input (when LIMIT order type) */}
+                  {orderForm.type === 'LIMIT' && (
+                    <div className="order-inputs-row">
+                      <div className="order-input-group" style={{ width: '100%' }}>
+                        <label className="order-field-label" htmlFor="price">
+                          Limit Price ($ USD)
+                        </label>
+                        <div className="order-input-wrapper">
+                          <input
+                            id="price"
+                            type="text"
+                            inputMode="decimal"
+                            value={orderForm.price}
+                            onChange={(e) => handlePriceChange(e.target.value)}
+                            placeholder="0.00"
+                            className="order-styled-input"
+                            required
+                          />
+                        </div>
                       </div>
                     </div>
                   )}
 
-                  {/* Order Placement Form */}
-                  <form onSubmit={handleReviewOrder}>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '18px', marginBottom: '20px' }}>
-                      {/* Order Side */}
-                      <div>
-                        <label style={{ display: 'block', marginBottom: '6px', fontSize: '13px', color: '#94a3b8' }}>Order Side</label>
-                        <div style={{ display: 'flex', borderRadius: '8px', overflow: 'hidden', border: '1px solid rgba(255,255,255,0.15)' }}>
-                          <button
-                            type="button"
-                            onClick={() => setOrderSide('BUY')}
-                            style={{
-                              flex: 1,
-                              padding: '10px',
-                              background: orderSide === 'BUY' ? '#10b981' : 'transparent',
-                              color: '#fff',
-                              border: 'none',
-                              fontWeight: 'bold',
-                              cursor: 'pointer',
-                            }}
-                          >
-                            BUY
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setOrderSide('SELL')}
-                            style={{
-                              flex: 1,
-                              padding: '10px',
-                              background: orderSide === 'SELL' ? '#ef4444' : 'transparent',
-                              color: '#fff',
-                              border: 'none',
-                              fontWeight: 'bold',
-                              cursor: 'pointer',
-                            }}
-                          >
-                            SELL
-                          </button>
-                        </div>
-                      </div>
+                  {/* Execution Settings: Time in Force & Trading Session */}
+                  <div className="order-inputs-row" style={{ marginTop: '12px' }}>
+                    <div className="order-input-group">
+                      <label className="order-field-label">Time In Force</label>
+                      <select
+                        value={orderForm.timeInForce}
+                        onChange={(e) => setOrderForm((prev) => ({ ...prev, timeInForce: e.target.value }))}
+                        className="order-styled-input"
+                        style={{ cursor: 'pointer' }}
+                      >
+                        <option value="DAY">Day Order (DAY)</option>
+                        <option value="GTC">Good &apos;Til Canceled (GTC)</option>
+                      </select>
+                    </div>
+                    <div className="order-input-group">
+                      <label className="order-field-label">Trading Session</label>
+                      <select
+                        value={orderForm.tradingSession}
+                        onChange={(e) => setOrderForm((prev) => ({ ...prev, tradingSession: e.target.value }))}
+                        className="order-styled-input"
+                        style={{ cursor: 'pointer' }}
+                      >
+                        <option value="CORE">Regular Hours (CORE: 9:30 AM - 4:00 PM ET)</option>
+                        <option value="ALL">Extended Hours (ALL: Pre &amp; Post Market)</option>
+                      </select>
+                    </div>
+                  </div>
 
-                      {/* Asset Class */}
-                      <div>
-                        <label style={{ display: 'block', marginBottom: '6px', fontSize: '13px', color: '#94a3b8' }}>Asset Class</label>
-                        <select
-                          value={orderInstrument}
-                          onChange={(e) => setOrderInstrument(e.target.value)}
-                          style={{ width: '100%', padding: '10px', borderRadius: '8px', background: 'var(--input-bg, #0f172a)', color: '#fff', border: '1px solid rgba(255,255,255,0.15)', fontSize: '14px' }}
-                        >
-                          <option value="EQUITY">Stocks & ETFs</option>
-                          <option value="CRYPTO">Cryptocurrency</option>
-                        </select>
-                      </div>
-
-                      {/* Symbol Input */}
-                      <div>
-                        <label style={{ display: 'block', marginBottom: '6px', fontSize: '13px', color: '#94a3b8' }}>Symbol</label>
-                        <input
-                          type="text"
-                          placeholder="e.g. AAPL, NVDA, BTC"
-                          value={orderSymbol}
-                          onChange={(e) => setOrderSymbol(e.target.value.toUpperCase())}
-                          style={{ width: '100%', padding: '10px', borderRadius: '8px', background: 'var(--input-bg, #0f172a)', color: '#fff', border: '1px solid rgba(255,255,255,0.15)', fontSize: '14px', textTransform: 'uppercase' }}
-                          required
-                        />
-                      </div>
-
-                      {/* Order Type */}
-                      <div>
-                        <label style={{ display: 'block', marginBottom: '6px', fontSize: '13px', color: '#94a3b8' }}>Order Type</label>
-                        <select
-                          value={orderType}
-                          onChange={(e) => setOrderType(e.target.value)}
-                          style={{ width: '100%', padding: '10px', borderRadius: '8px', background: 'var(--input-bg, #0f172a)', color: '#fff', border: '1px solid rgba(255,255,255,0.15)', fontSize: '14px' }}
-                        >
-                          <option value="LIMIT">Limit Order</option>
-                          <option value="MARKET">Market Order</option>
-                        </select>
-                      </div>
-
-                      {/* Limit Price */}
-                      {orderType === 'LIMIT' && (
-                        <div>
-                          <label style={{ display: 'block', marginBottom: '6px', fontSize: '13px', color: '#94a3b8' }}>Limit Price ($)</label>
-                          <input
-                            type="number"
-                            step="any"
-                            placeholder="0.00"
-                            value={orderPrice}
-                            onChange={(e) => setOrderPrice(e.target.value)}
-                            style={{ width: '100%', padding: '10px', borderRadius: '8px', background: 'var(--input-bg, #0f172a)', color: '#fff', border: '1px solid rgba(255,255,255,0.15)', fontSize: '14px' }}
-                            required
-                          />
-                        </div>
+                  {/* Row 3: Use Balance Slider Section */}
+                  <div className="order-slider-section">
+                    <div className="order-slider-header">
+                      <span className="order-field-label">Use Balance: {balancePercentage}%</span>
+                      {balancePercentage > 0 && (
+                        <span className="order-slider-amount">
+                          ({orderForm.side === 'SELL'
+                            ? `${((heldQuantity * balancePercentage) / 100).toFixed(selectedInstrumentType === 'CRYPTO' ? 6 : 2)} ${selectedSymbol}`
+                            : `$${((cashBalance * balancePercentage) / 100).toFixed(2)} USD`})
+                        </span>
                       )}
-
-                      {/* Quantity */}
-                      <div>
-                        <label style={{ display: 'block', marginBottom: '6px', fontSize: '13px', color: '#94a3b8' }}>Quantity ({orderInstrument === 'CRYPTO' ? 'Coins' : 'Shares'})</label>
-                        <input
-                          type="number"
-                          step="any"
-                          placeholder="0"
-                          value={orderQuantity}
-                          onChange={(e) => setOrderQuantity(e.target.value)}
-                          style={{ width: '100%', padding: '10px', borderRadius: '8px', background: 'var(--input-bg, #0f172a)', color: '#fff', border: '1px solid rgba(255,255,255,0.15)', fontSize: '14px' }}
-                          required
-                        />
-                      </div>
-
-                      {/* Time in Force */}
-                      <div>
-                        <label style={{ display: 'block', marginBottom: '6px', fontSize: '13px', color: '#94a3b8' }}>Time in Force</label>
-                        <select
-                          value={timeInForce}
-                          onChange={(e) => setTimeInForce(e.target.value)}
-                          style={{ width: '100%', padding: '10px', borderRadius: '8px', background: 'var(--input-bg, #0f172a)', color: '#fff', border: '1px solid rgba(255,255,255,0.15)', fontSize: '14px' }}
-                        >
-                          <option value="DAY">Day Order (DAY)</option>
-                          <option value="GTC">Good 'Til Canceled (GTC)</option>
-                        </select>
-                      </div>
-
-                      {/* Trading Session */}
-                      <div>
-                        <label style={{ display: 'block', marginBottom: '6px', fontSize: '13px', color: '#94a3b8' }}>Session</label>
-                        <select
-                          value={tradingSession}
-                          onChange={(e) => setTradingSession(e.target.value)}
-                          style={{ width: '100%', padding: '10px', borderRadius: '8px', background: 'var(--input-bg, #0f172a)', color: '#fff', border: '1px solid rgba(255,255,255,0.15)', fontSize: '14px' }}
-                        >
-                          <option value="CORE">Regular Hours (CORE)</option>
-                          <option value="ALL">Extended Hours (Pre/Post Market)</option>
-                        </select>
-                      </div>
                     </div>
-
-                    {/* Percentage Allocation Buttons & Total */}
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px', marginBottom: '24px' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <small style={{ color: '#94a3b8' }}>Amount:</small>
-                        {[25, 50, 75, 100].map((pct) => (
-                          <button
-                            key={pct}
-                            type="button"
-                            onClick={() => handlePercentClick(pct)}
-                            style={{
-                              padding: '5px 12px',
-                              borderRadius: '6px',
-                              background: 'rgba(255,255,255,0.06)',
-                              border: '1px solid rgba(255,255,255,0.12)',
-                              color: '#fff',
-                              fontSize: '12px',
-                              cursor: 'pointer',
-                            }}
-                          >
-                            {pct}%
-                          </button>
-                        ))}
-                      </div>
-                      <div style={{ textAlign: 'right' }}>
-                        <small style={{ color: '#94a3b8', display: 'block' }}>Estimated Value:</small>
-                        <strong style={{ fontSize: '1.25rem', color: '#f8fafc' }}>
-                          {estimatedTotal > 0 ? `$${number(estimatedTotal)}` : orderType === 'MARKET' ? 'Market Price' : '$0.00'}
-                        </strong>
-                      </div>
+                    <input
+                      type="range"
+                      min="0"
+                      max="100"
+                      step="1"
+                      value={balancePercentage}
+                      onChange={(e) => handleSliderChange(parseInt(e.target.value, 10))}
+                      className="modern-balance-slider"
+                      style={{
+                        background: `linear-gradient(to right, ${orderForm.side === 'BUY' ? '#10b981' : '#ef4444'} ${balancePercentage}%, rgba(255, 255, 255, 0.1) ${balancePercentage}%)`,
+                      }}
+                    />
+                    <div className="slider-pills-row">
+                      {[0, 25, 50, 75, 100].map((pct) => (
+                        <button
+                          key={pct}
+                          type="button"
+                          className={`slider-pct-pill ${balancePercentage === pct ? 'active' : ''}`}
+                          onClick={() => handleSliderChange(pct)}
+                        >
+                          {pct}%
+                        </button>
+                      ))}
                     </div>
+                  </div>
 
-                    {/* Review Button */}
+                  {/* Row 4: Order Summary Card */}
+                  <div className="order-summary-card">
+                    <div className="order-summary-row">
+                      <span>Order Total:</span>
+                      <strong>${number(orderTotal)} USD</strong>
+                    </div>
+                    <div className="order-summary-row">
+                      <span>Estimated Cash Impact:</span>
+                      <span style={{ color: orderForm.side === 'BUY' ? '#ef4444' : '#10b981', fontWeight: 600 }}>
+                        {orderForm.side === 'BUY' ? `-$${number(orderTotal)}` : `+$${number(orderTotal)}`}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Row 5: Action Button */}
+                  <div className="order-submit-row">
                     <button
                       type="submit"
-                      className="btn"
-                      style={{
-                        width: '100%',
-                        padding: '14px',
-                        fontSize: '1rem',
-                        fontWeight: 'bold',
-                        borderRadius: '8px',
-                        background: orderSide === 'BUY' ? 'linear-gradient(135deg, #10b981 0%, #059669 100%)' : 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)',
-                        color: '#fff',
-                        border: 'none',
-                        cursor: 'pointer',
-                        boxShadow: '0 4px 12px rgba(0,0,0,0.25)',
-                      }}
+                      className={`order-submit-btn ${orderForm.side === 'BUY' ? 'buy-action' : 'sell-action'}`}
+                      disabled={orderSubmitting}
                     >
-                      Review {orderSide} {orderSymbol || 'Order'}
+                      {orderSubmitting ? 'Placing Order…' : `Place ${orderForm.side === 'BUY' ? 'Buy' : 'Sell'} Order`}
                     </button>
-                  </form>
-                </div>
+                  </div>
+                </form>
 
                 {/* Pre-Trade Confirmation Modal */}
                 {showConfirmModal && (
@@ -665,29 +814,29 @@ export default function WebullTrading({ isLightMode = false }) {
                         </div>
                         <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                           <span style={{ color: '#94a3b8' }}>Action:</span>
-                          <strong style={{ color: orderSide === 'BUY' ? '#10b981' : '#ef4444' }}>{orderSide}</strong>
+                          <strong style={{ color: orderForm.side === 'BUY' ? '#10b981' : '#ef4444' }}>{orderForm.side}</strong>
                         </div>
                         <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                           <span style={{ color: '#94a3b8' }}>Symbol &amp; Asset:</span>
-                          <strong>{orderSymbol} ({orderInstrument})</strong>
+                          <strong>{selectedSymbol} ({selectedInstrumentType})</strong>
                         </div>
                         <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                           <span style={{ color: '#94a3b8' }}>Order Type:</span>
-                          <strong>{orderType} {orderType === 'LIMIT' ? `@ $${number(orderPrice)}` : ''}</strong>
+                          <strong>{orderForm.type} {orderForm.type === 'LIMIT' ? `@ $${number(orderForm.price)}` : ''}</strong>
                         </div>
                         <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                           <span style={{ color: '#94a3b8' }}>Quantity:</span>
-                          <strong>{number(orderQuantity, orderInstrument === 'CRYPTO' ? 6 : 2)}</strong>
+                          <strong>{number(orderForm.quantity, selectedInstrumentType === 'CRYPTO' ? 6 : 2)}</strong>
                         </div>
                         <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                           <span style={{ color: '#94a3b8' }}>Estimated Total:</span>
                           <strong style={{ color: '#38bdf8' }}>
-                            {estimatedTotal > 0 ? `$${number(estimatedTotal)}` : 'Market'}
+                            {orderTotal > 0 ? `$${number(orderTotal)}` : 'Market Price'}
                           </strong>
                         </div>
                         <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                           <span style={{ color: '#94a3b8' }}>Time in Force / Session:</span>
-                          <span>{timeInForce} · {tradingSession === 'CORE' ? 'Regular Hours' : 'Extended Hours'}</span>
+                          <span>{orderForm.timeInForce} · {orderForm.tradingSession === 'CORE' ? 'Regular Hours' : 'Extended Hours'}</span>
                         </div>
                       </div>
                       <div style={{ display: 'flex', gap: '12px' }}>
@@ -706,7 +855,7 @@ export default function WebullTrading({ isLightMode = false }) {
                           style={{
                             flex: 1,
                             padding: '12px',
-                            background: orderSide === 'BUY' ? '#10b981' : '#ef4444',
+                            background: orderForm.side === 'BUY' ? '#10b981' : '#ef4444',
                             border: 'none',
                             fontWeight: 'bold',
                           }}
@@ -720,10 +869,12 @@ export default function WebullTrading({ isLightMode = false }) {
                   </div>
                 )}
 
+                {/* Holdings Table Below */}
                 <WebullHoldings holdings={holdings} />
               </div>
             )}
 
+            {/* OPEN ORDERS TAB */}
             {activeTab === 'open_orders' && (
               <section className="order-history-container">
                 <h2>Webull Open Orders</h2>
@@ -736,6 +887,7 @@ export default function WebullTrading({ isLightMode = false }) {
               </section>
             )}
 
+            {/* ORDER HISTORY TAB */}
             {activeTab === 'history' && (
               <section className="order-history-container">
                 <h2>Webull Order History</h2>
@@ -744,12 +896,14 @@ export default function WebullTrading({ isLightMode = false }) {
               </section>
             )}
 
+            {/* TRADE CHART TAB */}
             {activeTab === 'trade_chart' && (
               <section className="order-history-container">
                 <WebullTradeTimelineChart holdings={holdings} orders={history} isLightMode={isLightMode} />
               </section>
             )}
 
+            {/* AI ANALYSIS TAB */}
             {activeTab === 'ai_analysis' && (
               <section className="order-history-container">
                 <h2>Webull AI Analysis</h2>
