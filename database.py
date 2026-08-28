@@ -29,6 +29,7 @@ def init_db(app=None):
             ("user_settings", "automated_trigger_confirmation_minutes", "INTEGER DEFAULT 15"),
             ("user_settings", "webull_environment", "VARCHAR(20) DEFAULT 'production'"),
             ("user_settings", "webull_account_selection_mode", "VARCHAR(20) DEFAULT 'all'"),
+            ("user_settings", "webull_default_account_id", "VARCHAR(100)"),
             ("user_settings", "webull_account_aliases", "TEXT DEFAULT '{}'"),
             ("user_settings", "webull_connected_accounts", "TEXT DEFAULT '[]'"),
             ("user_settings", "webull_enabled_account_ids", "TEXT DEFAULT '[]'"),

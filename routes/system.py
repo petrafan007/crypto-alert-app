@@ -39,6 +39,7 @@ from services.webull_service import (
     create_webull_access_token,
     get_webull_accounts,
     get_webull_market_bars,
+    get_webull_market_snapshot,
     get_webull_option_snapshot,
     get_webull_stock_movers,
     get_webull_open_orders,
@@ -1263,6 +1264,7 @@ def api_settings():
             "webull_configured": bool(cred.webull_app_key and cred.webull_app_secret),
             "webull_environment": getattr(webull_settings, 'webull_environment', None) or 'production',
             "webull_account_selection_mode": getattr(webull_settings, 'webull_account_selection_mode', None) or 'all',
+            "webull_default_account_id": getattr(webull_settings, 'webull_default_account_id', None),
             "webull_token_status": (
                 getattr(cred, 'webull_token_status', None)
                 if getattr(cred, 'webull_token_environment', None)
@@ -1541,6 +1543,7 @@ def api_webull_accounts():
                 'environment': environment,
                 'accounts': cached_accounts,
                 'enabled_account_ids': enabled_ids,
+                'default_account_id': getattr(setting, 'webull_default_account_id', None),
                 'message': f'Loaded {len(cached_accounts)} connected Webull account(s).',
             })
 
@@ -1576,6 +1579,7 @@ def api_webull_accounts():
             'environment': environment,
             'accounts': display_accounts,
             'enabled_account_ids': enabled_ids,
+            'default_account_id': getattr(setting, 'webull_default_account_id', None),
             'message': f'Found {len(display_accounts)} Webull account(s).',
         })
     except WebullConnectionError as exc:
@@ -1613,6 +1617,40 @@ def api_save_webull_enabled_accounts():
         db.session.rollback()
         logger.error('Failed to save enabled Webull accounts: %s', exc, exc_info=True)
         return jsonify({'success': False, 'message': 'Failed to save account selections.'}), 500
+
+
+@system_bp.route('/api/webull/default-account', methods=['PUT', 'POST'])
+@login_required
+def api_save_webull_default_account():
+    """Persist the account selected by default on the Webull Trading page."""
+    try:
+        setting = UserSetting.query.filter_by(user_id=current_user.id).first()
+        if not setting:
+            setting = UserSetting(user_id=current_user.id)
+            db.session.add(setting)
+        account_id = str((request.get_json(silent=True) or {}).get('account_id') or '').strip()
+        raw_accounts = getattr(setting, 'webull_connected_accounts', '[]') or '[]'
+        try:
+            known_ids = {
+                str(account.get('account_id')) for account in
+                (json.loads(raw_accounts) if isinstance(raw_accounts, str) else raw_accounts)
+                if isinstance(account, dict) and account.get('account_id')
+            }
+        except Exception:
+            known_ids = set()
+        if account_id and known_ids and account_id not in known_ids:
+            return jsonify({'success': False, 'message': 'Choose one of your connected Webull accounts.'}), 400
+        setting.webull_default_account_id = account_id or None
+        db.session.commit()
+        return jsonify({
+            'success': True,
+            'default_account_id': setting.webull_default_account_id,
+            'message': 'Webull default trading account saved.',
+        })
+    except Exception as exc:
+        db.session.rollback()
+        logger.error('Failed to save Webull default account: %s', exc, exc_info=True)
+        return jsonify({'success': False, 'message': 'Failed to save the default Webull account.'}), 500
 
 
 @system_bp.route('/api/webull/portfolio-preview', methods=['GET'])
@@ -1999,6 +2037,34 @@ def api_webull_market_bars():
     except Exception as exc:
         logger.error('Webull market-data lookup failed: %s', exc, exc_info=True)
         return jsonify({'success': False, 'bars': [], 'message': 'Unable to load Webull market data.'}), 500
+
+
+@system_bp.route('/api/webull/market-snapshot', methods=['GET'])
+@login_required
+def api_webull_market_snapshot():
+    """Return a current, read-only quote for the Webull trade ticket."""
+    try:
+        symbol = str(request.args.get('symbol') or '').strip().upper()
+        instrument_type = str(request.args.get('instrument_type') or 'EQUITY').strip().upper()
+        credential = Credential.query.filter_by(user_id=current_user.id).first()
+        setting = UserSetting.query.filter_by(user_id=current_user.id).first()
+        environment = normalize_webull_environment(getattr(setting, 'webull_environment', None) or 'production')
+        if (
+            not credential or credential.webull_token_status != 'NORMAL'
+            or credential.webull_token_environment != environment or not credential.webull_access_token
+        ):
+            return jsonify({'success': False, 'message': 'Verify your Webull connection before loading a market quote.'}), 400
+        snapshot = get_webull_market_snapshot(
+            credential.webull_app_key, credential.webull_app_secret, environment,
+            credential.webull_access_token, symbol=symbol, instrument_type=instrument_type,
+        )
+        return jsonify({'success': True, 'snapshot': snapshot})
+    except WebullConnectionError as exc:
+        logger.warning('Webull market snapshot lookup failed: %s', exc)
+        return jsonify({'success': False, 'message': str(exc)}), 400
+    except Exception as exc:
+        logger.error('Webull market snapshot lookup failed: %s', exc, exc_info=True)
+        return jsonify({'success': False, 'message': 'Unable to load the Webull market quote.'}), 500
 
 
 @system_bp.route('/api/webull/option-market-data', methods=['GET'])

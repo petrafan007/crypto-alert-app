@@ -22,7 +22,7 @@ import QuickTradeWidget from '../components/QuickTradeWidget';
 import GasMonitorWidget from '../components/GasMonitorWidget';
 import { FaBitcoin, FaDollarSign, FaSyncAlt } from 'react-icons/fa';
 import { SiBinance } from 'react-icons/si';
-import CryptoIcon from '../components/CryptoIcon';
+import CryptoIcon, { WebullLogo } from '../components/CryptoIcon';
 import TableColumnModal from '../components/TableColumnModal';
 import CancelOrderConfirmModal from '../components/CancelOrderConfirmModal';
 import WatchlistSymbolPicker from '../components/WatchlistSymbolPicker';
@@ -4636,11 +4636,7 @@ function Dashboard({ isLightMode }) {
                                       aria-label={isExternal ? 'Webull' : 'Binance'}
                                       style={{ display: 'inline-flex', alignItems: 'center', color: isExternal ? '#60a5fa' : '#f3ba2f', fontSize: '1rem' }}
                                     >
-                                      {isExternal ? (
-                                        <svg width="18" height="18" viewBox="0 0 160 120" role="img" aria-label="Webull" style={{ display: 'block' }}>
-                                          <path fill="#1648f5" d="M25 15c-3 0-5 3-5 7 0 55 24 86 60 98 36-12 60-43 60-98 0-4-2-7-5-7-4 0-6 3-6 7 0 32-19 57-49 61-30-4-49-29-49-61 0-4-2-7-6-7Z" />
-                                        </svg>
-                                      ) : <SiBinance />}
+                                      {isExternal ? <WebullLogo size={18} /> : <SiBinance />}
                                     </span>
                                     <span
                                       title={isCryptoAsset ? 'Crypto asset' : 'Traditional asset'}

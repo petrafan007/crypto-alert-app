@@ -123,6 +123,14 @@ The application utilizes a **unified PostgreSQL database**.
 
 ## Version History & Changelog
 
+## v2.39.0 (August 2026)
+
+- **Webull account-safe trading**: The Webull Trading account selector can now save a default account. The page uses that preference (or a Cash/equity account fallback) instead of silently defaulting to crypto, and holdings such as TSLA are resolved strictly within the selected account.
+- **Webull live quote and sessions**: The trade ticket now reads the signed Webull market-snapshot endpoint, refreshes its quote every 30 seconds, and supports Regular (`CORE`), Including Extended (`ALL`), and Overnight (`NIGHT`) trading sessions for equities/ETFs.
+- **Faster combined open orders**: Combined Orders streams account-scoped Webull open-order results into the table as each rate-limited account request completes rather than waiting for every account.
+- **Complete automated order ledger**: Auto-Buy and Auto-Sell executions are now normalized from the activity ledger, including their order IDs, quote pair, fill price, and visible automation label.
+- **Footer version integrity**: The footer now derives its version directly from `package.json`, keeping the displayed version synchronized with each release.
+
 ## v2.38.5 (August 2026)
 
 - **Fast combined Orders loading**: The Open Orders view now renders after the Binance.US request instead of waiting for Webull to read every connected account. Webull orders merge in as soon as that read completes, with a visible refresh status.

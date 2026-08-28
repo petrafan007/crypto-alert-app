@@ -26,7 +26,12 @@ const displayType = (type) => String(type || '—').replaceAll('_', ' ').replace
 
 function SourceBadge({ order }) {
   const webull = isWebull(order);
-  return <span className="badge" style={{ background: webull ? 'rgba(96, 165, 250, .16)' : 'rgba(251, 191, 36, .16)', color: webull ? '#2563eb' : '#a16207' }}>{webull ? 'Webull' : 'Binance.US'}</span>;
+  const automated = String(order?.origin || order?.source || '').toLowerCase();
+  const automationLabel = automated === 'auto_sell' ? 'Auto-Sell' : automated === 'auto_buy' ? 'Auto-Buy' : null;
+  return <span style={{ display: 'inline-flex', flexWrap: 'wrap', gap: 4 }}>
+    <span className="badge" style={{ background: webull ? 'rgba(96, 165, 250, .16)' : 'rgba(251, 191, 36, .16)', color: webull ? '#2563eb' : '#a16207' }}>{webull ? 'Webull' : 'Binance.US'}</span>
+    {automationLabel && <span className="badge" style={{ background: automated === 'auto_sell' ? 'rgba(248, 113, 113, .16)' : 'rgba(74, 222, 128, .16)', color: automated === 'auto_sell' ? '#dc2626' : '#15803d' }}>{automationLabel}</span>}
+  </span>;
 }
 
 function OrderTable({ orders, open, onCancelOrder, cancellingId }) {
@@ -91,6 +96,7 @@ export default function Orders() {
   const [historyPageSize, setHistoryPageSize] = useState(50);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [webullOpenLoading, setWebullOpenLoading] = useState(false);
+  const [webullOpenProgress, setWebullOpenProgress] = useState({ complete: 0, total: 0 });
   const openOrdersRequestId = useRef(0);
 
   const replaceOpenOrdersForSource = (source, orders) => {
@@ -105,27 +111,52 @@ export default function Orders() {
   const loadOpenOrders = async () => {
     const requestId = ++openOrdersRequestId.current;
     setWebullOpenLoading(true);
+    setWebullOpenProgress({ complete: 0, total: 0 });
+    replaceOpenOrdersForSource('webull', []);
 
-    // Webull's combined endpoint reads each authorized account in turn.  Keep
-    // that slower read off the critical path so Binance.US open orders render
-    // as soon as they are available, then merge Webull orders when ready.
-    axios.get('/api/webull/open-orders', { withCredentials: true })
-      .then((webullOpenResponse) => {
+    // Webull limits order reads globally, so its all-accounts endpoint used to
+    // withhold every result until the final account completed. Request known
+    // accounts individually and render each result immediately instead.
+    (async () => {
+      try {
+        const accountsResponse = await axios.get('/api/webull/accounts', { withCredentials: true });
         if (requestId !== openOrdersRequestId.current) return;
-        const webullOpen = (webullOpenResponse.data?.orders || []).map((order) => normalize(order, 'webull'));
-        replaceOpenOrdersForSource('webull', webullOpen);
-        if (webullOpenResponse.data?.success === false) {
-          setNotice(webullOpenResponse.data?.message || 'Webull open orders could not be refreshed.');
-        }
-      })
-      .catch((error) => {
+        const enabled = accountsResponse.data?.enabled_account_ids || [];
+        const accountIds = (accountsResponse.data?.accounts || [])
+          .filter((account) => !enabled.length || enabled.includes(account.account_id))
+          .map((account) => account.account_id)
+          .filter(Boolean);
+        setWebullOpenProgress({ complete: 0, total: accountIds.length });
+        if (!accountIds.length) return;
+
+        const ordersByAccount = new Map();
+        let completed = 0;
+        await Promise.all(accountIds.map(async (accountId) => {
+          try {
+            const response = await axios.get(`/api/webull/open-orders?account_id=${encodeURIComponent(accountId)}`, { withCredentials: true });
+            if (requestId !== openOrdersRequestId.current) return;
+            if (response.data?.success === false) throw new Error(response.data?.message || 'Webull open orders could not be refreshed.');
+            ordersByAccount.set(accountId, (response.data?.orders || []).map((order) => normalize(order, 'webull')));
+            replaceOpenOrdersForSource('webull', [...ordersByAccount.values()].flat());
+          } catch (error) {
+            if (requestId === openOrdersRequestId.current) {
+              setNotice(error.response?.data?.message || error.message || 'Some Webull open orders could not be refreshed.');
+            }
+          } finally {
+            completed += 1;
+            if (requestId === openOrdersRequestId.current) {
+              setWebullOpenProgress({ complete: completed, total: accountIds.length });
+            }
+          }
+        }));
+      } catch (error) {
         if (requestId === openOrdersRequestId.current) {
           setNotice(error.response?.data?.message || 'Webull open orders could not be refreshed.');
         }
-      })
-      .finally(() => {
+      } finally {
         if (requestId === openOrdersRequestId.current) setWebullOpenLoading(false);
-      });
+      }
+    })();
 
     try {
       const binanceOpenResponse = await axios.get('/api/pending-orders', { withCredentials: true });
@@ -143,7 +174,10 @@ export default function Orders() {
     setHistoryLoading(true);
     try {
       const historyResponse = await axios.get('/api/trading/real-orders?limit=100', { withCredentials: true });
-      const allHistory = (historyResponse.data?.orders || []).map((order) => normalize(order, isWebull(order) ? 'webull' : 'binance'));
+      const allHistory = (historyResponse.data?.orders || []).map((order) => {
+        const source = String(order?.source || '').toLowerCase();
+        return normalize(order, ['auto_buy', 'auto_sell'].includes(source) ? source : (isWebull(order) ? 'webull' : 'binance'));
+      });
       setHistory(allHistory);
       const binanceFromHistory = allHistory.filter((order) => !isWebull(order) && OPEN_STATUSES.has(String(order.status).toUpperCase()));
       if (binanceFromHistory.length) {
@@ -243,7 +277,7 @@ export default function Orders() {
           ) : activeTab === 'open' ? (
             <>
               <h2>All Open Orders</h2>
-              {webullOpenLoading && <p className="order-refresh-status" role="status">Refreshing Webull open orders…</p>}
+              {webullOpenLoading && <p className="order-refresh-status" role="status">Refreshing Webull open orders{webullOpenProgress.total ? ` (${webullOpenProgress.complete}/${webullOpenProgress.total} accounts)…` : '…'}</p>}
               <OrderTable orders={activeOpenOrders} open onCancelOrder={handleCancelOrder} cancellingId={cancellingId} />
             </>
           ) : historyLoading && !sortedHistory.length ? (

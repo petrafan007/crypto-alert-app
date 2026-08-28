@@ -37,6 +37,9 @@ export default function WebullTradingViewChart({
   accounts = [],
   selectedAccountId,
   onAccountChange,
+  defaultAccountId,
+  onSetDefaultAccount,
+  savingDefaultAccount = false,
   holdings = [],
   isLightMode = false,
 }) {
@@ -217,6 +220,19 @@ export default function WebullTradingViewChart({
                   );
                 })}
               </select>
+              <button
+                type="button"
+                onClick={() => onSetDefaultAccount?.()}
+                disabled={!selectedAccountId || savingDefaultAccount || selectedAccountId === defaultAccountId}
+                style={{
+                  marginTop: '7px', padding: 0, border: 'none', background: 'transparent',
+                  color: selectedAccountId === defaultAccountId ? (isLightMode ? '#475569' : '#94a3b8') : '#38bdf8',
+                  fontSize: '12px', fontWeight: 600,
+                  cursor: selectedAccountId === defaultAccountId || savingDefaultAccount ? 'default' : 'pointer',
+                }}
+              >
+                {savingDefaultAccount ? 'Saving default…' : selectedAccountId === defaultAccountId ? 'Default trading account' : 'Make selected account my default'}
+              </button>
             </div>
           )}
 

@@ -432,6 +432,75 @@ def get_webull_market_bars(
     return [bars_by_time[timestamp] for timestamp in sorted(bars_by_time)]
 
 
+def get_webull_market_snapshot(
+    app_key, app_secret, environment='production', access_token=None, *, symbol, instrument_type,
+):
+    """Fetch one current Webull stock/ETF or crypto quote, without trading.
+
+    Snapshot endpoints are the correct source for the trade-ticket price card;
+    a single historical bar can be unavailable or stale outside its interval.
+    """
+    clean_symbol = ''.join(char for char in str(symbol or '').upper() if char.isalnum())
+    clean_type = str(instrument_type or '').strip().upper()
+    if not clean_symbol:
+        raise WebullConnectionError('Choose a Webull symbol before loading its quote.')
+    if clean_type in {'COIN', 'TOKEN'}:
+        clean_type = 'CRYPTO'
+    if clean_type == 'CRYPTO' and not clean_symbol.endswith('USD'):
+        clean_symbol = f'{clean_symbol}USD'
+    if clean_type not in {'CRYPTO', 'STOCK', 'EQUITY', 'ETF'}:
+        raise WebullConnectionError('This Webull instrument type does not have a supported live quote.')
+
+    if clean_type == 'CRYPTO':
+        path = '/market-data/crypto/snapshots/list'
+        params = {'symbols': clean_symbol, 'symbol': clean_symbol}
+    else:
+        path = '/market-data/stocks/snapshots/list'
+        params = {
+            'symbols': clean_symbol,
+            'symbol': clean_symbol,
+            'category': 'US_ETF' if clean_type == 'ETF' else 'US_STOCK',
+            'extend_hour_required': 'true',
+            'overnight_required': 'true',
+        }
+
+    payload = _response_payload(
+        _webull_request(
+            app_key, app_secret, environment, 'GET', path,
+            query_params=params, access_token=access_token,
+        ),
+        'market snapshot request',
+    )
+    raw = _first_option_record(payload)
+    if not isinstance(raw, dict):
+        raise WebullConnectionError('Webull returned no market snapshot for this symbol.')
+
+    def number(*names):
+        for name in names:
+            value = raw.get(name)
+            try:
+                parsed = float(value)
+                if parsed > 0:
+                    return parsed
+            except (TypeError, ValueError):
+                continue
+        return None
+
+    # ``price`` is the documented current last-trade value. Extended/overnight
+    # values are retained for context and only used if Webull omits ``price``.
+    price = number('price', 'last_price', 'lastPrice', 'last', 'close')
+    extended_price = number('ext_price', 'extended_price', 'extendedPrice')
+    overnight_price = number('overnight_price', 'overnightPrice')
+    return {
+        'symbol': str(raw.get('symbol') or clean_symbol).upper(),
+        'price': price or extended_price or overnight_price,
+        'regular_price': price,
+        'extended_price': extended_price,
+        'overnight_price': overnight_price,
+        'as_of': raw.get('timestamp') or raw.get('last_trade_time') or raw.get('trade_time'),
+    }
+
+
 def _first_option_record(payload):
     records = _webull_records(payload)
     if records:
@@ -575,13 +644,12 @@ def get_webull_order_history(app_key, app_secret, environment='production', acce
         if now - cached_time < 15:
             return [dict(r) for r in cached_records]
 
-    all_accounts = get_webull_accounts(app_key, app_secret, environment, access_token)
     if safe_account_id:
-        target_accounts = [a for a in all_accounts if a['account_id'] == safe_account_id]
-        if not target_accounts:
-            target_accounts = [{'account_id': safe_account_id, 'account_type': 'Target'}]
+        # The caller already selected one authorized account. Avoid an
+        # additional account-list round trip for every scoped history request.
+        target_accounts = [{'account_id': safe_account_id, 'account_type': 'Target'}]
     else:
-        target_accounts = all_accounts
+        target_accounts = get_webull_accounts(app_key, app_secret, environment, access_token)
 
     records = []
     safe_page_size = max(1, min(int(page_size or 100), 100))
@@ -626,13 +694,13 @@ def get_webull_open_orders(app_key, app_secret, environment='production', access
         if now - cached_time < 15:
             return [dict(r) for r in cached_records]
 
-    all_accounts = get_webull_accounts(app_key, app_secret, environment, access_token)
     if safe_account_id:
-        target_accounts = [a for a in all_accounts if a['account_id'] == safe_account_id]
-        if not target_accounts:
-            target_accounts = [{'account_id': safe_account_id, 'account_type': 'Target'}]
+        # Combined Orders now requests accounts independently so each result
+        # can render as soon as Webull permits it. Do not add a redundant
+        # account-list lookup before that scoped request.
+        target_accounts = [{'account_id': safe_account_id, 'account_type': 'Target'}]
     else:
-        target_accounts = all_accounts
+        target_accounts = get_webull_accounts(app_key, app_secret, environment, access_token)
 
     records = []
     safe_page_size = max(1, min(int(page_size or 100), 100))
@@ -751,6 +819,8 @@ def place_webull_order(
         'time_in_force': str(time_in_force or 'DAY').upper(),
         'support_trading_session': str(support_trading_session or 'CORE').upper(),
     }
+    if order_payload['support_trading_session'] not in {'CORE', 'ALL', 'NIGHT'}:
+        raise WebullConnectionError('Choose Regular, Including Extended, or Overnight trading hours.')
     if clean_type in {'STOP', 'STOP_LIMIT'}:
         try:
             spx = float(stop_price)
@@ -841,4 +911,3 @@ def cancel_webull_order(
         'order_id': order_id or client_order_id,
         'raw': payload.get('data', payload) if isinstance(payload, dict) else payload,
     }
-

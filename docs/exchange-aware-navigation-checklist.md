@@ -1,6 +1,6 @@
 # Exchange-Aware Navigation & Account Views — Review Checklist
 
-Status: **Implemented through v2.38.5 — reviewed product decisions applied**
+Status: **Implemented through v2.39.0 — reviewed product decisions applied**
 Scope: Replace the current Binance-centric navigation model with explicit Binance.US, Webull, and All Accounts contexts.
 
 ## Confirmed product decisions
@@ -17,6 +17,7 @@ Scope: Replace the current Binance-centric navigation model with explicit Binanc
 - [x] Webull AI stores provider-neutral, read-only signals: crypto and equities/ETFs use distinct prompt families, fixed forecast horizons, immutable grading configurations, and the same manual/scheduled lifecycle. Scheduling is opt-in and disabled by default; options now have contract-level chart/quote identity but remain unavailable to AI pending an options-specific risk model.
 - [x] A new top-level **Orders** destination replaces AI Analysis and provides combined Open Orders and Order History for all accounts.
 - [x] Combined order views must visibly retain their exchange/source identity.
+- [x] Webull Trading stores a user-selected default account and otherwise prefers an equity/cash account, while each position is resolved within the selected account. [Implemented in v2.39.0]
 
 ## Requirements review checklist
 
@@ -59,7 +60,7 @@ Scope: Replace the current Binance-centric navigation model with explicit Binanc
 - [ ] CHK023 Are source labels, account labels, product/instrument labels, and sort precedence specified for a mixed order ledger? [Completeness, Gap]
 - [ ] CHK024 Are filters specified for exchange, account, symbol, product type, status, and time range? [Completeness, Gap]
 - [x] CHK025 Cancellation behavior is explicitly constrained to the owning exchange and account (routed to Webull OpenAPI or Binance.US with no cross-exchange fallback). [Implemented in v2.34.0]
-- [x] CHK026 Combined Orders renders Binance.US open orders first; Webull account reads merge asynchronously with an in-view refresh status, while history loads on demand. [Implemented in v2.38.5]
+- [x] CHK026 Combined Orders renders Binance.US open orders first; rate-limited Webull account reads merge progressively with in-view account progress, while history loads on demand. [Implemented in v2.39.0]
 
 ### Data integrity, security, and release scope
 

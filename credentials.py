@@ -422,6 +422,9 @@ class UserSetting(db.Model):
     automated_trigger_confirmation_minutes = db.Column(db.Integer, default=15)
     webull_environment = db.Column(db.String(20), default='production')
     webull_account_selection_mode = db.Column(db.String(20), default='all')
+    # The account selected when the user opens the Webull Trading workspace.
+    # It is deliberately separate from the enabled-account list.
+    webull_default_account_id = db.Column(db.String(100), nullable=True)
     webull_account_aliases = db.Column(db.Text, default='{}')
     webull_connected_accounts = db.Column(db.Text, default='[]')
     webull_enabled_account_ids = db.Column(db.Text, default='[]')

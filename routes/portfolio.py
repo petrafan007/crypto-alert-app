@@ -2221,9 +2221,11 @@ def get_real_orders_only():
                 logger.warning(f"Failed to gather portfolio symbols for order history: {coin_err}")
 
         activity_rows = db.session.execute(
-            text('''SELECT date, type, asset, amount, fee, status, details, txid, price_sold_at
+            text('''SELECT date, type, asset, amount, fee, status, details, txid, price_sold_at, avg_entry, proceeds
                FROM all_activities
-               WHERE user_id = :uid AND status IN ('FILLED', 'completed')'''),
+               WHERE user_id = :uid
+                 AND (status IN ('FILLED', 'completed')
+                      OR txid LIKE 'auto_sell_%' OR txid LIKE 'auto_buy_%')'''),
             {"uid": current_user.id}
         ).mappings().all()
 
@@ -2405,11 +2407,16 @@ def get_real_orders_only():
         for activity in activity_records:
             details_json = activity.get('__details_json__') or {}
             txid = str(activity.get('txid') or '')
-            is_auto_sell = txid.startswith('auto_sell_') or 'Auto-Sell executed' in (activity.get('details') or '')
-            order_id = details_json.get('order_id') or (txid.removeprefix('auto_sell_') if is_auto_sell else txid)
+            details = activity.get('details') or ''
+            is_auto_sell = txid.startswith('auto_sell_') or 'Auto-Sell executed' in details
+            is_auto_buy = txid.startswith('auto_buy_') or 'Auto-Buy executed' in details
+            is_automated = is_auto_sell or is_auto_buy
+            order_id = details_json.get('order_id') or (
+                txid.removeprefix('auto_sell_').removeprefix('auto_buy_') if is_automated else txid
+            )
             product_id = details_json.get('product_id')
-            if is_auto_sell and not product_id and activity.get('asset'):
-                quote_match = re.search(r'\b(USDT|USD)\b', activity.get('details') or '')
+            if is_automated and not product_id and activity.get('asset'):
+                quote_match = re.search(r'\b(USDT|USD)\b', details)
                 product_id = f"{str(activity['asset']).upper()}-{quote_match.group(1) if quote_match else 'USDT'}"
             if not order_id or not product_id:
                 continue
@@ -2419,7 +2426,10 @@ def get_real_orders_only():
 
             side = (details_json.get('side') or activity.get('type') or '').upper()
             quantity = details_json.get('filled_size') or activity.get('amount')
-            price = details_json.get('average_filled_price') or activity.get('price_sold_at')
+            price = (
+                details_json.get('average_filled_price') or activity.get('price_sold_at')
+                or activity.get('avg_entry')
+            )
 
             try:
                 quantity_val = float(quantity) if quantity not in (None, '') else 0.0
@@ -2430,6 +2440,14 @@ def get_real_orders_only():
                 price_val = float(price) if price not in (None, '') else 0.0
             except Exception:
                 price_val = 0.0
+            if price_val <= 0 and quantity_val:
+                try:
+                    price_val = abs(float(activity.get('proceeds') or 0)) / abs(quantity_val)
+                except Exception:
+                    pass
+
+            automation_origin = 'auto_sell' if is_auto_sell else ('auto_buy' if is_auto_buy else 'history')
+            automation_label = 'Auto-Sell' if is_auto_sell else ('Auto-Buy' if is_auto_buy else 'Historical Import')
 
             payload = {
                 'id': order_id,
@@ -2443,10 +2461,10 @@ def get_real_orders_only():
                 'status': activity.get('status', 'FILLED') or 'FILLED',
                 'created_at': normalize_timestamp(details_json.get('created_time') or activity.get('date')),
                 'updated_at': normalize_timestamp(details_json.get('last_fill_time') or details_json.get('created_time') or activity.get('date')),
-                'source': 'auto_sell' if is_auto_sell else 'history',
-                'origin': 'auto_sell' if is_auto_sell else 'history',
-                'origin_label': 'Auto-Sell' if is_auto_sell else 'Historical Import',
-                'trigger_type': 'auto_sell' if is_auto_sell else None,
+                'source': automation_origin,
+                'origin': automation_origin,
+                'origin_label': automation_label,
+                'trigger_type': automation_origin if is_automated else None,
             }
 
             add_order(f"binance-{payload['symbol']}-{order_id}", payload)

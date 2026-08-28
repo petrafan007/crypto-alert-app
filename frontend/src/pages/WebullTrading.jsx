@@ -131,6 +131,16 @@ const preferredEquityAccount = (accounts) => (
   || null
 );
 
+const holdingMatchesSymbol = (holding, symbol) => {
+  const holdingSymbol = String(holding?.symbol || '').toUpperCase();
+  const cleanSymbol = String(symbol || '').toUpperCase();
+  return holdingSymbol === cleanSymbol || holdingSymbol === cleanSymbol.replace(/USD$/, '');
+};
+
+const holdingForAccount = (holdings, symbol, accountId) => (
+  holdings.find((holding) => String(holding?.account_id || '') === String(accountId || '') && holdingMatchesSymbol(holding, symbol))
+);
+
 export default function WebullTrading({ isLightMode = false }) {
   const [activeTab, setActiveTab] = useState('order');
   const [holdings, setHoldings] = useState([]);
@@ -138,6 +148,8 @@ export default function WebullTrading({ isLightMode = false }) {
   const [openOrders, setOpenOrders] = useState([]);
   const [accounts, setAccounts] = useState([]);
   const [selectedAccountId, setSelectedAccountId] = useState('');
+  const [defaultAccountId, setDefaultAccountId] = useState('');
+  const [savingDefaultAccount, setSavingDefaultAccount] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [cancellingOrderId, setCancellingOrderId] = useState(null);
@@ -260,6 +272,8 @@ export default function WebullTrading({ isLightMode = false }) {
         ? discoveredAccounts.filter((a) => enabledIds.includes(a.account_id))
         : discoveredAccounts.filter((a) => a.is_enabled !== false);
       setAccounts(filteredAccounts);
+      const savedDefaultAccountId = String(accRes.data?.default_account_id || '');
+      setDefaultAccountId(savedDefaultAccountId);
 
       const urlParams = new URLSearchParams(window.location.search);
       const urlSymbol = urlParams.get('symbol')?.toUpperCase()?.trim();
@@ -272,7 +286,8 @@ export default function WebullTrading({ isLightMode = false }) {
       // Determine which account should be active on load:
       // 1. If an explicit account_id is in the URL, select that account.
       // 2. Otherwise if a symbol was provided, infer account by asset class.
-      // 3. Otherwise fall back to the previously-selected account or first account.
+      // 3. Otherwise use the user's saved default, then prefer an equity/cash
+      //    account so a new user does not unexpectedly land in crypto.
       let activeAcc = null;
 
       if (urlAccountId) {
@@ -308,9 +323,13 @@ export default function WebullTrading({ isLightMode = false }) {
         }
       }
 
-      // Priority 3: previously-selected or first account
+      // Priority 3: saved default, then previously-selected or a safe fallback.
       if (!activeAcc) {
-        activeAcc = filteredAccounts.find((a) => a.account_id === selectedAccountId) || filteredAccounts[0] || null;
+        activeAcc = filteredAccounts.find((a) => a.account_id === savedDefaultAccountId)
+          || filteredAccounts.find((a) => a.account_id === selectedAccountId)
+          || preferredEquityAccount(filteredAccounts)
+          || filteredAccounts[0]
+          || null;
       }
 
       if (activeAcc) {
@@ -323,20 +342,20 @@ export default function WebullTrading({ isLightMode = false }) {
           if (urlSide && ['BUY', 'SELL'].includes(urlSide)) {
             setOrderForm((prev) => ({ ...prev, side: urlSide }));
           }
-          const matchedHolding = importedHoldings.find((h) => h.symbol === urlSymbol);
+          const matchedHolding = holdingForAccount(importedHoldings, urlSymbol, activeAcc.account_id);
           if (matchedHolding?.current_price) {
             setLivePrice(Number(matchedHolding.current_price));
             setOrderForm((prev) => ({ ...prev, price: Number(matchedHolding.current_price).toFixed(2) }));
           }
         } else if (isCrypto && (selectedSymbol === 'AAPL' || !selectedSymbol.endsWith('USD'))) {
-          const firstCrypto = importedHoldings.find((h) => /crypto|coin|token/i.test(h.instrument_type || ''));
+          const firstCrypto = importedHoldings.find((h) => String(h.account_id || '') === activeAcc.account_id && /crypto|coin|token/i.test(h.instrument_type || ''));
           setSelectedSymbol(firstCrypto ? firstCrypto.symbol : 'BTCUSD');
           if (firstCrypto?.current_price) {
             setLivePrice(Number(firstCrypto.current_price));
             setOrderForm((prev) => ({ ...prev, price: Number(firstCrypto.current_price).toFixed(2) }));
           }
         } else if (!isCrypto && (selectedSymbol === 'BTCUSD' || selectedSymbol.endsWith('USD'))) {
-          const firstStock = importedHoldings.find((h) => !/crypto|coin|token/i.test(h.instrument_type || ''));
+          const firstStock = importedHoldings.find((h) => String(h.account_id || '') === activeAcc.account_id && !/crypto|coin|token/i.test(h.instrument_type || ''));
           setSelectedSymbol(firstStock ? firstStock.symbol : 'AAPL');
           if (firstStock?.current_price) {
             setLivePrice(Number(firstStock.current_price));
@@ -389,40 +408,43 @@ export default function WebullTrading({ isLightMode = false }) {
 
   // Holding for the currently selected symbol
   const currentHolding = useMemo(() => {
-    const clean = selectedSymbol.toUpperCase();
-    return holdings.find((h) => h.symbol.toUpperCase() === clean || h.symbol.toUpperCase() === clean.replace(/USD$/, ''));
-  }, [holdings, selectedSymbol]);
+    return holdingForAccount(holdings, selectedSymbol, selectedAccountId);
+  }, [holdings, selectedSymbol, selectedAccountId]);
 
   const heldQuantity = useMemo(() => Number(currentHolding?.amount || 0), [currentHolding]);
   const heldValue = useMemo(() => Number(currentHolding?.current_value || (heldQuantity * livePrice) || 0), [currentHolding, heldQuantity, livePrice]);
 
-  // Update live price and limit price when symbol or holdings change
+  // A current snapshot is the trade-ticket source of truth. Stored holdings
+  // provide a fast initial fallback while the signed Webull quote arrives.
   useEffect(() => {
-    if (currentHolding?.current_price) {
-      const px = Number(currentHolding.current_price);
-      setLivePrice(px);
-      setOrderForm((prev) => (prev.price ? prev : { ...prev, price: px.toFixed(2) }));
-    } else {
-      // Fetch latest market bar for quote
-      const cleanSymbol = selectedInstrumentType === 'CRYPTO' && !selectedSymbol.endsWith('USD') ? `${selectedSymbol}USD` : selectedSymbol;
-      axios.get(`/api/webull/market-bars?symbol=${cleanSymbol}&instrument_type=${selectedInstrumentType}&limit=1`, { withCredentials: true })
-        .then((res) => {
-          const bars = res.data?.bars || [];
-          if (bars.length > 0 && bars[bars.length - 1]?.close) {
-            const px = Number(bars[bars.length - 1].close);
-            setLivePrice(px);
-            setOrderForm((prev) => (prev.price ? prev : { ...prev, price: px.toFixed(2) }));
-          }
-        })
-        .catch(() => {});
-    }
+    let active = true;
+    const fallbackPrice = Number(currentHolding?.current_price || 0);
+    if (fallbackPrice > 0) setLivePrice(fallbackPrice);
+    const loadSnapshot = async () => {
+      try {
+        const response = await axios.get('/api/webull/market-snapshot', {
+          params: { symbol: selectedSymbol, instrument_type: selectedInstrumentType },
+          withCredentials: true,
+        });
+        const price = Number(response.data?.snapshot?.price || 0);
+        if (active && price > 0) {
+          setLivePrice(price);
+          setOrderForm((prev) => (prev.price ? prev : { ...prev, price: price.toFixed(price >= 1 ? 2 : 4) }));
+        }
+      } catch {
+        // Retain the imported price if the user's OpenAPI quote entitlement is unavailable.
+      }
+    };
+    loadSnapshot();
+    const timer = window.setInterval(loadSnapshot, 30000);
+    return () => { active = false; window.clearInterval(timer); };
   }, [selectedSymbol, selectedInstrumentType, currentHolding]);
 
   // Handlers for Instrument change from Top TradingView Chart
   const handleInstrumentChange = ({ symbol: nextSymbol, instrumentType: nextType }) => {
     setSelectedSymbol(nextSymbol);
     setSelectedInstrumentType(nextType);
-    setOrderForm((prev) => ({ ...prev, symbol: nextSymbol, quantity: '', quoteAmount: '' }));
+    setOrderForm((prev) => ({ ...prev, symbol: nextSymbol, quantity: '', quoteAmount: '', price: '', stopPrice: '' }));
   };
 
   const handleAccountChange = (newAccountId) => {
@@ -432,7 +454,7 @@ export default function WebullTrading({ isLightMode = false }) {
     if (isCrypto) {
       setSelectedInstrumentType('CRYPTO');
       if (selectedInstrumentType !== 'CRYPTO' || !selectedSymbol.endsWith('USD')) {
-        const topCryptoHolding = holdings.find((h) => /crypto|coin|token/i.test(h.instrument_type || ''));
+        const topCryptoHolding = holdings.find((h) => String(h.account_id || '') === String(newAccountId) && /crypto|coin|token/i.test(h.instrument_type || ''));
         const nextSym = topCryptoHolding ? topCryptoHolding.symbol : 'BTCUSD';
         setSelectedSymbol(nextSym);
         setOrderForm((prev) => ({ ...prev, symbol: nextSym, quantity: '', quoteAmount: '' }));
@@ -440,11 +462,25 @@ export default function WebullTrading({ isLightMode = false }) {
     } else {
       setSelectedInstrumentType('EQUITY');
       if (selectedInstrumentType === 'CRYPTO' || selectedSymbol.endsWith('USD')) {
-        const topEquityHolding = holdings.find((h) => !/crypto|coin|token/i.test(h.instrument_type || ''));
+        const topEquityHolding = holdings.find((h) => String(h.account_id || '') === String(newAccountId) && !/crypto|coin|token/i.test(h.instrument_type || ''));
         const nextSym = topEquityHolding ? topEquityHolding.symbol : 'AAPL';
         setSelectedSymbol(nextSym);
         setOrderForm((prev) => ({ ...prev, symbol: nextSym, quantity: '', quoteAmount: '' }));
       }
+    }
+  };
+
+  const saveDefaultAccount = async () => {
+    if (!selectedAccountId || savingDefaultAccount) return;
+    setSavingDefaultAccount(true);
+    try {
+      const response = await axios.put('/api/webull/default-account', { account_id: selectedAccountId }, { withCredentials: true });
+      setDefaultAccountId(String(response.data?.default_account_id || selectedAccountId));
+      setOrderFeedback({ type: 'success', message: 'Webull default trading account saved.' });
+    } catch (requestError) {
+      setOrderFeedback({ type: 'error', message: requestError.response?.data?.message || 'Unable to save the default Webull account.' });
+    } finally {
+      setSavingDefaultAccount(false);
     }
   };
 
@@ -757,6 +793,9 @@ export default function WebullTrading({ isLightMode = false }) {
                   accounts={accounts}
                   selectedAccountId={selectedAccountId}
                   onAccountChange={handleAccountChange}
+                  defaultAccountId={defaultAccountId}
+                  onSetDefaultAccount={saveDefaultAccount}
+                  savingDefaultAccount={savingDefaultAccount}
                   holdings={holdings}
                   isLightMode={isLightMode}
                 />
@@ -1022,8 +1061,9 @@ export default function WebullTrading({ isLightMode = false }) {
                           className="order-styled-input"
                           style={{ cursor: 'pointer' }}
                         >
-                          <option value="CORE">Regular Hours (CORE: 9:30 AM - 4:00 PM ET)</option>
-                          <option value="ALL">Extended Hours (ALL: Pre &amp; Post Market)</option>
+                          <option value="CORE">Only Regular Hours (CORE: 9:30 AM - 4:00 PM ET)</option>
+                          <option value="ALL">Including Extended Hours (ALL: 4:00 AM - 8:00 PM ET)</option>
+                          <option value="NIGHT">Overnight Hours Only (NIGHT: 8:00 PM - 4:00 AM ET)</option>
                         </select>
                       </div>
                     )}
@@ -1146,7 +1186,7 @@ export default function WebullTrading({ isLightMode = false }) {
                         </div>
                         <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                           <span style={{ color: '#94a3b8' }}>Time in Force / Session:</span>
-                          <span>{orderForm.timeInForce} · {orderForm.tradingSession === 'CORE' ? 'Regular Hours' : 'Extended Hours'}</span>
+                          <span>{orderForm.timeInForce} · {orderForm.tradingSession === 'CORE' ? 'Regular Hours' : orderForm.tradingSession === 'NIGHT' ? 'Overnight Hours Only' : 'Including Extended Hours'}</span>
                         </div>
                       </div>
 
