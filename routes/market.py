@@ -69,7 +69,7 @@ def api_pionex_price():
 def chart_history(symbol):
     """Return actual stored price samples for the last seven days."""
     try:
-        sym = symbol.upper()
+        sym = (symbol or "").strip().upper()
         ensure_price_history(sym)
         now = int(time.time())
         cutoff = now - 7 * 24 * 60 * 60
@@ -80,11 +80,30 @@ def chart_history(symbol):
             PriceHistory.timestamp >= cutoff
         ).order_by(PriceHistory.timestamp.asc()).all()
         
-        if not rows:
-            return jsonify({"prices": []})
+        if rows and len(rows) >= 2:
+            points = [[int(row.timestamp) * 1000, float(row.price)] for row in rows]
+            return jsonify({"prices": points})
 
-        points = [[int(row.timestamp) * 1000, float(row.price)] for row in rows]
-        return jsonify({"prices": points})
+        # Real-time fallback for stocks / ETFs / Webull assets
+        try:
+            import yfinance as yf
+            hist = yf.Ticker(sym).history(period="7d", interval="1h")
+            if hist is not None and not hist.empty:
+                points = []
+                for dt, r in hist.iterrows():
+                    ts = int(dt.timestamp())
+                    if ts >= cutoff:
+                        points.append([ts * 1000, float(r['Close'])])
+                if points:
+                    return jsonify({"prices": points})
+        except Exception as stock_err:
+            logger.debug(f"chart_history fallback error for {sym}: {stock_err}")
+
+        if rows:
+            points = [[int(row.timestamp) * 1000, float(row.price)] for row in rows]
+            return jsonify({"prices": points})
+
+        return jsonify({"prices": []})
     except Exception as e:
         logger.error(f"chart_history: Exception for {symbol}: {e}", exc_info=True)
         return jsonify({"prices": [], "error": str(e)}), 200

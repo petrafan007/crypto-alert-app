@@ -123,6 +123,11 @@ The application utilizes a **unified PostgreSQL database**.
 
 ## Version History & Changelog
 
+## v2.42.0 (August 2026)
+
+- **7-Day Performance Chart on Symbol Hover for Webull Assets**: Enabled interactive 7-day sparkline performance chart popups on all Webull equities, ETFs, and assets in both the Portfolio and Watchlist tables. Backfilled hourly price candles with real-time stock/ETF market data.
+- **Direct Webull Trading Navigation on Symbol Click**: Clicking any Webull asset in the Portfolio or Watchlist table (or inside the 7-day performance chart popup) now navigates directly to `/trading/webull` with that exact stock ticker, asset type, and side pre-selected.
+
 ## v2.41.3 (August 2026)
 
 - **Hotfix for Binance Trading Page Estimated Fee State**: Restored missing `estimatedFee` React state hook in `Trading.jsx`. Resolves the `ReferenceError: setEstimatedFee is not defined` runtime crash on the Binance Trading page.

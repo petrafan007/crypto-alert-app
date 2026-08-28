@@ -113,7 +113,39 @@ def ensure_price_history(symbol, now_timestamp=None):
                 logger.debug("No Binance.US hourly history for %s: %s", pair, pair_error)
 
         if not klines:
-            logger.warning("No Binance.US hourly price history found for %s", symbol)
+            logger.debug("No Binance.US hourly price history found for %s; checking stock/ETF market data", symbol)
+            try:
+                import yfinance as yf
+                ticker = yf.Ticker(symbol)
+                hist = ticker.history(period="7d", interval="1h")
+                if hist is not None and not hist.empty:
+                    existing_buckets = {int(row.timestamp) // 3600 for row in rows}
+                    added = 0
+                    for dt, r in hist.iterrows():
+                        ts = int(dt.timestamp())
+                        close_price = _as_float(r['Close'])
+                        vol = _as_float(r.get('Volume', 0))
+                        bucket = ts // 3600
+                        if ts < cutoff or close_price <= 0 or bucket in existing_buckets:
+                            continue
+                        db.session.add(PriceHistory(
+                            symbol=symbol,
+                            price=close_price,
+                            volume=vol,
+                            quote_volume=vol * close_price,
+                            timestamp=ts,
+                            exchange="webull",
+                        ))
+                        existing_buckets.add(bucket)
+                        added += 1
+                    if added:
+                        db.session.commit()
+                        logger.info("Backfilled %s hourly price/volume points for stock %s via yfinance", added, symbol)
+                        return True
+            except Exception as yf_err:
+                logger.debug("Stock price history backfill failed for %s: %s", symbol, yf_err)
+
+            logger.warning("No hourly price history found for %s", symbol)
             return False
 
         existing_buckets = {int(row.timestamp) // 3600 for row in rows}
@@ -147,7 +179,7 @@ def ensure_price_history(symbol, now_timestamp=None):
         return False
 
 
-def record_price_history_snapshot(symbol, price, volume=0.0, quote_volume=0.0, now_timestamp=None, min_interval_seconds=60):
+def record_price_history_snapshot(symbol, price, volume=0.0, quote_volume=0.0, now_timestamp=None, min_interval_seconds=60, exchange="binance"):
     """Add a current price and volume snapshot when the last stored sample is old enough."""
     symbol = (symbol or "").strip().upper()
     price = _as_float(price)
@@ -167,7 +199,7 @@ def record_price_history_snapshot(symbol, price, volume=0.0, quote_volume=0.0, n
         volume=volume,
         quote_volume=quote_volume,
         timestamp=now_timestamp,
-        exchange="binance",
+        exchange=exchange,
     ))
     return True
 

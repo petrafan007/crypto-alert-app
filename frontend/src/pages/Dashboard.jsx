@@ -1408,10 +1408,37 @@ function Dashboard({ isLightMode }) {
     if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current);
   };
 
-  // Open dashboard assets on their preferred live Binance.US market. USD and USDT are
-  // quote currencies, so either one maps to the tradable USDT/USD market.
+  // Open dashboard assets on their preferred live trading market (Binance.US or Webull).
+  const handleCoinClick = (assetOrSymbol) => {
+    if (!assetOrSymbol) return;
+    if (typeof assetOrSymbol === 'object') {
+      if (isWebullAsset(assetOrSymbol) || isTraditionalAsset(assetOrSymbol)) {
+        navigateToWebullInstrument(assetOrSymbol, 'BUY');
+        return;
+      }
+      handleChartClick(assetOrSymbol.symbol);
+      return;
+    }
+    const cleanSym = String(assetOrSymbol || '').toUpperCase().trim();
+    const matchedAsset = [...(portfolio || []), ...(watchlist || [])].find(
+      (a) => (a.symbol || '').toUpperCase() === cleanSym && (isWebullAsset(a) || isTraditionalAsset(a))
+    );
+    if (matchedAsset) {
+      navigateToWebullInstrument(matchedAsset, 'BUY');
+      return;
+    }
+    handleChartClick(cleanSym);
+  };
+
   const handleChartClick = (symbol) => {
     const cleanSymbol = String(symbol || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+    const matchedAsset = [...(portfolio || []), ...(watchlist || [])].find(
+      (a) => (a.symbol || '').toUpperCase() === cleanSymbol && (isWebullAsset(a) || isTraditionalAsset(a))
+    );
+    if (matchedAsset) {
+      navigateToWebullInstrument(matchedAsset, 'BUY');
+      return;
+    }
     const cleanBase = ['USD', 'USDT', 'USDTUSD'].includes(cleanSymbol)
       ? 'USDT'
       : cleanSymbol.replace(/USDT$|USD$/, '');
@@ -4368,7 +4395,7 @@ function Dashboard({ isLightMode }) {
                 <div className="chart-panel widget-panel-inner" style={{ height: '100%', padding: '16px', display: 'flex', flexDirection: 'column' }}>
                   <h2 className="chart-title" style={{ margin: '0 0 12px 0', fontSize: '1.1rem' }}>Allocations</h2>
                   <div style={{ flex: 1, minHeight: '260px', width: '100%' }}>
-                    <PortfolioPie portfolio={scopedPortfolio} isLightMode={isLightMode} totalValue={scopedTotalValue} onCoinClick={accountScope === 'webull' ? undefined : handleChartClick} />
+                    <PortfolioPie portfolio={scopedPortfolio} isLightMode={isLightMode} totalValue={scopedTotalValue} onCoinClick={handleCoinClick} />
                   </div>
                 </div>
               );
@@ -4439,7 +4466,7 @@ function Dashboard({ isLightMode }) {
             case 'performance':
               return accountScope === 'webull'
                 ? <div className="widget-panel-inner" style={{ padding: '18px', color: 'var(--text-secondary, #94a3b8)' }}>Webull performance history will be added with its dedicated equity and options market-data integration.</div>
-                : <PortfolioPerformanceTable hiddenCoins={performanceHiddenCoins} excludeSymbols={traditionalSymbols} onEdit={handleOpenPerformanceCoinModal} onCoinClick={handleChartClick} />;
+                : <PortfolioPerformanceTable hiddenCoins={performanceHiddenCoins} excludeSymbols={traditionalSymbols} onEdit={handleOpenPerformanceCoinModal} onCoinClick={handleCoinClick} />;
             case 'top_movers':
               return <TopMoversWidget isLightMode={isLightMode} config={topMoversConfig} onEdit={handleOpenTopMoversModal} ownedSymbols={ownedSymbols} onCoinClick={(symbol) => navigateToTrading(symbol, 'BUY', 'USDT')} />;
             case 'top_stock_movers':
@@ -4454,7 +4481,7 @@ function Dashboard({ isLightMode }) {
                 })}
               />;
             case 'recent_trades':
-              return <RecentTradesWidget isLightMode={isLightMode} config={recentTradesConfig} onEdit={handleOpenRecentTradesModal} onCoinClick={handleChartClick} accountScope={accountScope} />;
+              return <RecentTradesWidget isLightMode={isLightMode} config={recentTradesConfig} onEdit={handleOpenRecentTradesModal} onCoinClick={handleCoinClick} accountScope={accountScope} />;
             case 'ai_pulse':
               return <AIPulseWidget isLightMode={isLightMode} />;
             case 'staking_rewards':
@@ -4622,11 +4649,11 @@ function Dashboard({ isLightMode }) {
                                 <td
                                   key="symbol"
                                   className="symbol-cell"
-                                  onMouseEnter={isExternal ? undefined : (e) => handleSymbolHover(coin.symbol, e)}
-                                  onMouseLeave={isExternal ? undefined : handleSymbolLeave}
-                                  onClick={isExternal ? undefined : () => handleChartClick(coin.symbol)}
-                                  style={{ cursor: isExternal ? 'default' : 'pointer', textAlign: 'center' }}
-                                  title={isExternal ? `Imported from ${coin.source_label || 'Webull'} — read-only` : 'Hover for 7-day chart, click to open its local Trading pair'}
+                                  onMouseEnter={(e) => handleSymbolHover(coin.symbol, e)}
+                                  onMouseLeave={handleSymbolLeave}
+                                  onClick={() => handleCoinClick(coin)}
+                                  style={{ cursor: 'pointer', textAlign: 'center' }}
+                                  title={isExternal ? `Hover for 7-day chart, click to open on Webull Trading` : 'Hover for 7-day chart, click to open its local Trading pair'}
                                 >
                                   <div className="coin-symbol-container" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', justifyContent: 'center' }}>
                                     <CryptoIcon symbol={coin.symbol} size={20} />
@@ -5161,8 +5188,8 @@ function Dashboard({ isLightMode }) {
                                   style={{ textAlign: 'center', cursor: 'pointer' }}
                                   onMouseEnter={(e) => handleSymbolHover(item.symbol, e)}
                                   onMouseLeave={handleSymbolLeave}
-                                  onClick={() => handleChartClick(item.symbol)}
-                                  title="Hover for 7-day chart, click to open its local Trading pair"
+                                  onClick={() => handleCoinClick(item)}
+                                  title={isTraditionalAsset(item) ? "Hover for 7-day chart, click to open on Webull Trading" : "Hover for 7-day chart, click to open its local Trading pair"}
                                 >
                                   <div className="coin-symbol-container" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', justifyContent: 'center' }}>
                                     <CryptoIcon symbol={item.symbol} size={20} />
@@ -5412,7 +5439,7 @@ function Dashboard({ isLightMode }) {
         position={hoverPopup.position}
         onClose={handleSymbolLeave}
         onMouseEnter={handlePopupMouseEnter}
-        onChartClick={handleChartClick}
+        onChartClick={handleCoinClick}
       />
 
       {/* Mobile Actions Overlay */}
