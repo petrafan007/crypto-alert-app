@@ -1,6 +1,6 @@
 # Exchange-Aware Navigation & Account Views — Review Checklist
 
-Status: **Acceptance criteria defined and implemented through v2.40.3**
+Status: **Acceptance criteria defined and implemented through v2.42.0**
 Scope: Replace the current Binance-centric navigation model with explicit Binance.US, Webull, and All Accounts contexts.
 
 ## Confirmed product decisions
@@ -18,6 +18,8 @@ Scope: Replace the current Binance-centric navigation model with explicit Binanc
 - [x] A new top-level **Orders** destination replaces AI Analysis and provides combined Open Orders and Order History for all accounts.
 - [x] Combined order views must visibly retain their exchange/source identity.
 - [x] Webull Trading stores a user-selected default account and otherwise prefers an equity/cash account, while each position is resolved within the selected account. [Implemented in v2.39.0]
+- [x] Webull assets have full hover and symbol-click parity with Binance.US assets: hovering over a Webull stock, ETF, or crypto in the Portfolio or Watchlist table displays the interactive 7-day performance chart popup (with real-time hourly stock/ETF market data), and clicking the symbol or popup header routes directly to Webull Trading with pre-selected ticker and account. [Implemented in v2.42.0]
+- [x] AI Copilot receives unified multi-asset context spanning Binance.US holdings, cash balances, Webull equities/ETFs/options, full watchlist telemetry, and recent trades with native Binance OCO matching-engine linkage awareness. [Implemented in v2.41.0 & v2.41.1]
 
 ## Requirements review checklist
 
@@ -34,7 +36,7 @@ Scope: Replace the current Binance-centric navigation model with explicit Binanc
 - [x] CHK006 The selector is right aligned between navigation and dashboard panels, defaults to All Accounts, and requires an equivalent responsive/mobile layout. [Decision]
 - [x] CHK007 The selector governs account totals, portfolio value cards, allocations, trend, portfolio table, owned-asset highlighting, risk/quick-trade behavior, performance, and recent activity. Binance-only Watchlist, staking, and execution controls are hidden or replaced with an explicit Webull-scope message. [Decision, Implemented]
 - [x] CHK008 **All Accounts** equals Binance.US portfolio value plus each imported Webull account’s net liquidation value. Imported Webull positions remain separate source/account rows; their position value and account cash are never added a second time. Same-symbol holdings are not merged across exchanges, and P&L remains source-specific. [Decision, Implemented]
-- [x] CHK009 Portfolio rows show their source identity and asset type. Binance.US rows retain Binance actions; Webull rows use the Webull mark/account pill, are account-safe, and route only to Webull Trading. The Binance watchlist is unavailable in Webull-only scope. [Decision, Implemented]
+- [x] CHK009 Portfolio and Watchlist rows show their source identity and asset type. Binance.US rows retain Binance actions and routing; Webull rows use the Webull mark/account pill, support interactive 7-day performance chart hover with stock/ETF market data, and route directly to Webull Trading on symbol click. The Binance watchlist is unavailable in Webull-only scope. [Decision, Implemented in v2.42.0]
 - [x] CHK010 A disconnected or empty source shows zero/empty scoped data and a clear connection or no-data message. It never exposes stale data from the other exchange, silently switches scope, or enables the wrong exchange’s action. [Decision, Implemented]
 - [x] CHK011 Dashboard scope is saved as `dashboard_account_scope` in browser storage. Webull’s saved default account is independent of Dashboard scope; explicit Portfolio, Watchlist, and mover deep links override it only for the requested Webull action. [Decision, Implemented]
 
