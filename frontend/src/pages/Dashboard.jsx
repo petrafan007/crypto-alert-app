@@ -2610,7 +2610,7 @@ function Dashboard({ isLightMode }) {
           <div className="actions-bottom-sheet__body">
             <button
               onClick={() => {
-                if (isPortfolio && !isPlaceholder) toggleAlert(coin.id, coin.alert_enabled);
+                if (isPortfolio && !isPlaceholder) toggleAlert(coin.id, coin.alert_enabled, coin.symbol);
                 if (isWatchlist) toggleWatchlistAlert(item.symbol, item.alert_enabled);
                 closeActionMenu();
               }}
@@ -2842,7 +2842,7 @@ function Dashboard({ isLightMode }) {
             })()}
             <button
               onClick={() => {
-                if (isPortfolio && !isPlaceholder) hideCoin(coin.id);
+                if (isPortfolio && !isPlaceholder) hideCoin(coin.id, coin.symbol);
                 if (isWatchlist) deleteWatchlistItem(item.symbol);
                 closeActionMenu();
               }}
@@ -2889,7 +2889,7 @@ function Dashboard({ isLightMode }) {
         <button
           role="menuitem"
           onClick={() => {
-            if (isPortfolio && !isPlaceholder) toggleAlert(coin.id, coin.alert_enabled);
+            if (isPortfolio && !isPlaceholder) toggleAlert(coin.id, coin.alert_enabled, coin.symbol);
             if (isWatchlist) toggleWatchlistAlert(item.symbol, item.alert_enabled);
             closeActionMenu();
           }}
@@ -2979,7 +2979,7 @@ function Dashboard({ isLightMode }) {
         <button
           role="menuitem"
           onClick={() => {
-            if (isPortfolio && !isPlaceholder) hideCoin(coin.id);
+            if (isPortfolio && !isPlaceholder) hideCoin(coin.id, coin.symbol);
             if (isWatchlist) deleteWatchlistItem(item.symbol);
             closeActionMenu();
           }}
@@ -4582,7 +4582,7 @@ function Dashboard({ isLightMode }) {
                         {visibleCols.map((colKey) => {
                           // Imported brokerage positions are displayed alongside Binance
                           // holdings, but they must never inherit Binance-only controls.
-                          if (isExternal && !['symbol', 'amount', 'current_price', 'current_value', 'down_alert', 'up_alert', 'volatility_pct', 'avg_entry', 'pct_change', 'sentiment', 'pnl_usd', 'allocation_pct', 'last_updated'].includes(colKey)) {
+                          if (isExternal && !['symbol', 'amount', 'current_price', 'current_value', 'down_alert', 'up_alert', 'volatility_pct', 'avg_entry', 'pct_change', 'sentiment', 'pnl_usd', 'allocation_pct', 'last_updated', 'actions'].includes(colKey)) {
                             return <td key={colKey} style={{ textAlign: 'center', color: 'var(--text-secondary, #94a3b8)' }}>—</td>;
                           }
                           switch (colKey) {
@@ -4793,7 +4793,7 @@ function Dashboard({ isLightMode }) {
                                     <div className="actions-cell-content">
                                       <button
                                         type="button"
-                                        onClick={!isPlaceholder ? () => toggleAlert(coin.id, coin.alert_enabled) : undefined}
+                                        onClick={!isPlaceholder ? () => toggleAlert(coin.id, coin.alert_enabled, coin.symbol) : undefined}
                                         className={`action-icon-btn alert-btn ${coin.alert_enabled ? 'alert-enabled' : 'alert-disabled'}`}
                                         title={alertTitle}
                                         disabled={isPlaceholder}
