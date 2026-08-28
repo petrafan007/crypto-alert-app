@@ -55,6 +55,21 @@ class WebullServiceTests(unittest.TestCase):
             'account_id': '12345678', 'account_type': 'OPTION', 'account_name': 'Options'
         }])
 
+    def test_account_discovery_handles_subtypes_and_defaults(self):
+        response = Mock(status_code=200)
+        response.json.return_value = {
+            'data': [{'accountId': '98765432', 'accountType': 'CASH', 'accountSubType': 'ROTH'}]
+        }
+        with patch('services.webull_service.get_webull_account_list', return_value=response):
+            accounts = get_webull_accounts('app-key', 'app-secret', access_token='token')
+
+        self.assertEqual(accounts, [{
+            'account_id': '98765432',
+            'account_type': 'CASH',
+            'account_sub_type': 'ROTH',
+            'account_name': 'CASH (ROTH)',
+        }])
+
     def test_non_success_response_is_not_treated_as_connected(self):
         response = Mock(status_code=401, text='Unauthorized')
         with patch('services.webull_service.get_webull_account_list', return_value=response):

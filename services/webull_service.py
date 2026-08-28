@@ -172,11 +172,19 @@ def get_webull_accounts(app_key, app_secret, environment='production', access_to
         account_id = account.get('account_id') or account.get('accountId') or account.get('id')
         if account_id is None:
             continue
-        accounts.append({
+        sub_type = str(account.get('account_sub_type') or account.get('accountSubType') or account.get('sub_type') or account.get('custody_type') or '').strip()
+        raw_name = str(account.get('account_name') or account.get('accountName') or account.get('name') or account.get('title') or '').strip()
+        account_type = str(account.get('account_type') or account.get('accountType') or account.get('type') or 'Cash').strip()
+        if not raw_name and sub_type:
+            raw_name = f"{account_type} ({sub_type})"
+        item = {
             'account_id': str(account_id),
-            'account_type': str(account.get('account_type') or account.get('accountType') or account.get('type') or 'Unknown'),
-            'account_name': str(account.get('account_name') or account.get('accountName') or account.get('name') or ''),
-        })
+            'account_type': account_type,
+            'account_name': raw_name,
+        }
+        if sub_type:
+            item['account_sub_type'] = sub_type
+        accounts.append(item)
     return accounts
 
 

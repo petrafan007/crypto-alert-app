@@ -193,18 +193,24 @@ export default function WebullTradingViewChart({
           {/* Asset Category Selector */}
           <div className="advanced-chart-pair-control" style={{ width: 'auto' }}>
             <span className="advanced-chart-control-label">Asset Category</span>
-            <div style={{ display: 'flex', borderRadius: '8px', overflow: 'hidden', border: '1px solid rgba(129, 140, 248, 0.4)' }}>
+            <div style={{ display: 'flex', width: '380px', maxWidth: '100%', borderRadius: '8px', overflow: 'hidden', border: '1px solid rgba(129, 140, 248, 0.4)' }}>
               <button
                 type="button"
                 onClick={() => handleCategorySwitch('TRADITIONAL')}
                 style={{
-                  padding: '8px 14px',
+                  flex: 1,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  padding: '8px 12px',
                   background: assetCategory === 'TRADITIONAL' ? '#3b82f6' : 'rgba(15, 23, 42, 0.8)',
                   color: '#fff',
                   border: 'none',
                   fontSize: '13px',
                   fontWeight: 600,
                   cursor: 'pointer',
+                  textAlign: 'center',
+                  transition: 'background 0.2s ease',
                 }}
               >
                 🏛️ Traditional (Stocks &amp; ETFs)
@@ -213,13 +219,19 @@ export default function WebullTradingViewChart({
                 type="button"
                 onClick={() => handleCategorySwitch('CRYPTO')}
                 style={{
-                  padding: '8px 14px',
+                  flex: 1,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  padding: '8px 12px',
                   background: assetCategory === 'CRYPTO' ? '#f59e0b' : 'rgba(15, 23, 42, 0.8)',
                   color: '#fff',
                   border: 'none',
                   fontSize: '13px',
                   fontWeight: 600,
                   cursor: 'pointer',
+                  textAlign: 'center',
+                  transition: 'background 0.2s ease',
                 }}
               >
                 🪙 Cryptocurrency

@@ -11,6 +11,7 @@ from log import logger
 from routes.helpers import *
 
 import os
+import json
 from datetime import datetime
 
 from flask import Blueprint, request, jsonify, current_app
@@ -1524,17 +1525,31 @@ def api_webull_accounts():
             credential.webull_app_key, credential.webull_app_secret,
             environment, credential.webull_access_token,
         )
-        # An account ID is not needed in the browser at this stage. Mask it until
-        # the user explicitly chooses which account(s) to integrate next.
-        display_accounts = [{
-            'account_type': account['account_type'],
-            'account_name': account['account_name'],
-            'account_id_masked': f"••••{account['account_id'][-4:]}",
-        } for account in accounts]
+        raw_aliases = getattr(setting, 'webull_account_aliases', '{}') or '{}'
+        try:
+            aliases = json.loads(raw_aliases) if isinstance(raw_aliases, str) else (raw_aliases or {})
+        except Exception:
+            aliases = {}
+
+        display_accounts = []
+        for account in accounts:
+            acc_id = str(account['account_id'])
+            custom_name = aliases.get(acc_id, '').strip()
+            display_name = custom_name or account['account_name'] or account['account_type']
+            display_accounts.append({
+                'account_id': acc_id,
+                'account_type': account['account_type'],
+                'account_sub_type': account.get('account_sub_type', ''),
+                'account_name': display_name,
+                'custom_name': custom_name,
+                'account_id_masked': f"••••{acc_id[-4:]}",
+            })
+
         return jsonify({
             'success': True,
             'environment': environment,
             'accounts': display_accounts,
+            'aliases': aliases,
             'message': f'Found {len(display_accounts)} Webull account(s).',
         })
     except WebullConnectionError as exc:
@@ -1565,14 +1580,25 @@ def api_webull_portfolio_preview():
             credential.webull_app_key, credential.webull_app_secret,
             environment, credential.webull_access_token,
         )
+        raw_aliases = getattr(setting, 'webull_account_aliases', '{}') or '{}'
+        try:
+            aliases = json.loads(raw_aliases) if isinstance(raw_aliases, str) else (raw_aliases or {})
+        except Exception:
+            aliases = {}
+
         accounts = []
         for account in preview:
             balance = account.get('balance') if isinstance(account.get('balance'), dict) else {}
             positions = account.get('positions') or []
+            acc_id = str(account.get('account_id') or '')
+            custom_name = aliases.get(acc_id, '').strip()
+            display_name = custom_name or account.get('account_name') or account.get('account_type') or 'Account'
             accounts.append({
+                'account_id': acc_id,
                 'account_type': account['account_type'],
-                'account_name': account['account_name'],
-                'account_id_masked': f"••••{account['account_id'][-4:]}",
+                'account_name': display_name,
+                'custom_name': custom_name,
+                'account_id_masked': f"••••{acc_id[-4:]}" if acc_id else '••••',
                 'balance': {
                     key: balance.get(key) for key in (
                         'total_asset_currency', 'total_cash_balance', 'total_market_value',
@@ -1590,6 +1616,7 @@ def api_webull_portfolio_preview():
             'success': True,
             'selection_mode': 'all',
             'accounts': accounts,
+            'aliases': aliases,
             'message': f'Loaded a read-only preview for {len(accounts)} Webull account(s).',
         })
     except WebullConnectionError as exc:
@@ -1597,6 +1624,48 @@ def api_webull_portfolio_preview():
     except Exception as exc:
         logger.error('Webull portfolio preview failed: %s', exc, exc_info=True)
         return jsonify({'success': False, 'message': 'Unable to load the Webull portfolio preview.'}), 500
+
+
+@system_bp.route('/api/webull/account-aliases', methods=['PUT', 'POST'])
+@login_required
+def api_save_webull_account_aliases():
+    """Save user-customized nicknames/aliases for connected Webull accounts."""
+    try:
+        setting = UserSetting.query.filter_by(user_id=current_user.id).first()
+        if not setting:
+            setting = UserSetting(user_id=current_user.id)
+            db.session.add(setting)
+
+        data = request.get_json(silent=True) or {}
+        new_aliases = data.get('aliases') or {}
+        if not isinstance(new_aliases, dict):
+            return jsonify({'success': False, 'message': 'Invalid aliases payload.'}), 400
+
+        current_raw = getattr(setting, 'webull_account_aliases', '{}') or '{}'
+        try:
+            current_aliases = json.loads(current_raw) if isinstance(current_raw, str) else (current_raw or {})
+        except Exception:
+            current_aliases = {}
+
+        for k, v in new_aliases.items():
+            key_str = str(k).strip()
+            val_str = str(v).strip()
+            if val_str:
+                current_aliases[key_str] = val_str
+            elif key_str in current_aliases:
+                del current_aliases[key_str]
+
+        setting.webull_account_aliases = json.dumps(current_aliases)
+        db.session.commit()
+        return jsonify({
+            'success': True,
+            'aliases': current_aliases,
+            'message': 'Webull account nicknames saved successfully.',
+        })
+    except Exception as exc:
+        db.session.rollback()
+        logger.error('Failed to save Webull account aliases: %s', exc, exc_info=True)
+        return jsonify({'success': False, 'message': 'Failed to save account nicknames.'}), 500
 
 
 @system_bp.route('/api/webull/portfolio-sync', methods=['POST'])

@@ -172,7 +172,13 @@ export default function WebullTrading({ isLightMode = false }) {
       setSignals(signalsResponse.data?.signals || []);
       setSignalSettings((current) => ({ ...current, ...(signalSettingsResponse.data?.settings || {}) }));
 
-      const discoveredAccounts = previewResponse.data?.accounts || [];
+      let discoveredAccounts = previewResponse.data?.accounts || [];
+      if (!discoveredAccounts.length) {
+        try {
+          const accRes = await axios.get('/api/webull/accounts', { withCredentials: true });
+          discoveredAccounts = accRes.data?.accounts || [];
+        } catch (e) {}
+      }
       setAccounts(discoveredAccounts);
       if (discoveredAccounts.length && !selectedAccountId) {
         setSelectedAccountId(discoveredAccounts[0].account_id);
@@ -538,27 +544,41 @@ export default function WebullTrading({ isLightMode = false }) {
                   <div className="trading-asset-card">
                     <CryptoIcon symbol="USD" size={32} />
                     <div className="trading-asset-card-details" style={{ width: '100%' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px', gap: '8px' }}>
                         <span className="trading-asset-card-label">USD Cash Available</span>
-                        {accounts.length > 1 && (
+                        {accounts.length > 0 && (
                           <select
                             value={selectedAccountId}
                             onChange={(e) => setSelectedAccountId(e.target.value)}
+                            aria-label="Select Webull Account"
                             style={{
-                              padding: '2px 8px',
+                              padding: '4px 8px',
                               borderRadius: '6px',
-                              background: 'rgba(0,0,0,0.3)',
-                              color: '#94a3b8',
-                              border: '1px solid rgba(255,255,255,0.15)',
-                              fontSize: '11px',
+                              background: isLightMode ? '#ffffff' : '#0f172a',
+                              color: isLightMode ? '#0f172a' : '#f8fafc',
+                              border: isLightMode ? '1px solid #cbd5e1' : '1px solid rgba(148, 163, 184, 0.35)',
+                              fontSize: '12px',
+                              fontWeight: '600',
                               cursor: 'pointer',
+                              maxWidth: '220px',
                             }}
                           >
-                            {accounts.map((acc) => (
-                              <option key={acc.account_id} value={acc.account_id}>
-                                {acc.account_name || 'Account'} ({acc.account_id})
-                              </option>
-                            ))}
+                            {accounts.map((acc) => {
+                              const label = acc.custom_name || acc.account_name || acc.account_type || 'Account';
+                              const masked = acc.account_id_masked || (acc.account_id ? `••••${String(acc.account_id).slice(-4)}` : '');
+                              return (
+                                <option
+                                  key={acc.account_id}
+                                  value={acc.account_id}
+                                  style={{
+                                    background: isLightMode ? '#ffffff' : '#0f172a',
+                                    color: isLightMode ? '#0f172a' : '#f8fafc',
+                                  }}
+                                >
+                                  {label} {masked ? `(${masked})` : ''}
+                                </option>
+                              );
+                            })}
                           </select>
                         )}
                       </div>
@@ -566,7 +586,8 @@ export default function WebullTrading({ isLightMode = false }) {
                         ${number(cashBalance)} <small>USD</small>
                       </span>
                       <span className="trading-asset-card-sub">
-                        {activeAccount?.account_name || 'Individual'} ({selectedAccountId}) · Ready to trade
+                        {activeAccount?.custom_name || activeAccount?.account_name || 'Webull Account'}{' '}
+                        ({activeAccount?.account_id_masked || (selectedAccountId ? `••••${String(selectedAccountId).slice(-4)}` : '')}) · Ready to trade
                       </span>
                     </div>
                   </div>
