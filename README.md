@@ -123,6 +123,10 @@ The application utilizes a **unified PostgreSQL database**.
 
 ## Version History & Changelog
 
+## v2.41.2 (August 2026)
+
+- **Hotfix for Binance Trading Page Balance Slider**: Restored missing `balancePercentage` React state hook in `Trading.jsx`. Resolves the `ReferenceError: balancePercentage is not defined` runtime crash when opening the Binance Trading page.
+
 ## v2.41.1 (August 2026)
 
 - **Hardened AI Copilot Native OCO Understanding**: Embedded explicit exchange architecture directives in the AI Copilot prompt engine. On Binance/Binance.US, OCO orders are natively managed by the exchange matching engine as linked Order Lists (`orderListId`) containing a `STOP_LOSS_LIMIT` leg and a `LIMIT_MAKER` leg. The Copilot is explicitly instructed that these legs are verified, natively linked orders that automatically trigger mutual cancellation upon execution, preventing false claims that orders are "unlinked" or lack an "OCO wrapper".

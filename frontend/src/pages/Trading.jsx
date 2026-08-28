@@ -141,6 +141,7 @@ const Trading = ({ isLightMode = false }) => {
     quote_locked: 0,
     quote_total: 0
   });
+  const [balancePercentage, setBalancePercentage] = useState(0);
   const [openOrders, setOpenOrders] = useState([]);
   const [ordersLoading, setOrdersLoading] = useState(false);
   const [cancelModal, setCancelModal] = useState({
