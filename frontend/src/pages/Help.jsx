@@ -23,6 +23,7 @@ const TOC_GROUPS = [
         title: 'Account Setup',
         items: [
             { id: 'api-key-setup', label: 'Binance.US API Key Setup' },
+            { id: 'webull-openapi-setup', label: 'Webull OpenAPI Setup & Import' },
             { id: 'ai-provider-setup', label: 'AI Provider Setup' },
             { id: 'telegram-alerts', label: 'Telegram Alerts' },
             { id: 'two-factor-auth', label: 'Two-Factor Authentication (2FA)' },
@@ -230,15 +231,16 @@ export default function Help({ isLightMode }) {
             {/* Getting Started */}
             <Section id="getting-started" icon={<FaHome />} title="Getting Started">
                 <p style={{ marginBottom: '16px' }}>
-                    Welcome to Crypto &amp; Securities Dashboard! This is a non-custodial cryptocurrency portfolio management and
-                    trading platform for Binance.US. It covers real-time portfolio tracking, one-click trading of
-                    any Binance.US-listed coin, staking, automated crash/surge protection, and AI-powered market
-                    analysis — all self-hosted, so your API keys and data never leave your own server.
+                    Welcome to Crypto &amp; Securities Dashboard! This is a non-custodial crypto and securities portfolio
+                    management and trading platform for Binance.US and Webull. It covers real-time portfolio tracking,
+                    exchange-aware trading, staking, automated Binance.US crash/surge protection, and AI-powered market
+                    analysis — all self-hosted, so your credentials and data never leave your own server.
                 </p>
 
                 <SubHeading>Quick Start Steps:</SubHeading>
                 <ol style={{ paddingLeft: '20px', lineHeight: '1.8' }}>
-                    <li><strong>Set up your Binance.US API key</strong> in Settings (required for portfolio sync, trading, and staking)</li>
+                    <li><strong>Set up your Binance.US API key</strong> in Settings for crypto portfolio sync, trading, staking, and app automation</li>
+                    <li><strong>Optionally connect Webull OpenAPI</strong> in Settings, choose the accounts to include, preview them, and import their read-only portfolio snapshots</li>
                     <li><strong>Configure alerts</strong> via Telegram and/or browser notifications for price and trade updates</li>
                     <li><strong>Enable AI integration</strong> for sentiment analysis and the AI Copilot (optional)</li>
                     <li><strong>Explore your Dashboard</strong> — add coins to your Portfolio and Watchlist, then customize the widget layout</li>
@@ -270,12 +272,16 @@ export default function Help({ isLightMode }) {
                             <td style={{ padding: '12px' }}>No API key needed</td>
                         </tr>
                         <tr style={{ borderBottom: `1px solid ${borderColor}` }}>
-                            <td style={{ padding: '12px' }}>AI Analysis, AI Copilot Sidebar</td>
-                            <td style={{ padding: '12px' }}>Valid Binance.US API key</td>
+                            <td style={{ padding: '12px' }}>Binance.US Trading, Staking, Auto-Buy/Auto-Sell</td>
+                            <td style={{ padding: '12px' }}>Valid Binance.US API key with the needed reading/trading permission</td>
                         </tr>
                         <tr style={{ borderBottom: `1px solid ${borderColor}` }}>
-                            <td style={{ padding: '12px' }}>Trading, Staking, Auto-Buy/Auto-Sell</td>
-                            <td style={{ padding: '12px' }}>Valid API key + "Enable Spot Trading" permission</td>
+                            <td style={{ padding: '12px' }}>Webull Portfolio, Webull Trading, Webull Orders</td>
+                            <td style={{ padding: '12px' }}>Verified Webull OpenAPI connection, enabled account, and imported portfolio snapshot</td>
+                        </tr>
+                        <tr style={{ borderBottom: `1px solid ${borderColor}` }}>
+                            <td style={{ padding: '12px' }}>AI Analysis, AI Copilot Sidebar</td>
+                            <td style={{ padding: '12px' }}>Configured AI provider; exchange data is limited to your connected/imported accounts</td>
                         </tr>
                     </tbody>
                 </table>
@@ -289,14 +295,14 @@ export default function Help({ isLightMode }) {
             {/* Security */}
             <Section id="security" icon={<FaShieldAlt />} title="Security & Non-Custodial Architecture">
                 <p style={{ marginBottom: '16px' }}>
-                    This app never takes custody of your funds — all trades execute directly on your Binance.US
-                    account using your own API key.
+                    This app never takes custody of your funds — Binance.US and Webull orders execute directly with
+                    the selected account at the owning provider.
                 </p>
                 <ul style={{ paddingLeft: '20px', marginBottom: '16px', lineHeight: '1.8' }}>
-                    <li><strong>Local AES-256 Encryption at Rest</strong> — your Binance.US API key/secret and any AI provider keys are encrypted before being stored in the database.</li>
+                    <li><strong>Local AES-256 Encryption at Rest</strong> — your Binance.US API key/secret, Webull App Key/App Secret and access token, and AI provider keys are encrypted before being stored in the database.</li>
                     <li><strong>Self-Hosted Privacy</strong> — since you run this app on your own server, your keys, trades, and portfolio data stay completely under your control.</li>
                     <li><strong>Credential Encryption Key rotation</strong> (admin account only) — available in Settings for rotating the underlying encryption key.</li>
-                    <li><strong>App-level 2FA</strong> — an additional authentication layer for trade execution, separate from your Binance.US account 2FA (see <a href="#two-factor-auth" style={{ color: accentColor }}>Two-Factor Authentication</a>).</li>
+                    <li><strong>App-level 2FA</strong> — an additional authentication layer for Binance.US and Webull trade execution, separate from each provider's own authentication (see <a href="#two-factor-auth" style={{ color: accentColor }}>Two-Factor Authentication</a>).</li>
                 </ul>
                 <Warning>
                     Never enable withdrawal permissions on the API key you give this app. Only "Enable Reading" and
@@ -328,6 +334,62 @@ export default function Help({ isLightMode }) {
 
                 <Warning>
                     Never share your API Secret. For security, do NOT enable withdrawal permissions.
+                </Warning>
+            </Section>
+
+            {/* Webull OpenAPI Setup */}
+            <Section id="webull-openapi-setup" icon={<FaChartLine />} title="Webull OpenAPI Setup & Import">
+                <p style={{ marginBottom: '16px' }}>
+                    Connect Webull only through your personal Webull Trading API application in <Link to="/settings" style={{ color: accentColor }}>Settings</Link>.
+                    The connection is account-scoped: it never substitutes Binance.US data, exposes a raw account number in the browser, or enables every discovered Webull account automatically.
+                </p>
+
+                <SubHeading>Before you begin</SubHeading>
+                <ul style={{ paddingLeft: '20px', marginBottom: '16px', lineHeight: '1.8' }}>
+                    <li>Have the <strong>Webull App Key</strong> and <strong>App Secret</strong> issued for the environment you intend to use.</li>
+                    <li>Choose <strong>Production</strong> only for your live Webull account or <strong>Sandbox</strong> only for a Webull test account. Credentials cannot be used across environments.</li>
+                    <li>Enable app-level trading 2FA before submitting or cancelling live Webull orders if you want the app's six-digit confirmation safeguard.</li>
+                </ul>
+
+                <SubHeading>Connect and verify Webull</SubHeading>
+                <ol style={{ paddingLeft: '20px', lineHeight: '1.8' }}>
+                    <li>Open <Link to="/settings" style={{ color: accentColor }}>Settings</Link> and find <strong>Webull OpenAPI Connection</strong>.</li>
+                    <li>Select the environment that issued the credentials, enter the App Key and App Secret, then save Settings. Both are encrypted at rest and are not sent back to the browser.</li>
+                    <li>Select <strong>Connect and Verify in Webull</strong>. If Webull immediately reports an active token, continue to account selection below.</li>
+                    <li>If verification is pending, open the newest notification in the Webull app at <strong>Menu → Messages → OpenAPI Notifications</strong>, select <strong>Check Now</strong>, and approve the SMS code.</li>
+                    <li>Return to Settings and select <strong>Check Webull Verification</strong> within five minutes. A successful status is shown as active for the selected environment.</li>
+                </ol>
+
+                <Tip>
+                    Verification confirms API access only. It does not import balances or positions and does not place an order.
+                    If you change the credentials or environment, the stored Webull token is cleared and must be verified again.
+                </Tip>
+
+                <SubHeading>Choose accounts and import your portfolio</SubHeading>
+                <ol style={{ paddingLeft: '20px', lineHeight: '1.8' }}>
+                    <li>Under <strong>Connected Webull Accounts</strong>, use <strong>Refresh Accounts</strong> if needed. Account names, masked IDs, and types are displayed without exposing the full account number.</li>
+                    <li>Check only the accounts you want available in Webull Trading. Unchecked accounts are excluded from Webull navigation and account-scoped actions.</li>
+                    <li>Select <strong>Load Read-Only Portfolio Preview</strong> to inspect the enabled accounts' balances and open positions. This preview does not save or merge anything.</li>
+                    <li>Select <strong>Import into Unified Portfolio</strong> to persist the selected accounts' current snapshots. The Dashboard then includes them as separate Webull source/account rows; same-symbol holdings are never merged with Binance.US.</li>
+                </ol>
+
+                <SubHeading>Navigate and set your default account</SubHeading>
+                <p style={{ marginBottom: '16px' }}>
+                    Choose <strong>Trading → Webull</strong> to open the dedicated Webull workspace. Use the <strong>Webull Account</strong>
+                    selector above the chart to switch only among enabled accounts, then select <strong>Make selected account my default</strong>
+                    if that is the account you want when opening Webull Trading without a direct asset link. A Portfolio, Watchlist, or stock-mover action keeps the asset's owning account and instrument type instead of falling back to Binance.US or a different Webull account.
+                </p>
+
+                <SubHeading>Place and manage Webull orders safely</SubHeading>
+                <ul style={{ paddingLeft: '20px', marginBottom: '16px', lineHeight: '1.8' }}>
+                    <li>Webull Trading supports the enabled account's equities/ETFs, crypto, and imported single-leg option contracts. The ticket shows the selected account, available position, buying power, and current quote before confirmation.</li>
+                    <li>For an equity or ETF, choose <strong>Only Regular Hours</strong>, <strong>Including Extended Hours</strong>, or <strong>Overnight Hours Only</strong>. Fractional stock/ETF orders are Market-only during Regular Hours, must be more than zero and no more than one share, and have a $5 minimum. Extended and Overnight sessions require whole shares.</li>
+                    <li>Use the pre-trade review to verify provider, masked account, symbol/contract, side, quantity, price, order type, time in force, and trading session. With app trading 2FA enabled, entering the six-digit code is required before a live order is sent.</li>
+                    <li>Use <strong>Open Orders</strong> or the top-level <strong>Orders</strong> page to review Webull orders. Cancelling a Webull order uses the app's theme-aware confirmation modal, identifies the exact provider/account/order, and requires the six-digit code when 2FA is enabled.</li>
+                </ul>
+
+                <Warning>
+                    Webull positions, orders, quotes, and buying power remain provider- and account-scoped. A Webull row can never submit a Binance.US order, and Binance.US app Auto-Buy/Auto-Sell triggers do not control Webull holdings.
                 </Warning>
             </Section>
 
@@ -397,8 +459,8 @@ export default function Help({ isLightMode }) {
             <Section id="two-factor-auth" icon={<FaShieldAlt />} title="Two-Factor Authentication (2FA)">
                 <p style={{ marginBottom: '16px' }}>
                     Add an extra layer of security to account login and trade execution with TOTP-based 2FA (compatible with Google
-                    Authenticator, Bitwarden, Authy, etc.). This is <strong>separate</strong> from your Binance.US
-                    account's own 2FA — it protects this app itself, so anyone with access to your browser session
+                    Authenticator, Bitwarden, Authy, etc.). This is <strong>separate</strong> from your Binance.US and Webull
+                    account authentication — it protects this app itself, so anyone with access to your browser session
                     or login credentials still can't log in or place trades without your authenticator code.
                 </p>
 
@@ -406,7 +468,7 @@ export default function Help({ isLightMode }) {
                     <li>Enable 2FA in Settings and scan the QR code with an authenticator app</li>
                     <li>Verify by entering the 6-digit code</li>
                     <li>When 2FA is enabled on your profile, you will be prompted for your 6-digit code upon logging in</li>
-                    <li>When "Require 2FA for Trading" is enabled, you will also need to confirm each order, dust conversion, and Cancel Auto-Buy/Auto-Sell Trigger action with a code</li>
+                    <li>When "Require 2FA for Trading" is enabled, you will also need to confirm Binance.US and Webull order placement, protected order cancellation, dust conversion, and Cancel Auto-Buy/Auto-Sell Trigger actions with a code</li>
                 </ol>
 
                 <Tip>
@@ -643,6 +705,7 @@ export default function Help({ isLightMode }) {
                     <li><strong>Webull OpenAPI Connection</strong> — securely save your App Key and App Secret, then select <strong>Connect and Verify in Webull</strong>. For Production accounts with Webull OpenAPI 2FA, approve the SMS code in Webull’s Menu → Messages → OpenAPI Notifications and select <strong>Check Webull Verification</strong> within five minutes. The resulting access token is encrypted, never shown in the browser, is bound to its environment, and is cleared if its credentials or environment change. Verification alone neither imports positions nor sends orders; import selected accounts before using their Webull workspace.</li>
                     <li><strong>Connected Webull Accounts</strong> — after verification, Settings discovers and lists your associated Webull accounts using masked labels and account types only. Choose the account(s) to include; account IDs, tokens, and signing material never reach the browser.</li>
                     <li><strong>Webull Portfolio Preview</strong> — when connected Webull accounts are selected, load a live, read-only preview of those accounts’ balances and open positions. The preview does not merge or persist data until you explicitly import it; it never alters existing Binance.US dashboard data.</li>
+                    <li><strong>Webull setup instructions</strong> — see <a href="#webull-openapi-setup" style={{ color: accentColor }}>Webull OpenAPI Setup &amp; Import</a> above for the complete verification, account-selection, import, default-account, and order-safety workflow.</li>
                     <li><strong>Run Sentiment Analysis Now</strong> — trigger a full AI sentiment pass on demand</li>
                     <li><strong>Include Beta</strong> — opt in to beta releases when upgrading</li>
                     <li><strong>AI Integrations Enabled</strong> — toggle all configured AI integrations from the Settings header. API keys, Telegram credentials, and the News API key are masked on screen; every configured provider has a consistent <strong>Test API Connection</strong> button.</li>
@@ -669,6 +732,23 @@ export default function Help({ isLightMode }) {
                 <p style={{ marginBottom: '16px' }}>
                     Double-check that you copied the API Key and Secret correctly.
                     Make sure "Enable Reading" permission is enabled on your key.
+                </p>
+
+                <SubHeading>Webull verification is pending or no Webull accounts appear</SubHeading>
+                <p style={{ marginBottom: '16px' }}>
+                    Confirm that the selected Production or Sandbox environment matches the App Key and App Secret. For a pending
+                    Production verification, approve the newest request in Webull at <strong>Menu → Messages → OpenAPI Notifications</strong>
+                    and then select <strong>Check Webull Verification</strong> in Settings within five minutes. Once active, use
+                    <strong>Refresh Accounts</strong>, enable at least one account, load the read-only preview, and import the selected
+                    portfolio snapshot before opening Webull Trading.
+                </p>
+
+                <SubHeading>Webull order validation error</SubHeading>
+                <p style={{ marginBottom: '16px' }}>
+                    Confirm that the selected Webull account owns the position for a sell, that the order uses an allowed
+                    instrument/order type/session combination, and that the quantity follows the session rules. Fractional stock/ETF
+                    orders are Market-only in Only Regular Hours; Extended and Overnight orders require whole shares. Review the
+                    pre-trade details and complete the app's six-digit 2FA confirmation when trading 2FA is enabled.
                 </p>
 
                 <SubHeading>Auto-Buy "Cannot allocate" Error</SubHeading>

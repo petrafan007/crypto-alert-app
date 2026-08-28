@@ -125,6 +125,12 @@ The application utilizes a **unified PostgreSQL database**.
 
 Historical changelog entries retain the product name used when they were originally released. The application domain, repository slug, deployment folders, database, and service identifiers intentionally remain unchanged by the v2.45.0 brand update.
 
+## v2.46.0 (August 2026)
+
+- **Complete in-app Webull guide**: Added a dedicated, linked Help section with the exact Settings workflow for selecting the matching Production/Sandbox environment, securely saving Webull OpenAPI credentials, completing the in-app/SMS verification, selecting accounts, loading the read-only preview, and importing account-scoped portfolio snapshots.
+- **Webull trading safety reference**: Documented default-account selection, asset-preserving Webull navigation, account/source isolation, provider-specific order review and cancellation, the app-level six-digit 2FA confirmation, and Regular/Extended/Overnight fractional-share constraints.
+- **Unified Help accuracy**: Updated Quick Start, access requirements, security, 2FA, settings, and troubleshooting guidance so Binance.US and Webull capabilities and boundaries are described consistently.
+
 ## v2.45.0 (August 2026)
 
 - **Global product rename**: The active application name is now **Crypto & Securities Dashboard** across the native header logo, footer, browser metadata, onboarding, authentication, Help, legal, support, 2FA, and AI Copilot surfaces.
