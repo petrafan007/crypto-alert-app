@@ -6,6 +6,7 @@ import WebullTradeTimelineChart from '../components/WebullTradeTimelineChart';
 import TwoFactorModal from '../components/TwoFactorModal';
 import CancelOrderModal from '../components/CancelOrderModal';
 import PercentPriceModal from '../components/PercentPriceModal';
+import WebullAIDashboard from '../components/WebullAIDashboard';
 import './Trading.css';
 
 const OPEN_STATUSES = new Set(['OPEN', 'NEW', 'WORKING', 'PENDING', 'PARTIALLY_FILLED', 'PARTIALLY FILLED']);
@@ -1836,63 +1837,7 @@ export default function WebullTrading({ isLightMode = false }) {
 
             {/* AI ANALYSIS TAB */}
             {activeTab === 'ai_analysis' && (
-              <section className="order-history-container">
-                <h2>Webull AI Analysis</h2>
-                <p style={{ color: 'var(--text-secondary, #94a3b8)', marginTop: 0 }}>
-                  Stored research signals use distinct crypto, equity/ETF, and option prompt paths, are graded at their saved forecast horizon, and never submit a Webull order.
-                </p>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'end', margin: '18px 0' }}>
-                  <label style={{ display: 'grid', gap: 6, minWidth: 240 }}>
-                    <span>Imported holding</span>
-                    <select value={selectedSignalHolding} onChange={(event) => setSelectedSignalHolding(event.target.value)}>
-                      {analyzableHoldings.map((holding) => (
-                        <option key={`${holding.id}-${holding.instrument_type}`} value={`${holding.symbol}|${holding.instrument_type}`}>
-                          {holding.symbol} · {holding.instrument_type}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <button type="button" className="btn btn-primary" disabled={!selectedSignalHolding || signalBusy} onClick={createSignal}>
-                    {signalBusy ? 'Creating…' : 'Create Stored Signal'}
-                  </button>
-                </div>
-                {signalMessage && <div className="modern-real-warning" style={{ marginBottom: 16 }}>{signalMessage}</div>}
-                <div className="trading-asset-card" style={{ marginBottom: 18 }}>
-                  <strong>Optional scheduled signals</strong>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'end', marginTop: 12 }}>
-                    <label style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                      <input
-                        type="checkbox"
-                        checked={!!signalSettings.webull_ai_scheduling_enabled}
-                        onChange={(event) => setSignalSettings((current) => ({ ...current, webull_ai_scheduling_enabled: event.target.checked }))}
-                      />{' '}
-                      Enable scheduled read-only signals
-                    </label>
-                    {[
-                      ['webull_crypto_sentiment_frequency_hours', 'Crypto cadence (hours)'],
-                      ['webull_crypto_sentiment_horizon_hours', 'Crypto forecast (hours)'],
-                      ['webull_equity_sentiment_frequency_hours', 'Equity / ETF cadence (hours)'],
-                      ['webull_equity_sentiment_horizon_hours', 'Equity / ETF forecast (hours)'],
-                    ].map(([key, label]) => (
-                      <label key={key} style={{ display: 'grid', gap: 6 }}>
-                        <span>{label}</span>
-                        <input
-                          type="number"
-                          min="1"
-                          max="720"
-                          value={signalSettings[key]}
-                          onChange={(event) => setSignalSettings((current) => ({ ...current, [key]: event.target.value }))}
-                          style={{ width: 150 }}
-                        />
-                      </label>
-                    ))}
-                    <button type="button" className="btn btn-secondary" disabled={signalBusy} onClick={saveSignalSettings}>
-                      Save schedule
-                    </button>
-                  </div>
-                </div>
-                <WebullSignalTable signals={signals} />
-              </section>
+              <WebullAIDashboard isLightMode={isLightMode} />
             )}
           </>
         )}

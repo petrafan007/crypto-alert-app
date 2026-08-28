@@ -2,6 +2,128 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
 import CancelOrderModal from '../components/CancelOrderModal';
 import './Trading.css';
+import './AIDashboard.css';
+
+const formatEasternTime = (isoString) => {
+  if (!isoString) return 'Not available';
+  try {
+    const date = new Date(isoString);
+    if (isNaN(date.getTime())) return String(isoString);
+    const formatter = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'America/New_York',
+      year: 'numeric',
+      month: 'numeric',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true,
+      timeZoneName: 'short'
+    });
+    const parts = formatter.formatToParts(date);
+    const getPart = (type) => parts.find(p => p.type === type)?.value || '';
+    return `${getPart('month')}-${getPart('day')}-${getPart('year')} at ${getPart('hour')}:${getPart('minute')} ${getPart('dayPeriod')} ${getPart('timeZoneName') || 'EDT'}`;
+  } catch (error) {
+    return 'Invalid date';
+  }
+};
+
+const getProviderName = (provider) => {
+  switch ((provider || '').toLowerCase()) {
+    case 'openai': return 'OpenAI';
+    case 'gemini': return 'Google Gemini';
+    case 'zai': return 'Z.AI';
+    case 'perplexity': return 'Perplexity';
+    case 'inception': return 'Inception Labs';
+    default: return provider || 'AI';
+  }
+};
+
+const getTierName = (tier) => {
+  if (!tier) return 'Primary';
+  return tier.charAt(0).toUpperCase() + tier.slice(1).toLowerCase();
+};
+
+const escapeHtml = (str) =>
+  String(str || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+
+const formatInlineMarkdown = (text) => {
+  let formatted = escapeHtml(text);
+  formatted = formatted.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+  formatted = formatted.replace(/\*(.+?)\*/g, '<em>$1</em>');
+  formatted = formatted.replace(/`(.+?)`/g, '<code>$1</code>');
+  formatted = formatted.replace(/\[(.+?)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+  formatted = formatted.replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>');
+  return formatted;
+};
+
+const renderMarkdown = (markdown) => {
+  if (!markdown) return '';
+  const lines = markdown.split(/\r?\n/);
+  const html = [];
+  let inUl = false;
+  let inOl = false;
+  let inBlockquote = false;
+
+  const closeLists = () => {
+    if (inUl) { html.push('</ul>'); inUl = false; }
+    if (inOl) { html.push('</ol>'); inOl = false; }
+  };
+  const closeBlockquote = () => {
+    if (inBlockquote) { html.push('</blockquote>'); inBlockquote = false; }
+  };
+
+  lines.forEach((line) => {
+    const trimmed = line.trim();
+    if (!trimmed) {
+      closeLists();
+      closeBlockquote();
+      return;
+    }
+    const headingMatch = trimmed.match(/^(#{1,6})\s+(.*)$/);
+    if (headingMatch) {
+      closeLists();
+      closeBlockquote();
+      const level = headingMatch[1].length;
+      html.push(`<h${level}>${formatInlineMarkdown(headingMatch[2])}</h${level}>`);
+      return;
+    }
+    const ulMatch = trimmed.match(/^[-*+]\s+(.*)$/);
+    if (ulMatch) {
+      closeBlockquote();
+      if (inOl) { html.push('</ol>'); inOl = false; }
+      if (!inUl) { html.push('<ul>'); inUl = true; }
+      html.push(`<li>${formatInlineMarkdown(ulMatch[1])}</li>`);
+      return;
+    }
+    const olMatch = trimmed.match(/^\d+\.\s+(.*)$/);
+    if (olMatch) {
+      closeBlockquote();
+      if (inUl) { html.push('</ul>'); inUl = false; }
+      if (!inOl) { html.push('<ol>'); inOl = false; }
+      html.push(`<li>${formatInlineMarkdown(olMatch[1])}</li>`);
+      return;
+    }
+    const bqMatch = trimmed.match(/^>\s*(.*)$/);
+    if (bqMatch) {
+      closeLists();
+      if (!inBlockquote) { html.push('<blockquote>'); inBlockquote = true; }
+      html.push(`<p>${formatInlineMarkdown(bqMatch[1])}</p>`);
+      return;
+    }
+    closeLists();
+    closeBlockquote();
+    html.push(`<p>${formatInlineMarkdown(trimmed)}</p>`);
+  });
+
+  closeLists();
+  closeBlockquote();
+  return html.join('');
+};
 
 const PAGE_SIZES = [20, 50, 100, 200];
 const OPEN_STATUSES = new Set(['ACTIVE', 'OPEN', 'NEW', 'WORKING', 'PENDING', 'PARTIALLY_FILLED', 'PARTIALLY FILLED']);
@@ -127,7 +249,24 @@ function Pagination({ page, setPage, pageSize, setPageSize, total }) {
 }
 
 export default function Orders() {
-  const [activeTab, setActiveTab] = useState('open');
+  const [activeTab, setActiveTab] = useState(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const t = params.get('tab');
+      if (['open', 'history', 'market_analysis', 'portfolio_review'].includes(t)) {
+        return t;
+      }
+    } catch {}
+    return 'open';
+  });
+  const [marketAnalysisData, setMarketAnalysisData] = useState(null);
+  const [portfolioReviewData, setPortfolioReviewData] = useState(null);
+  const [marketPrompt, setMarketPrompt] = useState('');
+  const [portfolioPrompt, setPortfolioPrompt] = useState('');
+  const [showMarketPromptModal, setShowMarketPromptModal] = useState(false);
+  const [showPortfolioPromptModal, setShowPortfolioPromptModal] = useState(false);
+  const [workflowLoading, setWorkflowLoading] = useState({ marketAnalysis: false, portfolioReview: false });
+  const [workflowError, setWorkflowError] = useState({ marketAnalysis: '', portfolioReview: '' });
   const [history, setHistory] = useState([]);
   const [openOrders, setOpenOrders] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -252,7 +391,60 @@ export default function Orders() {
     setLoading(false);
   };
 
-  useEffect(() => { load(); }, []);
+  const loadLatestWorkflowData = async (targetType = 'all') => {
+    if (targetType === 'all' || targetType === 'market-analysis') {
+      try {
+        const res = await axios.get('/api/ai/workflow-latest?type=market-analysis', { withCredentials: true });
+        if (res.data) setMarketAnalysisData(res.data);
+      } catch (err) {}
+    }
+    if (targetType === 'all' || targetType === 'portfolio-review') {
+      try {
+        const res = await axios.get('/api/ai/workflow-latest?type=portfolio-review', { withCredentials: true });
+        if (res.data) setPortfolioReviewData(res.data);
+      } catch (err) {}
+    }
+  };
+
+  const fetchWorkflowData = async (type) => {
+    const isMarket = type === 'market-analysis';
+    setWorkflowLoading(prev => ({ ...prev, [isMarket ? 'marketAnalysis' : 'portfolioReview']: true }));
+    setWorkflowError(prev => ({ ...prev, [isMarket ? 'marketAnalysis' : 'portfolioReview']: '' }));
+    try {
+      const res = await axios.get(`/api/ai/${type}-workflow`, {
+        params: { refresh: true },
+        withCredentials: true
+      });
+      if (res.data) {
+        if (isMarket) setMarketAnalysisData(res.data);
+        else setPortfolioReviewData(res.data);
+      }
+    } catch (err) {
+      const msg = err.response?.data?.message || err.response?.data?.error || err.message || 'Workflow execution failed.';
+      setWorkflowError(prev => ({ ...prev, [isMarket ? 'marketAnalysis' : 'portfolioReview']: msg }));
+    } finally {
+      setWorkflowLoading(prev => ({ ...prev, [isMarket ? 'marketAnalysis' : 'portfolioReview']: false }));
+    }
+  };
+
+  const fetchWorkflowPrompt = async (type) => {
+    try {
+      const res = await axios.get(`/api/ai/${type}-workflow-prompt`, { withCredentials: true });
+      if (res.data?.prompt) {
+        if (type === 'market-analysis') setMarketPrompt(res.data.prompt);
+        else setPortfolioPrompt(res.data.prompt);
+      }
+    } catch (e) {
+      console.error(`Failed to fetch ${type} prompt:`, e);
+    }
+  };
+
+  useEffect(() => {
+    load();
+    loadLatestWorkflowData();
+    fetchWorkflowPrompt('market-analysis');
+    fetchWorkflowPrompt('portfolio-review');
+  }, []);
   const activeOpenOrders = useMemo(() => openOrders.filter((order) => OPEN_STATUSES.has(String(order.status).toUpperCase()) || !order.status || order.status === '—'), [openOrders]);
   const filterableOrders = useMemo(() => [...activeOpenOrders, ...history], [activeOpenOrders, history]);
   const statusOptions = useMemo(() => [...new Set(filterableOrders.map((order) => String(order.status || 'Unknown').toUpperCase()))].sort(), [filterableOrders]);
@@ -284,9 +476,14 @@ export default function Orders() {
 
   const selectTab = (tab) => {
     setActiveTab(tab);
-    // Combined Orders History is an on-demand view of the locally persisted
-    // ledger; it never blocks on an exchange-wide history scan.
+    try {
+      const url = new URL(window.location);
+      url.searchParams.set('tab', tab);
+      window.history.replaceState({}, '', url);
+    } catch {}
     if (tab === 'history' && !history.length && !historyLoading) loadHistory();
+    if (tab === 'market_analysis' && !marketAnalysisData) loadLatestWorkflowData('market-analysis');
+    if (tab === 'portfolio_review' && !portfolioReviewData) loadLatestWorkflowData('portfolio-review');
   };
 
   const openCancelModalForOrder = (order) => {
@@ -387,36 +584,168 @@ export default function Orders() {
         <button className={`tab-button ${activeTab === 'history' ? 'active' : ''}`} onClick={() => selectTab('history')}>
           📜 <span className="tab-text">Order History</span>
         </button>
+        <button className={`tab-button ${activeTab === 'market_analysis' ? 'active' : ''}`} onClick={() => selectTab('market_analysis')}>
+          📊 <span className="tab-text">Market Analysis</span>
+        </button>
+        <button className={`tab-button ${activeTab === 'portfolio_review' ? 'active' : ''}`} onClick={() => selectTab('portfolio_review')}>
+          💼 <span className="tab-text">Portfolio Review</span>
+        </button>
       </div>
       <div className="trading-content">
-        <section className="order-history-container">
-          <div className="combined-order-filters" aria-label="Combined order filters">
-            <label>Source<select value={filters.source} onChange={(event) => setFilter('source', event.target.value)}><option value="all">All sources</option><option value="binance">Binance.US</option><option value="webull">Webull</option><option value="automation">Auto-Buy / Auto-Sell</option></select></label>
-            <label>Account<select value={filters.account} onChange={(event) => setFilter('account', event.target.value)}><option value="all">All accounts</option><option value="binance">Binance.US</option>{webullAccounts.map((account) => <option key={account.account_id} value={account.account_id}>{accountLabel(account)}</option>)}</select></label>
-            <label>Symbol<input type="search" value={filters.symbol} onChange={(event) => setFilter('symbol', event.target.value)} placeholder="BTC, TSLA…" /></label>
-            <label>Product<select value={filters.product} onChange={(event) => setFilter('product', event.target.value)}><option value="all">All products</option><option value="crypto">Crypto</option><option value="equity">Stock / ETF</option><option value="option">Options</option><option value="future">Futures</option><option value="automation">Automation</option><option value="other">Other</option></select></label>
-            <label>Status<select value={filters.status} onChange={(event) => setFilter('status', event.target.value)}><option value="all">All statuses</option>{statusOptions.map((status) => <option key={status} value={status}>{displayType(status)}</option>)}</select></label>
-            <label>Time range<select value={filters.timeRange} onChange={(event) => setFilter('timeRange', event.target.value)}><option value="all">All time</option><option value="1">Past 24 hours</option><option value="7">Past 7 days</option><option value="30">Past 30 days</option><option value="90">Past 90 days</option></select></label>
-            <button type="button" className="btn btn-secondary combined-order-filter-reset" onClick={resetFilters}>Reset filters</button>
-          </div>
-          {loading ? (
-            <div className="empty-state"><p>Loading combined orders…</p></div>
-          ) : activeTab === 'open' ? (
-            <>
-              <h2>All Open Orders</h2>
-              {webullOpenLoading && <p className="order-refresh-status" role="status">Refreshing Webull open orders{webullOpenProgress.total ? ` (${webullOpenProgress.complete}/${webullOpenProgress.total} accounts)…` : '…'}</p>}
-              <OrderTable orders={filteredOpenOrders} open onCancelOrder={openCancelModalForOrder} cancellingId={cancellingId} webullAccounts={webullAccounts} />
-            </>
-          ) : historyLoading && !sortedHistory.length ? (
-            <div className="empty-state"><p>Loading order history…</p></div>
-          ) : (
-            <>
-              <h2>All Order History</h2>
-              <OrderTable orders={paginatedHistory} webullAccounts={webullAccounts} />
-              <Pagination page={historyPage} setPage={setHistoryPage} pageSize={historyPageSize} setPageSize={setHistoryPageSize} total={sortedHistory.length} />
-            </>
-          )}
-        </section>
+        {(activeTab === 'open' || activeTab === 'history') && (
+          <section className="order-history-container">
+            <div className="combined-order-filters" aria-label="Combined order filters">
+              <label>Source<select value={filters.source} onChange={(event) => setFilter('source', event.target.value)}><option value="all">All sources</option><option value="binance">Binance.US</option><option value="webull">Webull</option><option value="automation">Auto-Buy / Auto-Sell</option></select></label>
+              <label>Account<select value={filters.account} onChange={(event) => setFilter('account', event.target.value)}><option value="all">All accounts</option><option value="binance">Binance.US</option>{webullAccounts.map((account) => <option key={account.account_id} value={account.account_id}>{accountLabel(account)}</option>)}</select></label>
+              <label>Symbol<input type="search" value={filters.symbol} onChange={(event) => setFilter('symbol', event.target.value)} placeholder="BTC, TSLA…" /></label>
+              <label>Product<select value={filters.product} onChange={(event) => setFilter('product', event.target.value)}><option value="all">All products</option><option value="crypto">Crypto</option><option value="equity">Stock / ETF</option><option value="option">Options</option><option value="future">Futures</option><option value="automation">Automation</option><option value="other">Other</option></select></label>
+              <label>Status<select value={filters.status} onChange={(event) => setFilter('status', event.target.value)}><option value="all">All statuses</option>{statusOptions.map((status) => <option key={status} value={status}>{displayType(status)}</option>)}</select></label>
+              <label>Time range<select value={filters.timeRange} onChange={(event) => setFilter('timeRange', event.target.value)}><option value="all">All time</option><option value="1">Past 24 hours</option><option value="7">Past 7 days</option><option value="30">Past 30 days</option><option value="90">Past 90 days</option></select></label>
+              <button type="button" className="btn btn-secondary combined-order-filter-reset" onClick={resetFilters}>Reset filters</button>
+            </div>
+            {loading ? (
+              <div className="empty-state"><p>Loading combined orders…</p></div>
+            ) : activeTab === 'open' ? (
+              <>
+                <h2>All Open Orders</h2>
+                {webullOpenLoading && <p className="order-refresh-status" role="status">Refreshing Webull open orders{webullOpenProgress.total ? ` (${webullOpenProgress.complete}/${webullOpenProgress.total} accounts)…` : '…'}</p>}
+                <OrderTable orders={filteredOpenOrders} open onCancelOrder={openCancelModalForOrder} cancellingId={cancellingId} webullAccounts={webullAccounts} />
+              </>
+            ) : historyLoading && !sortedHistory.length ? (
+              <div className="empty-state"><p>Loading order history…</p></div>
+            ) : (
+              <>
+                <h2>All Order History</h2>
+                <OrderTable orders={paginatedHistory} webullAccounts={webullAccounts} />
+                <Pagination page={historyPage} setPage={setHistoryPage} pageSize={historyPageSize} setPageSize={setHistoryPageSize} total={sortedHistory.length} />
+              </>
+            )}
+          </section>
+        )}
+
+        {/* MARKET ANALYSIS TAB (FULL WIDTH) */}
+        {activeTab === 'market_analysis' && (
+          <section className="order-history-container" style={{ width: '100%', padding: '24px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 16, marginBottom: 20 }}>
+              <div>
+                <h2 style={{ margin: 0, fontSize: '1.5rem', color: '#38bdf8' }}>📊 Universal Market Analysis</h2>
+                <p style={{ margin: '4px 0 0', color: 'var(--text-secondary, #94a3b8)', fontSize: '14px' }}>
+                  Macro economic intelligence covering traditional securities (S&P 500, Nasdaq, 10Y Yields, Federal Reserve policy) and cryptocurrency markets (Bitcoin dominance, liquidity, market structure).
+                </p>
+              </div>
+              <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  onClick={() => setShowMarketPromptModal(true)}
+                >
+                  📝 View Prompt
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-primary btn-sm"
+                  disabled={workflowLoading.marketAnalysis}
+                  onClick={() => fetchWorkflowData('market-analysis')}
+                >
+                  {workflowLoading.marketAnalysis ? '⏳ Analyzing Market...' : '🔄 Refresh Analysis'}
+                </button>
+              </div>
+            </div>
+
+            {workflowError.marketAnalysis && (
+              <div className="modern-real-warning" style={{ marginBottom: 16 }}>⚠️ {workflowError.marketAnalysis}</div>
+            )}
+
+            {marketAnalysisData ? (
+              <div className="workflow-result" style={{ background: '#0b0f19', border: '1px solid #334155', borderRadius: 10, padding: 24 }}>
+                <div
+                  style={{ whiteSpace: 'pre-wrap', fontFamily: 'inherit', fontSize: '14px', lineHeight: '1.7', color: '#e2e8f0' }}
+                  dangerouslySetInnerHTML={{ __html: renderMarkdown(marketAnalysisData.analysis?.content) }}
+                />
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12, marginTop: 24, paddingTop: 16, borderTop: '1px solid #1e293b' }}>
+                  <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+                    <strong>Generated:</strong> {formatEasternTime(marketAnalysisData.analysis?.generated_at)}
+                  </span>
+                  {(marketAnalysisData.analysis?.tier || marketAnalysisData.analysis?.provider || marketAnalysisData.analysis?.model) && (
+                    <span className="meta-item ai-model-badge" style={{ background: 'rgba(99, 179, 237, 0.15)', border: '1px solid rgba(99, 179, 237, 0.3)', borderRadius: 6, padding: '3px 10px', fontSize: '12px' }}>
+                      🤖 <strong>{getTierName(marketAnalysisData.analysis.tier)}:</strong> {getProviderName(marketAnalysisData.analysis.provider)} ({marketAnalysisData.analysis.model || 'Default'})
+                    </span>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <div className="empty-state" style={{ padding: 48, textAlign: 'center' }}>
+                <h3>🤖 No Market Analysis generated yet</h3>
+                <p style={{ color: 'var(--text-secondary)', marginBottom: 16 }}>Click "Refresh Analysis" to trigger macro intelligence synthesis across securities and crypto.</p>
+                <button type="button" className="btn btn-primary" onClick={() => fetchWorkflowData('market-analysis')}>
+                  🚀 Generate Market Analysis
+                </button>
+              </div>
+            )}
+          </section>
+        )}
+
+        {/* PORTFOLIO REVIEW TAB (FULL WIDTH) */}
+        {activeTab === 'portfolio_review' && (
+          <section className="order-history-container" style={{ width: '100%', padding: '24px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 16, marginBottom: 20 }}>
+              <div>
+                <h2 style={{ margin: 0, fontSize: '1.5rem', color: '#38bdf8' }}>💼 Universal Portfolio Review</h2>
+                <p style={{ margin: '4px 0 0', color: 'var(--text-secondary, #94a3b8)', fontSize: '14px' }}>
+                  Comprehensive multi-asset intelligence evaluating overall asset allocation, sector weights, concentration risks, and tactical rebalancing across all Binance.US and Webull holdings.
+                </p>
+              </div>
+              <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  onClick={() => setShowPortfolioPromptModal(true)}
+                >
+                  📝 View Prompt
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-primary btn-sm"
+                  disabled={workflowLoading.portfolioReview}
+                  onClick={() => fetchWorkflowData('portfolio-review')}
+                >
+                  {workflowLoading.portfolioReview ? '⏳ Reviewing Portfolio...' : '🔄 Refresh Review'}
+                </button>
+              </div>
+            </div>
+
+            {workflowError.portfolioReview && (
+              <div className="modern-real-warning" style={{ marginBottom: 16 }}>⚠️ {workflowError.portfolioReview}</div>
+            )}
+
+            {portfolioReviewData ? (
+              <div className="workflow-result" style={{ background: '#0b0f19', border: '1px solid #334155', borderRadius: 10, padding: 24 }}>
+                <div
+                  style={{ whiteSpace: 'pre-wrap', fontFamily: 'inherit', fontSize: '14px', lineHeight: '1.7', color: '#e2e8f0' }}
+                  dangerouslySetInnerHTML={{ __html: renderMarkdown(portfolioReviewData.analysis?.content) }}
+                />
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12, marginTop: 24, paddingTop: 16, borderTop: '1px solid #1e293b' }}>
+                  <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+                    <strong>Generated:</strong> {formatEasternTime(portfolioReviewData.analysis?.generated_at)}
+                  </span>
+                  {(portfolioReviewData.analysis?.tier || portfolioReviewData.analysis?.provider || portfolioReviewData.analysis?.model) && (
+                    <span className="meta-item ai-model-badge" style={{ background: 'rgba(99, 179, 237, 0.15)', border: '1px solid rgba(99, 179, 237, 0.3)', borderRadius: 6, padding: '3px 10px', fontSize: '12px' }}>
+                      🤖 <strong>{getTierName(portfolioReviewData.analysis.tier)}:</strong> {getProviderName(portfolioReviewData.analysis.provider)} ({portfolioReviewData.analysis.model || 'Default'})
+                    </span>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <div className="empty-state" style={{ padding: 48, textAlign: 'center' }}>
+                <h3>🤖 No Portfolio Review generated yet</h3>
+                <p style={{ color: 'var(--text-secondary)', marginBottom: 16 }}>Click "Refresh Review" to evaluate your blended Binance + Webull portfolio allocation.</p>
+                <button type="button" className="btn btn-primary" onClick={() => fetchWorkflowData('portfolio-review')}>
+                  🚀 Generate Portfolio Review
+                </button>
+              </div>
+            )}
+          </section>
+        )}
       </div>
       <CancelOrderModal
         isVisible={cancelModal.isVisible}
@@ -426,6 +755,44 @@ export default function Orders() {
         loading={cancelModal.loading}
         error={cancelModal.error}
       />
+
+      {/* Market Analysis Prompt Modal */}
+      {showMarketPromptModal && (
+        <div className="modal-backdrop" onClick={() => setShowMarketPromptModal(false)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 650, width: '90%' }}>
+            <div className="modal-header">
+              <h3 style={{ margin: 0 }}>📝 Universal Market Analysis Prompt</h3>
+            </div>
+            <div className="modal-body" style={{ maxHeight: '60vh', overflowY: 'auto', padding: 20 }}>
+              <pre style={{ whiteSpace: 'pre-wrap', fontFamily: 'inherit', fontSize: '14px', lineHeight: '1.6', color: '#cbd5e1' }}>
+                {marketPrompt || '(No custom prompt configured, using system default)'}
+              </pre>
+            </div>
+            <div className="modal-footer" style={{ display: 'flex', justifyContent: 'flex-end', padding: '12px 20px' }}>
+              <button className="btn btn-secondary" onClick={() => setShowMarketPromptModal(false)}>Close</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Portfolio Review Prompt Modal */}
+      {showPortfolioPromptModal && (
+        <div className="modal-backdrop" onClick={() => setShowPortfolioPromptModal(false)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 650, width: '90%' }}>
+            <div className="modal-header">
+              <h3 style={{ margin: 0 }}>📝 Universal Portfolio Review Prompt</h3>
+            </div>
+            <div className="modal-body" style={{ maxHeight: '60vh', overflowY: 'auto', padding: 20 }}>
+              <pre style={{ whiteSpace: 'pre-wrap', fontFamily: 'inherit', fontSize: '14px', lineHeight: '1.6', color: '#cbd5e1' }}>
+                {portfolioPrompt || '(No custom prompt configured, using system default)'}
+              </pre>
+            </div>
+            <div className="modal-footer" style={{ display: 'flex', justifyContent: 'flex-end', padding: '12px 20px' }}>
+              <button className="btn btn-secondary" onClick={() => setShowPortfolioPromptModal(false)}>Close</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

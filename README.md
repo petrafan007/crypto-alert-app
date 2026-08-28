@@ -125,6 +125,20 @@ The application utilizes a **unified PostgreSQL database**.
 
 Historical changelog entries retain the product name used when they were originally released. The application domain, repository slug, deployment folders, database, and service identifiers intentionally remain unchanged by the v2.45.0 brand update.
 
+## v2.51.0 (August 2026)
+
+- **Webull AI Analysis Parity with Binance**: Completely revamped the Webull AI Analysis tab in the Webull Trading terminal (`WebullTrading.jsx`) with a dedicated `WebullAIDashboard` component matching Binance's AI Analysis interface in look, feel, and functionality:
+  - **Empirical Performance KPIs**: Scorecards tracking Webull Overall Accuracy, Bullish Win Rate, Bearish Win Rate, and Top Performing Model.
+  - **Interactive Sentiment Timeline Chart**: Visualizes Webull asset price history with overlaid sentiment prediction markers and outcome badges (`Correct`, `Wrong`, `Neutral`), featuring an automated `yfinance` candlestick bar fallback for equities and ETFs.
+  - **Historical Prediction Ledger**: Paginated, sortable ledger of Webull signals (`ExternalSentimentSignal`) with detailed asset-class badges (`STOCK`, `ETF`, `CRYPTO`, `OPTION`), initial prices, forecast horizons, evaluation prices, returns, outcome badges, and a "Thesis" button opening the full Markdown-formatted research modal.
+  - **Recommendation Type Accuracy & AI Model Leaderboard**: Empirical win rates and correct/wrong/neutral breakdowns for each recommendation signal, plus a competitive leaderboard comparing AI models (OpenAI, Gemini, Perplexity, Z.AI, DeepSeek).
+  - **On-Demand AI Sentiment Prediction & Thesis Engine**: Interactive asset selector across all Webull holdings and watchlist items with an on-demand thesis generator (`Create Stored Signal / Generate Thesis`).
+  - **Flexible Market-Hours Handling**: Allows manual on-demand Webull AI analysis anytime (including evenings and weekends) anchored to the latest available closing bars and market data.
+- **Universal Market Analysis & Portfolio Review Tabs on Orders Page**: Added two dedicated, full-width tabs to the Orders page (`Orders.jsx`):
+  - **Market Analysis Tab**: Full-width universal macro analysis covering traditional securities (S&P 500, Nasdaq, 10Y Yields, Federal Reserve policy) and crypto markets (Bitcoin dominance, liquidity, market structure), with an on-demand refresh trigger, prompt viewer modal, and AI provider/model badge.
+  - **Portfolio Review Tab**: Full-width universal portfolio intelligence evaluating cross-broker asset allocation, sector weights, concentration risks, and tactical rebalancing across all connected Binance.US and Webull holdings, with an on-demand refresh trigger, prompt viewer modal, and AI provider/model badge.
+- **Webull AI Accuracy Backend API**: Added `/api/webull/ai-accuracy` and wired `build_webull_accuracy_response` to aggregate empirical metrics from `ExternalSentimentSignal`, supporting `broker=webull` across sentiment accuracy endpoints.
+
 ## v2.50.0 (August 2026)
 
 - **Universal Multi-Asset AI Agentic Workflow Prompts**: Updated all 6 agentic workflow prompts (`Market Analysis`, `Portfolio Review`, `Asset & News Analysis`, `Portfolio Sentiment Analysis`, `Watchlist Sentiment Analysis`, and `AI Copilot Prompts` [Pre-Search and Post-Search stages]) to provide explicit, context-aware instructions for both cryptocurrency and traditional securities (equities, ETFs, options) across Binance.US and Webull.

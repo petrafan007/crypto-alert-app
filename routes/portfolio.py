@@ -1460,10 +1460,47 @@ def get_trading_order_types():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+def _fetch_yfinance_klines(symbol, interval='1h', limit=1000):
+    """Fallback candlestick provider for equities, ETFs, and non-Binance pairs."""
+    try:
+        import yfinance as yf
+        clean_sym = symbol.replace('USDT', '').replace('USD', '').strip().upper()
+        if not clean_sym:
+            return None
+        yf_interval_map = {
+            '1m': '1m', '5m': '5m', '15m': '15m', '30m': '30m',
+            '1h': '1h', '2h': '1h', '4h': '1h', '6h': '1h', '8h': '1h', '12h': '1h',
+            '1d': '1d', '3d': '1d', '1w': '1wk', '1M': '1mo',
+        }
+        yf_interval = yf_interval_map.get(interval, '1d')
+        period_map = {'1m': '7d', '5m': '60d', '15m': '60d', '30m': '60d', '1h': '730d'}
+        period = period_map.get(yf_interval, '2y')
+        ticker = yf.Ticker(clean_sym)
+        df = ticker.history(period=period, interval=yf_interval)
+        if df is None or df.empty:
+            return None
+        formatted = []
+        for idx, row in df.iterrows():
+            formatted.append({
+                'time': int(idx.timestamp()),
+                'open': float(row['Open']),
+                'high': float(row['High']),
+                'low': float(row['Low']),
+                'close': float(row['Close']),
+                'volume': float(row['Volume']),
+            })
+        if limit and len(formatted) > limit:
+            formatted = formatted[-limit:]
+        return formatted
+    except Exception as exc:
+        logger.warning(f"yfinance klines lookup failed for {symbol}: {exc}")
+        return None
+
+
 @portfolio_bp.route('/api/trading/klines/<symbol>', methods=['GET'])
 def get_trading_klines(symbol):
     """
-    Proxy endpoint for Binance.US klines/candlestick data with caching.
+    Proxy endpoint for Binance.US klines/candlestick data with caching and yfinance fallback.
     Query params: interval (default: 1d), limit (default: 1000)
     """
     try:
@@ -1492,16 +1529,21 @@ def get_trading_klines(symbol):
             Credential._api_secret.isnot(None)
         ).first()
         
-        if not creds:
-            return jsonify({
-                'success': False,
-                'error': 'No Binance.US credentials found.',
-                'error_code': 'missing_trading_credentials'
-            }), 400
+        api_key = decrypt_secret(creds.api_key) if creds else None
+        api_secret = decrypt_secret(creds.api_secret) if creds else None
         
-        api_key = decrypt_secret(creds.api_key)
-        api_secret = decrypt_secret(creds.api_secret)
         if not api_key or not api_secret:
+            # Fallback to yfinance if Binance credentials are not configured
+            yf_klines = _fetch_yfinance_klines(symbol, interval, limit)
+            if yf_klines:
+                _KLINES_CACHE[cache_key] = (yf_klines, now)
+                return jsonify({
+                    'success': True,
+                    'symbol': symbol,
+                    'interval': interval,
+                    'klines': yf_klines,
+                    'source': 'yfinance'
+                })
             return jsonify({
                 'success': False,
                 'error': 'No Binance.US credentials found.',
@@ -1534,6 +1576,18 @@ def get_trading_klines(symbol):
                 last_err = api_err
 
         if not klines:
+            # Fallback to yfinance for equities / ETFs / non-Binance symbols
+            yf_klines = _fetch_yfinance_klines(symbol, interval, limit)
+            if yf_klines:
+                _KLINES_CACHE[cache_key] = (yf_klines, now)
+                return jsonify({
+                    'success': True,
+                    'symbol': symbol,
+                    'interval': interval,
+                    'klines': yf_klines,
+                    'source': 'yfinance'
+                })
+
             err_msg = str(last_err)
             logger.error(f"Failed to fetch klines for {symbol}: {err_msg}")
             if "API-key" in err_msg or "Invalid Api-Key" in err_msg or "invalid api-key" in err_msg.lower():

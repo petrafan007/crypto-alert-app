@@ -1,6 +1,6 @@
 """Read-only Webull signal generation and scheduled evaluation."""
 
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo
 
 from core.extensions import db
@@ -66,8 +66,8 @@ def create_webull_signal(user, holding, *, origin='manual'):
     instrument_type = str(holding.instrument_type or '').upper()
     if instrument_type not in SUPPORTED_WEBULL_SIGNAL_TYPES:
         raise ValueError('Webull option analysis is unavailable until contract-level options market data is mapped.')
-    if instrument_type != 'CRYPTO' and not _equity_market_is_open():
-        raise ValueError('Webull equity and option signals are available during regular U.S. market hours so they are not anchored to a stale closing price.')
+    if instrument_type != 'CRYPTO' and origin != 'manual' and not _equity_market_is_open():
+        raise ValueError('Webull equity and option signals are scheduled during regular U.S. market hours.')
     if not is_ai_enabled(user.username):
         raise ValueError('Enable an AI integration in Settings before generating Webull analysis.')
 
@@ -204,3 +204,184 @@ def evaluate_due_webull_signals():
             # them or block another account/instrument.
             db.session.rollback()
     return evaluated
+
+
+def build_webull_accuracy_response(user_id, timeframe='30d', selected_tier=None):
+    """Build an empirical accuracy and ledger report for Webull AI signals."""
+    from models import ExternalSentimentSignal, WebullHolding
+    from services.sentiment_outcome_service import (
+        BULLISH_SIGNALS, BEARISH_SIGNALS, _as_utc, get_sentiment_thresholds
+    )
+    import pytz
+
+    # Grade any matured signals first
+    try:
+        evaluate_due_webull_signals()
+    except Exception:
+        db.session.rollback()
+
+    days = {
+        '1d': 1, '3d': 3, '5d': 5, '7d': 7, '14d': 14, '30d': 30,
+        '90d': 90, '180d': 180, '365d': 365, '730d': 730,
+    }
+    timeframe = (timeframe or '30d').lower()
+
+    query = ExternalSentimentSignal.query.filter_by(user_id=user_id, provider='webull')
+    cutoff = datetime.now(timezone.utc) - timedelta(days=days[timeframe]) if timeframe in days else None
+    if cutoff:
+        query = query.filter(ExternalSentimentSignal.created_at >= cutoff.replace(tzinfo=None))
+    if selected_tier and selected_tier != 'all':
+        query = query.filter(ExternalSentimentSignal.ai_tier == selected_tier.lower())
+
+    records = query.order_by(ExternalSentimentSignal.created_at.desc()).all()
+
+    settings = UserSetting.query.filter_by(user_id=user_id).first()
+    configured_thresholds = get_sentiment_thresholds(settings)
+
+    history = []
+    rec_stats = {}
+    model_stats = {}
+    counts = {'correct': 0, 'wrong': 0, 'neutral': 0, 'tracking': 0, 'unscored': 0}
+    directional = {'bullish': {'correct': 0, 'wrong': 0}, 'bearish': {'correct': 0, 'wrong': 0}}
+    distribution = {'buy': 0, 'sell': 0, 'watch': 0}
+
+    for record in records:
+        symbol = (record.symbol or '').upper()
+        sentiment = (record.recommendation or '').strip()
+        label = sentiment.lower()
+        status = record.outcome_status or 'tracking'
+        if status not in counts:
+            status = 'unscored'
+        counts[status] += 1
+
+        if label in BULLISH_SIGNALS:
+            distribution['buy'] += 1
+            bucket = 'bullish'
+        elif label in BEARISH_SIGNALS:
+            distribution['sell'] += 1
+            bucket = 'bearish'
+        else:
+            distribution['watch'] += 1
+            bucket = None
+        if bucket and status in ('correct', 'wrong'):
+            directional[bucket][status] += 1
+
+        rec = rec_stats.setdefault(sentiment.title() or 'Unknown', {
+            'sentiment': sentiment.title() or 'Unknown', 'total': 0, 'correct': 0,
+            'wrong': 0, 'neutral': 0, 'tracking': 0, 'unscored': 0
+        })
+        rec['total'] += 1
+        rec[status] += 1
+
+        model_key = record.provider_model or record.ai_provider or 'Unknown Model'
+        model = model_stats.setdefault(model_key, {
+            'model': model_key, 'provider': record.ai_provider or 'AI',
+            'tier': record.ai_tier or 'primary', 'total': 0, 'correct': 0,
+            'wrong': 0, 'neutral': 0, 'tracking': 0, 'unscored': 0
+        })
+        model['total'] += 1
+        model[status] += 1
+
+        def display_parts(val):
+            if not val:
+                return '', ''
+            aware = _as_utc(val).astimezone(pytz.timezone('US/Eastern'))
+            return f'{aware.month:02d}/{aware.day:02d}/{str(aware.year)[-2:]}', aware.strftime('%I:%M %p').lstrip('0')
+
+        created_utc = _as_utc(record.created_at)
+        evaluated_utc = _as_utc(record.outcome_evaluated_at)
+        date_str, time_str = display_parts(record.created_at)
+        eval_date, eval_time = display_parts(record.outcome_evaluated_at)
+
+        delta = record.outcome_pct
+
+        history.append({
+            'id': record.id,
+            'symbol': symbol,
+            'source_type': 'webull',
+            'instrument_type': record.instrument_type,
+            'sentiment': sentiment,
+            'sentiment_reason': record.reason,
+            'market_context': record.market_context,
+            'price_at_prediction': float(record.entry_price or 0),
+            'evaluation_price': float(record.outcome_price) if record.outcome_price is not None else None,
+            'outcome_pct': delta,
+            'price_delta_pct': delta,
+            'outcome_status': status,
+            'outcome_reason': record.outcome_reason or ('Waiting for the fixed forecast horizon.' if status == 'tracking' else ''),
+            'forecast_horizon_hours': record.forecast_horizon_hours,
+            'target_evaluation_at': record.target_evaluation_at.isoformat() if record.target_evaluation_at else None,
+            'provider': record.ai_provider,
+            'model': record.provider_model,
+            'tier': record.ai_tier,
+            'search_status': record.search_status,
+            'date': date_str,
+            'time': time_str,
+            'eval_date': eval_date,
+            'eval_time': eval_time,
+            'formatted_datetime': f'{date_str} at {time_str}' if date_str else '',
+            'created_at': record.created_at.isoformat() if record.created_at else None,
+            'evaluated_at': record.outcome_evaluated_at.isoformat() if record.outcome_evaluated_at else None,
+            'created_timestamp': int(created_utc.timestamp()) if created_utc else 0,
+            'evaluated_timestamp': int(evaluated_utc.timestamp()) if evaluated_utc else None,
+            'is_latest': status == 'tracking',
+        })
+
+    def finalize(values):
+        result = []
+        for val in values:
+            decisive = val['correct'] + val['wrong']
+            val['evaluated'] = decisive
+            val['win_rate'] = round(val['correct'] * 100 / decisive, 1) if decisive else None
+            result.append(val)
+        return result
+
+    rec_breakdown = sorted(finalize(rec_stats.values()), key=lambda r: r['total'], reverse=True)
+    model_breakdown = sorted(finalize(model_stats.values()), key=lambda r: (r['win_rate'] is not None, r['win_rate'] or 0), reverse=True)
+    decisive = counts['correct'] + counts['wrong']
+    bullish_decisive = sum(directional['bullish'].values())
+    bearish_decisive = sum(directional['bearish'].values())
+    total = sum(counts.values())
+
+    holdings_symbols = WebullHolding.query.filter_by(user_id=user_id).with_entities(WebullHolding.symbol).all()
+    signal_symbols = ExternalSentimentSignal.query.filter_by(user_id=user_id, provider='webull').with_entities(ExternalSentimentSignal.symbol).all()
+    available = sorted({s.upper() for (s,) in holdings_symbols + signal_symbols if s and s.upper() not in {'USD', 'USDT'}})
+    top_model = next((f"{m['provider'].capitalize()} ({m['model']})" for m in model_breakdown if m['evaluated'] >= 3), 'Not enough validated data')
+
+    return {
+        'success': True,
+        'timeframe': timeframe,
+        'summary': {
+            'overall_accuracy': round(counts['correct'] * 100 / decisive, 1) if decisive else None,
+            'bullish_win_rate': round(directional['bullish']['correct'] * 100 / bullish_decisive, 1) if bullish_decisive else None,
+            'bearish_win_rate': round(directional['bearish']['correct'] * 100 / bearish_decisive, 1) if bearish_decisive else None,
+            'total_signals': total,
+            'evaluated_signals': decisive,
+            'correct_count': counts['correct'],
+            'wrong_count': counts['wrong'],
+            'bullish_count': bullish_decisive,
+            'bearish_count': bearish_decisive,
+            'bullish_correct_count': directional['bullish']['correct'],
+            'bullish_wrong_count': directional['bullish']['wrong'],
+            'bearish_correct_count': directional['bearish']['correct'],
+            'bearish_wrong_count': directional['bearish']['wrong'],
+            'neutral_count': counts['neutral'],
+            'tracking_count': counts['tracking'],
+            'unscored_count': counts['unscored'],
+            'top_model': top_model,
+            'evaluation_method': 'fixed_horizon',
+            'sentiment_thresholds': configured_thresholds,
+        },
+        'recommendation_breakdown': rec_breakdown,
+        'model_breakdown': model_breakdown,
+        'signal_distribution': {
+            'buy_count': distribution['buy'],
+            'sell_count': distribution['sell'],
+            'watch_count': distribution['watch'],
+            'buy_pct': round(distribution['buy'] * 100 / total, 1) if total else 0,
+            'sell_pct': round(distribution['sell'] * 100 / total, 1) if total else 0,
+            'watch_pct': round(distribution['watch'] * 100 / total, 1) if total else 0,
+        },
+        'history': history,
+        'available_symbols': available,
+    }

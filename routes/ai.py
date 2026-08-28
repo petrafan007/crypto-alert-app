@@ -104,6 +104,23 @@ def webull_ai_signals():
     return jsonify({'success': True, 'signals': [signal_to_dict(signal) for signal in signals]})
 
 
+@ai_bp.route('/api/webull/ai-accuracy', methods=['GET'])
+@login_required
+def webull_ai_accuracy():
+    """Return empirical accuracy, ledger, and benchmark breakdowns for Webull signals."""
+    try:
+        from services.webull_signal_service import build_webull_accuracy_response
+        report = build_webull_accuracy_response(
+            current_user.id,
+            request.args.get('timeframe', '30d'),
+            request.args.get('tier'),
+        )
+        return jsonify(report)
+    except Exception as exc:
+        logger.error(f"Error in webull_ai_accuracy: {exc}", exc_info=True)
+        return jsonify({'error': str(exc), 'success': False}), 500
+
+
 @ai_bp.route('/api/webull/ai-settings', methods=['GET', 'PUT'])
 @login_required
 def webull_ai_settings():
@@ -600,6 +617,16 @@ def ai_dashboard_page():
 def api_ai_sentiment_accuracy():
     """Return fixed-horizon KPIs plus preserved legacy sentiment history."""
     try:
+        broker = str(request.args.get('broker') or request.args.get('provider') or '').strip().lower()
+        if broker == 'webull':
+            from services.webull_signal_service import build_webull_accuracy_response
+            report = build_webull_accuracy_response(
+                current_user.id,
+                request.args.get('timeframe', '30d'),
+                request.args.get('tier'),
+            )
+            return jsonify(report)
+
         from services.sentiment_outcome_service import build_sentiment_accuracy_response
 
         report = build_sentiment_accuracy_response(
