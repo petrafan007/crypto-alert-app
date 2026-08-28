@@ -1825,6 +1825,32 @@ def api_webull_place_order():
         if not quantity:
             return jsonify({'success': False, 'message': 'Enter an order quantity.'}), 400
 
+        # Enforce 2FA verification if enabled for user
+        from trading_models import TradingSettings
+        trading_settings = TradingSettings.query.filter_by(user_id=current_user.id).first()
+        if trading_settings and getattr(trading_settings, 'require_2fa', False) and getattr(trading_settings, 'totp_secret', None):
+            twofa_token = data.get('twofa_token')
+            twofa_code = data.get('twofa_code') or data.get('two_factor_code')
+            verified = False
+            if twofa_token:
+                token_data = session.get(f'2fa_verified_{twofa_token}')
+                if token_data and token_data.get('user_id') == current_user.id:
+                    if datetime.utcnow().timestamp() - token_data.get('timestamp', 0) <= 120:
+                        verified = True
+                        session.pop(f'2fa_verified_{twofa_token}', None)
+            if not verified and twofa_code:
+                import pyotp
+                totp = pyotp.TOTP(trading_settings.totp_secret)
+                if totp.verify(str(twofa_code).strip(), valid_window=1):
+                    verified = True
+
+            if not verified:
+                return jsonify({
+                    'success': False,
+                    'message': 'Two-factor authentication (2FA) verification is required to place orders.',
+                    'requires_2fa': True,
+                }), 403
+
         result = place_webull_order(
             credential.webull_app_key, credential.webull_app_secret,
             environment, credential.webull_access_token,
@@ -2162,8 +2188,30 @@ def set_custom_pct():
 @system_bp.route("/api/set-alert", methods=["POST"])
 @login_required
 def set_alert():
-    data = request.get_json()
-    coin = Coin.query.filter_by(id=data["id"], user_id=current_user.id).first()
+    data = request.get_json() or {}
+    coin_id = data.get("id")
+    coin = None
+    if coin_id is not None:
+        try:
+            coin = Coin.query.filter_by(id=int(coin_id), user_id=current_user.id).first()
+        except (ValueError, TypeError):
+            pass
+    if not coin:
+        sym = data.get('symbol') or (str(coin_id) if isinstance(coin_id, str) and not coin_id.isdigit() else None)
+        if sym:
+            sym_clean = str(sym).upper()
+            from models import WebullHolding
+            wb_holding = WebullHolding.query.filter_by(symbol=sym_clean, user_id=current_user.id).first()
+            if wb_holding:
+                wb_holding.alert_enabled = not wb_holding.alert_enabled
+                db.session.commit()
+                return jsonify({"success": True, "alert_enabled": wb_holding.alert_enabled})
+            coin = Coin.query.filter_by(symbol=sym_clean, user_id=current_user.id).first()
+            if not coin:
+                coin = Coin(symbol=sym_clean, user_id=current_user.id, alert_enabled=True, amount=0.0)
+                db.session.add(coin)
+                db.session.commit()
+                return jsonify({"success": True, "alert_enabled": True})
     if not coin:
         return jsonify({"error": "Coin not found"}), 404
     coin.alert_enabled = not coin.alert_enabled  # Toggle the alert

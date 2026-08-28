@@ -4690,7 +4690,28 @@ def hide_coin():
     
     logger.info(f"Hide coin request: coin_id={coin_id}, hidden={hidden}, user_id={current_user.id}")
     
-    coin = Coin.query.filter_by(id=coin_id, user_id=current_user.id).first()
+    coin = None
+    if coin_id is not None:
+        try:
+            coin = Coin.query.filter_by(id=int(coin_id), user_id=current_user.id).first()
+        except (ValueError, TypeError):
+            pass
+    if not coin:
+        sym = data.get('symbol') or (str(coin_id) if isinstance(coin_id, str) and not coin_id.isdigit() else None)
+        if sym:
+            sym_clean = str(sym).upper()
+            from models import WebullHolding
+            wb_holding = WebullHolding.query.filter_by(symbol=sym_clean, user_id=current_user.id).first()
+            if wb_holding:
+                wb_holding.hidden = hidden
+                db.session.commit()
+                return jsonify({"success": True})
+            coin = Coin.query.filter_by(symbol=sym_clean, user_id=current_user.id).first()
+            if not coin:
+                coin = Coin(symbol=sym_clean, user_id=current_user.id, hidden=hidden, amount=0.0)
+                db.session.add(coin)
+                db.session.commit()
+                return jsonify({"success": True})
     if coin:
         logger.info(f"Found coin: {coin.symbol}, current hidden status: {coin.hidden}")
         coin.hidden = hidden

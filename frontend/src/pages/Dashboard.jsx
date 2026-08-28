@@ -321,6 +321,13 @@ function Dashboard({ isLightMode }) {
     (asset?.is_external === true || asset?.source === 'webull')
     && !/crypto|coin|token/i.test(asset?.instrument_type || '')
   );
+  const isWebullAsset = (asset) => Boolean(
+    asset?.is_external === true || asset?.source === 'webull'
+  );
+  const navigateToWebullTrading = (symbol, side = 'BUY') => {
+    const cleanSymbol = String(symbol || '').toUpperCase().trim();
+    navigate(`/webull-trading?symbol=${encodeURIComponent(cleanSymbol)}&side=${side.toUpperCase()}`);
+  };
   const matchesAssetFilter = (asset, filter) => (
     filter === 'all' || (filter === 'traditional' ? isTraditionalAsset(asset) : !isTraditionalAsset(asset))
   );
@@ -1929,16 +1936,17 @@ function Dashboard({ isLightMode }) {
   };
 
   // Toggle alert for portfolio coins
-  const toggleAlert = async (coinId, currentAlertEnabled) => {
+  const toggleAlert = async (coinId, currentAlertEnabled, symbol) => {
     try {
       const response = await axios.post('/api/set-alert', {
         id: coinId,
+        symbol: symbol,
         alert_enabled: !currentAlertEnabled
       }, { withCredentials: true });
 
       if (response.data.success) {
         setPortfolio(prev => prev.map(coin =>
-          coin.id === coinId ? { ...coin, alert_enabled: !currentAlertEnabled } : coin
+          (coin.id === coinId || (symbol && coin.symbol === symbol)) ? { ...coin, alert_enabled: !currentAlertEnabled } : coin
         ));
       }
     } catch (err) {
@@ -2615,6 +2623,19 @@ function Dashboard({ isLightMode }) {
             {/* Buy button */}
             {(() => {
               const sym = isPortfolio ? coin.symbol : item.symbol;
+              const target = isPortfolio ? coin : item;
+              if (isWebullAsset(target)) {
+                return (
+                  <button
+                    onClick={() => {
+                      navigateToWebullTrading(sym, 'BUY');
+                      closeActionMenu();
+                    }}
+                  >
+                    Buy on Webull
+                  </button>
+                );
+              }
               const buyElig = getBuyEligibility(sym);
               return (
                 <>
@@ -2704,87 +2725,105 @@ function Dashboard({ isLightMode }) {
 
             {/* Sell button - only available for held Portfolio positions. */}
             {isPortfolio && (
-              <>
-                <button
-                  onClick={(event) => {
-                    if (coin.symbol !== 'USD' && Number(coin.amount || 0) >= MINIMUM_PORTFOLIO_AMOUNT) {
-                      toggleTradeQuoteMenu(openActionMenu.type, openActionMenu.key, 'SELL', event);
-                    }
-                  }}
-                  disabled={coin.symbol === 'USD' || Number(coin.amount || 0) < MINIMUM_PORTFOLIO_AMOUNT}
-                  title={coin.symbol === 'USD' ? 'Cannot sell fiat USD' : Number(coin.amount || 0) < MINIMUM_PORTFOLIO_AMOUNT ? 'You do not own enough of this coin to sell' : 'Sell'}
-                  style={coin.symbol === 'USD' || Number(coin.amount || 0) < MINIMUM_PORTFOLIO_AMOUNT ? { opacity: 0.4, cursor: 'not-allowed' } : undefined}
-                >
-                  Sell
-                </button>
-                {openTradeQuoteMenu.type === openActionMenu.type && openTradeQuoteMenu.key === openActionMenu.key && openTradeQuoteMenu.side === 'SELL' && (
-                  <div className="trade-quote-menu" style={tradeQuoteMenuStyle}>
-                    {hasUsdPair(coin.symbol) && (
-                      <>
-                        <button onClick={() => { navigateToTrading(coin.symbol, 'SELL', 'USD'); closeActionMenu(); closeTradeQuoteMenu(); }}>Sell for USD</button>
-                        <button onClick={() => { handleTriggerAutoSellClick(coin.symbol, coin, 'USD', openActionMenu.type); closeActionMenu(); closeTradeQuoteMenu(); }}>Trigger Auto-Sell (USD)</button>
-                      </>
-                    )}
-                    {hasUsdtPair(coin.symbol) && (
-                      <>
-                        <button
-                          onClick={() => {
-                            if (coin.symbol !== 'USDT') {
-                              navigateToTrading(coin.symbol, 'SELL', 'USDT'); closeActionMenu(); closeTradeQuoteMenu();
-                            }
-                          }}
-                          disabled={coin.symbol === 'USDT'}
-                          style={coin.symbol === 'USDT' ? { opacity: 0.4, cursor: 'not-allowed' } : undefined}
-                        >
-                          Sell for USDT
-                        </button>
-                        <button
-                          onClick={() => {
-                            if (coin.symbol !== 'USDT') {
-                              handleTriggerAutoSellClick(coin.symbol, coin, 'USDT', openActionMenu.type); closeActionMenu(); closeTradeQuoteMenu();
-                            }
-                          }}
-                          disabled={coin.symbol === 'USDT'}
-                          style={coin.symbol === 'USDT' ? { opacity: 0.4, cursor: 'not-allowed' } : undefined}
-                        >
-                          Trigger Auto-Sell (USDT)
-                        </button>
-                      </>
-                    )}
-                  </div>
-                )}
-              </>
-            )}
-            {isPortfolio && (
-              <>
-                <button
-                  onClick={() => { handleStakeClick(coin); closeActionMenu(); }}
-                  disabled={
-                    !stakeableCoins.includes(coin.symbol) ||
-                    isPlaceholder ||
-                    (coin.current_value && coin.current_value < 1)
-                  }
-                >
-                  Stake
-                </button>
-                {(() => {
-                  const allPendingItems = getAllPendingItemsForCoin(coin);
-                  const hasOrders = allPendingItems.length > 0;
+              isWebullAsset(coin) ? (
+                (() => {
+                  const hasBalance = Number(coin.amount || 0) > 0;
                   return (
                     <button
-                      onClick={(e) => {
-                        closeActionMenu();
-                        if (hasOrders) handleCancelButtonClick(coin, allPendingItems, e);
+                      onClick={() => {
+                        if (hasBalance) {
+                          navigateToWebullTrading(coin.symbol, 'SELL');
+                          closeActionMenu();
+                        }
                       }}
-                      disabled={!hasOrders}
-                      style={!hasOrders ? { opacity: 0.4, cursor: 'not-allowed' } : { color: '#ef4444' }}
+                      disabled={!hasBalance}
+                      style={!hasBalance ? { opacity: 0.4, cursor: 'not-allowed' } : undefined}
                     >
-                      Cancel Active ({allPendingItems.length})
+                      Sell on Webull
                     </button>
                   );
-                })()}
-              </>
+                })()
+              ) : (
+                <>
+                  <button
+                    onClick={(event) => {
+                      if (coin.symbol !== 'USD' && Number(coin.amount || 0) >= MINIMUM_PORTFOLIO_AMOUNT) {
+                        toggleTradeQuoteMenu(openActionMenu.type, openActionMenu.key, 'SELL', event);
+                      }
+                    }}
+                    disabled={coin.symbol === 'USD' || Number(coin.amount || 0) < MINIMUM_PORTFOLIO_AMOUNT}
+                    title={coin.symbol === 'USD' ? 'Cannot sell fiat USD' : Number(coin.amount || 0) < MINIMUM_PORTFOLIO_AMOUNT ? 'You do not own enough of this coin to sell' : 'Sell'}
+                    style={coin.symbol === 'USD' || Number(coin.amount || 0) < MINIMUM_PORTFOLIO_AMOUNT ? { opacity: 0.4, cursor: 'not-allowed' } : undefined}
+                  >
+                    Sell
+                  </button>
+                  {openTradeQuoteMenu.type === openActionMenu.type && openTradeQuoteMenu.key === openActionMenu.key && openTradeQuoteMenu.side === 'SELL' && (
+                    <div className="trade-quote-menu" style={tradeQuoteMenuStyle}>
+                      {hasUsdPair(coin.symbol) && (
+                        <>
+                          <button onClick={() => { navigateToTrading(coin.symbol, 'SELL', 'USD'); closeActionMenu(); closeTradeQuoteMenu(); }}>Sell for USD</button>
+                          <button onClick={() => { handleTriggerAutoSellClick(coin.symbol, coin, 'USD', openActionMenu.type); closeActionMenu(); closeTradeQuoteMenu(); }}>Trigger Auto-Sell (USD)</button>
+                        </>
+                      )}
+                      {hasUsdtPair(coin.symbol) && (
+                        <>
+                          <button
+                            onClick={() => {
+                              if (coin.symbol !== 'USDT') {
+                                navigateToTrading(coin.symbol, 'SELL', 'USDT'); closeActionMenu(); closeTradeQuoteMenu();
+                              }
+                            }}
+                            disabled={coin.symbol === 'USDT'}
+                            style={coin.symbol === 'USDT' ? { opacity: 0.4, cursor: 'not-allowed' } : undefined}
+                          >
+                            Sell for USDT
+                          </button>
+                          <button
+                            onClick={() => {
+                              if (coin.symbol !== 'USDT') {
+                                handleTriggerAutoSellClick(coin.symbol, coin, 'USDT', openActionMenu.type); closeActionMenu(); closeTradeQuoteMenu();
+                              }
+                            }}
+                            disabled={coin.symbol === 'USDT'}
+                            style={coin.symbol === 'USDT' ? { opacity: 0.4, cursor: 'not-allowed' } : undefined}
+                          >
+                            Trigger Auto-Sell (USDT)
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  )}
+                </>
+              )
             )}
+            {isPortfolio && !isWebullAsset(coin) && (
+              <button
+                onClick={() => { handleStakeClick(coin); closeActionMenu(); }}
+                disabled={
+                  !stakeableCoins.includes(coin.symbol) ||
+                  isPlaceholder ||
+                  (coin.current_value && coin.current_value < 1)
+                }
+              >
+                Stake
+              </button>
+            )}
+            {isPortfolio && (() => {
+              const allPendingItems = getAllPendingItemsForCoin(coin);
+              const hasOrders = allPendingItems.length > 0;
+              return (
+                <button
+                  onClick={(e) => {
+                    closeActionMenu();
+                    if (hasOrders) handleCancelButtonClick(coin, allPendingItems, e);
+                  }}
+                  disabled={!hasOrders}
+                  style={!hasOrders ? { opacity: 0.4, cursor: 'not-allowed' } : { color: '#ef4444' }}
+                >
+                  Cancel Active ({allPendingItems.length})
+                </button>
+              );
+            })()}
             {isWatchlist && (() => {
               const watchlistItem = { ...item, isWatchlist: true };
               const allPendingItems = getAllPendingItemsForCoin(watchlistItem);
@@ -2864,27 +2903,60 @@ function Dashboard({ isLightMode }) {
         <button role="menuitem" onClick={() => { openNoteModal(subject); closeActionMenu(); }}>
           <span>✏️</span>Notes
         </button>
-        <button
-          className="trade-action-btn desktop-actions-context-menu__submenu-trigger"
-          role="menuitem"
-          onClick={(event) => buyEligibility.canBuy && toggleTradeQuoteMenu(openActionMenu.type, openActionMenu.key, 'BUY', event)}
-          disabled={!buyEligibility.canBuy}
-          title={buyEligibility.canBuy ? 'Buy' : (buyEligibility.reason || 'Insufficient balance to buy')}
-        >
-          <span>🟢</span>Buy<span className="desktop-actions-context-menu__chevron">›</span>
-        </button>
-        {isPortfolio && (
+        {isWebullAsset(subject) ? (
+          <button
+            role="menuitem"
+            onClick={() => {
+              navigateToWebullTrading(symbol, 'BUY');
+              closeActionMenu();
+            }}
+          >
+            <span>🟢</span>Buy on Webull
+          </button>
+        ) : (
           <button
             className="trade-action-btn desktop-actions-context-menu__submenu-trigger"
             role="menuitem"
-            onClick={(event) => canSell && toggleTradeQuoteMenu(openActionMenu.type, openActionMenu.key, 'SELL', event)}
-            disabled={!canSell}
-            title={coin.symbol === 'USD' ? 'Cannot sell fiat USD' : !canSell ? 'You do not own enough of this coin to sell' : 'Sell'}
+            onClick={(event) => buyEligibility.canBuy && toggleTradeQuoteMenu(openActionMenu.type, openActionMenu.key, 'BUY', event)}
+            disabled={!buyEligibility.canBuy}
+            title={buyEligibility.canBuy ? 'Buy' : (buyEligibility.reason || 'Insufficient balance to buy')}
           >
-            <span>🔴</span>Sell<span className="desktop-actions-context-menu__chevron">›</span>
+            <span>🟢</span>Buy<span className="desktop-actions-context-menu__chevron">›</span>
           </button>
         )}
         {isPortfolio && (
+          isWebullAsset(coin) ? (
+            (() => {
+              const hasBalance = Number(coin.amount || 0) > 0;
+              return (
+                <button
+                  role="menuitem"
+                  onClick={() => {
+                    if (hasBalance) {
+                      navigateToWebullTrading(symbol, 'SELL');
+                      closeActionMenu();
+                    }
+                  }}
+                  disabled={!hasBalance}
+                  title={hasBalance ? `Sell ${symbol} on Webull` : 'You do not own enough of this asset to sell'}
+                >
+                  <span>🔴</span>Sell on Webull
+                </button>
+              );
+            })()
+          ) : (
+            <button
+              className="trade-action-btn desktop-actions-context-menu__submenu-trigger"
+              role="menuitem"
+              onClick={(event) => canSell && toggleTradeQuoteMenu(openActionMenu.type, openActionMenu.key, 'SELL', event)}
+              disabled={!canSell}
+              title={coin.symbol === 'USD' ? 'Cannot sell fiat USD' : !canSell ? 'You do not own enough of this coin to sell' : 'Sell'}
+            >
+              <span>🔴</span>Sell<span className="desktop-actions-context-menu__chevron">›</span>
+            </button>
+          )
+        )}
+        {isPortfolio && !isWebullAsset(coin) && (
           <button
             role="menuitem"
             onClick={() => { if (canStake) handleStakeClick(coin); closeActionMenu(); }}
@@ -3125,16 +3197,17 @@ function Dashboard({ isLightMode }) {
   };
 
   // Hide coin function
-  const hideCoin = async (coinId) => {
+  const hideCoin = async (coinId, symbol) => {
     try {
-      console.log('Hiding coin with ID:', coinId);
+      console.log('Hiding coin with ID:', coinId, 'symbol:', symbol);
       const response = await axios.post('/api/hide-coin', {
-        coin_id: coinId
+        coin_id: coinId,
+        symbol: symbol,
       }, { withCredentials: true });
 
       console.log('Hide response:', response.data);
       if (response.data.success) {
-        setPortfolio(prev => prev.filter(coin => coin.id !== coinId));
+        setPortfolio(prev => prev.filter(coin => coin.id !== coinId && (!symbol || coin.symbol !== symbol)));
         console.log('Coin hidden successfully');
       }
     } catch (err) {
@@ -4745,9 +4818,22 @@ function Dashboard({ isLightMode }) {
                                         ✏️
                                       </button>
                                       {(() => {
+                                        if (isWebullAsset(coin)) {
+                                          return (
+                                            <button
+                                              type="button"
+                                              className="trade-action-btn buy"
+                                              onClick={() => navigateToWebullTrading(coin.symbol, 'BUY')}
+                                              title={`Buy ${coin.symbol} on Webull`}
+                                            >
+                                              Buy
+                                            </button>
+                                          );
+                                        }
                                         const buyElig = getBuyEligibility(coin.symbol);
                                         return (
                                           <button
+                                            type="button"
                                             className="trade-action-btn buy"
                                             onClick={(event) => buyElig.canBuy && toggleTradeQuoteMenu('portfolio', coin.symbol, 'BUY', event)}
                                             disabled={!buyElig.canBuy}
@@ -4758,33 +4844,56 @@ function Dashboard({ isLightMode }) {
                                           </button>
                                         );
                                       })()}
-                                      <button
-                                        className="trade-action-btn sell"
-                                        onClick={(event) => Number(coin.amount || 0) >= MINIMUM_PORTFOLIO_AMOUNT && coin.symbol !== 'USD' && toggleTradeQuoteMenu('portfolio', coin.symbol, 'SELL', event)}
-                                        disabled={coin.symbol === 'USD' || Number(coin.amount || 0) < MINIMUM_PORTFOLIO_AMOUNT}
-                                        title={coin.symbol === 'USD' ? 'Cannot sell fiat USD' : Number(coin.amount || 0) < MINIMUM_PORTFOLIO_AMOUNT ? 'You do not own enough of this coin to sell' : 'Sell'}
-                                        style={coin.symbol === 'USD' || Number(coin.amount || 0) < MINIMUM_PORTFOLIO_AMOUNT ? { opacity: 0.4, cursor: 'not-allowed' } : undefined}
-                                      >
-                                        Sell
-                                      </button>
-                                      <button
-                                        className="trade-action-btn stake"
-                                        onClick={() => handleStakeClick(coin)}
-                                        disabled={
-                                          !stakeableCoins.includes(coin.symbol) ||
-                                          isPlaceholder ||
-                                          (coin.current_value && coin.current_value < 1)
+                                      {(() => {
+                                        if (isWebullAsset(coin)) {
+                                          const hasBalance = Number(coin.amount || 0) > 0;
+                                          return (
+                                            <button
+                                              type="button"
+                                              className="trade-action-btn sell"
+                                              onClick={() => hasBalance && navigateToWebullTrading(coin.symbol, 'SELL')}
+                                              disabled={!hasBalance}
+                                              title={hasBalance ? `Sell ${coin.symbol} on Webull` : 'You do not own enough of this asset to sell'}
+                                              style={!hasBalance ? { opacity: 0.4, cursor: 'not-allowed' } : undefined}
+                                            >
+                                              Sell
+                                            </button>
+                                          );
                                         }
-                                        title={
-                                          !stakeableCoins.includes(coin.symbol)
-                                            ? 'Staking not available for this coin'
-                                            : (coin.current_value && coin.current_value < 1)
-                                              ? 'Minimum $1 USDT value required to stake'
-                                              : 'Stake this coin'
-                                        }
-                                      >
-                                        Stake
-                                      </button>
+                                        return (
+                                          <button
+                                            type="button"
+                                            className="trade-action-btn sell"
+                                            onClick={(event) => Number(coin.amount || 0) >= MINIMUM_PORTFOLIO_AMOUNT && coin.symbol !== 'USD' && toggleTradeQuoteMenu('portfolio', coin.symbol, 'SELL', event)}
+                                            disabled={coin.symbol === 'USD' || Number(coin.amount || 0) < MINIMUM_PORTFOLIO_AMOUNT}
+                                            title={coin.symbol === 'USD' ? 'Cannot sell fiat USD' : Number(coin.amount || 0) < MINIMUM_PORTFOLIO_AMOUNT ? 'You do not own enough of this coin to sell' : 'Sell'}
+                                            style={coin.symbol === 'USD' || Number(coin.amount || 0) < MINIMUM_PORTFOLIO_AMOUNT ? { opacity: 0.4, cursor: 'not-allowed' } : undefined}
+                                          >
+                                            Sell
+                                          </button>
+                                        );
+                                      })()}
+                                      {!isWebullAsset(coin) && (
+                                        <button
+                                          type="button"
+                                          className="trade-action-btn stake"
+                                          onClick={() => handleStakeClick(coin)}
+                                          disabled={
+                                            !stakeableCoins.includes(coin.symbol) ||
+                                            isPlaceholder ||
+                                            (coin.current_value && coin.current_value < 1)
+                                          }
+                                          title={
+                                            !stakeableCoins.includes(coin.symbol)
+                                              ? 'Staking not available for this coin'
+                                              : (coin.current_value && coin.current_value < 1)
+                                                ? 'Minimum $1 USDT value required to stake'
+                                                : 'Stake this coin'
+                                          }
+                                        >
+                                          Stake
+                                        </button>
+                                      )}
                                       {(() => {
                                         const allPendingItems = getAllPendingItemsForCoin(coin);
                                         const hasOrders = allPendingItems.length > 0;
@@ -4801,8 +4910,9 @@ function Dashboard({ isLightMode }) {
                                         );
                                       })()}
                                       <button
+                                        type="button"
                                         className="trade-action-btn hide"
-                                        onClick={() => { if (!isPlaceholder) { hideCoin(coin.id); } }}
+                                        onClick={() => { hideCoin(coin.id, coin.symbol); }}
                                         title={isPlaceholder ? 'Cannot hide pending-only entries' : 'Hide coin'}
                                         disabled={isPlaceholder}
                                       >
@@ -5145,9 +5255,22 @@ function Dashboard({ isLightMode }) {
                                         ✏️
                                       </button>
                                       {(() => {
+                                        if (isWebullAsset(item)) {
+                                          return (
+                                            <button
+                                              type="button"
+                                              className="trade-action-btn buy"
+                                              onClick={() => navigateToWebullTrading(item.symbol, 'BUY')}
+                                              title={`Buy ${item.symbol} on Webull`}
+                                            >
+                                              Buy
+                                            </button>
+                                          );
+                                        }
                                         const buyElig = getBuyEligibility(item.symbol);
                                         return (
                                           <button
+                                            type="button"
                                             className="trade-action-btn buy"
                                             onClick={(event) => buyElig.canBuy && toggleTradeQuoteMenu('watchlist', item.symbol, 'BUY', event)}
                                             disabled={!buyElig.canBuy}

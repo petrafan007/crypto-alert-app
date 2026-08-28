@@ -3,6 +3,7 @@ import axios from 'axios';
 import CryptoIcon, { WebullLogo } from '../components/CryptoIcon';
 import WebullTradingViewChart from '../components/WebullTradingViewChart';
 import WebullTradeTimelineChart from '../components/WebullTradeTimelineChart';
+import TwoFactorModal from '../components/TwoFactorModal';
 import './Trading.css';
 
 const OPEN_STATUSES = new Set(['OPEN', 'NEW', 'WORKING', 'PENDING', 'PARTIALLY_FILLED', 'PARTIALLY FILLED']);
@@ -159,6 +160,11 @@ export default function WebullTrading({ isLightMode = false }) {
   const [orderSubmitting, setOrderSubmitting] = useState(false);
   const [orderFeedback, setOrderFeedback] = useState({ type: '', message: '' });
 
+  // 2FA State
+  const [require2fa, setRequire2fa] = useState(false);
+  const [twoFactorCode, setTwoFactorCode] = useState('');
+  const [twoFactorModal, setTwoFactorModal] = useState({ isVisible: false, orderData: null });
+
   // History & Signal State
   const [historyPage, setHistoryPage] = useState(1);
   const [historyPageSize, setHistoryPageSize] = useState(50);
@@ -215,12 +221,16 @@ export default function WebullTrading({ isLightMode = false }) {
   const load = async () => {
     setLoading(true); setError('');
     try {
-      // 1. Fetch lightweight core data needed for trading UI (accounts & portfolio holdings)
-      const [portfolioResponse, accRes, signalSettingsResponse] = await Promise.all([
+      // 1. Fetch lightweight core data needed for trading UI (accounts & portfolio holdings & 2FA setting)
+      const [portfolioResponse, accRes, signalSettingsResponse, tradingSettingsRes] = await Promise.all([
         axios.get('/api/coin-data-live', { withCredentials: true }),
         axios.get('/api/webull/accounts', { withCredentials: true }),
         axios.get('/api/webull/ai-settings', { withCredentials: true }),
+        axios.get('/api/trading/settings', { withCredentials: true }).catch(() => ({ data: {} })),
       ]);
+      if (tradingSettingsRes.data?.settings?.require_2fa) {
+        setRequire2fa(true);
+      }
       const importedHoldings = (portfolioResponse.data?.portfolio || []).filter(
         (item) => item?.is_external || item?.source === 'webull'
       );
@@ -234,6 +244,10 @@ export default function WebullTrading({ isLightMode = false }) {
         : discoveredAccounts.filter((a) => a.is_enabled !== false);
       setAccounts(filteredAccounts);
 
+      const urlParams = new URLSearchParams(window.location.search);
+      const urlSymbol = urlParams.get('symbol')?.toUpperCase()?.trim();
+      const urlSide = urlParams.get('side')?.toUpperCase()?.trim();
+
       const initialAcc = filteredAccounts.find((a) => a.account_id === selectedAccountId) || filteredAccounts[0];
       let activeAccId = selectedAccountId;
       if (initialAcc) {
@@ -242,7 +256,19 @@ export default function WebullTrading({ isLightMode = false }) {
         const isCrypto = isCryptoAccount(initialAcc);
         setSelectedInstrumentType(isCrypto ? 'CRYPTO' : 'EQUITY');
 
-        if (isCrypto && (selectedSymbol === 'AAPL' || !selectedSymbol.endsWith('USD'))) {
+        if (urlSymbol) {
+          setSelectedSymbol(urlSymbol);
+          const isCryptoSymbol = urlSymbol.endsWith('USD') || /crypto|coin|token/i.test(importedHoldings.find((h) => h.symbol === urlSymbol)?.instrument_type || '');
+          setSelectedInstrumentType(isCryptoSymbol ? 'CRYPTO' : 'EQUITY');
+          if (urlSide && ['BUY', 'SELL'].includes(urlSide)) {
+            setOrderForm((prev) => ({ ...prev, side: urlSide }));
+          }
+          const matchedHolding = importedHoldings.find((h) => h.symbol === urlSymbol);
+          if (matchedHolding?.current_price) {
+            setLivePrice(Number(matchedHolding.current_price));
+            setOrderForm((prev) => ({ ...prev, price: Number(matchedHolding.current_price).toFixed(2) }));
+          }
+        } else if (isCrypto && (selectedSymbol === 'AAPL' || !selectedSymbol.endsWith('USD'))) {
           const firstCrypto = importedHoldings.find((h) => /crypto|coin|token/i.test(h.instrument_type || ''));
           setSelectedSymbol(firstCrypto ? firstCrypto.symbol : 'BTCUSD');
           if (firstCrypto?.current_price) {
@@ -477,7 +503,7 @@ export default function WebullTrading({ isLightMode = false }) {
   };
 
   // Transmit order to Webull OpenAPI
-  const handleConfirmSubmit = async () => {
+  const handleConfirmSubmit = async (tokenOverride) => {
     setOrderSubmitting(true);
     try {
       const payload = {
@@ -491,12 +517,14 @@ export default function WebullTrading({ isLightMode = false }) {
         stop_price: ['STOP', 'STOP_LIMIT'].includes(orderForm.type) ? Number(orderForm.stopPrice) : undefined,
         time_in_force: orderForm.timeInForce,
         support_trading_session: selectedInstrumentType === 'CRYPTO' ? 'CORE' : orderForm.tradingSession,
+        ...(tokenOverride ? { twofa_token: tokenOverride } : twoFactorCode ? { twofa_code: twoFactorCode } : {}),
       };
 
       const response = await axios.post('/api/webull/orders/place', payload, { withCredentials: true });
       if (response.data?.success) {
         setOrderFeedback({ type: 'success', message: response.data.message || 'Webull order placed successfully!' });
         setShowConfirmModal(false);
+        setTwoFactorCode('');
         setOrderForm((prev) => ({ ...prev, quantity: '', quoteQuantity: '' }));
         setBalancePercentage(0);
         loadOpenOrders(selectedAccountId);
@@ -505,13 +533,38 @@ export default function WebullTrading({ isLightMode = false }) {
         setShowConfirmModal(false);
       }
     } catch (err) {
-      setOrderFeedback({
-        type: 'error',
-        message: err.response?.data?.message || err.message || 'Webull order placement failed.',
-      });
-      setShowConfirmModal(false);
+      if (err.response?.data?.requires_2fa) {
+        setShowConfirmModal(false);
+        setTwoFactorModal({
+          isVisible: true,
+          orderData: {
+            symbol: selectedSymbol,
+            side: orderForm.side,
+            type: orderForm.type,
+            quantity: orderForm.quantity,
+            price: orderForm.price,
+            stopPrice: orderForm.stopPrice,
+          },
+        });
+      } else {
+        setOrderFeedback({
+          type: 'error',
+          message: err.response?.data?.message || err.message || 'Webull order placement failed.',
+        });
+        setShowConfirmModal(false);
+      }
     } finally {
       setOrderSubmitting(false);
+    }
+  };
+
+  const handleTwoFactorVerify = async (code) => {
+    const res = await axios.post('/api/trading/2fa/verify', { code }, { withCredentials: true });
+    if (res.data?.success && res.data?.token) {
+      setTwoFactorModal({ isVisible: false, orderData: null });
+      await handleConfirmSubmit(res.data.token);
+    } else {
+      throw new Error(res.data?.error || 'Invalid 2FA code');
     }
   };
 
@@ -968,15 +1021,26 @@ export default function WebullTrading({ isLightMode = false }) {
                     </div>
                   </div>
 
-                  {/* Row 5: Action Button */}
+                  {/* Row 5: Action Button (Binance parity) */}
                   <div className="order-submit-row">
                     <button
                       type="submit"
-                      className={`order-submit-btn ${orderForm.side === 'BUY' ? 'buy-action' : 'sell-action'}`}
+                      className={`modern-submit-button ${orderForm.side.toLowerCase()}`}
                       disabled={orderSubmitting}
                     >
-                      {orderSubmitting ? 'Placing Order…' : `Place ${orderForm.side === 'BUY' ? 'Buy' : 'Sell'} Order`}
+                      {orderSubmitting ? (
+                        <span>⏳ Processing Order...</span>
+                      ) : (
+                        <span>
+                          ⚡ Place Real {orderForm.type === 'MARKET' ? 'Market' : orderForm.type === 'LIMIT' ? 'Limit' : orderForm.type === 'STOP' ? 'Stop Loss' : orderForm.type === 'STOP_LIMIT' ? 'Stop Limit' : ''} {orderForm.side === 'BUY' ? 'Buy' : 'Sell'} Order
+                        </span>
+                      )}
                     </button>
+                  </div>
+
+                  {/* Row 6: Warning in Real Trading Mode */}
+                  <div className="modern-real-warning" style={{ marginTop: '12px' }}>
+                    ⚠️ <strong>WARNING:</strong> You are in REAL TRADING MODE. This will execute an actual live order on Webull OpenAPI.
                   </div>
                 </form>
 
@@ -1025,6 +1089,38 @@ export default function WebullTrading({ isLightMode = false }) {
                           <span>{orderForm.timeInForce} · {orderForm.tradingSession === 'CORE' ? 'Regular Hours' : 'Extended Hours'}</span>
                         </div>
                       </div>
+
+                      {require2fa && (
+                        <div style={{ marginBottom: '20px', background: 'rgba(0,0,0,0.3)', padding: '14px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.1)' }}>
+                          <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, marginBottom: '6px', color: '#f8fafc' }}>
+                            🔐 Two-Factor Authentication (2FA) Code:
+                          </label>
+                          <input
+                            type="text"
+                            inputMode="numeric"
+                            autoComplete="one-time-code"
+                            maxLength={6}
+                            placeholder="000000"
+                            value={twoFactorCode}
+                            onChange={(e) => setTwoFactorCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                            style={{
+                              width: '100%',
+                              padding: '10px 14px',
+                              fontSize: '1.2rem',
+                              letterSpacing: '6px',
+                              textAlign: 'center',
+                              background: 'rgba(0,0,0,0.4)',
+                              border: '1px solid rgba(255,255,255,0.2)',
+                              borderRadius: '6px',
+                              color: '#fff',
+                            }}
+                          />
+                          <p style={{ margin: '6px 0 0', fontSize: '0.78rem', color: '#94a3b8', textAlign: 'center' }}>
+                            Enter the 6-digit code from your authenticator app.
+                          </p>
+                        </div>
+                      )}
+
                       <div style={{ display: 'flex', gap: '12px' }}>
                         <button
                           type="button"
@@ -1045,8 +1141,8 @@ export default function WebullTrading({ isLightMode = false }) {
                             border: 'none',
                             fontWeight: 'bold',
                           }}
-                          disabled={orderSubmitting}
-                          onClick={handleConfirmSubmit}
+                          disabled={orderSubmitting || (require2fa && twoFactorCode.length !== 6)}
+                          onClick={() => handleConfirmSubmit()}
                         >
                           {orderSubmitting ? 'Submitting…' : 'Confirm Order'}
                         </button>
@@ -1237,6 +1333,12 @@ function WebullHoldings({ holdings, compact = false }) {
           </tbody>
         </table>
       </div>
+      <TwoFactorModal
+        isVisible={twoFactorModal.isVisible}
+        onClose={() => setTwoFactorModal({ isVisible: false, orderData: null })}
+        onVerify={handleTwoFactorVerify}
+        orderDetails={twoFactorModal.orderData}
+      />
     </div>
   );
 }
