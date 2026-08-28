@@ -123,6 +123,14 @@ The application utilizes a **unified PostgreSQL database**.
 
 ## Version History & Changelog
 
+## v2.43.0 (August 2026)
+
+- **Webull Options Execution & Risk Model**: Fully wired up live option order placement via Webull OpenAPI with contract-level single-leg orders (`CALL` / `PUT`), contract multiplier (100 shares/contract), real-time breakeven price calculation, max risk verification, limit price enforcement, and 2FA authentication.
+- **Interactive Options Trading Terminal**: Added an Asset Class switcher to Webull Trading allowing seamless switching between Equities/ETFs, Crypto, and Options. Clicking any option holding in the portfolio automatically populates the option contract ticket for 1-click execution.
+- **Webull AI Options Analysis**: Expanded stored Webull research signals to support options holdings, incorporating contract specifications, strike, expiration, and snapshot Greeks (`delta`, `gamma`, `theta`, `iv`) into AI evaluations.
+- **Dashboard Webull Quick Trade Widget**: Upgraded the Dashboard Quick Trade widget to support Webull stocks, ETFs, and crypto with 1-click launch to Webull Trading, and added an exchange switcher toggle in All Accounts scope.
+- **Dashboard Multi-Timeframe Performance for Webull**: Activated the 7-day, 3-day, 1-day, 12-hour, and 1-hour performance metrics table for Webull assets on the Dashboard with dynamic scope filtering and direct trading deep-links.
+
 ## v2.42.0 (August 2026)
 
 - **7-Day Performance Chart on Symbol Hover for Webull Assets**: Enabled interactive 7-day sparkline performance chart popups on all Webull equities, ETFs, and assets in both the Portfolio and Watchlist tables. Backfilled hourly price candles with real-time stock/ETF market data.

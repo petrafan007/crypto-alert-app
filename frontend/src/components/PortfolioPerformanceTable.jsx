@@ -23,7 +23,7 @@ const GenericCoinIcon = ({ size = 20 }) => (
   </svg>
 );
 
-const PortfolioPerformanceTable = ({ hiddenCoins = [], excludeSymbols = null, onEdit, onCoinClick }) => {
+const PortfolioPerformanceTable = ({ hiddenCoins = [], excludeSymbols = null, onEdit, onCoinClick, accountScope = 'all' }) => {
   const [performanceData, setPerformanceData] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -33,7 +33,8 @@ const PortfolioPerformanceTable = ({ hiddenCoins = [], excludeSymbols = null, on
 
     const fetchPerformance = async () => {
       try {
-        const response = await axios.get('/api/coin-performance', { withCredentials: true });
+        const query = accountScope ? `?account_scope=${encodeURIComponent(accountScope)}` : '';
+        const response = await axios.get(`/api/coin-performance${query}`, { withCredentials: true });
         if (!response.data?.success || !Array.isArray(response.data.performance)) {
           throw new Error('Invalid coin performance response');
         }
@@ -55,7 +56,7 @@ const PortfolioPerformanceTable = ({ hiddenCoins = [], excludeSymbols = null, on
       cancelled = true;
       window.clearInterval(interval);
     };
-  }, []);
+  }, [accountScope]);
 
   const formatChange = (change) => {
     const numericChange = Number(change);
@@ -79,13 +80,13 @@ const PortfolioPerformanceTable = ({ hiddenCoins = [], excludeSymbols = null, on
       <div className="performance-widget-header" style={{ marginBottom: '8px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <h3 className="chart-title" style={{ display: 'flex', alignItems: 'center', gap: '8px', margin: 0 }}>
           <GenericCoinIcon size={20} />
-          <span>Coin Performance</span>
+          <span>{accountScope === 'webull' ? 'Webull Asset Performance' : accountScope === 'binance' ? 'Coin Performance' : 'Asset Performance'}</span>
         </h3>
         {onEdit && (
           <button
             type="button"
             onClick={onEdit}
-            title="Filter visible coins in Coin Performance"
+            title="Filter visible assets in Performance Table"
             style={{
               background: 'rgba(56, 189, 248, 0.12)',
               border: '1px solid rgba(56, 189, 248, 0.25)',
@@ -109,7 +110,7 @@ const PortfolioPerformanceTable = ({ hiddenCoins = [], excludeSymbols = null, on
         <table className="portfolio-performance-table">
           <thead>
             <tr>
-              <th>Coin</th>
+              <th>{accountScope === 'webull' ? 'Asset' : 'Coin'}</th>
               {WINDOW_KEYS.map((w) => (
                 <th key={w.label}>{w.label}</th>
               ))}

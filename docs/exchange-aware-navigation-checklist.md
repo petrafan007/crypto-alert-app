@@ -1,6 +1,6 @@
 # Exchange-Aware Navigation & Account Views — Review Checklist
 
-Status: **Acceptance criteria defined and implemented through v2.42.0**
+Status: **Acceptance criteria defined and implemented through v2.43.0**
 Scope: Replace the current Binance-centric navigation model with explicit Binance.US, Webull, and All Accounts contexts.
 
 ## Confirmed product decisions
@@ -13,12 +13,13 @@ Scope: Replace the current Binance-centric navigation model with explicit Binanc
 - [x] The top-level **AI Analysis** navigation item is removed.
 - [x] Binance.US Trading receives **AI Analysis** as a tab.
 - [x] A dedicated **Webull Trading** page is added with Place Order, Open Orders, Order History, Trade Chart, and AI Analysis tabs.
-- [x] Webull active order execution is implemented in v2.34.0 for equities/ETFs and crypto with pre-trade review and open order cancellation; options execution remains staged pending options risk model.
-- [x] Webull AI stores provider-neutral, read-only signals: crypto and equities/ETFs use distinct prompt families, fixed forecast horizons, immutable grading configurations, and the same manual/scheduled lifecycle. Scheduling is opt-in and disabled by default; options now have contract-level chart/quote identity but remain unavailable to AI pending an options-specific risk model.
+- [x] Webull active order execution is implemented for equities/ETFs, crypto, and contract-level single-leg options (Calls & Puts) with pre-trade risk review, 2FA authentication, and open order cancellation. [Implemented in v2.43.0]
+- [x] Webull AI stores provider-neutral, read-only signals: crypto, equities/ETFs, and options use tailored prompt pathways with contract Greeks context, fixed forecast horizons, and immutable grading configurations. Scheduling is opt-in and disabled by default. [Implemented in v2.43.0]
 - [x] A new top-level **Orders** destination replaces AI Analysis and provides combined Open Orders and Order History for all accounts.
 - [x] Combined order views must visibly retain their exchange/source identity.
 - [x] Webull Trading stores a user-selected default account and otherwise prefers an equity/cash account, while each position is resolved within the selected account. [Implemented in v2.39.0]
 - [x] Webull assets have full hover and symbol-click parity with Binance.US assets: hovering over a Webull stock, ETF, or crypto in the Portfolio or Watchlist table displays the interactive 7-day performance chart popup (with real-time hourly stock/ETF market data), and clicking the symbol or popup header routes directly to Webull Trading with pre-selected ticker and account. [Implemented in v2.42.0]
+- [x] Dashboard supports 1-click Quick Trade for Webull equities/crypto with exchange switching in All Accounts scope, and displays multi-timeframe asset performance (7D, 3D, 1D, 12H, 1H) for Webull holdings when in Webull or All Accounts scope. [Implemented in v2.43.0]
 - [x] AI Copilot receives unified multi-asset context spanning Binance.US holdings, cash balances, Webull equities/ETFs/options, full watchlist telemetry, and recent trades with native Binance OCO matching-engine linkage awareness. [Implemented in v2.41.0 & v2.41.1]
 
 ## Requirements review checklist

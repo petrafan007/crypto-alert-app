@@ -4464,9 +4464,15 @@ function Dashboard({ isLightMode }) {
             case 'staking':
               return <StakingSummaryWidget />;
             case 'performance':
-              return accountScope === 'webull'
-                ? <div className="widget-panel-inner" style={{ padding: '18px', color: 'var(--text-secondary, #94a3b8)' }}>Webull performance history will be added with its dedicated equity and options market-data integration.</div>
-                : <PortfolioPerformanceTable hiddenCoins={performanceHiddenCoins} excludeSymbols={traditionalSymbols} onEdit={handleOpenPerformanceCoinModal} onCoinClick={handleCoinClick} />;
+              return (
+                <PortfolioPerformanceTable
+                  hiddenCoins={performanceHiddenCoins}
+                  excludeSymbols={accountScope === 'binance' ? traditionalSymbols : null}
+                  onEdit={handleOpenPerformanceCoinModal}
+                  onCoinClick={handleCoinClick}
+                  accountScope={accountScope}
+                />
+              );
             case 'top_movers':
               return <TopMoversWidget isLightMode={isLightMode} config={topMoversConfig} onEdit={handleOpenTopMoversModal} ownedSymbols={ownedSymbols} onCoinClick={(symbol) => navigateToTrading(symbol, 'BUY', 'USDT')} />;
             case 'top_stock_movers':
@@ -4489,9 +4495,7 @@ function Dashboard({ isLightMode }) {
             case 'risk_monitor':
               return <RiskMonitorWidget isLightMode={isLightMode} portfolio={scopedPortfolio} totalValue={scopedTotalValue} />;
             case 'quick_trade':
-              return accountScope === 'webull'
-                ? <div className="widget-panel-inner" style={{ padding: '18px', color: 'var(--text-secondary, #94a3b8)' }}>Webull trading is read-only until its dedicated execution interface is approved.</div>
-                : <QuickTradeWidget isLightMode={isLightMode} portfolio={scopedPortfolio} />;
+              return <QuickTradeWidget isLightMode={isLightMode} portfolio={scopedPortfolio} accountScope={accountScope} />;
             case 'gas_monitor':
               return <GasMonitorWidget isLightMode={isLightMode} />;
             default:

@@ -171,6 +171,9 @@ export default function WebullTrading({ isLightMode = false }) {
     stopPrice: '',
     timeInForce: 'DAY',
     tradingSession: 'CORE',
+    optionType: 'CALL',
+    optionStrike: '',
+    optionExpiration: '',
   });
 
   const availableOrderTypes = useMemo(() => [
@@ -500,15 +503,18 @@ export default function WebullTrading({ isLightMode = false }) {
   const handleBaseQuantityChange = (val) => {
     const qty = val.replace(/[^0-9.]/g, '');
     const numQty = parseFloat(qty) || 0;
-    const computedVal = numQty > 0 && effectivePrice > 0 ? (numQty * effectivePrice).toFixed(2) : '';
+    const mult = selectedInstrumentType === 'OPTION' ? 100 : 1;
+    const computedVal = numQty > 0 && effectivePrice > 0 ? (numQty * effectivePrice * mult).toFixed(2) : '';
     setOrderForm((prev) => ({ ...prev, quantity: qty, quoteQuantity: computedVal }));
   };
 
   const handleQuoteQuantityChange = (val) => {
     const quoteVal = val.replace(/[^0-9.]/g, '');
     const numQuote = parseFloat(quoteVal) || 0;
-    const computedQty = numQuote > 0 && effectivePrice > 0
-      ? (selectedInstrumentType === 'CRYPTO' ? (numQuote / effectivePrice).toFixed(6) : String(Math.floor(numQuote / effectivePrice)))
+    const mult = selectedInstrumentType === 'OPTION' ? 100 : 1;
+    const unitCost = effectivePrice * mult;
+    const computedQty = numQuote > 0 && unitCost > 0
+      ? (selectedInstrumentType === 'CRYPTO' ? (numQuote / effectivePrice).toFixed(6) : String(Math.floor(numQuote / unitCost)))
       : '';
     setOrderForm((prev) => ({ ...prev, quoteQuantity: quoteVal, quantity: computedQty }));
   };
@@ -518,7 +524,8 @@ export default function WebullTrading({ isLightMode = false }) {
     setOrderForm((prev) => {
       const numQty = parseFloat(prev.quantity) || 0;
       const numPx = parseFloat(px) || 0;
-      const computedQuote = numQty > 0 && numPx > 0 ? (numQty * numPx).toFixed(2) : prev.quoteQuantity;
+      const mult = selectedInstrumentType === 'OPTION' ? 100 : 1;
+      const computedQuote = numQty > 0 && numPx > 0 ? (numQty * numPx * mult).toFixed(2) : prev.quoteQuantity;
       return { ...prev, price: px, quoteQuantity: computedQuote };
     });
   };
@@ -538,9 +545,11 @@ export default function WebullTrading({ isLightMode = false }) {
     if (orderForm.side === 'BUY') {
       if (cashBalance > 0 && effectivePrice > 0) {
         const targetDollars = cashBalance * (pct / 100);
+        const mult = selectedInstrumentType === 'OPTION' ? 100 : 1;
+        const unitCost = effectivePrice * mult;
         const qty = selectedInstrumentType === 'CRYPTO'
           ? (targetDollars / effectivePrice).toFixed(6)
-          : String(Math.floor(targetDollars / effectivePrice));
+          : String(Math.floor(targetDollars / unitCost));
         setOrderForm((prev) => ({
           ...prev,
           quantity: qty,
@@ -551,7 +560,8 @@ export default function WebullTrading({ isLightMode = false }) {
       if (heldQuantity > 0) {
         const targetQty = (heldQuantity * (pct / 100));
         const formattedQty = selectedInstrumentType === 'CRYPTO' ? targetQty.toFixed(6) : String(Math.floor(targetQty));
-        const computedVal = (parseFloat(formattedQty) * effectivePrice).toFixed(2);
+        const mult = selectedInstrumentType === 'OPTION' ? 100 : 1;
+        const computedVal = (parseFloat(formattedQty) * effectivePrice * mult).toFixed(2);
         setOrderForm((prev) => ({
           ...prev,
           quantity: formattedQty,
@@ -563,8 +573,9 @@ export default function WebullTrading({ isLightMode = false }) {
 
   const orderTotal = useMemo(() => {
     const qty = parseFloat(orderForm.quantity) || 0;
-    return qty * effectivePrice;
-  }, [orderForm.quantity, effectivePrice]);
+    const mult = selectedInstrumentType === 'OPTION' ? 100 : 1;
+    return qty * effectivePrice * mult;
+  }, [orderForm.quantity, effectivePrice, selectedInstrumentType]);
 
   // Pre-trade submit handler
   const handleOrderSubmit = (e) => {
@@ -583,18 +594,36 @@ export default function WebullTrading({ isLightMode = false }) {
       setOrderFeedback({ type: 'error', message: 'Please enter a valid order quantity.' });
       return;
     }
-    if (['LIMIT', 'STOP_LIMIT'].includes(orderForm.type)) {
-      const px = parseFloat(orderForm.price);
-      if (!px || px <= 0) {
-        setOrderFeedback({ type: 'error', message: 'Limit orders require a limit price greater than $0.' });
+    if (selectedInstrumentType === 'OPTION') {
+      if (['LIMIT', 'STOP_LIMIT'].includes(orderForm.type)) {
+        const px = parseFloat(orderForm.price);
+        if (!px || px <= 0) {
+          setOrderFeedback({ type: 'error', message: 'Options orders require a limit price greater than $0.' });
+          return;
+        }
+      }
+      if (!orderForm.optionExpiration) {
+        setOrderFeedback({ type: 'error', message: 'Please specify an option expiration date.' });
         return;
       }
-    }
-    if (['STOP', 'STOP_LIMIT'].includes(orderForm.type)) {
-      const spx = parseFloat(orderForm.stopPrice);
-      if (!spx || spx <= 0) {
-        setOrderFeedback({ type: 'error', message: 'Stop orders require a stop trigger price greater than $0.' });
+      if (!orderForm.optionStrike || parseFloat(orderForm.optionStrike) <= 0) {
+        setOrderFeedback({ type: 'error', message: 'Please specify an option strike price.' });
         return;
+      }
+    } else {
+      if (['LIMIT', 'STOP_LIMIT'].includes(orderForm.type)) {
+        const px = parseFloat(orderForm.price);
+        if (!px || px <= 0) {
+          setOrderFeedback({ type: 'error', message: 'Limit orders require a limit price greater than $0.' });
+          return;
+        }
+      }
+      if (['STOP', 'STOP_LIMIT'].includes(orderForm.type)) {
+        const spx = parseFloat(orderForm.stopPrice);
+        if (!spx || spx <= 0) {
+          setOrderFeedback({ type: 'error', message: 'Stop orders require a stop trigger price greater than $0.' });
+          return;
+        }
       }
     }
     setShowConfirmModal(true);
@@ -608,13 +637,14 @@ export default function WebullTrading({ isLightMode = false }) {
         account_id: selectedAccountId,
         symbol: selectedSymbol.trim().toUpperCase(),
         instrument_type: selectedInstrumentType,
+        option_type: selectedInstrumentType === 'OPTION' ? orderForm.optionType : undefined,
         side: orderForm.side,
         order_type: orderForm.type,
         quantity: Number(orderForm.quantity),
         limit_price: ['LIMIT', 'STOP_LIMIT'].includes(orderForm.type) ? Number(orderForm.price) : undefined,
         stop_price: ['STOP', 'STOP_LIMIT'].includes(orderForm.type) ? Number(orderForm.stopPrice) : undefined,
         time_in_force: orderForm.timeInForce,
-        support_trading_session: selectedInstrumentType === 'CRYPTO' ? 'CORE' : orderForm.tradingSession,
+        support_trading_session: ['CRYPTO', 'OPTION'].includes(selectedInstrumentType) ? 'CORE' : orderForm.tradingSession,
         ...(tokenOverride ? { twofa_token: tokenOverride } : twoFactorCode ? { twofa_code: twoFactorCode } : {}),
       };
 
@@ -719,12 +749,42 @@ export default function WebullTrading({ isLightMode = false }) {
     }
   };
 
+  const handleSelectHolding = (holding) => {
+    const isOption = String(holding.instrument_type || '').toUpperCase() === 'OPTION';
+    setSelectedSymbol(holding.symbol);
+    if (isOption) {
+      setSelectedInstrumentType('OPTION');
+      setOrderForm((prev) => ({
+        ...prev,
+        side: 'SELL',
+        type: 'LIMIT',
+        optionType: holding.option_type || 'CALL',
+        optionStrike: holding.option_strike ? String(holding.option_strike) : '',
+        optionExpiration: holding.option_expiration || '',
+        price: holding.current_price ? String(holding.current_price) : '',
+        quantity: holding.amount ? String(holding.amount) : '1',
+      }));
+    } else {
+      const isCrypto = /crypto|coin|token/i.test(holding.instrument_type || '');
+      setSelectedInstrumentType(isCrypto ? 'CRYPTO' : 'EQUITY');
+      setOrderForm((prev) => ({
+        ...prev,
+        side: 'SELL',
+        type: 'LIMIT',
+        price: holding.current_price ? String(holding.current_price) : '',
+        quantity: holding.amount ? String(holding.amount) : '',
+      }));
+    }
+    setActiveTab('order');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
   const displayOpenOrders = useMemo(() => openOrders.filter((order) => OPEN_STATUSES.has(String(order.status).toUpperCase()) || !order.status), [openOrders]);
   const sortedHistory = useMemo(() => [...history].sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || ''))), [history]);
   const historyPages = Math.max(1, Math.ceil(sortedHistory.length / historyPageSize));
   const paginatedHistory = useMemo(() => sortedHistory.slice((historyPage - 1) * historyPageSize, historyPage * historyPageSize), [sortedHistory, historyPage, historyPageSize]);
   useEffect(() => { if (historyPage > historyPages) setHistoryPage(historyPages); }, [historyPage, historyPages]);
-  const analyzableHoldings = useMemo(() => holdings.filter((holding) => ['CRYPTO', 'STOCK', 'EQUITY', 'ETF'].includes(String(holding.instrument_type || '').toUpperCase())), [holdings]);
+  const analyzableHoldings = useMemo(() => holdings.filter((holding) => ['CRYPTO', 'STOCK', 'EQUITY', 'ETF', 'OPTION'].includes(String(holding.instrument_type || '').toUpperCase())), [holdings]);
   useEffect(() => {
     if (!selectedSignalHolding && analyzableHoldings.length) setSelectedSignalHolding(`${analyzableHoldings[0].symbol}|${analyzableHoldings[0].instrument_type}`);
   }, [analyzableHoldings, selectedSignalHolding]);
@@ -877,6 +937,137 @@ export default function WebullTrading({ isLightMode = false }) {
 
                 {/* 3. Redesigned Modern Order Panel (matching Binance.US) */}
                 <form onSubmit={handleOrderSubmit} className="trading-order-panel">
+                  {/* Asset Class Switcher (Equities & ETFs, Crypto, Options) */}
+                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap', marginBottom: '14px' }}>
+                    <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-secondary, #94a3b8)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                      Asset Class:
+                    </span>
+                    <div style={{ display: 'inline-flex', background: 'rgba(0,0,0,0.35)', padding: '3px', borderRadius: '8px', gap: '4px' }}>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedInstrumentType('EQUITY')}
+                        style={{
+                          padding: '5px 12px', borderRadius: '6px', border: 'none',
+                          background: selectedInstrumentType === 'EQUITY' ? 'linear-gradient(135deg, #3b82f6, #2563eb)' : 'transparent',
+                          color: '#fff', fontSize: '12px', fontWeight: 700, cursor: 'pointer',
+                        }}
+                      >
+                        🏛️ Equities &amp; ETFs
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedInstrumentType('CRYPTO')}
+                        style={{
+                          padding: '5px 12px', borderRadius: '6px', border: 'none',
+                          background: selectedInstrumentType === 'CRYPTO' ? 'linear-gradient(135deg, #f59e0b, #d97706)' : 'transparent',
+                          color: '#fff', fontSize: '12px', fontWeight: 700, cursor: 'pointer',
+                        }}
+                      >
+                        🪙 Crypto
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedInstrumentType('OPTION')}
+                        style={{
+                          padding: '5px 12px', borderRadius: '6px', border: 'none',
+                          background: selectedInstrumentType === 'OPTION' ? 'linear-gradient(135deg, #8b5cf6, #7c3aed)' : 'transparent',
+                          color: '#fff', fontSize: '12px', fontWeight: 700, cursor: 'pointer',
+                        }}
+                      >
+                        ⚡ Options (Calls &amp; Puts)
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Options Contract Setup (When OPTION selected) */}
+                  {selectedInstrumentType === 'OPTION' && (
+                    <div style={{ background: 'rgba(139, 92, 246, 0.12)', border: '1px solid rgba(139, 92, 246, 0.35)', borderRadius: '8px', padding: '14px', marginBottom: '14px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                        <span style={{ fontSize: '13px', fontWeight: 700, color: '#c4b5fd', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <span>🎯</span> Option Contract Setup ({selectedSymbol})
+                        </span>
+                        <span style={{ fontSize: '11px', color: '#a78bfa', background: 'rgba(139, 92, 246, 0.25)', padding: '3px 8px', borderRadius: '12px', fontWeight: 600 }}>
+                          100 Shares / Contract
+                        </span>
+                      </div>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '12px' }}>
+                        <div>
+                          <label className="order-field-label">Option Type</label>
+                          <div style={{ display: 'flex', gap: '4px' }}>
+                            <button
+                              type="button"
+                              onClick={() => setOrderForm((prev) => ({ ...prev, optionType: 'CALL' }))}
+                              style={{
+                                flex: 1, padding: '7px', borderRadius: '6px', border: 'none',
+                                background: orderForm.optionType === 'CALL' ? '#22c55e' : 'rgba(255,255,255,0.08)',
+                                color: '#fff', fontWeight: 700, fontSize: '12px', cursor: 'pointer'
+                              }}
+                            >
+                              CALL
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setOrderForm((prev) => ({ ...prev, optionType: 'PUT' }))}
+                              style={{
+                                flex: 1, padding: '7px', borderRadius: '6px', border: 'none',
+                                background: orderForm.optionType === 'PUT' ? '#ef4444' : 'rgba(255,255,255,0.08)',
+                                color: '#fff', fontWeight: 700, fontSize: '12px', cursor: 'pointer'
+                              }}
+                            >
+                              PUT
+                            </button>
+                          </div>
+                        </div>
+                        <div>
+                          <label className="order-field-label">Strike Price ($)</label>
+                          <input
+                            type="text"
+                            inputMode="decimal"
+                            value={orderForm.optionStrike}
+                            onChange={(e) => setOrderForm((prev) => ({ ...prev, optionStrike: e.target.value.replace(/[^0-9.]/g, '') }))}
+                            placeholder="e.g. 230.00"
+                            className="order-styled-input"
+                          />
+                        </div>
+                        <div>
+                          <label className="order-field-label">Expiration Date</label>
+                          <input
+                            type="date"
+                            value={orderForm.optionExpiration}
+                            onChange={(e) => setOrderForm((prev) => ({ ...prev, optionExpiration: e.target.value }))}
+                            className="order-styled-input"
+                          />
+                        </div>
+                      </div>
+
+                      {/* Real-time Breakeven & Risk Safeguards */}
+                      {Number(orderForm.optionStrike) > 0 && Number(orderForm.price) > 0 && (
+                        <div style={{ marginTop: '12px', display: 'flex', gap: '16px', flexWrap: 'wrap', fontSize: '12px', color: '#e2e8f0', background: 'rgba(0,0,0,0.25)', padding: '8px 12px', borderRadius: '6px' }}>
+                          <div>
+                            <span style={{ color: '#94a3b8' }}>Breakeven Price: </span>
+                            <strong style={{ color: '#38bdf8' }}>
+                              ${(orderForm.optionType === 'CALL'
+                                ? Number(orderForm.optionStrike) + Number(orderForm.price)
+                                : Number(orderForm.optionStrike) - Number(orderForm.price)).toFixed(2)}
+                            </strong>
+                          </div>
+                          <div>
+                            <span style={{ color: '#94a3b8' }}>Maximum Risk: </span>
+                            <strong style={{ color: '#f87171' }}>
+                              ${((Number(orderForm.quantity) || 1) * Number(orderForm.price) * 100).toFixed(2)} (Total Premium)
+                            </strong>
+                          </div>
+                          <div>
+                            <span style={{ color: '#94a3b8' }}>Est. Total Premium: </span>
+                            <strong style={{ color: '#4ade80' }}>
+                              ${((Number(orderForm.quantity) || 1) * Number(orderForm.price) * 100).toFixed(2)}
+                            </strong>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
                   {/* Row 1: Order Side & Order Types */}
                   <div className="order-control-row">
                     <div className="order-control-group side-group">
@@ -927,7 +1118,7 @@ export default function WebullTrading({ isLightMode = false }) {
                   <div className="order-inputs-row">
                     <div className="order-input-group">
                       <label className="order-field-label" htmlFor="quantity">
-                        Quantity ({selectedSymbol})
+                        {selectedInstrumentType === 'OPTION' ? 'Contracts (100 shares each)' : `Quantity (${selectedSymbol})`}
                       </label>
                       <div className="order-input-wrapper">
                         <input
@@ -1192,6 +1383,30 @@ export default function WebullTrading({ isLightMode = false }) {
                           <span style={{ color: '#94a3b8' }}>Symbol &amp; Asset:</span>
                           <strong>{selectedSymbol} ({selectedInstrumentType})</strong>
                         </div>
+                        {selectedInstrumentType === 'OPTION' && (
+                          <>
+                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                              <span style={{ color: '#94a3b8' }}>Option Contract:</span>
+                              <strong style={{ color: '#c4b5fd' }}>
+                                {selectedSymbol} {orderForm.optionType} ${orderForm.optionStrike} Exp: {orderForm.optionExpiration}
+                              </strong>
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                              <span style={{ color: '#94a3b8' }}>Multiplier:</span>
+                              <span>100 Shares / Contract</span>
+                            </div>
+                            {Number(orderForm.optionStrike) > 0 && Number(orderForm.price) > 0 && (
+                              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                <span style={{ color: '#94a3b8' }}>Breakeven Price:</span>
+                                <strong style={{ color: '#38bdf8' }}>
+                                  ${(orderForm.optionType === 'CALL'
+                                    ? Number(orderForm.optionStrike) + Number(orderForm.price)
+                                    : Number(orderForm.optionStrike) - Number(orderForm.price)).toFixed(2)}
+                                </strong>
+                              </div>
+                            )}
+                          </>
+                        )}
                         <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                           <span style={{ color: '#94a3b8' }}>Order Type:</span>
                           <strong>
@@ -1279,7 +1494,7 @@ export default function WebullTrading({ isLightMode = false }) {
                 )}
 
                 {/* Holdings Table Below */}
-                <WebullHoldings holdings={holdings} />
+                <WebullHoldings holdings={holdings} onSelectHolding={handleSelectHolding} />
               </div>
             )}
 
@@ -1323,7 +1538,7 @@ export default function WebullTrading({ isLightMode = false }) {
               <section className="order-history-container">
                 <h2>Webull AI Analysis</h2>
                 <p style={{ color: 'var(--text-secondary, #94a3b8)', marginTop: 0 }}>
-                  Stored research signals use distinct crypto and equity/ETF prompt paths, are graded at their saved forecast horizon, and never submit a Webull order. Options remain unavailable until contract-level mapping is added.
+                  Stored research signals use distinct crypto, equity/ETF, and option prompt paths, are graded at their saved forecast horizon, and never submit a Webull order.
                 </p>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'end', margin: '18px 0' }}>
                   <label style={{ display: 'grid', gap: 6, minWidth: 240 }}>
@@ -1433,7 +1648,7 @@ function WebullSignalTable({ signals }) {
   );
 }
 
-function WebullHoldings({ holdings, compact = false }) {
+function WebullHoldings({ holdings, compact = false, onSelectHolding }) {
   if (!holdings.length) return <div className="empty-state"><p>No imported Webull holdings. Import a Webull portfolio snapshot in Settings first.</p></div>;
   return (
     <div className="table-container trading-table" style={{ marginTop: compact ? 12 : 20 }}>
@@ -1441,7 +1656,7 @@ function WebullHoldings({ holdings, compact = false }) {
         <table>
           <thead>
             <tr>
-              <th>Symbol</th><th>Type</th><th>Quantity</th><th>Last Price</th><th>Value</th><th>Unrealized P&amp;L</th><th>Source</th>
+              <th>Symbol</th><th>Type</th><th>Quantity</th><th>Last Price</th><th>Value</th><th>Unrealized P&amp;L</th><th>Action</th>
             </tr>
           </thead>
           <tbody>
@@ -1449,7 +1664,12 @@ function WebullHoldings({ holdings, compact = false }) {
               const isOption = String(holding.instrument_type || '').toUpperCase() === 'OPTION';
               const optionLabel = [holding.underlying_symbol, holding.option_expiration, holding.option_strike != null ? `$${holding.option_strike}` : '', holding.option_type].filter(Boolean).join(' · ');
               return (
-                <tr key={holding.id}>
+                <tr
+                  key={holding.id}
+                  onClick={() => onSelectHolding?.(holding)}
+                  style={{ cursor: onSelectHolding ? 'pointer' : 'default' }}
+                  title={onSelectHolding ? `Click to load ${holding.symbol} into the order terminal` : undefined}
+                >
                   <td style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     <CryptoIcon symbol={holding.symbol} size={22} />
                     <span>
@@ -1467,7 +1687,27 @@ function WebullHoldings({ holdings, compact = false }) {
                   <td style={{ color: Number(holding.webull_unrealized_pnl) >= 0 ? '#4ade80' : '#f87171' }}>
                     {holding.webull_unrealized_pnl == null ? '—' : `$${number(holding.webull_unrealized_pnl)}`}
                   </td>
-                  <td><span className="badge" style={{ background: 'rgba(96, 165, 250, .16)', color: '#60a5fa' }}>Webull</span></td>
+                  <td>
+                    <button
+                      type="button"
+                      className="badge"
+                      style={{
+                        background: 'rgba(56, 189, 248, .18)',
+                        border: '1px solid rgba(56, 189, 248, .35)',
+                        color: '#38bdf8',
+                        cursor: 'pointer',
+                        padding: '4px 10px',
+                        fontWeight: 700,
+                        borderRadius: '6px'
+                      }}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onSelectHolding?.(holding);
+                      }}
+                    >
+                      Trade
+                    </button>
+                  </td>
                 </tr>
               );
             })}

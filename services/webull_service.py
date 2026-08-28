@@ -777,9 +777,9 @@ def place_webull_order(
     app_key, app_secret, environment='production', access_token=None, *,
     account_id, symbol, instrument_type, side, order_type, quantity,
     limit_price=None, stop_price=None, time_in_force='DAY', support_trading_session='CORE',
-    client_order_id=None,
+    client_order_id=None, option_type=None,
 ):
-    """Place a live order on Webull for equities, ETFs, or crypto."""
+    """Place a live order on Webull for equities, ETFs, crypto, or options."""
     if not account_id:
         raise WebullConnectionError('Select a Webull account to place the order.')
     clean_symbol = str(symbol or '').strip().upper()
@@ -796,6 +796,8 @@ def place_webull_order(
         clean_instrument = 'CRYPTO'
         if not clean_symbol.endswith('USD'):
             clean_symbol = f'{clean_symbol}USD'
+    elif clean_instrument in {'OPTION', 'OPTIONS'}:
+        clean_instrument = 'OPTION'
     elif clean_instrument in {'ETF', 'STOCK', 'SECURITY', 'EQUITY'}:
         clean_instrument = 'EQUITY'
     else:
@@ -808,19 +810,42 @@ def place_webull_order(
     except (TypeError, ValueError):
         raise WebullConnectionError('Order quantity must be a positive number.')
 
-    order_payload = {
-        'combo_type': 'NORMAL',
-        'client_order_id': client_order_id or uuid4().hex,
-        'symbol': clean_symbol,
-        'instrument_type': clean_instrument,
-        'order_type': clean_type,
-        'side': clean_side,
-        'quantity': str(qty) if clean_instrument == 'CRYPTO' or qty != int(qty) else str(int(qty)),
-        'time_in_force': str(time_in_force or 'DAY').upper(),
-        'support_trading_session': str(support_trading_session or 'CORE').upper(),
-    }
-    if order_payload['support_trading_session'] not in {'CORE', 'ALL', 'NIGHT'}:
-        raise WebullConnectionError('Choose Regular, Including Extended, or Overnight trading hours.')
+    if clean_instrument == 'OPTION':
+        clean_option_type = str(option_type or 'CALL').strip().upper()
+        if clean_option_type not in {'CALL', 'PUT'}:
+            clean_option_type = 'CALL'
+        order_payload = {
+            'combo_type': 'NORMAL',
+            'client_order_id': client_order_id or uuid4().hex,
+            'symbol': clean_symbol,
+            'instrument_type': 'OPTION',
+            'order_type': clean_type,
+            'side': clean_side,
+            'option_strategy': 'SINGLE',
+            'quantity': str(int(qty)),
+            'time_in_force': str(time_in_force or 'DAY').upper(),
+            'support_trading_session': 'CORE',
+            'legs': [{
+                'symbol': clean_symbol,
+                'side': clean_side,
+                'quantity': str(int(qty)),
+                'option_type': clean_option_type,
+            }],
+        }
+    else:
+        order_payload = {
+            'combo_type': 'NORMAL',
+            'client_order_id': client_order_id or uuid4().hex,
+            'symbol': clean_symbol,
+            'instrument_type': clean_instrument,
+            'order_type': clean_type,
+            'side': clean_side,
+            'quantity': str(qty) if clean_instrument == 'CRYPTO' or qty != int(qty) else str(int(qty)),
+            'time_in_force': str(time_in_force or 'DAY').upper(),
+            'support_trading_session': str(support_trading_session or 'CORE').upper(),
+        }
+        if order_payload['support_trading_session'] not in {'CORE', 'ALL', 'NIGHT'}:
+            raise WebullConnectionError('Choose Regular, Including Extended, or Overnight trading hours.')
     if clean_type in {'STOP', 'STOP_LIMIT'}:
         try:
             spx = float(stop_price)

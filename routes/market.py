@@ -3,7 +3,7 @@ import requests
 import time
 from flask import send_file, request, jsonify, render_template, current_app, redirect, url_for
 from flask_login import current_user, login_required, login_user, logout_user
-from models import Coin, WatchlistCoin, Notification, PriceHistory
+from models import Coin, WatchlistCoin, Notification, PriceHistory, WebullHolding
 from services.webull_import_service import get_webull_portfolio_rows
 from credentials import Credential, User, UserSetting
 from core.extensions import db
@@ -521,37 +521,52 @@ def api_coin_data():
 @market_bp.route("/api/coin-performance")
 @login_required
 def api_coin_performance():
-    """Return performance for portfolio holdings and watchlist coins."""
+    """Return performance for portfolio holdings and watchlist coins across Binance and/or Webull."""
     try:
         from services.price_history_service import STABLE_COINS
-        coins = Coin.query.filter_by(user_id=current_user.id).all()
-        watchlist_coins = WatchlistCoin.query.filter_by(user_id=current_user.id).all()
+        account_scope = request.args.get('account_scope', '').strip().lower()
+        include_binance = account_scope in ('', 'all', 'binance')
+        include_webull = account_scope in ('', 'all', 'webull')
 
         seen_symbols = set()
         qualifying = []
 
-        for coin in coins:
-            if getattr(coin, 'is_external', False) or getattr(coin, 'source', None) == 'webull':
-                continue
-            sym = (coin.symbol or "").strip().upper()
-            price = getattr(coin, 'current', getattr(coin, 'current_price', 0.0)) or 0.0
-            if sym and sym not in seen_symbols and sym not in STABLE_COINS and not getattr(coin, 'hidden', False):
-                seen_symbols.add(sym)
-                qualifying.append((sym, float(price), 'portfolio'))
+        if include_binance:
+            coins = Coin.query.filter_by(user_id=current_user.id).all()
+            watchlist_coins = WatchlistCoin.query.filter_by(user_id=current_user.id).all()
 
-        for wl in watchlist_coins:
-            if getattr(wl, 'is_external', False) or getattr(wl, 'source', None) == 'webull':
-                continue
-            sym = (wl.symbol or "").strip().upper()
-            price = getattr(wl, 'current_price', getattr(wl, 'current', 0.0)) or 0.0
-            if sym and sym not in seen_symbols and sym not in STABLE_COINS and not getattr(wl, 'hidden', False):
-                seen_symbols.add(sym)
-                qualifying.append((sym, float(price), 'watchlist'))
+            for coin in coins:
+                if getattr(coin, 'is_external', False) or getattr(coin, 'source', None) == 'webull':
+                    continue
+                sym = (coin.symbol or "").strip().upper()
+                price = getattr(coin, 'current', getattr(coin, 'current_price', 0.0)) or 0.0
+                if sym and sym not in seen_symbols and sym not in STABLE_COINS and not getattr(coin, 'hidden', False):
+                    seen_symbols.add(sym)
+                    qualifying.append((sym, float(price), 'binance', 'CRYPTO'))
+
+            for wl in watchlist_coins:
+                if getattr(wl, 'is_external', False) or getattr(wl, 'source', None) == 'webull':
+                    continue
+                sym = (wl.symbol or "").strip().upper()
+                price = getattr(wl, 'current_price', getattr(wl, 'current', 0.0)) or 0.0
+                if sym and sym not in seen_symbols and sym not in STABLE_COINS and not getattr(wl, 'hidden', False):
+                    seen_symbols.add(sym)
+                    qualifying.append((sym, float(price), 'watchlist', 'CRYPTO'))
+
+        if include_webull:
+            webull_holdings = WebullHolding.query.filter_by(user_id=current_user.id).all()
+            for holding in webull_holdings:
+                sym = (holding.symbol or "").strip().upper()
+                price = holding.last_price or holding.cost_price or 0.0
+                itype = (holding.instrument_type or "EQUITY").upper()
+                if sym and sym not in seen_symbols and price > 0:
+                    seen_symbols.add(sym)
+                    qualifying.append((sym, float(price), 'webull', itype))
 
         qualifying.sort(key=lambda item: item[0])
         results = [
-            {**get_symbol_performance(sym, curr), "source": src}
-            for sym, curr, src in qualifying
+            {**get_symbol_performance(sym, curr), "source": src, "instrument_type": itype}
+            for sym, curr, src, itype in qualifying
         ]
 
         return jsonify({

@@ -1871,6 +1871,7 @@ def api_webull_place_order():
         account_id = data.get('account_id')
         symbol = data.get('symbol')
         instrument_type = data.get('instrument_type', 'EQUITY')
+        option_type = data.get('option_type', 'CALL')
         side = data.get('side')
         order_type = data.get('order_type')
         quantity = data.get('quantity')
@@ -1889,6 +1890,13 @@ def api_webull_place_order():
             return jsonify({'success': False, 'message': 'Choose a valid order type.'}), 400
         if not quantity:
             return jsonify({'success': False, 'message': 'Enter an order quantity.'}), 400
+
+        # Options risk safeguards:
+        if str(instrument_type).upper() == 'OPTION':
+            if order_type == 'MARKET':
+                logger.warning(f"Market order placed on option {symbol}; limit orders are strongly recommended.")
+            if order_type in ('LIMIT', 'STOP_LIMIT') and (not limit_price or float(limit_price) <= 0):
+                return jsonify({'success': False, 'message': 'Options limit orders require a positive limit price.'}), 400
 
         # Enforce 2FA verification if enabled for user
         from trading_models import TradingSettings
@@ -1922,6 +1930,7 @@ def api_webull_place_order():
             account_id=account_id,
             symbol=symbol,
             instrument_type=instrument_type,
+            option_type=option_type,
             side=side,
             order_type=order_type,
             quantity=quantity,

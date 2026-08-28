@@ -11,9 +11,14 @@ from services.analysis_service import is_ai_enabled
 from services.external_signal_service import create_external_signal, grade_external_signal
 from services.sentiment_outcome_service import format_forecast_rules, get_sentiment_thresholds
 from services.webull_analysis_service import build_webull_market_snapshot
-from services.webull_service import WebullConnectionError, get_webull_market_bars, normalize_webull_environment
+from services.webull_service import (
+    WebullConnectionError,
+    get_webull_market_bars,
+    get_webull_option_snapshot,
+    normalize_webull_environment,
+)
 
-SUPPORTED_WEBULL_SIGNAL_TYPES = {'CRYPTO', 'STOCK', 'EQUITY', 'ETF'}
+SUPPORTED_WEBULL_SIGNAL_TYPES = {'CRYPTO', 'STOCK', 'EQUITY', 'ETF', 'OPTION'}
 
 
 def _equity_market_is_open(now=None):
@@ -38,15 +43,18 @@ def _credentials_for_user(user_id):
     credential = Credential.query.filter_by(user_id=user_id).first()
     settings = UserSetting.query.filter_by(user_id=user_id).first()
     environment = normalize_webull_environment(getattr(settings, 'webull_environment', None) or 'production')
-    if not credential or credential.webull_token_status != 'NORMAL' or credential.webull_token_environment != environment or not credential.webull_access_token:
-        raise WebullConnectionError('Verify your Webull connection before running Webull AI analysis.')
+    if (
+        not credential or credential.webull_token_status != 'NORMAL'
+        or credential.webull_token_environment != environment or not credential.webull_access_token
+    ):
+        raise WebullConnectionError('Webull is not connected or token has expired.')
     return credential, settings, environment
 
 
-def _latest_market_price(credential, environment, holding):
+def _latest_equity_bar(credential, environment, symbol):
     bars = get_webull_market_bars(
         credential.webull_app_key, credential.webull_app_secret, environment, credential.webull_access_token,
-        symbol=holding.symbol, instrument_type=holding.instrument_type, interval='M1', limit=2,
+        symbol=symbol, instrument_type='EQUITY', interval='m5', limit=2,
     )
     if not bars or not bars[-1].get('close'):
         return None, None
@@ -59,19 +67,39 @@ def create_webull_signal(user, holding, *, origin='manual'):
     if instrument_type not in SUPPORTED_WEBULL_SIGNAL_TYPES:
         raise ValueError('Webull option analysis is unavailable until contract-level options market data is mapped.')
     if instrument_type != 'CRYPTO' and not _equity_market_is_open():
-        raise ValueError('Webull equity and ETF signals are available during regular U.S. market hours so they are not anchored to a stale closing price.')
+        raise ValueError('Webull equity and option signals are available during regular U.S. market hours so they are not anchored to a stale closing price.')
     if not is_ai_enabled(user.username):
         raise ValueError('Enable an AI integration in Settings before generating Webull analysis.')
 
     credential, settings, environment = _credentials_for_user(user.id)
-    bars = get_webull_market_bars(
-        credential.webull_app_key, credential.webull_app_secret, environment, credential.webull_access_token,
-        symbol=holding.symbol, instrument_type=instrument_type, interval='D', limit=30,
-    )
-    market = build_webull_market_snapshot(bars, holding.currency or 'USD')
-    entry_price = market.get('last_price') or holding.last_price
-    if not entry_price or float(entry_price) <= 0:
-        raise WebullConnectionError('Webull did not return a usable current market price for this holding.')
+    if instrument_type == 'OPTION':
+        snapshot = {}
+        if holding.instrument_id:
+            try:
+                snapshot = get_webull_option_snapshot(
+                    credential.webull_app_key, credential.webull_app_secret, environment, credential.webull_access_token,
+                    symbol=holding.symbol, instrument_id=holding.instrument_id,
+                )
+            except Exception:
+                snapshot = {}
+        greeks_str = f"Option Contract: Strike=${holding.option_strike or 'N/A'}, Type={holding.option_type or 'CALL'}, Expiry={holding.option_expiration or 'N/A'}"
+        if snapshot:
+            greeks_str += f", Delta={snapshot.get('delta')}, Gamma={snapshot.get('gamma')}, Theta={snapshot.get('theta')}, IV={snapshot.get('implied_volatility')}"
+        market = {
+            'context': greeks_str,
+            'last_price': holding.last_price or snapshot.get('last_price') or holding.cost_price or 1.0,
+            'currency': holding.currency or 'USD',
+        }
+        entry_price = market['last_price']
+    else:
+        bars = get_webull_market_bars(
+            credential.webull_app_key, credential.webull_app_secret, environment, credential.webull_access_token,
+            symbol=holding.symbol, instrument_type=instrument_type, interval='D', limit=30,
+        )
+        market = build_webull_market_snapshot(bars, holding.currency or 'USD')
+        entry_price = market.get('last_price') or holding.last_price
+        if not entry_price or float(entry_price) <= 0:
+            raise WebullConnectionError('Webull did not return a usable current market price for this holding.')
     family = 'crypto' if instrument_type == 'CRYPTO' else 'equity'
     horizon = _settings_value(settings, instrument_type, 'horizon_hours')
     rules = format_forecast_rules(get_sentiment_thresholds(settings))
