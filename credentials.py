@@ -423,6 +423,8 @@ class UserSetting(db.Model):
     webull_environment = db.Column(db.String(20), default='production')
     webull_account_selection_mode = db.Column(db.String(20), default='all')
     webull_account_aliases = db.Column(db.Text, default='{}')
+    webull_connected_accounts = db.Column(db.Text, default='[]')
+    webull_enabled_account_ids = db.Column(db.Text, default='[]')
     # Disabled by default so connecting Webull never starts paid AI requests.
     # When enabled, manual and scheduled runs write the same broker-neutral
     # signal records and use their own asset-class cadence/horizon.

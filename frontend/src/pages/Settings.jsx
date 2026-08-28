@@ -159,6 +159,7 @@ export default function Settings({ isLightMode }) {
   const [testingWebull, setTestingWebull] = useState(false);
   const [loadingWebullAccounts, setLoadingWebullAccounts] = useState(false);
   const [webullAccounts, setWebullAccounts] = useState([]);
+  const [enabledAccountIds, setEnabledAccountIds] = useState([]);
   const [webullAccountsMessage, setWebullAccountsMessage] = useState('');
   const [loadingWebullPreview, setLoadingWebullPreview] = useState(false);
   const [webullPortfolioPreview, setWebullPortfolioPreview] = useState([]);
@@ -223,6 +224,7 @@ export default function Settings({ isLightMode }) {
 
   useEffect(() => {
     fetchSettings();
+    fetchWebullAccounts(false);
   }, []);
 
   // Auto-resize all textareas when settings change
@@ -644,20 +646,38 @@ export default function Settings({ isLightMode }) {
     }
   };
 
-  const fetchWebullAccounts = async () => {
+  const fetchWebullAccounts = async (forceRefresh = false) => {
     setLoadingWebullAccounts(true);
     setWebullAccountsMessage('');
     try {
-      const response = await axios.get('/api/webull/accounts', { withCredentials: true });
+      const url = forceRefresh ? '/api/webull/accounts?refresh=true' : '/api/webull/accounts';
+      const response = await axios.get(url, { withCredentials: true });
       const result = response.data || {};
-      setWebullAccounts(Array.isArray(result.accounts) ? result.accounts : []);
-      setWebullAccountsMessage(result.message || 'Webull accounts refreshed.');
+      const accList = Array.isArray(result.accounts) ? result.accounts : [];
+      setWebullAccounts(accList);
+      const activeIds = Array.isArray(result.enabled_account_ids) ? result.enabled_account_ids : accList.map((a) => a.account_id);
+      setEnabledAccountIds(activeIds);
+      if (forceRefresh) {
+        setWebullAccountsMessage(result.message || 'Webull accounts refreshed.');
+      }
     } catch (error) {
       console.error('Error discovering Webull accounts:', error);
       setWebullAccounts([]);
       setWebullAccountsMessage(`Unable to discover accounts: ${error.response?.data?.message || 'Please verify the Webull connection.'}`);
     } finally {
       setLoadingWebullAccounts(false);
+    }
+  };
+
+  const toggleAccountEnabled = async (accountId) => {
+    const nextEnabled = enabledAccountIds.includes(accountId)
+      ? enabledAccountIds.filter((id) => id !== accountId)
+      : [...enabledAccountIds, accountId];
+    setEnabledAccountIds(nextEnabled);
+    try {
+      await axios.post('/api/webull/enabled-accounts', { enabled_account_ids: nextEnabled }, { withCredentials: true });
+    } catch (err) {
+      console.error('Failed to update enabled Webull accounts:', err);
     }
   };
 
@@ -1556,7 +1576,7 @@ export default function Settings({ isLightMode }) {
                   </div>
                   <button
                     type="button"
-                    onClick={fetchWebullAccounts}
+                    onClick={() => fetchWebullAccounts(true)}
                     disabled={loadingWebullAccounts}
                     style={{ padding: '7px 12px', backgroundColor: loadingWebullAccounts ? '#6c757d' : '#2563eb', color: '#fff', border: 'none', borderRadius: '4px', cursor: loadingWebullAccounts ? 'not-allowed' : 'pointer', fontSize: '13px', fontWeight: 'bold' }}
                   >
@@ -1568,33 +1588,46 @@ export default function Settings({ isLightMode }) {
                 )}
                 {webullAccounts.length > 0 && (
                   <div style={{ marginTop: '12px', display: 'grid', gap: '8px' }}>
-                    {webullAccounts.map((account, index) => (
-                      <div
-                        key={`${account.account_id || account.account_number || index}`}
-                        style={{
-                          display: 'flex',
-                          justifyContent: 'space-between',
-                          gap: '12px',
-                          alignItems: 'center',
-                          padding: '10px 14px',
-                          borderRadius: '6px',
-                          background: 'rgba(15, 23, 42, 0.42)',
-                          border: '1px solid rgba(255, 255, 255, 0.08)',
-                        }}
-                      >
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                          <strong style={{ color: '#f8fafc', fontSize: '14px' }}>
-                            {account.account_label || account.account_name || account.account_type || 'Webull Account'}
-                          </strong>
-                          <span style={{ fontSize: '11px', color: '#94a3b8', background: 'rgba(255, 255, 255, 0.06)', padding: '2px 8px', borderRadius: '4px' }}>
-                            {account.account_type || 'CASH'}
+                    <p style={{ margin: '0 0 6px', fontSize: '13px', color: '#94a3b8' }}>
+                      Select which accounts to display in Webull Trading navigation:
+                    </p>
+                    {webullAccounts.map((account, index) => {
+                      const isChecked = enabledAccountIds.includes(account.account_id);
+                      return (
+                        <div
+                          key={`${account.account_id || account.account_number || index}`}
+                          style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            gap: '12px',
+                            alignItems: 'center',
+                            padding: '10px 14px',
+                            borderRadius: '6px',
+                            background: isChecked ? 'rgba(15, 23, 42, 0.55)' : 'rgba(15, 23, 42, 0.25)',
+                            border: isChecked ? '1px solid rgba(79, 209, 197, 0.3)' : '1px solid rgba(255, 255, 255, 0.08)',
+                            transition: 'all 0.2s ease',
+                          }}
+                        >
+                          <label style={{ display: 'flex', alignItems: 'center', gap: '12px', cursor: 'pointer', flex: 1, margin: 0 }}>
+                            <input
+                              type="checkbox"
+                              checked={isChecked}
+                              onChange={() => toggleAccountEnabled(account.account_id)}
+                              style={{ width: '18px', height: '18px', cursor: 'pointer', accentColor: '#10b981' }}
+                            />
+                            <strong style={{ color: isChecked ? '#f8fafc' : '#64748b', fontSize: '14px' }}>
+                              {account.account_label || account.account_name || account.account_type || 'Webull Account'}
+                            </strong>
+                            <span style={{ fontSize: '11px', color: '#94a3b8', background: 'rgba(255, 255, 255, 0.06)', padding: '2px 8px', borderRadius: '4px' }}>
+                              {account.account_type || 'CASH'}
+                            </span>
+                          </label>
+                          <span style={{ fontFamily: 'monospace', color: isChecked ? '#38bdf8' : '#64748b', fontSize: '13px', fontWeight: 600 }}>
+                            {account.account_number || account.account_id_masked}
                           </span>
                         </div>
-                        <span style={{ fontFamily: 'monospace', color: '#38bdf8', fontSize: '13px', fontWeight: 600 }}>
-                          {account.account_number || account.account_id_masked}
-                        </span>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
                 <div style={{ marginTop: '14px', paddingTop: '12px', borderTop: '1px solid rgba(79, 209, 197, 0.20)' }}>

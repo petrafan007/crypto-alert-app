@@ -33,20 +33,16 @@ export default function WebullTradingViewChart({
   symbol = 'AAPL',
   instrumentType = 'EQUITY',
   onInstrumentChange,
+  accounts = [],
+  selectedAccountId,
+  onAccountChange,
   holdings = [],
   isLightMode = false,
 }) {
   const hostRef = useRef(null);
   const [status, setStatus] = useState('loading');
-  const [assetCategory, setAssetCategory] = useState(
-    instrumentType === 'CRYPTO' ? 'CRYPTO' : 'TRADITIONAL'
-  );
   const [customSearch, setCustomSearch] = useState('');
-
-  // Keep asset category synced if symbol/instrumentType prop changes
-  useEffect(() => {
-    setAssetCategory(instrumentType === 'CRYPTO' ? 'CRYPTO' : 'TRADITIONAL');
-  }, [instrumentType]);
+  const isCrypto = instrumentType === 'CRYPTO';
 
   // Combine user's imported holdings with default lists
   const availableTraditional = useMemo(() => {
@@ -87,12 +83,12 @@ export default function WebullTradingViewChart({
   // Resolve TradingView widget symbol
   const tvSymbol = useMemo(() => {
     const clean = String(symbol || 'AAPL').toUpperCase().trim();
-    if (assetCategory === 'CRYPTO') {
+    if (isCrypto) {
       const pair = clean.endsWith('USD') ? clean : `${clean}USD`;
       return `COINBASE:${pair}`;
     }
     return clean;
-  }, [symbol, assetCategory]);
+  }, [symbol, isCrypto]);
 
   const pageUrl = `https://www.tradingview.com/symbols/${tvSymbol.replace(':', '-')}/`;
 
@@ -153,20 +149,9 @@ export default function WebullTradingViewChart({
     };
   }, [tvSymbol, isLightMode, pageUrl, symbol]);
 
-  const handleCategorySwitch = (category) => {
-    setAssetCategory(category);
-    if (category === 'CRYPTO') {
-      const first = availableCrypto[0]?.symbol || 'BTCUSD';
-      onInstrumentChange?.({ symbol: first, instrumentType: 'CRYPTO' });
-    } else {
-      const first = availableTraditional[0]?.symbol || 'AAPL';
-      onInstrumentChange?.({ symbol: first, instrumentType: 'EQUITY' });
-    }
-  };
-
   const handleSelectInstrument = (e) => {
     const val = e.target.value;
-    if (assetCategory === 'CRYPTO') {
+    if (isCrypto) {
       onInstrumentChange?.({ symbol: val, instrumentType: 'CRYPTO' });
     } else {
       onInstrumentChange?.({ symbol: val, instrumentType: 'EQUITY' });
@@ -177,7 +162,7 @@ export default function WebullTradingViewChart({
     e.preventDefault();
     const query = customSearch.trim().toUpperCase();
     if (!query) return;
-    if (assetCategory === 'CRYPTO') {
+    if (isCrypto) {
       const pair = query.endsWith('USD') ? query : `${query}USD`;
       onInstrumentChange?.({ symbol: pair, instrumentType: 'CRYPTO' });
     } else {
@@ -190,59 +175,50 @@ export default function WebullTradingViewChart({
     <section className="advanced-trading-chart" aria-label={`${symbol} Webull advanced chart`}>
       <header className="advanced-chart-header" style={{ flexWrap: 'wrap', gap: '16px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '16px', flexWrap: 'wrap' }}>
-          {/* Asset Category Selector */}
-          <div className="advanced-chart-pair-control" style={{ width: 'auto' }}>
-            <span className="advanced-chart-control-label">Asset Category</span>
-            <div style={{ display: 'flex', width: '380px', maxWidth: '100%', borderRadius: '8px', overflow: 'hidden', border: '1px solid rgba(129, 140, 248, 0.4)' }}>
-              <button
-                type="button"
-                onClick={() => handleCategorySwitch('TRADITIONAL')}
+          {/* Webull Account Selector */}
+          {accounts.length > 0 && (
+            <div className="advanced-chart-pair-control" style={{ width: 'min(100%, 300px)' }}>
+              <span className="advanced-chart-control-label">Webull Account</span>
+              <select
+                value={selectedAccountId}
+                onChange={(e) => onAccountChange?.(e.target.value)}
+                aria-label="Select Webull Account"
                 style={{
-                  flex: 1,
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  padding: '8px 12px',
-                  background: assetCategory === 'TRADITIONAL' ? '#3b82f6' : 'rgba(15, 23, 42, 0.8)',
-                  color: '#fff',
-                  border: 'none',
+                  width: '100%',
+                  padding: '9px 12px',
+                  borderRadius: '8px',
+                  background: isLightMode ? '#ffffff' : '#0f172a',
+                  color: isLightMode ? '#0f172a' : '#f8fafc',
+                  border: isLightMode ? '1px solid #cbd5e1' : '1px solid rgba(129, 140, 248, 0.4)',
                   fontSize: '13px',
                   fontWeight: 600,
                   cursor: 'pointer',
-                  textAlign: 'center',
-                  transition: 'background 0.2s ease',
                 }}
               >
-                🏛️ Traditional (Stocks &amp; ETFs)
-              </button>
-              <button
-                type="button"
-                onClick={() => handleCategorySwitch('CRYPTO')}
-                style={{
-                  flex: 1,
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  padding: '8px 12px',
-                  background: assetCategory === 'CRYPTO' ? '#f59e0b' : 'rgba(15, 23, 42, 0.8)',
-                  color: '#fff',
-                  border: 'none',
-                  fontSize: '13px',
-                  fontWeight: 600,
-                  cursor: 'pointer',
-                  textAlign: 'center',
-                  transition: 'background 0.2s ease',
-                }}
-              >
-                🪙 Cryptocurrency
-              </button>
+                {accounts.map((acc) => {
+                  const label = acc.account_label || acc.account_name || acc.account_type || 'Account';
+                  const numDisplay = acc.account_number || acc.account_id_masked || (acc.account_id ? `••••${String(acc.account_id).slice(-4)}` : '');
+                  return (
+                    <option
+                      key={acc.account_id}
+                      value={acc.account_id}
+                      style={{
+                        background: isLightMode ? '#ffffff' : '#0f172a',
+                        color: isLightMode ? '#0f172a' : '#f8fafc',
+                      }}
+                    >
+                      {label} ({numDisplay})
+                    </option>
+                  );
+                })}
+              </select>
             </div>
-          </div>
+          )}
 
           {/* Instrument / Pair Dropdown */}
-          <div className="advanced-chart-pair-control" style={{ width: 'min(100%, 320px)' }}>
+          <div className="advanced-chart-pair-control" style={{ width: 'min(100%, 300px)' }}>
             <span className="advanced-chart-control-label">
-              {assetCategory === 'CRYPTO' ? 'Trading Pair for Chart & Orders' : 'Stock / ETF for Chart & Orders'}
+              {isCrypto ? 'Cryptocurrency Pair for Chart & Orders' : 'Stock / ETF for Chart & Orders'}
             </span>
             <select
               value={symbol}
@@ -251,15 +227,15 @@ export default function WebullTradingViewChart({
                 width: '100%',
                 padding: '9px 12px',
                 borderRadius: '8px',
-                background: 'var(--input-bg, #0f172a)',
-                color: '#fff',
-                border: '1px solid rgba(255, 255, 255, 0.2)',
-                fontSize: '14px',
+                background: isLightMode ? '#ffffff' : '#0f172a',
+                color: isLightMode ? '#0f172a' : '#f8fafc',
+                border: isLightMode ? '1px solid #cbd5e1' : '1px solid rgba(129, 140, 248, 0.4)',
+                fontSize: '13px',
                 fontWeight: 600,
                 cursor: 'pointer',
               }}
             >
-              {assetCategory === 'CRYPTO'
+              {isCrypto
                 ? availableCrypto.map((pair) => (
                     <option key={pair.symbol} value={pair.symbol}>
                       {pair.symbol} ({pair.name})
@@ -280,15 +256,15 @@ export default function WebullTradingViewChart({
             <span className="advanced-chart-control-label">Enter Custom Ticker</span>
             <input
               type="text"
-              placeholder={assetCategory === 'CRYPTO' ? 'e.g. SOL, DOGE' : 'e.g. AMD, PLTR, DIS'}
+              placeholder={isCrypto ? 'e.g. SOL, DOGE' : 'e.g. AMD, PLTR, DIS'}
               value={customSearch}
               onChange={(e) => setCustomSearch(e.target.value.toUpperCase())}
               style={{
                 padding: '8px 12px',
                 borderRadius: '8px',
-                background: 'var(--input-bg, #0f172a)',
-                color: '#fff',
-                border: '1px solid rgba(255, 255, 255, 0.2)',
+                background: isLightMode ? '#ffffff' : '#0f172a',
+                color: isLightMode ? '#0f172a' : '#f8fafc',
+                border: isLightMode ? '1px solid #cbd5e1' : '1px solid rgba(255, 255, 255, 0.2)',
                 fontSize: '13px',
                 textTransform: 'uppercase',
                 width: '160px',

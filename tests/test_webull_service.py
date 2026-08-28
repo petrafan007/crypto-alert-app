@@ -320,3 +320,16 @@ class AccountScopeAndFilteringTests(unittest.TestCase):
 
         all_orders = [o for o in orders]
         self.assertEqual(len(all_orders), 4)
+
+    def test_filter_accounts_by_enabled_ids(self):
+        accounts = [
+            {'account_id': 'acc-1', 'account_name': 'Individual Cash', 'account_class': 'INDIVIDUAL_CASH'},
+            {'account_id': 'acc-2', 'account_name': 'Rollover IRA', 'account_class': 'ROLLOVER_IRA'},
+            {'account_id': 'acc-3', 'account_name': 'Crypto', 'account_class': 'CRYPTO'},
+        ]
+        enabled_ids = ['acc-1', 'acc-3']
+        filtered = [a for a in accounts if a['account_id'] in enabled_ids]
+        self.assertEqual(len(filtered), 2)
+        self.assertEqual([a['account_id'] for a in filtered], ['acc-1', 'acc-3'])
+        self.assertNotIn('acc-2', [a['account_id'] for a in filtered])
+

@@ -1521,15 +1521,33 @@ def api_webull_accounts():
                 'message': 'Verify your Webull connection before discovering accounts.',
             }), 400
 
+        refresh = request.args.get('refresh', '').lower() in ('true', '1', 'yes')
+        raw_cached = getattr(setting, 'webull_connected_accounts', '[]') or '[]'
+        raw_enabled = getattr(setting, 'webull_enabled_account_ids', '[]') or '[]'
+        try:
+            cached_accounts = json.loads(raw_cached) if isinstance(raw_cached, str) else (raw_cached or [])
+        except Exception:
+            cached_accounts = []
+        try:
+            enabled_ids = json.loads(raw_enabled) if isinstance(raw_enabled, str) else (raw_enabled or [])
+        except Exception:
+            enabled_ids = []
+
+        if not refresh and cached_accounts:
+            if not enabled_ids:
+                enabled_ids = [str(a.get('account_id')) for a in cached_accounts if a.get('account_id')]
+            return jsonify({
+                'success': True,
+                'environment': environment,
+                'accounts': cached_accounts,
+                'enabled_account_ids': enabled_ids,
+                'message': f'Loaded {len(cached_accounts)} connected Webull account(s).',
+            })
+
         accounts = get_webull_accounts(
             credential.webull_app_key, credential.webull_app_secret,
             environment, credential.webull_access_token,
         )
-        raw_aliases = getattr(setting, 'webull_account_aliases', '{}') or '{}'
-        try:
-            aliases = json.loads(raw_aliases) if isinstance(raw_aliases, str) else (raw_aliases or {})
-        except Exception:
-            aliases = {}
 
         display_accounts = []
         for account in accounts:
@@ -1546,10 +1564,18 @@ def api_webull_accounts():
                 'account_id_masked': f"••••{acc_number[-4:]}" if len(acc_number) >= 4 else (f"••••{acc_id[-4:]}" if acc_id else '••••'),
             })
 
+        if not enabled_ids:
+            enabled_ids = [a['account_id'] for a in display_accounts]
+
+        setting.webull_connected_accounts = json.dumps(display_accounts)
+        setting.webull_enabled_account_ids = json.dumps(enabled_ids)
+        db.session.commit()
+
         return jsonify({
             'success': True,
             'environment': environment,
             'accounts': display_accounts,
+            'enabled_account_ids': enabled_ids,
             'message': f'Found {len(display_accounts)} Webull account(s).',
         })
     except WebullConnectionError as exc:
@@ -1557,6 +1583,36 @@ def api_webull_accounts():
     except Exception as exc:
         logger.error('Webull account discovery failed: %s', exc, exc_info=True)
         return jsonify({'success': False, 'message': 'Unable to discover Webull accounts.'}), 500
+
+
+@system_bp.route('/api/webull/enabled-accounts', methods=['PUT', 'POST'])
+@login_required
+def api_save_webull_enabled_accounts():
+    """Save which Webull accounts the user wants visible/enabled in trading and navigation."""
+    try:
+        setting = UserSetting.query.filter_by(user_id=current_user.id).first()
+        if not setting:
+            setting = UserSetting(user_id=current_user.id)
+            db.session.add(setting)
+
+        data = request.get_json(silent=True) or {}
+        new_enabled = data.get('enabled_account_ids')
+        if not isinstance(new_enabled, list):
+            return jsonify({'success': False, 'message': 'Invalid enabled_account_ids payload.'}), 400
+
+        enabled_ids = [str(x).strip() for x in new_enabled if str(x).strip()]
+        setting.webull_enabled_account_ids = json.dumps(enabled_ids)
+        db.session.commit()
+
+        return jsonify({
+            'success': True,
+            'enabled_account_ids': enabled_ids,
+            'message': 'Enabled Webull accounts saved successfully.',
+        })
+    except Exception as exc:
+        db.session.rollback()
+        logger.error('Failed to save enabled Webull accounts: %s', exc, exc_info=True)
+        return jsonify({'success': False, 'message': 'Failed to save account selections.'}), 500
 
 
 @system_bp.route('/api/webull/portfolio-preview', methods=['GET'])
@@ -1575,6 +1631,12 @@ def api_webull_portfolio_preview():
             or credential.webull_token_environment != environment or not credential.webull_access_token
         ):
             return jsonify({'success': False, 'message': 'Verify your Webull connection before loading the preview.'}), 400
+
+        raw_enabled = getattr(setting, 'webull_enabled_account_ids', '[]') or '[]'
+        try:
+            enabled_ids = json.loads(raw_enabled) if isinstance(raw_enabled, str) else (raw_enabled or [])
+        except Exception:
+            enabled_ids = []
 
         preview = get_webull_portfolio_preview(
             credential.webull_app_key, credential.webull_app_secret,
@@ -1595,6 +1657,7 @@ def api_webull_portfolio_preview():
                 'account_type': account.get('account_type', 'CASH'),
                 'account_name': acc_label,
                 'account_id_masked': f"••••{acc_number[-4:]}" if len(acc_number) >= 4 else (f"••••{acc_id[-4:]}" if acc_id else '••••'),
+                'is_enabled': not enabled_ids or acc_id in enabled_ids,
                 'balance': {
                     key: balance.get(key) for key in (
                         'total_asset_currency', 'total_cash_balance', 'total_market_value',

@@ -106,6 +106,13 @@ function WebullOrderTable({ orders, emptyText, onCancelOrder, cancellingId }) {
   );
 }
 
+const isCryptoAccount = (acc) => {
+  if (!acc) return false;
+  const cls = String(acc.account_class || '').toUpperCase();
+  const label = String(acc.account_label || acc.account_name || '').toLowerCase();
+  return cls === 'CRYPTO' || label.includes('crypto');
+};
+
 export default function WebullTrading({ isLightMode = false }) {
   const [activeTab, setActiveTab] = useState('order');
   const [holdings, setHoldings] = useState([]);
@@ -172,27 +179,45 @@ export default function WebullTrading({ isLightMode = false }) {
       setSignals(signalsResponse.data?.signals || []);
       setSignalSettings((current) => ({ ...current, ...(signalSettingsResponse.data?.settings || {}) }));
 
+      let enabledIds = previewResponse.data?.enabled_account_ids;
       let discoveredAccounts = previewResponse.data?.accounts || [];
-      if (!discoveredAccounts.length) {
+      if (!discoveredAccounts.length || !enabledIds) {
         try {
           const accRes = await axios.get('/api/webull/accounts', { withCredentials: true });
-          discoveredAccounts = accRes.data?.accounts || [];
+          if (!discoveredAccounts.length) {
+            discoveredAccounts = accRes.data?.accounts || [];
+          }
+          if (!enabledIds) {
+            enabledIds = accRes.data?.enabled_account_ids;
+          }
         } catch (e) {}
       }
-      setAccounts(discoveredAccounts);
-      if (discoveredAccounts.length && !selectedAccountId) {
-        setSelectedAccountId(discoveredAccounts[0].account_id);
-      }
+      const filteredAccounts = (enabledIds && enabledIds.length > 0)
+        ? discoveredAccounts.filter((a) => enabledIds.includes(a.account_id))
+        : discoveredAccounts.filter((a) => a.is_enabled !== false);
+      setAccounts(filteredAccounts);
 
-      // If holdings exist and selectedSymbol is default, pick the first holding
-      if (importedHoldings.length > 0 && selectedSymbol === 'AAPL') {
-        const first = importedHoldings[0];
-        setSelectedSymbol(first.symbol);
-        const isCrypto = /crypto|coin|token/i.test(first.instrument_type || '');
+      const initialAcc = filteredAccounts.find((a) => a.account_id === selectedAccountId) || filteredAccounts[0];
+      if (initialAcc) {
+        setSelectedAccountId(initialAcc.account_id);
+        const isCrypto = isCryptoAccount(initialAcc);
         setSelectedInstrumentType(isCrypto ? 'CRYPTO' : 'EQUITY');
-        if (first.current_price) {
-          setLivePrice(Number(first.current_price));
-          setOrderForm((prev) => ({ ...prev, price: Number(first.current_price).toFixed(2) }));
+
+        // If holdings exist and default symbol, pick appropriate holding for account type
+        if (isCrypto && (selectedSymbol === 'AAPL' || !selectedSymbol.endsWith('USD'))) {
+          const firstCrypto = importedHoldings.find((h) => /crypto|coin|token/i.test(h.instrument_type || ''));
+          setSelectedSymbol(firstCrypto ? firstCrypto.symbol : 'BTCUSD');
+          if (firstCrypto?.current_price) {
+            setLivePrice(Number(firstCrypto.current_price));
+            setOrderForm((prev) => ({ ...prev, price: Number(firstCrypto.current_price).toFixed(2) }));
+          }
+        } else if (!isCrypto && (selectedSymbol === 'BTCUSD' || selectedSymbol.endsWith('USD'))) {
+          const firstStock = importedHoldings.find((h) => !/crypto|coin|token/i.test(h.instrument_type || ''));
+          setSelectedSymbol(firstStock ? firstStock.symbol : 'AAPL');
+          if (firstStock?.current_price) {
+            setLivePrice(Number(firstStock.current_price));
+            setOrderForm((prev) => ({ ...prev, price: Number(firstStock.current_price).toFixed(2) }));
+          }
         }
       }
 
@@ -244,16 +269,33 @@ export default function WebullTrading({ isLightMode = false }) {
   }, [selectedSymbol, selectedInstrumentType, currentHolding]);
 
   // Handlers for Instrument change from Top TradingView Chart
-  const handleInstrumentChange = ({ symbol, instrumentType }) => {
-    setSelectedSymbol(symbol);
-    setSelectedInstrumentType(instrumentType);
-    setBalancePercentage(0);
-    setOrderForm((prev) => ({
-      ...prev,
-      quantity: '',
-      quoteQuantity: '',
-      price: '',
-    }));
+  const handleInstrumentChange = ({ symbol: nextSymbol, instrumentType: nextType }) => {
+    setSelectedSymbol(nextSymbol);
+    setSelectedInstrumentType(nextType);
+    setOrderForm((prev) => ({ ...prev, symbol: nextSymbol, quantity: '', quoteAmount: '' }));
+  };
+
+  const handleAccountChange = (newAccountId) => {
+    setSelectedAccountId(newAccountId);
+    const targetAcc = accounts.find((a) => a.account_id === newAccountId);
+    const isCrypto = isCryptoAccount(targetAcc);
+    if (isCrypto) {
+      setSelectedInstrumentType('CRYPTO');
+      if (selectedInstrumentType !== 'CRYPTO' || !selectedSymbol.endsWith('USD')) {
+        const topCryptoHolding = holdings.find((h) => /crypto|coin|token/i.test(h.instrument_type || ''));
+        const nextSym = topCryptoHolding ? topCryptoHolding.symbol : 'BTCUSD';
+        setSelectedSymbol(nextSym);
+        setOrderForm((prev) => ({ ...prev, symbol: nextSym, quantity: '', quoteAmount: '' }));
+      }
+    } else {
+      setSelectedInstrumentType('EQUITY');
+      if (selectedInstrumentType === 'CRYPTO' || selectedSymbol.endsWith('USD')) {
+        const topEquityHolding = holdings.find((h) => !/crypto|coin|token/i.test(h.instrument_type || ''));
+        const nextSym = topEquityHolding ? topEquityHolding.symbol : 'AAPL';
+        setSelectedSymbol(nextSym);
+        setOrderForm((prev) => ({ ...prev, symbol: nextSym, quantity: '', quoteAmount: '' }));
+      }
+    }
   };
 
   // Dual Input Quantity / Value calculations
@@ -512,11 +554,14 @@ export default function WebullTrading({ isLightMode = false }) {
             {/* PLACE ORDER TAB */}
             {activeTab === 'order' && (
               <div className="order-form-container">
-                {/* 1. Full-Width TradingView Advanced Chart with Category & Instrument Selector */}
+                {/* 1. Full-Width TradingView Advanced Chart with Webull Account & Instrument Selector */}
                 <WebullTradingViewChart
                   symbol={selectedSymbol}
                   instrumentType={selectedInstrumentType}
                   onInstrumentChange={handleInstrumentChange}
+                  accounts={accounts}
+                  selectedAccountId={selectedAccountId}
+                  onAccountChange={handleAccountChange}
                   holdings={holdings}
                   isLightMode={isLightMode}
                 />
@@ -540,48 +585,11 @@ export default function WebullTrading({ isLightMode = false }) {
                     </div>
                   </div>
 
-                  {/* Cash / Buying Power Card with Webull Account Selector */}
+                  {/* Cash / Buying Power Card */}
                   <div className="trading-asset-card">
                     <CryptoIcon symbol="USD" size={32} />
                     <div className="trading-asset-card-details" style={{ width: '100%' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px', gap: '8px' }}>
-                        <span className="trading-asset-card-label">USD Cash Available</span>
-                        {accounts.length > 0 && (
-                          <select
-                            value={selectedAccountId}
-                            onChange={(e) => setSelectedAccountId(e.target.value)}
-                            aria-label="Select Webull Account"
-                            style={{
-                              padding: '4px 8px',
-                              borderRadius: '6px',
-                              background: isLightMode ? '#ffffff' : '#0f172a',
-                              color: isLightMode ? '#0f172a' : '#f8fafc',
-                              border: isLightMode ? '1px solid #cbd5e1' : '1px solid rgba(148, 163, 184, 0.35)',
-                              fontSize: '12px',
-                              fontWeight: '600',
-                              cursor: 'pointer',
-                              maxWidth: '220px',
-                            }}
-                          >
-                            {accounts.map((acc) => {
-                              const label = acc.account_label || acc.account_name || acc.account_type || 'Account';
-                              const numDisplay = acc.account_number || acc.account_id_masked || (acc.account_id ? `••••${String(acc.account_id).slice(-4)}` : '');
-                              return (
-                                <option
-                                  key={acc.account_id}
-                                  value={acc.account_id}
-                                  style={{
-                                    background: isLightMode ? '#ffffff' : '#0f172a',
-                                    color: isLightMode ? '#0f172a' : '#f8fafc',
-                                  }}
-                                >
-                                  {label} ({numDisplay})
-                                </option>
-                              );
-                            })}
-                          </select>
-                        )}
-                      </div>
+                      <span className="trading-asset-card-label">USD Cash Available</span>
                       <span className="trading-asset-card-value">
                         ${number(cashBalance)} <small>USD</small>
                       </span>
