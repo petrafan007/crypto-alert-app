@@ -172,16 +172,30 @@ def get_webull_accounts(app_key, app_secret, environment='production', access_to
         account_id = account.get('account_id') or account.get('accountId') or account.get('id')
         if account_id is None:
             continue
+        account_number = str(account.get('account_number') or account.get('accountNumber') or '').strip()
+        account_label = str(account.get('account_label') or account.get('accountLabel') or '').strip()
+        account_class = str(account.get('account_class') or account.get('accountClass') or '').strip()
         sub_type = str(account.get('account_sub_type') or account.get('accountSubType') or account.get('sub_type') or account.get('custody_type') or '').strip()
         raw_name = str(account.get('account_name') or account.get('accountName') or account.get('name') or account.get('title') or '').strip()
         account_type = str(account.get('account_type') or account.get('accountType') or account.get('type') or 'Cash').strip()
-        if not raw_name and sub_type:
-            raw_name = f"{account_type} ({sub_type})"
+
+        display_name = account_label or raw_name
+        if not display_name and sub_type:
+            display_name = f"{account_type} ({sub_type})"
+        if not display_name:
+            display_name = account_type
+
         item = {
             'account_id': str(account_id),
             'account_type': account_type,
-            'account_name': raw_name,
+            'account_name': display_name,
         }
+        if account_number:
+            item['account_number'] = account_number
+        if account_label:
+            item['account_label'] = account_label
+        if account_class:
+            item['account_class'] = account_class
         if sub_type:
             item['account_sub_type'] = sub_type
         accounts.append(item)

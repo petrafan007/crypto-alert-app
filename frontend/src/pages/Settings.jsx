@@ -160,9 +160,6 @@ export default function Settings({ isLightMode }) {
   const [loadingWebullAccounts, setLoadingWebullAccounts] = useState(false);
   const [webullAccounts, setWebullAccounts] = useState([]);
   const [webullAccountsMessage, setWebullAccountsMessage] = useState('');
-  const [accountAliases, setAccountAliases] = useState({});
-  const [savingAliases, setSavingAliases] = useState(false);
-  const [aliasMessage, setAliasMessage] = useState('');
   const [loadingWebullPreview, setLoadingWebullPreview] = useState(false);
   const [webullPortfolioPreview, setWebullPortfolioPreview] = useState([]);
   const [webullPreviewMessage, setWebullPreviewMessage] = useState('');
@@ -653,41 +650,14 @@ export default function Settings({ isLightMode }) {
     try {
       const response = await axios.get('/api/webull/accounts', { withCredentials: true });
       const result = response.data || {};
-      const accList = Array.isArray(result.accounts) ? result.accounts : [];
-      setWebullAccounts(accList);
+      setWebullAccounts(Array.isArray(result.accounts) ? result.accounts : []);
       setWebullAccountsMessage(result.message || 'Webull accounts refreshed.');
-      const initialAliases = { ...(result.aliases || {}) };
-      accList.forEach((acc) => {
-        if (acc.account_id && !initialAliases[acc.account_id]) {
-          initialAliases[acc.account_id] = acc.custom_name || acc.account_name || '';
-        }
-      });
-      setAccountAliases(initialAliases);
     } catch (error) {
       console.error('Error discovering Webull accounts:', error);
       setWebullAccounts([]);
       setWebullAccountsMessage(`Unable to discover accounts: ${error.response?.data?.message || 'Please verify the Webull connection.'}`);
     } finally {
       setLoadingWebullAccounts(false);
-    }
-  };
-
-  const saveWebullAccountAliases = async () => {
-    setSavingAliases(true);
-    setAliasMessage('');
-    try {
-      const response = await axios.post('/api/webull/account-aliases', { aliases: accountAliases }, { withCredentials: true });
-      if (response.data?.success) {
-        setAliasMessage('✓ Account nicknames saved successfully.');
-        await fetchWebullAccounts();
-        setTimeout(() => setAliasMessage(''), 4000);
-      } else {
-        setAliasMessage(`❌ ${response.data?.message || 'Failed to save nicknames.'}`);
-      }
-    } catch (err) {
-      setAliasMessage(`❌ ${err.response?.data?.message || 'Failed to save account nicknames.'}`);
-    } finally {
-      setSavingAliases(false);
     }
   };
 
@@ -1597,13 +1567,10 @@ export default function Settings({ isLightMode }) {
                   <p className="settings-form-help" style={{ margin: '12px 0 0' }}>{webullAccountsMessage}</p>
                 )}
                 {webullAccounts.length > 0 && (
-                  <div style={{ marginTop: '12px', display: 'grid', gap: '10px' }}>
-                    <p style={{ margin: '0 0 4px', fontSize: '13px', color: '#94a3b8' }}>
-                      Set custom nicknames for your accounts (e.g. <em>Roth IRA</em>, <em>Rollover IRA</em>, <em>Cash</em>).
-                    </p>
+                  <div style={{ marginTop: '12px', display: 'grid', gap: '8px' }}>
                     {webullAccounts.map((account, index) => (
                       <div
-                        key={`${account.account_id || index}`}
+                        key={`${account.account_id || account.account_number || index}`}
                         style={{
                           display: 'flex',
                           justifyContent: 'space-between',
@@ -1613,64 +1580,21 @@ export default function Settings({ isLightMode }) {
                           borderRadius: '6px',
                           background: 'rgba(15, 23, 42, 0.42)',
                           border: '1px solid rgba(255, 255, 255, 0.08)',
-                          flexWrap: 'wrap'
                         }}
                       >
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: 1, minWidth: '260px' }}>
-                          <input
-                            type="text"
-                            value={accountAliases[account.account_id] !== undefined ? accountAliases[account.account_id] : (account.custom_name || account.account_name || '')}
-                            onChange={(e) => {
-                              const val = e.target.value;
-                              setAccountAliases((prev) => ({ ...prev, [account.account_id]: val }));
-                            }}
-                            placeholder={account.account_sub_type ? `${account.account_type} (${account.account_sub_type})` : (account.account_type || 'Nickname')}
-                            aria-label={`Custom nickname for account ${account.account_id_masked}`}
-                            style={{
-                              padding: '6px 12px',
-                              borderRadius: '6px',
-                              background: 'var(--input-bg, #0f172a)',
-                              color: '#fff',
-                              border: '1px solid rgba(255, 255, 255, 0.25)',
-                              fontSize: '13px',
-                              fontWeight: '600',
-                              width: '220px'
-                            }}
-                          />
-                          <span style={{ fontSize: '12px', color: '#94a3b8' }}>
-                            ({account.account_type}{account.account_sub_type ? ` · ${account.account_sub_type}` : ''})
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                          <strong style={{ color: '#f8fafc', fontSize: '14px' }}>
+                            {account.account_label || account.account_name || account.account_type || 'Webull Account'}
+                          </strong>
+                          <span style={{ fontSize: '11px', color: '#94a3b8', background: 'rgba(255, 255, 255, 0.06)', padding: '2px 8px', borderRadius: '4px' }}>
+                            {account.account_type || 'CASH'}
                           </span>
                         </div>
-                        <span style={{ fontFamily: 'monospace', opacity: 0.85, fontSize: '13px', color: '#cbd5e1' }}>
-                          {account.account_id_masked}
+                        <span style={{ fontFamily: 'monospace', color: '#38bdf8', fontSize: '13px', fontWeight: 600 }}>
+                          {account.account_number || account.account_id_masked}
                         </span>
                       </div>
                     ))}
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginTop: '4px' }}>
-                      <button
-                        type="button"
-                        onClick={saveWebullAccountAliases}
-                        disabled={savingAliases}
-                        style={{
-                          padding: '7px 16px',
-                          backgroundColor: savingAliases ? '#6c757d' : '#10b981',
-                          color: '#fff',
-                          border: 'none',
-                          borderRadius: '4px',
-                          cursor: savingAliases ? 'not-allowed' : 'pointer',
-                          fontSize: '13px',
-                          fontWeight: 'bold',
-                          transition: 'background 0.2s ease',
-                        }}
-                      >
-                        {savingAliases ? 'Saving...' : '💾 Save Account Nicknames'}
-                      </button>
-                      {aliasMessage && (
-                        <span style={{ fontSize: '13px', color: aliasMessage.startsWith('❌') ? '#ef4444' : '#10b981', fontWeight: 600 }}>
-                          {aliasMessage}
-                        </span>
-                      )}
-                    </div>
                   </div>
                 )}
                 <div style={{ marginTop: '14px', paddingTop: '12px', borderTop: '1px solid rgba(79, 209, 197, 0.20)' }}>

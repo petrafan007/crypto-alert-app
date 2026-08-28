@@ -564,8 +564,8 @@ export default function WebullTrading({ isLightMode = false }) {
                             }}
                           >
                             {accounts.map((acc) => {
-                              const label = acc.custom_name || acc.account_name || acc.account_type || 'Account';
-                              const masked = acc.account_id_masked || (acc.account_id ? `••••${String(acc.account_id).slice(-4)}` : '');
+                              const label = acc.account_label || acc.account_name || acc.account_type || 'Account';
+                              const numDisplay = acc.account_number || acc.account_id_masked || (acc.account_id ? `••••${String(acc.account_id).slice(-4)}` : '');
                               return (
                                 <option
                                   key={acc.account_id}
@@ -575,7 +575,7 @@ export default function WebullTrading({ isLightMode = false }) {
                                     color: isLightMode ? '#0f172a' : '#f8fafc',
                                   }}
                                 >
-                                  {label} {masked ? `(${masked})` : ''}
+                                  {label} ({numDisplay})
                                 </option>
                               );
                             })}
@@ -586,8 +586,8 @@ export default function WebullTrading({ isLightMode = false }) {
                         ${number(cashBalance)} <small>USD</small>
                       </span>
                       <span className="trading-asset-card-sub">
-                        {activeAccount?.custom_name || activeAccount?.account_name || 'Webull Account'}{' '}
-                        ({activeAccount?.account_id_masked || (selectedAccountId ? `••••${String(selectedAccountId).slice(-4)}` : '')}) · Ready to trade
+                        {activeAccount?.account_label || activeAccount?.account_name || 'Webull Account'}{' '}
+                        ({activeAccount?.account_number || activeAccount?.account_id_masked || (selectedAccountId ? `••••${String(selectedAccountId).slice(-4)}` : '')}) · Ready to trade
                       </span>
                     </div>
                   </div>
@@ -831,7 +831,7 @@ export default function WebullTrading({ isLightMode = false }) {
                       <div style={{ background: 'rgba(0,0,0,0.25)', padding: '16px', borderRadius: '8px', marginBottom: '20px', display: 'grid', gap: '10px', fontSize: '0.95rem' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                           <span style={{ color: '#94a3b8' }}>Account:</span>
-                          <strong>{activeAccount?.account_name || 'Individual'} ({selectedAccountId})</strong>
+                          <strong>{activeAccount?.account_label || activeAccount?.account_name || 'Webull Account'} ({activeAccount?.account_number || activeAccount?.account_id_masked || selectedAccountId})</strong>
                         </div>
                         <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                           <span style={{ color: '#94a3b8' }}>Action:</span>

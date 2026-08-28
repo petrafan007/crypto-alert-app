@@ -1534,22 +1534,22 @@ def api_webull_accounts():
         display_accounts = []
         for account in accounts:
             acc_id = str(account['account_id'])
-            custom_name = aliases.get(acc_id, '').strip()
-            display_name = custom_name or account['account_name'] or account['account_type']
+            acc_number = str(account.get('account_number') or '')
+            acc_label = str(account.get('account_label') or account.get('account_name') or account.get('account_type') or 'Webull Account')
             display_accounts.append({
                 'account_id': acc_id,
-                'account_type': account['account_type'],
-                'account_sub_type': account.get('account_sub_type', ''),
-                'account_name': display_name,
-                'custom_name': custom_name,
-                'account_id_masked': f"••••{acc_id[-4:]}",
+                'account_number': acc_number,
+                'account_label': acc_label,
+                'account_class': account.get('account_class', ''),
+                'account_type': account.get('account_type', 'CASH'),
+                'account_name': acc_label,
+                'account_id_masked': f"••••{acc_number[-4:]}" if len(acc_number) >= 4 else (f"••••{acc_id[-4:]}" if acc_id else '••••'),
             })
 
         return jsonify({
             'success': True,
             'environment': environment,
             'accounts': display_accounts,
-            'aliases': aliases,
             'message': f'Found {len(display_accounts)} Webull account(s).',
         })
     except WebullConnectionError as exc:
@@ -1580,25 +1580,21 @@ def api_webull_portfolio_preview():
             credential.webull_app_key, credential.webull_app_secret,
             environment, credential.webull_access_token,
         )
-        raw_aliases = getattr(setting, 'webull_account_aliases', '{}') or '{}'
-        try:
-            aliases = json.loads(raw_aliases) if isinstance(raw_aliases, str) else (raw_aliases or {})
-        except Exception:
-            aliases = {}
-
         accounts = []
         for account in preview:
             balance = account.get('balance') if isinstance(account.get('balance'), dict) else {}
             positions = account.get('positions') or []
             acc_id = str(account.get('account_id') or '')
-            custom_name = aliases.get(acc_id, '').strip()
-            display_name = custom_name or account.get('account_name') or account.get('account_type') or 'Account'
+            acc_number = str(account.get('account_number') or '')
+            acc_label = str(account.get('account_label') or account.get('account_name') or account.get('account_type') or 'Webull Account')
             accounts.append({
                 'account_id': acc_id,
-                'account_type': account['account_type'],
-                'account_name': display_name,
-                'custom_name': custom_name,
-                'account_id_masked': f"••••{acc_id[-4:]}" if acc_id else '••••',
+                'account_number': acc_number,
+                'account_label': acc_label,
+                'account_class': account.get('account_class', ''),
+                'account_type': account.get('account_type', 'CASH'),
+                'account_name': acc_label,
+                'account_id_masked': f"••••{acc_number[-4:]}" if len(acc_number) >= 4 else (f"••••{acc_id[-4:]}" if acc_id else '••••'),
                 'balance': {
                     key: balance.get(key) for key in (
                         'total_asset_currency', 'total_cash_balance', 'total_market_value',
