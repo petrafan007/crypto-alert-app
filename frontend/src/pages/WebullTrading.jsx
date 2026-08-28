@@ -174,51 +174,74 @@ export default function WebullTrading({ isLightMode = false }) {
   const [signalBusy, setSignalBusy] = useState(false);
   const [signalMessage, setSignalMessage] = useState('');
 
+  const [historyLoading, setHistoryLoading] = useState(false);
+
+  const loadHistory = async (targetAccId) => {
+    const accId = targetAccId || selectedAccountId;
+    setHistoryLoading(true);
+    try {
+      const resp = await axios.get(
+        `/api/trading/real-orders?account_scope=webull&limit=100${accId ? `&account_id=${accId}` : ''}`,
+        { withCredentials: true }
+      );
+      setHistory(
+        (resp.data?.orders || [])
+          .filter((order) => String(order?.source || '').toLowerCase() === 'webull')
+          .map(normalizeOrder)
+      );
+    } catch (e) {
+      // non-blocking
+    } finally {
+      setHistoryLoading(false);
+    }
+  };
+
+  const loadOpenOrders = async (targetAccId) => {
+    const accId = targetAccId || selectedAccountId;
+    try {
+      const res = await axios.get(
+        `/api/webull/open-orders${accId ? `?account_id=${accId}` : ''}`,
+        { withCredentials: true }
+      );
+      setOpenOrders((res.data?.orders || []).map(normalizeOrder));
+      if (res.data?.success === false) {
+        setError(res.data?.message || 'Unable to load Webull open orders.');
+      }
+    } catch (e) {
+      setError(e.response?.data?.message || 'Unable to load Webull open orders.');
+    }
+  };
+
   const load = async () => {
     setLoading(true); setError('');
     try {
-      const [portfolioResponse, historyResponse, openResponse, signalsResponse, signalSettingsResponse, previewResponse] = await Promise.all([
+      // 1. Fetch lightweight core data needed for trading UI (accounts & portfolio holdings)
+      const [portfolioResponse, accRes, signalSettingsResponse] = await Promise.all([
         axios.get('/api/coin-data-live', { withCredentials: true }),
-        axios.get('/api/trading/real-orders?account_scope=webull&limit=100', { withCredentials: true }),
-        axios.get('/api/webull/open-orders', { withCredentials: true }),
-        axios.get('/api/webull/ai-signals?limit=50', { withCredentials: true }),
+        axios.get('/api/webull/accounts', { withCredentials: true }),
         axios.get('/api/webull/ai-settings', { withCredentials: true }),
-        axios.get('/api/webull/portfolio-preview', { withCredentials: true }).catch(() => ({ data: { accounts: [] } })),
       ]);
-      const importedHoldings = (portfolioResponse.data?.portfolio || []).filter((item) => item?.is_external || item?.source === 'webull');
+      const importedHoldings = (portfolioResponse.data?.portfolio || []).filter(
+        (item) => item?.is_external || item?.source === 'webull'
+      );
       setHoldings(importedHoldings);
-      setHistory((historyResponse.data?.orders || [])
-        .filter((order) => String(order?.source || '').toLowerCase() === 'webull')
-        .map(normalizeOrder));
-      setOpenOrders((openResponse.data?.orders || []).map(normalizeOrder));
-      setSignals(signalsResponse.data?.signals || []);
       setSignalSettings((current) => ({ ...current, ...(signalSettingsResponse.data?.settings || {}) }));
 
-      let enabledIds = previewResponse.data?.enabled_account_ids;
-      let discoveredAccounts = previewResponse.data?.accounts || [];
-      if (!discoveredAccounts.length || !enabledIds) {
-        try {
-          const accRes = await axios.get('/api/webull/accounts', { withCredentials: true });
-          if (!discoveredAccounts.length) {
-            discoveredAccounts = accRes.data?.accounts || [];
-          }
-          if (!enabledIds) {
-            enabledIds = accRes.data?.enabled_account_ids;
-          }
-        } catch (e) {}
-      }
+      const discoveredAccounts = accRes.data?.accounts || [];
+      const enabledIds = accRes.data?.enabled_account_ids;
       const filteredAccounts = (enabledIds && enabledIds.length > 0)
         ? discoveredAccounts.filter((a) => enabledIds.includes(a.account_id))
         : discoveredAccounts.filter((a) => a.is_enabled !== false);
       setAccounts(filteredAccounts);
 
       const initialAcc = filteredAccounts.find((a) => a.account_id === selectedAccountId) || filteredAccounts[0];
+      let activeAccId = selectedAccountId;
       if (initialAcc) {
+        activeAccId = initialAcc.account_id;
         setSelectedAccountId(initialAcc.account_id);
         const isCrypto = isCryptoAccount(initialAcc);
         setSelectedInstrumentType(isCrypto ? 'CRYPTO' : 'EQUITY');
 
-        // If holdings exist and default symbol, pick appropriate holding for account type
         if (isCrypto && (selectedSymbol === 'AAPL' || !selectedSymbol.endsWith('USD'))) {
           const firstCrypto = importedHoldings.find((h) => /crypto|coin|token/i.test(h.instrument_type || ''));
           setSelectedSymbol(firstCrypto ? firstCrypto.symbol : 'BTCUSD');
@@ -236,13 +259,39 @@ export default function WebullTrading({ isLightMode = false }) {
         }
       }
 
-      if (openResponse.data?.success === false) setError(openResponse.data?.message || 'Unable to load Webull open orders.');
+      // UNBLOCK UI IMMEDIATELY: Trading page, chart, and order form render instantly!
+      setLoading(false);
+
+      // 2. Fetch active account open orders in background
+      if (activeAccId) {
+        loadOpenOrders(activeAccId);
+      }
+
+      // 3. Fetch background AI signals
+      axios.get('/api/webull/ai-signals?limit=50', { withCredentials: true })
+        .then((res) => setSignals(res.data?.signals || []))
+        .catch(() => {});
     } catch (requestError) {
       setError(requestError.response?.data?.message || 'Unable to load the Webull workspace.');
-    } finally { setLoading(false); }
+      setLoading(false);
+    }
   };
 
   useEffect(() => { load(); }, []);
+
+  // Fetch history when history or chart tab is activated
+  useEffect(() => {
+    if (['history', 'trade_chart'].includes(activeTab) && !history.length && !historyLoading) {
+      loadHistory();
+    }
+  }, [activeTab]);
+
+  // Refetch open orders when account changes
+  useEffect(() => {
+    if (selectedAccountId) {
+      loadOpenOrders(selectedAccountId);
+    }
+  }, [selectedAccountId]);
 
   // Sync active account and cash balance
   const activeAccount = useMemo(() => accounts.find((a) => a.account_id === selectedAccountId) || accounts[0], [accounts, selectedAccountId]);
@@ -450,7 +499,7 @@ export default function WebullTrading({ isLightMode = false }) {
         setShowConfirmModal(false);
         setOrderForm((prev) => ({ ...prev, quantity: '', quoteQuantity: '' }));
         setBalancePercentage(0);
-        await load();
+        loadOpenOrders(selectedAccountId);
       } else {
         setOrderFeedback({ type: 'error', message: response.data?.message || 'Failed to place Webull order.' });
         setShowConfirmModal(false);
@@ -480,7 +529,7 @@ export default function WebullTrading({ isLightMode = false }) {
       }, { withCredentials: true });
       if (response.data?.success) {
         setOrderFeedback({ type: 'success', message: response.data.message || 'Order cancelled successfully.' });
-        await load();
+        loadOpenOrders(selectedAccountId);
       } else {
         setOrderFeedback({ type: 'error', message: response.data?.message || 'Unable to cancel order.' });
       }
@@ -1028,8 +1077,14 @@ export default function WebullTrading({ isLightMode = false }) {
             {activeTab === 'history' && (
               <section className="order-history-container">
                 <h2>Webull Order History</h2>
-                <WebullOrderTable orders={paginatedHistory} emptyText="No Webull order history is available yet." />
-                <Pagination page={historyPage} setPage={setHistoryPage} pageSize={historyPageSize} setPageSize={setHistoryPageSize} total={sortedHistory.length} />
+                {historyLoading && !sortedHistory.length ? (
+                  <div className="empty-state"><p>Loading Webull order history…</p></div>
+                ) : (
+                  <>
+                    <WebullOrderTable orders={paginatedHistory} emptyText="No Webull order history is available yet." />
+                    <Pagination page={historyPage} setPage={setHistoryPage} pageSize={historyPageSize} setPageSize={setHistoryPageSize} total={sortedHistory.length} />
+                  </>
+                )}
               </section>
             )}
 
