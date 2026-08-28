@@ -328,10 +328,12 @@ function Dashboard({ isLightMode }) {
   const isWebullAsset = (asset) => Boolean(
     asset?.is_external === true || asset?.source === 'webull'
   );
-  const navigateToWebullTrading = (symbol, side = 'BUY', accountId = null) => {
+  const navigateToWebullTrading = (symbol, side = 'BUY', accountId = null, { instrumentType = null, accountPreference = null } = {}) => {
     const cleanSymbol = String(symbol || '').toUpperCase().trim();
     let url = `/trading/webull?symbol=${encodeURIComponent(cleanSymbol)}&side=${side.toUpperCase()}`;
     if (accountId) url += `&account_id=${encodeURIComponent(accountId)}`;
+    if (instrumentType) url += `&instrument_type=${encodeURIComponent(instrumentType)}`;
+    if (accountPreference) url += `&account_preference=${encodeURIComponent(accountPreference)}`;
     navigate(url);
   };
   const matchesAssetFilter = (asset, filter) => (
@@ -4426,7 +4428,16 @@ function Dashboard({ isLightMode }) {
             case 'top_movers':
               return <TopMoversWidget isLightMode={isLightMode} config={topMoversConfig} onEdit={handleOpenTopMoversModal} ownedSymbols={ownedSymbols} onCoinClick={(symbol) => navigateToTrading(symbol, 'BUY', 'USDT')} />;
             case 'top_stock_movers':
-              return <TopStockMoversWidget isLightMode={isLightMode} config={topStockMoversConfig} onEdit={handleOpenTopStockMoversModal} ownedSymbols={ownedStockSymbols} onStockClick={() => navigate('/trading/webull')} />;
+              return <TopStockMoversWidget
+                isLightMode={isLightMode}
+                config={topStockMoversConfig}
+                onEdit={handleOpenTopStockMoversModal}
+                ownedSymbols={ownedStockSymbols}
+                onStockClick={(symbol) => navigateToWebullTrading(symbol, 'BUY', null, {
+                  instrumentType: 'EQUITY',
+                  accountPreference: 'individual_cash',
+                })}
+              />;
             case 'recent_trades':
               return <RecentTradesWidget isLightMode={isLightMode} config={recentTradesConfig} onEdit={handleOpenRecentTradesModal} onCoinClick={handleChartClick} accountScope={accountScope} />;
             case 'ai_pulse':

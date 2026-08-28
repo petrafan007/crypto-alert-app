@@ -123,6 +123,13 @@ The application utilizes a **unified PostgreSQL database**.
 
 ## Version History & Changelog
 
+## v2.38.3 (August 2026)
+
+### Stock Mover Webull Navigation
+
+- **Correct chart and orders context**: Clicking a Top Stock Gainers & Losers row now passes the selected ticker and explicitly opens Webull Trading in Stock / ETF mode.
+- **Individual cash account preference**: Stock-mover navigation selects the enabled individual cash account when available, instead of inheriting a prior crypto account selection.
+
 ## v2.38.2 (August 2026)
 
 ### Watchlist Search Width Correction

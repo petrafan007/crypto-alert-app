@@ -114,6 +114,23 @@ const isCryptoAccount = (acc) => {
   return cls === 'CRYPTO' || label.includes('crypto');
 };
 
+const isIndividualCashAccount = (acc) => {
+  if (!acc || isCryptoAccount(acc)) return false;
+  const identity = [
+    acc.account_class,
+    acc.account_type,
+    acc.account_label,
+    acc.account_name,
+  ].filter(Boolean).join(' ').toLowerCase();
+  return identity.includes('individual') && identity.includes('cash');
+};
+
+const preferredEquityAccount = (accounts) => (
+  accounts.find(isIndividualCashAccount)
+  || accounts.find((account) => !isCryptoAccount(account))
+  || null
+);
+
 export default function WebullTrading({ isLightMode = false }) {
   const [activeTab, setActiveTab] = useState('order');
   const [holdings, setHoldings] = useState([]);
@@ -248,6 +265,9 @@ export default function WebullTrading({ isLightMode = false }) {
       const urlSymbol = urlParams.get('symbol')?.toUpperCase()?.trim();
       const urlSide = urlParams.get('side')?.toUpperCase()?.trim();
       const urlAccountId = urlParams.get('account_id')?.trim();
+      const urlInstrumentType = urlParams.get('instrument_type')?.toUpperCase()?.trim();
+      const urlAccountPreference = urlParams.get('account_preference')?.toLowerCase()?.trim();
+      const requestedInstrumentType = ['CRYPTO', 'EQUITY'].includes(urlInstrumentType) ? urlInstrumentType : null;
 
       // Determine which account should be active on load:
       // 1. If an explicit account_id is in the URL, select that account.
@@ -260,6 +280,13 @@ export default function WebullTrading({ isLightMode = false }) {
         activeAcc = filteredAccounts.find((a) => a.account_id === urlAccountId) || null;
       }
 
+      // Stock-mover navigation explicitly targets the user's individual cash
+      // account, rather than whichever Webull account happened to be selected
+      // in a prior session.
+      if (!activeAcc && requestedInstrumentType === 'EQUITY' && urlAccountPreference === 'individual_cash') {
+        activeAcc = preferredEquityAccount(filteredAccounts);
+      }
+
       if (!activeAcc && urlSymbol) {
         // Priority 2: find the account that holds this symbol directly
         const matchedHoldingByAcc = importedHoldings.find((h) => h.symbol === urlSymbol && h.account_id);
@@ -268,13 +295,15 @@ export default function WebullTrading({ isLightMode = false }) {
         }
         // Priority 2b: infer by asset class (crypto symbol → crypto acct, else equity)
         if (!activeAcc) {
-          const isRequestedCrypto = urlSymbol.endsWith('USD') || /crypto|coin|token/i.test(
-            importedHoldings.find((h) => h.symbol === urlSymbol)?.instrument_type || ''
+          const isRequestedCrypto = requestedInstrumentType === 'CRYPTO' || (
+            requestedInstrumentType !== 'EQUITY' && (urlSymbol.endsWith('USD') || /crypto|coin|token/i.test(
+              importedHoldings.find((h) => h.symbol === urlSymbol)?.instrument_type || ''
+            ))
           );
           if (isRequestedCrypto) {
             activeAcc = filteredAccounts.find((a) => isCryptoAccount(a)) || null;
           } else {
-            activeAcc = filteredAccounts.find((a) => !isCryptoAccount(a)) || null;
+            activeAcc = preferredEquityAccount(filteredAccounts);
           }
         }
       }
