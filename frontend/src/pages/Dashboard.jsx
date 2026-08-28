@@ -336,6 +336,21 @@ function Dashboard({ isLightMode }) {
     if (accountPreference) url += `&account_preference=${encodeURIComponent(accountPreference)}`;
     navigate(url);
   };
+  const navigateToWebullInstrument = (asset, side = 'BUY') => {
+    const isEquity = isTraditionalAsset(asset);
+    // Stock/ETF buys and all stock watchlist entries should begin in the
+    // individual cash account. A sell stays on its source account to avoid
+    // routing an owned position to an account that does not hold it.
+    navigateToWebullTrading(
+      asset?.symbol,
+      side,
+      isEquity && side === 'BUY' ? null : asset?.account_id,
+      {
+        instrumentType: isEquity ? 'EQUITY' : 'CRYPTO',
+        accountPreference: isEquity && side === 'BUY' ? 'individual_cash' : null,
+      }
+    );
+  };
   const matchesAssetFilter = (asset, filter) => (
     filter === 'all' || (filter === 'traditional' ? isTraditionalAsset(asset) : !isTraditionalAsset(asset))
   );
@@ -2632,11 +2647,11 @@ function Dashboard({ isLightMode }) {
             {(() => {
               const sym = isPortfolio ? coin.symbol : item.symbol;
               const target = isPortfolio ? coin : item;
-              if (isWebullAsset(target)) {
+              if (isWebullAsset(target) || target.asset_type === 'stock') {
                 return (
                   <button
                     onClick={() => {
-                      navigateToWebullTrading(sym, 'BUY', target.account_id);
+                      navigateToWebullInstrument(target, 'BUY');
                       closeActionMenu();
                     }}
                   >
@@ -2740,7 +2755,7 @@ function Dashboard({ isLightMode }) {
                     <button
                       onClick={() => {
                         if (hasBalance) {
-                          navigateToWebullTrading(coin.symbol, 'SELL', coin.account_id);
+                          navigateToWebullInstrument(coin, 'SELL');
                           closeActionMenu();
                         }
                       }}
@@ -2911,11 +2926,11 @@ function Dashboard({ isLightMode }) {
         <button role="menuitem" onClick={() => { openNoteModal(subject); closeActionMenu(); }}>
           <span>✏️</span>Notes
         </button>
-        {isWebullAsset(subject) ? (
+        {isWebullAsset(subject) || subject.asset_type === 'stock' ? (
           <button
             role="menuitem"
             onClick={() => {
-              navigateToWebullTrading(symbol, 'BUY', subject.account_id);
+              navigateToWebullInstrument(subject, 'BUY');
               closeActionMenu();
             }}
           >
@@ -2941,7 +2956,7 @@ function Dashboard({ isLightMode }) {
                   role="menuitem"
                   onClick={() => {
                     if (hasBalance) {
-                      navigateToWebullTrading(symbol, 'SELL', coin.account_id);
+                      navigateToWebullInstrument(coin, 'SELL');
                       closeActionMenu();
                     }
                   }}
@@ -4856,12 +4871,12 @@ function Dashboard({ isLightMode }) {
                                         ✏️
                                       </button>
                                       {(() => {
-                                        if (isWebullAsset(coin)) {
+                                        if (isWebullAsset(coin) || coin.asset_type === 'stock') {
                                           return (
                                             <button
                                               type="button"
                                               className="trade-action-btn buy"
-                                              onClick={() => navigateToWebullTrading(coin.symbol, 'BUY', coin.account_id)}
+                                              onClick={() => navigateToWebullInstrument(coin, 'BUY')}
                                               title={`Buy ${coin.symbol} on Webull`}
                                             >
                                               Buy
@@ -4889,7 +4904,7 @@ function Dashboard({ isLightMode }) {
                                             <button
                                               type="button"
                                               className="trade-action-btn sell"
-                                              onClick={() => hasBalance && navigateToWebullTrading(coin.symbol, 'SELL', coin.account_id)}
+                                              onClick={() => hasBalance && navigateToWebullInstrument(coin, 'SELL')}
                                               disabled={!hasBalance}
                                               title={hasBalance ? `Sell ${coin.symbol} on Webull` : 'You do not own enough of this asset to sell'}
                                               style={!hasBalance ? { opacity: 0.4, cursor: 'not-allowed' } : undefined}
@@ -5284,12 +5299,12 @@ function Dashboard({ isLightMode }) {
                                         ✏️
                                       </button>
                                       {(() => {
-                                        if (isWebullAsset(item)) {
+                                        if (isWebullAsset(item) || item.asset_type === 'stock') {
                                           return (
                                             <button
                                               type="button"
                                               className="trade-action-btn buy"
-                                              onClick={() => navigateToWebullTrading(item.symbol, 'BUY', item.account_id)}
+                                              onClick={() => navigateToWebullInstrument(item, 'BUY')}
                                               title={`Buy ${item.symbol} on Webull`}
                                             >
                                               Buy

@@ -123,6 +123,13 @@ The application utilizes a **unified PostgreSQL database**.
 
 ## Version History & Changelog
 
+## v2.38.4 (August 2026)
+
+### Webull Stock/ETF Table Navigation
+
+- **Portfolio and Watchlist coverage**: Stock/ETF Buy actions in the Portfolio and Watchlist tables now open Webull Trading with the selected stock/ETF and the individual cash account preference.
+- **Safe Webull stock sales**: Existing Webull stock/ETF Sell actions retain the account that owns the position.
+
 ## v2.38.3 (August 2026)
 
 ### Stock Mover Webull Navigation
