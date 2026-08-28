@@ -5,6 +5,7 @@ import WebullTradingViewChart from '../components/WebullTradingViewChart';
 import WebullTradeTimelineChart from '../components/WebullTradeTimelineChart';
 import TwoFactorModal from '../components/TwoFactorModal';
 import CancelOrderModal from '../components/CancelOrderModal';
+import PercentPriceModal from '../components/PercentPriceModal';
 import './Trading.css';
 
 const OPEN_STATUSES = new Set(['OPEN', 'NEW', 'WORKING', 'PENDING', 'PARTIALLY_FILLED', 'PARTIALLY FILLED']);
@@ -182,6 +183,51 @@ export default function WebullTrading({ isLightMode = false }) {
   const [selectedOptionHoldingId, setSelectedOptionHoldingId] = useState('');
   const [livePrice, setLivePrice] = useState(0);
 
+  // Helper to detect cash-based Webull accounts (Individual Cash, Roth IRA, Rollover IRA)
+  const isCashBasedAccount = (account) => {
+    if (!account) return false;
+    const label = `${account.account_label || ''} ${account.account_name || ''} ${account.account_type || ''} ${account.account_class || ''}`.toLowerCase();
+    if (label.includes('crypto')) return false;
+    return (
+      label.includes('cash') ||
+      label.includes('ira') ||
+      label.includes('roth') ||
+      label.includes('rollover')
+    );
+  };
+
+  // Determine smart default trading session based on US Eastern time (ET)
+  const getDefaultTradingSession = () => {
+    try {
+      const now = new Date();
+      const etString = now.toLocaleString('en-US', { timeZone: 'America/New_York' });
+      const etDate = new Date(etString);
+      const day = etDate.getDay(); // 0 = Sun, 1 = Mon, ..., 6 = Sat
+      const hour = etDate.getHours();
+      const minute = etDate.getMinutes();
+      const timeInMinutes = hour * 60 + minute;
+
+      // Webull regular market hours: 9:30 AM to 4:00 PM Eastern, Monday - Friday
+      const isWeekday = day >= 1 && day <= 5;
+      const isMarketOpen = isWeekday && timeInMinutes >= (9 * 60 + 30) && timeInMinutes < (16 * 60);
+      // After-hours: 4:00 PM to 8:00 PM Eastern, Monday - Friday
+      const isAfterHours = isWeekday && timeInMinutes >= (16 * 60) && timeInMinutes < (20 * 60);
+      // Pre-market: 4:00 AM to 9:30 AM Eastern, Monday - Friday
+      const isPreMarket = isWeekday && timeInMinutes >= (4 * 60) && timeInMinutes < (9 * 60 + 30);
+
+      if (isMarketOpen) {
+        return 'CORE'; // Only Regular Hours
+      }
+      if (isAfterHours || isPreMarket) {
+        return 'ALL'; // Including Extended Hours
+      }
+      // Overnight: 8:00 PM to 4:00 AM Eastern or weekends
+      return 'NIGHT'; // Overnight Hours Only
+    } catch (e) {
+      return 'CORE';
+    }
+  };
+
   // Order Placement Form State (mirroring Binance.US Trading)
   const [orderForm, setOrderForm] = useState({
     side: 'BUY',
@@ -191,7 +237,7 @@ export default function WebullTrading({ isLightMode = false }) {
     price: '',
     stopPrice: '',
     timeInForce: 'DAY',
-    tradingSession: 'CORE',
+    tradingSession: getDefaultTradingSession(),
     optionType: 'CALL',
     optionStrike: '',
     optionExpiration: '',
@@ -236,6 +282,35 @@ export default function WebullTrading({ isLightMode = false }) {
   const [orderSubmitting, setOrderSubmitting] = useState(false);
   const [orderFeedback, setOrderFeedback] = useState({ type: '', message: '' });
   const [orderValidationError, setOrderValidationError] = useState('');
+
+  // Percent Price Calculator Modal State
+  const [percentModal, setPercentModal] = useState({
+    isOpen: false,
+    targetField: 'price'
+  });
+
+  const userChangedSessionRef = React.useRef(false);
+
+  const handleOpenPercentModal = (targetField = 'price') => {
+    setPercentModal({
+      isOpen: true,
+      targetField
+    });
+  };
+
+  const handleApplyPercentPrices = ({ price, stopPrice }) => {
+    setOrderForm((prev) => {
+      const next = { ...prev };
+      if (price !== undefined && price !== '') {
+        next.price = price;
+      }
+      if (stopPrice !== undefined && stopPrice !== '') {
+        next.stopPrice = stopPrice;
+      }
+      return next;
+    });
+    setOrderValidationError('');
+  };
 
   // 2FA State
   const [require2fa, setRequire2fa] = useState(false);
@@ -469,6 +544,14 @@ export default function WebullTrading({ isLightMode = false }) {
 
   // Sync active account and cash balance
   const activeAccount = useMemo(() => accounts.find((a) => a.account_id === selectedAccountId) || accounts[0], [accounts, selectedAccountId]);
+
+  // Automatically default session for cash-based accounts when instrument or account changes
+  useEffect(() => {
+    if (selectedInstrumentType === 'EQUITY' && isCashBasedAccount(activeAccount) && !userChangedSessionRef.current) {
+      const defaultSession = getDefaultTradingSession();
+      setOrderForm((prev) => (prev.tradingSession === defaultSession ? prev : { ...prev, tradingSession: defaultSession }));
+    }
+  }, [selectedInstrumentType, activeAccount]);
   const cashBalance = useMemo(() => {
     if (!activeAccount?.balance) return 0;
     const b = activeAccount.balance;
@@ -524,15 +607,25 @@ export default function WebullTrading({ isLightMode = false }) {
 
   // Handlers for Instrument change from Top TradingView Chart
   const handleInstrumentChange = ({ symbol: nextSymbol, instrumentType: nextType }) => {
+    userChangedSessionRef.current = false;
     setSelectedSymbol(nextSymbol);
     setSelectedInstrumentType(nextType);
     setSelectedOptionHoldingId('');
     setBalancePercentage(0);
     setOrderValidationError('');
-    setOrderForm((prev) => ({ ...prev, symbol: nextSymbol, quantity: '', quoteQuantity: '', price: '', stopPrice: '' }));
+    setOrderForm((prev) => ({
+      ...prev,
+      symbol: nextSymbol,
+      quantity: '',
+      quoteQuantity: '',
+      price: '',
+      stopPrice: '',
+      ...(nextType === 'EQUITY' && isCashBasedAccount(activeAccount) ? { tradingSession: getDefaultTradingSession() } : {})
+    }));
   };
 
   const handleAccountChange = (newAccountId) => {
+    userChangedSessionRef.current = false;
     setSelectedAccountId(newAccountId);
     setSelectedOptionHoldingId('');
     setBalancePercentage(0);
@@ -549,11 +642,20 @@ export default function WebullTrading({ isLightMode = false }) {
       }
     } else {
       setSelectedInstrumentType('EQUITY');
+      const shouldDefaultSession = isCashBasedAccount(targetAcc);
       if (selectedInstrumentType === 'CRYPTO' || selectedSymbol.endsWith('USD')) {
         const topEquityHolding = holdings.find((h) => String(h.account_id || '') === String(newAccountId) && !/crypto|coin|token/i.test(h.instrument_type || ''));
         const nextSym = topEquityHolding ? topEquityHolding.symbol : 'AAPL';
         setSelectedSymbol(nextSym);
-        setOrderForm((prev) => ({ ...prev, symbol: nextSym, quantity: '', quoteQuantity: '' }));
+        setOrderForm((prev) => ({
+          ...prev,
+          symbol: nextSym,
+          quantity: '',
+          quoteQuantity: '',
+          ...(shouldDefaultSession ? { tradingSession: getDefaultTradingSession() } : {})
+        }));
+      } else if (shouldDefaultSession) {
+        setOrderForm((prev) => ({ ...prev, tradingSession: getDefaultTradingSession() }));
       }
     }
   };
@@ -1342,6 +1444,17 @@ export default function WebullTrading({ isLightMode = false }) {
                           className="order-styled-input"
                           autoComplete="off"
                         />
+                        <button
+                          type="button"
+                          className="input-percent-btn"
+                          onClick={() => {
+                            const nextPct = balancePercentage === 25 ? 50 : balancePercentage === 50 ? 75 : balancePercentage === 75 ? 100 : 25;
+                            handleSliderChange(nextPct);
+                          }}
+                          title="Step allocation: 25%, 50%, 75%, 100%"
+                        >
+                          %
+                        </button>
                       </div>
                     </div>
                   </div>
@@ -1364,6 +1477,14 @@ export default function WebullTrading({ isLightMode = false }) {
                             className="order-styled-input"
                             required
                           />
+                          <button
+                            type="button"
+                            className="input-percent-btn"
+                            onClick={() => handleOpenPercentModal('stopPrice')}
+                            title="Calculate stop price from percentage"
+                          >
+                            %
+                          </button>
                         </div>
                         <small className="order-field-help" style={{ color: '#94a3b8', fontSize: '11px', marginTop: '4px' }}>
                           Trigger price: once reached, a market order is placed to execute immediately.
@@ -1389,6 +1510,14 @@ export default function WebullTrading({ isLightMode = false }) {
                             className="order-styled-input"
                             required
                           />
+                          <button
+                            type="button"
+                            className="input-percent-btn"
+                            onClick={() => handleOpenPercentModal('stopPrice')}
+                            title="Calculate stop trigger & limit execution prices from percentage"
+                          >
+                            %
+                          </button>
                         </div>
                         <small className="order-field-help" style={{ color: '#94a3b8', fontSize: '11px', marginTop: '4px' }}>
                           Price that triggers the limit order
@@ -1435,6 +1564,14 @@ export default function WebullTrading({ isLightMode = false }) {
                             className="order-styled-input"
                             required
                           />
+                          <button
+                            type="button"
+                            className="input-percent-btn"
+                            onClick={() => handleOpenPercentModal('price')}
+                            title="Calculate limit price from percentage"
+                          >
+                            %
+                          </button>
                         </div>
                       </div>
                     </div>
@@ -1461,6 +1598,7 @@ export default function WebullTrading({ isLightMode = false }) {
                         <select
                           value={orderForm.tradingSession}
                           onChange={(e) => {
+                            userChangedSessionRef.current = true;
                             setOrderForm((prev) => ({ ...prev, tradingSession: e.target.value }));
                             setOrderValidationError('');
                           }}
@@ -1772,6 +1910,20 @@ export default function WebullTrading({ isLightMode = false }) {
         order={cancelModal.order}
         loading={cancelModal.loading}
         error={cancelModal.error}
+      />
+
+      <PercentPriceModal
+        isOpen={percentModal.isOpen}
+        onClose={() => setPercentModal((prev) => ({ ...prev, isOpen: false }))}
+        onApply={handleApplyPercentPrices}
+        orderType={orderForm.type}
+        side={orderForm.side}
+        targetField={percentModal.targetField}
+        symbol={selectedSymbol}
+        baseAsset={selectedSymbol}
+        quoteAsset="USD"
+        currentPrice={livePrice}
+        avgEntry={Number(currentHolding?.avg_entry || currentHolding?.cost_price || 0) > 0 ? Number(currentHolding?.avg_entry || currentHolding?.cost_price) : null}
       />
     </div>
   );

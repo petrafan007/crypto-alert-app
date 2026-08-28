@@ -125,6 +125,13 @@ The application utilizes a **unified PostgreSQL database**.
 
 Historical changelog entries retain the product name used when they were originally released. The application domain, repository slug, deployment folders, database, and service identifiers intentionally remain unchanged by the v2.45.0 brand update.
 
+## v2.49.0 (August 2026)
+
+- **Webull Percentage Order Price Helper**: Added the dual-mode `%` price calculation modal to the Webull Trading terminal for `LIMIT`, `STOP_LOSS`, and `STOP_LOSS_LIMIT` orders, allowing price generation anchored to either Average Entry cost basis or the live market price.
+- **Stop-Loss Limit Dual-Price Protection for Equities & Crypto**: Supports fraction-of-a-fraction buffered stop-loss limit placement on Webull, automatically calculating the stop trigger price and limit execution price to safeguard against severe price slippage while ensuring fast fills.
+- **Order Value Allocation Shortcut**: Added a percentage quick-step shortcut to the Order Value ($ USD) field to rapidly allocate buying power or position size (25%, 50%, 75%, 100%).
+- **Smart Trading Session Routing for Cash Accounts**: Implemented automated US Eastern Time (ET) session defaulting for cash-based accounts (Individual Cash, Roth IRA, Rollover IRA). Automatically defaults to Regular Hours (`CORE`: 9:30 AM–4:00 PM ET), Extended Hours (`ALL`: 4:00 PM–8:00 PM & 4:00 AM–9:30 AM ET), or Overnight Hours (`NIGHT`: 8:00 PM–4:00 AM ET and weekends), while keeping the dropdown freely editable.
+
 ## v2.48.0 (August 2026)
 
 - **Market Session-Aware Asset Performance Calculations**: Resolved missing percentage returns (dashes) for traditional securities (stocks and ETFs like NVDA, SPCX, TSLA). Implemented market session-aware calculation windows that match against historical trading sessions, daily market closes, and hourly trading candles across market closes and weekends.
