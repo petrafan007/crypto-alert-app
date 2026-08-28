@@ -21,6 +21,7 @@ export default function WatchlistSymbolPicker({ onSelect, disabled = false, isLi
   const inputRef = useRef(null);
   const containerRef = useRef(null);
   const debounceRef = useRef(null);
+  const requestIdRef = useRef(0);
 
   // Close dropdown on outside click
   useEffect(() => {
@@ -33,7 +34,10 @@ export default function WatchlistSymbolPicker({ onSelect, disabled = false, isLi
     return () => document.removeEventListener('mousedown', handler);
   }, []);
 
+  useEffect(() => () => clearTimeout(debounceRef.current), []);
+
   const search = useCallback(async (q) => {
+    const requestId = ++requestIdRef.current;
     if (!q || q.length < 1) {
       setResults([]);
       setIsOpen(false);
@@ -42,15 +46,17 @@ export default function WatchlistSymbolPicker({ onSelect, disabled = false, isLi
     setLoading(true);
     try {
       const res = await axios.get(`/api/watchlist/search-symbol?q=${encodeURIComponent(q)}`, { withCredentials: true });
+      if (requestId !== requestIdRef.current) return;
       const items = res.data?.results || [];
       setResults(items);
       setIsOpen(items.length > 0);
       setHighlightedIdx(0);
     } catch {
+      if (requestId !== requestIdRef.current) return;
       setResults([]);
       setIsOpen(false);
     } finally {
-      setLoading(false);
+      if (requestId === requestIdRef.current) setLoading(false);
     }
   }, []);
 
@@ -92,7 +98,6 @@ export default function WatchlistSymbolPicker({ onSelect, disabled = false, isLi
     display: 'flex',
     alignItems: 'center',
     gap: '8px',
-    flex: 1,
   };
 
   const inputStyle = {
@@ -189,7 +194,7 @@ export default function WatchlistSymbolPicker({ onSelect, disabled = false, isLi
   };
 
   return (
-    <div ref={containerRef} style={containerStyle}>
+    <div ref={containerRef} className="watchlist-symbol-picker" style={containerStyle}>
       <input
         ref={inputRef}
         type="text"

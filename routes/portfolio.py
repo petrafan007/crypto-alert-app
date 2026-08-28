@@ -4918,10 +4918,14 @@ def api_watchlist_search_symbol():
     results = []
     seen = set()  # (symbol, asset_type)
 
-    # --- Crypto: check against Binance pairs ---
+    # --- Crypto: check against Binance.US pairs ---
     try:
-        from services.binance_service import get_cached_exchange_info
-        exchange_info = get_cached_exchange_info() or {}
+        # Exchange information is public data, so searching must not depend on the
+        # user's API credentials.  get_cached_exchange_info requires a client; the
+        # v2.38.0 picker omitted it, causing every crypto lookup to be swallowed by
+        # this block's exception handler and return no results.
+        from binance.client import Client
+        exchange_info = get_cached_exchange_info(Client(tld='us')) or {}
         symbols_info = exchange_info.get('symbols', [])
         for sym_info in symbols_info:
             base = (sym_info.get('baseAsset') or '').upper()
@@ -4943,7 +4947,9 @@ def api_watchlist_search_symbol():
     except Exception as e:
         logger.warning(f"Crypto pair search error: {e}")
 
-    # --- Stocks/ETFs: search via yfinance ---
+    # --- Stocks/ETFs: search via yfinance, with Yahoo's public search endpoint
+    # as a fallback when the yfinance search client has no results. ---
+    stock_results_found = False
     try:
         import yfinance as yf
         search = yf.Search(q, max_results=10, enable_fuzzy_query=True)
@@ -4961,6 +4967,7 @@ def api_watchlist_search_symbol():
                 key = (sym, 'stock')
                 if sym and key not in seen:
                     seen.add(key)
+                    stock_results_found = True
                     results.append({
                         'symbol': sym,
                         'display': f"{sym} — {name}",
@@ -4973,6 +4980,35 @@ def api_watchlist_search_symbol():
         logger.warning("yfinance not installed; stock search unavailable")
     except Exception as e:
         logger.warning(f"yfinance search error for '{q}': {e}")
+
+    if not stock_results_found:
+        try:
+            response = requests.get(
+                'https://query1.finance.yahoo.com/v1/finance/search',
+                params={'q': q, 'quotesCount': 10, 'newsCount': 0},
+                timeout=5,
+            )
+            response.raise_for_status()
+            for item in response.json().get('quotes', []):
+                sym = (item.get('symbol') or '').upper().strip()
+                name = item.get('longname') or item.get('shortname') or sym
+                q_type = (item.get('quoteType') or '').upper()
+                exchange = (item.get('exchange') or '').upper()
+                if q_type not in ('EQUITY', 'ETF', 'MUTUALFUND') or exchange in ('PNK', 'OTC', 'GREY'):
+                    continue
+                key = (sym, 'stock')
+                if sym and key not in seen:
+                    seen.add(key)
+                    results.append({
+                        'symbol': sym,
+                        'display': f"{sym} — {name}",
+                        'name': name,
+                        'asset_type': 'stock',
+                        'exchange': exchange,
+                        'quote_type': q_type,
+                    })
+        except Exception as e:
+            logger.warning(f"Yahoo stock search fallback error for '{q}': {e}")
 
     # Sort: exact symbol matches first
     results.sort(key=lambda r: (r['symbol'] != q, r['asset_type'] != 'crypto', r['symbol']))

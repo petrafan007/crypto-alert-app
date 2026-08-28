@@ -123,6 +123,14 @@ The application utilizes a **unified PostgreSQL database**.
 
 ## Version History & Changelog
 
+## v2.38.1 (August 2026)
+
+### Watchlist Symbol Search Hotfix
+
+- **Restored crypto results**: Passed the required public Binance.US client to the exchange-info cache, so searches once again return matching listed crypto assets.
+- **Resilient stock/ETF results**: Added a Yahoo Finance public-search fallback when the yfinance search client cannot return matches.
+- **Cleaner picker layout**: Reduced the desktop Watchlist search field to one-third of the table width while preserving its full-width mobile layout.
+
 ## v2.33.0 (August 2026)
 
 ### Webull Options Data Foundation
