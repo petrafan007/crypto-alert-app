@@ -123,6 +123,11 @@ The application utilizes a **unified PostgreSQL database**.
 
 ## Version History & Changelog
 
+## v2.40.2 (August 2026)
+
+- **Account-only Combined Orders column**: The centered Account column now shows only the owning account—`Binance.US` or the masked Webull account. Auto-Buy/Auto-Sell labels no longer appear there; their order identity remains in Side and Type.
+- **Instant Combined Order History**: The combined History tab now reads the persisted `real_orders` and `all_activities` ledger only. It no longer starts Binance.US per-symbol or Webull history API scans when opened.
+
 ## v2.40.1 (August 2026)
 
 - **Combined automation-order identity**: Combined Orders now also recognizes active app Auto-Buy and Auto-Sell triggers that use the established `AUTO_BUY`/`AUTO_SELL` order type. They correctly appear under the **Auto** source and **Automation** product filters with the `Crypto Alert App trigger` account label.

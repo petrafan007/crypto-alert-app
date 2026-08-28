@@ -180,14 +180,17 @@
 }
 
 .combined-order-account {
-  display: grid;
-  gap: 5px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   min-width: 135px;
+  color: var(--text-secondary, #94a3b8);
+  text-align: center;
 }
 
-.combined-order-account > span:last-child {
-  color: var(--text-secondary, #94a3b8);
-  font-size: 11px;
+.combined-order-account-heading,
+.combined-order-account-cell {
+  text-align: center;
 }
 
 .order-table-scroll::-webkit-scrollbar {

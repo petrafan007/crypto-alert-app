@@ -1,6 +1,6 @@
 # Exchange-Aware Navigation & Account Views — Review Checklist
 
-Status: **Acceptance criteria defined and implemented through v2.40.1**
+Status: **Acceptance criteria defined and implemented through v2.40.2**
 Scope: Replace the current Binance-centric navigation model with explicit Binance.US, Webull, and All Accounts contexts.
 
 ## Confirmed product decisions
@@ -56,8 +56,8 @@ Scope: Replace the current Binance-centric navigation model with explicit Binanc
 
 ### Combined Orders destination
 
-- [x] CHK022 Combined Orders opens on **Open Orders** and provides **Order History** as the second tab. History is fetched on demand; Open Orders begins with Binance.US plus app automation and progressively merges Webull account results. [Decision, Implemented]
-- [x] CHK023 Every row shows Binance.US or Webull source identity; Auto-Buy/Auto-Sell also shows its automation identity. Webull rows use the connected account’s masked label, while app triggers are labelled `Crypto Alert App trigger`. Rows sort newest-first within both tabs. [Decision, Implemented]
+- [x] CHK022 Combined Orders opens on **Open Orders** and provides **Order History** as the second tab. History is fetched on demand from the persisted order/activity ledger, never by an exchange-wide API scan; Open Orders begins with Binance.US plus app automation and progressively merges Webull account results. [Decision, Implemented in v2.40.2]
+- [x] CHK023 The Account column contains only the owning account and is centered: `Binance.US` for Binance and app automation, and the connected Webull account’s masked label for Webull. Automation identity remains visible in the existing Side/Type fields, not the Account column. Rows sort newest-first within both tabs. [Decision, Implemented in v2.40.2]
 - [x] CHK024 Combined Orders provides client-side filters for source, account, symbol, product type (crypto, stock/ETF, option, future, automation, other), status, and time range (24 hours, 7/30/90 days, all). Filters apply consistently to Open Orders and History without triggering additional exchange reads; app-managed orders are recognized from either current automation fields or legacy `AUTO_BUY`/`AUTO_SELL` order types. [Implemented in v2.40.1]
 - [x] CHK025 Cancellation behavior is explicitly constrained to the owning exchange and account (routed to Webull OpenAPI or Binance.US with no cross-exchange fallback). [Implemented in v2.34.0]
 - [x] CHK026 Combined Orders renders Binance.US-native orders and active in-app Auto-Buy/Auto-Sell triggers first; rate-limited Webull account reads merge progressively with in-view account progress, while history loads on demand. [Implemented in v2.39.1]
@@ -66,7 +66,7 @@ Scope: Replace the current Binance-centric navigation model with explicit Binanc
 
 - [x] CHK027 Binance.US balances/orders are fetched from Binance.US; active Auto-Buy/Auto-Sell triggers are app records; Webull holdings use the latest imported snapshot; Webull quotes use the signed basic snapshot and refresh every 30 seconds; and Webull orders use signed, short-lived cached reads. [Decision, Implemented]
 - [x] CHK028 Dashboard totals use account net liquidation values for Webull and do not add imported position values/cash a second time. Allocation/table rows keep source/account identity and never merge same-symbol positions across exchanges. [Decision, Implemented]
-- [x] CHK029 Webull account/holding snapshots are upserted by user/account/instrument on import, stale rows from the imported account set are removed on a successful replacement snapshot, and schema additions use idempotent application migrations. Combined order results are dynamic/cached views, not a second permanent order ledger. [Decision, Implemented]
+- [x] CHK029 Webull account/holding snapshots are upserted by user/account/instrument on import, stale rows from the imported account set are removed on a successful replacement snapshot, and schema additions use idempotent application migrations. Combined Order History is a database-only view of the existing `real_orders` and `all_activities` ledger; entering it never creates a second ledger or reads an exchange API. [Decision, Implemented in v2.40.2]
 - [x] CHK030 Credentials, secrets, access tokens, and signed-request material remain encrypted and server-only. The browser receives only the minimally required non-secret account reference/masked label to select and scope a Webull action; it never receives a token or signing secret. [Decision, Implemented]
 - [x] CHK031 Navigation controls expose menu/tab/select semantics, labels, keyboard focus, and Escape dismissal. Async Webull refresh progress uses a status announcement, while responsive layouts preserve operable controls on mobile. [Decision, Implemented]
 - [x] CHK032 Initial Combined Orders loading must not block on sequential multi-account Webull reads or the exchange-wide history scan. [Implemented in v2.38.5]

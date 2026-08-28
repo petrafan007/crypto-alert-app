@@ -2132,6 +2132,11 @@ def get_real_orders_only():
             limit = 50
         symbol = request.args.get('symbol')
         symbol_filter = symbol.upper() if symbol else None
+        # The Combined Orders view uses the persisted ledger so entering its
+        # history tab is immediate. Other consumers can explicitly retain the
+        # existing live exchange-history behavior.
+        history_source = str(request.args.get('history_source') or 'live').strip().lower()
+        database_only = history_source == 'database'
 
         combined_orders = {}
         symbols_to_check = set()
@@ -2221,10 +2226,10 @@ def get_real_orders_only():
                 logger.warning(f"Failed to gather portfolio symbols for order history: {coin_err}")
 
         activity_rows = db.session.execute(
-            text('''SELECT date, type, asset, amount, fee, status, details, txid, price_sold_at, avg_entry, proceeds
+            text('''SELECT id, date, type, asset, amount, fee, status, exchange, description, details, txid, price_sold_at, avg_entry, proceeds
                FROM all_activities
                WHERE user_id = :uid
-                 AND (status IN ('FILLED', 'completed')
+                 AND ((LOWER(COALESCE(exchange, '')) = 'binance' AND status IN ('FILLED', 'completed'))
                       OR txid LIKE 'auto_sell_%' OR txid LIKE 'auto_buy_%')'''),
             {"uid": current_user.id}
         ).mappings().all()
@@ -2252,10 +2257,10 @@ def get_real_orders_only():
 
         cleaned_symbols = {s for s in symbols_to_check if s}
 
-        # Attempt to fetch Binance order history directly
+        # Live callers retain the legacy exchange-history lookup.  Combined
+        # Orders passes history_source=database and skips every network read.
         try:
-            # Fetch credentials using ORM
-            creds = Credential.query.filter_by(user_id=current_user.id).first()
+            creds = Credential.query.filter_by(user_id=current_user.id).first() if not database_only else None
 
             if creds:
                 trading_api_key = creds.trading_api_key
@@ -2339,7 +2344,7 @@ def get_real_orders_only():
                             continue
                 else:
                     logger.warning("Binance credentials found but incomplete for order history fetch")
-            else:
+            elif not database_only:
                 logger.warning("No Binance credentials found for real order history")
         except Exception as cred_err:
             logger.warning(f"Could not fetch Binance order history: {cred_err}")
@@ -2347,7 +2352,7 @@ def get_real_orders_only():
         # Merge read-only Webull historical orders. They use their own unique
         # source keys and may represent equities, options, futures, or crypto;
         # none are treated as Binance tradable symbols.
-        if account_scope != 'binance':
+        if account_scope != 'binance' and not database_only:
             try:
                 webull_credential = Credential.query.filter_by(user_id=current_user.id).first()
                 webull_setting = UserSetting.query.filter_by(user_id=current_user.id).first()
@@ -2408,25 +2413,27 @@ def get_real_orders_only():
             except Exception as webull_err:
                 logger.warning(f"Unexpected Webull order-history error: {webull_err}")
 
-        # Merge historical records from all_activities (fills from other sources)
+        # Merge persisted Binance.US and app-automation fills.  The activity
+        # ledger is intentionally sufficient for the database-only Combined
+        # History view; no provider call is needed to render these rows.
         for activity in activity_records:
             details_json = activity.get('__details_json__') or {}
             txid = str(activity.get('txid') or '')
             details = activity.get('details') or ''
-            is_auto_sell = txid.startswith('auto_sell_') or 'Auto-Sell executed' in details
-            is_auto_buy = txid.startswith('auto_buy_') or 'Auto-Buy executed' in details
+            activity_text = f"{details}\n{activity.get('description') or ''}"
+            is_auto_sell = txid.startswith('auto_sell_') or 'Auto-Sell executed' in activity_text
+            is_auto_buy = txid.startswith('auto_buy_') or 'Auto-Buy executed' in activity_text
             is_automated = is_auto_sell or is_auto_buy
-            order_id = details_json.get('order_id') or (
-                txid.removeprefix('auto_sell_').removeprefix('auto_buy_') if is_automated else txid
-            )
+            order_id = details_json.get('order_id') or txid or f"activity-{activity.get('id')}"
             product_id = details_json.get('product_id')
-            if is_automated and not product_id and activity.get('asset'):
-                quote_match = re.search(r'\b(USDT|USD)\b', details)
-                product_id = f"{str(activity['asset']).upper()}-{quote_match.group(1) if quote_match else 'USDT'}"
-            if not order_id or not product_id:
+            asset = str(activity.get('asset') or '').upper()
+            if not product_id and asset:
+                quote_match = re.search(r'\b(USDT|USD)\b', activity_text)
+                product_id = f"{asset}{quote_match.group(1) if quote_match else ''}"
+            if not product_id:
                 continue
 
-            if activity.get('asset', '').upper() == 'USDT' and 'Auto-generated' in (activity.get('details') or ''):
+            if asset == 'USDT' and 'Auto-generated' in activity_text:
                 continue
 
             side = (details_json.get('side') or activity.get('type') or '').upper()
@@ -2451,28 +2458,31 @@ def get_real_orders_only():
                 except Exception:
                     pass
 
-            automation_origin = 'auto_sell' if is_auto_sell else ('auto_buy' if is_auto_buy else 'history')
-            automation_label = 'Auto-Sell' if is_auto_sell else ('Auto-Buy' if is_auto_buy else 'Historical Import')
+            source = 'auto_sell' if is_auto_sell else ('auto_buy' if is_auto_buy else 'binance')
+            origin_label = 'Auto-Sell' if is_auto_sell else ('Auto-Buy' if is_auto_buy else 'Binance.US')
+            status = str(activity.get('status') or 'FILLED').upper()
+            if status == 'COMPLETED':
+                status = 'FILLED'
 
             payload = {
                 'id': order_id,
                 'symbol': product_id.replace('-', '').upper(),
                 'side': side or 'UNKNOWN',
-                'order_type': (details_json.get('order_type') or activity.get('type') or 'UNKNOWN').upper(),
+                'order_type': (details_json.get('order_type') or ('AUTO_SELL' if is_auto_sell else 'AUTO_BUY' if is_auto_buy else 'MARKET')).upper(),
                 'quantity': quantity_val,
                 'price': price_val,
                 'filled_quantity': quantity_val,
                 'filled_price': price_val,
-                'status': activity.get('status', 'FILLED') or 'FILLED',
+                'status': status,
                 'created_at': normalize_timestamp(details_json.get('created_time') or activity.get('date')),
                 'updated_at': normalize_timestamp(details_json.get('last_fill_time') or details_json.get('created_time') or activity.get('date')),
-                'source': automation_origin,
-                'origin': automation_origin,
-                'origin_label': automation_label,
-                'trigger_type': automation_origin if is_automated else None,
+                'source': source,
+                'origin': source,
+                'origin_label': origin_label,
+                'trigger_type': source if is_automated else None,
             }
 
-            add_order(f"binance-{payload['symbol']}-{order_id}", payload)
+            add_order(f"{source}-{payload['symbol']}-{order_id}", payload)
 
         # Auto-sell must cancel any conflicting open orders before it can sell the
         # released balance. Preserve that causal chain in historical Order History.
@@ -2500,7 +2510,8 @@ def get_real_orders_only():
 
         return jsonify({
             'success': True,
-            'orders': limited_orders
+            'orders': limited_orders,
+            'history_source': 'database' if database_only else 'live',
         })
 
     except Exception as e:

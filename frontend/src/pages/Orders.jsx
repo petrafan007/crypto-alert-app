@@ -57,22 +57,10 @@ const accountLabel = (account) => {
 const displaySide = (side) => String(side || '—').replaceAll('_', ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
 const displayType = (type) => String(type || '—').replaceAll('_', ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
 
-function SourceBadge({ order }) {
-  const webull = isWebull(order);
-  const automated = String(order?.origin || order?.source || '').toLowerCase();
-  const automationLabel = automated === 'auto_sell' ? 'Auto-Sell' : automated === 'auto_buy' ? 'Auto-Buy' : null;
-  return <span style={{ display: 'inline-flex', flexWrap: 'wrap', gap: 4 }}>
-    <span className="badge" style={{ background: webull ? 'rgba(96, 165, 250, .16)' : 'rgba(251, 191, 36, .16)', color: webull ? '#2563eb' : '#a16207' }}>{webull ? 'Webull' : 'Binance.US'}</span>
-    {automationLabel && <span className="badge" style={{ background: automated === 'auto_sell' ? 'rgba(248, 113, 113, .16)' : 'rgba(74, 222, 128, .16)', color: automated === 'auto_sell' ? '#dc2626' : '#15803d' }}>{automationLabel}</span>}
-  </span>;
-}
-
 function AccountCell({ order, webullAccounts }) {
   const account = webullAccounts.find((candidate) => String(candidate.account_id) === webullAccountId(order));
-  const label = isAutomation(order)
-    ? 'Crypto Alert App trigger'
-    : isWebull(order) ? (account ? accountLabel(account) : order.webull_account_type || 'Webull account') : 'Binance.US';
-  return <div className="combined-order-account"><SourceBadge order={order} /><span>{label}</span></div>;
+  const label = isWebull(order) ? (account ? accountLabel(account) : order.webull_account_type || 'Webull account') : 'Binance.US';
+  return <div className="combined-order-account">{label}</div>;
 }
 
 function OrderTable({ orders, open, onCancelOrder, cancellingId, webullAccounts }) {
@@ -83,7 +71,7 @@ function OrderTable({ orders, open, onCancelOrder, cancellingId, webullAccounts 
         <table>
           <thead>
             <tr>
-              <th>Date / Time</th><th>Account</th><th>Symbol</th><th>Side</th><th>Type</th><th>Quantity</th><th>Price</th><th>Filled</th><th>Status</th>
+              <th>Date / Time</th><th className="combined-order-account-heading">Account</th><th>Symbol</th><th>Side</th><th>Type</th><th>Quantity</th><th>Price</th><th>Filled</th><th>Status</th>
               {open && <th>Actions</th>}
             </tr>
           </thead>
@@ -91,7 +79,7 @@ function OrderTable({ orders, open, onCancelOrder, cancellingId, webullAccounts 
             {orders.map((order) => (
               <tr key={`${order.source}-${order.id}`}>
                 <td>{timestamp(order.created_at)}</td>
-                <td><AccountCell order={order} webullAccounts={webullAccounts} /></td>
+                <td className="combined-order-account-cell"><AccountCell order={order} webullAccounts={webullAccounts} /></td>
                 <td>{order.symbol}</td>
                 <td>{displaySide(order.side)}</td>
                 <td>{displayType(order.order_type)}</td>
@@ -223,7 +211,7 @@ export default function Orders() {
   const loadHistory = async () => {
     setHistoryLoading(true);
     try {
-      const historyResponse = await axios.get('/api/trading/real-orders?limit=100', { withCredentials: true });
+      const historyResponse = await axios.get('/api/trading/real-orders?limit=100&history_source=database', { withCredentials: true });
       const allHistory = (historyResponse.data?.orders || []).map((order) => {
         const source = String(order?.source || '').toLowerCase();
         return normalize(order, ['auto_buy', 'auto_sell'].includes(source) ? source : (isWebull(order) ? 'webull' : 'binance'));
@@ -283,16 +271,16 @@ export default function Orders() {
 
   const selectTab = (tab) => {
     setActiveTab(tab);
-    // Full order history is an exchange-wide scan (one Binance request per
-    // relevant trading pair plus Webull account history). Do not make the
-    // initial Combined Orders view wait for that nonessential work.
+    // Combined Orders History is an on-demand view of the locally persisted
+    // ledger; it never blocks on an exchange-wide history scan.
     if (tab === 'history' && !history.length && !historyLoading) loadHistory();
   };
 
   const handleCancelOrder = async (order) => {
-    const isAutoTrigger = Boolean(order.is_auto_trigger) || ['auto_buy', 'auto_sell'].includes(String(order.trigger_type || order.origin || '').toLowerCase());
+    const triggerType = String(order.trigger_type || order.origin || order.order_type || '').toLowerCase();
+    const isAutoTrigger = isAutomation(order);
     const cancellationTarget = isAutoTrigger
-      ? `${String(order.trigger_type || order.origin).replace('_', '-')} trigger`
+      ? `${triggerType.replace('_', '-')} trigger`
       : `${order.source === 'webull' ? 'Webull' : 'Binance.US'} order`;
     if (!window.confirm(`Are you sure you want to cancel the open ${cancellationTarget} for ${order.symbol}?`)) {
       return;
@@ -300,7 +288,6 @@ export default function Orders() {
     setCancellingId(order.id);
     try {
       if (isAutoTrigger) {
-        const triggerType = String(order.trigger_type || order.origin || '').toLowerCase();
         const response = await axios.post(
           triggerType === 'auto_buy' ? '/api/portfolio/trigger-auto-buy' : '/api/portfolio/trigger-auto-sell',
           {
