@@ -123,6 +123,10 @@ The application utilizes a **unified PostgreSQL database**.
 
 ## Version History & Changelog
 
+## v2.41.3 (August 2026)
+
+- **Hotfix for Binance Trading Page Estimated Fee State**: Restored missing `estimatedFee` React state hook in `Trading.jsx`. Resolves the `ReferenceError: setEstimatedFee is not defined` runtime crash on the Binance Trading page.
+
 ## v2.41.2 (August 2026)
 
 - **Hotfix for Binance Trading Page Balance Slider**: Restored missing `balancePercentage` React state hook in `Trading.jsx`. Resolves the `ReferenceError: balancePercentage is not defined` runtime crash when opening the Binance Trading page.
