@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
 import './Trading.css';
 
@@ -89,25 +89,53 @@ export default function Orders() {
   const [cancellingId, setCancellingId] = useState(null);
   const [historyPage, setHistoryPage] = useState(1);
   const [historyPageSize, setHistoryPageSize] = useState(50);
-
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [webullOpenLoading, setWebullOpenLoading] = useState(false);
+  const openOrdersRequestId = useRef(0);
+
+  const replaceOpenOrdersForSource = (source, orders) => {
+    setOpenOrders((previous) => {
+      const combined = new Map();
+      [...previous.filter((order) => order.source !== source), ...orders]
+        .forEach((order) => combined.set(`${order.source}-${order.id}`, order));
+      return [...combined.values()];
+    });
+  };
 
   const loadOpenOrders = async () => {
+    const requestId = ++openOrdersRequestId.current;
+    setWebullOpenLoading(true);
+
+    // Webull's combined endpoint reads each authorized account in turn.  Keep
+    // that slower read off the critical path so Binance.US open orders render
+    // as soon as they are available, then merge Webull orders when ready.
+    axios.get('/api/webull/open-orders', { withCredentials: true })
+      .then((webullOpenResponse) => {
+        if (requestId !== openOrdersRequestId.current) return;
+        const webullOpen = (webullOpenResponse.data?.orders || []).map((order) => normalize(order, 'webull'));
+        replaceOpenOrdersForSource('webull', webullOpen);
+        if (webullOpenResponse.data?.success === false) {
+          setNotice(webullOpenResponse.data?.message || 'Webull open orders could not be refreshed.');
+        }
+      })
+      .catch((error) => {
+        if (requestId === openOrdersRequestId.current) {
+          setNotice(error.response?.data?.message || 'Webull open orders could not be refreshed.');
+        }
+      })
+      .finally(() => {
+        if (requestId === openOrdersRequestId.current) setWebullOpenLoading(false);
+      });
+
     try {
-      const [binanceOpenResponse, webullOpenResponse] = await Promise.all([
-        axios.get('/api/pending-orders', { withCredentials: true }),
-        axios.get('/api/webull/open-orders', { withCredentials: true }),
-      ]);
+      const binanceOpenResponse = await axios.get('/api/pending-orders', { withCredentials: true });
+      if (requestId !== openOrdersRequestId.current) return;
       const binanceOpen = (binanceOpenResponse.data?.pending_orders || binanceOpenResponse.data?.orders || []).map((order) => normalize(order, 'binance'));
-      const webullOpen = (webullOpenResponse.data?.orders || []).map((order) => normalize(order, 'webull'));
-      const uniqueOpenOrders = new Map();
-      [...binanceOpen, ...webullOpen].forEach((order) => uniqueOpenOrders.set(`${order.source}-${order.id}`, order));
-      setOpenOrders([...uniqueOpenOrders.values()]);
-      if (webullOpenResponse.data?.success === false) {
-        setNotice(webullOpenResponse.data?.message || 'Webull open orders could not be refreshed.');
-      }
+      replaceOpenOrdersForSource('binance', binanceOpen);
     } catch (error) {
-      setNotice(error.response?.data?.message || 'Unable to load open orders.');
+      if (requestId === openOrdersRequestId.current) {
+        setNotice(error.response?.data?.message || 'Unable to load Binance.US open orders.');
+      }
     }
   };
 
@@ -137,7 +165,6 @@ export default function Orders() {
     setNotice('');
     await loadOpenOrders();
     setLoading(false);
-    loadHistory();
   };
 
   useEffect(() => { load(); }, []);
@@ -146,6 +173,14 @@ export default function Orders() {
   const historyPages = Math.max(1, Math.ceil(sortedHistory.length / historyPageSize));
   const paginatedHistory = useMemo(() => sortedHistory.slice((historyPage - 1) * historyPageSize, historyPage * historyPageSize), [sortedHistory, historyPage, historyPageSize]);
   useEffect(() => { if (historyPage > historyPages) setHistoryPage(historyPages); }, [historyPage, historyPages]);
+
+  const selectTab = (tab) => {
+    setActiveTab(tab);
+    // Full order history is an exchange-wide scan (one Binance request per
+    // relevant trading pair plus Webull account history). Do not make the
+    // initial Combined Orders view wait for that nonessential work.
+    if (tab === 'history' && !history.length && !historyLoading) loadHistory();
+  };
 
   const handleCancelOrder = async (order) => {
     if (!window.confirm(`Are you sure you want to cancel the open ${order.source === 'webull' ? 'Webull' : 'Binance.US'} order for ${order.symbol}?`)) {
@@ -194,10 +229,10 @@ export default function Orders() {
       </div>
       {notice && <div className="modern-real-warning" style={{ marginBottom: 16 }}>⚠️ {notice}</div>}
       <div className="trading-tabs">
-        <button className={`tab-button ${activeTab === 'open' ? 'active' : ''}`} onClick={() => setActiveTab('open')}>
+        <button className={`tab-button ${activeTab === 'open' ? 'active' : ''}`} onClick={() => selectTab('open')}>
           ⏳ <span className="tab-text">Open Orders</span>{activeOpenOrders.length > 0 && <span className="tab-badge">{activeOpenOrders.length}</span>}
         </button>
-        <button className={`tab-button ${activeTab === 'history' ? 'active' : ''}`} onClick={() => setActiveTab('history')}>
+        <button className={`tab-button ${activeTab === 'history' ? 'active' : ''}`} onClick={() => selectTab('history')}>
           📜 <span className="tab-text">Order History</span>
         </button>
       </div>
@@ -208,6 +243,7 @@ export default function Orders() {
           ) : activeTab === 'open' ? (
             <>
               <h2>All Open Orders</h2>
+              {webullOpenLoading && <p className="order-refresh-status" role="status">Refreshing Webull open orders…</p>}
               <OrderTable orders={activeOpenOrders} open onCancelOrder={handleCancelOrder} cancellingId={cancellingId} />
             </>
           ) : historyLoading && !sortedHistory.length ? (

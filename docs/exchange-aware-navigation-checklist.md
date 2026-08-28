@@ -1,6 +1,6 @@
 # Exchange-Aware Navigation & Account Views — Review Checklist
 
-Status: **Implemented through v2.38.4 — reviewed product decisions applied**
+Status: **Implemented through v2.38.5 — reviewed product decisions applied**
 Scope: Replace the current Binance-centric navigation model with explicit Binance.US, Webull, and All Accounts contexts.
 
 ## Confirmed product decisions
@@ -59,7 +59,7 @@ Scope: Replace the current Binance-centric navigation model with explicit Binanc
 - [ ] CHK023 Are source labels, account labels, product/instrument labels, and sort precedence specified for a mixed order ledger? [Completeness, Gap]
 - [ ] CHK024 Are filters specified for exchange, account, symbol, product type, status, and time range? [Completeness, Gap]
 - [x] CHK025 Cancellation behavior is explicitly constrained to the owning exchange and account (routed to Webull OpenAPI or Binance.US with no cross-exchange fallback). [Implemented in v2.34.0]
-- [ ] CHK026 Are latency and freshness expectations defined separately for Binance.US and Webull order data? [Non-Functional, Gap]
+- [x] CHK026 Combined Orders renders Binance.US open orders first; Webull account reads merge asynchronously with an in-view refresh status, while history loads on demand. [Implemented in v2.38.5]
 
 ### Data integrity, security, and release scope
 
@@ -68,7 +68,7 @@ Scope: Replace the current Binance-centric navigation model with explicit Binanc
 - [ ] CHK029 Are data-retention and migration requirements specified for existing Webull snapshots and prior combined-order behavior? [Dependency, Gap]
 - [ ] CHK030 Are credentials, tokens, and account identifiers required to remain server-only across every new exchange-aware surface? [Security]
 - [ ] CHK031 Are accessibility requirements specified for the new menus, selector, tab sets, keyboard navigation, focus states, and status announcements? [Non-Functional, Gap]
-- [ ] CHK032 Are performance and rate-limit requirements specified for pages that query multiple Webull accounts and Binance.US simultaneously? [Non-Functional, Dependency]
+- [x] CHK032 Initial Combined Orders loading must not block on sequential multi-account Webull reads or the exchange-wide history scan. [Implemented in v2.38.5]
 - [ ] CHK033 Is the release/version plan defined, including documentation updates and a rollback path if one provider is unavailable after deployment? [Release Readiness, Gap]
 
 ## Implementation sequence

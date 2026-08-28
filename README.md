@@ -123,6 +123,11 @@ The application utilizes a **unified PostgreSQL database**.
 
 ## Version History & Changelog
 
+## v2.38.5 (August 2026)
+
+- **Fast combined Orders loading**: The Open Orders view now renders after the Binance.US request instead of waiting for Webull to read every connected account. Webull orders merge in as soon as that read completes, with a visible refresh status.
+- **On-demand history**: The expensive exchange-wide Order History scan now starts only when its tab is opened, preventing it from competing with the initial combined Orders load.
+
 ## v2.38.4 (August 2026)
 
 ### Webull Stock/ETF Table Navigation
