@@ -811,6 +811,8 @@ def place_webull_order(
         raise WebullConnectionError('Order quantity must be a positive number.')
 
     if clean_instrument == 'OPTION':
+        if not qty.is_integer():
+            raise WebullConnectionError('Webull option orders require a whole number of contracts.')
         clean_option_type = str(option_type or 'CALL').strip().upper()
         if clean_option_type not in {'CALL', 'PUT'}:
             clean_option_type = 'CALL'
@@ -833,19 +835,30 @@ def place_webull_order(
             }],
         }
     else:
+        clean_session = str(support_trading_session or 'CORE').upper()
+        if clean_session not in {'CORE', 'ALL', 'NIGHT'}:
+            raise WebullConnectionError('Choose Regular, Including Extended, or Overnight trading hours.')
+        if clean_instrument == 'EQUITY' and not qty.is_integer():
+            if clean_session != 'CORE':
+                raise WebullConnectionError('Fractional stock and ETF orders are available only during Regular Hours. Extended and Overnight sessions require whole shares.')
+            if clean_type != 'MARKET':
+                raise WebullConnectionError('Webull supports fractional stock and ETF orders as Market orders during Regular Hours.')
+            if qty > 1:
+                raise WebullConnectionError('A Webull fractional stock or ETF order must be greater than zero and no more than one share.')
         order_payload = {
             'combo_type': 'NORMAL',
             'client_order_id': client_order_id or uuid4().hex,
             'symbol': clean_symbol,
             'instrument_type': clean_instrument,
+            'market': 'US' if clean_instrument == 'EQUITY' else None,
             'order_type': clean_type,
             'side': clean_side,
             'quantity': str(qty) if clean_instrument == 'CRYPTO' or qty != int(qty) else str(int(qty)),
             'time_in_force': str(time_in_force or 'DAY').upper(),
-            'support_trading_session': str(support_trading_session or 'CORE').upper(),
+            'support_trading_session': clean_session,
+            'entrust_type': 'QTY' if clean_instrument == 'EQUITY' else None,
         }
-        if order_payload['support_trading_session'] not in {'CORE', 'ALL', 'NIGHT'}:
-            raise WebullConnectionError('Choose Regular, Including Extended, or Overnight trading hours.')
+        order_payload = {key: value for key, value in order_payload.items() if value is not None}
     if clean_type in {'STOP', 'STOP_LIMIT'}:
         try:
             spx = float(stop_price)

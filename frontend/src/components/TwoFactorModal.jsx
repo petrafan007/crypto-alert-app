@@ -75,15 +75,15 @@ export default function TwoFactorModal({ isVisible, onClose, onVerify, orderDeta
     return `Buy ${baseAsset}${quoteAsset ? ` with ${quoteAsset}` : ''}`;
   };
 
-  const formatPrice = (value) => {
+  const formatPrice = (value, currency = 'USDT') => {
     const numeric = parseFloat(value);
     if (!Number.isFinite(numeric) || numeric === 0) {
       return 'the market price';
     }
     if (numeric >= 1) {
-      return `${numeric.toFixed(2)} USDT`;
+      return `${numeric.toFixed(2)} ${currency}`;
     }
-    return `${numeric.toFixed(4)} USDT`;
+    return `${numeric.toFixed(4)} ${currency}`;
   };
 
   const getOrderExplanation = (details) => {
@@ -94,9 +94,10 @@ export default function TwoFactorModal({ isVisible, onClose, onVerify, orderDeta
     const symbol = details.symbol || '';
     const baseAsset = symbol.replace(/USDT$/i, '').replace(/USD$/i, '') || symbol;
     const qtyText = formatQuantity(details.quantity) || 'the specified amount of';
-    const priceText = formatPrice(details.price);
-    const stopPriceText = formatPrice(details.stopPrice);
-    const stopLimitPriceText = formatPrice(details.stopLimitPrice);
+    const currency = details.currency || 'USDT';
+    const priceText = formatPrice(details.price, currency);
+    const stopPriceText = formatPrice(details.stopPrice, currency);
+    const stopLimitPriceText = formatPrice(details.stopLimitPrice, currency);
 
     // Handle staking operations
     if (side === 'STAKE' && type === 'STAKING') {
@@ -189,6 +190,18 @@ export default function TwoFactorModal({ isVisible, onClose, onVerify, orderDeta
           {orderDetails && (
             <div className="order-summary">
               <h4>Order Summary:</h4>
+              {orderDetails.provider && (
+                <div className="order-detail-row">
+                  <span className="label">Provider:</span>
+                  <span className="value">{orderDetails.provider}</span>
+                </div>
+              )}
+              {orderDetails.accountLabel && (
+                <div className="order-detail-row">
+                  <span className="label">Account:</span>
+                  <span className="value">{orderDetails.accountLabel}</span>
+                </div>
+              )}
               <div className="order-detail-row">
                 <span className="label">Action:</span>
                 <span className={`value ${orderDetails.side.toLowerCase()}`}>
@@ -199,6 +212,18 @@ export default function TwoFactorModal({ isVisible, onClose, onVerify, orderDeta
                 <span className="label">Type:</span>
                 <span className="value">{formatOrderTypeLabel(orderDetails.type)}</span>
               </div>
+              {orderDetails.instrumentType && (
+                <div className="order-detail-row">
+                  <span className="label">Asset:</span>
+                  <span className="value">{orderDetails.symbol} ({orderDetails.instrumentType})</span>
+                </div>
+              )}
+              {orderDetails.optionType && (
+                <div className="order-detail-row">
+                  <span className="label">Option:</span>
+                  <span className="value">{orderDetails.optionType}{orderDetails.optionStrike ? ` · $${orderDetails.optionStrike}` : ''}{orderDetails.optionExpiration ? ` · ${orderDetails.optionExpiration}` : ''}</span>
+                </div>
+              )}
               <div className="order-detail-row">
                 <span className="label">Quantity:</span>
                 <span className="value">{orderDetails.quantity}</span>
@@ -213,6 +238,18 @@ export default function TwoFactorModal({ isVisible, onClose, onVerify, orderDeta
                 <div className="order-detail-row total">
                   <span className="label">Est. Value:</span>
                   <span className="value">${orderDetails.estimatedValue}</span>
+                </div>
+              )}
+              {orderDetails.timeInForce && (
+                <div className="order-detail-row">
+                  <span className="label">Time in Force:</span>
+                  <span className="value">{orderDetails.timeInForce}</span>
+                </div>
+              )}
+              {orderDetails.tradingSession && (
+                <div className="order-detail-row">
+                  <span className="label">Trading Session:</span>
+                  <span className="value">{orderDetails.tradingSession === 'CORE' ? 'Regular Hours' : orderDetails.tradingSession === 'ALL' ? 'Including Extended Hours' : 'Overnight Hours Only'}</span>
                 </div>
               )}
             </div>

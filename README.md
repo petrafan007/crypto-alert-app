@@ -123,6 +123,13 @@ The application utilizes a **unified PostgreSQL database**.
 
 ## Version History & Changelog
 
+## v2.43.1 (August 2026)
+
+- **Webull fractional-share order flow**: The selected Webull account’s fractional equity/ETF position now remains fractional in the ticket—so `MAX` correctly carries a holding such as `0.11 TSLA` instead of rounding it to zero. The quantity/value inputs and percentage controls apply the same session-aware precision.
+- **Session-aware Webull validation**: Fractional stock/ETF orders are accepted only for Webull **Regular Hours (CORE)** Market orders, with the documented `0 < quantity ≤ 1` and `$5` minimum safeguards. Extended and Overnight sessions require whole shares and explain the constraint directly in the ticket; the server enforces the same policy against direct requests.
+- **Shared Webull order 2FA modal**: A valid Webull order with app trading 2FA enabled now opens the native shared 2FA modal before submission. It identifies Webull, the selected account, asset, order type, quantity, estimated value, time-in-force, and trading session.
+- **Visible ticket errors**: Invalid quantities, insufficient selected-account holdings, and unsupported session/order combinations now appear inline next to Quantity rather than failing silently.
+
 ## v2.43.0 (August 2026)
 
 - **Webull Options Execution & Risk Model**: Fully wired up live option order placement via Webull OpenAPI with contract-level single-leg orders (`CALL` / `PUT`), contract multiplier (100 shares/contract), real-time breakeven price calculation, max risk verification, limit price enforcement, and 2FA authentication.

@@ -285,6 +285,43 @@ class WebullServiceTests(unittest.TestCase):
         self.assertEqual(body['orders'][0]['symbol'], 'AAPL')
         self.assertEqual(body['orders'][0]['limit_price'], '220.50')
 
+    def test_fractional_equity_market_order_is_core_only_and_preserves_quantity(self):
+        response = Mock(status_code=200)
+        response.json.return_value = {'data': {'order_id': 'wb-fractional-1'}}
+        with patch('services.webull_service._webull_request', return_value=response) as request_mock:
+            result = place_webull_order(
+                'app-key', 'app-secret', 'production', 'token-123',
+                account_id='cash-account', symbol='TSLA', instrument_type='EQUITY',
+                side='SELL', order_type='MARKET', quantity=0.11,
+                time_in_force='DAY', support_trading_session='CORE',
+            )
+
+        self.assertTrue(result['success'])
+        body = request_mock.call_args.kwargs['body']
+        order = body['orders'][0]
+        self.assertEqual(order['quantity'], '0.11')
+        self.assertEqual(order['market'], 'US')
+        self.assertEqual(order['entrust_type'], 'QTY')
+        self.assertEqual(order['support_trading_session'], 'CORE')
+
+    def test_fractional_equity_rejects_non_core_or_non_market_orders(self):
+        with self.assertRaisesRegex(WebullConnectionError, 'Regular Hours'):
+            place_webull_order(
+                'app-key', 'app-secret', 'production', 'token-123',
+                account_id='cash-account', symbol='TSLA', instrument_type='EQUITY',
+                side='SELL', order_type='MARKET', quantity=0.11,
+                support_trading_session='ALL',
+            )
+
+        with self.assertRaisesRegex(WebullConnectionError, 'Market orders'):
+            place_webull_order(
+                'app-key', 'app-secret', 'production', 'token-123',
+                account_id='cash-account', symbol='TSLA', instrument_type='EQUITY',
+                side='SELL', order_type='LIMIT', quantity=0.11,
+                limit_price=350,
+                support_trading_session='CORE',
+            )
+
     def test_place_webull_stop_and_stop_limit_orders(self):
         response = Mock(status_code=200)
         response.json.return_value = {
@@ -405,5 +442,4 @@ class AccountScopeAndFilteringTests(unittest.TestCase):
                 orders2 = get_webull_open_orders('app-key', 'app-secret', 'production', 'token', account_id='acc-targeted')
                 self.assertEqual(len(orders2), 1)
                 self.assertEqual(req_mock.call_count, 1)  # Still 1 because cached!
-
 

@@ -1,6 +1,6 @@
 # Exchange-Aware Navigation & Account Views — Review Checklist
 
-Status: **Acceptance criteria defined and implemented through v2.43.0**
+Status: **Acceptance criteria defined and implemented through v2.43.1**
 Scope: Replace the current Binance-centric navigation model with explicit Binance.US, Webull, and All Accounts contexts.
 
 ## Confirmed product decisions
@@ -51,7 +51,7 @@ Scope: Replace the current Binance-centric navigation model with explicit Binanc
 ### Webull Trading context
 
 - [x] CHK016 Webull Place Order supports live execution for equities/ETFs and crypto as of v2.34.0. [Decision]
-- [x] CHK017 Webull order placement supports Equities, ETFs, and Crypto with Market and Limit order types, account selection, pre-trade review modal, and confirmation safeguards. [Implemented in v2.34.0]
+- [x] CHK017 Webull order placement supports equities/ETFs, crypto, and single-leg options with account selection, pre-trade review, and app 2FA confirmation safeguards. The selected-account Max, quote-value, and percentage controls preserve fractional stock/ETF quantities during Regular Hours (CORE); Webull fractional stock/ETF orders are Market-only, greater than zero and no more than one share, and must meet the $5 minimum. Extended and Overnight stock/ETF sessions require whole shares. Browser and server validation present the same constraint with no silent failure. [Implemented in v2.43.1]
 - [x] CHK018 Webull Open Orders and Order History include the instruments Webull returns for the selected account: equities/ETFs, crypto, options, futures, and multi-leg/combo orders. Multi-leg responses are flattened into their executable legs; each keeps Webull/account identity and remains managed only through Webull. [Decision, Implemented]
 - [x] CHK019 Webull Trade Chart supports imported equities/ETFs, crypto, and contract-mapped options with their own Webull historical bars and completed order markers. Option quote/Greeks data uses a dedicated endpoint and reports missing OPRA entitlement without substituting the underlying. Futures remain out of scope. [Decision]
 - [x] CHK020 Webull crypto and equities/ETFs use separated prompt families and a provider-neutral stored-signal lifecycle. Scheduled runs are opt-in; no Webull signal can place, amend, or cancel an order. Options now have contract-level chart/quote identity but remain unavailable to AI pending an options-specific prompt and risk model. [Decision]

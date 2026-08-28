@@ -142,6 +142,19 @@ const holdingForAccount = (holdings, symbol, accountId) => (
   holdings.find((holding) => String(holding?.account_id || '') === String(accountId || '') && holdingMatchesSymbol(holding, symbol))
 );
 
+const QUANTITY_EPSILON = 1e-8;
+
+const formatQuantityForTicket = (value, precision = 6) => {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric) || numeric <= 0) return '';
+  return numeric.toFixed(precision).replace(/\.?0+$/, '');
+};
+
+const isFractionalQuantity = (value) => {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) && Math.abs(numeric - Math.round(numeric)) > QUANTITY_EPSILON;
+};
+
 export default function WebullTrading({ isLightMode = false }) {
   const [activeTab, setActiveTab] = useState('order');
   const [holdings, setHoldings] = useState([]);
@@ -193,10 +206,10 @@ export default function WebullTrading({ isLightMode = false }) {
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [orderSubmitting, setOrderSubmitting] = useState(false);
   const [orderFeedback, setOrderFeedback] = useState({ type: '', message: '' });
+  const [orderValidationError, setOrderValidationError] = useState('');
 
   // 2FA State
   const [require2fa, setRequire2fa] = useState(false);
-  const [twoFactorCode, setTwoFactorCode] = useState('');
   const [twoFactorModal, setTwoFactorModal] = useState({ isVisible: false, orderData: null });
 
   // History & Signal State
@@ -449,11 +462,15 @@ export default function WebullTrading({ isLightMode = false }) {
   const handleInstrumentChange = ({ symbol: nextSymbol, instrumentType: nextType }) => {
     setSelectedSymbol(nextSymbol);
     setSelectedInstrumentType(nextType);
-    setOrderForm((prev) => ({ ...prev, symbol: nextSymbol, quantity: '', quoteAmount: '', price: '', stopPrice: '' }));
+    setBalancePercentage(0);
+    setOrderValidationError('');
+    setOrderForm((prev) => ({ ...prev, symbol: nextSymbol, quantity: '', quoteQuantity: '', price: '', stopPrice: '' }));
   };
 
   const handleAccountChange = (newAccountId) => {
     setSelectedAccountId(newAccountId);
+    setBalancePercentage(0);
+    setOrderValidationError('');
     const targetAcc = accounts.find((a) => a.account_id === newAccountId);
     const isCrypto = isCryptoAccount(targetAcc);
     if (isCrypto) {
@@ -462,7 +479,7 @@ export default function WebullTrading({ isLightMode = false }) {
         const topCryptoHolding = holdings.find((h) => String(h.account_id || '') === String(newAccountId) && /crypto|coin|token/i.test(h.instrument_type || ''));
         const nextSym = topCryptoHolding ? topCryptoHolding.symbol : 'BTCUSD';
         setSelectedSymbol(nextSym);
-        setOrderForm((prev) => ({ ...prev, symbol: nextSym, quantity: '', quoteAmount: '' }));
+        setOrderForm((prev) => ({ ...prev, symbol: nextSym, quantity: '', quoteQuantity: '' }));
       }
     } else {
       setSelectedInstrumentType('EQUITY');
@@ -470,7 +487,7 @@ export default function WebullTrading({ isLightMode = false }) {
         const topEquityHolding = holdings.find((h) => String(h.account_id || '') === String(newAccountId) && !/crypto|coin|token/i.test(h.instrument_type || ''));
         const nextSym = topEquityHolding ? topEquityHolding.symbol : 'AAPL';
         setSelectedSymbol(nextSym);
-        setOrderForm((prev) => ({ ...prev, symbol: nextSym, quantity: '', quoteAmount: '' }));
+        setOrderForm((prev) => ({ ...prev, symbol: nextSym, quantity: '', quoteQuantity: '' }));
       }
     }
   };
@@ -500,11 +517,14 @@ export default function WebullTrading({ isLightMode = false }) {
     return livePrice > 0 ? livePrice : (Number(orderForm.price) || 1);
   }, [orderForm.type, orderForm.price, orderForm.stopPrice, livePrice]);
 
+  const fractionalEquityAllowed = selectedInstrumentType === 'EQUITY' && orderForm.tradingSession === 'CORE';
+
   const handleBaseQuantityChange = (val) => {
     const qty = val.replace(/[^0-9.]/g, '');
     const numQty = parseFloat(qty) || 0;
     const mult = selectedInstrumentType === 'OPTION' ? 100 : 1;
     const computedVal = numQty > 0 && effectivePrice > 0 ? (numQty * effectivePrice * mult).toFixed(2) : '';
+    setOrderValidationError('');
     setOrderForm((prev) => ({ ...prev, quantity: qty, quoteQuantity: computedVal }));
   };
 
@@ -513,9 +533,17 @@ export default function WebullTrading({ isLightMode = false }) {
     const numQuote = parseFloat(quoteVal) || 0;
     const mult = selectedInstrumentType === 'OPTION' ? 100 : 1;
     const unitCost = effectivePrice * mult;
-    const computedQty = numQuote > 0 && unitCost > 0
-      ? (selectedInstrumentType === 'CRYPTO' ? (numQuote / effectivePrice).toFixed(6) : String(Math.floor(numQuote / unitCost)))
-      : '';
+    const rawQuantity = numQuote > 0 && unitCost > 0 ? numQuote / unitCost : 0;
+    const wholeQuantity = Math.floor(rawQuantity);
+    const computedQty = selectedInstrumentType === 'CRYPTO'
+      ? formatQuantityForTicket(rawQuantity, 6)
+      : fractionalEquityAllowed
+        ? formatQuantityForTicket(rawQuantity, 6)
+        : wholeQuantity > 0 ? String(wholeQuantity) : '';
+    setOrderValidationError('');
+    if (selectedInstrumentType === 'EQUITY' && !fractionalEquityAllowed && rawQuantity > 0 && wholeQuantity < 1) {
+      setOrderValidationError('Extended and Overnight stock/ETF sessions require whole shares. Select Only Regular Hours (CORE) to use a fractional quantity.');
+    }
     setOrderForm((prev) => ({ ...prev, quoteQuantity: quoteVal, quantity: computedQty }));
   };
 
@@ -528,16 +556,19 @@ export default function WebullTrading({ isLightMode = false }) {
       const computedQuote = numQty > 0 && numPx > 0 ? (numQty * numPx * mult).toFixed(2) : prev.quoteQuantity;
       return { ...prev, price: px, quoteQuantity: computedQuote };
     });
+    setOrderValidationError('');
   };
 
   const handleStopPriceChange = (val) => {
     const spx = val.replace(/[^0-9.]/g, '');
+    setOrderValidationError('');
     setOrderForm((prev) => ({ ...prev, stopPrice: spx }));
   };
 
   // Slider change handler
   const handleSliderChange = (pct) => {
     setBalancePercentage(pct);
+    setOrderValidationError('');
     if (pct === 0) {
       setOrderForm((prev) => ({ ...prev, quantity: '', quoteQuantity: '' }));
       return;
@@ -547,9 +578,16 @@ export default function WebullTrading({ isLightMode = false }) {
         const targetDollars = cashBalance * (pct / 100);
         const mult = selectedInstrumentType === 'OPTION' ? 100 : 1;
         const unitCost = effectivePrice * mult;
+        const rawQuantity = targetDollars / unitCost;
+        const wholeQuantity = Math.floor(rawQuantity);
         const qty = selectedInstrumentType === 'CRYPTO'
-          ? (targetDollars / effectivePrice).toFixed(6)
-          : String(Math.floor(targetDollars / unitCost));
+          ? formatQuantityForTicket(rawQuantity, 6)
+          : fractionalEquityAllowed
+            ? formatQuantityForTicket(rawQuantity, 6)
+            : wholeQuantity > 0 ? String(wholeQuantity) : '';
+        if (selectedInstrumentType === 'EQUITY' && !fractionalEquityAllowed && rawQuantity > 0 && wholeQuantity < 1) {
+          setOrderValidationError('Extended and Overnight stock/ETF sessions require whole shares. Select Only Regular Hours (CORE) to use a fractional quantity.');
+        }
         setOrderForm((prev) => ({
           ...prev,
           quantity: qty,
@@ -559,7 +597,15 @@ export default function WebullTrading({ isLightMode = false }) {
     } else {
       if (heldQuantity > 0) {
         const targetQty = (heldQuantity * (pct / 100));
-        const formattedQty = selectedInstrumentType === 'CRYPTO' ? targetQty.toFixed(6) : String(Math.floor(targetQty));
+        const wholeQuantity = Math.floor(targetQty);
+        const formattedQty = selectedInstrumentType === 'CRYPTO'
+          ? formatQuantityForTicket(targetQty, 6)
+          : fractionalEquityAllowed
+            ? formatQuantityForTicket(targetQty, 6)
+            : wholeQuantity > 0 ? String(wholeQuantity) : '';
+        if (selectedInstrumentType === 'EQUITY' && !fractionalEquityAllowed && targetQty > 0 && wholeQuantity < 1) {
+          setOrderValidationError('Extended and Overnight stock/ETF sessions require whole shares. Select Only Regular Hours (CORE) to sell this fractional position.');
+        }
         const mult = selectedInstrumentType === 'OPTION' ? 100 : 1;
         const computedVal = (parseFloat(formattedQty) * effectivePrice * mult).toFixed(2);
         setOrderForm((prev) => ({
@@ -567,6 +613,8 @@ export default function WebullTrading({ isLightMode = false }) {
           quantity: formattedQty,
           quoteQuantity: computedVal,
         }));
+      } else {
+        setOrderValidationError(`No ${selectedSymbol} is available to sell in the selected Webull account.`);
       }
     }
   };
@@ -577,56 +625,117 @@ export default function WebullTrading({ isLightMode = false }) {
     return qty * effectivePrice * mult;
   }, [orderForm.quantity, effectivePrice, selectedInstrumentType]);
 
+  const activeAccountLabel = () => {
+    const name = activeAccount?.account_label || activeAccount?.account_name || 'Webull Account';
+    const masked = activeAccount?.account_number || activeAccount?.account_id_masked || (selectedAccountId ? `••••${String(selectedAccountId).slice(-4)}` : '');
+    return masked ? `${name} (${masked})` : name;
+  };
+
+  const webullTwoFactorOrderDetails = () => ({
+    provider: 'Webull',
+    accountLabel: activeAccountLabel(),
+    symbol: selectedSymbol,
+    instrumentType: selectedInstrumentType,
+    side: orderForm.side,
+    type: orderForm.type,
+    quantity: orderForm.quantity,
+    price: ['LIMIT', 'STOP_LIMIT'].includes(orderForm.type) ? orderForm.price : undefined,
+    stopPrice: ['STOP', 'STOP_LIMIT'].includes(orderForm.type) ? orderForm.stopPrice : undefined,
+    estimatedValue: orderTotal > 0 ? orderTotal.toFixed(2) : undefined,
+    timeInForce: orderForm.timeInForce,
+    tradingSession: selectedInstrumentType === 'EQUITY' ? orderForm.tradingSession : 'CORE',
+    optionType: selectedInstrumentType === 'OPTION' ? orderForm.optionType : undefined,
+    optionStrike: selectedInstrumentType === 'OPTION' ? orderForm.optionStrike : undefined,
+    optionExpiration: selectedInstrumentType === 'OPTION' ? orderForm.optionExpiration : undefined,
+    currency: 'USD',
+  });
+
+  const rejectOrder = (message) => {
+    setOrderValidationError(message);
+    setOrderFeedback({ type: 'error', message });
+  };
+
   // Pre-trade submit handler
   const handleOrderSubmit = (e) => {
     e.preventDefault();
     setOrderFeedback({ type: '', message: '' });
+    setOrderValidationError('');
     if (!selectedAccountId) {
-      setOrderFeedback({ type: 'error', message: 'Please select a Webull account.' });
+      rejectOrder('Please select a Webull account.');
       return;
     }
     if (!selectedSymbol.trim()) {
-      setOrderFeedback({ type: 'error', message: 'Please select an instrument.' });
+      rejectOrder('Please select an instrument.');
       return;
     }
     const qty = parseFloat(orderForm.quantity);
     if (!qty || qty <= 0) {
-      setOrderFeedback({ type: 'error', message: 'Please enter a valid order quantity.' });
+      rejectOrder('Please enter a valid order quantity. Use Max or enter a quantity greater than zero.');
       return;
+    }
+    if (orderForm.side === 'SELL' && qty > heldQuantity + QUANTITY_EPSILON) {
+      rejectOrder(`You can sell up to ${formatQuantityForTicket(heldQuantity, 6) || '0'} ${selectedSymbol} from ${activeAccountLabel()}.`);
+      return;
+    }
+    if (selectedInstrumentType === 'OPTION' && !Number.isInteger(qty)) {
+      rejectOrder('Webull option orders require a whole number of contracts.');
+      return;
+    }
+    if (selectedInstrumentType === 'EQUITY' && isFractionalQuantity(qty)) {
+      if (orderForm.tradingSession !== 'CORE') {
+        rejectOrder('Fractional stock and ETF orders are available only during Regular Hours. Select Only Regular Hours (CORE) or use a whole-share quantity.');
+        return;
+      }
+      if (orderForm.type !== 'MARKET') {
+        rejectOrder('Webull supports fractional stock and ETF orders as Market orders during Regular Hours. Select Market or use a whole-share quantity for this order type.');
+        return;
+      }
+      if (qty > 1 + QUANTITY_EPSILON) {
+        rejectOrder('A Webull fractional share order must be greater than zero and no more than one share. Submit the whole-share portion separately.');
+        return;
+      }
+      if (orderTotal < 5) {
+        rejectOrder('Webull requires a fractional stock or ETF order value of at least $5.00.');
+        return;
+      }
     }
     if (selectedInstrumentType === 'OPTION') {
       if (['LIMIT', 'STOP_LIMIT'].includes(orderForm.type)) {
         const px = parseFloat(orderForm.price);
         if (!px || px <= 0) {
-          setOrderFeedback({ type: 'error', message: 'Options orders require a limit price greater than $0.' });
+          rejectOrder('Options orders require a limit price greater than $0.');
           return;
         }
       }
       if (!orderForm.optionExpiration) {
-        setOrderFeedback({ type: 'error', message: 'Please specify an option expiration date.' });
+        rejectOrder('Please specify an option expiration date.');
         return;
       }
       if (!orderForm.optionStrike || parseFloat(orderForm.optionStrike) <= 0) {
-        setOrderFeedback({ type: 'error', message: 'Please specify an option strike price.' });
+        rejectOrder('Please specify an option strike price.');
         return;
       }
     } else {
       if (['LIMIT', 'STOP_LIMIT'].includes(orderForm.type)) {
         const px = parseFloat(orderForm.price);
         if (!px || px <= 0) {
-          setOrderFeedback({ type: 'error', message: 'Limit orders require a limit price greater than $0.' });
+          rejectOrder('Limit orders require a limit price greater than $0.');
           return;
         }
       }
       if (['STOP', 'STOP_LIMIT'].includes(orderForm.type)) {
         const spx = parseFloat(orderForm.stopPrice);
         if (!spx || spx <= 0) {
-          setOrderFeedback({ type: 'error', message: 'Stop orders require a stop trigger price greater than $0.' });
+          rejectOrder('Stop orders require a stop trigger price greater than $0.');
           return;
         }
       }
     }
-    setShowConfirmModal(true);
+    if (require2fa) {
+      setTwoFactorModal({ isVisible: true, orderData: webullTwoFactorOrderDetails() });
+    } else {
+      setShowConfirmModal(true);
+    }
   };
 
   // Transmit order to Webull OpenAPI
@@ -645,14 +754,13 @@ export default function WebullTrading({ isLightMode = false }) {
         stop_price: ['STOP', 'STOP_LIMIT'].includes(orderForm.type) ? Number(orderForm.stopPrice) : undefined,
         time_in_force: orderForm.timeInForce,
         support_trading_session: ['CRYPTO', 'OPTION'].includes(selectedInstrumentType) ? 'CORE' : orderForm.tradingSession,
-        ...(tokenOverride ? { twofa_token: tokenOverride } : twoFactorCode ? { twofa_code: twoFactorCode } : {}),
+        ...(tokenOverride ? { twofa_token: tokenOverride } : {}),
       };
 
       const response = await axios.post('/api/webull/orders/place', payload, { withCredentials: true });
       if (response.data?.success) {
         setOrderFeedback({ type: 'success', message: response.data.message || 'Webull order placed successfully!' });
         setShowConfirmModal(false);
-        setTwoFactorCode('');
         setOrderForm((prev) => ({ ...prev, quantity: '', quoteQuantity: '' }));
         setBalancePercentage(0);
         loadOpenOrders(selectedAccountId);
@@ -663,17 +771,7 @@ export default function WebullTrading({ isLightMode = false }) {
     } catch (err) {
       if (err.response?.data?.requires_2fa) {
         setShowConfirmModal(false);
-        setTwoFactorModal({
-          isVisible: true,
-          orderData: {
-            symbol: selectedSymbol,
-            side: orderForm.side,
-            type: orderForm.type,
-            quantity: orderForm.quantity,
-            price: orderForm.price,
-            stopPrice: orderForm.stopPrice,
-          },
-        });
+        setTwoFactorModal({ isVisible: true, orderData: webullTwoFactorOrderDetails() });
       } else {
         setOrderFeedback({
           type: 'error',
@@ -936,7 +1034,7 @@ export default function WebullTrading({ isLightMode = false }) {
                 </div>
 
                 {/* 3. Redesigned Modern Order Panel (matching Binance.US) */}
-                <form onSubmit={handleOrderSubmit} className="trading-order-panel">
+                <form onSubmit={handleOrderSubmit} className="trading-order-panel" noValidate>
                   {/* Asset Class Switcher (Equities & ETFs, Crypto, Options) */}
                   <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap', marginBottom: '14px' }}>
                     <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-secondary, #94a3b8)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
@@ -1079,6 +1177,7 @@ export default function WebullTrading({ isLightMode = false }) {
                           onClick={() => {
                             setOrderForm((prev) => ({ ...prev, side: 'BUY' }));
                             setBalancePercentage(0);
+                            setOrderValidationError('');
                           }}
                         >
                           📈 Buy
@@ -1089,6 +1188,7 @@ export default function WebullTrading({ isLightMode = false }) {
                           onClick={() => {
                             setOrderForm((prev) => ({ ...prev, side: 'SELL' }));
                             setBalancePercentage(0);
+                            setOrderValidationError('');
                           }}
                         >
                           📉 Sell
@@ -1104,7 +1204,10 @@ export default function WebullTrading({ isLightMode = false }) {
                             key={t.value}
                             type="button"
                             className={`order-type-btn ${orderForm.type === t.value ? 'active' : ''}`}
-                            onClick={() => setOrderForm((prev) => ({ ...prev, type: t.value }))}
+                            onClick={() => {
+                              setOrderForm((prev) => ({ ...prev, type: t.value }));
+                              setOrderValidationError('');
+                            }}
                             title={t.description}
                           >
                             {t.label}
@@ -1129,7 +1232,8 @@ export default function WebullTrading({ isLightMode = false }) {
                           onChange={(e) => handleBaseQuantityChange(e.target.value)}
                           placeholder="0.0000"
                           className="order-styled-input"
-                          required
+                          aria-invalid={Boolean(orderValidationError)}
+                          aria-describedby={orderValidationError ? 'webull-order-validation' : undefined}
                           autoComplete="off"
                         />
                         <button
@@ -1141,6 +1245,15 @@ export default function WebullTrading({ isLightMode = false }) {
                           MAX
                         </button>
                       </div>
+                      {orderValidationError && (
+                        <p
+                          id="webull-order-validation"
+                          role="alert"
+                          style={{ color: '#fca5a5', fontSize: '12px', fontWeight: 600, lineHeight: 1.4, margin: '7px 0 0' }}
+                        >
+                          ⚠️ {orderValidationError}
+                        </p>
+                      )}
                     </div>
 
                     <div className="order-input-group">
@@ -1270,12 +1383,15 @@ export default function WebullTrading({ isLightMode = false }) {
                         <option value="GTC">Good &apos;Til Canceled (GTC)</option>
                       </select>
                     </div>
-                    {selectedInstrumentType !== 'CRYPTO' && (
+                    {selectedInstrumentType === 'EQUITY' && (
                       <div className="order-input-group">
                         <label className="order-field-label">Trading Session</label>
                         <select
                           value={orderForm.tradingSession}
-                          onChange={(e) => setOrderForm((prev) => ({ ...prev, tradingSession: e.target.value }))}
+                          onChange={(e) => {
+                            setOrderForm((prev) => ({ ...prev, tradingSession: e.target.value }));
+                            setOrderValidationError('');
+                          }}
                           className="order-styled-input"
                           style={{ cursor: 'pointer' }}
                         >
@@ -1286,6 +1402,12 @@ export default function WebullTrading({ isLightMode = false }) {
                       </div>
                     )}
                   </div>
+
+                  {selectedInstrumentType === 'EQUITY' && (
+                    <p style={{ margin: '0 0 12px', color: '#94a3b8', fontSize: '12px', lineHeight: 1.45 }}>
+                      Fractional stock and ETF quantities are available only for <strong style={{ color: '#e2e8f0' }}>Only Regular Hours (CORE)</strong> and Webull Market orders. Extended and Overnight sessions require whole shares.
+                    </p>
+                  )}
 
                   {/* Row 3: Use Balance Slider Section */}
                   <div className="order-slider-section">
@@ -1432,37 +1554,6 @@ export default function WebullTrading({ isLightMode = false }) {
                         </div>
                       </div>
 
-                      {require2fa && (
-                        <div style={{ marginBottom: '20px', background: 'rgba(0,0,0,0.3)', padding: '14px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.1)' }}>
-                          <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, marginBottom: '6px', color: '#f8fafc' }}>
-                            🔐 Two-Factor Authentication (2FA) Code:
-                          </label>
-                          <input
-                            type="text"
-                            inputMode="numeric"
-                            autoComplete="one-time-code"
-                            maxLength={6}
-                            placeholder="000000"
-                            value={twoFactorCode}
-                            onChange={(e) => setTwoFactorCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                            style={{
-                              width: '100%',
-                              padding: '10px 14px',
-                              fontSize: '1.2rem',
-                              letterSpacing: '6px',
-                              textAlign: 'center',
-                              background: 'rgba(0,0,0,0.4)',
-                              border: '1px solid rgba(255,255,255,0.2)',
-                              borderRadius: '6px',
-                              color: '#fff',
-                            }}
-                          />
-                          <p style={{ margin: '6px 0 0', fontSize: '0.78rem', color: '#94a3b8', textAlign: 'center' }}>
-                            Enter the 6-digit code from your authenticator app.
-                          </p>
-                        </div>
-                      )}
-
                       <div style={{ display: 'flex', gap: '12px' }}>
                         <button
                           type="button"
@@ -1483,7 +1574,7 @@ export default function WebullTrading({ isLightMode = false }) {
                             border: 'none',
                             fontWeight: 'bold',
                           }}
-                          disabled={orderSubmitting || (require2fa && twoFactorCode.length !== 6)}
+                          disabled={orderSubmitting}
                           onClick={() => handleConfirmSubmit()}
                         >
                           {orderSubmitting ? 'Submitting…' : 'Confirm Order'}
