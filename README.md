@@ -125,6 +125,13 @@ The application utilizes a **unified PostgreSQL database**.
 
 Historical changelog entries retain the product name used when they were originally released. The application domain, repository slug, deployment folders, database, and service identifiers intentionally remain unchanged by the v2.45.0 brand update.
 
+## v2.47.0 (August 2026)
+
+- **Average Entry & Current Price Percentage Order Helper**: Added an intuitive `%` calculation button across spot order types in the Trading terminal (`LIMIT`, `LIMIT_MAKER`, `STOP_LOSS_LIMIT`, `TAKE_PROFIT_LIMIT`, and `OCO`). Clicking `%` opens a dual-mode calculator allowing price generation from either the user's Average Entry price or the live Current Market Price.
+- **Stop-Loss Limit Automatic Dual-Price Population ("Fraction-of-a-Fraction")**: Entering a percentage drop on a Stop-Loss Limit sell order automatically calculates and populates both the Stop Price trigger ($P\%$ drop from reference) and the Limit Price execution cap (with a $P\%$ buffer of the difference below the trigger), preventing severe price degradation while ensuring fast execution fills.
+- **Safety Guardrail Against Invalid Stop Placement**: Prevents placing a Sell Stop-Loss order above current market price when a coin is already in a drawdown from Average Entry, alerting the user with current P&L percentage and guiding them to switch to the Current Price tab.
+- **Symmetric OCO & Buy Order Support**: Full support for One-Cancels-the-Other (OCO) orders with 1-click symmetric $\pm P\%$ swings (profit target and stop loss populated simultaneously) as well as Buy-side order workflows (dip accumulation, breakout stops, and dual OCO buy setups). All populated values remain completely editable.
+
 ## v2.46.0 (August 2026)
 
 - **Complete in-app Webull guide**: Added a dedicated, linked Help section with the exact Settings workflow for selecting the matching Production/Sandbox environment, securely saving Webull OpenAPI credentials, completing the in-app/SMS verification, selecting accounts, loading the read-only preview, and importing account-scoped portfolio snapshots.

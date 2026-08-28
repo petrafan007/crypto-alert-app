@@ -2820,7 +2820,7 @@ function Dashboard({ isLightMode }) {
                     <div className="trade-quote-menu" style={tradeQuoteMenuStyle}>
                       {hasUsdPair(coin.symbol) && (
                         <>
-                          <button onClick={() => { navigateToTrading(coin.symbol, 'SELL', 'USD'); closeActionMenu(); closeTradeQuoteMenu(); }}>Sell for USD</button>
+                          <button onClick={() => { navigateToTrading(coin.symbol, 'SELL', 'USD', { avg_entry: coin.avg_entry }); closeActionMenu(); closeTradeQuoteMenu(); }}>Sell for USD</button>
                           <button onClick={() => { handleTriggerAutoSellClick(coin.symbol, coin, 'USD', openActionMenu.type); closeActionMenu(); closeTradeQuoteMenu(); }}>Trigger Auto-Sell (USD)</button>
                         </>
                       )}
@@ -2829,7 +2829,7 @@ function Dashboard({ isLightMode }) {
                           <button
                             onClick={() => {
                               if (coin.symbol !== 'USDT') {
-                                navigateToTrading(coin.symbol, 'SELL', 'USDT'); closeActionMenu(); closeTradeQuoteMenu();
+                                navigateToTrading(coin.symbol, 'SELL', 'USDT', { avg_entry: coin.avg_entry }); closeActionMenu(); closeTradeQuoteMenu();
                               }
                             }}
                             disabled={coin.symbol === 'USDT'}
@@ -3051,7 +3051,7 @@ function Dashboard({ isLightMode }) {
     );
   };
 
-  const navigateToTrading = (symbol, side, quote = 'USDT') => {
+  const navigateToTrading = (symbol, side, quote = 'USDT', extra = {}) => {
     const cleanSymbol = String(symbol || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
     const cleanBase = cleanSymbol === 'USDT'
       ? 'USDT'
@@ -3065,12 +3065,20 @@ function Dashboard({ isLightMode }) {
       console.warn('Unable to determine trading pair for symbol:', symbol);
       return;
     }
+    let avgEntry = extra?.avg_entry ?? extra?.avgEntry;
+    if (avgEntry === undefined || avgEntry === null) {
+      const match = (portfolio || []).find(p => p.symbol === cleanBase || p.symbol === cleanSymbol);
+      if (match && Number(match.avg_entry) > 0) {
+        avgEntry = Number(match.avg_entry);
+      }
+    }
     navigate('/trading', {
       state: {
         tradePrefill: {
           symbol: pair,
           side: side === 'SELL' ? 'SELL' : 'BUY',
-          baseCoin: cleanBase
+          baseCoin: cleanBase,
+          avgEntry: avgEntry !== undefined && avgEntry !== null ? Number(avgEntry) : null
         }
       }
     });

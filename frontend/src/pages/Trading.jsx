@@ -4,6 +4,7 @@ import OrderFeedbackModal from '../components/OrderFeedbackModal';
 import TwoFactorModal from '../components/TwoFactorModal';
 import ConvertDustModal from '../components/ConvertDustModal';
 import CancelOrderModal from '../components/CancelOrderModal';
+import PercentPriceModal from '../components/PercentPriceModal';
 import TradingViewAdvancedChart from '../components/TradingViewAdvancedChart';
 import TradeTimelineChart from '../components/TradeTimelineChart';
 import TradePermissionModal from '../components/TradePermissionModal';
@@ -312,45 +313,71 @@ const Trading = ({ isLightMode = false }) => {
   const renderOrderTypeFields = () => {
     const cells = [];
 
-    const limitPriceCell = (key, helpText) => (
-      <div className="order-input-group" key={`limit-${key}`}>
-        <label className="order-field-label" htmlFor="price">Limit Price ({quoteAsset})</label>
-        <div className="order-input-wrapper">
-          <input
-            id="price"
-            type="number"
-            step="any"
-            value={orderForm.price}
-            onChange={(e) => setOrderForm((prev) => ({ ...prev, price: e.target.value }))}
-            placeholder="0.00"
-            className="order-styled-input"
-            required
-            autoComplete="off"
-          />
+    const limitPriceCell = (key, helpText) => {
+      const showPercentBtn = ['LIMIT', 'LIMIT_MAKER', 'OCO'].includes(orderForm.type);
+      return (
+        <div className="order-input-group" key={`limit-${key}`}>
+          <label className="order-field-label" htmlFor="price">Limit Price ({quoteAsset})</label>
+          <div className="order-input-wrapper">
+            <input
+              id="price"
+              type="number"
+              step="any"
+              value={orderForm.price}
+              onChange={(e) => setOrderForm((prev) => ({ ...prev, price: e.target.value }))}
+              placeholder="0.00"
+              className="order-styled-input"
+              required
+              autoComplete="off"
+            />
+            {showPercentBtn && (
+              <button
+                type="button"
+                className="input-percent-btn"
+                onClick={() => handleOpenPercentModal('price')}
+                title="Calculate limit price from percentage"
+              >
+                %
+              </button>
+            )}
+          </div>
+          {helpText && <small className="order-field-help">{helpText}</small>}
         </div>
-        {helpText && <small className="order-field-help">{helpText}</small>}
-      </div>
-    );
+      );
+    };
 
-    const stopPriceCell = (key, helpText) => (
-      <div className="order-input-group" key={`stop-${key}`}>
-        <label className="order-field-label" htmlFor="stopPrice">Stop Price ({quoteAsset})</label>
-        <div className="order-input-wrapper">
-          <input
-            id="stopPrice"
-            type="number"
-            step="any"
-            value={orderForm.stopPrice}
-            onChange={(e) => setOrderForm((prev) => ({ ...prev, stopPrice: e.target.value }))}
-            placeholder="0.00"
-            className="order-styled-input"
-            required
-            autoComplete="off"
-          />
+    const stopPriceCell = (key, helpText) => {
+      const showPercentBtn = ['STOP_LOSS_LIMIT', 'TAKE_PROFIT_LIMIT', 'OCO', 'STOP_LOSS', 'TAKE_PROFIT'].includes(orderForm.type);
+      return (
+        <div className="order-input-group" key={`stop-${key}`}>
+          <label className="order-field-label" htmlFor="stopPrice">Stop Price ({quoteAsset})</label>
+          <div className="order-input-wrapper">
+            <input
+              id="stopPrice"
+              type="number"
+              step="any"
+              value={orderForm.stopPrice}
+              onChange={(e) => setOrderForm((prev) => ({ ...prev, stopPrice: e.target.value }))}
+              placeholder="0.00"
+              className="order-styled-input"
+              required
+              autoComplete="off"
+            />
+            {showPercentBtn && (
+              <button
+                type="button"
+                className="input-percent-btn"
+                onClick={() => handleOpenPercentModal('stopPrice')}
+                title="Calculate stop & limit prices from percentage"
+              >
+                %
+              </button>
+            )}
+          </div>
+          {helpText && <small className="order-field-help">{helpText}</small>}
         </div>
-        {helpText && <small className="order-field-help">{helpText}</small>}
-      </div>
-    );
+      );
+    };
 
     const stopLimitPriceCell = (key) => (
       <div className="order-input-group" key={`stop-limit-${key}`}>
@@ -497,6 +524,7 @@ const Trading = ({ isLightMode = false }) => {
         localStorage.setItem('selectedTradingPair', newSymbol);
       } catch (e) {}
     }
+    setAvgEntryPrice(null);
     setOrderForm((prev) => ({
       ...prev,
       symbol: newSymbol,
@@ -509,6 +537,67 @@ const Trading = ({ isLightMode = false }) => {
     setBalancePercentage(0);
   };
 
+  const [avgEntryPrice, setAvgEntryPrice] = useState(() => {
+    const pre = location.state?.tradePrefill?.avgEntry;
+    return pre !== undefined && pre !== null ? Number(pre) : null;
+  });
+  const [livePortfolio, setLivePortfolio] = useState([]);
+  const [percentModal, setPercentModal] = useState({
+    isOpen: false,
+    targetField: 'stopPrice'
+  });
+
+  const handleOpenPercentModal = (targetField = 'stopPrice') => {
+    setPercentModal({
+      isOpen: true,
+      targetField
+    });
+  };
+
+  const handleApplyPercentPrices = ({ price, stopPrice, stopLimitPrice }) => {
+    setOrderForm((prev) => {
+      const next = { ...prev };
+      if (price !== undefined && price !== '') {
+        next.price = price;
+      }
+      if (stopPrice !== undefined && stopPrice !== '') {
+        next.stopPrice = stopPrice;
+      }
+      if (stopLimitPrice !== undefined && stopLimitPrice !== '') {
+        next.stopLimitPrice = stopLimitPrice;
+      }
+      return next;
+    });
+  };
+
+  const currentCoinAvgEntry = useMemo(() => {
+    if (avgEntryPrice !== null && avgEntryPrice !== undefined) {
+      return avgEntryPrice;
+    }
+    const match = (livePortfolio || []).find(c => c.symbol === baseAsset);
+    if (match && Number(match.avg_entry) > 0) {
+      return Number(match.avg_entry);
+    }
+    if (settings.test_mode_enabled && portfolio && portfolio.length > 0) {
+      const testMatch = portfolio.find(p => p.symbol === baseAsset);
+      if (testMatch && Number(testMatch.avg_entry) > 0) {
+        return Number(testMatch.avg_entry);
+      }
+    }
+    return null;
+  }, [avgEntryPrice, livePortfolio, baseAsset, settings.test_mode_enabled, portfolio]);
+
+  const loadLivePortfolio = async () => {
+    try {
+      const res = await axios.get('/api/coin-data-live');
+      if (res.data?.portfolio) {
+        setLivePortfolio(res.data.portfolio);
+      }
+    } catch (e) {
+      console.warn('Could not fetch live portfolio for average entry:', e);
+    }
+  };
+
   const [filterCoin, setFilterCoin] = useState(() => {
     if (location.state?.tradePrefill?.baseCoin) {
       return location.state.tradePrefill.baseCoin;
@@ -518,7 +607,10 @@ const Trading = ({ isLightMode = false }) => {
 
   useEffect(() => {
     if (location.state?.tradePrefill) {
-      const { symbol, side, baseCoin } = location.state.tradePrefill;
+      const { symbol, side, baseCoin, avgEntry } = location.state.tradePrefill;
+      if (avgEntry !== undefined && avgEntry !== null) {
+        setAvgEntryPrice(Number(avgEntry));
+      }
       setActiveTab('order');
       if (symbol) {
         try {
@@ -646,6 +738,7 @@ const Trading = ({ isLightMode = false }) => {
     loadOrderTypes(orderForm.symbol);
     loadOrders();
     loadOpenOrders();
+    loadLivePortfolio();
     if (settings.test_mode_enabled) {
       loadTestPortfolio();
       loadTestOrders();
@@ -1751,6 +1844,20 @@ const Trading = ({ isLightMode = false }) => {
         order={cancelModal.order}
         loading={cancelModal.loading}
         error={cancelModal.error}
+      />
+
+      <PercentPriceModal
+        isOpen={percentModal.isOpen}
+        onClose={() => setPercentModal((prev) => ({ ...prev, isOpen: false }))}
+        onApply={handleApplyPercentPrices}
+        orderType={orderForm.type}
+        side={orderForm.side}
+        targetField={percentModal.targetField}
+        symbol={orderForm.symbol}
+        baseAsset={baseAsset}
+        quoteAsset={quoteAsset}
+        currentPrice={currentPrices.base}
+        avgEntry={currentCoinAvgEntry}
       />
 
       {/* Tab Navigation */}

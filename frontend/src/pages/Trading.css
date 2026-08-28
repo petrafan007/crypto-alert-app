@@ -684,6 +684,29 @@
   color: #0f172a;
 }
 
+.input-percent-btn {
+  position: absolute;
+  right: 8px;
+  padding: 4px 9px;
+  font-size: 0.8rem;
+  font-weight: 800;
+  border-radius: 6px;
+  border: 1px solid #38bdf8;
+  background: rgba(56, 189, 248, 0.12);
+  color: #38bdf8;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+
+.input-percent-btn:hover {
+  background: #38bdf8;
+  color: #0f172a;
+}
+
 /* Time in Force Selector */
 .modern-tif-selector {
   display: grid;
