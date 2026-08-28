@@ -142,6 +142,13 @@ const holdingForAccount = (holdings, symbol, accountId) => (
   holdings.find((holding) => String(holding?.account_id || '') === String(accountId || '') && holdingMatchesSymbol(holding, symbol))
 );
 
+const normalizedWebullInstrumentType = (value) => {
+  const type = String(value || '').trim().toUpperCase();
+  if (['CRYPTO', 'COIN', 'TOKEN'].includes(type)) return 'CRYPTO';
+  if (['OPTION', 'OPTIONS'].includes(type)) return 'OPTION';
+  return 'EQUITY';
+};
+
 const QUANTITY_EPSILON = 1e-8;
 
 const formatQuantityForTicket = (value, precision = 6) => {
@@ -172,6 +179,7 @@ export default function WebullTrading({ isLightMode = false }) {
   // Selected Instrument & Chart state
   const [selectedSymbol, setSelectedSymbol] = useState('AAPL');
   const [selectedInstrumentType, setSelectedInstrumentType] = useState('EQUITY');
+  const [selectedOptionHoldingId, setSelectedOptionHoldingId] = useState('');
   const [livePrice, setLivePrice] = useState(0);
 
   // Order Placement Form State (mirroring Binance.US Trading)
@@ -189,12 +197,25 @@ export default function WebullTrading({ isLightMode = false }) {
     optionExpiration: '',
   });
 
-  const availableOrderTypes = useMemo(() => [
-    { value: 'LIMIT', label: 'Limit', description: 'Execute at specified limit price or better' },
-    { value: 'MARKET', label: 'Market', description: 'Execute immediately at current market price' },
-    { value: 'STOP', label: 'Stop Loss', description: 'Market order triggered when price reaches stop price' },
-    { value: 'STOP_LIMIT', label: 'Stop Limit', description: 'Limit order triggered when price reaches stop price' },
-  ], []);
+  const availableOrderTypes = useMemo(() => {
+    const commonLimit = { value: 'LIMIT', label: 'Limit', description: 'Execute at the specified limit price or better' };
+    const stopLoss = { value: 'STOP_LOSS', label: 'Stop Loss', description: 'Trigger a market order when the stop price is reached' };
+    const stopLossLimit = { value: 'STOP_LOSS_LIMIT', label: 'Stop Loss Limit', description: 'Trigger a limit order when the stop price is reached' };
+    if (selectedInstrumentType === 'OPTION') return [commonLimit, stopLoss, stopLossLimit];
+    if (selectedInstrumentType === 'CRYPTO') {
+      return [
+        { value: 'MARKET', label: 'Market', description: 'Execute immediately at the best available price' },
+        commonLimit,
+        stopLossLimit,
+      ];
+    }
+    return [
+      commonLimit,
+      { value: 'MARKET', label: 'Market', description: 'Execute immediately at the best available price' },
+      stopLoss,
+      stopLossLimit,
+    ];
+  }, [selectedInstrumentType]);
 
   // Reset to LIMIT if current type is unsupported for current asset class
   useEffect(() => {
@@ -202,6 +223,14 @@ export default function WebullTrading({ isLightMode = false }) {
       setOrderForm((prev) => ({ ...prev, type: 'LIMIT', stopPrice: '' }));
     }
   }, [availableOrderTypes, orderForm.type]);
+
+  useEffect(() => {
+    if (selectedInstrumentType === 'OPTION' && orderForm.side === 'SELL' && orderForm.timeInForce !== 'DAY') {
+      setOrderForm((prev) => ({ ...prev, timeInForce: 'DAY' }));
+    } else if (selectedInstrumentType !== 'CRYPTO' && orderForm.timeInForce === 'IOC') {
+      setOrderForm((prev) => ({ ...prev, timeInForce: 'DAY' }));
+    }
+  }, [selectedInstrumentType, orderForm.side, orderForm.timeInForce]);
   const [balancePercentage, setBalancePercentage] = useState(0);
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [orderSubmitting, setOrderSubmitting] = useState(false);
@@ -299,7 +328,11 @@ export default function WebullTrading({ isLightMode = false }) {
       const urlAccountId = urlParams.get('account_id')?.trim();
       const urlInstrumentType = urlParams.get('instrument_type')?.toUpperCase()?.trim();
       const urlAccountPreference = urlParams.get('account_preference')?.toLowerCase()?.trim();
-      const requestedInstrumentType = ['CRYPTO', 'EQUITY'].includes(urlInstrumentType) ? urlInstrumentType : null;
+      const requestedInstrumentType = ['CRYPTO', 'EQUITY', 'OPTION'].includes(urlInstrumentType) ? urlInstrumentType : null;
+      const urlHoldingId = urlParams.get('holding_id')?.trim();
+      const deepLinkedHolding = urlHoldingId
+        ? importedHoldings.find((holding) => String(holding?.id || '') === urlHoldingId)
+        : null;
 
       // Determine which account should be active on load:
       // 1. If an explicit account_id is in the URL, select that account.
@@ -311,6 +344,13 @@ export default function WebullTrading({ isLightMode = false }) {
       if (urlAccountId) {
         // Priority 1: explicit account_id from navigation
         activeAcc = filteredAccounts.find((a) => a.account_id === urlAccountId) || null;
+      }
+
+      // A portfolio row can identify a precise option contract.  Prefer that
+      // ownership/account context over a same-symbol lookup so an option is
+      // never coerced into its underlying equity ticket.
+      if (!activeAcc && deepLinkedHolding?.account_id) {
+        activeAcc = filteredAccounts.find((a) => a.account_id === deepLinkedHolding.account_id) || null;
       }
 
       // Stock-mover navigation explicitly targets the user's individual cash
@@ -352,19 +392,30 @@ export default function WebullTrading({ isLightMode = false }) {
 
       if (activeAcc) {
         const isCrypto = isCryptoAccount(activeAcc);
+        const matchedHolding = deepLinkedHolding
+          || (urlSymbol ? holdingForAccount(importedHoldings, urlSymbol, activeAcc.account_id) : null);
+        const nextInstrumentType = requestedInstrumentType
+          || (matchedHolding ? normalizedWebullInstrumentType(matchedHolding.instrument_type) : (isCrypto ? 'CRYPTO' : 'EQUITY'));
         setSelectedAccountId(activeAcc.account_id);
-        setSelectedInstrumentType(isCrypto ? 'CRYPTO' : 'EQUITY');
+        setSelectedInstrumentType(nextInstrumentType);
+        setSelectedOptionHoldingId(nextInstrumentType === 'OPTION' && matchedHolding?.id ? String(matchedHolding.id) : '');
 
         if (urlSymbol) {
-          setSelectedSymbol(urlSymbol);
-          if (urlSide && ['BUY', 'SELL'].includes(urlSide)) {
-            setOrderForm((prev) => ({ ...prev, side: urlSide }));
-          }
-          const matchedHolding = holdingForAccount(importedHoldings, urlSymbol, activeAcc.account_id);
-          if (matchedHolding?.current_price) {
-            setLivePrice(Number(matchedHolding.current_price));
-            setOrderForm((prev) => ({ ...prev, price: Number(matchedHolding.current_price).toFixed(2) }));
-          }
+          const ticketSymbol = nextInstrumentType === 'OPTION'
+            ? (matchedHolding?.underlying_symbol || urlSymbol)
+            : urlSymbol;
+          setSelectedSymbol(ticketSymbol);
+          if (matchedHolding?.current_price) setLivePrice(Number(matchedHolding.current_price));
+          setOrderForm((prev) => ({
+            ...prev,
+            side: urlSide && ['BUY', 'SELL'].includes(urlSide) ? urlSide : prev.side,
+            type: nextInstrumentType === 'OPTION' ? 'LIMIT' : prev.type,
+            price: matchedHolding?.current_price ? Number(matchedHolding.current_price).toFixed(2) : prev.price,
+            optionType: nextInstrumentType === 'OPTION' ? (matchedHolding?.option_type || prev.optionType) : prev.optionType,
+            optionStrike: nextInstrumentType === 'OPTION' && matchedHolding?.option_strike != null ? String(matchedHolding.option_strike) : prev.optionStrike,
+            optionExpiration: nextInstrumentType === 'OPTION' ? (matchedHolding?.option_expiration || prev.optionExpiration) : prev.optionExpiration,
+            quantity: nextInstrumentType === 'OPTION' && urlSide === 'SELL' && matchedHolding?.amount ? String(matchedHolding.amount) : prev.quantity,
+          }));
         } else if (isCrypto && (selectedSymbol === 'AAPL' || !selectedSymbol.endsWith('USD'))) {
           const firstCrypto = importedHoldings.find((h) => String(h.account_id || '') === activeAcc.account_id && /crypto|coin|token/i.test(h.instrument_type || ''));
           setSelectedSymbol(firstCrypto ? firstCrypto.symbol : 'BTCUSD');
@@ -426,8 +477,14 @@ export default function WebullTrading({ isLightMode = false }) {
 
   // Holding for the currently selected symbol
   const currentHolding = useMemo(() => {
+    if (selectedInstrumentType === 'OPTION' && selectedOptionHoldingId) {
+      return holdings.find((holding) => (
+        String(holding?.id || '') === selectedOptionHoldingId
+        && String(holding?.account_id || '') === String(selectedAccountId || '')
+      )) || null;
+    }
     return holdingForAccount(holdings, selectedSymbol, selectedAccountId);
-  }, [holdings, selectedSymbol, selectedAccountId]);
+  }, [holdings, selectedSymbol, selectedAccountId, selectedInstrumentType, selectedOptionHoldingId]);
 
   const heldQuantity = useMemo(() => Number(currentHolding?.amount || 0), [currentHolding]);
   const heldValue = useMemo(() => Number(currentHolding?.current_value || (heldQuantity * livePrice) || 0), [currentHolding, heldQuantity, livePrice]);
@@ -440,11 +497,18 @@ export default function WebullTrading({ isLightMode = false }) {
     if (fallbackPrice > 0) setLivePrice(fallbackPrice);
     const loadSnapshot = async () => {
       try {
-        const response = await axios.get('/api/webull/market-snapshot', {
-          params: { symbol: selectedSymbol, instrument_type: selectedInstrumentType },
-          withCredentials: true,
-        });
-        const price = Number(response.data?.snapshot?.price || 0);
+        const response = selectedInstrumentType === 'OPTION'
+          ? await axios.get('/api/webull/option-market-data', {
+            params: { holding_id: selectedOptionHoldingId },
+            withCredentials: true,
+          })
+          : await axios.get('/api/webull/market-snapshot', {
+            params: { symbol: selectedSymbol, instrument_type: selectedInstrumentType },
+            withCredentials: true,
+          });
+        const price = Number(selectedInstrumentType === 'OPTION'
+          ? response.data?.quote?.last_price
+          : response.data?.snapshot?.price || 0);
         if (active && price > 0) {
           setLivePrice(price);
           setOrderForm((prev) => (prev.price ? prev : { ...prev, price: price.toFixed(price >= 1 ? 2 : 4) }));
@@ -456,12 +520,13 @@ export default function WebullTrading({ isLightMode = false }) {
     loadSnapshot();
     const timer = window.setInterval(loadSnapshot, 30000);
     return () => { active = false; window.clearInterval(timer); };
-  }, [selectedSymbol, selectedInstrumentType, currentHolding]);
+  }, [selectedSymbol, selectedInstrumentType, selectedOptionHoldingId, currentHolding]);
 
   // Handlers for Instrument change from Top TradingView Chart
   const handleInstrumentChange = ({ symbol: nextSymbol, instrumentType: nextType }) => {
     setSelectedSymbol(nextSymbol);
     setSelectedInstrumentType(nextType);
+    setSelectedOptionHoldingId('');
     setBalancePercentage(0);
     setOrderValidationError('');
     setOrderForm((prev) => ({ ...prev, symbol: nextSymbol, quantity: '', quoteQuantity: '', price: '', stopPrice: '' }));
@@ -469,6 +534,7 @@ export default function WebullTrading({ isLightMode = false }) {
 
   const handleAccountChange = (newAccountId) => {
     setSelectedAccountId(newAccountId);
+    setSelectedOptionHoldingId('');
     setBalancePercentage(0);
     setOrderValidationError('');
     const targetAcc = accounts.find((a) => a.account_id === newAccountId);
@@ -508,10 +574,10 @@ export default function WebullTrading({ isLightMode = false }) {
 
   // Dual Input Quantity / Value calculations
   const effectivePrice = useMemo(() => {
-    if (['LIMIT', 'STOP_LIMIT'].includes(orderForm.type) && Number(orderForm.price) > 0) {
+    if (['LIMIT', 'STOP_LOSS_LIMIT'].includes(orderForm.type) && Number(orderForm.price) > 0) {
       return Number(orderForm.price);
     }
-    if (orderForm.type === 'STOP' && Number(orderForm.stopPrice) > 0) {
+    if (orderForm.type === 'STOP_LOSS' && Number(orderForm.stopPrice) > 0) {
       return Number(orderForm.stopPrice);
     }
     return livePrice > 0 ? livePrice : (Number(orderForm.price) || 1);
@@ -627,7 +693,7 @@ export default function WebullTrading({ isLightMode = false }) {
 
   const activeAccountLabel = () => {
     const name = activeAccount?.account_label || activeAccount?.account_name || 'Webull Account';
-    const masked = activeAccount?.account_number || activeAccount?.account_id_masked || (selectedAccountId ? `••••${String(selectedAccountId).slice(-4)}` : '');
+    const masked = activeAccount?.account_id_masked || (selectedAccountId ? `••••${String(selectedAccountId).slice(-4)}` : '');
     return masked ? `${name} (${masked})` : name;
   };
 
@@ -639,8 +705,8 @@ export default function WebullTrading({ isLightMode = false }) {
     side: orderForm.side,
     type: orderForm.type,
     quantity: orderForm.quantity,
-    price: ['LIMIT', 'STOP_LIMIT'].includes(orderForm.type) ? orderForm.price : undefined,
-    stopPrice: ['STOP', 'STOP_LIMIT'].includes(orderForm.type) ? orderForm.stopPrice : undefined,
+    price: ['LIMIT', 'STOP_LOSS_LIMIT'].includes(orderForm.type) ? orderForm.price : undefined,
+    stopPrice: ['STOP_LOSS', 'STOP_LOSS_LIMIT'].includes(orderForm.type) ? orderForm.stopPrice : undefined,
     estimatedValue: orderTotal > 0 ? orderTotal.toFixed(2) : undefined,
     timeInForce: orderForm.timeInForce,
     tradingSession: selectedInstrumentType === 'EQUITY' ? orderForm.tradingSession : 'CORE',
@@ -700,7 +766,7 @@ export default function WebullTrading({ isLightMode = false }) {
       }
     }
     if (selectedInstrumentType === 'OPTION') {
-      if (['LIMIT', 'STOP_LIMIT'].includes(orderForm.type)) {
+      if (['LIMIT', 'STOP_LOSS_LIMIT'].includes(orderForm.type)) {
         const px = parseFloat(orderForm.price);
         if (!px || px <= 0) {
           rejectOrder('Options orders require a limit price greater than $0.');
@@ -716,14 +782,14 @@ export default function WebullTrading({ isLightMode = false }) {
         return;
       }
     } else {
-      if (['LIMIT', 'STOP_LIMIT'].includes(orderForm.type)) {
+      if (['LIMIT', 'STOP_LOSS_LIMIT'].includes(orderForm.type)) {
         const px = parseFloat(orderForm.price);
         if (!px || px <= 0) {
           rejectOrder('Limit orders require a limit price greater than $0.');
           return;
         }
       }
-      if (['STOP', 'STOP_LIMIT'].includes(orderForm.type)) {
+      if (['STOP_LOSS', 'STOP_LOSS_LIMIT'].includes(orderForm.type)) {
         const spx = parseFloat(orderForm.stopPrice);
         if (!spx || spx <= 0) {
           rejectOrder('Stop orders require a stop trigger price greater than $0.');
@@ -750,10 +816,13 @@ export default function WebullTrading({ isLightMode = false }) {
         side: orderForm.side,
         order_type: orderForm.type,
         quantity: Number(orderForm.quantity),
-        limit_price: ['LIMIT', 'STOP_LIMIT'].includes(orderForm.type) ? Number(orderForm.price) : undefined,
-        stop_price: ['STOP', 'STOP_LIMIT'].includes(orderForm.type) ? Number(orderForm.stopPrice) : undefined,
+        limit_price: ['LIMIT', 'STOP_LOSS_LIMIT'].includes(orderForm.type) ? Number(orderForm.price) : undefined,
+        stop_price: ['STOP_LOSS', 'STOP_LOSS_LIMIT'].includes(orderForm.type) ? Number(orderForm.stopPrice) : undefined,
         time_in_force: orderForm.timeInForce,
         support_trading_session: ['CRYPTO', 'OPTION'].includes(selectedInstrumentType) ? 'CORE' : orderForm.tradingSession,
+        option_underlying_symbol: selectedInstrumentType === 'OPTION' ? selectedSymbol.trim().toUpperCase() : undefined,
+        option_strike: selectedInstrumentType === 'OPTION' ? Number(orderForm.optionStrike) : undefined,
+        option_expiration: selectedInstrumentType === 'OPTION' ? orderForm.optionExpiration : undefined,
         ...(tokenOverride ? { twofa_token: tokenOverride } : {}),
       };
 
@@ -849,7 +918,9 @@ export default function WebullTrading({ isLightMode = false }) {
 
   const handleSelectHolding = (holding) => {
     const isOption = String(holding.instrument_type || '').toUpperCase() === 'OPTION';
-    setSelectedSymbol(holding.symbol);
+    if (holding.account_id) setSelectedAccountId(String(holding.account_id));
+    setSelectedSymbol(isOption ? (holding.underlying_symbol || holding.symbol) : holding.symbol);
+    setSelectedOptionHoldingId(isOption ? String(holding.id || '') : '');
     if (isOption) {
       setSelectedInstrumentType('OPTION');
       setOrderForm((prev) => ({
@@ -994,7 +1065,7 @@ export default function WebullTrading({ isLightMode = false }) {
                       <span className="trading-asset-card-label">{selectedSymbol} Available</span>
                       <span className="trading-asset-card-value">
                         {number(heldQuantity, selectedInstrumentType === 'CRYPTO' ? 6 : 2)}{' '}
-                        <small>{selectedInstrumentType === 'CRYPTO' ? selectedSymbol.replace(/USD$/, '') : 'Shares'}</small>
+                        <small>{selectedInstrumentType === 'CRYPTO' ? selectedSymbol.replace(/USD$/, '') : selectedInstrumentType === 'OPTION' ? 'Contracts' : 'Shares'}</small>
                       </span>
                       {heldValue > 0 && (
                         <span className="trading-asset-card-sub">
@@ -1014,7 +1085,7 @@ export default function WebullTrading({ isLightMode = false }) {
                       </span>
                       <span className="trading-asset-card-sub">
                         {activeAccount?.account_label || activeAccount?.account_name || 'Webull Account'}{' '}
-                        ({activeAccount?.account_number || activeAccount?.account_id_masked || (selectedAccountId ? `••••${String(selectedAccountId).slice(-4)}` : '')}) · Ready to trade
+                        ({activeAccount?.account_id_masked || (selectedAccountId ? `••••${String(selectedAccountId).slice(-4)}` : '')}) · Ready to trade
                       </span>
                     </div>
                   </div>
@@ -1276,7 +1347,7 @@ export default function WebullTrading({ isLightMode = false }) {
                   </div>
 
                   {/* Conditional Price Inputs based on order type */}
-                  {orderForm.type === 'STOP' && (
+                  {orderForm.type === 'STOP_LOSS' && (
                     <div className="order-inputs-row">
                       <div className="order-input-group" style={{ width: '100%' }}>
                         <label className="order-field-label" htmlFor="stopPrice">
@@ -1301,7 +1372,7 @@ export default function WebullTrading({ isLightMode = false }) {
                     </div>
                   )}
 
-                  {orderForm.type === 'STOP_LIMIT' && (
+                  {orderForm.type === 'STOP_LOSS_LIMIT' && (
                     <div className="order-inputs-row">
                       <div className="order-input-group">
                         <label className="order-field-label" htmlFor="stopPrice">
@@ -1380,7 +1451,8 @@ export default function WebullTrading({ isLightMode = false }) {
                         style={{ cursor: 'pointer' }}
                       >
                         <option value="DAY">Day Order (DAY)</option>
-                        <option value="GTC">Good &apos;Til Canceled (GTC)</option>
+                        {!(selectedInstrumentType === 'OPTION' && orderForm.side === 'SELL') && <option value="GTC">Good &apos;Til Canceled (GTC)</option>}
+                        {selectedInstrumentType === 'CRYPTO' && <option value="IOC">Immediate or Cancel (IOC)</option>}
                       </select>
                     </div>
                     {selectedInstrumentType === 'EQUITY' && (
@@ -1472,7 +1544,7 @@ export default function WebullTrading({ isLightMode = false }) {
                         <span>⏳ Processing Order...</span>
                       ) : (
                         <span>
-                          ⚡ Place Real {orderForm.type === 'MARKET' ? 'Market' : orderForm.type === 'LIMIT' ? 'Limit' : orderForm.type === 'STOP' ? 'Stop Loss' : orderForm.type === 'STOP_LIMIT' ? 'Stop Limit' : ''} {orderForm.side === 'BUY' ? 'Buy' : 'Sell'} Order
+                          ⚡ Place Real {orderForm.type === 'MARKET' ? 'Market' : orderForm.type === 'LIMIT' ? 'Limit' : orderForm.type === 'STOP_LOSS' ? 'Stop Loss' : orderForm.type === 'STOP_LOSS_LIMIT' ? 'Stop Loss Limit' : ''} {orderForm.side === 'BUY' ? 'Buy' : 'Sell'} Order
                         </span>
                       )}
                     </button>
@@ -1495,7 +1567,7 @@ export default function WebullTrading({ isLightMode = false }) {
                       <div style={{ background: 'rgba(0,0,0,0.25)', padding: '16px', borderRadius: '8px', marginBottom: '20px', display: 'grid', gap: '10px', fontSize: '0.95rem' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                           <span style={{ color: '#94a3b8' }}>Account:</span>
-                          <strong>{activeAccount?.account_label || activeAccount?.account_name || 'Webull Account'} ({activeAccount?.account_number || activeAccount?.account_id_masked || selectedAccountId})</strong>
+                          <strong>{activeAccount?.account_label || activeAccount?.account_name || 'Webull Account'} ({activeAccount?.account_id_masked || selectedAccountId})</strong>
                         </div>
                         <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                           <span style={{ color: '#94a3b8' }}>Action:</span>
@@ -1534,8 +1606,8 @@ export default function WebullTrading({ isLightMode = false }) {
                           <strong>
                             {orderForm.type}
                             {orderForm.type === 'LIMIT' && ` @ $${number(orderForm.price)}`}
-                            {orderForm.type === 'STOP' && ` (Stop Trigger: $${number(orderForm.stopPrice)})`}
-                            {orderForm.type === 'STOP_LIMIT' && ` (Stop: $${number(orderForm.stopPrice)}, Limit: $${number(orderForm.price)})`}
+                            {orderForm.type === 'STOP_LOSS' && ` (Stop Trigger: $${number(orderForm.stopPrice)})`}
+                            {orderForm.type === 'STOP_LOSS_LIMIT' && ` (Stop: $${number(orderForm.stopPrice)}, Limit: $${number(orderForm.price)})`}
                           </strong>
                         </div>
                         <div style={{ display: 'flex', justifyContent: 'space-between' }}>

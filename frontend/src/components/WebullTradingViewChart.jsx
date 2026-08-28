@@ -46,11 +46,12 @@ export default function WebullTradingViewChart({
   const hostRef = useRef(null);
   const [status, setStatus] = useState('loading');
   const isCrypto = instrumentType === 'CRYPTO';
+  const isOption = instrumentType === 'OPTION';
 
   // Combine user's imported holdings with default lists
   const availableTraditional = useMemo(() => {
     const fromHoldings = holdings
-      .filter((h) => !/crypto|coin|token/i.test(h.instrument_type || '') && h.symbol)
+      .filter((h) => !/crypto|coin|token/i.test(h.instrument_type || '') && String(h.instrument_type || '').toUpperCase() !== 'OPTION' && h.symbol)
       .map((h) => ({
         id: h.symbol.toUpperCase(),
         symbol: h.symbol.toUpperCase(),
@@ -205,7 +206,7 @@ export default function WebullTradingViewChart({
               >
                 {accounts.map((acc) => {
                   const label = acc.account_label || acc.account_name || acc.account_type || 'Account';
-                  const numDisplay = acc.account_number || acc.account_id_masked || (acc.account_id ? `••••${String(acc.account_id).slice(-4)}` : '');
+                  const numDisplay = acc.account_id_masked || (acc.account_id ? `••••${String(acc.account_id).slice(-4)}` : '');
                   return (
                     <option
                       key={acc.account_id}
@@ -239,20 +240,26 @@ export default function WebullTradingViewChart({
           {/* Unified Searchable Instrument / Pair Selector */}
           <div className="advanced-chart-pair-control" style={{ width: 'min(100%, 340px)' }}>
             <span className="advanced-chart-control-label">
-              {isCrypto ? 'Cryptocurrency Pair for Chart & Orders' : 'Stock / ETF for Chart & Orders'}
+              {isCrypto ? 'Cryptocurrency Pair for Chart & Orders' : isOption ? 'Option Underlying Chart' : 'Stock / ETF for Chart & Orders'}
             </span>
-            <SearchablePairSelect
-              value={symbol}
-              onChange={(nextSym) => {
-                onInstrumentChange?.({
-                  symbol: nextSym,
-                  instrumentType: isCrypto ? 'CRYPTO' : 'EQUITY',
-                });
-              }}
-              tradingPairs={isCrypto ? availableCrypto : availableTraditional}
-              mode={isCrypto ? 'crypto' : 'traditional'}
-              placeholder={isCrypto ? 'Search crypto pairs (e.g. BTC, ETH, SOL)...' : 'Search stocks & ETFs (e.g. AAPL, NVDA, SPY)...'}
-            />
+            {isOption ? (
+              <div className="order-styled-input" aria-label="Selected option underlying" style={{ padding: '10px 12px', color: isLightMode ? '#0f172a' : '#e2e8f0' }}>
+                {symbol} · selected option contract
+              </div>
+            ) : (
+              <SearchablePairSelect
+                value={symbol}
+                onChange={(nextSym) => {
+                  onInstrumentChange?.({
+                    symbol: nextSym,
+                    instrumentType: isCrypto ? 'CRYPTO' : 'EQUITY',
+                  });
+                }}
+                tradingPairs={isCrypto ? availableCrypto : availableTraditional}
+                mode={isCrypto ? 'crypto' : 'traditional'}
+                placeholder={isCrypto ? 'Search crypto pairs (e.g. BTC, ETH, SOL)...' : 'Search stocks & ETFs (e.g. AAPL, NVDA, SPY)...'}
+              />
+            )}
           </div>
         </div>
       </header>
@@ -279,7 +286,9 @@ export default function WebullTradingViewChart({
       </div>
 
       <p className="advanced-chart-sync-note">
-        The selector above keeps the order ticket and Webull chart synchronized. TradingView&apos;s built-in symbol search remains available for independent market research.
+        {isOption
+          ? 'The chart shows the option underlying. The imported holding and its strike, expiration, and call/put terms remain locked into the option ticket below.'
+          : 'The selector above keeps the order ticket and Webull chart synchronized. TradingView\'s built-in symbol search remains available for independent market research.'}
       </p>
     </section>
   );

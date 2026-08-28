@@ -1466,11 +1466,11 @@ export default function Settings({ isLightMode }) {
           </div>
         </div>
 
-        {/* Webull OpenAPI is intentionally read-only until its account/position sync phase. */}
+        {/* Connection verification is read-only; imported selected accounts may then be used in the scoped Webull workspace. */}
         <div className="settings-page-section">
           <h3>Webull OpenAPI Connection</h3>
           <p>
-            Connect your personal Webull Trading API application. This step only verifies account access; it does <strong>not</strong> import positions, place orders, or enable trading yet.
+            Connect your personal Webull Trading API application. Verification only confirms account access; choose and import account snapshots before using their scoped Webull trading workspace.
           </p>
 
           <div className="settings-form-group">
@@ -1595,7 +1595,7 @@ export default function Settings({ isLightMode }) {
                       const isChecked = enabledAccountIds.includes(account.account_id);
                       return (
                         <div
-                          key={`${account.account_id || account.account_number || index}`}
+                          key={`${account.account_id || account.account_id_masked || index}`}
                           style={{
                             display: 'flex',
                             justifyContent: 'space-between',
@@ -1623,7 +1623,7 @@ export default function Settings({ isLightMode }) {
                             </span>
                           </label>
                           <span style={{ fontFamily: 'monospace', color: isChecked ? '#38bdf8' : '#64748b', fontSize: '13px', fontWeight: 600 }}>
-                            {account.account_number || account.account_id_masked}
+                            {account.account_id_masked}
                           </span>
                         </div>
                       );
@@ -1633,7 +1633,7 @@ export default function Settings({ isLightMode }) {
                 <div style={{ marginTop: '14px', paddingTop: '12px', borderTop: '1px solid rgba(79, 209, 197, 0.20)' }}>
                   <strong>Portfolio Preview</strong>
                   <p className="settings-form-help" style={{ margin: '4px 0 10px' }}>
-                    All connected Webull accounts are selected. This fetches a live, read-only preview of balances and open positions; it does not merge or save them into the dashboard yet.
+                    Your enabled Webull accounts are included. This fetches a live, read-only preview of balances and open positions; it does not merge or save them into the dashboard yet.
                   </p>
                   <button
                     type="button"

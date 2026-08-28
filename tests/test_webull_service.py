@@ -7,6 +7,7 @@ from services.webull_service import (
     create_webull_access_token,
     generate_webull_signature,
     get_webull_accounts,
+    get_webull_account_list,
     get_webull_market_bars,
     get_webull_option_snapshot,
     get_webull_order_history,
@@ -20,6 +21,7 @@ from services.webull_service import (
     test_webull_connection as check_webull_connection,
     clear_webull_order_cache,
 )
+from routes.system import _webull_account_response
 
 
 class WebullServiceTests(unittest.TestCase):
@@ -46,6 +48,34 @@ class WebullServiceTests(unittest.TestCase):
             'account_count': 2,
             'account_types': ['OPTION', 'STOCK'],
         })
+
+    def test_account_list_prefers_current_path_and_falls_back_only_for_compatibility(self):
+        current = Mock(status_code=200)
+        with patch('services.webull_service._webull_request', return_value=current) as request_mock:
+            self.assertIs(get_webull_account_list('app-key', 'app-secret', access_token='token-a'), current)
+        self.assertEqual(request_mock.call_count, 1)
+        self.assertEqual(request_mock.call_args.args[4], '/trading/accounts/list')
+
+        unsupported = Mock(status_code=404)
+        legacy = Mock(status_code=200)
+        with patch('services.webull_service._webull_request', side_effect=[unsupported, legacy]) as request_mock:
+            self.assertIs(get_webull_account_list('app-key', 'app-secret', access_token='token-a'), legacy)
+        self.assertEqual([call.args[4] for call in request_mock.call_args_list], [
+            '/trading/accounts/list', '/openapi/account/list',
+        ])
+
+    def test_account_cache_is_scoped_to_the_access_token(self):
+        response_a = Mock(status_code=200)
+        response_a.json.return_value = {'data': [{'account_id': 'account-a', 'account_type': 'CASH'}]}
+        response_b = Mock(status_code=200)
+        response_b.json.return_value = {'data': [{'account_id': 'account-b', 'account_type': 'CASH'}]}
+        with patch('services.webull_service._webull_request', side_effect=[response_a, response_b]) as request_mock:
+            accounts_a = get_webull_accounts('shared-app-key', 'app-secret', access_token='token-a')
+            accounts_b = get_webull_accounts('shared-app-key', 'app-secret', access_token='token-b')
+
+        self.assertEqual(accounts_a[0]['account_id'], 'account-a')
+        self.assertEqual(accounts_b[0]['account_id'], 'account-b')
+        self.assertEqual(request_mock.call_count, 2)
 
     def test_account_discovery_accepts_enveloped_webull_account_lists(self):
         response = Mock(status_code=200)
@@ -132,6 +162,21 @@ class WebullServiceTests(unittest.TestCase):
             'account_id': '1234', 'account_type': 'STOCK', 'account_name': 'Individual',
             'balance': {'total_cash_balance': '10'}, 'positions': [{'symbol': 'AAPL'}],
         }])
+
+    def test_portfolio_preview_limits_reads_to_enabled_accounts(self):
+        accounts = [
+            {'account_id': 'cash-account', 'account_type': 'CASH', 'account_name': 'Cash'},
+            {'account_id': 'crypto-account', 'account_type': 'CRYPTO', 'account_name': 'Crypto'},
+        ]
+        with patch('services.webull_service.get_webull_accounts', return_value=accounts), \
+             patch('services.webull_service.get_webull_account_balance', return_value={'total_cash_balance': '10'}) as balance_mock, \
+             patch('services.webull_service.get_webull_account_positions', return_value=[]):
+            preview = get_webull_portfolio_preview(
+                'app-key', 'app-secret', access_token='private-token', account_ids={'cash-account'},
+            )
+
+        self.assertEqual([account['account_id'] for account in preview], ['cash-account'])
+        self.assertEqual(balance_mock.call_args.args[-1], 'cash-account')
 
     def test_open_orders_are_read_only_and_tagged_with_the_source_account(self):
         accounts = [{'account_id': '1234', 'account_type': 'STOCK', 'account_name': 'Individual'}]
@@ -278,12 +323,12 @@ class WebullServiceTests(unittest.TestCase):
         self.assertEqual(result['symbol'], 'AAPL')
         self.assertEqual(result['side'], 'BUY')
         self.assertEqual(result['quantity'], 10.0)
-        self.assertEqual(request_mock.call_args.args[4], '/openapi/account/orders/place')
+        self.assertEqual(request_mock.call_args.args[4], '/trading/orders/place')
         body = request_mock.call_args.kwargs['body']
         self.assertEqual(body['account_id'], 'acc-999')
-        self.assertEqual(len(body['orders']), 1)
-        self.assertEqual(body['orders'][0]['symbol'], 'AAPL')
-        self.assertEqual(body['orders'][0]['limit_price'], '220.50')
+        self.assertEqual(len(body['new_orders']), 1)
+        self.assertEqual(body['new_orders'][0]['symbol'], 'AAPL')
+        self.assertEqual(body['new_orders'][0]['limit_price'], '220.50')
 
     def test_fractional_equity_market_order_is_core_only_and_preserves_quantity(self):
         response = Mock(status_code=200)
@@ -298,7 +343,7 @@ class WebullServiceTests(unittest.TestCase):
 
         self.assertTrue(result['success'])
         body = request_mock.call_args.kwargs['body']
-        order = body['orders'][0]
+        order = body['new_orders'][0]
         self.assertEqual(order['quantity'], '0.11')
         self.assertEqual(order['market'], 'US')
         self.assertEqual(order['entrust_type'], 'QTY')
@@ -322,6 +367,47 @@ class WebullServiceTests(unittest.TestCase):
                 support_trading_session='CORE',
             )
 
+    def test_option_order_uses_exact_single_leg_contract_and_current_schema(self):
+        response = Mock(status_code=200)
+        response.json.return_value = {'data': {'order_id': 'wb-option-1'}}
+        with patch('services.webull_service._webull_request', return_value=response) as request_mock:
+            result = place_webull_order(
+                'app-key', 'app-secret', 'production', 'token-123',
+                account_id='options-account', symbol='TSLA240117C00250000',
+                option_underlying_symbol='TSLA', instrument_type='OPTION',
+                side='SELL', order_type='STOP_LIMIT', quantity=1,
+                limit_price=3.80, stop_price=4.00, time_in_force='DAY',
+                option_type='PUT', option_strike=250, option_expiration='2027-01-17',
+            )
+
+        self.assertTrue(result['success'])
+        self.assertEqual(result['symbol'], 'TSLA240117C00250000')
+        self.assertEqual(request_mock.call_args.args[4], '/trading/orders/place')
+        order = request_mock.call_args.kwargs['body']['new_orders'][0]
+        self.assertEqual(order['symbol'], 'TSLA')
+        self.assertEqual(order['instrument_type'], 'OPTION')
+        self.assertEqual(order['market'], 'US')
+        self.assertEqual(order['entrust_type'], 'QTY')
+        self.assertEqual(order['order_type'], 'STOP_LOSS_LIMIT')
+        self.assertEqual(order['legs'], [{
+            'symbol': 'TSLA', 'side': 'SELL', 'quantity': '1',
+            'strike_price': '250', 'option_expire_date': '2027-01-17',
+            'instrument_type': 'OPTION', 'option_type': 'PUT', 'market': 'US',
+        }])
+
+    def test_option_order_rejects_missing_contract_fields_and_invalid_capabilities(self):
+        base = {
+            'account_id': 'options-account', 'symbol': 'TSLA', 'instrument_type': 'OPTION',
+            'side': 'SELL', 'quantity': 1, 'time_in_force': 'DAY',
+            'option_type': 'CALL', 'option_strike': 250, 'option_expiration': '2027-01-17',
+        }
+        with self.assertRaisesRegex(WebullConnectionError, 'support LIMIT'):
+            place_webull_order('app-key', 'app-secret', order_type='MARKET', **base)
+        with self.assertRaisesRegex(WebullConnectionError, 'strike'):
+            place_webull_order('app-key', 'app-secret', order_type='LIMIT', option_strike=None, limit_price=2, **{k: v for k, v in base.items() if k != 'option_strike'})
+        with self.assertRaisesRegex(WebullConnectionError, 'DAY'):
+            place_webull_order('app-key', 'app-secret', order_type='LIMIT', time_in_force='GTC', limit_price=2, **{k: v for k, v in base.items() if k != 'time_in_force'})
+
     def test_place_webull_stop_and_stop_limit_orders(self):
         response = Mock(status_code=200)
         response.json.return_value = {
@@ -336,9 +422,9 @@ class WebullServiceTests(unittest.TestCase):
             )
         self.assertTrue(result['success'])
         body = request_mock.call_args.kwargs['body']
-        self.assertEqual(body['orders'][0]['order_type'], 'STOP')
-        self.assertEqual(body['orders'][0]['stop_price'], '210.50')
-        self.assertNotIn('limit_price', body['orders'][0])
+        self.assertEqual(body['new_orders'][0]['order_type'], 'STOP_LOSS')
+        self.assertEqual(body['new_orders'][0]['stop_price'], '210.50')
+        self.assertNotIn('limit_price', body['new_orders'][0])
 
         # Test STOP_LIMIT order
         with patch('services.webull_service._webull_request', return_value=response) as request_mock:
@@ -350,9 +436,9 @@ class WebullServiceTests(unittest.TestCase):
             )
         self.assertTrue(result['success'])
         body = request_mock.call_args.kwargs['body']
-        self.assertEqual(body['orders'][0]['order_type'], 'STOP_LIMIT')
-        self.assertEqual(body['orders'][0]['stop_price'], '120.00')
-        self.assertEqual(body['orders'][0]['limit_price'], '118.50')
+        self.assertEqual(body['new_orders'][0]['order_type'], 'STOP_LOSS_LIMIT')
+        self.assertEqual(body['new_orders'][0]['stop_price'], '120.00')
+        self.assertEqual(body['new_orders'][0]['limit_price'], '118.50')
 
         # Test crypto STOP_LIMIT order
         with patch('services.webull_service._webull_request', return_value=response) as request_mock:
@@ -364,11 +450,11 @@ class WebullServiceTests(unittest.TestCase):
             )
         self.assertTrue(result['success'])
         body = request_mock.call_args.kwargs['body']
-        self.assertEqual(body['orders'][0]['symbol'], 'BTCUSD')
-        self.assertEqual(body['orders'][0]['instrument_type'], 'CRYPTO')
-        self.assertEqual(body['orders'][0]['order_type'], 'STOP_LIMIT')
-        self.assertEqual(body['orders'][0]['stop_price'], '65000.00')
-        self.assertEqual(body['orders'][0]['limit_price'], '65100.00')
+        self.assertEqual(body['new_orders'][0]['symbol'], 'BTCUSD')
+        self.assertEqual(body['new_orders'][0]['instrument_type'], 'CRYPTO')
+        self.assertEqual(body['new_orders'][0]['order_type'], 'STOP_LOSS_LIMIT')
+        self.assertEqual(body['new_orders'][0]['stop_price'], '65000.00')
+        self.assertEqual(body['new_orders'][0]['limit_price'], '65100.00')
 
 
     def test_cancel_webull_order_payload_and_response(self):
@@ -385,7 +471,7 @@ class WebullServiceTests(unittest.TestCase):
             )
 
         self.assertTrue(result['success'])
-        self.assertEqual(request_mock.call_args.args[4], '/openapi/account/orders/cancel')
+        self.assertEqual(request_mock.call_args.args[4], '/trading/orders/cancel')
         body = request_mock.call_args.kwargs['body']
         self.assertEqual(body['account_id'], 'acc-999')
         self.assertEqual(body['order_id'], 'wb-ord-123')
@@ -394,6 +480,42 @@ class WebullServiceTests(unittest.TestCase):
 
 
 class AccountScopeAndFilteringTests(unittest.TestCase):
+    def test_browser_account_response_masks_numbers_applies_alias_and_uses_local_balance(self):
+        accounts = _webull_account_response(
+            [{
+                'account_id': 'acct-12345678',
+                'account_number': 'ABCD9876',
+                'account_label': 'Individual Cash',
+                'account_type': 'CASH',
+            }],
+            aliases={'acct-12345678': 'Long-term cash'},
+            snapshots={'acct-12345678': {
+                'currency': 'USD',
+                'total_cash_balance': 125.25,
+                'total_market_value': 700.0,
+                'total_net_liquidation_value': 825.25,
+            }},
+            enabled_ids={'acct-12345678'},
+        )
+
+        self.assertEqual(accounts, [{
+            'account_id': 'acct-12345678',
+            'account_label': 'Long-term cash',
+            'account_class': '',
+            'account_type': 'CASH',
+            'account_name': 'Long-term cash',
+            'account_id_masked': '••••9876',
+            'balance': {
+                'total_asset_currency': 'USD',
+                'total_cash_balance': 125.25,
+                'total_market_value': 700.0,
+                'total_net_liquidation_value': 825.25,
+                'total_unrealized_profit_loss': None,
+            },
+            'is_enabled': True,
+        }])
+        self.assertNotIn('account_number', accounts[0])
+
     def test_order_filtering_by_account_scope(self):
         orders = [
             {'id': '1', 'symbol': 'BTCUSDT', 'source': 'binance'},
@@ -442,4 +564,3 @@ class AccountScopeAndFilteringTests(unittest.TestCase):
                 orders2 = get_webull_open_orders('app-key', 'app-secret', 'production', 'token', account_id='acc-targeted')
                 self.assertEqual(len(orders2), 1)
                 self.assertEqual(req_mock.call_count, 1)  # Still 1 because cached!
-

@@ -462,8 +462,7 @@ export default function Help({ isLightMode }) {
                 <p style={{ marginBottom: '16px' }}>
                     The Portfolio table lists every coin you hold on Binance.US worth at least $1.00 (or manually
                     unhidden). It can also display imported Webull positions, marked with a bull source icon; hover it to identify Webull. Binance.US rows use the Binance icon. The icon immediately after the source identifies crypto versus traditional assets.
-                    and are strictly read-only: they do not support Binance.US trading, alerts, AI sentiment, news,
-                    staking, notes, or hiding. Each Binance.US row supports a full set of actions:
+                    Webull rows never expose Binance.US controls for trading, alerts, sentiment, news, staking, notes, or hiding; their actions route only to the selected Webull workspace and account. Each Binance.US row supports a full set of Binance.US actions:
                 </p>
                 <ul style={{ paddingLeft: '20px', marginBottom: '16px', lineHeight: '1.9' }}>
                     <li><strong>Buy / Sell</strong> — trade <em>any coin in the row</em> against USD or USDT (Binance.US's two settlement/quote currencies); selecting "Buy with USDT" means using your USDT balance to purchase that coin, not buying USDT itself</li>
@@ -480,8 +479,8 @@ export default function Help({ isLightMode }) {
                 </ul>
                 <Example>
                     Clicking "Sell" → "USDT" on your ETH row opens the Trading Center pre-filtered to the ETH/USDT
-                    pair with the Sell side selected — it does not sell USDT, it sells ETH for USDT. Webull orders are
-                    shown with a Webull origin badge in Order History and are read-only; they never open Binance.US trading.
+                    pair with the Sell side selected — it does not sell USDT, it sells ETH for USDT. Webull orders retain
+                    a Webull origin badge in Order History and never open Binance.US trading; Webull cancellation stays scoped to its owning Webull account.
                 </Example>
             </Section>
 
@@ -563,7 +562,7 @@ export default function Help({ isLightMode }) {
                     quote against; they are not the only things you can buy or sell.
                 </p>
                 <ul style={{ paddingLeft: '20px', marginBottom: '16px', lineHeight: '1.9' }}>
-                    <li><strong>Exchange-specific workspaces</strong> — Binance.US Trading is isolated to Binance.US balances, pairs, and orders. Webull Trading uses the selected account’s positions and buying power for execution. Its Max and percentage controls preserve fractional stock/ETF quantities during Regular Hours; Webull fractional stock/ETF orders must be Market orders in the Regular Hours session, while Extended and Overnight sessions require whole shares. Valid Webull orders and cancellations use the six-digit 2FA confirmation flow for their owning account.</li>
+                    <li><strong>Exchange-specific workspaces</strong> — Binance.US Trading is isolated to Binance.US balances, pairs, and orders. Webull Trading uses the selected account’s imported positions and buying power for execution. Its Max and percentage controls preserve fractional stock/ETF quantities during Regular Hours; Webull fractional stock/ETF orders must be Market orders in the Regular Hours session, while Extended and Overnight sessions require whole shares. Stock/ETF, crypto, and single-leg option tickets apply their own supported order types and time-in-force rules; option orders retain the exact imported contract terms. Valid Webull orders and cancellations use the six-digit 2FA confirmation flow for their owning account.</li>
                     <li><strong>Combined Orders</strong> — the top-level Orders destination combines Binance.US, Webull, and active app automation orders while preserving source and account labels. Filter either tab by source, account, symbol, product type, status, or time range without making another exchange request. Cancelling an open order uses the native theme-aware modal, identifies the exact provider/account/order or trigger, and requires your six-digit 2FA code.</li>
                     <li><strong>Two searchable symbol tools</strong> — use the app's Binance.US pair selector to keep the chart, order ticket, balances, and personal history synchronized; TradingView's built-in search is also available for independent market research</li>
                     <li><strong>TradingView Advanced Chart</strong> — candlesticks and other chart styles, 80+ indicators, 100+ drawing tools, comparisons, configurable price scales, date ranges, details, hotlists, economic calendar, image export, and a full-size popup</li>
@@ -641,9 +640,9 @@ export default function Help({ isLightMode }) {
                 <ul style={{ paddingLeft: '20px', marginBottom: '16px', lineHeight: '1.9' }}>
                     <li><strong>Portfolio Table &amp; Execution Safety Settings</strong> — set the Volatility Hours comparison window and the 1–1,440 minute Automated Trigger Confirmation Window used by both Auto-Buy and Auto-Sell. The default confirmation window is 15 minutes and a price recovery resets a pending timer.</li>
                     <li><strong>Sync Coins</strong> — force an immediate balance sync with Binance.US</li>
-                    <li><strong>Webull OpenAPI Connection</strong> — securely save your App Key and App Secret, then select <strong>Connect and Verify in Webull</strong>. For Production accounts with Webull OpenAPI 2FA, approve the SMS code in Webull’s Menu → Messages → OpenAPI Notifications and select <strong>Check Webull Verification</strong> within five minutes. The resulting access token is encrypted, never shown in the browser, is bound to its environment, and is cleared if its credentials or environment change. This connection-verification step does not yet sync Webull positions or enable Webull trading.</li>
-                    <li><strong>Connected Webull Accounts</strong> — after verification, Settings discovers and lists your associated Webull accounts using masked IDs and account types only. This is deliberately read-only: no balance, position, order, or portfolio data is imported until you choose the account(s) to include.</li>
-                    <li><strong>Webull Portfolio Preview</strong> — when all connected Webull accounts are selected, load a live, read-only preview of account balances and open positions. The preview does not merge, persist, trade, or alter existing Binance.US dashboard data.</li>
+                    <li><strong>Webull OpenAPI Connection</strong> — securely save your App Key and App Secret, then select <strong>Connect and Verify in Webull</strong>. For Production accounts with Webull OpenAPI 2FA, approve the SMS code in Webull’s Menu → Messages → OpenAPI Notifications and select <strong>Check Webull Verification</strong> within five minutes. The resulting access token is encrypted, never shown in the browser, is bound to its environment, and is cleared if its credentials or environment change. Verification alone neither imports positions nor sends orders; import selected accounts before using their Webull workspace.</li>
+                    <li><strong>Connected Webull Accounts</strong> — after verification, Settings discovers and lists your associated Webull accounts using masked labels and account types only. Choose the account(s) to include; account IDs, tokens, and signing material never reach the browser.</li>
+                    <li><strong>Webull Portfolio Preview</strong> — when connected Webull accounts are selected, load a live, read-only preview of those accounts’ balances and open positions. The preview does not merge or persist data until you explicitly import it; it never alters existing Binance.US dashboard data.</li>
                     <li><strong>Run Sentiment Analysis Now</strong> — trigger a full AI sentiment pass on demand</li>
                     <li><strong>Include Beta</strong> — opt in to beta releases when upgrading</li>
                     <li><strong>AI Integrations Enabled</strong> — toggle all configured AI integrations from the Settings header. API keys, Telegram credentials, and the News API key are masked on screen; every configured provider has a consistent <strong>Test API Connection</strong> button.</li>

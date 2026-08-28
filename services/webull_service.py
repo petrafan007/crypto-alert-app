@@ -14,9 +14,9 @@ import requests
 
 from log import logger
 
-_WEBULL_ACCOUNTS_CACHE = {}       # (app_key, environment) -> (timestamp, accounts)
-_WEBULL_OPEN_ORDERS_CACHE = {}    # (app_key, environment, account_id) -> (timestamp, records)
-_WEBULL_ORDER_HISTORY_CACHE = {}  # (app_key, environment, account_id) -> (timestamp, records)
+_WEBULL_ACCOUNTS_CACHE = {}       # (app_key, environment, token fingerprint) -> (timestamp, accounts)
+_WEBULL_OPEN_ORDERS_CACHE = {}    # (app_key, environment, token fingerprint, account_id) -> (timestamp, records)
+_WEBULL_ORDER_HISTORY_CACHE = {}  # (app_key, environment, token fingerprint, account_id) -> (timestamp, records)
 _WEBULL_ORDER_LOCK = threading.Lock()
 _WEBULL_LAST_ORDER_REQUEST_TIME = 0.0
 
@@ -26,6 +26,16 @@ def clear_webull_order_cache():
     _WEBULL_ACCOUNTS_CACHE.clear()
     _WEBULL_OPEN_ORDERS_CACHE.clear()
     _WEBULL_ORDER_HISTORY_CACHE.clear()
+
+
+def _webull_cache_principal(access_token):
+    """Scope in-memory provider data to one server-side access token.
+
+    Different users may legitimately share an OpenAPI app key. Account and
+    order caches therefore must not be keyed by that application key alone.
+    Store only a digest rather than the raw token in the cache key.
+    """
+    return hashlib.sha256(str(access_token or '').encode('utf-8')).hexdigest()
 
 
 def _rate_limited_order_request(*args, **kwargs):
@@ -174,16 +184,21 @@ def parse_webull_expiry(value):
 
 
 def get_webull_account_list(app_key, app_secret, environment='production', access_token=None):
-    """Call Webull's read-only account-list endpoint with a signed request."""
-    return _webull_request(
-        app_key, app_secret, environment, 'GET', '/openapi/account/list', access_token=access_token
+    """Call Webull's current account-list endpoint with a legacy fallback."""
+    response = _webull_request(
+        app_key, app_secret, environment, 'GET', '/trading/accounts/list', access_token=access_token
     )
+    if getattr(response, 'status_code', None) in {404, 405}:
+        response = _webull_request(
+            app_key, app_secret, environment, 'GET', '/openapi/account/list', access_token=access_token
+        )
+    return response
 
 
 def get_webull_accounts(app_key, app_secret, environment='production', access_token=None):
     """Return the authenticated user's Webull accounts using the established read-only endpoint."""
     normalized_env = normalize_webull_environment(environment)
-    cache_key = (app_key, normalized_env)
+    cache_key = (app_key, normalized_env, _webull_cache_principal(access_token))
     now = time.time()
     if cache_key in _WEBULL_ACCOUNTS_CACHE:
         cached_time, cached_accounts = _WEBULL_ACCOUNTS_CACHE[cache_key]
@@ -238,14 +253,14 @@ def get_webull_accounts(app_key, app_secret, environment='production', access_to
     return accounts
 
 
-def _get_webull_account_resource(app_key, app_secret, environment, access_token, account_id, legacy_path, current_path):
+def _get_webull_account_resource(app_key, app_secret, environment, access_token, account_id, current_path, legacy_path):
     response = _webull_request(
-        app_key, app_secret, environment, 'GET', legacy_path,
+        app_key, app_secret, environment, 'GET', current_path,
         query_params={'account_id': account_id}, access_token=access_token,
     )
-    if getattr(response, 'status_code', None) == 404:
+    if getattr(response, 'status_code', None) in {404, 405}:
         response = _webull_request(
-            app_key, app_secret, environment, 'GET', current_path,
+            app_key, app_secret, environment, 'GET', legacy_path,
             query_params={'account_id': account_id}, access_token=access_token,
         )
     return _response_payload(response, 'account resource request')
@@ -255,7 +270,7 @@ def get_webull_account_balance(app_key, app_secret, environment, access_token, a
     """Fetch one selected account's balance, without persisting it."""
     payload = _get_webull_account_resource(
         app_key, app_secret, environment, access_token, account_id,
-        '/openapi/assets/balance', '/trading/assets/balances/get',
+        '/trading/assets/balances/get', '/openapi/assets/balance',
     )
     return payload.get('data', payload) if isinstance(payload, dict) else payload
 
@@ -264,7 +279,7 @@ def get_webull_account_positions(app_key, app_secret, environment, access_token,
     """Fetch one selected account's open positions, without persisting them."""
     payload = _get_webull_account_resource(
         app_key, app_secret, environment, access_token, account_id,
-        '/openapi/assets/positions', '/trading/assets/positions/list',
+        '/trading/assets/positions/list', '/openapi/assets/positions',
     )
     positions = payload.get('data', payload) if isinstance(payload, dict) else payload
     if isinstance(positions, dict):
@@ -272,10 +287,14 @@ def get_webull_account_positions(app_key, app_secret, environment, access_token,
     return positions if isinstance(positions, list) else []
 
 
-def get_webull_portfolio_preview(app_key, app_secret, environment='production', access_token=None):
+def get_webull_portfolio_preview(app_key, app_secret, environment='production', access_token=None, *, account_ids=None):
     """Read selected accounts' balances and positions for preview only; performs no imports or trading."""
+    selected_ids = {str(account_id).strip() for account_id in (account_ids or []) if str(account_id).strip()}
+    accounts = get_webull_accounts(app_key, app_secret, environment, access_token)
+    if selected_ids:
+        accounts = [account for account in accounts if str(account.get('account_id') or '') in selected_ids]
     preview = []
-    for index, account in enumerate(get_webull_accounts(app_key, app_secret, environment, access_token)):
+    for index, account in enumerate(accounts):
         if index:
             # Production balance/position requests are limited to two per two seconds.
             time.sleep(2.05)
@@ -637,7 +656,7 @@ def get_webull_order_history(app_key, app_secret, environment='production', acce
     """
     normalized_env = normalize_webull_environment(environment)
     safe_account_id = str(account_id or '').strip() or None
-    cache_key = (app_key, normalized_env, safe_account_id)
+    cache_key = (app_key, normalized_env, _webull_cache_principal(access_token), safe_account_id)
     now = time.time()
     if cache_key in _WEBULL_ORDER_HISTORY_CACHE:
         cached_time, cached_records = _WEBULL_ORDER_HISTORY_CACHE[cache_key]
@@ -687,7 +706,7 @@ def get_webull_open_orders(app_key, app_secret, environment='production', access
     """
     normalized_env = normalize_webull_environment(environment)
     safe_account_id = str(account_id or '').strip() or None
-    cache_key = (app_key, normalized_env, safe_account_id)
+    cache_key = (app_key, normalized_env, _webull_cache_principal(access_token), safe_account_id)
     now = time.time()
     if cache_key in _WEBULL_OPEN_ORDERS_CACHE:
         cached_time, cached_records = _WEBULL_OPEN_ORDERS_CACHE[cache_key]
@@ -777,9 +796,17 @@ def place_webull_order(
     app_key, app_secret, environment='production', access_token=None, *,
     account_id, symbol, instrument_type, side, order_type, quantity,
     limit_price=None, stop_price=None, time_in_force='DAY', support_trading_session='CORE',
-    client_order_id=None, option_type=None,
+    client_order_id=None, option_type=None, option_strike=None,
+    option_expiration=None, option_underlying_symbol=None,
 ):
-    """Place a live order on Webull for equities, ETFs, crypto, or options."""
+    """Place a live order using Webull's current unified order contract.
+
+    The current API expects ``new_orders`` at ``/trading/orders/place``.  A
+    narrowly scoped legacy fallback remains only for installations whose
+    OpenAPI deployment does not expose that endpoint.  Options must carry the
+    exact single-leg contract terms; sending only an option type is never a
+    valid substitute for a strike and expiration.
+    """
     if not account_id:
         raise WebullConnectionError('Select a Webull account to place the order.')
     clean_symbol = str(symbol or '').strip().upper()
@@ -789,8 +816,9 @@ def place_webull_order(
     if clean_side not in {'BUY', 'SELL', 'SHORT'}:
         raise WebullConnectionError('Order side must be BUY or SELL.')
     clean_type = str(order_type or '').strip().upper()
-    if clean_type not in {'MARKET', 'LIMIT', 'STOP', 'STOP_LIMIT'}:
-        raise WebullConnectionError('Choose a supported order type: MARKET, LIMIT, STOP, or STOP_LIMIT.')
+    clean_type = {'STOP': 'STOP_LOSS', 'STOP_LIMIT': 'STOP_LOSS_LIMIT'}.get(clean_type, clean_type)
+    if clean_type not in {'MARKET', 'LIMIT', 'STOP_LOSS', 'STOP_LOSS_LIMIT'}:
+        raise WebullConnectionError('Choose a supported order type: MARKET, LIMIT, STOP_LOSS, or STOP_LOSS_LIMIT.')
     clean_instrument = str(instrument_type or 'EQUITY').strip().upper()
     if clean_instrument in {'CRYPTO', 'COIN', 'TOKEN'}:
         clean_instrument = 'CRYPTO'
@@ -810,34 +838,75 @@ def place_webull_order(
     except (TypeError, ValueError):
         raise WebullConnectionError('Order quantity must be a positive number.')
 
+    clean_client_order_id = str(client_order_id or uuid4().hex).strip()
+    if not clean_client_order_id or len(clean_client_order_id) > 32:
+        raise WebullConnectionError('Webull client order IDs must contain between 1 and 32 characters.')
+
     if clean_instrument == 'OPTION':
+        if clean_side not in {'BUY', 'SELL'}:
+            raise WebullConnectionError('Webull option orders support BUY and SELL only.')
+        if clean_type not in {'LIMIT', 'STOP_LOSS', 'STOP_LOSS_LIMIT'}:
+            raise WebullConnectionError('Webull option orders support LIMIT, STOP_LOSS, and STOP_LOSS_LIMIT only.')
         if not qty.is_integer():
             raise WebullConnectionError('Webull option orders require a whole number of contracts.')
         clean_option_type = str(option_type or 'CALL').strip().upper()
         if clean_option_type not in {'CALL', 'PUT'}:
-            clean_option_type = 'CALL'
+            raise WebullConnectionError('Choose CALL or PUT for the option contract.')
+        try:
+            clean_option_strike = float(option_strike)
+            if clean_option_strike <= 0:
+                raise ValueError()
+        except (TypeError, ValueError):
+            raise WebullConnectionError('Webull option orders require a positive contract strike price.')
+        clean_option_expiration = str(option_expiration or '').strip()
+        try:
+            datetime.strptime(clean_option_expiration, '%Y-%m-%d')
+        except (TypeError, ValueError):
+            raise WebullConnectionError('Webull option orders require an expiration date in YYYY-MM-DD format.')
+        clean_option_underlying = ''.join(
+            char for char in str(option_underlying_symbol or clean_symbol).upper() if char.isalnum()
+        )
+        if not clean_option_underlying:
+            raise WebullConnectionError('Webull option orders require an underlying stock symbol.')
+        clean_time_in_force = str(time_in_force or 'DAY').upper()
+        if clean_time_in_force not in {'DAY', 'GTC'}:
+            raise WebullConnectionError('Webull option orders support DAY or GTC time in force.')
+        if clean_side == 'SELL' and clean_time_in_force != 'DAY':
+            raise WebullConnectionError('Webull option sell orders support DAY time in force only.')
         order_payload = {
             'combo_type': 'NORMAL',
-            'client_order_id': client_order_id or uuid4().hex,
-            'symbol': clean_symbol,
+            'client_order_id': clean_client_order_id,
+            'symbol': clean_option_underlying,
             'instrument_type': 'OPTION',
+            'market': 'US',
             'order_type': clean_type,
             'side': clean_side,
             'option_strategy': 'SINGLE',
             'quantity': str(int(qty)),
-            'time_in_force': str(time_in_force or 'DAY').upper(),
-            'support_trading_session': 'CORE',
+            'time_in_force': clean_time_in_force,
+            'entrust_type': 'QTY',
             'legs': [{
-                'symbol': clean_symbol,
+                'symbol': clean_option_underlying,
                 'side': clean_side,
                 'quantity': str(int(qty)),
+                'strike_price': f'{clean_option_strike:.4f}'.rstrip('0').rstrip('.'),
+                'option_expire_date': clean_option_expiration,
+                'instrument_type': 'OPTION',
                 'option_type': clean_option_type,
+                'market': 'US',
             }],
         }
     else:
         clean_session = str(support_trading_session or 'CORE').upper()
-        if clean_session not in {'CORE', 'ALL', 'NIGHT'}:
+        if clean_instrument == 'EQUITY' and clean_session not in {'CORE', 'ALL', 'NIGHT'}:
             raise WebullConnectionError('Choose Regular, Including Extended, or Overnight trading hours.')
+        clean_time_in_force = str(time_in_force or 'DAY').upper()
+        allowed_time_in_force = {'DAY', 'GTC'} if clean_instrument == 'EQUITY' else {'DAY', 'GTC', 'IOC'}
+        if clean_time_in_force not in allowed_time_in_force:
+            raise WebullConnectionError(
+                'Webull crypto orders support DAY, GTC, or IOC time in force.'
+                if clean_instrument == 'CRYPTO' else 'Webull stock and ETF orders support DAY or GTC time in force.'
+            )
         if clean_instrument == 'EQUITY' and not qty.is_integer():
             if clean_session != 'CORE':
                 raise WebullConnectionError('Fractional stock and ETF orders are available only during Regular Hours. Extended and Overnight sessions require whole shares.')
@@ -847,19 +916,19 @@ def place_webull_order(
                 raise WebullConnectionError('A Webull fractional stock or ETF order must be greater than zero and no more than one share.')
         order_payload = {
             'combo_type': 'NORMAL',
-            'client_order_id': client_order_id or uuid4().hex,
+            'client_order_id': clean_client_order_id,
             'symbol': clean_symbol,
             'instrument_type': clean_instrument,
-            'market': 'US' if clean_instrument == 'EQUITY' else None,
+            'market': 'US',
             'order_type': clean_type,
             'side': clean_side,
             'quantity': str(qty) if clean_instrument == 'CRYPTO' or qty != int(qty) else str(int(qty)),
-            'time_in_force': str(time_in_force or 'DAY').upper(),
-            'support_trading_session': clean_session,
-            'entrust_type': 'QTY' if clean_instrument == 'EQUITY' else None,
+            'time_in_force': clean_time_in_force,
+            'support_trading_session': clean_session if clean_instrument == 'EQUITY' else None,
+            'entrust_type': 'QTY',
         }
         order_payload = {key: value for key, value in order_payload.items() if value is not None}
-    if clean_type in {'STOP', 'STOP_LIMIT'}:
+    if clean_type in {'STOP_LOSS', 'STOP_LOSS_LIMIT'}:
         try:
             spx = float(stop_price)
             if spx <= 0:
@@ -868,7 +937,7 @@ def place_webull_order(
         except (TypeError, ValueError):
             raise WebullConnectionError('Stop orders require a valid stop price greater than 0.')
 
-    if clean_type in {'LIMIT', 'STOP_LIMIT'}:
+    if clean_type in {'LIMIT', 'STOP_LOSS_LIMIT'}:
         try:
             px = float(limit_price)
             if px <= 0:
@@ -879,17 +948,21 @@ def place_webull_order(
 
     request_body = {
         'account_id': str(account_id),
-        'orders': [order_payload],
+        'new_orders': [order_payload],
     }
 
     response = _webull_request(
-        app_key, app_secret, environment, 'POST', '/openapi/account/orders/place',
+        app_key, app_secret, environment, 'POST', '/trading/orders/place',
         body=request_body, access_token=access_token,
     )
     if getattr(response, 'status_code', None) in {404, 405}:
+        legacy_request_body = {
+            'account_id': str(account_id),
+            'orders': [order_payload],
+        }
         response = _webull_request(
-            app_key, app_secret, environment, 'POST', '/trading/orders/stock/place',
-            body=request_body, access_token=access_token,
+            app_key, app_secret, environment, 'POST', '/openapi/account/orders/place',
+            body=legacy_request_body, access_token=access_token,
         )
 
     payload = _response_payload(response, 'order placement')
@@ -933,12 +1006,12 @@ def cancel_webull_order(
         body['order_id'] = str(order_id)
 
     response = _webull_request(
-        app_key, app_secret, environment, 'POST', '/openapi/account/orders/cancel',
+        app_key, app_secret, environment, 'POST', '/trading/orders/cancel',
         body=body, access_token=access_token,
     )
     if getattr(response, 'status_code', None) in {404, 405}:
         response = _webull_request(
-            app_key, app_secret, environment, 'POST', '/trading/orders/stock/cancel',
+            app_key, app_secret, environment, 'POST', '/openapi/account/orders/cancel',
             body=body, access_token=access_token,
         )
 

@@ -148,9 +148,8 @@ def _webull_account_pill_label(account_class, account_label):
 
 def get_webull_portfolio_rows(user_id):
     """Serialize imported Webull positions for the unified dashboard table."""
-    # Build a fast lookup: account_id -> {account_number, webull_account_type}
-    # from the UserSetting.webull_connected_accounts JSON blob so we don't
-    # need an extra network call and can work entirely from local DB data.
+    # Build a fast lookup from local account metadata.  Raw account numbers
+    # stay server-only; dashboard rows need only a stable masked display value.
     account_meta = {}  # keyed by account_id
     try:
         from credentials import UserSetting  # local import to avoid circular deps
@@ -161,7 +160,10 @@ def get_webull_portfolio_rows(user_id):
             acc_id = str(acc.get('account_id') or '')
             if acc_id:
                 account_meta[acc_id] = {
-                    'account_number': str(acc.get('account_number') or ''),
+                    'account_id_masked': (
+                        str(acc.get('account_id_masked') or '')
+                        or (f"••••{str(acc.get('account_number') or '')[-4:]}" if len(str(acc.get('account_number') or '')) >= 4 else f"••••{acc_id[-4:]}")
+                    ),
                     'webull_account_type': _webull_account_pill_label(
                         acc.get('account_class', ''),
                         acc.get('account_label') or acc.get('account_name', ''),
@@ -189,7 +191,7 @@ def get_webull_portfolio_rows(user_id):
             'pct_change': pct, 'webull_unrealized_pnl': pnl,
             'source': 'webull', 'source_label': 'Webull', 'is_external': True,
             'account_id': holding.account_id or '',
-            'account_number': meta.get('account_number', ''),
+            'account_id_masked': meta.get('account_id_masked', ''),
             'webull_account_type': meta.get('webull_account_type', ''),
             'instrument_type': holding.instrument_type or 'Security', 'currency': holding.currency or 'USD',
             'webull_position_id': holding.webull_position_id,

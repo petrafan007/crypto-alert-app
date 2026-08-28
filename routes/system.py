@@ -20,7 +20,7 @@ from sqlalchemy import text
 
 # Database & Models
 from core.extensions import db
-from models import Notification, Coin, WatchlistCoin, AIPrompt, DefaultAIPrompt, WebullHolding
+from models import Notification, Coin, WatchlistCoin, AIPrompt, DefaultAIPrompt, WebullAccountSnapshot, WebullHolding
 from credentials import User, UserSetting, Credential
 
 # Log
@@ -61,6 +61,129 @@ def _webull_holding_for_current_user(holding_id):
         return WebullHolding.query.filter_by(id=int(raw_id), user_id=current_user.id).first()
     except (TypeError, ValueError):
         return None
+
+
+def _webull_json_collection(raw_value, expected_type, fallback):
+    """Decode a persisted Webull collection without letting bad legacy JSON leak into a response."""
+    try:
+        value = json.loads(raw_value) if isinstance(raw_value, str) else raw_value
+    except Exception:
+        value = fallback
+    return value if isinstance(value, expected_type) else fallback
+
+
+def _webull_account_aliases(setting):
+    aliases = _webull_json_collection(getattr(setting, 'webull_account_aliases', '{}') or '{}', dict, {})
+    return {
+        str(account_id).strip(): str(label).strip()
+        for account_id, label in aliases.items()
+        if str(account_id).strip() and str(label).strip()
+    }
+
+
+def _webull_cached_accounts(setting):
+    return _webull_json_collection(getattr(setting, 'webull_connected_accounts', '[]') or '[]', list, [])
+
+
+def _webull_enabled_account_ids(setting):
+    return {
+        str(account_id).strip()
+        for account_id in _webull_json_collection(
+            getattr(setting, 'webull_enabled_account_ids', '[]') or '[]', list, []
+        )
+        if str(account_id).strip()
+    }
+
+
+def _webull_known_account_ids(setting):
+    return {
+        str(account.get('account_id')).strip()
+        for account in _webull_cached_accounts(setting)
+        if isinstance(account, dict) and str(account.get('account_id') or '').strip()
+    }
+
+
+def _webull_allowed_account_ids(setting):
+    """Return the connected accounts the user has enabled for Webull operations.
+
+    Older settings used an empty enabled list to mean every cached account, so
+    retain that safe compatibility behavior while still rejecting an explicit
+    account that is not known to the authenticated user.
+    """
+    known = _webull_known_account_ids(setting)
+    enabled = _webull_enabled_account_ids(setting)
+    return known.intersection(enabled) if enabled else known
+
+
+def _require_webull_account_access(setting, account_id):
+    clean_account_id = str(account_id or '').strip()
+    if not clean_account_id:
+        raise WebullConnectionError('Choose a Webull account.')
+    allowed = _webull_allowed_account_ids(setting)
+    if not allowed:
+        raise WebullConnectionError('Refresh and enable a connected Webull account before trading or managing its orders.')
+    if clean_account_id not in allowed:
+        raise WebullConnectionError('Choose one of your enabled Webull accounts.')
+    return clean_account_id
+
+
+def _webull_account_response(accounts, *, aliases=None, snapshots=None, enabled_ids=None):
+    """Expose only the browser-safe Webull account fields.
+
+    Raw Webull account numbers are used server-side solely to derive the mask,
+    then deliberately omitted from every browser response.  Imported balances
+    are local snapshots, so rendering buying power never performs an account
+    read or accidentally uses a different provider's cash balance.
+    """
+    aliases = aliases or {}
+    snapshots = snapshots or {}
+    enabled_ids = set(enabled_ids or [])
+    response_accounts = []
+    for raw_account in accounts or []:
+        if not isinstance(raw_account, dict):
+            continue
+        account_id = str(raw_account.get('account_id') or '').strip()
+        if not account_id:
+            continue
+        account_number = str(raw_account.get('account_number') or '').strip()
+        masked = (
+            str(raw_account.get('account_id_masked') or '').strip()
+            or (f'••••{account_number[-4:]}' if len(account_number) >= 4 else f'••••{account_id[-4:]}')
+        )
+        original_label = str(
+            raw_account.get('account_label') or raw_account.get('account_name')
+            or raw_account.get('account_type') or 'Webull Account'
+        ).strip()
+        item = {
+            'account_id': account_id,
+            'account_label': aliases.get(account_id) or original_label,
+            'account_class': raw_account.get('account_class', ''),
+            'account_type': raw_account.get('account_type', 'CASH'),
+            'account_name': aliases.get(account_id) or original_label,
+            'account_id_masked': masked,
+        }
+        raw_balance = raw_account.get('balance')
+        if isinstance(raw_balance, dict):
+            item['balance'] = {
+                key: raw_balance.get(key) for key in (
+                    'total_asset_currency', 'total_cash_balance', 'total_market_value',
+                    'total_net_liquidation_value', 'total_unrealized_profit_loss', 'total_day_profit_loss',
+                )
+            }
+        snapshot = snapshots.get(account_id)
+        if snapshot and 'balance' not in item:
+            get_value = snapshot.get if isinstance(snapshot, dict) else lambda key, default=None: getattr(snapshot, key, default)
+            item['balance'] = {
+                'total_asset_currency': get_value('currency', 'USD') or 'USD',
+                'total_cash_balance': get_value('total_cash_balance', 0.0) or 0.0,
+                'total_market_value': get_value('total_market_value', 0.0) or 0.0,
+                'total_net_liquidation_value': get_value('total_net_liquidation_value', 0.0) or 0.0,
+                'total_unrealized_profit_loss': get_value('total_unrealized_profit_loss'),
+            }
+        if enabled_ids is not None:
+            item['is_enabled'] = not enabled_ids or account_id in enabled_ids
+        response_accounts.append(item)
+    return response_accounts
 
 # Stub/Direct logic for system helpers
 def fetch_binance_price(symbol): 
@@ -1013,8 +1136,7 @@ def api_settings():
             data = request.get_json() or {}
             existing_webull_environment = getattr(
                 UserSetting.query.filter_by(user_id=current_user.id).first(),
-                'webull_environment', 'webull_account_selection_mode',
-                None,
+                'webull_environment', None,
             ) or 'production'
             from services.sentiment_outcome_service import (
                 SENTIMENT_THRESHOLD_FIELDS,
@@ -1551,24 +1673,22 @@ def api_webull_accounts():
             }), 400
 
         refresh = request.args.get('refresh', '').lower() in ('true', '1', 'yes')
-        raw_cached = getattr(setting, 'webull_connected_accounts', '[]') or '[]'
-        raw_enabled = getattr(setting, 'webull_enabled_account_ids', '[]') or '[]'
-        try:
-            cached_accounts = json.loads(raw_cached) if isinstance(raw_cached, str) else (raw_cached or [])
-        except Exception:
-            cached_accounts = []
-        try:
-            enabled_ids = json.loads(raw_enabled) if isinstance(raw_enabled, str) else (raw_enabled or [])
-        except Exception:
-            enabled_ids = []
+        cached_accounts = _webull_cached_accounts(setting)
+        enabled_ids = sorted(_webull_enabled_account_ids(setting))
+        aliases = _webull_account_aliases(setting)
+        snapshots = {
+            str(snapshot.account_id): snapshot
+            for snapshot in WebullAccountSnapshot.query.filter_by(user_id=current_user.id).all()
+            if snapshot.account_id
+        }
 
         if not refresh and cached_accounts:
-            if not enabled_ids:
-                enabled_ids = [str(a.get('account_id')) for a in cached_accounts if a.get('account_id')]
             return jsonify({
                 'success': True,
                 'environment': environment,
-                'accounts': cached_accounts,
+                'accounts': _webull_account_response(
+                    cached_accounts, aliases=aliases, snapshots=snapshots, enabled_ids=enabled_ids,
+                ),
                 'enabled_account_ids': enabled_ids,
                 'default_account_id': getattr(setting, 'webull_default_account_id', None),
                 'message': f'Loaded {len(cached_accounts)} connected Webull account(s).',
@@ -1582,16 +1702,20 @@ def api_webull_accounts():
         display_accounts = []
         for account in accounts:
             acc_id = str(account['account_id'])
-            acc_number = str(account.get('account_number') or '')
-            acc_label = str(account.get('account_label') or account.get('account_name') or account.get('account_type') or 'Webull Account')
             display_accounts.append({
                 'account_id': acc_id,
-                'account_number': acc_number,
-                'account_label': acc_label,
+                # Raw account numbers are intentionally not persisted in the
+                # account-selection cache.  The browser needs only an opaque
+                # account reference and a stable, masked label.
+                'account_id_masked': (
+                    f"••••{str(account.get('account_number') or '')[-4:]}"
+                    if len(str(account.get('account_number') or '')) >= 4
+                    else (f"••••{acc_id[-4:]}" if acc_id else '••••')
+                ),
+                'account_label': str(account.get('account_label') or account.get('account_name') or account.get('account_type') or 'Webull Account'),
                 'account_class': account.get('account_class', ''),
                 'account_type': account.get('account_type', 'CASH'),
-                'account_name': acc_label,
-                'account_id_masked': f"••••{acc_number[-4:]}" if len(acc_number) >= 4 else (f"••••{acc_id[-4:]}" if acc_id else '••••'),
+                'account_name': str(account.get('account_label') or account.get('account_name') or account.get('account_type') or 'Webull Account'),
             })
 
         if not enabled_ids:
@@ -1604,7 +1728,9 @@ def api_webull_accounts():
         return jsonify({
             'success': True,
             'environment': environment,
-            'accounts': display_accounts,
+            'accounts': _webull_account_response(
+                display_accounts, aliases=aliases, snapshots=snapshots, enabled_ids=enabled_ids,
+            ),
             'enabled_account_ids': enabled_ids,
             'default_account_id': getattr(setting, 'webull_default_account_id', None),
             'message': f'Found {len(display_accounts)} Webull account(s).',
@@ -1632,7 +1758,12 @@ def api_save_webull_enabled_accounts():
             return jsonify({'success': False, 'message': 'Invalid enabled_account_ids payload.'}), 400
 
         enabled_ids = [str(x).strip() for x in new_enabled if str(x).strip()]
+        known_ids = _webull_known_account_ids(setting)
+        if known_ids and not set(enabled_ids).issubset(known_ids):
+            return jsonify({'success': False, 'message': 'Choose only connected Webull accounts.'}), 400
         setting.webull_enabled_account_ids = json.dumps(enabled_ids)
+        if setting.webull_default_account_id and setting.webull_default_account_id not in enabled_ids:
+            setting.webull_default_account_id = None
         db.session.commit()
 
         return jsonify({
@@ -1656,17 +1787,11 @@ def api_save_webull_default_account():
             setting = UserSetting(user_id=current_user.id)
             db.session.add(setting)
         account_id = str((request.get_json(silent=True) or {}).get('account_id') or '').strip()
-        raw_accounts = getattr(setting, 'webull_connected_accounts', '[]') or '[]'
-        try:
-            known_ids = {
-                str(account.get('account_id')) for account in
-                (json.loads(raw_accounts) if isinstance(raw_accounts, str) else raw_accounts)
-                if isinstance(account, dict) and account.get('account_id')
-            }
-        except Exception:
-            known_ids = set()
-        if account_id and known_ids and account_id not in known_ids:
-            return jsonify({'success': False, 'message': 'Choose one of your connected Webull accounts.'}), 400
+        if account_id:
+            try:
+                _require_webull_account_access(setting, account_id)
+            except WebullConnectionError as exc:
+                return jsonify({'success': False, 'message': str(exc)}), 400
         setting.webull_default_account_id = account_id or None
         db.session.commit()
         return jsonify({
@@ -1697,32 +1822,31 @@ def api_webull_portfolio_preview():
         ):
             return jsonify({'success': False, 'message': 'Verify your Webull connection before loading the preview.'}), 400
 
-        raw_enabled = getattr(setting, 'webull_enabled_account_ids', '[]') or '[]'
-        try:
-            enabled_ids = json.loads(raw_enabled) if isinstance(raw_enabled, str) else (raw_enabled or [])
-        except Exception:
-            enabled_ids = []
+        enabled_ids = _webull_enabled_account_ids(setting)
+        aliases = _webull_account_aliases(setting)
 
+        allowed_account_ids = _webull_allowed_account_ids(setting)
         preview = get_webull_portfolio_preview(
             credential.webull_app_key, credential.webull_app_secret,
             environment, credential.webull_access_token,
+            account_ids=allowed_account_ids or None,
         )
         accounts = []
         for account in preview:
             balance = account.get('balance') if isinstance(account.get('balance'), dict) else {}
             positions = account.get('positions') or []
             acc_id = str(account.get('account_id') or '')
-            acc_number = str(account.get('account_number') or '')
-            acc_label = str(account.get('account_label') or account.get('account_name') or account.get('account_type') or 'Webull Account')
-            accounts.append({
+            account_payload = {
                 'account_id': acc_id,
-                'account_number': acc_number,
-                'account_label': acc_label,
+                'account_id_masked': (
+                    f"••••{str(account.get('account_number') or '')[-4:]}"
+                    if len(str(account.get('account_number') or '')) >= 4
+                    else (f"••••{acc_id[-4:]}" if acc_id else '••••')
+                ),
+                'account_label': str(account.get('account_label') or account.get('account_name') or account.get('account_type') or 'Webull Account'),
                 'account_class': account.get('account_class', ''),
                 'account_type': account.get('account_type', 'CASH'),
-                'account_name': acc_label,
-                'account_id_masked': f"••••{acc_number[-4:]}" if len(acc_number) >= 4 else (f"••••{acc_id[-4:]}" if acc_id else '••••'),
-                'is_enabled': not enabled_ids or acc_id in enabled_ids,
+                'account_name': str(account.get('account_label') or account.get('account_name') or account.get('account_type') or 'Webull Account'),
                 'balance': {
                     key: balance.get(key) for key in (
                         'total_asset_currency', 'total_cash_balance', 'total_market_value',
@@ -1735,7 +1859,10 @@ def api_webull_portfolio_preview():
                         'unrealized_profit_loss', 'currency',
                     )
                 } for position in positions if isinstance(position, dict)],
-            })
+            }
+            accounts.extend(_webull_account_response(
+                [account_payload], aliases=aliases, enabled_ids=enabled_ids,
+            ))
         return jsonify({
             'success': True,
             'selection_mode': 'all',
@@ -1807,8 +1934,10 @@ def api_webull_portfolio_sync():
             or credential.webull_token_environment != environment or not credential.webull_access_token
         ):
             return jsonify({'success': False, 'message': 'Verify your Webull connection before importing its portfolio.'}), 400
+        allowed_account_ids = _webull_allowed_account_ids(setting)
         preview = get_webull_portfolio_preview(
             credential.webull_app_key, credential.webull_app_secret, environment, credential.webull_access_token,
+            account_ids=allowed_account_ids or None,
         )
         result = import_webull_portfolio_snapshot(current_user.id, preview)
         return jsonify({
@@ -1839,11 +1968,19 @@ def api_webull_open_orders():
             return jsonify({'success': True, 'orders': [], 'message': 'Webull is not connected.'})
 
         account_id = request.args.get('account_id')
+        if account_id:
+            account_id = _require_webull_account_access(setting, account_id)
         orders = get_webull_open_orders(
             credential.webull_app_key, credential.webull_app_secret,
             environment, credential.webull_access_token,
             account_id=account_id,
         )
+        if not account_id:
+            allowed_ids = _webull_allowed_account_ids(setting)
+            orders = [
+                order for order in orders
+                if str(order.get('_webull_account_id') or '') in allowed_ids
+            ]
         return jsonify({'success': True, 'orders': orders})
     except WebullConnectionError as exc:
         logger.warning('Webull open-order lookup failed: %s', exc)
@@ -1872,6 +2009,9 @@ def api_webull_place_order():
         symbol = data.get('symbol')
         instrument_type = data.get('instrument_type', 'EQUITY')
         option_type = data.get('option_type', 'CALL')
+        option_strike = data.get('option_strike')
+        option_expiration = data.get('option_expiration')
+        option_underlying_symbol = data.get('option_underlying_symbol')
         side = data.get('side')
         order_type = data.get('order_type')
         quantity = data.get('quantity')
@@ -1880,8 +2020,10 @@ def api_webull_place_order():
         time_in_force = data.get('time_in_force', 'DAY')
         support_trading_session = data.get('support_trading_session', 'CORE')
 
-        if not account_id:
-            return jsonify({'success': False, 'message': 'Choose a Webull account to trade with.'}), 400
+        try:
+            account_id = _require_webull_account_access(setting, account_id)
+        except WebullConnectionError as exc:
+            return jsonify({'success': False, 'message': str(exc)}), 400
         if not symbol:
             return jsonify({'success': False, 'message': 'Choose an instrument symbol.'}), 400
         if not side:
@@ -1891,12 +2033,25 @@ def api_webull_place_order():
         if not quantity:
             return jsonify({'success': False, 'message': 'Enter an order quantity.'}), 400
 
-        # Options risk safeguards:
+        # Options use their documented single-leg contract fields.  Reject an
+        # unsupported ticket before a 2FA token is consumed or an API request
+        # is attempted.
         if str(instrument_type).upper() == 'OPTION':
-            if order_type == 'MARKET':
-                logger.warning(f"Market order placed on option {symbol}; limit orders are strongly recommended.")
-            if order_type in ('LIMIT', 'STOP_LIMIT') and (not limit_price or float(limit_price) <= 0):
+            normalized_option_type = {'STOP': 'STOP_LOSS', 'STOP_LIMIT': 'STOP_LOSS_LIMIT'}.get(str(order_type or '').upper(), str(order_type or '').upper())
+            if normalized_option_type not in {'LIMIT', 'STOP_LOSS', 'STOP_LOSS_LIMIT'}:
+                return jsonify({'success': False, 'message': 'Webull options support Limit, Stop Loss, and Stop Loss Limit orders only.'}), 400
+            try:
+                has_valid_limit_price = float(limit_price) > 0
+            except (TypeError, ValueError):
+                has_valid_limit_price = False
+            try:
+                has_valid_stop_price = float(stop_price) > 0
+            except (TypeError, ValueError):
+                has_valid_stop_price = False
+            if normalized_option_type in ('LIMIT', 'STOP_LOSS_LIMIT') and not has_valid_limit_price:
                 return jsonify({'success': False, 'message': 'Options limit orders require a positive limit price.'}), 400
+            if normalized_option_type in ('STOP_LOSS', 'STOP_LOSS_LIMIT') and not has_valid_stop_price:
+                return jsonify({'success': False, 'message': 'Options stop orders require a positive stop price.'}), 400
 
         # Enforce 2FA verification if enabled for user
         from trading_models import TradingSettings
@@ -1931,6 +2086,9 @@ def api_webull_place_order():
             symbol=symbol,
             instrument_type=instrument_type,
             option_type=option_type,
+            option_strike=option_strike,
+            option_expiration=option_expiration,
+            option_underlying_symbol=option_underlying_symbol,
             side=side,
             order_type=order_type,
             quantity=quantity,
@@ -1976,8 +2134,10 @@ def api_webull_cancel_order():
         client_order_id = data.get('client_order_id')
         order_id = data.get('order_id') or data.get('orderId') or data.get('id')
 
-        if not account_id:
-            return jsonify({'success': False, 'message': 'Account ID is required to cancel Webull order.'}), 400
+        try:
+            account_id = _require_webull_account_access(setting, account_id)
+        except WebullConnectionError as exc:
+            return jsonify({'success': False, 'message': str(exc)}), 400
         if not client_order_id and not order_id:
             return jsonify({'success': False, 'message': 'Order identifier is required to cancel.'}), 400
 

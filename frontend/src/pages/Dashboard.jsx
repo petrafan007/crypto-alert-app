@@ -328,16 +328,24 @@ function Dashboard({ isLightMode }) {
   const isWebullAsset = (asset) => Boolean(
     asset?.is_external === true || asset?.source === 'webull'
   );
-  const navigateToWebullTrading = (symbol, side = 'BUY', accountId = null, { instrumentType = null, accountPreference = null } = {}) => {
+  const webullInstrumentTypeForAsset = (asset) => {
+    const type = String(asset?.instrument_type || '').toUpperCase();
+    if (type === 'OPTION' || type === 'OPTIONS') return 'OPTION';
+    if (/crypto|coin|token/i.test(type)) return 'CRYPTO';
+    return 'EQUITY';
+  };
+  const navigateToWebullTrading = (symbol, side = 'BUY', accountId = null, { instrumentType = null, accountPreference = null, holdingId = null } = {}) => {
     const cleanSymbol = String(symbol || '').toUpperCase().trim();
     let url = `/trading/webull?symbol=${encodeURIComponent(cleanSymbol)}&side=${side.toUpperCase()}`;
     if (accountId) url += `&account_id=${encodeURIComponent(accountId)}`;
     if (instrumentType) url += `&instrument_type=${encodeURIComponent(instrumentType)}`;
     if (accountPreference) url += `&account_preference=${encodeURIComponent(accountPreference)}`;
+    if (holdingId) url += `&holding_id=${encodeURIComponent(holdingId)}`;
     navigate(url);
   };
   const navigateToWebullInstrument = (asset, side = 'BUY') => {
-    const isEquity = isTraditionalAsset(asset);
+    const instrumentType = webullInstrumentTypeForAsset(asset);
+    const isEquity = instrumentType === 'EQUITY';
     // Stock/ETF buys and all stock watchlist entries should begin in the
     // individual cash account. A sell stays on its source account to avoid
     // routing an owned position to an account that does not hold it.
@@ -346,8 +354,9 @@ function Dashboard({ isLightMode }) {
       side,
       isEquity && side === 'BUY' ? null : asset?.account_id,
       {
-        instrumentType: isEquity ? 'EQUITY' : 'CRYPTO',
+        instrumentType,
         accountPreference: isEquity && side === 'BUY' ? 'individual_cash' : null,
+        holdingId: isWebullAsset(asset) ? asset?.id : null,
       }
     );
   };

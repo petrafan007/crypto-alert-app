@@ -1,6 +1,6 @@
 # Crypto Alert App
 
-**Crypto Alert App** is a comprehensive, non-custodial cryptocurrency portfolio management and trading platform for Binance.US, with read-only Webull portfolio, order, chart, and stored AI-signal views. It provides users with real-time portfolio tracking, automated price alerts, one-click Binance.US trading, built-in staking management, and AI-powered market sentiment analysis.
+**Crypto Alert App** is a comprehensive, non-custodial cryptocurrency portfolio management and trading platform for Binance.US and Webull. It provides real-time portfolio tracking, automated price alerts, exchange-scoped order workflows, built-in staking management, and AI-powered market sentiment analysis. Webull supports explicitly authorized, account-scoped equity/ETF, crypto, and single-leg option orders; no provider data or orders cross exchange boundaries.
 
 **Last Updated**: August 2026
 
@@ -123,6 +123,13 @@ The application utilizes a **unified PostgreSQL database**.
 
 ## Version History & Changelog
 
+## v2.44.0 (August 2026)
+
+- **Webull current trading-contract verification**: Webull account discovery, balance/position reads, placement, and cancellation now prefer the current unified Trading API paths and order-envelope schema, retaining the legacy paths only as a compatibility fallback. Stock/ETF, crypto, and option requests use their supported order types and time-in-force values.
+- **Exact option contract execution**: A Webull option ticket now carries the imported holding identity through navigation and execution. The server requires and submits the exact underlying, call/put side, strike, expiration, and one-leg quantity; it cannot silently turn an option deep link into an equity order. The ticket also uses the contract-specific quote endpoint for its live price when entitled.
+- **Account-safe Webull scope**: Browser responses now expose a masked account label only, retain imported cash snapshots for buying-power display, and enforce that every Webull open-order, placement, cancellation, and saved default-account request belongs to the connected user’s enabled account set.
+- **Documentation reconciliation**: Corrected the Help and exchange checklist to distinguish implemented Webull option execution from the intentionally unavailable options AI workflow, and recorded the remaining production-canary acceptance item. Automated verification does not submit a real order.
+
 ## v2.43.1 (August 2026)
 
 - **Webull fractional-share order flow**: The selected Webull account’s fractional equity/ETF position now remains fractional in the ticket—so `MAX` correctly carries a holding such as `0.11 TSLA` instead of rounding it to zero. The quantity/value inputs and percentage controls apply the same session-aware precision.
@@ -132,9 +139,9 @@ The application utilizes a **unified PostgreSQL database**.
 
 ## v2.43.0 (August 2026)
 
-- **Webull Options Execution & Risk Model**: Fully wired up live option order placement via Webull OpenAPI with contract-level single-leg orders (`CALL` / `PUT`), contract multiplier (100 shares/contract), real-time breakeven price calculation, max risk verification, limit price enforcement, and 2FA authentication.
+- **Webull Options Execution & Risk Model**: Introduced the option ticket and contract-level single-leg workflow (`CALL` / `PUT`), with the provider-envelope and exact-leg execution corrections verified in v2.44.0.
 - **Interactive Options Trading Terminal**: Added an Asset Class switcher to Webull Trading allowing seamless switching between Equities/ETFs, Crypto, and Options. Clicking any option holding in the portfolio automatically populates the option contract ticket for 1-click execution.
-- **Webull AI Options Analysis**: Expanded stored Webull research signals to support options holdings, incorporating contract specifications, strike, expiration, and snapshot Greeks (`delta`, `gamma`, `theta`, `iv`) into AI evaluations.
+- **Webull AI Options Boundary**: Added contract-safe option chart and quote identity. Options AI remains intentionally unavailable pending a dedicated options prompt and risk model; v2.44.0 reconciles this status across the product documentation.
 - **Dashboard Webull Quick Trade Widget**: Upgraded the Dashboard Quick Trade widget to support Webull stocks, ETFs, and crypto with 1-click launch to Webull Trading, and added an exchange switcher toggle in All Accounts scope.
 - **Dashboard Multi-Timeframe Performance for Webull**: Activated the 7-day, 3-day, 1-day, 12-hour, and 1-hour performance metrics table for Webull assets on the Dashboard with dynamic scope filtering and direct trading deep-links.
 

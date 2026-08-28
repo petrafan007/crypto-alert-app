@@ -1,6 +1,6 @@
 # Exchange-Aware Navigation & Account Views — Review Checklist
 
-Status: **Acceptance criteria defined and implemented through v2.43.1**
+Status: **Automated acceptance criteria verified and corrected through v2.44.0. One user-authorized production canary remains explicitly outstanding (CHK037).**
 Scope: Replace the current Binance-centric navigation model with explicit Binance.US, Webull, and All Accounts contexts.
 
 ## Confirmed product decisions
@@ -13,8 +13,8 @@ Scope: Replace the current Binance-centric navigation model with explicit Binanc
 - [x] The top-level **AI Analysis** navigation item is removed.
 - [x] Binance.US Trading receives **AI Analysis** as a tab.
 - [x] A dedicated **Webull Trading** page is added with Place Order, Open Orders, Order History, Trade Chart, and AI Analysis tabs.
-- [x] Webull active order execution is implemented for equities/ETFs, crypto, and contract-level single-leg options (Calls & Puts) with pre-trade risk review, 2FA authentication, and open order cancellation. [Implemented in v2.43.0]
-- [x] Webull AI stores provider-neutral, read-only signals: crypto, equities/ETFs, and options use tailored prompt pathways with contract Greeks context, fixed forecast horizons, and immutable grading configurations. Scheduling is opt-in and disabled by default. [Implemented in v2.43.0]
+- [x] Webull active order execution is implemented for equities/ETFs, crypto, and contract-level single-leg options (Calls & Puts) with pre-trade risk review, 2FA authentication, and open order cancellation. The v2.44.0 verification uses the current unified order contract and preserves exact option legs. [Verified/corrected in v2.44.0]
+- [x] Webull AI stores provider-neutral, read-only signals for crypto and equities/ETFs using separate prompt pathways, fixed forecast horizons, and immutable grading configurations. Scheduling is opt-in and disabled by default. Contract-mapped options remain intentionally unavailable to AI until an options-specific prompt and risk model are approved. [Corrected in v2.44.0]
 - [x] A new top-level **Orders** destination replaces AI Analysis and provides combined Open Orders and Order History for all accounts.
 - [x] Combined order views must visibly retain their exchange/source identity.
 - [x] Webull Trading stores a user-selected default account and otherwise prefers an equity/cash account, while each position is resolved within the selected account. [Implemented in v2.39.0]
@@ -27,7 +27,7 @@ Scope: Replace the current Binance-centric navigation model with explicit Binanc
 ### Navigation and information architecture
 
 - [x] CHK001 The desktop and mobile menu is a `📈 Trading` button followed by **Binance.US** then **Webull**. It opens on click, stays open while moving into the popover, and closes only after a menu choice, outside click, or Escape. [Decision, Implemented]
-- [x] CHK002 Canonical routes are `/trading/binance`, `/trading/webull`, and `/orders`. `/trading` remains a Binance.US-compatible route and `/webull-trading` remains a Webull-compatible route. Symbol, side, instrument type, and account deep-link parameters are preserved on the Webull route. [Decision, Implemented]
+- [x] CHK002 Canonical routes are `/trading/binance`, `/trading/webull`, and `/orders`. `/trading` remains a Binance.US-compatible route and `/webull-trading` remains a Webull-compatible route. Symbol, side, instrument type, account, and option holding deep-link parameters are preserved on the Webull route, so an option cannot be coerced into an equity ticket. [Verified/corrected in v2.44.0]
 - [x] CHK003 Both exchange choices remain visible even when one is disconnected. The selected workspace reports its own connection/no-data state and never falls back to the other exchange or treats its assets as tradable there. [Decision, Implemented]
 - [x] CHK004 The URL, not a transient menu selection, determines the active trading workspace after refresh. The Dashboard scope persists in browser storage; the Webull default account persists as a user setting. [Decision, Implemented]
 - [x] CHK005 `/ai-analysis` redirects to Binance.US Trading’s AI tab. The global navigation has no AI Analysis item, preserving old links without creating a second AI workspace. [Decision, Implemented]
@@ -51,7 +51,7 @@ Scope: Replace the current Binance-centric navigation model with explicit Binanc
 ### Webull Trading context
 
 - [x] CHK016 Webull Place Order supports live execution for equities/ETFs and crypto as of v2.34.0. [Decision]
-- [x] CHK017 Webull order placement supports equities/ETFs, crypto, and single-leg options with account selection, pre-trade review, and app 2FA confirmation safeguards. The selected-account Max, quote-value, and percentage controls preserve fractional stock/ETF quantities during Regular Hours (CORE); Webull fractional stock/ETF orders are Market-only, greater than zero and no more than one share, and must meet the $5 minimum. Extended and Overnight stock/ETF sessions require whole shares. Browser and server validation present the same constraint with no silent failure. [Implemented in v2.43.1]
+- [x] CHK017 Webull order placement supports equities/ETFs, crypto, and single-leg options with account selection, pre-trade review, and app 2FA confirmation safeguards. The current unified order envelope is used for placement; option legs require the exact underlying, call/put type, strike, and expiration. The selected-account Max, quote-value, and percentage controls preserve fractional stock/ETF quantities during Regular Hours (CORE); Webull fractional stock/ETF orders are Market-only, greater than zero and no more than one share, and must meet the $5 minimum. Extended and Overnight stock/ETF sessions require whole shares. Browser and server validation present the same constraint with no silent failure. [Verified/corrected in v2.44.0]
 - [x] CHK018 Webull Open Orders and Order History include the instruments Webull returns for the selected account: equities/ETFs, crypto, options, futures, and multi-leg/combo orders. Multi-leg responses are flattened into their executable legs; each keeps Webull/account identity and remains managed only through Webull. [Decision, Implemented]
 - [x] CHK019 Webull Trade Chart supports imported equities/ETFs, crypto, and contract-mapped options with their own Webull historical bars and completed order markers. Option quote/Greeks data uses a dedicated endpoint and reports missing OPRA entitlement without substituting the underlying. Futures remain out of scope. [Decision]
 - [x] CHK020 Webull crypto and equities/ETFs use separated prompt families and a provider-neutral stored-signal lifecycle. Scheduled runs are opt-in; no Webull signal can place, amend, or cancel an order. Options now have contract-level chart/quote identity but remain unavailable to AI pending an options-specific prompt and risk model. [Decision]
@@ -70,10 +70,14 @@ Scope: Replace the current Binance-centric navigation model with explicit Binanc
 - [x] CHK027 Binance.US balances/orders are fetched from Binance.US; active Auto-Buy/Auto-Sell triggers are app records; Webull holdings use the latest imported snapshot; Webull quotes use the signed basic snapshot and refresh every 30 seconds; and Webull orders use signed, short-lived cached reads. [Decision, Implemented]
 - [x] CHK028 Dashboard totals use account net liquidation values for Webull and do not add imported position values/cash a second time. Allocation/table rows keep source/account identity and never merge same-symbol positions across exchanges. [Decision, Implemented]
 - [x] CHK029 Webull account/holding snapshots are upserted by user/account/instrument on import, stale rows from the imported account set are removed on a successful replacement snapshot, and schema additions use idempotent application migrations. Combined Order History is a database-only view of the existing `real_orders` and `all_activities` ledger; entering it never creates a second ledger or reads an exchange API. [Decision, Implemented in v2.40.2]
-- [x] CHK030 Credentials, secrets, access tokens, and signed-request material remain encrypted and server-only. The browser receives only the minimally required non-secret account reference/masked label to select and scope a Webull action; it never receives a token or signing secret. [Decision, Implemented]
+- [x] CHK030 Credentials, secrets, access tokens, signed-request material, and raw Webull account numbers remain encrypted or server-only. The browser receives only the minimally required non-secret account reference/masked label to select and scope a Webull action; imported balance snapshots are returned without raw account numbers, and every account-scoped action is server-authorized against the enabled account set. [Verified/corrected in v2.44.0]
 - [x] CHK031 Navigation controls expose menu/tab/select semantics, labels, keyboard focus, and Escape dismissal. Async Webull refresh progress uses a status announcement, while responsive layouts preserve operable controls on mobile. [Decision, Implemented]
 - [x] CHK032 Initial Combined Orders loading must not block on sequential multi-account Webull reads or the exchange-wide history scan. [Implemented in v2.38.5]
 - [x] CHK033 Every release updates the visible package/footer version, README, and applicable checklist/help text; then builds, verifies, commits/pushes, publishes a GitHub tag/release, deploys the exact tag to the personal instance, restarts the service, and verifies local/public health. If one provider fails, its explicit error state is retained while the other provider remains isolated and operational; rollback is the preceding tagged release after preserving local deployment changes. [Decision, Implemented]
+- [x] CHK034 The v2.44.0 integration audit verifies the current Webull account, asset, order-placement, and cancellation contracts in the service layer with mocked provider responses; current paths are preferred and legacy paths are limited to explicit 404/405 compatibility fallback. [Verified in v2.44.0]
+- [x] CHK035 The Webull option quote/ticket path uses the selected imported contract rather than the underlying quote, retains an imported contract ID through a direct navigation, and blocks execution when the exact option terms are absent. [Verified in v2.44.0]
+- [x] CHK036 Webull account metadata responses are privacy-scoped and imported cash snapshots are used for the selected ticket’s buying-power display without exposing a raw account number. [Verified in v2.44.0]
+- [ ] CHK037 Run one user-authorized production canary for a specifically approved Webull account, symbol, side, quantity, and order type; verify Webull accepts it, verify the order appears in the correct account, then cancel or fill it only under that explicit authorization. Automated acceptance intentionally does not submit a live order. [Outstanding user authorization]
 
 ## Implementation sequence
 
@@ -82,7 +86,8 @@ Scope: Replace the current Binance-centric navigation model with explicit Binanc
 3. [x] Add the dedicated Webull trading shell with explicitly approved capabilities.
 4. [x] Add the combined Orders center with source- and account-safe data handling.
 5. [x] Update Help, test all context-switching and empty/error states, then release and upgrade.
+6. [x] Reconcile the Webull provider contract, option identity/quote path, account privacy/scope, and documentation for v2.44.0.
 
 ## Decisions and acceptance status
 
-All navigation, account-scope, exchange-boundary, order-view, data-integrity, accessibility, and release acceptance rules are now resolved and checked above. Future releases should add a new unchecked checklist item only for a genuinely new, undecided capability.
+All automated navigation, account-scope, exchange-boundary, order-view, data-integrity, accessibility, and release acceptance rules are resolved and checked above. CHK037 is deliberately unchecked because it requires the account owner to authorize a real, specified Webull transaction; it cannot be truthfully completed through a mock or read-only verification. Future releases should add a new unchecked checklist item only for a genuinely new, undecided capability.
