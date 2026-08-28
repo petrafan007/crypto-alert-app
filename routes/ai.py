@@ -2032,20 +2032,21 @@ def process_ai_conversation(user_id, message, conversation_id=None):
             side = legs[0][0].side
             qty = float(legs[0][0].quantity or 0)
             base = sym.replace('USDT', '').replace('USD', '')
-            pending_orders_list.append(f"• [ACTIVE OCO {side} ORDER BRACKET ON {sym}] (Binance OrderList #{list_id}):")
-            pending_orders_list.append(f"  - Target Asset & Total Size: {qty:g} {base}")
+            pending_orders_list.append(f"• [CONFIRMED NATIVE BINANCE.US OCO {side} ORDER] (OrderList #{list_id}):")
+            pending_orders_list.append(f"  - Target Asset & Total Size: {qty:g} {base} ({sym})")
             for leg_order, leg_meta in legs:
                 l_type = leg_order.type
                 l_price = float(leg_order.price or 0)
                 l_stop = float(leg_order.stop_price or leg_meta.get('stopPrice') or 0)
+                b_id = leg_order.binance_order_id or leg_order.id
                 if l_type in ('STOP_LOSS_LIMIT', 'TAKE_PROFIT_LIMIT', 'STOP_LOSS'):
                     direction = "price rises >=" if side == 'BUY' else "price drops <="
-                    pending_orders_list.append(f"  - Upper/Stop Trigger Leg ({l_type}): Triggers when {direction} ${l_stop:,.4f} -> Places Limit @ ${l_price:,.4f}")
+                    pending_orders_list.append(f"  - Upper/Stop Trigger Leg ({l_type}, Binance Order #{b_id}): Triggers when {direction} ${l_stop:,.4f} -> Limit @ ${l_price:,.4f}")
                 elif l_type in ('LIMIT_MAKER', 'LIMIT'):
-                    pending_orders_list.append(f"  - Lower Limit-Maker Leg ({l_type}): Places Limit @ ${l_price:,.4f}")
+                    pending_orders_list.append(f"  - Lower Limit-Maker Leg ({l_type}, Binance Order #{b_id}): Places Limit @ ${l_price:,.4f}")
                 else:
-                    pending_orders_list.append(f"  - Leg ({l_type}): Price ${l_price:,.4f}")
-            pending_orders_list.append("  - OCO Behavior: When one leg triggers/executes, the opposing leg is automatically cancelled.")
+                    pending_orders_list.append(f"  - Leg ({l_type}, Binance Order #{b_id}): Price ${l_price:,.4f}")
+            pending_orders_list.append(f"  - NATIVE EXCHANGE LINKAGE: Single verified OCO order on Binance.US sharing OrderList #{list_id}. The Binance matching engine automatically cancels the opposing leg when either triggers or executes.")
             pending_orders_list.append("  - Status: Active / Working on Binance.US")
 
         for o, meta in single_orders:

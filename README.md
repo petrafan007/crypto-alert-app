@@ -123,6 +123,11 @@ The application utilizes a **unified PostgreSQL database**.
 
 ## Version History & Changelog
 
+## v2.41.1 (August 2026)
+
+- **Hardened AI Copilot Native OCO Understanding**: Embedded explicit exchange architecture directives in the AI Copilot prompt engine. On Binance/Binance.US, OCO orders are natively managed by the exchange matching engine as linked Order Lists (`orderListId`) containing a `STOP_LOSS_LIMIT` leg and a `LIMIT_MAKER` leg. The Copilot is explicitly instructed that these legs are verified, natively linked orders that automatically trigger mutual cancellation upon execution, preventing false claims that orders are "unlinked" or lack an "OCO wrapper".
+- **Enhanced OCO Telemetry Formatting**: Open OCO brackets now explicitly display their verified native Binance.US status, Binance Order IDs, and confirmed matching engine linkage in the Copilot context feed.
+
 ## v2.41.0 (August 2026)
 
 - **Comprehensive Database Context for AI Copilot**: The AI Copilot now receives complete real-time awareness across your entire portfolio ecosystem, including active pending orders, full multi-asset balances, complete watchlist telemetry, and recent transaction history.

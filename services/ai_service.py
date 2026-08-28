@@ -590,6 +590,14 @@ def call_ai_with_web_search(
         except Exception:
             stage3_system = stage3_template.replace('{symbol}', symbol_value).replace('{datetime}', current_datetime)
 
+        if prompt_type in ['copilot', 'manual']:
+            stage3_system += (
+                "\n\nCRITICAL EXCHANGE ARCHITECTURE RULE (OCO ORDERS):\n"
+                "- On Binance and Binance.US, an OCO (One-Cancels-the-Other) order is natively created and managed by the exchange matching engine as an Order List (orderListId) containing two linked legs: a STOP_LOSS_LIMIT leg and a LIMIT_MAKER leg.\n"
+                "- When the user's data shows an active OCO order bracket with an OrderListId or paired limit/stop-loss legs, this IS a confirmed, native, fully linked exchange OCO order. The exchange automatically cancels the opposing leg if either executes or triggers.\n"
+                "- NEVER tell the user their OCO orders are 'separate independent orders', 'unlinked', or that 'Binance.US does not support an OCO wrapper'. NEVER instruct the user to 'link them into an OCO order'—they are ALREADY natively linked on the exchange. Analyze them directly as a unified OCO trading strategy."
+            )
+
         stage3_user_msg = f"{original_user_message}\n\n=== RECENT WEB SEARCH RESULTS ===\n{search_text}"
 
         stage3_messages = [
