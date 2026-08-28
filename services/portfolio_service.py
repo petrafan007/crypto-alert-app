@@ -538,9 +538,20 @@ def update_portfolio_from_real_order(user_id, symbol, side, quantity, price, com
         executed_quote = float(quote_quantity) if quote_quantity else quantity * price
         
         commission_asset = (commission_asset or '').upper()
-        commission_usd = commission
-        if commission_asset not in ('USDT', 'USD'):
-            commission_usd = commission * price
+        commission_usd = float(commission or 0.0)
+        if commission_usd > 0:
+            if commission_asset in ('USDT', 'USD') or not commission_asset:
+                commission_usd = commission_usd
+            elif commission_asset == 'BNB':
+                from services.binance_service import fetch_binance_price
+                bnb_price = fetch_binance_price('BNB') or 690.0
+                commission_usd = commission_usd * bnb_price
+            elif commission_asset == base_asset:
+                commission_usd = commission_usd * price
+            else:
+                from services.binance_service import fetch_binance_price
+                asset_price = fetch_binance_price(commission_asset) or price
+                commission_usd = commission_usd * asset_price
         
         coin = Coin.query.filter_by(user_id=user_id, symbol=base_asset).first()
         previous_avg_entry = coin.avg_entry if coin else 0.0
@@ -638,6 +649,7 @@ def update_portfolio_from_real_order(user_id, symbol, side, quantity, price, com
                 coin.avg_entry = 0.0
         
         transaction_date = datetime.utcnow()
+        gain_loss = None
         if side == 'BUY':
             cost_basis = executed_quote + commission_usd
             proceeds = None
@@ -647,6 +659,8 @@ def update_portfolio_from_real_order(user_id, symbol, side, quantity, price, com
             reference_avg = previous_avg_entry if previous_avg_entry else (coin.avg_entry if coin else 0.0)
             cost_basis = reference_avg * quantity if reference_avg else (quantity * price)
             amount_value = -quantity
+            if proceeds is not None and cost_basis is not None:
+                gain_loss = proceeds - cost_basis
 
         description = f"{side} {quantity} {base_asset} @ ${price:.2f}"
         details = f"Order ID: {order_id}, Commission: {commission} {commission_asset}"
@@ -658,6 +672,7 @@ def update_portfolio_from_real_order(user_id, symbol, side, quantity, price, com
             amount=amount_value,
             proceeds=proceeds,
             cost_basis=cost_basis,
+            gain_loss=gain_loss,
             fee=commission_usd,
             description=description,
             txid=txid,

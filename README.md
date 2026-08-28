@@ -123,6 +123,13 @@ The application utilizes a **unified PostgreSQL database**.
 
 ## Version History & Changelog
 
+## v2.40.4 (August 2026)
+
+- **Order History & Combined Orders Fee Columns**: Added a dedicated Fee column to both the Binance.US Order History table and the Combined Orders table, displaying exact transaction commissions (e.g. BNB or USD).
+- **Accurate Trade Commission & Gain/Loss Calculation**: Stop-limit and filled orders now retrieve trade execution details from Binance (`myTrades`) to record actual commission values (including BNB fees converted to USD at market prices). Realized gain/loss and short-term/loss classifications are automatically calculated for all sell activity records.
+- **Improved Tax Report Display**: Fixed missing dashes (`—`) for fees, gain/loss, and trade classifications in the Tax Report ledger, with support for sub-cent fractional fee amounts.
+- **Order History Loading State**: Binance.US Order History now displays a clean loading state while fetching records, eliminating the brief "No orders yet" placeholder flicker.
+
 ## v2.40.3 (August 2026)
 
 - **Secure native cancellation confirmation**: Combined Orders and Webull Trading Open Orders now use the app's theme-aware cancellation modal rather than a browser prompt. It identifies the provider, account, side, order type, quantity, symbol, and price (or the active Auto-Buy/Auto-Sell trigger) before requiring the six-digit 2FA code.

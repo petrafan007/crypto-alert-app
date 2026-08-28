@@ -141,9 +141,8 @@ const Trading = ({ isLightMode = false }) => {
     quote_locked: 0,
     quote_total: 0
   });
-  const [balancePercentage, setBalancePercentage] = useState(0);
-  const [estimatedFee, setEstimatedFee] = useState({ amount: 0, usd: 0, asset: '' });
   const [openOrders, setOpenOrders] = useState([]);
+  const [ordersLoading, setOrdersLoading] = useState(false);
   const [cancelModal, setCancelModal] = useState({
     isVisible: false,
     order: null,
@@ -816,12 +815,17 @@ const Trading = ({ isLightMode = false }) => {
       price: price ?? 0,
       filled_quantity: executedQuantity ?? 0,
       filled_price: filledPrice ?? 0,
+      fee: safeFloat(order.fee) ?? safeFloat(order.commission) ?? 0,
+      fee_asset: order.fee_asset || order.commission_asset || '',
+      commission: safeFloat(order.commission) ?? safeFloat(order.fee) ?? 0,
+      commission_asset: order.commission_asset || order.fee_asset || '',
       created_at: createdAt,
       status: order.status || 'UNKNOWN',
     };
   };
 
   const loadOrders = async () => {
+    setOrdersLoading(true);
     try {
       const response = await axios.get('/api/trading/real-orders?limit=all', { withCredentials: true });
       if (response.data.success) {
@@ -832,6 +836,8 @@ const Trading = ({ isLightMode = false }) => {
       }
     } catch (error) {
       console.error('Failed to load orders:', error);
+    } finally {
+      setOrdersLoading(false);
     }
   };
 
@@ -2273,7 +2279,11 @@ const Trading = ({ isLightMode = false }) => {
               </div>
             </div>
 
-            {filteredOrders.length === 0 ? (
+            {ordersLoading ? (
+              <div className="empty-state">
+                <p>Loading order history...</p>
+              </div>
+            ) : filteredOrders.length === 0 ? (
               <div className="empty-state">
                 <p>{orders.length === 0 ? 'No orders yet. Place your first order to get started!' : `No orders found for ${historySymbolFilter !== 'ALL' ? historySymbolFilter : 'this filter'}.`}</p>
               </div>
@@ -2293,6 +2303,7 @@ const Trading = ({ isLightMode = false }) => {
                           <th>Quantity</th>
                           <th>Price</th>
                           <th>Filled</th>
+                          <th>Fee</th>
                           <th>Status</th>
                           <th>Total</th>
                         </tr>
@@ -2313,6 +2324,15 @@ const Trading = ({ isLightMode = false }) => {
                             <td>{formatNumber(order.quantity, 8)}</td>
                             <td>{order.price ? `$${formatNumber(order.price)}` : '-'}</td>
                             <td>{formatNumber(order.filled_quantity || 0, 8)}</td>
+                            <td>
+                              {(() => {
+                                const feeVal = Number(order.fee || order.commission || 0);
+                                const asset = order.fee_asset || order.commission_asset || '';
+                                if (feeVal <= 0) return '—';
+                                if (!asset || asset === 'USD' || asset === 'USDT') return `$${formatNumber(feeVal, 4)}`;
+                                return `${formatNumber(feeVal, 8)} ${asset}`;
+                              })()}
+                            </td>
                             <td>
                               <span className={`badge badge-${((order.status === 'NEW' || order.status === 'PARTIALLY_FILLED' ? 'ACTIVE' : order.status) || 'unknown').toLowerCase()}`}>
                                 {order.status === 'NEW' || order.status === 'PARTIALLY_FILLED' ? 'ACTIVE' : order.status}

@@ -854,7 +854,7 @@ export default function TaxReport({ isLightMode }) {
                              ) :
                              columnKey === 'amount' ? formatNumber(tx[columnKey]) :
                              columnKey === 'proceeds' ? (tx[columnKey] > 0 ? formatCurrency(tx[columnKey]) : '—') :
-                             columnKey === 'fee' ? (tx[columnKey] > 0 ? formatCurrency(tx[columnKey]) : '—') :
+                             columnKey === 'fee' ? (tx[columnKey] > 0 ? (tx[columnKey] < 0.01 ? `$${Number(tx[columnKey]).toFixed(4)}` : formatCurrency(tx[columnKey])) : '—') :
                              columnKey === 'cost_basis' ? (tx[columnKey] > 0 ? formatCurrency(tx[columnKey]) : '—') :
                              columnKey === 'gain_loss' ? (tx[columnKey] !== null ? formatCurrency(tx[columnKey]) : '—') :
                              columnKey === 'gain_loss_type' ? (

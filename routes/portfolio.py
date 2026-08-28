@@ -2201,6 +2201,10 @@ def get_real_orders_only():
                 'price': float(order.price or 0.0),
                 'filled_quantity': float(order.executed_qty or order.quantity or 0.0),
                 'filled_price': float(order.avg_fill_price or order.price or 0.0),
+                'fee': float(order.commission or 0.0),
+                'fee_asset': order.commission_asset,
+                'commission': float(order.commission or 0.0),
+                'commission_asset': order.commission_asset,
                 'status': order.status or 'UNKNOWN',
                 'created_at': normalize_timestamp(order.created_at),
                 'updated_at': normalize_timestamp(order.updated_at),
@@ -2473,6 +2477,10 @@ def get_real_orders_only():
                 'price': price_val,
                 'filled_quantity': quantity_val,
                 'filled_price': price_val,
+                'fee': float(activity.get('fee') or 0.0),
+                'fee_asset': 'USD',
+                'commission': float(activity.get('fee') or 0.0),
+                'commission_asset': 'USD',
                 'status': status,
                 'created_at': normalize_timestamp(details_json.get('created_time') or activity.get('date')),
                 'updated_at': normalize_timestamp(details_json.get('last_fill_time') or details_json.get('created_time') or activity.get('date')),
@@ -4606,6 +4614,11 @@ def api_tax_report():
             fee = float(tx['fee'] or 0)
             date = tx['date']
             
+            cost_basis_val = float(tx['cost_basis'] or 0)
+            gain_loss_val = float(tx['gain_loss']) if tx['gain_loss'] is not None else None
+            if gain_loss_val is None and tx_type == 'SELL' and (proceeds > 0 or cost_basis_val > 0):
+                gain_loss_val = (proceeds - fee) - cost_basis_val if proceeds > 0 else -cost_basis_val
+
             tax_info = {
                 'id': tx['id'],
                 'date': _format_activity_date(tx['date']),
@@ -4615,9 +4628,9 @@ def api_tax_report():
                 'proceeds': proceeds,
                 'fee': fee,
                 'txid': tx['txid'],
-                'cost_basis': float(tx['cost_basis'] or 0),  # Use database value
-                'gain_loss': float(tx['gain_loss']) if tx['gain_loss'] is not None else None,  # Use database value
-                'gain_loss_type': 'short_term' if (tx['gain_loss'] is not None and tx['gain_loss'] > 0) else ('loss' if (tx['gain_loss'] is not None and tx['gain_loss'] < 0) else None),
+                'cost_basis': cost_basis_val,
+                'gain_loss': gain_loss_val,
+                'gain_loss_type': 'short_term' if (gain_loss_val is not None and gain_loss_val >= 0) else ('loss' if (gain_loss_val is not None and gain_loss_val < 0) else None),
                 'price_sold_at': tx.get('price_sold_at'),  # USDT price at sale/purchase
                 'exchange': tx.get('exchange', 'coinbase')  # Exchange source
             }

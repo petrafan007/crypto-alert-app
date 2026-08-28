@@ -376,6 +376,21 @@ def sync_real_order_statuses_for_user(user_id, username, client):
             delta_qty = executed_qty - previous_executed_qty
             if delta_qty > 1e-12:
                 try:
+                    order_commission = float(order.commission or 0.0)
+                    order_commission_asset = order.commission_asset
+                    try:
+                        trades = client.get_my_trades(symbol=symbol, orderId=order_id)
+                        if trades:
+                            tot_comm = sum(float(t.get('commission', 0.0)) for t in trades)
+                            comm_asset = next((t.get('commissionAsset') for t in trades if t.get('commissionAsset')), None)
+                            if tot_comm > 0:
+                                order_commission = tot_comm
+                                order_commission_asset = comm_asset or order_commission_asset
+                                order.commission = order_commission
+                                order.commission_asset = order_commission_asset
+                    except Exception as trade_err:
+                        logger.debug(f"Could not fetch trade fills for order {order_id}: {trade_err}")
+
                     from services.portfolio_service import update_portfolio_from_real_order
                     fill_price_for_delta = order.avg_fill_price or price
                     update_portfolio_from_real_order(
@@ -384,8 +399,8 @@ def sync_real_order_statuses_for_user(user_id, username, client):
                         side=(order.side or '').upper(),
                         quantity=delta_qty,
                         price=fill_price_for_delta,
-                        commission=0.0,
-                        commission_asset=None,
+                        commission=order_commission,
+                        commission_asset=order_commission_asset,
                         order_id=order.binance_order_id,
                         quote_quantity=delta_qty * fill_price_for_delta
                     )

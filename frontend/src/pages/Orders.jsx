@@ -22,6 +22,8 @@ const normalize = (order, source) => {
   quantity: order.quantity ?? order.total_quantity ?? order.order_quantity,
   filled_quantity: order.filled_quantity ?? order.executed_quantity ?? order.filled_qty,
   price: order.price ?? order.limit_price ?? order.order_price,
+  fee: order.fee ?? order.commission ?? 0,
+  fee_asset: order.fee_asset || order.commission_asset || '',
   status: order.status || order.order_status || '—',
   created_at: order.created_at || order.create_time || order.placed_time || order.place_time || order.filled_time_at || order.time,
   };
@@ -72,7 +74,7 @@ function OrderTable({ orders, open, onCancelOrder, cancellingId, webullAccounts 
         <table>
           <thead>
             <tr>
-              <th>Date / Time</th><th className="combined-order-account-heading">Account</th><th>Symbol</th><th>Side</th><th>Type</th><th>Quantity</th><th>Price</th><th>Filled</th><th>Status</th>
+              <th>Date / Time</th><th className="combined-order-account-heading">Account</th><th>Symbol</th><th>Side</th><th>Type</th><th>Quantity</th><th>Price</th><th>Filled</th><th>Fee</th><th>Status</th>
               {open && <th>Actions</th>}
             </tr>
           </thead>
@@ -87,6 +89,15 @@ function OrderTable({ orders, open, onCancelOrder, cancellingId, webullAccounts 
                 <td>{amount(order.quantity)}</td>
                 <td>{Number(order.price) > 0 ? `$${amount(order.price, 4)}` : 'Market'}</td>
                 <td>{amount(order.filled_quantity)}</td>
+                <td>
+                  {(() => {
+                    const feeVal = Number(order.fee || 0);
+                    const asset = order.fee_asset || '';
+                    if (feeVal <= 0) return '—';
+                    if (!asset || asset === 'USD' || asset === 'USDT') return `$${amount(feeVal, 4)}`;
+                    return `${amount(feeVal, 8)} ${asset}`;
+                  })()}
+                </td>
                 <td>{order.status}</td>
                 {open && (
                   <td>
