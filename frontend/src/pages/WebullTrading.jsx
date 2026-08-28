@@ -141,20 +141,12 @@ export default function WebullTrading({ isLightMode = false }) {
     tradingSession: 'CORE',
   });
 
-  const availableOrderTypes = useMemo(() => {
-    if (selectedInstrumentType === 'CRYPTO') {
-      return [
-        { value: 'LIMIT', label: 'Limit', description: 'Execute at specified limit price or better' },
-        { value: 'MARKET', label: 'Market', description: 'Execute immediately at current market price' },
-      ];
-    }
-    return [
-      { value: 'LIMIT', label: 'Limit', description: 'Execute at specified limit price or better' },
-      { value: 'MARKET', label: 'Market', description: 'Execute immediately at current market price' },
-      { value: 'STOP', label: 'Stop Loss', description: 'Market order triggered when price reaches stop price' },
-      { value: 'STOP_LIMIT', label: 'Stop Limit', description: 'Limit order triggered when price reaches stop price' },
-    ];
-  }, [selectedInstrumentType]);
+  const availableOrderTypes = useMemo(() => [
+    { value: 'LIMIT', label: 'Limit', description: 'Execute at specified limit price or better' },
+    { value: 'MARKET', label: 'Market', description: 'Execute immediately at current market price' },
+    { value: 'STOP', label: 'Stop Loss', description: 'Market order triggered when price reaches stop price' },
+    { value: 'STOP_LIMIT', label: 'Stop Limit', description: 'Limit order triggered when price reaches stop price' },
+  ], []);
 
   // Reset to LIMIT if current type is unsupported for current asset class
   useEffect(() => {
@@ -187,7 +179,7 @@ export default function WebullTrading({ isLightMode = false }) {
     try {
       const [portfolioResponse, historyResponse, openResponse, signalsResponse, signalSettingsResponse, previewResponse] = await Promise.all([
         axios.get('/api/coin-data-live', { withCredentials: true }),
-        axios.get('/api/trading/real-orders?limit=all', { withCredentials: true }),
+        axios.get('/api/trading/real-orders?account_scope=webull&limit=100', { withCredentials: true }),
         axios.get('/api/webull/open-orders', { withCredentials: true }),
         axios.get('/api/webull/ai-signals?limit=50', { withCredentials: true }),
         axios.get('/api/webull/ai-settings', { withCredentials: true }),

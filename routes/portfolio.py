@@ -2357,9 +2357,11 @@ def get_real_orders_only():
                     and webull_credential.webull_token_environment == webull_environment
                     and webull_credential.webull_access_token
                 ):
+                    target_acc = request.args.get('account_id')
                     webull_orders = get_webull_order_history(
                         webull_credential.webull_app_key, webull_credential.webull_app_secret,
                         webull_environment, webull_credential.webull_access_token, page_size=100,
+                        account_id=target_acc,
                     )
                     for order in webull_orders:
                         order_id = order.get('order_id') or order.get('orderId') or order.get('client_order_id') or order.get('clientOrderId')

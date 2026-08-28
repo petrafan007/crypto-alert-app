@@ -5,6 +5,7 @@ import hashlib
 import hmac
 from datetime import datetime, timezone
 import json
+import threading
 import time
 from urllib.parse import quote
 from uuid import uuid4
@@ -12,6 +13,32 @@ from uuid import uuid4
 import requests
 
 from log import logger
+
+_WEBULL_ACCOUNTS_CACHE = {}       # (app_key, environment) -> (timestamp, accounts)
+_WEBULL_OPEN_ORDERS_CACHE = {}    # (app_key, environment, account_id) -> (timestamp, records)
+_WEBULL_ORDER_HISTORY_CACHE = {}  # (app_key, environment, account_id) -> (timestamp, records)
+_WEBULL_ORDER_LOCK = threading.Lock()
+_WEBULL_LAST_ORDER_REQUEST_TIME = 0.0
+
+
+def clear_webull_order_cache():
+    """Invalidate cached accounts, open orders, and order history."""
+    _WEBULL_ACCOUNTS_CACHE.clear()
+    _WEBULL_OPEN_ORDERS_CACHE.clear()
+    _WEBULL_ORDER_HISTORY_CACHE.clear()
+
+
+def _rate_limited_order_request(*args, **kwargs):
+    """Serialize Webull order API requests to stay within rate limits (max 1 req/2.05s)."""
+    global _WEBULL_LAST_ORDER_REQUEST_TIME
+    with _WEBULL_ORDER_LOCK:
+        now = time.time()
+        elapsed = now - _WEBULL_LAST_ORDER_REQUEST_TIME
+        if elapsed < 2.05:
+            time.sleep(2.05 - elapsed)
+        resp = _webull_request(*args, **kwargs)
+        _WEBULL_LAST_ORDER_REQUEST_TIME = time.time()
+        return resp
 
 
 WEBULL_ENVIRONMENTS = {
@@ -155,6 +182,14 @@ def get_webull_account_list(app_key, app_secret, environment='production', acces
 
 def get_webull_accounts(app_key, app_secret, environment='production', access_token=None):
     """Return the authenticated user's Webull accounts using the established read-only endpoint."""
+    normalized_env = normalize_webull_environment(environment)
+    cache_key = (app_key, normalized_env)
+    now = time.time()
+    if cache_key in _WEBULL_ACCOUNTS_CACHE:
+        cached_time, cached_accounts = _WEBULL_ACCOUNTS_CACHE[cache_key]
+        if now - cached_time < 60:
+            return [dict(a) for a in cached_accounts]
+
     payload = _response_payload(
         get_webull_account_list(app_key, app_secret, environment, access_token),
         'account-list request',
@@ -199,6 +234,7 @@ def get_webull_accounts(app_key, app_secret, environment='production', access_to
         if sub_type:
             item['account_sub_type'] = sub_type
         accounts.append(item)
+    _WEBULL_ACCOUNTS_CACHE[cache_key] = (now, accounts)
     return accounts
 
 
@@ -524,28 +560,40 @@ def get_webull_stock_movers(app_key, app_secret, environment='production', acces
     return movers
 
 
-def get_webull_order_history(app_key, app_secret, environment='production', access_token=None, page_size=100):
-    """Return recent historical orders for every authenticated Webull account.
+def get_webull_order_history(app_key, app_secret, environment='production', access_token=None, page_size=100, account_id=None):
+    """Return recent historical orders for Webull accounts.
 
-    This only uses Webull's historical-order query endpoint. It never queries
-    open orders and cannot place, amend, or cancel an order.
+    If account_id is provided, fetches only for that specific account.
+    Caches results in memory for 15 seconds to prevent rate-limit thrashing.
     """
+    normalized_env = normalize_webull_environment(environment)
+    safe_account_id = str(account_id or '').strip() or None
+    cache_key = (app_key, normalized_env, safe_account_id)
+    now = time.time()
+    if cache_key in _WEBULL_ORDER_HISTORY_CACHE:
+        cached_time, cached_records = _WEBULL_ORDER_HISTORY_CACHE[cache_key]
+        if now - cached_time < 15:
+            return [dict(r) for r in cached_records]
+
+    all_accounts = get_webull_accounts(app_key, app_secret, environment, access_token)
+    if safe_account_id:
+        target_accounts = [a for a in all_accounts if a['account_id'] == safe_account_id]
+        if not target_accounts:
+            target_accounts = [{'account_id': safe_account_id, 'account_type': 'Target'}]
+    else:
+        target_accounts = all_accounts
+
     records = []
     safe_page_size = max(1, min(int(page_size or 100), 100))
-    for index, account in enumerate(get_webull_accounts(app_key, app_secret, environment, access_token)):
-        if index:
-            # Production Order History is limited to two requests per two seconds.
-            time.sleep(2.05)
-        account_id = account['account_id']
-        params = {'account_id': account_id, 'page_size': safe_page_size}
-        response = _webull_request(
+    for account in target_accounts:
+        acc_id = account['account_id']
+        params = {'account_id': acc_id, 'page_size': safe_page_size}
+        response = _rate_limited_order_request(
             app_key, app_secret, environment, 'GET', '/trading/orders/historical-orders/list',
             query_params=params, access_token=access_token,
         )
-        # Retain the legacy path as a compatibility fallback for older approved
-        # Webull applications, just as the account resources do.
         if getattr(response, 'status_code', None) == 404:
-            response = _webull_request(
+            response = _rate_limited_order_request(
                 app_key, app_secret, environment, 'GET', '/openapi/trade/order/history',
                 query_params=params, access_token=access_token,
             )
@@ -557,30 +605,46 @@ def get_webull_order_history(app_key, app_secret, environment='production', acce
             continue
         for order in _flatten_webull_order_groups(items):
             if isinstance(order, dict):
-                records.append({**order, '_webull_account_id': account_id, '_webull_account_type': account.get('account_type')})
+                records.append({**order, '_webull_account_id': acc_id, '_webull_account_type': account.get('account_type')})
+
+    _WEBULL_ORDER_HISTORY_CACHE[cache_key] = (now, records)
     return records
 
 
-def get_webull_open_orders(app_key, app_secret, environment='production', access_token=None, page_size=100):
-    """Return open orders for every authenticated Webull account, read-only.
+def get_webull_open_orders(app_key, app_secret, environment='production', access_token=None, page_size=100, account_id=None):
+    """Return open orders for Webull accounts, read-only.
 
-    This intentionally uses only order-list APIs.  It is used to present a
-    combined order view in the app and never creates, changes, or cancels a
-    Webull order.
+    If account_id is provided, fetches only for that specific account.
+    Caches results in memory for 15 seconds to prevent rate-limit thrashing.
     """
+    normalized_env = normalize_webull_environment(environment)
+    safe_account_id = str(account_id or '').strip() or None
+    cache_key = (app_key, normalized_env, safe_account_id)
+    now = time.time()
+    if cache_key in _WEBULL_OPEN_ORDERS_CACHE:
+        cached_time, cached_records = _WEBULL_OPEN_ORDERS_CACHE[cache_key]
+        if now - cached_time < 15:
+            return [dict(r) for r in cached_records]
+
+    all_accounts = get_webull_accounts(app_key, app_secret, environment, access_token)
+    if safe_account_id:
+        target_accounts = [a for a in all_accounts if a['account_id'] == safe_account_id]
+        if not target_accounts:
+            target_accounts = [{'account_id': safe_account_id, 'account_type': 'Target'}]
+    else:
+        target_accounts = all_accounts
+
     records = []
     safe_page_size = max(1, min(int(page_size or 100), 100))
-    for index, account in enumerate(get_webull_accounts(app_key, app_secret, environment, access_token)):
-        if index:
-            time.sleep(2.05)
-        account_id = account['account_id']
-        params = {'account_id': account_id, 'page_size': safe_page_size}
-        response = _webull_request(
+    for account in target_accounts:
+        acc_id = account['account_id']
+        params = {'account_id': acc_id, 'page_size': safe_page_size}
+        response = _rate_limited_order_request(
             app_key, app_secret, environment, 'GET', '/trading/orders/open-orders/list',
             query_params=params, access_token=access_token,
         )
         if getattr(response, 'status_code', None) == 404:
-            response = _webull_request(
+            response = _rate_limited_order_request(
                 app_key, app_secret, environment, 'GET', '/openapi/trade/order/open',
                 query_params=params, access_token=access_token,
             )
@@ -594,9 +658,11 @@ def get_webull_open_orders(app_key, app_secret, environment='production', access
             if isinstance(order, dict):
                 records.append({
                     **order,
-                    '_webull_account_id': account_id,
+                    '_webull_account_id': acc_id,
                     '_webull_account_type': account.get('account_type'),
                 })
+
+    _WEBULL_OPEN_ORDERS_CACHE[cache_key] = (now, records)
     return records
 
 
@@ -662,8 +728,6 @@ def place_webull_order(
         clean_instrument = 'CRYPTO'
         if not clean_symbol.endswith('USD'):
             clean_symbol = f'{clean_symbol}USD'
-        if clean_type not in {'MARKET', 'LIMIT'}:
-            raise WebullConnectionError('Webull crypto accounts only support MARKET and LIMIT orders.')
     elif clean_instrument in {'ETF', 'STOCK', 'SECURITY', 'EQUITY'}:
         clean_instrument = 'EQUITY'
     else:
@@ -730,6 +794,8 @@ def place_webull_order(
             first = items[0]
             if isinstance(first, dict):
                 order_id = first.get('order_id') or first.get('orderId')
+
+    clear_webull_order_cache()
     return {
         'success': True,
         'order_id': order_id or order_payload['client_order_id'],
@@ -769,6 +835,7 @@ def cancel_webull_order(
         )
 
     payload = _response_payload(response, 'order cancellation')
+    clear_webull_order_cache()
     return {
         'success': True,
         'order_id': order_id or client_order_id,

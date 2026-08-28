@@ -90,26 +90,54 @@ export default function Orders() {
   const [historyPage, setHistoryPage] = useState(1);
   const [historyPageSize, setHistoryPageSize] = useState(50);
 
-  const load = async () => {
-    setLoading(true); setNotice('');
+  const [historyLoading, setHistoryLoading] = useState(false);
+
+  const loadOpenOrders = async () => {
     try {
-      const [historyResponse, binanceOpenResponse, webullOpenResponse] = await Promise.all([
-        axios.get('/api/trading/real-orders?limit=all', { withCredentials: true }),
+      const [binanceOpenResponse, webullOpenResponse] = await Promise.all([
         axios.get('/api/pending-orders', { withCredentials: true }),
         axios.get('/api/webull/open-orders', { withCredentials: true }),
       ]);
-      const allHistory = (historyResponse.data?.orders || []).map((order) => normalize(order, isWebull(order) ? 'webull' : 'binance'));
-      setHistory(allHistory);
       const binanceOpen = (binanceOpenResponse.data?.pending_orders || binanceOpenResponse.data?.orders || []).map((order) => normalize(order, 'binance'));
-      const binanceFromHistory = allHistory.filter((order) => !isWebull(order) && OPEN_STATUSES.has(String(order.status).toUpperCase()));
       const webullOpen = (webullOpenResponse.data?.orders || []).map((order) => normalize(order, 'webull'));
       const uniqueOpenOrders = new Map();
-      [...binanceOpen, ...binanceFromHistory, ...webullOpen].forEach((order) => uniqueOpenOrders.set(`${order.source}-${order.id}`, order));
+      [...binanceOpen, ...webullOpen].forEach((order) => uniqueOpenOrders.set(`${order.source}-${order.id}`, order));
       setOpenOrders([...uniqueOpenOrders.values()]);
-      if (webullOpenResponse.data?.success === false) setNotice(webullOpenResponse.data?.message || 'Webull open orders could not be refreshed.');
+      if (webullOpenResponse.data?.success === false) {
+        setNotice(webullOpenResponse.data?.message || 'Webull open orders could not be refreshed.');
+      }
     } catch (error) {
-      setNotice(error.response?.data?.message || 'Unable to load combined orders.');
-    } finally { setLoading(false); }
+      setNotice(error.response?.data?.message || 'Unable to load open orders.');
+    }
+  };
+
+  const loadHistory = async () => {
+    setHistoryLoading(true);
+    try {
+      const historyResponse = await axios.get('/api/trading/real-orders?limit=100', { withCredentials: true });
+      const allHistory = (historyResponse.data?.orders || []).map((order) => normalize(order, isWebull(order) ? 'webull' : 'binance'));
+      setHistory(allHistory);
+      const binanceFromHistory = allHistory.filter((order) => !isWebull(order) && OPEN_STATUSES.has(String(order.status).toUpperCase()));
+      if (binanceFromHistory.length) {
+        setOpenOrders((prev) => {
+          const map = new Map();
+          [...prev, ...binanceFromHistory].forEach((o) => map.set(`${o.source}-${o.id}`, o));
+          return [...map.values()];
+        });
+      }
+    } catch (error) {
+      // Background history loading errors non-blocking
+    } finally {
+      setHistoryLoading(false);
+    }
+  };
+
+  const load = async () => {
+    setLoading(true);
+    setNotice('');
+    await loadOpenOrders();
+    setLoading(false);
+    loadHistory();
   };
 
   useEffect(() => { load(); }, []);
@@ -182,6 +210,8 @@ export default function Orders() {
               <h2>All Open Orders</h2>
               <OrderTable orders={activeOpenOrders} open onCancelOrder={handleCancelOrder} cancellingId={cancellingId} />
             </>
+          ) : historyLoading && !sortedHistory.length ? (
+            <div className="empty-state"><p>Loading order history…</p></div>
           ) : (
             <>
               <h2>All Order History</h2>

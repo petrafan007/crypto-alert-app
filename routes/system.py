@@ -1773,9 +1773,11 @@ def api_webull_open_orders():
         ):
             return jsonify({'success': True, 'orders': [], 'message': 'Webull is not connected.'})
 
+        account_id = request.args.get('account_id')
         orders = get_webull_open_orders(
             credential.webull_app_key, credential.webull_app_secret,
             environment, credential.webull_access_token,
+            account_id=account_id,
         )
         return jsonify({'success': True, 'orders': orders})
     except WebullConnectionError as exc:

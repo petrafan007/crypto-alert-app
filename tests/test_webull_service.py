@@ -18,10 +18,14 @@ from services.webull_service import (
     normalize_webull_environment,
     parse_webull_expiry,
     test_webull_connection as check_webull_connection,
+    clear_webull_order_cache,
 )
 
 
 class WebullServiceTests(unittest.TestCase):
+    def setUp(self):
+        clear_webull_order_cache()
+
     def test_environment_normalization_accepts_only_supported_values(self):
         self.assertEqual(normalize_webull_environment('Production'), 'production')
         self.assertEqual(normalize_webull_environment('sandbox'), 'sandbox')
@@ -313,6 +317,22 @@ class WebullServiceTests(unittest.TestCase):
         self.assertEqual(body['orders'][0]['stop_price'], '120.00')
         self.assertEqual(body['orders'][0]['limit_price'], '118.50')
 
+        # Test crypto STOP_LIMIT order
+        with patch('services.webull_service._webull_request', return_value=response) as request_mock:
+            result = place_webull_order(
+                'app-key', 'app-secret', 'production', 'token-123',
+                account_id='acc-1', symbol='BTCUSD', instrument_type='CRYPTO',
+                side='BUY', order_type='STOP_LIMIT', quantity=0.5,
+                stop_price=65000.0, limit_price=65100.0,
+            )
+        self.assertTrue(result['success'])
+        body = request_mock.call_args.kwargs['body']
+        self.assertEqual(body['orders'][0]['symbol'], 'BTCUSD')
+        self.assertEqual(body['orders'][0]['instrument_type'], 'CRYPTO')
+        self.assertEqual(body['orders'][0]['order_type'], 'STOP_LIMIT')
+        self.assertEqual(body['orders'][0]['stop_price'], '65000.00')
+        self.assertEqual(body['orders'][0]['limit_price'], '65100.00')
+
 
     def test_cancel_webull_order_payload_and_response(self):
         response = Mock(status_code=200)
@@ -365,4 +385,25 @@ class AccountScopeAndFilteringTests(unittest.TestCase):
         self.assertEqual(len(filtered), 2)
         self.assertEqual([a['account_id'] for a in filtered], ['acc-1', 'acc-3'])
         self.assertNotIn('acc-2', [a['account_id'] for a in filtered])
+
+    def test_open_orders_targeted_account_and_cache(self):
+        from services.webull_service import get_webull_open_orders, clear_webull_order_cache
+        clear_webull_order_cache()
+        response = Mock(status_code=200)
+        response.json.return_value = {
+            'data': [{'order_id': 'wb-1', 'symbol': 'BTCUSD', 'order_type': 'STOP_LIMIT'}]
+        }
+        with patch('services.webull_service.get_webull_accounts', return_value=[{'account_id': 'acc-targeted', 'account_type': 'Crypto'}]) as acc_mock:
+            with patch('services.webull_service._webull_request', return_value=response) as req_mock:
+                # First call
+                orders = get_webull_open_orders('app-key', 'app-secret', 'production', 'token', account_id='acc-targeted')
+                self.assertEqual(len(orders), 1)
+                self.assertEqual(orders[0]['order_id'], 'wb-1')
+                self.assertEqual(req_mock.call_count, 1)
+
+                # Second call should hit cache without extra HTTP call
+                orders2 = get_webull_open_orders('app-key', 'app-secret', 'production', 'token', account_id='acc-targeted')
+                self.assertEqual(len(orders2), 1)
+                self.assertEqual(req_mock.call_count, 1)  # Still 1 because cached!
+
 
