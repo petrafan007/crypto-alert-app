@@ -232,4 +232,36 @@ export const CryptoIcon = ({ symbol, size = 20, className = '' }) => {
   );
 };
 
+export const BinanceLogo = ({ size = 28, style = {} }) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 32 32"
+    fill="none"
+    style={{ verticalAlign: 'middle', display: 'inline-block', flexShrink: 0, ...style }}
+  >
+    <circle cx="16" cy="16" r="16" fill="#F3BA2F" />
+    <path
+      d="M16 6.5l3.5 3.5-3.5 3.5-3.5-3.5L16 6.5zm-5.5 5.5l3.5 3.5L10.5 19 7 15.5l3.5-3.5zm11 0l3.5 3.5-3.5 3.5-3.5-3.5 3.5-3.5zM16 15.5l3.5 3.5-3.5 3.5-3.5-3.5 3.5-3.5zm0 9l3.5-3.5 3.5 3.5L16 28l-7-3.5 3.5-3.5 3.5 3.5z"
+      fill="#FFF"
+    />
+  </svg>
+);
+
+export const WebullLogo = ({ size = 28, style = {} }) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 48 48"
+    fill="none"
+    style={{ verticalAlign: 'middle', display: 'inline-block', flexShrink: 0, ...style }}
+  >
+    <rect width="48" height="48" rx="10" fill="#205BFF" />
+    <path
+      d="M13 18C13 18 16 28 20 28C24 28 24 21 24 21C24 21 24 28 28 28C32 28 35 18 35 18C35 18 31 22 28 22C25 22 25 16 25 16H23C23 16 23 22 20 22C17 22 13 18 13 18Z"
+      fill="white"
+    />
+  </svg>
+);
+
 export default CryptoIcon;

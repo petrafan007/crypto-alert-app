@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import SearchablePairSelect from './SearchablePairSelect';
 import './TradingViewAdvancedChart.css';
 
 const SCRIPT = 'https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js';
@@ -41,7 +42,6 @@ export default function WebullTradingViewChart({
 }) {
   const hostRef = useRef(null);
   const [status, setStatus] = useState('loading');
-  const [customSearch, setCustomSearch] = useState('');
   const isCrypto = instrumentType === 'CRYPTO';
 
   // Combine user's imported holdings with default lists
@@ -49,13 +49,25 @@ export default function WebullTradingViewChart({
     const fromHoldings = holdings
       .filter((h) => !/crypto|coin|token/i.test(h.instrument_type || '') && h.symbol)
       .map((h) => ({
+        id: h.symbol.toUpperCase(),
         symbol: h.symbol.toUpperCase(),
         name: h.name || h.symbol,
+        display_name: `${h.symbol.toUpperCase()} — ${h.name || 'Holding'}`,
         type: h.instrument_type || 'EQUITY',
+        isHolding: true,
       }));
     const map = new Map();
-    [...fromHoldings, ...DEFAULT_STOCKS].forEach((item) => {
-      if (!map.has(item.symbol)) map.set(item.symbol, item);
+    fromHoldings.forEach((item) => map.set(item.symbol, item));
+    DEFAULT_STOCKS.forEach((item) => {
+      if (!map.has(item.symbol)) {
+        map.set(item.symbol, {
+          id: item.symbol,
+          symbol: item.symbol,
+          name: item.name,
+          display_name: `${item.symbol} — ${item.name}`,
+          type: item.type,
+        });
+      }
     });
     return Array.from(map.values());
   }, [holdings]);
@@ -67,15 +79,30 @@ export default function WebullTradingViewChart({
         const clean = h.symbol.toUpperCase();
         const pair = clean.endsWith('USD') ? clean : `${clean}USD`;
         return {
+          id: pair,
           symbol: pair,
           name: `${clean.replace(/USD$/, '')} / USD`,
+          display_name: `${pair} (${clean.replace(/USD$/, '')} / USD)`,
           base: clean.replace(/USD$/, ''),
           quote: 'USD',
+          quote_currency: 'USD',
+          isHolding: true,
         };
       });
     const map = new Map();
-    [...fromHoldings, ...DEFAULT_CRYPTO_PAIRS].forEach((item) => {
-      if (!map.has(item.symbol)) map.set(item.symbol, item);
+    fromHoldings.forEach((item) => map.set(item.symbol, item));
+    DEFAULT_CRYPTO_PAIRS.forEach((item) => {
+      if (!map.has(item.symbol)) {
+        map.set(item.symbol, {
+          id: item.symbol,
+          symbol: item.symbol,
+          name: item.name,
+          display_name: `${item.symbol} (${item.name})`,
+          base: item.base,
+          quote: item.quote,
+          quote_currency: item.quote,
+        });
+      }
     });
     return Array.from(map.values());
   }, [holdings]);
@@ -149,32 +176,10 @@ export default function WebullTradingViewChart({
     };
   }, [tvSymbol, isLightMode, pageUrl, symbol]);
 
-  const handleSelectInstrument = (e) => {
-    const val = e.target.value;
-    if (isCrypto) {
-      onInstrumentChange?.({ symbol: val, instrumentType: 'CRYPTO' });
-    } else {
-      onInstrumentChange?.({ symbol: val, instrumentType: 'EQUITY' });
-    }
-  };
-
-  const handleCustomSearchSubmit = (e) => {
-    e.preventDefault();
-    const query = customSearch.trim().toUpperCase();
-    if (!query) return;
-    if (isCrypto) {
-      const pair = query.endsWith('USD') ? query : `${query}USD`;
-      onInstrumentChange?.({ symbol: pair, instrumentType: 'CRYPTO' });
-    } else {
-      onInstrumentChange?.({ symbol: query, instrumentType: 'EQUITY' });
-    }
-    setCustomSearch('');
-  };
-
   return (
     <section className="advanced-trading-chart" aria-label={`${symbol} Webull advanced chart`}>
       <header className="advanced-chart-header" style={{ flexWrap: 'wrap', gap: '16px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '16px', flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '16px', flexWrap: 'wrap', width: '100%' }}>
           {/* Webull Account Selector */}
           {accounts.length > 0 && (
             <div className="advanced-chart-pair-control" style={{ width: 'min(100%, 300px)' }}>
@@ -215,70 +220,25 @@ export default function WebullTradingViewChart({
             </div>
           )}
 
-          {/* Instrument / Pair Dropdown */}
-          <div className="advanced-chart-pair-control" style={{ width: 'min(100%, 300px)' }}>
+          {/* Unified Searchable Instrument / Pair Selector */}
+          <div className="advanced-chart-pair-control" style={{ width: 'min(100%, 340px)' }}>
             <span className="advanced-chart-control-label">
               {isCrypto ? 'Cryptocurrency Pair for Chart & Orders' : 'Stock / ETF for Chart & Orders'}
             </span>
-            <select
+            <SearchablePairSelect
               value={symbol}
-              onChange={handleSelectInstrument}
-              style={{
-                width: '100%',
-                padding: '9px 12px',
-                borderRadius: '8px',
-                background: isLightMode ? '#ffffff' : '#0f172a',
-                color: isLightMode ? '#0f172a' : '#f8fafc',
-                border: isLightMode ? '1px solid #cbd5e1' : '1px solid rgba(129, 140, 248, 0.4)',
-                fontSize: '13px',
-                fontWeight: 600,
-                cursor: 'pointer',
+              onChange={(nextSym) => {
+                onInstrumentChange?.({
+                  symbol: nextSym,
+                  instrumentType: isCrypto ? 'CRYPTO' : 'EQUITY',
+                });
               }}
-            >
-              {isCrypto
-                ? availableCrypto.map((pair) => (
-                    <option key={pair.symbol} value={pair.symbol}>
-                      {pair.symbol} ({pair.name})
-                    </option>
-                  ))
-                : availableTraditional.map((stk) => (
-                    <option key={stk.symbol} value={stk.symbol}>
-                      {stk.symbol} - {stk.name}
-                    </option>
-                  ))}
-            </select>
-          </div>
-        </div>
-
-        {/* Quick Ticker Search Input */}
-        <form onSubmit={handleCustomSearchSubmit} style={{ display: 'flex', alignItems: 'flex-end', gap: '8px' }}>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-            <span className="advanced-chart-control-label">Enter Custom Ticker</span>
-            <input
-              type="text"
-              placeholder={isCrypto ? 'e.g. SOL, DOGE' : 'e.g. AMD, PLTR, DIS'}
-              value={customSearch}
-              onChange={(e) => setCustomSearch(e.target.value.toUpperCase())}
-              style={{
-                padding: '8px 12px',
-                borderRadius: '8px',
-                background: isLightMode ? '#ffffff' : '#0f172a',
-                color: isLightMode ? '#0f172a' : '#f8fafc',
-                border: isLightMode ? '1px solid #cbd5e1' : '1px solid rgba(255, 255, 255, 0.2)',
-                fontSize: '13px',
-                textTransform: 'uppercase',
-                width: '160px',
-              }}
+              tradingPairs={isCrypto ? availableCrypto : availableTraditional}
+              mode={isCrypto ? 'crypto' : 'traditional'}
+              placeholder={isCrypto ? 'Search crypto pairs (e.g. BTC, ETH, SOL)...' : 'Search stocks & ETFs (e.g. AAPL, NVDA, SPY)...'}
             />
           </div>
-          <button
-            type="submit"
-            className="btn btn-secondary"
-            style={{ padding: '8px 14px', fontSize: '13px', borderRadius: '8px' }}
-          >
-            Load
-          </button>
-        </form>
+        </div>
       </header>
 
       <div className="advanced-chart-capabilities">

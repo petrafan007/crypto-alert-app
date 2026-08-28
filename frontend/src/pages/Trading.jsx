@@ -9,7 +9,7 @@ import TradeTimelineChart from '../components/TradeTimelineChart';
 import TradePermissionModal from '../components/TradePermissionModal';
 import ApiKeyRequiredModal from '../components/ApiKeyRequiredModal';
 import SearchablePairSelect from '../components/SearchablePairSelect';
-import CryptoIcon from '../components/CryptoIcon';
+import CryptoIcon, { BinanceLogo } from '../components/CryptoIcon';
 import AIDashboard from './AIDashboard';
 import './Trading.css';
 import { useLocation, useNavigate } from 'react-router-dom';
@@ -1650,7 +1650,9 @@ const Trading = ({ isLightMode = false }) => {
       />
       <div className="trading-header">
         <div className="trading-header-left">
-          <h1 style={{ fontSize: '2rem', margin: 0 }}>🔄 Binance.US Trading</h1>
+          <h1 style={{ fontSize: '2rem', margin: 0, display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <BinanceLogo size={32} /> Binance.US Trading
+          </h1>
 
           {/* Test Mode Banner */}
           {settings.test_mode_enabled && (

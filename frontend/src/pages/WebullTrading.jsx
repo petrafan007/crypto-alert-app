@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
-import CryptoIcon from '../components/CryptoIcon';
+import CryptoIcon, { WebullLogo } from '../components/CryptoIcon';
 import WebullTradingViewChart from '../components/WebullTradingViewChart';
 import WebullTradeTimelineChart from '../components/WebullTradeTimelineChart';
 import './Trading.css';
@@ -501,7 +501,9 @@ export default function WebullTrading({ isLightMode = false }) {
     <div className="trading-page" style={{ padding: '20px', maxWidth: '1500px', margin: '0 auto' }}>
       <div className="trading-header" style={{ marginBottom: '18px' }}>
         <div>
-          <h1 style={{ fontSize: '2rem', margin: 0 }}>📈 Webull Trading</h1>
+          <h1 style={{ fontSize: '2rem', margin: 0, display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <WebullLogo size={32} /> Webull Trading
+          </h1>
           <p style={{ margin: '6px 0 0', color: '#94a3b8' }}>
             Execute orders, manage open positions, and review signals via Webull OpenAPI.
           </p>
@@ -750,18 +752,20 @@ export default function WebullTrading({ isLightMode = false }) {
                         <option value="GTC">Good &apos;Til Canceled (GTC)</option>
                       </select>
                     </div>
-                    <div className="order-input-group">
-                      <label className="order-field-label">Trading Session</label>
-                      <select
-                        value={orderForm.tradingSession}
-                        onChange={(e) => setOrderForm((prev) => ({ ...prev, tradingSession: e.target.value }))}
-                        className="order-styled-input"
-                        style={{ cursor: 'pointer' }}
-                      >
-                        <option value="CORE">Regular Hours (CORE: 9:30 AM - 4:00 PM ET)</option>
-                        <option value="ALL">Extended Hours (ALL: Pre &amp; Post Market)</option>
-                      </select>
-                    </div>
+                    {selectedInstrumentType !== 'CRYPTO' && (
+                      <div className="order-input-group">
+                        <label className="order-field-label">Trading Session</label>
+                        <select
+                          value={orderForm.tradingSession}
+                          onChange={(e) => setOrderForm((prev) => ({ ...prev, tradingSession: e.target.value }))}
+                          className="order-styled-input"
+                          style={{ cursor: 'pointer' }}
+                        >
+                          <option value="CORE">Regular Hours (CORE: 9:30 AM - 4:00 PM ET)</option>
+                          <option value="ALL">Extended Hours (ALL: Pre &amp; Post Market)</option>
+                        </select>
+                      </div>
+                    )}
                   </div>
 
                   {/* Row 3: Use Balance Slider Section */}
