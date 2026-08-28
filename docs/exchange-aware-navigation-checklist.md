@@ -1,6 +1,6 @@
 # Exchange-Aware Navigation & Account Views — Review Checklist
 
-Status: **Acceptance criteria defined and implemented through v2.40.2**
+Status: **Acceptance criteria defined and implemented through v2.40.3**
 Scope: Replace the current Binance-centric navigation model with explicit Binance.US, Webull, and All Accounts contexts.
 
 ## Confirmed product decisions
@@ -59,7 +59,7 @@ Scope: Replace the current Binance-centric navigation model with explicit Binanc
 - [x] CHK022 Combined Orders opens on **Open Orders** and provides **Order History** as the second tab. History is fetched on demand from the persisted order/activity ledger, never by an exchange-wide API scan; Open Orders begins with Binance.US plus app automation and progressively merges Webull account results. [Decision, Implemented in v2.40.2]
 - [x] CHK023 The Account column contains only the owning account and is centered: `Binance.US` for Binance and app automation, and the connected Webull account’s masked label for Webull. Automation identity remains visible in the existing Side/Type fields, not the Account column. Rows sort newest-first within both tabs. [Decision, Implemented in v2.40.2]
 - [x] CHK024 Combined Orders provides client-side filters for source, account, symbol, product type (crypto, stock/ETF, option, future, automation, other), status, and time range (24 hours, 7/30/90 days, all). Filters apply consistently to Open Orders and History without triggering additional exchange reads; app-managed orders are recognized from either current automation fields or legacy `AUTO_BUY`/`AUTO_SELL` order types. [Implemented in v2.40.1]
-- [x] CHK025 Cancellation behavior is explicitly constrained to the owning exchange and account (routed to Webull OpenAPI or Binance.US with no cross-exchange fallback). [Implemented in v2.34.0]
+- [x] CHK025 Cancellation behavior is constrained to the owning exchange and account (routed to Webull OpenAPI or Binance.US with no cross-exchange fallback). Combined Orders and Webull Open Orders use the shared theme-aware native cancellation modal, show the precise provider/account/order or trigger details, and require a six-digit 2FA code; Webull and app-trigger cancellation endpoints enforce enabled 2FA server-side. [Implemented in v2.40.3]
 - [x] CHK026 Combined Orders renders Binance.US-native orders and active in-app Auto-Buy/Auto-Sell triggers first; rate-limited Webull account reads merge progressively with in-view account progress, while history loads on demand. [Implemented in v2.39.1]
 
 ### Data integrity, security, and release scope

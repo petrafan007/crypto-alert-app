@@ -23,11 +23,24 @@ export default function CancelOrderModal({
     return null;
   }
 
-  const isAutoBuy = order?.is_auto_trigger && order?.trigger_type === 'auto_buy';
-  const isAutoSell = order?.is_auto_trigger && order?.trigger_type === 'auto_sell';
+  const automationType = String(order?.trigger_type || order?.origin || order?.order_type || '').toLowerCase();
+  const isAutoBuy = Boolean(order?.is_auto_trigger) && automationType === 'auto_buy';
+  const isAutoSell = Boolean(order?.is_auto_trigger) && automationType === 'auto_sell';
   const isAutoTrigger = isAutoBuy || isAutoSell;
   const tradingPair = order?.symbol || 'this trading pair';
   const baseSymbol = order?.base_symbol || tradingPair;
+  const provider = order?.cancel_provider || 'Binance.US';
+  const accountLabel = order?.cancel_account_label || provider;
+  const side = String(order?.side || 'Order').replace(/_/g, ' ');
+  const orderType = String(order?.order_type || order?.type || 'Order').replace(/_/g, ' ');
+  const quantity = order?.quantity ?? order?.origQty ?? order?.total_quantity ?? order?.order_quantity;
+  const price = Number(order?.price ?? order?.limit_price ?? order?.order_price ?? 0);
+  const normalOrderDescription = [
+    side,
+    orderType,
+    quantity !== undefined && quantity !== null && quantity !== '' ? `${quantity} ${tradingPair}` : tradingPair,
+    price > 0 ? `at $${price.toLocaleString(undefined, { maximumFractionDigits: 6 })}` : 'at market price',
+  ].join(' · ');
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -49,7 +62,7 @@ export default function CancelOrderModal({
     <div className="two-factor-modal-backdrop" onClick={handleBackdropClick}>
       <div className="two-factor-modal">
         <div className="two-factor-modal-header">
-          <h3>{isAutoBuy ? 'Cancel Auto-Buy Trigger' : isAutoSell ? 'Cancel Auto-Sell Trigger' : 'Cancel Order'}</h3>
+          <h3>{isAutoBuy ? 'Cancel Auto-Buy Trigger' : isAutoSell ? 'Cancel Auto-Sell Trigger' : `Cancel ${provider} Order`}</h3>
           {!loading && (
             <button
               className="two-factor-close"
@@ -65,11 +78,11 @@ export default function CancelOrderModal({
           <p style={{ marginBottom: '18px', fontSize: '15px', color: '#e2e8f0' }}>
             {isAutoTrigger ? (
               <>
-                Enter your 6-digit two-factor authentication code to confirm cancellation of the active <strong>{isAutoBuy ? 'Auto-Buy' : 'Auto-Sell'}</strong> trigger for <strong>{baseSymbol}</strong> {order?.trigger_details ? `(${order.trigger_details})` : ''}.
+                Enter your 6-digit two-factor authentication code to confirm cancellation of the active <strong>{isAutoBuy ? 'Auto-Buy' : 'Auto-Sell'}</strong> trigger for <strong>{baseSymbol}</strong> {order?.trigger_details ? `(${order.trigger_details})` : ''} in <strong>{accountLabel}</strong>.
               </>
             ) : (
               <>
-                Enter your 6-digit two-factor authentication code to confirm cancellation of this order for <strong>{tradingPair}</strong>.
+                Enter your 6-digit two-factor authentication code to confirm cancellation of this open <strong>{provider}</strong> order in <strong>{accountLabel}</strong>: <strong>{normalOrderDescription}</strong>.
               </>
             )}
           </p>
@@ -85,12 +98,13 @@ export default function CancelOrderModal({
                 maxLength="6"
                 value={code}
                 onChange={(e) => {
-                  const value = e.target.value.replace(/\\D/g, '').slice(0, 6);
+                  const value = e.target.value.replace(/\D/g, '').slice(0, 6);
                   setCode(value);
                   setLocalError('');
                 }}
                 placeholder="000000"
                 className="two-factor-input"
+                autoComplete="one-time-code"
                 autoFocus
                 disabled={loading}
               />

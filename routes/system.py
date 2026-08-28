@@ -84,6 +84,33 @@ from flask import make_response, send_file
 system_bp = Blueprint('system', __name__)
 
 
+def _cancellation_2fa_error(data):
+    """Return a cancellation 2FA error message, or ``None`` when verified.
+
+    The UI always presents the native six-digit confirmation modal.  When the
+    user has trading 2FA enabled, this server-side check is the authority that
+    prevents a Webull or app-trigger cancellation from bypassing that modal.
+    """
+    from trading_models import TradingSettings
+
+    settings = TradingSettings.query.filter_by(user_id=current_user.id).first()
+    if not settings or not getattr(settings, 'require_2fa', False) or not getattr(settings, 'totp_secret', None):
+        return None
+
+    code = str((data or {}).get('two_factor_code') or (data or {}).get('twofa_code') or '').strip()
+    if len(code) != 6 or not code.isdigit():
+        return 'A valid 6-digit two-factor authentication code is required to cancel this order.'
+
+    try:
+        import pyotp
+        if not pyotp.TOTP(settings.totp_secret).verify(code, valid_window=1):
+            return 'Invalid or expired two-factor authentication code.'
+    except Exception as exc:
+        logger.error('Cancellation 2FA verification failed: %s', exc)
+        return 'Two-factor authentication verification failed.'
+    return None
+
+
 GITHUB_RELEASES_API_URL = 'https://api.github.com/repos/petrafan007/crypto-alert-app/releases'
 
 
@@ -1922,6 +1949,11 @@ def api_webull_place_order():
 def api_webull_cancel_order():
     """Cancel an open Webull order."""
     try:
+        data = request.get_json(silent=True) or {}
+        two_factor_error = _cancellation_2fa_error(data)
+        if two_factor_error:
+            return jsonify({'success': False, 'message': two_factor_error, 'requires_2fa': True}), 403
+
         credential = Credential.query.filter_by(user_id=current_user.id).first()
         setting = UserSetting.query.filter_by(user_id=current_user.id).first()
         environment = normalize_webull_environment(getattr(setting, 'webull_environment', None) or 'production')
@@ -1931,7 +1963,6 @@ def api_webull_cancel_order():
         ):
             return jsonify({'success': False, 'message': 'Webull is not connected or token has expired.'}), 400
 
-        data = request.get_json(silent=True) or {}
         account_id = data.get('account_id') or data.get('_webull_account_id')
         client_order_id = data.get('client_order_id')
         order_id = data.get('order_id') or data.get('orderId') or data.get('id')
@@ -2628,6 +2659,10 @@ def trigger_auto_sell():
             quote_currency = 'USDT'
         enabled = data.get('enabled', True)
         volatility_pct = data.get('volatility_pct')
+        if not enabled:
+            two_factor_error = _cancellation_2fa_error(data)
+            if two_factor_error:
+                return jsonify({'success': False, 'error': two_factor_error, 'requires_2fa': True}), 403
         
         user_setting = UserSetting.query.filter_by(user_id=current_user.id).first()
         vol_hours = int(getattr(user_setting, 'volatility_hours', 24) or 24)
@@ -2772,6 +2807,10 @@ def trigger_auto_buy():
         enabled = data.get('enabled', True)
         amount = data.get('amount')
         volatility_pct = data.get('volatility_pct')
+        if not enabled:
+            two_factor_error = _cancellation_2fa_error(data)
+            if two_factor_error:
+                return jsonify({'success': False, 'error': two_factor_error, 'requires_2fa': True}), 403
 
         user_setting = UserSetting.query.filter_by(user_id=current_user.id).first()
         vol_hours = int(getattr(user_setting, 'volatility_hours', 24) or 24)

@@ -4,6 +4,7 @@ import CryptoIcon, { WebullLogo } from '../components/CryptoIcon';
 import WebullTradingViewChart from '../components/WebullTradingViewChart';
 import WebullTradeTimelineChart from '../components/WebullTradeTimelineChart';
 import TwoFactorModal from '../components/TwoFactorModal';
+import CancelOrderModal from '../components/CancelOrderModal';
 import './Trading.css';
 
 const OPEN_STATUSES = new Set(['OPEN', 'NEW', 'WORKING', 'PENDING', 'PARTIALLY_FILLED', 'PARTIALLY FILLED']);
@@ -153,6 +154,7 @@ export default function WebullTrading({ isLightMode = false }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [cancellingOrderId, setCancellingOrderId] = useState(null);
+  const [cancelModal, setCancelModal] = useState({ isVisible: false, order: null, error: '', loading: false });
 
   // Selected Instrument & Chart state
   const [selectedSymbol, setSelectedSymbol] = useState('AAPL');
@@ -664,29 +666,54 @@ export default function WebullTrading({ isLightMode = false }) {
     }
   };
 
-  // Open Orders cancellation
-  const handleCancelOpenOrder = async (order) => {
-    if (!window.confirm(`Are you sure you want to cancel the open Webull order for ${order.symbol}?`)) {
-      return;
-    }
+  const openCancelModalForOrder = (order) => {
+    const accountId = String(order._webull_account_id || order.webull_account_id || selectedAccountId || '');
+    const account = accounts.find((candidate) => String(candidate.account_id) === accountId) || activeAccount;
+    const accountName = account?.account_label || account?.account_name || account?.account_type || 'Webull account';
+    const accountMask = account?.account_id_masked || (account?.account_id ? `••••${String(account.account_id).slice(-4)}` : '');
+    setCancelModal({
+      isVisible: true,
+      order: {
+        ...order,
+        cancel_provider: 'Webull',
+        cancel_account_label: accountMask ? `${accountName} (${accountMask})` : accountName,
+      },
+      error: '',
+      loading: false,
+    });
+  };
+
+  const closeCancelModal = () => {
+    if (!cancelModal.loading) setCancelModal({ isVisible: false, order: null, error: '', loading: false });
+  };
+
+  // Webull cancellations use the same theme-aware 2FA confirmation modal as
+  // Binance.US. The backend independently verifies the entered code.
+  const handleCancelOpenOrder = async (twoFactorCode) => {
+    const order = cancelModal.order;
+    if (!order) return;
+    setCancelModal((current) => ({ ...current, loading: true, error: '' }));
     setCancellingOrderId(order.id);
     try {
       const response = await axios.post('/api/webull/orders/cancel', {
-        account_id: order._webull_account_id || selectedAccountId,
+        account_id: order._webull_account_id || order.webull_account_id || selectedAccountId,
         order_id: order.id,
         client_order_id: order.client_order_id,
+        two_factor_code: twoFactorCode,
       }, { withCredentials: true });
       if (response.data?.success) {
         setOrderFeedback({ type: 'success', message: response.data.message || 'Order cancelled successfully.' });
+        setCancelModal({ isVisible: false, order: null, error: '', loading: false });
         loadOpenOrders(selectedAccountId);
       } else {
-        setOrderFeedback({ type: 'error', message: response.data?.message || 'Unable to cancel order.' });
+        setCancelModal((current) => ({ ...current, loading: false, error: response.data?.message || 'Unable to cancel order.' }));
       }
     } catch (err) {
-      setOrderFeedback({
-        type: 'error',
-        message: err.response?.data?.message || 'Order cancellation failed.',
-      });
+      setCancelModal((current) => ({
+        ...current,
+        loading: false,
+        error: err.response?.data?.message || err.response?.data?.error || 'Order cancellation failed.',
+      }));
     } finally {
       setCancellingOrderId(null);
     }
@@ -1263,7 +1290,7 @@ export default function WebullTrading({ isLightMode = false }) {
                 <WebullOrderTable
                   orders={displayOpenOrders}
                   emptyText="No Webull open orders found."
-                  onCancelOrder={handleCancelOpenOrder}
+                  onCancelOrder={openCancelModalForOrder}
                   cancellingId={cancellingOrderId}
                 />
               </section>
@@ -1354,6 +1381,20 @@ export default function WebullTrading({ isLightMode = false }) {
           </>
         )}
       </div>
+      <TwoFactorModal
+        isVisible={twoFactorModal.isVisible}
+        onClose={() => setTwoFactorModal({ isVisible: false, orderData: null })}
+        onVerify={handleTwoFactorVerify}
+        orderDetails={twoFactorModal.orderData}
+      />
+      <CancelOrderModal
+        isVisible={cancelModal.isVisible}
+        onClose={closeCancelModal}
+        onConfirm={handleCancelOpenOrder}
+        order={cancelModal.order}
+        loading={cancelModal.loading}
+        error={cancelModal.error}
+      />
     </div>
   );
 }
@@ -1433,12 +1474,6 @@ function WebullHoldings({ holdings, compact = false }) {
           </tbody>
         </table>
       </div>
-      <TwoFactorModal
-        isVisible={twoFactorModal.isVisible}
-        onClose={() => setTwoFactorModal({ isVisible: false, orderData: null })}
-        onVerify={handleTwoFactorVerify}
-        orderDetails={twoFactorModal.orderData}
-      />
     </div>
   );
 }

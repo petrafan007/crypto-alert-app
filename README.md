@@ -123,6 +123,11 @@ The application utilizes a **unified PostgreSQL database**.
 
 ## Version History & Changelog
 
+## v2.40.3 (August 2026)
+
+- **Secure native cancellation confirmation**: Combined Orders and Webull Trading Open Orders now use the app's theme-aware cancellation modal rather than a browser prompt. It identifies the provider, account, side, order type, quantity, symbol, and price (or the active Auto-Buy/Auto-Sell trigger) before requiring the six-digit 2FA code.
+- **Server-enforced cancellation 2FA**: Webull cancellations and app Auto-Buy/Auto-Sell trigger cancellations independently validate the user's enabled 2FA code before any provider request or trigger update, preventing direct API bypasses.
+
 ## v2.40.2 (August 2026)
 
 - **Account-only Combined Orders column**: The centered Account column now shows only the owning account—`Binance.US` or the masked Webull account. Auto-Buy/Auto-Sell labels no longer appear there; their order identity remains in Side and Type.

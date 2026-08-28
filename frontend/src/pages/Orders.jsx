@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
+import CancelOrderModal from '../components/CancelOrderModal';
 import './Trading.css';
 
 const PAGE_SIZES = [20, 50, 100, 200];
@@ -121,6 +122,7 @@ export default function Orders() {
   const [loading, setLoading] = useState(true);
   const [notice, setNotice] = useState('');
   const [cancellingId, setCancellingId] = useState(null);
+  const [cancelModal, setCancelModal] = useState({ isVisible: false, order: null, error: '', loading: false });
   const [historyPage, setHistoryPage] = useState(1);
   const [historyPageSize, setHistoryPageSize] = useState(50);
   const [historyLoading, setHistoryLoading] = useState(false);
@@ -276,15 +278,30 @@ export default function Orders() {
     if (tab === 'history' && !history.length && !historyLoading) loadHistory();
   };
 
-  const handleCancelOrder = async (order) => {
+  const openCancelModalForOrder = (order) => {
+    const account = webullAccounts.find((candidate) => String(candidate.account_id) === webullAccountId(order));
+    setCancelModal({
+      isVisible: true,
+      order: {
+        ...order,
+        cancel_provider: isWebull(order) ? 'Webull' : 'Binance.US',
+        cancel_account_label: isWebull(order) ? (account ? accountLabel(account) : order.webull_account_type || 'Webull account') : 'Binance.US',
+      },
+      error: '',
+      loading: false,
+    });
+  };
+
+  const closeCancelModal = () => {
+    if (!cancelModal.loading) setCancelModal({ isVisible: false, order: null, error: '', loading: false });
+  };
+
+  const handleCancelOrderConfirm = async (twoFactorCode) => {
+    const order = cancelModal.order;
+    if (!order) return;
     const triggerType = String(order.trigger_type || order.origin || order.order_type || '').toLowerCase();
     const isAutoTrigger = isAutomation(order);
-    const cancellationTarget = isAutoTrigger
-      ? `${triggerType.replace('_', '-')} trigger`
-      : `${order.source === 'webull' ? 'Webull' : 'Binance.US'} order`;
-    if (!window.confirm(`Are you sure you want to cancel the open ${cancellationTarget} for ${order.symbol}?`)) {
-      return;
-    }
+    setCancelModal((current) => ({ ...current, loading: true, error: '' }));
     setCancellingId(order.id);
     try {
       if (isAutoTrigger) {
@@ -294,38 +311,47 @@ export default function Orders() {
             symbol: order.base_symbol || order.symbol,
             table_type: order.table_type || 'portfolio',
             enabled: false,
+            two_factor_code: twoFactorCode,
           },
           { withCredentials: true },
         );
         if (response.data?.success) {
           setNotice(`${triggerType === 'auto_buy' ? 'Auto-Buy' : 'Auto-Sell'} disabled.`);
+          setCancelModal({ isVisible: false, order: null, error: '', loading: false });
           await load();
         } else {
-          setNotice(response.data?.error || 'Failed to disable the automated trigger.');
+          setCancelModal((current) => ({ ...current, loading: false, error: response.data?.error || 'Failed to disable the automated trigger.' }));
         }
       } else if (order.source === 'webull') {
         const resp = await axios.post('/api/webull/orders/cancel', {
-          account_id: order._webull_account_id,
+          account_id: webullAccountId(order),
           order_id: order.id,
           client_order_id: order.client_order_id,
+          two_factor_code: twoFactorCode,
         }, { withCredentials: true });
         if (resp.data?.success) {
           setNotice(resp.data.message || 'Webull order cancelled.');
+          setCancelModal({ isVisible: false, order: null, error: '', loading: false });
           await load();
         } else {
-          setNotice(resp.data?.message || 'Failed to cancel Webull order.');
+          setCancelModal((current) => ({ ...current, loading: false, error: resp.data?.message || 'Failed to cancel Webull order.' }));
         }
       } else {
-        const resp = await axios.post(`/api/trading/cancel-order/${order.id}`, { symbol: order.symbol }, { withCredentials: true });
+        const resp = await axios.post(`/api/cancel-order/${order.id}`, { symbol: order.symbol, two_factor_code: twoFactorCode }, { withCredentials: true });
         if (resp.data?.success) {
           setNotice('Binance.US order cancelled.');
+          setCancelModal({ isVisible: false, order: null, error: '', loading: false });
           await load();
         } else {
-          setNotice(resp.data?.error || 'Failed to cancel Binance.US order.');
+          setCancelModal((current) => ({ ...current, loading: false, error: resp.data?.error || 'Failed to cancel Binance.US order.' }));
         }
       }
     } catch (err) {
-      setNotice(err.response?.data?.message || err.response?.data?.error || 'Failed to cancel order.');
+      setCancelModal((current) => ({
+        ...current,
+        loading: false,
+        error: err.response?.data?.message || err.response?.data?.error || 'Failed to cancel order.',
+      }));
     } finally {
       setCancellingId(null);
     }
@@ -368,7 +394,7 @@ export default function Orders() {
             <>
               <h2>All Open Orders</h2>
               {webullOpenLoading && <p className="order-refresh-status" role="status">Refreshing Webull open orders{webullOpenProgress.total ? ` (${webullOpenProgress.complete}/${webullOpenProgress.total} accounts)…` : '…'}</p>}
-              <OrderTable orders={filteredOpenOrders} open onCancelOrder={handleCancelOrder} cancellingId={cancellingId} webullAccounts={webullAccounts} />
+              <OrderTable orders={filteredOpenOrders} open onCancelOrder={openCancelModalForOrder} cancellingId={cancellingId} webullAccounts={webullAccounts} />
             </>
           ) : historyLoading && !sortedHistory.length ? (
             <div className="empty-state"><p>Loading order history…</p></div>
@@ -381,6 +407,14 @@ export default function Orders() {
           )}
         </section>
       </div>
+      <CancelOrderModal
+        isVisible={cancelModal.isVisible}
+        onClose={closeCancelModal}
+        onConfirm={handleCancelOrderConfirm}
+        order={cancelModal.order}
+        loading={cancelModal.loading}
+        error={cancelModal.error}
+      />
     </div>
   );
 }
