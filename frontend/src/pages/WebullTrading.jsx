@@ -320,8 +320,8 @@ export default function WebullTrading({ isLightMode = false }) {
       setLoading(false);
 
       // 2. Fetch active account open orders in background
-      if (activeAccId) {
-        loadOpenOrders(activeAccId);
+      if (activeAcc?.account_id) {
+        loadOpenOrders(activeAcc.account_id);
       }
 
       // 3. Fetch background AI signals
