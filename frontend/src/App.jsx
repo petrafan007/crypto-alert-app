@@ -308,6 +308,11 @@ export default function App() {
                 <WebullTrading />
               </ProtectedRoute>
             } />
+            <Route path="/webull-trading" element={
+              <ProtectedRoute isLightMode={isLightMode}>
+                <WebullTrading />
+              </ProtectedRoute>
+            } />
             <Route path="/orders" element={
               <ProtectedRoute isLightMode={isLightMode}>
                 <Orders />

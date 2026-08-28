@@ -326,7 +326,7 @@ function Dashboard({ isLightMode }) {
   );
   const navigateToWebullTrading = (symbol, side = 'BUY') => {
     const cleanSymbol = String(symbol || '').toUpperCase().trim();
-    navigate(`/webull-trading?symbol=${encodeURIComponent(cleanSymbol)}&side=${side.toUpperCase()}`);
+    navigate(`/trading/webull?symbol=${encodeURIComponent(cleanSymbol)}&side=${side.toUpperCase()}`);
   };
   const matchesAssetFilter = (asset, filter) => (
     filter === 'all' || (filter === 'traditional' ? isTraditionalAsset(asset) : !isTraditionalAsset(asset))
