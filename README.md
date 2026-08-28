@@ -123,6 +123,12 @@ The application utilizes a **unified PostgreSQL database**.
 
 ## Version History & Changelog
 
+## v2.38.2 (August 2026)
+
+### Watchlist Search Width Correction
+
+- **Exact desktop width**: Enforced the Watchlist search picker at one-third of the available table width, including when other dashboard layout styles are loaded. The field still expands to full width on mobile.
+
 ## v2.38.1 (August 2026)
 
 ### Watchlist Symbol Search Hotfix

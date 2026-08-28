@@ -1082,9 +1082,10 @@ body.dark-mode .time-range-btn.active {
 /* Keep the add-to-watchlist search concise on desktop while retaining a
    touch-friendly full-width field in the existing mobile layout. */
 .watchlist-input .watchlist-symbol-picker {
-  flex: 0 1 33.333%;
-  width: 33.333%;
-  min-width: 260px;
+  flex: 0 0 33.333% !important;
+  width: 33.333% !important;
+  max-width: 33.333% !important;
+  min-width: 0 !important;
 }
 
 .watchlist-symbol-input {
@@ -3812,9 +3813,10 @@ body.light-mode .table-container tbody tr.auto-both-active .symbol-cell {
   }
 
   .watchlist-input .watchlist-symbol-picker {
-    flex: 1 1 100%;
-    width: 100%;
-    min-width: 0;
+    flex: 1 1 100% !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
   }
 
   .time-range-container {

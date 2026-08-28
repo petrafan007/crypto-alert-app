@@ -98,6 +98,13 @@ export default function WatchlistSymbolPicker({ onSelect, disabled = false, isLi
     display: 'flex',
     alignItems: 'center',
     gap: '8px',
+    // Inline sizing makes the desktop requirement independent of the broader
+    // dashboard stylesheet's layout rules. The mobile media rule overrides it.
+    flex: '0 0 33.333%',
+    width: '33.333%',
+    maxWidth: '33.333%',
+    minWidth: 0,
+    boxSizing: 'border-box',
   };
 
   const inputStyle = {
