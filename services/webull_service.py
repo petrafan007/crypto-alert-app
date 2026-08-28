@@ -460,8 +460,6 @@ def get_webull_market_snapshot(
             'symbols': clean_symbol,
             'symbol': clean_symbol,
             'category': 'US_ETF' if clean_type == 'ETF' else 'US_STOCK',
-            'extend_hour_required': 'true',
-            'overnight_required': 'true',
         }
 
     payload = _response_payload(
@@ -486,8 +484,10 @@ def get_webull_market_snapshot(
                 continue
         return None
 
-    # ``price`` is the documented current last-trade value. Extended/overnight
-    # values are retained for context and only used if Webull omits ``price``.
+    # ``price`` is the documented current last-trade value.  Do not request
+    # extended or overnight quote fields here: those are separately entitled
+    # products, and asking for them caused Webull to reject the entire basic
+    # quote request for accounts without an overnight subscription.
     price = number('price', 'last_price', 'lastPrice', 'last', 'close')
     extended_price = number('ext_price', 'extended_price', 'extendedPrice')
     overnight_price = number('overnight_price', 'overnightPrice')

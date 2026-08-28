@@ -3,13 +3,17 @@ import axios from 'axios';
 import './Trading.css';
 
 const PAGE_SIZES = [20, 50, 100, 200];
-const OPEN_STATUSES = new Set(['OPEN', 'NEW', 'WORKING', 'PENDING', 'PARTIALLY_FILLED', 'PARTIALLY FILLED']);
+const OPEN_STATUSES = new Set(['ACTIVE', 'OPEN', 'NEW', 'WORKING', 'PENDING', 'PARTIALLY_FILLED', 'PARTIALLY FILLED']);
 const isWebull = (order) => String(order?.source || order?.origin || '').toLowerCase() === 'webull';
 const amount = (value, digits = 6) => Number.isFinite(Number(value)) ? Number(value).toLocaleString(undefined, { maximumFractionDigits: digits }) : '—';
 const timestamp = (value) => { const date = new Date(value); return value && !Number.isNaN(date.getTime()) ? date.toLocaleString() : '—'; };
-const normalize = (order, source) => ({
+const normalize = (order, source) => {
+  const automationOrigin = String(order?.origin || order?.trigger_type || '').toLowerCase();
+  const origin = ['auto_buy', 'auto_sell'].includes(automationOrigin) ? automationOrigin : order?.origin;
+  return {
   ...order,
   source,
+  origin,
   id: order.id || order.order_id || order.orderId || `${source}-${order.symbol || order.ticker || 'unknown'}-${order.created_at || order.create_time || order.filled_time_at || ''}`,
   symbol: String(order.symbol || order.ticker || '—').toUpperCase(),
   side: order.side || '—',
@@ -19,7 +23,8 @@ const normalize = (order, source) => ({
   price: order.price ?? order.limit_price ?? order.order_price,
   status: order.status || order.order_status || '—',
   created_at: order.created_at || order.create_time || order.placed_time || order.place_time || order.filled_time_at || order.time,
-});
+  };
+};
 
 const displaySide = (side) => String(side || '—').replaceAll('_', ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
 const displayType = (type) => String(type || '—').replaceAll('_', ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
@@ -159,9 +164,12 @@ export default function Orders() {
     })();
 
     try {
-      const binanceOpenResponse = await axios.get('/api/pending-orders', { withCredentials: true });
+      // This endpoint merges Binance.US-native open orders with this app's
+      // active Auto-Buy / Auto-Sell trigger records.  The generic pending
+      // endpoint only returns orders already submitted to Binance.US.
+      const binanceOpenResponse = await axios.get('/api/trading/open-orders', { withCredentials: true });
       if (requestId !== openOrdersRequestId.current) return;
-      const binanceOpen = (binanceOpenResponse.data?.pending_orders || binanceOpenResponse.data?.orders || []).map((order) => normalize(order, 'binance'));
+      const binanceOpen = (binanceOpenResponse.data?.orders || binanceOpenResponse.data?.pending_orders || []).map((order) => normalize(order, 'binance'));
       replaceOpenOrdersForSource('binance', binanceOpen);
     } catch (error) {
       if (requestId === openOrdersRequestId.current) {
@@ -217,12 +225,33 @@ export default function Orders() {
   };
 
   const handleCancelOrder = async (order) => {
-    if (!window.confirm(`Are you sure you want to cancel the open ${order.source === 'webull' ? 'Webull' : 'Binance.US'} order for ${order.symbol}?`)) {
+    const isAutoTrigger = Boolean(order.is_auto_trigger) || ['auto_buy', 'auto_sell'].includes(String(order.trigger_type || order.origin || '').toLowerCase());
+    const cancellationTarget = isAutoTrigger
+      ? `${String(order.trigger_type || order.origin).replace('_', '-')} trigger`
+      : `${order.source === 'webull' ? 'Webull' : 'Binance.US'} order`;
+    if (!window.confirm(`Are you sure you want to cancel the open ${cancellationTarget} for ${order.symbol}?`)) {
       return;
     }
     setCancellingId(order.id);
     try {
-      if (order.source === 'webull') {
+      if (isAutoTrigger) {
+        const triggerType = String(order.trigger_type || order.origin || '').toLowerCase();
+        const response = await axios.post(
+          triggerType === 'auto_buy' ? '/api/portfolio/trigger-auto-buy' : '/api/portfolio/trigger-auto-sell',
+          {
+            symbol: order.base_symbol || order.symbol,
+            table_type: order.table_type || 'portfolio',
+            enabled: false,
+          },
+          { withCredentials: true },
+        );
+        if (response.data?.success) {
+          setNotice(`${triggerType === 'auto_buy' ? 'Auto-Buy' : 'Auto-Sell'} disabled.`);
+          await load();
+        } else {
+          setNotice(response.data?.error || 'Failed to disable the automated trigger.');
+        }
+      } else if (order.source === 'webull') {
         const resp = await axios.post('/api/webull/orders/cancel', {
           account_id: order._webull_account_id,
           order_id: order.id,

@@ -339,6 +339,11 @@ def api_coin_data_live():
         if visibility_changed or price_changed:
             db.session.commit()
 
+        # Webull positions are local, read-only snapshots.  The Webull trading
+        # workspace consumes this live portfolio endpoint, so omitting them
+        # here made an account-correct position appear as zero shares even
+        # though it was present on the Portfolio table.
+        portfolio.extend(get_webull_portfolio_rows(current_user.id))
         logger.error(f"[LIVE] Final portfolio response: {[c['symbol'] for c in portfolio]}")
         return jsonify({"portfolio": portfolio})
 

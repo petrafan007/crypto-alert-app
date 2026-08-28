@@ -123,6 +123,12 @@ The application utilizes a **unified PostgreSQL database**.
 
 ## Version History & Changelog
 
+## v2.39.1 (August 2026)
+
+- **Combined app automation orders**: The Open Orders view now reads the unified Binance.US plus in-app order feed, so active Auto-Buy and Auto-Sell volatility triggers appear as `ACTIVE` orders with their automation badge. Cancelling one from this view disables the app trigger rather than attempting to cancel a nonexistent Binance.US order.
+- **Correct Webull trading holdings**: The live portfolio response now includes imported, read-only Webull positions. The Webull ticket therefore matches its selected account to the correct position—such as the Individual Cash NVDA quantity—instead of displaying zero shares.
+- **Entitlement-safe Webull quote**: The Webull price card now requests the basic stock snapshot only. It no longer requests the separately subscribed overnight quote field that caused Webull to reject the entire price request and leave the card at “Market Price.”
+
 ## v2.39.0 (August 2026)
 
 - **Webull account-safe trading**: The Webull Trading account selector can now save a default account. The page uses that preference (or a Cash/equity account fallback) instead of silently defaulting to crypto, and holdings such as TSLA are resolved strictly within the selected account.

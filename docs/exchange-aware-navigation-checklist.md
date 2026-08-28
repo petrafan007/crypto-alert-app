@@ -1,6 +1,6 @@
 # Exchange-Aware Navigation & Account Views — Review Checklist
 
-Status: **Implemented through v2.39.0 — reviewed product decisions applied**
+Status: **Implemented through v2.39.1 — reviewed product decisions applied**
 Scope: Replace the current Binance-centric navigation model with explicit Binance.US, Webull, and All Accounts contexts.
 
 ## Confirmed product decisions
@@ -60,7 +60,7 @@ Scope: Replace the current Binance-centric navigation model with explicit Binanc
 - [ ] CHK023 Are source labels, account labels, product/instrument labels, and sort precedence specified for a mixed order ledger? [Completeness, Gap]
 - [ ] CHK024 Are filters specified for exchange, account, symbol, product type, status, and time range? [Completeness, Gap]
 - [x] CHK025 Cancellation behavior is explicitly constrained to the owning exchange and account (routed to Webull OpenAPI or Binance.US with no cross-exchange fallback). [Implemented in v2.34.0]
-- [x] CHK026 Combined Orders renders Binance.US open orders first; rate-limited Webull account reads merge progressively with in-view account progress, while history loads on demand. [Implemented in v2.39.0]
+- [x] CHK026 Combined Orders renders Binance.US-native orders and active in-app Auto-Buy/Auto-Sell triggers first; rate-limited Webull account reads merge progressively with in-view account progress, while history loads on demand. [Implemented in v2.39.1]
 
 ### Data integrity, security, and release scope
 
