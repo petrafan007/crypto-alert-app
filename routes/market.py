@@ -565,7 +565,11 @@ def api_coin_performance():
 
         qualifying.sort(key=lambda item: item[0])
         results = [
-            {**get_symbol_performance(sym, curr), "source": src, "instrument_type": itype}
+            {
+                **get_symbol_performance(sym, curr, is_traditional=(itype != 'CRYPTO' or src == 'webull')),
+                "source": src,
+                "instrument_type": itype,
+            }
             for sym, curr, src, itype in qualifying
         ]
 

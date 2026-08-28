@@ -42,7 +42,7 @@ def is_qualifying_portfolio_coin(coin):
     return amount > 0 and current_price > 0 and amount * current_price >= 1.0
 
 
-def calculate_performance_changes(points, current_price, now_timestamp=None):
+def calculate_performance_changes(points, current_price, now_timestamp=None, is_traditional=False):
     """Calculate performance against the closest trustworthy hourly baseline."""
     now_timestamp = int(now_timestamp or time.time())
     current_price = _as_float(current_price)
@@ -51,6 +51,72 @@ def calculate_performance_changes(points, current_price, now_timestamp=None):
         for timestamp, price in points
         if _as_float(price) > 0 and int(timestamp) <= now_timestamp
     )
+
+    if not valid_points or current_price <= 0:
+        return {key: None for key, _ in PERFORMANCE_WINDOWS}
+
+    if is_traditional:
+        from datetime import datetime
+        import zoneinfo
+
+        try:
+            eastern = zoneinfo.ZoneInfo("America/New_York")
+        except Exception:
+            eastern = None
+
+        day_points = {}
+        for ts, pr in valid_points:
+            if eastern:
+                d = datetime.fromtimestamp(ts, tz=eastern).strftime("%Y-%m-%d")
+            else:
+                d = time.strftime("%Y-%m-%d", time.gmtime(ts))
+            day_points.setdefault(d, []).append((ts, pr))
+        sorted_days = sorted(day_points.keys())
+
+        changes = {}
+        # 1H: previous trading hour point if available
+        if len(valid_points) >= 2:
+            p1h = valid_points[-2][1]
+            changes["change_1h"] = round(((current_price - p1h) / p1h) * 100, 2)
+        else:
+            changes["change_1h"] = None
+
+        # 12H: day open / morning point of latest trading session
+        latest_day = sorted_days[-1]
+        p12h = day_points[latest_day][0][1]
+        if p12h > 0:
+            changes["change_12h"] = round(((current_price - p12h) / p12h) * 100, 2)
+        else:
+            changes["change_12h"] = None
+
+        # 1D: closing price of previous trading day
+        if len(sorted_days) >= 2:
+            p1d = day_points[sorted_days[-2]][-1][1]
+            changes["change_1d"] = round(((current_price - p1d) / p1d) * 100, 2)
+        else:
+            changes["change_1d"] = None
+
+        # 3D: closing price 3 trading days prior
+        if len(sorted_days) >= 4:
+            p3d = day_points[sorted_days[-4]][-1][1]
+            changes["change_3d"] = round(((current_price - p3d) / p3d) * 100, 2)
+        elif len(sorted_days) >= 2:
+            p3d = day_points[sorted_days[0]][-1][1]
+            changes["change_3d"] = round(((current_price - p3d) / p3d) * 100, 2)
+        else:
+            changes["change_3d"] = None
+
+        # 7D: closing price ~5 trading days prior (1 calendar week)
+        if len(sorted_days) >= 6:
+            p7d = day_points[sorted_days[-6]][-1][1]
+            changes["change_7d"] = round(((current_price - p7d) / p7d) * 100, 2)
+        elif len(sorted_days) >= 2:
+            p7d = day_points[sorted_days[0]][-1][1]
+            changes["change_7d"] = round(((current_price - p7d) / p7d) * 100, 2)
+        else:
+            changes["change_7d"] = None
+
+        return changes
 
     changes = {}
     for key, seconds_ago in PERFORMANCE_WINDOWS:
@@ -63,19 +129,25 @@ def calculate_performance_changes(points, current_price, now_timestamp=None):
     return changes
 
 
-def _has_complete_performance_history(rows, now_timestamp):
+def _has_complete_performance_history(rows, now_timestamp, is_traditional=False):
     points = [
         (int(row.timestamp), _as_float(row.price))
         for row in rows
         if _as_float(row.price) > 0
     ]
+    if not points:
+        return False
+    if is_traditional:
+        oldest = min(ts for ts, _ in points)
+        newest = max(ts for ts, _ in points)
+        return len(points) >= 15 and (newest - oldest) >= 5 * 86400
     return all(
         any(abs(timestamp - (now_timestamp - seconds_ago)) <= _BASELINE_TOLERANCE_SECONDS for timestamp, _ in points)
         for _, seconds_ago in PERFORMANCE_WINDOWS
     )
 
 
-def ensure_price_history(symbol, now_timestamp=None):
+def ensure_price_history(symbol, now_timestamp=None, is_traditional=False):
     """Backfill missing hourly history from public Binance.US market data."""
     symbol = (symbol or "").strip().upper()
     if not symbol or symbol in STABLE_COINS:
@@ -87,7 +159,7 @@ def ensure_price_history(symbol, now_timestamp=None):
         PriceHistory.symbol == symbol,
         PriceHistory.timestamp >= cutoff,
     ).order_by(PriceHistory.timestamp.asc()).all()
-    if _has_complete_performance_history(rows, now_timestamp):
+    if _has_complete_performance_history(rows, now_timestamp, is_traditional=is_traditional):
         return False
 
     with _seed_lock:
@@ -270,11 +342,11 @@ def get_last_nh_price_and_volume(symbol, lookback_hours=12, now_timestamp=None):
     return points, prompt_text
 
 
-def get_symbol_performance(symbol, current_price, now_timestamp=None):
+def get_symbol_performance(symbol, current_price, now_timestamp=None, is_traditional=False):
     """Return all configured performance windows for one symbol."""
     symbol = (symbol or "").strip().upper()
     now_timestamp = int(now_timestamp or time.time())
-    ensure_price_history(symbol, now_timestamp)
+    ensure_price_history(symbol, now_timestamp, is_traditional=is_traditional)
 
     cutoff = now_timestamp - _HISTORY_LOOKBACK_SECONDS
     rows = PriceHistory.query.filter(
@@ -288,8 +360,11 @@ def get_symbol_performance(symbol, current_price, now_timestamp=None):
     if current_price <= 0 and points:
         current_price = points[-1][1]
 
+    has_webull_row = any(getattr(row, "exchange", None) == "webull" for row in rows)
+    traditional_flag = is_traditional or has_webull_row
+
     return {
         "symbol": symbol,
         "current_price": current_price,
-        **calculate_performance_changes(points, current_price, now_timestamp),
+        **calculate_performance_changes(points, current_price, now_timestamp, is_traditional=traditional_flag),
     }

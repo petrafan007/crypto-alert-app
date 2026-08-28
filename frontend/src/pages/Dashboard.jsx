@@ -5867,27 +5867,27 @@ function Dashboard({ isLightMode }) {
         </div>
       )}
 
-      {/* Coin Performance Visibility Filter Modal */}
+      {/* Asset Performance Visibility Filter Modal */}
       {showPerformanceCoinModal && (
         <div className="modal-overlay" onClick={() => setShowPerformanceCoinModal(false)}>
           <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '520px', width: '90%' }}>
             <div className="modal-header">
               <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px', margin: 0 }}>
-                <span>✏️</span> Customize Coin Performance
+                <span>✏️</span> Customize Asset Performance
               </h3>
               <button className="modal-close" onClick={() => setShowPerformanceCoinModal(false)}>×</button>
             </div>
 
             <div style={{ padding: '16px 20px' }}>
               <p style={{ margin: '0 0 12px 0', fontSize: '13px', color: 'var(--text-secondary, #94a3b8)', lineHeight: 1.5 }}>
-                Select which assets from your <strong>Portfolio</strong> and <strong>Watchlist</strong> appear in the Coin Performance panel:
+                Select which assets from your <strong>Portfolio</strong> and <strong>Watchlist</strong> appear in the Asset Performance panel:
               </p>
 
               {/* Search & Bulk Select Controls */}
               <div style={{ display: 'flex', gap: '8px', marginBottom: '14px', alignItems: 'center' }}>
                 <input
                   type="text"
-                  placeholder="Search coins (e.g. BTC, ETH)..."
+                  placeholder="Search crypto or securities..."
                   value={performanceCoinSearch}
                   onChange={(e) => setPerformanceCoinSearch(e.target.value)}
                   style={{
@@ -5915,9 +5915,10 @@ function Dashboard({ isLightMode }) {
                   className="btn btn-secondary"
                   style={{ padding: '6px 10px', fontSize: '12px', whiteSpace: 'nowrap' }}
                   onClick={() => {
+                    const isExcludedStable = (sym) => ['USD', 'USDT'].includes(String(sym || '').toUpperCase());
                     const allSyms = Array.from(new Set([
-                      ...(portfolio || []).filter(c => !isTraditionalAsset(c)).map(c => c.symbol),
-                      ...(watchlist || []).filter(w => !isTraditionalAsset(w)).map(w => w.symbol)
+                      ...(portfolio || []).filter(c => c.symbol && !isExcludedStable(c.symbol)).map(c => c.symbol.toUpperCase()),
+                      ...(watchlist || []).filter(w => w.symbol && !isExcludedStable(w.symbol)).map(w => w.symbol.toUpperCase())
                     ])).filter(Boolean);
                     setPerformanceCoinDraft(allSyms);
                   }}
@@ -5926,7 +5927,7 @@ function Dashboard({ isLightMode }) {
                 </button>
               </div>
 
-              {/* Coin Checkbox List */}
+              {/* Asset Checkbox List */}
               <div style={{
                 maxHeight: '280px',
                 overflowY: 'auto',
@@ -5941,18 +5942,31 @@ function Dashboard({ isLightMode }) {
                 {(() => {
                   const combined = [];
                   const seen = new Set();
+                  const isExcludedStable = (sym) => ['USD', 'USDT'].includes(String(sym || '').toUpperCase());
 
-                  (portfolio || []).filter(c => !isTraditionalAsset(c)).forEach(c => {
-                    if (c.symbol && !seen.has(c.symbol.toUpperCase())) {
-                      seen.add(c.symbol.toUpperCase());
-                      combined.push({ symbol: c.symbol.toUpperCase(), source: 'Portfolio' });
+                  (portfolio || []).filter(c => c.symbol && !isExcludedStable(c.symbol)).forEach(c => {
+                    const sym = c.symbol.toUpperCase();
+                    if (!seen.has(sym)) {
+                      seen.add(sym);
+                      const isStock = isTraditionalAsset(c) || c.is_external === true || c.source === 'webull';
+                      combined.push({
+                        symbol: sym,
+                        source: isStock ? 'Webull' : 'Portfolio',
+                        isStock
+                      });
                     }
                   });
 
-                  (watchlist || []).filter(w => !isTraditionalAsset(w)).forEach(w => {
-                    if (w.symbol && !seen.has(w.symbol.toUpperCase())) {
-                      seen.add(w.symbol.toUpperCase());
-                      combined.push({ symbol: w.symbol.toUpperCase(), source: 'Watchlist' });
+                  (watchlist || []).filter(w => w.symbol && !isExcludedStable(w.symbol)).forEach(w => {
+                    const sym = w.symbol.toUpperCase();
+                    if (!seen.has(sym)) {
+                      seen.add(sym);
+                      const isStock = isTraditionalAsset(w) || w.is_external === true || w.source === 'webull';
+                      combined.push({
+                        symbol: sym,
+                        source: isStock ? 'Webull Watchlist' : 'Watchlist',
+                        isStock
+                      });
                     }
                   });
 
@@ -5966,12 +5980,12 @@ function Dashboard({ isLightMode }) {
                   if (filtered.length === 0) {
                     return (
                       <div style={{ textAlign: 'center', padding: '24px', color: '#94a3b8', fontSize: '13px' }}>
-                        No matching coins found.
+                        No matching assets found.
                       </div>
                     );
                   }
 
-                  return filtered.map(({ symbol, source }) => {
+                  return filtered.map(({ symbol, source, isStock }) => {
                     const isVisible = !performanceCoinDraft.includes(symbol);
                     return (
                       <label
@@ -6009,8 +6023,8 @@ function Dashboard({ isLightMode }) {
                           fontSize: '11px',
                           padding: '2px 6px',
                           borderRadius: '4px',
-                          backgroundColor: source === 'Portfolio' ? 'rgba(34, 197, 94, 0.15)' : 'rgba(148, 163, 184, 0.15)',
-                          color: source === 'Portfolio' ? '#4ade80' : '#94a3b8',
+                          backgroundColor: isStock ? 'rgba(56, 189, 248, 0.15)' : source === 'Portfolio' ? 'rgba(34, 197, 94, 0.15)' : 'rgba(148, 163, 184, 0.15)',
+                          color: isStock ? '#38bdf8' : source === 'Portfolio' ? '#4ade80' : '#94a3b8',
                           fontWeight: '500'
                         }}>
                           {source}

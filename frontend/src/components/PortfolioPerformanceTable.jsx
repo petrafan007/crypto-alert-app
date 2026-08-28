@@ -80,7 +80,7 @@ const PortfolioPerformanceTable = ({ hiddenCoins = [], excludeSymbols = null, on
       <div className="performance-widget-header" style={{ marginBottom: '8px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <h3 className="chart-title" style={{ display: 'flex', alignItems: 'center', gap: '8px', margin: 0 }}>
           <GenericCoinIcon size={20} />
-          <span>{accountScope === 'webull' ? 'Webull Asset Performance' : accountScope === 'binance' ? 'Coin Performance' : 'Asset Performance'}</span>
+          <span>{accountScope === 'webull' ? 'Webull Asset Performance' : accountScope === 'binance' ? 'Binance Asset Performance' : 'Asset Performance'}</span>
         </h3>
         {onEdit && (
           <button

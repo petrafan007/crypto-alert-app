@@ -125,6 +125,13 @@ The application utilizes a **unified PostgreSQL database**.
 
 Historical changelog entries retain the product name used when they were originally released. The application domain, repository slug, deployment folders, database, and service identifiers intentionally remain unchanged by the v2.45.0 brand update.
 
+## v2.48.0 (August 2026)
+
+- **Market Session-Aware Asset Performance Calculations**: Resolved missing percentage returns (dashes) for traditional securities (stocks and ETFs like NVDA, SPCX, TSLA). Implemented market session-aware calculation windows that match against historical trading sessions, daily market closes, and hourly trading candles across market closes and weekends.
+- **Unified Asset Visibility Customization**: Enhanced the Asset Performance modal (`✏️`) to include all connected Webull securities (stocks, ETFs) alongside cryptocurrencies from Binance.US and Webull.
+- **Stablecoin Filtering**: Filtered out `USD` and `USDT` from the Asset Performance customize modal and performance displays, ensuring non-moving stablecoins do not clutter asset metrics.
+- **Search and Panel Header Alignment**: Updated the modal search input placeholder to `"Search crypto or securities..."` and updated the panel header to `"Binance Asset Performance"` when filtering by Binance.US.
+
 ## v2.47.0 (August 2026)
 
 - **Average Entry & Current Price Percentage Order Helper**: Added an intuitive `%` calculation button across spot order types in the Trading terminal (`LIMIT`, `LIMIT_MAKER`, `STOP_LOSS_LIMIT`, `TAKE_PROFIT_LIMIT`, and `OCO`). Clicking `%` opens a dual-mode calculator allowing price generation from either the user's Average Entry price or the live Current Market Price.
