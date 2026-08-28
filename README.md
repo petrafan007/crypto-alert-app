@@ -123,6 +123,10 @@ The application utilizes a **unified PostgreSQL database**.
 
 ## Version History & Changelog
 
+## v2.40.1 (August 2026)
+
+- **Combined automation-order identity**: Combined Orders now also recognizes active app Auto-Buy and Auto-Sell triggers that use the established `AUTO_BUY`/`AUTO_SELL` order type. They correctly appear under the **Auto** source and **Automation** product filters with the `Crypto Alert App trigger` account label.
+
 ## v2.40.0 (August 2026)
 
 - **Combined Orders filters**: Filter both Open Orders and Order History by source, account, symbol, product type, status, and time range without triggering additional exchange reads. Rows now include their source plus safe account/automation context and sort newest-first.

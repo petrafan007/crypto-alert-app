@@ -26,8 +26,16 @@ const normalize = (order, source) => {
   };
 };
 
-const isAutomation = (order) => Boolean(order?.is_auto_trigger)
-  || ['auto_buy', 'auto_sell'].includes(String(order?.trigger_type || order?.origin || order?.source || '').toLowerCase());
+const isAutomation = (order) => {
+  const automationKinds = [
+    order?.trigger_type,
+    order?.origin,
+    order?.source,
+    order?.order_type,
+  ].map((value) => String(value || '').toLowerCase());
+  return Boolean(order?.is_auto_trigger)
+    || automationKinds.some((value) => ['auto_buy', 'auto_sell'].includes(value));
+};
 const webullAccountId = (order) => String(order?.webull_account_id || order?._webull_account_id || '').trim();
 const orderSource = (order) => (isAutomation(order) ? 'automation' : (isWebull(order) ? 'webull' : 'binance'));
 const instrumentCategory = (order) => {
