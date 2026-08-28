@@ -123,6 +123,11 @@ The application utilizes a **unified PostgreSQL database**.
 
 ## Version History & Changelog
 
+## v2.40.0 (August 2026)
+
+- **Combined Orders filters**: Filter both Open Orders and Order History by source, account, symbol, product type, status, and time range without triggering additional exchange reads. Rows now include their source plus safe account/automation context and sort newest-first.
+- **Resolved exchange-aware acceptance criteria**: The navigation and account-view checklist now records the explicit route, fallback, persistence, source-boundary, data-refresh, accessibility, and release/rollback rules used by the app. Every resolved item is checked so new scope is unambiguous.
+
 ## v2.39.1 (August 2026)
 
 - **Combined app automation orders**: The Open Orders view now reads the unified Binance.US plus in-app order feed, so active Auto-Buy and Auto-Sell volatility triggers appear as `ACTIVE` orders with their automation badge. Cancelling one from this view disables the app trigger rather than attempting to cancel a nonexistent Binance.US order.

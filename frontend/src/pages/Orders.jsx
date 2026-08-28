@@ -26,6 +26,26 @@ const normalize = (order, source) => {
   };
 };
 
+const isAutomation = (order) => Boolean(order?.is_auto_trigger)
+  || ['auto_buy', 'auto_sell'].includes(String(order?.trigger_type || order?.origin || order?.source || '').toLowerCase());
+const webullAccountId = (order) => String(order?.webull_account_id || order?._webull_account_id || '').trim();
+const orderSource = (order) => (isAutomation(order) ? 'automation' : (isWebull(order) ? 'webull' : 'binance'));
+const instrumentCategory = (order) => {
+  if (isAutomation(order)) return 'automation';
+  if (!isWebull(order)) return 'crypto';
+  const hint = String(order?.instrument_type || order?.asset_class || order?.security_type || '').toUpperCase();
+  if (hint.includes('CRYPTO') || hint.includes('COIN') || hint.includes('TOKEN')) return 'crypto';
+  if (hint.includes('OPTION')) return 'option';
+  if (hint.includes('FUTURE')) return 'future';
+  if (hint.includes('ETF') || hint.includes('STOCK') || hint.includes('EQUITY') || hint.includes('SECURITY')) return 'equity';
+  return 'other';
+};
+const accountLabel = (account) => {
+  const name = account?.account_label || account?.account_name || 'Webull account';
+  const masked = account?.account_id_masked || (account?.account_id ? `••••${String(account.account_id).slice(-4)}` : '');
+  return masked ? `${name} (${masked})` : name;
+};
+
 const displaySide = (side) => String(side || '—').replaceAll('_', ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
 const displayType = (type) => String(type || '—').replaceAll('_', ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
 
@@ -39,7 +59,15 @@ function SourceBadge({ order }) {
   </span>;
 }
 
-function OrderTable({ orders, open, onCancelOrder, cancellingId }) {
+function AccountCell({ order, webullAccounts }) {
+  const account = webullAccounts.find((candidate) => String(candidate.account_id) === webullAccountId(order));
+  const label = isAutomation(order)
+    ? 'Crypto Alert App trigger'
+    : isWebull(order) ? (account ? accountLabel(account) : order.webull_account_type || 'Webull account') : 'Binance.US';
+  return <div className="combined-order-account"><SourceBadge order={order} /><span>{label}</span></div>;
+}
+
+function OrderTable({ orders, open, onCancelOrder, cancellingId, webullAccounts }) {
   if (!orders.length) return <div className="empty-state"><p>No {open ? 'open' : 'historical'} orders for the selected accounts.</p></div>;
   return (
     <div className="table-container trading-table">
@@ -55,7 +83,7 @@ function OrderTable({ orders, open, onCancelOrder, cancellingId }) {
             {orders.map((order) => (
               <tr key={`${order.source}-${order.id}`}>
                 <td>{timestamp(order.created_at)}</td>
-                <td><SourceBadge order={order} /></td>
+                <td><AccountCell order={order} webullAccounts={webullAccounts} /></td>
                 <td>{order.symbol}</td>
                 <td>{displaySide(order.side)}</td>
                 <td>{displayType(order.order_type)}</td>
@@ -102,6 +130,10 @@ export default function Orders() {
   const [historyLoading, setHistoryLoading] = useState(false);
   const [webullOpenLoading, setWebullOpenLoading] = useState(false);
   const [webullOpenProgress, setWebullOpenProgress] = useState({ complete: 0, total: 0 });
+  const [webullAccounts, setWebullAccounts] = useState([]);
+  const [filters, setFilters] = useState({
+    source: 'all', account: 'all', symbol: '', product: 'all', status: 'all', timeRange: 'all',
+  });
   const openOrdersRequestId = useRef(0);
 
   const replaceOpenOrdersForSource = (source, orders) => {
@@ -127,8 +159,10 @@ export default function Orders() {
         const accountsResponse = await axios.get('/api/webull/accounts', { withCredentials: true });
         if (requestId !== openOrdersRequestId.current) return;
         const enabled = accountsResponse.data?.enabled_account_ids || [];
-        const accountIds = (accountsResponse.data?.accounts || [])
+        const enabledAccounts = (accountsResponse.data?.accounts || [])
           .filter((account) => !enabled.length || enabled.includes(account.account_id))
+        setWebullAccounts(enabledAccounts);
+        const accountIds = enabledAccounts
           .map((account) => account.account_id)
           .filter(Boolean);
         setWebullOpenProgress({ complete: 0, total: accountIds.length });
@@ -211,10 +245,33 @@ export default function Orders() {
 
   useEffect(() => { load(); }, []);
   const activeOpenOrders = useMemo(() => openOrders.filter((order) => OPEN_STATUSES.has(String(order.status).toUpperCase()) || !order.status || order.status === '—'), [openOrders]);
-  const sortedHistory = useMemo(() => [...history].sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || ''))), [history]);
+  const filterableOrders = useMemo(() => [...activeOpenOrders, ...history], [activeOpenOrders, history]);
+  const statusOptions = useMemo(() => [...new Set(filterableOrders.map((order) => String(order.status || 'Unknown').toUpperCase()))].sort(), [filterableOrders]);
+  const matchesFilters = (order) => {
+    if (filters.source !== 'all' && orderSource(order) !== filters.source) return false;
+    if (filters.account === 'binance' && isWebull(order)) return false;
+    if (filters.account !== 'all' && filters.account !== 'binance' && webullAccountId(order) !== filters.account) return false;
+    if (filters.symbol && !String(order.symbol || '').toUpperCase().includes(filters.symbol.trim().toUpperCase())) return false;
+    if (filters.product !== 'all' && instrumentCategory(order) !== filters.product) return false;
+    if (filters.status !== 'all' && String(order.status || 'Unknown').toUpperCase() !== filters.status) return false;
+    if (filters.timeRange !== 'all') {
+      const createdAt = new Date(order.created_at);
+      const days = Number(filters.timeRange);
+      if (Number.isNaN(createdAt.getTime()) || createdAt.getTime() < Date.now() - days * 24 * 60 * 60 * 1000) return false;
+    }
+    return true;
+  };
+  const filteredOpenOrders = useMemo(() => activeOpenOrders
+    .filter(matchesFilters)
+    .sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || ''))), [activeOpenOrders, filters, webullAccounts]);
+  const sortedHistory = useMemo(() => history.filter(matchesFilters).sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || ''))), [history, filters, webullAccounts]);
   const historyPages = Math.max(1, Math.ceil(sortedHistory.length / historyPageSize));
   const paginatedHistory = useMemo(() => sortedHistory.slice((historyPage - 1) * historyPageSize, historyPage * historyPageSize), [sortedHistory, historyPage, historyPageSize]);
   useEffect(() => { if (historyPage > historyPages) setHistoryPage(historyPages); }, [historyPage, historyPages]);
+  useEffect(() => { setHistoryPage(1); }, [filters]);
+
+  const setFilter = (name, value) => setFilters((current) => ({ ...current, [name]: value }));
+  const resetFilters = () => setFilters({ source: 'all', account: 'all', symbol: '', product: 'all', status: 'all', timeRange: 'all' });
 
   const selectTab = (tab) => {
     setActiveTab(tab);
@@ -293,7 +350,7 @@ export default function Orders() {
       {notice && <div className="modern-real-warning" style={{ marginBottom: 16 }}>⚠️ {notice}</div>}
       <div className="trading-tabs">
         <button className={`tab-button ${activeTab === 'open' ? 'active' : ''}`} onClick={() => selectTab('open')}>
-          ⏳ <span className="tab-text">Open Orders</span>{activeOpenOrders.length > 0 && <span className="tab-badge">{activeOpenOrders.length}</span>}
+          ⏳ <span className="tab-text">Open Orders</span>{filteredOpenOrders.length > 0 && <span className="tab-badge">{filteredOpenOrders.length}</span>}
         </button>
         <button className={`tab-button ${activeTab === 'history' ? 'active' : ''}`} onClick={() => selectTab('history')}>
           📜 <span className="tab-text">Order History</span>
@@ -301,20 +358,29 @@ export default function Orders() {
       </div>
       <div className="trading-content">
         <section className="order-history-container">
+          <div className="combined-order-filters" aria-label="Combined order filters">
+            <label>Source<select value={filters.source} onChange={(event) => setFilter('source', event.target.value)}><option value="all">All sources</option><option value="binance">Binance.US</option><option value="webull">Webull</option><option value="automation">Auto-Buy / Auto-Sell</option></select></label>
+            <label>Account<select value={filters.account} onChange={(event) => setFilter('account', event.target.value)}><option value="all">All accounts</option><option value="binance">Binance.US</option>{webullAccounts.map((account) => <option key={account.account_id} value={account.account_id}>{accountLabel(account)}</option>)}</select></label>
+            <label>Symbol<input type="search" value={filters.symbol} onChange={(event) => setFilter('symbol', event.target.value)} placeholder="BTC, TSLA…" /></label>
+            <label>Product<select value={filters.product} onChange={(event) => setFilter('product', event.target.value)}><option value="all">All products</option><option value="crypto">Crypto</option><option value="equity">Stock / ETF</option><option value="option">Options</option><option value="future">Futures</option><option value="automation">Automation</option><option value="other">Other</option></select></label>
+            <label>Status<select value={filters.status} onChange={(event) => setFilter('status', event.target.value)}><option value="all">All statuses</option>{statusOptions.map((status) => <option key={status} value={status}>{displayType(status)}</option>)}</select></label>
+            <label>Time range<select value={filters.timeRange} onChange={(event) => setFilter('timeRange', event.target.value)}><option value="all">All time</option><option value="1">Past 24 hours</option><option value="7">Past 7 days</option><option value="30">Past 30 days</option><option value="90">Past 90 days</option></select></label>
+            <button type="button" className="btn btn-secondary combined-order-filter-reset" onClick={resetFilters}>Reset filters</button>
+          </div>
           {loading ? (
             <div className="empty-state"><p>Loading combined orders…</p></div>
           ) : activeTab === 'open' ? (
             <>
               <h2>All Open Orders</h2>
               {webullOpenLoading && <p className="order-refresh-status" role="status">Refreshing Webull open orders{webullOpenProgress.total ? ` (${webullOpenProgress.complete}/${webullOpenProgress.total} accounts)…` : '…'}</p>}
-              <OrderTable orders={activeOpenOrders} open onCancelOrder={handleCancelOrder} cancellingId={cancellingId} />
+              <OrderTable orders={filteredOpenOrders} open onCancelOrder={handleCancelOrder} cancellingId={cancellingId} webullAccounts={webullAccounts} />
             </>
           ) : historyLoading && !sortedHistory.length ? (
             <div className="empty-state"><p>Loading order history…</p></div>
           ) : (
             <>
               <h2>All Order History</h2>
-              <OrderTable orders={paginatedHistory} />
+              <OrderTable orders={paginatedHistory} webullAccounts={webullAccounts} />
               <Pagination page={historyPage} setPage={setHistoryPage} pageSize={historyPageSize} setPageSize={setHistoryPageSize} total={sortedHistory.length} />
             </>
           )}

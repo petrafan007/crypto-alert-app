@@ -2395,6 +2395,11 @@ def get_real_orders_only():
                             ),
                             'source': 'webull', 'origin': 'webull', 'origin_label': 'Webull',
                             'instrument_type': order.get('instrument_type'),
+                            # The combined Orders client already receives this
+                            # identifier for Webull open orders.  Keep the same
+                            # account scope on historical rows so account
+                            # filtering cannot mix orders from another account.
+                            'webull_account_id': account_id,
                             'webull_account_type': order.get('_webull_account_type'),
                         }
                         add_order(f"webull-{account_id}-{payload['id']}", payload)
