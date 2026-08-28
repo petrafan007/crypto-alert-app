@@ -6,8 +6,8 @@ from zoneinfo import ZoneInfo
 from core.extensions import db
 from credentials import Credential, User, UserSetting
 from models import ExternalSentimentSignal, WebullHolding
-from services.ai_service import call_ai_with_web_search, parse_sentiment_json
-from services.analysis_service import is_ai_enabled, is_user_analysis_window_active
+from services.ai_service import call_ai_with_web_search, parse_sentiment_json, is_user_analysis_window_active
+from services.analysis_service import is_ai_enabled
 from services.external_signal_service import create_external_signal, grade_external_signal
 from services.sentiment_outcome_service import format_forecast_rules, get_sentiment_thresholds
 from services.webull_analysis_service import build_webull_market_snapshot
