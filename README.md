@@ -123,6 +123,10 @@ The application utilizes a **unified PostgreSQL database**.
 
 ## Version History & Changelog
 
+## v2.44.1 (August 2026)
+
+- **Connected Webull account layout hotfix**: Rebuilt the account-selection row as a dedicated responsive grid. Checkboxes retain their native 18px control size, account name, masked ID, and account-type badge remain aligned, and narrow screens stack the masked ID cleanly rather than overlapping account details. This prevents Settings’ generic full-width input rule from expanding the account checkbox across its row.
+
 ## v2.44.0 (August 2026)
 
 - **Webull current trading-contract verification**: Webull account discovery, balance/position reads, placement, and cancellation now prefer the current unified Trading API paths and order-envelope schema, retaining the legacy paths only as a compatibility fallback. Stock/ETF, crypto, and option requests use their supported order types and time-in-force values.

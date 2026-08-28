@@ -1587,7 +1587,7 @@ export default function Settings({ isLightMode }) {
                   <p className="settings-form-help" style={{ margin: '12px 0 0' }}>{webullAccountsMessage}</p>
                 )}
                 {webullAccounts.length > 0 && (
-                  <div style={{ marginTop: '12px', display: 'grid', gap: '8px' }}>
+                  <div className="webull-connected-account-list">
                     <p style={{ margin: '0 0 6px', fontSize: '13px', color: '#94a3b8' }}>
                       Select which accounts to display in Webull Trading navigation:
                     </p>
@@ -1596,33 +1596,23 @@ export default function Settings({ isLightMode }) {
                       return (
                         <div
                           key={`${account.account_id || account.account_id_masked || index}`}
-                          style={{
-                            display: 'flex',
-                            justifyContent: 'space-between',
-                            gap: '12px',
-                            alignItems: 'center',
-                            padding: '10px 14px',
-                            borderRadius: '6px',
-                            background: isChecked ? 'rgba(15, 23, 42, 0.55)' : 'rgba(15, 23, 42, 0.25)',
-                            border: isChecked ? '1px solid rgba(79, 209, 197, 0.3)' : '1px solid rgba(255, 255, 255, 0.08)',
-                            transition: 'all 0.2s ease',
-                          }}
+                          className={`webull-connected-account ${isChecked ? 'is-enabled' : 'is-disabled'}`}
                         >
-                          <label style={{ display: 'flex', alignItems: 'center', gap: '12px', cursor: 'pointer', flex: 1, margin: 0 }}>
+                          <label className="webull-connected-account-label">
                             <input
+                              className="webull-connected-account-checkbox"
                               type="checkbox"
                               checked={isChecked}
                               onChange={() => toggleAccountEnabled(account.account_id)}
-                              style={{ width: '18px', height: '18px', cursor: 'pointer', accentColor: '#10b981' }}
                             />
-                            <strong style={{ color: isChecked ? '#f8fafc' : '#64748b', fontSize: '14px' }}>
+                            <strong className="webull-connected-account-name">
                               {account.account_label || account.account_name || account.account_type || 'Webull Account'}
                             </strong>
-                            <span style={{ fontSize: '11px', color: '#94a3b8', background: 'rgba(255, 255, 255, 0.06)', padding: '2px 8px', borderRadius: '4px' }}>
+                            <span className="webull-connected-account-type">
                               {account.account_type || 'CASH'}
                             </span>
                           </label>
-                          <span style={{ fontFamily: 'monospace', color: isChecked ? '#38bdf8' : '#64748b', fontSize: '13px', fontWeight: 600 }}>
+                          <span className="webull-connected-account-mask">
                             {account.account_id_masked}
                           </span>
                         </div>
