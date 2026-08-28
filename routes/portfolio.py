@@ -4785,6 +4785,7 @@ def api_watchlist():
         watchlist_data.append({
             "id": w.id,
             "symbol": w.symbol,
+            "asset_type": getattr(w, 'asset_type', 'crypto') or 'crypto',
             "alert_enabled": w.alert_enabled,
             "down_val": w.down_alert,
             "up_val": w.up_alert,
@@ -4838,9 +4839,12 @@ def api_watchlist_live():
     # Fetch current prices for all watchlist items
     watchlist_data = []
     for w in wl:
+        asset_type = getattr(w, 'asset_type', 'crypto') or 'crypto'
         try:
-            # Try to get current price from Binance
-            current_price = fetch_binance_price(w.symbol)
+            if asset_type == 'stock':
+                current_price = _fetch_stock_price_yf(w.symbol)
+            else:
+                current_price = fetch_binance_price(w.symbol)
             w.current_price = current_price
         except Exception as e:
             logger.error(f"Failed to fetch price for {w.symbol}: {e}")
@@ -4857,6 +4861,7 @@ def api_watchlist_live():
         watchlist_data.append({
             "id": w.id,
             "symbol": w.symbol,
+            "asset_type": asset_type,
             "alert_enabled": w.alert_enabled,
             "down_val": w.down_alert,
             "up_val": w.up_alert,
@@ -4900,11 +4905,102 @@ def api_watchlist_live():
     
     return jsonify(watchlist_data)
 
+@portfolio_bp.route("/api/watchlist/search-symbol")
+@login_required
+def api_watchlist_search_symbol():
+    """Search for stocks/ETFs and crypto pairs to add to the watchlist.
+    Returns combined results tagged with asset_type ('stock' or 'crypto').
+    """
+    q = (request.args.get('q') or '').strip().upper()
+    if not q or len(q) < 1:
+        return jsonify({"results": []})
+
+    results = []
+    seen = set()  # (symbol, asset_type)
+
+    # --- Crypto: check against Binance pairs ---
+    try:
+        from services.binance_service import get_cached_exchange_info
+        exchange_info = get_cached_exchange_info() or {}
+        symbols_info = exchange_info.get('symbols', [])
+        for sym_info in symbols_info:
+            base = (sym_info.get('baseAsset') or '').upper()
+            quote = (sym_info.get('quoteAsset') or '').upper()
+            if quote not in ('USD', 'USDT'):
+                continue
+            pair = f"{base}{quote}"
+            if q in base or q in pair:
+                key = (base, 'crypto')
+                if key not in seen:
+                    seen.add(key)
+                    results.append({
+                        'symbol': base,
+                        'display': f"{base} / {quote}",
+                        'name': f"{base} Crypto",
+                        'asset_type': 'crypto',
+                        'pair': pair,
+                    })
+    except Exception as e:
+        logger.warning(f"Crypto pair search error: {e}")
+
+    # --- Stocks/ETFs: search via yfinance ---
+    try:
+        import yfinance as yf
+        search = yf.Search(q, max_results=10, enable_fuzzy_query=True)
+        quotes = search.quotes or []
+        for item in quotes:
+            sym = (item.get('symbol') or '').upper().strip()
+            name = item.get('longname') or item.get('shortname') or sym
+            q_type = (item.get('quoteType') or '').upper()
+            # Only include equities and ETFs; skip crypto (handled above), futures, forex, etc.
+            if q_type in ('EQUITY', 'ETF', 'MUTUALFUND') or (q_type == '' and sym):
+                # Filter out obvious non-US / OTC junk
+                exchange = (item.get('exchange') or '').upper()
+                if exchange in ('PNK', 'OTC', 'GREY'):
+                    continue
+                key = (sym, 'stock')
+                if sym and key not in seen:
+                    seen.add(key)
+                    results.append({
+                        'symbol': sym,
+                        'display': f"{sym} — {name}",
+                        'name': name,
+                        'asset_type': 'stock',
+                        'exchange': exchange,
+                        'quote_type': q_type,
+                    })
+    except ImportError:
+        logger.warning("yfinance not installed; stock search unavailable")
+    except Exception as e:
+        logger.warning(f"yfinance search error for '{q}': {e}")
+
+    # Sort: exact symbol matches first
+    results.sort(key=lambda r: (r['symbol'] != q, r['asset_type'] != 'crypto', r['symbol']))
+    return jsonify({"results": results[:20]})
+
+
+def _fetch_stock_price_yf(symbol):
+    """Fetch the latest market price for a stock/ETF using yfinance."""
+    try:
+        import yfinance as yf
+        ticker = yf.Ticker(symbol)
+        info = ticker.fast_info
+        price = getattr(info, 'last_price', None) or getattr(info, 'regularMarketPrice', None)
+        if price and float(price) > 0:
+            return float(price)
+    except Exception as e:
+        logger.warning(f"yfinance price fetch failed for {symbol}: {e}")
+    return 0.0
+
+
 @portfolio_bp.route("/api/watchlist/add", methods=["POST"])
 @login_required
 def api_watchlist_add():
     data = request.get_json() or {}
     symbol = data.get("symbol", "").upper().strip()
+    asset_type = (data.get("asset_type") or "crypto").strip().lower()
+    if asset_type not in ("crypto", "stock"):
+        asset_type = "crypto"
     if not symbol:
         return jsonify({"success": False, "error": "Missing symbol"}), 400
 
@@ -4912,13 +5008,15 @@ def api_watchlist_add():
     if exists:
         if exists.hidden:
             exists.hidden = False
-            db.session.commit()
+        exists.asset_type = asset_type  # Update asset_type in case user re-adds with correct type
+        db.session.commit()
         return jsonify({
-            "success": True, 
+            "success": True,
             "message": "Symbol added to watchlist",
             "item": {
                 "id": exists.id,
                 "symbol": exists.symbol,
+                "asset_type": getattr(exists, 'asset_type', asset_type) or asset_type,
                 "alert_enabled": exists.alert_enabled,
                 "down_val": exists.down_alert,
                 "up_val": exists.up_alert,
@@ -4943,11 +5041,15 @@ def api_watchlist_add():
     
     current_price = 0.0
     try:
-        current_price = fetch_binance_price(symbol) or 0.0
+        if asset_type == 'stock':
+            current_price = _fetch_stock_price_yf(symbol)
+        else:
+            current_price = fetch_binance_price(symbol) or 0.0
     except Exception as e:
         logger.warning(f"Failed to fetch initial price for {symbol}: {e}")
 
     wl = WatchlistCoin(symbol=symbol, user_id=current_user.id, current_price=current_price, hidden=False, alert_enabled=False)
+    wl.asset_type = asset_type
     db.session.add(wl)
     db.session.commit()
 

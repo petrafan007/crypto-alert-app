@@ -202,6 +202,8 @@ class WatchlistCoin(db.Model):
     sentiment_tier = db.Column(db.String(50), nullable=True)
     sentiment_search_status = db.Column(db.String(100), nullable=True)
     sentiment_tracking_enabled = db.Column(db.Boolean, default=True)
+    # 'crypto' for Binance/crypto assets, 'stock' for stocks/ETFs priced via Yahoo Finance
+    asset_type = db.Column(db.String(20), default='crypto')
     
     # Composite index for efficient lookups
     __table_args__ = (

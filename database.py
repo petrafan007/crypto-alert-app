@@ -122,7 +122,8 @@ def init_db(app=None):
             ("sentiment_history", "forecast_horizon_hours", "FLOAT"),
             ("sentiment_history", "target_evaluation_at", "TIMESTAMP"),
             ("sentiment_history", "evaluation_method", "VARCHAR(32)"),
-            ("sentiment_history", "grading_config", "TEXT")
+            ("sentiment_history", "grading_config", "TEXT"),
+            ("watchlist", "asset_type", "VARCHAR(20) DEFAULT 'crypto'"),
         ]
         for table, col, col_type in columns_to_ensure:
             try:

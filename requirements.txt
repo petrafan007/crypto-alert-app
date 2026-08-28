@@ -18,3 +18,4 @@ pyotp==2.9.0  # TOTP for 2FA
 qrcode[pil]==7.4.2  # QR code generation for 2FA setup
 cryptography>=43.0.0  # Credential encryption support
 psycopg2-binary>=2.9.0  # PostgreSQL driver
+yfinance>=0.2.0  # Yahoo Finance — stock price and symbol search for watchlist

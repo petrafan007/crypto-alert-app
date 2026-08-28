@@ -25,6 +25,7 @@ import { SiBinance } from 'react-icons/si';
 import CryptoIcon from '../components/CryptoIcon';
 import TableColumnModal from '../components/TableColumnModal';
 import CancelOrderConfirmModal from '../components/CancelOrderConfirmModal';
+import WatchlistSymbolPicker from '../components/WatchlistSymbolPicker';
 
 const TREND_RANGES = [
   { key: '1H', label: '1H' },
@@ -66,7 +67,7 @@ export const PORTFOLIO_DEFAULT_COLUMNS = [
 export const PORTFOLIO_REQUIRED_COLUMNS = ['symbol', 'amount', 'current_price', 'current_value', 'actions'];
 
 export const PORTFOLIO_COLUMN_DEFINITIONS = {
-  symbol: { label: 'Symbol', required: true, sortable: true, defaultWidth: 120, description: 'Asset ticker and icon' },
+  symbol: { label: 'Symbol', required: true, sortable: true, defaultWidth: 220, description: 'Asset ticker and icon' },
   amount: { label: 'Amount', required: true, sortable: true, defaultWidth: 110, description: 'Holdings quantity' },
   current_price: { label: 'Current Price', required: true, sortable: true, defaultWidth: 120, description: 'Live market rate' },
   current_value: { label: 'Current Value', required: true, sortable: true, defaultWidth: 120, description: 'Total value in USDT' },
@@ -100,7 +101,7 @@ export const WATCHLIST_DEFAULT_COLUMNS = [
 export const WATCHLIST_REQUIRED_COLUMNS = ['symbol', 'current_price', 'actions'];
 
 export const WATCHLIST_COLUMN_DEFINITIONS = {
-  symbol: { label: 'Symbol', required: true, sortable: true, defaultWidth: 120, description: 'Asset ticker and icon' },
+  symbol: { label: 'Symbol', required: true, sortable: true, defaultWidth: 200, description: 'Asset ticker and icon' },
   current_price: { label: 'Current Price', required: true, sortable: true, defaultWidth: 120, description: 'Live market rate' },
   down_alert: { label: 'Price Down Alert', required: false, sortable: false, defaultWidth: 140, description: 'Drop price alert' },
   up_alert: { label: 'Price Up Alert', required: false, sortable: false, defaultWidth: 140, description: 'Surge price alert' },
@@ -318,8 +319,11 @@ function Dashboard({ isLightMode }) {
   }, [scopedPortfolio]);
 
   const isTraditionalAsset = (asset) => Boolean(
-    (asset?.is_external === true || asset?.source === 'webull')
-    && !/crypto|coin|token/i.test(asset?.instrument_type || '')
+    // Webull-imported portfolio holdings (stocks/ETFs from Webull)
+    ((asset?.is_external === true || asset?.source === 'webull')
+      && !/crypto|coin|token/i.test(asset?.instrument_type || ''))
+    // Watchlist items explicitly added as stocks/ETFs
+    || asset?.asset_type === 'stock'
   );
   const isWebullAsset = (asset) => Boolean(
     asset?.is_external === true || asset?.source === 'webull'
@@ -411,8 +415,8 @@ function Dashboard({ isLightMode }) {
   // Authentication state
   const [needsLogin, setNeedsLogin] = useState(false);
 
-  // Add to watchlist state
-  const [watchlistSymbol, setWatchlistSymbol] = useState('');
+  // Add to watchlist state — stores the selected { symbol, asset_type, name } object
+  const [watchlistSelection, setWatchlistSelection] = useState(null);
   const [addingToWatchlist, setAddingToWatchlist] = useState(false);
 
   // Staking state
@@ -3265,19 +3269,17 @@ function Dashboard({ isLightMode }) {
   };
 
   // Add to watchlist function
-  const addToWatchlist = async (e) => {
-    if (e) e.preventDefault();
-    const cleanSym = watchlistSymbol.trim().toUpperCase();
+  const addToWatchlist = async (selection) => {
+    const { symbol: rawSym, asset_type = 'crypto' } = selection || {};
+    const cleanSym = (rawSym || '').trim().toUpperCase();
     if (!cleanSym) return;
-
-    // Clear input immediately so user can continue interacting
-    setWatchlistSymbol('');
 
     // Optimistic item to render immediately (0ms latency)
     const tempId = `temp-${Date.now()}`;
     const tempItem = {
       id: tempId,
       symbol: cleanSym,
+      asset_type,
       current_price: 0,
       current_value: 0,
       pct_change: 0,
@@ -3305,7 +3307,8 @@ function Dashboard({ isLightMode }) {
     setAddingToWatchlist(true);
     try {
       const response = await axios.post('/api/watchlist/add', {
-        symbol: cleanSym
+        symbol: cleanSym,
+        asset_type,
       }, { withCredentials: true });
 
       if (response.data && response.data.success) {
@@ -5021,23 +5024,14 @@ function Dashboard({ isLightMode }) {
             </div>
           </div>
           <div className="watchlist-input">
-            <input
-              type="text"
-              placeholder="Symbol (e.g. SOL, BTC)"
-              className="watchlist-symbol-input"
-              value={watchlistSymbol}
-              onChange={(e) => setWatchlistSymbol(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  e.preventDefault();
-                  addToWatchlist(e);
-                }
-              }}
+            <WatchlistSymbolPicker
+              onSelect={(sel) => addToWatchlist(sel)}
               disabled={addingToWatchlist}
+              isLightMode={isLightMode}
             />
-            <button className="btn" onClick={addToWatchlist} disabled={addingToWatchlist}>
-              {addingToWatchlist ? 'Adding...' : 'Add to Watchlist'}
-            </button>
+            {addingToWatchlist && (
+              <span style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>Adding...</span>
+            )}
           </div>
           <div className="table-scroll-wrapper" ref={watchlistScrollRef}>
             <table style={{ width: `${renderedWatchlistWidth}px`, minWidth: '100%', tableLayout: 'fixed', borderCollapse: 'collapse' }}>
