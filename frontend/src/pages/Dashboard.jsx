@@ -324,9 +324,11 @@ function Dashboard({ isLightMode }) {
   const isWebullAsset = (asset) => Boolean(
     asset?.is_external === true || asset?.source === 'webull'
   );
-  const navigateToWebullTrading = (symbol, side = 'BUY') => {
+  const navigateToWebullTrading = (symbol, side = 'BUY', accountId = null) => {
     const cleanSymbol = String(symbol || '').toUpperCase().trim();
-    navigate(`/trading/webull?symbol=${encodeURIComponent(cleanSymbol)}&side=${side.toUpperCase()}`);
+    let url = `/trading/webull?symbol=${encodeURIComponent(cleanSymbol)}&side=${side.toUpperCase()}`;
+    if (accountId) url += `&account_id=${encodeURIComponent(accountId)}`;
+    navigate(url);
   };
   const matchesAssetFilter = (asset, filter) => (
     filter === 'all' || (filter === 'traditional' ? isTraditionalAsset(asset) : !isTraditionalAsset(asset))
@@ -2628,7 +2630,7 @@ function Dashboard({ isLightMode }) {
                 return (
                   <button
                     onClick={() => {
-                      navigateToWebullTrading(sym, 'BUY');
+                      navigateToWebullTrading(sym, 'BUY', target.account_id);
                       closeActionMenu();
                     }}
                   >
@@ -2732,7 +2734,7 @@ function Dashboard({ isLightMode }) {
                     <button
                       onClick={() => {
                         if (hasBalance) {
-                          navigateToWebullTrading(coin.symbol, 'SELL');
+                          navigateToWebullTrading(coin.symbol, 'SELL', coin.account_id);
                           closeActionMenu();
                         }
                       }}
@@ -2907,7 +2909,7 @@ function Dashboard({ isLightMode }) {
           <button
             role="menuitem"
             onClick={() => {
-              navigateToWebullTrading(symbol, 'BUY');
+              navigateToWebullTrading(symbol, 'BUY', subject.account_id);
               closeActionMenu();
             }}
           >
@@ -2933,7 +2935,7 @@ function Dashboard({ isLightMode }) {
                   role="menuitem"
                   onClick={() => {
                     if (hasBalance) {
-                      navigateToWebullTrading(symbol, 'SELL');
+                      navigateToWebullTrading(symbol, 'SELL', coin.account_id);
                       closeActionMenu();
                     }
                   }}
@@ -4618,6 +4620,28 @@ function Dashboard({ isLightMode }) {
                                     >
                                       {isCryptoAsset ? <FaBitcoin /> : <FaDollarSign />}
                                     </span>
+                                    {isExternal && coin.webull_account_type && (
+                                      <span
+                                        className="webull-account-pill"
+                                        title={`Webull ${coin.webull_account_type} account`}
+                                        style={{
+                                          display: 'inline-flex',
+                                          alignItems: 'center',
+                                          padding: '2px 8px',
+                                          borderRadius: '9999px',
+                                          fontSize: '0.72rem',
+                                          fontWeight: 600,
+                                          letterSpacing: '0.02em',
+                                          whiteSpace: 'nowrap',
+                                          background: isLightMode ? '#000000' : '#2563eb',
+                                          color: isLightMode ? '#facc15' : '#ffffff',
+                                          border: isLightMode ? '1px solid #1f2937' : '1px solid #3b82f6',
+                                          marginLeft: '2px',
+                                        }}
+                                      >
+                                        {coin.webull_account_type}
+                                      </span>
+                                    )}
                                   </div>
                                 </td>
                               );
@@ -4823,7 +4847,7 @@ function Dashboard({ isLightMode }) {
                                             <button
                                               type="button"
                                               className="trade-action-btn buy"
-                                              onClick={() => navigateToWebullTrading(coin.symbol, 'BUY')}
+                                              onClick={() => navigateToWebullTrading(coin.symbol, 'BUY', coin.account_id)}
                                               title={`Buy ${coin.symbol} on Webull`}
                                             >
                                               Buy
@@ -4851,7 +4875,7 @@ function Dashboard({ isLightMode }) {
                                             <button
                                               type="button"
                                               className="trade-action-btn sell"
-                                              onClick={() => hasBalance && navigateToWebullTrading(coin.symbol, 'SELL')}
+                                              onClick={() => hasBalance && navigateToWebullTrading(coin.symbol, 'SELL', coin.account_id)}
                                               disabled={!hasBalance}
                                               title={hasBalance ? `Sell ${coin.symbol} on Webull` : 'You do not own enough of this asset to sell'}
                                               style={!hasBalance ? { opacity: 0.4, cursor: 'not-allowed' } : undefined}
@@ -5260,7 +5284,7 @@ function Dashboard({ isLightMode }) {
                                             <button
                                               type="button"
                                               className="trade-action-btn buy"
-                                              onClick={() => navigateToWebullTrading(item.symbol, 'BUY')}
+                                              onClick={() => navigateToWebullTrading(item.symbol, 'BUY', item.account_id)}
                                               title={`Buy ${item.symbol} on Webull`}
                                             >
                                               Buy

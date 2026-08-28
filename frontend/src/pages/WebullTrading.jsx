@@ -247,19 +247,50 @@ export default function WebullTrading({ isLightMode = false }) {
       const urlParams = new URLSearchParams(window.location.search);
       const urlSymbol = urlParams.get('symbol')?.toUpperCase()?.trim();
       const urlSide = urlParams.get('side')?.toUpperCase()?.trim();
+      const urlAccountId = urlParams.get('account_id')?.trim();
 
-      const initialAcc = filteredAccounts.find((a) => a.account_id === selectedAccountId) || filteredAccounts[0];
-      let activeAccId = selectedAccountId;
-      if (initialAcc) {
-        activeAccId = initialAcc.account_id;
-        setSelectedAccountId(initialAcc.account_id);
-        const isCrypto = isCryptoAccount(initialAcc);
+      // Determine which account should be active on load:
+      // 1. If an explicit account_id is in the URL, select that account.
+      // 2. Otherwise if a symbol was provided, infer account by asset class.
+      // 3. Otherwise fall back to the previously-selected account or first account.
+      let activeAcc = null;
+
+      if (urlAccountId) {
+        // Priority 1: explicit account_id from navigation
+        activeAcc = filteredAccounts.find((a) => a.account_id === urlAccountId) || null;
+      }
+
+      if (!activeAcc && urlSymbol) {
+        // Priority 2: find the account that holds this symbol directly
+        const matchedHoldingByAcc = importedHoldings.find((h) => h.symbol === urlSymbol && h.account_id);
+        if (matchedHoldingByAcc?.account_id) {
+          activeAcc = filteredAccounts.find((a) => a.account_id === matchedHoldingByAcc.account_id) || null;
+        }
+        // Priority 2b: infer by asset class (crypto symbol → crypto acct, else equity)
+        if (!activeAcc) {
+          const isRequestedCrypto = urlSymbol.endsWith('USD') || /crypto|coin|token/i.test(
+            importedHoldings.find((h) => h.symbol === urlSymbol)?.instrument_type || ''
+          );
+          if (isRequestedCrypto) {
+            activeAcc = filteredAccounts.find((a) => isCryptoAccount(a)) || null;
+          } else {
+            activeAcc = filteredAccounts.find((a) => !isCryptoAccount(a)) || null;
+          }
+        }
+      }
+
+      // Priority 3: previously-selected or first account
+      if (!activeAcc) {
+        activeAcc = filteredAccounts.find((a) => a.account_id === selectedAccountId) || filteredAccounts[0] || null;
+      }
+
+      if (activeAcc) {
+        const isCrypto = isCryptoAccount(activeAcc);
+        setSelectedAccountId(activeAcc.account_id);
         setSelectedInstrumentType(isCrypto ? 'CRYPTO' : 'EQUITY');
 
         if (urlSymbol) {
           setSelectedSymbol(urlSymbol);
-          const isCryptoSymbol = urlSymbol.endsWith('USD') || /crypto|coin|token/i.test(importedHoldings.find((h) => h.symbol === urlSymbol)?.instrument_type || '');
-          setSelectedInstrumentType(isCryptoSymbol ? 'CRYPTO' : 'EQUITY');
           if (urlSide && ['BUY', 'SELL'].includes(urlSide)) {
             setOrderForm((prev) => ({ ...prev, side: urlSide }));
           }

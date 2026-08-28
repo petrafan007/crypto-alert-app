@@ -1,5 +1,6 @@
 """Persistence and display helpers for read-only Webull portfolio snapshots."""
 
+import json
 from datetime import datetime
 
 from core.extensions import db
@@ -131,8 +132,43 @@ def import_webull_portfolio_snapshot(user_id, preview):
     return {'accounts': imported_accounts, 'positions': imported_positions, 'synced_at': now}
 
 
+def _webull_account_pill_label(account_class, account_label):
+    """Map Webull account class / label to the short pill text shown in the UI."""
+    cls = str(account_class or '').upper()
+    lbl = str(account_label or '').lower()
+    if cls == 'CRYPTO' or 'crypto' in lbl:
+        return 'Crypto'
+    if 'rollover' in lbl or 'ROLLOVER' in cls:
+        return 'Rollover IRA'
+    if 'roth' in lbl or 'ROTH' in cls:
+        return 'Roth IRA'
+    # Individual Cash / Cash / Traditional fall through as 'Cash'
+    return 'Cash'
+
+
 def get_webull_portfolio_rows(user_id):
     """Serialize imported Webull positions for the unified dashboard table."""
+    # Build a fast lookup: account_id -> {account_number, webull_account_type}
+    # from the UserSetting.webull_connected_accounts JSON blob so we don't
+    # need an extra network call and can work entirely from local DB data.
+    account_meta = {}  # keyed by account_id
+    try:
+        from credentials import UserSetting  # local import to avoid circular deps
+        setting = UserSetting.query.filter_by(user_id=user_id).first()
+        raw = getattr(setting, 'webull_connected_accounts', '[]') or '[]'
+        stored_accounts = json.loads(raw) if isinstance(raw, str) else (raw or [])
+        for acc in stored_accounts:
+            acc_id = str(acc.get('account_id') or '')
+            if acc_id:
+                account_meta[acc_id] = {
+                    'account_number': str(acc.get('account_number') or ''),
+                    'webull_account_type': _webull_account_pill_label(
+                        acc.get('account_class', ''),
+                        acc.get('account_label') or acc.get('account_name', ''),
+                    ),
+                }
+    except Exception:
+        pass  # Non-fatal: pill simply won't appear if metadata is unavailable
     rows = []
     for holding in WebullHolding.query.filter_by(user_id=user_id).order_by(WebullHolding.symbol.asc()).all():
         amount = _number(holding.quantity)
@@ -145,12 +181,16 @@ def get_webull_portfolio_rows(user_id):
             user_id=user_id, provider='webull', symbol=holding.symbol,
             instrument_type=str(holding.instrument_type or '').upper(),
         ).order_by(ExternalSentimentSignal.created_at.desc()).first()
+        meta = account_meta.get(str(holding.account_id) if holding.account_id else '', {})
         rows.append({
             'id': f'webull-{holding.id}', 'symbol': holding.symbol, 'amount': amount,
             'current_price': current, 'current_value': value, 'avg_entry': cost,
             'cost_basis': (cost * amount) if cost is not None else None,
             'pct_change': pct, 'webull_unrealized_pnl': pnl,
             'source': 'webull', 'source_label': 'Webull', 'is_external': True,
+            'account_id': holding.account_id or '',
+            'account_number': meta.get('account_number', ''),
+            'webull_account_type': meta.get('webull_account_type', ''),
             'instrument_type': holding.instrument_type or 'Security', 'currency': holding.currency or 'USD',
             'webull_position_id': holding.webull_position_id,
             'instrument_id': holding.instrument_id,
