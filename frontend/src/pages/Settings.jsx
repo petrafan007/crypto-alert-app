@@ -200,7 +200,36 @@ export default function Settings({ isLightMode }) {
 
   // Onboarding Modal State
   const [showOnboardingModal, setShowOnboardingModal] = useState(false);
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  const SETTINGS_TABS = [
+    { id: 'apis', label: 'Exchange & Broker APIs', icon: '🔌' },
+    { id: 'ai-providers', label: 'AI Providers & Models', icon: '🧠' },
+    { id: 'ai-prompts', label: 'AI Workflow Prompts', icon: '📝' },
+    { id: 'sentiment-strategy', label: 'Sentiment & Strategy', icon: '🎯' },
+    { id: 'web-search', label: 'Web Search & News', icon: '🔍' },
+    { id: 'security-2fa', label: 'Security & 2FA', icon: '🔐' },
+    { id: 'system', label: 'Notifications & System', icon: '⚙️' },
+  ];
+
+  const [activeTab, setActiveTab] = useState(() => {
+    const tabParam = searchParams.get('tab');
+    const validTabs = ['apis', 'ai-providers', 'ai-prompts', 'sentiment-strategy', 'web-search', 'security-2fa', 'system'];
+    if (tabParam && validTabs.includes(tabParam)) return tabParam;
+    const sectionParam = searchParams.get('section');
+    if (sectionParam === '2fa') return 'security-2fa';
+    if (sectionParam === 'ai-settings' || sectionParam === 'ai-prompts') return 'ai-prompts';
+    return 'apis';
+  });
+
+  const handleTabChange = (tabId) => {
+    setActiveTab(tabId);
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      next.set('tab', tabId);
+      return next;
+    }, { replace: true });
+  };
 
   // Delete Account State
   const [showDeleteModal, setShowDeleteModal] = useState(false);
@@ -211,6 +240,11 @@ export default function Settings({ isLightMode }) {
     // Show onboarding for new users (redirected from signup with ?new_user=true)
     if (searchParams.get('new_user') === 'true') {
       setShowOnboardingModal(true);
+    }
+    const tabParam = searchParams.get('tab');
+    const validTabs = ['apis', 'ai-providers', 'ai-prompts', 'sentiment-strategy', 'web-search', 'security-2fa', 'system'];
+    if (tabParam && validTabs.includes(tabParam)) {
+      setActiveTab(tabParam);
     }
   }, [searchParams]);
 
@@ -1409,7 +1443,23 @@ export default function Settings({ isLightMode }) {
         </div>
       )}
 
-      <div className="settings-grid">
+      {/* Settings Navigation Tabs */}
+      <div className="settings-tabs-nav">
+        {SETTINGS_TABS.map((tab) => (
+          <button
+            key={tab.id}
+            type="button"
+            className={`settings-tab-btn ${activeTab === tab.id ? 'active' : ''}`}
+            onClick={() => handleTabChange(tab.id)}
+          >
+            <span>{tab.icon}</span>
+            <span>{tab.label}</span>
+          </button>
+        ))}
+      </div>
+
+      {activeTab === 'apis' && (
+        <div className="settings-grid">
         {/* Row 1, Left: Binance.US API Key and Secret (Unified) */}
         <div className="settings-page-section">
           <h3>Binance.US API Key and Secret</h3>
@@ -1670,7 +1720,38 @@ export default function Settings({ isLightMode }) {
           </div>
         </div>
 
-        {/* Row 1, Right: Two-Factor Authentication Section */}
+        {/* Credential Encryption - ONLY for Admin (id=1) */}
+          {user && user.id === 1 && (
+            <div className="settings-page-section" style={{ gridColumn: '1 / -1' }}>
+              <h3>Credential Encryption</h3>
+              <p>
+                Store a Fernet key to encrypt Binance, Webull, AI, and notification credentials at rest. Provide either a 32-character raw secret or a URL-safe base64 string.
+              </p>
+              <div className="settings-form-group">
+                <label>Encryption Key</label>
+                <input
+                  type="password"
+                  value={settings.credentials_encryption_key || ''}
+                  onChange={(e) => handleInputChange('credentials_encryption_key', e.target.value)}
+                  placeholder="Enter Fernet key and click Save Settings"
+                />
+                <p className="settings-form-help">
+                  {encryptionStatus.configured ? (
+                    encryptionStatus.persisted
+                      ? 'Encryption is active and stored securely in the database.'
+                      : 'Encryption is active via environment configuration.'
+                  ) : (
+                    'Encryption is not configured yet. Add a key to enable it.'
+                  )}
+                </p>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Security & 2FA Tab */}
+      {activeTab === 'security-2fa' && (
         <div className="settings-page-section">
           <h3>🔐 Two-Factor Authentication (2FA)</h3>
 
@@ -1860,10 +1941,14 @@ export default function Settings({ isLightMode }) {
             </div>
           )}
         </div>
+      )}
 
-        {/* Row 2, Left: Primary AI Integration */}
-        <div className="settings-page-section">
-          <h3>Primary AI Integration</h3>
+      {/* AI Providers & Models Tab */}
+      {activeTab === 'ai-providers' && (
+        <div className="settings-grid">
+          {/* Row 2, Left: Primary AI Integration */}
+          <div className="settings-page-section">
+            <h3>Primary AI Integration</h3>
 
           <div className="settings-form-group">
             <label>AI Provider</label>
@@ -2315,39 +2400,13 @@ export default function Settings({ isLightMode }) {
             )}
           </div>
         </div>
+        </div>
+      )}
 
-        {/* Credential Encryption - ONLY for Admin (id=1) */}
-        {user && user.id === 1 && (
-          <div className="settings-page-section" style={{ gridColumn: '1 / -1' }}>
-            <h3>Credential Encryption</h3>
-            <p>
-              Store a Fernet key to encrypt Binance, AI, and notification credentials at rest. Provide either a 32-character raw secret or a URL-safe base64 string.
-            </p>
-            <div className="settings-form-group">
-              <label>Encryption Key</label>
-              <input
-                type="password"
-                value={settings.credentials_encryption_key || ''}
-                onChange={(e) => handleInputChange('credentials_encryption_key', e.target.value)}
-                placeholder="Enter Fernet key and click Save Settings"
-              />
-              <p className="settings-form-help">
-                {encryptionStatus.configured ? (
-                  encryptionStatus.persisted
-                    ? 'Encryption is active and stored securely in the database.'
-                    : 'Encryption is active via environment configuration.'
-                ) : (
-                  'Encryption is not configured yet. Add a key to enable it.'
-                )}
-              </p>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Web Search Settings */}
-      <div className="settings-page-section">
-        <h3>🔍 Web Search</h3>
+      {/* Web Search & News Tab */}
+      {activeTab === 'web-search' && (
+        <div className="settings-page-section">
+          <h3>🔍 Web Search &amp; News Grounding</h3>
 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
           {/* Primary Brave Search API Key */}
@@ -2412,11 +2471,16 @@ export default function Settings({ isLightMode }) {
         <div className="settings-form-help" style={{ marginTop: '12px', fontStyle: 'italic' }}>
           💡 Combined limit: 4,000 searches/month before falling back to DuckDuckGo
         </div>
-      </div>
+        </div>
+      )}
 
-      {/* AI Settings */}
-      <div data-section="ai-settings" className="settings-page-section">
-        <h3>🤖 AI Trading Settings</h3>
+      {/* Sentiment & Strategy Tab - Part 1: Strategy Parameters */}
+      {activeTab === 'sentiment-strategy' && (
+        <div data-section="ai-settings" className="settings-page-section">
+          <h3>🤖 AI Trading &amp; Strategy Parameters</h3>
+          <p style={{ color: '#94a3b8', fontSize: '13px', marginBottom: 16 }}>
+            Parameters governing automated portfolio scans, risk profiles, and execution confidence for all cryptocurrencies and traditional securities.
+          </p>
 
         <div className="settings-grid">
           <div className="settings-form-group">
@@ -2611,14 +2675,21 @@ export default function Settings({ isLightMode }) {
               Maximum tokens for AI responses (500-8000)
             </p>
           </div>
-
         </div>
+        </div>
+      )}
 
-        <div style={{ marginTop: 16 }}>
-          <h4 style={{ color: '#fff', marginBottom: 12 }}>AI Agentic Workflow Prompts</h4>
-          <p style={{ color: '#666', fontSize: '12px', marginBottom: 16 }}>
-            Configure prompts for the 3-stage agentic workflow: Stage 1 (search query generation), Stage 2 (web search), Stage 3 (synthesis).
-            Each analysis type has pre-search and post-search prompts that accept {'{symbol}'} and {'{datetime}'} variables.
+      {/* AI Agentic Workflow Prompts Tab */}
+      {activeTab === 'ai-prompts' && (
+        <div data-section="ai-prompts" className="settings-page-section">
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
+            <h3 style={{ margin: 0, color: '#4fd1c5' }}>📝 AI Agentic Workflow Prompts</h3>
+            <span style={{ fontSize: '12px', color: '#60a5fa', background: 'rgba(59, 130, 246, 0.12)', padding: '4px 10px', borderRadius: '4px', border: '1px solid rgba(59, 130, 246, 0.25)' }}>
+              Crypto (Binance.US &amp; Webull) · Securities &amp; ETFs (Webull)
+            </span>
+          </div>
+          <p style={{ color: '#94a3b8', fontSize: '13px', marginBottom: 20, lineHeight: 1.5 }}>
+            Configure prompts for the 3-stage agentic workflow: <strong>Stage 1</strong> (search query generation), <strong>Stage 2</strong> (web search &amp; news grounding), and <strong>Stage 3</strong> (synthesis &amp; strategy evaluation). All prompt templates accept <code>{'{symbol}'}</code>, <code>{'{datetime}'}</code>, and <code>{'{amount}'}</code> variables, and apply universally to both cryptocurrency and traditional securities across Binance.US and Webull.
           </p>
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 16 }}>
@@ -2762,9 +2833,9 @@ export default function Settings({ isLightMode }) {
             </div>
 
 
-            {/* Coin & News Analysis */}
+            {/* Asset & News Analysis (Crypto & Securities) */}
             <div style={{ background: '#1a1f23', padding: 16, borderRadius: 8, border: '1px solid #444' }}>
-              <h5 style={{ color: '#4fd1c5', marginBottom: 12, fontSize: '14px' }}>Coin & News Analysis</h5>
+              <h5 style={{ color: '#4fd1c5', marginBottom: 12, fontSize: '14px' }}>Asset &amp; News Analysis (Crypto &amp; Securities)</h5>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                 <div>
                   <label style={{ display: 'block', marginBottom: 8, color: '#fff', fontSize: '12px' }}>
@@ -2780,7 +2851,7 @@ export default function Settings({ isLightMode }) {
                       autoResizeTextarea(e.target);
                     }}
                     onInput={(e) => autoResizeTextarea(e.target)}
-                    placeholder="Prompt to generate search queries for coin & news analysis..."
+                    placeholder="Prompt to generate search queries for cryptocurrency or equity asset & news analysis..."
                     style={{
                       width: 'calc(100% - 24px)',
                       padding: '8px 12px',
@@ -2811,7 +2882,7 @@ export default function Settings({ isLightMode }) {
                       autoResizeTextarea(e.target);
                     }}
                     onInput={(e) => autoResizeTextarea(e.target)}
-                    placeholder="Prompt to synthesize search results into coin & news analysis..."
+                    placeholder="Prompt to synthesize search results into comprehensive asset & news analysis..."
                     style={{
                       width: 'calc(100% - 24px)',
                       padding: '8px 12px',
@@ -2835,7 +2906,7 @@ export default function Settings({ isLightMode }) {
             <div style={{ background: '#1a1f23', padding: 16, borderRadius: 8, border: '1px solid #444', marginTop: 16 }}>
               <h5 style={{ color: '#4fd1c5', marginBottom: 12, fontSize: '14px' }}>Portfolio Sentiment Analysis</h5>
               <p style={{ color: '#a0a6b8', fontSize: '12px', marginBottom: 16, lineHeight: '1.4' }}>
-                Automated sentiment analysis for all portfolio coins you currently own. Classifies into: <strong>Hold, Buy Immediately, Consider Buying, Sell Immediately, Consider Selling</strong>.
+                Automated sentiment analysis for held assets (cryptocurrency &amp; traditional securities) across Binance.US and Webull. Classifies into: <strong>Hold, Buy Immediately, Consider Buying, Sell Immediately, Consider Selling</strong>.
               </p>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                 <div>
@@ -2993,7 +3064,7 @@ export default function Settings({ isLightMode }) {
             <div style={{ background: '#1a1f23', padding: 16, borderRadius: 8, border: '1px solid #444', marginTop: 16 }}>
               <h5 style={{ color: '#4fd1c5', marginBottom: 12, fontSize: '14px' }}>Watchlist Sentiment Analysis</h5>
               <p style={{ color: '#a0a6b8', fontSize: '12px', marginBottom: 16, lineHeight: '1.4' }}>
-                Automated and on-the-spot sentiment analysis for watchlist coins you are monitoring. Classifies prospective entry into: <strong>Avoid, Watch, Consider Buying, Definitely Buy</strong>.
+                Automated and on-the-spot sentiment analysis for watchlist assets (cryptocurrency &amp; securities) monitored across Binance.US and Webull. Classifies prospective entry into: <strong>Avoid, Watch, Consider Buying, Definitely Buy</strong>.
               </p>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                 <div>
@@ -3152,7 +3223,7 @@ export default function Settings({ isLightMode }) {
             <div style={{ background: '#1a1f23', padding: 16, borderRadius: 8, border: '1px solid #444', marginTop: 16 }}>
               <h5 style={{ color: '#4fd1c5', marginBottom: 12, fontSize: '14px' }}>AI Copilot System Prompt</h5>
               <p style={{ color: '#a0a6b8', fontSize: '12px', marginBottom: 16, lineHeight: '1.4' }}>
-                Configure the persona and analytical behavior of the AI Copilot sidebar. The Copilot automatically receives your live portfolio, watchlist, pending orders, and active sidebar conversation feed.
+                Configure the persona and analytical intelligence of the AI Copilot sidebar across both Binance.US (cryptocurrency) and Webull (cryptocurrency, equities, ETFs, options). The Copilot automatically receives your live portfolio, watchlist, pending orders, and active sidebar conversation feed.
               </p>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                 <div>
@@ -3215,13 +3286,15 @@ export default function Settings({ isLightMode }) {
             </div>
           </div>
         </div>
-      </div>
+      )}
 
-      <section className="settings-page-section sentiment-variable-settings" style={{ marginTop: '24px' }}>
-        <h3>🎯 Sentiment Variable Settings</h3>
-        <p>
-          Grade each new recommendation at its fixed forecast horizon using the rule values saved with that prediction. Existing history remains visible as legacy next-check evaluation. Directional Wrong values and the Hold steady range may be 0.00%; the Hold Wrong Threshold must be greater than its steady range. Exact boundaries are decisive.
-        </p>
+      {/* Sentiment & Strategy Tab - Part 2: Sentiment Variable Settings */}
+      {activeTab === 'sentiment-strategy' && (
+        <section className="settings-page-section sentiment-variable-settings" style={{ marginTop: '24px' }}>
+          <h3>🎯 Sentiment Variable Settings</h3>
+          <p>
+            Grade each new recommendation at its fixed forecast horizon using the rule values saved with that prediction. Applies universally to all cryptocurrency (Binance.US / Webull) and traditional securities (Webull). Directional Wrong values and the Hold steady range may be 0.00%; the Hold Wrong Threshold must be greater than its steady range. Exact boundaries are decisive.
+          </p>
         <div className="sentiment-variable-grid">
           {SENTIMENT_VARIABLES.map(variable => {
             if (variable.kind === 'hold') {
@@ -3336,9 +3409,13 @@ export default function Settings({ isLightMode }) {
           })}
         </div>
       </section>
+      )}
 
-      {/* Notifications & Tax Configuration - Side by Side */}
-      <div className="settings-grid" style={{ marginTop: '24px' }}>
+      {/* Notifications & System Tab */}
+      {activeTab === 'system' && (
+        <>
+          {/* Notifications & Tax Configuration - Side by Side */}
+          <div className="settings-grid" style={{ marginTop: '24px' }}>
         {/* Notifications */}
         <div className="settings-page-section">
           <h3>🔔 Notifications & Alerts</h3>
@@ -3578,6 +3655,8 @@ export default function Settings({ isLightMode }) {
           Delete My Account
         </button>
       </div>
+        </>
+      )}
 
       {/* Delete Account Confirmation Modal */}
       {showDeleteModal && (

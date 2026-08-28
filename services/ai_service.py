@@ -223,6 +223,26 @@ class AIResponseWrapper:
     def __str__(self):
         return self.text
 
+def _is_equity_asset(sym):
+    """Determine if a symbol represents a traditional security (stock/ETF) or cryptocurrency."""
+    if not sym or sym in ['PORTFOLIO', 'CRYPTO', 'ALL']:
+        return False
+    s = str(sym).upper().strip()
+    try:
+        from models import Coin, WebullHolding
+        wh = WebullHolding.query.filter_by(symbol=s).first()
+        if wh and str(wh.instrument_type or '').upper() not in ['CRYPTO', 'COIN', 'TOKEN']:
+            return True
+        if Coin.query.filter_by(symbol=s).first():
+            return False
+    except Exception:
+        pass
+    if s.endswith('USDT') or (s.endswith('USD') and s not in ['USD'] and len(s) > 6):
+        return False
+    if s in ['BTC', 'ETH', 'SOL', 'BNB', 'XRP', 'ADA', 'DOGE', 'AVAX', 'DOT', 'LINK', 'MATIC', 'NEAR', 'SUI', 'APT', 'SHIB', 'PEPE']:
+        return False
+    return True
+
 def call_ai_with_web_search(
     username,
     messages,
@@ -326,8 +346,6 @@ def call_ai_with_web_search(
                 original_user_message = msg.get('content', '')
                 break
 
-
-
         # Check for cached AI response
         if use_cache:
             cache_key = hashlib.md5(f"{provider}:{model}:{prompt_type}:{original_user_message}".encode()).hexdigest()
@@ -346,10 +364,8 @@ def call_ai_with_web_search(
             'watchlist_sentiment_analysis': getattr(ai_prompts, 'watchlist_sentiment_prompt_pre', None),
             'copilot': getattr(ai_prompts, 'copilot_chat_pre', None) or user_ai_settings.get('copilot_chat_pre'),
             'manual': getattr(ai_prompts, 'copilot_chat_pre', None) or user_ai_settings.get('copilot_chat_pre'),
-            # Webull crypto may honor the user's existing crypto research prompt;
-            # securities intentionally use a distinct prompt family.
             'webull_crypto_analysis': getattr(ai_prompts, 'coin_analysis_pre', None) or WEBULL_CRYPTO_SEARCH_PROMPT,
-            'webull_equity_analysis': WEBULL_EQUITY_SEARCH_PROMPT,
+            'webull_equity_analysis': getattr(ai_prompts, 'coin_analysis_pre', None) or WEBULL_EQUITY_SEARCH_PROMPT,
         }
 
         stage1_template = stage1_prompt_map.get(prompt_type)
@@ -372,7 +388,6 @@ def call_ai_with_web_search(
                     raise ValueError("OpenAI API key not configured")
                 from openai import OpenAI
                 client = OpenAI(api_key=key, timeout=25.0)
-                # Reasoning models require enough max_completion_tokens for internal reasoning tokens + output tokens
                 is_reasoning_model = any(m in (model or '').lower() for m in ['o1', 'o3', 'gpt-5', 'reasoning'])
                 effective_tokens = max(p_max_tokens, 2500) if is_reasoning_model else p_max_tokens
                 resp = client.chat.completions.create(
@@ -410,59 +425,60 @@ def call_ai_with_web_search(
                 )
                 if r.status_code == 200:
                     return r.json()['choices'][0]['message']['content']
-                raise Exception(f"Perplexity error ({r.status_code}): {r.text}")
+                raise Exception(f"Perplexity API error: {r.text}")
 
             elif provider == 'inception':
                 key = _pick_key('inception')
                 if not key:
-                    raise ValueError("Inception Labs API key not configured")
-                r = requests.post(
-                    "https://api.inceptionlabs.ai/v1/chat/completions",
-                    headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
-                    json={"model": model or "mercury-2", "messages": p_messages, "max_tokens": p_max_tokens},
-                    timeout=15
-                )
+                    raise ValueError("Inception API key not configured")
+                headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
+                payload = {
+                    "model": model,
+                    "messages": p_messages,
+                    "max_tokens": p_max_tokens,
+                    "temperature": 0.2
+                }
+                r = requests.post("https://api.inceptionai.com/v1/chat/completions", headers=headers, json=payload, timeout=20)
                 if r.status_code == 200:
                     return r.json()['choices'][0]['message']['content']
-                raise Exception(f"Inception Labs error ({r.status_code}): {r.text}")
+                raise Exception(f"Inception API error: {r.text}")
 
             elif provider == 'gemini':
                 key = _pick_key('gemini')
                 if not key:
                     raise ValueError("Gemini API key not configured")
-                contents = []
+                url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={key}"
+
+                gemini_contents = []
                 system_instruction = None
-                for msg in p_messages:
-                    r = msg.get("role", "user")
-                    text_content = msg.get("content", "")
-                    if r == 'system':
-                        system_instruction = {"parts": [{"text": text_content}]}
-                    elif r == 'assistant':
-                        contents.append({"role": "model", "parts": [{"text": text_content}]})
-                    else:
-                        contents.append({"role": "user", "parts": [{"text": text_content}]})
-                
-                # Setup reasoning effort / thinkingConfig
-                budget_map = {'low': 1024, 'medium': 2048, 'high': 4096}
-                budget = budget_map.get(ai_reasoning_level, 2048)
-                
-                gen_config = {"maxOutputTokens": p_max_tokens}
-                # Only include thinkingConfig if maxOutputTokens allows space for both thinking and output
-                if p_max_tokens > budget + 512:
-                    gen_config["thinkingConfig"] = {"thinkingBudget": budget}
-                
+
+                for m in p_messages:
+                    role = m.get('role')
+                    text = m.get('content', '')
+                    if role == 'system':
+                        system_instruction = {"parts": [{"text": text}]}
+                    elif role == 'user':
+                        gemini_contents.append({"role": "user", "parts": [{"text": text}]})
+                    elif role == 'assistant':
+                        gemini_contents.append({"role": "model", "parts": [{"text": text}]})
+
                 req_json = {
-                    "contents": contents,
-                    "generationConfig": gen_config
+                    "contents": gemini_contents,
                 }
+
+                gen_config = {"maxOutputTokens": p_max_tokens}
+                if any(m in (model or '').lower() for m in ['thinking', '2.5', '3.7']):
+                    budget = 1024 if ai_reasoning_level == 'low' else (4096 if ai_reasoning_level == 'high' else 2048)
+                    gen_config["thinkingConfig"] = {"thinkingBudget": budget}
+                req_json["generationConfig"] = gen_config
+
                 if system_instruction:
                     req_json["systemInstruction"] = system_instruction
-                
+
                 last_err = ""
-                for api_ver in ['v1beta', 'v1']:
-                    url = f"https://generativelanguage.googleapis.com/{api_ver}/models/{model}:generateContent?key={key}"
+                for attempt in range(2):
                     try:
-                        r = requests.post(url, json=req_json, timeout=15)
+                        r = requests.post(url, json=req_json, timeout=18)
                         if r.status_code == 200:
                             res_json = r.json()
                             try:
@@ -470,7 +486,6 @@ def call_ai_with_web_search(
                             except Exception:
                                 return json.dumps(res_json)
                         elif r.status_code == 400 and "thinkingConfig" in gen_config:
-                            # Retry without thinkingConfig in case model does not support it
                             req_json["generationConfig"] = {"maxOutputTokens": p_max_tokens}
                             r_retry = requests.post(url, json=req_json, timeout=15)
                             if r_retry.status_code == 200:
@@ -491,18 +506,25 @@ def call_ai_with_web_search(
                 raise ValueError(f"Unsupported AI provider: {provider}")
 
         # Stage 1: Queries
+        is_equity = _is_equity_asset(symbol_value) or prompt_type == 'webull_equity_analysis'
         if prompt_type in ['sentiment_analysis', 'watchlist_sentiment_analysis']:
-            search_queries = [
-                f"{symbol_value} crypto current price latest news past {search_lookback_hours} hours today",
-                f"{symbol_value} cryptocurrency market sentiment news past {search_lookback_hours} hours"
-            ]
+            if is_equity:
+                search_queries = [
+                    f"{symbol_value} stock current price latest news past {search_lookback_hours} hours today",
+                    f"{symbol_value} stock market sentiment earnings catalysts past {search_lookback_hours} hours"
+                ]
+            else:
+                search_queries = [
+                    f"{symbol_value} crypto current price latest news past {search_lookback_hours} hours today",
+                    f"{symbol_value} cryptocurrency market sentiment news past {search_lookback_hours} hours"
+                ]
         elif prompt_type == 'webull_equity_analysis':
             search_queries = [f"{symbol_value} stock or ETF latest news earnings sector catalysts today"]
         elif prompt_type in ['copilot', 'manual']:
             # Fast deterministic query for real-time Copilot chat without multi-second LLM query overhead
             if symbol_value in ['PORTFOLIO', 'CRYPTO', '']:
-                search_queries = ["crypto market price trend bitcoin ethereum sentiment today"]
-            elif symbol_value in ['AAPL', 'NVDA', 'TSLA', 'SPCX', 'SPY', 'QQQ', 'MSFT', 'AMZN', 'GOOGL', 'META']:
+                search_queries = ["crypto and stock market trends bitcoin s&p 500 sentiment today"]
+            elif is_equity:
                 search_queries = [f"{symbol_value} stock market price catalysts sentiment today"]
             else:
                 search_queries = [f"{symbol_value} cryptocurrency market price trend sentiment today"]
@@ -512,20 +534,18 @@ def call_ai_with_web_search(
                 search_queries = [q.strip().strip('-*0123456789. ') for q in (search_queries_text or '').split('\n') if q.strip()][:2]
             except Exception as e:
                 logger.warning(f"Stage 1 query generation error: {e}. Using fallback query.")
-                search_queries = [f"{symbol_value} crypto news market analysis today"]
+                fallback_term = "stock" if is_equity else "crypto"
+                search_queries = [f"{symbol_value} {fallback_term} news market analysis today"]
 
-        # Stage 2: NewsAPI plus web searches. If a NewsAPI key is configured, its
-        # results are always included before supplemental web-market context.
-        # Brave's closest supported freshness filter is past-day; the query
-        # itself carries the user's exact configured lookback window.
+        # Stage 2: NewsAPI plus web searches
         search_summaries = []
         search_sources = set()
-        freshness_filter = "pd"  # Brave Search API past-day (24h) parameter
+        freshness_filter = "pd"
         valid_search_results = 0
         symbol_mentioned = False
         clean_sym = (symbol_value or '').upper()
 
-        asset_context = 'equity' if prompt_type == 'webull_equity_analysis' else 'crypto'
+        asset_context = 'equity' if is_equity else 'crypto'
         for item in news_api_search(clean_sym, username, search_lookback_hours, max_results=4, asset_context=asset_context):
             src = item.get('source', '')
             if src:
@@ -538,18 +558,23 @@ def call_ai_with_web_search(
 
         for q in search_queries:
             if not q: continue
-            results = web_search(q, max_results=2, username=username, freshness=freshness_filter)
-            for item in results:
-                src = item.get('source', '')
-                if src:
-                    search_sources.add(src)
-                if src != 'System':
-                    valid_search_results += 1
-                    title_snip = f"{item.get('title', '')} {item.get('snippet', '')}".upper()
-                    if clean_sym and clean_sym in title_snip:
-                        symbol_mentioned = True
-                search_summaries.append(f"- {item.get('title')}: {item.get('snippet')} ({item.get('url')})")
-        
+            try:
+                res = web_search(q, max_results=2, username=username, freshness=freshness_filter)
+                if isinstance(res, dict) and res.get('error'):
+                    logger.warning(f"Search warning for query '{q}': {res.get('error')}")
+                    continue
+                if isinstance(res, list):
+                    for item in res:
+                        src = item.get('source', 'web')
+                        search_sources.add(src)
+                        valid_search_results += 1
+                        title_snip = f"{item.get('title', '')} {item.get('snippet', '')}".upper()
+                        if clean_sym and clean_sym in title_snip:
+                            symbol_mentioned = True
+                        search_summaries.append(f"- {item.get('title')}: {item.get('snippet')} ({item.get('url')})")
+            except Exception as e:
+                logger.warning(f"Search failed for query '{q}': {e}")
+
         search_text = "\n".join(search_summaries) if search_summaries else "No recent search results found."
 
         # Compute search status string
@@ -579,7 +604,7 @@ def call_ai_with_web_search(
             'copilot': getattr(ai_prompts, 'copilot_chat_post', None) or user_ai_settings.get('copilot_chat_post'),
             'manual': getattr(ai_prompts, 'copilot_chat_post', None) or user_ai_settings.get('copilot_chat_post'),
             'webull_crypto_analysis': getattr(ai_prompts, 'coin_analysis_post', None) or WEBULL_CRYPTO_RESEARCH_PROMPT,
-            'webull_equity_analysis': WEBULL_EQUITY_RESEARCH_PROMPT,
+            'webull_equity_analysis': getattr(ai_prompts, 'coin_analysis_post', None) or WEBULL_EQUITY_RESEARCH_PROMPT,
         }
         stage3_template = stage3_prompt_map.get(prompt_type)
         if not stage3_template:

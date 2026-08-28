@@ -125,6 +125,13 @@ The application utilizes a **unified PostgreSQL database**.
 
 Historical changelog entries retain the product name used when they were originally released. The application domain, repository slug, deployment folders, database, and service identifiers intentionally remain unchanged by the v2.45.0 brand update.
 
+## v2.50.0 (August 2026)
+
+- **Universal Multi-Asset AI Agentic Workflow Prompts**: Updated all 6 agentic workflow prompts (`Market Analysis`, `Portfolio Review`, `Asset & News Analysis`, `Portfolio Sentiment Analysis`, `Watchlist Sentiment Analysis`, and `AI Copilot Prompts` [Pre-Search and Post-Search stages]) to provide explicit, context-aware instructions for both cryptocurrency and traditional securities (equities, ETFs, options) across Binance.US and Webull.
+- **Asset-Aware Agentic Pipeline & Search Grounding**: Upgraded Stage 1 search query generation and Stage 2 news retrieval to dynamically recognize asset classes, generating equity-specific queries (earnings, SEC filings, analyst consensus) for stocks and protocol-specific queries (on-chain metrics, tokenomics, protocol upgrades) for cryptocurrencies. Wired Webull equity and crypto analyses directly into customizable user prompt overrides.
+- **Universal Multi-Asset Sentiment Strategy & Thresholds**: Sentiment variable rules (`Buy Immediately`, `Consider Buying`, `Hold`, `Consider Selling`, `Sell Immediately`), lookback horizons, and evaluation windows now apply universally to all traditional securities and cryptocurrencies across Binance.US and Webull.
+- **Settings Page Tabbed Layout Navigation**: Redesigned the Settings interface with an organized, responsive 7-tab navigation bar (`Exchange & Broker APIs`, `AI Providers & Models`, `AI Workflow Prompts`, `Sentiment & Strategy`, `Web Search & News`, `Security & 2FA`, `Notifications & System`) eliminating long vertical scrolling while keeping primary actions (Save Settings, Run Sentiment Now, Sync Coins, Upgrade App) pinned at the top.
+
 ## v2.49.0 (August 2026)
 
 - **Webull Percentage Order Price Helper**: Added the dual-mode `%` price calculation modal to the Webull Trading terminal for `LIMIT`, `STOP_LOSS`, and `STOP_LOSS_LIMIT` orders, allowing price generation anchored to either Average Entry cost basis or the live market price.
