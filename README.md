@@ -125,6 +125,23 @@ The application utilizes a **unified PostgreSQL database**.
 
 Historical changelog entries retain the product name used when they were originally released. The application domain, repository slug, deployment folders, database, and service identifiers intentionally remain unchanged by the v2.45.0 brand update.
 
+## v2.51.1 (August 2026)
+
+- **Orders Page Market Analysis & Portfolio Review Rehydration**:
+  - Normalized backend workflow responses (`/api/ai/workflow-latest`) and live workflow executions (`/api/ai/market-analysis-workflow`, `/api/ai/portfolio-review-workflow`), ensuring existing database records and newly generated analyses display immediately with full Markdown formatting, timestamp, and model metadata rather than showing "Not available".
+  - Fixed prompt modal retrieval (`/api/ai/*-workflow-prompt`) in `Orders.jsx` to load and display saved custom prompts properly.
+- **Binance AI Analysis Dashboard Cleanup**:
+  - Removed duplicate Market Analysis and Portfolio Review sections from the bottom of the Binance AI Analysis page (`AIDashboard.jsx`), cleanly scoping macro and portfolio workflows to their dedicated tabs on the Orders page.
+- **Webull AI Analysis Theme Awareness & Parity**:
+  - Updated the Webull Historical Prediction Ledger table container and class hierarchy (`prediction-ledger-table` within `prediction-table-container`) to match Binance's styling, ensuring seamless dark mode and light mode theme awareness and eliminating unstyled white header blocks.
+  - Removed manual "Generate Thesis" button and ad-hoc trigger box from the Webull AI Analysis tab; predictions are generated based on configured user settings and automated schedules.
+  - Removed separate "Scheduled Webull AI Research Automation" card from the Webull tab. Webull signals now use the exact same universal sentiment settings that Binance uses:
+    - Cadence (`sentiment_analysis_frequency_hours`)
+    - Horizon (`forecast_horizon_hours`)
+    - Analysis windows (`ai_analysis_window_start`, `ai_analysis_window_end`)
+    - Global AI enable toggle (`is_ai_enabled`)
+  - Integrated Webull holdings into manual force runs ("Run Sentiment Analysis Now" in Settings), evaluating Webull assets concurrently with Binance portfolio and watchlist coins.
+
 ## v2.51.0 (August 2026)
 
 - **Webull AI Analysis Parity with Binance**: Completely revamped the Webull AI Analysis tab in the Webull Trading terminal (`WebullTrading.jsx`) with a dedicated `WebullAIDashboard` component matching Binance's AI Analysis interface in look, feel, and functionality:

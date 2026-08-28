@@ -391,17 +391,36 @@ export default function Orders() {
     setLoading(false);
   };
 
+  const normalizeWorkflowResult = (data) => {
+    if (!data) return null;
+    const content = data.analysis?.content || data.body || '';
+    const generatedAt = data.analysis?.generated_at || data.created_at || data.time || null;
+    const provider = data.analysis?.provider || data.provider || null;
+    const model = data.analysis?.model || data.model || null;
+    const tier = data.analysis?.tier || data.tier || null;
+    if (!content) return null;
+    return {
+      content,
+      generated_at: generatedAt,
+      provider,
+      model,
+      tier,
+    };
+  };
+
   const loadLatestWorkflowData = async (targetType = 'all') => {
     if (targetType === 'all' || targetType === 'market-analysis') {
       try {
         const res = await axios.get('/api/ai/workflow-latest?type=market-analysis', { withCredentials: true });
-        if (res.data) setMarketAnalysisData(res.data);
+        const normalized = normalizeWorkflowResult(res.data);
+        if (normalized) setMarketAnalysisData(normalized);
       } catch (err) {}
     }
     if (targetType === 'all' || targetType === 'portfolio-review') {
       try {
         const res = await axios.get('/api/ai/workflow-latest?type=portfolio-review', { withCredentials: true });
-        if (res.data) setPortfolioReviewData(res.data);
+        const normalized = normalizeWorkflowResult(res.data);
+        if (normalized) setPortfolioReviewData(normalized);
       } catch (err) {}
     }
   };
@@ -415,9 +434,10 @@ export default function Orders() {
         params: { refresh: true },
         withCredentials: true
       });
-      if (res.data) {
-        if (isMarket) setMarketAnalysisData(res.data);
-        else setPortfolioReviewData(res.data);
+      const normalized = normalizeWorkflowResult(res.data);
+      if (normalized) {
+        if (isMarket) setMarketAnalysisData(normalized);
+        else setPortfolioReviewData(normalized);
       }
     } catch (err) {
       const msg = err.response?.data?.message || err.response?.data?.error || err.message || 'Workflow execution failed.';
@@ -429,14 +449,30 @@ export default function Orders() {
 
   const fetchWorkflowPrompt = async (type) => {
     try {
-      const res = await axios.get(`/api/ai/${type}-workflow-prompt`, { withCredentials: true });
-      if (res.data?.prompt) {
-        if (type === 'market-analysis') setMarketPrompt(res.data.prompt);
-        else setPortfolioPrompt(res.data.prompt);
+      const res = await axios.get(`/api/ai/${type}-workflow-prompt`, {
+        params: { source: 'prompts' },
+        withCredentials: true
+      });
+      const promptText = res.data?.body || res.data?.prompt || '';
+      if (promptText) {
+        if (type === 'market-analysis') setMarketPrompt(promptText);
+        else setPortfolioPrompt(promptText);
       }
+      return promptText;
     } catch (e) {
       console.error(`Failed to fetch ${type} prompt:`, e);
+      return '';
     }
+  };
+
+  const handleOpenMarketPromptModal = async () => {
+    await fetchWorkflowPrompt('market-analysis');
+    setShowMarketPromptModal(true);
+  };
+
+  const handleOpenPortfolioPromptModal = async () => {
+    await fetchWorkflowPrompt('portfolio-review');
+    setShowPortfolioPromptModal(true);
   };
 
   useEffect(() => {
@@ -637,7 +673,7 @@ export default function Orders() {
                 <button
                   type="button"
                   className="btn btn-secondary btn-sm"
-                  onClick={() => setShowMarketPromptModal(true)}
+                  onClick={handleOpenMarketPromptModal}
                 >
                   📝 View Prompt
                 </button>
@@ -660,15 +696,15 @@ export default function Orders() {
               <div className="workflow-result" style={{ background: '#0b0f19', border: '1px solid #334155', borderRadius: 10, padding: 24 }}>
                 <div
                   style={{ whiteSpace: 'pre-wrap', fontFamily: 'inherit', fontSize: '14px', lineHeight: '1.7', color: '#e2e8f0' }}
-                  dangerouslySetInnerHTML={{ __html: renderMarkdown(marketAnalysisData.analysis?.content) }}
+                  dangerouslySetInnerHTML={{ __html: renderMarkdown(marketAnalysisData.content) }}
                 />
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12, marginTop: 24, paddingTop: 16, borderTop: '1px solid #1e293b' }}>
                   <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-                    <strong>Generated:</strong> {formatEasternTime(marketAnalysisData.analysis?.generated_at)}
+                    <strong>Generated:</strong> {formatEasternTime(marketAnalysisData.generated_at)}
                   </span>
-                  {(marketAnalysisData.analysis?.tier || marketAnalysisData.analysis?.provider || marketAnalysisData.analysis?.model) && (
+                  {(marketAnalysisData.tier || marketAnalysisData.provider || marketAnalysisData.model) && (
                     <span className="meta-item ai-model-badge" style={{ background: 'rgba(99, 179, 237, 0.15)', border: '1px solid rgba(99, 179, 237, 0.3)', borderRadius: 6, padding: '3px 10px', fontSize: '12px' }}>
-                      🤖 <strong>{getTierName(marketAnalysisData.analysis.tier)}:</strong> {getProviderName(marketAnalysisData.analysis.provider)} ({marketAnalysisData.analysis.model || 'Default'})
+                      🤖 <strong>{getTierName(marketAnalysisData.tier)}:</strong> {getProviderName(marketAnalysisData.provider)} ({marketAnalysisData.model || 'Default'})
                     </span>
                   )}
                 </div>
@@ -699,7 +735,7 @@ export default function Orders() {
                 <button
                   type="button"
                   className="btn btn-secondary btn-sm"
-                  onClick={() => setShowPortfolioPromptModal(true)}
+                  onClick={handleOpenPortfolioPromptModal}
                 >
                   📝 View Prompt
                 </button>
@@ -722,15 +758,15 @@ export default function Orders() {
               <div className="workflow-result" style={{ background: '#0b0f19', border: '1px solid #334155', borderRadius: 10, padding: 24 }}>
                 <div
                   style={{ whiteSpace: 'pre-wrap', fontFamily: 'inherit', fontSize: '14px', lineHeight: '1.7', color: '#e2e8f0' }}
-                  dangerouslySetInnerHTML={{ __html: renderMarkdown(portfolioReviewData.analysis?.content) }}
+                  dangerouslySetInnerHTML={{ __html: renderMarkdown(portfolioReviewData.content) }}
                 />
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12, marginTop: 24, paddingTop: 16, borderTop: '1px solid #1e293b' }}>
                   <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-                    <strong>Generated:</strong> {formatEasternTime(portfolioReviewData.analysis?.generated_at)}
+                    <strong>Generated:</strong> {formatEasternTime(portfolioReviewData.generated_at)}
                   </span>
-                  {(portfolioReviewData.analysis?.tier || portfolioReviewData.analysis?.provider || portfolioReviewData.analysis?.model) && (
+                  {(portfolioReviewData.tier || portfolioReviewData.provider || portfolioReviewData.model) && (
                     <span className="meta-item ai-model-badge" style={{ background: 'rgba(99, 179, 237, 0.15)', border: '1px solid rgba(99, 179, 237, 0.3)', borderRadius: 6, padding: '3px 10px', fontSize: '12px' }}>
-                      🤖 <strong>{getTierName(portfolioReviewData.analysis.tier)}:</strong> {getProviderName(portfolioReviewData.analysis.provider)} ({portfolioReviewData.analysis.model || 'Default'})
+                      🤖 <strong>{getTierName(portfolioReviewData.tier)}:</strong> {getProviderName(portfolioReviewData.provider)} ({portfolioReviewData.model || 'Default'})
                     </span>
                   )}
                 </div>

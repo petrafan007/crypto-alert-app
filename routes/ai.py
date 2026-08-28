@@ -590,6 +590,11 @@ def force_sentiment_analysis():
                     pass
                 if target in ['all', 'portfolio']:
                     run_sentiment_analysis_for_user(user_id, username, force=True, symbol=symbol)
+                    try:
+                        from services.webull_signal_service import run_scheduled_webull_signals
+                        run_scheduled_webull_signals(force=True, symbol=symbol)
+                    except Exception as e:
+                        logger.error(f"Error in force webull sentiment analysis: {e}")
                 if target in ['all', 'watchlist']:
                     run_watchlist_sentiment_analysis_for_user(user_id, username, force=True, symbol=symbol)
         

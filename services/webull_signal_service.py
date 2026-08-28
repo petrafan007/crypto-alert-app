@@ -7,7 +7,7 @@ from core.extensions import db
 from credentials import Credential, User, UserSetting
 from models import ExternalSentimentSignal, WebullHolding
 from services.ai_service import call_ai_with_web_search, parse_sentiment_json
-from services.analysis_service import is_ai_enabled
+from services.analysis_service import is_ai_enabled, is_user_analysis_window_active
 from services.external_signal_service import create_external_signal, grade_external_signal
 from services.sentiment_outcome_service import format_forecast_rules, get_sentiment_thresholds
 from services.webull_analysis_service import build_webull_market_snapshot
@@ -31,6 +31,20 @@ def _equity_market_is_open(now=None):
 
 
 def _settings_value(settings, instrument_type, suffix, default=24):
+    if suffix == 'frequency_hours':
+        val = getattr(settings, 'sentiment_analysis_frequency_hours', None)
+        if val is not None:
+            try:
+                return max(1, int(val))
+            except (TypeError, ValueError):
+                pass
+    elif suffix == 'horizon_hours':
+        val = getattr(settings, 'forecast_horizon_hours', None)
+        if val is not None:
+            try:
+                return max(1, int(val))
+            except (TypeError, ValueError):
+                pass
     family = 'crypto' if instrument_type == 'CRYPTO' else 'equity'
     value = getattr(settings, f'webull_{family}_sentiment_{suffix}', None)
     try:
@@ -140,31 +154,45 @@ def create_webull_signal(user, holding, *, origin='manual'):
     return signal, market
 
 
-def run_scheduled_webull_signals():
-    """Run enabled per-asset scheduled signals. Disabled by default to avoid surprise AI use."""
+def run_scheduled_webull_signals(force=False, symbol=None):
+    """Run Webull signals using the same global sentiment settings and schedule as Binance."""
     created = 0
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     for user in User.query.all():
-        settings = UserSetting.query.filter_by(user_id=user.id).first()
-        if not settings or not settings.webull_ai_scheduling_enabled or not is_ai_enabled(user.username):
+        if not is_ai_enabled(user.username):
             continue
+        settings = UserSetting.query.filter_by(user_id=user.id).first()
+        if not settings:
+            continue
+
+        if not force:
+            start_str = getattr(settings, 'ai_analysis_window_start', '08:00')
+            end_str = getattr(settings, 'ai_analysis_window_end', '23:59')
+            if not is_user_analysis_window_active(start_str, end_str):
+                continue
+
         holdings = WebullHolding.query.filter(WebullHolding.user_id == user.id).all()
+        if symbol:
+            clean_sym = symbol.upper().strip()
+            holdings = [h for h in holdings if str(h.symbol or '').upper() == clean_sym]
+
         for holding in holdings:
             if holding.sentiment_tracking_enabled is False:
                 continue
             instrument_type = str(holding.instrument_type or '').upper()
             if instrument_type not in SUPPORTED_WEBULL_SIGNAL_TYPES:
                 continue
-            if instrument_type != 'CRYPTO' and not _equity_market_is_open():
+            if not force and instrument_type != 'CRYPTO' and not _equity_market_is_open():
                 continue
             frequency = _settings_value(settings, instrument_type, 'frequency_hours')
-            last = ExternalSentimentSignal.query.filter_by(
-                user_id=user.id, provider='webull', symbol=holding.symbol, instrument_type=instrument_type,
-            ).order_by(ExternalSentimentSignal.created_at.desc()).first()
-            if last and (now - last.created_at).total_seconds() < frequency * 3600:
-                continue
+            if not force:
+                last = ExternalSentimentSignal.query.filter_by(
+                    user_id=user.id, provider='webull', symbol=holding.symbol, instrument_type=instrument_type,
+                ).order_by(ExternalSentimentSignal.created_at.desc()).first()
+                if last and (now - last.created_at).total_seconds() < frequency * 3600:
+                    continue
             try:
-                create_webull_signal(user, holding, origin='scheduled')
+                create_webull_signal(user, holding, origin='scheduled' if not force else 'manual')
                 created += 1
             except Exception:
                 # A single unavailable instrument must not stop the others.
