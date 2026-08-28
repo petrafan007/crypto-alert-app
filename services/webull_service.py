@@ -642,7 +642,7 @@ def test_webull_connection(app_key, app_secret, environment='production', access
 def place_webull_order(
     app_key, app_secret, environment='production', access_token=None, *,
     account_id, symbol, instrument_type, side, order_type, quantity,
-    limit_price=None, time_in_force='DAY', support_trading_session='CORE',
+    limit_price=None, stop_price=None, time_in_force='DAY', support_trading_session='CORE',
     client_order_id=None,
 ):
     """Place a live order on Webull for equities, ETFs, or crypto."""
@@ -656,12 +656,14 @@ def place_webull_order(
         raise WebullConnectionError('Order side must be BUY or SELL.')
     clean_type = str(order_type or '').strip().upper()
     if clean_type not in {'MARKET', 'LIMIT', 'STOP', 'STOP_LIMIT'}:
-        raise WebullConnectionError('Choose a supported order type: MARKET or LIMIT.')
+        raise WebullConnectionError('Choose a supported order type: MARKET, LIMIT, STOP, or STOP_LIMIT.')
     clean_instrument = str(instrument_type or 'EQUITY').strip().upper()
     if clean_instrument in {'CRYPTO', 'COIN', 'TOKEN'}:
         clean_instrument = 'CRYPTO'
         if not clean_symbol.endswith('USD'):
             clean_symbol = f'{clean_symbol}USD'
+        if clean_type not in {'MARKET', 'LIMIT'}:
+            raise WebullConnectionError('Webull crypto accounts only support MARKET and LIMIT orders.')
     elif clean_instrument in {'ETF', 'STOCK', 'SECURITY', 'EQUITY'}:
         clean_instrument = 'EQUITY'
     else:
@@ -685,6 +687,15 @@ def place_webull_order(
         'time_in_force': str(time_in_force or 'DAY').upper(),
         'support_trading_session': str(support_trading_session or 'CORE').upper(),
     }
+    if clean_type in {'STOP', 'STOP_LIMIT'}:
+        try:
+            spx = float(stop_price)
+            if spx <= 0:
+                raise ValueError()
+            order_payload['stop_price'] = f'{spx:.4f}' if spx < 1 else f'{spx:.2f}'
+        except (TypeError, ValueError):
+            raise WebullConnectionError('Stop orders require a valid stop price greater than 0.')
+
     if clean_type in {'LIMIT', 'STOP_LIMIT'}:
         try:
             px = float(limit_price)

@@ -281,6 +281,39 @@ class WebullServiceTests(unittest.TestCase):
         self.assertEqual(body['orders'][0]['symbol'], 'AAPL')
         self.assertEqual(body['orders'][0]['limit_price'], '220.50')
 
+    def test_place_webull_stop_and_stop_limit_orders(self):
+        response = Mock(status_code=200)
+        response.json.return_value = {
+            'data': {'order_id': 'wb-stop-1'}
+        }
+        # Test STOP order
+        with patch('services.webull_service._webull_request', return_value=response) as request_mock:
+            result = place_webull_order(
+                'app-key', 'app-secret', 'production', 'token-123',
+                account_id='acc-1', symbol='TSLA', instrument_type='EQUITY',
+                side='SELL', order_type='STOP', quantity=5, stop_price=210.50,
+            )
+        self.assertTrue(result['success'])
+        body = request_mock.call_args.kwargs['body']
+        self.assertEqual(body['orders'][0]['order_type'], 'STOP')
+        self.assertEqual(body['orders'][0]['stop_price'], '210.50')
+        self.assertNotIn('limit_price', body['orders'][0])
+
+        # Test STOP_LIMIT order
+        with patch('services.webull_service._webull_request', return_value=response) as request_mock:
+            result = place_webull_order(
+                'app-key', 'app-secret', 'production', 'token-123',
+                account_id='acc-1', symbol='NVDA', instrument_type='EQUITY',
+                side='SELL', order_type='STOP_LIMIT', quantity=10,
+                stop_price=120.00, limit_price=118.50,
+            )
+        self.assertTrue(result['success'])
+        body = request_mock.call_args.kwargs['body']
+        self.assertEqual(body['orders'][0]['order_type'], 'STOP_LIMIT')
+        self.assertEqual(body['orders'][0]['stop_price'], '120.00')
+        self.assertEqual(body['orders'][0]['limit_price'], '118.50')
+
+
     def test_cancel_webull_order_payload_and_response(self):
         response = Mock(status_code=200)
         response.json.return_value = {

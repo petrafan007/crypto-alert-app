@@ -1808,6 +1808,7 @@ def api_webull_place_order():
         order_type = data.get('order_type')
         quantity = data.get('quantity')
         limit_price = data.get('limit_price')
+        stop_price = data.get('stop_price')
         time_in_force = data.get('time_in_force', 'DAY')
         support_trading_session = data.get('support_trading_session', 'CORE')
 
@@ -1818,7 +1819,7 @@ def api_webull_place_order():
         if not side:
             return jsonify({'success': False, 'message': 'Choose an order side (BUY or SELL).'}), 400
         if not order_type:
-            return jsonify({'success': False, 'message': 'Choose an order type (MARKET or LIMIT).'}), 400
+            return jsonify({'success': False, 'message': 'Choose a valid order type.'}), 400
         if not quantity:
             return jsonify({'success': False, 'message': 'Enter an order quantity.'}), 400
 
@@ -1832,6 +1833,7 @@ def api_webull_place_order():
             order_type=order_type,
             quantity=quantity,
             limit_price=limit_price,
+            stop_price=stop_price,
             time_in_force=time_in_force,
             support_trading_session=support_trading_session,
         )

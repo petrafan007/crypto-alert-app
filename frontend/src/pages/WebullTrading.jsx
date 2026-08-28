@@ -136,9 +136,32 @@ export default function WebullTrading({ isLightMode = false }) {
     quantity: '',
     quoteQuantity: '',
     price: '',
+    stopPrice: '',
     timeInForce: 'DAY',
     tradingSession: 'CORE',
   });
+
+  const availableOrderTypes = useMemo(() => {
+    if (selectedInstrumentType === 'CRYPTO') {
+      return [
+        { value: 'LIMIT', label: 'Limit', description: 'Execute at specified limit price or better' },
+        { value: 'MARKET', label: 'Market', description: 'Execute immediately at current market price' },
+      ];
+    }
+    return [
+      { value: 'LIMIT', label: 'Limit', description: 'Execute at specified limit price or better' },
+      { value: 'MARKET', label: 'Market', description: 'Execute immediately at current market price' },
+      { value: 'STOP', label: 'Stop Loss', description: 'Market order triggered when price reaches stop price' },
+      { value: 'STOP_LIMIT', label: 'Stop Limit', description: 'Limit order triggered when price reaches stop price' },
+    ];
+  }, [selectedInstrumentType]);
+
+  // Reset to LIMIT if current type is unsupported for current asset class
+  useEffect(() => {
+    if (!availableOrderTypes.some((t) => t.value === orderForm.type)) {
+      setOrderForm((prev) => ({ ...prev, type: 'LIMIT', stopPrice: '' }));
+    }
+  }, [availableOrderTypes, orderForm.type]);
   const [balancePercentage, setBalancePercentage] = useState(0);
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [orderSubmitting, setOrderSubmitting] = useState(false);
@@ -300,11 +323,14 @@ export default function WebullTrading({ isLightMode = false }) {
 
   // Dual Input Quantity / Value calculations
   const effectivePrice = useMemo(() => {
-    if (orderForm.type === 'LIMIT' && Number(orderForm.price) > 0) {
+    if (['LIMIT', 'STOP_LIMIT'].includes(orderForm.type) && Number(orderForm.price) > 0) {
       return Number(orderForm.price);
     }
+    if (orderForm.type === 'STOP' && Number(orderForm.stopPrice) > 0) {
+      return Number(orderForm.stopPrice);
+    }
     return livePrice > 0 ? livePrice : (Number(orderForm.price) || 1);
-  }, [orderForm.type, orderForm.price, livePrice]);
+  }, [orderForm.type, orderForm.price, orderForm.stopPrice, livePrice]);
 
   const handleBaseQuantityChange = (val) => {
     const qty = val.replace(/[^0-9.]/g, '');
@@ -330,6 +356,11 @@ export default function WebullTrading({ isLightMode = false }) {
       const computedQuote = numQty > 0 && numPx > 0 ? (numQty * numPx).toFixed(2) : prev.quoteQuantity;
       return { ...prev, price: px, quoteQuantity: computedQuote };
     });
+  };
+
+  const handleStopPriceChange = (val) => {
+    const spx = val.replace(/[^0-9.]/g, '');
+    setOrderForm((prev) => ({ ...prev, stopPrice: spx }));
   };
 
   // Slider change handler
@@ -387,10 +418,17 @@ export default function WebullTrading({ isLightMode = false }) {
       setOrderFeedback({ type: 'error', message: 'Please enter a valid order quantity.' });
       return;
     }
-    if (orderForm.type === 'LIMIT') {
+    if (['LIMIT', 'STOP_LIMIT'].includes(orderForm.type)) {
       const px = parseFloat(orderForm.price);
       if (!px || px <= 0) {
         setOrderFeedback({ type: 'error', message: 'Limit orders require a limit price greater than $0.' });
+        return;
+      }
+    }
+    if (['STOP', 'STOP_LIMIT'].includes(orderForm.type)) {
+      const spx = parseFloat(orderForm.stopPrice);
+      if (!spx || spx <= 0) {
+        setOrderFeedback({ type: 'error', message: 'Stop orders require a stop trigger price greater than $0.' });
         return;
       }
     }
@@ -408,9 +446,10 @@ export default function WebullTrading({ isLightMode = false }) {
         side: orderForm.side,
         order_type: orderForm.type,
         quantity: Number(orderForm.quantity),
-        limit_price: orderForm.type === 'LIMIT' ? Number(orderForm.price) : undefined,
+        limit_price: ['LIMIT', 'STOP_LIMIT'].includes(orderForm.type) ? Number(orderForm.price) : undefined,
+        stop_price: ['STOP', 'STOP_LIMIT'].includes(orderForm.type) ? Number(orderForm.stopPrice) : undefined,
         time_in_force: orderForm.timeInForce,
-        support_trading_session: orderForm.tradingSession,
+        support_trading_session: selectedInstrumentType === 'CRYPTO' ? 'CORE' : orderForm.tradingSession,
       };
 
       const response = await axios.post('/api/webull/orders/place', payload, { withCredentials: true });
@@ -649,20 +688,17 @@ export default function WebullTrading({ isLightMode = false }) {
                     <div className="order-control-group type-group">
                       <label className="order-field-label">Order Types</label>
                       <div className="order-type-segmented">
-                        <button
-                          type="button"
-                          className={`order-type-btn ${orderForm.type === 'LIMIT' ? 'active' : ''}`}
-                          onClick={() => setOrderForm((prev) => ({ ...prev, type: 'LIMIT' }))}
-                        >
-                          Limit
-                        </button>
-                        <button
-                          type="button"
-                          className={`order-type-btn ${orderForm.type === 'MARKET' ? 'active' : ''}`}
-                          onClick={() => setOrderForm((prev) => ({ ...prev, type: 'MARKET' }))}
-                        >
-                          Market
-                        </button>
+                        {availableOrderTypes.map((t) => (
+                          <button
+                            key={t.value}
+                            type="button"
+                            className={`order-type-btn ${orderForm.type === t.value ? 'active' : ''}`}
+                            onClick={() => setOrderForm((prev) => ({ ...prev, type: t.value }))}
+                            title={t.description}
+                          >
+                            {t.label}
+                          </button>
+                        ))}
                       </div>
                     </div>
                   </div>
@@ -715,7 +751,78 @@ export default function WebullTrading({ isLightMode = false }) {
                     </div>
                   </div>
 
-                  {/* Limit Price Input (when LIMIT order type) */}
+                  {/* Conditional Price Inputs based on order type */}
+                  {orderForm.type === 'STOP' && (
+                    <div className="order-inputs-row">
+                      <div className="order-input-group" style={{ width: '100%' }}>
+                        <label className="order-field-label" htmlFor="stopPrice">
+                          Stop Price ($ USD)
+                        </label>
+                        <div className="order-input-wrapper">
+                          <input
+                            id="stopPrice"
+                            type="text"
+                            inputMode="decimal"
+                            value={orderForm.stopPrice}
+                            onChange={(e) => handleStopPriceChange(e.target.value)}
+                            placeholder="0.00"
+                            className="order-styled-input"
+                            required
+                          />
+                        </div>
+                        <small className="order-field-help" style={{ color: '#94a3b8', fontSize: '11px', marginTop: '4px' }}>
+                          Trigger price: once reached, a market order is placed to execute immediately.
+                        </small>
+                      </div>
+                    </div>
+                  )}
+
+                  {orderForm.type === 'STOP_LIMIT' && (
+                    <div className="order-inputs-row">
+                      <div className="order-input-group">
+                        <label className="order-field-label" htmlFor="stopPrice">
+                          Stop Trigger Price ($ USD)
+                        </label>
+                        <div className="order-input-wrapper">
+                          <input
+                            id="stopPrice"
+                            type="text"
+                            inputMode="decimal"
+                            value={orderForm.stopPrice}
+                            onChange={(e) => handleStopPriceChange(e.target.value)}
+                            placeholder="0.00"
+                            className="order-styled-input"
+                            required
+                          />
+                        </div>
+                        <small className="order-field-help" style={{ color: '#94a3b8', fontSize: '11px', marginTop: '4px' }}>
+                          Price that triggers the limit order
+                        </small>
+                      </div>
+
+                      <div className="order-input-group">
+                        <label className="order-field-label" htmlFor="price">
+                          Limit Execution Price ($ USD)
+                        </label>
+                        <div className="order-input-wrapper">
+                          <input
+                            id="price"
+                            type="text"
+                            inputMode="decimal"
+                            value={orderForm.price}
+                            onChange={(e) => handlePriceChange(e.target.value)}
+                            placeholder="0.00"
+                            className="order-styled-input"
+                            required
+                          />
+                        </div>
+                        <small className="order-field-help" style={{ color: '#94a3b8', fontSize: '11px', marginTop: '4px' }}>
+                          Maximum purchase or minimum sale price
+                        </small>
+                      </div>
+                    </div>
+                  )}
+
                   {orderForm.type === 'LIMIT' && (
                     <div className="order-inputs-row">
                       <div className="order-input-group" style={{ width: '100%' }}>
@@ -855,7 +962,12 @@ export default function WebullTrading({ isLightMode = false }) {
                         </div>
                         <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                           <span style={{ color: '#94a3b8' }}>Order Type:</span>
-                          <strong>{orderForm.type} {orderForm.type === 'LIMIT' ? `@ $${number(orderForm.price)}` : ''}</strong>
+                          <strong>
+                            {orderForm.type}
+                            {orderForm.type === 'LIMIT' && ` @ $${number(orderForm.price)}`}
+                            {orderForm.type === 'STOP' && ` (Stop Trigger: $${number(orderForm.stopPrice)})`}
+                            {orderForm.type === 'STOP_LIMIT' && ` (Stop: $${number(orderForm.stopPrice)}, Limit: $${number(orderForm.price)})`}
+                          </strong>
                         </div>
                         <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                           <span style={{ color: '#94a3b8' }}>Quantity:</span>
