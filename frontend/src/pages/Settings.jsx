@@ -3194,7 +3194,7 @@ export default function Settings({ isLightMode }) {
                       autoResizeTextarea(e.target);
                     }}
                     onInput={(e) => autoResizeTextarea(e.target)}
-                    placeholder="e.g. You are the AI Copilot for Crypto Alert App, an expert cryptocurrency portfolio strategist..."
+                    placeholder="e.g. You are the AI Copilot for Crypto & Securities Dashboard, an expert cryptocurrency portfolio strategist..."
                     style={{
                       width: 'calc(100% - 24px)',
                       padding: '8px 12px',

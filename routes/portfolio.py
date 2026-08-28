@@ -2545,7 +2545,7 @@ def setup_2fa():
         totp = pyotp.TOTP(secret)
         provisioning_uri = totp.provisioning_uri(
             name=current_user.username,
-            issuer_name='Crypto Dashboard Trading'
+            issuer_name='Crypto & Securities Dashboard Trading'
         )
         
         # Generate QR code

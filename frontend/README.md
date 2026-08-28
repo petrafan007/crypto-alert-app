@@ -1,6 +1,6 @@
-# Crypto Alert App - React Frontend
+# Crypto & Securities Dashboard - React Frontend
 
-This is the React/Vite frontend for the Crypto Alert App, built to work alongside the existing Flask backend. The app now provides **full Coinbase API functionality** including trading, portfolio management, and AI-powered analysis.
+This is the React/Vite frontend for **Crypto & Securities Dashboard**, built to work alongside the existing Flask backend. It provides exchange-aware portfolio management, trading, market data, and AI-powered analysis for Binance.US and Webull.
 
 ## 🚀 **New Features - Full API Integration**
 
@@ -18,7 +18,7 @@ This is the React/Vite frontend for the Crypto Alert App, built to work alongsid
 
 ### ✅ **Enhanced Portfolio Management**
 - **Real-time Balances**: Live account balances and USD values
-- **Trading Pairs**: Access to all available Coinbase trading pairs
+- **Trading Pairs**: Access to supported Binance.US trading pairs and Webull instruments
 - **Advanced Charts**: Portfolio allocation and trend analysis
 - **Automated Alerts**: Price alerts and portfolio notifications
 
@@ -52,7 +52,7 @@ This is the React/Vite frontend for the Crypto Alert App, built to work alongsid
 ### Prerequisites
 - Node.js (v16 or higher)
 - Flask backend running on port 5010
-- Coinbase API credentials (OAuth setup)
+- Binance.US and/or Webull credentials configured in Settings
 
 ### Installation
 ```bash
@@ -105,7 +105,7 @@ npm run build
 - **Limit Orders**: Execution at specified price or better
 
 ### **Trading Pairs**
-- All USD trading pairs available on Coinbase
+- Supported Binance.US USD/USDT pairs and Webull account-scoped instruments
 - Real-time price data and 24h statistics
 - Volume analysis and market sentiment
 
@@ -155,16 +155,16 @@ frontend/
 
 - **Vite + React**: Fast development and building
 - **API Proxy**: Requests proxied to Flask backend on port 5010
-- **OAuth Authentication**: Secure session-based authentication
+- **Session Authentication**: Secure session-based authentication
 - **Real-time Data**: Live market data and portfolio updates
 - **AI Analysis**: Local AI analysis with room for ML integration
 - **Responsive Design**: Works on desktop and mobile devices
 
 ## Security Considerations
 
-- **OAuth Authentication**: Secure Coinbase API access
+- **Exchange Credentials**: Secure Binance.US and Webull API credential handling
 - **Session Management**: Secure session handling
-- **API Rate Limiting**: Respects Coinbase API limits
+- **API Rate Limiting**: Respects provider API limits
 - **Error Handling**: Comprehensive error handling and user feedback
 
 ## Next Steps for AI Enhancement

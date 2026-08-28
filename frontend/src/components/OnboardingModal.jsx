@@ -59,7 +59,7 @@ const OnboardingModal = ({ show, onClose, isLightMode }) => {
                     alignItems: 'center'
                 }}>
                     <h2 style={{ margin: 0, color: textColor, fontSize: '1.4rem' }}>
-                        🎉 Welcome to Crypto Alert App!
+                        🎉 Welcome to Crypto &amp; Securities Dashboard!
                     </h2>
                     <button onClick={onClose} style={{
                         background: 'none',

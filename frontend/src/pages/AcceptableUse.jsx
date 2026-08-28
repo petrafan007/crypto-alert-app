@@ -39,13 +39,13 @@ export default function AcceptableUse({ isLightMode }) {
 
                 <Section title="1. Purpose">
                     <p>
-                        This Acceptable Use Policy outlines the rules and guidelines for using Crypto Alert App.
+                        This Acceptable Use Policy outlines the rules and guidelines for using Crypto &amp; Securities Dashboard.
                         By using our Service, you agree to comply with this policy.
                     </p>
                 </Section>
 
                 <Section title="2. Permitted Uses">
-                    <p>You may use Crypto Alert App to:</p>
+                    <p>You may use Crypto &amp; Securities Dashboard to:</p>
                     <ul style={{ paddingLeft: '20px', marginTop: '8px' }}>
                         <li>Track your personal cryptocurrency portfolio</li>
                         <li>Execute trades on your own Binance.US account</li>

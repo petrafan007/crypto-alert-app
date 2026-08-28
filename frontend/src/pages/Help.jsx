@@ -230,7 +230,7 @@ export default function Help({ isLightMode }) {
             {/* Getting Started */}
             <Section id="getting-started" icon={<FaHome />} title="Getting Started">
                 <p style={{ marginBottom: '16px' }}>
-                    Welcome to Crypto Alert App! This is a non-custodial cryptocurrency portfolio management and
+                    Welcome to Crypto &amp; Securities Dashboard! This is a non-custodial cryptocurrency portfolio management and
                     trading platform for Binance.US. It covers real-time portfolio tracking, one-click trading of
                     any Binance.US-listed coin, staking, automated crash/surge protection, and AI-powered market
                     analysis — all self-hosted, so your API keys and data never leave your own server.
@@ -315,7 +315,7 @@ export default function Help({ isLightMode }) {
                 <ol style={{ paddingLeft: '20px', lineHeight: '1.8' }}>
                     <li>Log into your <a href="https://www.binance.us" target="_blank" rel="noopener noreferrer" style={{ color: accentColor }}>Binance.US</a> account</li>
                     <li>Navigate to <strong>Profile → API Management</strong></li>
-                    <li>Create a new API key with a label (e.g., "Crypto Alert App")</li>
+                    <li>Create a new API key with a label (e.g., "Crypto &amp; Securities Dashboard")</li>
                     <li>Enable these permissions:
                         <ul style={{ marginTop: '8px', paddingLeft: '20px' }}>
                             <li><strong>Enable Reading</strong> - Required for portfolio sync and price tracking</li>

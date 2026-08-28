@@ -249,7 +249,7 @@ def fetch_latest_github_release(include_beta=False):
         GITHUB_RELEASES_API_URL,
         headers={
             'Accept': 'application/vnd.github+json',
-            'User-Agent': 'Crypto-Alert-App-Updater',
+            'User-Agent': 'Crypto-Securities-Dashboard-Updater',
         },
         params={'per_page': 100},
         timeout=10,
@@ -2339,7 +2339,7 @@ def check_credential():
             return jsonify(valid=True, message="Format looks OK. (Token required for full check)")
         try:
             test_url = f"https://api.telegram.org/bot{token}/sendMessage"
-            payload = {"chat_id": value, "text": "Test message from Crypto Dashboard onboarding."}
+            payload = {"chat_id": value, "text": "Test message from Crypto & Securities Dashboard onboarding."}
             r = requests.post(test_url, data=payload, timeout=8)
             data = r.json()
             if data.get("ok"):
@@ -3141,10 +3141,10 @@ def send_support_message():
         msg = MIMEMultipart()
         msg['From'] = email
         msg['To'] = support_email
-        msg['Subject'] = f"[Crypto Alert App] {topic}"
+        msg['Subject'] = f"[Crypto & Securities Dashboard] {topic}"
         
         # Email body
-        body = f"""New support message from Crypto Alert App:
+        body = f"""New support message from Crypto & Securities Dashboard:
 
 From: {full_name or 'Not provided'}
 Email: {email}

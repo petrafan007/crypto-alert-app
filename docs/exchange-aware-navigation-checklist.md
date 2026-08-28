@@ -1,6 +1,6 @@
 # Exchange-Aware Navigation & Account Views — Review Checklist
 
-Status: **Automated acceptance criteria verified and corrected through v2.44.1. One user-authorized production canary remains explicitly outstanding (CHK037).**
+Status: **Automated acceptance criteria verified and corrected through v2.45.0. One user-authorized production canary remains explicitly outstanding (CHK037).**
 Scope: Replace the current Binance-centric navigation model with explicit Binance.US, Webull, and All Accounts contexts.
 
 ## Confirmed product decisions
@@ -79,6 +79,7 @@ Scope: Replace the current Binance-centric navigation model with explicit Binanc
 - [x] CHK036 Webull account metadata responses are privacy-scoped and imported cash snapshots are used for the selected ticket’s buying-power display without exposing a raw account number. [Verified in v2.44.0]
 - [ ] CHK037 Run one user-authorized production canary for a specifically approved Webull account, symbol, side, quantity, and order type; verify Webull accepts it, verify the order appears in the correct account, then cancel or fill it only under that explicit authorization. Automated acceptance intentionally does not submit a live order. [Outstanding user authorization]
 - [x] CHK038 Connected Webull Accounts presents each selection as a responsive row with a fixed-size checkbox, account name, masked ID, and account-type badge. The generic Settings input rule cannot expand the checkbox or overlap account details; narrow layouts retain readable identity information. [Implemented in v2.44.1]
+- [x] CHK039 The active product brand is **Crypto & Securities Dashboard** across the header mark, footer, browser metadata, active documentation, onboarding, authentication, Help, legal, support, 2FA, AI Copilot defaults, and GitHub distribution metadata. The domain, repository slug, Cloudflare configuration, folder paths, service/database identifiers, and historical release records remain intentionally unchanged. [Implemented in v2.45.0]
 
 ## Implementation sequence
 
@@ -89,6 +90,7 @@ Scope: Replace the current Binance-centric navigation model with explicit Binanc
 5. [x] Update Help, test all context-switching and empty/error states, then release and upgrade.
 6. [x] Reconcile the Webull provider contract, option identity/quote path, account privacy/scope, and documentation for v2.44.0.
 7. [x] Repair the Connected Webull Accounts responsive row layout for v2.44.1.
+8. [x] Rename active product surfaces and release documentation to Crypto & Securities Dashboard for v2.45.0 while retaining technical identifiers and historical records.
 
 ## Decisions and acceptance status
 

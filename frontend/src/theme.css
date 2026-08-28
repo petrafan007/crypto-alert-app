@@ -4338,7 +4338,7 @@ body.light-mode .table-container.watchlist-table td {
 .brand-logo {
   margin-top: 12px;
   font-weight: 900;
-  font-size: 1.8rem;
+  font-size: clamp(1.1rem, 2.3vw, 1.8rem);
   background: linear-gradient(135deg, #00f2fe 0%, #4facfe 100%);
   -webkit-background-clip: text;
   background-clip: text;
@@ -4348,14 +4348,39 @@ body.light-mode .table-container.watchlist-table td {
   justify-content: center;
   gap: 12px;
   text-transform: uppercase;
-  letter-spacing: 2px;
+  letter-spacing: clamp(0.5px, 0.14vw, 2px);
   text-shadow: 0 0 20px rgba(0, 242, 254, 0.4);
   width: 100%;
   text-align: center;
 }
 
+.brand-logo-wordmark {
+  white-space: nowrap;
+}
+
 .brand-icon {
+  flex: 0 0 auto;
   filter: drop-shadow(0 0 8px rgba(0,242,254,0.6));
+}
+
+@media (max-width: 640px) {
+  .brand-logo {
+    font-size: 1.05rem !important;
+    letter-spacing: 0.35px;
+    gap: 7px !important;
+  }
+
+  .brand-icon {
+    width: 27px;
+    height: 27px;
+  }
+}
+
+@media (max-width: 390px) {
+  .brand-logo {
+    flex-wrap: wrap;
+    row-gap: 4px;
+  }
 }
 /* Custom Scrollbar for Panels like Recent Orders */
 .custom-scrollbar::-webkit-scrollbar {

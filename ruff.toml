@@ -1,4 +1,4 @@
-# Ruff configuration for Crypto Alert App
+# Ruff configuration for Crypto & Securities Dashboard
 line-length = 120
 exclude = [
   ".venv",
@@ -21,4 +21,4 @@ ignore = [
   "E722",  # bare except
   "F401",  # unused imports
   "F541",  # f-string without placeholders
-] 
+]

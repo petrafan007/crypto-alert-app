@@ -39,14 +39,14 @@ export default function TermsOfService({ isLightMode }) {
 
                 <Section title="1. Acceptance of Terms">
                     <p>
-                        By accessing or using Crypto Alert App ("the Service"), you agree to be bound by these
+                        By accessing or using Crypto &amp; Securities Dashboard ("the Service"), you agree to be bound by these
                         Terms of Service. If you do not agree to these terms, do not use the Service.
                     </p>
                 </Section>
 
                 <Section title="2. Description of Service">
                     <p>
-                        Crypto Alert App is a non-custodial cryptocurrency portfolio management tool that
+                        Crypto &amp; Securities Dashboard is a non-custodial cryptocurrency portfolio management tool that
                         integrates with Binance.US via API. The Service provides portfolio tracking, trading
                         execution, staking management, price alerts, AI-powered analysis, and tax reporting
                         features.
@@ -96,7 +96,7 @@ export default function TermsOfService({ isLightMode }) {
 
                 <Section title="7. Limitation of Liability">
                     <p>
-                        <strong>TO THE MAXIMUM EXTENT PERMITTED BY LAW, IN NO EVENT SHALL CRYPTO ALERT APP,
+                        <strong>TO THE MAXIMUM EXTENT PERMITTED BY LAW, IN NO EVENT SHALL CRYPTO &amp; SECURITIES DASHBOARD,
                             ITS OWNERS, OPERATORS, AFFILIATES, OR EMPLOYEES BE LIABLE FOR ANY:</strong>
                     </p>
                     <ul style={{ paddingLeft: '20px', marginTop: '8px' }}>
@@ -116,7 +116,7 @@ export default function TermsOfService({ isLightMode }) {
 
                 <Section title="8. Indemnification">
                     <p>
-                        You agree to indemnify, defend, and hold harmless Crypto Alert App and its owners,
+                        You agree to indemnify, defend, and hold harmless Crypto &amp; Securities Dashboard and its owners,
                         operators, affiliates, and employees from any claims, damages, losses, or expenses
                         (including reasonable attorneys' fees) arising from your use of the Service or
                         violation of these Terms.

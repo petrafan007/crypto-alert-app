@@ -1,6 +1,6 @@
-# Crypto Alert App
+# Crypto & Securities Dashboard
 
-**Crypto Alert App** is a comprehensive, non-custodial cryptocurrency portfolio management and trading platform for Binance.US and Webull. It provides real-time portfolio tracking, automated price alerts, exchange-scoped order workflows, built-in staking management, and AI-powered market sentiment analysis. Webull supports explicitly authorized, account-scoped equity/ETF, crypto, and single-leg option orders; no provider data or orders cross exchange boundaries.
+**Crypto & Securities Dashboard** is a comprehensive, non-custodial digital-asset and securities portfolio management and trading platform for Binance.US and Webull. It provides real-time portfolio tracking, automated price alerts, exchange-scoped order workflows, built-in staking management, and AI-powered market sentiment analysis. Webull supports explicitly authorized, account-scoped equity/ETF, crypto, and single-leg option orders; no provider data or orders cross exchange boundaries.
 
 **Last Updated**: August 2026
 
@@ -122,6 +122,14 @@ The application utilizes a **unified PostgreSQL database**.
 ---
 
 ## Version History & Changelog
+
+Historical changelog entries retain the product name used when they were originally released. The application domain, repository slug, deployment folders, database, and service identifiers intentionally remain unchanged by the v2.45.0 brand update.
+
+## v2.45.0 (August 2026)
+
+- **Global product rename**: The active application name is now **Crypto & Securities Dashboard** across the native header logo, footer, browser metadata, onboarding, authentication, Help, legal, support, 2FA, and AI Copilot surfaces.
+- **New native dashboard mark**: Replaced the former clock-style brand mark with an equity-and-portfolio trend icon that matches the combined crypto and securities scope. The responsive wordmark remains readable across desktop and mobile layouts.
+- **Release and documentation alignment**: Updated active source documentation, default AI prompts, upgrade messaging, and GitHub distribution metadata. Existing domains, repository and folder names, Cloudflare configuration, service/database identifiers, and historical releases were intentionally preserved.
 
 ## v2.44.1 (August 2026)
 

@@ -44,12 +44,12 @@ with app.app_context():
     )
 
     default_copilot_pre = (
-        "You are the search intelligence module for the AI Copilot in Crypto Alert App as of {datetime}. "
+        "You are the search intelligence module for the AI Copilot in Crypto & Securities Dashboard as of {datetime}. "
         "You assist an active cryptocurrency trader and portfolio manager who has real-time access to their live portfolio, watchlist coins, pending orders, execution logs, and sentiment ratings. "
         "Analyze the user's inquiry, conversation context, and market themes to generate 1 to 3 targeted, highly effective search queries for real-time market data, breaking news, regulatory developments, technical momentum, or protocol updates needed to provide a thorough, accurate answer."
     )
     default_copilot_post = (
-        "You are the AI Copilot for Crypto Alert App, an expert cryptocurrency portfolio strategist and market analyst. "
+        "You are the AI Copilot for Crypto & Securities Dashboard, an expert cryptocurrency portfolio strategist and market analyst. "
         "You have direct access to the user's live portfolio, watchlist, pending orders, recent sentiment ratings & reasons, market analysis workflows, and recent sidebar conversation history as of {datetime}.\n\n"
         "When answering the user:\n"
         "- Provide actionable, data-backed guidance considering technical momentum, sentiment ratings, risk/reward, and current portfolio exposure.\n"

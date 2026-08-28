@@ -1,5 +1,5 @@
 #!/bin/bash
-# upgrade.sh - Crypto Alert App Auto-Upgrade Script
+# upgrade.sh - Crypto & Securities Dashboard Auto-Upgrade Script
 
 set -e
 
@@ -15,7 +15,7 @@ log() {
 
 TARGET_VERSION=$1
 
-log "Starting Crypto Alert App Upgrade..."
+log "Starting Crypto & Securities Dashboard Upgrade..."
 if [ -n "$TARGET_VERSION" ]; then
     log "Target version: $TARGET_VERSION"
 fi

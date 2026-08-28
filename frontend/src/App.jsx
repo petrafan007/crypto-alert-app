@@ -256,22 +256,20 @@ export default function App() {
               </button>
             </div>
           )}
-          <div className="brand-logo">
-            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className="brand-icon">
-              <path d="M21 12C21 16.9706 16.9706 21 12 21C7.02944 21 3 16.9706 3 12C3 7.02944 7.02944 3 12 3C16.9706 3 21 7.02944 21 12Z" stroke="url(#logo-grad)" strokeWidth="2" strokeLinecap="round"/>
-              <path d="M12 7V12L15 15" stroke="url(#logo-grad)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-              <path d="M12 2L12 4" stroke="#4FACFE" strokeWidth="2" strokeLinecap="round"/>
-              <path d="M12 20L12 22" stroke="#00F2FE" strokeWidth="2" strokeLinecap="round"/>
-              <path d="M22 12L20 12" stroke="#4FACFE" strokeWidth="2" strokeLinecap="round"/>
-              <path d="M4 12L2 12" stroke="#00F2FE" strokeWidth="2" strokeLinecap="round"/>
+          <div className="brand-logo" aria-label="Crypto & Securities Dashboard">
+            <svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg" className="brand-icon" aria-hidden="true">
+              <circle cx="16" cy="16" r="13" stroke="url(#brand-logo-gradient)" strokeWidth="2.5"/>
+              <path d="M8 21L13 16L17 19L24 11" stroke="url(#brand-logo-gradient)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
+              <path d="M20 11H24V15" stroke="#00F2FE" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
+              <path d="M10 24V21M16 24V19M22 24V15" stroke="#4FACFE" strokeWidth="2.25" strokeLinecap="round"/>
               <defs>
-                <linearGradient id="logo-grad" x1="3" y1="3" x2="21" y2="21" gradientUnits="userSpaceOnUse">
+                <linearGradient id="brand-logo-gradient" x1="5" y1="4" x2="27" y2="28" gradientUnits="userSpaceOnUse">
                   <stop stopColor="#00F2FE"/>
                   <stop offset="1" stopColor="#4FACFE"/>
                 </linearGradient>
               </defs>
             </svg>
-            <span>Crypto Alert App</span>
+            <span className="brand-logo-wordmark">Crypto &amp; Securities Dashboard</span>
           </div>
         </div>
       </nav>
@@ -452,7 +450,7 @@ export default function App() {
           fontSize: '12px',
           margin: 0
         }}>
-          Crypto Alert App version {APP_VERSION}. © 2026 Cavallaro Services. All rights reserved.
+          Crypto &amp; Securities Dashboard version {APP_VERSION}. © 2026 Cavallaro Services. All rights reserved.
         </p>
       </footer>
 

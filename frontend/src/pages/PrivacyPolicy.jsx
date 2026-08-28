@@ -39,7 +39,7 @@ export default function PrivacyPolicy({ isLightMode }) {
 
                 <Section title="1. Introduction">
                     <p>
-                        Crypto Alert App ("we," "our," or "us") is committed to protecting your privacy.
+                        Crypto &amp; Securities Dashboard ("we," "our," or "us") is committed to protecting your privacy.
                         This Privacy Policy explains how we collect, use, disclose, and safeguard your
                         information when you use our cryptocurrency portfolio management application.
                     </p>
@@ -102,7 +102,7 @@ export default function PrivacyPolicy({ isLightMode }) {
 
                 <Section title="8. No Custody of Assets">
                     <p>
-                        <strong>Important:</strong> Crypto Alert App is a non-custodial application. We never
+                        <strong>Important:</strong> Crypto &amp; Securities Dashboard is a non-custodial application. We never
                         have access to your cryptocurrency assets. All trading and staking operations are
                         executed directly through your Binance.US account via their API. You maintain full
                         custody and control of your assets at all times.

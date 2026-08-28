@@ -1,4 +1,4 @@
-# Crypto Alert App Release and Personal-Instance Routine
+# Crypto & Securities Dashboard Release and Personal-Instance Routine
 
 When a change is an app upgrade or the user asks to release/deploy it, complete this sequence before reporting completion:
 
