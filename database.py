@@ -154,6 +154,15 @@ def init_db(app=None):
 
         try:
             with db.engine.begin() as conn:
+                conn.execute(db.text("UPDATE user_settings SET ai_model = 'glm-4.5-flash' WHERE ai_model IN ('glm-4.7-flash', 'glm-4.7-flashx')"))
+                conn.execute(db.text("UPDATE user_settings SET ai_model_secondary = 'glm-4.5-flash' WHERE ai_model_secondary IN ('glm-4.7-flash', 'glm-4.7-flashx')"))
+                conn.execute(db.text("UPDATE user_settings SET ai_model_fallback = 'glm-4.5-flash' WHERE ai_model_fallback IN ('glm-4.7-flash', 'glm-4.7-flashx')"))
+                conn.execute(db.text("UPDATE user_settings SET ai_model_tertiary = 'glm-4.5-flash' WHERE ai_model_tertiary IN ('glm-4.7-flash', 'glm-4.7-flashx')"))
+        except Exception as ex:
+            print(f"Migration note for Z.AI model update: {ex}")
+
+        try:
+            with db.engine.begin() as conn:
                 conn.execute(db.text("UPDATE coins SET avg_entry = 0.0 WHERE amount <= 0.00000001 AND symbol != 'USD' AND avg_entry > 0"))
         except Exception:
             pass

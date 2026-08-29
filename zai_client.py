@@ -128,7 +128,7 @@ class ZAIClient:
 
 				# Handle insufficient balance cleanly
 				if str(err_code) == "1113" or "insufficient balance" in err_msg.lower() or "余额不足" in err_msg:
-					err_msg = f"Insufficient Z.AI balance for {model}. Please recharge your Z.AI account or switch to a free model (glm-4.5-flash / glm-4.7-flash)."
+					err_msg = f"Insufficient Z.AI balance for {model}. Please recharge your Z.AI account or switch to the free model (glm-4.5-flash)."
 
 				last_error = f"{endpoint_base}: {resp.status_code} - {err_msg}"
 				logger.warning(f"Z.AI request to {endpoint} returned {resp.status_code}: {err_msg}")

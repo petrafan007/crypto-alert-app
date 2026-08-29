@@ -4082,6 +4082,7 @@ function Dashboard({ isLightMode }) {
     const cleanReason = (rawReason && !['recommendation', 'sentiment', 'action', 'signal', 'suggestion', 'item 1', 'item 2', 'hold', 'buy', 'sell', 'none', 'null'].includes(rawReason.toLowerCase().trim()))
       ? rawReason.trim()
       : '';
+    const reason = cleanReason;
     const lastUpdated = coin.sentiment_last_updated ? `Last Updated: ${formatLocalDateTime(coin.sentiment_last_updated)}` : '';
     
     const metaParts = [];
@@ -4228,7 +4229,7 @@ function Dashboard({ isLightMode }) {
               background: bg,
               padding: bg !== 'transparent' ? '2px 6px' : '0',
               borderRadius: '4px',
-              textDecoration: (!isChecking && reason) ? 'underline dotted' : 'none',
+              textDecoration: (!isChecking && cleanReason) ? 'underline dotted' : 'none',
               textUnderlineOffset: '3px',
               fontSize: '0.88rem',
               display: 'inline-flex',

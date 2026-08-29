@@ -125,6 +125,16 @@ The application utilizes a **unified PostgreSQL database**.
 
 Historical changelog entries retain the product name used when they were originally released. The application domain, repository slug, deployment folders, database, and service identifiers intentionally remain unchanged by the v2.45.0 brand update.
 
+## v2.56.3 (August 2026)
+
+- **Frontend Sentiment Cell ReferenceError Resolution**:
+  - **Fixed Undefined Identifier**: Resolved a runtime `ReferenceError: reason is not defined` in `Dashboard.jsx` (`renderSentimentCell`), ensuring the dotted underline and title tooltips render reliably across all coins and watchlists.
+
+- **Z.AI Model Modernization (GLM-4.5-Flash)**:
+  - **Replaced Delisted GLM-4.7-Flash**: Replaced the nonexistent/deprecated `glm-4.7-flash` model identifier across all configuration menus, validation routines, and backend clients with Z.AI's active, high-speed free tier model: `glm-4.5-flash`.
+  - **Automated Setting Migration**: Automatically migrated all user and fallback settings configured with `glm-4.7-flash` or `glm-4.7-flashx` to `glm-4.5-flash`, restoring the Z.AI secondary AI tier to fully operational status.
+  - **Active Catalog Alignment**: Updated `/api/ai/models` to reflect Z.AI's current global model catalog (`glm-4.5-flash`, `glm-4.5`, `glm-4.5-air`, `glm-4.6`, `glm-4.7`, `glm-5.2`, `glm-5.3`, `glm-5.3-flash`).
+
 ## v2.56.2 (August 2026)
 
 - **Sentiment Reason & Thesis Explanation Integrity**:

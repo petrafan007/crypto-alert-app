@@ -205,11 +205,10 @@ def test_zai_connection():
         ai_settings = get_user_ai_settings(username)
         # Sanitize model to Z.AI-supported list only
         zai_models = {
-            'glm-4.7', 'glm-4.7-flash', 'glm-4.7-flashx',
-            'glm-4.5', 'glm-4.5-flash', 'glm-4.5-air', 'glm-4-plus', 'glm-5.2'
+            'glm-4.5-flash', 'glm-4.5', 'glm-4.5-air', 'glm-4.6', 'glm-4.7', 'glm-5.2', 'glm-5.3', 'glm-5.3-flash'
         }
         requested_model = payload.get('model') or request.args.get('model')
-        model = requested_model if requested_model in zai_models else (ai_settings.get('ai_model') or 'glm-4.7-flash')
+        model = requested_model if requested_model in zai_models else (ai_settings.get('ai_model') or 'glm-4.5-flash')
         key = payload.get('zai_key') or request.args.get('zai_key')
 
         cred = get_user_credentials(username)
@@ -406,7 +405,7 @@ def test_ai_connection_generic():
             try:
                 from zai_client import ZAIClient
                 client = ZAIClient(api_key)
-                test_model = model or 'glm-4.7-flash'
+                test_model = model or 'glm-4.5-flash'
                 resp = client.chat_completion(
                     messages=[{"role":"user","content":"ping"}],
                     model=test_model,
@@ -887,8 +886,7 @@ def get_ai_models():
         'gpt-4.1-nano', 'o4-mini', 'o3', 'o3-mini',
     }
     zai_models = {
-        'glm-4.7', 'glm-4.7-flash', 'glm-4.7-flashx',
-        'glm-4.5-flash', 'glm-4.5', 'glm-4.5-air', 'glm-4-plus', 'glm-5.2',
+        'glm-4.5-flash', 'glm-4.5', 'glm-4.5-air', 'glm-4.6', 'glm-4.7', 'glm-5.2', 'glm-5.3', 'glm-5.3-flash'
     }
     perplexity_models = {
         'sonar-pro', 'sonar', 'sonar-reasoning',
@@ -911,14 +909,14 @@ def get_ai_models():
         'o4-mini': 'o4 Mini',
         'o3': 'o3',
         'o3-mini': 'o3 Mini',
-        'glm-4.7': 'GLM-4.7',
-        'glm-4.7-flash': 'GLM-4.7 Flash',
-        'glm-4.7-flashx': 'GLM-4.7 FlashX',
         'glm-4.5-flash': 'GLM-4.5 Flash (Free)',
         'glm-4.5': 'GLM-4.5',
         'glm-4.5-air': 'GLM-4.5 Air',
-        'glm-4-plus': 'GLM-4 Plus',
+        'glm-4.6': 'GLM-4.6',
+        'glm-4.7': 'GLM-4.7',
         'glm-5.2': 'GLM-5.2',
+        'glm-5.3': 'GLM-5.3',
+        'glm-5.3-flash': 'GLM-5.3 Flash',
         'sonar-pro': 'Sonar Pro',
         'sonar': 'Sonar',
         'sonar-reasoning': 'Sonar Reasoning',
