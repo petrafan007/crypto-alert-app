@@ -677,18 +677,20 @@ def _get_webull_futures_catalog(app_key, app_secret, environment, access_token, 
 
 
 def get_webull_futures_catalog(app_key, app_secret, environment='production', access_token=None):
-    """Load Webull's documented futures product classes and product codes."""
-    classes = _get_webull_futures_catalog(
-        app_key, app_secret, environment, access_token,
-        '/trading/instruments/futures/product-classes/list',
-        action='futures product-class lookup',
-    )
+    """Load the futures product codes needed to begin a contract lookup.
+
+    The product-class endpoint is informational only and is not required to
+    resolve or trade a contract.  Some current Webull production deployments
+    reject that endpoint with ``Parameters not valid`` despite its documented
+    parameterless shape.  Do not let that optional catalogue call block the
+    actual product-code and exact-contract workflow.
+    """
     products = _get_webull_futures_catalog(
         app_key, app_secret, environment, access_token,
         '/trading/instruments/futures/product-codes/list',
         action='futures product-code lookup',
     )
-    return {'classes': classes, 'products': products}
+    return {'classes': [], 'products': products}
 
 
 def get_webull_futures_contracts(app_key, app_secret, environment='production', access_token=None, *, symbol):

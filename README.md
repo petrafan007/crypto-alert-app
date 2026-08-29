@@ -125,6 +125,12 @@ The application utilizes a **unified PostgreSQL database**.
 
 Historical changelog entries retain the product name used when they were originally released. The application domain, repository slug, deployment folders, database, and service identifiers intentionally remain unchanged by the v2.45.0 brand update.
 
+## v2.54.1 (August 2026)
+
+- **Webull Futures Catalogue Hotfix**:
+  - Removed the optional Futures Product Classes request from the trading ticket path. Webull's current production deployment was returning `HTTP 400: Parameters not valid` for that parameterless informational endpoint, which blocked the ticket before contract lookup.
+  - The ticket now loads product codes directly and continues to resolve exact Futures contracts through Webull's dedicated contract endpoint.
+
 ## v2.54.0 (August 2026)
 
 - **Webull Futures Asset Class**:

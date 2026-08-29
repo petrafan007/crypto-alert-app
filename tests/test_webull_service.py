@@ -252,8 +252,6 @@ class WebullServiceTests(unittest.TestCase):
         self.assertEqual(request_mock.call_count, 1)
 
     def test_futures_catalog_contract_snapshot_and_bars_use_documented_endpoints(self):
-        class_response = Mock(status_code=200)
-        class_response.json.return_value = {'data': [{'product_code': 'INDEX', 'name': 'Index futures'}]}
         product_response = Mock(status_code=200)
         product_response.json.return_value = {'data': [{'product_code': 'ES', 'name': 'E-mini S&P 500'}]}
         contract_response = Mock(status_code=200)
@@ -263,7 +261,7 @@ class WebullServiceTests(unittest.TestCase):
         bars_response = Mock(status_code=200)
         bars_response.json.return_value = {'data': {'bars': [{'timestamp': 1787832000000, 'c': '4500.25'}]}}
         with patch('services.webull_service._webull_request', side_effect=[
-            class_response, product_response, contract_response, snapshot_response, bars_response,
+            product_response, contract_response, snapshot_response, bars_response,
         ]) as request_mock:
             catalog = get_webull_futures_catalog('app-key', 'app-secret', access_token='token')
             contracts = get_webull_futures_contracts('app-key', 'app-secret', access_token='token', symbol='esz5')
@@ -274,7 +272,6 @@ class WebullServiceTests(unittest.TestCase):
             )
 
         self.assertEqual([call.args[4] for call in request_mock.call_args_list], [
-            '/trading/instruments/futures/product-classes/list',
             '/trading/instruments/futures/product-codes/list',
             '/trading/instruments/futures/contracts/list',
             '/market-data/futures/snapshots/list',
@@ -284,8 +281,8 @@ class WebullServiceTests(unittest.TestCase):
         self.assertEqual(contracts[0]['symbol'], 'ESZ5')
         self.assertEqual(snapshot['price'], 4500.25)
         self.assertEqual(bars[0]['close'], 4500.25)
-        self.assertEqual(request_mock.call_args_list[2].kwargs['query_params'], {'symbols': 'ESZ5'})
-        self.assertEqual(request_mock.call_args_list[3].kwargs['query_params']['category'], 'US_FUTURES')
+        self.assertEqual(request_mock.call_args_list[1].kwargs['query_params'], {'symbols': 'ESZ5'})
+        self.assertEqual(request_mock.call_args_list[2].kwargs['query_params']['category'], 'US_FUTURES')
 
     def test_option_bars_and_snapshot_use_option_endpoints_and_keep_contract_identity(self):
         bars_response = Mock(status_code=200)
