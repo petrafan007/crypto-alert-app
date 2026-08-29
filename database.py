@@ -148,7 +148,7 @@ def init_db(app=None):
                     CREATE TABLE IF NOT EXISTS webull_test_accounts (
                         id SERIAL PRIMARY KEY,
                         user_id INTEGER NOT NULL UNIQUE,
-                        cash_balance FLOAT NOT NULL DEFAULT 10000.0,
+                        cash_balance FLOAT NOT NULL DEFAULT 0.0,
                         currency VARCHAR(10) NOT NULL DEFAULT 'USD',
                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP

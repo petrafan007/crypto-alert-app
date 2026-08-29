@@ -9,7 +9,7 @@ from credentials import Credential, UserSetting
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_INITIAL_PAPER_BALANCE = 10000.0
+DEFAULT_INITIAL_PAPER_BALANCE = 0.0
 
 
 def get_or_create_webull_test_account(user_id: int) -> WebullTestAccount:
@@ -32,7 +32,7 @@ def deposit_fake_money(user_id: int, amount: float, reset: bool = False) -> Dict
     amount = float(amount or 0.0)
 
     if reset:
-        account.cash_balance = amount if amount > 0 else DEFAULT_INITIAL_PAPER_BALANCE
+        account.cash_balance = amount if amount >= 0 else 0.0
         # Reset positions if full reset requested
         WebullTestPosition.query.filter_by(user_id=user_id).delete()
     else:

@@ -129,7 +129,7 @@ class WebullTestAccount(db.Model):
 
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, nullable=False, unique=True, index=True)
-    cash_balance = db.Column(db.Float, default=10000.0, nullable=False)
+    cash_balance = db.Column(db.Float, default=0.0, nullable=False)
     currency = db.Column(db.String(10), default='USD', nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

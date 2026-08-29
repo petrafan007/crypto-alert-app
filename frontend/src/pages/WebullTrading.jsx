@@ -567,14 +567,14 @@ export default function WebullTrading({ isLightMode = false }) {
   };
 
   const handleResetPaperAccount = async () => {
-    if (!window.confirm('Reset your Webull Paper Trading account to $10,000 and clear all simulated positions?')) return;
+    if (!window.confirm('Reset your Webull Paper Trading account balance to $0.00 and clear all simulated positions?')) return;
     setDepositSubmitting(true);
     try {
-      const res = await axios.post('/api/webull/test/deposit', { amount: 10000, reset: true }, { withCredentials: true });
+      const res = await axios.post('/api/webull/test/deposit', { amount: 0, reset: true }, { withCredentials: true });
       if (res.data?.success) {
         setShowDepositModal(false);
         await loadPaperTradingData();
-        setOrderFeedback({ type: 'success', message: 'Webull paper account reset to $10,000.00 cash.' });
+        setOrderFeedback({ type: 'success', message: 'Webull paper account reset to $0.00 cash.' });
       }
     } catch (err) {
       setOrderFeedback({ type: 'error', message: err.response?.data?.message || 'Reset failed.' });
@@ -784,15 +784,15 @@ export default function WebullTrading({ isLightMode = false }) {
         account_class: 'PAPER_TRADING',
         is_paper: true,
         balance: {
-          total_cash_balance: paperSummary?.cash_balance ?? 10000,
-          cash_balance: paperSummary?.cash_balance ?? 10000,
-          settled_cash: paperSummary?.cash_balance ?? 10000,
-          net_liquidation: paperSummary?.net_liquidation ?? 10000,
-          buying_power: paperSummary?.buying_power ?? 10000,
+          total_cash_balance: paperSummary?.cash_balance ?? 0,
+          cash_balance: paperSummary?.cash_balance ?? 0,
+          settled_cash: paperSummary?.cash_balance ?? 0,
+          net_liquidation: paperSummary?.net_liquidation ?? 0,
+          buying_power: paperSummary?.buying_power ?? 0,
         },
-        net_liquidation: paperSummary?.net_liquidation ?? 10000,
-        buying_power: paperSummary?.buying_power ?? 10000,
-        cash_balance: paperSummary?.cash_balance ?? 10000,
+        net_liquidation: paperSummary?.net_liquidation ?? 0,
+        buying_power: paperSummary?.buying_power ?? 0,
+        cash_balance: paperSummary?.cash_balance ?? 0,
         total_market_value: paperSummary?.total_market_value ?? 0,
         unrealized_profit_loss: paperSummary?.unrealized_profit_loss ?? 0,
         unrealized_profit_loss_rate: paperSummary?.unrealized_profit_loss_rate ?? 0,
@@ -894,7 +894,7 @@ export default function WebullTrading({ isLightMode = false }) {
   }, [selectedInstrumentType, activeAccount]);
   const cashBalance = useMemo(() => {
     if (isTestMode) {
-      return Number(paperSummary?.cash_balance ?? 10000);
+      return Number(paperSummary?.cash_balance ?? 0);
     }
     if (!activeAccount?.balance) return 0;
     const b = activeAccount.balance;
@@ -2041,8 +2041,6 @@ export default function WebullTrading({ isLightMode = false }) {
             color: '#4fd1c5',
             display: 'flex',
             alignItems: 'center',
-            justifyContent: 'space-between',
-            flexWrap: 'wrap',
             gap: '12px'
           }}
         >
@@ -2052,22 +2050,6 @@ export default function WebullTrading({ isLightMode = false }) {
               TEST MODE ACTIVE — Simulated Webull Paper Account (${number(cashBalance)} USD available cash). Trades fill against real live market quotes with zero financial risk.
             </span>
           </div>
-          <button
-            type="button"
-            onClick={() => setShowDepositModal(true)}
-            style={{
-              background: 'rgba(79, 209, 197, 0.2)',
-              border: '1px solid rgba(79, 209, 197, 0.5)',
-              color: '#ffffff',
-              padding: '5px 14px',
-              borderRadius: '6px',
-              cursor: 'pointer',
-              fontSize: '0.85rem',
-              fontWeight: 600
-            }}
-          >
-            + Add Funds
-          </button>
         </div>
       )}
 
@@ -3755,7 +3737,7 @@ export default function WebullTrading({ isLightMode = false }) {
                 type="button"
                 className="btn btn-outline-danger"
                 onClick={handleResetPaperAccount}
-                title="Reset cash to $10,000 and clear simulated positions"
+                title="Reset cash to $0.00 and clear simulated positions"
                 style={{
                   fontSize: '0.85rem',
                   padding: '8px 12px',

@@ -125,6 +125,14 @@ The application utilizes a **unified PostgreSQL database**.
 
 Historical changelog entries retain the product name used when they were originally released. The application domain, repository slug, deployment folders, database, and service identifiers intentionally remain unchanged by the v2.45.0 brand update.
 
+## v2.57.1 (August 2026)
+
+- **Un-Funded Default for Webull Paper Trading**:
+  - **Zero Initial Balance**: Webull Paper Trading accounts now initialize with an unfunded `$0.00` cash balance rather than being automatically pre-funded with money. Users have complete control over how much simulated capital to deposit.
+  - **Account Reset to $0.00**: Resetting the paper trading account clears all simulated positions and resets the cash balance back to `$0.00` (instead of $10,000).
+- **Streamlined Test Mode Banner**:
+  - **Removed Redundant Button**: Eliminated the redundant `+ Add Funds` button from the active Test Mode banner. The primary `💰 Deposit Fake Money` button in the header serves as the sole, convenient deposit entry point.
+
 ## v2.57.0 (August 2026)
 
 - **Full Webull Test Mode & Paper Trading Simulation**:
