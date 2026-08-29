@@ -9,6 +9,7 @@ export default function CancelOrderModal({
   order,
   loading,
   error,
+  requiresTwoFactor = true,
 }) {
   const [code, setCode] = useState('');
   const [localError, setLocalError] = useState('');
@@ -45,12 +46,12 @@ export default function CancelOrderModal({
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (code.length !== 6 || !/^\d+$/.test(code)) {
+    if (requiresTwoFactor && (code.length !== 6 || !/^\d+$/.test(code))) {
       setLocalError('Please enter a valid 6-digit code.');
       return;
     }
     setLocalError('');
-    await onConfirm(code);
+    await onConfirm(requiresTwoFactor ? code : '');
   };
 
   const handleBackdropClick = (event) => {
@@ -83,33 +84,40 @@ export default function CancelOrderModal({
               </>
             ) : (
               <>
-                Enter your 6-digit two-factor authentication code to confirm cancellation of this open <strong>{provider}</strong> order in <strong>{accountLabel}</strong>: <strong>{normalOrderDescription}</strong>.
+                {requiresTwoFactor ? 'Enter your 6-digit two-factor authentication code to confirm cancellation of this open ' : 'Confirm cancellation of this simulated '}
+                <strong>{provider}</strong> order in <strong>{accountLabel}</strong>: <strong>{normalOrderDescription}</strong>.
               </>
             )}
           </p>
 
           <form onSubmit={handleSubmit} className="two-factor-form">
-            <div className="form-group">
-              <label htmlFor="cancelTwoFactorCode">6-digit Code</label>
-              <input
-                id="cancelTwoFactorCode"
-                type="text"
-                inputMode="numeric"
-                pattern="[0-9]*"
-                maxLength="6"
-                value={code}
-                onChange={(e) => {
-                  const value = e.target.value.replace(/\D/g, '').slice(0, 6);
-                  setCode(value);
-                  setLocalError('');
-                }}
-                placeholder="000000"
-                className="two-factor-input"
-                autoComplete="one-time-code"
-                autoFocus
-                disabled={loading}
-              />
-            </div>
+            {requiresTwoFactor ? (
+              <div className="form-group">
+                <label htmlFor="cancelTwoFactorCode">6-digit Code</label>
+                <input
+                  id="cancelTwoFactorCode"
+                  type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  maxLength="6"
+                  value={code}
+                  onChange={(e) => {
+                    const value = e.target.value.replace(/\D/g, '').slice(0, 6);
+                    setCode(value);
+                    setLocalError('');
+                  }}
+                  placeholder="000000"
+                  className="two-factor-input"
+                  autoComplete="one-time-code"
+                  autoFocus
+                  disabled={loading}
+                />
+              </div>
+            ) : (
+              <div className="paper-cancel-confirmation" role="status">
+                🧪 Paper Trading cancellation — no authenticator code is required and no live Webull order will be changed.
+              </div>
+            )}
 
             {(localError || error) && (
               <div className="error-message">
@@ -129,7 +137,7 @@ export default function CancelOrderModal({
               <button
                 type="submit"
                 className="btn btn-primary"
-                disabled={loading || code.length !== 6}
+                disabled={loading || (requiresTwoFactor && code.length !== 6)}
               >
                 {loading ? '⏳ Confirming...' : 'Confirm'}
               </button>

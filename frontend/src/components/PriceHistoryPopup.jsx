@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import { Line } from 'react-chartjs-2';
+import { EASTERN_TIME_ZONE, formatEasternDate, parseAppTimestamp } from '../utils/dateTime';
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -56,11 +57,7 @@ const PriceHistoryPopup = ({ symbol, isVisible, position, onClose, onMouseEnter,
   };
 
   const formatDate = (timestamp) => {
-    const date = new Date(timestamp);
-    return date.toLocaleDateString('en-US', { 
-      month: 'short', 
-      day: 'numeric'
-    });
+    return formatEasternDate(timestamp, { month: 'short', day: 'numeric', year: undefined });
   };
 
   const processedData = React.useMemo(() => {
@@ -68,8 +65,8 @@ const PriceHistoryPopup = ({ symbol, isVisible, position, onClose, onMouseEnter,
     
     const daysMap = {};
     priceData.forEach(point => {
-      const d = new Date(point[0]);
-      const dateStr = `${d.getMonth() + 1}/${d.getDate().toString().padStart(2, '0')}`;
+      const d = parseAppTimestamp(point[0]);
+      const dateStr = d ? d.toLocaleDateString('en-US', { timeZone: EASTERN_TIME_ZONE, month: 'numeric', day: '2-digit' }) : '—';
       daysMap[dateStr] = point[1]; // Keep latest price for the day
     });
 

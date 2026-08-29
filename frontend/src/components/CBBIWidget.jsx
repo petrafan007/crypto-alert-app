@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import './CBBIWidget.css';
+import { formatEasternDateTime } from '../utils/dateTime';
 
 const CBBIWidget = () => {
   const [cbbiData, setCbbiData] = useState(null);
@@ -159,7 +160,7 @@ const CBBIWidget = () => {
         </div>
         
         <div className="cbbi-footer">
-          <small>Updated: {cbbiData?.lastUpdate?.toLocaleString()}</small>
+          <small>Updated: {formatEasternDateTime(cbbiData?.lastUpdate)}</small>
         </div>
       </div>
     </div>

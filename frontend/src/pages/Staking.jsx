@@ -4,6 +4,7 @@ import { useSearchParams } from 'react-router-dom';
 import './Staking.css';
 import TradePermissionModal from '../components/TradePermissionModal';
 import ApiKeyRequiredModal from '../components/ApiKeyRequiredModal';
+import { formatEasternDateTime } from '../utils/dateTime';
 
 export default function Staking({ isLightMode }) {
   const [searchParams] = useSearchParams();
@@ -441,11 +442,7 @@ export default function Staking({ isLightMode }) {
     }
   };
 
-  const formatDate = (dateString) => {
-    if (!dateString) return 'N/A';
-    const date = new Date(dateString);
-    return date.toLocaleString();
-  };
+  const formatDate = (dateString) => formatEasternDateTime(dateString, { timeZoneName: 'short' });
 
   const formatStatusLabel = (status) => {
     if (!status) return 'Unknown';

@@ -1091,6 +1091,8 @@ def get_webull_option_chain_data(app_key=None, app_secret=None, environment='pro
 
     return {
         'success': True,
+        'generated_at': datetime.now(timezone.utc).isoformat(),
+        'fresh_for_seconds': 15 if market_open else 60,
         'underlying_symbol': clean_underlying,
         'underlying_price': underlying_price,
         'underlying_prev_close': underlying_prev_close,
@@ -1284,6 +1286,11 @@ SUPPORTED_WEBULL_ORDER_TYPES = {
     'MARKET', 'LIMIT', 'STOP_LOSS', 'STOP_LOSS_LIMIT', 'TRAILING_STOP_LOSS',
     'MARKET_ON_OPEN', 'MARKET_ON_CLOSE', 'LIMIT_ON_OPEN'
 }
+SUPPORTED_WEBULL_OPTION_STRATEGIES = {
+    'SINGLE', 'COVERED_STOCK', 'VERTICAL', 'STRADDLE', 'STRANGLE', 'CALENDAR',
+    'BUTTERFLY', 'CONDOR', 'IRON_BUTTERFLY', 'IRON_CONDOR',
+    'COLLAR_WITH_STOCK', 'DIAGONAL',
+}
 
 
 def place_webull_order(
@@ -1291,7 +1298,7 @@ def place_webull_order(
     account_id, symbol=None, instrument_type='EQUITY', side=None, order_type=None, quantity=None,
     limit_price=None, stop_price=None, time_in_force='DAY', support_trading_session='CORE',
     client_order_id=None, option_type=None, option_strike=None,
-    option_expiration=None, option_underlying_symbol=None,
+    option_expiration=None, option_underlying_symbol=None, option_strategy='SINGLE', option_legs=None,
     trailing_type=None, trailing_stop_step=None,
     entrust_type='QTY', total_cash_amount=None,
     algo_type=None, algo_start_time=None, algo_end_time=None,
@@ -1507,19 +1514,62 @@ def place_webull_order(
             raise WebullConnectionError('Webull option orders support DAY or GTC time in force.')
         if clean_side == 'SELL' and clean_time_in_force != 'DAY':
             raise WebullConnectionError('Webull option sell orders support DAY time in force only.')
-        order_payload = {
-            'combo_type': 'NORMAL',
-            'client_order_id': clean_client_order_id,
-            'symbol': clean_option_underlying,
-            'instrument_type': 'OPTION',
-            'market': 'US',
-            'order_type': clean_type,
-            'side': clean_side,
-            'option_strategy': 'SINGLE',
-            'quantity': str(int(qty)),
-            'time_in_force': clean_time_in_force,
-            'entrust_type': 'QTY',
-            'legs': [{
+        clean_option_strategy = str(option_strategy or 'SINGLE').strip().upper()
+        if clean_option_strategy not in SUPPORTED_WEBULL_OPTION_STRATEGIES:
+            raise WebullConnectionError('Choose an option strategy supported by the documented Webull OpenAPI. Ratio is not currently documented.')
+        if clean_option_strategy != 'SINGLE':
+            if not isinstance(option_legs, list) or len(option_legs) < 2:
+                raise WebullConnectionError('The selected option strategy requires at least two legs.')
+            strategy_legs = []
+            for index, leg in enumerate(option_legs, start=1):
+                if not isinstance(leg, dict):
+                    raise WebullConnectionError(f'Option strategy leg #{index} is invalid.')
+                leg_instrument = str(leg.get('instrument_type') or 'OPTION').strip().upper()
+                if leg_instrument not in {'OPTION', 'EQUITY'}:
+                    raise WebullConnectionError(f'Option strategy leg #{index} must be OPTION or EQUITY.')
+                leg_side = str(leg.get('side') or '').strip().upper()
+                if leg_side not in {'BUY', 'SELL'}:
+                    raise WebullConnectionError(f'Option strategy leg #{index} must use BUY or SELL.')
+                try:
+                    leg_ratio_quantity = float(leg.get('quantity') or 0)
+                    if leg_ratio_quantity <= 0 or not leg_ratio_quantity.is_integer():
+                        raise ValueError()
+                except (TypeError, ValueError):
+                    raise WebullConnectionError(f'Option strategy leg #{index} requires a positive whole-number quantity.')
+                leg_payload = {
+                    'symbol': clean_option_underlying,
+                    'side': leg_side,
+                    # The browser supplies the leg ratio for one strategy unit.
+                    # Scale every leg by the visible order quantity so changing
+                    # the ticket from one spread to two cannot submit mismatched
+                    # leg quantities (for example, 200 shares + 2 covered calls).
+                    'quantity': str(int(leg_ratio_quantity * qty)),
+                    'instrument_type': leg_instrument,
+                    'market': 'US',
+                }
+                if leg_instrument == 'OPTION':
+                    leg_option_type = str(leg.get('option_type') or '').strip().upper()
+                    if leg_option_type not in {'CALL', 'PUT'}:
+                        raise WebullConnectionError(f'Option strategy leg #{index} requires CALL or PUT.')
+                    try:
+                        leg_strike = float(leg.get('strike_price'))
+                        if leg_strike <= 0:
+                            raise ValueError()
+                    except (TypeError, ValueError):
+                        raise WebullConnectionError(f'Option strategy leg #{index} requires a positive strike.')
+                    leg_expiration = str(leg.get('option_expire_date') or '').strip()
+                    try:
+                        datetime.strptime(leg_expiration, '%Y-%m-%d')
+                    except (TypeError, ValueError):
+                        raise WebullConnectionError(f'Option strategy leg #{index} requires an expiration in YYYY-MM-DD format.')
+                    leg_payload.update({
+                        'strike_price': f'{leg_strike:.4f}'.rstrip('0').rstrip('.'),
+                        'option_expire_date': leg_expiration,
+                        'option_type': leg_option_type,
+                    })
+                strategy_legs.append(leg_payload)
+        else:
+            strategy_legs = [{
                 'symbol': clean_option_underlying,
                 'side': clean_side,
                 'quantity': str(int(qty)),
@@ -1528,7 +1578,20 @@ def place_webull_order(
                 'instrument_type': 'OPTION',
                 'option_type': clean_option_type,
                 'market': 'US',
-            }],
+            }]
+        order_payload = {
+            'combo_type': 'NORMAL',
+            'client_order_id': clean_client_order_id,
+            'symbol': clean_option_underlying,
+            'instrument_type': 'OPTION',
+            'market': 'US',
+            'order_type': clean_type,
+            'side': clean_side,
+            'option_strategy': clean_option_strategy,
+            'quantity': str(int(qty)),
+            'time_in_force': clean_time_in_force,
+            'entrust_type': 'QTY',
+            'legs': strategy_legs,
         }
     elif clean_instrument == 'FUTURES':
         if not qty.is_integer():

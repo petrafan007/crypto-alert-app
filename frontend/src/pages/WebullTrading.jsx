@@ -9,6 +9,8 @@ import CancelOrderModal from '../components/CancelOrderModal';
 import PercentPriceModal from '../components/PercentPriceModal';
 import WebullAIDashboard from '../components/WebullAIDashboard';
 import WebullOptionChain from '../components/WebullOptionChain';
+import { formatEasternDate, formatEasternDateTime, formatEasternTime } from '../utils/dateTime';
+import { optionStrategyDefinition } from '../utils/optionStrategies';
 import {
   formatComboRole,
   formatOrderSide,
@@ -34,10 +36,41 @@ const number = (value, digits = 2) => {
     : '—';
 };
 
-const formatDate = (value) => {
-  if (!value) return '—';
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleString();
+const formatDate = formatEasternDateTime;
+
+const optionLegsFromRecord = (record = {}) => {
+  if (Array.isArray(record.legs)) return record.legs;
+  if (Array.isArray(record.option_legs)) return record.option_legs;
+  if (Array.isArray(record.combo_orders)) return record.combo_orders;
+  if (typeof record.combo_orders === 'string' && record.combo_orders.trim()) {
+    try {
+      const parsed = JSON.parse(record.combo_orders);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }
+  return [];
+};
+
+const optionContractDetails = (record = {}) => {
+  const rawSymbol = String(record.symbol || record.ticker || '').trim().toUpperCase();
+  const parsed = rawSymbol.match(/^([A-Z][A-Z0-9.]*)\s+(\d{4}-\d{2}-\d{2})\s+\$?([\d.]+)\s+(CALL|PUT)$/);
+  const optionLegs = optionLegsFromRecord(record).filter((leg) => String(leg.instrument_type || 'OPTION').toUpperCase() === 'OPTION');
+  const unique = (values) => [...new Set(values.filter((value) => value !== undefined && value !== null && String(value).trim() !== '').map(String))];
+  const expirations = unique(optionLegs.map((leg) => leg.option_expire_date || leg.option_expiration || leg.expiration_date));
+  const strikes = unique(optionLegs.map((leg) => leg.strike_price ?? leg.option_strike));
+  const optionTypes = unique(optionLegs.map((leg) => String(leg.option_type || '').toUpperCase()));
+  const isOption = String(record.instrument_type || '').toUpperCase() === 'OPTION' || Boolean(parsed) || optionLegs.length > 0;
+  const strike = record.option_strike ?? record.strike_price ?? parsed?.[3] ?? null;
+  return {
+    isOption,
+    symbol: String(record.underlying_symbol || parsed?.[1] || rawSymbol || '—').toUpperCase(),
+    expiration: expirations.length ? expirations.join(' / ') : String(record.option_expiration || record.option_expire_date || record.expiration_date || parsed?.[2] || '').slice(0, 10),
+    strike,
+    strikeLabel: strikes.length ? strikes.map((value) => `$${number(value, 2)}`).join(' / ') : strike != null ? `$${number(strike, 2)}` : '—',
+    optionType: optionTypes.length ? optionTypes.join(' / ') : String(record.option_type || parsed?.[4] || '').toUpperCase(),
+  };
 };
 
 const normalizeOrder = (order) => ({
@@ -81,21 +114,31 @@ function Pagination({ page, setPage, pageSize, setPageSize, total }) {
 
 function WebullOrderTable({ orders, emptyText, onCancelOrder, cancellingId }) {
   if (!orders.length) return <div className="empty-state"><p>{emptyText}</p></div>;
+  const showOptionColumns = orders.some((order) => optionContractDetails(order).isOption);
   return (
     <div className="table-container trading-table">
       <div className="order-table-scroll">
         <table>
           <thead>
             <tr>
-              <th>Date / Time</th><th style={{ textAlign: 'center' }}>Symbol</th><th>Side</th><th>Type</th><th>Quantity</th><th>Price</th><th>Filled</th><th>Status</th><th>Source</th>
+              <th>Date</th><th>Time (ET)</th><th style={{ textAlign: 'center' }}>Symbol</th>
+              {showOptionColumns && <><th>Expiration</th><th>Strike</th><th>Call / Put</th></>}
+              <th>Side</th><th>Type</th><th>Quantity</th><th>Price</th><th>Filled</th><th>Status</th><th>Source</th>
               {onCancelOrder && <th>Action</th>}
             </tr>
           </thead>
           <tbody>
-            {orders.map((order) => (
-              <tr key={order.id}>
-                <td>{formatDate(order.created_at)}</td>
-                <td style={{ textAlign: 'center' }}>{order.symbol}</td>
+            {orders.map((order) => {
+              const option = optionContractDetails(order);
+              return <tr key={order.id}>
+                <td>{formatEasternDate(order.created_at)}</td>
+                <td>{formatEasternTime(order.created_at)}</td>
+                <td style={{ textAlign: 'center' }}>{option.symbol}</td>
+                {showOptionColumns && <>
+                  <td>{option.isOption ? option.expiration || '—' : '—'}</td>
+                  <td>{option.isOption ? option.strikeLabel : '—'}</td>
+                  <td>{option.isOption ? formatOrderType(option.optionType, option.optionType || '—') : '—'}</td>
+                </>}
                 <td>{formatOrderSide(order.side)}</td>
                 <td>{formatOrderType(order.order_type)}</td>
                 <td>{number(order.quantity, 6)}</td>
@@ -116,8 +159,8 @@ function WebullOrderTable({ orders, emptyText, onCancelOrder, cancellingId }) {
                     </button>
                   </td>
                 )}
-              </tr>
-            ))}
+              </tr>;
+            })}
           </tbody>
         </table>
       </div>
@@ -321,6 +364,9 @@ export default function WebullTrading({ isLightMode = false }) {
     optionType: 'CALL',
     optionStrike: '',
     optionExpiration: '',
+    optionStrategy: 'SINGLE',
+    optionStrategyWidth: 'auto',
+    optionStrategyLegs: [],
     trailingType: 'AMOUNT',
     trailingStopStep: '',
     // Webull Stock Orders API extensions
@@ -1422,9 +1468,10 @@ export default function WebullTrading({ isLightMode = false }) {
     && Boolean(normalizedOptionExpiry(orderForm.optionExpiration))
     && Number(orderForm.optionStrike) > 0
     && effectivePrice > 0;
+  const optionIsSingle = String(orderForm.optionStrategy || 'SINGLE').toUpperCase() === 'SINGLE';
   const optionUnitCost = optionContractSelected ? optionOrderValue(1, effectivePrice) : 0;
-  const optionBuyEnabled = optionContractSelected && cashBalance + QUANTITY_EPSILON >= optionUnitCost;
-  const optionSellEnabled = optionContractSelected && heldQuantity >= 1 - QUANTITY_EPSILON;
+  const optionBuyEnabled = optionContractSelected && (!optionIsSingle || cashBalance + QUANTITY_EPSILON >= optionUnitCost);
+  const optionSellEnabled = optionContractSelected && (!optionIsSingle || heldQuantity >= 1 - QUANTITY_EPSILON);
   const optionOrderControlsDisabled = selectedInstrumentType === 'OPTION'
     && (orderForm.side === 'BUY' ? !optionBuyEnabled : !optionSellEnabled);
   const optionExecutionMessage = !optionContractSelected
@@ -1559,11 +1606,11 @@ export default function WebullTrading({ isLightMode = false }) {
         rejectOrder('Webull option orders require a whole number of contracts.');
         return;
       }
-      if (orderForm.side === 'SELL' && !optionSellEnabled) {
+      if (optionIsSingle && orderForm.side === 'SELL' && !optionSellEnabled) {
         rejectOrder('You can sell only an exact call or put contract currently owned in the selected Webull account.');
         return;
       }
-      if (orderForm.side === 'BUY') {
+      if (optionIsSingle && orderForm.side === 'BUY') {
         if (!optionBuyEnabled) {
           rejectOrder(`Insufficient USD to purchase one contract. This contract costs $${number(optionUnitCost)} and available USD is $${number(cashBalance)}.`);
           return;
@@ -1594,7 +1641,7 @@ export default function WebullTrading({ isLightMode = false }) {
         return;
       }
     }
-    if (!['FUTURES', 'EVENT'].includes(selectedInstrumentType) && orderForm.side === 'SELL' && !isCashAmountMode && qty > heldQuantity + QUANTITY_EPSILON) {
+    if (!['FUTURES', 'EVENT'].includes(selectedInstrumentType) && !(selectedInstrumentType === 'OPTION' && !optionIsSingle) && orderForm.side === 'SELL' && !isCashAmountMode && qty > heldQuantity + QUANTITY_EPSILON) {
       rejectOrder(`You can sell up to ${formatQuantityForTicket(heldQuantity, 6) || '0'} ${selectedSymbol} from ${activeAccountLabel()}.`);
       return;
     }
@@ -1637,6 +1684,10 @@ export default function WebullTrading({ isLightMode = false }) {
       }
     }
     if (selectedInstrumentType === 'OPTION') {
+      if (!optionIsSingle && (!Array.isArray(orderForm.optionStrategyLegs) || orderForm.optionStrategyLegs.length < 2)) {
+        rejectOrder('Select a strategy anchor from the current option chain so every strategy leg can be constructed.');
+        return;
+      }
       if (['LIMIT', 'STOP_LOSS_LIMIT'].includes(orderForm.type)) {
         const px = parseFloat(orderForm.price);
         if (!px || px <= 0) {
@@ -1710,6 +1761,9 @@ export default function WebullTrading({ isLightMode = false }) {
         option_underlying_symbol: selectedInstrumentType === 'OPTION' ? selectedSymbol.trim().toUpperCase() : undefined,
         option_strike: selectedInstrumentType === 'OPTION' ? Number(orderForm.optionStrike) : undefined,
         option_expiration: selectedInstrumentType === 'OPTION' ? orderForm.optionExpiration : undefined,
+        option_strategy: selectedInstrumentType === 'OPTION' ? orderForm.optionStrategy : undefined,
+        option_strategy_width: selectedInstrumentType === 'OPTION' ? orderForm.optionStrategyWidth : undefined,
+        option_legs: selectedInstrumentType === 'OPTION' ? orderForm.optionStrategyLegs : undefined,
         algo_type: (selectedInstrumentType === 'EQUITY' && orderForm.isAlgoEnabled) ? orderForm.algoType : undefined,
         algo_start_time: (selectedInstrumentType === 'EQUITY' && orderForm.isAlgoEnabled) ? orderForm.algoStartTime : undefined,
         algo_end_time: (selectedInstrumentType === 'EQUITY' && orderForm.isAlgoEnabled) ? orderForm.algoEndTime : undefined,
@@ -2076,6 +2130,9 @@ export default function WebullTrading({ isLightMode = false }) {
         optionType: contractData.optionType || 'CALL',
         optionStrike: String(contractData.strike || ''),
         optionExpiration: contractData.expiration || '',
+        optionStrategy: contractData.optionStrategy || 'SINGLE',
+        optionStrategyWidth: contractData.strategyWidth || 'auto',
+        optionStrategyLegs: contractData.strategyLegs || [],
         price: premium > 0 ? String(contractData.price) : '',
         side: contractData.side || 'BUY',
         quantity,
@@ -2083,6 +2140,27 @@ export default function WebullTrading({ isLightMode = false }) {
         stopPrice: '',
       };
     });
+    setOrderValidationError('');
+  };
+
+  const handleTicketSideChange = (nextSide) => {
+    setOrderForm((prev) => {
+      const shouldReverseOptionLegs = (
+        selectedInstrumentType === 'OPTION'
+        && prev.side !== nextSide
+        && Array.isArray(prev.optionStrategyLegs)
+        && prev.optionStrategyLegs.length > 0
+      );
+      return {
+        ...prev,
+        side: nextSide,
+        timeInForce: selectedInstrumentType === 'OPTION' && nextSide === 'SELL' ? 'DAY' : prev.timeInForce,
+        optionStrategyLegs: shouldReverseOptionLegs
+          ? prev.optionStrategyLegs.map((leg) => ({ ...leg, side: String(leg.side).toUpperCase() === 'BUY' ? 'SELL' : 'BUY' }))
+          : prev.optionStrategyLegs,
+      };
+    });
+    setBalancePercentage(0);
     setOrderValidationError('');
   };
   useEffect(() => {
@@ -2637,6 +2715,7 @@ export default function WebullTrading({ isLightMode = false }) {
                         expiration: orderForm.optionExpiration,
                         price: orderForm.price,
                         side: orderForm.side,
+                        optionStrategy: orderForm.optionStrategy,
                       }}
                       onSelectOptionContract={handleSelectOptionContract}
                       onSymbolChange={(newSym) => {
@@ -2654,7 +2733,7 @@ export default function WebullTrading({ isLightMode = false }) {
                           <span>🎯</span> Option Contract Setup ({selectedSymbol})
                         </span>
                         <span style={{ fontSize: '11px', color: '#a78bfa', background: 'rgba(139, 92, 246, 0.25)', padding: '3px 8px', borderRadius: '12px', fontWeight: 600 }}>
-                          100 Shares / Contract
+                          {optionStrategyDefinition(orderForm.optionStrategy).label} · {orderForm.optionStrategyLegs?.length || 1} leg{(orderForm.optionStrategyLegs?.length || 1) === 1 ? '' : 's'}
                         </span>
                       </div>
 
@@ -2761,11 +2840,7 @@ export default function WebullTrading({ isLightMode = false }) {
                         <button
                           type="button"
                           className={`order-side-btn buy-side ${orderForm.side === 'BUY' ? 'active' : ''}`}
-                          onClick={() => {
-                            setOrderForm((prev) => ({ ...prev, side: 'BUY' }));
-                            setBalancePercentage(0);
-                            setOrderValidationError('');
-                          }}
+                          onClick={() => handleTicketSideChange('BUY')}
                           disabled={ticketOrderControlsDisabled || assetClassDisabled(selectedInstrumentType)}
                           title={selectedInstrumentType === 'OPTION' && !optionBuyEnabled ? optionExecutionMessage || 'A priced option contract and enough USD for one contract are required to buy.' : futuresOrderControlsDisabled ? futuresExecutionMessage : selectedInstrumentType === 'EVENT' ? 'Buy to open event contract' : 'Buy this instrument'}
                         >
@@ -2774,11 +2849,7 @@ export default function WebullTrading({ isLightMode = false }) {
                         <button
                           type="button"
                           className={`order-side-btn sell-side ${orderForm.side === 'SELL' ? 'active' : ''}`}
-                          onClick={() => {
-                            setOrderForm((prev) => ({ ...prev, side: 'SELL' }));
-                            setBalancePercentage(0);
-                            setOrderValidationError('');
-                          }}
+                          onClick={() => handleTicketSideChange('SELL')}
                           disabled={ticketOrderControlsDisabled || assetClassDisabled(selectedInstrumentType)}
                           title={selectedInstrumentType === 'OPTION' && !optionSellEnabled ? 'Sell is available only for an exact option contract currently owned in this Webull account.' : futuresOrderControlsDisabled ? futuresExecutionMessage : selectedInstrumentType === 'EVENT' ? 'Sell to close event contract' : 'Sell this instrument'}
                         >
@@ -2931,9 +3002,10 @@ export default function WebullTrading({ isLightMode = false }) {
                             inputMode="decimal"
                             value={orderForm.quantity}
                             onChange={(e) => handleBaseQuantityChange(e.target.value)}
-                            placeholder={['OPTION', 'FUTURES', 'EVENT'].includes(selectedInstrumentType) ? '10' : '0.0000'}
+                            placeholder={selectedInstrumentType === 'OPTION' ? '1' : ['FUTURES', 'EVENT'].includes(selectedInstrumentType) ? '10' : '0.0000'}
                             className="order-styled-input"
                             disabled={ticketOrderControlsDisabled}
+                            aria-label={selectedInstrumentType === 'OPTION' ? `Option strategy contracts, current value ${orderForm.quantity || 'empty'}` : `Order quantity for ${selectedSymbol}`}
                             aria-invalid={Boolean(orderValidationError)}
                             aria-describedby={orderValidationError ? 'webull-order-validation' : undefined}
                             autoComplete="off"
@@ -2981,6 +3053,8 @@ export default function WebullTrading({ isLightMode = false }) {
                               placeholder="$0.00"
                               className="order-styled-input"
                               disabled={ticketOrderControlsDisabled}
+                              readOnly={selectedInstrumentType === 'OPTION'}
+                              aria-label={selectedInstrumentType === 'OPTION' ? `Calculated option order value, ${optionOrderValueText(orderForm.quantity, effectivePrice)} US dollars` : 'Order value in US dollars'}
                               autoComplete="off"
                             />
                             <button
@@ -3435,7 +3509,7 @@ export default function WebullTrading({ isLightMode = false }) {
                   {/* Row 6: Warning in Real / Test Trading Mode */}
                   {isTestMode ? (
                     <div className="modern-real-warning" style={{ marginTop: '12px', background: 'rgba(79, 209, 197, 0.15)', borderColor: 'rgba(79, 209, 197, 0.35)', color: '#4fd1c5' }}>
-                      🧪 <strong>TEST MODE ACTIVE:</strong> You are paper trading with simulated cash (${number(cashBalance)} USD available) based on real live market pricing. No real orders are sent to Webull.
+                      🧪 <strong>TEST MODE ACTIVE:</strong> You are paper trading with simulated cash (${number(cashBalance)} USD available). Option fills obey regular U.S. options market hours, and no real orders are sent to Webull.
                     </div>
                   ) : (
                     <div className="modern-real-warning" style={{ marginTop: '12px' }}>
@@ -3454,7 +3528,7 @@ export default function WebullTrading({ isLightMode = false }) {
                       </h3>
                       <p style={{ color: '#94a3b8', fontSize: '0.9rem', marginBottom: '20px' }}>
                         {isTestMode
-                          ? 'Please review the simulated trade details below. This will execute in Paper Trading mode against live real market quotes.'
+                          ? 'Please review the simulated trade details below. This will be submitted to the isolated Paper Trading engine under the applicable market-hours rules.'
                           : 'Please review the details below. This will transmit an active order to Webull OpenAPI.'}
                       </p>
                       <div style={{ background: 'rgba(0,0,0,0.25)', padding: '16px', borderRadius: '8px', marginBottom: '20px', display: 'grid', gap: '10px', fontSize: '0.95rem' }}>
@@ -3473,6 +3547,10 @@ export default function WebullTrading({ isLightMode = false }) {
                         {selectedInstrumentType === 'OPTION' && (
                           <>
                             <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                              <span style={{ color: '#94a3b8' }}>Strategy:</span>
+                              <strong style={{ color: '#c4b5fd' }}>{optionStrategyDefinition(orderForm.optionStrategy).label}</strong>
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                               <span style={{ color: '#94a3b8' }}>Option Contract:</span>
                               <strong style={{ color: '#c4b5fd' }}>
                                 {selectedSymbol} {orderForm.optionType} ${orderForm.optionStrike} Exp: {orderForm.optionExpiration}
@@ -3482,7 +3560,7 @@ export default function WebullTrading({ isLightMode = false }) {
                               <span style={{ color: '#94a3b8' }}>Multiplier:</span>
                               <span>100 Shares / Contract</span>
                             </div>
-                            {Number(orderForm.optionStrike) > 0 && Number(orderForm.price) > 0 && (
+                            {optionIsSingle && Number(orderForm.optionStrike) > 0 && Number(orderForm.price) > 0 && (
                               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                                 <span style={{ color: '#94a3b8' }}>Breakeven Price:</span>
                                 <strong style={{ color: '#38bdf8' }}>
@@ -3490,6 +3568,16 @@ export default function WebullTrading({ isLightMode = false }) {
                                     ? Number(orderForm.optionStrike) + Number(orderForm.price)
                                     : Number(orderForm.optionStrike) - Number(orderForm.price)).toFixed(2)}
                                 </strong>
+                              </div>
+                            )}
+                            {!optionIsSingle && orderForm.optionStrategyLegs?.length > 0 && (
+                              <div style={{ display: 'grid', gap: 4 }}>
+                                <span style={{ color: '#94a3b8' }}>Strategy Legs:</span>
+                                {orderForm.optionStrategyLegs.map((leg, index) => (
+                                  <small key={`${leg.instrument_type}-${leg.option_expire_date || ''}-${leg.strike_price || ''}-${index}`} style={{ color: '#cbd5e1' }}>
+                                    {index + 1}. {formatOrderSide(leg.side)} {leg.quantity} × {leg.instrument_type === 'EQUITY' ? `${selectedSymbol} shares` : `${selectedSymbol} ${leg.option_expire_date} $${leg.strike_price} ${leg.option_type}`}
+                                  </small>
+                                ))}
                               </div>
                             )}
                           </>
@@ -3565,7 +3653,7 @@ export default function WebullTrading({ isLightMode = false }) {
                         </div>
                         <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                           <span style={{ color: '#94a3b8' }}>Time in Force / Session:</span>
-                          <span>{formatTimeInForce(orderForm.timeInForce)} · {orderForm.tradingSession === 'CORE' ? 'Regular Hours' : orderForm.tradingSession === 'NIGHT' ? 'Overnight Hours Only' : 'Including Extended Hours'}</span>
+                          <span>{formatTimeInForce(orderForm.timeInForce)} · {selectedInstrumentType === 'OPTION' ? 'Regular Options Session' : orderForm.tradingSession === 'CORE' ? 'Regular Hours' : orderForm.tradingSession === 'NIGHT' ? 'Overnight Hours Only' : 'Including Extended Hours'}</span>
                         </div>
                       </div>
 
@@ -3874,6 +3962,7 @@ export default function WebullTrading({ isLightMode = false }) {
         order={cancelModal.order}
         loading={cancelModal.loading}
         error={cancelModal.error}
+        requiresTwoFactor={!isTestMode}
       />
 
       <PercentPriceModal
@@ -4048,40 +4137,47 @@ function WebullHoldings({ holdings, compact = false, onSelectHolding, isTestMode
       </div>
     );
   }
+  const showOptionColumns = holdings.some((holding) => optionContractDetails(holding).isOption);
   return (
     <div className="table-container trading-table" style={{ marginTop: compact ? 12 : 20 }}>
       <div className="order-table-scroll">
         <table>
           <thead>
             <tr>
-              <th style={{ textAlign: 'center' }}>Symbol</th><th>Type</th><th>Position</th><th>Quantity</th><th>Available</th><th>Last Price</th><th>Value</th><th>Unrealized P&amp;L</th><th style={{ textAlign: 'center' }}>Action</th>
+              <th style={{ textAlign: 'center' }}>Symbol</th>
+              {showOptionColumns && <><th>Expiration</th><th>Strike</th><th>Call / Put</th></>}
+              <th>Asset Class</th><th>Position</th><th>Quantity</th><th>Available</th><th>Last Price</th><th>Value</th><th>Unrealized P&amp;L</th><th style={{ textAlign: 'center' }}>Action</th>
             </tr>
           </thead>
           <tbody>
             {holdings.map((holding) => {
-              const isOption = String(holding.instrument_type || '').toUpperCase() === 'OPTION';
-              const optionLabel = [holding.underlying_symbol, holding.option_expiration, holding.option_strike != null ? `$${holding.option_strike}` : '', holding.option_type].filter(Boolean).join(' · ');
+              const option = optionContractDetails(holding);
+              const isOption = option.isOption;
               return (
                 <tr
                   key={holding.id}
                   onClick={() => onSelectHolding?.(holding)}
                   style={{ cursor: onSelectHolding ? 'pointer' : 'default' }}
-                  title={onSelectHolding ? `Click to load ${holding.symbol} into the order terminal` : undefined}
+                  title={onSelectHolding ? `Click to load ${isOption ? `${option.symbol} ${option.expiration} $${option.strike} ${option.optionType}` : option.symbol} into the order terminal` : undefined}
                 >
                   <td style={{ textAlign: 'center' }}>
                     <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 8, textAlign: 'left' }}>
-                      <CryptoIcon symbol={isOption ? (holding.underlying_symbol || holding.symbol) : holding.symbol} size={22} />
+                      <CryptoIcon symbol={option.symbol} size={22} />
                       <span>
-                        {holding.symbol}
+                        {option.symbol}
                         {(holding.is_paper || isTestMode) && (
                           <span className="badge" style={{ background: 'rgba(79, 209, 197, 0.2)', color: '#4fd1c5', border: '1px solid rgba(79, 209, 197, 0.4)', marginLeft: 6, fontSize: '0.7rem', fontWeight: 700 }}>
                             PAPER
                           </span>
                         )}
-                        {isOption && optionLabel && <small style={{ display: 'block', color: 'var(--text-secondary, #94a3b8)' }}>{optionLabel}</small>}
                       </span>
                     </div>
                   </td>
+                  {showOptionColumns && <>
+                    <td>{isOption ? option.expiration || '—' : '—'}</td>
+                    <td>{isOption ? option.strikeLabel : '—'}</td>
+                    <td>{isOption ? option.optionType || '—' : '—'}</td>
+                  </>}
                   <td>
                     {holding.instrument_type || 'Security'}
                     {isOption && !holding.instrument_id && !holding.is_paper && <small style={{ display: 'block', color: '#fbbf24' }}>Contract resolution needed</small>}
@@ -4121,7 +4217,7 @@ function WebullHoldings({ holdings, compact = false, onSelectHolding, isTestMode
                         e.stopPropagation();
                         onSelectHolding?.(holding);
                       }}
-                      title={`Load ${holding.symbol} into trade ticket`}
+                      title={`Load ${isOption ? `${option.symbol} ${option.expiration} $${option.strike} ${option.optionType}` : option.symbol} into trade ticket`}
                     >
                       Trade
                     </button>

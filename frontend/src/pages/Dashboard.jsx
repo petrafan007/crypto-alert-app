@@ -8,6 +8,7 @@ import PriceHistoryPopup from '../components/PriceHistoryPopup';
 import AIAnalysisModal from '../components/AIAnalysisModal';
 import { useAuth } from '../components/AuthContext';
 import { showAppToast } from '../utils/toast';
+import { formatEasternDate, formatEasternDateTime, formatEasternTime } from '../utils/dateTime';
 import FearGreedWidget from '../components/FearGreedWidget';
 import CBBIWidget from '../components/CBBIWidget';
 import StakingSummaryWidget from '../components/StakingSummaryWidget';
@@ -3102,25 +3103,11 @@ function Dashboard({ isLightMode }) {
 
   // Date formatting helpers that guarantee UTC timestamps are properly parsed and converted to user local time
   const formatLocalDateTime = (dateStr) => {
-    if (!dateStr) return '';
-    let s = String(dateStr).trim();
-    if (!s.endsWith('Z') && !s.includes('+') && !s.slice(10).includes('-')) {
-      s += 'Z';
-    }
-    const d = new Date(s);
-    if (isNaN(d.getTime())) return dateStr;
-    return d.toLocaleString();
+    return dateStr ? formatEasternDateTime(dateStr) : '';
   };
 
   const formatLocalDate = (dateStr) => {
-    if (!dateStr) return '';
-    let s = String(dateStr).trim();
-    if (!s.endsWith('Z') && !s.includes('+') && !s.slice(10).includes('-')) {
-      s += 'Z';
-    }
-    const d = new Date(s);
-    if (isNaN(d.getTime())) return dateStr;
-    return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+    return dateStr ? formatEasternDate(dateStr, { month: 'short', day: 'numeric', year: 'numeric' }) : '';
   };
 
   // Helper to build a clean tooltip for the News icon (showing cached news if available)
@@ -4461,7 +4448,7 @@ function Dashboard({ isLightMode }) {
                       ${Number(scopedTotalValue || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </div>
                     <div style={{ fontSize: '12px', color: 'var(--text-secondary, #94a3b8)', opacity: '0.85', textAlign: 'center' }}>
-                      {accountScope === 'all' ? 'All connected accounts' : accountScope === 'binance' ? 'Binance.US, including staking balances' : 'Webull imported account value'} · Last updated: {new Date().toLocaleTimeString()}
+                      {accountScope === 'all' ? 'All connected accounts' : accountScope === 'binance' ? 'Binance.US, including staking balances' : 'Webull imported account value'} · Last updated: {formatEasternTime(new Date(), { second: undefined, timeZoneName: 'short' })}
                     </div>
                   </div>
                 </div>

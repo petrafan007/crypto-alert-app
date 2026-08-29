@@ -72,6 +72,11 @@ def _webull_holding_for_current_user(holding_id):
 
 WEBULL_OPTION_CONTRACT_MULTIPLIER = 100
 WEBULL_OPTION_STRIKE_EPSILON = 0.0001
+WEBULL_OPTION_STRATEGIES = {
+    'SINGLE', 'COVERED_STOCK', 'VERTICAL', 'STRADDLE', 'STRANGLE', 'CALENDAR',
+    'BUTTERFLY', 'CONDOR', 'IRON_BUTTERFLY', 'IRON_CONDOR',
+    'COLLAR_WITH_STOCK', 'DIAGONAL',
+}
 
 
 def _webull_number(value, default=0.0):
@@ -2282,6 +2287,8 @@ def api_webull_place_order():
         option_strike = data.get('option_strike')
         option_expiration = data.get('option_expiration')
         option_underlying_symbol = data.get('option_underlying_symbol')
+        option_strategy = str(data.get('option_strategy') or 'SINGLE').strip().upper()
+        option_legs = data.get('option_legs')
         side = data.get('side')
         order_type = data.get('order_type')
         quantity = data.get('quantity')
@@ -2367,6 +2374,36 @@ def api_webull_place_order():
         # is attempted. A fresh Webull preflight is the authority for cash and
         # contract ownership, so the browser cannot sell an unowned contract.
         if str(instrument_type).upper() in {'OPTION', 'OPTIONS'}:
+            if option_strategy not in WEBULL_OPTION_STRATEGIES:
+                return jsonify({
+                    'success': False,
+                    'message': 'Choose a Webull OpenAPI-supported option strategy. Ratio strategies are not documented by the API.',
+                }), 400
+            if option_strategy != 'SINGLE':
+                if not isinstance(option_legs, list) or len(option_legs) < 2:
+                    return jsonify({'success': False, 'message': 'The selected option strategy requires at least two fully defined legs.'}), 400
+                for index, leg in enumerate(option_legs, start=1):
+                    if not isinstance(leg, dict):
+                        return jsonify({'success': False, 'message': f'Option strategy leg {index} is invalid.'}), 400
+                    leg_instrument = str(leg.get('instrument_type') or 'OPTION').strip().upper()
+                    if leg_instrument not in {'OPTION', 'EQUITY'}:
+                        return jsonify({'success': False, 'message': f'Option strategy leg {index} must be an option or stock leg.'}), 400
+                    if str(leg.get('side') or '').strip().upper() not in {'BUY', 'SELL'}:
+                        return jsonify({'success': False, 'message': f'Option strategy leg {index} requires a Buy or Sell side.'}), 400
+                    try:
+                        if float(leg.get('quantity') or 0) <= 0:
+                            raise ValueError()
+                    except (TypeError, ValueError):
+                        return jsonify({'success': False, 'message': f'Option strategy leg {index} requires a positive quantity.'}), 400
+                    if leg_instrument == 'OPTION':
+                        if str(leg.get('option_type') or '').strip().upper() not in {'CALL', 'PUT'}:
+                            return jsonify({'success': False, 'message': f'Option strategy leg {index} requires CALL or PUT.'}), 400
+                        try:
+                            if float(leg.get('strike_price') or 0) <= 0:
+                                raise ValueError()
+                            datetime.strptime(str(leg.get('option_expire_date') or ''), '%Y-%m-%d')
+                        except (TypeError, ValueError):
+                            return jsonify({'success': False, 'message': f'Option strategy leg {index} requires a valid strike and expiration.'}), 400
             normalized_option_type = {'STOP': 'STOP_LOSS', 'STOP_LIMIT': 'STOP_LOSS_LIMIT'}.get(str(order_type or '').upper(), str(order_type or '').upper())
             if normalized_option_type not in {'LIMIT', 'STOP_LOSS', 'STOP_LOSS_LIMIT'}:
                 return jsonify({'success': False, 'message': 'Webull options support Limit, Stop Loss, and Stop Loss Limit orders only.'}), 400
@@ -2420,7 +2457,7 @@ def api_webull_place_order():
                 option_strike=normalized_strike,
                 option_expiration=normalized_expiration,
             )
-            if normalized_side == 'SELL':
+            if option_strategy == 'SINGLE' and normalized_side == 'SELL':
                 if owned_contracts + WEBULL_OPTION_STRIKE_EPSILON < option_quantity:
                     return jsonify({
                         'success': False,
@@ -2429,7 +2466,7 @@ def api_webull_place_order():
                             f'(same underlying, CALL/PUT, strike, and expiration). Available contracts: {owned_contracts:g}.'
                         ),
                     }), 400
-            else:
+            elif option_strategy == 'SINGLE':
                 premium = float(limit_price)
                 single_contract_cost = premium * WEBULL_OPTION_CONTRACT_MULTIPLIER
                 total_cost = single_contract_cost * option_quantity
@@ -2525,6 +2562,8 @@ def api_webull_place_order():
             option_strike=option_strike,
             option_expiration=option_expiration,
             option_underlying_symbol=option_underlying_symbol,
+            option_strategy=option_strategy,
+            option_legs=option_legs,
             side=side,
             order_type=order_type,
             quantity=quantity,
@@ -2976,7 +3015,10 @@ def api_webull_options_chain():
             app_key, app_secret, environment, access_token,
             underlying_symbol=symbol, expiration_date=expiration or None
         )
-        return jsonify(data)
+        response = jsonify(data)
+        response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+        response.headers['Pragma'] = 'no-cache'
+        return response
     except WebullConnectionError as exc:
         return jsonify({'success': False, 'message': str(exc)}), 400
     except Exception as exc:

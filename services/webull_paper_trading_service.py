@@ -1,4 +1,5 @@
 import logging
+import json
 import uuid
 from datetime import datetime
 from typing import Dict, Any, List, Optional
@@ -12,6 +13,7 @@ from services.webull_paper_rules import (
     canonical_paper_instrument_type,
     grouped_reserved_quantity,
     paper_order_fills_immediately,
+    paper_order_type_label,
     paper_position_valuation,
     paper_reservation_group,
 )
@@ -717,6 +719,65 @@ def execute_webull_test_order(user_id: int, data: Dict[str, Any]) -> Dict[str, A
     option_strike = float(data.get('option_strike')) if data.get('option_strike') else None
     option_expiration = str(data.get('option_expiration') or '').strip() if instrument_type in {'OPTION', 'OPTIONS'} else None
     underlying_sym = str(data.get('option_underlying_symbol') or symbol).upper().strip()
+    option_strategy = str(data.get('option_strategy') or 'SINGLE').upper().strip()
+    option_legs = data.get('option_legs')
+
+    # Multi-leg option strategies are kept Working in paper trading until a
+    # strategy-aware execution engine can price every leg atomically. This is
+    # safer than fabricating weekend fills or mutating only part of a spread.
+    if instrument_type == 'OPTION' and option_strategy != 'SINGLE':
+        supported_strategies = {
+            'COVERED_STOCK', 'VERTICAL', 'STRADDLE', 'STRANGLE', 'CALENDAR',
+            'BUTTERFLY', 'CONDOR', 'IRON_BUTTERFLY', 'IRON_CONDOR',
+            'COLLAR_WITH_STOCK', 'DIAGONAL',
+        }
+        if option_strategy not in supported_strategies:
+            raise ValueError('Choose a strategy supported by the documented Webull OpenAPI. Ratio is not currently documented.')
+        if not isinstance(option_legs, list) or len(option_legs) < 2:
+            raise ValueError('The selected simulated option strategy requires at least two complete legs.')
+        quantity = float(data.get('quantity') or 0.0)
+        if quantity <= 0 or not quantity.is_integer():
+            raise ValueError('Simulated option strategies require a positive whole number of strategy contracts.')
+        limit_price = float(data.get('limit_price')) if data.get('limit_price') is not None else None
+        stop_price = float(data.get('stop_price')) if data.get('stop_price') is not None else None
+        simulated_order_id = f"SIM_{uuid.uuid4().hex[:12].upper()}"
+        display_symbol = underlying_sym or symbol
+        order = WebullTestOrder(
+            order_id=simulated_order_id,
+            user_id=user_id,
+            symbol=display_symbol,
+            instrument_type='OPTION',
+            side=side,
+            order_type=order_type,
+            quantity=quantity,
+            limit_price=limit_price,
+            stop_price=stop_price,
+            filled_price=None,
+            filled_quantity=0.0,
+            status='Working',
+            combo_type=option_strategy,
+            combo_orders=json.dumps(option_legs),
+            time_in_force=str(data.get('time_in_force') or 'DAY').upper(),
+        )
+        db.session.add(order)
+        account.updated_at = datetime.utcnow()
+        db.session.commit()
+        return {
+            'success': True,
+            'order_id': simulated_order_id,
+            'symbol': display_symbol,
+            'side': side,
+            'instrument_type': 'OPTION',
+            'status': 'Working',
+            'filled_quantity': 0.0,
+            'legs_count': len(option_legs),
+            'option_strategy': option_strategy,
+            'message': (
+                f"Simulated {option_strategy.replace('_', ' ').title()} strategy accepted with "
+                f"{len(option_legs)} legs and queued as Working."
+            ),
+            'is_paper': True,
+        }
 
     # Event-specific parameter extraction
     event_outcome = str(data.get('event_outcome') or 'yes').lower().strip() if instrument_type == 'EVENT' else None
@@ -784,7 +845,7 @@ def execute_webull_test_order(user_id: int, data: Dict[str, Any]) -> Dict[str, A
     # Stop, trailing, and auction orders must never fabricate an immediate
     # weekend fill. They remain cancellable working orders until a future
     # trigger/auction processor can fill them against a qualifying quote.
-    if not paper_order_fills_immediately(order_type):
+    if not paper_order_fills_immediately(order_type, instrument_type):
         cash_for_order = cover_cash if is_cover else available_cash
         if (is_buy or is_cover) and cash_for_order < total_trade_amount:
             raise ValueError(
@@ -840,7 +901,7 @@ def execute_webull_test_order(user_id: int, data: Dict[str, Any]) -> Dict[str, A
             'filled_quantity': 0.0,
             'total_amount': total_trade_amount,
             'status': 'Working',
-            'message': f"Simulated {side} {order_type} order accepted for {quantity} {contract_symbol} and queued as Working.",
+            'message': f"Simulated {side.title()} {paper_order_type_label(order_type)} order accepted for {quantity} {contract_symbol} and queued as Working.",
             'is_paper': True,
         }
 

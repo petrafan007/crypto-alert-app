@@ -266,6 +266,7 @@ export function PortfolioTrend({ history, range, isLightMode }) {
           title: function(context) {
             const date = new Date(context[0].parsed.x);
             return date.toLocaleString('en-US', {
+              timeZone: 'America/New_York',
               month: 'short',
               day: 'numeric',
               hour: range.includes('H') || range === '3D' ? 'numeric' : undefined,
@@ -303,17 +304,17 @@ export function PortfolioTrend({ history, range, isLightMode }) {
             const date = new Date(value);
             if (range === 'ALL') {
               if (historySpanMs <= 31 * 24 * 60 * 60 * 1000) {
-                return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                return date.toLocaleDateString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric' });
               }
-              return date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+              return date.toLocaleDateString('en-US', { timeZone: 'America/New_York', month: 'short', year: 'numeric' });
             } else if (range.includes('H')) {
-              return date.toLocaleString('en-US', { hour: 'numeric', minute: '2-digit' });
+              return date.toLocaleString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit' });
             } else if (range === '3D') {
-              return date.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric' });
+              return date.toLocaleString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric', hour: 'numeric' });
             } else if (range === '7D' || range === '30D') {
-              return date.toLocaleString('en-US', { month: 'short', day: 'numeric' });
+              return date.toLocaleString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric' });
             } else {
-              return date.toLocaleString('en-US', { month: 'short', year: range === '1Y' ? 'numeric' : undefined });
+              return date.toLocaleString('en-US', { timeZone: 'America/New_York', month: 'short', year: range === '1Y' ? 'numeric' : undefined });
             }
           }
         },

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import axios from 'axios';
 import CryptoIcon from '../components/CryptoIcon';
+import { formatEasternDate } from '../utils/dateTime';
 
 export default function TaxReport({ isLightMode }) {
   const [taxData, setTaxData] = useState(null);
@@ -836,7 +837,7 @@ export default function TaxReport({ isLightMode }) {
                           />
                         ) : (
                           <span style={{ cursor: 'pointer' }}>
-                            {columnKey === 'date' ? new Date(tx[columnKey]).toLocaleDateString() :
+                            {columnKey === 'date' ? formatEasternDate(tx[columnKey]) :
                              columnKey === 'type' ? (
                                <span style={{
                                  padding: '2px 8px',

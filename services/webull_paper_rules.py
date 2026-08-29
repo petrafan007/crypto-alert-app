@@ -1,5 +1,8 @@
 """Dependency-free business rules for Webull paper trading."""
 
+from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
+
 EQUITY_LIKE_TYPES = {'EQUITY', 'STOCK', 'ETF'}
 KNOWN_ETF_SYMBOLS = {
     'SPY', 'QQQ', 'IWM', 'DIA', 'VTI', 'VOO', 'IVV', 'VEA', 'VWO', 'EFA',
@@ -11,6 +14,16 @@ DEFERRED_ORDER_TYPES = {
 }
 ACTIVE_PAPER_ORDER_STATUSES = {'WORKING', 'OPEN', 'PENDING', 'PARTIALLY FILLED', 'PARTIALLY_FILLED'}
 PAPER_SELL_SIDES = {'SELL', 'SELL_TO_CLOSE'}
+PAPER_ORDER_TYPE_LABELS = {
+    'MARKET': 'Market',
+    'LIMIT': 'Limit',
+    'STOP_LOSS': 'Stop Loss',
+    'STOP_LOSS_LIMIT': 'Stop Loss Limit',
+    'TRAILING_STOP_LOSS': 'Trailing Stop',
+    'MARKET_ON_OPEN': 'Market on Open (MOO)',
+    'MARKET_ON_CLOSE': 'Market on Close (MOC)',
+    'LIMIT_ON_OPEN': 'Limit on Open (LOO)',
+}
 
 
 def canonical_paper_instrument_type(symbol: str, instrument_type: str) -> str:
@@ -26,9 +39,27 @@ def canonical_paper_instrument_type(symbol: str, instrument_type: str) -> str:
     return clean_type
 
 
-def paper_order_fills_immediately(order_type: str) -> bool:
-    """Conditional and auction orders enter the working ledger until triggered."""
+def us_options_market_is_open(now=None) -> bool:
+    """Return whether the regular U.S. options session is currently open."""
+    eastern = (now or datetime.now(timezone.utc)).astimezone(ZoneInfo('America/New_York'))
+    if eastern.weekday() >= 5:
+        return False
+    current_minutes = eastern.hour * 60 + eastern.minute
+    return 9 * 60 + 30 <= current_minutes < 16 * 60
+
+
+def paper_order_fills_immediately(order_type: str, instrument_type: str = None, now=None) -> bool:
+    """Conditional orders and closed-session options remain in the working ledger."""
+    clean_instrument = canonical_paper_instrument_type('', instrument_type or '')
+    if clean_instrument == 'OPTION' and not us_options_market_is_open(now):
+        return False
     return str(order_type or '').upper().strip() not in DEFERRED_ORDER_TYPES
+
+
+def paper_order_type_label(order_type: str) -> str:
+    """Return a user-facing caption while preserving provider codes in storage."""
+    clean = str(order_type or '').upper().strip()
+    return PAPER_ORDER_TYPE_LABELS.get(clean, clean.replace('_', ' ').title() or 'Order')
 
 
 def paper_position_valuation(side: str, quantity: float, cost_price: float, current_price: float, multiplier: int = 1):

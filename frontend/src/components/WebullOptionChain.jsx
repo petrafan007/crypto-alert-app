@@ -1,7 +1,40 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import axios from 'axios';
 import SearchablePairSelect from './SearchablePairSelect';
+import {
+  OPTION_STRATEGIES,
+  buildOptionStrategyLegs,
+  optionStrategyDefinition,
+} from '../utils/optionStrategies';
 import './WebullOptionChain.css';
+
+const PAYOFF_POINTS = {
+  single: '4,48 30,38 56,28 82,18 108,8',
+  covered: '4,52 36,40 68,28 108,28',
+  valley: '4,8 56,52 108,8',
+  ramp: '4,52 42,52 76,12 108,12',
+  peak: '4,52 28,52 56,8 84,52 108,52',
+  plateau: '4,52 30,12 78,12 108,52',
+  collar: '4,46 30,46 78,16 108,16',
+  curve: '4,48 30,40 56,18 82,30 108,12',
+  ratio: '4,50 36,36 68,18 108,48',
+};
+
+function StrategyTooltip({ strategy }) {
+  return (
+    <div className="strategy-hover-card" role="tooltip">
+      <svg viewBox="0 0 112 60" aria-label={`${strategy.label} payoff illustration`}>
+        <line x1="4" y1="30" x2="108" y2="30" className="strategy-zero-line" />
+        <polyline points={PAYOFF_POINTS[strategy.payoff] || PAYOFF_POINTS.single} className="strategy-payoff-line" />
+      </svg>
+      <div>
+        <strong>{strategy.label}</strong>
+        <p>{strategy.description}</p>
+        {strategy.usesWidth && <small>Width is the number of listed strike intervals between strategy legs.</small>}
+      </div>
+    </div>
+  );
+}
 
 export default function WebullOptionChain({
   defaultSymbol = 'AAPL',
@@ -18,8 +51,15 @@ export default function WebullOptionChain({
   const [error, setError] = useState('');
   const [selectedExp, setSelectedExp] = useState('');
   const [viewMode, setViewMode] = useState('both'); // 'both', 'calls', 'puts'
+  const [strategy, setStrategy] = useState('SINGLE');
+  const [strategyWidth, setStrategyWidth] = useState('auto');
+  const [strategyError, setStrategyError] = useState('');
   const [strikeRange, setStrikeRange] = useState('20'); // '10', '20', 'all'
   const isMounted = useRef(true);
+  const requestSequence = useRef(0);
+  const activeRequest = useRef(null);
+  const [lastUpdatedAt, setLastUpdatedAt] = useState(null);
+  const [isStale, setIsStale] = useState(false);
   const [bodyIsLight, setBodyIsLight] = useState(() =>
     typeof document !== 'undefined' ? document.body.classList.contains('light-mode') : isLightMode
   );
@@ -39,6 +79,7 @@ export default function WebullOptionChain({
     isMounted.current = true;
     return () => {
       isMounted.current = false;
+      activeRequest.current?.abort();
     };
   }, []);
 
@@ -61,15 +102,24 @@ export default function WebullOptionChain({
   useEffect(() => {
     if (defaultSymbol && defaultSymbol !== symbol) {
       setSymbol(defaultSymbol);
-      fetchOptionChain(defaultSymbol, '');
     }
   }, [defaultSymbol]);
 
   const fetchOptionChain = async (targetSymbol, targetExpiration = '') => {
     const sym = (targetSymbol || symbol || 'AAPL').toUpperCase().trim();
     if (!sym) return;
+    const requestId = ++requestSequence.current;
+    activeRequest.current?.abort();
+    const controller = new AbortController();
+    activeRequest.current = controller;
     setLoading(true);
     setError('');
+    setStrategyError('');
+    setIsStale(false);
+    // Never leave the previous symbol/expiration interactive while a new chain
+    // is loading. A successful response must match the request before it is
+    // allowed to replace the empty state.
+    setChainData(null);
     try {
       const res = await axios.get('/api/webull/options/chain', {
         params: {
@@ -77,20 +127,27 @@ export default function WebullOptionChain({
           expiration: targetExpiration || undefined,
         },
         withCredentials: true,
+        signal: controller.signal,
       });
-      if (!isMounted.current) return;
+      if (!isMounted.current || requestId !== requestSequence.current) return;
       if (res.data && res.data.success) {
+        const responseSymbol = String(res.data.underlying_symbol || '').toUpperCase();
+        const responseExpiration = String(res.data.selected_expiration || '');
+        if (responseSymbol !== sym || (targetExpiration && responseExpiration !== targetExpiration)) {
+          throw new Error('The option-chain response did not match the requested symbol and expiration. Refresh before selecting a contract.');
+        }
         setChainData(res.data);
         setSelectedExp(res.data.selected_expiration || '');
+        setLastUpdatedAt(new Date());
       } else {
         setError(res.data?.message || 'Unable to load option chain.');
       }
     } catch (err) {
-      if (!isMounted.current) return;
+      if (!isMounted.current || requestId !== requestSequence.current || axios.isCancel(err)) return;
       const msg = err.response?.data?.message || err.message || 'Failed to fetch options chain.';
       setError(msg);
     } finally {
-      if (isMounted.current) setLoading(false);
+      if (isMounted.current && requestId === requestSequence.current) setLoading(false);
     }
   };
 
@@ -100,6 +157,7 @@ export default function WebullOptionChain({
 
   const handleSelectExpiration = (expDate) => {
     setSelectedExp(expDate);
+    setChainData(null);
     fetchOptionChain(symbol, expDate);
   };
 
@@ -108,13 +166,37 @@ export default function WebullOptionChain({
     if (!clean) return;
     setSymbol(clean);
     onSymbolChange?.(clean);
-    fetchOptionChain(clean, '');
   };
 
   const underlyingPrice = chainData?.underlying_price || 0.0;
   const changePct = chainData?.underlying_change_pct || 0.0;
   const isPositive = changePct >= 0;
   const marketStatus = chainData?.market_status || 'CLOSED';
+  const activeStrategy = optionStrategyDefinition(strategy);
+
+  useEffect(() => {
+    const staleAfterMs = marketStatus === 'OPEN' ? 30000 : 120000;
+    const timer = window.setInterval(() => {
+      setIsStale(Boolean(lastUpdatedAt && Date.now() - lastUpdatedAt.getTime() > staleAfterMs));
+    }, 5000);
+    return () => window.clearInterval(timer);
+  }, [lastUpdatedAt, marketStatus]);
+
+  useEffect(() => {
+    if (!chainData || !selectedExp) return undefined;
+    const refreshMs = marketStatus === 'OPEN' ? 15000 : 60000;
+    const refresh = () => {
+      if (document.visibilityState === 'visible') fetchOptionChain(symbol, selectedExp);
+    };
+    const interval = window.setInterval(refresh, refreshMs);
+    window.addEventListener('focus', refresh);
+    document.addEventListener('visibilitychange', refresh);
+    return () => {
+      window.clearInterval(interval);
+      window.removeEventListener('focus', refresh);
+      document.removeEventListener('visibilitychange', refresh);
+    };
+  }, [chainData?.underlying_symbol, selectedExp, marketStatus, symbol]);
 
   // Filter strikes based on strikeRange around underlying price
   const filteredChain = useMemo(() => {
@@ -141,6 +223,10 @@ export default function WebullOptionChain({
   }, [chainData?.chain, strikeRange, underlyingPrice]);
 
   const handleContractClick = (row, optionType, priceField) => {
+    if (loading || isStale || !chainData || chainData.underlying_symbol !== symbol || chainData.selected_expiration !== selectedExp) {
+      setStrategyError('This option chain is refreshing or stale. Wait for the current symbol and expiration to finish loading.');
+      return;
+    }
     const contract = optionType === 'CALL' ? row.call : row.put;
     if (!contract || !onSelectOptionContract) return;
 
@@ -163,6 +249,24 @@ export default function WebullOptionChain({
     // ticket stays locked until the user selects a contract with a real price.
     if (!(targetPrice > 0)) return;
 
+    let strategyLegs;
+    try {
+      strategyLegs = buildOptionStrategyLegs({
+        strategy,
+        chainRows: chainData.chain,
+        anchorStrike: row.strike,
+        optionType,
+        side,
+        width: strategyWidth === 'auto' ? 1 : strategyWidth,
+        expiration: selectedExp,
+        expirations: chainData.expirations,
+      });
+      setStrategyError('');
+    } catch (buildError) {
+      setStrategyError(buildError.message);
+      return;
+    }
+
     onSelectOptionContract({
       symbol: chainData?.underlying_symbol || symbol,
       optionType,
@@ -174,6 +278,9 @@ export default function WebullOptionChain({
       openInterest: contract.open_interest,
       volume: contract.volume,
       impliedVolatility: contract.implied_volatility,
+      optionStrategy: strategy,
+      strategyWidth,
+      strategyLegs,
     });
   };
 
@@ -204,6 +311,9 @@ export default function WebullOptionChain({
               </span>
               <span className={`market-session-pill ${marketStatus === 'OPEN' ? 'session-open' : 'session-closed'}`}>
                 {marketStatus === 'OPEN' ? '🟢 Market Open' : '🌙 Market Closed (Closing Quotes)'}
+              </span>
+              <span className={`chain-freshness-pill ${isStale ? 'stale' : ''}`}>
+                {isStale ? '⚠️ Stale — refreshing' : lastUpdatedAt ? `Fresh · ${lastUpdatedAt.toLocaleTimeString('en-US', { timeZone: 'America/New_York' })} ET` : 'Loading freshness…'}
               </span>
             </div>
           </div>
@@ -276,6 +386,40 @@ export default function WebullOptionChain({
           </div>
         </div>
 
+        {/* Strategy Selector — hover/focus reveals compact visual guidance. */}
+        <div className="chain-control-group strategy-control-group">
+          <label htmlFor="option-strategy-select" className="chain-control-label">Strategy:</label>
+          <div className="strategy-select-with-help" tabIndex="0">
+            <select
+              id="option-strategy-select"
+              value={strategy}
+              onChange={(event) => {
+                setStrategy(event.target.value);
+                setStrategyError('');
+              }}
+              className="chain-select"
+              aria-describedby="option-strategy-hover-help"
+            >
+              {OPTION_STRATEGIES.map((item) => (
+                <option key={item.value} value={item.value} disabled={item.disabled}>
+                  {item.label}{item.disabled ? ' — API unavailable' : ''}
+                </option>
+              ))}
+            </select>
+            <StrategyTooltip strategy={activeStrategy} />
+          </div>
+          <span id="option-strategy-hover-help" className="sr-only">Hover or focus the selected strategy to see its payoff illustration and description.</span>
+          {activeStrategy.usesWidth && (
+            <label className="strategy-width-control">
+              <span>Width:</span>
+              <select value={strategyWidth} onChange={(event) => setStrategyWidth(event.target.value)} className="chain-select" aria-label="Strategy strike width">
+                <option value="auto">Auto</option>
+                {Array.from({ length: 10 }, (_, index) => index + 1).map((value) => <option key={value} value={value}>{value}</option>)}
+              </select>
+            </label>
+          )}
+        </div>
+
         {/* Strikes Range Selector */}
         <div className="chain-control-group strike-filter-control">
           <label htmlFor="strike-range-select" className="chain-control-label">Strikes:</label>
@@ -300,8 +444,11 @@ export default function WebullOptionChain({
             {selectedContract.symbol} {selectedContract.expiration} ${parseFloat(selectedContract.strike || 0).toFixed(2)} {selectedContract.optionType}
           </strong>
           <span className="badge-side">{selectedContract.side} @ ${selectedContract.price}</span>
+          <span className="badge-strategy">{optionStrategyDefinition(selectedContract.optionStrategy || strategy).label}</span>
         </div>
       )}
+
+      {strategyError && <div className="chain-error-box" role="alert">⚠️ {strategyError}</div>}
 
       {/* 4. STRADDLE OPTIONS MATRIX TABLE */}
       {error ? (

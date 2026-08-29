@@ -1,9 +1,12 @@
 import unittest
 
+from datetime import datetime, timezone
+
 from services.webull_paper_rules import (
     canonical_paper_instrument_type,
     grouped_reserved_quantity,
     paper_order_fills_immediately,
+    paper_order_type_label,
     paper_position_valuation,
     paper_reservation_group,
 )
@@ -24,6 +27,15 @@ class WebullPaperTradingRulesTests(unittest.TestCase):
                 self.assertFalse(paper_order_fills_immediately(order_type))
         self.assertTrue(paper_order_fills_immediately('MARKET'))
         self.assertTrue(paper_order_fills_immediately('LIMIT'))
+
+    def test_options_do_not_fill_outside_regular_market_hours(self):
+        saturday = datetime(2026, 8, 29, 19, 0, tzinfo=timezone.utc)
+        monday_open = datetime(2026, 8, 31, 14, 0, tzinfo=timezone.utc)
+        self.assertFalse(paper_order_fills_immediately('LIMIT', 'OPTION', saturday))
+        self.assertTrue(paper_order_fills_immediately('LIMIT', 'OPTION', monday_open))
+
+    def test_paper_order_type_caption_is_human_readable(self):
+        self.assertEqual(paper_order_type_label('STOP_LOSS_LIMIT'), 'Stop Loss Limit')
 
     def test_short_position_is_a_negative_liability_with_inverse_pnl(self):
         valuation = paper_position_valuation('SHORT', 2, 100, 90)

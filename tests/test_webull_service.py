@@ -445,6 +445,40 @@ class WebullServiceTests(unittest.TestCase):
         with self.assertRaisesRegex(WebullConnectionError, 'DAY'):
             place_webull_order('app-key', 'app-secret', order_type='LIMIT', time_in_force='GTC', limit_price=2, **{k: v for k, v in base.items() if k != 'time_in_force'})
 
+    def test_option_vertical_strategy_uses_documented_strategy_and_legs(self):
+        response = Mock(status_code=200)
+        response.json.return_value = {'data': {'order_id': 'wb-option-vertical-1'}}
+        legs = [
+            {'instrument_type': 'OPTION', 'side': 'BUY', 'quantity': 1, 'strike_price': 180, 'option_expire_date': '2027-01-17', 'option_type': 'CALL'},
+            {'instrument_type': 'OPTION', 'side': 'SELL', 'quantity': 1, 'strike_price': 190, 'option_expire_date': '2027-01-17', 'option_type': 'CALL'},
+        ]
+        with patch('services.webull_service._webull_request', return_value=response) as request_mock:
+            result = place_webull_order(
+                'app-key', 'app-secret', 'production', 'token-123',
+                account_id='options-account', symbol='AAPL', option_underlying_symbol='AAPL',
+                instrument_type='OPTION', side='BUY', order_type='LIMIT', quantity=2,
+                limit_price=3.50, time_in_force='DAY', option_type='CALL', option_strike=180,
+                option_expiration='2027-01-17', option_strategy='VERTICAL', option_legs=legs,
+            )
+
+        self.assertTrue(result['success'])
+        order = request_mock.call_args.kwargs['body']['new_orders'][0]
+        self.assertEqual(order['option_strategy'], 'VERTICAL')
+        self.assertEqual(order['limit_price'], '3.50')
+        self.assertEqual(order['legs'][0]['strike_price'], '180')
+        self.assertEqual(order['legs'][0]['quantity'], '2')
+        self.assertEqual(order['legs'][1]['quantity'], '2')
+        self.assertEqual(order['legs'][1]['side'], 'SELL')
+
+    def test_undocumented_ratio_strategy_is_rejected(self):
+        with self.assertRaisesRegex(WebullConnectionError, 'Ratio'):
+            place_webull_order(
+                'app-key', 'app-secret', account_id='options-account', symbol='AAPL',
+                instrument_type='OPTION', side='BUY', order_type='LIMIT', quantity=1,
+                limit_price=1, option_type='CALL', option_strike=180,
+                option_expiration='2027-01-17', option_strategy='RATIO', option_legs=[{}, {}],
+            )
+
     def test_futures_order_uses_futures_schema_and_trailing_stop_fields(self):
         response = Mock(status_code=200)
         response.json.return_value = {'data': {'order_id': 'wb-futures-1'}}

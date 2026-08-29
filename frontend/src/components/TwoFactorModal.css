@@ -220,6 +220,17 @@
   margin-top: 8px;
 }
 
+.paper-cancel-confirmation {
+  margin-bottom: 16px;
+  padding: 12px 14px;
+  border-radius: 8px;
+  border: 1px solid rgba(79, 209, 197, 0.4);
+  background: rgba(79, 209, 197, 0.12);
+  color: #99f6e4;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
 .two-factor-actions .btn {
   padding: 12px 28px;
   font-size: 15px;

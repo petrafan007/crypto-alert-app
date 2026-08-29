@@ -3,29 +3,11 @@ import axios from 'axios';
 import { useAuth } from './AuthContext';
 import SentimentTimelineChart from './SentimentTimelineChart';
 import { DEFAULT_SENTIMENT_CHART_RANGE, getChartRange } from '../utils/chartRanges';
+import { formatEasternDateTime } from '../utils/dateTime';
 import '../pages/AIDashboard.css';
 
 const formatEasternTime = (isoString) => {
-  if (!isoString) return 'Not available';
-  try {
-    const date = new Date(isoString);
-    if (isNaN(date.getTime())) return String(isoString);
-    const formatter = new Intl.DateTimeFormat('en-US', {
-      timeZone: 'America/New_York',
-      year: 'numeric',
-      month: 'numeric',
-      day: 'numeric',
-      hour: 'numeric',
-      minute: '2-digit',
-      hour12: true,
-      timeZoneName: 'short'
-    });
-    const parts = formatter.formatToParts(date);
-    const getPart = (type) => parts.find(p => p.type === type)?.value || '';
-    return `${getPart('month')}-${getPart('day')}-${getPart('year')} at ${getPart('hour')}:${getPart('minute')} ${getPart('dayPeriod')} ${getPart('timeZoneName') || 'EDT'}`;
-  } catch (error) {
-    return 'Invalid date';
-  }
+  return isoString ? formatEasternDateTime(isoString) : 'Not available';
 };
 
 const getProviderName = (provider) => {

@@ -1,6 +1,6 @@
 # Crypto & Securities Dashboard
 
-**Crypto & Securities Dashboard** is a comprehensive, non-custodial digital-asset and securities portfolio management and trading platform for Binance.US and Webull. It provides real-time portfolio tracking, automated price alerts, exchange-scoped order workflows, built-in staking management, and AI-powered market sentiment analysis. Webull supports explicitly authorized, account-scoped equity/ETF, crypto, single-leg option, futures, and event contract orders; no provider data or orders cross exchange boundaries.
+**Crypto & Securities Dashboard** is a comprehensive, non-custodial digital-asset and securities portfolio management and trading platform for Binance.US and Webull. It provides real-time portfolio tracking, automated price alerts, exchange-scoped order workflows, built-in staking management, and AI-powered market sentiment analysis. Webull supports explicitly authorized, account-scoped equity/ETF, crypto, single-leg and documented multi-leg option strategies, futures, and event contract orders; no provider data or orders cross exchange boundaries.
 
 **Last Updated**: August 2026
 
@@ -124,6 +124,22 @@ The application utilizes a **unified PostgreSQL database**.
 ## Version History & Changelog
 
 Historical changelog entries retain the product name used when they were originally released. The application domain, repository slug, deployment folders, database, and service identifiers intentionally remain unchanged by the v2.45.0 brand update.
+
+## v2.60.0 (August 2026)
+
+- **Options Strategies and Fresh Chain Data**:
+  - Added a strategy selector between **Display** and **Strikes** for Single, Covered, Straddle, Strangle, Vertical, Butterfly, Condor, Collar with Stock, Iron Butterfly, Iron Condor, Calendar, and Diagonal orders. Each strategy has a keyboard-accessible hover/focus card with a compact payoff illustration and explanation.
+  - Added **Width** controls with Auto and 1-10 strike intervals for width-based strategies. The unsupported Ratio choice remains visible but disabled so the interface never sends an undocumented Webull strategy value.
+  - Option-chain requests now reject mismatched responses, cancel superseded requests, clear prior-contract data while loading, refresh automatically and on window focus, and block selection once freshness expires instead of silently allowing stale quotes.
+- **Options Table Clarity and Accessibility**:
+  - Order and holdings tables now keep the Symbol column to the underlying ticker only. Expiration, Strike, and Call/Put appear in dedicated columns, while order timestamps are split into separate Eastern **Date** and **Time** columns.
+  - Removed the repeated, truncated option-contract subtitle. Visible ticket values and accessible names now identify the same contract, quantity, order value, strategy, and legs.
+- **Paper Trading Accuracy and Safety**:
+  - Simulated option market orders can fill only during the regular U.S. options session (weekdays, 9:30 a.m.-4:00 p.m. Eastern). Weekend and after-hours option orders remain working rather than receiving fabricated fills.
+  - Paper cancellations no longer request a two-factor code; live cancellations retain the existing six-digit authenticator requirement.
+  - Paper order messages and every updated Webull surface use human-readable order-type captions rather than provider codes such as `STOP_LOSS_LIMIT`.
+- **Eastern Time Consistency**:
+  - User-facing dates and times across the dashboard, orders, staking, tax, charts, validation, price history, and Webull views now use `America/New_York` explicitly, including daylight-saving transitions, instead of relying on the browser timezone or treating database UTC values as local time.
 
 ## v2.59.4 (August 2026)
 

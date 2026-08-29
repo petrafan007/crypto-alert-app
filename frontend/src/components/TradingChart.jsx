@@ -12,6 +12,7 @@ import {
 import TransactionModal from './TransactionModal';
 import SearchablePairSelect from './SearchablePairSelect';
 import './TradingChart.css';
+import { formatEasternDateTime } from '../utils/dateTime';
 
 const TradingChart = ({ symbol, onSymbolChange, tradingPairs = [], filterCoin = null, onResetFilter = null, totalPairsCount = 0 }) => {
   const chartContainerRef = useRef(null);
@@ -101,7 +102,7 @@ const TradingChart = ({ symbol, onSymbolChange, tradingPairs = [], filterCoin = 
 
   const formatDateTime = (epochSeconds) => {
     if (!epochSeconds) return '';
-    return new Date(epochSeconds * 1000).toLocaleString();
+    return formatEasternDateTime(epochSeconds);
   };
 
   const intervalToSeconds = (selectedInterval) => {
@@ -251,7 +252,7 @@ const TradingChart = ({ symbol, onSymbolChange, tradingPairs = [], filterCoin = 
         let tooltipContent = '';
         const typeHovered = marker.transactions[0]?.side || 'BUY';
         const firstEntry = txs[0];
-        const dateStr = new Date(firstEntry.originalTime * 1000).toLocaleDateString();
+        const dateStr = new Date(firstEntry.originalTime * 1000).toLocaleDateString('en-US', { timeZone: 'America/New_York' });
 
         if (typeHovered === 'BUY') {
           const totalBuyValue = txs.reduce((sum, tx) => sum + (tx.amount * tx.price || 0), 0);

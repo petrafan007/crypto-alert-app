@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import axios from 'axios';
 import './ValidationPopup.css';
+import { formatEasternDateTime } from '../utils/dateTime';
 
 const ValidationPopup = ({ isVisible, onClose, onSync }) => {
     const [validationData, setValidationData] = useState(null);
@@ -169,7 +170,7 @@ const ValidationPopup = ({ isVisible, onClose, onSync }) => {
                             </div>
 
                             <div className="validation-timestamp">
-                                <small>Validated: {new Date(validationData.validation_timestamp).toLocaleString()}</small>
+                                <small>Validated: {formatEasternDateTime(validationData.validation_timestamp)}</small>
                             </div>
                         </div>
                     )}

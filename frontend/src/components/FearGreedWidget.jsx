@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import './FearGreedWidget.css';
+import { formatEasternDateTime } from '../utils/dateTime';
 
 const FearGreedWidget = () => {
   const [fearGreedData, setFearGreedData] = useState(null);
@@ -131,7 +132,7 @@ const FearGreedWidget = () => {
           </div>
         </div>
         <div className="fg-footer">
-          <small>Updated: {new Date(fearGreedData?.timestamp * 1000).toLocaleString()}</small>
+          <small>Updated: {formatEasternDateTime(fearGreedData?.timestamp)}</small>
         </div>
       </div>
     </div>

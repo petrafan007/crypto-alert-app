@@ -1,30 +1,12 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
 import CancelOrderModal from '../components/CancelOrderModal';
+import { formatEasternDateTime as formatEasternDateTimeValue } from '../utils/dateTime';
 import './Trading.css';
 import './AIDashboard.css';
 
 const formatEasternTime = (isoString) => {
-  if (!isoString) return 'Not available';
-  try {
-    const date = new Date(isoString);
-    if (isNaN(date.getTime())) return String(isoString);
-    const formatter = new Intl.DateTimeFormat('en-US', {
-      timeZone: 'America/New_York',
-      year: 'numeric',
-      month: 'numeric',
-      day: 'numeric',
-      hour: 'numeric',
-      minute: '2-digit',
-      hour12: true,
-      timeZoneName: 'short'
-    });
-    const parts = formatter.formatToParts(date);
-    const getPart = (type) => parts.find(p => p.type === type)?.value || '';
-    return `${getPart('month')}-${getPart('day')}-${getPart('year')} at ${getPart('hour')}:${getPart('minute')} ${getPart('dayPeriod')} ${getPart('timeZoneName') || 'EDT'}`;
-  } catch (error) {
-    return 'Invalid date';
-  }
+  return isoString ? formatEasternDateTimeValue(isoString) : 'Not available';
 };
 
 const getProviderName = (provider) => {
@@ -129,7 +111,7 @@ const PAGE_SIZES = [20, 50, 100, 200];
 const OPEN_STATUSES = new Set(['ACTIVE', 'OPEN', 'NEW', 'WORKING', 'PENDING', 'PARTIALLY_FILLED', 'PARTIALLY FILLED']);
 const isWebull = (order) => String(order?.source || order?.origin || '').toLowerCase() === 'webull';
 const amount = (value, digits = 6) => Number.isFinite(Number(value)) ? Number(value).toLocaleString(undefined, { maximumFractionDigits: digits }) : '—';
-const timestamp = (value) => { const date = new Date(value); return value && !Number.isNaN(date.getTime()) ? date.toLocaleString() : '—'; };
+const timestamp = (value) => formatEasternDateTimeValue(value);
 const normalize = (order, source) => {
   const automationOrigin = String(order?.origin || order?.trigger_type || '').toLowerCase();
   const origin = ['auto_buy', 'auto_sell'].includes(automationOrigin) ? automationOrigin : order?.origin;
