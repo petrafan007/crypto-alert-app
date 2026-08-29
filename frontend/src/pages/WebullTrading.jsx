@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState, useRef } from 'react';
 import axios from 'axios';
 import CryptoIcon, { WebullLogo } from '../components/CryptoIcon';
 import { FaToggleOn, FaToggleOff } from 'react-icons/fa';
@@ -74,7 +74,7 @@ function WebullOrderTable({ orders, emptyText, onCancelOrder, cancellingId }) {
         <table>
           <thead>
             <tr>
-              <th>Date / Time</th><th>Symbol</th><th>Side</th><th>Type</th><th>Quantity</th><th>Price</th><th>Filled</th><th>Status</th><th>Source</th>
+              <th>Date / Time</th><th style={{ textAlign: 'center' }}>Symbol</th><th>Side</th><th>Type</th><th>Quantity</th><th>Price</th><th>Filled</th><th>Status</th><th>Source</th>
               {onCancelOrder && <th>Action</th>}
             </tr>
           </thead>
@@ -82,7 +82,7 @@ function WebullOrderTable({ orders, emptyText, onCancelOrder, cancellingId }) {
             {orders.map((order) => (
               <tr key={order.id}>
                 <td>{formatDate(order.created_at)}</td>
-                <td>{order.symbol}</td>
+                <td style={{ textAlign: 'center' }}>{order.symbol}</td>
                 <td>{order.side}</td>
                 <td>{order.order_type}</td>
                 <td>{number(order.quantity, 6)}</td>
@@ -221,6 +221,8 @@ export default function WebullTrading({ isLightMode = false }) {
   const [showDepositModal, setShowDepositModal] = useState(false);
   const [depositAmount, setDepositAmount] = useState('1000');
   const [depositSubmitting, setDepositSubmitting] = useState(false);
+  const orderTicketRef = useRef(null);
+  const [ticketFlash, setTicketFlash] = useState(false);
 
   // Selected Instrument & Chart state
   const [selectedSymbol, setSelectedSymbol] = useState('AAPL');
@@ -1826,25 +1828,45 @@ export default function WebullTrading({ isLightMode = false }) {
   };
 
   const handleSelectHolding = (holding) => {
+    if (!holding) return;
     const isOption = String(holding.instrument_type || '').toUpperCase() === 'OPTION';
     const isFutures = ['FUTURE', 'FUTURES'].includes(String(holding.instrument_type || '').toUpperCase());
+    const isEvent = String(holding.instrument_type || '').toUpperCase() === 'EVENT';
+    const isCrypto = /crypto|coin|token/i.test(holding.instrument_type || '');
+
     if (holding.account_id) setSelectedAccountId(String(holding.account_id));
-    setSelectedSymbol(isOption ? (holding.underlying_symbol || holding.symbol) : holding.symbol);
+    const targetSymbol = isOption ? (holding.underlying_symbol || holding.symbol) : holding.symbol;
+    setSelectedSymbol(targetSymbol);
     setSelectedOptionHoldingId(isOption ? String(holding.id || '') : '');
+
+    const rawQty = holding.quantity ?? holding.amount;
+    const holdingQuantity = nonNegativeNumber(rawQty);
+    const rawPx = holding.current_price ?? holding.last_price ?? holding.cost_price;
+    const holdingPrice = nonNegativeNumber(rawPx);
+
+    if (holdingPrice > 0) {
+      setLivePrice(holdingPrice);
+    }
+
     if (isOption) {
-      const holdingQuantity = nonNegativeNumber(holding.amount);
-      const holdingPremium = nonNegativeNumber(holding.current_price);
       setSelectedInstrumentType('OPTION');
+      const optStrike = holding.option_strike ? String(holding.option_strike) : '';
+      const optExp = holding.option_expiration || '';
+      const optType = holding.option_type || 'CALL';
+      const formattedQty = holdingQuantity > 0 ? String(holdingQuantity) : '1';
+      const formattedPx = holdingPrice > 0 ? String(holdingPrice) : '';
       setOrderForm((prev) => ({
         ...prev,
         side: 'SELL',
         type: 'LIMIT',
-        optionType: holding.option_type || 'CALL',
-        optionStrike: holding.option_strike ? String(holding.option_strike) : '',
-        optionExpiration: holding.option_expiration || '',
-        price: holding.current_price ? String(holding.current_price) : '',
-        quantity: holdingQuantity ? String(holdingQuantity) : '',
-        quoteQuantity: optionOrderValueText(holdingQuantity, holdingPremium),
+        optionType: optType,
+        optionStrike: optStrike,
+        optionExpiration: optExp,
+        price: formattedPx,
+        quantity: formattedQty,
+        quoteQuantity: optionOrderValueText(formattedQty, formattedPx),
+        stopPrice: '',
+        trailingStopStep: '',
       }));
     } else if (isFutures) {
       const contractSymbol = String(holding.symbol || '').toUpperCase();
@@ -1855,6 +1877,7 @@ export default function WebullTrading({ isLightMode = false }) {
         expiration_date: holding.expiration_date,
       });
       setFuturesContractInput(contractSymbol);
+      const formattedQty = holdingQuantity > 0 ? String(holdingQuantity) : '1';
       setOrderForm((prev) => ({
         ...prev,
         side: 'SELL',
@@ -1862,22 +1885,58 @@ export default function WebullTrading({ isLightMode = false }) {
         price: '',
         stopPrice: '',
         trailingStopStep: '',
-        quantity: holding.amount ? String(holding.amount) : '',
+        quantity: formattedQty,
         quoteQuantity: '',
       }));
-    } else {
-      const isCrypto = /crypto|coin|token/i.test(holding.instrument_type || '');
-      setSelectedInstrumentType(isCrypto ? 'CRYPTO' : 'EQUITY');
+    } else if (isEvent) {
+      setSelectedInstrumentType('EVENT');
+      const formattedQty = holdingQuantity > 0 ? String(holdingQuantity) : '10';
+      const formattedPx = holdingPrice > 0 ? String(holdingPrice) : '0.50';
       setOrderForm((prev) => ({
         ...prev,
         side: 'SELL',
         type: 'LIMIT',
-        price: holding.current_price ? String(holding.current_price) : '',
-        quantity: holding.amount ? String(holding.amount) : '',
+        price: formattedPx,
+        quantity: formattedQty,
+        eventOutcome: holding.event_outcome || 'yes',
+        quoteQuantity: (Number(formattedQty) * Number(formattedPx)).toFixed(2),
+        stopPrice: '',
+        trailingStopStep: '',
+      }));
+    } else {
+      setSelectedInstrumentType(isCrypto ? 'CRYPTO' : 'EQUITY');
+      const formattedQty = holdingQuantity > 0 ? String(holdingQuantity) : '';
+      const formattedPx = holdingPrice > 0 ? (holdingPrice >= 1 ? holdingPrice.toFixed(2) : holdingPrice.toFixed(4)) : '';
+      const estTotal = (holdingQuantity > 0 && holdingPrice > 0) ? (holdingQuantity * holdingPrice).toFixed(2) : '';
+      setOrderForm((prev) => ({
+        ...prev,
+        side: 'SELL',
+        type: isCrypto ? 'MARKET' : 'LIMIT',
+        price: formattedPx,
+        quantity: formattedQty,
+        quoteQuantity: estTotal,
+        stopPrice: '',
+        trailingStopStep: '',
       }));
     }
+
+    setBalancePercentage(100);
+    setOrderValidationError('');
     setActiveTab('order');
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+
+    // Trigger visual accent pulse and smoothly scroll directly to the Order Ticket panel
+    setTicketFlash(true);
+    setTimeout(() => setTicketFlash(false), 1800);
+    setTimeout(() => {
+      if (orderTicketRef.current) {
+        orderTicketRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      } else {
+        const el = document.getElementById('webull-order-ticket-section') || document.querySelector('.trading-order-panel');
+        if (el) {
+          el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+      }
+    }, 60);
   };
 
   const displayOpenOrders = useMemo(() => openOrders.filter((order) => OPEN_STATUSES.has(String(order.status).toUpperCase()) || !order.status), [openOrders]);
@@ -2122,8 +2181,26 @@ export default function WebullTrading({ isLightMode = false }) {
                   isLightMode={isLightMode}
                 />
 
-                {/* 2. Redesigned Order Placement Header Cards (matching Binance.US) */}
-                <div className="trading-order-header-cards">
+                {/* 2. Order Ticket Container (with scroll ref and highlight pulse) */}
+                <div
+                  id="webull-order-ticket-section"
+                  ref={orderTicketRef}
+                  style={{
+                    scrollMarginTop: '80px',
+                    transition: 'box-shadow 0.4s ease, border-color 0.4s ease',
+                    borderRadius: '16px',
+                    padding: '8px',
+                    margin: '-8px',
+                    ...(ticketFlash
+                      ? {
+                          boxShadow: '0 0 35px rgba(56, 189, 248, 0.75)',
+                          border: '2px solid #38bdf8',
+                        }
+                      : { border: '2px solid transparent' }),
+                  }}
+                >
+                  {/* Redesigned Order Placement Header Cards (matching Binance.US) */}
+                  <div className="trading-order-header-cards">
                   {/* Selected Asset Available Card */}
                   <div className="trading-asset-card">
                     <CryptoIcon symbol={selectedSymbol} size={32} />
@@ -3268,6 +3345,7 @@ export default function WebullTrading({ isLightMode = false }) {
                     </div>
                   )}
                 </form>
+                </div>
 
                 {/* Pre-Trade Confirmation Modal */}
                 {showConfirmModal && (
@@ -3799,14 +3877,14 @@ function WebullSignalTable({ signals }) {
         <table>
           <thead>
             <tr>
-              <th>Created</th><th>Symbol</th><th>Asset Class</th><th>Signal</th><th>Forecast</th><th>Outcome</th><th>Origin</th>
+              <th>Created</th><th style={{ textAlign: 'center' }}>Symbol</th><th>Asset Class</th><th>Signal</th><th>Forecast</th><th>Outcome</th><th>Origin</th>
             </tr>
           </thead>
           <tbody>
             {signals.map((signal) => (
               <tr key={signal.id}>
                 <td>{formatDate(signal.created_at)}</td>
-                <td>{signal.symbol}</td>
+                <td style={{ textAlign: 'center' }}>{signal.symbol}</td>
                 <td>{signal.instrument_type}</td>
                 <td><strong>{signal.recommendation}</strong><br /><small>{signal.reason}</small></td>
                 <td>{signal.forecast_horizon_hours}h · target {formatDate(signal.target_evaluation_at)}</td>
@@ -3842,7 +3920,7 @@ function WebullHoldings({ holdings, compact = false, onSelectHolding, isTestMode
         <table>
           <thead>
             <tr>
-              <th>Symbol</th><th>Type</th><th>Quantity</th><th>Last Price</th><th>Value</th><th>Unrealized P&amp;L</th><th>Action</th>
+              <th style={{ textAlign: 'center' }}>Symbol</th><th>Type</th><th>Quantity</th><th>Last Price</th><th>Value</th><th>Unrealized P&amp;L</th><th style={{ textAlign: 'center' }}>Action</th>
             </tr>
           </thead>
           <tbody>
@@ -3856,17 +3934,19 @@ function WebullHoldings({ holdings, compact = false, onSelectHolding, isTestMode
                   style={{ cursor: onSelectHolding ? 'pointer' : 'default' }}
                   title={onSelectHolding ? `Click to load ${holding.symbol} into the order terminal` : undefined}
                 >
-                  <td style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <CryptoIcon symbol={holding.symbol} size={22} />
-                    <span>
-                      {holding.symbol}
-                      {(holding.is_paper || isTestMode) && (
-                        <span className="badge" style={{ background: 'rgba(79, 209, 197, 0.2)', color: '#4fd1c5', border: '1px solid rgba(79, 209, 197, 0.4)', marginLeft: 6, fontSize: '0.7rem', fontWeight: 700 }}>
-                          PAPER
-                        </span>
-                      )}
-                      {isOption && optionLabel && <small style={{ display: 'block', color: 'var(--text-secondary, #94a3b8)' }}>{optionLabel}</small>}
-                    </span>
+                  <td style={{ textAlign: 'center' }}>
+                    <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 8, textAlign: 'left' }}>
+                      <CryptoIcon symbol={isOption ? (holding.underlying_symbol || holding.symbol) : holding.symbol} size={22} />
+                      <span>
+                        {holding.symbol}
+                        {(holding.is_paper || isTestMode) && (
+                          <span className="badge" style={{ background: 'rgba(79, 209, 197, 0.2)', color: '#4fd1c5', border: '1px solid rgba(79, 209, 197, 0.4)', marginLeft: 6, fontSize: '0.7rem', fontWeight: 700 }}>
+                            PAPER
+                          </span>
+                        )}
+                        {isOption && optionLabel && <small style={{ display: 'block', color: 'var(--text-secondary, #94a3b8)' }}>{optionLabel}</small>}
+                      </span>
+                    </div>
                   </td>
                   <td>
                     {holding.instrument_type || 'Security'}
@@ -3878,7 +3958,7 @@ function WebullHoldings({ holdings, compact = false, onSelectHolding, isTestMode
                   <td style={{ color: Number(holding.webull_unrealized_pnl ?? holding.unrealized_profit_loss) >= 0 ? '#4ade80' : '#f87171' }}>
                     {(holding.webull_unrealized_pnl ?? holding.unrealized_profit_loss) == null ? '—' : `$${number(holding.webull_unrealized_pnl ?? holding.unrealized_profit_loss)}`}
                   </td>
-                  <td>
+                  <td style={{ textAlign: 'center' }}>
                     <button
                       type="button"
                       className="badge"
@@ -3887,14 +3967,25 @@ function WebullHoldings({ holdings, compact = false, onSelectHolding, isTestMode
                         border: '1px solid rgba(56, 189, 248, .35)',
                         color: '#38bdf8',
                         cursor: 'pointer',
-                        padding: '4px 10px',
+                        padding: '5px 14px',
                         fontWeight: 700,
-                        borderRadius: '6px'
+                        borderRadius: '6px',
+                        fontSize: '0.82rem',
+                        transition: 'all 0.2s ease',
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.background = 'rgba(56, 189, 248, .35)';
+                        e.currentTarget.style.color = '#ffffff';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.background = 'rgba(56, 189, 248, .18)';
+                        e.currentTarget.style.color = '#38bdf8';
                       }}
                       onClick={(e) => {
                         e.stopPropagation();
                         onSelectHolding?.(holding);
                       }}
+                      title={`Load ${holding.symbol} into trade ticket`}
                     >
                       Trade
                     </button>

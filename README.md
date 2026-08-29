@@ -125,6 +125,19 @@ The application utilizes a **unified PostgreSQL database**.
 
 Historical changelog entries retain the product name used when they were originally released. The application domain, repository slug, deployment folders, database, and service identifiers intentionally remain unchanged by the v2.45.0 brand update.
 
+## v2.59.0 (August 2026)
+
+- **Webull Holdings Table & Trade Action Overhaul**:
+  - **Direct Order Ticket Focus & Smooth Scrolling**: Fixed the "Trade" button in the Webull Holdings table. Rather than errantly jumping to the top of the browser page (`top: 0`) above the TradingView chart, clicking "Trade" on any owned asset now smoothly scrolls directly to the Order Ticket panel (`#webull-order-ticket-section`) with proper viewport offset below the navbar.
+  - **Visual Ticket Load Pulse**: Added a cyan accent glow and border animation (`boxShadow: 0 0 35px rgba(56, 189, 248, 0.75)`) that illuminates the order panel upon clicking "Trade", providing immediate, unmistakable visual feedback that the selected asset has been loaded into the ticket.
+  - **Complete Order Pre-population**: Clicking "Trade" now pre-populates all necessary ticket fields:
+    - Automatically sets action to `SELL` for the held position.
+    - Dynamically detects and sets the exact quantity held (`quantity ?? amount`), accounting for both live brokerage holdings and simulated paper positions.
+    - Populates the current/last market price and immediately updates `livePrice` for accurate ticket total calculations.
+    - Accurately resolves asset classes for `EQUITY`, `CRYPTO`, `OPTION` (with contract identity, expiration, strike, type, and 100x multiplier calculations), `FUTURES` (with contract symbol and selection), and `EVENT` contracts (with outcome and limit price).
+  - **Centered Symbol Column**: Centered the `Symbol` column across all Webull tables (Holdings Table, Open Orders Table, and AI Signal Table) for a clean, balanced visual alignment matching standard exchange terminals. Centered both table headers (`th`) and cell contents (`td`), aligning the cryptocurrency/equity vector logos, ticker symbols, and badges seamlessly.
+  - **Enhanced Trade Button Feedback**: Centered the `Action` column and added hover state micro-interactions to the "Trade" action badge.
+
 ## v2.58.0 (August 2026)
 
 - **Comprehensive Multi-Asset QA & Architectural Scouring for Webull Trading Platform**:
