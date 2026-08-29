@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
 import CryptoIcon, { WebullLogo } from '../components/CryptoIcon';
-import WebullTradingViewChart from '../components/WebullTradingViewChart';
+import WebullTradingViewChart, { DEFAULT_STOCKS } from '../components/WebullTradingViewChart';
 import WebullTradeTimelineChart from '../components/WebullTradeTimelineChart';
 import TwoFactorModal from '../components/TwoFactorModal';
 import CancelOrderModal from '../components/CancelOrderModal';
@@ -1066,6 +1066,33 @@ export default function WebullTrading({ isLightMode = false }) {
     return Array.from(new Set(['AAPL', 'NVDA', 'SPY', 'TSLA', 'AMD', 'MSFT', ...stocks]));
   }, [holdings]);
 
+  const availableTraditional = useMemo(() => {
+    const fromHoldings = holdings
+      .filter((h) => !/crypto|coin|token/i.test(h.instrument_type || '') && String(h.instrument_type || '').toUpperCase() !== 'OPTION' && h.symbol)
+      .map((h) => ({
+        id: h.symbol.toUpperCase(),
+        symbol: h.symbol.toUpperCase(),
+        name: h.name || h.symbol,
+        display_name: `${h.symbol.toUpperCase()} — ${h.name || 'Holding'}`,
+        type: h.instrument_type || 'EQUITY',
+        isHolding: true,
+      }));
+    const map = new Map();
+    fromHoldings.forEach((item) => map.set(item.symbol, item));
+    (DEFAULT_STOCKS || []).forEach((item) => {
+      if (!map.has(item.symbol)) {
+        map.set(item.symbol, {
+          id: item.symbol,
+          symbol: item.symbol,
+          name: item.name,
+          display_name: `${item.symbol} — ${item.name}`,
+          type: item.type,
+        });
+      }
+    });
+    return Array.from(map.values());
+  }, [holdings]);
+
   const handleSelectOptionContract = (contractData) => {
     if (contractData.symbol && contractData.symbol !== selectedSymbol) {
       setSelectedSymbol(contractData.symbol);
@@ -1231,24 +1258,6 @@ export default function WebullTrading({ isLightMode = false }) {
                   </div>
                 </div>
 
-                {/* Options Chain & Live Order Book (When OPTION selected) */}
-                {selectedInstrumentType === 'OPTION' && (
-                  <WebullOptionChain
-                    defaultSymbol={selectedSymbol}
-                    availableStocks={availableStockSymbols}
-                    selectedContract={{
-                      symbol: selectedSymbol,
-                      optionType: orderForm.optionType,
-                      strike: orderForm.optionStrike,
-                      expiration: orderForm.optionExpiration,
-                      price: orderForm.price,
-                      side: orderForm.side,
-                    }}
-                    onSelectOptionContract={handleSelectOptionContract}
-                    isLightMode={isLightMode}
-                  />
-                )}
-
                 {/* 3. Redesigned Modern Order Panel (matching Binance.US) */}
                 <form onSubmit={handleOrderSubmit} className="trading-order-panel" noValidate>
                   {/* Asset Class Switcher (Equities & ETFs, Crypto, Options) */}
@@ -1292,6 +1301,27 @@ export default function WebullTrading({ isLightMode = false }) {
                       </button>
                     </div>
                   </div>
+
+                  {/* Options Chain & Live Order Book (When OPTION selected) - Positioned Right Below Asset Class Switcher */}
+                  {selectedInstrumentType === 'OPTION' && (
+                    <WebullOptionChain
+                      defaultSymbol={selectedSymbol}
+                      availableTraditional={availableTraditional}
+                      selectedContract={{
+                        symbol: selectedSymbol,
+                        optionType: orderForm.optionType,
+                        strike: orderForm.optionStrike,
+                        expiration: orderForm.optionExpiration,
+                        price: orderForm.price,
+                        side: orderForm.side,
+                      }}
+                      onSelectOptionContract={handleSelectOptionContract}
+                      onSymbolChange={(newSym) => {
+                        setSelectedSymbol(newSym);
+                      }}
+                      isLightMode={isLightMode}
+                    />
+                  )}
 
                   {/* Options Contract Setup (When OPTION selected) */}
                   {selectedInstrumentType === 'OPTION' && (

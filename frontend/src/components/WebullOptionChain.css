@@ -32,22 +32,36 @@
   align-items: center;
   flex-wrap: wrap;
   gap: 16px;
+  flex: 1;
+}
+
+.chain-live-search-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 260px;
+  max-width: 380px;
+  flex: 1;
+}
+
+.chain-control-label {
+  font-size: 11px;
+  font-weight: 700;
+  color: #94a3b8;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  white-space: nowrap;
+}
+
+.chain-searchable-select {
+  flex: 1;
+  min-width: 200px;
 }
 
 .underlying-info-block {
   display: flex;
   align-items: center;
   gap: 12px;
-}
-
-.underlying-pill {
-  font-size: 1.25rem;
-  font-weight: 800;
-  letter-spacing: 0.5px;
-  background: linear-gradient(135deg, #38bdf8 0%, #818cf8 100%);
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
 }
 
 .underlying-quote-meta {
@@ -90,130 +104,60 @@
   border: 1px solid rgba(148, 163, 184, 0.25);
 }
 
-.quick-stocks-scroller {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.quick-label {
-  font-size: 11px;
-  color: #94a3b8;
-  font-weight: 600;
-  text-transform: uppercase;
-}
-
-.quick-stock-btn {
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid #334155;
-  color: #94a3b8;
-  padding: 3px 8px;
-  border-radius: 4px;
-  font-size: 11px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.15s ease;
-}
-
-.quick-stock-btn:hover,
-.quick-stock-btn.active {
-  background: rgba(56, 189, 248, 0.15);
-  border-color: #38bdf8;
-  color: #38bdf8;
-}
-
-.chain-search-and-refresh {
+.chain-actions-section {
   display: flex;
   align-items: center;
   gap: 8px;
 }
 
-.chain-search-form {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.chain-search-input {
-  background: #0f172a;
-  border: 1px solid #334155;
-  color: #f8fafc;
-  padding: 5px 10px;
-  border-radius: 5px;
+.chain-refresh-btn {
   font-size: 12px;
-  width: 140px;
+  padding: 6px 12px;
+  border-radius: 6px;
 }
 
-.chain-search-input:focus {
-  border-color: #38bdf8;
-  outline: none;
-}
-
-/* 2. EXPIRATIONS BAR */
-.chain-expirations-bar {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 14px;
-  overflow-x: auto;
-  padding-bottom: 6px;
-}
-
-.chain-expirations-bar::-webkit-scrollbar {
-  height: 4px;
-}
-.chain-expirations-bar::-webkit-scrollbar-thumb {
-  background: #334155;
-  border-radius: 4px;
-}
-
-.exp-bar-label {
-  font-size: 11px;
-  font-weight: 700;
-  color: #94a3b8;
-  text-transform: uppercase;
-  white-space: nowrap;
-}
-
-.exp-pills-list {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.exp-pill-btn {
-  background: #0f172a;
-  border: 1px solid #334155;
-  color: #cbd5e1;
-  padding: 5px 12px;
-  border-radius: 16px;
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
-  white-space: nowrap;
-  transition: all 0.15s ease;
-}
-
-.exp-pill-btn:hover {
-  border-color: #38bdf8;
-  color: #fff;
-}
-
-.exp-pill-btn.active {
-  background: #0284c7 !important;
-  border-color: #38bdf8 !important;
-  color: #fff !important;
-  box-shadow: 0 0 10px rgba(56, 189, 248, 0.4);
-}
-
-/* 3. FILTERS BAR */
+/* 2. CONTROLS BAR (EXPIRATION DROPDOWN, VIEW MODE, STRIKES) */
 .chain-filters-bar {
   display: flex;
   justify-content: space-between;
   align-items: center;
   flex-wrap: wrap;
-  gap: 12px;
-  margin-bottom: 12px;
+  gap: 14px;
+  margin-bottom: 14px;
+}
+
+.chain-control-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.chain-exp-group {
+  flex: 1;
+  min-width: 240px;
+  max-width: 340px;
+}
+
+.chain-select {
+  background: #0f172a;
+  border: 1px solid #334155;
+  color: #f8fafc;
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color 0.15s ease;
+}
+
+.chain-select:focus {
+  border-color: #38bdf8;
+  outline: none;
+}
+
+.chain-exp-select {
+  width: 100%;
+  padding: 7px 12px;
 }
 
 .view-mode-toggle {
@@ -228,7 +172,7 @@
   background: transparent;
   border: none;
   color: #94a3b8;
-  padding: 5px 14px;
+  padding: 6px 14px;
   font-size: 12px;
   font-weight: 600;
   cursor: pointer;
@@ -258,16 +202,6 @@
   color: #94a3b8;
 }
 
-.chain-select {
-  background: #0f172a;
-  border: 1px solid #334155;
-  color: #f8fafc;
-  padding: 4px 8px;
-  border-radius: 4px;
-  font-size: 12px;
-  cursor: pointer;
-}
-
 /* Active Contract Banner */
 .selected-contract-banner {
   display: flex;
@@ -291,7 +225,7 @@
   border-radius: 10px;
 }
 
-/* 4. TABLE STYLING - DARK MODE DEFAULT */
+/* 3. TABLE STYLING - DARK MODE DEFAULT */
 .chain-table-wrapper {
   overflow-x: auto;
   border-radius: 8px;
@@ -504,7 +438,7 @@
 
 
 /* ==========================================================================
-   5. LIGHT MODE SPECIFIC OVERRIDES
+   4. LIGHT MODE SPECIFIC OVERRIDES
    ========================================================================== */
 
 .webull-option-chain-container.light-mode,
@@ -519,54 +453,25 @@ body.light-mode .webull-option-chain-container {
   border-bottom: 1px solid #e2e8f0 !important;
 }
 
+.webull-option-chain-container.light-mode .chain-control-label {
+  color: #475569 !important;
+}
+
 .webull-option-chain-container.light-mode .underlying-price {
   color: #0f172a !important;
   font-weight: 800 !important;
 }
 
-.webull-option-chain-container.light-mode .quick-label {
-  color: #64748b !important;
-}
-
-.webull-option-chain-container.light-mode .quick-stock-btn {
-  background: #f1f5f9 !important;
-  border: 1px solid #cbd5e1 !important;
-  color: #334155 !important;
-}
-
-.webull-option-chain-container.light-mode .quick-stock-btn:hover,
-.webull-option-chain-container.light-mode .quick-stock-btn.active {
-  background: #e0f2fe !important;
-  border-color: #0284c7 !important;
-  color: #0284c7 !important;
-}
-
-.webull-option-chain-container.light-mode .chain-search-input {
+.webull-option-chain-container.light-mode .chain-select {
   background: #ffffff !important;
   border: 1px solid #cbd5e1 !important;
   color: #0f172a !important;
 }
 
-.webull-option-chain-container.light-mode .exp-bar-label {
-  color: #475569 !important;
-}
-
-.webull-option-chain-container.light-mode .exp-pill-btn {
-  background: #f1f5f9 !important;
-  border: 1px solid #cbd5e1 !important;
-  color: #334155 !important;
-}
-
-.webull-option-chain-container.light-mode .exp-pill-btn:hover {
-  border-color: #0284c7 !important;
-  color: #0284c7 !important;
-}
-
-.webull-option-chain-container.light-mode .exp-pill-btn.active {
-  background: #0284c7 !important;
-  border-color: #0284c7 !important;
-  color: #ffffff !important;
-  box-shadow: 0 2px 8px rgba(2, 132, 199, 0.3) !important;
+.webull-option-chain-container.light-mode .chain-exp-select {
+  background: #ffffff !important;
+  border-color: #cbd5e1 !important;
+  color: #0f172a !important;
 }
 
 .webull-option-chain-container.light-mode .view-mode-toggle {
@@ -595,12 +500,6 @@ body.light-mode .webull-option-chain-container {
 
 .webull-option-chain-container.light-mode .strike-filter-control {
   color: #475569 !important;
-}
-
-.webull-option-chain-container.light-mode .chain-select {
-  background: #ffffff !important;
-  border: 1px solid #cbd5e1 !important;
-  color: #0f172a !important;
 }
 
 .webull-option-chain-container.light-mode .selected-contract-banner {

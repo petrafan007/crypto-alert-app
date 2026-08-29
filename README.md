@@ -125,6 +125,14 @@ The application utilizes a **unified PostgreSQL database**.
 
 Historical changelog entries retain the product name used when they were originally released. The application domain, repository slug, deployment folders, database, and service identifiers intentionally remain unchanged by the v2.45.0 brand update.
 
+## v2.53.0 (August 2026)
+
+- **Webull Options Chain Layout, Expiration Dropdown & Live Search Upgrade**:
+  - **Inline Order Panel Placement**: Repositioned the Options Chain Matrix to display directly inside the Order Panel, immediately below the Asset Class switcher (`Equities & ETFs | Crypto | Options`) when Options is selected, creating a natural and intuitive top-to-bottom workflow.
+  - **Clean Expiration Date Dropdown**: Replaced the horizontal sliding pills bar with a sleek, theme-aware `<select>` dropdown displaying clear expiration dates and Days to Expiration (DTE), organized seamlessly alongside the View Mode toggle and strike range selector.
+  - **Live Searchable Stock Selector with Favorites**: Upgraded the underlying stock selector from a static text field and lookup button to the full-featured `SearchablePairSelect` component (`traditional` mode). Supports instant live filtering as you type, custom ticker typing, holding badges (`💼 My Holdings`), and pinning favorite stocks to the top (`⭐ Pinned / Favorites`).
+  - **Bidirectional Symbol Synchronization**: Selecting any stock or ETF in the Options Chain automatically updates the underlying contract, loads the option book, and updates the active order ticket.
+
 ## v2.52.1 (August 2026)
 
 - **Webull Options Chain Table Complete Theme Awareness**:

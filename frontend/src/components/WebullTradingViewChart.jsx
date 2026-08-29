@@ -4,7 +4,7 @@ import './TradingViewAdvancedChart.css';
 
 const SCRIPT = 'https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js';
 
-const DEFAULT_STOCKS = [
+export const DEFAULT_STOCKS = [
   { symbol: 'AAPL', name: 'Apple Inc.', type: 'EQUITY' },
   { symbol: 'NVDA', name: 'NVIDIA Corporation', type: 'EQUITY' },
   { symbol: 'TSLA', name: 'Tesla Inc.', type: 'EQUITY' },

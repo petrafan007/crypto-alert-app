@@ -1,16 +1,18 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import axios from 'axios';
+import SearchablePairSelect from './SearchablePairSelect';
 import './WebullOptionChain.css';
 
 export default function WebullOptionChain({
   defaultSymbol = 'AAPL',
+  availableTraditional = [],
   availableStocks = [],
   selectedContract = null,
   onSelectOptionContract,
+  onSymbolChange,
   isLightMode = false,
 }) {
   const [symbol, setSymbol] = useState(defaultSymbol || 'AAPL');
-  const [searchInput, setSearchInput] = useState('');
   const [chainData, setChainData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -39,6 +41,21 @@ export default function WebullOptionChain({
       isMounted.current = false;
     };
   }, []);
+
+  // Trading pairs list for traditional mode (SearchablePairSelect)
+  const tradingPairs = useMemo(() => {
+    if (availableTraditional && availableTraditional.length > 0) {
+      return availableTraditional;
+    }
+    const list = availableStocks && availableStocks.length > 0 ? availableStocks : ['AAPL', 'NVDA', 'SPY', 'TSLA', 'MSFT', 'AMZN', 'GOOGL', 'META', 'QQQ', 'AMD'];
+    return list.map((sym) => ({
+      id: sym.toUpperCase(),
+      symbol: sym.toUpperCase(),
+      name: sym.toUpperCase(),
+      display_name: sym.toUpperCase(),
+      type: 'EQUITY',
+    }));
+  }, [availableTraditional, availableStocks]);
 
   // Synchronize when defaultSymbol prop changes from parent
   useEffect(() => {
@@ -86,14 +103,12 @@ export default function WebullOptionChain({
     fetchOptionChain(symbol, expDate);
   };
 
-  const handleSearchSubmit = (e) => {
-    e?.preventDefault();
-    const clean = searchInput.toUpperCase().trim();
-    if (clean) {
-      setSymbol(clean);
-      setSearchInput('');
-      fetchOptionChain(clean, '');
-    }
+  const handleSelectSymbol = (newSym) => {
+    const clean = (newSym || '').toUpperCase().trim();
+    if (!clean) return;
+    setSymbol(clean);
+    onSymbolChange?.(clean);
+    fetchOptionChain(clean, '');
   };
 
   const underlyingPrice = chainData?.underlying_price || 0.0;
@@ -160,11 +175,22 @@ export default function WebullOptionChain({
 
   return (
     <div className={`webull-option-chain-container ${activeLightMode ? 'light-mode' : ''}`}>
-      {/* 1. TOP HEADER: UNDERLYING SELECTOR, LIVE QUOTE & REFRESH */}
+      {/* 1. TOP HEADER: SEARCHABLE STOCK SELECTOR, LIVE QUOTE & REFRESH */}
       <div className="chain-top-bar">
         <div className="underlying-selector-section">
+          <div className="chain-live-search-wrapper">
+            <span className="chain-control-label">Underlying Stock / ETF:</span>
+            <SearchablePairSelect
+              value={symbol}
+              onChange={handleSelectSymbol}
+              tradingPairs={tradingPairs}
+              mode="traditional"
+              placeholder="Search stock or ETF (e.g. AAPL, NVDA, SPY)..."
+              className="chain-searchable-select"
+            />
+          </div>
+
           <div className="underlying-info-block">
-            <span className="underlying-pill">{symbol}</span>
             <div className="underlying-quote-meta">
               <span className="underlying-price">
                 ${underlyingPrice > 0 ? underlyingPrice.toFixed(2) : '—'}
@@ -177,51 +203,9 @@ export default function WebullOptionChain({
               </span>
             </div>
           </div>
-
-          {/* Quick Stocks Selector */}
-          {availableStocks.length > 0 && (
-            <div className="quick-stocks-scroller">
-              <span className="quick-label">Watchlist:</span>
-              {availableStocks.slice(0, 6).map((stk) => (
-                <button
-                  key={stk}
-                  type="button"
-                  className={`quick-stock-btn ${stk === symbol ? 'active' : ''}`}
-                  onClick={() => {
-                    setSymbol(stk);
-                    fetchOptionChain(stk, '');
-                  }}
-                >
-                  {stk}
-                </button>
-              ))}
-            </div>
-          )}
         </div>
 
-        <div className="chain-search-and-refresh">
-          <div className="chain-search-form">
-            <input
-              type="text"
-              placeholder="Search Ticker (e.g. NVDA)..."
-              value={searchInput}
-              onChange={(e) => setSearchInput(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  e.preventDefault();
-                  handleSearchSubmit(e);
-                }
-              }}
-              className="chain-search-input"
-            />
-            <button
-              type="button"
-              onClick={handleSearchSubmit}
-              className="btn btn-secondary btn-sm chain-search-btn"
-            >
-              Lookup
-            </button>
-          </div>
+        <div className="chain-actions-section">
           <button
             type="button"
             onClick={() => fetchOptionChain(symbol, selectedExp)}
@@ -234,56 +218,63 @@ export default function WebullOptionChain({
         </div>
       </div>
 
-      {/* 2. EXPIRATION DATE SELECTOR BAR */}
-      {chainData?.expirations && chainData.expirations.length > 0 && (
-        <div className="chain-expirations-bar">
-          <span className="exp-bar-label">Expirations:</span>
-          <div className="exp-pills-list">
-            {chainData.expirations.map((exp) => {
-              const isSelected = exp.date === selectedExp;
-              return (
-                <button
-                  key={exp.date}
-                  type="button"
-                  className={`exp-pill-btn ${isSelected ? 'active' : ''}`}
-                  onClick={() => handleSelectExpiration(exp.date)}
-                >
-                  <span className="exp-date-txt">{exp.formatted}</span>
-                </button>
-              );
-            })}
+      {/* 2. CONTROLS BAR: EXPIRATION DROPDOWN, VIEW MODE TOGGLE & STRIKE FILTER */}
+      <div className="chain-filters-bar">
+        {/* Expiration Dropdown Selector */}
+        <div className="chain-control-group chain-exp-group">
+          <label htmlFor="chain-exp-select" className="chain-control-label">
+            📅 Expiration Date:
+          </label>
+          <select
+            id="chain-exp-select"
+            className="chain-select chain-exp-select"
+            value={selectedExp}
+            onChange={(e) => handleSelectExpiration(e.target.value)}
+            disabled={loading || !chainData?.expirations?.length}
+          >
+            {(!chainData?.expirations || chainData.expirations.length === 0) ? (
+              <option value="">No expirations loaded</option>
+            ) : (
+              chainData.expirations.map((exp) => (
+                <option key={exp.date} value={exp.date}>
+                  {exp.formatted || exp.date} {exp.dte !== null ? `(${exp.dte} DTE)` : ''}
+                </option>
+              ))
+            )}
+          </select>
+        </div>
+
+        {/* View Mode Toggle: All (Calls & Puts) | Calls Only | Puts Only */}
+        <div className="chain-control-group">
+          <span className="chain-control-label">Display:</span>
+          <div className="view-mode-toggle">
+            <button
+              type="button"
+              className={`mode-btn ${viewMode === 'both' ? 'active' : ''}`}
+              onClick={() => setViewMode('both')}
+            >
+              All (Calls &amp; Puts)
+            </button>
+            <button
+              type="button"
+              className={`mode-btn calls-btn ${viewMode === 'calls' ? 'active' : ''}`}
+              onClick={() => setViewMode('calls')}
+            >
+              Calls Only
+            </button>
+            <button
+              type="button"
+              className={`mode-btn puts-btn ${viewMode === 'puts' ? 'active' : ''}`}
+              onClick={() => setViewMode('puts')}
+            >
+              Puts Only
+            </button>
           </div>
         </div>
-      )}
 
-      {/* 3. VIEW MODE & STRIKE RANGE CONTROLS */}
-      <div className="chain-filters-bar">
-        <div className="view-mode-toggle">
-          <button
-            type="button"
-            className={`mode-btn ${viewMode === 'both' ? 'active' : ''}`}
-            onClick={() => setViewMode('both')}
-          >
-            All (Calls & Puts)
-          </button>
-          <button
-            type="button"
-            className={`mode-btn calls-btn ${viewMode === 'calls' ? 'active' : ''}`}
-            onClick={() => setViewMode('calls')}
-          >
-            Calls Only
-          </button>
-          <button
-            type="button"
-            className={`mode-btn puts-btn ${viewMode === 'puts' ? 'active' : ''}`}
-            onClick={() => setViewMode('puts')}
-          >
-            Puts Only
-          </button>
-        </div>
-
-        <div className="strike-filter-control">
-          <label htmlFor="strike-range-select">Strikes:</label>
+        {/* Strikes Range Selector */}
+        <div className="chain-control-group strike-filter-control">
+          <label htmlFor="strike-range-select" className="chain-control-label">Strikes:</label>
           <select
             id="strike-range-select"
             value={strikeRange}
