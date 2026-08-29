@@ -22,7 +22,7 @@ def create_external_signal(*, user_id, provider, account_id, symbol,
                            reason, market_context, entry_price, currency,
                            forecast_horizon_hours, origin='manual',
                            ai_provider=None, provider_model=None, ai_tier=None,
-                           search_status=None, created_at=None):
+                           search_status=None, failover_history=None, created_at=None):
     """Store one forecast with its immutable grading rules snapshot."""
     from credentials import UserSetting
 
@@ -47,6 +47,7 @@ def create_external_signal(*, user_id, provider, account_id, symbol,
         provider_model=provider_model,
         ai_tier=ai_tier,
         search_status=search_status,
+        failover_history=failover_history,
         origin=origin,
         forecast_horizon_hours=horizon,
         target_evaluation_at=now + timedelta(hours=horizon),
@@ -83,6 +84,7 @@ def signal_to_dict(signal, include_reason=True):
         'provider_model': signal.provider_model,
         'ai_tier': signal.ai_tier,
         'search_status': signal.search_status,
+        'failover_history': signal.failover_history,
     }
     if include_reason:
         data['reason'] = signal.reason

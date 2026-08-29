@@ -3919,6 +3919,7 @@ function Dashboard({ isLightMode }) {
             sentiment_model: signal.provider_model,
             sentiment_tier: signal.ai_tier,
             sentiment_search_status: signal.search_status,
+            sentiment_failover_history: signal.failover_history,
           } : coin));
         } else {
           throw new Error(response.data?.message || 'Unable to refresh Webull sentiment.');
@@ -4077,7 +4078,10 @@ function Dashboard({ isLightMode }) {
     const rawSentiment = coin.sentiment || (isWatchlist ? 'Watch' : 'Hold');
     const isChecking = rawSentiment === 'Checking now...' || !!refreshingSentiment[coin.symbol];
     const sentiment = isChecking ? 'Checking now...' : rawSentiment;
-    const reason = coin.sentiment_reason || '';
+    const rawReason = coin.sentiment_reason || '';
+    const cleanReason = (rawReason && !['recommendation', 'sentiment', 'action', 'signal', 'suggestion', 'item 1', 'item 2', 'hold', 'buy', 'sell', 'none', 'null'].includes(rawReason.toLowerCase().trim()))
+      ? rawReason.trim()
+      : '';
     const lastUpdated = coin.sentiment_last_updated ? `Last Updated: ${formatLocalDateTime(coin.sentiment_last_updated)}` : '';
     
     const metaParts = [];
@@ -4100,6 +4104,33 @@ function Dashboard({ isLightMode }) {
       }
       metaParts.push(`Web Search: ${icon} ${coin.sentiment_search_status}`);
     }
+
+    let failoverList = [];
+    if (Array.isArray(coin.sentiment_failover_history)) {
+      failoverList = coin.sentiment_failover_history;
+    } else if (typeof coin.sentiment_failover_history === 'string' && coin.sentiment_failover_history.trim()) {
+      try {
+        failoverList = JSON.parse(coin.sentiment_failover_history);
+      } catch (e) {
+        failoverList = [];
+      }
+    }
+
+    if (failoverList && failoverList.length > 0) {
+      const failoverLines = ['Failover Pipeline:'];
+      failoverList.forEach(item => {
+        const tierLabel = getTierDisplayName(item.tier);
+        const providerLabel = getProviderDisplayName(item.provider);
+        const modelLabel = item.model ? ` (${item.model})` : '';
+        if (item.status === 'success') {
+          failoverLines.push(`  ✅ ${tierLabel}: ${providerLabel}${modelLabel} (Success)`);
+        } else {
+          failoverLines.push(`  ❌ ${tierLabel}: ${providerLabel}${modelLabel} — ${item.error || 'Failed'}`);
+        }
+      });
+      metaParts.push(failoverLines.join('\n'));
+    }
+
     const metaInfo = metaParts.join('\n');
 
     let tooltip = '';
@@ -4107,7 +4138,7 @@ function Dashboard({ isLightMode }) {
     if (isChecking) {
       tooltipSections.push('Sentiment analysis currently in progress for this coin...');
     } else {
-      if (reason) tooltipSections.push(reason);
+      if (cleanReason) tooltipSections.push(cleanReason);
       if (lastUpdated) {
         if (metaInfo) {
           tooltipSections.push(`${lastUpdated}\n${metaInfo}`);

@@ -138,7 +138,12 @@ def create_webull_signal(user, holding, *, origin='manual'):
         f'{market["context"]}\n\n'
         'Use these evaluation rules when choosing the recommendation:\n'
         f'{rules}\n\n'
-        'Return the required JSON only. This application records a research signal and never sends an order to Webull.'
+        'CRITICAL: Return ONLY a valid JSON object in this exact schema, with no preamble, markdown, or text outside the JSON:\n'
+        '{\n'
+        '  "sentiment": "<one of: Buy Immediately, Consider Buying, Hold, Consider Selling, Sell Immediately>",\n'
+        '  "reason": "<1-2 concise sentences explaining your recommendation based on the live price, trends, position risk/reward, and recent news>"\n'
+        '}\n'
+        'This application records a research signal and never sends an order to Webull.'
     )
     prompt_type = 'webull_crypto_analysis' if family == 'crypto' else 'webull_equity_analysis'
     response, _ = call_ai_with_web_search(
@@ -154,6 +159,8 @@ def create_webull_signal(user, holding, *, origin='manual'):
     )
     content = response.choices[0].message.content if getattr(response, 'choices', None) else str(response)
     recommendation, reason = parse_sentiment_json(content, is_watchlist=False)
+    resp_failover = getattr(response, 'failover_history', None)
+    failover_history_json = json.dumps(resp_failover) if resp_failover else None
     signal = create_external_signal(
         user_id=user.id, provider='webull', account_id=holding.account_id,
         symbol=holding.symbol, instrument_type=instrument_type, prompt_family=family,
@@ -162,6 +169,7 @@ def create_webull_signal(user, holding, *, origin='manual'):
         origin=origin, ai_provider=getattr(response, 'provider', None),
         provider_model=getattr(response, 'model', None), ai_tier=getattr(response, 'tier', None),
         search_status=getattr(response, 'search_status', None),
+        failover_history=failover_history_json,
     )
     return signal, market
 

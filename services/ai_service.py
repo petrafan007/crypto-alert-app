@@ -264,12 +264,13 @@ def news_api_search(symbol, username, lookback_hours=24, max_results=4, asset_co
 
 class AIResponseWrapper:
     """Wrapper to provide uniform `.choices[0].message.content` interface."""
-    def __init__(self, text, tier="primary", provider=None, model=None, search_status=None):
+    def __init__(self, text, tier="primary", provider=None, model=None, search_status=None, failover_history=None):
         self.text = text or ""
         self.tier = tier
         self.provider = provider
         self.model = model
         self.search_status = search_status or "Brave Search"
+        self.failover_history = failover_history or []
         self.choices = [self._Choice(self.text)]
     
     class _Choice:
@@ -320,6 +321,7 @@ def call_ai_with_web_search(
     search_lookback_hours=12,
     forecast_horizon_hours=None,
     attempt_observer=None,
+    failover_history=None,
 ):
     """
     AGENTIC AI WORKFLOW - 3-STAGE PROCESS WITH 3-TIER CASCADE FAILOVER:
@@ -327,6 +329,8 @@ def call_ai_with_web_search(
     Tier 1: Secondary AI Integration
     Tier 2: Tertiary AI Integration
     """
+    if failover_history is None:
+        failover_history = []
     try:
         if not user_id:
             user_obj = User.query.filter_by(username=username).first()
@@ -386,7 +390,20 @@ def call_ai_with_web_search(
             cached = AICache.query.filter_by(cache_key=cache_key).first()
             if cached and cached.is_valid():
                 logger.info(f"Returning cached AI response for {username} ({cache_key})")
-                return AIResponseWrapper(cached.response, tier=current_tier_name, provider=provider, model=model, search_status="Cached Response"), ""
+                return AIResponseWrapper(
+                    cached.response,
+                    tier=current_tier_name,
+                    provider=provider,
+                    model=model,
+                    search_status="Cached Response",
+                    failover_history=[{
+                        'tier': current_tier_name,
+                        'provider': provider,
+                        'model': model,
+                        'status': 'success',
+                        'error': None,
+                    }]
+                ), ""
 
         # Get prompt templates
         ai_prompts = get_user_ai_prompts(user_id)
@@ -398,8 +415,8 @@ def call_ai_with_web_search(
             'watchlist_sentiment_analysis': getattr(ai_prompts, 'watchlist_sentiment_prompt_pre', None),
             'copilot': getattr(ai_prompts, 'copilot_chat_pre', None) or user_ai_settings.get('copilot_chat_pre'),
             'manual': getattr(ai_prompts, 'copilot_chat_pre', None) or user_ai_settings.get('copilot_chat_pre'),
-            'webull_crypto_analysis': getattr(ai_prompts, 'coin_analysis_pre', None) or WEBULL_CRYPTO_SEARCH_PROMPT,
-            'webull_equity_analysis': getattr(ai_prompts, 'coin_analysis_pre', None) or WEBULL_EQUITY_SEARCH_PROMPT,
+            'webull_crypto_analysis': WEBULL_CRYPTO_SEARCH_PROMPT,
+            'webull_equity_analysis': WEBULL_EQUITY_SEARCH_PROMPT,
         }
 
         stage1_template = stage1_prompt_map.get(prompt_type)
@@ -637,8 +654,8 @@ def call_ai_with_web_search(
             'watchlist_sentiment_analysis': getattr(ai_prompts, 'watchlist_sentiment_prompt_post', None),
             'copilot': getattr(ai_prompts, 'copilot_chat_post', None) or user_ai_settings.get('copilot_chat_post'),
             'manual': getattr(ai_prompts, 'copilot_chat_post', None) or user_ai_settings.get('copilot_chat_post'),
-            'webull_crypto_analysis': getattr(ai_prompts, 'coin_analysis_post', None) or WEBULL_CRYPTO_RESEARCH_PROMPT,
-            'webull_equity_analysis': getattr(ai_prompts, 'coin_analysis_post', None) or WEBULL_EQUITY_RESEARCH_PROMPT,
+            'webull_crypto_analysis': WEBULL_CRYPTO_RESEARCH_PROMPT,
+            'webull_equity_analysis': WEBULL_EQUITY_RESEARCH_PROMPT,
         }
         stage3_template = stage3_prompt_map.get(prompt_type)
         if not stage3_template:
@@ -665,16 +682,54 @@ def call_ai_with_web_search(
         ]
 
         final_content = _execute_ai_call(stage3_messages, p_max_tokens=max_tokens)
+        failover_history.append({
+            'tier': current_tier_name,
+            'provider': provider,
+            'model': model,
+            'status': 'success',
+            'error': None,
+        })
         return AIResponseWrapper(
             final_content,
             tier=current_tier_name,
             provider=provider,
             model=model,
-            search_status=search_status
+            search_status=search_status,
+            failover_history=failover_history,
         ), stage3_user_msg
 
     except Exception as e:
         logger.error(f"Error in call_ai_with_web_search (tier: {current_tier_name if 'current_tier_name' in locals() else tier_index}): {e}")
+        err_str = str(e)
+        if '429' in err_str:
+            if 'quota' in err_str.lower() or 'exhausted' in err_str.lower():
+                short_err = '429 Quota Exceeded'
+            elif 'overload' in err_str.lower():
+                short_err = '429 Server Overloaded'
+            elif 'balance' in err_str.lower() or 'insufficient' in err_str.lower():
+                short_err = '429 Insufficient Balance'
+            else:
+                short_err = '429 Rate Limit Exceeded'
+        elif 'timeout' in err_str.lower() or 'timed out' in err_str.lower():
+            short_err = 'Request Timed Out'
+        elif 'key not configured' in err_str.lower():
+            short_err = 'API Key Not Configured'
+        elif '401' in err_str or 'unauthorized' in err_str.lower() or 'invalid' in err_str.lower():
+            short_err = '401 Unauthorized / Invalid Key'
+        elif '404' in err_str:
+            short_err = '404 Model Not Found'
+        else:
+            short_err = err_str.split('\n')[0][:80]
+
+        if 'failover_history' in locals() and failover_history is not None:
+            failover_history.append({
+                'tier': locals().get('current_tier_name', f'tier_{tier_index}'),
+                'provider': locals().get('provider', 'unknown'),
+                'model': locals().get('model', 'unknown'),
+                'status': 'failed',
+                'error': short_err,
+            })
+
         _notify_ai_attempt(
             attempt_observer,
             'failed',
@@ -703,10 +758,11 @@ def call_ai_with_web_search(
                     search_lookback_hours=search_lookback_hours,
                     forecast_horizon_hours=forecast_horizon_hours,
                     attempt_observer=attempt_observer,
+                    failover_history=failover_history,
                 )
         raise
 
-def record_sentiment_history(user_id, symbol, sentiment, sentiment_reason, price_at_prediction, provider=None, model=None, tier=None, source_type='portfolio', coin_id=None, search_status=None, forecast_horizon_hours=24, grading_config=None):
+def record_sentiment_history(user_id, symbol, sentiment, sentiment_reason, price_at_prediction, provider=None, model=None, tier=None, source_type='portfolio', coin_id=None, search_status=None, forecast_horizon_hours=24, grading_config=None, failover_history=None):
     """Save an AI sentiment recommendation snapshot into sentiment_history for accuracy tracking."""
     try:
         from models import SentimentHistory
@@ -724,6 +780,7 @@ def record_sentiment_history(user_id, symbol, sentiment, sentiment_reason, price
             model=model,
             tier=tier,
             sentiment_search_status=search_status,
+            failover_history=failover_history,
             created_at=now,
             outcome_status='tracking',
             forecast_horizon_hours=float(forecast_horizon_hours),
@@ -829,7 +886,9 @@ def parse_sentiment_json(response_text, is_watchlist=False):
                     if any(x in k_lower for x in ['item 1', 'item1', 'sentiment', 'action', 'signal', 'recommendation', 'suggestion', 'item_1']):
                         if v_str.lower() in valid_phrases:
                             phrase = valid_phrases[v_str.lower()]
-                    elif any(x in k_lower for x in ['item 2', 'item2', 'reason', 'explanation', 'description', 'summary', 'item_2']):
+                        elif 'recommendation' in k_lower and len(v_str) > 15 and not reason:
+                            reason = v_str
+                    elif any(x in k_lower for x in ['item 2', 'item2', 'reason', 'explanation', 'description', 'summary', 'analysis', 'rationale', 'item_2']):
                         if v_str:
                             reason = v_str
                 
@@ -839,11 +898,22 @@ def parse_sentiment_json(response_text, is_watchlist=False):
                         if str(v).strip().lower() in valid_phrases:
                             phrase = valid_phrases[str(v).strip().lower()]
                             break
+
+                # Sanitize reason if it was set to a reserved key name or label
+                if reason:
+                    cleaned_reason = reason.strip().lower()
+                    if cleaned_reason in ['recommendation', 'sentiment', 'action', 'signal', 'suggestion', 'item 1', 'item 2', 'item1', 'item2', 'hold', 'buy', 'sell', 'none', 'null', 'n/a']:
+                        reason = None
+
                 # If reason not found by key name, take first long non-phrase value
                 if not reason:
                     for k, v in parsed.items():
                         candidate = str(v).strip()
-                        if candidate != phrase and len(candidate) > 10:
+                        k_str = str(k).strip().lower()
+                        if (candidate.lower() not in valid_phrases and
+                            candidate.lower() not in ['recommendation', 'sentiment', 'action', 'signal', 'suggestion', 'item 1', 'item 2', 'none', 'null', 'n/a'] and
+                            k_str not in ['recommendation', 'sentiment', 'action', 'signal'] and
+                            len(candidate) > 15):
                             reason = candidate
                             break
                             
@@ -851,7 +921,9 @@ def parse_sentiment_json(response_text, is_watchlist=False):
                 p_cand = str(parsed[0]).strip()
                 if p_cand.lower() in valid_phrases:
                     phrase = valid_phrases[p_cand.lower()]
-                reason = str(parsed[1]).strip()
+                r_cand = str(parsed[1]).strip()
+                if r_cand.lower() not in ['recommendation', 'sentiment', 'action', 'signal', 'none', 'null']:
+                    reason = r_cand
         except Exception as e:
             logger.warning(f"JSON sentiment decode error: {e}. Raw: {repr(json_match.group(1)[:200])}")
     else:
@@ -873,10 +945,13 @@ def parse_sentiment_json(response_text, is_watchlist=False):
         remainder = re.sub(re.escape(phrase), '', clean_text, flags=re.IGNORECASE)
         remainder = re.sub(r'[\{\}\[\]\"\':`]', ' ', remainder).strip()
         remainder = re.sub(r'\s+', ' ', remainder).strip()
-        if len(remainder) > 10:
+        if len(remainder) > 15 and remainder.lower() not in ['recommendation', 'sentiment', 'action', 'signal']:
             reason = remainder
             
-    return phrase or default_phrase, reason or ""
+    final_phrase = phrase or default_phrase
+    if not reason or reason.strip().lower() in ['recommendation', 'sentiment', 'action', 'signal', 'none', 'null', 'n/a']:
+        reason = f"Maintains {final_phrase} stance based on current market dynamics and technical signals."
+    return final_phrase, reason
 
 
 def persist_sentiment_analysis_status(
@@ -890,6 +965,7 @@ def persist_sentiment_analysis_status(
     model=None,
     tier=None,
     search_status=None,
+    failover_history=None,
 ):
     """Persist a live sentiment attempt state without retaining stale metadata."""
     row_model = WatchlistCoin if is_watchlist else Coin
@@ -904,6 +980,8 @@ def persist_sentiment_analysis_status(
     row.sentiment_tier = tier
     if hasattr(row, 'sentiment_search_status'):
         row.sentiment_search_status = search_status
+    if hasattr(row, 'sentiment_failover_history'):
+        row.sentiment_failover_history = failover_history
     if hasattr(row, 'sentiment_last_updated'):
         row.sentiment_last_updated = datetime.utcnow()
     db.session.commit()
@@ -1133,6 +1211,8 @@ def analyze_single_symbol_sentiment(user_id, username, symbol, is_watchlist=Fals
         resp_provider = getattr(response, 'provider', None)
         resp_model = getattr(response, 'model', None)
         resp_search_status = getattr(response, 'search_status', None) or 'Brave Search'
+        resp_failover_history = getattr(response, 'failover_history', None)
+        failover_history_json = json.dumps(resp_failover_history) if resp_failover_history else None
 
         # Update database
         resolved_coin_id = coin_id
@@ -1147,6 +1227,8 @@ def analyze_single_symbol_sentiment(user_id, username, symbol, is_watchlist=Fals
                 wl_row.sentiment_model = resp_model
                 wl_row.sentiment_tier = resp_tier
                 wl_row.sentiment_search_status = resp_search_status
+                if hasattr(wl_row, 'sentiment_failover_history'):
+                    wl_row.sentiment_failover_history = failover_history_json
                 db.session.commit()
                 resolved_coin_id = wl_row.id
                 snapshot_price = float(getattr(wl_row, 'current_price', 0.0) or 0.0)
@@ -1160,6 +1242,8 @@ def analyze_single_symbol_sentiment(user_id, username, symbol, is_watchlist=Fals
                 coin_row.sentiment_model = resp_model
                 coin_row.sentiment_tier = resp_tier
                 coin_row.sentiment_search_status = resp_search_status
+                if hasattr(coin_row, 'sentiment_failover_history'):
+                    coin_row.sentiment_failover_history = failover_history_json
                 db.session.commit()
                 resolved_coin_id = coin_row.id
                 snapshot_price = float(getattr(coin_row, 'current', 0.0) or getattr(coin_row, 'avg_entry', 0.0) or 0.0)
@@ -1185,6 +1269,7 @@ def analyze_single_symbol_sentiment(user_id, username, symbol, is_watchlist=Fals
             search_status=resp_search_status,
             forecast_horizon_hours=forecast_horizon_hours,
             grading_config=grading_config,
+            failover_history=failover_history_json,
         )
 
         log_ai_conversation(user_id, prompt_type, "user", actual_stage3_prompt, symbol=symbol, coin_id=resolved_coin_id, provider=resp_provider, model=resp_model, tier=resp_tier)

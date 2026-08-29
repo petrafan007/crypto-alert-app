@@ -290,6 +290,7 @@ def api_coin_data_live():
                     "sentiment_model": getattr(coin, 'sentiment_model', None),
                     "sentiment_tier": getattr(coin, 'sentiment_tier', None),
                     "sentiment_search_status": getattr(coin, 'sentiment_search_status', None),
+                    "sentiment_failover_history": getattr(coin, 'sentiment_failover_history', None),
                     "sentiment_tracking_enabled": getattr(coin, 'sentiment_tracking_enabled', True) is not False,
                     "cached_news": coin_news.get('text', ''),
                     "cached_news_date": coin_news.get('created_at', None)
@@ -347,6 +348,7 @@ def api_coin_data_live():
                         "sentiment_model": getattr(coin, 'sentiment_model', None),
                         "sentiment_tier": getattr(coin, 'sentiment_tier', None),
                         "sentiment_search_status": getattr(coin, 'sentiment_search_status', None),
+                        "sentiment_failover_history": getattr(coin, 'sentiment_failover_history', None),
                         "sentiment_tracking_enabled": getattr(coin, 'sentiment_tracking_enabled', True) is not False,
                         "cached_news": fallback_news.get('text', ''),
                         "cached_news_date": fallback_news.get('created_at', None)
@@ -493,6 +495,7 @@ def api_coin_data():
                     "sentiment_model": getattr(coin, 'sentiment_model', None),
                     "sentiment_tier": getattr(coin, 'sentiment_tier', None),
                     "sentiment_search_status": getattr(coin, 'sentiment_search_status', None),
+                    "sentiment_failover_history": getattr(coin, 'sentiment_failover_history', None),
                     "sentiment_tracking_enabled": getattr(coin, 'sentiment_tracking_enabled', True) is not False,
                     "cached_news": coin_news.get('text', ''),
                     "cached_news_date": coin_news.get('created_at', None)

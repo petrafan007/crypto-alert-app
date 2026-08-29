@@ -218,6 +218,7 @@ def get_webull_portfolio_rows(user_id):
             'sentiment_model': latest_signal.provider_model if latest_signal else None,
             'sentiment_tier': latest_signal.ai_tier if latest_signal else None,
             'sentiment_search_status': latest_signal.search_status if latest_signal else None,
+            'sentiment_failover_history': latest_signal.failover_history if latest_signal else None,
         })
     return rows
 

@@ -32,6 +32,7 @@ class Coin(db.Model):
     sentiment_model = db.Column(db.String(100), nullable=True)
     sentiment_tier = db.Column(db.String(50), nullable=True)
     sentiment_search_status = db.Column(db.String(100), nullable=True)
+    sentiment_failover_history = db.Column(db.Text, nullable=True)
     sentiment_tracking_enabled = db.Column(db.Boolean, default=True)
     note = db.Column(db.Text, default="")
     volatility_pct = db.Column(db.Float, nullable=True)
@@ -149,6 +150,7 @@ class ExternalSentimentSignal(db.Model):
     ai_provider = db.Column(db.String(50), nullable=True)
     ai_tier = db.Column(db.String(50), nullable=True)
     search_status = db.Column(db.String(100), nullable=True)
+    failover_history = db.Column(db.Text, nullable=True)
     origin = db.Column(db.String(20), default='manual')  # manual or scheduled
     forecast_horizon_hours = db.Column(db.Float, nullable=False, default=24.0)
     target_evaluation_at = db.Column(db.DateTime, nullable=False)
@@ -201,6 +203,7 @@ class WatchlistCoin(db.Model):
     sentiment_model = db.Column(db.String(100), nullable=True)
     sentiment_tier = db.Column(db.String(50), nullable=True)
     sentiment_search_status = db.Column(db.String(100), nullable=True)
+    sentiment_failover_history = db.Column(db.Text, nullable=True)
     sentiment_tracking_enabled = db.Column(db.Boolean, default=True)
     # 'crypto' for Binance/crypto assets, 'stock' for stocks/ETFs priced via Yahoo Finance
     asset_type = db.Column(db.String(20), default='crypto')
@@ -414,6 +417,7 @@ class SentimentHistory(db.Model):
     model = db.Column(db.String(100), nullable=True)
     tier = db.Column(db.String(50), nullable=True)
     sentiment_search_status = db.Column(db.String(100), nullable=True)
+    failover_history = db.Column(db.Text, nullable=True)
     outcome_price = db.Column(db.Float, nullable=True)
     outcome_pct = db.Column(db.Float, nullable=True)
     outcome_status = db.Column(db.String(20), default='tracking')  # 'correct', 'wrong', 'tracking', 'neutral'

@@ -125,6 +125,17 @@ The application utilizes a **unified PostgreSQL database**.
 
 Historical changelog entries retain the product name used when they were originally released. The application domain, repository slug, deployment folders, database, and service identifiers intentionally remain unchanged by the v2.45.0 brand update.
 
+## v2.56.2 (August 2026)
+
+- **Sentiment Reason & Thesis Explanation Integrity**:
+  - **Sanitized Fallback Parsing**: Fixed an issue in `parse_sentiment_json` where non-standard JSON responses or fallback extractions could inadvertently assign structural key labels (such as `"recommendation"`, `"action"`, or `"sentiment"`) as the explanatory text. Sentiment reasons are now strictly validated and sanitized to ensure a substantive 1–2 sentence thesis rationale is always presented.
+  - **Dedicated Webull Sentiment Prompts**: Explicitly enforced dedicated equity research prompts (`WEBULL_EQUITY_RESEARCH_PROMPT` and `WEBULL_CRYPTO_RESEARCH_PROMPT`) and rigorous JSON schema instructions in `services/webull_signal_service.py` to prevent falling back to open-ended long-form coin analysis essays.
+
+- **Failover Pipeline Diagnostics in Tooltips ("Buffed Tooltip")**:
+  - **Full Failover Visibility**: Enhanced the sentiment hover tooltip to display the complete failover pipeline status across all configured tiers (Primary, Secondary, Tertiary).
+  - **Provider Error Diagnostics**: When failover occurs, the tooltip explicitly logs why earlier providers failed (e.g. `429 Quota Exceeded`, `429 Server Overloaded`, `Request Timed Out`), providing complete transparency into why a fallback tier succeeded.
+  - **Persistent Failover Telemetry**: Added `failover_history` tracking across `ExternalSentimentSignal`, `SentimentHistory`, `Coin`, and `WatchlistCoin` database models and API payloads.
+
 ## v2.56.1 (August 2026)
 
 - **Unified Toast Notification System**:
