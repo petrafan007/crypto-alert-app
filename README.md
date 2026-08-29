@@ -125,6 +125,13 @@ The application utilizes a **unified PostgreSQL database**.
 
 Historical changelog entries retain the product name used when they were originally released. The application domain, repository slug, deployment folders, database, and service identifiers intentionally remain unchanged by the v2.45.0 brand update.
 
+## v2.53.2 (August 2026)
+
+- **Sentiment Provider Chain & Error Attribution Hotfix**:
+  - Sentiment analysis now uses only the primary, secondary, and tertiary AI providers explicitly selected in Settings. An unused API key can no longer silently add a provider such as OpenAI to the failover chain.
+  - Corrected the Inception Labs sentiment endpoint to `api.inceptionlabs.ai`, matching the app's connection test endpoint and eliminating the prior TLS failure.
+  - The Portfolio and Watchlist sentiment rows now update on every provider attempt. Their tooltip and provider/model/tier metadata show the active provider while retrying and the exact provider that most recently failed, rather than stale details from a prior successful analysis.
+
 ## v2.53.1 (August 2026)
 
 - **Hotfix: Sentiment Refresh TypeError**:

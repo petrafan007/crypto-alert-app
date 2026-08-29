@@ -45,8 +45,70 @@ WEBULL_EQUITY_RESEARCH_PROMPT = (
     "This is research only: do not claim to execute, place, amend, or cancel a trade."
 )
 
+# Keep the production request path aligned with the connection test endpoint.
+# `api.inceptionai.com` is not a valid TLS endpoint for the Inception Labs API.
+INCEPTION_CHAT_COMPLETIONS_URL = "https://api.inceptionlabs.ai/v1/chat/completions"
+
 _running_sentiment_users = set()
 _running_sentiment_lock = threading.Lock()
+
+
+def build_configured_ai_tiers(user_ai_settings):
+    """Return only the provider tiers explicitly selected in Settings.
+
+    Credentials must never implicitly expand a user's configured failover chain.
+    In particular, an unused provider key must not result in an unexpected API
+    request or an error message attributed to the wrong configured provider.
+    """
+    settings = user_ai_settings or {}
+    tiers = []
+
+    configured_tiers = (
+        (
+            "primary",
+            settings.get("ai_provider"),
+            settings.get("ai_model"),
+            settings.get("ai_reasoning_level") or "medium",
+        ),
+        (
+            "secondary",
+            settings.get("ai_provider_secondary") or settings.get("ai_provider_fallback"),
+            settings.get("ai_model_secondary") or settings.get("ai_model_fallback"),
+            settings.get("ai_reasoning_level_secondary")
+            or settings.get("ai_reasoning_level_fallback")
+            or "medium",
+        ),
+        (
+            "tertiary",
+            settings.get("ai_provider_tertiary"),
+            settings.get("ai_model_tertiary"),
+            settings.get("ai_reasoning_level_tertiary") or "medium",
+        ),
+    )
+
+    for tier_name, provider, model, reasoning_level in configured_tiers:
+        normalized_provider = str(provider or "").strip().lower()
+        if normalized_provider:
+            tiers.append((tier_name, normalized_provider, model, str(reasoning_level).lower()))
+
+    return tiers
+
+
+def _notify_ai_attempt(observer, event, tier=None, provider=None, model=None, error=None):
+    """Safely report the current provider attempt to an optional caller hook."""
+    if not observer:
+        return
+    try:
+        observer(
+            event=event,
+            tier=tier,
+            provider=provider,
+            model=model,
+            error=error,
+        )
+    except Exception as observer_error:
+        # Failure telemetry must never prevent the configured failover chain.
+        logger.warning("Unable to persist AI attempt status: %s", observer_error)
 
 def is_user_analysis_window_active(start_str, end_str):
     """Check if current Eastern time is within the user's configured window (HH:MM - HH:MM)."""
@@ -257,6 +319,7 @@ def call_ai_with_web_search(
     use_cache=False,
     search_lookback_hours=12,
     forecast_horizon_hours=None,
+    attempt_observer=None,
 ):
     """
     AGENTIC AI WORKFLOW - 3-STAGE PROCESS WITH 3-TIER CASCADE FAILOVER:
@@ -276,45 +339,9 @@ def call_ai_with_web_search(
         if not cred:
             raise ValueError(f"No credentials found for user: {username}")
         
-        # Build initial list of configured tiers
-        tier_configs = []
-        p_provider = user_ai_settings.get('ai_provider', 'openai')
-        p_model = user_ai_settings.get('ai_model')
-        p_reasoning = (user_ai_settings.get('ai_reasoning_level') or 'medium').lower()
-        if p_provider:
-            tier_configs.append(('primary', p_provider, p_model, p_reasoning))
-
-        s_provider = user_ai_settings.get('ai_provider_secondary') or user_ai_settings.get('ai_provider_fallback')
-        s_model = user_ai_settings.get('ai_model_secondary') or user_ai_settings.get('ai_model_fallback')
-        s_reasoning = (user_ai_settings.get('ai_reasoning_level_secondary') or user_ai_settings.get('ai_reasoning_level_fallback') or 'medium').lower()
-        if s_provider:
-            tier_configs.append(('secondary', s_provider, s_model, s_reasoning))
-
-        t_provider = user_ai_settings.get('ai_provider_tertiary')
-        t_model = user_ai_settings.get('ai_model_tertiary')
-        t_reasoning = (user_ai_settings.get('ai_reasoning_level_tertiary') or 'medium').lower()
-        if t_provider:
-            tier_configs.append(('tertiary', t_provider, t_model, t_reasoning))
-
-        # Auto-discover additional fallback providers from all active API keys in user credentials
-        used_providers = {t[1] for t in tier_configs if t[1]}
-        provider_defaults = {
-            'openai': ('gpt-5', 'medium'),
-            'gemini': ('gemini-3.7-flash', 'medium'),
-            'perplexity': ('sonar-pro', 'medium'),
-            'zai': ('glm-4.7-flash', 'medium'),
-            'inception': ('mercury-2', 'medium')
-        }
-        for prov, (def_mod, def_reas) in provider_defaults.items():
-            if prov not in used_providers:
-                has_key = bool(
-                    getattr(cred, f"{prov}_key", None) or 
-                    getattr(cred, f"{prov}_key_fallback", None) or 
-                    getattr(cred, f"{prov}_key_tertiary", None)
-                )
-                if has_key:
-                    tier_configs.append((f"auto_fallback_{prov}", prov, def_mod, def_reas))
-                    used_providers.add(prov)
+        # Fail over only through the tiers the user explicitly configured.
+        # Provider keys outside this chain are never used implicitly.
+        tier_configs = build_configured_ai_tiers(user_ai_settings)
 
         # Handle backward-compatible is_fallback_attempt flag
         if is_fallback_attempt and tier_index == 0:
@@ -331,6 +358,13 @@ def call_ai_with_web_search(
             logger.info(f"⚠️ USING {current_tier_name.upper()} AI PROVIDER: {provider} / {model} (reasoning: {ai_reasoning_level})")
         else:
             logger.info(f"Using PRIMARY AI Provider: {provider} / {model} (reasoning: {ai_reasoning_level})")
+        _notify_ai_attempt(
+            attempt_observer,
+            'started',
+            tier=current_tier_name,
+            provider=provider,
+            model=model,
+        )
 
         def _pick_key(p):
             if current_tier_name == 'tertiary':
@@ -438,7 +472,7 @@ def call_ai_with_web_search(
                     "max_tokens": p_max_tokens,
                     "temperature": 0.2
                 }
-                r = requests.post("https://api.inceptionai.com/v1/chat/completions", headers=headers, json=payload, timeout=20)
+                r = requests.post(INCEPTION_CHAT_COMPLETIONS_URL, headers=headers, json=payload, timeout=20)
                 if r.status_code == 200:
                     return r.json()['choices'][0]['message']['content']
                 raise Exception(f"Inception API error: {r.text}")
@@ -641,6 +675,14 @@ def call_ai_with_web_search(
 
     except Exception as e:
         logger.error(f"Error in call_ai_with_web_search (tier: {current_tier_name if 'current_tier_name' in locals() else tier_index}): {e}")
+        _notify_ai_attempt(
+            attempt_observer,
+            'failed',
+            tier=locals().get('current_tier_name'),
+            provider=locals().get('provider'),
+            model=locals().get('model'),
+            error=str(e),
+        )
         
         # Check if another tier is configured and available
         next_tier_index = tier_index + 1
@@ -660,6 +702,7 @@ def call_ai_with_web_search(
                     tier_index=next_tier_index,
                     search_lookback_hours=search_lookback_hours,
                     forecast_horizon_hours=forecast_horizon_hours,
+                    attempt_observer=attempt_observer,
                 )
         raise
 
@@ -835,6 +878,38 @@ def parse_sentiment_json(response_text, is_watchlist=False):
             
     return phrase or default_phrase, reason or ""
 
+
+def persist_sentiment_analysis_status(
+    user_id,
+    symbol,
+    is_watchlist,
+    sentiment,
+    reason,
+    *,
+    provider=None,
+    model=None,
+    tier=None,
+    search_status=None,
+):
+    """Persist a live sentiment attempt state without retaining stale metadata."""
+    row_model = WatchlistCoin if is_watchlist else Coin
+    row = row_model.query.filter_by(user_id=user_id, symbol=symbol).first()
+    if not row:
+        return False
+
+    row.sentiment = sentiment
+    row.sentiment_reason = reason
+    row.sentiment_provider = provider
+    row.sentiment_model = model
+    row.sentiment_tier = tier
+    if hasattr(row, 'sentiment_search_status'):
+        row.sentiment_search_status = search_status
+    if hasattr(row, 'sentiment_last_updated'):
+        row.sentiment_last_updated = datetime.utcnow()
+    db.session.commit()
+    return True
+
+
 def analyze_single_symbol_sentiment(user_id, username, symbol, is_watchlist=False, coin_id=None, amount=0.0):
     """
     Run on-demand sentiment analysis for a single symbol (Portfolio coin or Watchlist coin).
@@ -898,37 +973,28 @@ def analyze_single_symbol_sentiment(user_id, username, symbol, is_watchlist=Fals
             logger.warning(f"Missing sentiment prompts for user {username} (watchlist={is_watchlist}). Marking Error.")
             err_sentiment = "Error"
             err_reason = "Missing sentiment prompt configuration in Settings."
-            if is_watchlist:
-                wl_row = WatchlistCoin.query.filter_by(user_id=user_id, symbol=symbol).first()
-                if wl_row:
-                    wl_row.sentiment = err_sentiment
-                    wl_row.sentiment_reason = err_reason
-                    if hasattr(wl_row, 'sentiment_last_updated'):
-                        wl_row.sentiment_last_updated = datetime.utcnow()
-                    db.session.commit()
-            else:
-                coin_row = Coin.query.filter_by(user_id=user_id, symbol=symbol).first()
-                if coin_row:
-                    coin_row.sentiment = err_sentiment
-                    coin_row.sentiment_reason = err_reason
-                    coin_row.sentiment_last_updated = datetime.utcnow()
-                    db.session.commit()
+            persist_sentiment_analysis_status(
+                user_id,
+                symbol,
+                is_watchlist,
+                err_sentiment,
+                err_reason,
+                search_status="Not started — sentiment prompt configuration is incomplete",
+            )
             return err_sentiment, err_reason
 
         current_datetime = format_eastern_datetime(None, "%B %d, %Y at %I:%M %p EDT")
         
-        # Mark coin as Checking now... in DB so any live queries show real-time progress
+        # Mark coin as Checking now... in DB so any live queries show real-time progress.
         try:
-            if is_watchlist:
-                wl_live = WatchlistCoin.query.filter_by(user_id=user_id, symbol=symbol).first()
-                if wl_live:
-                    wl_live.sentiment = "Checking now..."
-                    db.session.commit()
-            else:
-                c_live = Coin.query.filter_by(user_id=user_id, symbol=symbol).first()
-                if c_live:
-                    c_live.sentiment = "Checking now..."
-                    db.session.commit()
+            persist_sentiment_analysis_status(
+                user_id,
+                symbol,
+                is_watchlist,
+                "Checking now...",
+                "Preparing sentiment analysis.",
+                search_status="AI provider attempt pending",
+            )
         except Exception as mark_err:
             logger.warning(f"Could not mark {symbol} as Checking now...: {mark_err}")
             db.session.rollback()
@@ -995,6 +1061,49 @@ def analyze_single_symbol_sentiment(user_id, username, symbol, is_watchlist=Fals
             f"{price_vol_history_text}\n"
         )
 
+        latest_attempt = {
+            'tier': None,
+            'provider': None,
+            'model': None,
+            'error': None,
+        }
+
+        def observe_ai_attempt(event, tier=None, provider=None, model=None, error=None):
+            latest_attempt.update({
+                'tier': tier,
+                'provider': provider,
+                'model': model,
+                'error': error,
+            })
+            provider_label = provider or 'configured AI provider'
+            tier_label = tier or 'configured tier'
+            model_label = model or 'default model'
+            if event == 'started':
+                status = 'Checking now...'
+                reason = (
+                    f"Attempting {tier_label} AI provider: "
+                    f"{provider_label} ({model_label})."
+                )
+                search_status = 'AI provider attempt in progress'
+            else:
+                status = 'Error'
+                reason = (
+                    f"Analysis error ({tier_label} / {provider_label} / {model_label}): "
+                    f"{error or 'Unknown provider error'}"
+                )
+                search_status = 'AI provider attempt failed'
+            persist_sentiment_analysis_status(
+                user_id,
+                symbol,
+                is_watchlist,
+                status,
+                reason,
+                provider=provider,
+                model=model,
+                tier=tier,
+                search_status=search_status,
+            )
+
         response, actual_stage3_prompt = call_ai_with_web_search(
             username=username,
             messages=[
@@ -1007,6 +1116,7 @@ def analyze_single_symbol_sentiment(user_id, username, symbol, is_watchlist=Fals
             amount=amount,
             search_lookback_hours=lookback_hours,
             forecast_horizon_hours=forecast_horizon_hours,
+            attempt_observer=observe_ai_attempt,
         )
 
         sentiment_text = ""
@@ -1111,21 +1221,27 @@ def analyze_single_symbol_sentiment(user_id, username, symbol, is_watchlist=Fals
     except Exception as e:
         logger.error(f"Error in analyze_single_symbol_sentiment for {symbol}: {e}")
         try:
-            if is_watchlist:
-                wl_row = WatchlistCoin.query.filter_by(user_id=user_id, symbol=symbol).first()
-                if wl_row:
-                    wl_row.sentiment = "Error"
-                    wl_row.sentiment_reason = f"Analysis error: {str(e)}"
-                    if hasattr(wl_row, 'sentiment_last_updated'):
-                        wl_row.sentiment_last_updated = datetime.utcnow()
-                    db.session.commit()
-            else:
-                coin_row = Coin.query.filter_by(user_id=user_id, symbol=symbol).first()
-                if coin_row:
-                    coin_row.sentiment = "Error"
-                    coin_row.sentiment_reason = f"Analysis error: {str(e)}"
-                    coin_row.sentiment_last_updated = datetime.utcnow()
-                    db.session.commit()
+            attempt = locals().get('latest_attempt') or {}
+            tier = attempt.get('tier')
+            provider = attempt.get('provider')
+            model = attempt.get('model')
+            provider_label = provider or 'configured AI provider'
+            tier_label = tier or 'configured tier'
+            model_label = model or 'default model'
+            persist_sentiment_analysis_status(
+                user_id,
+                symbol,
+                is_watchlist,
+                "Error",
+                (
+                    f"Analysis error ({tier_label} / {provider_label} / {model_label}): "
+                    f"{str(e)}"
+                ),
+                provider=provider,
+                model=model,
+                tier=tier,
+                search_status='AI provider attempt failed',
+            )
         except Exception:
             db.session.rollback()
         raise e
