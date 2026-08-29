@@ -1,6 +1,6 @@
 # Crypto & Securities Dashboard
 
-**Crypto & Securities Dashboard** is a comprehensive, non-custodial digital-asset and securities portfolio management and trading platform for Binance.US and Webull. It provides real-time portfolio tracking, automated price alerts, exchange-scoped order workflows, built-in staking management, and AI-powered market sentiment analysis. Webull supports explicitly authorized, account-scoped equity/ETF, crypto, and single-leg option orders; no provider data or orders cross exchange boundaries.
+**Crypto & Securities Dashboard** is a comprehensive, non-custodial digital-asset and securities portfolio management and trading platform for Binance.US and Webull. It provides real-time portfolio tracking, automated price alerts, exchange-scoped order workflows, built-in staking management, and AI-powered market sentiment analysis. Webull supports explicitly authorized, account-scoped equity/ETF, crypto, single-leg option, and futures orders; no provider data or orders cross exchange boundaries.
 
 **Last Updated**: August 2026
 
@@ -124,6 +124,16 @@ The application utilizes a **unified PostgreSQL database**.
 ## Version History & Changelog
 
 Historical changelog entries retain the product name used when they were originally released. The application domain, repository slug, deployment folders, database, and service identifiers intentionally remain unchanged by the v2.45.0 brand update.
+
+## v2.54.0 (August 2026)
+
+- **Webull Futures Asset Class**:
+  - Added a distinct **Futures** asset class with Webull product catalogue lookup, exact contract selection, entitled futures quote retrieval, historical-bar support, and live order submission using Webull's `FUTURES` instrument contract.
+  - Futures orders support Buy/Sell, whole-contract quantities, Market, Limit, Stop Loss, Stop Loss Limit, and Trailing Stop Loss orders, plus DAY/GTC time in force. The server rechecks the exact tradable contract before order transmission.
+  - The ticket does not invent a futures cash value: Webull calculates applicable margin and notional for the selected contract at order acceptance.
+- **Webull Account Asset-Lane Protection**:
+  - Crypto Webull accounts visibly disable **Stocks & ETFs**, **Options (Calls & Puts)**, and **Futures**. Non-Crypto Webull accounts visibly disable **Crypto**.
+  - The same account/asset restriction is enforced server-side, preventing a modified browser request from crossing account classes.
 
 ## v2.53.3 (August 2026)
 

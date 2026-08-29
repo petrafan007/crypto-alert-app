@@ -1,4 +1,5 @@
 import unittest
+from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 from services.webull_service import (
@@ -9,6 +10,9 @@ from services.webull_service import (
     get_webull_accounts,
     get_webull_account_list,
     get_webull_market_bars,
+    get_webull_futures_catalog,
+    get_webull_futures_contracts,
+    get_webull_futures_snapshot,
     get_webull_option_snapshot,
     get_webull_order_history,
     get_webull_open_orders,
@@ -21,7 +25,7 @@ from services.webull_service import (
     test_webull_connection as check_webull_connection,
     clear_webull_order_cache,
 )
-from routes.system import _webull_account_response
+from routes.system import _require_webull_instrument_account_match, _webull_account_response
 
 
 class WebullServiceTests(unittest.TestCase):
@@ -247,6 +251,42 @@ class WebullServiceTests(unittest.TestCase):
                 )
         self.assertEqual(request_mock.call_count, 1)
 
+    def test_futures_catalog_contract_snapshot_and_bars_use_documented_endpoints(self):
+        class_response = Mock(status_code=200)
+        class_response.json.return_value = {'data': [{'product_code': 'INDEX', 'name': 'Index futures'}]}
+        product_response = Mock(status_code=200)
+        product_response.json.return_value = {'data': [{'product_code': 'ES', 'name': 'E-mini S&P 500'}]}
+        contract_response = Mock(status_code=200)
+        contract_response.json.return_value = {'data': [{'symbol': 'ESZ5', 'product_code': 'ES', 'name': 'E-mini S&P 500 Dec 2025'}]}
+        snapshot_response = Mock(status_code=200)
+        snapshot_response.json.return_value = {'data': [{'symbol': 'ESZ5', 'last_price': '4500.25', 'bid': '4500.00', 'ask': '4500.50'}]}
+        bars_response = Mock(status_code=200)
+        bars_response.json.return_value = {'data': {'bars': [{'timestamp': 1787832000000, 'c': '4500.25'}]}}
+        with patch('services.webull_service._webull_request', side_effect=[
+            class_response, product_response, contract_response, snapshot_response, bars_response,
+        ]) as request_mock:
+            catalog = get_webull_futures_catalog('app-key', 'app-secret', access_token='token')
+            contracts = get_webull_futures_contracts('app-key', 'app-secret', access_token='token', symbol='esz5')
+            snapshot = get_webull_futures_snapshot('app-key', 'app-secret', access_token='token', symbol='esz5')
+            bars = get_webull_market_bars(
+                'app-key', 'app-secret', access_token='token', symbol='ESZ5',
+                instrument_type='FUTURES', interval='D', limit=20,
+            )
+
+        self.assertEqual([call.args[4] for call in request_mock.call_args_list], [
+            '/trading/instruments/futures/product-classes/list',
+            '/trading/instruments/futures/product-codes/list',
+            '/trading/instruments/futures/contracts/list',
+            '/market-data/futures/snapshots/list',
+            '/market-data/futures/bars/list',
+        ])
+        self.assertEqual(catalog['products'][0]['product_code'], 'ES')
+        self.assertEqual(contracts[0]['symbol'], 'ESZ5')
+        self.assertEqual(snapshot['price'], 4500.25)
+        self.assertEqual(bars[0]['close'], 4500.25)
+        self.assertEqual(request_mock.call_args_list[2].kwargs['query_params'], {'symbols': 'ESZ5'})
+        self.assertEqual(request_mock.call_args_list[3].kwargs['query_params']['category'], 'US_FUTURES')
+
     def test_option_bars_and_snapshot_use_option_endpoints_and_keep_contract_identity(self):
         bars_response = Mock(status_code=200)
         bars_response.json.return_value = {'data': {'bars': [{'timestamp': 1787832000000, 'c': '3.25'}]}}
@@ -408,6 +448,37 @@ class WebullServiceTests(unittest.TestCase):
         with self.assertRaisesRegex(WebullConnectionError, 'DAY'):
             place_webull_order('app-key', 'app-secret', order_type='LIMIT', time_in_force='GTC', limit_price=2, **{k: v for k, v in base.items() if k != 'time_in_force'})
 
+    def test_futures_order_uses_futures_schema_and_trailing_stop_fields(self):
+        response = Mock(status_code=200)
+        response.json.return_value = {'data': {'order_id': 'wb-futures-1'}}
+        with patch('services.webull_service._webull_request', return_value=response) as request_mock:
+            result = place_webull_order(
+                'app-key', 'app-secret', 'production', 'token-123',
+                account_id='futures-account', symbol='ESZ5', instrument_type='FUTURES',
+                side='SELL', order_type='TRAILING_STOP_LOSS', quantity=2,
+                trailing_type='PERCENTAGE', trailing_stop_step=1.25, time_in_force='GTC',
+            )
+
+        self.assertTrue(result['success'])
+        order = request_mock.call_args.kwargs['body']['new_orders'][0]
+        self.assertEqual(order, {
+            'combo_type': 'NORMAL', 'client_order_id': order['client_order_id'],
+            'symbol': 'ESZ5', 'instrument_type': 'FUTURES', 'market': 'US',
+            'order_type': 'TRAILING_STOP_LOSS', 'side': 'SELL', 'quantity': '2',
+            'time_in_force': 'GTC', 'entrust_type': 'QTY',
+            'trailing_type': 'PERCENTAGE', 'trailing_stop_step': '1.25',
+        })
+
+    def test_futures_orders_reject_fractional_contracts_and_invalid_trail(self):
+        base = {
+            'account_id': 'futures-account', 'symbol': 'ESZ5', 'instrument_type': 'FUTURES',
+            'side': 'BUY', 'time_in_force': 'DAY',
+        }
+        with self.assertRaisesRegex(WebullConnectionError, 'whole number'):
+            place_webull_order('app-key', 'app-secret', order_type='MARKET', quantity=0.5, **base)
+        with self.assertRaisesRegex(WebullConnectionError, 'AMOUNT or PERCENTAGE'):
+            place_webull_order('app-key', 'app-secret', order_type='TRAILING_STOP_LOSS', quantity=1, **base)
+
     def test_place_webull_stop_and_stop_limit_orders(self):
         response = Mock(status_code=200)
         response.json.return_value = {
@@ -480,6 +551,19 @@ class WebullServiceTests(unittest.TestCase):
 
 
 class AccountScopeAndFilteringTests(unittest.TestCase):
+    def test_crypto_and_non_crypto_accounts_are_kept_in_separate_asset_lanes(self):
+        setting = SimpleNamespace(webull_connected_accounts=[
+            {'account_id': 'crypto-account', 'account_class': 'CRYPTO', 'account_label': 'Crypto'},
+            {'account_id': 'cash-account', 'account_class': 'INDIVIDUAL_CASH', 'account_label': 'Individual Cash'},
+        ])
+
+        self.assertEqual(_require_webull_instrument_account_match(setting, 'crypto-account', 'CRYPTO'), 'CRYPTO')
+        self.assertEqual(_require_webull_instrument_account_match(setting, 'cash-account', 'FUTURES'), 'FUTURES')
+        with self.assertRaisesRegex(WebullConnectionError, 'Crypto Webull account'):
+            _require_webull_instrument_account_match(setting, 'crypto-account', 'FUTURES')
+        with self.assertRaisesRegex(WebullConnectionError, 'Crypto orders require'):
+            _require_webull_instrument_account_match(setting, 'cash-account', 'CRYPTO')
+
     def test_browser_account_response_masks_numbers_applies_alias_and_uses_local_balance(self):
         accounts = _webull_account_response(
             [{

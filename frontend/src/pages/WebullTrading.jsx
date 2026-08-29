@@ -113,9 +113,14 @@ function WebullOrderTable({ orders, emptyText, onCancelOrder, cancellingId }) {
 
 const isCryptoAccount = (acc) => {
   if (!acc) return false;
-  const cls = String(acc.account_class || '').toUpperCase();
-  const label = String(acc.account_label || acc.account_name || '').toLowerCase();
-  return cls === 'CRYPTO' || label.includes('crypto');
+  const identity = [
+    acc.account_class,
+    acc.account_type,
+    acc.account_sub_type,
+    acc.account_label,
+    acc.account_name,
+  ].filter(Boolean).join(' ').toLowerCase();
+  return identity.includes('crypto');
 };
 
 const isIndividualCashAccount = (acc) => {
@@ -149,6 +154,7 @@ const normalizedWebullInstrumentType = (value) => {
   const type = String(value || '').trim().toUpperCase();
   if (['CRYPTO', 'COIN', 'TOKEN'].includes(type)) return 'CRYPTO';
   if (['OPTION', 'OPTIONS'].includes(type)) return 'OPTION';
+  if (['FUTURE', 'FUTURES'].includes(type)) return 'FUTURES';
   return 'EQUITY';
 };
 
@@ -212,6 +218,12 @@ export default function WebullTrading({ isLightMode = false }) {
   const [selectedSymbol, setSelectedSymbol] = useState('AAPL');
   const [selectedInstrumentType, setSelectedInstrumentType] = useState('EQUITY');
   const [selectedOptionHoldingId, setSelectedOptionHoldingId] = useState('');
+  const [futuresCatalog, setFuturesCatalog] = useState({ classes: [], products: [] });
+  const [futuresContracts, setFuturesContracts] = useState([]);
+  const [futuresContractInput, setFuturesContractInput] = useState('');
+  const [selectedFuturesContract, setSelectedFuturesContract] = useState(null);
+  const [futuresLoading, setFuturesLoading] = useState(false);
+  const [futuresMessage, setFuturesMessage] = useState('');
   const [livePrice, setLivePrice] = useState(0);
 
   // Helper to detect cash-based Webull accounts (Individual Cash, Roth IRA, Rollover IRA)
@@ -272,6 +284,8 @@ export default function WebullTrading({ isLightMode = false }) {
     optionType: 'CALL',
     optionStrike: '',
     optionExpiration: '',
+    trailingType: 'AMOUNT',
+    trailingStopStep: '',
   });
 
   const availableOrderTypes = useMemo(() => {
@@ -289,6 +303,15 @@ export default function WebullTrading({ isLightMode = false }) {
         { value: 'MARKET', label: 'Market', description: 'Execute immediately at the best available price' },
         commonLimit,
         stopLossLimit,
+      ];
+    }
+    if (selectedInstrumentType === 'FUTURES') {
+      return [
+        { value: 'MARKET', label: 'Market', description: 'Execute immediately at the best available price' },
+        commonLimit,
+        stopLoss,
+        stopLossLimit,
+        { value: 'TRAILING_STOP_LOSS', label: 'Trailing Stop', description: 'Trail the market by a dollar amount or percentage' },
       ];
     }
     return [
@@ -439,7 +462,7 @@ export default function WebullTrading({ isLightMode = false }) {
       const urlAccountId = urlParams.get('account_id')?.trim();
       const urlInstrumentType = urlParams.get('instrument_type')?.toUpperCase()?.trim();
       const urlAccountPreference = urlParams.get('account_preference')?.toLowerCase()?.trim();
-      const requestedInstrumentType = ['CRYPTO', 'EQUITY', 'OPTION'].includes(urlInstrumentType) ? urlInstrumentType : null;
+      const requestedInstrumentType = ['CRYPTO', 'EQUITY', 'OPTION', 'FUTURES'].includes(urlInstrumentType) ? urlInstrumentType : null;
       const urlHoldingId = urlParams.get('holding_id')?.trim();
       const deepLinkedHolding = urlHoldingId
         ? importedHoldings.find((holding) => String(holding?.id || '') === urlHoldingId)
@@ -505,7 +528,9 @@ export default function WebullTrading({ isLightMode = false }) {
         const isCrypto = isCryptoAccount(activeAcc);
         const matchedHolding = deepLinkedHolding
           || (urlSymbol ? holdingForAccount(importedHoldings, urlSymbol, activeAcc.account_id) : null);
-        const nextInstrumentType = requestedInstrumentType
+        const requestedTypeAllowedForAccount = !requestedInstrumentType
+          || (isCrypto ? requestedInstrumentType === 'CRYPTO' : requestedInstrumentType !== 'CRYPTO');
+        const nextInstrumentType = requestedTypeAllowedForAccount && requestedInstrumentType
           || (matchedHolding ? normalizedWebullInstrumentType(matchedHolding.instrument_type) : (isCrypto ? 'CRYPTO' : 'EQUITY'));
         setSelectedAccountId(activeAcc.account_id);
         setSelectedInstrumentType(nextInstrumentType);
@@ -516,6 +541,14 @@ export default function WebullTrading({ isLightMode = false }) {
             ? (matchedHolding?.underlying_symbol || urlSymbol)
             : urlSymbol;
           setSelectedSymbol(ticketSymbol);
+          if (nextInstrumentType === 'FUTURES') {
+            setFuturesContractInput(urlSymbol);
+            setSelectedFuturesContract(matchedHolding ? {
+              symbol: urlSymbol,
+              name: matchedHolding.name || urlSymbol,
+              expiration_date: matchedHolding.expiration_date,
+            } : null);
+          }
           if (matchedHolding?.current_price) setLivePrice(Number(matchedHolding.current_price));
           setOrderForm((prev) => ({
             ...prev,
@@ -535,7 +568,7 @@ export default function WebullTrading({ isLightMode = false }) {
             setOrderForm((prev) => ({ ...prev, price: Number(firstCrypto.current_price).toFixed(2) }));
           }
         } else if (!isCrypto && (selectedSymbol === 'BTCUSD' || selectedSymbol.endsWith('USD'))) {
-          const firstStock = importedHoldings.find((h) => String(h.account_id || '') === activeAcc.account_id && !/crypto|coin|token/i.test(h.instrument_type || ''));
+          const firstStock = importedHoldings.find((h) => String(h.account_id || '') === activeAcc.account_id && !/crypto|coin|token/i.test(h.instrument_type || '') && String(h.instrument_type || '').toUpperCase() !== 'FUTURES');
           setSelectedSymbol(firstStock ? firstStock.symbol : 'AAPL');
           if (firstStock?.current_price) {
             setLivePrice(Number(firstStock.current_price));
@@ -580,6 +613,51 @@ export default function WebullTrading({ isLightMode = false }) {
 
   // Sync active account and cash balance
   const activeAccount = useMemo(() => accounts.find((a) => a.account_id === selectedAccountId) || accounts[0], [accounts, selectedAccountId]);
+  const activeAccountIsCrypto = isCryptoAccount(activeAccount);
+  const assetClassDisabled = (assetClass) => {
+    if (!activeAccount) return false;
+    return activeAccountIsCrypto ? assetClass !== 'CRYPTO' : assetClass === 'CRYPTO';
+  };
+
+  const resetFuturesSelection = () => {
+    setFuturesContracts([]);
+    setFuturesContractInput('');
+    setSelectedFuturesContract(null);
+    setFuturesMessage('');
+  };
+
+  const handleAssetClassChange = (nextType) => {
+    if (assetClassDisabled(nextType)) return;
+    userChangedSessionRef.current = false;
+    setSelectedInstrumentType(nextType);
+    setSelectedOptionHoldingId('');
+    setBalancePercentage(0);
+    setOrderValidationError('');
+    if (nextType !== 'FUTURES') resetFuturesSelection();
+    if (nextType === 'CRYPTO') {
+      const cryptoHolding = holdings.find((holding) => String(holding.account_id || '') === String(selectedAccountId)
+        && /crypto|coin|token/i.test(holding.instrument_type || ''));
+      const nextSymbol = cryptoHolding?.symbol || 'BTCUSD';
+      setSelectedSymbol(nextSymbol);
+    } else if (nextType === 'EQUITY') {
+      const equityHolding = holdings.find((holding) => String(holding.account_id || '') === String(selectedAccountId)
+        && !/crypto|coin|token/i.test(holding.instrument_type || '')
+        && !['OPTION', 'FUTURES'].includes(String(holding.instrument_type || '').toUpperCase()));
+      setSelectedSymbol(equityHolding?.symbol || 'AAPL');
+    } else if (nextType === 'FUTURES') {
+      setSelectedSymbol('');
+    }
+    setLivePrice(0);
+    setOrderForm((prev) => ({
+      ...prev,
+      type: nextType === 'OPTION' ? 'LIMIT' : 'MARKET',
+      quantity: '',
+      quoteQuantity: '',
+      price: '',
+      stopPrice: '',
+      trailingStopStep: '',
+    }));
+  };
 
   // Automatically default session for cash-based accounts when instrument or account changes
   useEffect(() => {
@@ -593,6 +671,72 @@ export default function WebullTrading({ isLightMode = false }) {
     const b = activeAccount.balance;
     return nonNegativeNumber(b.total_cash_balance ?? b.cash_balance ?? b.settled_cash ?? b.cashBalance ?? 0);
   }, [activeAccount]);
+
+  const loadFuturesCatalog = async () => {
+    setFuturesLoading(true);
+    setFuturesMessage('');
+    try {
+      const response = await axios.get('/api/webull/futures/catalog', { withCredentials: true });
+      setFuturesCatalog({
+        classes: response.data?.classes || [],
+        products: response.data?.products || [],
+      });
+    } catch (requestError) {
+      setFuturesMessage(requestError.response?.data?.message || 'Unable to load the Webull futures product catalogue.');
+    } finally {
+      setFuturesLoading(false);
+    }
+  };
+
+  const lookupFuturesContracts = async () => {
+    const requestedSymbol = futuresContractInput.trim().toUpperCase();
+    if (!requestedSymbol) {
+      setFuturesMessage('Enter an exact futures contract code, for example ESZ5.');
+      return;
+    }
+    setFuturesLoading(true);
+    setFuturesMessage('');
+    try {
+      const response = await axios.get('/api/webull/futures/contracts', {
+        params: { symbol: requestedSymbol },
+        withCredentials: true,
+      });
+      const contracts = response.data?.contracts || [];
+      setFuturesContracts(contracts);
+      if (!contracts.length) setFuturesMessage(`No tradable Webull futures contract was returned for ${requestedSymbol}.`);
+      if (contracts.length === 1) {
+        const contract = contracts[0];
+        setSelectedFuturesContract(contract);
+        setSelectedSymbol(contract.symbol || requestedSymbol);
+        setLivePrice(0);
+        setOrderForm((prev) => ({ ...prev, type: 'MARKET', quantity: '', quoteQuantity: '', price: '', stopPrice: '', trailingStopStep: '' }));
+      }
+    } catch (requestError) {
+      setFuturesContracts([]);
+      setSelectedFuturesContract(null);
+      setFuturesMessage(requestError.response?.data?.message || 'Unable to look up the Webull futures contract.');
+    } finally {
+      setFuturesLoading(false);
+    }
+  };
+
+  const selectFuturesContract = (contract) => {
+    const contractSymbol = String(contract?.symbol || '').trim().toUpperCase();
+    if (!contractSymbol) return;
+    setSelectedFuturesContract(contract);
+    setFuturesContractInput(contractSymbol);
+    setSelectedSymbol(contractSymbol);
+    setLivePrice(0);
+    setBalancePercentage(0);
+    setOrderValidationError('');
+    setOrderForm((prev) => ({ ...prev, type: 'MARKET', quantity: '', quoteQuantity: '', price: '', stopPrice: '', trailingStopStep: '' }));
+  };
+
+  useEffect(() => {
+    if (selectedInstrumentType === 'FUTURES' && !activeAccountIsCrypto && !futuresCatalog.products.length && !futuresLoading) {
+      loadFuturesCatalog();
+    }
+  }, [selectedInstrumentType, activeAccountIsCrypto]);
 
   // An option sale may only close the exact held contract: account,
   // underlying, expiration, strike, and call/put all have to match.
@@ -624,17 +768,25 @@ export default function WebullTrading({ isLightMode = false }) {
     const loadSnapshot = async () => {
       try {
         if (selectedInstrumentType === 'OPTION' && !currentHolding?.id) return;
+        if (selectedInstrumentType === 'FUTURES' && !selectedFuturesContract?.symbol) return;
         const response = selectedInstrumentType === 'OPTION'
           ? await axios.get('/api/webull/option-market-data', {
             params: { holding_id: currentHolding.id },
             withCredentials: true,
           })
+          : selectedInstrumentType === 'FUTURES'
+            ? await axios.get('/api/webull/futures/market-data', {
+              params: { symbol: selectedSymbol },
+              withCredentials: true,
+            })
           : await axios.get('/api/webull/market-snapshot', {
             params: { symbol: selectedSymbol, instrument_type: selectedInstrumentType },
             withCredentials: true,
           });
         const price = Number(selectedInstrumentType === 'OPTION'
           ? response.data?.quote?.last_price
+          : selectedInstrumentType === 'FUTURES'
+            ? response.data?.quote?.price
           : response.data?.snapshot?.price || 0);
         if (active && price > 0) {
           setLivePrice(price);
@@ -647,10 +799,11 @@ export default function WebullTrading({ isLightMode = false }) {
     loadSnapshot();
     const timer = window.setInterval(loadSnapshot, 30000);
     return () => { active = false; window.clearInterval(timer); };
-  }, [selectedSymbol, selectedInstrumentType, currentHolding]);
+  }, [selectedSymbol, selectedInstrumentType, currentHolding, selectedFuturesContract]);
 
   // Handlers for Instrument change from Top TradingView Chart
   const handleInstrumentChange = ({ symbol: nextSymbol, instrumentType: nextType }) => {
+    if (assetClassDisabled(nextType)) return;
     userChangedSessionRef.current = false;
     setSelectedSymbol(nextSymbol);
     setSelectedInstrumentType(nextType);
@@ -664,6 +817,7 @@ export default function WebullTrading({ isLightMode = false }) {
       quoteQuantity: '',
       price: '',
       stopPrice: '',
+      trailingStopStep: '',
       ...(nextType === 'EQUITY' && isCashBasedAccount(activeAccount) ? { tradingSession: getDefaultTradingSession() } : {})
     }));
   };
@@ -672,6 +826,7 @@ export default function WebullTrading({ isLightMode = false }) {
     userChangedSessionRef.current = false;
     setSelectedAccountId(newAccountId);
     setSelectedOptionHoldingId('');
+    resetFuturesSelection();
     setBalancePercentage(0);
     setOrderValidationError('');
     const targetAcc = accounts.find((a) => a.account_id === newAccountId);
@@ -688,7 +843,9 @@ export default function WebullTrading({ isLightMode = false }) {
       setSelectedInstrumentType('EQUITY');
       const shouldDefaultSession = isCashBasedAccount(targetAcc);
       if (selectedInstrumentType === 'CRYPTO' || selectedSymbol.endsWith('USD')) {
-        const topEquityHolding = holdings.find((h) => String(h.account_id || '') === String(newAccountId) && !/crypto|coin|token/i.test(h.instrument_type || ''));
+      const topEquityHolding = holdings.find((h) => String(h.account_id || '') === String(newAccountId)
+        && !/crypto|coin|token/i.test(h.instrument_type || '')
+        && !['OPTION', 'FUTURES'].includes(String(h.instrument_type || '').toUpperCase()));
         const nextSym = topEquityHolding ? topEquityHolding.symbol : 'AAPL';
         setSelectedSymbol(nextSym);
         setOrderForm((prev) => ({
@@ -877,6 +1034,14 @@ export default function WebullTrading({ isLightMode = false }) {
       : orderForm.side === 'SELL' && !optionSellEnabled
         ? 'Sell is available only for an exact option contract currently owned in this Webull account.'
         : '';
+  const futuresContractSelected = selectedInstrumentType === 'FUTURES'
+    && Boolean(selectedFuturesContract?.symbol)
+    && String(selectedFuturesContract.symbol).toUpperCase() === String(selectedSymbol || '').toUpperCase();
+  const futuresOrderControlsDisabled = selectedInstrumentType === 'FUTURES' && !futuresContractSelected;
+  const ticketOrderControlsDisabled = optionOrderControlsDisabled || futuresOrderControlsDisabled;
+  const futuresExecutionMessage = selectedInstrumentType === 'FUTURES' && !futuresContractSelected
+    ? 'Load and select an exact Webull futures contract before placing an order. Futures margin and trading eligibility are verified by Webull.'
+    : '';
 
   useEffect(() => {
     if (selectedInstrumentType !== 'OPTION') return;
@@ -892,6 +1057,19 @@ export default function WebullTrading({ isLightMode = false }) {
     const masked = activeAccount?.account_id_masked || (selectedAccountId ? `••••${String(selectedAccountId).slice(-4)}` : '');
     return masked ? `${name} (${masked})` : name;
   };
+
+  const assetClassButtonStyle = (assetClass, activeBackground) => ({
+    padding: '5px 12px',
+    borderRadius: '6px',
+    border: 'none',
+    background: selectedInstrumentType === assetClass ? activeBackground : 'transparent',
+    color: '#fff',
+    fontSize: '12px',
+    fontWeight: 700,
+    cursor: assetClassDisabled(assetClass) ? 'not-allowed' : 'pointer',
+    opacity: assetClassDisabled(assetClass) ? 0.38 : 1,
+    filter: assetClassDisabled(assetClass) ? 'grayscale(1)' : 'none',
+  });
 
   const webullTwoFactorOrderDetails = () => ({
     provider: 'Webull',
@@ -909,6 +1087,8 @@ export default function WebullTrading({ isLightMode = false }) {
     optionType: selectedInstrumentType === 'OPTION' ? orderForm.optionType : undefined,
     optionStrike: selectedInstrumentType === 'OPTION' ? orderForm.optionStrike : undefined,
     optionExpiration: selectedInstrumentType === 'OPTION' ? orderForm.optionExpiration : undefined,
+    trailingType: selectedInstrumentType === 'FUTURES' && orderForm.type === 'TRAILING_STOP_LOSS' ? orderForm.trailingType : undefined,
+    trailingStopStep: selectedInstrumentType === 'FUTURES' && orderForm.type === 'TRAILING_STOP_LOSS' ? orderForm.trailingStopStep : undefined,
     currency: 'USD',
   });
 
@@ -959,7 +1139,27 @@ export default function WebullTrading({ isLightMode = false }) {
         }
       }
     }
-    if (orderForm.side === 'SELL' && qty > heldQuantity + QUANTITY_EPSILON) {
+    if (selectedInstrumentType === 'FUTURES') {
+      if (!futuresContractSelected) {
+        rejectOrder('Load and select an exact Webull futures contract before placing an order.');
+        return;
+      }
+      if (!Number.isInteger(qty)) {
+        rejectOrder('Webull futures orders require a whole number of contracts.');
+        return;
+      }
+      if (!['DAY', 'GTC'].includes(orderForm.timeInForce)) {
+        rejectOrder('Webull futures orders support Day or Good \'Til Canceled time in force.');
+        return;
+      }
+      if (orderForm.type === 'TRAILING_STOP_LOSS') {
+        if (!['AMOUNT', 'PERCENTAGE'].includes(orderForm.trailingType) || Number(orderForm.trailingStopStep) <= 0) {
+          rejectOrder('Choose a positive dollar amount or percentage for the futures trailing stop.');
+          return;
+        }
+      }
+    }
+    if (selectedInstrumentType !== 'FUTURES' && orderForm.side === 'SELL' && qty > heldQuantity + QUANTITY_EPSILON) {
       rejectOrder(`You can sell up to ${formatQuantityForTicket(heldQuantity, 6) || '0'} ${selectedSymbol} from ${activeAccountLabel()}.`);
       return;
     }
@@ -1041,8 +1241,10 @@ export default function WebullTrading({ isLightMode = false }) {
         quantity: Number(orderForm.quantity),
         limit_price: ['LIMIT', 'STOP_LOSS_LIMIT'].includes(orderForm.type) ? Number(orderForm.price) : undefined,
         stop_price: ['STOP_LOSS', 'STOP_LOSS_LIMIT'].includes(orderForm.type) ? Number(orderForm.stopPrice) : undefined,
+        trailing_type: selectedInstrumentType === 'FUTURES' && orderForm.type === 'TRAILING_STOP_LOSS' ? orderForm.trailingType : undefined,
+        trailing_stop_step: selectedInstrumentType === 'FUTURES' && orderForm.type === 'TRAILING_STOP_LOSS' ? Number(orderForm.trailingStopStep) : undefined,
         time_in_force: orderForm.timeInForce,
-        support_trading_session: ['CRYPTO', 'OPTION'].includes(selectedInstrumentType) ? 'CORE' : orderForm.tradingSession,
+        support_trading_session: ['CRYPTO', 'OPTION', 'FUTURES'].includes(selectedInstrumentType) ? 'CORE' : orderForm.tradingSession,
         option_underlying_symbol: selectedInstrumentType === 'OPTION' ? selectedSymbol.trim().toUpperCase() : undefined,
         option_strike: selectedInstrumentType === 'OPTION' ? Number(orderForm.optionStrike) : undefined,
         option_expiration: selectedInstrumentType === 'OPTION' ? orderForm.optionExpiration : undefined,
@@ -1141,6 +1343,7 @@ export default function WebullTrading({ isLightMode = false }) {
 
   const handleSelectHolding = (holding) => {
     const isOption = String(holding.instrument_type || '').toUpperCase() === 'OPTION';
+    const isFutures = ['FUTURE', 'FUTURES'].includes(String(holding.instrument_type || '').toUpperCase());
     if (holding.account_id) setSelectedAccountId(String(holding.account_id));
     setSelectedSymbol(isOption ? (holding.underlying_symbol || holding.symbol) : holding.symbol);
     setSelectedOptionHoldingId(isOption ? String(holding.id || '') : '');
@@ -1158,6 +1361,25 @@ export default function WebullTrading({ isLightMode = false }) {
         price: holding.current_price ? String(holding.current_price) : '',
         quantity: holdingQuantity ? String(holdingQuantity) : '',
         quoteQuantity: optionOrderValueText(holdingQuantity, holdingPremium),
+      }));
+    } else if (isFutures) {
+      const contractSymbol = String(holding.symbol || '').toUpperCase();
+      setSelectedInstrumentType('FUTURES');
+      setSelectedFuturesContract({
+        symbol: contractSymbol,
+        name: holding.name || contractSymbol,
+        expiration_date: holding.expiration_date,
+      });
+      setFuturesContractInput(contractSymbol);
+      setOrderForm((prev) => ({
+        ...prev,
+        side: 'SELL',
+        type: 'MARKET',
+        price: '',
+        stopPrice: '',
+        trailingStopStep: '',
+        quantity: holding.amount ? String(holding.amount) : '',
+        quoteQuantity: '',
       }));
     } else {
       const isCrypto = /crypto|coin|token/i.test(holding.instrument_type || '');
@@ -1179,10 +1401,10 @@ export default function WebullTrading({ isLightMode = false }) {
   const historyPages = Math.max(1, Math.ceil(sortedHistory.length / historyPageSize));
   const paginatedHistory = useMemo(() => sortedHistory.slice((historyPage - 1) * historyPageSize, historyPage * historyPageSize), [sortedHistory, historyPage, historyPageSize]);
   useEffect(() => { if (historyPage > historyPages) setHistoryPage(historyPages); }, [historyPage, historyPages]);
-  const analyzableHoldings = useMemo(() => holdings.filter((holding) => ['CRYPTO', 'STOCK', 'EQUITY', 'ETF', 'OPTION'].includes(String(holding.instrument_type || '').toUpperCase())), [holdings]);
+  const analyzableHoldings = useMemo(() => holdings.filter((holding) => ['CRYPTO', 'STOCK', 'EQUITY', 'ETF', 'OPTION', 'FUTURES'].includes(String(holding.instrument_type || '').toUpperCase())), [holdings]);
   const availableStockSymbols = useMemo(() => {
     const stocks = holdings
-      .filter((h) => !/crypto|coin|token/i.test(h.instrument_type || ''))
+      .filter((h) => !/crypto|coin|token/i.test(h.instrument_type || '') && !['OPTION', 'FUTURES'].includes(String(h.instrument_type || '').toUpperCase()))
       .map((h) => (h.underlying_symbol || h.symbol || '').toUpperCase().trim())
       .filter(Boolean);
     return Array.from(new Set(['AAPL', 'NVDA', 'SPY', 'TSLA', 'AMD', 'MSFT', ...stocks]));
@@ -1190,7 +1412,7 @@ export default function WebullTrading({ isLightMode = false }) {
 
   const availableTraditional = useMemo(() => {
     const fromHoldings = holdings
-      .filter((h) => !/crypto|coin|token/i.test(h.instrument_type || '') && String(h.instrument_type || '').toUpperCase() !== 'OPTION' && h.symbol)
+      .filter((h) => !/crypto|coin|token/i.test(h.instrument_type || '') && !['OPTION', 'FUTURES'].includes(String(h.instrument_type || '').toUpperCase()) && h.symbol)
       .map((h) => ({
         id: h.symbol.toUpperCase(),
         symbol: h.symbol.toUpperCase(),
@@ -1348,7 +1570,7 @@ export default function WebullTrading({ isLightMode = false }) {
                       <span className="trading-asset-card-label">{selectedSymbol} Available</span>
                       <span className="trading-asset-card-value">
                         {number(heldQuantity, selectedInstrumentType === 'CRYPTO' ? 6 : 2)}{' '}
-                        <small>{selectedInstrumentType === 'CRYPTO' ? selectedSymbol.replace(/USD$/, '') : selectedInstrumentType === 'OPTION' ? 'Contracts' : 'Shares'}</small>
+                        <small>{selectedInstrumentType === 'CRYPTO' ? selectedSymbol.replace(/USD$/, '') : ['OPTION', 'FUTURES'].includes(selectedInstrumentType) ? 'Contracts' : 'Shares'}</small>
                       </span>
                       {heldValue > 0 && (
                         <span className="trading-asset-card-sub">
@@ -1389,7 +1611,7 @@ export default function WebullTrading({ isLightMode = false }) {
 
                 {/* 3. Redesigned Modern Order Panel (matching Binance.US) */}
                 <form onSubmit={handleOrderSubmit} className="trading-order-panel" noValidate>
-                  {/* Asset Class Switcher (Equities & ETFs, Crypto, Options) */}
+                  {/* Asset Class Switcher — asset lanes follow the selected Webull account. */}
                   <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap', marginBottom: '14px' }}>
                     <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-secondary, #94a3b8)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                       Asset Class:
@@ -1397,39 +1619,123 @@ export default function WebullTrading({ isLightMode = false }) {
                     <div style={{ display: 'inline-flex', background: 'rgba(0,0,0,0.35)', padding: '3px', borderRadius: '8px', gap: '4px' }}>
                       <button
                         type="button"
-                        onClick={() => setSelectedInstrumentType('EQUITY')}
-                        style={{
-                          padding: '5px 12px', borderRadius: '6px', border: 'none',
-                          background: selectedInstrumentType === 'EQUITY' ? 'linear-gradient(135deg, #3b82f6, #2563eb)' : 'transparent',
-                          color: '#fff', fontSize: '12px', fontWeight: 700, cursor: 'pointer',
-                        }}
+                        onClick={() => handleAssetClassChange('EQUITY')}
+                        disabled={assetClassDisabled('EQUITY')}
+                        title={assetClassDisabled('EQUITY') ? 'Stocks & ETFs are unavailable in a Crypto Webull account.' : 'Trade stocks and ETFs'}
+                        style={assetClassButtonStyle('EQUITY', 'linear-gradient(135deg, #3b82f6, #2563eb)')}
                       >
                         🏛️ Equities &amp; ETFs
                       </button>
                       <button
                         type="button"
-                        onClick={() => setSelectedInstrumentType('CRYPTO')}
-                        style={{
-                          padding: '5px 12px', borderRadius: '6px', border: 'none',
-                          background: selectedInstrumentType === 'CRYPTO' ? 'linear-gradient(135deg, #f59e0b, #d97706)' : 'transparent',
-                          color: '#fff', fontSize: '12px', fontWeight: 700, cursor: 'pointer',
-                        }}
+                        onClick={() => handleAssetClassChange('CRYPTO')}
+                        disabled={assetClassDisabled('CRYPTO')}
+                        title={assetClassDisabled('CRYPTO') ? 'Crypto is available only in a Crypto Webull account.' : 'Trade Webull crypto'}
+                        style={assetClassButtonStyle('CRYPTO', 'linear-gradient(135deg, #f59e0b, #d97706)')}
                       >
                         🪙 Crypto
                       </button>
                       <button
                         type="button"
-                        onClick={() => setSelectedInstrumentType('OPTION')}
-                        style={{
-                          padding: '5px 12px', borderRadius: '6px', border: 'none',
-                          background: selectedInstrumentType === 'OPTION' ? 'linear-gradient(135deg, #8b5cf6, #7c3aed)' : 'transparent',
-                          color: '#fff', fontSize: '12px', fontWeight: 700, cursor: 'pointer',
-                        }}
+                        onClick={() => handleAssetClassChange('OPTION')}
+                        disabled={assetClassDisabled('OPTION')}
+                        title={assetClassDisabled('OPTION') ? 'Options are unavailable in a Crypto Webull account.' : 'Trade calls and puts'}
+                        style={assetClassButtonStyle('OPTION', 'linear-gradient(135deg, #8b5cf6, #7c3aed)')}
                       >
                         ⚡ Options (Calls &amp; Puts)
                       </button>
+                      <button
+                        type="button"
+                        onClick={() => handleAssetClassChange('FUTURES')}
+                        disabled={assetClassDisabled('FUTURES')}
+                        title={assetClassDisabled('FUTURES') ? 'Futures are unavailable in a Crypto Webull account.' : 'Trade Webull futures'}
+                        style={assetClassButtonStyle('FUTURES', 'linear-gradient(135deg, #0f766e, #0d9488)')}
+                      >
+                        🏁 Futures
+                      </button>
                     </div>
                   </div>
+
+                  {selectedInstrumentType === 'FUTURES' && (
+                    <div style={{ background: 'rgba(13, 148, 136, 0.12)', border: '1px solid rgba(45, 212, 191, 0.36)', borderRadius: '8px', padding: '14px', marginBottom: '14px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', alignItems: 'center', flexWrap: 'wrap', marginBottom: '8px' }}>
+                        <span style={{ fontSize: '13px', fontWeight: 700, color: '#5eead4' }}>🏁 Webull Futures Contract Setup</span>
+                        <button type="button" className="btn btn-sm btn-secondary" onClick={loadFuturesCatalog} disabled={futuresLoading}>
+                          {futuresLoading ? 'Loading…' : 'Refresh products'}
+                        </button>
+                      </div>
+                      <p style={{ margin: '0 0 12px', color: '#99f6e4', fontSize: '12px', lineHeight: 1.45 }}>
+                        Enter an exact Webull futures contract code (for example, ESZ5), then select the returned contract. Orders use whole contracts only; Webull verifies futures permission and margin before accepting the order.
+                      </p>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(180px, 1fr) auto', gap: '8px', alignItems: 'end' }}>
+                        <div>
+                          <label className="order-field-label" htmlFor="futuresContract">Futures Contract Code</label>
+                          <input
+                            id="futuresContract"
+                            type="text"
+                            value={futuresContractInput}
+                            onChange={(event) => {
+                              setFuturesContractInput(event.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''));
+                              setSelectedFuturesContract(null);
+                              setFuturesContracts([]);
+                              setFuturesMessage('');
+                            }}
+                            placeholder="e.g. ESZ5"
+                            className="order-styled-input"
+                            autoComplete="off"
+                          />
+                        </div>
+                        <button type="button" className="btn btn-primary" onClick={lookupFuturesContracts} disabled={futuresLoading || !futuresContractInput.trim()}>
+                          Find Contract
+                        </button>
+                      </div>
+                      {futuresCatalog.products.length > 0 && (
+                        <div style={{ marginTop: '10px' }}>
+                          <label className="order-field-label" htmlFor="futuresProduct">Webull Product Codes</label>
+                          <select
+                            id="futuresProduct"
+                            className="order-styled-input"
+                            value=""
+                            onChange={(event) => {
+                              const code = event.target.value;
+                              if (code) setFuturesContractInput(code);
+                            }}
+                          >
+                            <option value="">Choose a product code as a starting point…</option>
+                            {futuresCatalog.products.map((product, index) => {
+                              const code = product.product_code || product.symbol;
+                              return code ? <option key={`${code}-${index}`} value={code}>{code} — {product.name || 'Webull futures product'}</option> : null;
+                            })}
+                          </select>
+                        </div>
+                      )}
+                      {futuresContracts.length > 1 && (
+                        <div style={{ marginTop: '12px', display: 'grid', gap: '6px' }}>
+                          <span className="order-field-label">Matching Webull Contracts</span>
+                          {futuresContracts.map((contract, index) => (
+                            <button
+                              key={`${contract.symbol || contract.product_code}-${index}`}
+                              type="button"
+                              onClick={() => selectFuturesContract(contract)}
+                              style={{ textAlign: 'left', padding: '9px 11px', borderRadius: '6px', border: `1px solid ${selectedFuturesContract?.symbol === contract.symbol ? '#2dd4bf' : 'rgba(94,234,212,.24)'}`, background: selectedFuturesContract?.symbol === contract.symbol ? 'rgba(13,148,136,.25)' : 'rgba(0,0,0,.2)', color: '#e2e8f0', cursor: 'pointer' }}
+                            >
+                              <strong>{contract.symbol || contract.product_code}</strong> · {contract.name || 'Webull futures contract'}{contract.expiration_date ? ` · expires ${contract.expiration_date}` : ''}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                      {selectedFuturesContract && (
+                        <div style={{ marginTop: '12px', padding: '9px 11px', borderRadius: '6px', background: 'rgba(0,0,0,.24)', color: '#ccfbf1', fontSize: '12px', lineHeight: 1.55 }}>
+                          <strong>{selectedFuturesContract.symbol}</strong> · {selectedFuturesContract.name || 'Selected Webull futures contract'}
+                          {selectedFuturesContract.exchange ? ` · ${selectedFuturesContract.exchange}` : ''}
+                          {selectedFuturesContract.expiration_date ? ` · expires ${selectedFuturesContract.expiration_date}` : ''}
+                          {selectedFuturesContract.contract_multiplier ? ` · multiplier ${selectedFuturesContract.contract_multiplier}` : ''}
+                          {selectedFuturesContract.tick_size ? ` · tick ${selectedFuturesContract.tick_size}` : ''}
+                        </div>
+                      )}
+                      {futuresMessage && <p className="option-ticket-status" role="status">⚠️ {futuresMessage}</p>}
+                    </div>
+                  )}
 
                   {/* Options Chain & Live Order Book (When OPTION selected) - Positioned Right Below Asset Class Switcher */}
                   {selectedInstrumentType === 'OPTION' && (
@@ -1572,8 +1878,8 @@ export default function WebullTrading({ isLightMode = false }) {
                             setBalancePercentage(0);
                             setOrderValidationError('');
                           }}
-                          disabled={selectedInstrumentType === 'OPTION' && !optionBuyEnabled}
-                          title={selectedInstrumentType === 'OPTION' && !optionBuyEnabled ? optionExecutionMessage || 'A priced option contract and enough USD for one contract are required to buy.' : 'Buy this instrument'}
+                          disabled={ticketOrderControlsDisabled || assetClassDisabled(selectedInstrumentType)}
+                          title={selectedInstrumentType === 'OPTION' && !optionBuyEnabled ? optionExecutionMessage || 'A priced option contract and enough USD for one contract are required to buy.' : futuresOrderControlsDisabled ? futuresExecutionMessage : 'Buy this instrument'}
                         >
                           📈 Buy
                         </button>
@@ -1585,8 +1891,8 @@ export default function WebullTrading({ isLightMode = false }) {
                             setBalancePercentage(0);
                             setOrderValidationError('');
                           }}
-                          disabled={selectedInstrumentType === 'OPTION' && !optionSellEnabled}
-                          title={selectedInstrumentType === 'OPTION' && !optionSellEnabled ? 'Sell is available only for an exact option contract currently owned in this Webull account.' : 'Sell this instrument'}
+                          disabled={ticketOrderControlsDisabled || assetClassDisabled(selectedInstrumentType)}
+                          title={selectedInstrumentType === 'OPTION' && !optionSellEnabled ? 'Sell is available only for an exact option contract currently owned in this Webull account.' : futuresOrderControlsDisabled ? futuresExecutionMessage : 'Sell this instrument'}
                         >
                           📉 Sell
                         </button>
@@ -1606,7 +1912,7 @@ export default function WebullTrading({ isLightMode = false }) {
                               setOrderValidationError('');
                             }}
                             title={t.description}
-                            disabled={optionOrderControlsDisabled}
+                            disabled={ticketOrderControlsDisabled}
                           >
                             {t.label}
                           </button>
@@ -1618,12 +1924,15 @@ export default function WebullTrading({ isLightMode = false }) {
                   {selectedInstrumentType === 'OPTION' && optionExecutionMessage && (
                     <p className="option-ticket-status" role="status">⚠️ {optionExecutionMessage}</p>
                   )}
+                  {futuresExecutionMessage && (
+                    <p className="option-ticket-status" role="status">⚠️ {futuresExecutionMessage}</p>
+                  )}
 
                   {/* Row 2: Quantity and Quote Value Inputs */}
                   <div className="order-inputs-row">
                     <div className="order-input-group">
                       <label className="order-field-label" htmlFor="quantity">
-                        {selectedInstrumentType === 'OPTION' ? 'Contracts (100 shares each)' : `Quantity (${selectedSymbol})`}
+                        {selectedInstrumentType === 'OPTION' ? 'Contracts (100 shares each)' : selectedInstrumentType === 'FUTURES' ? 'Contracts' : `Quantity (${selectedSymbol})`}
                       </label>
                       <div className="order-input-wrapper">
                         <input
@@ -1634,20 +1943,20 @@ export default function WebullTrading({ isLightMode = false }) {
                           onChange={(e) => handleBaseQuantityChange(e.target.value)}
                           placeholder="0.0000"
                           className="order-styled-input"
-                          disabled={optionOrderControlsDisabled}
+                          disabled={ticketOrderControlsDisabled}
                           aria-invalid={Boolean(orderValidationError)}
                           aria-describedby={orderValidationError ? 'webull-order-validation' : undefined}
                           autoComplete="off"
                         />
-                        <button
+                        {selectedInstrumentType !== 'FUTURES' && <button
                           type="button"
                           className="input-max-btn"
                           onClick={() => handleSliderChange(100)}
                           title="Use 100% Available Balance"
-                          disabled={optionOrderControlsDisabled}
+                          disabled={ticketOrderControlsDisabled}
                         >
                           MAX
-                        </button>
+                        </button>}
                       </div>
                       {orderValidationError && (
                         <p
@@ -1660,36 +1969,45 @@ export default function WebullTrading({ isLightMode = false }) {
                       )}
                     </div>
 
-                    <div className="order-input-group">
-                      <label className="order-field-label" htmlFor="quoteQuantity">
-                        Order Value ($ USD)
-                      </label>
-                      <div className="order-input-wrapper">
-                        <input
-                          id="quoteQuantity"
-                          type="text"
-                          inputMode="decimal"
-                          value={selectedInstrumentType === 'OPTION' ? optionOrderValueText(orderForm.quantity, effectivePrice) : orderForm.quoteQuantity}
-                          onChange={(e) => handleQuoteQuantityChange(e.target.value)}
-                          placeholder="$0.00"
-                          className="order-styled-input"
-                          disabled={optionOrderControlsDisabled}
-                          autoComplete="off"
-                        />
-                        <button
-                          type="button"
-                          className="input-percent-btn"
-                          onClick={() => {
-                            const nextPct = balancePercentage === 25 ? 50 : balancePercentage === 50 ? 75 : balancePercentage === 75 ? 100 : 25;
-                            handleSliderChange(nextPct);
-                          }}
-                          title="Step allocation: 25%, 50%, 75%, 100%"
-                          disabled={optionOrderControlsDisabled}
-                        >
-                          %
-                        </button>
+                    {selectedInstrumentType === 'FUTURES' ? (
+                      <div className="order-input-group">
+                        <label className="order-field-label">Margin &amp; Notional</label>
+                        <div className="order-styled-input" style={{ padding: '10px 12px', color: '#94a3b8' }}>
+                          Calculated by Webull for the selected contract
+                        </div>
                       </div>
-                    </div>
+                    ) : (
+                      <div className="order-input-group">
+                        <label className="order-field-label" htmlFor="quoteQuantity">
+                          Order Value ($ USD)
+                        </label>
+                        <div className="order-input-wrapper">
+                          <input
+                            id="quoteQuantity"
+                            type="text"
+                            inputMode="decimal"
+                            value={selectedInstrumentType === 'OPTION' ? optionOrderValueText(orderForm.quantity, effectivePrice) : orderForm.quoteQuantity}
+                            onChange={(e) => handleQuoteQuantityChange(e.target.value)}
+                            placeholder="$0.00"
+                            className="order-styled-input"
+                            disabled={ticketOrderControlsDisabled}
+                            autoComplete="off"
+                          />
+                          <button
+                            type="button"
+                            className="input-percent-btn"
+                            onClick={() => {
+                              const nextPct = balancePercentage === 25 ? 50 : balancePercentage === 50 ? 75 : balancePercentage === 75 ? 100 : 25;
+                              handleSliderChange(nextPct);
+                            }}
+                            title="Step allocation: 25%, 50%, 75%, 100%"
+                            disabled={ticketOrderControlsDisabled}
+                          >
+                            %
+                          </button>
+                        </div>
+                      </div>
+                    )}
                   </div>
 
                   {/* Conditional Price Inputs based on order type */}
@@ -1708,7 +2026,7 @@ export default function WebullTrading({ isLightMode = false }) {
                             onChange={(e) => handleStopPriceChange(e.target.value)}
                             placeholder="0.00"
                             className="order-styled-input"
-                            disabled={optionOrderControlsDisabled}
+                            disabled={ticketOrderControlsDisabled}
                             required
                           />
                           <button
@@ -1716,7 +2034,7 @@ export default function WebullTrading({ isLightMode = false }) {
                             className="input-percent-btn"
                             onClick={() => handleOpenPercentModal('stopPrice')}
                             title="Calculate stop price from percentage"
-                            disabled={optionOrderControlsDisabled}
+                            disabled={ticketOrderControlsDisabled}
                           >
                             %
                           </button>
@@ -1743,7 +2061,7 @@ export default function WebullTrading({ isLightMode = false }) {
                             onChange={(e) => handleStopPriceChange(e.target.value)}
                             placeholder="0.00"
                             className="order-styled-input"
-                            disabled={optionOrderControlsDisabled}
+                            disabled={ticketOrderControlsDisabled}
                             required
                           />
                           <button
@@ -1751,7 +2069,7 @@ export default function WebullTrading({ isLightMode = false }) {
                             className="input-percent-btn"
                             onClick={() => handleOpenPercentModal('stopPrice')}
                             title="Calculate stop trigger & limit execution prices from percentage"
-                            disabled={optionOrderControlsDisabled}
+                            disabled={ticketOrderControlsDisabled}
                           >
                             %
                           </button>
@@ -1774,13 +2092,43 @@ export default function WebullTrading({ isLightMode = false }) {
                             onChange={(e) => handlePriceChange(e.target.value)}
                             placeholder="0.00"
                             className="order-styled-input"
-                            disabled={optionOrderControlsDisabled}
+                            disabled={ticketOrderControlsDisabled}
                             required
                           />
                         </div>
                         <small className="order-field-help" style={{ color: '#94a3b8', fontSize: '11px', marginTop: '4px' }}>
                           Maximum purchase or minimum sale price
                         </small>
+                      </div>
+                    </div>
+                  )}
+
+                  {selectedInstrumentType === 'FUTURES' && orderForm.type === 'TRAILING_STOP_LOSS' && (
+                    <div className="order-inputs-row">
+                      <div className="order-input-group">
+                        <label className="order-field-label">Trail Type</label>
+                        <select
+                          value={orderForm.trailingType}
+                          onChange={(event) => setOrderForm((prev) => ({ ...prev, trailingType: event.target.value }))}
+                          className="order-styled-input"
+                          disabled={ticketOrderControlsDisabled}
+                        >
+                          <option value="AMOUNT">Dollar amount</option>
+                          <option value="PERCENTAGE">Percentage</option>
+                        </select>
+                      </div>
+                      <div className="order-input-group">
+                        <label className="order-field-label" htmlFor="trailingStopStep">Trail {orderForm.trailingType === 'PERCENTAGE' ? 'Percentage' : 'Amount'} {orderForm.trailingType === 'PERCENTAGE' ? '(%)' : '($ USD)'}</label>
+                        <input
+                          id="trailingStopStep"
+                          type="text"
+                          inputMode="decimal"
+                          value={orderForm.trailingStopStep}
+                          onChange={(event) => setOrderForm((prev) => ({ ...prev, trailingStopStep: event.target.value.replace(/[^0-9.]/g, '') }))}
+                          placeholder={orderForm.trailingType === 'PERCENTAGE' ? 'e.g. 1.00' : 'e.g. 5.00'}
+                          className="order-styled-input"
+                          disabled={ticketOrderControlsDisabled}
+                        />
                       </div>
                     </div>
                   )}
@@ -1800,7 +2148,7 @@ export default function WebullTrading({ isLightMode = false }) {
                             onChange={(e) => handlePriceChange(e.target.value)}
                             placeholder="0.00"
                             className="order-styled-input"
-                            disabled={optionOrderControlsDisabled}
+                            disabled={ticketOrderControlsDisabled}
                             required
                           />
                           <button
@@ -1808,7 +2156,7 @@ export default function WebullTrading({ isLightMode = false }) {
                             className="input-percent-btn"
                             onClick={() => handleOpenPercentModal('price')}
                             title="Calculate limit price from percentage"
-                            disabled={optionOrderControlsDisabled}
+                            disabled={ticketOrderControlsDisabled}
                           >
                             %
                           </button>
@@ -1826,7 +2174,7 @@ export default function WebullTrading({ isLightMode = false }) {
                         onChange={(e) => setOrderForm((prev) => ({ ...prev, timeInForce: e.target.value }))}
                         className="order-styled-input"
                         style={{ cursor: 'pointer' }}
-                        disabled={optionOrderControlsDisabled}
+                        disabled={ticketOrderControlsDisabled}
                       >
                         <option value="DAY">Day Order (DAY)</option>
                         {!(selectedInstrumentType === 'OPTION' && orderForm.side === 'SELL') && <option value="GTC">Good &apos;Til Canceled (GTC)</option>}
@@ -1861,7 +2209,7 @@ export default function WebullTrading({ isLightMode = false }) {
                   )}
 
                   {/* Row 3: Use Balance Slider Section */}
-                  <div className="order-slider-section">
+                  {selectedInstrumentType !== 'FUTURES' && <div className="order-slider-section">
                     <div className="order-slider-header">
                       <span className="order-field-label">Use Balance: {balancePercentage}%</span>
                       {balancePercentage > 0 && (
@@ -1880,7 +2228,7 @@ export default function WebullTrading({ isLightMode = false }) {
                       value={balancePercentage}
                       onChange={(e) => handleSliderChange(parseInt(e.target.value, 10))}
                       className="modern-balance-slider"
-                      disabled={optionOrderControlsDisabled}
+                      disabled={ticketOrderControlsDisabled}
                       style={{
                         background: `linear-gradient(to right, ${orderForm.side === 'BUY' ? '#10b981' : '#ef4444'} ${balancePercentage}%, rgba(255, 255, 255, 0.1) ${balancePercentage}%)`,
                       }}
@@ -1892,24 +2240,26 @@ export default function WebullTrading({ isLightMode = false }) {
                           type="button"
                           className={`slider-pct-pill ${balancePercentage === pct ? 'active' : ''}`}
                           onClick={() => handleSliderChange(pct)}
-                          disabled={optionOrderControlsDisabled}
+                          disabled={ticketOrderControlsDisabled}
                         >
                           {pct}%
                         </button>
                       ))}
                     </div>
-                  </div>
+                  </div>}
 
                   {/* Row 4: Order Summary Card */}
                   <div className="order-summary-card">
                     <div className="order-summary-row">
                       <span>Order Total:</span>
-                      <strong>${number(orderTotal)} USD</strong>
+                      <strong>{selectedInstrumentType === 'FUTURES' ? 'Webull calculates margin' : `$${number(orderTotal)} USD`}</strong>
                     </div>
                     <div className="order-summary-row">
                       <span>Estimated Cash Impact:</span>
                       <span style={{ color: orderForm.side === 'BUY' ? '#ef4444' : '#10b981', fontWeight: 600 }}>
-                        {orderForm.side === 'BUY' ? `-$${number(orderTotal)}` : `+$${number(orderTotal)}`}
+                        {selectedInstrumentType === 'FUTURES'
+                          ? 'Verified by Webull at order acceptance'
+                          : orderForm.side === 'BUY' ? `-$${number(orderTotal)}` : `+$${number(orderTotal)}`}
                       </span>
                     </div>
                   </div>
@@ -1919,7 +2269,7 @@ export default function WebullTrading({ isLightMode = false }) {
                     <button
                       type="submit"
                       className={`modern-submit-button ${orderForm.side.toLowerCase()}`}
-                      disabled={orderSubmitting || optionOrderControlsDisabled}
+                      disabled={orderSubmitting || ticketOrderControlsDisabled || assetClassDisabled(selectedInstrumentType)}
                     >
                       {orderSubmitting ? (
                         <span>⏳ Processing Order...</span>

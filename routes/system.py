@@ -40,6 +40,9 @@ from services.webull_service import (
     get_webull_accounts,
     get_webull_market_bars,
     get_webull_market_snapshot,
+    get_webull_futures_catalog,
+    get_webull_futures_contracts,
+    get_webull_futures_snapshot,
     get_webull_option_snapshot,
     get_webull_option_chain_data,
     get_webull_stock_movers,
@@ -218,6 +221,34 @@ def _require_webull_account_access(setting, account_id):
     if clean_account_id not in allowed:
         raise WebullConnectionError('Choose one of your enabled Webull accounts.')
     return clean_account_id
+
+
+def _webull_account_is_crypto(setting, account_id):
+    """Classify a connected account from the server-only account metadata."""
+    clean_account_id = str(account_id or '').strip()
+    for account in _webull_cached_accounts(setting):
+        if not isinstance(account, dict) or str(account.get('account_id') or '').strip() != clean_account_id:
+            continue
+        identity = ' '.join(str(account.get(key) or '') for key in (
+            'account_class', 'account_type', 'account_sub_type', 'account_label', 'account_name',
+        )).lower()
+        return 'crypto' in identity
+    return False
+
+
+def _require_webull_instrument_account_match(setting, account_id, instrument_type):
+    """Keep crypto-only and non-crypto Webull accounts in their own asset lanes."""
+    clean_type = str(instrument_type or 'EQUITY').strip().upper()
+    if clean_type in {'COIN', 'TOKEN'}:
+        clean_type = 'CRYPTO'
+    if clean_type in {'FUTURE', 'FUTURES'}:
+        clean_type = 'FUTURES'
+    is_crypto_account = _webull_account_is_crypto(setting, account_id)
+    if is_crypto_account and clean_type != 'CRYPTO':
+        raise WebullConnectionError('This is a Crypto Webull account. Choose the Crypto asset class to place an order from it.')
+    if not is_crypto_account and clean_type == 'CRYPTO':
+        raise WebullConnectionError('Crypto orders require a Crypto Webull account. Choose a Crypto account to continue.')
+    return clean_type
 
 
 def _webull_account_response(accounts, *, aliases=None, snapshots=None, enabled_ids=None):
@@ -2110,11 +2141,14 @@ def api_webull_place_order():
         quantity = data.get('quantity')
         limit_price = data.get('limit_price')
         stop_price = data.get('stop_price')
+        trailing_type = data.get('trailing_type')
+        trailing_stop_step = data.get('trailing_stop_step')
         time_in_force = data.get('time_in_force', 'DAY')
         support_trading_session = data.get('support_trading_session', 'CORE')
 
         try:
             account_id = _require_webull_account_access(setting, account_id)
+            instrument_type = _require_webull_instrument_account_match(setting, account_id, instrument_type)
         except WebullConnectionError as exc:
             return jsonify({'success': False, 'message': str(exc)}), 400
         if not symbol:
@@ -2208,6 +2242,51 @@ def api_webull_place_order():
                         'message': f'Insufficient USD for {int(option_quantity)} contract(s). Estimated premium is ${total_cost:,.2f}; current Webull cash is ${available_cash:,.2f}.',
                     }), 400
 
+        if str(instrument_type).upper() == 'FUTURES':
+            normalized_futures_type = {'STOP': 'STOP_LOSS', 'STOP_LIMIT': 'STOP_LOSS_LIMIT'}.get(str(order_type or '').upper(), str(order_type or '').upper())
+            if normalized_futures_type not in {'MARKET', 'LIMIT', 'STOP_LOSS', 'STOP_LOSS_LIMIT', 'TRAILING_STOP_LOSS'}:
+                return jsonify({'success': False, 'message': 'Webull futures support Market, Limit, Stop Loss, Stop Loss Limit, and Trailing Stop Loss orders.'}), 400
+            if str(side or '').strip().upper() not in {'BUY', 'SELL'}:
+                return jsonify({'success': False, 'message': 'Webull futures orders support Buy and Sell only.'}), 400
+            try:
+                futures_quantity = float(quantity)
+                if futures_quantity <= 0 or not futures_quantity.is_integer():
+                    raise ValueError()
+            except (TypeError, ValueError):
+                return jsonify({'success': False, 'message': 'Webull futures orders require a whole number of contracts.'}), 400
+            if str(time_in_force or 'DAY').upper() not in {'DAY', 'GTC'}:
+                return jsonify({'success': False, 'message': 'Webull futures orders support DAY or GTC time in force.'}), 400
+            try:
+                has_valid_limit_price = float(limit_price) > 0
+            except (TypeError, ValueError):
+                has_valid_limit_price = False
+            try:
+                has_valid_stop_price = float(stop_price) > 0
+            except (TypeError, ValueError):
+                has_valid_stop_price = False
+            if normalized_futures_type in {'LIMIT', 'STOP_LOSS_LIMIT'} and not has_valid_limit_price:
+                return jsonify({'success': False, 'message': 'Futures limit orders require a positive limit price.'}), 400
+            if normalized_futures_type in {'STOP_LOSS', 'STOP_LOSS_LIMIT'} and not has_valid_stop_price:
+                return jsonify({'success': False, 'message': 'Futures stop orders require a positive stop price.'}), 400
+            if normalized_futures_type == 'TRAILING_STOP_LOSS':
+                if str(trailing_type or '').strip().upper() not in {'AMOUNT', 'PERCENTAGE'}:
+                    return jsonify({'success': False, 'message': 'Choose an amount or percentage for the futures trailing stop.'}), 400
+                try:
+                    if float(trailing_stop_step) <= 0:
+                        raise ValueError()
+                except (TypeError, ValueError):
+                    return jsonify({'success': False, 'message': 'Futures trailing stops require a positive trail amount or percentage.'}), 400
+            clean_futures_symbol = ''.join(char for char in str(symbol or '').upper() if char.isalnum())
+            tradable_contracts = get_webull_futures_contracts(
+                credential.webull_app_key, credential.webull_app_secret, environment,
+                credential.webull_access_token, symbol=clean_futures_symbol,
+            )
+            if not any(str(contract.get('symbol') or '').upper() == clean_futures_symbol for contract in tradable_contracts):
+                return jsonify({
+                    'success': False,
+                    'message': 'Choose an exact tradable Webull futures contract from the Futures Contract Setup before placing an order.',
+                }), 400
+
         # Enforce 2FA verification if enabled for user
         from trading_models import TradingSettings
         trading_settings = TradingSettings.query.filter_by(user_id=current_user.id).first()
@@ -2249,6 +2328,8 @@ def api_webull_place_order():
             quantity=quantity,
             limit_price=limit_price,
             stop_price=stop_price,
+            trailing_type=trailing_type,
+            trailing_stop_step=trailing_stop_step,
             time_in_force=time_in_force,
             support_trading_session=support_trading_session,
         )
@@ -2420,6 +2501,87 @@ def api_webull_market_snapshot():
     except Exception as exc:
         logger.error('Webull market snapshot lookup failed: %s', exc, exc_info=True)
         return jsonify({'success': False, 'message': 'Unable to load the Webull market quote.'}), 500
+
+
+@system_bp.route('/api/webull/futures/catalog', methods=['GET'])
+@login_required
+def api_webull_futures_catalog():
+    """Return the authenticated Webull futures product catalogue for the ticket."""
+    try:
+        credential = Credential.query.filter_by(user_id=current_user.id).first()
+        setting = UserSetting.query.filter_by(user_id=current_user.id).first()
+        environment = normalize_webull_environment(getattr(setting, 'webull_environment', None) or 'production')
+        if (
+            not credential or credential.webull_token_status != 'NORMAL'
+            or credential.webull_token_environment != environment or not credential.webull_access_token
+        ):
+            return jsonify({'success': False, 'message': 'Verify your Webull connection before loading futures products.'}), 400
+        catalog = get_webull_futures_catalog(
+            credential.webull_app_key, credential.webull_app_secret, environment,
+            credential.webull_access_token,
+        )
+        return jsonify({'success': True, **catalog})
+    except WebullConnectionError as exc:
+        return jsonify({'success': False, 'message': str(exc)}), 400
+    except Exception as exc:
+        logger.error('Webull futures catalog lookup failed: %s', exc, exc_info=True)
+        return jsonify({'success': False, 'message': 'Unable to load the Webull futures product catalogue.'}), 500
+
+
+@system_bp.route('/api/webull/futures/contracts', methods=['GET'])
+@login_required
+def api_webull_futures_contracts():
+    """Look up exact tradable Webull futures contract codes."""
+    try:
+        symbol = str(request.args.get('symbol') or '').strip().upper()
+        if not symbol:
+            return jsonify({'success': False, 'contracts': [], 'message': 'Enter a futures contract code, for example ESZ5.'}), 400
+        credential = Credential.query.filter_by(user_id=current_user.id).first()
+        setting = UserSetting.query.filter_by(user_id=current_user.id).first()
+        environment = normalize_webull_environment(getattr(setting, 'webull_environment', None) or 'production')
+        if (
+            not credential or credential.webull_token_status != 'NORMAL'
+            or credential.webull_token_environment != environment or not credential.webull_access_token
+        ):
+            return jsonify({'success': False, 'contracts': [], 'message': 'Verify your Webull connection before loading futures contracts.'}), 400
+        contracts = get_webull_futures_contracts(
+            credential.webull_app_key, credential.webull_app_secret, environment,
+            credential.webull_access_token, symbol=symbol,
+        )
+        return jsonify({'success': True, 'contracts': contracts})
+    except WebullConnectionError as exc:
+        return jsonify({'success': False, 'contracts': [], 'message': str(exc)}), 400
+    except Exception as exc:
+        logger.error('Webull futures contract lookup failed: %s', exc, exc_info=True)
+        return jsonify({'success': False, 'contracts': [], 'message': 'Unable to load Webull futures contracts.'}), 500
+
+
+@system_bp.route('/api/webull/futures/market-data', methods=['GET'])
+@login_required
+def api_webull_futures_market_data():
+    """Return an entitled, read-only futures quote for the selected contract."""
+    try:
+        symbol = str(request.args.get('symbol') or '').strip().upper()
+        if not symbol:
+            return jsonify({'success': False, 'message': 'Choose a futures contract before loading its quote.'}), 400
+        credential = Credential.query.filter_by(user_id=current_user.id).first()
+        setting = UserSetting.query.filter_by(user_id=current_user.id).first()
+        environment = normalize_webull_environment(getattr(setting, 'webull_environment', None) or 'production')
+        if (
+            not credential or credential.webull_token_status != 'NORMAL'
+            or credential.webull_token_environment != environment or not credential.webull_access_token
+        ):
+            return jsonify({'success': False, 'message': 'Verify your Webull connection before loading a futures quote.'}), 400
+        quote = get_webull_futures_snapshot(
+            credential.webull_app_key, credential.webull_app_secret, environment,
+            credential.webull_access_token, symbol=symbol,
+        )
+        return jsonify({'success': True, 'quote': quote})
+    except WebullConnectionError as exc:
+        return jsonify({'success': False, 'message': str(exc)}), 400
+    except Exception as exc:
+        logger.error('Webull futures quote lookup failed: %s', exc, exc_info=True)
+        return jsonify({'success': False, 'message': 'Unable to load the Webull futures quote.'}), 500
 
 
 @system_bp.route('/api/webull/option-market-data', methods=['GET'])

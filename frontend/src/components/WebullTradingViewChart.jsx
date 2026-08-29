@@ -47,11 +47,12 @@ export default function WebullTradingViewChart({
   const [status, setStatus] = useState('loading');
   const isCrypto = instrumentType === 'CRYPTO';
   const isOption = instrumentType === 'OPTION';
+  const isFutures = instrumentType === 'FUTURES';
 
   // Combine user's imported holdings with default lists
   const availableTraditional = useMemo(() => {
     const fromHoldings = holdings
-      .filter((h) => !/crypto|coin|token/i.test(h.instrument_type || '') && String(h.instrument_type || '').toUpperCase() !== 'OPTION' && h.symbol)
+      .filter((h) => !/crypto|coin|token/i.test(h.instrument_type || '') && !['OPTION', 'FUTURES'].includes(String(h.instrument_type || '').toUpperCase()) && h.symbol)
       .map((h) => ({
         id: h.symbol.toUpperCase(),
         symbol: h.symbol.toUpperCase(),
@@ -113,15 +114,19 @@ export default function WebullTradingViewChart({
 
   // Resolve TradingView widget symbol
   const tvSymbol = useMemo(() => {
-    const clean = String(symbol || 'AAPL').toUpperCase().trim();
+    const clean = String(symbol || '').toUpperCase().trim();
+    if (isFutures && !clean) return '';
+    const resolved = clean || 'AAPL';
     if (isCrypto) {
-      const pair = clean.endsWith('USD') ? clean : `${clean}USD`;
+      const pair = resolved.endsWith('USD') ? resolved : `${resolved}USD`;
       return `COINBASE:${pair}`;
     }
-    return clean;
-  }, [symbol, isCrypto]);
+    return resolved;
+  }, [symbol, isCrypto, isFutures]);
 
-  const pageUrl = `https://www.tradingview.com/symbols/${tvSymbol.replace(':', '-')}/`;
+  const pageUrl = tvSymbol
+    ? `https://www.tradingview.com/symbols/${tvSymbol.replace(':', '-')}/`
+    : 'https://www.tradingview.com/markets/futures/';
 
   // Mount TradingView Widget
   useEffect(() => {
@@ -130,6 +135,10 @@ export default function WebullTradingViewChart({
     let active = true;
     setStatus('loading');
     host.replaceChildren();
+    if (!tvSymbol) {
+      setStatus('ready');
+      return () => { active = false; host.replaceChildren(); };
+    }
 
     const mount = document.createElement('div');
     mount.className = 'tradingview-widget-container__widget';
@@ -240,11 +249,11 @@ export default function WebullTradingViewChart({
           {/* Unified Searchable Instrument / Pair Selector */}
           <div className="advanced-chart-pair-control" style={{ width: 'min(100%, 340px)' }}>
             <span className="advanced-chart-control-label">
-              {isCrypto ? 'Cryptocurrency Pair for Chart & Orders' : isOption ? 'Option Underlying Chart' : 'Stock / ETF for Chart & Orders'}
+              {isCrypto ? 'Cryptocurrency Pair for Chart & Orders' : isOption ? 'Option Underlying Chart' : isFutures ? 'Webull Futures Contract' : 'Stock / ETF for Chart & Orders'}
             </span>
-            {isOption ? (
-              <div className="order-styled-input" aria-label="Selected option underlying" style={{ padding: '10px 12px', color: isLightMode ? '#0f172a' : '#e2e8f0' }}>
-                {symbol} · selected option contract
+            {isOption || isFutures ? (
+              <div className="order-styled-input" aria-label={isFutures ? 'Selected Webull futures contract' : 'Selected option underlying'} style={{ padding: '10px 12px', color: isLightMode ? '#0f172a' : '#e2e8f0' }}>
+                {symbol || 'Choose a contract below'} · {isFutures ? 'selected futures contract' : 'selected option contract'}
               </div>
             ) : (
               <SearchablePairSelect
@@ -276,7 +285,8 @@ export default function WebullTradingViewChart({
 
       <div className="advanced-chart-widget-shell">
         <div ref={hostRef} className="tradingview-widget-container advanced-chart-widget-host" />
-        {status === 'loading' && <div className="advanced-chart-widget-status">Loading TradingView Advanced Chart…</div>}
+        {!tvSymbol && <div className="advanced-chart-widget-status">Select an exact Webull futures contract below to load its chart.</div>}
+        {tvSymbol && status === 'loading' && <div className="advanced-chart-widget-status">Loading TradingView Advanced Chart…</div>}
         {status === 'error' && (
           <div className="advanced-chart-widget-status error">
             <span>TradingView could not load. Check network connection or content blocker.</span>
@@ -288,6 +298,8 @@ export default function WebullTradingViewChart({
       <p className="advanced-chart-sync-note">
         {isOption
           ? 'The chart shows the option underlying. The imported holding and its strike, expiration, and call/put terms remain locked into the option ticket below.'
+          : isFutures
+            ? 'Choose a Webull futures contract in the ticket below. The selected contract stays locked into the order ticket while TradingView remains available for market research.'
           : 'The selector above keeps the order ticket and Webull chart synchronized. TradingView\'s built-in symbol search remains available for independent market research.'}
       </p>
     </section>

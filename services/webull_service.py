@@ -60,7 +60,7 @@ WEBULL_ENVIRONMENTS = {
 # The chart only asks Webull for instruments whose market-data API is
 # unambiguous. Options are allowed only when their own contract identifier is
 # supplied; the underlying equity is never substituted.
-WEBULL_CHARTABLE_INSTRUMENT_TYPES = {'CRYPTO', 'STOCK', 'EQUITY', 'ETF', 'OPTION'}
+WEBULL_CHARTABLE_INSTRUMENT_TYPES = {'CRYPTO', 'STOCK', 'EQUITY', 'ETF', 'OPTION', 'FUTURES'}
 WEBULL_MARKET_INTERVALS = {'M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D', 'W', 'M'}
 
 
@@ -400,7 +400,7 @@ def get_webull_market_bars(
 ):
     """Fetch read-only historical bars for a supported Webull instrument.
 
-    Stocks/ETFs and crypto use separate documented Webull endpoints.  The
+    Stocks/ETFs, crypto, and futures use separate documented Webull endpoints. The
     caller must label the instrument type so a stock can never fall through to
     a crypto endpoint.  No order-management endpoint is used here.
     """
@@ -420,6 +420,7 @@ def get_webull_market_bars(
 
     is_crypto = clean_type == 'CRYPTO'
     is_option = clean_type == 'OPTION'
+    is_futures = clean_type == 'FUTURES'
     if is_crypto and not clean_symbol.endswith('USD'):
         clean_symbol = f'{clean_symbol}USD'
     if is_option and not instrument_id:
@@ -427,6 +428,7 @@ def get_webull_market_bars(
     path = (
         '/market-data/crypto/bars/list' if is_crypto else
         '/market-data/options/bars/list' if is_option else
+        '/market-data/futures/bars/list' if is_futures else
         '/market-data/stocks/bars/get'
     )
     # ``count`` is the stock-bars API pagination size; ``limit`` is retained
@@ -437,6 +439,8 @@ def get_webull_market_bars(
         # Current OpenAPI deployments use one of these aliases. Sending both
         # preserves compatibility without ever substituting the underlying.
         params.update({'instrument_id': str(instrument_id), 'contract_id': str(instrument_id)})
+    if is_futures:
+        params['category'] = 'US_FUTURES'
     payload = _response_payload(
         _webull_request(
             app_key, app_secret, environment, 'GET', path,
@@ -455,7 +459,7 @@ def get_webull_market_bars(
 def get_webull_market_snapshot(
     app_key, app_secret, environment='production', access_token=None, *, symbol, instrument_type,
 ):
-    """Fetch one current Webull stock/ETF or crypto quote, without trading.
+    """Fetch one current Webull stock/ETF, crypto, or futures quote, without trading.
 
     Snapshot endpoints are the correct source for the trade-ticket price card;
     a single historical bar can be unavailable or stale outside its interval.
@@ -468,12 +472,15 @@ def get_webull_market_snapshot(
         clean_type = 'CRYPTO'
     if clean_type == 'CRYPTO' and not clean_symbol.endswith('USD'):
         clean_symbol = f'{clean_symbol}USD'
-    if clean_type not in {'CRYPTO', 'STOCK', 'EQUITY', 'ETF'}:
+    if clean_type not in {'CRYPTO', 'STOCK', 'EQUITY', 'ETF', 'FUTURES'}:
         raise WebullConnectionError('This Webull instrument type does not have a supported live quote.')
 
     if clean_type == 'CRYPTO':
         path = '/market-data/crypto/snapshots/list'
         params = {'symbols': clean_symbol, 'symbol': clean_symbol}
+    elif clean_type == 'FUTURES':
+        path = '/market-data/futures/snapshots/list'
+        params = {'symbols': clean_symbol, 'category': 'US_FUTURES'}
     else:
         path = '/market-data/stocks/snapshots/list'
         params = {
@@ -622,6 +629,117 @@ def get_webull_option_contracts(app_key, app_secret, environment='production', a
         'option-contract lookup',
     )
     return _webull_records(payload)
+
+
+def _normalise_futures_catalog_record(record):
+    """Normalize Webull futures product and contract catalogue variants."""
+    if not isinstance(record, dict):
+        return None
+
+    def value(*keys):
+        for key in keys:
+            candidate = record.get(key)
+            if candidate not in (None, ''):
+                return candidate
+        return None
+
+    symbol = str(value('symbol', 'contract_symbol', 'contractSymbol', 'instrument_symbol') or '').strip().upper()
+    product_code = str(value('product_code', 'productCode', 'underlying_code', 'underlyingCode') or '').strip().upper()
+    name = str(value('name', 'display_name', 'displayName', 'description', 'product_name', 'productName') or symbol or product_code).strip()
+    return {
+        'symbol': symbol,
+        'product_code': product_code,
+        'name': name,
+        'exchange': value('exchange', 'exchange_code', 'exchangeCode'),
+        'currency': value('currency', 'settlement_currency', 'settlementCurrency'),
+        'expiration_date': value('expiration_date', 'expirationDate', 'expire_date', 'expireDate'),
+        'contract_multiplier': value('contract_multiplier', 'contractMultiplier', 'multiplier'),
+        'tick_size': value('tick_size', 'tickSize', 'minimum_tick'),
+        'initial_margin': value('initial_margin', 'initialMargin'),
+        'maintenance_margin': value('maintenance_margin', 'maintenanceMargin'),
+    }
+
+
+def _get_webull_futures_catalog(app_key, app_secret, environment, access_token, path, *, query_params=None, action):
+    payload = _response_payload(
+        _webull_request(
+            app_key, app_secret, environment, 'GET', path,
+            query_params=query_params or {}, access_token=access_token,
+        ),
+        action,
+    )
+    records = []
+    for record in _webull_records(payload):
+        normalized = _normalise_futures_catalog_record(record)
+        if normalized:
+            records.append(normalized)
+    return records
+
+
+def get_webull_futures_catalog(app_key, app_secret, environment='production', access_token=None):
+    """Load Webull's documented futures product classes and product codes."""
+    classes = _get_webull_futures_catalog(
+        app_key, app_secret, environment, access_token,
+        '/trading/instruments/futures/product-classes/list',
+        action='futures product-class lookup',
+    )
+    products = _get_webull_futures_catalog(
+        app_key, app_secret, environment, access_token,
+        '/trading/instruments/futures/product-codes/list',
+        action='futures product-code lookup',
+    )
+    return {'classes': classes, 'products': products}
+
+
+def get_webull_futures_contracts(app_key, app_secret, environment='production', access_token=None, *, symbol):
+    """Resolve an exact futures contract symbol via Webull's trading catalogue."""
+    clean_symbol = ''.join(char for char in str(symbol or '').upper() if char.isalnum())
+    if not clean_symbol:
+        raise WebullConnectionError('Enter a futures contract code, for example ESZ5.')
+    return _get_webull_futures_catalog(
+        app_key, app_secret, environment, access_token,
+        '/trading/instruments/futures/contracts/list',
+        query_params={'symbols': clean_symbol},
+        action='futures contract lookup',
+    )
+
+
+def get_webull_futures_snapshot(app_key, app_secret, environment='production', access_token=None, *, symbol):
+    """Fetch an entitled real-time futures snapshot without using a trading endpoint."""
+    clean_symbol = ''.join(char for char in str(symbol or '').upper() if char.isalnum())
+    if not clean_symbol:
+        raise WebullConnectionError('Choose a futures contract before loading its quote.')
+    payload = _response_payload(
+        _webull_request(
+            app_key, app_secret, environment, 'GET', '/market-data/futures/snapshots/list',
+            query_params={'symbols': clean_symbol, 'category': 'US_FUTURES'}, access_token=access_token,
+        ),
+        'futures market-data request',
+    )
+    raw = _first_option_record(payload)
+    if not isinstance(raw, dict):
+        raise WebullConnectionError('Webull returned no futures snapshot for this contract.')
+
+    def number(*names):
+        for name in names:
+            try:
+                value = raw.get(name)
+                parsed = float(value)
+                if parsed > 0:
+                    return parsed
+            except (TypeError, ValueError):
+                continue
+        return None
+
+    return {
+        'symbol': str(raw.get('symbol') or clean_symbol).upper(),
+        'price': number('price', 'last_price', 'lastPrice', 'last', 'close'),
+        'bid': number('bid', 'bid_price', 'bidPrice'),
+        'ask': number('ask', 'ask_price', 'askPrice'),
+        'change': number('change', 'price_change', 'priceChange'),
+        'volume': number('volume'),
+        'as_of': raw.get('timestamp') or raw.get('last_trade_time') or raw.get('trade_time'),
+    }
 
 
 def get_webull_option_chain_data(app_key=None, app_secret=None, environment='production', access_token=None, *, underlying_symbol, expiration_date=None):
@@ -968,6 +1086,7 @@ def place_webull_order(
     limit_price=None, stop_price=None, time_in_force='DAY', support_trading_session='CORE',
     client_order_id=None, option_type=None, option_strike=None,
     option_expiration=None, option_underlying_symbol=None,
+    trailing_type=None, trailing_stop_step=None,
 ):
     """Place a live order using Webull's current unified order contract.
 
@@ -987,8 +1106,8 @@ def place_webull_order(
         raise WebullConnectionError('Order side must be BUY or SELL.')
     clean_type = str(order_type or '').strip().upper()
     clean_type = {'STOP': 'STOP_LOSS', 'STOP_LIMIT': 'STOP_LOSS_LIMIT'}.get(clean_type, clean_type)
-    if clean_type not in {'MARKET', 'LIMIT', 'STOP_LOSS', 'STOP_LOSS_LIMIT'}:
-        raise WebullConnectionError('Choose a supported order type: MARKET, LIMIT, STOP_LOSS, or STOP_LOSS_LIMIT.')
+    if clean_type not in {'MARKET', 'LIMIT', 'STOP_LOSS', 'STOP_LOSS_LIMIT', 'TRAILING_STOP_LOSS'}:
+        raise WebullConnectionError('Choose a supported order type: MARKET, LIMIT, STOP_LOSS, STOP_LOSS_LIMIT, or TRAILING_STOP_LOSS.')
     clean_instrument = str(instrument_type or 'EQUITY').strip().upper()
     if clean_instrument in {'CRYPTO', 'COIN', 'TOKEN'}:
         clean_instrument = 'CRYPTO'
@@ -996,6 +1115,8 @@ def place_webull_order(
             clean_symbol = f'{clean_symbol}USD'
     elif clean_instrument in {'OPTION', 'OPTIONS'}:
         clean_instrument = 'OPTION'
+    elif clean_instrument in {'FUTURES', 'FUTURE'}:
+        clean_instrument = 'FUTURES'
     elif clean_instrument in {'ETF', 'STOCK', 'SECURITY', 'EQUITY'}:
         clean_instrument = 'EQUITY'
     else:
@@ -1066,6 +1187,28 @@ def place_webull_order(
                 'market': 'US',
             }],
         }
+    elif clean_instrument == 'FUTURES':
+        if clean_side not in {'BUY', 'SELL'}:
+            raise WebullConnectionError('Webull futures orders support BUY and SELL only.')
+        if clean_type not in {'MARKET', 'LIMIT', 'STOP_LOSS', 'STOP_LOSS_LIMIT', 'TRAILING_STOP_LOSS'}:
+            raise WebullConnectionError('Webull futures orders use Market, Limit, Stop Loss, Stop Loss Limit, or Trailing Stop Loss.')
+        if not qty.is_integer():
+            raise WebullConnectionError('Webull futures orders require a whole number of contracts.')
+        clean_time_in_force = str(time_in_force or 'DAY').upper()
+        if clean_time_in_force not in {'DAY', 'GTC'}:
+            raise WebullConnectionError('Webull futures orders support DAY or GTC time in force.')
+        order_payload = {
+            'combo_type': 'NORMAL',
+            'client_order_id': clean_client_order_id,
+            'symbol': clean_symbol,
+            'instrument_type': 'FUTURES',
+            'market': 'US',
+            'order_type': clean_type,
+            'side': clean_side,
+            'quantity': str(int(qty)),
+            'time_in_force': clean_time_in_force,
+            'entrust_type': 'QTY',
+        }
     else:
         clean_session = str(support_trading_session or 'CORE').upper()
         if clean_instrument == 'EQUITY' and clean_session not in {'CORE', 'ALL', 'NIGHT'}:
@@ -1115,6 +1258,21 @@ def place_webull_order(
             order_payload['limit_price'] = f'{px:.4f}' if px < 1 else f'{px:.2f}'
         except (TypeError, ValueError):
             raise WebullConnectionError('Limit orders require a valid price greater than 0.')
+
+    if clean_type == 'TRAILING_STOP_LOSS':
+        if clean_instrument != 'FUTURES':
+            raise WebullConnectionError('Trailing Stop Loss is currently available in this dashboard for futures only.')
+        clean_trailing_type = str(trailing_type or '').strip().upper()
+        if clean_trailing_type not in {'AMOUNT', 'PERCENTAGE'}:
+            raise WebullConnectionError('Choose AMOUNT or PERCENTAGE for a futures trailing stop.')
+        try:
+            clean_trailing_step = float(trailing_stop_step)
+            if clean_trailing_step <= 0:
+                raise ValueError()
+        except (TypeError, ValueError):
+            raise WebullConnectionError('Futures trailing stops require a positive trail amount or percentage.')
+        order_payload['trailing_type'] = clean_trailing_type
+        order_payload['trailing_stop_step'] = f'{clean_trailing_step:.4f}'.rstrip('0').rstrip('.')
 
     request_body = {
         'account_id': str(account_id),
