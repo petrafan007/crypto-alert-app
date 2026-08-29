@@ -125,6 +125,14 @@ The application utilizes a **unified PostgreSQL database**.
 
 Historical changelog entries retain the product name used when they were originally released. The application domain, repository slug, deployment folders, database, and service identifiers intentionally remain unchanged by the v2.45.0 brand update.
 
+## v2.52.1 (August 2026)
+
+- **Webull Options Chain Table Complete Theme Awareness**:
+  - **Dark & Light Mode Parity**: Fixed an issue where unscoped `td` rules from `light-theme.css` bled white cell backgrounds into the Options Chain in dark mode.
+  - **Airtight Specificity in `WebullOptionChain.css`**: Explicitly declared dark mode backgrounds (`#0f172a`, alternating `#131d31`, hover `#1e293b`) with `!important` to eliminate white cell bleaching and ensure high contrast in dark mode.
+  - **Dynamic Theme Synchronization**: Added a real-time DOM mutation observer in `WebullOptionChain.jsx` to dynamically detect theme toggle changes (`light-mode` vs `dark-mode`) and update styling immediately without page reloads.
+  - **Scoped Table Selectors in `light-theme.css`**: Prefixed global table rules with `body.light-mode` to prevent theme leakage across pages.
+
 ## v2.52.0 (August 2026)
 
 - **Full Webull Options Trading & Live Options Chain/Book**:

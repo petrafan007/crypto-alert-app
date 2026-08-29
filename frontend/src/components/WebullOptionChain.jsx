@@ -18,6 +18,20 @@ export default function WebullOptionChain({
   const [viewMode, setViewMode] = useState('both'); // 'both', 'calls', 'puts'
   const [strikeRange, setStrikeRange] = useState('20'); // '10', '20', 'all'
   const isMounted = useRef(true);
+  const [bodyIsLight, setBodyIsLight] = useState(() =>
+    typeof document !== 'undefined' ? document.body.classList.contains('light-mode') : isLightMode
+  );
+
+  useEffect(() => {
+    if (typeof MutationObserver === 'undefined' || typeof document === 'undefined') return;
+    const observer = new MutationObserver(() => {
+      setBodyIsLight(document.body.classList.contains('light-mode'));
+    });
+    observer.observe(document.body, { attributes: true, attributeFilter: ['class'] });
+    return () => observer.disconnect();
+  }, []);
+
+  const activeLightMode = Boolean(isLightMode || bodyIsLight);
 
   useEffect(() => {
     isMounted.current = true;
@@ -145,7 +159,7 @@ export default function WebullOptionChain({
   };
 
   return (
-    <div className={`webull-option-chain-container ${isLightMode ? 'light-mode' : ''}`}>
+    <div className={`webull-option-chain-container ${activeLightMode ? 'light-mode' : ''}`}>
       {/* 1. TOP HEADER: UNDERLYING SELECTOR, LIVE QUOTE & REFRESH */}
       <div className="chain-top-bar">
         <div className="underlying-selector-section">

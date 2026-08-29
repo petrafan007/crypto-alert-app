@@ -187,13 +187,13 @@ body.light-mode .nav-menu-popover {
   margin: 0;
 }
 
-table {
+body.light-mode table {
   width: 100%;
   border-collapse: collapse;
   background: transparent;
 }
 
-th {
+body.light-mode th {
   background: #f7fafc;
   color: #3182ce;
   font-size: 0.9rem;
@@ -204,7 +204,7 @@ th {
   white-space: nowrap;
 }
 
-td {
+body.light-mode td {
   color: #2d3748;
   font-size: 0.9rem;
   font-weight: 500;
@@ -215,11 +215,11 @@ td {
   white-space: nowrap;
 }
 
-tr:nth-child(even) td {
+body.light-mode tr:nth-child(even) td {
   background: #f7fafc;
 }
 
-tr:hover td {
+body.light-mode tr:hover td {
   background: #edf2f7;
 }
 
