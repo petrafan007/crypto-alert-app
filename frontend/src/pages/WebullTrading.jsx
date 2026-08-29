@@ -13,6 +13,23 @@ import './Trading.css';
 
 const OPEN_STATUSES = new Set(['OPEN', 'NEW', 'WORKING', 'PENDING', 'PARTIALLY_FILLED', 'PARTIALLY FILLED']);
 const PAGE_SIZES = [20, 50, 100, 200];
+const ORDER_TYPE_LABELS = {
+  MARKET: 'Market',
+  LIMIT: 'Limit',
+  STOP_LOSS: 'Stop Loss',
+  STOP_LOSS_LIMIT: 'Stop Loss Limit',
+  TRAILING_STOP_LOSS: 'Trailing Stop',
+  MARKET_ON_OPEN: 'MOO',
+  MARKET_ON_CLOSE: 'MOC',
+  LIMIT_ON_OPEN: 'LOO',
+};
+
+const orderTypeLabel = (value) => ORDER_TYPE_LABELS[value] || String(value || '').replace(/_/g, ' ');
+const orderIsPaper = (order) => Boolean(
+  order?.is_paper
+  || String(order?.account_id || '') === 'TEST_PAPER_ACCOUNT'
+  || String(order?.id || order?.order_id || '').startsWith('SIM_')
+);
 
 const number = (value, digits = 2) => {
   const parsed = Number(value);
@@ -217,6 +234,10 @@ export default function WebullTrading({ isLightMode = false }) {
 
   // Webull Test Mode (Paper Trading) state
   const [isTestMode, setIsTestMode] = useState(false);
+  const modeHoldings = useMemo(
+    () => holdings.filter((holding) => orderIsPaper(holding) === isTestMode),
+    [holdings, isTestMode]
+  );
   const [paperSummary, setPaperSummary] = useState(null);
   const [showDepositModal, setShowDepositModal] = useState(false);
   const [depositAmount, setDepositAmount] = useState('1000');
@@ -227,6 +248,7 @@ export default function WebullTrading({ isLightMode = false }) {
   // Selected Instrument & Chart state
   const [selectedSymbol, setSelectedSymbol] = useState('AAPL');
   const [selectedInstrumentType, setSelectedInstrumentType] = useState('EQUITY');
+  const [selectedSecurityType, setSelectedSecurityType] = useState('EQUITY');
   const [selectedOptionHoldingId, setSelectedOptionHoldingId] = useState('');
   const [futuresCatalog, setFuturesCatalog] = useState({ classes: [], products: [] });
   const [futuresContracts, setFuturesContracts] = useState([]);
@@ -450,8 +472,8 @@ export default function WebullTrading({ isLightMode = false }) {
 
   const [historyLoading, setHistoryLoading] = useState(false);
 
-  const loadHistory = async (targetAccId) => {
-    if (isTestMode) {
+  const loadHistory = async (targetAccId, paperMode = isTestMode) => {
+    if (paperMode) {
       setHistoryLoading(true);
       try {
         const resp = await axios.get('/api/webull/test/orders', { withCredentials: true });
@@ -482,8 +504,8 @@ export default function WebullTrading({ isLightMode = false }) {
     }
   };
 
-  const loadOpenOrders = async (targetAccId) => {
-    if (isTestMode) {
+  const loadOpenOrders = async (targetAccId, paperMode = isTestMode) => {
+    if (paperMode) {
       try {
         const res = await axios.get('/api/webull/test/orders', { withCredentials: true });
         const working = (res.data?.orders || []).filter((o) => o.status === 'Working' || o.status === 'Open').map(normalizeOrder);
@@ -532,15 +554,19 @@ export default function WebullTrading({ isLightMode = false }) {
   };
 
   const handleToggleTestMode = async (enabled) => {
-    setIsTestMode(enabled);
     try {
       await axios.post('/api/webull/test/toggle', { enabled }, { withCredentials: true });
+      setIsTestMode(enabled);
+      setHoldings([]);
+      setHistory([]);
+      setOpenOrders([]);
       if (enabled) {
         setSelectedAccountId('TEST_PAPER_ACCOUNT');
         await loadPaperTradingData();
         setOrderFeedback({ type: 'success', message: 'Switched to Webull Test Mode (Paper Trading with live real pricing).' });
       } else {
-        await load();
+        setPaperSummary(null);
+        await load(false);
         setOrderFeedback({ type: 'success', message: 'Switched to Webull Live Trading Mode.' });
       }
     } catch (err) {
@@ -585,7 +611,7 @@ export default function WebullTrading({ isLightMode = false }) {
     }
   };
 
-  const load = async () => {
+  const load = async (forcedTestMode = null) => {
     setLoading(true); setError('');
     try {
       // 1. Fetch lightweight core data needed for trading UI (accounts & portfolio holdings & 2FA setting)
@@ -596,18 +622,16 @@ export default function WebullTrading({ isLightMode = false }) {
         axios.get('/api/trading/settings', { withCredentials: true }).catch(() => ({ data: {} })),
         axios.get('/api/webull/test/status', { withCredentials: true }).catch(() => ({ data: {} })),
       ]);
-      const testModeActive = Boolean(testStatusRes?.data?.enabled);
+      const testModeActive = forcedTestMode == null
+        ? Boolean(testStatusRes?.data?.enabled)
+        : Boolean(forcedTestMode);
       setIsTestMode(testModeActive);
-      if (testModeActive) {
-        await loadPaperTradingData();
-      }
       if (tradingSettingsRes.data?.settings?.require_2fa) {
         setRequire2fa(true);
       }
       const importedHoldings = (portfolioResponse.data?.portfolio || []).filter(
         (item) => item?.is_external || item?.source === 'webull'
       );
-      setHoldings(importedHoldings);
       setSignalSettings((current) => ({ ...current, ...(signalSettingsResponse.data?.settings || {}) }));
 
       const discoveredAccounts = accRes.data?.accounts || [];
@@ -618,6 +642,18 @@ export default function WebullTrading({ isLightMode = false }) {
       setAccounts(filteredAccounts);
       const savedDefaultAccountId = String(accRes.data?.default_account_id || '');
       setDefaultAccountId(savedDefaultAccountId);
+
+      if (testModeActive) {
+        setSelectedAccountId('TEST_PAPER_ACCOUNT');
+        await loadPaperTradingData();
+        setLoading(false);
+        axios.get('/api/webull/ai-signals?limit=50', { withCredentials: true })
+          .then((res) => setSignals(res.data?.signals || []))
+          .catch(() => {});
+        return;
+      }
+
+      setHoldings(importedHoldings);
 
       const urlParams = new URLSearchParams(window.location.search);
       const urlSymbol = urlParams.get('symbol')?.toUpperCase()?.trim();
@@ -697,6 +733,11 @@ export default function WebullTrading({ isLightMode = false }) {
           || (matchedHolding ? normalizedWebullInstrumentType(matchedHolding.instrument_type) : (isCrypto ? 'CRYPTO' : 'EQUITY'));
         setSelectedAccountId(activeAcc.account_id);
         setSelectedInstrumentType(nextInstrumentType);
+        setSelectedSecurityType(
+          nextInstrumentType === 'EQUITY' && String(matchedHolding?.instrument_type || '').toUpperCase() === 'ETF'
+            ? 'ETF'
+            : nextInstrumentType
+        );
         setSelectedOptionHoldingId(nextInstrumentType === 'OPTION' && matchedHolding?.id ? String(matchedHolding.id) : '');
 
         if (urlSymbol) {
@@ -745,7 +786,7 @@ export default function WebullTrading({ isLightMode = false }) {
 
       // 2. Fetch active account open orders in background
       if (activeAcc?.account_id) {
-        loadOpenOrders(activeAcc.account_id);
+        loadOpenOrders(activeAcc.account_id, false);
       }
 
       // 3. Fetch background AI signals
@@ -763,16 +804,16 @@ export default function WebullTrading({ isLightMode = false }) {
   // Fetch history when history or chart tab is activated
   useEffect(() => {
     if (['history', 'trade_chart'].includes(activeTab) && !history.length && !historyLoading) {
-      loadHistory();
+      loadHistory(undefined, isTestMode);
     }
-  }, [activeTab]);
+  }, [activeTab, isTestMode]);
 
   // Refetch open orders when account changes
   useEffect(() => {
     if (selectedAccountId) {
-      loadOpenOrders(selectedAccountId);
+      loadOpenOrders(selectedAccountId, isTestMode);
     }
-  }, [selectedAccountId]);
+  }, [selectedAccountId, isTestMode]);
 
   // Sync active account and cash balance
   const activeAccount = useMemo(() => {
@@ -822,7 +863,6 @@ export default function WebullTrading({ isLightMode = false }) {
           account_class: 'PAPER_TRADING',
           is_paper: true,
         },
-        ...accounts.filter((a) => a.account_id !== 'TEST_PAPER_ACCOUNT'),
       ];
     }
     return accounts;
@@ -852,17 +892,18 @@ export default function WebullTrading({ isLightMode = false }) {
     if (assetClassDisabled(nextType)) return;
     userChangedSessionRef.current = false;
     setSelectedInstrumentType(nextType);
+    setSelectedSecurityType(nextType === 'EQUITY' ? 'EQUITY' : nextType);
     setSelectedOptionHoldingId('');
     setBalancePercentage(0);
     setOrderValidationError('');
     if (nextType !== 'FUTURES') resetFuturesSelection();
     if (nextType === 'CRYPTO') {
-      const cryptoHolding = holdings.find((holding) => String(holding.account_id || '') === String(selectedAccountId)
+      const cryptoHolding = modeHoldings.find((holding) => String(holding.account_id || '') === String(selectedAccountId)
         && /crypto|coin|token/i.test(holding.instrument_type || ''));
       const nextSymbol = cryptoHolding?.symbol || 'BTCUSD';
       setSelectedSymbol(nextSymbol);
     } else if (nextType === 'EQUITY') {
-      const equityHolding = holdings.find((holding) => String(holding.account_id || '') === String(selectedAccountId)
+      const equityHolding = modeHoldings.find((holding) => String(holding.account_id || '') === String(selectedAccountId)
         && !/crypto|coin|token/i.test(holding.instrument_type || '')
         && !['OPTION', 'FUTURES', 'EVENT'].includes(String(holding.instrument_type || '').toUpperCase()));
       setSelectedSymbol(equityHolding?.symbol || 'AAPL');
@@ -1080,7 +1121,7 @@ export default function WebullTrading({ isLightMode = false }) {
   // underlying, expiration, strike, and call/put all have to match.
   const currentHolding = useMemo(() => {
     if (selectedInstrumentType === 'OPTION') {
-      const matchingOptions = holdings.filter((holding) => holdingMatchesOptionContract(holding, {
+      const matchingOptions = modeHoldings.filter((holding) => holdingMatchesOptionContract(holding, {
         accountId: selectedAccountId,
         underlyingSymbol: selectedSymbol,
         optionType: orderForm.optionType,
@@ -1091,8 +1132,8 @@ export default function WebullTrading({ isLightMode = false }) {
         || matchingOptions[0]
         || null;
     }
-    return holdingForAccount(holdings, selectedSymbol, selectedAccountId);
-  }, [holdings, selectedSymbol, selectedAccountId, selectedInstrumentType, selectedOptionHoldingId, orderForm.optionType, orderForm.optionStrike, orderForm.optionExpiration]);
+    return holdingForAccount(modeHoldings, selectedSymbol, selectedAccountId);
+  }, [modeHoldings, selectedSymbol, selectedAccountId, selectedInstrumentType, selectedOptionHoldingId, orderForm.optionType, orderForm.optionStrike, orderForm.optionExpiration]);
 
   const heldQuantity = useMemo(() => nonNegativeNumber(currentHolding?.amount), [currentHolding]);
   const heldValue = useMemo(() => nonNegativeNumber(currentHolding?.current_value || (heldQuantity * livePrice)), [currentHolding, heldQuantity, livePrice]);
@@ -1118,7 +1159,10 @@ export default function WebullTrading({ isLightMode = false }) {
               withCredentials: true,
             })
           : await axios.get('/api/webull/market-snapshot', {
-            params: { symbol: selectedSymbol, instrument_type: selectedInstrumentType },
+            params: {
+              symbol: selectedSymbol,
+              instrument_type: selectedInstrumentType === 'EQUITY' ? selectedSecurityType : selectedInstrumentType,
+            },
             withCredentials: true,
           });
         const price = Number(selectedInstrumentType === 'OPTION'
@@ -1137,14 +1181,15 @@ export default function WebullTrading({ isLightMode = false }) {
     loadSnapshot();
     const timer = window.setInterval(loadSnapshot, 30000);
     return () => { active = false; window.clearInterval(timer); };
-  }, [selectedSymbol, selectedInstrumentType, currentHolding, selectedFuturesContract]);
+  }, [selectedSymbol, selectedInstrumentType, selectedSecurityType, currentHolding, selectedFuturesContract]);
 
   // Handlers for Instrument change from Top TradingView Chart
-  const handleInstrumentChange = ({ symbol: nextSymbol, instrumentType: nextType }) => {
+  const handleInstrumentChange = ({ symbol: nextSymbol, instrumentType: nextType, securityType }) => {
     if (assetClassDisabled(nextType)) return;
     userChangedSessionRef.current = false;
     setSelectedSymbol(nextSymbol);
     setSelectedInstrumentType(nextType);
+    setSelectedSecurityType(nextType === 'EQUITY' ? (securityType === 'ETF' ? 'ETF' : 'EQUITY') : nextType);
     setSelectedOptionHoldingId('');
     setBalancePercentage(0);
     setOrderValidationError('');
@@ -1171,17 +1216,19 @@ export default function WebullTrading({ isLightMode = false }) {
     const isCrypto = isCryptoAccount(targetAcc);
     if (isCrypto) {
       setSelectedInstrumentType('CRYPTO');
+      setSelectedSecurityType('CRYPTO');
       if (selectedInstrumentType !== 'CRYPTO' || !selectedSymbol.endsWith('USD')) {
-        const topCryptoHolding = holdings.find((h) => String(h.account_id || '') === String(newAccountId) && /crypto|coin|token/i.test(h.instrument_type || ''));
+        const topCryptoHolding = modeHoldings.find((h) => String(h.account_id || '') === String(newAccountId) && /crypto|coin|token/i.test(h.instrument_type || ''));
         const nextSym = topCryptoHolding ? topCryptoHolding.symbol : 'BTCUSD';
         setSelectedSymbol(nextSym);
         setOrderForm((prev) => ({ ...prev, symbol: nextSym, quantity: '', quoteQuantity: '' }));
       }
     } else {
       setSelectedInstrumentType('EQUITY');
+      setSelectedSecurityType('EQUITY');
       const shouldDefaultSession = isCashBasedAccount(targetAcc);
       if (selectedInstrumentType === 'CRYPTO' || selectedSymbol.endsWith('USD')) {
-      const topEquityHolding = holdings.find((h) => String(h.account_id || '') === String(newAccountId)
+      const topEquityHolding = modeHoldings.find((h) => String(h.account_id || '') === String(newAccountId)
         && !/crypto|coin|token/i.test(h.instrument_type || '')
         && !['OPTION', 'FUTURES'].includes(String(h.instrument_type || '').toUpperCase()));
         const nextSym = topEquityHolding ? topEquityHolding.symbol : 'AAPL';
@@ -1417,7 +1464,7 @@ export default function WebullTrading({ isLightMode = false }) {
     provider: 'Webull',
     accountLabel: activeAccountLabel(),
     symbol: selectedSymbol,
-    instrumentType: selectedInstrumentType,
+    instrumentType: selectedInstrumentType === 'EQUITY' ? selectedSecurityType : selectedInstrumentType,
     side: orderForm.side,
     type: orderForm.type,
     quantity: orderForm.quantity,
@@ -1429,8 +1476,11 @@ export default function WebullTrading({ isLightMode = false }) {
     optionType: selectedInstrumentType === 'OPTION' ? orderForm.optionType : undefined,
     optionStrike: selectedInstrumentType === 'OPTION' ? orderForm.optionStrike : undefined,
     optionExpiration: selectedInstrumentType === 'OPTION' ? orderForm.optionExpiration : undefined,
-    trailingType: selectedInstrumentType === 'FUTURES' && orderForm.type === 'TRAILING_STOP_LOSS' ? orderForm.trailingType : undefined,
-    trailingStopStep: selectedInstrumentType === 'FUTURES' && orderForm.type === 'TRAILING_STOP_LOSS' ? orderForm.trailingStopStep : undefined,
+    trailingType: orderForm.type === 'TRAILING_STOP_LOSS' ? orderForm.trailingType : undefined,
+    trailingStopStep: orderForm.type === 'TRAILING_STOP_LOSS' ? orderForm.trailingStopStep : undefined,
+    bracketTakeProfitPrice: orderForm.isBracketEnabled ? orderForm.bracketTakeProfitPrice : undefined,
+    bracketStopLossPrice: orderForm.isBracketEnabled ? orderForm.bracketStopLossPrice : undefined,
+    bracketStopLossLimitPrice: orderForm.isBracketEnabled ? orderForm.bracketStopLossLimitPrice : undefined,
     eventOutcome: selectedInstrumentType === 'EVENT' ? orderForm.eventOutcome : undefined,
     currency: 'USD',
   });
@@ -1628,7 +1678,7 @@ export default function WebullTrading({ isLightMode = false }) {
         test_mode: isTestMode,
         account_id: selectedAccountId,
         symbol: selectedSymbol.trim().toUpperCase(),
-        instrument_type: selectedInstrumentType,
+        instrument_type: selectedInstrumentType === 'EQUITY' ? selectedSecurityType : selectedInstrumentType,
         option_type: selectedInstrumentType === 'OPTION' ? orderForm.optionType : undefined,
         side: orderForm.side,
         order_type: selectedInstrumentType === 'EVENT' ? 'LIMIT' : orderForm.type,
@@ -1852,6 +1902,7 @@ export default function WebullTrading({ isLightMode = false }) {
 
     if (isOption) {
       setSelectedInstrumentType('OPTION');
+      setSelectedSecurityType('OPTION');
       const optStrike = holding.option_strike ? String(holding.option_strike) : '';
       const optExp = holding.option_expiration || '';
       const optType = holding.option_type || 'CALL';
@@ -1873,6 +1924,7 @@ export default function WebullTrading({ isLightMode = false }) {
     } else if (isFutures) {
       const contractSymbol = String(holding.symbol || '').toUpperCase();
       setSelectedInstrumentType('FUTURES');
+      setSelectedSecurityType('FUTURES');
       setSelectedFuturesContract({
         symbol: contractSymbol,
         name: holding.name || contractSymbol,
@@ -1892,6 +1944,7 @@ export default function WebullTrading({ isLightMode = false }) {
       }));
     } else if (isEvent) {
       setSelectedInstrumentType('EVENT');
+      setSelectedSecurityType('EVENT');
       const formattedQty = holdingQuantity > 0 ? String(holdingQuantity) : '10';
       const formattedPx = holdingPrice > 0 ? String(holdingPrice) : '0.50';
       setOrderForm((prev) => ({
@@ -1907,6 +1960,7 @@ export default function WebullTrading({ isLightMode = false }) {
       }));
     } else {
       setSelectedInstrumentType(isCrypto ? 'CRYPTO' : 'EQUITY');
+      setSelectedSecurityType(isCrypto ? 'CRYPTO' : (String(holding.instrument_type || '').toUpperCase() === 'ETF' ? 'ETF' : 'EQUITY'));
       const formattedQty = holdingQuantity > 0 ? String(holdingQuantity) : '';
       const formattedPx = holdingPrice > 0 ? (holdingPrice >= 1 ? holdingPrice.toFixed(2) : holdingPrice.toFixed(4)) : '';
       const estTotal = (holdingQuantity > 0 && holdingPrice > 0) ? (holdingQuantity * holdingPrice).toFixed(2) : '';
@@ -1941,22 +1995,30 @@ export default function WebullTrading({ isLightMode = false }) {
     }, 60);
   };
 
-  const displayOpenOrders = useMemo(() => openOrders.filter((order) => OPEN_STATUSES.has(String(order.status).toUpperCase()) || !order.status), [openOrders]);
-  const sortedHistory = useMemo(() => [...history].sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || ''))), [history]);
+  const modeOpenOrders = useMemo(
+    () => openOrders.filter((order) => orderIsPaper(order) === isTestMode),
+    [openOrders, isTestMode]
+  );
+  const modeHistory = useMemo(
+    () => history.filter((order) => orderIsPaper(order) === isTestMode),
+    [history, isTestMode]
+  );
+  const displayOpenOrders = useMemo(() => modeOpenOrders.filter((order) => OPEN_STATUSES.has(String(order.status).toUpperCase()) || !order.status), [modeOpenOrders]);
+  const sortedHistory = useMemo(() => [...modeHistory].sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || ''))), [modeHistory]);
   const historyPages = Math.max(1, Math.ceil(sortedHistory.length / historyPageSize));
   const paginatedHistory = useMemo(() => sortedHistory.slice((historyPage - 1) * historyPageSize, historyPage * historyPageSize), [sortedHistory, historyPage, historyPageSize]);
   useEffect(() => { if (historyPage > historyPages) setHistoryPage(historyPages); }, [historyPage, historyPages]);
-  const analyzableHoldings = useMemo(() => holdings.filter((holding) => ['CRYPTO', 'STOCK', 'EQUITY', 'ETF', 'OPTION', 'FUTURES'].includes(String(holding.instrument_type || '').toUpperCase())), [holdings]);
+  const analyzableHoldings = useMemo(() => modeHoldings.filter((holding) => ['CRYPTO', 'STOCK', 'EQUITY', 'ETF', 'OPTION', 'FUTURES'].includes(String(holding.instrument_type || '').toUpperCase())), [modeHoldings]);
   const availableStockSymbols = useMemo(() => {
-    const stocks = holdings
+    const stocks = modeHoldings
       .filter((h) => !/crypto|coin|token/i.test(h.instrument_type || '') && !['OPTION', 'FUTURES'].includes(String(h.instrument_type || '').toUpperCase()))
       .map((h) => (h.underlying_symbol || h.symbol || '').toUpperCase().trim())
       .filter(Boolean);
     return Array.from(new Set(['AAPL', 'NVDA', 'SPY', 'TSLA', 'AMD', 'MSFT', ...stocks]));
-  }, [holdings]);
+  }, [modeHoldings]);
 
   const availableTraditional = useMemo(() => {
-    const fromHoldings = holdings
+    const fromHoldings = modeHoldings
       .filter((h) => !/crypto|coin|token/i.test(h.instrument_type || '') && !['OPTION', 'FUTURES'].includes(String(h.instrument_type || '').toUpperCase()) && h.symbol)
       .map((h) => ({
         id: h.symbol.toUpperCase(),
@@ -1980,7 +2042,7 @@ export default function WebullTrading({ isLightMode = false }) {
       }
     });
     return Array.from(map.values());
-  }, [holdings]);
+  }, [modeHoldings]);
 
   const handleSelectOptionContract = (contractData) => {
     if (contractData.symbol && contractData.symbol !== selectedSymbol) {
@@ -2179,7 +2241,7 @@ export default function WebullTrading({ isLightMode = false }) {
                   defaultAccountId={defaultAccountId}
                   onSetDefaultAccount={saveDefaultAccount}
                   savingDefaultAccount={savingDefaultAccount}
-                  holdings={holdings}
+                  holdings={modeHoldings}
                   isLightMode={isLightMode}
                 />
 
@@ -3326,11 +3388,11 @@ export default function WebullTrading({ isLightMode = false }) {
                         <span>⏳ Processing Order...</span>
                       ) : isTestMode ? (
                         <span>
-                          🧪 Place Simulated {orderForm.type === 'MARKET' ? 'Market' : orderForm.type === 'LIMIT' ? 'Limit' : orderForm.type === 'STOP_LOSS' ? 'Stop Loss' : orderForm.type === 'STOP_LOSS_LIMIT' ? 'Stop Loss Limit' : ''} {orderForm.side === 'BUY' ? (selectedInstrumentType === 'EVENT' ? 'Buy to Open' : 'Buy') : (selectedInstrumentType === 'EVENT' ? 'Sell to Close' : 'Sell')} Order (Paper)
+                          🧪 Place Simulated {orderTypeLabel(orderForm.type)} {orderForm.side === 'BUY' ? (selectedInstrumentType === 'EVENT' ? 'Buy to Open' : 'Buy') : orderForm.side === 'SHORT' ? 'Short' : (selectedInstrumentType === 'EVENT' ? 'Sell to Close' : 'Sell')} Order (Paper)
                         </span>
                       ) : (
                         <span>
-                          ⚡ Place Real {orderForm.type === 'MARKET' ? 'Market' : orderForm.type === 'LIMIT' ? 'Limit' : orderForm.type === 'STOP_LOSS' ? 'Stop Loss' : orderForm.type === 'STOP_LOSS_LIMIT' ? 'Stop Loss Limit' : ''} {orderForm.side === 'BUY' ? (selectedInstrumentType === 'EVENT' ? 'Buy to Open' : 'Buy') : (selectedInstrumentType === 'EVENT' ? 'Sell to Close' : 'Sell')} Order
+                          ⚡ Place Real {orderTypeLabel(orderForm.type)} {orderForm.side === 'BUY' ? (selectedInstrumentType === 'EVENT' ? 'Buy to Open' : 'Buy') : orderForm.side === 'SHORT' ? 'Short' : (selectedInstrumentType === 'EVENT' ? 'Sell to Close' : 'Sell')} Order
                         </span>
                       )}
                     </button>
@@ -3372,7 +3434,7 @@ export default function WebullTrading({ isLightMode = false }) {
                         </div>
                         <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                           <span style={{ color: '#94a3b8' }}>Symbol &amp; Asset:</span>
-                          <strong>{selectedSymbol} ({selectedInstrumentType})</strong>
+                          <strong>{selectedSymbol} ({selectedInstrumentType === 'EQUITY' ? selectedSecurityType : selectedInstrumentType})</strong>
                         </div>
                         {selectedInstrumentType === 'OPTION' && (
                           <>
@@ -3421,6 +3483,42 @@ export default function WebullTrading({ isLightMode = false }) {
                             {orderForm.type === 'STOP_LOSS_LIMIT' && ` (Stop: $${number(orderForm.stopPrice)}, Limit: $${number(orderForm.price)})`}
                           </strong>
                         </div>
+                        {orderForm.type === 'TRAILING_STOP_LOSS' && (
+                          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                            <span style={{ color: '#94a3b8' }}>Trailing Stop:</span>
+                            <strong>
+                              {orderForm.trailingType === 'PERCENTAGE'
+                                ? `${number(orderForm.trailingStopStep)}%`
+                                : `$${number(orderForm.trailingStopStep)} USD`}
+                            </strong>
+                          </div>
+                        )}
+                        {selectedInstrumentType === 'EQUITY' && orderForm.isBracketEnabled && (
+                          <>
+                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                              <span style={{ color: '#94a3b8' }}>Attached Bracket:</span>
+                              <strong>Enabled</strong>
+                            </div>
+                            {orderForm.bracketTakeProfitPrice && (
+                              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                <span style={{ color: '#94a3b8' }}>Take Profit:</span>
+                                <strong>${number(orderForm.bracketTakeProfitPrice)}</strong>
+                              </div>
+                            )}
+                            {orderForm.bracketStopLossPrice && (
+                              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                <span style={{ color: '#94a3b8' }}>Stop Loss Trigger:</span>
+                                <strong>${number(orderForm.bracketStopLossPrice)}</strong>
+                              </div>
+                            )}
+                            {orderForm.bracketStopLossLimitPrice && (
+                              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                <span style={{ color: '#94a3b8' }}>Stop Loss Limit:</span>
+                                <strong>${number(orderForm.bracketStopLossLimitPrice)}</strong>
+                              </div>
+                            )}
+                          </>
+                        )}
                         <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                           <span style={{ color: '#94a3b8' }}>Quantity:</span>
                           <strong>{number(orderForm.quantity, selectedInstrumentType === 'CRYPTO' ? 6 : 2)}</strong>
@@ -3468,7 +3566,7 @@ export default function WebullTrading({ isLightMode = false }) {
                 )}
 
                 {/* Holdings Table Below */}
-                <WebullHoldings holdings={holdings} onSelectHolding={handleSelectHolding} isTestMode={isTestMode} />
+                <WebullHoldings holdings={modeHoldings} onSelectHolding={handleSelectHolding} isTestMode={isTestMode} />
               </div>
             )}
 
@@ -3718,7 +3816,7 @@ export default function WebullTrading({ isLightMode = false }) {
             {/* TRADE CHART TAB */}
             {activeTab === 'trade_chart' && (
               <section className="order-history-container">
-                <WebullTradeTimelineChart holdings={holdings} orders={history} isLightMode={isLightMode} />
+                <WebullTradeTimelineChart holdings={modeHoldings} orders={modeHistory} isLightMode={isLightMode} isTestMode={isTestMode} />
               </section>
             )}
 

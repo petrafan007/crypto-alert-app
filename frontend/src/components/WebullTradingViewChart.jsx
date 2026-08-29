@@ -258,10 +258,11 @@ export default function WebullTradingViewChart({
             ) : (
               <SearchablePairSelect
                 value={symbol}
-                onChange={(nextSym) => {
+                onChange={(nextSym, selectedItem) => {
                   onInstrumentChange?.({
                     symbol: nextSym,
                     instrumentType: isCrypto ? 'CRYPTO' : 'EQUITY',
+                    securityType: isCrypto ? 'CRYPTO' : String(selectedItem?.type || 'EQUITY').toUpperCase(),
                   });
                 }}
                 tradingPairs={isCrypto ? availableCrypto : availableTraditional}

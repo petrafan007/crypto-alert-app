@@ -386,6 +386,7 @@ export default function Help({ isLightMode }) {
                     <li>For an equity or ETF, choose <strong>Only Regular Hours</strong>, <strong>Including Extended Hours</strong>, or <strong>Overnight Hours Only</strong>. Fractional stock/ETF orders are Market-only during Regular Hours, must be more than zero and no more than one share, and have a $5 minimum. Extended and Overnight sessions require whole shares.</li>
                     <li>Use the pre-trade review to verify provider, masked account, symbol/contract, side, quantity, price, order type, time in force, and trading session. With app trading 2FA enabled, entering the six-digit code is required before a live order is sent.</li>
                     <li>Use <strong>Open Orders</strong> or the top-level <strong>Orders</strong> page to review Webull orders. Cancelling a Webull order uses the app's theme-aware confirmation modal, identifies the exact provider/account/order, and requires the six-digit code when 2FA is enabled.</li>
+                    <li><strong>Test Mode is fully isolated:</strong> holdings, Open Orders, Order History, Trade Chart markers, and Combo Orders show simulated paper data only. Turning Test Mode off clears those paper records from the workspace and restores only live Webull records. Conditional and auction paper orders remain Working until their trigger or auction can occur.</li>
                 </ul>
 
                 <Warning>

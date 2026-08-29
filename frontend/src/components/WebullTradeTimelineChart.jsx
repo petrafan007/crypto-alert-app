@@ -35,11 +35,12 @@ const normalizeOrder = (order, index) => {
   const time = toTimestamp(order?.filled_at || order?.filled_time_at || order?.updated_at || order?.created_at || order?.create_time || order?.placed_time || order?.place_time);
   const quantity = Number(order?.filled_quantity ?? order?.executed_quantity ?? order?.filled_qty ?? order?.total_quantity ?? order?.order_quantity ?? order?.quantity ?? 0);
   const price = Number(order?.filled_price ?? order?.average_filled_price ?? order?.avg_fill_price ?? order?.avg_price ?? order?.price ?? order?.limit_price ?? 0);
-  if (!time || !['BUY', 'SELL'].includes(side) || !['FILLED', 'COMPLETED', 'EXECUTED'].includes(status) || quantity <= 0 || price <= 0) return null;
-  return { ...order, id: order.id || order.order_id || order.orderId || `${time}-${side}-${index}`, side, time, quantity, price };
+  if (!time || !['BUY', 'SELL', 'SHORT'].includes(side) || !['FILLED', 'COMPLETED', 'EXECUTED'].includes(status) || quantity <= 0 || price <= 0) return null;
+  const markerSide = side === 'SHORT' ? 'SELL' : side;
+  return { ...order, id: order.id || order.order_id || order.orderId || `${time}-${side}-${index}`, side: markerSide, actionSide: side, time, quantity, price };
 };
 
-export default function WebullTradeTimelineChart({ holdings = [], orders = [], isLightMode = false }) {
+export default function WebullTradeTimelineChart({ holdings = [], orders = [], isLightMode = false, isTestMode = false }) {
   const hostRef = useRef(null);
   const markerGroupsRef = useRef(new Map());
   const [selectedId, setSelectedId] = useState('');
@@ -165,11 +166,11 @@ export default function WebullTradeTimelineChart({ holdings = [], orders = [], i
     return () => { observer.disconnect(); chart.unsubscribeCrosshairMove(onMove); chart.remove(); };
   }, [bars, chartData, isLightMode, range]);
 
-  if (!holdings.length) return <div className="empty-state"><p>No imported Webull holdings. Import a Webull portfolio snapshot in Settings first.</p></div>;
+  if (!holdings.length) return <div className="empty-state"><p>{isTestMode ? 'No simulated paper holdings are available for the Trade Chart yet.' : 'No imported Webull holdings. Import a Webull portfolio snapshot in Settings first.'}</p></div>;
   const currency = String(selectedHolding?.currency || 'USD').toUpperCase();
   return <section className="trade-timeline-card webull-trade-chart">
     <header className="trade-timeline-header">
-      <div><h2>My {symbol} Webull Trade Chart</h2><p>Read-only Webull price history with completed Webull purchases and sales.</p></div>
+      <div><h2>My {symbol} Webull Trade Chart</h2><p>{isTestMode ? 'Paper-only price history markers; live Webull transactions are hidden.' : 'Live-account Webull price history; simulated paper transactions are hidden.'}</p></div>
       <div className="trade-timeline-controls">
         <label className="trade-timeline-pair-select"><span>Webull Holding</span><select value={selectedId || String(selectedHolding?.id || '')} onChange={(event) => setSelectedId(event.target.value)} aria-label="Webull holding">
           {holdings.map((holding) => <option key={holding.id} value={String(holding.id)}>{holding.symbol} · {displayType(holding)}{isChartable(holding) ? '' : ' — chart unavailable'}</option>)}
@@ -181,7 +182,7 @@ export default function WebullTradeTimelineChart({ holdings = [], orders = [], i
       {isOption && <OptionContractDetails marketData={optionMarketData} message={optionMarketMessage} currency={currency} />}
       <div className="trade-timeline-legend"><span className="buy">↑ Purchase</span><span className="sell">↓ Sale</span><span>Y-axis: {currency} price</span><span>X-axis: date and time</span><span>Webull · read-only</span></div>
       <div className="trade-timeline-chart-shell"><div className="trade-timeline-chart-frame"><div ref={hostRef} className="trade-timeline-chart" /></div>
-        {hoveredTrades && <div className={`trade-marker-tooltip ${hoveredTrades.side.toLowerCase()}`} style={{ left: hoveredTrades.left, top: hoveredTrades.top }} role="tooltip"><strong>{hoveredTrades.side === 'BUY' ? '↑ Purchase' : '↓ Sale'} · {symbol}</strong><time>{new Date(hoveredTrades.group.time * 1000).toLocaleDateString('en-US', { timeZone: 'UTC', year: 'numeric', month: 'long', day: 'numeric' })}</time><div className="trade-marker-tooltip-list">{hoveredTrades.trades.map((trade) => <div className="trade-marker-tooltip-row" key={trade.id}><span>{new Date(trade.time * 1000).toLocaleString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short' })}</span><span>{number(trade.quantity, 8)} {symbol} @ {number(trade.price, trade.price < 1 ? 8 : 2)} {currency}</span><b>{number(trade.quantity * trade.price, 2)} {currency}</b></div>)}</div></div>}
+        {hoveredTrades && <div className={`trade-marker-tooltip ${hoveredTrades.side.toLowerCase()}`} style={{ left: hoveredTrades.left, top: hoveredTrades.top }} role="tooltip"><strong>{hoveredTrades.side === 'BUY' ? '↑ Purchase' : '↓ Sale / Short'} · {symbol}</strong><time>{new Date(hoveredTrades.group.time * 1000).toLocaleDateString('en-US', { timeZone: 'UTC', year: 'numeric', month: 'long', day: 'numeric' })}</time><div className="trade-marker-tooltip-list">{hoveredTrades.trades.map((trade) => <div className="trade-marker-tooltip-row" key={trade.id}><span>{new Date(trade.time * 1000).toLocaleString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short' })}</span><span>{trade.actionSide === 'SHORT' ? 'SHORT · ' : ''}{number(trade.quantity, 8)} {symbol} @ {number(trade.price, trade.price < 1 ? 8 : 2)} {currency}</span><b>{number(trade.quantity * trade.price, 2)} {currency}</b></div>)}</div></div>}
         {status === 'loading' && <div className="trade-timeline-status">Loading {symbol} price and Webull trade history…</div>}
         {status === 'error' && <div className="trade-timeline-status error">{error}</div>}
         {status === 'ready' && !fills.length && <div className="trade-timeline-empty">No completed Webull purchases or sales were found. The price line remains available.</div>}

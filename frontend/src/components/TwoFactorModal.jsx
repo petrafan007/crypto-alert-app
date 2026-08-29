@@ -72,6 +72,7 @@ export default function TwoFactorModal({ isVisible, onClose, onVerify, orderDeta
     const { baseAsset, quoteAsset } = splitSymbol(details.symbol);
     if (side === 'STAKE') return `Stake ${baseAsset}`;
     if (side === 'SELL') return `Sell ${baseAsset}${quoteAsset ? ` for ${quoteAsset}` : ''}`;
+    if (side === 'SHORT') return `Short ${baseAsset}`;
     return `Buy ${baseAsset}${quoteAsset ? ` with ${quoteAsset}` : ''}`;
   };
 
@@ -104,7 +105,7 @@ export default function TwoFactorModal({ isVisible, onClose, onVerify, orderDeta
       return `This will stake ${qtyText} ${baseAsset} on Binance.US. Your staked assets will earn rewards and can be unstaked at any time (subject to unstaking periods).`;
     }
 
-    const actionVerb = side === 'SELL' ? 'sell' : 'buy';
+    const actionVerb = side === 'SHORT' ? 'short' : side === 'SELL' ? 'sell' : 'buy';
     const directionUp = 'rises to or above';
     const directionDown = 'drops to or below';
 
@@ -232,6 +233,34 @@ export default function TwoFactorModal({ isVisible, onClose, onVerify, orderDeta
                 <div className="order-detail-row">
                   <span className="label">Price:</span>
                   <span className="value">${orderDetails.price}</span>
+                </div>
+              )}
+              {orderDetails.trailingStopStep && (
+                <div className="order-detail-row">
+                  <span className="label">Trailing Stop:</span>
+                  <span className="value">
+                    {orderDetails.trailingType === 'PERCENTAGE'
+                      ? `${orderDetails.trailingStopStep}%`
+                      : `$${orderDetails.trailingStopStep}`}
+                  </span>
+                </div>
+              )}
+              {orderDetails.bracketTakeProfitPrice && (
+                <div className="order-detail-row">
+                  <span className="label">Take Profit:</span>
+                  <span className="value">${orderDetails.bracketTakeProfitPrice}</span>
+                </div>
+              )}
+              {orderDetails.bracketStopLossPrice && (
+                <div className="order-detail-row">
+                  <span className="label">Stop Loss Trigger:</span>
+                  <span className="value">${orderDetails.bracketStopLossPrice}</span>
+                </div>
+              )}
+              {orderDetails.bracketStopLossLimitPrice && (
+                <div className="order-detail-row">
+                  <span className="label">Stop Loss Limit:</span>
+                  <span className="value">${orderDetails.bracketStopLossLimitPrice}</span>
                 </div>
               )}
               {orderDetails.estimatedValue && (

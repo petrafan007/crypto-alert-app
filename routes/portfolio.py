@@ -2170,6 +2170,14 @@ def get_real_orders_only():
         account_scope = request.args.get('account_scope', 'all').lower()
         if account_scope not in {'all', 'binance', 'webull'}:
             account_scope = 'all'
+        if account_scope == 'webull':
+            webull_mode_setting = UserSetting.query.filter_by(user_id=current_user.id).first()
+            if bool(getattr(webull_mode_setting, 'webull_test_mode_enabled', False)):
+                return jsonify({
+                    'success': True,
+                    'orders': [],
+                    'history_source': 'paper-isolated',
+                })
         unlimited = False
         try:
             if isinstance(limit_param, str) and limit_param.lower() in ('all', '*', 'infinite'):
@@ -2561,6 +2569,10 @@ def get_real_orders_only():
 
         # Sort and limit
         order_list = list(combined_orders.values())
+        if account_scope == 'all':
+            webull_mode_setting = UserSetting.query.filter_by(user_id=current_user.id).first()
+            if bool(getattr(webull_mode_setting, 'webull_test_mode_enabled', False)):
+                order_list = [o for o in order_list if o.get('source') != 'webull']
         if account_scope == 'binance':
             order_list = [o for o in order_list if o.get('source') != 'webull']
         elif account_scope == 'webull':

@@ -238,7 +238,8 @@ const SearchablePairSelect = ({
   }, [tradingPairs, searchQuery, includeAllOption, favorites, mode]);
 
   const handleSelect = (pairId) => {
-    onChange(pairId);
+    const selectedItem = flatFilteredList.find((item) => item.id === pairId) || null;
+    onChange(pairId, selectedItem);
     setIsOpen(false);
   };
 

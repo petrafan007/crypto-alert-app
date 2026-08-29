@@ -125,6 +125,20 @@ The application utilizes a **unified PostgreSQL database**.
 
 Historical changelog entries retain the product name used when they were originally released. The application domain, repository slug, deployment folders, database, and service identifiers intentionally remain unchanged by the v2.45.0 brand update.
 
+## v2.59.2 (August 2026)
+
+- **Paper Ledger Integrity**:
+  - Paper holdings are now the sole position source while Test Mode is active and are no longer overwritten by imported live Webull holdings. Legacy duplicate equity/ETF rows are consolidated into one authoritative paper position.
+  - Simulated shorts now credit sale proceeds to paper cash, render as negative positions/liabilities, calculate inverse unrealized P&L, and reduce net liquidation and buying power correctly.
+  - Known ETFs such as SPY retain their ETF identity from instrument selection through confirmation, order storage, holdings, quotes, and history.
+- **Order Review & Lifecycle Accuracy**:
+  - Short order buttons now say **Short** rather than **Sell**. Paper and live review surfaces include trailing-stop type/amount and every enabled take-profit/stop-loss bracket price.
+  - Stop, stop-limit, trailing-stop, MOO, MOC, and LOO paper orders no longer fabricate immediate weekend fills. They enter the cancellable `Working` ledger with zero filled quantity until a qualifying trigger or auction execution is available.
+- **Strict Live/Paper Isolation**:
+  - Open Orders, Order History, Trade Chart, Combo Orders, holdings, and account controls now show only simulated records in Test Mode and only real Webull records in live mode.
+  - The server-side Test Mode setting is authoritative for placement, cancellation, market-chart holding resolution, and order reads. A stale or modified browser payload cannot opt out of Test Mode and reach the live order path.
+  - Added regression coverage for ETF classification, deferred conditional/auction order behavior, and signed short-position valuation.
+
 ## v2.59.1 (August 2026)
 
 - **Paper-Order 2FA Flow Correction**:

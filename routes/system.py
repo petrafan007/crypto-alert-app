@@ -20,7 +20,7 @@ from sqlalchemy import text
 
 # Database & Models
 from core.extensions import db
-from models import Notification, Coin, WatchlistCoin, AIPrompt, DefaultAIPrompt, WebullAccountSnapshot, WebullHolding
+from models import Notification, Coin, WatchlistCoin, AIPrompt, DefaultAIPrompt, WebullAccountSnapshot, WebullHolding, WebullTestPosition
 from credentials import User, UserSetting, Credential
 
 # Log
@@ -2089,16 +2089,25 @@ def api_webull_open_orders():
     try:
         account_id = request.args.get('account_id')
         setting = UserSetting.query.filter_by(user_id=current_user.id).first()
-        is_paper = (
-            account_id == 'TEST_PAPER_ACCOUNT'
-            or request.args.get('test_mode') in {'true', '1'}
-            or (not account_id and getattr(setting, 'webull_test_mode_enabled', False))
-        )
-        if is_paper:
+        paper_mode_enabled = bool(getattr(setting, 'webull_test_mode_enabled', False))
+        paper_requested = account_id == 'TEST_PAPER_ACCOUNT' or request.args.get('test_mode') in {'true', '1'}
+        if paper_mode_enabled and account_id and account_id != 'TEST_PAPER_ACCOUNT':
+            return jsonify({
+                'success': True,
+                'orders': [],
+                'message': 'Live Webull orders are hidden while Test Mode is active.',
+            })
+        if paper_mode_enabled:
             from services.webull_paper_trading_service import get_webull_test_orders
             orders = get_webull_test_orders(current_user.id)
             working_orders = [o for o in orders if o.get('status') in {'Working', 'Open'}]
             return jsonify({'success': True, 'orders': working_orders})
+        if paper_requested:
+            return jsonify({
+                'success': True,
+                'orders': [],
+                'message': 'Paper orders are hidden while Webull Test Mode is disabled.',
+            })
 
         credential = Credential.query.filter_by(user_id=current_user.id).first()
         environment = normalize_webull_environment(getattr(setting, 'webull_environment', None) or 'production')
@@ -2136,6 +2145,9 @@ def api_webull_open_orders():
 def api_webull_test_account_summary():
     """Retrieve simulated paper trading balances, buying power, and P&L."""
     try:
+        setting = UserSetting.query.filter_by(user_id=current_user.id).first()
+        if not bool(getattr(setting, 'webull_test_mode_enabled', False)):
+            return jsonify({'success': False, 'message': 'Enable Webull Test Mode to view the paper account.'}), 409
         from services.webull_paper_trading_service import get_webull_test_account_summary
         summary = get_webull_test_account_summary(current_user.id)
         return jsonify({'success': True, 'summary': summary})
@@ -2149,6 +2161,9 @@ def api_webull_test_account_summary():
 def api_webull_test_deposit():
     """Deposit or reset fake money in the simulated paper account."""
     try:
+        setting = UserSetting.query.filter_by(user_id=current_user.id).first()
+        if not bool(getattr(setting, 'webull_test_mode_enabled', False)):
+            return jsonify({'success': False, 'message': 'Enable Webull Test Mode before changing paper funds.'}), 409
         data = request.get_json(silent=True) or {}
         amount = float(data.get('amount') or 1000.0)
         reset = bool(data.get('reset', False))
@@ -2165,6 +2180,9 @@ def api_webull_test_deposit():
 def api_webull_test_positions():
     """Retrieve all simulated paper trading positions."""
     try:
+        setting = UserSetting.query.filter_by(user_id=current_user.id).first()
+        if not bool(getattr(setting, 'webull_test_mode_enabled', False)):
+            return jsonify({'success': True, 'positions': []})
         from services.webull_paper_trading_service import get_webull_test_positions
         positions = get_webull_test_positions(current_user.id)
         return jsonify({'success': True, 'positions': positions})
@@ -2178,6 +2196,9 @@ def api_webull_test_positions():
 def api_webull_test_orders():
     """Retrieve simulated paper trading orders history."""
     try:
+        setting = UserSetting.query.filter_by(user_id=current_user.id).first()
+        if not bool(getattr(setting, 'webull_test_mode_enabled', False)):
+            return jsonify({'success': True, 'orders': []})
         from services.webull_paper_trading_service import get_webull_test_orders
         orders = get_webull_test_orders(current_user.id)
         return jsonify({'success': True, 'orders': orders})
@@ -2223,18 +2244,25 @@ def api_webull_place_order():
         setting = UserSetting.query.filter_by(user_id=current_user.id).first()
         test_mode_param = data.get('test_mode')
         req_account_id = data.get('account_id')
-        if test_mode_param is False and req_account_id != 'TEST_PAPER_ACCOUNT':
-            is_test_order = False
-        elif test_mode_param is True or req_account_id == 'TEST_PAPER_ACCOUNT':
-            is_test_order = True
-        else:
-            is_test_order = bool(getattr(setting, 'webull_test_mode_enabled', False))
+        paper_mode_enabled = bool(getattr(setting, 'webull_test_mode_enabled', False))
+        paper_requested = test_mode_param is True or req_account_id == 'TEST_PAPER_ACCOUNT'
+        if paper_requested and not paper_mode_enabled:
+            return jsonify({
+                'success': False,
+                'message': 'Enable Webull Test Mode before placing a simulated paper order.',
+            }), 409
+        # The persisted server setting is authoritative. A stale or modified
+        # browser payload cannot opt out of Test Mode and reach live trading.
+        is_test_order = paper_mode_enabled
         if is_test_order:
+            data['test_mode'] = True
+            data['account_id'] = 'TEST_PAPER_ACCOUNT'
             from services.webull_paper_trading_service import execute_webull_test_order
             try:
                 res = execute_webull_test_order(current_user.id, data)
                 return jsonify(res)
             except Exception as test_err:
+                db.session.rollback()
                 logger.error(f"[PAPER_ORDER] Simulation failed: {test_err}")
                 return jsonify({'success': False, 'message': str(test_err)}), 400
 
@@ -2591,7 +2619,20 @@ def api_webull_cancel_order():
         data = request.get_json(silent=True) or {}
         order_id = str(data.get('order_id') or data.get('client_order_id') or data.get('id') or '')
         account_id = data.get('account_id') or data.get('_webull_account_id')
-        if order_id.startswith('SIM_') or account_id == 'TEST_PAPER_ACCOUNT' or data.get('test_mode'):
+        setting = UserSetting.query.filter_by(user_id=current_user.id).first()
+        paper_mode_enabled = bool(getattr(setting, 'webull_test_mode_enabled', False))
+        paper_requested = order_id.startswith('SIM_') or account_id == 'TEST_PAPER_ACCOUNT' or data.get('test_mode')
+        if paper_requested and not paper_mode_enabled:
+            return jsonify({
+                'success': False,
+                'message': 'Paper orders cannot be changed while Webull Test Mode is disabled.',
+            }), 409
+        if paper_mode_enabled:
+            if not order_id.startswith('SIM_'):
+                return jsonify({
+                    'success': False,
+                    'message': 'Live Webull orders are hidden and cannot be changed while Test Mode is active.',
+                }), 409
             from services.webull_paper_trading_service import cancel_webull_test_order
             return jsonify(cancel_webull_test_order(current_user.id, order_id))
 
@@ -2600,7 +2641,6 @@ def api_webull_cancel_order():
             return jsonify({'success': False, 'message': two_factor_error, 'requires_2fa': True}), 403
 
         credential = Credential.query.filter_by(user_id=current_user.id).first()
-        setting = UserSetting.query.filter_by(user_id=current_user.id).first()
         environment = normalize_webull_environment(getattr(setting, 'webull_environment', None) or 'production')
         if (
             not credential or credential.webull_token_status != 'NORMAL'
@@ -2675,17 +2715,33 @@ def api_webull_market_bars():
     """Return read-only Webull historical bars for a selected imported holding."""
     try:
         holding_ref = str(request.args.get('holding_id') or '').strip()
+        setting = UserSetting.query.filter_by(user_id=current_user.id).first()
+        paper_mode_enabled = bool(getattr(setting, 'webull_test_mode_enabled', False))
+        paper_position = None
+        if holding_ref.startswith('paper_pos_'):
+            try:
+                paper_position = WebullTestPosition.query.filter_by(
+                    id=int(holding_ref.removeprefix('paper_pos_')),
+                    user_id=current_user.id,
+                ).first()
+            except (TypeError, ValueError):
+                paper_position = None
+            if not paper_mode_enabled or not paper_position:
+                return jsonify({'success': False, 'bars': [], 'message': 'That paper holding is unavailable in the current mode.'}), 404
+        elif paper_mode_enabled:
+            return jsonify({'success': False, 'bars': [], 'message': 'Live holdings are hidden while Webull Test Mode is active.'}), 409
         if holding_ref.startswith('webull-'):
             holding_ref = holding_ref.split('webull-', 1)[1]
-        try:
-            holding_id = int(holding_ref)
-        except (TypeError, ValueError):
-            return jsonify({'success': False, 'bars': [], 'message': 'Choose an imported Webull holding before loading market data.'}), 400
-        holding = WebullHolding.query.filter_by(id=holding_id, user_id=current_user.id).first()
-        if not holding:
-            return jsonify({'success': False, 'bars': [], 'message': 'That Webull holding is unavailable.'}), 404
+        holding = None
+        if not paper_position:
+            try:
+                holding_id = int(holding_ref)
+            except (TypeError, ValueError):
+                return jsonify({'success': False, 'bars': [], 'message': 'Choose an imported Webull holding before loading market data.'}), 400
+            holding = WebullHolding.query.filter_by(id=holding_id, user_id=current_user.id).first()
+            if not holding:
+                return jsonify({'success': False, 'bars': [], 'message': 'That Webull holding is unavailable.'}), 404
         credential = Credential.query.filter_by(user_id=current_user.id).first()
-        setting = UserSetting.query.filter_by(user_id=current_user.id).first()
         environment = normalize_webull_environment(getattr(setting, 'webull_environment', None) or 'production')
         if (
             not credential or credential.webull_token_status != 'NORMAL'
@@ -2693,7 +2749,7 @@ def api_webull_market_bars():
         ):
             return jsonify({'success': False, 'bars': [], 'message': 'Verify your Webull connection before loading market data.'}), 400
 
-        if str(holding.instrument_type or '').upper() == 'OPTION' and not holding.instrument_id:
+        if holding and str(holding.instrument_type or '').upper() == 'OPTION' and not holding.instrument_id:
             holding = resolve_option_contract(
                 holding, credential.webull_app_key, credential.webull_app_secret,
                 environment, credential.webull_access_token,
@@ -2702,11 +2758,11 @@ def api_webull_market_bars():
         bars = get_webull_market_bars(
             credential.webull_app_key, credential.webull_app_secret, environment,
             credential.webull_access_token,
-            symbol=holding.symbol,
-            instrument_type=holding.instrument_type,
+            symbol=paper_position.symbol if paper_position else holding.symbol,
+            instrument_type=paper_position.instrument_type if paper_position else holding.instrument_type,
             interval=request.args.get('interval', 'D'),
             limit=request.args.get('limit', 120),
-            instrument_id=holding.instrument_id,
+            instrument_id=None if paper_position else holding.instrument_id,
         )
         return jsonify({'success': True, 'bars': bars})
     except WebullConnectionError as exc:

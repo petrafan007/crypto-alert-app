@@ -6,6 +6,12 @@ from typing import Dict, Any, List, Optional
 from core.extensions import db
 from models import WebullTestAccount, WebullTestPosition, WebullTestOrder
 from credentials import Credential, UserSetting
+from services.webull_paper_rules import (
+    EQUITY_LIKE_TYPES,
+    canonical_paper_instrument_type,
+    paper_order_fills_immediately,
+    paper_position_valuation,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +29,49 @@ FUTURES_TICKER_MAP = {
     'SI': 'SI=F',
     'BTC': 'BTC=F',
 }
+
+
+def _find_or_merge_position(user_id: int, symbol: str, instrument_type: str, side: str):
+    """Return one authoritative paper position for a contract/symbol and side."""
+    clean_symbol = str(symbol or '').upper().strip()
+    clean_type = canonical_paper_instrument_type(clean_symbol, instrument_type)
+    clean_side = str(side or 'LONG').upper().strip()
+    query = WebullTestPosition.query.filter_by(
+        user_id=user_id, symbol=clean_symbol, side=clean_side,
+    )
+    candidates = query.all()
+    if clean_type in EQUITY_LIKE_TYPES:
+        candidates = [row for row in candidates if str(row.instrument_type or '').upper() in EQUITY_LIKE_TYPES]
+    else:
+        candidates = [row for row in candidates if str(row.instrument_type or '').upper() == clean_type]
+    if not candidates:
+        return None
+
+    primary = next((row for row in candidates if str(row.instrument_type or '').upper() == clean_type), candidates[0])
+    if len(candidates) > 1:
+        total_qty = sum(float(row.quantity or 0.0) for row in candidates)
+        weighted_cost = sum(float(row.cost_price or 0.0) * float(row.quantity or 0.0) for row in candidates)
+        primary.quantity = total_qty
+        primary.cost_price = round(weighted_cost / total_qty, 4) if total_qty > 0 else 0.0
+        primary.last_price = next((float(row.last_price) for row in candidates if row.last_price), primary.last_price)
+        for duplicate in candidates:
+            if duplicate is not primary:
+                db.session.delete(duplicate)
+    primary.instrument_type = clean_type
+    primary.updated_at = datetime.utcnow()
+    return primary
+
+
+def _normalize_equity_like_positions(user_id: int) -> None:
+    """Upgrade legacy paper equity rows and collapse duplicate symbol rows."""
+    positions = WebullTestPosition.query.filter_by(user_id=user_id).all()
+    keys = {
+        (row.symbol, row.instrument_type, row.side)
+        for row in positions
+        if str(row.instrument_type or '').upper() in EQUITY_LIKE_TYPES
+    }
+    for symbol, instrument_type, side in keys:
+        _find_or_merge_position(user_id, symbol, instrument_type, side)
 
 
 def get_or_create_webull_test_account(user_id: int) -> WebullTestAccount:
@@ -214,7 +263,7 @@ def fetch_live_price(
         if cred and cred.webull_access_token and cred.webull_token_status == 'NORMAL':
             snap = get_webull_market_snapshot(
                 cred.webull_app_key, cred.webull_app_secret, env, cred.webull_access_token,
-                symbol=clean_sym, instrument_type='EQUITY'
+                symbol=clean_sym, instrument_type=clean_type
             )
             price = float(snap.get('price') or snap.get('regular_price') or snap.get('close') or 0.0)
             if price > 0:
@@ -246,6 +295,7 @@ def fetch_live_price(
 def get_webull_test_account_summary(user_id: int) -> Dict[str, Any]:
     """Calculate and return full account balances, buying power, and P&L for paper trading."""
     account = get_or_create_webull_test_account(user_id)
+    _normalize_equity_like_positions(user_id)
     positions = WebullTestPosition.query.filter_by(user_id=user_id).all()
 
     total_market_value = 0.0
@@ -266,18 +316,16 @@ def get_webull_test_account_summary(user_id: int) -> Dict[str, Any]:
         qty = float(pos.quantity or 0.0)
         cost = float(pos.cost_price or 0.0)
 
-        mv = qty * curr_price * multiplier
-        cost_basis = qty * cost * multiplier
-        if pos.side == 'SHORT':
-            pnl = cost_basis - mv
-        else:
-            pnl = mv - cost_basis
+        valuation = paper_position_valuation(pos.side, qty, cost, curr_price, multiplier)
+        signed_market_value = valuation['market_value']
+        cost_basis = valuation['cost_basis']
+        pnl = valuation['unrealized_pnl']
 
-        pos.market_value = round(mv, 2)
+        pos.market_value = round(signed_market_value, 2)
         pos.unrealized_pnl = round(pnl, 2)
         pos.updated_at = datetime.utcnow()
 
-        total_market_value += mv
+        total_market_value += signed_market_value
         total_cost_basis += cost_basis
         total_unrealized_pnl += pnl
 
@@ -285,6 +333,10 @@ def get_webull_test_account_summary(user_id: int) -> Dict[str, Any]:
 
     cash = float(account.cash_balance or 0.0)
     net_liquidation = cash + total_market_value
+    short_market_value = sum(
+        abs(float(pos.market_value or 0.0)) for pos in positions if str(pos.side or '').upper() == 'SHORT'
+    )
+    buying_power = max(0.0, cash - (short_market_value * 1.5))
 
     return {
         'account_id': 'TEST_PAPER_ACCOUNT',
@@ -293,7 +345,7 @@ def get_webull_test_account_summary(user_id: int) -> Dict[str, Any]:
         'is_paper': True,
         'currency': account.currency or 'USD',
         'cash_balance': round(cash, 2),
-        'buying_power': round(cash, 2),
+        'buying_power': round(buying_power, 2),
         'net_liquidation': round(net_liquidation, 2),
         'total_market_value': round(total_market_value, 2),
         'total_cost_basis': round(total_cost_basis, 2),
@@ -305,6 +357,7 @@ def get_webull_test_account_summary(user_id: int) -> Dict[str, Any]:
 
 def get_webull_test_positions(user_id: int) -> List[Dict[str, Any]]:
     """Return all simulated paper holdings formatted to match WebullHolding schema."""
+    _normalize_equity_like_positions(user_id)
     positions = WebullTestPosition.query.filter_by(user_id=user_id).all()
     rows = []
     for pos in positions:
@@ -313,9 +366,12 @@ def get_webull_test_positions(user_id: int) -> List[Dict[str, Any]]:
         multiplier = int(pos.contract_multiplier or (100 if pos.instrument_type == 'OPTION' else 1))
         qty = float(pos.quantity or 0.0)
         cost = float(pos.cost_price or 0.0)
-        mv = round(qty * curr_price * multiplier, 2)
-        cost_basis = qty * cost * multiplier
-        pnl = round((cost_basis - mv) if pos.side == 'SHORT' else (mv - cost_basis), 2)
+        is_short = str(pos.side or '').upper() == 'SHORT'
+        valuation = paper_position_valuation(pos.side, qty, cost, curr_price, multiplier)
+        mv = round(valuation['market_value'], 2)
+        cost_basis = valuation['cost_basis']
+        display_qty = -qty if is_short else qty
+        pnl = round(valuation['unrealized_pnl'], 2)
         pnl_rate = round((pnl / cost_basis * 100) if cost_basis > 0 else 0.0, 2)
 
         rows.append({
@@ -326,8 +382,8 @@ def get_webull_test_positions(user_id: int) -> List[Dict[str, Any]]:
             'underlying_symbol': pos.underlying_symbol or pos.symbol,
             'instrument_type': pos.instrument_type,
             'side': pos.side,
-            'quantity': qty,
-            'amount': qty,
+            'quantity': display_qty,
+            'amount': display_qty,
             'cost_price': cost,
             'last_price': curr_price,
             'current_price': curr_price,
@@ -348,6 +404,7 @@ def get_webull_test_positions(user_id: int) -> List[Dict[str, Any]]:
             'sentiment': 'Paper Simulated',
             'sentiment_reason': f"Simulated position entered at ${cost:,.2f}"
         })
+    db.session.commit()
     return rows
 
 
@@ -356,6 +413,10 @@ def get_webull_test_orders(user_id: int) -> List[Dict[str, Any]]:
     orders = WebullTestOrder.query.filter_by(user_id=user_id).order_by(WebullTestOrder.id.desc()).limit(100).all()
     rows = []
     for o in orders:
+        status = o.status or 'Filled'
+        filled_quantity = o.filled_quantity
+        if filled_quantity is None:
+            filled_quantity = o.quantity if str(status).upper() == 'FILLED' else 0.0
         rows.append({
             'order_id': o.order_id,
             'id': o.order_id,
@@ -366,12 +427,12 @@ def get_webull_test_orders(user_id: int) -> List[Dict[str, Any]]:
             'order_type': o.order_type,
             'total_quantity': float(o.quantity or 0.0),
             'quantity': float(o.quantity or 0.0),
-            'filled_quantity': float(o.filled_quantity or o.quantity or 0.0),
+            'filled_quantity': float(filled_quantity or 0.0),
             'price': o.limit_price or o.filled_price,
             'limit_price': o.limit_price,
             'stop_price': o.stop_price,
             'avg_price': o.filled_price or o.limit_price or 0.0,
-            'status': o.status or 'Filled',
+            'status': status,
             'placed_time': o.created_at.strftime('%Y-%m-%d %H:%M:%S') if o.created_at else None,
             'created_at': o.created_at.strftime('%Y-%m-%d %H:%M:%S') if o.created_at else None,
             'combo_type': o.combo_type,
@@ -499,7 +560,7 @@ def execute_webull_test_order(user_id: int, data: Dict[str, Any]) -> Dict[str, A
 
     # 2. Standard Single Order
     symbol = (data.get('symbol') or '').upper().strip()
-    instrument_type = (data.get('instrument_type') or 'EQUITY').upper().strip()
+    instrument_type = canonical_paper_instrument_type(symbol, data.get('instrument_type') or 'EQUITY')
     side = (data.get('side') or 'BUY').upper().strip()
     order_type = (data.get('order_type') or 'MARKET').upper().strip()
     entrust_type = (data.get('entrust_type') or 'QTY').upper().strip()
@@ -567,6 +628,59 @@ def execute_webull_test_order(user_id: int, data: Dict[str, Any]) -> Dict[str, A
     is_sell = side in {'SELL', 'SELL_TO_CLOSE'}
     is_short = side in {'SHORT', 'SELL_TO_OPEN'}
 
+    # Stop, trailing, and auction orders must never fabricate an immediate
+    # weekend fill. They remain cancellable working orders until a future
+    # trigger/auction processor can fill them against a qualifying quote.
+    if not paper_order_fills_immediately(order_type):
+        if is_buy and cash < total_trade_amount:
+            raise ValueError(
+                f"Insufficient paper cash. Available: ${cash:,.2f}, Required: ${total_trade_amount:,.2f}."
+            )
+        if is_sell:
+            available_position = _find_or_merge_position(user_id, contract_symbol, instrument_type, 'LONG')
+            available_quantity = float(available_position.quantity or 0.0) if available_position else 0.0
+            if available_quantity < quantity:
+                raise ValueError(
+                    f"Cannot sell {quantity} units of {contract_symbol}. You only hold {available_quantity}."
+                )
+        if is_short and cash < total_trade_amount * 1.5:
+            raise ValueError(
+                f"Insufficient margin for simulated short sale. Required: ${total_trade_amount * 1.5:,.2f}, Available: ${cash:,.2f}."
+            )
+        simulated_order_id = f"SIM_{uuid.uuid4().hex[:12].upper()}"
+        test_order = WebullTestOrder(
+            order_id=simulated_order_id,
+            user_id=user_id,
+            symbol=contract_symbol,
+            instrument_type=instrument_type,
+            side=side,
+            order_type=order_type,
+            quantity=quantity,
+            limit_price=limit_price,
+            stop_price=stop_price,
+            filled_price=None,
+            filled_quantity=0.0,
+            status='Working',
+            combo_type=data.get('combo_type'),
+            time_in_force=data.get('time_in_force', 'DAY'),
+        )
+        db.session.add(test_order)
+        account.updated_at = datetime.utcnow()
+        db.session.commit()
+        return {
+            'success': True,
+            'order_id': simulated_order_id,
+            'symbol': contract_symbol,
+            'side': side,
+            'instrument_type': instrument_type,
+            'filled_price': None,
+            'filled_quantity': 0.0,
+            'total_amount': total_trade_amount,
+            'status': 'Working',
+            'message': f"Simulated {side} {order_type} order accepted for {quantity} {contract_symbol} and queued as Working.",
+            'is_paper': True,
+        }
+
     if is_buy:
         if cash < total_trade_amount:
             raise ValueError(
@@ -575,9 +689,7 @@ def execute_webull_test_order(user_id: int, data: Dict[str, Any]) -> Dict[str, A
             )
         account.cash_balance = cash - total_trade_amount
 
-        pos = WebullTestPosition.query.filter_by(
-            user_id=user_id, symbol=contract_symbol, instrument_type=instrument_type, side='LONG'
-        ).first()
+        pos = _find_or_merge_position(user_id, contract_symbol, instrument_type, 'LONG')
 
         if pos:
             new_qty = float(pos.quantity) + quantity
@@ -605,9 +717,7 @@ def execute_webull_test_order(user_id: int, data: Dict[str, Any]) -> Dict[str, A
             db.session.add(pos)
 
     elif is_sell:
-        pos = WebullTestPosition.query.filter_by(
-            user_id=user_id, symbol=contract_symbol, instrument_type=instrument_type, side='LONG'
-        ).first()
+        pos = _find_or_merge_position(user_id, contract_symbol, instrument_type, 'LONG')
 
         if not pos or float(pos.quantity) < quantity:
             avail = float(pos.quantity) if pos else 0.0
@@ -628,9 +738,8 @@ def execute_webull_test_order(user_id: int, data: Dict[str, Any]) -> Dict[str, A
             raise ValueError(
                 f"Insufficient margin for simulated short sale. Required: ${margin_required:,.2f}, Available: ${cash:,.2f}."
             )
-        pos = WebullTestPosition.query.filter_by(
-            user_id=user_id, symbol=contract_symbol, instrument_type=instrument_type, side='SHORT'
-        ).first()
+        account.cash_balance = cash + total_trade_amount
+        pos = _find_or_merge_position(user_id, contract_symbol, instrument_type, 'SHORT')
         if pos:
             new_qty = float(pos.quantity) + quantity
             new_cost = ((float(pos.cost_price) * float(pos.quantity)) + (fill_price * quantity)) / new_qty
