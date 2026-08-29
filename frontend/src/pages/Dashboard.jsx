@@ -3902,10 +3902,10 @@ function Dashboard({ isLightMode }) {
     if (e) {
       e.stopPropagation();
     }
-    const externalHolding = target && typeof target === 'object' && target.source === 'webull' ? target : null;
-    const symbol = externalHolding ? externalHolding.symbol : target;
+    const externalHolding = target && typeof target === 'object' && (target.source === 'webull' || target.is_external) ? target : null;
+    const symbol = externalHolding ? externalHolding.symbol : (typeof target === 'object' ? target?.symbol : target);
     if (!symbol) return;
-    const cleanSymbol = symbol.toUpperCase().trim();
+    const cleanSymbol = String(symbol).toUpperCase().trim();
     if (['USD', 'USDT', 'USDC', 'BUSD', 'DAI', 'TUSD', 'USDP'].includes(cleanSymbol)) return;
     
     // Find initial timestamp so we know when a fresh analysis has landed

@@ -125,6 +125,11 @@ The application utilizes a **unified PostgreSQL database**.
 
 Historical changelog entries retain the product name used when they were originally released. The application domain, repository slug, deployment folders, database, and service identifiers intentionally remain unchanged by the v2.45.0 brand update.
 
+## v2.53.1 (August 2026)
+
+- **Hotfix: Sentiment Refresh TypeError**:
+  - Fixed a crash (`TypeError: O.toUpperCase is not a function`) that occurred when clicking the sentiment refresh button on any Binance portfolio coin. The `handleSingleSentimentRefresh` function was receiving the full coin object as `target` but only extracted `.symbol` when `source === 'webull'`, leaving a bare object when called from Binance portfolio rows. Now correctly extracts `target.symbol` for any object target and also detects Webull holdings via `is_external` in addition to `source === 'webull'` for robustness.
+
 ## v2.53.0 (August 2026)
 
 - **Webull Options Chain Layout, Expiration Dropdown & Live Search Upgrade**:
