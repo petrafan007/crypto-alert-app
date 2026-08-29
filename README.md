@@ -125,6 +125,19 @@ The application utilizes a **unified PostgreSQL database**.
 
 Historical changelog entries retain the product name used when they were originally released. The application domain, repository slug, deployment folders, database, and service identifiers intentionally remain unchanged by the v2.45.0 brand update.
 
+## v2.59.3 (August 2026)
+
+- **Readable Webull Order Captions**:
+  - Webull tables, combo-order controls, order review, cancellation, percentage-price, and 2FA dialogs now translate provider codes into consistent human-readable captions while preserving the exact backend values sent to Webull.
+  - Auction orders display their full names and abbreviations, including **Market on Open (MOO)**, **Market on Close (MOC)**, and **Limit on Open (LOO)**. Sides, statuses, combo roles, and time-in-force values receive the same readable treatment where displayed.
+- **Test-Mode Focus**:
+  - The Webull AI Analysis tab and content are hidden while Test Mode is active. Switching into Test Mode from AI Analysis safely returns the workspace to Place Order.
+- **Default Account Star**:
+  - Replaced the text label beneath the Webull account selector with a star immediately to its left. An outlined star saves the selected live account as the default; a filled gold star identifies the account that opens from **Trading → Webull**.
+  - The paper account cannot replace the saved live default while Test Mode is active.
+- **Paper Cash Verification**:
+  - Confirmed that the paper-cash card reads the authoritative simulated ledger rather than a live Webull balance or a browser-only estimate. The personal-instance upgrade reconciles the known pre-v2.59.2 short-sale proceeds that the earlier simulator did not credit.
+
 ## v2.59.2 (August 2026)
 
 - **Paper Ledger Integrity**:

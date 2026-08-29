@@ -40,6 +40,7 @@ export default function WebullTradingViewChart({
   defaultAccountId,
   onSetDefaultAccount,
   savingDefaultAccount = false,
+  allowDefaultAccount = true,
   holdings = [],
   isLightMode = false,
 }) {
@@ -197,52 +198,65 @@ export default function WebullTradingViewChart({
           {accounts.length > 0 && (
             <div className="advanced-chart-pair-control" style={{ width: 'min(100%, 300px)' }}>
               <span className="advanced-chart-control-label">Webull Account</span>
-              <select
-                value={selectedAccountId}
-                onChange={(e) => onAccountChange?.(e.target.value)}
-                aria-label="Select Webull Account"
-                style={{
-                  width: '100%',
-                  padding: '9px 12px',
-                  borderRadius: '8px',
-                  background: isLightMode ? '#ffffff' : '#0f172a',
-                  color: isLightMode ? '#0f172a' : '#f8fafc',
-                  border: isLightMode ? '1px solid #cbd5e1' : '1px solid rgba(129, 140, 248, 0.4)',
-                  fontSize: '13px',
-                  fontWeight: 600,
-                  cursor: 'pointer',
-                }}
-              >
-                {accounts.map((acc) => {
-                  const label = acc.account_label || acc.account_name || acc.account_type || 'Account';
-                  const numDisplay = acc.account_id_masked || (acc.account_id ? `••••${String(acc.account_id).slice(-4)}` : '');
-                  return (
-                    <option
-                      key={acc.account_id}
-                      value={acc.account_id}
-                      style={{
-                        background: isLightMode ? '#ffffff' : '#0f172a',
-                        color: isLightMode ? '#0f172a' : '#f8fafc',
-                      }}
-                    >
-                      {label} ({numDisplay})
-                    </option>
-                  );
-                })}
-              </select>
-              <button
-                type="button"
-                onClick={() => onSetDefaultAccount?.()}
-                disabled={!selectedAccountId || savingDefaultAccount || selectedAccountId === defaultAccountId}
-                style={{
-                  marginTop: '7px', padding: 0, border: 'none', background: 'transparent',
-                  color: selectedAccountId === defaultAccountId ? (isLightMode ? '#475569' : '#94a3b8') : '#38bdf8',
-                  fontSize: '12px', fontWeight: 600,
-                  cursor: selectedAccountId === defaultAccountId || savingDefaultAccount ? 'default' : 'pointer',
-                }}
-              >
-                {savingDefaultAccount ? 'Saving default…' : selectedAccountId === defaultAccountId ? 'Default trading account' : 'Make selected account my default'}
-              </button>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                {allowDefaultAccount && (
+                  <button
+                    type="button"
+                    onClick={() => onSetDefaultAccount?.(selectedAccountId)}
+                    disabled={!selectedAccountId || savingDefaultAccount || selectedAccountId === defaultAccountId}
+                    aria-label={selectedAccountId === defaultAccountId ? 'Selected Webull account is the default' : 'Make selected Webull account the default'}
+                    aria-pressed={selectedAccountId === defaultAccountId}
+                    title={selectedAccountId === defaultAccountId ? 'Default Webull account' : 'Make this the default Webull account'}
+                    style={{
+                      flex: '0 0 38px',
+                      height: '38px',
+                      borderRadius: '8px',
+                      border: isLightMode ? '1px solid #cbd5e1' : '1px solid rgba(129, 140, 248, 0.4)',
+                      background: isLightMode ? '#ffffff' : '#0f172a',
+                      color: selectedAccountId === defaultAccountId ? '#f59e0b' : (isLightMode ? '#64748b' : '#94a3b8'),
+                      fontSize: '22px',
+                      lineHeight: 1,
+                      cursor: selectedAccountId === defaultAccountId || savingDefaultAccount ? 'default' : 'pointer',
+                    }}
+                  >
+                    {savingDefaultAccount ? '…' : selectedAccountId === defaultAccountId ? '★' : '☆'}
+                  </button>
+                )}
+                <select
+                  value={selectedAccountId}
+                  onChange={(e) => onAccountChange?.(e.target.value)}
+                  aria-label="Select Webull Account"
+                  style={{
+                    flex: 1,
+                    minWidth: 0,
+                    padding: '9px 12px',
+                    borderRadius: '8px',
+                    background: isLightMode ? '#ffffff' : '#0f172a',
+                    color: isLightMode ? '#0f172a' : '#f8fafc',
+                    border: isLightMode ? '1px solid #cbd5e1' : '1px solid rgba(129, 140, 248, 0.4)',
+                    fontSize: '13px',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                  }}
+                >
+                  {accounts.map((acc) => {
+                    const label = acc.account_label || acc.account_name || acc.account_type || 'Account';
+                    const numDisplay = acc.account_id_masked || (acc.account_id ? `••••${String(acc.account_id).slice(-4)}` : '');
+                    return (
+                      <option
+                        key={acc.account_id}
+                        value={acc.account_id}
+                        style={{
+                          background: isLightMode ? '#ffffff' : '#0f172a',
+                          color: isLightMode ? '#0f172a' : '#f8fafc',
+                        }}
+                      >
+                        {label} ({numDisplay})
+                      </option>
+                    );
+                  })}
+                </select>
+              </div>
             </div>
           )}
 

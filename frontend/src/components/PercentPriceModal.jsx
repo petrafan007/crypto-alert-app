@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { formatOrderSide, formatOrderType } from '../utils/orderDisplay';
 import './PercentPriceModal.css';
 
 export const formatCalculatedPrice = (val, decimals = null) => {
@@ -321,7 +322,7 @@ export default function PercentPriceModal({
               Price Calculator
             </h3>
             <span className={`percent-modal-badge ${side.toLowerCase()}`}>
-              {side} {orderType.replace(/_/g, ' ')}
+              {formatOrderSide(side)} · {formatOrderType(orderType)}
             </span>
           </div>
           <button

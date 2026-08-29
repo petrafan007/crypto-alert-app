@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { formatOrderType, formatTimeInForce } from '../utils/orderDisplay';
 import './TwoFactorModal.css';
 
 export default function TwoFactorModal({ isVisible, onClose, onVerify, orderDetails }) {
@@ -34,28 +35,6 @@ export default function TwoFactorModal({ isVisible, onClose, onVerify, orderDeta
       return numeric.toString().replace(/\\.0+$/, '');
     }
     return value;
-  };
-
-  const ORDER_TYPE_LABELS = {
-    LIMIT: 'Limit',
-    MARKET: 'Market',
-    STOP_LOSS: 'Stop Loss',
-    STOP_LOSS_LIMIT: 'Stop Loss Limit',
-    TAKE_PROFIT: 'Take Profit',
-    TAKE_PROFIT_LIMIT: 'Take Profit Limit',
-    LIMIT_MAKER: 'Limit Maker',
-    OCO: 'OCO (One-Cancels-Other)',
-    STAKING: 'Staking'
-  };
-
-  const formatOrderTypeLabel = (rawType) => {
-    if (!rawType) return 'Market';
-    const clean = String(rawType).toUpperCase().trim();
-    if (ORDER_TYPE_LABELS[clean]) return ORDER_TYPE_LABELS[clean];
-    return clean
-      .split('_')
-      .map(word => word.charAt(0) + word.slice(1).toLowerCase())
-      .join(' ');
   };
 
   // Splits a Binance pair like "BTCUSDT" into base/quote so the action reads e.g. "Sell BTC for USDT"
@@ -211,7 +190,7 @@ export default function TwoFactorModal({ isVisible, onClose, onVerify, orderDeta
               </div>
               <div className="order-detail-row">
                 <span className="label">Type:</span>
-                <span className="value">{formatOrderTypeLabel(orderDetails.type)}</span>
+                <span className="value">{formatOrderType(orderDetails.type, 'Market')}</span>
               </div>
               {orderDetails.instrumentType && (
                 <div className="order-detail-row">
@@ -272,7 +251,7 @@ export default function TwoFactorModal({ isVisible, onClose, onVerify, orderDeta
               {orderDetails.timeInForce && (
                 <div className="order-detail-row">
                   <span className="label">Time in Force:</span>
-                  <span className="value">{orderDetails.timeInForce}</span>
+                  <span className="value">{formatTimeInForce(orderDetails.timeInForce)}</span>
                 </div>
               )}
               {orderDetails.tradingSession && (

@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { formatOrderSide, formatOrderType } from '../utils/orderDisplay';
 import './TwoFactorModal.css';
 
 export default function CancelOrderModal({
@@ -31,8 +32,8 @@ export default function CancelOrderModal({
   const baseSymbol = order?.base_symbol || tradingPair;
   const provider = order?.cancel_provider || 'Binance.US';
   const accountLabel = order?.cancel_account_label || provider;
-  const side = String(order?.side || 'Order').replace(/_/g, ' ');
-  const orderType = String(order?.order_type || order?.type || 'Order').replace(/_/g, ' ');
+  const side = formatOrderSide(order?.side, 'Order');
+  const orderType = formatOrderType(order?.order_type || order?.type, 'Order');
   const quantity = order?.quantity ?? order?.origQty ?? order?.total_quantity ?? order?.order_quantity;
   const price = Number(order?.price ?? order?.limit_price ?? order?.order_price ?? 0);
   const normalOrderDescription = [

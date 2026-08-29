@@ -9,22 +9,18 @@ import CancelOrderModal from '../components/CancelOrderModal';
 import PercentPriceModal from '../components/PercentPriceModal';
 import WebullAIDashboard from '../components/WebullAIDashboard';
 import WebullOptionChain from '../components/WebullOptionChain';
+import {
+  formatComboRole,
+  formatOrderSide,
+  formatOrderStatus,
+  formatOrderType,
+  formatTimeInForce,
+} from '../utils/orderDisplay';
 import './Trading.css';
 
 const OPEN_STATUSES = new Set(['OPEN', 'NEW', 'WORKING', 'PENDING', 'PARTIALLY_FILLED', 'PARTIALLY FILLED']);
 const PAGE_SIZES = [20, 50, 100, 200];
-const ORDER_TYPE_LABELS = {
-  MARKET: 'Market',
-  LIMIT: 'Limit',
-  STOP_LOSS: 'Stop Loss',
-  STOP_LOSS_LIMIT: 'Stop Loss Limit',
-  TRAILING_STOP_LOSS: 'Trailing Stop',
-  MARKET_ON_OPEN: 'MOO',
-  MARKET_ON_CLOSE: 'MOC',
-  LIMIT_ON_OPEN: 'LOO',
-};
-
-const orderTypeLabel = (value) => ORDER_TYPE_LABELS[value] || String(value || '').replace(/_/g, ' ');
+const orderTypeLabel = (value) => formatOrderType(value, 'Order');
 const orderIsPaper = (order) => Boolean(
   order?.is_paper
   || String(order?.account_id || '') === 'TEST_PAPER_ACCOUNT'
@@ -100,12 +96,12 @@ function WebullOrderTable({ orders, emptyText, onCancelOrder, cancellingId }) {
               <tr key={order.id}>
                 <td>{formatDate(order.created_at)}</td>
                 <td style={{ textAlign: 'center' }}>{order.symbol}</td>
-                <td>{order.side}</td>
-                <td>{order.order_type}</td>
+                <td>{formatOrderSide(order.side)}</td>
+                <td>{formatOrderType(order.order_type)}</td>
                 <td>{number(order.quantity, 6)}</td>
                 <td>{order.price ? `$${number(order.price, 4)}` : 'Market'}</td>
                 <td>{number(order.filled_quantity, 6)}</td>
-                <td>{order.status}</td>
+                <td>{formatOrderStatus(order.status)}</td>
                 <td><span className="badge" style={{ background: 'rgba(96, 165, 250, .16)', color: '#60a5fa' }}>Webull</span></td>
                 {onCancelOrder && (
                   <td>
@@ -392,9 +388,9 @@ export default function WebullTrading({ isLightMode = false }) {
       stopLoss,
       stopLossLimit,
       { value: 'TRAILING_STOP_LOSS', label: 'Trailing Stop', description: 'Stop price trails the market price by a set amount or percentage (DAY only)' },
-      { value: 'MARKET_ON_OPEN', label: 'MOO', description: 'Market on Open — Execute at the opening auction price' },
-      { value: 'MARKET_ON_CLOSE', label: 'MOC', description: 'Market on Close — Execute at the closing auction price' },
-      { value: 'LIMIT_ON_OPEN', label: 'LOO', description: 'Limit on Open — Limit order executed at market open auction' },
+      { value: 'MARKET_ON_OPEN', label: formatOrderType('MARKET_ON_OPEN'), description: 'Execute at the opening auction price' },
+      { value: 'MARKET_ON_CLOSE', label: formatOrderType('MARKET_ON_CLOSE'), description: 'Execute at the closing auction price' },
+      { value: 'LIMIT_ON_OPEN', label: formatOrderType('LIMIT_ON_OPEN'), description: 'Limit order executed at the market-open auction' },
     ];
   }, [selectedInstrumentType, orderForm.side]);
 
@@ -1246,12 +1242,13 @@ export default function WebullTrading({ isLightMode = false }) {
     }
   };
 
-  const saveDefaultAccount = async () => {
-    if (!selectedAccountId || savingDefaultAccount) return;
+  const saveDefaultAccount = async (accountId = selectedAccountId) => {
+    const cleanAccountId = String(accountId || '');
+    if (!cleanAccountId || savingDefaultAccount || isTestMode) return;
     setSavingDefaultAccount(true);
     try {
-      const response = await axios.put('/api/webull/default-account', { account_id: selectedAccountId }, { withCredentials: true });
-      setDefaultAccountId(String(response.data?.default_account_id || selectedAccountId));
+      const response = await axios.put('/api/webull/default-account', { account_id: cleanAccountId }, { withCredentials: true });
+      setDefaultAccountId(String(response.data?.default_account_id || cleanAccountId));
       setOrderFeedback({ type: 'success', message: 'Webull default trading account saved.' });
     } catch (requestError) {
       setOrderFeedback({ type: 'error', message: requestError.response?.data?.message || 'Unable to save the default Webull account.' });
@@ -1259,6 +1256,10 @@ export default function WebullTrading({ isLightMode = false }) {
       setSavingDefaultAccount(false);
     }
   };
+
+  useEffect(() => {
+    if (isTestMode && activeTab === 'ai_analysis') setActiveTab('order');
+  }, [activeTab, isTestMode]);
 
   // Dual Input Quantity / Value calculations
   const effectivePrice = useMemo(() => {
@@ -1757,20 +1758,20 @@ export default function WebullTrading({ isLightMode = false }) {
       const leg = comboForm.legs[i];
       const lqty = parseFloat(leg.quantity);
       if (!lqty || lqty <= 0) {
-        setOrderFeedback({ type: 'error', message: `Leg #${i + 1} (${leg.role}) requires a positive quantity.` });
+        setOrderFeedback({ type: 'error', message: `Leg #${i + 1} (${formatComboRole(leg.role)}) requires a positive quantity.` });
         return;
       }
       if (['LIMIT', 'STOP_LOSS_LIMIT', 'LIMIT_ON_OPEN'].includes(leg.order_type)) {
         const lpx = parseFloat(leg.price);
         if (!lpx || lpx <= 0) {
-          setOrderFeedback({ type: 'error', message: `Leg #${i + 1} (${leg.role}) requires a valid limit price.` });
+          setOrderFeedback({ type: 'error', message: `Leg #${i + 1} (${formatComboRole(leg.role)}) requires a valid limit price.` });
           return;
         }
       }
       if (['STOP_LOSS', 'STOP_LOSS_LIMIT'].includes(leg.order_type)) {
         const lspx = parseFloat(leg.stopPrice);
         if (!lspx || lspx <= 0) {
-          setOrderFeedback({ type: 'error', message: `Leg #${i + 1} (${leg.role}) requires a valid stop price.` });
+          setOrderFeedback({ type: 'error', message: `Leg #${i + 1} (${formatComboRole(leg.role)}) requires a valid stop price.` });
           return;
         }
       }
@@ -2217,9 +2218,11 @@ export default function WebullTrading({ isLightMode = false }) {
         <button className={`tab-button ${activeTab === 'trade_chart' ? 'active' : ''}`} onClick={() => setActiveTab('trade_chart')}>
           📈 <span className="tab-text">Trade Chart</span>
         </button>
-        <button className={`tab-button ${activeTab === 'ai_analysis' ? 'active' : ''}`} onClick={() => setActiveTab('ai_analysis')}>
-          🤖 <span className="tab-text">AI Analysis</span>
-        </button>
+        {!isTestMode && (
+          <button className={`tab-button ${activeTab === 'ai_analysis' ? 'active' : ''}`} onClick={() => setActiveTab('ai_analysis')}>
+            🤖 <span className="tab-text">AI Analysis</span>
+          </button>
+        )}
       </div>
 
       <div className="trading-content">
@@ -2241,6 +2244,7 @@ export default function WebullTrading({ isLightMode = false }) {
                   defaultAccountId={defaultAccountId}
                   onSetDefaultAccount={saveDefaultAccount}
                   savingDefaultAccount={savingDefaultAccount}
+                  allowDefaultAccount={!isTestMode}
                   holdings={modeHoldings}
                   isLightMode={isLightMode}
                 />
@@ -3430,7 +3434,7 @@ export default function WebullTrading({ isLightMode = false }) {
                         </div>
                         <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                           <span style={{ color: '#94a3b8' }}>Action:</span>
-                          <strong style={{ color: orderForm.side === 'BUY' ? '#10b981' : '#ef4444' }}>{orderForm.side}</strong>
+                          <strong style={{ color: orderForm.side === 'BUY' ? '#10b981' : '#ef4444' }}>{formatOrderSide(orderForm.side)}</strong>
                         </div>
                         <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                           <span style={{ color: '#94a3b8' }}>Symbol &amp; Asset:</span>
@@ -3477,7 +3481,7 @@ export default function WebullTrading({ isLightMode = false }) {
                         <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                           <span style={{ color: '#94a3b8' }}>Order Type:</span>
                           <strong>
-                            {orderForm.type}
+                            {formatOrderType(orderForm.type)}
                             {orderForm.type === 'LIMIT' && ` @ $${number(orderForm.price)}`}
                             {orderForm.type === 'STOP_LOSS' && ` (Stop Trigger: $${number(orderForm.stopPrice)})`}
                             {orderForm.type === 'STOP_LOSS_LIMIT' && ` (Stop: $${number(orderForm.stopPrice)}, Limit: $${number(orderForm.price)})`}
@@ -3531,7 +3535,7 @@ export default function WebullTrading({ isLightMode = false }) {
                         </div>
                         <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                           <span style={{ color: '#94a3b8' }}>Time in Force / Session:</span>
-                          <span>{orderForm.timeInForce} · {orderForm.tradingSession === 'CORE' ? 'Regular Hours' : orderForm.tradingSession === 'NIGHT' ? 'Overnight Hours Only' : 'Including Extended Hours'}</span>
+                          <span>{formatTimeInForce(orderForm.timeInForce)} · {orderForm.tradingSession === 'CORE' ? 'Regular Hours' : orderForm.tradingSession === 'NIGHT' ? 'Overnight Hours Only' : 'Including Extended Hours'}</span>
                         </div>
                       </div>
 
@@ -3629,7 +3633,7 @@ export default function WebullTrading({ isLightMode = false }) {
                             }
                           }}
                         >
-                          {type}
+                          {formatOrderType(type)}
                         </button>
                       ))}
                     </div>
@@ -3654,7 +3658,7 @@ export default function WebullTrading({ isLightMode = false }) {
                       <div key={leg.id} className="combo-leg-card">
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
                           <span className={`combo-leg-badge ${leg.role === 'MASTER' ? 'master' : 'dependent'}`}>
-                            Leg #{idx + 1} · {leg.role}
+                            Leg #{idx + 1} · {formatComboRole(leg.role)}
                           </span>
                           <span style={{ fontSize: '11px', color: '#94a3b8' }}>
                             {leg.role === 'MASTER' ? 'Primary Trigger Order' : leg.role === 'OTOCO' ? 'Bracket Sub-Order (One-Cancels-Other)' : 'Dependent Triggered Order'}
@@ -3675,9 +3679,9 @@ export default function WebullTrading({ isLightMode = false }) {
                               }}
                               className="order-styled-input"
                             >
-                              <option value="BUY">BUY</option>
-                              <option value="SELL">SELL</option>
-                              <option value="SHORT">SHORT</option>
+                              <option value="BUY">{formatOrderSide('BUY')}</option>
+                              <option value="SELL">{formatOrderSide('SELL')}</option>
+                              <option value="SHORT">{formatOrderSide('SHORT')}</option>
                             </select>
                           </div>
 
@@ -3694,10 +3698,10 @@ export default function WebullTrading({ isLightMode = false }) {
                               }}
                               className="order-styled-input"
                             >
-                              <option value="LIMIT">LIMIT</option>
-                              <option value="MARKET">MARKET</option>
-                              <option value="STOP_LOSS">STOP LOSS</option>
-                              <option value="STOP_LOSS_LIMIT">STOP LOSS LIMIT</option>
+                              <option value="LIMIT">{formatOrderType('LIMIT')}</option>
+                              <option value="MARKET">{formatOrderType('MARKET')}</option>
+                              <option value="STOP_LOSS">{formatOrderType('STOP_LOSS')}</option>
+                              <option value="STOP_LOSS_LIMIT">{formatOrderType('STOP_LOSS_LIMIT')}</option>
                             </select>
                           </div>
 
@@ -3779,7 +3783,7 @@ export default function WebullTrading({ isLightMode = false }) {
                     disabled={orderSubmitting}
                     onClick={handleComboSubmit}
                   >
-                    {orderSubmitting ? 'Submitting Combo Order…' : `Submit Webull ${comboForm.comboType} Combo Order`}
+                    {orderSubmitting ? 'Submitting Combo Order…' : `Submit Webull ${formatOrderType(comboForm.comboType)} Order`}
                   </button>
                 </div>
               </div>
@@ -3821,7 +3825,7 @@ export default function WebullTrading({ isLightMode = false }) {
             )}
 
             {/* AI ANALYSIS TAB */}
-            {activeTab === 'ai_analysis' && (
+            {!isTestMode && activeTab === 'ai_analysis' && (
               <WebullAIDashboard isLightMode={isLightMode} />
             )}
           </>

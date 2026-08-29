@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { formatOrderType } from '../utils/orderDisplay';
 import './CancelOrderConfirmModal.css';
 
 export default function CancelOrderConfirmModal({
@@ -30,7 +31,7 @@ export default function CancelOrderConfirmModal({
     ? 'Volatility Surge Trigger'
     : isAutoSell
     ? 'Volatility Drop Trigger'
-    : (order.type || order.order_type || 'LIMIT').replace(/_/g, ' ');
+    : formatOrderType(order.type || order.order_type || 'LIMIT');
 
   const quantity = order.quantity || order.origQty || order.amount;
   const price = order.price || order.trigger_price;
