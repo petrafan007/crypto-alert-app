@@ -2119,13 +2119,111 @@ def api_webull_open_orders():
         return jsonify({'success': False, 'orders': [], 'message': 'Unable to load Webull open orders.'}), 500
 
 
+@system_bp.route('/api/webull/test/account-summary', methods=['GET'])
+@login_required
+def api_webull_test_account_summary():
+    """Retrieve simulated paper trading balances, buying power, and P&L."""
+    try:
+        from services.webull_paper_trading_service import get_webull_test_account_summary
+        summary = get_webull_test_account_summary(current_user.id)
+        return jsonify({'success': True, 'summary': summary})
+    except Exception as exc:
+        logger.error(f"[PAPER_TRADING] Failed to get account summary: {exc}", exc_info=True)
+        return jsonify({'success': False, 'message': str(exc)}), 500
+
+
+@system_bp.route('/api/webull/test/deposit', methods=['POST'])
+@login_required
+def api_webull_test_deposit():
+    """Deposit or reset fake money in the simulated paper account."""
+    try:
+        data = request.get_json(silent=True) or {}
+        amount = float(data.get('amount') or 1000.0)
+        reset = bool(data.get('reset', False))
+        from services.webull_paper_trading_service import deposit_fake_money
+        res = deposit_fake_money(current_user.id, amount, reset=reset)
+        return jsonify(res)
+    except Exception as exc:
+        logger.error(f"[PAPER_TRADING] Deposit failed: {exc}", exc_info=True)
+        return jsonify({'success': False, 'message': str(exc)}), 400
+
+
+@system_bp.route('/api/webull/test/positions', methods=['GET'])
+@login_required
+def api_webull_test_positions():
+    """Retrieve all simulated paper trading positions."""
+    try:
+        from services.webull_paper_trading_service import get_webull_test_positions
+        positions = get_webull_test_positions(current_user.id)
+        return jsonify({'success': True, 'positions': positions})
+    except Exception as exc:
+        logger.error(f"[PAPER_TRADING] Failed to get positions: {exc}", exc_info=True)
+        return jsonify({'success': False, 'positions': [], 'message': str(exc)}), 500
+
+
+@system_bp.route('/api/webull/test/orders', methods=['GET'])
+@login_required
+def api_webull_test_orders():
+    """Retrieve simulated paper trading orders history."""
+    try:
+        from services.webull_paper_trading_service import get_webull_test_orders
+        orders = get_webull_test_orders(current_user.id)
+        return jsonify({'success': True, 'orders': orders})
+    except Exception as exc:
+        logger.error(f"[PAPER_TRADING] Failed to get orders: {exc}", exc_info=True)
+        return jsonify({'success': False, 'orders': [], 'message': str(exc)}), 500
+
+
+@system_bp.route('/api/webull/test/toggle', methods=['POST', 'PUT'])
+@login_required
+def api_webull_test_toggle():
+    """Toggle Webull test mode (paper trading) on or off."""
+    try:
+        data = request.get_json(silent=True) or {}
+        enabled = bool(data.get('enabled', False))
+        setting = UserSetting.query.filter_by(user_id=current_user.id).first()
+        if not setting:
+            setting = UserSetting(user_id=current_user.id)
+            db.session.add(setting)
+        setting.webull_test_mode_enabled = enabled
+        db.session.commit()
+        return jsonify({'success': True, 'enabled': enabled, 'message': f"Webull Test Mode {'enabled' if enabled else 'disabled'}."})
+    except Exception as exc:
+        logger.error(f"[PAPER_TRADING] Toggle failed: {exc}", exc_info=True)
+        return jsonify({'success': False, 'message': str(exc)}), 500
+
+
+@system_bp.route('/api/webull/test/status', methods=['GET'])
+@login_required
+def api_webull_test_status():
+    """Check if Webull test mode is active for current user."""
+    setting = UserSetting.query.filter_by(user_id=current_user.id).first()
+    enabled = bool(getattr(setting, 'webull_test_mode_enabled', False))
+    return jsonify({'success': True, 'enabled': enabled})
+
+
 @system_bp.route('/api/webull/orders/place', methods=['POST'])
 @login_required
 def api_webull_place_order():
-    """Place a live order through Webull OpenAPI."""
+    """Place an order through Webull OpenAPI or simulated paper engine."""
     try:
-        credential = Credential.query.filter_by(user_id=current_user.id).first()
+        data = request.get_json(silent=True) or {}
         setting = UserSetting.query.filter_by(user_id=current_user.id).first()
+        is_test_order = bool(
+            data.get('test_mode')
+            or data.get('account_id') == 'TEST_PAPER_ACCOUNT'
+            or getattr(setting, 'webull_test_mode_enabled', False)
+        )
+        if is_test_order:
+            from services.webull_paper_trading_service import execute_webull_test_order
+            try:
+                res = execute_webull_test_order(current_user.id, data)
+                return jsonify(res)
+            except Exception as test_err:
+                logger.error(f"[PAPER_ORDER] Simulation failed: {test_err}")
+                return jsonify({'success': False, 'message': str(test_err)}), 400
+
+        credential = Credential.query.filter_by(user_id=current_user.id).first()
         environment = normalize_webull_environment(getattr(setting, 'webull_environment', None) or 'production')
         if (
             not credential or credential.webull_token_status != 'NORMAL'
@@ -2473,9 +2571,14 @@ def api_webull_event_markets():
 @system_bp.route('/api/webull/orders/cancel', methods=['POST'])
 @login_required
 def api_webull_cancel_order():
-    """Cancel an open Webull order."""
+    """Cancel an open Webull order or simulated paper order."""
     try:
         data = request.get_json(silent=True) or {}
+        order_id = str(data.get('order_id') or '')
+        if order_id.startswith('SIM_'):
+            from services.webull_paper_trading_service import cancel_webull_test_order
+            return jsonify(cancel_webull_test_order(current_user.id, order_id))
+
         two_factor_error = _cancellation_2fa_error(data)
         if two_factor_error:
             return jsonify({'success': False, 'message': two_factor_error, 'requires_2fa': True}), 403

@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
 import CryptoIcon, { WebullLogo } from '../components/CryptoIcon';
+import { FaToggleOn, FaToggleOff } from 'react-icons/fa';
 import WebullTradingViewChart, { DEFAULT_STOCKS } from '../components/WebullTradingViewChart';
 import WebullTradeTimelineChart from '../components/WebullTradeTimelineChart';
 import TwoFactorModal from '../components/TwoFactorModal';
@@ -213,6 +214,13 @@ export default function WebullTrading({ isLightMode = false }) {
   const [error, setError] = useState('');
   const [cancellingOrderId, setCancellingOrderId] = useState(null);
   const [cancelModal, setCancelModal] = useState({ isVisible: false, order: null, error: '', loading: false });
+
+  // Webull Test Mode (Paper Trading) state
+  const [isTestMode, setIsTestMode] = useState(false);
+  const [paperSummary, setPaperSummary] = useState(null);
+  const [showDepositModal, setShowDepositModal] = useState(false);
+  const [depositAmount, setDepositAmount] = useState('1000');
+  const [depositSubmitting, setDepositSubmitting] = useState(false);
 
   // Selected Instrument & Chart state
   const [selectedSymbol, setSelectedSymbol] = useState('AAPL');
@@ -441,6 +449,18 @@ export default function WebullTrading({ isLightMode = false }) {
   const [historyLoading, setHistoryLoading] = useState(false);
 
   const loadHistory = async (targetAccId) => {
+    if (isTestMode) {
+      setHistoryLoading(true);
+      try {
+        const resp = await axios.get('/api/webull/test/orders', { withCredentials: true });
+        setHistory((resp.data?.orders || []).map(normalizeOrder));
+      } catch (e) {
+        // non-blocking
+      } finally {
+        setHistoryLoading(false);
+      }
+      return;
+    }
     const accId = targetAccId || selectedAccountId;
     setHistoryLoading(true);
     try {
@@ -461,6 +481,16 @@ export default function WebullTrading({ isLightMode = false }) {
   };
 
   const loadOpenOrders = async (targetAccId) => {
+    if (isTestMode) {
+      try {
+        const res = await axios.get('/api/webull/test/orders', { withCredentials: true });
+        const working = (res.data?.orders || []).filter((o) => o.status === 'Working' || o.status === 'Open').map(normalizeOrder);
+        setOpenOrders(working);
+      } catch (e) {
+        // non-blocking
+      }
+      return;
+    }
     const accId = targetAccId || selectedAccountId;
     try {
       const res = await axios.get(
@@ -476,16 +506,99 @@ export default function WebullTrading({ isLightMode = false }) {
     }
   };
 
+  const loadPaperTradingData = async () => {
+    try {
+      const [sumRes, posRes, ordRes] = await Promise.all([
+        axios.get('/api/webull/test/account-summary', { withCredentials: true }),
+        axios.get('/api/webull/test/positions', { withCredentials: true }),
+        axios.get('/api/webull/test/orders', { withCredentials: true }),
+      ]);
+      if (sumRes.data?.success) {
+        setPaperSummary(sumRes.data.summary);
+      }
+      if (posRes.data?.success) {
+        setHoldings(posRes.data.positions || []);
+      }
+      if (ordRes.data?.success) {
+        setHistory((ordRes.data.orders || []).map(normalizeOrder));
+        const working = (ordRes.data.orders || []).filter((o) => o.status === 'Working' || o.status === 'Open').map(normalizeOrder);
+        setOpenOrders(working);
+      }
+    } catch (e) {
+      console.error('Failed to load paper trading data:', e);
+    }
+  };
+
+  const handleToggleTestMode = async (enabled) => {
+    setIsTestMode(enabled);
+    try {
+      await axios.post('/api/webull/test/toggle', { enabled }, { withCredentials: true });
+      if (enabled) {
+        setSelectedAccountId('TEST_PAPER_ACCOUNT');
+        await loadPaperTradingData();
+        setOrderFeedback({ type: 'success', message: 'Switched to Webull Test Mode (Paper Trading with live real pricing).' });
+      } else {
+        await load();
+        setOrderFeedback({ type: 'success', message: 'Switched to Webull Live Trading Mode.' });
+      }
+    } catch (err) {
+      console.error('Failed to toggle test mode:', err);
+      setOrderFeedback({ type: 'error', message: 'Failed to update test mode setting.' });
+    }
+  };
+
+  const handleDepositFakeMoney = async () => {
+    const amt = parseFloat(depositAmount);
+    if (!amt || amt <= 0) return;
+    setDepositSubmitting(true);
+    try {
+      const res = await axios.post('/api/webull/test/deposit', { amount: amt, reset: false }, { withCredentials: true });
+      if (res.data?.success) {
+        setShowDepositModal(false);
+        setDepositAmount('1000');
+        await loadPaperTradingData();
+        setOrderFeedback({ type: 'success', message: res.data.message || `Deposited $${amt.toLocaleString()} fake money!` });
+      }
+    } catch (err) {
+      setOrderFeedback({ type: 'error', message: err.response?.data?.message || 'Deposit failed.' });
+    } finally {
+      setDepositSubmitting(false);
+    }
+  };
+
+  const handleResetPaperAccount = async () => {
+    if (!window.confirm('Reset your Webull Paper Trading account to $10,000 and clear all simulated positions?')) return;
+    setDepositSubmitting(true);
+    try {
+      const res = await axios.post('/api/webull/test/deposit', { amount: 10000, reset: true }, { withCredentials: true });
+      if (res.data?.success) {
+        setShowDepositModal(false);
+        await loadPaperTradingData();
+        setOrderFeedback({ type: 'success', message: 'Webull paper account reset to $10,000.00 cash.' });
+      }
+    } catch (err) {
+      setOrderFeedback({ type: 'error', message: err.response?.data?.message || 'Reset failed.' });
+    } finally {
+      setDepositSubmitting(false);
+    }
+  };
+
   const load = async () => {
     setLoading(true); setError('');
     try {
       // 1. Fetch lightweight core data needed for trading UI (accounts & portfolio holdings & 2FA setting)
-      const [portfolioResponse, accRes, signalSettingsResponse, tradingSettingsRes] = await Promise.all([
+      const [portfolioResponse, accRes, signalSettingsResponse, tradingSettingsRes, testStatusRes] = await Promise.all([
         axios.get('/api/coin-data-live', { withCredentials: true }),
         axios.get('/api/webull/accounts', { withCredentials: true }),
         axios.get('/api/webull/ai-settings', { withCredentials: true }),
         axios.get('/api/trading/settings', { withCredentials: true }).catch(() => ({ data: {} })),
+        axios.get('/api/webull/test/status', { withCredentials: true }).catch(() => ({ data: {} })),
       ]);
+      const testModeActive = Boolean(testStatusRes?.data?.enabled);
+      setIsTestMode(testModeActive);
+      if (testModeActive) {
+        await loadPaperTradingData();
+      }
       if (tradingSettingsRes.data?.settings?.require_2fa) {
         setRequire2fa(true);
       }
@@ -660,12 +773,58 @@ export default function WebullTrading({ isLightMode = false }) {
   }, [selectedAccountId]);
 
   // Sync active account and cash balance
-  const activeAccount = useMemo(() => accounts.find((a) => a.account_id === selectedAccountId) || accounts[0], [accounts, selectedAccountId]);
+  const activeAccount = useMemo(() => {
+    if (isTestMode) {
+      return {
+        account_id: 'TEST_PAPER_ACCOUNT',
+        account_id_masked: '••••SIM',
+        account_label: 'Webull Paper Account',
+        account_name: 'Webull Paper Account',
+        account_type: 'CASH',
+        account_class: 'PAPER_TRADING',
+        is_paper: true,
+        balance: {
+          total_cash_balance: paperSummary?.cash_balance ?? 10000,
+          cash_balance: paperSummary?.cash_balance ?? 10000,
+          settled_cash: paperSummary?.cash_balance ?? 10000,
+          net_liquidation: paperSummary?.net_liquidation ?? 10000,
+          buying_power: paperSummary?.buying_power ?? 10000,
+        },
+        net_liquidation: paperSummary?.net_liquidation ?? 10000,
+        buying_power: paperSummary?.buying_power ?? 10000,
+        cash_balance: paperSummary?.cash_balance ?? 10000,
+        total_market_value: paperSummary?.total_market_value ?? 0,
+        unrealized_profit_loss: paperSummary?.unrealized_profit_loss ?? 0,
+        unrealized_profit_loss_rate: paperSummary?.unrealized_profit_loss_rate ?? 0,
+      };
+    }
+    return accounts.find((a) => a.account_id === selectedAccountId) || accounts[0];
+  }, [isTestMode, paperSummary, accounts, selectedAccountId]);
+
   const activeAccountIsCrypto = isCryptoAccount(activeAccount);
   const assetClassDisabled = (assetClass) => {
+    if (isTestMode) return false;
     if (!activeAccount) return false;
     return activeAccountIsCrypto ? assetClass !== 'CRYPTO' : assetClass === 'CRYPTO';
   };
+
+  const displayAccounts = useMemo(() => {
+    if (isTestMode) {
+      return [
+        {
+          account_id: 'TEST_PAPER_ACCOUNT',
+          account_id_masked: '••••SIM',
+          account_label: 'Webull Paper Account',
+          account_name: 'Webull Paper Account',
+          account_type: 'CASH',
+          account_class: 'PAPER_TRADING',
+          is_paper: true,
+        },
+        ...accounts.filter((a) => a.account_id !== 'TEST_PAPER_ACCOUNT'),
+      ];
+    }
+    return accounts;
+  }, [isTestMode, accounts]);
 
   const resetFuturesSelection = () => {
     setFuturesContracts([]);
@@ -734,10 +893,13 @@ export default function WebullTrading({ isLightMode = false }) {
     }
   }, [selectedInstrumentType, activeAccount]);
   const cashBalance = useMemo(() => {
+    if (isTestMode) {
+      return Number(paperSummary?.cash_balance ?? 10000);
+    }
     if (!activeAccount?.balance) return 0;
     const b = activeAccount.balance;
     return nonNegativeNumber(b.total_cash_balance ?? b.cash_balance ?? b.settled_cash ?? b.cashBalance ?? 0);
-  }, [activeAccount]);
+  }, [isTestMode, paperSummary, activeAccount]);
 
   const loadFuturesCatalog = async () => {
     setFuturesLoading(true);
@@ -1459,6 +1621,7 @@ export default function WebullTrading({ isLightMode = false }) {
     try {
       const isCashAmountMode = selectedInstrumentType === 'EQUITY' && orderForm.entrustType === 'AMOUNT';
       const payload = {
+        test_mode: isTestMode,
         account_id: selectedAccountId,
         symbol: selectedSymbol.trim().toUpperCase(),
         instrument_type: selectedInstrumentType,
@@ -1505,7 +1668,11 @@ export default function WebullTrading({ isLightMode = false }) {
           bracketStopLossPrice: '',
           bracketStopLossLimitPrice: '',
         }));
-        loadOpenOrders(selectedAccountId);
+        if (isTestMode) {
+          loadPaperTradingData();
+        } else {
+          loadOpenOrders(selectedAccountId);
+        }
       } else {
         setOrderFeedback({ type: 'error', message: response.data.message || 'Order placement failed.' });
       }
@@ -1557,6 +1724,7 @@ export default function WebullTrading({ isLightMode = false }) {
     setOrderSubmitting(true);
     try {
       const payload = {
+        test_mode: isTestMode,
         account_id: selectedAccountId,
         combo_type: comboForm.comboType,
         combo_orders: comboForm.legs.map((leg) => ({
@@ -1575,7 +1743,11 @@ export default function WebullTrading({ isLightMode = false }) {
       const response = await axios.post('/api/webull/orders/place', payload, { withCredentials: true });
       if (response.data?.success) {
         setOrderFeedback({ type: 'success', message: response.data.message || 'Webull combo order submitted successfully!' });
-        loadOpenOrders(selectedAccountId);
+        if (isTestMode) {
+          loadPaperTradingData();
+        } else {
+          loadOpenOrders(selectedAccountId);
+        }
         setActiveTab('open_orders');
       } else {
         setOrderFeedback({ type: 'error', message: response.data?.message || 'Failed to submit combo order.' });
@@ -1798,17 +1970,106 @@ export default function WebullTrading({ isLightMode = false }) {
 
   return (
     <div className="trading-page" style={{ padding: '20px', maxWidth: '1500px', margin: '0 auto' }}>
-      <div className="trading-header" style={{ marginBottom: '18px' }}>
+      <div className="trading-header" style={{ marginBottom: '18px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
         <div>
           <h1 style={{ fontSize: '2rem', margin: 0, display: 'flex', alignItems: 'center', gap: '10px' }}>
             <WebullLogo size={32} /> Webull Trading
           </h1>
           <p style={{ margin: '6px 0 0', color: '#94a3b8' }}>
-            Execute orders, manage open positions, and review signals via Webull OpenAPI.
+            {isTestMode
+              ? 'Webull Paper Trading Mode — practice trading across all assets with simulated funds & real-time live quotes.'
+              : 'Execute orders, manage open positions, and review signals via Webull OpenAPI.'}
           </p>
         </div>
-        <button type="button" className="btn btn-secondary" onClick={load}>🔄 Refresh Webull</button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '16px', flexWrap: 'wrap' }}>
+          {isTestMode && (
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={() => setShowDepositModal(true)}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '8px',
+                background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                color: '#ffffff',
+                border: 'none',
+                padding: '8px 16px',
+                borderRadius: '8px',
+                fontWeight: 600,
+                cursor: 'pointer',
+                boxShadow: '0 2px 8px rgba(16, 185, 129, 0.4)'
+              }}
+            >
+              💰 Deposit Fake Money
+            </button>
+          )}
+          <label
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              cursor: 'pointer',
+              color: isLightMode ? '#2d3748' : '#e2e8f0',
+              userSelect: 'none',
+              margin: 0,
+              fontSize: '0.95rem',
+              fontWeight: 600
+            }}
+            title="Toggle Webull Test Mode (Paper Trading with live quotes)"
+          >
+            <input
+              type="checkbox"
+              checked={isTestMode}
+              onChange={(e) => handleToggleTestMode(e.target.checked)}
+              style={{ position: 'absolute', opacity: 0, pointerEvents: 'none' }}
+            />
+            {isTestMode ? <FaToggleOn size={30} color="#4fd1c5" /> : <FaToggleOff size={30} color="#6c757d" />}
+            Test Mode
+          </label>
+        </div>
       </div>
+
+      {isTestMode && (
+        <div
+          style={{
+            marginBottom: '16px',
+            padding: '12px 18px',
+            borderRadius: '8px',
+            background: 'rgba(79, 209, 197, 0.12)',
+            border: '1px solid rgba(79, 209, 197, 0.35)',
+            color: '#4fd1c5',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            flexWrap: 'wrap',
+            gap: '12px'
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', fontWeight: 600 }}>
+            <span style={{ fontSize: '1.2rem' }}>🧪</span>
+            <span>
+              TEST MODE ACTIVE — Simulated Webull Paper Account (${number(cashBalance)} USD available cash). Trades fill against real live market quotes with zero financial risk.
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setShowDepositModal(true)}
+            style={{
+              background: 'rgba(79, 209, 197, 0.2)',
+              border: '1px solid rgba(79, 209, 197, 0.5)',
+              color: '#ffffff',
+              padding: '5px 14px',
+              borderRadius: '6px',
+              cursor: 'pointer',
+              fontSize: '0.85rem',
+              fontWeight: 600
+            }}
+          >
+            + Add Funds
+          </button>
+        </div>
+      )}
 
       {error && <div className="modern-real-warning" style={{ marginBottom: '16px' }}>⚠️ {error}</div>}
       {orderFeedback.message && (
@@ -1863,8 +2124,8 @@ export default function WebullTrading({ isLightMode = false }) {
                   symbol={selectedSymbol}
                   instrumentType={selectedInstrumentType}
                   onInstrumentChange={handleInstrumentChange}
-                  accounts={accounts}
-                  selectedAccountId={selectedAccountId}
+                  accounts={displayAccounts}
+                  selectedAccountId={isTestMode ? 'TEST_PAPER_ACCOUNT' : selectedAccountId}
                   onAccountChange={handleAccountChange}
                   defaultAccountId={defaultAccountId}
                   onSetDefaultAccount={saveDefaultAccount}
@@ -2996,6 +3257,10 @@ export default function WebullTrading({ isLightMode = false }) {
                     >
                       {orderSubmitting ? (
                         <span>⏳ Processing Order...</span>
+                      ) : isTestMode ? (
+                        <span>
+                          🧪 Place Simulated {orderForm.type === 'MARKET' ? 'Market' : orderForm.type === 'LIMIT' ? 'Limit' : orderForm.type === 'STOP_LOSS' ? 'Stop Loss' : orderForm.type === 'STOP_LOSS_LIMIT' ? 'Stop Loss Limit' : ''} {orderForm.side === 'BUY' ? (selectedInstrumentType === 'EVENT' ? 'Buy to Open' : 'Buy') : (selectedInstrumentType === 'EVENT' ? 'Sell to Close' : 'Sell')} Order (Paper)
+                        </span>
                       ) : (
                         <span>
                           ⚡ Place Real {orderForm.type === 'MARKET' ? 'Market' : orderForm.type === 'LIMIT' ? 'Limit' : orderForm.type === 'STOP_LOSS' ? 'Stop Loss' : orderForm.type === 'STOP_LOSS_LIMIT' ? 'Stop Loss Limit' : ''} {orderForm.side === 'BUY' ? (selectedInstrumentType === 'EVENT' ? 'Buy to Open' : 'Buy') : (selectedInstrumentType === 'EVENT' ? 'Sell to Close' : 'Sell')} Order
@@ -3004,19 +3269,29 @@ export default function WebullTrading({ isLightMode = false }) {
                     </button>
                   </div>
 
-                  {/* Row 6: Warning in Real Trading Mode */}
-                  <div className="modern-real-warning" style={{ marginTop: '12px' }}>
-                    ⚠️ <strong>WARNING:</strong> You are in REAL TRADING MODE. This will execute an actual live order on Webull OpenAPI.
-                  </div>
+                  {/* Row 6: Warning in Real / Test Trading Mode */}
+                  {isTestMode ? (
+                    <div className="modern-real-warning" style={{ marginTop: '12px', background: 'rgba(79, 209, 197, 0.15)', borderColor: 'rgba(79, 209, 197, 0.35)', color: '#4fd1c5' }}>
+                      🧪 <strong>TEST MODE ACTIVE:</strong> You are paper trading with simulated cash (${number(cashBalance)} USD available) based on real live market pricing. No real orders are sent to Webull.
+                    </div>
+                  ) : (
+                    <div className="modern-real-warning" style={{ marginTop: '12px' }}>
+                      ⚠️ <strong>WARNING:</strong> You are in REAL TRADING MODE. This will execute an actual live order on Webull OpenAPI.
+                    </div>
+                  )}
                 </form>
 
                 {/* Pre-Trade Confirmation Modal */}
                 {showConfirmModal && (
                   <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '20px' }}>
                     <div style={{ background: 'var(--card-bg, #1e293b)', borderRadius: '14px', padding: '28px', maxWidth: '480px', width: '100%', border: '1px solid rgba(255,255,255,0.15)', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.5)' }}>
-                      <h3 style={{ margin: '0 0 16px', fontSize: '1.4rem' }}>Confirm Webull Order</h3>
+                      <h3 style={{ margin: '0 0 16px', fontSize: '1.4rem' }}>
+                        {isTestMode ? '🧪 Confirm Simulated Order' : 'Confirm Webull Order'}
+                      </h3>
                       <p style={{ color: '#94a3b8', fontSize: '0.9rem', marginBottom: '20px' }}>
-                        Please review the details below. This will transmit an active order to Webull OpenAPI.
+                        {isTestMode
+                          ? 'Please review the simulated trade details below. This will execute in Paper Trading mode against live real market quotes.'
+                          : 'Please review the details below. This will transmit an active order to Webull OpenAPI.'}
                       </p>
                       <div style={{ background: 'rgba(0,0,0,0.25)', padding: '16px', borderRadius: '8px', marginBottom: '20px', display: 'grid', gap: '10px', fontSize: '0.95rem' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between' }}>
@@ -3125,7 +3400,7 @@ export default function WebullTrading({ isLightMode = false }) {
                 )}
 
                 {/* Holdings Table Below */}
-                <WebullHoldings holdings={holdings} onSelectHolding={handleSelectHolding} />
+                <WebullHoldings holdings={holdings} onSelectHolding={handleSelectHolding} isTestMode={isTestMode} />
               </div>
             )}
 
@@ -3414,6 +3689,115 @@ export default function WebullTrading({ isLightMode = false }) {
         currentPrice={livePrice}
         avgEntry={Number(currentHolding?.avg_entry || currentHolding?.cost_price || 0) > 0 ? Number(currentHolding?.avg_entry || currentHolding?.cost_price) : null}
       />
+
+      {/* Paper Deposit Modal */}
+      {showDepositModal && (
+        <div className="modal-overlay" style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999, padding: '20px' }}>
+          <div className="modal-content" style={{ background: 'var(--card-bg, #1e293b)', border: '1px solid rgba(79, 209, 197, 0.4)', borderRadius: '16px', maxWidth: '460px', width: '100%', padding: '28px', boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.6)' }}>
+            <h3 style={{ margin: '0 0 10px', fontSize: '1.4rem', display: 'flex', alignItems: 'center', gap: '8px', color: '#4fd1c5' }}>
+              💰 Deposit Fake Money
+            </h3>
+            <p style={{ color: '#94a3b8', fontSize: '0.9rem', marginBottom: '20px', lineHeight: 1.5 }}>
+              Add simulated funds to your Webull Paper Trading account to practice trades across stocks, ETFs, crypto, options, and futures using real-time market pricing.
+            </p>
+
+            <div style={{ marginBottom: '20px', padding: '14px 18px', background: 'rgba(15, 23, 42, 0.6)', borderRadius: '10px', border: '1px solid rgba(255, 255, 255, 0.1)' }}>
+              <div style={{ fontSize: '0.85rem', color: '#94a3b8', marginBottom: '4px' }}>Current Paper Cash Available</div>
+              <div style={{ fontSize: '1.6rem', fontWeight: 800, color: '#10b981' }}>
+                ${number(cashBalance)} <small style={{ fontSize: '0.9rem', color: '#94a3b8', fontWeight: 500 }}>USD</small>
+              </div>
+            </div>
+
+            <div style={{ marginBottom: '20px' }}>
+              <label style={{ display: 'block', marginBottom: '8px', fontSize: '0.88rem', color: '#cbd5e1', fontWeight: 600 }}>
+                Quick Deposit Presets:
+              </label>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px', marginBottom: '14px' }}>
+                {[1000, 5000, 10000].map((amt) => (
+                  <button
+                    key={amt}
+                    type="button"
+                    className="btn btn-secondary"
+                    onClick={() => setDepositAmount(String(amt))}
+                    style={{ fontWeight: 600, padding: '10px 8px', fontSize: '0.95rem' }}
+                  >
+                    +${amt.toLocaleString()}
+                  </button>
+                ))}
+              </div>
+
+              <label style={{ display: 'block', marginBottom: '6px', fontSize: '0.85rem', color: '#94a3b8' }}>
+                Or Custom Deposit Amount ($ USD):
+              </label>
+              <input
+                type="number"
+                min="1"
+                step="any"
+                value={depositAmount}
+                onChange={(e) => setDepositAmount(e.target.value)}
+                placeholder="e.g. 1000"
+                style={{
+                  width: '100%',
+                  padding: '12px 14px',
+                  borderRadius: '8px',
+                  border: '1px solid rgba(79, 209, 197, 0.4)',
+                  background: 'rgba(15, 23, 42, 0.9)',
+                  color: '#ffffff',
+                  fontSize: '1.1rem',
+                  fontWeight: 600,
+                  boxSizing: 'border-box'
+                }}
+              />
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '24px', gap: '10px', flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                className="btn btn-outline-danger"
+                onClick={handleResetPaperAccount}
+                title="Reset cash to $10,000 and clear simulated positions"
+                style={{
+                  fontSize: '0.85rem',
+                  padding: '8px 12px',
+                  borderColor: '#ef4444',
+                  color: '#ef4444',
+                  background: 'transparent',
+                  cursor: 'pointer'
+                }}
+              >
+                🔄 Reset Account
+              </button>
+              <div style={{ display: 'flex', gap: '10px' }}>
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={() => setShowDepositModal(false)}
+                  style={{ padding: '8px 16px' }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-success"
+                  disabled={depositSubmitting || !depositAmount || Number(depositAmount) <= 0}
+                  onClick={handleDepositFakeMoney}
+                  style={{
+                    background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                    border: 'none',
+                    fontWeight: 600,
+                    padding: '8px 18px',
+                    color: '#fff',
+                    borderRadius: '6px',
+                    cursor: 'pointer'
+                  }}
+                >
+                  {depositSubmitting ? 'Depositing...' : 'Confirm Deposit'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -3452,8 +3836,18 @@ function WebullSignalTable({ signals }) {
   );
 }
 
-function WebullHoldings({ holdings, compact = false, onSelectHolding }) {
-  if (!holdings.length) return <div className="empty-state"><p>No imported Webull holdings. Import a Webull portfolio snapshot in Settings first.</p></div>;
+function WebullHoldings({ holdings, compact = false, onSelectHolding, isTestMode = false }) {
+  if (!holdings.length) {
+    return (
+      <div className="empty-state">
+        <p>
+          {isTestMode
+            ? 'No simulated holdings yet. Place a test order above to build your paper portfolio!'
+            : 'No imported Webull holdings. Import a Webull portfolio snapshot in Settings first.'}
+        </p>
+      </div>
+    );
+  }
   return (
     <div className="table-container trading-table" style={{ marginTop: compact ? 12 : 20 }}>
       <div className="order-table-scroll">
@@ -3478,18 +3872,23 @@ function WebullHoldings({ holdings, compact = false, onSelectHolding }) {
                     <CryptoIcon symbol={holding.symbol} size={22} />
                     <span>
                       {holding.symbol}
+                      {(holding.is_paper || isTestMode) && (
+                        <span className="badge" style={{ background: 'rgba(79, 209, 197, 0.2)', color: '#4fd1c5', border: '1px solid rgba(79, 209, 197, 0.4)', marginLeft: 6, fontSize: '0.7rem', fontWeight: 700 }}>
+                          PAPER
+                        </span>
+                      )}
                       {isOption && optionLabel && <small style={{ display: 'block', color: 'var(--text-secondary, #94a3b8)' }}>{optionLabel}</small>}
                     </span>
                   </td>
                   <td>
                     {holding.instrument_type || 'Security'}
-                    {isOption && !holding.instrument_id && <small style={{ display: 'block', color: '#fbbf24' }}>Contract resolution needed</small>}
+                    {isOption && !holding.instrument_id && !holding.is_paper && <small style={{ display: 'block', color: '#fbbf24' }}>Contract resolution needed</small>}
                   </td>
-                  <td>{number(holding.amount, 6)}</td>
-                  <td>{holding.current_price ? `$${number(holding.current_price, 4)}` : '—'}</td>
-                  <td>{holding.current_value != null ? `$${number(holding.current_value)}` : '—'}</td>
-                  <td style={{ color: Number(holding.webull_unrealized_pnl) >= 0 ? '#4ade80' : '#f87171' }}>
-                    {holding.webull_unrealized_pnl == null ? '—' : `$${number(holding.webull_unrealized_pnl)}`}
+                  <td>{number(holding.quantity ?? holding.amount, 6)}</td>
+                  <td>{(holding.current_price ?? holding.last_price) ? `$${number(holding.current_price ?? holding.last_price, 4)}` : '—'}</td>
+                  <td>{(holding.current_value ?? holding.market_value) != null ? `$${number(holding.current_value ?? holding.market_value)}` : '—'}</td>
+                  <td style={{ color: Number(holding.webull_unrealized_pnl ?? holding.unrealized_profit_loss) >= 0 ? '#4ade80' : '#f87171' }}>
+                    {(holding.webull_unrealized_pnl ?? holding.unrealized_profit_loss) == null ? '—' : `$${number(holding.webull_unrealized_pnl ?? holding.unrealized_profit_loss)}`}
                   </td>
                   <td>
                     <button

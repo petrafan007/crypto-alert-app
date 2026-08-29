@@ -5,7 +5,7 @@ from core.extensions import db
 def init_db(app=None):
     """Initialize the database with all models"""
     # Import models here to avoid circular imports
-    from models import Coin, WatchlistCoin, Notification, AIPrompt, DefaultAIPrompt, StakedCoin, StakingReward, AIConversation, AICache, AIAnalysisSchedule, PriceHistory, WebullAccountSnapshot, WebullHolding, ExternalSentimentSignal
+    from models import Coin, WatchlistCoin, Notification, AIPrompt, DefaultAIPrompt, StakedCoin, StakingReward, AIConversation, AICache, AIAnalysisSchedule, PriceHistory, WebullAccountSnapshot, WebullHolding, ExternalSentimentSignal, WebullTestAccount, WebullTestPosition, WebullTestOrder
     from credentials import User, Credential, UserSetting, DesktopToken
     from trading_models import TestOrder, RealOrder, TestPortfolio, TradingSettings, AllActivity, PortfolioValueHistory, StakingOrder
     
@@ -38,6 +38,7 @@ def init_db(app=None):
             ("user_settings", "webull_equity_sentiment_frequency_hours", "INTEGER DEFAULT 24"),
             ("user_settings", "webull_crypto_sentiment_horizon_hours", "INTEGER DEFAULT 24"),
             ("user_settings", "webull_equity_sentiment_horizon_hours", "INTEGER DEFAULT 24"),
+            ("user_settings", "webull_test_mode_enabled", "BOOLEAN DEFAULT FALSE"),
             ("credentials", "webull_app_key", "VARCHAR"),
             ("credentials", "webull_app_secret", "VARCHAR"),
             ("credentials", "webull_access_token", "VARCHAR"),
@@ -143,8 +144,57 @@ def init_db(app=None):
                     "CREATE INDEX IF NOT EXISTS ix_webull_holding_option_contract "
                     "ON webull_holdings (user_id, instrument_id)"
                 ))
+                conn.execute(db.text("""
+                    CREATE TABLE IF NOT EXISTS webull_test_accounts (
+                        id SERIAL PRIMARY KEY,
+                        user_id INTEGER NOT NULL UNIQUE,
+                        cash_balance FLOAT NOT NULL DEFAULT 10000.0,
+                        currency VARCHAR(10) NOT NULL DEFAULT 'USD',
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    );
+                    CREATE TABLE IF NOT EXISTS webull_test_positions (
+                        id SERIAL PRIMARY KEY,
+                        user_id INTEGER NOT NULL,
+                        symbol VARCHAR(80) NOT NULL,
+                        instrument_type VARCHAR(40) NOT NULL DEFAULT 'EQUITY',
+                        side VARCHAR(20) NOT NULL DEFAULT 'LONG',
+                        quantity FLOAT NOT NULL DEFAULT 0.0,
+                        cost_price FLOAT NOT NULL DEFAULT 0.0,
+                        last_price FLOAT DEFAULT 0.0,
+                        market_value FLOAT DEFAULT 0.0,
+                        unrealized_pnl FLOAT DEFAULT 0.0,
+                        contract_multiplier INTEGER NOT NULL DEFAULT 1,
+                        option_type VARCHAR(10),
+                        option_strike FLOAT,
+                        option_expiration VARCHAR(20),
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        CONSTRAINT uq_webull_test_pos_user_sym_type_side UNIQUE (user_id, symbol, instrument_type, side)
+                    );
+                    CREATE TABLE IF NOT EXISTS webull_test_orders (
+                        id SERIAL PRIMARY KEY,
+                        order_id VARCHAR(80) NOT NULL UNIQUE,
+                        user_id INTEGER NOT NULL,
+                        symbol VARCHAR(80) NOT NULL,
+                        instrument_type VARCHAR(40) NOT NULL DEFAULT 'EQUITY',
+                        side VARCHAR(20) NOT NULL,
+                        order_type VARCHAR(30) NOT NULL,
+                        quantity FLOAT NOT NULL,
+                        limit_price FLOAT,
+                        stop_price FLOAT,
+                        filled_price FLOAT,
+                        filled_quantity FLOAT DEFAULT 0.0,
+                        status VARCHAR(30) NOT NULL DEFAULT 'Filled',
+                        combo_type VARCHAR(30),
+                        combo_orders TEXT,
+                        time_in_force VARCHAR(20) DEFAULT 'DAY',
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    );
+                """))
         except Exception as ex:
-            print(f"Migration note for webull option contract index: {ex}")
+            print(f"Migration note for webull test tables: {ex}")
 
         try:
             with db.engine.begin() as conn:

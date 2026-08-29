@@ -125,6 +125,16 @@ The application utilizes a **unified PostgreSQL database**.
 
 Historical changelog entries retain the product name used when they were originally released. The application domain, repository slug, deployment folders, database, and service identifiers intentionally remain unchanged by the v2.45.0 brand update.
 
+## v2.57.0 (August 2026)
+
+- **Full Webull Test Mode & Paper Trading Simulation**:
+  - **Dedicated Settings-Style Test Mode Toggle**: Added a persistent, smooth toggle switch (`FaToggleOn` / `FaToggleOff` with `#4fd1c5` teal accent) in the Webull Trading header matching the design in Settings, allowing instant switching between Live Webull OpenAPI trading and simulated Paper Trading.
+  - **Interactive Fake Money Deposit System**: Added a conditionally rendered `💰 Deposit Fake Money` button and modal that appears whenever Test Mode is enabled. Users can deposit quick presets (+$1,000, +$5,000, +$10,000), enter custom dollar amounts, or reset the simulated cash balance back to $10,000.
+  - **Full Multi-Asset Simulated Execution on Real-Time Market Quotes**: Enables paper order execution across the complete Webull Trading suite—including Stocks, ETFs, Crypto, single-leg Options (with 100x contract multipliers), Futures, and Advanced combo/bracket orders. Orders fill against real-time live quotes (via Webull snapshots, Binance quotes, or Yahoo Finance fallbacks) without transmitting actual orders or risking live capital.
+  - **Simulated Paper Holdings & Isolated Portfolio Engine**: Tracks simulated cash balances, positions with volume-weighted average cost bases, live mark-to-market values, and unrealized P&L in PostgreSQL (`webull_test_accounts`, `webull_test_positions`, `webull_test_orders`), completely isolated from live brokerage assets.
+  - **Clear Paper Trading Status Indicators**: Added prominent cyan/teal visual indicators and banners across the trading interface, trade tickets, and confirmation dialogs to ensure full visibility when operating in Paper Trading mode.
+  - **Removed Redundant "Refresh Webull" Button**: Cleaned up the Webull Trading page header by eliminating the unnecessary manual `🔄 Refresh Webull` button, as all market pricing and account interactions update dynamically.
+
 ## v2.56.3 (August 2026)
 
 - **Frontend Sentiment Cell ReferenceError Resolution**:

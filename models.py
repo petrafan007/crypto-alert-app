@@ -123,6 +123,120 @@ class WebullHolding(db.Model):
     )
 
 
+class WebullTestAccount(db.Model):
+    """Simulated paper trading account for Webull test mode."""
+    __tablename__ = 'webull_test_accounts'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, nullable=False, unique=True, index=True)
+    cash_balance = db.Column(db.Float, default=10000.0, nullable=False)
+    currency = db.Column(db.String(10), default='USD', nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    def to_dict(self):
+        return {
+            'user_id': self.user_id,
+            'cash_balance': float(self.cash_balance or 0.0),
+            'currency': self.currency or 'USD',
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+
+class WebullTestPosition(db.Model):
+    """Simulated holdings/positions for Webull paper trading."""
+    __tablename__ = 'webull_test_positions'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, nullable=False, index=True)
+    symbol = db.Column(db.String(80), nullable=False)
+    instrument_type = db.Column(db.String(40), default='EQUITY', nullable=False)
+    side = db.Column(db.String(20), default='LONG', nullable=False)
+    quantity = db.Column(db.Float, default=0.0, nullable=False)
+    cost_price = db.Column(db.Float, default=0.0, nullable=False)
+    last_price = db.Column(db.Float, default=0.0, nullable=True)
+    market_value = db.Column(db.Float, default=0.0, nullable=True)
+    unrealized_pnl = db.Column(db.Float, default=0.0, nullable=True)
+    contract_multiplier = db.Column(db.Integer, default=1, nullable=False)
+    option_type = db.Column(db.String(10), nullable=True)
+    option_strike = db.Column(db.Float, nullable=True)
+    option_expiration = db.Column(db.String(20), nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    __table_args__ = (
+        db.UniqueConstraint('user_id', 'symbol', 'instrument_type', 'side', name='uq_webull_test_pos_user_sym_type_side'),
+        db.Index('ix_webull_test_pos_user_sym', 'user_id', 'symbol'),
+    )
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'user_id': self.user_id,
+            'symbol': self.symbol,
+            'instrument_type': self.instrument_type,
+            'side': self.side,
+            'quantity': float(self.quantity or 0.0),
+            'cost_price': float(self.cost_price or 0.0),
+            'last_price': float(self.last_price or 0.0),
+            'market_value': float(self.market_value or 0.0),
+            'unrealized_pnl': float(self.unrealized_pnl or 0.0),
+            'contract_multiplier': self.contract_multiplier,
+            'option_type': self.option_type,
+            'option_strike': self.option_strike,
+            'option_expiration': self.option_expiration,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+
+class WebullTestOrder(db.Model):
+    """Simulated orders for Webull paper trading."""
+    __tablename__ = 'webull_test_orders'
+
+    id = db.Column(db.Integer, primary_key=True)
+    order_id = db.Column(db.String(80), unique=True, nullable=False, index=True)
+    user_id = db.Column(db.Integer, nullable=False, index=True)
+    symbol = db.Column(db.String(80), nullable=False)
+    instrument_type = db.Column(db.String(40), default='EQUITY', nullable=False)
+    side = db.Column(db.String(20), nullable=False)
+    order_type = db.Column(db.String(30), nullable=False)
+    quantity = db.Column(db.Float, nullable=False)
+    limit_price = db.Column(db.Float, nullable=True)
+    stop_price = db.Column(db.Float, nullable=True)
+    filled_price = db.Column(db.Float, nullable=True)
+    filled_quantity = db.Column(db.Float, default=0.0)
+    status = db.Column(db.String(30), default='Filled', nullable=False)
+    combo_type = db.Column(db.String(30), nullable=True)
+    combo_orders = db.Column(db.Text, nullable=True)
+    time_in_force = db.Column(db.String(20), default='DAY')
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'order_id': self.order_id,
+            'user_id': self.user_id,
+            'symbol': self.symbol,
+            'instrument_type': self.instrument_type,
+            'side': self.side,
+            'order_type': self.order_type,
+            'quantity': float(self.quantity or 0.0),
+            'limit_price': self.limit_price,
+            'stop_price': self.stop_price,
+            'filled_price': self.filled_price,
+            'filled_quantity': float(self.filled_quantity or 0.0),
+            'status': self.status,
+            'combo_type': self.combo_type,
+            'combo_orders': self.combo_orders,
+            'time_in_force': self.time_in_force,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+
 class ExternalSentimentSignal(db.Model):
     """A broker-neutral, stored AI signal for non-Binance instruments.
 
