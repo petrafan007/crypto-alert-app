@@ -9,6 +9,8 @@ DEFERRED_ORDER_TYPES = {
     'STOP_LOSS', 'STOP_LOSS_LIMIT', 'TRAILING_STOP_LOSS',
     'MARKET_ON_OPEN', 'MARKET_ON_CLOSE', 'LIMIT_ON_OPEN',
 }
+ACTIVE_PAPER_ORDER_STATUSES = {'WORKING', 'OPEN', 'PENDING', 'PARTIALLY FILLED', 'PARTIALLY_FILLED'}
+PAPER_SELL_SIDES = {'SELL', 'SELL_TO_CLOSE'}
 
 
 def canonical_paper_instrument_type(symbol: str, instrument_type: str) -> str:
@@ -43,3 +45,31 @@ def paper_position_valuation(side: str, quantity: float, cost_price: float, curr
         'cost_basis': cost_basis,
         'unrealized_pnl': cost_basis - absolute_market_value if is_short else absolute_market_value - cost_basis,
     }
+
+
+def paper_reservation_group(order_id: str) -> str:
+    """Collapse mutually exclusive bracket/combo legs into one reservation group."""
+    clean_order_id = str(order_id or '').upper().strip()
+    if clean_order_id.endswith(('_TP', '_SL')):
+        return clean_order_id.rsplit('_', 1)[0]
+    if clean_order_id.startswith('SIM_COMBO_') and '_LEG' in clean_order_id:
+        return clean_order_id.rsplit('_LEG', 1)[0]
+    return clean_order_id
+
+
+def grouped_reserved_quantity(orders, reserving_sides=None) -> float:
+    """Return shares reserved by active sell orders without double-counting OCO siblings."""
+    allowed_sides = {str(side).upper().strip() for side in (reserving_sides or PAPER_SELL_SIDES)}
+    groups = {}
+    for order in orders or []:
+        read = order.get if isinstance(order, dict) else lambda key, default=None: getattr(order, key, default)
+        status = str(read('status', '') or '').upper().strip()
+        side = str(read('side', '') or '').upper().strip()
+        if status not in ACTIVE_PAPER_ORDER_STATUSES or side not in allowed_sides:
+            continue
+        quantity = float(read('quantity', 0.0) or 0.0)
+        filled_quantity = float(read('filled_quantity', 0.0) or 0.0)
+        outstanding = max(0.0, quantity - filled_quantity)
+        group = paper_reservation_group(read('order_id', ''))
+        groups[group] = max(groups.get(group, 0.0), outstanding)
+    return sum(groups.values())

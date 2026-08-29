@@ -125,6 +125,19 @@ The application utilizes a **unified PostgreSQL database**.
 
 Historical changelog entries retain the product name used when they were originally released. The application domain, repository slug, deployment folders, database, and service identifiers intentionally remain unchanged by the v2.45.0 brand update.
 
+## v2.59.4 (August 2026)
+
+- **Paper Position and Reservation Safety**:
+  - Active simulated sell orders now reserve their shares. A second sell, immediate sale, bracket, or combo is rejected when it would exceed the remaining unreserved long position.
+  - Working simulated buys reserve cash, working short entries reserve margin, and all paper-ledger mutations for one account are serialized to prevent simultaneous orders from overspending or overselling.
+  - Take-profit/stop-loss brackets and OCO combo legs share one reservation because only one mutually exclusive exit can execute. Standalone OCO legs no longer fabricate a filled primary order.
+- **Short Position Clarity and Closing**:
+  - Paper holdings show a positive absolute quantity with an explicit **Long** or **Short** position label; a short remains a signed liability in market value, net liquidation, and unrealized P&L calculations.
+  - Selecting a simulated short exposes **Cover / Buy to Close** and prevents opening simultaneous long and short positions in the same instrument.
+- **Safe Paper Reset and Existing-Ledger Reconciliation**:
+  - Resetting a paper account cancels every active simulated order before clearing positions, so no orphan working order can survive a reset.
+  - The v2.59.4 personal-instance upgrade cancels the known uncovered test sell orders and closes the two known test short positions. No live Webull order or holding is changed.
+
 ## v2.59.3 (August 2026)
 
 - **Readable Webull Order Captions**:

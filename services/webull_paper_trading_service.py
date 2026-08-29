@@ -7,10 +7,13 @@ from core.extensions import db
 from models import WebullTestAccount, WebullTestPosition, WebullTestOrder
 from credentials import Credential, UserSetting
 from services.webull_paper_rules import (
+    ACTIVE_PAPER_ORDER_STATUSES,
     EQUITY_LIKE_TYPES,
     canonical_paper_instrument_type,
+    grouped_reserved_quantity,
     paper_order_fills_immediately,
     paper_position_valuation,
+    paper_reservation_group,
 )
 
 logger = logging.getLogger(__name__)
@@ -74,6 +77,88 @@ def _normalize_equity_like_positions(user_id: int) -> None:
         _find_or_merge_position(user_id, symbol, instrument_type, side)
 
 
+def _instrument_types_match(left: str, right: str) -> bool:
+    left_type = str(left or '').upper().strip()
+    right_type = str(right or '').upper().strip()
+    return left_type in EQUITY_LIKE_TYPES and right_type in EQUITY_LIKE_TYPES or left_type == right_type
+
+
+def _reserved_long_quantity(user_id: int, symbol: str, instrument_type: str) -> float:
+    """Return shares already committed to active paper sell orders."""
+    clean_symbol = str(symbol or '').upper().strip()
+    orders = WebullTestOrder.query.filter_by(user_id=user_id, symbol=clean_symbol).all()
+    matching_orders = [
+        order for order in orders
+        if _instrument_types_match(order.instrument_type, instrument_type)
+    ]
+    return grouped_reserved_quantity(matching_orders)
+
+
+def _available_long_quantity(user_id: int, symbol: str, instrument_type: str) -> float:
+    position = _find_or_merge_position(user_id, symbol, instrument_type, 'LONG')
+    held = float(position.quantity or 0.0) if position else 0.0
+    return max(0.0, held - _reserved_long_quantity(user_id, symbol, instrument_type))
+
+
+def _available_short_quantity(user_id: int, symbol: str, instrument_type: str) -> float:
+    """Return short units not already committed to working buy-to-close orders."""
+    position = _find_or_merge_position(user_id, symbol, instrument_type, 'SHORT')
+    held = float(position.quantity or 0.0) if position else 0.0
+    clean_symbol = str(symbol or '').upper().strip()
+    orders = WebullTestOrder.query.filter_by(user_id=user_id, symbol=clean_symbol).all()
+    matching_orders = [order for order in orders if _instrument_types_match(order.instrument_type, instrument_type)]
+    reserved = grouped_reserved_quantity(matching_orders, {'BUY_TO_CLOSE', 'COVER'})
+    return max(0.0, held - reserved)
+
+
+def _reserved_cash_amount(user_id: int) -> float:
+    """Return cash committed to active paper buys, grouping mutually exclusive exits."""
+    groups = {}
+    orders = WebullTestOrder.query.filter_by(user_id=user_id).all()
+    for order in orders:
+        if str(order.status or '').upper().strip() not in ACTIVE_PAPER_ORDER_STATUSES:
+            continue
+        if str(order.side or '').upper().strip() not in {'BUY', 'BUY_TO_OPEN', 'BUY_TO_CLOSE', 'COVER'}:
+            continue
+        price = float(order.limit_price or order.stop_price or 0.0)
+        if price <= 0:
+            price = fetch_live_price(user_id, order.symbol, order.instrument_type)
+        multiplier = 100 if str(order.instrument_type or '').upper() in {'OPTION', 'OPTIONS'} else 1
+        outstanding = max(0.0, float(order.quantity or 0.0) - float(order.filled_quantity or 0.0))
+        reservation = outstanding * max(0.0, price) * multiplier
+        group = paper_reservation_group(order.order_id)
+        groups[group] = max(groups.get(group, 0.0), reservation)
+    return round(sum(groups.values()), 2)
+
+
+def _reserved_short_margin(user_id: int) -> float:
+    """Return margin committed to active simulated short-entry orders."""
+    reserved = 0.0
+    orders = WebullTestOrder.query.filter_by(user_id=user_id).all()
+    for order in orders:
+        if str(order.status or '').upper().strip() not in ACTIVE_PAPER_ORDER_STATUSES:
+            continue
+        if str(order.side or '').upper().strip() not in {'SHORT', 'SELL_TO_OPEN'}:
+            continue
+        price = float(order.limit_price or order.stop_price or 0.0)
+        if price <= 0:
+            price = fetch_live_price(user_id, order.symbol, order.instrument_type)
+        outstanding = max(0.0, float(order.quantity or 0.0) - float(order.filled_quantity or 0.0))
+        reserved += outstanding * max(0.0, price) * 1.5
+    return round(reserved, 2)
+
+
+def _current_short_margin(user_id: int) -> float:
+    """Return margin held against currently open simulated short positions."""
+    reserved = 0.0
+    positions = WebullTestPosition.query.filter_by(user_id=user_id, side='SHORT').all()
+    for position in positions:
+        price = float(position.last_price or position.cost_price or 0.0)
+        multiplier = int(position.contract_multiplier or 1)
+        reserved += float(position.quantity or 0.0) * max(0.0, price) * multiplier * 1.5
+    return round(reserved, 2)
+
+
 def get_or_create_webull_test_account(user_id: int) -> WebullTestAccount:
     """Retrieve or create the simulated paper trading account for a user."""
     account = WebullTestAccount.query.filter_by(user_id=user_id).first()
@@ -88,13 +173,26 @@ def get_or_create_webull_test_account(user_id: int) -> WebullTestAccount:
     return account
 
 
+def _lock_webull_test_account(user_id: int) -> WebullTestAccount:
+    """Serialize paper-ledger mutations for one user to prevent reservation races."""
+    get_or_create_webull_test_account(user_id)
+    return WebullTestAccount.query.filter_by(user_id=user_id).with_for_update().one()
+
+
 def deposit_fake_money(user_id: int, amount: float, reset: bool = False) -> Dict[str, Any]:
     """Deposit simulated fake money into the user's paper account, or reset it."""
-    account = get_or_create_webull_test_account(user_id)
+    account = _lock_webull_test_account(user_id)
     amount = float(amount or 0.0)
 
     if reset:
         account.cash_balance = amount if amount >= 0 else 0.0
+        cancelled_orders = 0
+        active_orders = WebullTestOrder.query.filter_by(user_id=user_id).all()
+        for order in active_orders:
+            if str(order.status or '').upper().strip() in ACTIVE_PAPER_ORDER_STATUSES:
+                order.status = 'Cancelled'
+                order.updated_at = datetime.utcnow()
+                cancelled_orders += 1
         WebullTestPosition.query.filter_by(user_id=user_id).delete()
     else:
         if amount <= 0:
@@ -107,7 +205,11 @@ def deposit_fake_money(user_id: int, amount: float, reset: bool = False) -> Dict
         'success': True,
         'cash_balance': account.cash_balance,
         'currency': account.currency,
-        'message': f"Successfully {'reset' if reset else 'deposited'} ${amount:,.2f} simulated funds."
+        'message': (
+            f"Successfully reset paper funds to ${amount:,.2f}, cleared positions, and cancelled "
+            f"{cancelled_orders} active simulated order(s)."
+            if reset else f"Successfully deposited ${amount:,.2f} simulated funds."
+        )
     }
 
 
@@ -332,11 +434,14 @@ def get_webull_test_account_summary(user_id: int) -> Dict[str, Any]:
     db.session.commit()
 
     cash = float(account.cash_balance or 0.0)
+    reserved_cash = _reserved_cash_amount(user_id)
+    reserved_short_margin = _reserved_short_margin(user_id)
+    available_cash = max(0.0, cash - reserved_cash - reserved_short_margin)
     net_liquidation = cash + total_market_value
     short_market_value = sum(
         abs(float(pos.market_value or 0.0)) for pos in positions if str(pos.side or '').upper() == 'SHORT'
     )
-    buying_power = max(0.0, cash - (short_market_value * 1.5))
+    buying_power = max(0.0, available_cash - (short_market_value * 1.5))
 
     return {
         'account_id': 'TEST_PAPER_ACCOUNT',
@@ -345,6 +450,9 @@ def get_webull_test_account_summary(user_id: int) -> Dict[str, Any]:
         'is_paper': True,
         'currency': account.currency or 'USD',
         'cash_balance': round(cash, 2),
+        'reserved_cash': round(reserved_cash, 2),
+        'reserved_short_margin': round(reserved_short_margin, 2),
+        'available_cash': round(available_cash, 2),
         'buying_power': round(buying_power, 2),
         'net_liquidation': round(net_liquidation, 2),
         'total_market_value': round(total_market_value, 2),
@@ -370,9 +478,12 @@ def get_webull_test_positions(user_id: int) -> List[Dict[str, Any]]:
         valuation = paper_position_valuation(pos.side, qty, cost, curr_price, multiplier)
         mv = round(valuation['market_value'], 2)
         cost_basis = valuation['cost_basis']
-        display_qty = -qty if is_short else qty
         pnl = round(valuation['unrealized_pnl'], 2)
         pnl_rate = round((pnl / cost_basis * 100) if cost_basis > 0 else 0.0, 2)
+        available_quantity = (
+            _available_short_quantity(user_id, pos.symbol, pos.instrument_type)
+            if is_short else _available_long_quantity(user_id, pos.symbol, pos.instrument_type)
+        )
 
         rows.append({
             'id': f"paper_pos_{pos.id}",
@@ -382,8 +493,10 @@ def get_webull_test_positions(user_id: int) -> List[Dict[str, Any]]:
             'underlying_symbol': pos.underlying_symbol or pos.symbol,
             'instrument_type': pos.instrument_type,
             'side': pos.side,
-            'quantity': display_qty,
-            'amount': display_qty,
+            'position_side': pos.side,
+            'quantity': qty,
+            'amount': qty,
+            'available_quantity': available_quantity,
             'cost_price': cost,
             'last_price': curr_price,
             'current_price': curr_price,
@@ -445,8 +558,14 @@ def get_webull_test_orders(user_id: int) -> List[Dict[str, Any]]:
 
 def execute_webull_test_order(user_id: int, data: Dict[str, Any]) -> Dict[str, Any]:
     """Simulate execution of an order across all Webull asset classes against real live market pricing."""
-    account = get_or_create_webull_test_account(user_id)
+    account = _lock_webull_test_account(user_id)
     cash = float(account.cash_balance or 0.0)
+    reserved_cash = _reserved_cash_amount(user_id)
+    cover_cash = max(0.0, cash - reserved_cash)
+    available_cash = max(
+        0.0,
+        cover_cash - _reserved_short_margin(user_id) - _current_short_margin(user_id),
+    )
 
     # 1. Handle Multi-leg Combo Orders (OTO, OCO, OTOCO)
     combo_orders = data.get('combo_orders')
@@ -455,107 +574,126 @@ def execute_webull_test_order(user_id: int, data: Dict[str, Any]) -> Dict[str, A
             raise ValueError("Webull combo orders require at least 2 legs.")
         combo_type = str(data.get('combo_type') or 'OTO').upper()
         clean_combo_id = f"SIM_COMBO_{uuid.uuid4().hex[:10].upper()}"
+        explicit_primary = next((
+            leg for leg in combo_orders
+            if str(leg.get('combo_type') or leg.get('role') or '').upper() in {'PRIMARY', 'MASTER'}
+        ), None)
+        is_standalone_oco = combo_type == 'OCO' and explicit_primary is None
+        primary_leg = None if is_standalone_oco else (explicit_primary or combo_orders[0])
 
-        # Find primary leg (first leg, or leg with role PRIMARY / MASTER)
-        primary_leg = combo_orders[0]
-        for leg in combo_orders:
-            if str(leg.get('combo_type') or '').upper() in {'PRIMARY', 'MASTER'}:
-                primary_leg = leg
-                break
+        normalized_legs = []
+        for idx, leg in enumerate(combo_orders):
+            l_sym = (leg.get('symbol') or data.get('symbol') or '').upper().strip()
+            l_side = str(leg.get('side') or ('SELL' if is_standalone_oco else 'BUY')).upper().strip()
+            l_qty = float(leg.get('quantity') or 0.0)
+            if not l_sym or l_qty <= 0:
+                raise ValueError(f"Combo leg {idx + 1} requires a symbol and positive quantity.")
+            normalized_legs.append({
+                'source': leg,
+                'symbol': l_sym,
+                'side': l_side,
+                'quantity': l_qty,
+                'order_type': str(leg.get('order_type') or 'LIMIT').upper().strip(),
+                'limit_price': float(leg.get('limit_price')) if leg.get('limit_price') is not None else None,
+                'stop_price': float(leg.get('stop_price')) if leg.get('stop_price') is not None else None,
+                'is_master': leg is primary_leg,
+            })
 
-        primary_sym = (primary_leg.get('symbol') or data.get('symbol') or '').upper().strip()
-        primary_qty = float(primary_leg.get('quantity') or 0.0)
-        if primary_qty <= 0:
-            raise ValueError("Primary combo leg requires a positive quantity.")
-        primary_side = str(primary_leg.get('side') or 'BUY').upper()
-        primary_type = str(primary_leg.get('order_type') or 'LIMIT').upper()
-        primary_lpx = float(primary_leg.get('limit_price') or 0.0)
-
-        live_px = fetch_live_price(user_id, primary_sym, 'EQUITY')
-        fill_px = primary_lpx if (primary_type == 'LIMIT' and primary_lpx > 0) else live_px
-        if fill_px <= 0:
-            fill_px = 100.0
-
-        trade_amount = round(primary_qty * fill_px, 2)
-        if primary_side in {'BUY', 'BUY_TO_OPEN'}:
-            if cash < trade_amount:
+        primary = next((leg for leg in normalized_legs if leg['is_master']), None)
+        if primary and primary['side'] not in {'BUY', 'BUY_TO_OPEN'}:
+            raise ValueError("The primary leg of a simulated OTO/OTOCO order must be a buy order.")
+        if primary:
+            current_short = _find_or_merge_position(user_id, primary['symbol'], 'EQUITY', 'SHORT')
+            if current_short and float(current_short.quantity or 0.0) > 0:
                 raise ValueError(
-                    f"Insufficient paper cash for primary combo leg. Required: ${trade_amount:,.2f}, Available: ${cash:,.2f}. "
-                    f"Please use the Deposit button to add simulated funds."
+                    f"Cannot open a combo long in {primary['symbol']} while a short position exists. "
+                    f"Cover the short first."
+                )
+        dependent_legs = normalized_legs if is_standalone_oco else [
+            leg for leg in normalized_legs if not leg['is_master']
+        ]
+        if any(leg['side'] not in {'SELL', 'SELL_TO_CLOSE'} for leg in dependent_legs):
+            raise ValueError("Dependent simulated combo legs must be sell-to-close orders.")
+
+        required_by_symbol = {}
+        for leg in dependent_legs:
+            required_by_symbol[leg['symbol']] = max(
+                required_by_symbol.get(leg['symbol'], 0.0), leg['quantity']
+            )
+        for leg_symbol, required_quantity in required_by_symbol.items():
+            available_quantity = _available_long_quantity(user_id, leg_symbol, 'EQUITY')
+            if primary and primary['symbol'] == leg_symbol:
+                available_quantity += primary['quantity']
+            if available_quantity < required_quantity:
+                raise ValueError(
+                    f"Cannot reserve {required_quantity} units of {leg_symbol} for this combo. "
+                    f"Only {available_quantity} unreserved units are available."
+                )
+
+        fill_px = None
+        trade_amount = 0.0
+        if primary:
+            live_px = fetch_live_price(user_id, primary['symbol'], 'EQUITY')
+            fill_px = (
+                primary['limit_price']
+                if primary['order_type'] == 'LIMIT' and primary['limit_price'] and primary['limit_price'] > 0
+                else live_px
+            )
+            if not fill_px or fill_px <= 0:
+                fill_px = 100.0
+            trade_amount = round(primary['quantity'] * fill_px, 2)
+            if available_cash < trade_amount:
+                raise ValueError(
+                    f"Insufficient paper cash for primary combo leg. Required: ${trade_amount:,.2f}, "
+                    f"Available after working-order reservations: ${available_cash:,.2f}."
                 )
             account.cash_balance = cash - trade_amount
-
-            pos = WebullTestPosition.query.filter_by(
-                user_id=user_id, symbol=primary_sym, instrument_type='EQUITY', side='LONG'
-            ).first()
+            pos = _find_or_merge_position(user_id, primary['symbol'], 'EQUITY', 'LONG')
             if pos:
-                new_qty = float(pos.quantity) + primary_qty
-                new_cost = ((float(pos.cost_price) * float(pos.quantity)) + (fill_px * primary_qty)) / new_qty
+                old_qty = float(pos.quantity or 0.0)
+                new_qty = old_qty + primary['quantity']
+                pos.cost_price = round(
+                    ((float(pos.cost_price or 0.0) * old_qty) + (fill_px * primary['quantity'])) / new_qty,
+                    4,
+                )
                 pos.quantity = new_qty
-                pos.cost_price = round(new_cost, 4)
                 pos.last_price = fill_px
                 pos.updated_at = datetime.utcnow()
             else:
-                pos = WebullTestPosition(
-                    user_id=user_id,
-                    symbol=primary_sym,
-                    underlying_symbol=primary_sym,
-                    instrument_type='EQUITY',
-                    side='LONG',
-                    quantity=primary_qty,
-                    cost_price=round(fill_px, 4),
-                    last_price=fill_px,
-                    contract_multiplier=1,
-                )
-                db.session.add(pos)
+                db.session.add(WebullTestPosition(
+                    user_id=user_id, symbol=primary['symbol'], underlying_symbol=primary['symbol'],
+                    instrument_type='EQUITY', side='LONG', quantity=primary['quantity'],
+                    cost_price=round(fill_px, 4), last_price=fill_px, contract_multiplier=1,
+                ))
 
-        # Record all legs in webull_test_orders
-        for idx, leg in enumerate(combo_orders):
-            is_master = (leg == primary_leg)
-            l_sym = (leg.get('symbol') or primary_sym).upper().strip()
-            l_side = str(leg.get('side') or 'SELL').upper()
-            l_type = str(leg.get('order_type') or 'LIMIT').upper()
-            l_qty = float(leg.get('quantity') or primary_qty)
-            l_px = float(leg.get('limit_price')) if leg.get('limit_price') is not None else None
-            l_spx = float(leg.get('stop_price')) if leg.get('stop_price') is not None else None
-
-            leg_order_id = f"{clean_combo_id}_LEG{idx + 1}"
-            test_order = WebullTestOrder(
-                order_id=leg_order_id,
-                user_id=user_id,
-                symbol=l_sym,
-                instrument_type='EQUITY',
-                side=l_side,
-                order_type=l_type,
-                quantity=l_qty,
-                limit_price=l_px,
-                stop_price=l_spx,
-                filled_price=fill_px if is_master else None,
-                filled_quantity=primary_qty if is_master else 0.0,
-                status='Filled' if is_master else 'Working',
-                combo_type=combo_type,
-                combo_orders=str(combo_orders),
-                time_in_force=leg.get('time_in_force', 'DAY'),
-            )
-            db.session.add(test_order)
+        for idx, leg in enumerate(normalized_legs):
+            leg_filled = bool(leg['is_master'])
+            db.session.add(WebullTestOrder(
+                order_id=f"{clean_combo_id}_LEG{idx + 1}", user_id=user_id,
+                symbol=leg['symbol'], instrument_type='EQUITY', side=leg['side'],
+                order_type=leg['order_type'], quantity=leg['quantity'],
+                limit_price=leg['limit_price'], stop_price=leg['stop_price'],
+                filled_price=fill_px if leg_filled else None,
+                filled_quantity=leg['quantity'] if leg_filled else 0.0,
+                status='Filled' if leg_filled else 'Working', combo_type=combo_type,
+                combo_orders=str(combo_orders), time_in_force=leg['source'].get('time_in_force', 'DAY'),
+            ))
 
         account.updated_at = datetime.utcnow()
         db.session.commit()
-
+        primary_symbol = primary['symbol'] if primary else normalized_legs[0]['symbol']
+        status = 'Filled' if primary else 'Working'
+        message = (
+            f"Simulated {combo_type} combo submitted ({len(combo_orders)} legs); primary buy filled at ${fill_px:,.2f}."
+            if primary else f"Simulated {combo_type} combo submitted ({len(combo_orders)} mutually exclusive working legs)."
+        )
         return {
-            'success': True,
-            'order_id': clean_combo_id,
-            'client_combo_order_id': clean_combo_id,
-            'symbol': primary_sym,
-            'side': primary_side,
-            'instrument_type': 'EQUITY',
-            'filled_price': fill_px,
-            'filled_quantity': primary_qty,
-            'total_amount': trade_amount,
-            'status': 'Filled',
-            'legs_count': len(combo_orders),
-            'message': f"Simulated {combo_type} combo order submitted ({len(combo_orders)} legs). Primary leg filled at ${fill_px:,.2f}.",
-            'is_paper': True,
+            'success': True, 'order_id': clean_combo_id, 'client_combo_order_id': clean_combo_id,
+            'symbol': primary_symbol, 'side': primary['side'] if primary else 'SELL',
+            'instrument_type': 'EQUITY', 'filled_price': fill_px,
+            'filled_quantity': primary['quantity'] if primary else 0.0,
+            'total_amount': trade_amount, 'status': status, 'legs_count': len(combo_orders),
+            'message': message, 'is_paper': True,
         }
 
     # 2. Standard Single Order
@@ -627,25 +765,50 @@ def execute_webull_test_order(user_id: int, data: Dict[str, Any]) -> Dict[str, A
     is_buy = side in {'BUY', 'BUY_TO_OPEN'}
     is_sell = side in {'SELL', 'SELL_TO_CLOSE'}
     is_short = side in {'SHORT', 'SELL_TO_OPEN'}
+    is_cover = side in {'BUY_TO_CLOSE', 'COVER'}
+    if not any((is_buy, is_sell, is_short, is_cover)):
+        raise ValueError(f"Unsupported simulated order side: {side}.")
+    existing_long = _find_or_merge_position(user_id, contract_symbol, instrument_type, 'LONG')
+    existing_short = _find_or_merge_position(user_id, contract_symbol, instrument_type, 'SHORT')
+    if is_short and existing_long and float(existing_long.quantity or 0.0) > 0:
+        raise ValueError(
+            f"Cannot open a simulated short in {contract_symbol} while a long position exists. "
+            f"Sell the long position first."
+        )
+    if is_buy and existing_short and float(existing_short.quantity or 0.0) > 0:
+        raise ValueError(
+            f"Cannot open a simulated long in {contract_symbol} while a short position exists. "
+            f"Use Buy to Close to cover the short first."
+        )
 
     # Stop, trailing, and auction orders must never fabricate an immediate
     # weekend fill. They remain cancellable working orders until a future
     # trigger/auction processor can fill them against a qualifying quote.
     if not paper_order_fills_immediately(order_type):
-        if is_buy and cash < total_trade_amount:
+        cash_for_order = cover_cash if is_cover else available_cash
+        if (is_buy or is_cover) and cash_for_order < total_trade_amount:
             raise ValueError(
-                f"Insufficient paper cash. Available: ${cash:,.2f}, Required: ${total_trade_amount:,.2f}."
+                f"Insufficient paper cash after working-order reservations. "
+                f"Available: ${cash_for_order:,.2f}, Required: ${total_trade_amount:,.2f}."
             )
         if is_sell:
-            available_position = _find_or_merge_position(user_id, contract_symbol, instrument_type, 'LONG')
-            available_quantity = float(available_position.quantity or 0.0) if available_position else 0.0
+            available_quantity = _available_long_quantity(user_id, contract_symbol, instrument_type)
             if available_quantity < quantity:
                 raise ValueError(
-                    f"Cannot sell {quantity} units of {contract_symbol}. You only hold {available_quantity}."
+                    f"Cannot reserve {quantity} units of {contract_symbol}. "
+                    f"Only {available_quantity} unreserved long units are available."
                 )
-        if is_short and cash < total_trade_amount * 1.5:
+        if is_cover:
+            available_quantity = _available_short_quantity(user_id, contract_symbol, instrument_type)
+            if available_quantity < quantity:
+                raise ValueError(
+                    f"Cannot reserve a cover for {quantity} units of {contract_symbol}. "
+                    f"Only {available_quantity} unreserved short units are available."
+                )
+        if is_short and available_cash < total_trade_amount * 1.5:
             raise ValueError(
-                f"Insufficient margin for simulated short sale. Required: ${total_trade_amount * 1.5:,.2f}, Available: ${cash:,.2f}."
+                f"Insufficient margin for simulated short sale. Required: ${total_trade_amount * 1.5:,.2f}, "
+                f"Available after reservations: ${available_cash:,.2f}."
             )
         simulated_order_id = f"SIM_{uuid.uuid4().hex[:12].upper()}"
         test_order = WebullTestOrder(
@@ -682,9 +845,10 @@ def execute_webull_test_order(user_id: int, data: Dict[str, Any]) -> Dict[str, A
         }
 
     if is_buy:
-        if cash < total_trade_amount:
+        if available_cash < total_trade_amount:
             raise ValueError(
-                f"Insufficient paper cash. Available: ${cash:,.2f}, Required: ${total_trade_amount:,.2f}. "
+                f"Insufficient paper cash. Available after working-order reservations: ${available_cash:,.2f}, "
+                f"Required: ${total_trade_amount:,.2f}. "
                 f"Please use the Deposit button to add simulated funds."
             )
         account.cash_balance = cash - total_trade_amount
@@ -718,10 +882,12 @@ def execute_webull_test_order(user_id: int, data: Dict[str, Any]) -> Dict[str, A
 
     elif is_sell:
         pos = _find_or_merge_position(user_id, contract_symbol, instrument_type, 'LONG')
-
-        if not pos or float(pos.quantity) < quantity:
-            avail = float(pos.quantity) if pos else 0.0
-            raise ValueError(f"Cannot sell {quantity} units of {contract_symbol}. You only hold {avail}.")
+        available_quantity = _available_long_quantity(user_id, contract_symbol, instrument_type)
+        if not pos or available_quantity < quantity:
+            raise ValueError(
+                f"Cannot sell {quantity} units of {contract_symbol}. "
+                f"Only {available_quantity} unreserved long units are available."
+            )
 
         account.cash_balance = cash + total_trade_amount
 
@@ -732,11 +898,34 @@ def execute_webull_test_order(user_id: int, data: Dict[str, Any]) -> Dict[str, A
             pos.last_price = fill_price
             pos.updated_at = datetime.utcnow()
 
+    elif is_cover:
+        pos = _find_or_merge_position(user_id, contract_symbol, instrument_type, 'SHORT')
+        available_quantity = _available_short_quantity(user_id, contract_symbol, instrument_type)
+        if not pos or available_quantity < quantity:
+            raise ValueError(
+                f"Cannot cover {quantity} units of {contract_symbol}. "
+                f"Only {available_quantity} unreserved short units are available."
+            )
+        if cover_cash < total_trade_amount:
+            raise ValueError(
+                f"Insufficient paper cash to cover the short. Available after working-order reservations: "
+                f"${cover_cash:,.2f}, "
+                f"Required: ${total_trade_amount:,.2f}."
+            )
+        account.cash_balance = cash - total_trade_amount
+        if float(pos.quantity) == quantity:
+            db.session.delete(pos)
+        else:
+            pos.quantity = float(pos.quantity) - quantity
+            pos.last_price = fill_price
+            pos.updated_at = datetime.utcnow()
+
     elif is_short:
         margin_required = total_trade_amount * 1.5
-        if cash < margin_required:
+        if available_cash < margin_required:
             raise ValueError(
-                f"Insufficient margin for simulated short sale. Required: ${margin_required:,.2f}, Available: ${cash:,.2f}."
+                f"Insufficient margin for simulated short sale. Required: ${margin_required:,.2f}, "
+                f"Available after reservations: ${available_cash:,.2f}."
             )
         account.cash_balance = cash + total_trade_amount
         pos = _find_or_merge_position(user_id, contract_symbol, instrument_type, 'SHORT')
@@ -786,8 +975,28 @@ def execute_webull_test_order(user_id: int, data: Dict[str, Any]) -> Dict[str, A
     sl_px = float(data.get('bracket_stop_loss_price')) if data.get('bracket_stop_loss_price') else None
     sll_px = float(data.get('bracket_stop_loss_limit_price')) if data.get('bracket_stop_loss_limit_price') else None
 
-    if is_buy and (tp_px or sl_px):
-        opp_side = 'SELL'
+    if (is_buy or is_short) and (tp_px or sl_px):
+        opp_side = 'SELL' if is_buy else 'BUY_TO_CLOSE'
+        available_for_exit = (
+            _available_long_quantity(user_id, contract_symbol, instrument_type)
+            if is_buy else _available_short_quantity(user_id, contract_symbol, instrument_type)
+        )
+        if available_for_exit < quantity:
+            db.session.rollback()
+            raise ValueError(
+                f"Cannot attach exits for {quantity} units of {contract_symbol}; only "
+                f"{available_for_exit} unreserved units are available."
+            )
+        if is_short:
+            exit_reservation = quantity * multiplier * max(price for price in (tp_px, sl_px, sll_px) if price)
+            cash_after_short = float(account.cash_balance or 0.0)
+            cash_available_for_exit = max(0.0, cash_after_short - _reserved_cash_amount(user_id))
+            if cash_available_for_exit < exit_reservation:
+                db.session.rollback()
+                raise ValueError(
+                    f"Cannot attach the short exits. They require ${exit_reservation:,.2f} of reserved paper cash, "
+                    f"but only ${cash_available_for_exit:,.2f} is available."
+                )
         if tp_px:
             tp_order = WebullTestOrder(
                 order_id=f"{simulated_order_id}_TP",
@@ -840,9 +1049,14 @@ def execute_webull_test_order(user_id: int, data: Dict[str, Any]) -> Dict[str, A
 
 def cancel_webull_test_order(user_id: int, order_id: str) -> Dict[str, Any]:
     """Cancel an active simulated order."""
+    _lock_webull_test_account(user_id)
     order = WebullTestOrder.query.filter_by(user_id=user_id, order_id=order_id).first()
     if not order:
         raise ValueError(f"Simulated order {order_id} not found.")
+    if str(order.status or '').upper().strip() not in ACTIVE_PAPER_ORDER_STATUSES:
+        raise ValueError(
+            f"Simulated order {order_id} is {order.status or 'not active'} and cannot be cancelled."
+        )
     order.status = 'Cancelled'
     order.updated_at = datetime.utcnow()
     db.session.commit()

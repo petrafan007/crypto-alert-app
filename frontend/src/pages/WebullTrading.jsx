@@ -591,14 +591,14 @@ export default function WebullTrading({ isLightMode = false }) {
   };
 
   const handleResetPaperAccount = async () => {
-    if (!window.confirm('Reset your Webull Paper Trading account balance to $0.00 and clear all simulated positions?')) return;
+    if (!window.confirm('Reset your Webull Paper Trading account to $0.00, clear all simulated positions, and cancel every active simulated order?')) return;
     setDepositSubmitting(true);
     try {
       const res = await axios.post('/api/webull/test/deposit', { amount: 0, reset: true }, { withCredentials: true });
       if (res.data?.success) {
         setShowDepositModal(false);
         await loadPaperTradingData();
-        setOrderFeedback({ type: 'success', message: 'Webull paper account reset to $0.00 cash.' });
+        setOrderFeedback({ type: 'success', message: res.data?.message || 'Webull paper account reset to $0.00; positions cleared and active simulated orders cancelled.' });
       }
     } catch (err) {
       setOrderFeedback({ type: 'error', message: err.response?.data?.message || 'Reset failed.' });
@@ -933,7 +933,7 @@ export default function WebullTrading({ isLightMode = false }) {
   }, [selectedInstrumentType, activeAccount]);
   const cashBalance = useMemo(() => {
     if (isTestMode) {
-      return Number(paperSummary?.cash_balance ?? 0);
+      return Number(paperSummary?.buying_power ?? paperSummary?.available_cash ?? paperSummary?.cash_balance ?? 0);
     }
     if (!activeAccount?.balance) return 0;
     const b = activeAccount.balance;
@@ -1131,8 +1131,18 @@ export default function WebullTrading({ isLightMode = false }) {
     return holdingForAccount(modeHoldings, selectedSymbol, selectedAccountId);
   }, [modeHoldings, selectedSymbol, selectedAccountId, selectedInstrumentType, selectedOptionHoldingId, orderForm.optionType, orderForm.optionStrike, orderForm.optionExpiration]);
 
-  const heldQuantity = useMemo(() => nonNegativeNumber(currentHolding?.amount), [currentHolding]);
-  const heldValue = useMemo(() => nonNegativeNumber(currentHolding?.current_value || (heldQuantity * livePrice)), [currentHolding, heldQuantity, livePrice]);
+  const currentHoldingIsShort = useMemo(
+    () => String(currentHolding?.position_side || currentHolding?.side || '').toUpperCase() === 'SHORT',
+    [currentHolding]
+  );
+  const heldQuantity = useMemo(
+    () => nonNegativeNumber(currentHolding?.available_quantity ?? currentHolding?.amount),
+    [currentHolding]
+  );
+  const heldValue = useMemo(
+    () => Math.abs(Number(currentHolding?.current_value ?? (heldQuantity * livePrice)) || 0),
+    [currentHolding, heldQuantity, livePrice]
+  );
 
   // A current snapshot is the trade-ticket source of truth. Stored holdings
   // provide a fast initial fallback while the signed Webull quote arrives.
@@ -1588,6 +1598,10 @@ export default function WebullTrading({ isLightMode = false }) {
       rejectOrder(`You can sell up to ${formatQuantityForTicket(heldQuantity, 6) || '0'} ${selectedSymbol} from ${activeAccountLabel()}.`);
       return;
     }
+    if (isTestMode && orderForm.side === 'BUY_TO_CLOSE' && qty > heldQuantity + QUANTITY_EPSILON) {
+      rejectOrder(`You can cover up to ${formatQuantityForTicket(heldQuantity, 6) || '0'} short units of ${selectedSymbol}.`);
+      return;
+    }
     if (selectedInstrumentType === 'EQUITY' && !isCashAmountMode && isFractionalQuantity(qty)) {
       if (orderForm.tradingSession !== 'CORE') {
         rejectOrder('Fractional stock and ETF orders are available only during Regular Hours. Select Only Regular Hours (CORE) or use a whole-share quantity.');
@@ -1886,13 +1900,14 @@ export default function WebullTrading({ isLightMode = false }) {
     const isFutures = ['FUTURE', 'FUTURES'].includes(String(holding.instrument_type || '').toUpperCase());
     const isEvent = String(holding.instrument_type || '').toUpperCase() === 'EVENT';
     const isCrypto = /crypto|coin|token/i.test(holding.instrument_type || '');
+    const isShortPosition = String(holding.position_side || holding.side || '').toUpperCase() === 'SHORT';
 
     if (holding.account_id) setSelectedAccountId(String(holding.account_id));
     const targetSymbol = isOption ? (holding.underlying_symbol || holding.symbol) : holding.symbol;
     setSelectedSymbol(targetSymbol);
     setSelectedOptionHoldingId(isOption ? String(holding.id || '') : '');
 
-    const rawQty = holding.quantity ?? holding.amount;
+    const rawQty = holding.available_quantity ?? holding.quantity ?? holding.amount;
     const holdingQuantity = nonNegativeNumber(rawQty);
     const rawPx = holding.current_price ?? holding.last_price ?? holding.cost_price;
     const holdingPrice = nonNegativeNumber(rawPx);
@@ -1911,7 +1926,7 @@ export default function WebullTrading({ isLightMode = false }) {
       const formattedPx = holdingPrice > 0 ? String(holdingPrice) : '';
       setOrderForm((prev) => ({
         ...prev,
-        side: 'SELL',
+        side: isShortPosition && isTestMode ? 'BUY_TO_CLOSE' : 'SELL',
         type: 'LIMIT',
         optionType: optType,
         optionStrike: optStrike,
@@ -1967,7 +1982,7 @@ export default function WebullTrading({ isLightMode = false }) {
       const estTotal = (holdingQuantity > 0 && holdingPrice > 0) ? (holdingQuantity * holdingPrice).toFixed(2) : '';
       setOrderForm((prev) => ({
         ...prev,
-        side: 'SELL',
+        side: isShortPosition && isTestMode ? 'BUY_TO_CLOSE' : 'SELL',
         type: isCrypto ? 'MARKET' : 'LIMIT',
         price: formattedPx,
         quantity: formattedQty,
@@ -2742,7 +2757,7 @@ export default function WebullTrading({ isLightMode = false }) {
                   <div className="order-control-row">
                     <div className="order-control-group side-group">
                       <label className="order-field-label">Order Side</label>
-                      <div className={`order-side-segmented ${selectedInstrumentType === 'EQUITY' ? 'three-cols' : ''}`}>
+                      <div className={`order-side-segmented ${selectedInstrumentType === 'EQUITY' ? (isTestMode && currentHoldingIsShort ? 'four-cols' : 'three-cols') : ''}`}>
                         <button
                           type="button"
                           className={`order-side-btn buy-side ${orderForm.side === 'BUY' ? 'active' : ''}`}
@@ -2769,6 +2784,21 @@ export default function WebullTrading({ isLightMode = false }) {
                         >
                           📉 Sell {selectedInstrumentType === 'EVENT' ? '(To Close)' : ''}
                         </button>
+                        {selectedInstrumentType === 'EQUITY' && isTestMode && currentHoldingIsShort && (
+                          <button
+                            type="button"
+                            className={`order-side-btn cover-side ${orderForm.side === 'BUY_TO_CLOSE' ? 'active' : ''}`}
+                            onClick={() => {
+                              setOrderForm((prev) => ({ ...prev, side: 'BUY_TO_CLOSE', entrustType: 'QTY' }));
+                              setBalancePercentage(0);
+                              setOrderValidationError('');
+                            }}
+                            disabled={ticketOrderControlsDisabled || heldQuantity <= 0}
+                            title={`Buy up to ${formatQuantityForTicket(heldQuantity, 6) || '0'} units to close this simulated short position`}
+                          >
+                            ↩ Cover
+                          </button>
+                        )}
                         {selectedInstrumentType === 'EQUITY' && (
                           <button
                             type="button"
@@ -3373,10 +3403,10 @@ export default function WebullTrading({ isLightMode = false }) {
                     </div>
                     <div className="order-summary-row">
                       <span>Estimated Cash Impact:</span>
-                      <span style={{ color: orderForm.side === 'BUY' ? '#ef4444' : '#10b981', fontWeight: 600 }}>
+                      <span style={{ color: ['BUY', 'BUY_TO_CLOSE'].includes(orderForm.side) ? '#ef4444' : '#10b981', fontWeight: 600 }}>
                         {selectedInstrumentType === 'FUTURES'
                           ? 'Verified by Webull at order acceptance'
-                          : orderForm.side === 'BUY' ? `-$${number(orderTotal)}` : `+$${number(orderTotal)}`}
+                          : ['BUY', 'BUY_TO_CLOSE'].includes(orderForm.side) ? `-$${number(orderTotal)}` : `+$${number(orderTotal)}`}
                       </span>
                     </div>
                   </div>
@@ -3392,11 +3422,11 @@ export default function WebullTrading({ isLightMode = false }) {
                         <span>⏳ Processing Order...</span>
                       ) : isTestMode ? (
                         <span>
-                          🧪 Place Simulated {orderTypeLabel(orderForm.type)} {orderForm.side === 'BUY' ? (selectedInstrumentType === 'EVENT' ? 'Buy to Open' : 'Buy') : orderForm.side === 'SHORT' ? 'Short' : (selectedInstrumentType === 'EVENT' ? 'Sell to Close' : 'Sell')} Order (Paper)
+                          🧪 Place Simulated {orderTypeLabel(orderForm.type)} {orderForm.side === 'BUY' ? (selectedInstrumentType === 'EVENT' ? 'Buy to Open' : 'Buy') : orderForm.side === 'BUY_TO_CLOSE' ? 'Cover' : orderForm.side === 'SHORT' ? 'Short' : (selectedInstrumentType === 'EVENT' ? 'Sell to Close' : 'Sell')} Order (Paper)
                         </span>
                       ) : (
                         <span>
-                          ⚡ Place Real {orderTypeLabel(orderForm.type)} {orderForm.side === 'BUY' ? (selectedInstrumentType === 'EVENT' ? 'Buy to Open' : 'Buy') : orderForm.side === 'SHORT' ? 'Short' : (selectedInstrumentType === 'EVENT' ? 'Sell to Close' : 'Sell')} Order
+                          ⚡ Place Real {orderTypeLabel(orderForm.type)} {orderForm.side === 'BUY' ? (selectedInstrumentType === 'EVENT' ? 'Buy to Open' : 'Buy') : orderForm.side === 'BUY_TO_CLOSE' ? 'Cover' : orderForm.side === 'SHORT' ? 'Short' : (selectedInstrumentType === 'EVENT' ? 'Sell to Close' : 'Sell')} Order
                         </span>
                       )}
                     </button>
@@ -3925,7 +3955,7 @@ export default function WebullTrading({ isLightMode = false }) {
                 type="button"
                 className="btn btn-outline-danger"
                 onClick={handleResetPaperAccount}
-                title="Reset cash to $0.00 and clear simulated positions"
+                title="Reset cash to $0.00, clear simulated positions, and cancel active simulated orders"
                 style={{
                   fontSize: '0.85rem',
                   padding: '8px 12px',
@@ -4024,7 +4054,7 @@ function WebullHoldings({ holdings, compact = false, onSelectHolding, isTestMode
         <table>
           <thead>
             <tr>
-              <th style={{ textAlign: 'center' }}>Symbol</th><th>Type</th><th>Quantity</th><th>Last Price</th><th>Value</th><th>Unrealized P&amp;L</th><th style={{ textAlign: 'center' }}>Action</th>
+              <th style={{ textAlign: 'center' }}>Symbol</th><th>Type</th><th>Position</th><th>Quantity</th><th>Available</th><th>Last Price</th><th>Value</th><th>Unrealized P&amp;L</th><th style={{ textAlign: 'center' }}>Action</th>
             </tr>
           </thead>
           <tbody>
@@ -4056,7 +4086,9 @@ function WebullHoldings({ holdings, compact = false, onSelectHolding, isTestMode
                     {holding.instrument_type || 'Security'}
                     {isOption && !holding.instrument_id && !holding.is_paper && <small style={{ display: 'block', color: '#fbbf24' }}>Contract resolution needed</small>}
                   </td>
+                  <td>{String(holding.position_side || holding.side || 'LONG').toUpperCase() === 'SHORT' ? 'Short' : 'Long'}</td>
                   <td>{number(holding.quantity ?? holding.amount, 6)}</td>
+                  <td>{number(holding.available_quantity ?? holding.quantity ?? holding.amount, 6)}</td>
                   <td>{(holding.current_price ?? holding.last_price) ? `$${number(holding.current_price ?? holding.last_price, 4)}` : '—'}</td>
                   <td>{(holding.current_value ?? holding.market_value) != null ? `$${number(holding.current_value ?? holding.market_value)}` : '—'}</td>
                   <td style={{ color: Number(holding.webull_unrealized_pnl ?? holding.unrealized_profit_loss) >= 0 ? '#4ade80' : '#f87171' }}>

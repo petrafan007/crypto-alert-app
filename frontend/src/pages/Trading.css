@@ -539,6 +539,10 @@
   grid-template-columns: repeat(3, 1fr);
 }
 
+.order-side-segmented.four-cols {
+  grid-template-columns: repeat(4, 1fr);
+}
+
 .order-side-btn {
   padding: 10px 16px;
   font-size: 0.95rem;
@@ -571,6 +575,12 @@
   background: #f59e0b;
   color: #ffffff;
   box-shadow: 0 0 16px rgba(245, 158, 11, 0.4);
+}
+
+.order-side-btn.cover-side.active {
+  background: #0ea5e9;
+  color: #ffffff;
+  box-shadow: 0 0 16px rgba(14, 165, 233, 0.4);
 }
 
 .order-side-btn:hover:not(.active) {
