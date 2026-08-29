@@ -7,6 +7,7 @@ import TwoFactorModal from '../components/TwoFactorModal';
 import CancelOrderModal from '../components/CancelOrderModal';
 import PercentPriceModal from '../components/PercentPriceModal';
 import WebullAIDashboard from '../components/WebullAIDashboard';
+import WebullOptionChain from '../components/WebullOptionChain';
 import './Trading.css';
 
 const OPEN_STATUSES = new Set(['OPEN', 'NEW', 'WORKING', 'PENDING', 'PARTIALLY_FILLED', 'PARTIALLY FILLED']);
@@ -1057,6 +1058,29 @@ export default function WebullTrading({ isLightMode = false }) {
   const paginatedHistory = useMemo(() => sortedHistory.slice((historyPage - 1) * historyPageSize, historyPage * historyPageSize), [sortedHistory, historyPage, historyPageSize]);
   useEffect(() => { if (historyPage > historyPages) setHistoryPage(historyPages); }, [historyPage, historyPages]);
   const analyzableHoldings = useMemo(() => holdings.filter((holding) => ['CRYPTO', 'STOCK', 'EQUITY', 'ETF', 'OPTION'].includes(String(holding.instrument_type || '').toUpperCase())), [holdings]);
+  const availableStockSymbols = useMemo(() => {
+    const stocks = holdings
+      .filter((h) => !/crypto|coin|token/i.test(h.instrument_type || ''))
+      .map((h) => (h.underlying_symbol || h.symbol || '').toUpperCase().trim())
+      .filter(Boolean);
+    return Array.from(new Set(['AAPL', 'NVDA', 'SPY', 'TSLA', 'AMD', 'MSFT', ...stocks]));
+  }, [holdings]);
+
+  const handleSelectOptionContract = (contractData) => {
+    if (contractData.symbol && contractData.symbol !== selectedSymbol) {
+      setSelectedSymbol(contractData.symbol);
+    }
+    setOrderForm((prev) => ({
+      ...prev,
+      optionType: contractData.optionType || 'CALL',
+      optionStrike: String(contractData.strike || ''),
+      optionExpiration: contractData.expiration || '',
+      price: contractData.price ? String(contractData.price) : prev.price,
+      side: contractData.side || 'BUY',
+      quantity: prev.quantity && Number(prev.quantity) > 0 ? prev.quantity : '1',
+    }));
+    setOrderValidationError('');
+  };
   useEffect(() => {
     if (!selectedSignalHolding && analyzableHoldings.length) setSelectedSignalHolding(`${analyzableHoldings[0].symbol}|${analyzableHoldings[0].instrument_type}`);
   }, [analyzableHoldings, selectedSignalHolding]);
@@ -1207,6 +1231,24 @@ export default function WebullTrading({ isLightMode = false }) {
                   </div>
                 </div>
 
+                {/* Options Chain & Live Order Book (When OPTION selected) */}
+                {selectedInstrumentType === 'OPTION' && (
+                  <WebullOptionChain
+                    defaultSymbol={selectedSymbol}
+                    availableStocks={availableStockSymbols}
+                    selectedContract={{
+                      symbol: selectedSymbol,
+                      optionType: orderForm.optionType,
+                      strike: orderForm.optionStrike,
+                      expiration: orderForm.optionExpiration,
+                      price: orderForm.price,
+                      side: orderForm.side,
+                    }}
+                    onSelectOptionContract={handleSelectOptionContract}
+                    isLightMode={isLightMode}
+                  />
+                )}
+
                 {/* 3. Redesigned Modern Order Panel (matching Binance.US) */}
                 <form onSubmit={handleOrderSubmit} className="trading-order-panel" noValidate>
                   {/* Asset Class Switcher (Equities & ETFs, Crypto, Options) */}
@@ -1262,6 +1304,21 @@ export default function WebullTrading({ isLightMode = false }) {
                           100 Shares / Contract
                         </span>
                       </div>
+
+                      {orderForm.optionStrike && orderForm.optionExpiration ? (
+                        <div style={{ background: 'rgba(0, 0, 0, 0.3)', border: '1px solid rgba(139, 92, 246, 0.35)', borderRadius: '6px', padding: '8px 12px', marginBottom: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+                          <span style={{ fontSize: '13px', fontWeight: 700, color: '#f8fafc' }}>
+                            {selectedSymbol} {orderForm.optionExpiration} ${parseFloat(orderForm.optionStrike || 0).toFixed(2)} {orderForm.optionType}
+                          </span>
+                          <span style={{ fontSize: '11px', color: '#38bdf8', fontWeight: 700, background: 'rgba(56, 189, 248, 0.15)', padding: '2px 8px', borderRadius: '10px' }}>
+                            {orderForm.side} @ ${orderForm.price || '0.00'}
+                          </span>
+                        </div>
+                      ) : (
+                        <p style={{ margin: '0 0 10px', fontSize: '12px', color: '#94a3b8' }}>
+                          💡 Tip: Click any <strong>Bid</strong> or <strong>Ask</strong> in the Options Chain above to instantly load contract terms and prices.
+                        </p>
+                      )}
                       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '12px' }}>
                         <div>
                           <label className="order-field-label">Option Type</label>

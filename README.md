@@ -125,6 +125,16 @@ The application utilizes a **unified PostgreSQL database**.
 
 Historical changelog entries retain the product name used when they were originally released. The application domain, repository slug, deployment folders, database, and service identifiers intentionally remain unchanged by the v2.45.0 brand update.
 
+## v2.52.0 (August 2026)
+
+- **Full Webull Options Trading & Live Options Chain/Book**:
+  - **Live Options Chain Matrix**: Added a professional, high-performance Straddle-view Options Chain (`WebullOptionChain`) to Webull Trading. View Calls on the left, Strike Price in the center, and Puts on the right with real-time Bids, Asks, Midpoints, Last Prices, Volume, Open Interest, and Implied Volatility (IV).
+  - **Dynamic Expiration Date Selector**: Scrollable horizontal expiration pill bar displaying valid expiration dates and Days to Expiration (`DTE`) tags (e.g., `0DTE`, `7d`, `14d`, `30d`, `LEAPS`).
+  - **In-The-Money (ITM) vs Out-of-The-Money (OTM) Shading**: Subtle visual color coding distinguishing ITM Calls and Puts, with a distinct real-time spot price divider line tracking the underlying stock price.
+  - **Click-to-Trade Order Ticket Integration**: Clicking any **Ask** price instantly populates the order ticket to **BUY** (Call or Put) at the Ask/Mid limit price; clicking any **Bid** price instantly populates the ticket to **SELL** at the Bid/Mid limit price. Eliminates manual guessing of strikes, dates, and contracts.
+  - **Multi-Source Market Data Engine**: Fixed Webull OpenAPI option contract catalog query parameters (`category: 'US_OPTION'`, `status: 'LISTING'`) and established a resilient market data bridge with Yahoo Finance (`yfinance`) for live and settled off-hours Bids, Asks, and Greeks when Webull developer accounts lack standalone OPRA non-display subscriptions.
+  - **Off-Hours / After-Hours Safeguards**: Off-hours and weekend quotes are clearly badged with "Market Closed (Closing Quotes)", allowing comprehensive option analysis and order staging even when markets are shut.
+
 ## v2.51.1 (August 2026)
 
 - **Orders Page Market Analysis & Portfolio Review Rehydration**:

@@ -41,6 +41,7 @@ from services.webull_service import (
     get_webull_market_bars,
     get_webull_market_snapshot,
     get_webull_option_snapshot,
+    get_webull_option_chain_data,
     get_webull_stock_movers,
     get_webull_open_orders,
     get_webull_portfolio_preview,
@@ -2310,6 +2311,65 @@ def api_webull_option_market_data():
         return jsonify({'success': False, 'message': 'Unable to load Webull option market data.'}), 500
 
 
+@system_bp.route('/api/webull/options/expirations', methods=['GET'])
+@login_required
+def api_webull_options_expirations():
+    """Return all valid option expiration dates and DTE counts for an underlying symbol."""
+    try:
+        symbol = str(request.args.get('symbol') or '').strip().upper()
+        if not symbol:
+            return jsonify({'success': False, 'message': 'An underlying symbol is required.'}), 400
+        credential = Credential.query.filter_by(user_id=current_user.id).first()
+        setting = UserSetting.query.filter_by(user_id=current_user.id).first()
+        environment = normalize_webull_environment(getattr(setting, 'webull_environment', None) or 'production')
+        app_key = credential.webull_app_key if credential else None
+        app_secret = credential.webull_app_secret if credential else None
+        access_token = credential.webull_access_token if credential else None
+        data = get_webull_option_chain_data(
+            app_key, app_secret, environment, access_token, underlying_symbol=symbol
+        )
+        return jsonify({
+            'success': True,
+            'underlying_symbol': data['underlying_symbol'],
+            'underlying_price': data['underlying_price'],
+            'underlying_prev_close': data['underlying_prev_close'],
+            'underlying_change_pct': data['underlying_change_pct'],
+            'market_status': data['market_status'],
+            'expirations': data['expirations'],
+            'selected_expiration': data['selected_expiration'],
+        })
+    except WebullConnectionError as exc:
+        return jsonify({'success': False, 'message': str(exc)}), 400
+    except Exception as exc:
+        logger.error('Webull options expirations lookup failed for %s: %s', request.args.get('symbol'), exc, exc_info=True)
+        return jsonify({'success': False, 'message': 'Unable to load options expirations.'}), 500
+
+
+@system_bp.route('/api/webull/options/chain', methods=['GET'])
+@login_required
+def api_webull_options_chain():
+    """Return full strike-aligned option chain (Calls and Puts) for an underlying and expiration."""
+    try:
+        symbol = str(request.args.get('symbol') or '').strip().upper()
+        expiration = str(request.args.get('expiration') or '').strip()
+        if not symbol:
+            return jsonify({'success': False, 'message': 'An underlying symbol is required.'}), 400
+        credential = Credential.query.filter_by(user_id=current_user.id).first()
+        setting = UserSetting.query.filter_by(user_id=current_user.id).first()
+        environment = normalize_webull_environment(getattr(setting, 'webull_environment', None) or 'production')
+        app_key = credential.webull_app_key if credential else None
+        app_secret = credential.webull_app_secret if credential else None
+        access_token = credential.webull_access_token if credential else None
+        data = get_webull_option_chain_data(
+            app_key, app_secret, environment, access_token,
+            underlying_symbol=symbol, expiration_date=expiration or None
+        )
+        return jsonify(data)
+    except WebullConnectionError as exc:
+        return jsonify({'success': False, 'message': str(exc)}), 400
+    except Exception as exc:
+        logger.error('Webull option chain lookup failed for %s: %s', request.args.get('symbol'), exc, exc_info=True)
+        return jsonify({'success': False, 'message': 'Unable to load option chain.'}), 500
 
 
 @system_bp.route('/api/check-credential')

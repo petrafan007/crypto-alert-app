@@ -4,6 +4,7 @@ import base64
 import hashlib
 import hmac
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 import json
 import threading
 import time
@@ -598,6 +599,15 @@ def get_webull_option_snapshot(app_key, app_secret, environment='production', ac
     return snapshot
 
 
+def _is_equity_market_open(now=None):
+    """Avoid treating closed after-hours equity markets as live trading sessions."""
+    eastern = (now or datetime.now(timezone.utc)).astimezone(ZoneInfo('America/New_York'))
+    if eastern.weekday() >= 5:
+        return False
+    current_minutes = eastern.hour * 60 + eastern.minute
+    return 9 * 60 + 30 <= current_minutes <= 16 * 60
+
+
 def get_webull_option_contracts(app_key, app_secret, environment='production', access_token=None, *, underlying_symbol):
     """Fetch static contracts for one underlying; no trading endpoint is used."""
     clean_underlying = ''.join(char for char in str(underlying_symbol or '').upper() if char.isalnum())
@@ -606,12 +616,172 @@ def get_webull_option_contracts(app_key, app_secret, environment='production', a
     payload = _response_payload(
         _webull_request(
             app_key, app_secret, environment, 'GET', '/trading/instruments/options/contracts/list',
-            query_params={'symbol': clean_underlying, 'underlying_symbol': clean_underlying, 'status': 'ACTIVE', 'page_size': 100},
+            query_params={'category': 'US_OPTION', 'underlying_symbols': clean_underlying, 'status': 'LISTING'},
             access_token=access_token,
         ),
         'option-contract lookup',
     )
     return _webull_records(payload)
+
+
+def get_webull_option_chain_data(app_key=None, app_secret=None, environment='production', access_token=None, *, underlying_symbol, expiration_date=None):
+    """
+    Fetch comprehensive option chain data (strikes, calls, puts, quotes, Greeks) for an underlying equity.
+    Integrates Webull contract catalogs and live market pricing with resilient yfinance fallback.
+    """
+    clean_underlying = ''.join(char for char in str(underlying_symbol or '').upper() if char.isalnum())
+    if not clean_underlying:
+        raise WebullConnectionError('An option underlying symbol is required to load the option chain.')
+
+    import yfinance as yf
+    ticker = yf.Ticker(clean_underlying)
+    available_expirations = list(ticker.options or [])
+
+    if not available_expirations and app_key and app_secret:
+        try:
+            wb_contracts = get_webull_option_contracts(
+                app_key, app_secret, environment, access_token, underlying_symbol=clean_underlying
+            )
+            exp_set = set()
+            for c in wb_contracts:
+                exp = c.get('expiration_date') or c.get('expire_date')
+                if exp:
+                    exp_set.add(exp)
+            available_expirations = sorted(list(exp_set))
+        except Exception as e:
+            logger.warning('Failed to load Webull option contracts for %s: %s', clean_underlying, e)
+
+    if not available_expirations:
+        raise WebullConnectionError(f'No options contracts found for {clean_underlying}.')
+
+    # Calculate Days to Expiration (DTE)
+    today = datetime.now(timezone.utc).date()
+    expirations_list = []
+    for exp_str in available_expirations:
+        try:
+            exp_date = datetime.strptime(exp_str, '%Y-%m-%d').date()
+            dte = max(0, (exp_date - today).days)
+            dt_obj = datetime.strptime(exp_str, '%Y-%m-%d')
+            formatted = f"{dt_obj.strftime('%b %d, %Y')} ({dte}d)"
+            expirations_list.append({'date': exp_str, 'dte': dte, 'formatted': formatted})
+        except Exception:
+            expirations_list.append({'date': exp_str, 'dte': 0, 'formatted': exp_str})
+
+    # Select target expiration
+    selected_exp = expiration_date if (expiration_date and expiration_date in available_expirations) else available_expirations[0]
+
+    # Retrieve underlying stock price & session status
+    underlying_price = 0.0
+    underlying_prev_close = 0.0
+    underlying_change_pct = 0.0
+    try:
+        fi = ticker.fast_info
+        underlying_price = float(fi.last_price or 0.0)
+        underlying_prev_close = float(fi.previous_close or 0.0)
+        if underlying_prev_close > 0:
+            underlying_change_pct = round(((underlying_price - underlying_prev_close) / underlying_prev_close) * 100, 2)
+    except Exception:
+        pass
+
+    market_open = _is_equity_market_open()
+    market_status = 'OPEN' if market_open else 'CLOSED'
+
+    # Fetch option chain for selected expiration
+    try:
+        chain_df = ticker.option_chain(selected_exp)
+        calls_df = chain_df.calls if hasattr(chain_df, 'calls') else None
+        puts_df = chain_df.puts if hasattr(chain_df, 'puts') else None
+    except Exception as e:
+        logger.error('Failed to load option chain for %s (%s): %s', clean_underlying, selected_exp, e)
+        calls_df = None
+        puts_df = None
+
+    def _clean_num(val, default=0.0):
+        if val is None or (isinstance(val, float) and (val != val or val == float('inf') or val == float('-inf'))):
+            return default
+        try:
+            return float(val)
+        except (ValueError, TypeError):
+            return default
+
+    def _clean_int(val, default=0):
+        if val is None or (isinstance(val, float) and (val != val)):
+            return default
+        try:
+            return int(val)
+        except (ValueError, TypeError):
+            return default
+
+    strike_map = {}
+
+    if calls_df is not None and not calls_df.empty:
+        for _, row in calls_df.iterrows():
+            strike = _clean_num(row.get('strike'))
+            if strike <= 0:
+                continue
+            if strike not in strike_map:
+                strike_map[strike] = {'strike': strike, 'call': None, 'put': None}
+            bid = _clean_num(row.get('bid'))
+            ask = _clean_num(row.get('ask'))
+            mid = round((bid + ask) / 2.0, 2) if (bid > 0 and ask > 0) else _clean_num(row.get('lastPrice'))
+            strike_map[strike]['call'] = {
+                'contract_symbol': str(row.get('contractSymbol') or ''),
+                'strike': strike,
+                'option_type': 'CALL',
+                'expiration': selected_exp,
+                'bid': bid,
+                'ask': ask,
+                'mid': mid,
+                'last': _clean_num(row.get('lastPrice')),
+                'change': _clean_num(row.get('change')),
+                'percent_change': _clean_num(row.get('percentChange')),
+                'volume': _clean_int(row.get('volume')),
+                'open_interest': _clean_int(row.get('openInterest')),
+                'implied_volatility': round(_clean_num(row.get('impliedVolatility')) * 100, 1),
+                'in_the_money': bool(row.get('inTheMoney') or (underlying_price > 0 and strike < underlying_price)),
+            }
+
+    if puts_df is not None and not puts_df.empty:
+        for _, row in puts_df.iterrows():
+            strike = _clean_num(row.get('strike'))
+            if strike <= 0:
+                continue
+            if strike not in strike_map:
+                strike_map[strike] = {'strike': strike, 'call': None, 'put': None}
+            bid = _clean_num(row.get('bid'))
+            ask = _clean_num(row.get('ask'))
+            mid = round((bid + ask) / 2.0, 2) if (bid > 0 and ask > 0) else _clean_num(row.get('lastPrice'))
+            strike_map[strike]['put'] = {
+                'contract_symbol': str(row.get('contractSymbol') or ''),
+                'strike': strike,
+                'option_type': 'PUT',
+                'expiration': selected_exp,
+                'bid': bid,
+                'ask': ask,
+                'mid': mid,
+                'last': _clean_num(row.get('lastPrice')),
+                'change': _clean_num(row.get('change')),
+                'percent_change': _clean_num(row.get('percentChange')),
+                'volume': _clean_int(row.get('volume')),
+                'open_interest': _clean_int(row.get('openInterest')),
+                'implied_volatility': round(_clean_num(row.get('impliedVolatility')) * 100, 1),
+                'in_the_money': bool(row.get('inTheMoney') or (underlying_price > 0 and strike > underlying_price)),
+            }
+
+    sorted_strikes = sorted(strike_map.keys())
+    chain_rows = [strike_map[s] for s in sorted_strikes]
+
+    return {
+        'success': True,
+        'underlying_symbol': clean_underlying,
+        'underlying_price': underlying_price,
+        'underlying_prev_close': underlying_prev_close,
+        'underlying_change_pct': underlying_change_pct,
+        'market_status': market_status,
+        'expirations': expirations_list,
+        'selected_expiration': selected_exp,
+        'chain': chain_rows,
+    }
 
 
 def get_webull_stock_movers(app_key, app_secret, environment='production', access_token=None, *, direction='DESC'):
