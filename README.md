@@ -125,6 +125,17 @@ The application utilizes a **unified PostgreSQL database**.
 
 Historical changelog entries retain the product name used when they were originally released. The application domain, repository slug, deployment folders, database, and service identifiers intentionally remain unchanged by the v2.45.0 brand update.
 
+## v2.53.3 (August 2026)
+
+- **Web Search & News Settings Clarity**:
+  - Moved the credential from the unrelated system settings area to **Settings → Web Search & News** and renamed it **NewsAPI.org API Key**.
+  - The field now explains that it is used only for NewsAPI.org article-search grounding, not for an AI provider.
+- **Webull Options Ticket Safety & Accuracy**:
+  - Calls and puts may be bought, while sales are restricted to closing an exact contract already held in the selected Webull account—matching the underlying, CALL/PUT, strike, and expiration. Naked/short option sales are blocked in both the browser and server.
+  - The ticket disables every execution control when a buy cannot afford one 100-share contract or a sell has no matching owned contract. Contract selection remains available so another contract can be chosen.
+  - Order values and totals are now always valid dollar amounts (`$0.00` when no executable quantity exists), never `NaN` or a placeholder dash. Missing market quotes are no longer substituted with an invented $1.00 option premium.
+  - Every submitted option order performs a fresh Webull balance/positions preflight before 2FA or order transmission, enforcing current cash coverage and exact-contract ownership.
+
 ## v2.53.2 (August 2026)
 
 - **Sentiment Provider Chain & Error Attribution Hotfix**:

@@ -64,6 +64,98 @@ def _webull_holding_for_current_user(holding_id):
         return None
 
 
+WEBULL_OPTION_CONTRACT_MULTIPLIER = 100
+WEBULL_OPTION_STRIKE_EPSILON = 0.0001
+
+
+def _webull_number(value, default=0.0):
+    try:
+        if value is None or value == '':
+            return default
+        numeric = float(str(value).replace(',', '').replace('$', '').strip())
+        return numeric if numeric == numeric else default
+    except (TypeError, ValueError):
+        return default
+
+
+def _webull_option_value(position, *keys):
+    """Read a contract field from current or legacy Webull position shapes."""
+    if not isinstance(position, dict):
+        return None
+    details = next((
+        position.get(key) for key in ('option', 'option_contract', 'optionContract', 'instrument')
+        if isinstance(position.get(key), dict)
+    ), {})
+    for source in (position, details):
+        for key in keys:
+            value = source.get(key)
+            if value not in (None, ''):
+                return value
+    return None
+
+
+def _webull_option_expiry(value):
+    if value is None or value == '':
+        return ''
+    parsed = parse_webull_expiry(value)
+    if parsed:
+        return parsed.strftime('%Y-%m-%d')
+    return str(value).strip()[:10]
+
+
+def _webull_position_matches_option_contract(position, *, underlying_symbol, option_type, option_strike, option_expiration):
+    if str(position.get('instrument_type') or '').strip().upper() not in {'OPTION', 'OPTIONS'}:
+        return False
+    position_underlying = str(_webull_option_value(position, 'underlying_symbol', 'underlyingSymbol', 'underlying') or '').strip().upper()
+    position_type = str(_webull_option_value(position, 'option_type', 'optionType', 'put_call', 'putCall') or '').strip().upper()
+    position_expiry = _webull_option_expiry(_webull_option_value(position, 'option_expire_date', 'optionExpireDate', 'expiration_date', 'expirationDate', 'expiry_date'))
+    position_strike = _webull_number(_webull_option_value(position, 'strike_price', 'strikePrice', 'strike'), None)
+    requested_strike = _webull_number(option_strike, None)
+    return (
+        position_underlying == str(underlying_symbol or '').strip().upper()
+        and position_type == str(option_type or '').strip().upper()
+        and position_expiry == _webull_option_expiry(option_expiration)
+        and position_strike is not None
+        and requested_strike is not None
+        and abs(position_strike - requested_strike) <= WEBULL_OPTION_STRIKE_EPSILON
+    )
+
+
+def _live_webull_option_order_capability(credential, environment, account_id, *, underlying_symbol, option_type, option_strike, option_expiration):
+    """Return fresh USD cash and exact held-contract quantity for an order preflight.
+
+    This intentionally reads Webull for every option-order attempt rather than
+    trusting a possibly stale browser or database snapshot. A failed read is a
+    failed preflight; the order is never forwarded without current capability.
+    """
+    preview = get_webull_portfolio_preview(
+        credential.webull_app_key,
+        credential.webull_app_secret,
+        environment,
+        credential.webull_access_token,
+        account_ids=[account_id],
+    )
+    account = next((item for item in preview if str(item.get('account_id') or '') == str(account_id)), None)
+    if not account:
+        raise WebullConnectionError('Webull did not return the selected account. Refresh the Webull connection and try again.')
+    balance = account.get('balance') if isinstance(account.get('balance'), dict) else {}
+    available_cash = max(0.0, _webull_number(
+        balance.get('total_cash_balance', balance.get('cash_balance', balance.get('settled_cash', 0.0)))
+    ))
+    owned_contracts = sum(
+        max(0.0, _webull_number(position.get('quantity')))
+        for position in (account.get('positions') or [])
+        if isinstance(position, dict) and _webull_position_matches_option_contract(
+            position,
+            underlying_symbol=underlying_symbol,
+            option_type=option_type,
+            option_strike=option_strike,
+            option_expiration=option_expiration,
+        )
+    )
+    return available_cash, owned_contracts
+
+
 def _webull_json_collection(raw_value, expected_type, fallback):
     """Decode a persisted Webull collection without letting bad legacy JSON leak into a response."""
     try:
@@ -2034,13 +2126,40 @@ def api_webull_place_order():
         if not quantity:
             return jsonify({'success': False, 'message': 'Enter an order quantity.'}), 400
 
-        # Options use their documented single-leg contract fields.  Reject an
+        # Options use their documented single-leg contract fields. Reject an
         # unsupported ticket before a 2FA token is consumed or an API request
-        # is attempted.
-        if str(instrument_type).upper() == 'OPTION':
+        # is attempted. A fresh Webull preflight is the authority for cash and
+        # contract ownership, so the browser cannot sell an unowned contract.
+        if str(instrument_type).upper() in {'OPTION', 'OPTIONS'}:
             normalized_option_type = {'STOP': 'STOP_LOSS', 'STOP_LIMIT': 'STOP_LOSS_LIMIT'}.get(str(order_type or '').upper(), str(order_type or '').upper())
             if normalized_option_type not in {'LIMIT', 'STOP_LOSS', 'STOP_LOSS_LIMIT'}:
                 return jsonify({'success': False, 'message': 'Webull options support Limit, Stop Loss, and Stop Loss Limit orders only.'}), 400
+            normalized_side = str(side or '').strip().upper()
+            if normalized_side not in {'BUY', 'SELL'}:
+                return jsonify({'success': False, 'message': 'Webull option orders support Buy and Sell only.'}), 400
+            try:
+                option_quantity = float(quantity)
+                if option_quantity <= 0 or not option_quantity.is_integer():
+                    raise ValueError()
+            except (TypeError, ValueError):
+                return jsonify({'success': False, 'message': 'Webull option orders require a whole number of contracts.'}), 400
+            normalized_call_put = str(option_type or '').strip().upper()
+            if normalized_call_put not in {'CALL', 'PUT'}:
+                return jsonify({'success': False, 'message': 'Choose CALL or PUT for the option contract.'}), 400
+            try:
+                normalized_strike = float(option_strike)
+                if normalized_strike <= 0:
+                    raise ValueError()
+            except (TypeError, ValueError):
+                return jsonify({'success': False, 'message': 'Webull option orders require a positive contract strike price.'}), 400
+            normalized_expiration = _webull_option_expiry(option_expiration)
+            try:
+                datetime.strptime(normalized_expiration, '%Y-%m-%d')
+            except (TypeError, ValueError):
+                return jsonify({'success': False, 'message': 'Webull option orders require an expiration date in YYYY-MM-DD format.'}), 400
+            normalized_underlying = str(option_underlying_symbol or symbol or '').strip().upper()
+            if not normalized_underlying:
+                return jsonify({'success': False, 'message': 'Webull option orders require an underlying stock symbol.'}), 400
             try:
                 has_valid_limit_price = float(limit_price) > 0
             except (TypeError, ValueError):
@@ -2053,6 +2172,41 @@ def api_webull_place_order():
                 return jsonify({'success': False, 'message': 'Options limit orders require a positive limit price.'}), 400
             if normalized_option_type in ('STOP_LOSS', 'STOP_LOSS_LIMIT') and not has_valid_stop_price:
                 return jsonify({'success': False, 'message': 'Options stop orders require a positive stop price.'}), 400
+            if normalized_side == 'BUY' and normalized_option_type == 'STOP_LOSS':
+                return jsonify({'success': False, 'message': 'Use a Limit or Stop Loss Limit order to buy options so the maximum premium remains covered by available USD.'}), 400
+
+            available_cash, owned_contracts = _live_webull_option_order_capability(
+                credential,
+                environment,
+                account_id,
+                underlying_symbol=normalized_underlying,
+                option_type=normalized_call_put,
+                option_strike=normalized_strike,
+                option_expiration=normalized_expiration,
+            )
+            if normalized_side == 'SELL':
+                if owned_contracts + WEBULL_OPTION_STRIKE_EPSILON < option_quantity:
+                    return jsonify({
+                        'success': False,
+                        'message': (
+                            'Options Sell orders can close only an exact owned contract '
+                            f'(same underlying, CALL/PUT, strike, and expiration). Available contracts: {owned_contracts:g}.'
+                        ),
+                    }), 400
+            else:
+                premium = float(limit_price)
+                single_contract_cost = premium * WEBULL_OPTION_CONTRACT_MULTIPLIER
+                total_cost = single_contract_cost * option_quantity
+                if available_cash + WEBULL_OPTION_STRIKE_EPSILON < single_contract_cost:
+                    return jsonify({
+                        'success': False,
+                        'message': f'Insufficient USD to purchase one contract. It requires ${single_contract_cost:,.2f}; current Webull cash is ${available_cash:,.2f}.',
+                    }), 400
+                if available_cash + WEBULL_OPTION_STRIKE_EPSILON < total_cost:
+                    return jsonify({
+                        'success': False,
+                        'message': f'Insufficient USD for {int(option_quantity)} contract(s). Estimated premium is ${total_cost:,.2f}; current Webull cash is ${available_cash:,.2f}.',
+                    }), 400
 
         # Enforce 2FA verification if enabled for user
         from trading_models import TradingSettings

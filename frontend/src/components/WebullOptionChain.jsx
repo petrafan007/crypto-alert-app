@@ -156,15 +156,19 @@ export default function WebullOptionChain({
     } else if (contract.mid > 0) {
       targetPrice = contract.mid;
     } else {
-      targetPrice = contract.last || contract.ask || contract.bid || 1.0;
+      targetPrice = contract.last || contract.ask || contract.bid || 0;
     }
+
+    // A missing quote must never become an invented $1.00 premium. The order
+    // ticket stays locked until the user selects a contract with a real price.
+    if (!(targetPrice > 0)) return;
 
     onSelectOptionContract({
       symbol: chainData?.underlying_symbol || symbol,
       optionType,
       strike: row.strike,
       expiration: selectedExp,
-      price: targetPrice > 0 ? targetPrice.toFixed(2) : '1.00',
+      price: targetPrice.toFixed(2),
       side,
       contractSymbol: contract.contract_symbol,
       openInterest: contract.open_interest,
@@ -398,14 +402,14 @@ export default function WebullOptionChain({
                             <td
                               className={`tradeable-cell call-bid text-right ${isCallITM ? 'call-itm' : ''}`}
                               onClick={() => handleContractClick(row, 'CALL', 'bid')}
-                              title={call ? `Click Bid to SELL Call @ $${call.bid.toFixed(2)}` : ''}
+                              title={call ? `Select this Call bid to sell an exact owned contract @ $${call.bid.toFixed(2)}` : ''}
                             >
                               ${call && call.bid ? call.bid.toFixed(2) : '0.00'}
                             </td>
                             <td
                               className={`tradeable-cell call-ask text-right ${isCallITM ? 'call-itm' : ''}`}
                               onClick={() => handleContractClick(row, 'CALL', 'ask')}
-                              title={call ? `Click Ask to BUY Call @ $${call.ask.toFixed(2)}` : ''}
+                              title={call ? `Select this Call ask to buy @ $${call.ask.toFixed(2)}` : ''}
                             >
                               ${call && call.ask ? call.ask.toFixed(2) : '0.00'}
                             </td>
@@ -423,14 +427,14 @@ export default function WebullOptionChain({
                             <td
                               className={`tradeable-cell put-bid text-left ${isPutITM ? 'put-itm' : ''}`}
                               onClick={() => handleContractClick(row, 'PUT', 'bid')}
-                              title={put ? `Click Bid to SELL Put @ $${put.bid.toFixed(2)}` : ''}
+                              title={put ? `Select this Put bid to sell an exact owned contract @ $${put.bid.toFixed(2)}` : ''}
                             >
                               ${put && put.bid ? put.bid.toFixed(2) : '0.00'}
                             </td>
                             <td
                               className={`tradeable-cell put-ask text-left ${isPutITM ? 'put-itm' : ''}`}
                               onClick={() => handleContractClick(row, 'PUT', 'ask')}
-                              title={put ? `Click Ask to BUY Put @ $${put.ask.toFixed(2)}` : ''}
+                              title={put ? `Select this Put ask to buy @ $${put.ask.toFixed(2)}` : ''}
                             >
                               ${put && put.ask ? put.ask.toFixed(2) : '0.00'}
                             </td>

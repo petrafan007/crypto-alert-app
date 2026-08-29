@@ -665,6 +665,29 @@
   background: #161b20;
 }
 
+/* A disabled option ticket is intentionally non-actionable, not merely a
+   validation warning. Contract selection remains outside these controls. */
+.trading-order-panel button:disabled,
+.trading-order-panel input:disabled,
+.trading-order-panel select:disabled {
+  cursor: not-allowed !important;
+  opacity: 0.42;
+  filter: grayscale(0.7);
+}
+
+.trading-order-panel input:disabled,
+.trading-order-panel select:disabled {
+  background: #0b0f12;
+  color: #64748b;
+}
+
+.option-ticket-status {
+  margin: -8px 0 0;
+  color: #fbbf24;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
 .input-max-btn {
   position: absolute;
   right: 8px;

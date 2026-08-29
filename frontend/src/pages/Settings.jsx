@@ -2466,6 +2466,21 @@ export default function Settings({ isLightMode }) {
               </div>
             )}
           </div>
+
+          <div className="settings-form-group">
+            <label>
+              NewsAPI.org API Key
+            </label>
+            <input
+              type="password"
+              value={settings.news_api || ''}
+              onChange={(e) => handleInputChange('news_api', e.target.value)}
+              placeholder="Enter your NewsAPI.org API key..."
+            />
+            <div className="settings-form-help">
+              Used only with NewsAPI.org&apos;s article search feed to ground market-news analysis. This is not an AI-provider key.
+            </div>
+          </div>
         </div>
 
         <div className="settings-form-help" style={{ marginTop: '12px', fontStyle: 'italic' }}>
@@ -3491,26 +3506,6 @@ export default function Settings({ isLightMode }) {
             </div>
           </div>
 
-          <div style={{ marginTop: 16 }}>
-            <label style={{ display: 'block', marginBottom: 8, color: '#fff' }}>
-              News API Key
-            </label>
-            <input
-              type="password"
-              value={settings.news_api || ''}
-              onChange={(e) => handleInputChange('news_api', e.target.value)}
-              placeholder="Enter News API Key"
-              style={{
-                width: 'calc(100% - 24px)',
-                padding: '8px 12px',
-                borderRadius: 6,
-                background: '#1a1f23',
-                color: '#fff',
-                border: '1px solid #444',
-                boxSizing: 'border-box'
-              }}
-            />
-          </div>
         </div>
 
         {/* Tax Configuration */}

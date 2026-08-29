@@ -153,6 +153,8 @@ const normalizedWebullInstrumentType = (value) => {
 };
 
 const QUANTITY_EPSILON = 1e-8;
+const OPTION_CONTRACT_MULTIPLIER = 100;
+const OPTION_STRIKE_EPSILON = 0.0001;
 
 const formatQuantityForTicket = (value, precision = 6) => {
   const numeric = Number(value);
@@ -163,6 +165,33 @@ const formatQuantityForTicket = (value, precision = 6) => {
 const isFractionalQuantity = (value) => {
   const numeric = Number(value);
   return Number.isFinite(numeric) && Math.abs(numeric - Math.round(numeric)) > QUANTITY_EPSILON;
+};
+
+const nonNegativeNumber = (value) => {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) && numeric >= 0 ? numeric : 0;
+};
+
+const optionOrderValue = (quantity, premium) => {
+  const total = nonNegativeNumber(quantity) * nonNegativeNumber(premium) * OPTION_CONTRACT_MULTIPLIER;
+  return Number.isFinite(total) ? total : 0;
+};
+
+const optionOrderValueText = (quantity, premium) => optionOrderValue(quantity, premium).toFixed(2);
+
+const normalizedOptionExpiry = (value) => String(value || '').trim().slice(0, 10);
+
+const holdingMatchesOptionContract = (holding, { accountId, underlyingSymbol, optionType, optionStrike, optionExpiration }) => {
+  if (String(holding?.instrument_type || '').trim().toUpperCase() !== 'OPTION') return false;
+  if (String(holding?.account_id || '') !== String(accountId || '')) return false;
+  if (String(holding?.underlying_symbol || holding?.symbol || '').trim().toUpperCase() !== String(underlyingSymbol || '').trim().toUpperCase()) return false;
+  if (String(holding?.option_type || '').trim().toUpperCase() !== String(optionType || '').trim().toUpperCase()) return false;
+  if (normalizedOptionExpiry(holding?.option_expiration) !== normalizedOptionExpiry(optionExpiration)) return false;
+  const holdingStrike = Number(holding?.option_strike);
+  const selectedStrike = Number(optionStrike);
+  return Number.isFinite(holdingStrike)
+    && Number.isFinite(selectedStrike)
+    && Math.abs(holdingStrike - selectedStrike) <= OPTION_STRIKE_EPSILON;
 };
 
 export default function WebullTrading({ isLightMode = false }) {
@@ -249,7 +278,12 @@ export default function WebullTrading({ isLightMode = false }) {
     const commonLimit = { value: 'LIMIT', label: 'Limit', description: 'Execute at the specified limit price or better' };
     const stopLoss = { value: 'STOP_LOSS', label: 'Stop Loss', description: 'Trigger a market order when the stop price is reached' };
     const stopLossLimit = { value: 'STOP_LOSS_LIMIT', label: 'Stop Loss Limit', description: 'Trigger a limit order when the stop price is reached' };
-    if (selectedInstrumentType === 'OPTION') return [commonLimit, stopLoss, stopLossLimit];
+    // A buy stop-loss becomes an unbounded market order at the trigger, so it
+    // cannot satisfy the ticket's cash-coverage guarantee. Buy options use a
+    // limit (or stop-limit) with a defined maximum premium instead.
+    if (selectedInstrumentType === 'OPTION') {
+      return orderForm.side === 'BUY' ? [commonLimit, stopLossLimit] : [commonLimit, stopLoss, stopLossLimit];
+    }
     if (selectedInstrumentType === 'CRYPTO') {
       return [
         { value: 'MARKET', label: 'Market', description: 'Execute immediately at the best available price' },
@@ -263,7 +297,7 @@ export default function WebullTrading({ isLightMode = false }) {
       stopLoss,
       stopLossLimit,
     ];
-  }, [selectedInstrumentType]);
+  }, [selectedInstrumentType, orderForm.side]);
 
   // Reset to LIMIT if current type is unsupported for current asset class
   useEffect(() => {
@@ -557,22 +591,29 @@ export default function WebullTrading({ isLightMode = false }) {
   const cashBalance = useMemo(() => {
     if (!activeAccount?.balance) return 0;
     const b = activeAccount.balance;
-    return Number(b.total_cash_balance ?? b.cash_balance ?? b.settled_cash ?? b.cashBalance ?? 0);
+    return nonNegativeNumber(b.total_cash_balance ?? b.cash_balance ?? b.settled_cash ?? b.cashBalance ?? 0);
   }, [activeAccount]);
 
-  // Holding for the currently selected symbol
+  // An option sale may only close the exact held contract: account,
+  // underlying, expiration, strike, and call/put all have to match.
   const currentHolding = useMemo(() => {
-    if (selectedInstrumentType === 'OPTION' && selectedOptionHoldingId) {
-      return holdings.find((holding) => (
-        String(holding?.id || '') === selectedOptionHoldingId
-        && String(holding?.account_id || '') === String(selectedAccountId || '')
-      )) || null;
+    if (selectedInstrumentType === 'OPTION') {
+      const matchingOptions = holdings.filter((holding) => holdingMatchesOptionContract(holding, {
+        accountId: selectedAccountId,
+        underlyingSymbol: selectedSymbol,
+        optionType: orderForm.optionType,
+        optionStrike: orderForm.optionStrike,
+        optionExpiration: orderForm.optionExpiration,
+      }));
+      return matchingOptions.find((holding) => String(holding?.id || '') === selectedOptionHoldingId)
+        || matchingOptions[0]
+        || null;
     }
     return holdingForAccount(holdings, selectedSymbol, selectedAccountId);
-  }, [holdings, selectedSymbol, selectedAccountId, selectedInstrumentType, selectedOptionHoldingId]);
+  }, [holdings, selectedSymbol, selectedAccountId, selectedInstrumentType, selectedOptionHoldingId, orderForm.optionType, orderForm.optionStrike, orderForm.optionExpiration]);
 
-  const heldQuantity = useMemo(() => Number(currentHolding?.amount || 0), [currentHolding]);
-  const heldValue = useMemo(() => Number(currentHolding?.current_value || (heldQuantity * livePrice) || 0), [currentHolding, heldQuantity, livePrice]);
+  const heldQuantity = useMemo(() => nonNegativeNumber(currentHolding?.amount), [currentHolding]);
+  const heldValue = useMemo(() => nonNegativeNumber(currentHolding?.current_value || (heldQuantity * livePrice)), [currentHolding, heldQuantity, livePrice]);
 
   // A current snapshot is the trade-ticket source of truth. Stored holdings
   // provide a fast initial fallback while the signed Webull quote arrives.
@@ -582,9 +623,10 @@ export default function WebullTrading({ isLightMode = false }) {
     if (fallbackPrice > 0) setLivePrice(fallbackPrice);
     const loadSnapshot = async () => {
       try {
+        if (selectedInstrumentType === 'OPTION' && !currentHolding?.id) return;
         const response = selectedInstrumentType === 'OPTION'
           ? await axios.get('/api/webull/option-market-data', {
-            params: { holding_id: selectedOptionHoldingId },
+            params: { holding_id: currentHolding.id },
             withCredentials: true,
           })
           : await axios.get('/api/webull/market-snapshot', {
@@ -605,7 +647,7 @@ export default function WebullTrading({ isLightMode = false }) {
     loadSnapshot();
     const timer = window.setInterval(loadSnapshot, 30000);
     return () => { active = false; window.clearInterval(timer); };
-  }, [selectedSymbol, selectedInstrumentType, selectedOptionHoldingId, currentHolding]);
+  }, [selectedSymbol, selectedInstrumentType, currentHolding]);
 
   // Handlers for Instrument change from Top TradingView Chart
   const handleInstrumentChange = ({ symbol: nextSymbol, instrumentType: nextType }) => {
@@ -678,13 +720,16 @@ export default function WebullTrading({ isLightMode = false }) {
 
   // Dual Input Quantity / Value calculations
   const effectivePrice = useMemo(() => {
-    if (['LIMIT', 'STOP_LOSS_LIMIT'].includes(orderForm.type) && Number(orderForm.price) > 0) {
-      return Number(orderForm.price);
+    const limitPrice = Number(orderForm.price);
+    const stopPrice = Number(orderForm.stopPrice);
+    const currentPrice = Number(livePrice);
+    if (['LIMIT', 'STOP_LOSS_LIMIT'].includes(orderForm.type) && Number.isFinite(limitPrice) && limitPrice > 0) {
+      return limitPrice;
     }
-    if (orderForm.type === 'STOP_LOSS' && Number(orderForm.stopPrice) > 0) {
-      return Number(orderForm.stopPrice);
+    if (orderForm.type === 'STOP_LOSS' && Number.isFinite(stopPrice) && stopPrice > 0) {
+      return stopPrice;
     }
-    return livePrice > 0 ? livePrice : (Number(orderForm.price) || 1);
+    return Number.isFinite(currentPrice) && currentPrice > 0 ? currentPrice : 0;
   }, [orderForm.type, orderForm.price, orderForm.stopPrice, livePrice]);
 
   const fractionalEquityAllowed = selectedInstrumentType === 'EQUITY' && orderForm.tradingSession === 'CORE';
@@ -692,8 +737,10 @@ export default function WebullTrading({ isLightMode = false }) {
   const handleBaseQuantityChange = (val) => {
     const qty = val.replace(/[^0-9.]/g, '');
     const numQty = parseFloat(qty) || 0;
-    const mult = selectedInstrumentType === 'OPTION' ? 100 : 1;
-    const computedVal = numQty > 0 && effectivePrice > 0 ? (numQty * effectivePrice * mult).toFixed(2) : '';
+    const mult = selectedInstrumentType === 'OPTION' ? OPTION_CONTRACT_MULTIPLIER : 1;
+    const computedVal = numQty > 0 && effectivePrice > 0
+      ? (numQty * effectivePrice * mult).toFixed(2)
+      : selectedInstrumentType === 'OPTION' ? '0.00' : '';
     setOrderValidationError('');
     setOrderForm((prev) => ({ ...prev, quantity: qty, quoteQuantity: computedVal }));
   };
@@ -701,7 +748,7 @@ export default function WebullTrading({ isLightMode = false }) {
   const handleQuoteQuantityChange = (val) => {
     const quoteVal = val.replace(/[^0-9.]/g, '');
     const numQuote = parseFloat(quoteVal) || 0;
-    const mult = selectedInstrumentType === 'OPTION' ? 100 : 1;
+    const mult = selectedInstrumentType === 'OPTION' ? OPTION_CONTRACT_MULTIPLIER : 1;
     const unitCost = effectivePrice * mult;
     const rawQuantity = numQuote > 0 && unitCost > 0 ? numQuote / unitCost : 0;
     const wholeQuantity = Math.floor(rawQuantity);
@@ -714,7 +761,13 @@ export default function WebullTrading({ isLightMode = false }) {
     if (selectedInstrumentType === 'EQUITY' && !fractionalEquityAllowed && rawQuantity > 0 && wholeQuantity < 1) {
       setOrderValidationError('Extended and Overnight stock/ETF sessions require whole shares. Select Only Regular Hours (CORE) to use a fractional quantity.');
     }
-    setOrderForm((prev) => ({ ...prev, quoteQuantity: quoteVal, quantity: computedQty }));
+    setOrderForm((prev) => ({
+      ...prev,
+      quoteQuantity: selectedInstrumentType === 'OPTION'
+        ? optionOrderValueText(computedQty, effectivePrice)
+        : quoteVal,
+      quantity: computedQty,
+    }));
   };
 
   const handlePriceChange = (val) => {
@@ -722,8 +775,10 @@ export default function WebullTrading({ isLightMode = false }) {
     setOrderForm((prev) => {
       const numQty = parseFloat(prev.quantity) || 0;
       const numPx = parseFloat(px) || 0;
-      const mult = selectedInstrumentType === 'OPTION' ? 100 : 1;
-      const computedQuote = numQty > 0 && numPx > 0 ? (numQty * numPx * mult).toFixed(2) : prev.quoteQuantity;
+      const mult = selectedInstrumentType === 'OPTION' ? OPTION_CONTRACT_MULTIPLIER : 1;
+      const computedQuote = numQty > 0 && numPx > 0
+        ? (numQty * numPx * mult).toFixed(2)
+        : selectedInstrumentType === 'OPTION' ? '0.00' : prev.quoteQuantity;
       return { ...prev, price: px, quoteQuantity: computedQuote };
     });
     setOrderValidationError('');
@@ -732,7 +787,13 @@ export default function WebullTrading({ isLightMode = false }) {
   const handleStopPriceChange = (val) => {
     const spx = val.replace(/[^0-9.]/g, '');
     setOrderValidationError('');
-    setOrderForm((prev) => ({ ...prev, stopPrice: spx }));
+    setOrderForm((prev) => ({
+      ...prev,
+      stopPrice: spx,
+      quoteQuantity: selectedInstrumentType === 'OPTION'
+        ? optionOrderValueText(prev.quantity, spx)
+        : prev.quoteQuantity,
+    }));
   };
 
   // Slider change handler
@@ -746,7 +807,7 @@ export default function WebullTrading({ isLightMode = false }) {
     if (orderForm.side === 'BUY') {
       if (cashBalance > 0 && effectivePrice > 0) {
         const targetDollars = cashBalance * (pct / 100);
-        const mult = selectedInstrumentType === 'OPTION' ? 100 : 1;
+        const mult = selectedInstrumentType === 'OPTION' ? OPTION_CONTRACT_MULTIPLIER : 1;
         const unitCost = effectivePrice * mult;
         const rawQuantity = targetDollars / unitCost;
         const wholeQuantity = Math.floor(rawQuantity);
@@ -761,7 +822,9 @@ export default function WebullTrading({ isLightMode = false }) {
         setOrderForm((prev) => ({
           ...prev,
           quantity: qty,
-          quoteQuantity: targetDollars.toFixed(2),
+          quoteQuantity: selectedInstrumentType === 'OPTION'
+            ? optionOrderValueText(qty, effectivePrice)
+            : targetDollars.toFixed(2),
         }));
       }
     } else {
@@ -776,8 +839,10 @@ export default function WebullTrading({ isLightMode = false }) {
         if (selectedInstrumentType === 'EQUITY' && !fractionalEquityAllowed && targetQty > 0 && wholeQuantity < 1) {
           setOrderValidationError('Extended and Overnight stock/ETF sessions require whole shares. Select Only Regular Hours (CORE) to sell this fractional position.');
         }
-        const mult = selectedInstrumentType === 'OPTION' ? 100 : 1;
-        const computedVal = (parseFloat(formattedQty) * effectivePrice * mult).toFixed(2);
+        const mult = selectedInstrumentType === 'OPTION' ? OPTION_CONTRACT_MULTIPLIER : 1;
+        const computedVal = selectedInstrumentType === 'OPTION'
+          ? optionOrderValueText(formattedQty, effectivePrice)
+          : (parseFloat(formattedQty) * effectivePrice * mult).toFixed(2);
         setOrderForm((prev) => ({
           ...prev,
           quantity: formattedQty,
@@ -791,9 +856,36 @@ export default function WebullTrading({ isLightMode = false }) {
 
   const orderTotal = useMemo(() => {
     const qty = parseFloat(orderForm.quantity) || 0;
-    const mult = selectedInstrumentType === 'OPTION' ? 100 : 1;
-    return qty * effectivePrice * mult;
+    const mult = selectedInstrumentType === 'OPTION' ? OPTION_CONTRACT_MULTIPLIER : 1;
+    const total = qty * effectivePrice * mult;
+    return Number.isFinite(total) && total >= 0 ? total : 0;
   }, [orderForm.quantity, effectivePrice, selectedInstrumentType]);
+
+  const optionContractSelected = selectedInstrumentType === 'OPTION'
+    && Boolean(normalizedOptionExpiry(orderForm.optionExpiration))
+    && Number(orderForm.optionStrike) > 0
+    && effectivePrice > 0;
+  const optionUnitCost = optionContractSelected ? optionOrderValue(1, effectivePrice) : 0;
+  const optionBuyEnabled = optionContractSelected && cashBalance + QUANTITY_EPSILON >= optionUnitCost;
+  const optionSellEnabled = optionContractSelected && heldQuantity >= 1 - QUANTITY_EPSILON;
+  const optionOrderControlsDisabled = selectedInstrumentType === 'OPTION'
+    && (orderForm.side === 'BUY' ? !optionBuyEnabled : !optionSellEnabled);
+  const optionExecutionMessage = !optionContractSelected
+    ? 'Choose a priced contract from the options chain to enable an order.'
+    : orderForm.side === 'BUY' && !optionBuyEnabled
+      ? `This contract costs $${number(optionUnitCost)} per contract. Available USD is $${number(cashBalance)}.`
+      : orderForm.side === 'SELL' && !optionSellEnabled
+        ? 'Sell is available only for an exact option contract currently owned in this Webull account.'
+        : '';
+
+  useEffect(() => {
+    if (selectedInstrumentType !== 'OPTION') return;
+    if (orderForm.side === 'SELL' && !optionSellEnabled && optionBuyEnabled) {
+      setOrderForm((prev) => ({ ...prev, side: 'BUY' }));
+    } else if (orderForm.side === 'BUY' && !optionBuyEnabled && optionSellEnabled) {
+      setOrderForm((prev) => ({ ...prev, side: 'SELL', timeInForce: 'DAY' }));
+    }
+  }, [selectedInstrumentType, orderForm.side, optionBuyEnabled, optionSellEnabled]);
 
   const activeAccountLabel = () => {
     const name = activeAccount?.account_label || activeAccount?.account_name || 'Webull Account';
@@ -843,12 +935,32 @@ export default function WebullTrading({ isLightMode = false }) {
       rejectOrder('Please enter a valid order quantity. Use Max or enter a quantity greater than zero.');
       return;
     }
+    if (selectedInstrumentType === 'OPTION') {
+      if (!optionContractSelected) {
+        rejectOrder('Choose a priced option contract from the options chain before placing an order.');
+        return;
+      }
+      if (!Number.isInteger(qty)) {
+        rejectOrder('Webull option orders require a whole number of contracts.');
+        return;
+      }
+      if (orderForm.side === 'SELL' && !optionSellEnabled) {
+        rejectOrder('You can sell only an exact call or put contract currently owned in the selected Webull account.');
+        return;
+      }
+      if (orderForm.side === 'BUY') {
+        if (!optionBuyEnabled) {
+          rejectOrder(`Insufficient USD to purchase one contract. This contract costs $${number(optionUnitCost)} and available USD is $${number(cashBalance)}.`);
+          return;
+        }
+        if (orderTotal > cashBalance + QUANTITY_EPSILON) {
+          rejectOrder(`Insufficient USD for ${qty} option contract${qty === 1 ? '' : 's'}. Estimated premium is $${number(orderTotal)} and available USD is $${number(cashBalance)}.`);
+          return;
+        }
+      }
+    }
     if (orderForm.side === 'SELL' && qty > heldQuantity + QUANTITY_EPSILON) {
       rejectOrder(`You can sell up to ${formatQuantityForTicket(heldQuantity, 6) || '0'} ${selectedSymbol} from ${activeAccountLabel()}.`);
-      return;
-    }
-    if (selectedInstrumentType === 'OPTION' && !Number.isInteger(qty)) {
-      rejectOrder('Webull option orders require a whole number of contracts.');
       return;
     }
     if (selectedInstrumentType === 'EQUITY' && isFractionalQuantity(qty)) {
@@ -884,6 +996,13 @@ export default function WebullTrading({ isLightMode = false }) {
       if (!orderForm.optionStrike || parseFloat(orderForm.optionStrike) <= 0) {
         rejectOrder('Please specify an option strike price.');
         return;
+      }
+      if (['STOP_LOSS', 'STOP_LOSS_LIMIT'].includes(orderForm.type)) {
+        const spx = parseFloat(orderForm.stopPrice);
+        if (!spx || spx <= 0) {
+          rejectOrder('Options stop orders require a trigger price greater than $0.');
+          return;
+        }
       }
     } else {
       if (['LIMIT', 'STOP_LOSS_LIMIT'].includes(orderForm.type)) {
@@ -1026,6 +1145,8 @@ export default function WebullTrading({ isLightMode = false }) {
     setSelectedSymbol(isOption ? (holding.underlying_symbol || holding.symbol) : holding.symbol);
     setSelectedOptionHoldingId(isOption ? String(holding.id || '') : '');
     if (isOption) {
+      const holdingQuantity = nonNegativeNumber(holding.amount);
+      const holdingPremium = nonNegativeNumber(holding.current_price);
       setSelectedInstrumentType('OPTION');
       setOrderForm((prev) => ({
         ...prev,
@@ -1035,7 +1156,8 @@ export default function WebullTrading({ isLightMode = false }) {
         optionStrike: holding.option_strike ? String(holding.option_strike) : '',
         optionExpiration: holding.option_expiration || '',
         price: holding.current_price ? String(holding.current_price) : '',
-        quantity: holding.amount ? String(holding.amount) : '1',
+        quantity: holdingQuantity ? String(holdingQuantity) : '',
+        quoteQuantity: optionOrderValueText(holdingQuantity, holdingPremium),
       }));
     } else {
       const isCrypto = /crypto|coin|token/i.test(holding.instrument_type || '');
@@ -1097,15 +1219,22 @@ export default function WebullTrading({ isLightMode = false }) {
     if (contractData.symbol && contractData.symbol !== selectedSymbol) {
       setSelectedSymbol(contractData.symbol);
     }
-    setOrderForm((prev) => ({
-      ...prev,
-      optionType: contractData.optionType || 'CALL',
-      optionStrike: String(contractData.strike || ''),
-      optionExpiration: contractData.expiration || '',
-      price: contractData.price ? String(contractData.price) : prev.price,
-      side: contractData.side || 'BUY',
-      quantity: prev.quantity && Number(prev.quantity) > 0 ? prev.quantity : '1',
-    }));
+    setSelectedOptionHoldingId('');
+    setOrderForm((prev) => {
+      const quantity = prev.quantity && Number(prev.quantity) > 0 ? prev.quantity : '1';
+      const premium = nonNegativeNumber(contractData.price);
+      return {
+        ...prev,
+        optionType: contractData.optionType || 'CALL',
+        optionStrike: String(contractData.strike || ''),
+        optionExpiration: contractData.expiration || '',
+        price: premium > 0 ? String(contractData.price) : '',
+        side: contractData.side || 'BUY',
+        quantity,
+        quoteQuantity: optionOrderValueText(quantity, premium),
+        stopPrice: '',
+      };
+    });
     setOrderValidationError('');
   };
   useEffect(() => {
@@ -1349,13 +1478,16 @@ export default function WebullTrading({ isLightMode = false }) {
                           💡 Tip: Click any <strong>Bid</strong> or <strong>Ask</strong> in the Options Chain above to instantly load contract terms and prices.
                         </p>
                       )}
+                      <p style={{ margin: '0 0 12px', fontSize: '12px', color: '#c4b5fd', lineHeight: 1.45 }}>
+                        Contract selection stays available at all times. Buy is enabled only when available USD covers one contract; Sell is enabled only for the exact owned call or put in this Webull account.
+                      </p>
                       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '12px' }}>
                         <div>
                           <label className="order-field-label">Option Type</label>
                           <div style={{ display: 'flex', gap: '4px' }}>
                             <button
                               type="button"
-                              onClick={() => setOrderForm((prev) => ({ ...prev, optionType: 'CALL' }))}
+                              onClick={() => setOrderForm((prev) => ({ ...prev, optionType: 'CALL', price: '', stopPrice: '', quoteQuantity: '0.00' }))}
                               style={{
                                 flex: 1, padding: '7px', borderRadius: '6px', border: 'none',
                                 background: orderForm.optionType === 'CALL' ? '#22c55e' : 'rgba(255,255,255,0.08)',
@@ -1366,7 +1498,7 @@ export default function WebullTrading({ isLightMode = false }) {
                             </button>
                             <button
                               type="button"
-                              onClick={() => setOrderForm((prev) => ({ ...prev, optionType: 'PUT' }))}
+                              onClick={() => setOrderForm((prev) => ({ ...prev, optionType: 'PUT', price: '', stopPrice: '', quoteQuantity: '0.00' }))}
                               style={{
                                 flex: 1, padding: '7px', borderRadius: '6px', border: 'none',
                                 background: orderForm.optionType === 'PUT' ? '#ef4444' : 'rgba(255,255,255,0.08)',
@@ -1383,7 +1515,7 @@ export default function WebullTrading({ isLightMode = false }) {
                             type="text"
                             inputMode="decimal"
                             value={orderForm.optionStrike}
-                            onChange={(e) => setOrderForm((prev) => ({ ...prev, optionStrike: e.target.value.replace(/[^0-9.]/g, '') }))}
+                            onChange={(e) => setOrderForm((prev) => ({ ...prev, optionStrike: e.target.value.replace(/[^0-9.]/g, ''), price: '', stopPrice: '', quoteQuantity: '0.00' }))}
                             placeholder="e.g. 230.00"
                             className="order-styled-input"
                           />
@@ -1393,7 +1525,7 @@ export default function WebullTrading({ isLightMode = false }) {
                           <input
                             type="date"
                             value={orderForm.optionExpiration}
-                            onChange={(e) => setOrderForm((prev) => ({ ...prev, optionExpiration: e.target.value }))}
+                            onChange={(e) => setOrderForm((prev) => ({ ...prev, optionExpiration: e.target.value, price: '', stopPrice: '', quoteQuantity: '0.00' }))}
                             className="order-styled-input"
                           />
                         </div>
@@ -1440,6 +1572,8 @@ export default function WebullTrading({ isLightMode = false }) {
                             setBalancePercentage(0);
                             setOrderValidationError('');
                           }}
+                          disabled={selectedInstrumentType === 'OPTION' && !optionBuyEnabled}
+                          title={selectedInstrumentType === 'OPTION' && !optionBuyEnabled ? optionExecutionMessage || 'A priced option contract and enough USD for one contract are required to buy.' : 'Buy this instrument'}
                         >
                           📈 Buy
                         </button>
@@ -1451,6 +1585,8 @@ export default function WebullTrading({ isLightMode = false }) {
                             setBalancePercentage(0);
                             setOrderValidationError('');
                           }}
+                          disabled={selectedInstrumentType === 'OPTION' && !optionSellEnabled}
+                          title={selectedInstrumentType === 'OPTION' && !optionSellEnabled ? 'Sell is available only for an exact option contract currently owned in this Webull account.' : 'Sell this instrument'}
                         >
                           📉 Sell
                         </button>
@@ -1470,6 +1606,7 @@ export default function WebullTrading({ isLightMode = false }) {
                               setOrderValidationError('');
                             }}
                             title={t.description}
+                            disabled={optionOrderControlsDisabled}
                           >
                             {t.label}
                           </button>
@@ -1477,6 +1614,10 @@ export default function WebullTrading({ isLightMode = false }) {
                       </div>
                     </div>
                   </div>
+
+                  {selectedInstrumentType === 'OPTION' && optionExecutionMessage && (
+                    <p className="option-ticket-status" role="status">⚠️ {optionExecutionMessage}</p>
+                  )}
 
                   {/* Row 2: Quantity and Quote Value Inputs */}
                   <div className="order-inputs-row">
@@ -1493,6 +1634,7 @@ export default function WebullTrading({ isLightMode = false }) {
                           onChange={(e) => handleBaseQuantityChange(e.target.value)}
                           placeholder="0.0000"
                           className="order-styled-input"
+                          disabled={optionOrderControlsDisabled}
                           aria-invalid={Boolean(orderValidationError)}
                           aria-describedby={orderValidationError ? 'webull-order-validation' : undefined}
                           autoComplete="off"
@@ -1502,6 +1644,7 @@ export default function WebullTrading({ isLightMode = false }) {
                           className="input-max-btn"
                           onClick={() => handleSliderChange(100)}
                           title="Use 100% Available Balance"
+                          disabled={optionOrderControlsDisabled}
                         >
                           MAX
                         </button>
@@ -1526,10 +1669,11 @@ export default function WebullTrading({ isLightMode = false }) {
                           id="quoteQuantity"
                           type="text"
                           inputMode="decimal"
-                          value={orderForm.quoteQuantity}
+                          value={selectedInstrumentType === 'OPTION' ? optionOrderValueText(orderForm.quantity, effectivePrice) : orderForm.quoteQuantity}
                           onChange={(e) => handleQuoteQuantityChange(e.target.value)}
                           placeholder="$0.00"
                           className="order-styled-input"
+                          disabled={optionOrderControlsDisabled}
                           autoComplete="off"
                         />
                         <button
@@ -1540,6 +1684,7 @@ export default function WebullTrading({ isLightMode = false }) {
                             handleSliderChange(nextPct);
                           }}
                           title="Step allocation: 25%, 50%, 75%, 100%"
+                          disabled={optionOrderControlsDisabled}
                         >
                           %
                         </button>
@@ -1563,6 +1708,7 @@ export default function WebullTrading({ isLightMode = false }) {
                             onChange={(e) => handleStopPriceChange(e.target.value)}
                             placeholder="0.00"
                             className="order-styled-input"
+                            disabled={optionOrderControlsDisabled}
                             required
                           />
                           <button
@@ -1570,6 +1716,7 @@ export default function WebullTrading({ isLightMode = false }) {
                             className="input-percent-btn"
                             onClick={() => handleOpenPercentModal('stopPrice')}
                             title="Calculate stop price from percentage"
+                            disabled={optionOrderControlsDisabled}
                           >
                             %
                           </button>
@@ -1596,6 +1743,7 @@ export default function WebullTrading({ isLightMode = false }) {
                             onChange={(e) => handleStopPriceChange(e.target.value)}
                             placeholder="0.00"
                             className="order-styled-input"
+                            disabled={optionOrderControlsDisabled}
                             required
                           />
                           <button
@@ -1603,6 +1751,7 @@ export default function WebullTrading({ isLightMode = false }) {
                             className="input-percent-btn"
                             onClick={() => handleOpenPercentModal('stopPrice')}
                             title="Calculate stop trigger & limit execution prices from percentage"
+                            disabled={optionOrderControlsDisabled}
                           >
                             %
                           </button>
@@ -1625,6 +1774,7 @@ export default function WebullTrading({ isLightMode = false }) {
                             onChange={(e) => handlePriceChange(e.target.value)}
                             placeholder="0.00"
                             className="order-styled-input"
+                            disabled={optionOrderControlsDisabled}
                             required
                           />
                         </div>
@@ -1650,6 +1800,7 @@ export default function WebullTrading({ isLightMode = false }) {
                             onChange={(e) => handlePriceChange(e.target.value)}
                             placeholder="0.00"
                             className="order-styled-input"
+                            disabled={optionOrderControlsDisabled}
                             required
                           />
                           <button
@@ -1657,6 +1808,7 @@ export default function WebullTrading({ isLightMode = false }) {
                             className="input-percent-btn"
                             onClick={() => handleOpenPercentModal('price')}
                             title="Calculate limit price from percentage"
+                            disabled={optionOrderControlsDisabled}
                           >
                             %
                           </button>
@@ -1674,6 +1826,7 @@ export default function WebullTrading({ isLightMode = false }) {
                         onChange={(e) => setOrderForm((prev) => ({ ...prev, timeInForce: e.target.value }))}
                         className="order-styled-input"
                         style={{ cursor: 'pointer' }}
+                        disabled={optionOrderControlsDisabled}
                       >
                         <option value="DAY">Day Order (DAY)</option>
                         {!(selectedInstrumentType === 'OPTION' && orderForm.side === 'SELL') && <option value="GTC">Good &apos;Til Canceled (GTC)</option>}
@@ -1727,6 +1880,7 @@ export default function WebullTrading({ isLightMode = false }) {
                       value={balancePercentage}
                       onChange={(e) => handleSliderChange(parseInt(e.target.value, 10))}
                       className="modern-balance-slider"
+                      disabled={optionOrderControlsDisabled}
                       style={{
                         background: `linear-gradient(to right, ${orderForm.side === 'BUY' ? '#10b981' : '#ef4444'} ${balancePercentage}%, rgba(255, 255, 255, 0.1) ${balancePercentage}%)`,
                       }}
@@ -1738,6 +1892,7 @@ export default function WebullTrading({ isLightMode = false }) {
                           type="button"
                           className={`slider-pct-pill ${balancePercentage === pct ? 'active' : ''}`}
                           onClick={() => handleSliderChange(pct)}
+                          disabled={optionOrderControlsDisabled}
                         >
                           {pct}%
                         </button>
@@ -1764,7 +1919,7 @@ export default function WebullTrading({ isLightMode = false }) {
                     <button
                       type="submit"
                       className={`modern-submit-button ${orderForm.side.toLowerCase()}`}
-                      disabled={orderSubmitting}
+                      disabled={orderSubmitting || optionOrderControlsDisabled}
                     >
                       {orderSubmitting ? (
                         <span>⏳ Processing Order...</span>
