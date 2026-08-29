@@ -125,6 +125,19 @@ The application utilizes a **unified PostgreSQL database**.
 
 Historical changelog entries retain the product name used when they were originally released. The application domain, repository slug, deployment folders, database, and service identifiers intentionally remain unchanged by the v2.45.0 brand update.
 
+## v2.56.1 (August 2026)
+
+- **Unified Toast Notification System**:
+  - **Eliminated Ad-Hoc Fixed Banners**: Removed legacy hard-coded floating notification banners in the upper-right corner of the dashboard (`top: 20px, right: 20px`). All application errors, alerts, and operational notices now route through the unified, glassmorphic global Toast Notifications system at the bottom right.
+  - **Enhanced Toast Categories**: Added dedicated visual styling, accent glow borders, and distinct status icons for `error` (❌), `system_error`, `warning` (⚠️), `success` (✅), and `info` (ℹ️) toast types.
+  - **Unconditional Critical Delivery**: Ensured that critical system alerts, order feedback, and error notifications are always immediately displayed to the user even if optional background price-alert polling is disabled in user settings.
+  - **Global Helper**: Introduced `frontend/src/utils/toast.js` (`showAppToast`) for consistent toast dispatching across all frontend components and modals.
+
+- **Resilient Webull Market Data & Sentiment Fallback**:
+  - **Automatic yfinance Candlestick Fallback**: Wrapped Webull historical stock and ETF bar requests (`get_webull_market_bars`) with an automatic, silent fallback to Yahoo Finance (`_fetch_yfinance_klines`) when Webull OpenAPI returns `HTTP 404: INTERNAL_SERVER_ERROR` due to unentitled historical bar subscriptions.
+  - **Live Webull Snapshot Anchoring**: In `create_webull_signal`, live stock/ETF pricing is retrieved directly from Webull's working `/market-data/stocks/snapshots/list` endpoint, guaranteeing that manual and scheduled AI sentiment analysis runs smoothly without throwing market-data connection errors.
+  - **NaN Bar Sanitization**: Automatically filters out unclosed after-hours bars with NaN values before snapshot calculation.
+
 ## v2.56.0 (August 2026)
 
 - **Webull Order Ticket Layout Re-alignment**:

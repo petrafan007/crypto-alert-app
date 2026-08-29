@@ -7,6 +7,7 @@ import { PortfolioPie, PortfolioTrend } from '../components/DashboardCharts';
 import PriceHistoryPopup from '../components/PriceHistoryPopup';
 import AIAnalysisModal from '../components/AIAnalysisModal';
 import { useAuth } from '../components/AuthContext';
+import { showAppToast } from '../utils/toast';
 import FearGreedWidget from '../components/FearGreedWidget';
 import CBBIWidget from '../components/CBBIWidget';
 import StakingSummaryWidget from '../components/StakingSummaryWidget';
@@ -458,7 +459,7 @@ function Dashboard({ isLightMode }) {
     position: { x: 0, y: 0 }
   });
 
-  const [notification, setNotification] = useState({ show: false, message: '', type: 'info' });
+
   const [isMobile, setIsMobile] = useState(false);
   const [mobileTab, setMobileTab] = useState('charts'); // 'charts' | 'tables'
   const [openActionMenu, setOpenActionMenu] = useState({ type: null, key: null, payload: null, position: null });
@@ -593,14 +594,11 @@ function Dashboard({ isLightMode }) {
 
   // Toast for backend notifications
   useNotificationPoller(user && user.id, notif => {
-    setNotification({
-      show: true,
-      message: notif.symbol ? `ALERT: ${notif.symbol} ${notif.direction} at ${notif.crossing_price} (current: ${notif.current_price})` : notif.message || 'New notification',
-      type: 'success'
-    });
-    setTimeout(() => {
-      setNotification({ show: false, message: '', type: 'info' });
-    }, 4000);
+    showAppToast(
+      notif.symbol ? `ALERT: ${notif.symbol} ${notif.direction} at ${notif.crossing_price} (current: ${notif.current_price})` : notif.message || 'New notification',
+      'info',
+      { symbol: notif.symbol }
+    );
   });
 
 
@@ -1062,12 +1060,11 @@ function Dashboard({ isLightMode }) {
             )
           );
         }
-        setNotification({
-          show: true,
-          message: res.data.message || (enable ? `Auto-sell activated for ${autoSellModal.symbol}!` : `Auto-sell disabled for ${autoSellModal.symbol}`),
-          type: 'success'
-        });
-        setTimeout(() => setNotification({ show: false, message: '', type: 'info' }), 5000);
+        showAppToast(
+          res.data.message || (enable ? `Auto-sell activated for ${autoSellModal.symbol}!` : `Auto-sell disabled for ${autoSellModal.symbol}`),
+          'success',
+          { symbol: autoSellModal.symbol }
+        );
         setAutoSellModal(prev => ({ ...prev, isOpen: false, loading: false, error: '' }));
       } else {
         setAutoSellModal(prev => ({ ...prev, loading: false, error: res.data.error || 'Failed to update auto-sell' }));
@@ -1205,12 +1202,11 @@ function Dashboard({ isLightMode }) {
             )
           );
         }
-        setNotification({
-          show: true,
-          message: res.data.message || (enable ? `Auto-buy activated for ${autoBuyModal.symbol}!` : `Auto-buy disabled for ${autoBuyModal.symbol}`),
-          type: 'success'
-        });
-        setTimeout(() => setNotification({ show: false, message: '', type: 'info' }), 5000);
+        showAppToast(
+          res.data.message || (enable ? `Auto-buy activated for ${autoBuyModal.symbol}!` : `Auto-buy disabled for ${autoBuyModal.symbol}`),
+          'success',
+          { symbol: autoBuyModal.symbol }
+        );
         setAutoBuyModal(prev => ({ ...prev, isOpen: false, loading: false, error: '' }));
       } else {
         setAutoBuyModal(prev => ({ ...prev, loading: false, error: res.data.error || 'Failed to update auto-buy' }));
@@ -1455,8 +1451,7 @@ function Dashboard({ isLightMode }) {
       ? 'USD'
       : hasUsdtPair(cleanBase) ? 'USDT' : hasUsdPair(cleanBase) ? 'USD' : null;
     if (!quote) {
-      setNotification({ show: true, message: `No Binance.US USD or USDT trading pair is available for ${cleanBase}.`, type: 'error' });
-      setTimeout(() => setNotification({ show: false, message: '', type: 'info' }), 5000);
+      showAppToast(`No Binance.US USD or USDT trading pair is available for ${cleanBase}.`, 'error', { symbol: cleanBase });
       return;
     }
     navigateToTrading(cleanBase, 'BUY', quote);
@@ -1936,15 +1931,7 @@ function Dashboard({ isLightMode }) {
 
         if (recentFilledOrders.length > 0) {
           console.log('Found recent filled orders, refreshing portfolio...');
-          setNotification({
-            show: true,
-            message: `Order filled! Portfolio updated.`,
-            type: 'success'
-          });
-          // Auto-hide notification after 3 seconds
-          setTimeout(() => {
-            setNotification({ show: false, message: '', type: 'info' });
-          }, 3000);
+          showAppToast('Order filled! Portfolio updated.', 'success');
 
           // Refresh portfolio data
           const response = await axios.get('/api/coin-data-live');
@@ -3938,7 +3925,7 @@ function Dashboard({ isLightMode }) {
         }
       } catch (err) {
         console.error('Failed to trigger Webull sentiment refresh:', err);
-        setNotification({ show: true, message: err.response?.data?.message || err.message || 'Unable to refresh Webull sentiment.', type: 'error' });
+        showAppToast(err.response?.data?.message || err.message || 'Unable to refresh Webull sentiment.', 'error', { symbol: cleanSymbol });
       } finally {
         setRefreshingSentiment(prev => {
           const next = { ...prev };
@@ -4336,36 +4323,7 @@ function Dashboard({ isLightMode }) {
 
   return (
     <div className="dashboard-page-container">
-      {/* Notification */}
-      {notification.show && (
-        <div style={{
-          position: 'fixed',
-          top: '20px',
-          right: '20px',
-          padding: '12px 20px',
-          borderRadius: '8px',
-          background: notification.type === 'success' ? '#48bb78' : notification.type === 'error' ? '#f56565' : '#4fd1c5',
-          color: '#fff',
-          zIndex: 1000,
-          boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
-          animation: 'slideIn 0.3s ease-out'
-        }}>
-          {notification.message}
-          <button
-            onClick={() => setNotification({ show: false, message: '', type: 'info' })}
-            style={{
-              marginLeft: '12px',
-              background: 'none',
-              border: 'none',
-              color: '#fff',
-              cursor: 'pointer',
-              fontSize: '16px'
-            }}
-          >
-            ×
-          </button>
-        </div>
-      )}
+
       <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', margin: '4px 0 14px', padding: '0 2px' }}>
         <label style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', color: 'var(--text-secondary, #94a3b8)', fontSize: '0.78rem', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
           Accounts

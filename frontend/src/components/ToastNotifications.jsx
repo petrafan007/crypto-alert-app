@@ -56,7 +56,8 @@ export default function ToastNotifications({ isLightMode }) {
 
   // Add a toast
   const addToast = useCallback((toastData) => {
-    if (!isEnabled) return;
+    const isCritical = ['error', 'system_error', 'warning', 'info', 'success'].includes(toastData?.category) || ['error', 'warning'].includes(toastData?.type);
+    if (!isEnabled && !isCritical) return;
     const id = toastData.id || `toast-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
     
     setToasts(prev => {
@@ -346,6 +347,35 @@ function getToastConfig(category, toast) {
         icon: '⚠️',
         defaultMessage: `High volatility detected on ${toast.symbol || 'asset'}.`,
         subTitle: toast.direction ? `${toast.direction.toUpperCase()} ALERT` : 'ALERT'
+      };
+    case 'error':
+    case 'system_error':
+      return {
+        badge: toast.badge || 'Error',
+        icon: toast.icon || '❌',
+        defaultMessage: toast.message || 'An error occurred.',
+        subTitle: 'ERROR'
+      };
+    case 'warning':
+      return {
+        badge: toast.badge || 'Warning',
+        icon: toast.icon || '⚠️',
+        defaultMessage: toast.message || 'Warning.',
+        subTitle: 'WARNING'
+      };
+    case 'success':
+      return {
+        badge: toast.badge || 'Success',
+        icon: toast.icon || '✅',
+        defaultMessage: toast.message || 'Action completed successfully.',
+        subTitle: 'SUCCESS'
+      };
+    case 'info':
+      return {
+        badge: toast.badge || 'Notice',
+        icon: toast.icon || 'ℹ️',
+        defaultMessage: toast.message || '',
+        subTitle: 'INFO'
       };
     case 'price_alert':
     default:

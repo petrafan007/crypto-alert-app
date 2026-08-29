@@ -14,6 +14,7 @@ from services.webull_analysis_service import build_webull_market_snapshot
 from services.webull_service import (
     WebullConnectionError,
     get_webull_market_bars,
+    get_webull_market_snapshot,
     get_webull_option_snapshot,
     normalize_webull_environment,
 )
@@ -110,8 +111,19 @@ def create_webull_signal(user, holding, *, origin='manual'):
             credential.webull_app_key, credential.webull_app_secret, environment, credential.webull_access_token,
             symbol=holding.symbol, instrument_type=instrument_type, interval='D', limit=30,
         )
+        snapshot = None
+        try:
+            snapshot = get_webull_market_snapshot(
+                credential.webull_app_key, credential.webull_app_secret, environment, credential.webull_access_token,
+                symbol=holding.symbol, instrument_type=instrument_type,
+            )
+        except Exception:
+            snapshot = None
+
         market = build_webull_market_snapshot(bars, holding.currency or 'USD')
-        entry_price = market.get('last_price') or holding.last_price
+        entry_price = (
+            (snapshot.get('price') or snapshot.get('regular_price')) if snapshot else None
+        ) or market.get('last_price') or holding.last_price or holding.cost_price
         if not entry_price or float(entry_price) <= 0:
             raise WebullConnectionError('Webull did not return a usable current market price for this holding.')
     family = 'crypto' if instrument_type == 'CRYPTO' else 'equity'

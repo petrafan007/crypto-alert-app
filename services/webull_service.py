@@ -441,18 +441,51 @@ def get_webull_market_bars(
         params.update({'instrument_id': str(instrument_id), 'contract_id': str(instrument_id)})
     if is_futures:
         params['category'] = 'US_FUTURES'
-    payload = _response_payload(
-        _webull_request(
-            app_key, app_secret, environment, 'GET', path,
-            query_params=params, access_token=access_token,
-        ),
-        'market-data request',
-    )
     bars_by_time = {}
-    for raw_bar in _webull_records(payload):
-        bar = _normalise_webull_bar(raw_bar)
-        if bar:
-            bars_by_time[bar['time']] = bar
+    try:
+        payload = _response_payload(
+            _webull_request(
+                app_key, app_secret, environment, 'GET', path,
+                query_params=params, access_token=access_token,
+            ),
+            'market-data request',
+        )
+        for raw_bar in _webull_records(payload):
+            bar = _normalise_webull_bar(raw_bar)
+            if bar:
+                bars_by_time[bar['time']] = bar
+    except Exception as exc:
+        if clean_type in {'STOCK', 'EQUITY', 'ETF'}:
+            logger.info('Webull market-data bars request failed for %s (%s): %s; attempting yfinance fallback.', clean_symbol, clean_type, exc)
+            try:
+                import math
+                from routes.portfolio import _fetch_yfinance_klines
+                yf_interval = '1d' if clean_interval == 'D' else '1h'
+                yf_bars = _fetch_yfinance_klines(clean_symbol, interval=yf_interval, limit=safe_limit)
+                if yf_bars:
+                    for b in yf_bars:
+                        if b.get('close') is not None and not (isinstance(b['close'], float) and math.isnan(b['close'])):
+                            bars_by_time[b['time']] = b
+            except Exception as yf_exc:
+                logger.warning('yfinance fallback for %s failed: %s', clean_symbol, yf_exc)
+        else:
+            raise
+
+    # If bars_by_time is still empty and it's a stock/ETF, try snapshot to provide at least a current bar
+    if not bars_by_time and clean_type in {'STOCK', 'EQUITY', 'ETF'}:
+        try:
+            snapshot = get_webull_market_snapshot(
+                app_key, app_secret, environment, access_token,
+                symbol=clean_symbol, instrument_type=clean_type,
+            )
+            price = snapshot.get('price') or snapshot.get('regular_price')
+            if price and float(price) > 0:
+                t = int(snapshot.get('as_of') / 1000 if snapshot.get('as_of') else time.time())
+                p = float(price)
+                bars_by_time[t] = {'time': t, 'open': p, 'high': p, 'low': p, 'close': p, 'volume': 0}
+        except Exception:
+            pass
+
     return [bars_by_time[timestamp] for timestamp in sorted(bars_by_time)]
 
 
