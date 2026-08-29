@@ -125,6 +125,25 @@ The application utilizes a **unified PostgreSQL database**.
 
 Historical changelog entries retain the product name used when they were originally released. The application domain, repository slug, deployment folders, database, and service identifiers intentionally remain unchanged by the v2.45.0 brand update.
 
+## v2.58.0 (August 2026)
+
+- **Comprehensive Multi-Asset QA & Architectural Scouring for Webull Trading Platform**:
+  - **Full Asset Class Coverage & Verification**: Audited and confirmed flawless end-to-end wiring across all supported Webull asset classes:
+    - **Equities & ETFs**: Full support for Market, Limit, Stop Loss, Stop Loss Limit, Trailing Stop Loss, Market on Open (MOO), Market on Close (MOC), and Limit on Open (LOO) orders across Regular (`CORE`), Extended (`ALL`), and Overnight (`NIGHT`) trading sessions.
+    - **Fractional Cash Amount Trading**: Enhanced simulated paper trading to support fractional share purchases specified by cash dollar amount (`entrust_type: AMOUNT`, min $5.00), computing exact fractional shares based on real-time execution pricing.
+    - **Cryptocurrency**: Confirmed 24/7 continuous session trading with high decimal precision on Webull Crypto pairs (e.g. `BTCUSD`, `ETHUSD`, `SOLUSD`) with proper pair formatting and isolation.
+    - **Options**: Validated single-leg Call and Put options execution with strict 100x contract multiplier calculations for notional value, cash requirements, and position valuation. Added `underlying_symbol` tracking and independent contract identification to ensure different strikes and expirations on the same underlying equity never collide. Option positions now accurately mark to market using live option chain premiums rather than underlying equity prices.
+    - **Futures**: Audited CME, NYMEX, COMEX, and CBOT contracts (`ES`, `NQ`, `YM`, `RTY`, `MES`, `MNQ`, `CL`, `GC`, `SI`, `BTC`), verifying contract multiplier handling and live quote fallback mapping for offline/simulated trading.
+    - **Event Contracts (Prediction Markets)**: Verified limit order pricing ($0.01 to $0.99), binary outcomes (`YES` / `NO`), and quantity limits (up to 50,000 contracts).
+    - **Advanced Multi-Leg Combo & Bracket Orders**: Fully wired and verified OTO (One Triggers Other), OCO (One Cancels Other), OTOCO (One Triggers One Cancels Other), and primary orders with attached Take-Profit and Stop-Loss brackets across both live OpenAPI and simulated paper trading modes.
+  - **Automated Open Orders & History Tab Synchronization**:
+    - Enhanced `/api/webull/open-orders` to seamlessly return working and open simulated orders when in Test Mode (`TEST_PAPER_ACCOUNT`), ensuring open orders immediately populate the table upon placement.
+    - Added instant history refresh upon order placement across single, bracket, and combo orders.
+  - **Paper Order Cancellation Flow**:
+    - Wired `/api/webull/orders/cancel` to cleanly cancel simulated paper orders (`SIM_...`), transitioning their status to `Cancelled` and immediately reflecting in the open orders and history tables.
+  - **Option Ticket Quote Synchronization**:
+    - Synchronized `livePrice` state immediately upon selecting option contracts from the interactive Option Chain, ensuring real-time contract premium displays in the ticket without delay.
+
 ## v2.57.1 (August 2026)
 
 - **Un-Funded Default for Webull Paper Trading**:

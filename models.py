@@ -162,6 +162,8 @@ class WebullTestPosition(db.Model):
     option_type = db.Column(db.String(10), nullable=True)
     option_strike = db.Column(db.Float, nullable=True)
     option_expiration = db.Column(db.String(20), nullable=True)
+    underlying_symbol = db.Column(db.String(40), nullable=True)
+    event_outcome = db.Column(db.String(10), nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -175,6 +177,7 @@ class WebullTestPosition(db.Model):
             'id': self.id,
             'user_id': self.user_id,
             'symbol': self.symbol,
+            'underlying_symbol': self.underlying_symbol,
             'instrument_type': self.instrument_type,
             'side': self.side,
             'quantity': float(self.quantity or 0.0),
@@ -186,6 +189,7 @@ class WebullTestPosition(db.Model):
             'option_type': self.option_type,
             'option_strike': self.option_strike,
             'option_expiration': self.option_expiration,
+            'event_outcome': self.event_outcome,
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None,
         }

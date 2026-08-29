@@ -130,6 +130,8 @@ def init_db(app=None):
             ("sentiment_history", "evaluation_method", "VARCHAR(32)"),
             ("sentiment_history", "grading_config", "TEXT"),
             ("watchlist", "asset_type", "VARCHAR(20) DEFAULT 'crypto'"),
+            ("webull_test_positions", "underlying_symbol", "VARCHAR(40)"),
+            ("webull_test_positions", "event_outcome", "VARCHAR(10)"),
         ]
         for table, col, col_type in columns_to_ensure:
             try:

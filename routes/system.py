@@ -2085,10 +2085,22 @@ def api_webull_portfolio_sync():
 @system_bp.route('/api/webull/open-orders', methods=['GET'])
 @login_required
 def api_webull_open_orders():
-    """Return Webull open orders for read-only combined order views."""
+    """Return Webull open orders for read-only combined order views or simulated paper open orders."""
     try:
-        credential = Credential.query.filter_by(user_id=current_user.id).first()
+        account_id = request.args.get('account_id')
         setting = UserSetting.query.filter_by(user_id=current_user.id).first()
+        is_paper = (
+            account_id == 'TEST_PAPER_ACCOUNT'
+            or request.args.get('test_mode') in {'true', '1'}
+            or (not account_id and getattr(setting, 'webull_test_mode_enabled', False))
+        )
+        if is_paper:
+            from services.webull_paper_trading_service import get_webull_test_orders
+            orders = get_webull_test_orders(current_user.id)
+            working_orders = [o for o in orders if o.get('status') in {'Working', 'Open'}]
+            return jsonify({'success': True, 'orders': working_orders})
+
+        credential = Credential.query.filter_by(user_id=current_user.id).first()
         environment = normalize_webull_environment(getattr(setting, 'webull_environment', None) or 'production')
         if (
             not credential or credential.webull_token_status != 'NORMAL'
@@ -2209,11 +2221,14 @@ def api_webull_place_order():
     try:
         data = request.get_json(silent=True) or {}
         setting = UserSetting.query.filter_by(user_id=current_user.id).first()
-        is_test_order = bool(
-            data.get('test_mode')
-            or data.get('account_id') == 'TEST_PAPER_ACCOUNT'
-            or getattr(setting, 'webull_test_mode_enabled', False)
-        )
+        test_mode_param = data.get('test_mode')
+        req_account_id = data.get('account_id')
+        if test_mode_param is False and req_account_id != 'TEST_PAPER_ACCOUNT':
+            is_test_order = False
+        elif test_mode_param is True or req_account_id == 'TEST_PAPER_ACCOUNT':
+            is_test_order = True
+        else:
+            is_test_order = bool(getattr(setting, 'webull_test_mode_enabled', False))
         if is_test_order:
             from services.webull_paper_trading_service import execute_webull_test_order
             try:
@@ -2574,8 +2589,9 @@ def api_webull_cancel_order():
     """Cancel an open Webull order or simulated paper order."""
     try:
         data = request.get_json(silent=True) or {}
-        order_id = str(data.get('order_id') or '')
-        if order_id.startswith('SIM_'):
+        order_id = str(data.get('order_id') or data.get('client_order_id') or data.get('id') or '')
+        account_id = data.get('account_id') or data.get('_webull_account_id')
+        if order_id.startswith('SIM_') or account_id == 'TEST_PAPER_ACCOUNT' or data.get('test_mode'):
             from services.webull_paper_trading_service import cancel_webull_test_order
             return jsonify(cancel_webull_test_order(current_user.id, order_id))
 

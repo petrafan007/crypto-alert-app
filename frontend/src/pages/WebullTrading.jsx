@@ -1673,6 +1673,7 @@ export default function WebullTrading({ isLightMode = false }) {
         } else {
           loadOpenOrders(selectedAccountId);
         }
+        loadHistory(selectedAccountId);
       } else {
         setOrderFeedback({ type: 'error', message: response.data.message || 'Order placement failed.' });
       }
@@ -1745,9 +1746,11 @@ export default function WebullTrading({ isLightMode = false }) {
         setOrderFeedback({ type: 'success', message: response.data.message || 'Webull combo order submitted successfully!' });
         if (isTestMode) {
           loadPaperTradingData();
+          loadOpenOrders('TEST_PAPER_ACCOUNT');
         } else {
           loadOpenOrders(selectedAccountId);
         }
+        loadHistory(selectedAccountId);
         setActiveTab('open_orders');
       } else {
         setOrderFeedback({ type: 'error', message: response.data?.message || 'Failed to submit combo order.' });
@@ -1923,9 +1926,12 @@ export default function WebullTrading({ isLightMode = false }) {
       setSelectedSymbol(contractData.symbol);
     }
     setSelectedOptionHoldingId('');
+    const premium = nonNegativeNumber(contractData.price);
+    if (premium > 0) {
+      setLivePrice(premium);
+    }
     setOrderForm((prev) => {
       const quantity = prev.quantity && Number(prev.quantity) > 0 ? prev.quantity : '1';
-      const premium = nonNegativeNumber(contractData.price);
       return {
         ...prev,
         optionType: contractData.optionType || 'CALL',
