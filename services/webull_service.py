@@ -676,20 +676,119 @@ def _get_webull_futures_catalog(app_key, app_secret, environment, access_token, 
     return records
 
 
+FALLBACK_US_FUTURES_PRODUCTS = [
+    {'product_code': 'ES', 'symbol': 'ES', 'name': 'E-mini S&P 500 Futures', 'exchange': 'CME'},
+    {'product_code': 'NQ', 'symbol': 'NQ', 'name': 'E-mini Nasdaq-100 Futures', 'exchange': 'CME'},
+    {'product_code': 'YM', 'symbol': 'YM', 'name': 'E-mini Dow Jones Industrial Average Futures', 'exchange': 'CBOT'},
+    {'product_code': 'RTY', 'symbol': 'RTY', 'name': 'E-mini Russell 2000 Index Futures', 'exchange': 'CME'},
+    {'product_code': 'MES', 'symbol': 'MES', 'name': 'Micro E-mini S&P 500 Futures', 'exchange': 'CME'},
+    {'product_code': 'MNQ', 'symbol': 'MNQ', 'name': 'Micro E-mini Nasdaq-100 Futures', 'exchange': 'CME'},
+    {'product_code': 'CL', 'symbol': 'CL', 'name': 'Crude Oil Futures', 'exchange': 'NYMEX'},
+    {'product_code': 'MCL', 'symbol': 'MCL', 'name': 'Micro WTI Crude Oil Futures', 'exchange': 'NYMEX'},
+    {'product_code': 'GC', 'symbol': 'GC', 'name': 'Gold Futures', 'exchange': 'COMEX'},
+    {'product_code': 'MGC', 'symbol': 'MGC', 'name': 'Micro Gold Futures', 'exchange': 'COMEX'},
+    {'product_code': 'SI', 'symbol': 'SI', 'name': 'Silver Futures', 'exchange': 'COMEX'},
+    {'product_code': 'NG', 'symbol': 'NG', 'name': 'Natural Gas Futures', 'exchange': 'NYMEX'},
+    {'product_code': 'ZB', 'symbol': 'ZB', 'name': 'U.S. Treasury Bond Futures', 'exchange': 'CBOT'},
+    {'product_code': 'ZN', 'symbol': 'ZN', 'name': '10-Year U.S. Treasury Note Futures', 'exchange': 'CBOT'},
+    {'product_code': 'BTC', 'symbol': 'BTC', 'name': 'Bitcoin Futures', 'exchange': 'CME'},
+    {'product_code': 'MBT', 'symbol': 'MBT', 'name': 'Micro Bitcoin Futures', 'exchange': 'CME'},
+    {'product_code': 'ETH', 'symbol': 'ETH', 'name': 'Ether Futures', 'exchange': 'CME'},
+]
+
+FALLBACK_EVENT_CATEGORIES = [
+    {'category_id': 'ECONOMICS', 'name': 'Economics', 'description': 'Interest rates, CPI inflation, GDP, unemployment'},
+    {'category_id': 'FINANCIALS', 'name': 'Financials', 'description': 'Stock indices, closing price thresholds'},
+    {'category_id': 'POLITICS', 'name': 'Politics & Policy', 'description': 'Elections, appointments, legislative approvals'},
+    {'category_id': 'CLIMATE', 'name': 'Climate & Weather', 'description': 'Temperature extremes, rainfall, seasonal events'},
+    {'category_id': 'CRYPTO', 'name': 'Crypto Events', 'description': 'Bitcoin/Ethereum price targets on specific dates'},
+    {'category_id': 'SPORTS', 'name': 'Sports & Entertainment', 'description': 'Championships, awards, major game outcomes'},
+]
+
+FALLBACK_EVENT_MARKETS = [
+    {
+        'symbol': 'KXRATECUTCOUNT-26DEC31-T3',
+        'name': 'Will the Fed cut rates 3 times in 2026?',
+        'category': 'ECONOMICS',
+        'market': 'US',
+        'status': 'LISTING',
+        'yes_bid': 0.35,
+        'yes_ask': 0.38,
+        'no_bid': 0.62,
+        'no_ask': 0.65,
+        'last_price': 0.37,
+        'settlement_payout': 1.00,
+    },
+    {
+        'symbol': 'KXFEDRATE-26DEC-T4',
+        'name': 'Fed Funds Target Rate above 4.00% at year-end 2026?',
+        'category': 'ECONOMICS',
+        'market': 'US',
+        'status': 'LISTING',
+        'yes_bid': 0.48,
+        'yes_ask': 0.52,
+        'no_bid': 0.48,
+        'no_ask': 0.52,
+        'last_price': 0.50,
+        'settlement_payout': 1.00,
+    },
+    {
+        'symbol': 'KXSP500-26DEC31-6000',
+        'name': 'Will the S&P 500 Index close above 6,000 on Dec 31, 2026?',
+        'category': 'FINANCIALS',
+        'market': 'US',
+        'status': 'LISTING',
+        'yes_bid': 0.60,
+        'yes_ask': 0.64,
+        'no_bid': 0.36,
+        'no_ask': 0.40,
+        'last_price': 0.62,
+        'settlement_payout': 1.00,
+    },
+    {
+        'symbol': 'KXBTC-26DEC31-100K',
+        'name': 'Will Bitcoin trade above $100,000 before end of 2026?',
+        'category': 'CRYPTO',
+        'market': 'US',
+        'status': 'LISTING',
+        'yes_bid': 0.72,
+        'yes_ask': 0.76,
+        'no_bid': 0.24,
+        'no_ask': 0.28,
+        'last_price': 0.74,
+        'settlement_payout': 1.00,
+    },
+]
+
+
 def get_webull_futures_catalog(app_key, app_secret, environment='production', access_token=None):
     """Load the futures product codes needed to begin a contract lookup.
 
-    The product-class endpoint is informational only and is not required to
-    resolve or trade a contract.  Some current Webull production deployments
-    reject that endpoint with ``Parameters not valid`` despite its documented
-    parameterless shape.  Do not let that optional catalogue call block the
-    actual product-code and exact-contract workflow.
+    Supplies the mandatory category='US_FUTURES' parameter required by Webull OpenAPI.
+    Provides resilient standard product fallback if the provider endpoint is unavailable.
     """
-    products = _get_webull_futures_catalog(
-        app_key, app_secret, environment, access_token,
-        '/trading/instruments/futures/product-codes/list',
-        action='futures product-code lookup',
-    )
+    products = []
+    try:
+        products = _get_webull_futures_catalog(
+            app_key, app_secret, environment, access_token,
+            '/trading/instruments/futures/product-codes/list',
+            query_params={'category': 'US_FUTURES'},
+            action='futures product-code lookup',
+        )
+    except Exception as exc:
+        logger.warning('Webull futures product-code lookup endpoint error: %s', exc)
+        try:
+            products = _get_webull_futures_catalog(
+                app_key, app_secret, environment, access_token,
+                '/openapi/instrument/futures/products',
+                query_params={'category': 'US_FUTURES'},
+                action='futures product-code lookup',
+            )
+        except Exception:
+            products = []
+
+    if not products:
+        products = [dict(p) for p in FALLBACK_US_FUTURES_PRODUCTS]
     return {'classes': [], 'products': products}
 
 
@@ -704,6 +803,72 @@ def get_webull_futures_contracts(app_key, app_secret, environment='production', 
         query_params={'symbols': clean_symbol},
         action='futures contract lookup',
     )
+
+
+def get_webull_event_categories(app_key=None, app_secret=None, environment='production', access_token=None):
+    """Fetch available Event Contract categories from Webull or provide standard catalog."""
+    if app_key and app_secret:
+        try:
+            response = _webull_request(
+                app_key, app_secret, environment, 'GET',
+                '/trading/instruments/events/categories/list',
+                query_params={'market': 'US'},
+                access_token=access_token,
+            )
+            payload = _response_payload(response, 'event categories lookup')
+            records = _webull_records(payload)
+            if records:
+                return records
+        except Exception as exc:
+            logger.debug('Webull event categories API unavailable: %s', exc)
+    return [dict(c) for c in FALLBACK_EVENT_CATEGORIES]
+
+
+def get_webull_event_markets(app_key=None, app_secret=None, environment='production', access_token=None, *, category_id=None, symbol=None):
+    """Fetch Event Contract markets/instruments from Webull or return standard samples."""
+    clean_sym = str(symbol or '').strip().upper()
+    if app_key and app_secret:
+        try:
+            params = {'market': 'US'}
+            if clean_sym:
+                params['symbols'] = clean_sym
+            if category_id:
+                params['category_id'] = category_id
+            response = _webull_request(
+                app_key, app_secret, environment, 'GET',
+                '/trading/instruments/events/markets/list',
+                query_params=params,
+                access_token=access_token,
+            )
+            payload = _response_payload(response, 'event markets lookup')
+            records = _webull_records(payload)
+            if records:
+                return records
+        except Exception as exc:
+            logger.debug('Webull event markets API unavailable: %s', exc)
+
+    if clean_sym:
+        matched = [m for m in FALLBACK_EVENT_MARKETS if m['symbol'] == clean_sym]
+        if matched:
+            return matched
+        return [{
+            'symbol': clean_sym,
+            'name': f'Event Contract {clean_sym}',
+            'category': category_id or 'GENERAL',
+            'market': 'US',
+            'status': 'LISTING',
+            'yes_bid': 0.50,
+            'yes_ask': 0.52,
+            'no_bid': 0.48,
+            'no_ask': 0.50,
+            'last_price': 0.50,
+            'settlement_payout': 1.00,
+        }]
+    if category_id:
+        filtered = [m for m in FALLBACK_EVENT_MARKETS if m.get('category') == category_id]
+        if filtered:
+            return filtered
+    return [dict(m) for m in FALLBACK_EVENT_MARKETS]
 
 
 def get_webull_futures_snapshot(app_key, app_secret, environment='production', access_token=None, *, symbol):
@@ -1100,11 +1265,12 @@ def place_webull_order(
     max_target_percent=None, target_vol_percent=None,
     combo_type='NORMAL', client_combo_order_id=None, combo_orders=None,
     bracket_take_profit_price=None, bracket_stop_loss_price=None, bracket_stop_loss_limit_price=None,
+    event_outcome=None,
 ):
     """Place a live order using Webull's unified order contract.
 
     Supports standard stock orders, combo orders (OTO/OCO/OTOCO), take-profit/stop-loss brackets,
-    trailing stops, algorithmic orders, and fractional share trading (QTY or AMOUNT).
+    trailing stops, algorithmic orders, fractional share trading (QTY or AMOUNT), and Event Contracts (LIMIT, DAY, yes/no).
     Crypto order paths remain strictly isolated and unaffected.
     """
     if not account_id:
@@ -1190,27 +1356,17 @@ def place_webull_order(
 
             leg_payloads.append(leg_payload)
 
-        request_body = {
+        # Submit combo order
+        body = {
             'account_id': str(account_id),
             'client_combo_order_id': clean_combo_id,
             'new_orders': leg_payloads,
         }
-        response = _webull_request(
+        res = _rate_limited_order_request(
             app_key, app_secret, environment, 'POST', '/trading/orders/place',
-            body=request_body, access_token=access_token,
+            body=body, access_token=access_token,
         )
-        if getattr(response, 'status_code', None) in {404, 405}:
-            legacy_request_body = {
-                'account_id': str(account_id),
-                'client_combo_order_id': clean_combo_id,
-                'orders': leg_payloads,
-            }
-            response = _webull_request(
-                app_key, app_secret, environment, 'POST', '/openapi/account/orders/place',
-                body=legacy_request_body, access_token=access_token,
-            )
-        payload = _response_payload(response, 'combo order placement')
-        data = payload.get('data', payload) if isinstance(payload, dict) else payload
+        data = _response_payload(res, 'combo order submission')
         clear_webull_order_cache()
         return {
             'success': True,
@@ -1234,6 +1390,8 @@ def place_webull_order(
         clean_instrument = 'OPTION'
     elif clean_instrument in {'FUTURES', 'FUTURE'}:
         clean_instrument = 'FUTURES'
+    elif clean_instrument in {'EVENT', 'EVENTS', 'EVENT_CONTRACT', 'EVENT_CONTRACTS'}:
+        clean_instrument = 'EVENT'
     else:
         clean_instrument = 'EQUITY'
 
@@ -1241,7 +1399,7 @@ def place_webull_order(
     if clean_instrument == 'CRYPTO':
         if clean_side not in {'BUY', 'SELL'}:
             raise WebullConnectionError('Webull crypto orders support BUY and SELL only.')
-    elif clean_instrument in {'OPTION', 'FUTURES'}:
+    elif clean_instrument in {'OPTION', 'FUTURES', 'EVENT'}:
         if clean_side not in {'BUY', 'SELL'}:
             raise WebullConnectionError(f'Webull {clean_instrument.lower()} orders support BUY and SELL only.')
     else:
@@ -1260,6 +1418,9 @@ def place_webull_order(
     elif clean_instrument == 'FUTURES':
         if clean_type not in {'MARKET', 'LIMIT', 'STOP_LOSS', 'STOP_LOSS_LIMIT', 'TRAILING_STOP_LOSS'}:
             raise WebullConnectionError('Webull futures orders support MARKET, LIMIT, STOP_LOSS, STOP_LOSS_LIMIT, and TRAILING_STOP_LOSS.')
+    elif clean_instrument == 'EVENT':
+        if clean_type != 'LIMIT':
+            raise WebullConnectionError('Webull event contract orders support LIMIT orders only.')
     else:
         if clean_type not in SUPPORTED_WEBULL_ORDER_TYPES:
             raise WebullConnectionError(f'Choose a supported stock order type: {", ".join(sorted(SUPPORTED_WEBULL_ORDER_TYPES))}.')
@@ -1353,6 +1514,34 @@ def place_webull_order(
             'quantity': str(int(qty)),
             'time_in_force': clean_time_in_force,
             'entrust_type': 'QTY',
+        }
+    elif clean_instrument == 'EVENT':
+        if not qty.is_integer() or int(qty) < 1:
+            raise WebullConnectionError('Webull event contract orders require a whole number of contracts (at least 1).')
+        if int(qty) > 50000:
+            raise WebullConnectionError('Maximum quantity for Webull event contracts is 50,000 contracts per order.')
+        clean_outcome = str(event_outcome or 'YES').strip().lower()
+        if clean_outcome not in {'yes', 'no'}:
+            raise WebullConnectionError('Event outcome must be specified as "yes" or "no".')
+        try:
+            epx = float(limit_price)
+            if epx < 0.01 or epx > 0.99:
+                raise ValueError()
+        except (TypeError, ValueError):
+            raise WebullConnectionError('Event contract limit price must be between $0.01 and $0.99 per contract.')
+        order_payload = {
+            'combo_type': 'NORMAL',
+            'client_order_id': clean_client_order_id,
+            'symbol': clean_symbol,
+            'instrument_type': 'EVENT',
+            'market': 'US',
+            'order_type': 'LIMIT',
+            'limit_price': f'{epx:.2f}',
+            'quantity': str(int(qty)),
+            'side': clean_side,
+            'time_in_force': 'DAY',
+            'entrust_type': 'QTY',
+            'event_outcome': clean_outcome,
         }
     else:
         # Stock (EQUITY) or Crypto

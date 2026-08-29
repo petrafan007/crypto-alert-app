@@ -1,6 +1,6 @@
 # Crypto & Securities Dashboard
 
-**Crypto & Securities Dashboard** is a comprehensive, non-custodial digital-asset and securities portfolio management and trading platform for Binance.US and Webull. It provides real-time portfolio tracking, automated price alerts, exchange-scoped order workflows, built-in staking management, and AI-powered market sentiment analysis. Webull supports explicitly authorized, account-scoped equity/ETF, crypto, single-leg option, and futures orders; no provider data or orders cross exchange boundaries.
+**Crypto & Securities Dashboard** is a comprehensive, non-custodial digital-asset and securities portfolio management and trading platform for Binance.US and Webull. It provides real-time portfolio tracking, automated price alerts, exchange-scoped order workflows, built-in staking management, and AI-powered market sentiment analysis. Webull supports explicitly authorized, account-scoped equity/ETF, crypto, single-leg option, futures, and event contract orders; no provider data or orders cross exchange boundaries.
 
 **Last Updated**: August 2026
 
@@ -124,6 +124,23 @@ The application utilizes a **unified PostgreSQL database**.
 ## Version History & Changelog
 
 Historical changelog entries retain the product name used when they were originally released. The application domain, repository slug, deployment folders, database, and service identifiers intentionally remain unchanged by the v2.45.0 brand update.
+
+## v2.56.0 (August 2026)
+
+- **Webull Order Ticket Layout Re-alignment**:
+  - **Stacked Order Controls**: Moved Order Types directly underneath Order Side in the Webull trading ticket (`/trading/webull`), resolving inline horizontal crowding and creating an intuitive vertical progression.
+  - **Balanced 3-Column Grid for Equities**: Styled Order Side as a full-width 3-column segmented grid when Equities is selected, neatly presenting `Buy`, `Sell`, and `Short` side options.
+
+- **Webull Futures Catalogue Lookup Fix**:
+  - **Mandatory Category Parameter**: Fixed HTTP 400 `Parameters not valid` error on Webull futures product-code lookups by including the required `category=US_FUTURES` query parameter in Webull OpenAPI requests.
+  - **Resilient Fallbacks**: Added standard CME/CBOT/NYMEX/COMEX futures product definitions so the futures interface initializes seamlessly without error banners even if the provider lookup fluctuates.
+
+- **Webull Event Contracts (Binary Outcome Contracts) Asset Class**:
+  - **Dedicated Asset Class**: Added **Event Contracts** as a new asset class positioned immediately to the right of Futures (`Equities & ETFs` | `Crypto` | `Options (Calls & Puts)` | `Futures` | `Event Contracts`).
+  - **Event Contract Setup Card**: Category explorer (`Economics`, `Financials`, `Politics`, `Climate`, `Crypto`, `Sports`), market dropdowns, and custom symbol lookups.
+  - **Binary Outcome Selector**: Intuitive `YES` / `NO` toggle with real-time implied probability calculation.
+  - **Webull API Compliance**: Enforces strict Webull Event Contract requirements: limit orders only ($0.01 – $0.99), DAY time in force, whole contract quantities up to 50,000 contracts, settling at $1.00 on win or $0.00 on loss.
+  - **Crypto Isolation**: All cryptocurrency trading paths and rules remain completely separate and unaffected.
 
 ## v2.55.0 (August 2026)
 

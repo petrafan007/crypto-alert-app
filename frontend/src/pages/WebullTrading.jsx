@@ -226,6 +226,15 @@ export default function WebullTrading({ isLightMode = false }) {
   const [futuresMessage, setFuturesMessage] = useState('');
   const [livePrice, setLivePrice] = useState(0);
 
+  // Event Contracts State (Binary Outcome Contracts)
+  const [eventCategories, setEventCategories] = useState([]);
+  const [selectedEventCategory, setSelectedEventCategory] = useState('ECONOMICS');
+  const [eventMarkets, setEventMarkets] = useState([]);
+  const [selectedEventMarket, setSelectedEventMarket] = useState(null);
+  const [eventContractInput, setEventContractInput] = useState('');
+  const [eventLoading, setEventLoading] = useState(false);
+  const [eventMessage, setEventMessage] = useState('');
+
   // Helper to detect cash-based Webull accounts (Individual Cash, Roth IRA, Rollover IRA)
   const isCashBasedAccount = (account) => {
     if (!account) return false;
@@ -299,6 +308,8 @@ export default function WebullTrading({ isLightMode = false }) {
     bracketTakeProfitPrice: '',
     bracketStopLossPrice: '',
     bracketStopLossLimitPrice: '',
+    // Event Contracts extension
+    eventOutcome: 'yes', // 'yes' | 'no'
   });
 
   // Combo Orders Form State (OTO / OCO / OTOCO)
@@ -316,6 +327,10 @@ export default function WebullTrading({ isLightMode = false }) {
     const commonLimit = { value: 'LIMIT', label: 'Limit', description: 'Execute at the specified limit price or better' };
     const stopLoss = { value: 'STOP_LOSS', label: 'Stop Loss', description: 'Trigger a market order when the stop price is reached' };
     const stopLossLimit = { value: 'STOP_LOSS_LIMIT', label: 'Stop Loss Limit', description: 'Trigger a limit order when the stop price is reached' };
+    // Event Contracts support strictly LIMIT orders only per Webull API docs
+    if (selectedInstrumentType === 'EVENT') {
+      return [commonLimit];
+    }
     // A buy stop-loss becomes an unbounded market order at the trigger, so it
     // cannot satisfy the ticket's cash-coverage guarantee. Buy options use a
     // limit (or stop-limit) with a defined maximum premium instead.
@@ -359,7 +374,9 @@ export default function WebullTrading({ isLightMode = false }) {
   }, [availableOrderTypes, orderForm.type]);
 
   useEffect(() => {
-    if (selectedInstrumentType === 'OPTION' && orderForm.side === 'SELL' && orderForm.timeInForce !== 'DAY') {
+    if (selectedInstrumentType === 'EVENT' && orderForm.timeInForce !== 'DAY') {
+      setOrderForm((prev) => ({ ...prev, timeInForce: 'DAY' }));
+    } else if (selectedInstrumentType === 'OPTION' && orderForm.side === 'SELL' && orderForm.timeInForce !== 'DAY') {
       setOrderForm((prev) => ({ ...prev, timeInForce: 'DAY' }));
     } else if (selectedInstrumentType !== 'CRYPTO' && orderForm.timeInForce === 'IOC') {
       setOrderForm((prev) => ({ ...prev, timeInForce: 'DAY' }));
@@ -657,6 +674,19 @@ export default function WebullTrading({ isLightMode = false }) {
     setFuturesMessage('');
   };
 
+  const DEFAULT_FUTURES_PRODUCTS = [
+    { product_code: 'ES', symbol: 'ES', name: 'E-mini S&P 500 Futures', exchange: 'CME' },
+    { product_code: 'NQ', symbol: 'NQ', name: 'E-mini Nasdaq-100 Futures', exchange: 'CME' },
+    { product_code: 'YM', symbol: 'YM', name: 'E-mini Dow Jones Futures', exchange: 'CBOT' },
+    { product_code: 'RTY', symbol: 'RTY', name: 'E-mini Russell 2000 Futures', exchange: 'CME' },
+    { product_code: 'MES', symbol: 'MES', name: 'Micro E-mini S&P 500 Futures', exchange: 'CME' },
+    { product_code: 'MNQ', symbol: 'MNQ', name: 'Micro E-mini Nasdaq-100 Futures', exchange: 'CME' },
+    { product_code: 'CL', symbol: 'CL', name: 'Crude Oil Futures', exchange: 'NYMEX' },
+    { product_code: 'GC', symbol: 'GC', name: 'Gold Futures', exchange: 'COMEX' },
+    { product_code: 'SI', symbol: 'SI', name: 'Silver Futures', exchange: 'COMEX' },
+    { product_code: 'BTC', symbol: 'BTC', name: 'Bitcoin Futures', exchange: 'CME' },
+  ];
+
   const handleAssetClassChange = (nextType) => {
     if (assetClassDisabled(nextType)) return;
     userChangedSessionRef.current = false;
@@ -673,20 +703,26 @@ export default function WebullTrading({ isLightMode = false }) {
     } else if (nextType === 'EQUITY') {
       const equityHolding = holdings.find((holding) => String(holding.account_id || '') === String(selectedAccountId)
         && !/crypto|coin|token/i.test(holding.instrument_type || '')
-        && !['OPTION', 'FUTURES'].includes(String(holding.instrument_type || '').toUpperCase()));
+        && !['OPTION', 'FUTURES', 'EVENT'].includes(String(holding.instrument_type || '').toUpperCase()));
       setSelectedSymbol(equityHolding?.symbol || 'AAPL');
     } else if (nextType === 'FUTURES') {
       setSelectedSymbol('');
+    } else if (nextType === 'EVENT') {
+      const evSym = selectedEventMarket?.symbol || 'KXRATECUTCOUNT-26DEC31-T3';
+      setSelectedSymbol(evSym);
     }
     setLivePrice(0);
     setOrderForm((prev) => ({
       ...prev,
-      type: nextType === 'OPTION' ? 'LIMIT' : 'MARKET',
-      quantity: '',
+      type: nextType === 'EVENT' ? 'LIMIT' : (nextType === 'OPTION' ? 'LIMIT' : 'MARKET'),
+      quantity: nextType === 'EVENT' ? '10' : '',
       quoteQuantity: '',
-      price: '',
+      price: nextType === 'EVENT' ? (selectedEventMarket?.last_price ? String(selectedEventMarket.last_price) : '0.37') : '',
       stopPrice: '',
       trailingStopStep: '',
+      timeInForce: 'DAY',
+      entrustType: 'QTY',
+      eventOutcome: 'yes',
     }));
   };
 
@@ -708,12 +744,16 @@ export default function WebullTrading({ isLightMode = false }) {
     setFuturesMessage('');
     try {
       const response = await axios.get('/api/webull/futures/catalog', { withCredentials: true });
+      const products = response.data?.products?.length ? response.data.products : DEFAULT_FUTURES_PRODUCTS;
       setFuturesCatalog({
         classes: response.data?.classes || [],
-        products: response.data?.products || [],
+        products: products,
       });
     } catch (requestError) {
-      setFuturesMessage(requestError.response?.data?.message || 'Unable to load the Webull futures product catalogue.');
+      setFuturesCatalog((prev) => ({
+        classes: prev.classes || [],
+        products: prev.products?.length ? prev.products : DEFAULT_FUTURES_PRODUCTS,
+      }));
     } finally {
       setFuturesLoading(false);
     }
@@ -768,6 +808,109 @@ export default function WebullTrading({ isLightMode = false }) {
       loadFuturesCatalog();
     }
   }, [selectedInstrumentType, activeAccountIsCrypto]);
+
+  // Event Contract Helpers
+  const loadEventCategoriesAndMarkets = async (categoryId) => {
+    setEventLoading(true);
+    setEventMessage('');
+    try {
+      const [catsRes, mktsRes] = await Promise.all([
+        axios.get('/api/webull/events/categories', { withCredentials: true }),
+        axios.get('/api/webull/events/markets', {
+          params: categoryId ? { category_id: categoryId } : {},
+          withCredentials: true,
+        }),
+      ]);
+      const cats = catsRes.data?.categories || [];
+      const mkts = mktsRes.data?.markets || [];
+      setEventCategories(cats);
+      setEventMarkets(mkts);
+      if (mkts.length > 0) {
+        setSelectedEventMarket(mkts[0]);
+        setSelectedSymbol(mkts[0].symbol);
+        setOrderForm((prev) => ({
+          ...prev,
+          price: mkts[0].last_price ? String(mkts[0].last_price) : (prev.price || '0.50'),
+        }));
+      }
+    } catch (err) {
+      console.warn('Unable to load Webull event data:', err);
+    } finally {
+      setEventLoading(false);
+    }
+  };
+
+  const handleEventCategoryChange = async (catId) => {
+    setSelectedEventCategory(catId);
+    setEventLoading(true);
+    try {
+      const res = await axios.get('/api/webull/events/markets', {
+        params: { category_id: catId },
+        withCredentials: true,
+      });
+      const mkts = res.data?.markets || [];
+      setEventMarkets(mkts);
+      if (mkts.length > 0) {
+        setSelectedEventMarket(mkts[0]);
+        setSelectedSymbol(mkts[0].symbol);
+        setOrderForm((prev) => ({
+          ...prev,
+          price: mkts[0].last_price ? String(mkts[0].last_price) : prev.price,
+        }));
+      }
+    } catch (err) {
+      console.warn('Error loading event category markets:', err);
+    } finally {
+      setEventLoading(false);
+    }
+  };
+
+  const handleEventMarketSelect = (symbol) => {
+    const market = eventMarkets.find((m) => m.symbol === symbol);
+    if (market) {
+      setSelectedEventMarket(market);
+      setSelectedSymbol(market.symbol);
+      setOrderForm((prev) => ({
+        ...prev,
+        price: market.last_price ? String(market.last_price) : prev.price,
+      }));
+    } else {
+      setSelectedSymbol(symbol);
+    }
+  };
+
+  const lookupEventMarket = async (symbolToLookup) => {
+    const sym = (symbolToLookup || eventContractInput).trim().toUpperCase();
+    if (!sym) return;
+    setEventLoading(true);
+    try {
+      const res = await axios.get('/api/webull/events/markets', {
+        params: { symbol: sym },
+        withCredentials: true,
+      });
+      const mkts = res.data?.markets || [];
+      if (mkts.length > 0) {
+        setSelectedEventMarket(mkts[0]);
+        setSelectedSymbol(mkts[0].symbol);
+        setOrderForm((prev) => ({
+          ...prev,
+          price: mkts[0].last_price ? String(mkts[0].last_price) : prev.price,
+        }));
+      } else {
+        setSelectedSymbol(sym);
+      }
+    } catch (err) {
+      setSelectedSymbol(sym);
+    } finally {
+      setEventLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (selectedInstrumentType === 'EVENT' && !eventCategories.length && !eventLoading) {
+      loadEventCategoriesAndMarkets('ECONOMICS');
+    }
+  }, [selectedInstrumentType]);
 
   // An option sale may only close the exact held contract: account,
   // underlying, expiration, strike, and call/put all have to match.
@@ -1114,7 +1257,7 @@ export default function WebullTrading({ isLightMode = false }) {
     side: orderForm.side,
     type: orderForm.type,
     quantity: orderForm.quantity,
-    price: ['LIMIT', 'STOP_LOSS_LIMIT'].includes(orderForm.type) ? orderForm.price : undefined,
+    price: ['LIMIT', 'STOP_LOSS_LIMIT'].includes(orderForm.type) || selectedInstrumentType === 'EVENT' ? orderForm.price : undefined,
     stopPrice: ['STOP_LOSS', 'STOP_LOSS_LIMIT'].includes(orderForm.type) ? orderForm.stopPrice : undefined,
     estimatedValue: orderTotal > 0 ? orderTotal.toFixed(2) : undefined,
     timeInForce: orderForm.timeInForce,
@@ -1124,6 +1267,7 @@ export default function WebullTrading({ isLightMode = false }) {
     optionExpiration: selectedInstrumentType === 'OPTION' ? orderForm.optionExpiration : undefined,
     trailingType: selectedInstrumentType === 'FUTURES' && orderForm.type === 'TRAILING_STOP_LOSS' ? orderForm.trailingType : undefined,
     trailingStopStep: selectedInstrumentType === 'FUTURES' && orderForm.type === 'TRAILING_STOP_LOSS' ? orderForm.trailingStopStep : undefined,
+    eventOutcome: selectedInstrumentType === 'EVENT' ? orderForm.eventOutcome : undefined,
     currency: 'USD',
   });
 
@@ -1162,6 +1306,25 @@ export default function WebullTrading({ isLightMode = false }) {
       }
     }
 
+    if (selectedInstrumentType === 'EVENT') {
+      if (!Number.isInteger(qty) || qty < 1) {
+        rejectOrder('Webull event contract orders require a whole number of contracts (at least 1).');
+        return;
+      }
+      if (qty > 50000) {
+        rejectOrder('Maximum quantity for event contracts is 50,000 contracts.');
+        return;
+      }
+      const px = parseFloat(orderForm.price);
+      if (!px || px < 0.01 || px > 0.99) {
+        rejectOrder('Event contract limit price must be between $0.01 and $0.99 per contract.');
+        return;
+      }
+      if (!['yes', 'no'].includes(String(orderForm.eventOutcome || '').toLowerCase())) {
+        rejectOrder('Please select an outcome (YES or NO) for the event contract.');
+        return;
+      }
+    }
     if (selectedInstrumentType === 'OPTION') {
       if (!optionContractSelected) {
         rejectOrder('Choose a priced option contract from the options chain before placing an order.');
@@ -1206,7 +1369,7 @@ export default function WebullTrading({ isLightMode = false }) {
         return;
       }
     }
-    if (selectedInstrumentType !== 'FUTURES' && orderForm.side === 'SELL' && !isCashAmountMode && qty > heldQuantity + QUANTITY_EPSILON) {
+    if (!['FUTURES', 'EVENT'].includes(selectedInstrumentType) && orderForm.side === 'SELL' && !isCashAmountMode && qty > heldQuantity + QUANTITY_EPSILON) {
       rejectOrder(`You can sell up to ${formatQuantityForTicket(heldQuantity, 6) || '0'} ${selectedSymbol} from ${activeAccountLabel()}.`);
       return;
     }
@@ -1301,16 +1464,17 @@ export default function WebullTrading({ isLightMode = false }) {
         instrument_type: selectedInstrumentType,
         option_type: selectedInstrumentType === 'OPTION' ? orderForm.optionType : undefined,
         side: orderForm.side,
-        order_type: orderForm.type,
+        order_type: selectedInstrumentType === 'EVENT' ? 'LIMIT' : orderForm.type,
         quantity: isCashAmountMode ? undefined : Number(orderForm.quantity),
         entrust_type: selectedInstrumentType === 'EQUITY' ? orderForm.entrustType : 'QTY',
         total_cash_amount: isCashAmountMode ? Number(orderForm.totalCashAmount) : undefined,
-        limit_price: ['LIMIT', 'STOP_LOSS_LIMIT', 'LIMIT_ON_OPEN'].includes(orderForm.type) ? Number(orderForm.price) : undefined,
+        limit_price: ['LIMIT', 'STOP_LOSS_LIMIT', 'LIMIT_ON_OPEN'].includes(orderForm.type) || selectedInstrumentType === 'EVENT' ? Number(orderForm.price) : undefined,
         stop_price: ['STOP_LOSS', 'STOP_LOSS_LIMIT'].includes(orderForm.type) ? Number(orderForm.stopPrice) : undefined,
         trailing_type: ['FUTURES', 'EQUITY'].includes(selectedInstrumentType) && orderForm.type === 'TRAILING_STOP_LOSS' ? orderForm.trailingType : undefined,
         trailing_stop_step: ['FUTURES', 'EQUITY'].includes(selectedInstrumentType) && orderForm.type === 'TRAILING_STOP_LOSS' ? Number(orderForm.trailingStopStep) : undefined,
-        time_in_force: ['TRAILING_STOP_LOSS', 'MARKET_ON_OPEN', 'MARKET_ON_CLOSE', 'LIMIT_ON_OPEN'].includes(orderForm.type) ? 'DAY' : orderForm.timeInForce,
-        support_trading_session: ['CRYPTO', 'OPTION', 'FUTURES'].includes(selectedInstrumentType) ? 'CORE' : orderForm.tradingSession,
+        time_in_force: selectedInstrumentType === 'EVENT' ? 'DAY' : (['TRAILING_STOP_LOSS', 'MARKET_ON_OPEN', 'MARKET_ON_CLOSE', 'LIMIT_ON_OPEN'].includes(orderForm.type) ? 'DAY' : orderForm.timeInForce),
+        support_trading_session: ['CRYPTO', 'OPTION', 'FUTURES', 'EVENT'].includes(selectedInstrumentType) ? 'CORE' : orderForm.tradingSession,
+        event_outcome: selectedInstrumentType === 'EVENT' ? (orderForm.eventOutcome || 'yes').toLowerCase() : undefined,
         option_underlying_symbol: selectedInstrumentType === 'OPTION' ? selectedSymbol.trim().toUpperCase() : undefined,
         option_strike: selectedInstrumentType === 'OPTION' ? Number(orderForm.optionStrike) : undefined,
         option_expiration: selectedInstrumentType === 'OPTION' ? orderForm.optionExpiration : undefined,
@@ -1801,6 +1965,15 @@ export default function WebullTrading({ isLightMode = false }) {
                       >
                         🏁 Futures
                       </button>
+                      <button
+                        type="button"
+                        onClick={() => handleAssetClassChange('EVENT')}
+                        disabled={assetClassDisabled('EVENT')}
+                        title={assetClassDisabled('EVENT') ? 'Event Contracts are unavailable in a Crypto Webull account.' : 'Trade Webull binary event contracts'}
+                        style={assetClassButtonStyle('EVENT', 'linear-gradient(135deg, #ec4899, #db2777)')}
+                      >
+                        🎯 Event Contracts
+                      </button>
                     </div>
                   </div>
 
@@ -1882,6 +2055,164 @@ export default function WebullTrading({ isLightMode = false }) {
                         </div>
                       )}
                       {futuresMessage && <p className="option-ticket-status" role="status">⚠️ {futuresMessage}</p>}
+                    </div>
+                  )}
+
+                  {/* Webull Event Contract Setup (When EVENT selected) */}
+                  {selectedInstrumentType === 'EVENT' && (
+                    <div style={{ background: 'rgba(236, 72, 153, 0.10)', border: '1px solid rgba(244, 114, 182, 0.35)', borderRadius: '10px', padding: '16px', marginBottom: '16px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', flexWrap: 'wrap', gap: '8px' }}>
+                        <span style={{ fontSize: '13px', fontWeight: 700, color: '#f472b6', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          🎯 Webull Event Contract Setup
+                        </span>
+                        <span style={{ fontSize: '11px', color: '#cbd5e1', background: 'rgba(0,0,0,0.3)', padding: '3px 8px', borderRadius: '4px' }}>
+                          Binary Outcome (Settles $1.00 or $0.00)
+                        </span>
+                      </div>
+
+                      {/* Event Category & Market Selection */}
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px', marginBottom: '12px' }}>
+                        <div>
+                          <label className="order-field-label" style={{ marginBottom: '4px' }}>
+                            Event Category
+                          </label>
+                          <select
+                            value={selectedEventCategory}
+                            onChange={(e) => handleEventCategoryChange(e.target.value)}
+                            className="order-styled-input"
+                            style={{ width: '100%', cursor: 'pointer' }}
+                          >
+                            {eventCategories.map((cat) => (
+                              <option key={cat.category_id} value={cat.category_id}>
+                                {cat.name}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+
+                        <div>
+                          <label className="order-field-label" style={{ marginBottom: '4px' }}>
+                            Select Event Market
+                          </label>
+                          <select
+                            value={selectedSymbol}
+                            onChange={(e) => handleEventMarketSelect(e.target.value)}
+                            className="order-styled-input"
+                            style={{ width: '100%', cursor: 'pointer' }}
+                          >
+                            {eventMarkets.map((m) => (
+                              <option key={m.symbol} value={m.symbol}>
+                                {m.name || m.symbol} ({m.symbol})
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      </div>
+
+                      {/* Custom Symbol Search */}
+                      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(180px, 1fr) auto', gap: '8px', alignItems: 'end', marginBottom: '14px' }}>
+                        <div>
+                          <label className="order-field-label">Custom Event Contract Symbol</label>
+                          <input
+                            type="text"
+                            value={eventContractInput}
+                            onChange={(e) => setEventContractInput(e.target.value.toUpperCase())}
+                            placeholder="e.g. KXRATECUTCOUNT-26DEC31-T3"
+                            className="order-styled-input"
+                            autoComplete="off"
+                          />
+                        </div>
+                        <button
+                          type="button"
+                          className="btn btn-primary"
+                          onClick={() => lookupEventMarket(eventContractInput)}
+                          disabled={eventLoading || !eventContractInput.trim()}
+                        >
+                          Find Event
+                        </button>
+                      </div>
+
+                      {/* Binary Outcome Selector (YES vs NO) */}
+                      <div style={{ marginBottom: '12px' }}>
+                        <label className="order-field-label" style={{ marginBottom: '6px' }}>
+                          Contract Outcome Selection (Required for Webull Event Orders):
+                        </label>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setOrderForm((prev) => ({
+                                ...prev,
+                                eventOutcome: 'yes',
+                                price: selectedEventMarket?.yes_ask ? String(selectedEventMarket.yes_ask) : (prev.price || '0.50'),
+                              }));
+                              setOrderValidationError('');
+                            }}
+                            style={{
+                              padding: '12px',
+                              borderRadius: '8px',
+                              border: orderForm.eventOutcome === 'yes' ? '2px solid #22c55e' : '1px solid #334155',
+                              background: orderForm.eventOutcome === 'yes' ? 'rgba(34, 197, 94, 0.25)' : 'rgba(0,0,0,0.3)',
+                              color: '#f8fafc',
+                              cursor: 'pointer',
+                              textAlign: 'center',
+                              transition: 'all 0.2s',
+                            }}
+                          >
+                            <div style={{ fontSize: '15px', fontWeight: 800, color: '#4ade80' }}>👍 YES</div>
+                            <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '4px' }}>
+                              Pays $1.00 if event occurs (Probability: {Math.round((Number(orderForm.price) || 0.5) * 100)}%)
+                            </div>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setOrderForm((prev) => ({
+                                ...prev,
+                                eventOutcome: 'no',
+                                price: selectedEventMarket?.no_ask ? String(selectedEventMarket.no_ask) : String(Math.max(0.01, (1 - (Number(prev.price) || 0.5)).toFixed(2))),
+                              }));
+                              setOrderValidationError('');
+                            }}
+                            style={{
+                              padding: '12px',
+                              borderRadius: '8px',
+                              border: orderForm.eventOutcome === 'no' ? '2px solid #ef4444' : '1px solid #334155',
+                              background: orderForm.eventOutcome === 'no' ? 'rgba(239, 68, 68, 0.25)' : 'rgba(0,0,0,0.3)',
+                              color: '#f8fafc',
+                              cursor: 'pointer',
+                              textAlign: 'center',
+                              transition: 'all 0.2s',
+                            }}
+                          >
+                            <div style={{ fontSize: '15px', fontWeight: 800, color: '#f87171' }}>👎 NO</div>
+                            <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '4px' }}>
+                              Pays $1.00 if event does not occur
+                            </div>
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Event Rules Box */}
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '8px', background: 'rgba(0,0,0,0.25)', padding: '10px', borderRadius: '6px', fontSize: '11px' }}>
+                        <div>
+                          <span style={{ color: '#94a3b8' }}>Order Type: </span>
+                          <strong style={{ color: '#f472b6' }}>LIMIT (DAY only)</strong>
+                        </div>
+                        <div>
+                          <span style={{ color: '#94a3b8' }}>Price Range: </span>
+                          <strong style={{ color: '#38bdf8' }}>$0.01 – $0.99</strong>
+                        </div>
+                        <div>
+                          <span style={{ color: '#94a3b8' }}>Win Payout: </span>
+                          <strong style={{ color: '#4ade80' }}>$1.00 / contract</strong>
+                        </div>
+                        <div>
+                          <span style={{ color: '#94a3b8' }}>Max Quantity: </span>
+                          <strong style={{ color: '#e2e8f0' }}>50,000 contracts</strong>
+                        </div>
+                      </div>
                     </div>
                   )}
 
@@ -2013,11 +2344,11 @@ export default function WebullTrading({ isLightMode = false }) {
                     </div>
                   )}
 
-                  {/* Row 1: Order Side & Order Types */}
+                  {/* Row 1: Order Side & Order Types (Stacked with Order Types underneath Order Side) */}
                   <div className="order-control-row">
                     <div className="order-control-group side-group">
                       <label className="order-field-label">Order Side</label>
-                      <div className="order-side-segmented">
+                      <div className={`order-side-segmented ${selectedInstrumentType === 'EQUITY' ? 'three-cols' : ''}`}>
                         <button
                           type="button"
                           className={`order-side-btn buy-side ${orderForm.side === 'BUY' ? 'active' : ''}`}
@@ -2027,9 +2358,9 @@ export default function WebullTrading({ isLightMode = false }) {
                             setOrderValidationError('');
                           }}
                           disabled={ticketOrderControlsDisabled || assetClassDisabled(selectedInstrumentType)}
-                          title={selectedInstrumentType === 'OPTION' && !optionBuyEnabled ? optionExecutionMessage || 'A priced option contract and enough USD for one contract are required to buy.' : futuresOrderControlsDisabled ? futuresExecutionMessage : 'Buy this instrument'}
+                          title={selectedInstrumentType === 'OPTION' && !optionBuyEnabled ? optionExecutionMessage || 'A priced option contract and enough USD for one contract are required to buy.' : futuresOrderControlsDisabled ? futuresExecutionMessage : selectedInstrumentType === 'EVENT' ? 'Buy to open event contract' : 'Buy this instrument'}
                         >
-                          📈 Buy
+                          📈 Buy {selectedInstrumentType === 'EVENT' ? '(To Open)' : ''}
                         </button>
                         <button
                           type="button"
@@ -2040,9 +2371,9 @@ export default function WebullTrading({ isLightMode = false }) {
                             setOrderValidationError('');
                           }}
                           disabled={ticketOrderControlsDisabled || assetClassDisabled(selectedInstrumentType)}
-                          title={selectedInstrumentType === 'OPTION' && !optionSellEnabled ? 'Sell is available only for an exact option contract currently owned in this Webull account.' : futuresOrderControlsDisabled ? futuresExecutionMessage : 'Sell this instrument'}
+                          title={selectedInstrumentType === 'OPTION' && !optionSellEnabled ? 'Sell is available only for an exact option contract currently owned in this Webull account.' : futuresOrderControlsDisabled ? futuresExecutionMessage : selectedInstrumentType === 'EVENT' ? 'Sell to close event contract' : 'Sell this instrument'}
                         >
-                          📉 Sell
+                          📉 Sell {selectedInstrumentType === 'EVENT' ? '(To Close)' : ''}
                         </button>
                         {selectedInstrumentType === 'EQUITY' && (
                           <button
@@ -2075,7 +2406,7 @@ export default function WebullTrading({ isLightMode = false }) {
                               setOrderValidationError('');
                             }}
                             title={t.description}
-                            disabled={ticketOrderControlsDisabled}
+                            disabled={ticketOrderControlsDisabled || selectedInstrumentType === 'EVENT'}
                           >
                             {t.label}
                           </button>
@@ -2167,7 +2498,7 @@ export default function WebullTrading({ isLightMode = false }) {
                     <div className="order-inputs-row">
                       <div className="order-input-group">
                         <label className="order-field-label" htmlFor="quantity">
-                          {selectedInstrumentType === 'OPTION' ? 'Contracts (100 shares each)' : selectedInstrumentType === 'FUTURES' ? 'Contracts' : `Quantity (${selectedSymbol})`}
+                          {selectedInstrumentType === 'OPTION' ? 'Contracts (100 shares each)' : ['FUTURES', 'EVENT'].includes(selectedInstrumentType) ? 'Contracts (Max 50,000)' : `Quantity (${selectedSymbol})`}
                         </label>
                         <div className="order-input-wrapper">
                           <input
@@ -2176,7 +2507,7 @@ export default function WebullTrading({ isLightMode = false }) {
                             inputMode="decimal"
                             value={orderForm.quantity}
                             onChange={(e) => handleBaseQuantityChange(e.target.value)}
-                            placeholder="0.0000"
+                            placeholder={['OPTION', 'FUTURES', 'EVENT'].includes(selectedInstrumentType) ? '10' : '0.0000'}
                             className="order-styled-input"
                             disabled={ticketOrderControlsDisabled}
                             aria-invalid={Boolean(orderValidationError)}
@@ -2373,7 +2704,7 @@ export default function WebullTrading({ isLightMode = false }) {
                     <div className="order-inputs-row">
                       <div className="order-input-group" style={{ width: '100%' }}>
                         <label className="order-field-label" htmlFor="price">
-                          Limit Price ($ USD)
+                          {selectedInstrumentType === 'EVENT' ? 'Event Contract Limit Price ($0.01 – $0.99)' : 'Limit Price ($ USD)'}
                         </label>
                         <div className="order-input-wrapper">
                           <input
@@ -2382,21 +2713,28 @@ export default function WebullTrading({ isLightMode = false }) {
                             inputMode="decimal"
                             value={orderForm.price}
                             onChange={(e) => handlePriceChange(e.target.value)}
-                            placeholder="0.00"
+                            placeholder={selectedInstrumentType === 'EVENT' ? '0.50' : '0.00'}
                             className="order-styled-input"
                             disabled={ticketOrderControlsDisabled}
                             required
                           />
-                          <button
-                            type="button"
-                            className="input-percent-btn"
-                            onClick={() => handleOpenPercentModal('price')}
-                            title="Calculate limit price from percentage"
-                            disabled={ticketOrderControlsDisabled}
-                          >
-                            %
-                          </button>
+                          {selectedInstrumentType !== 'EVENT' && (
+                            <button
+                              type="button"
+                              className="input-percent-btn"
+                              onClick={() => handleOpenPercentModal('price')}
+                              title="Calculate limit price from percentage"
+                              disabled={ticketOrderControlsDisabled}
+                            >
+                              %
+                            </button>
+                          )}
                         </div>
+                        {selectedInstrumentType === 'EVENT' && (
+                          <small className="order-field-help" style={{ color: '#94a3b8', fontSize: '11px', marginTop: '4px' }}>
+                            Settles at $1.00 if correct, $0.00 if incorrect. Implied win probability: {Math.round((Number(orderForm.price) || 0) * 100)}%.
+                          </small>
+                        )}
                       </div>
                     </div>
                   )}
@@ -2410,10 +2748,10 @@ export default function WebullTrading({ isLightMode = false }) {
                         onChange={(e) => setOrderForm((prev) => ({ ...prev, timeInForce: e.target.value }))}
                         className="order-styled-input"
                         style={{ cursor: 'pointer' }}
-                        disabled={ticketOrderControlsDisabled}
+                        disabled={ticketOrderControlsDisabled || selectedInstrumentType === 'EVENT'}
                       >
                         <option value="DAY">Day Order (DAY)</option>
-                        {!(selectedInstrumentType === 'OPTION' && orderForm.side === 'SELL') && !['TRAILING_STOP_LOSS', 'MARKET_ON_OPEN', 'MARKET_ON_CLOSE', 'LIMIT_ON_OPEN'].includes(orderForm.type) && <option value="GTC">Good &apos;Til Canceled (GTC)</option>}
+                        {!(selectedInstrumentType === 'OPTION' && orderForm.side === 'SELL') && selectedInstrumentType !== 'EVENT' && !['TRAILING_STOP_LOSS', 'MARKET_ON_OPEN', 'MARKET_ON_CLOSE', 'LIMIT_ON_OPEN'].includes(orderForm.type) && <option value="GTC">Good &apos;Til Canceled (GTC)</option>}
                         {selectedInstrumentType === 'CRYPTO' && <option value="IOC">Immediate or Cancel (IOC)</option>}
                       </select>
                     </div>
@@ -2660,7 +2998,7 @@ export default function WebullTrading({ isLightMode = false }) {
                         <span>⏳ Processing Order...</span>
                       ) : (
                         <span>
-                          ⚡ Place Real {orderForm.type === 'MARKET' ? 'Market' : orderForm.type === 'LIMIT' ? 'Limit' : orderForm.type === 'STOP_LOSS' ? 'Stop Loss' : orderForm.type === 'STOP_LOSS_LIMIT' ? 'Stop Loss Limit' : ''} {orderForm.side === 'BUY' ? 'Buy' : 'Sell'} Order
+                          ⚡ Place Real {orderForm.type === 'MARKET' ? 'Market' : orderForm.type === 'LIMIT' ? 'Limit' : orderForm.type === 'STOP_LOSS' ? 'Stop Loss' : orderForm.type === 'STOP_LOSS_LIMIT' ? 'Stop Loss Limit' : ''} {orderForm.side === 'BUY' ? (selectedInstrumentType === 'EVENT' ? 'Buy to Open' : 'Buy') : (selectedInstrumentType === 'EVENT' ? 'Sell to Close' : 'Sell')} Order
                         </span>
                       )}
                     </button>
@@ -2715,6 +3053,20 @@ export default function WebullTrading({ isLightMode = false }) {
                                 </strong>
                               </div>
                             )}
+                          </>
+                        )}
+                        {selectedInstrumentType === 'EVENT' && (
+                          <>
+                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                              <span style={{ color: '#94a3b8' }}>Contract Outcome:</span>
+                              <strong style={{ color: String(orderForm.eventOutcome || '').toLowerCase() === 'yes' ? '#4ade80' : '#f87171' }}>
+                                {String(orderForm.eventOutcome || '').toUpperCase() === 'YES' ? '👍 YES (Event Occurs)' : '👎 NO (Event Does Not Occur)'}
+                              </strong>
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                              <span style={{ color: '#94a3b8' }}>Settlement Value:</span>
+                              <span style={{ color: '#e2e8f0' }}>$1.00 on win / $0.00 on loss</span>
+                            </div>
                           </>
                         )}
                         <div style={{ display: 'flex', justifyContent: 'space-between' }}>

@@ -512,21 +512,16 @@
 
 /* Row 1: Side & Type Segmented Controls */
 .order-control-row {
-  display: grid;
-  grid-template-columns: 1fr 2fr;
-  gap: 20px;
-}
-
-@media (max-width: 850px) {
-  .order-control-row {
-    grid-template-columns: 1fr;
-  }
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
 }
 
 .order-control-group {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  width: 100%;
 }
 
 .order-side-segmented {
@@ -537,6 +532,11 @@
   padding: 4px;
   border-radius: 10px;
   border: 1px solid #2d3748;
+  width: 100%;
+}
+
+.order-side-segmented.three-cols {
+  grid-template-columns: repeat(3, 1fr);
 }
 
 .order-side-btn {

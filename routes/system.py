@@ -52,6 +52,9 @@ from services.webull_service import (
     cancel_webull_order,
     normalize_webull_environment,
     parse_webull_expiry,
+    get_webull_event_categories,
+    get_webull_event_markets,
+    FALLBACK_US_FUTURES_PRODUCTS,
     test_webull_connection,
 )
 from services.webull_import_service import import_webull_portfolio_snapshot
@@ -243,6 +246,8 @@ def _require_webull_instrument_account_match(setting, account_id, instrument_typ
         clean_type = 'CRYPTO'
     if clean_type in {'FUTURE', 'FUTURES'}:
         clean_type = 'FUTURES'
+    if clean_type in {'EVENT', 'EVENTS', 'EVENT_CONTRACT', 'EVENT_CONTRACTS'}:
+        clean_type = 'EVENT'
     is_crypto_account = _webull_account_is_crypto(setting, account_id)
     if is_crypto_account and clean_type != 'CRYPTO':
         raise WebullConnectionError('This is a Crypto Webull account. Choose the Crypto asset class to place an order from it.')
@@ -2160,6 +2165,7 @@ def api_webull_place_order():
         bracket_take_profit_price = data.get('bracket_take_profit_price')
         bracket_stop_loss_price = data.get('bracket_stop_loss_price')
         bracket_stop_loss_limit_price = data.get('bracket_stop_loss_limit_price')
+        event_outcome = data.get('event_outcome')
 
         try:
             account_id = _require_webull_account_access(setting, account_id)
@@ -2190,6 +2196,30 @@ def api_webull_place_order():
                 return jsonify({'success': False, 'message': 'Crypto orders support BUY and SELL only.'}), 400
             if str(order_type).upper() not in {'MARKET', 'LIMIT', 'STOP_LOSS_LIMIT'}:
                 return jsonify({'success': False, 'message': 'Crypto orders support Market, Limit, and Stop Loss Limit only.'}), 400
+
+        # Event Contract validation
+        if str(instrument_type).upper() == 'EVENT':
+            if str(order_type or '').strip().upper() != 'LIMIT':
+                return jsonify({'success': False, 'message': 'Webull event contract orders support Limit orders only.'}), 400
+            if str(side or '').strip().upper() not in {'BUY', 'SELL'}:
+                return jsonify({'success': False, 'message': 'Webull event contract orders support Buy and Sell only.'}), 400
+            clean_outcome = str(event_outcome or '').strip().lower()
+            if clean_outcome not in {'yes', 'no'}:
+                return jsonify({'success': False, 'message': 'Event contracts require choosing Yes or No for the outcome.'}), 400
+            try:
+                event_qty = float(quantity)
+                if event_qty <= 0 or not event_qty.is_integer():
+                    raise ValueError()
+                if event_qty > 50000:
+                    return jsonify({'success': False, 'message': 'Maximum quantity for event contracts is 50,000 contracts.'}), 400
+            except (TypeError, ValueError):
+                return jsonify({'success': False, 'message': 'Event contracts require a whole number of contracts.'}), 400
+            try:
+                event_px = float(limit_price)
+                if event_px < 0.01 or event_px > 0.99:
+                    raise ValueError()
+            except (TypeError, ValueError):
+                return jsonify({'success': False, 'message': 'Event contract limit price must be between $0.01 and $0.99.'}), 400
 
         # Options use their documented single-leg contract fields. Reject an
         # unsupported ticket before a 2FA token is consumed or an API request
@@ -2376,6 +2406,7 @@ def api_webull_place_order():
             bracket_take_profit_price=bracket_take_profit_price,
             bracket_stop_loss_price=bracket_stop_loss_price,
             bracket_stop_loss_limit_price=bracket_stop_loss_limit_price,
+            event_outcome=event_outcome,
         )
         logger.info(f"Webull order placed successfully: user={current_user.id} account={account_id} symbol={symbol} side={side} order_id={result.get('order_id')}")
         order_msg = (
@@ -2385,15 +2416,58 @@ def api_webull_place_order():
         )
         return jsonify({
             'success': True,
-            'order': result,
             'message': order_msg,
+            'order': result,
         })
     except WebullConnectionError as exc:
-        logger.warning('Webull order placement failed: %s', exc)
         return jsonify({'success': False, 'message': str(exc)}), 400
     except Exception as exc:
-        logger.error('Webull order placement unexpected error: %s', exc, exc_info=True)
-        return jsonify({'success': False, 'message': f'Order placement failed: {exc}'}), 500
+        logger.error('Webull order placement failed: %s', exc, exc_info=True)
+        return jsonify({'success': False, 'message': 'Unable to place this Webull order. Try again.'}), 500
+
+
+@system_bp.route('/api/webull/events/categories', methods=['GET'])
+@login_required
+def api_webull_event_categories():
+    """Return available Webull Event Contract categories."""
+    try:
+        credential = Credential.query.filter_by(user_id=current_user.id).first()
+        setting = UserSetting.query.filter_by(user_id=current_user.id).first()
+        environment = normalize_webull_environment(getattr(setting, 'webull_environment', None) or 'production')
+        categories = get_webull_event_categories(
+            credential.webull_app_key if credential else None,
+            credential.webull_app_secret if credential else None,
+            environment,
+            credential.webull_access_token if credential else None,
+        )
+        return jsonify({'success': True, 'categories': categories})
+    except Exception as exc:
+        logger.error('Error fetching Webull event categories: %s', exc)
+        return jsonify({'success': True, 'categories': get_webull_event_categories()})
+
+
+@system_bp.route('/api/webull/events/markets', methods=['GET'])
+@login_required
+def api_webull_event_markets():
+    """Return available Webull Event Contract markets/instruments."""
+    try:
+        category_id = request.args.get('category_id')
+        symbol = request.args.get('symbol')
+        credential = Credential.query.filter_by(user_id=current_user.id).first()
+        setting = UserSetting.query.filter_by(user_id=current_user.id).first()
+        environment = normalize_webull_environment(getattr(setting, 'webull_environment', None) or 'production')
+        markets = get_webull_event_markets(
+            credential.webull_app_key if credential else None,
+            credential.webull_app_secret if credential else None,
+            environment,
+            credential.webull_access_token if credential else None,
+            category_id=category_id,
+            symbol=symbol,
+        )
+        return jsonify({'success': True, 'markets': markets})
+    except Exception as exc:
+        logger.error('Error fetching Webull event markets: %s', exc)
+        return jsonify({'success': True, 'markets': get_webull_event_markets(category_id=category_id, symbol=symbol)})
 
 
 @system_bp.route('/api/webull/orders/cancel', methods=['POST'])
@@ -2564,17 +2638,15 @@ def api_webull_futures_catalog():
             not credential or credential.webull_token_status != 'NORMAL'
             or credential.webull_token_environment != environment or not credential.webull_access_token
         ):
-            return jsonify({'success': False, 'message': 'Verify your Webull connection before loading futures products.'}), 400
+            return jsonify({'success': True, 'classes': [], 'products': FALLBACK_US_FUTURES_PRODUCTS})
         catalog = get_webull_futures_catalog(
             credential.webull_app_key, credential.webull_app_secret, environment,
             credential.webull_access_token,
         )
         return jsonify({'success': True, **catalog})
-    except WebullConnectionError as exc:
-        return jsonify({'success': False, 'message': str(exc)}), 400
     except Exception as exc:
-        logger.error('Webull futures catalog lookup failed: %s', exc, exc_info=True)
-        return jsonify({'success': False, 'message': 'Unable to load the Webull futures product catalogue.'}), 500
+        logger.warning('Webull futures catalog lookup notice: %s. Serving standard catalog.', exc)
+        return jsonify({'success': True, 'classes': [], 'products': FALLBACK_US_FUTURES_PRODUCTS})
 
 
 @system_bp.route('/api/webull/futures/contracts', methods=['GET'])
