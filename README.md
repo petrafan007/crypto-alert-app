@@ -125,6 +125,13 @@ The application utilizes a **unified PostgreSQL database**.
 
 Historical changelog entries retain the product name used when they were originally released. The application domain, repository slug, deployment folders, database, and service identifiers intentionally remain unchanged by the v2.45.0 brand update.
 
+## v2.59.1 (August 2026)
+
+- **Paper-Order 2FA Flow Correction**:
+  - **Test-Mode-Only Bypass**: Webull simulated paper orders now proceed from the paper ticket to the normal simulated-order review confirmation without requesting a TOTP code, even when "Require 2FA for Trading" is enabled.
+  - **Live Trading Protection Preserved**: Live Webull order placement continues to require the configured 2FA verification. The backend paper engine remains isolated behind explicit Test Mode and `TEST_PAPER_ACCOUNT` checks before any live Webull credential or order path is reached.
+  - **Help Documentation**: Clarified that the authenticator-code exception applies only to Webull simulated paper order placement and never to live Webull orders.
+
 ## v2.59.0 (August 2026)
 
 - **Webull Holdings Table & Trade Action Overhaul**:

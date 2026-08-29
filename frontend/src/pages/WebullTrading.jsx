@@ -1610,7 +1610,9 @@ export default function WebullTrading({ isLightMode = false }) {
         }
       }
     }
-    if (require2fa) {
+    // Simulated Webull orders are isolated in the paper engine and never reach
+    // the live OpenAPI order path, so trading 2FA is reserved for live orders.
+    if (require2fa && !isTestMode) {
       setTwoFactorModal({ isVisible: true, orderData: webullTwoFactorOrderDetails() });
     } else {
       setShowConfirmModal(true);

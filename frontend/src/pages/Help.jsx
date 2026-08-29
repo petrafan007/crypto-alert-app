@@ -468,7 +468,8 @@ export default function Help({ isLightMode }) {
                     <li>Enable 2FA in Settings and scan the QR code with an authenticator app</li>
                     <li>Verify by entering the 6-digit code</li>
                     <li>When 2FA is enabled on your profile, you will be prompted for your 6-digit code upon logging in</li>
-                    <li>When "Require 2FA for Trading" is enabled, you will also need to confirm Binance.US and Webull order placement, protected order cancellation, dust conversion, and Cancel Auto-Buy/Auto-Sell Trigger actions with a code</li>
+                    <li>When "Require 2FA for Trading" is enabled, you will also need to confirm Binance.US and live Webull order placement, protected order cancellation, dust conversion, and Cancel Auto-Buy/Auto-Sell Trigger actions with a code</li>
+                    <li>Webull simulated paper orders use the paper-order review confirmation without requiring an authenticator code; this exception never applies to live Webull orders</li>
                 </ol>
 
                 <Tip>
