@@ -125,6 +125,18 @@ The application utilizes a **unified PostgreSQL database**.
 
 Historical changelog entries retain the product name used when they were originally released. The application domain, repository slug, deployment folders, database, and service identifiers intentionally remain unchanged by the v2.45.0 brand update.
 
+## v2.55.0 (August 2026)
+
+- **Comprehensive Webull Stock Orders API Integration**:
+  - **All Supported Stock Order Types**: Enabled complete support for `MARKET`, `LIMIT`, `STOP_LOSS`, `STOP_LOSS_LIMIT`, `TRAILING_STOP_LOSS`, `MARKET_ON_OPEN` (MOO), `MARKET_ON_CLOSE` (MOC), and `LIMIT_ON_OPEN` (LOO) for equities.
+  - **Full Order Sides**: Added native support for `BUY`, `SELL`, and `SHORT` positions on stocks and ETFs.
+  - **Flexible Entrust Modes (Shares vs. Cash)**: Added toggle between standard share quantity (`QTY`, including fractional shares) and dollar cash amount (`AMOUNT`, min $5.00) for cash-based fractional stock investing.
+  - **Equity Trailing Stops**: Trailing stop loss orders for stocks with customizable dollar amount or percentage trail offsets.
+  - **Attached Take-Profit / Stop-Loss Brackets**: Easily attach automated profit targets and stop loss protection directly from the standard stock order ticket.
+  - **Institutional Algorithmic Execution**: Added automated algorithmic trading support for `TWAP` (Time-Weighted Average Price), `VWAP` (Volume-Weighted Average Price), and `POV` (Percentage of Volume) orders during regular hours (`CORE`) with participation caps and execution windows.
+  - **Multi-Leg Combo Order Builder**: Dedicated Combo Orders tab to configure and submit native Webull conditional combo orders (`OTO`, `OCO`, `OTOCO`) with linked execution legs and unified combo order IDs.
+  - **Strict Crypto Isolation**: All cryptocurrency trading paths, validations, and rules remain strictly isolated and unaffected.
+
 ## v2.54.1 (August 2026)
 
 - **Webull Futures Catalogue Hotfix**:

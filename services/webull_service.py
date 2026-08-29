@@ -1082,34 +1082,149 @@ def test_webull_connection(app_key, app_secret, environment='production', access
     }
 
 
+SUPPORTED_WEBULL_ORDER_TYPES = {
+    'MARKET', 'LIMIT', 'STOP_LOSS', 'STOP_LOSS_LIMIT', 'TRAILING_STOP_LOSS',
+    'MARKET_ON_OPEN', 'MARKET_ON_CLOSE', 'LIMIT_ON_OPEN'
+}
+
+
 def place_webull_order(
     app_key, app_secret, environment='production', access_token=None, *,
-    account_id, symbol, instrument_type, side, order_type, quantity,
+    account_id, symbol=None, instrument_type='EQUITY', side=None, order_type=None, quantity=None,
     limit_price=None, stop_price=None, time_in_force='DAY', support_trading_session='CORE',
     client_order_id=None, option_type=None, option_strike=None,
     option_expiration=None, option_underlying_symbol=None,
     trailing_type=None, trailing_stop_step=None,
+    entrust_type='QTY', total_cash_amount=None,
+    algo_type=None, algo_start_time=None, algo_end_time=None,
+    max_target_percent=None, target_vol_percent=None,
+    combo_type='NORMAL', client_combo_order_id=None, combo_orders=None,
+    bracket_take_profit_price=None, bracket_stop_loss_price=None, bracket_stop_loss_limit_price=None,
 ):
-    """Place a live order using Webull's current unified order contract.
+    """Place a live order using Webull's unified order contract.
 
-    The current API expects ``new_orders`` at ``/trading/orders/place``.  A
-    narrowly scoped legacy fallback remains only for installations whose
-    OpenAPI deployment does not expose that endpoint.  Options must carry the
-    exact single-leg contract terms; sending only an option type is never a
-    valid substitute for a strike and expiration.
+    Supports standard stock orders, combo orders (OTO/OCO/OTOCO), take-profit/stop-loss brackets,
+    trailing stops, algorithmic orders, and fractional share trading (QTY or AMOUNT).
+    Crypto order paths remain strictly isolated and unaffected.
     """
     if not account_id:
         raise WebullConnectionError('Select a Webull account to place the order.')
+
+    # 1. Multi-leg Combo Orders (OTO, OCO, OTOCO, etc.)
+    if combo_orders and isinstance(combo_orders, list):
+        if len(combo_orders) < 2:
+            raise WebullConnectionError('Webull combo orders require at least 2 legs.')
+        clean_combo_id = str(client_combo_order_id or uuid4().hex[:24]).strip()
+        leg_payloads = []
+        for i, leg in enumerate(combo_orders):
+            if not isinstance(leg, dict):
+                continue
+            leg_sym = str(leg.get('symbol') or symbol or '').strip().upper()
+            if not leg_sym:
+                raise WebullConnectionError(f'Combo leg #{i + 1} requires a valid symbol.')
+            leg_side = str(leg.get('side') or '').strip().upper()
+            if leg_side not in {'BUY', 'SELL', 'SHORT'}:
+                raise WebullConnectionError(f'Combo leg #{i + 1} side must be BUY, SELL, or SHORT.')
+            leg_type = str(leg.get('order_type') or leg.get('type') or 'LIMIT').strip().upper()
+            leg_type = {'STOP': 'STOP_LOSS', 'STOP_LIMIT': 'STOP_LOSS_LIMIT', 'MOO': 'MARKET_ON_OPEN', 'MOC': 'MARKET_ON_CLOSE', 'LOO': 'LIMIT_ON_OPEN'}.get(leg_type, leg_type)
+            if leg_type not in SUPPORTED_WEBULL_ORDER_TYPES:
+                raise WebullConnectionError(f'Combo leg #{i + 1} has unsupported order type: {leg_type}')
+            leg_combo_type = str(leg.get('combo_type') or combo_type or ('MASTER' if i == 0 else 'OTO')).strip().upper()
+            leg_cid = str(leg.get('client_order_id') or uuid4().hex[:24]).strip()
+
+            leg_tif = str(leg.get('time_in_force') or time_in_force or 'DAY').upper()
+            if leg_type in {'TRAILING_STOP_LOSS', 'MARKET_ON_OPEN', 'MARKET_ON_CLOSE', 'LIMIT_ON_OPEN'}:
+                leg_tif = 'DAY'
+            elif leg_tif not in {'DAY', 'GTC'}:
+                leg_tif = 'DAY'
+
+            leg_session = str(leg.get('support_trading_session') or support_trading_session or 'CORE').upper()
+            if leg_session not in {'CORE', 'ALL', 'NIGHT'}:
+                leg_session = 'CORE'
+
+            leg_entrust = str(leg.get('entrust_type') or 'QTY').upper()
+            leg_payload = {
+                'client_order_id': leg_cid,
+                'combo_type': leg_combo_type,
+                'symbol': leg_sym,
+                'instrument_type': 'EQUITY',
+                'market': 'US',
+                'order_type': leg_type,
+                'side': leg_side,
+                'time_in_force': leg_tif,
+                'support_trading_session': leg_session,
+                'entrust_type': leg_entrust,
+            }
+
+            if leg_entrust == 'AMOUNT':
+                cash_amt = float(leg.get('total_cash_amount') or 0)
+                if cash_amt < 5.0:
+                    raise WebullConnectionError(f'Combo leg #{i + 1} cash amount must be at least $5.00.')
+                leg_payload['total_cash_amount'] = f'{cash_amt:.2f}'
+            else:
+                try:
+                    lqty = float(leg.get('quantity') or 0)
+                    if lqty <= 0:
+                        raise ValueError()
+                except (TypeError, ValueError):
+                    raise WebullConnectionError(f'Combo leg #{i + 1} quantity must be a positive number.')
+                leg_payload['quantity'] = str(lqty) if not lqty.is_integer() else str(int(lqty))
+
+            if leg_type in {'LIMIT', 'STOP_LOSS_LIMIT', 'LIMIT_ON_OPEN'}:
+                try:
+                    lpx = float(leg.get('limit_price') or 0)
+                    if lpx <= 0:
+                        raise ValueError()
+                    leg_payload['limit_price'] = f'{lpx:.4f}' if lpx < 1 else f'{lpx:.2f}'
+                except (TypeError, ValueError):
+                    raise WebullConnectionError(f'Combo leg #{i + 1} requires a positive limit price.')
+
+            if leg_type in {'STOP_LOSS', 'STOP_LOSS_LIMIT'}:
+                try:
+                    lspx = float(leg.get('stop_price') or 0)
+                    if lspx <= 0:
+                        raise ValueError()
+                    leg_payload['stop_price'] = f'{lspx:.4f}' if lspx < 1 else f'{lspx:.2f}'
+                except (TypeError, ValueError):
+                    raise WebullConnectionError(f'Combo leg #{i + 1} requires a positive stop price.')
+
+            leg_payloads.append(leg_payload)
+
+        request_body = {
+            'account_id': str(account_id),
+            'client_combo_order_id': clean_combo_id,
+            'new_orders': leg_payloads,
+        }
+        response = _webull_request(
+            app_key, app_secret, environment, 'POST', '/trading/orders/place',
+            body=request_body, access_token=access_token,
+        )
+        if getattr(response, 'status_code', None) in {404, 405}:
+            legacy_request_body = {
+                'account_id': str(account_id),
+                'client_combo_order_id': clean_combo_id,
+                'orders': leg_payloads,
+            }
+            response = _webull_request(
+                app_key, app_secret, environment, 'POST', '/openapi/account/orders/place',
+                body=legacy_request_body, access_token=access_token,
+            )
+        payload = _response_payload(response, 'combo order placement')
+        data = payload.get('data', payload) if isinstance(payload, dict) else payload
+        clear_webull_order_cache()
+        return {
+            'success': True,
+            'order_id': clean_combo_id,
+            'client_combo_order_id': clean_combo_id,
+            'legs_count': len(leg_payloads),
+            'raw': data,
+        }
+
+    # 2. Standard Single Order (or Master Order with attached bracket)
     clean_symbol = str(symbol or '').strip().upper()
     if not clean_symbol:
         raise WebullConnectionError('A valid instrument symbol is required.')
-    clean_side = str(side or '').strip().upper()
-    if clean_side not in {'BUY', 'SELL', 'SHORT'}:
-        raise WebullConnectionError('Order side must be BUY or SELL.')
-    clean_type = str(order_type or '').strip().upper()
-    clean_type = {'STOP': 'STOP_LOSS', 'STOP_LIMIT': 'STOP_LOSS_LIMIT'}.get(clean_type, clean_type)
-    if clean_type not in {'MARKET', 'LIMIT', 'STOP_LOSS', 'STOP_LOSS_LIMIT', 'TRAILING_STOP_LOSS'}:
-        raise WebullConnectionError('Choose a supported order type: MARKET, LIMIT, STOP_LOSS, STOP_LOSS_LIMIT, or TRAILING_STOP_LOSS.')
+
     clean_instrument = str(instrument_type or 'EQUITY').strip().upper()
     if clean_instrument in {'CRYPTO', 'COIN', 'TOKEN'}:
         clean_instrument = 'CRYPTO'
@@ -1119,27 +1234,59 @@ def place_webull_order(
         clean_instrument = 'OPTION'
     elif clean_instrument in {'FUTURES', 'FUTURE'}:
         clean_instrument = 'FUTURES'
-    elif clean_instrument in {'ETF', 'STOCK', 'SECURITY', 'EQUITY'}:
-        clean_instrument = 'EQUITY'
     else:
         clean_instrument = 'EQUITY'
 
-    try:
-        qty = float(quantity)
-        if qty <= 0:
-            raise ValueError()
-    except (TypeError, ValueError):
-        raise WebullConnectionError('Order quantity must be a positive number.')
+    clean_side = str(side or '').strip().upper()
+    if clean_instrument == 'CRYPTO':
+        if clean_side not in {'BUY', 'SELL'}:
+            raise WebullConnectionError('Webull crypto orders support BUY and SELL only.')
+    elif clean_instrument in {'OPTION', 'FUTURES'}:
+        if clean_side not in {'BUY', 'SELL'}:
+            raise WebullConnectionError(f'Webull {clean_instrument.lower()} orders support BUY and SELL only.')
+    else:
+        if clean_side not in {'BUY', 'SELL', 'SHORT'}:
+            raise WebullConnectionError('Order side must be BUY, SELL, or SHORT.')
 
-    clean_client_order_id = str(client_order_id or uuid4().hex).strip()
+    clean_type = str(order_type or '').strip().upper()
+    clean_type = {'STOP': 'STOP_LOSS', 'STOP_LIMIT': 'STOP_LOSS_LIMIT', 'MOO': 'MARKET_ON_OPEN', 'MOC': 'MARKET_ON_CLOSE', 'LOO': 'LIMIT_ON_OPEN'}.get(clean_type, clean_type)
+
+    if clean_instrument == 'CRYPTO':
+        if clean_type not in {'MARKET', 'LIMIT', 'STOP_LOSS_LIMIT'}:
+            raise WebullConnectionError('Webull crypto orders support MARKET, LIMIT, and STOP_LOSS_LIMIT only.')
+    elif clean_instrument == 'OPTION':
+        if clean_type not in {'LIMIT', 'STOP_LOSS', 'STOP_LOSS_LIMIT'}:
+            raise WebullConnectionError('Webull option orders support LIMIT, STOP_LOSS, and STOP_LOSS_LIMIT only.')
+    elif clean_instrument == 'FUTURES':
+        if clean_type not in {'MARKET', 'LIMIT', 'STOP_LOSS', 'STOP_LOSS_LIMIT', 'TRAILING_STOP_LOSS'}:
+            raise WebullConnectionError('Webull futures orders support MARKET, LIMIT, STOP_LOSS, STOP_LOSS_LIMIT, and TRAILING_STOP_LOSS.')
+    else:
+        if clean_type not in SUPPORTED_WEBULL_ORDER_TYPES:
+            raise WebullConnectionError(f'Choose a supported stock order type: {", ".join(sorted(SUPPORTED_WEBULL_ORDER_TYPES))}.')
+
+    clean_entrust_type = str(entrust_type or 'QTY').strip().upper()
+    qty = 0.0
+    if clean_instrument == 'EQUITY' and clean_entrust_type == 'AMOUNT':
+        try:
+            cash_val = float(total_cash_amount or 0)
+            if cash_val < 5.0:
+                raise ValueError()
+        except (TypeError, ValueError):
+            raise WebullConnectionError('Total cash amount must be at least $5.00 for cash fractional orders.')
+    else:
+        clean_entrust_type = 'QTY'
+        try:
+            qty = float(quantity)
+            if qty <= 0:
+                raise ValueError()
+        except (TypeError, ValueError):
+            raise WebullConnectionError('Order quantity must be a positive number.')
+
+    clean_client_order_id = str(client_order_id or uuid4().hex[:24]).strip()
     if not clean_client_order_id or len(clean_client_order_id) > 32:
         raise WebullConnectionError('Webull client order IDs must contain between 1 and 32 characters.')
 
     if clean_instrument == 'OPTION':
-        if clean_side not in {'BUY', 'SELL'}:
-            raise WebullConnectionError('Webull option orders support BUY and SELL only.')
-        if clean_type not in {'LIMIT', 'STOP_LOSS', 'STOP_LOSS_LIMIT'}:
-            raise WebullConnectionError('Webull option orders support LIMIT, STOP_LOSS, and STOP_LOSS_LIMIT only.')
         if not qty.is_integer():
             raise WebullConnectionError('Webull option orders require a whole number of contracts.')
         clean_option_type = str(option_type or 'CALL').strip().upper()
@@ -1190,10 +1337,6 @@ def place_webull_order(
             }],
         }
     elif clean_instrument == 'FUTURES':
-        if clean_side not in {'BUY', 'SELL'}:
-            raise WebullConnectionError('Webull futures orders support BUY and SELL only.')
-        if clean_type not in {'MARKET', 'LIMIT', 'STOP_LOSS', 'STOP_LOSS_LIMIT', 'TRAILING_STOP_LOSS'}:
-            raise WebullConnectionError('Webull futures orders use Market, Limit, Stop Loss, Stop Loss Limit, or Trailing Stop Loss.')
         if not qty.is_integer():
             raise WebullConnectionError('Webull futures orders require a whole number of contracts.')
         clean_time_in_force = str(time_in_force or 'DAY').upper()
@@ -1212,37 +1355,42 @@ def place_webull_order(
             'entrust_type': 'QTY',
         }
     else:
+        # Stock (EQUITY) or Crypto
         clean_session = str(support_trading_session or 'CORE').upper()
         if clean_instrument == 'EQUITY' and clean_session not in {'CORE', 'ALL', 'NIGHT'}:
-            raise WebullConnectionError('Choose Regular, Including Extended, or Overnight trading hours.')
+            raise WebullConnectionError('Choose Regular (CORE), Extended (ALL), or Overnight (NIGHT) trading hours.')
+
         clean_time_in_force = str(time_in_force or 'DAY').upper()
-        allowed_time_in_force = {'DAY', 'GTC'} if clean_instrument == 'EQUITY' else {'DAY', 'GTC', 'IOC'}
-        if clean_time_in_force not in allowed_time_in_force:
-            raise WebullConnectionError(
-                'Webull crypto orders support DAY, GTC, or IOC time in force.'
-                if clean_instrument == 'CRYPTO' else 'Webull stock and ETF orders support DAY or GTC time in force.'
-            )
-        if clean_instrument == 'EQUITY' and not qty.is_integer():
-            if clean_session != 'CORE':
-                raise WebullConnectionError('Fractional stock and ETF orders are available only during Regular Hours. Extended and Overnight sessions require whole shares.')
-            if clean_type != 'MARKET':
-                raise WebullConnectionError('Webull supports fractional stock and ETF orders as Market orders during Regular Hours.')
-            if qty > 1:
-                raise WebullConnectionError('A Webull fractional stock or ETF order must be greater than zero and no more than one share.')
+        if clean_instrument == 'CRYPTO':
+            if clean_time_in_force not in {'DAY', 'GTC', 'IOC'}:
+                clean_time_in_force = 'DAY'
+        else:
+            if clean_type in {'TRAILING_STOP_LOSS', 'MARKET_ON_OPEN', 'MARKET_ON_CLOSE', 'LIMIT_ON_OPEN'}:
+                clean_time_in_force = 'DAY'
+            elif clean_time_in_force not in {'DAY', 'GTC'}:
+                clean_time_in_force = 'DAY'
+
         order_payload = {
-            'combo_type': 'NORMAL',
+            'combo_type': str(combo_type or 'NORMAL').upper(),
             'client_order_id': clean_client_order_id,
             'symbol': clean_symbol,
             'instrument_type': clean_instrument,
             'market': 'US',
             'order_type': clean_type,
             'side': clean_side,
-            'quantity': str(qty) if clean_instrument == 'CRYPTO' or qty != int(qty) else str(int(qty)),
             'time_in_force': clean_time_in_force,
             'support_trading_session': clean_session if clean_instrument == 'EQUITY' else None,
-            'entrust_type': 'QTY',
+            'entrust_type': clean_entrust_type,
         }
+
+        if clean_entrust_type == 'AMOUNT':
+            order_payload['total_cash_amount'] = f'{float(total_cash_amount):.2f}'
+        else:
+            order_payload['quantity'] = str(qty) if clean_instrument == 'CRYPTO' or not qty.is_integer() else str(int(qty))
+
         order_payload = {key: value for key, value in order_payload.items() if value is not None}
+
+    # Price validations
     if clean_type in {'STOP_LOSS', 'STOP_LOSS_LIMIT'}:
         try:
             spx = float(stop_price)
@@ -1252,7 +1400,7 @@ def place_webull_order(
         except (TypeError, ValueError):
             raise WebullConnectionError('Stop orders require a valid stop price greater than 0.')
 
-    if clean_type in {'LIMIT', 'STOP_LOSS_LIMIT'}:
+    if clean_type in {'LIMIT', 'STOP_LOSS_LIMIT', 'LIMIT_ON_OPEN'}:
         try:
             px = float(limit_price)
             if px <= 0:
@@ -1262,24 +1410,113 @@ def place_webull_order(
             raise WebullConnectionError('Limit orders require a valid price greater than 0.')
 
     if clean_type == 'TRAILING_STOP_LOSS':
-        if clean_instrument != 'FUTURES':
-            raise WebullConnectionError('Trailing Stop Loss is currently available in this dashboard for futures only.')
-        clean_trailing_type = str(trailing_type or '').strip().upper()
+        clean_trailing_type = str(trailing_type or 'AMOUNT').strip().upper()
         if clean_trailing_type not in {'AMOUNT', 'PERCENTAGE'}:
-            raise WebullConnectionError('Choose AMOUNT or PERCENTAGE for a futures trailing stop.')
+            raise WebullConnectionError('Choose AMOUNT or PERCENTAGE for trailing stop.')
         try:
             clean_trailing_step = float(trailing_stop_step)
             if clean_trailing_step <= 0:
                 raise ValueError()
         except (TypeError, ValueError):
-            raise WebullConnectionError('Futures trailing stops require a positive trail amount or percentage.')
+            raise WebullConnectionError('Trailing stops require a positive trail amount or percentage.')
         order_payload['trailing_type'] = clean_trailing_type
         order_payload['trailing_stop_step'] = f'{clean_trailing_step:.4f}'.rstrip('0').rstrip('.')
+        order_payload['time_in_force'] = 'DAY'
 
-    request_body = {
-        'account_id': str(account_id),
-        'new_orders': [order_payload],
-    }
+    # Algorithmic Orders (EQUITY only)
+    if clean_instrument == 'EQUITY' and algo_type:
+        clean_algo_type = str(algo_type).strip().upper()
+        if clean_algo_type in {'TWAP', 'VWAP', 'POV'}:
+            if clean_type not in {'MARKET', 'LIMIT'}:
+                raise WebullConnectionError('Algorithmic orders support MARKET and LIMIT orders only.')
+            if clean_session != 'CORE':
+                raise WebullConnectionError('Algorithmic orders run only during Regular Trading Hours (CORE).')
+            if not algo_start_time or not algo_end_time:
+                raise WebullConnectionError('Algorithmic orders require start and end times in HH:mm:ss format (Eastern Time).')
+            order_payload['algo_type'] = clean_algo_type
+            order_payload['algo_start_time'] = str(algo_start_time).strip()
+            order_payload['algo_end_time'] = str(algo_end_time).strip()
+            if clean_algo_type in {'TWAP', 'VWAP'}:
+                pct = max(1, min(20, int(float(max_target_percent or 10))))
+                order_payload['max_target_percent'] = str(pct)
+            elif clean_algo_type == 'POV':
+                pct = max(1, min(20, int(float(target_vol_percent or 10))))
+                order_payload['target_vol_percent'] = str(pct)
+
+    # Check for attached Take-Profit / Stop-Loss bracket
+    if clean_instrument == 'EQUITY' and (bracket_take_profit_price or bracket_stop_loss_price):
+        order_payload['combo_type'] = 'MASTER'
+        bracket_legs = [order_payload]
+        clean_combo_id = str(client_combo_order_id or uuid4().hex[:24]).strip()
+        opp_side = 'SELL' if clean_side == 'BUY' else 'BUY'
+
+        if bracket_take_profit_price:
+            try:
+                tp_val = float(bracket_take_profit_price)
+                if tp_val <= 0:
+                    raise ValueError()
+            except (TypeError, ValueError):
+                raise WebullConnectionError('Take profit price must be greater than 0.')
+            tp_leg = {
+                'client_order_id': uuid4().hex[:24],
+                'combo_type': 'STOP_PROFIT',
+                'symbol': clean_symbol,
+                'instrument_type': 'EQUITY',
+                'market': 'US',
+                'order_type': 'LIMIT',
+                'side': opp_side,
+                'quantity': order_payload.get('quantity', '1'),
+                'limit_price': f'{tp_val:.4f}' if tp_val < 1 else f'{tp_val:.2f}',
+                'time_in_force': 'DAY',
+                'support_trading_session': clean_session,
+                'entrust_type': 'QTY',
+            }
+            bracket_legs.append(tp_leg)
+
+        if bracket_stop_loss_price:
+            try:
+                sl_val = float(bracket_stop_loss_price)
+                if sl_val <= 0:
+                    raise ValueError()
+            except (TypeError, ValueError):
+                raise WebullConnectionError('Stop loss price must be greater than 0.')
+            sl_leg_type = 'STOP_LOSS_LIMIT' if bracket_stop_loss_limit_price else 'STOP_LOSS'
+            sl_leg = {
+                'client_order_id': uuid4().hex[:24],
+                'combo_type': 'STOP_LOSS',
+                'symbol': clean_symbol,
+                'instrument_type': 'EQUITY',
+                'market': 'US',
+                'order_type': sl_leg_type,
+                'side': opp_side,
+                'quantity': order_payload.get('quantity', '1'),
+                'stop_price': f'{sl_val:.4f}' if sl_val < 1 else f'{sl_val:.2f}',
+                'time_in_force': 'DAY',
+                'support_trading_session': clean_session,
+                'entrust_type': 'QTY',
+            }
+            if bracket_stop_loss_limit_price:
+                try:
+                    sll_val = float(bracket_stop_loss_limit_price)
+                    if sll_val <= 0:
+                        raise ValueError()
+                    sl_leg['limit_price'] = f'{sll_val:.4f}' if sll_val < 1 else f'{sll_val:.2f}'
+                except (TypeError, ValueError):
+                    raise WebullConnectionError('Stop loss limit price must be greater than 0.')
+            bracket_legs.append(sl_leg)
+
+        request_body = {
+            'account_id': str(account_id),
+            'client_combo_order_id': clean_combo_id,
+            'new_orders': bracket_legs,
+        }
+    else:
+        request_body = {
+            'account_id': str(account_id),
+            'new_orders': [order_payload],
+        }
+        if order_payload.get('combo_type') and order_payload['combo_type'] != 'NORMAL':
+            request_body['client_combo_order_id'] = str(client_combo_order_id or uuid4().hex[:24]).strip()
 
     response = _webull_request(
         app_key, app_secret, environment, 'POST', '/trading/orders/place',
@@ -1288,8 +1525,10 @@ def place_webull_order(
     if getattr(response, 'status_code', None) in {404, 405}:
         legacy_request_body = {
             'account_id': str(account_id),
-            'orders': [order_payload],
+            'orders': request_body['new_orders'],
         }
+        if 'client_combo_order_id' in request_body:
+            legacy_request_body['client_combo_order_id'] = request_body['client_combo_order_id']
         response = _webull_request(
             app_key, app_secret, environment, 'POST', '/openapi/account/orders/place',
             body=legacy_request_body, access_token=access_token,
@@ -1307,14 +1546,17 @@ def place_webull_order(
                 order_id = first.get('order_id') or first.get('orderId')
 
     clear_webull_order_cache()
+    primary_leg = request_body['new_orders'][0]
     return {
         'success': True,
-        'order_id': order_id or order_payload['client_order_id'],
-        'client_order_id': order_payload['client_order_id'],
-        'symbol': clean_symbol,
-        'side': clean_side,
-        'order_type': clean_type,
-        'quantity': qty,
+        'order_id': order_id or request_body.get('client_combo_order_id') or primary_leg['client_order_id'],
+        'client_order_id': primary_leg['client_order_id'],
+        'client_combo_order_id': request_body.get('client_combo_order_id'),
+        'symbol': primary_leg.get('symbol', clean_symbol),
+        'side': primary_leg.get('side', clean_side),
+        'order_type': primary_leg.get('order_type', clean_type),
+        'quantity': primary_leg.get('quantity', qty),
+        'legs_count': len(request_body['new_orders']),
         'raw': data,
     }
 

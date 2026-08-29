@@ -567,6 +567,12 @@
   box-shadow: 0 0 16px rgba(239, 68, 68, 0.4);
 }
 
+.order-side-btn.short-side.active {
+  background: #f59e0b;
+  color: #ffffff;
+  box-shadow: 0 0 16px rgba(245, 158, 11, 0.4);
+}
+
 .order-side-btn:hover:not(.active) {
   background: rgba(255, 255, 255, 0.05);
   color: #ffffff;
@@ -2099,4 +2105,103 @@ body.light-mode .pagination-btn.active {
   border-color: #38bdf8;
   color: #ffffff;
   font-weight: 600;
+}
+
+/* Webull Stock Trading Expansion Styles */
+.webull-stock-feature-card {
+  border-radius: 8px;
+  padding: 14px;
+  margin-bottom: 14px;
+  transition: all 0.2s ease;
+}
+
+.webull-bracket-box {
+  background: rgba(16, 185, 129, 0.08);
+  border: 1px solid rgba(16, 185, 129, 0.35);
+}
+
+.webull-algo-box {
+  background: rgba(56, 189, 248, 0.08);
+  border: 1px solid rgba(56, 189, 248, 0.35);
+}
+
+.webull-feature-toggle-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.webull-feature-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.webull-entrust-segmented {
+  display: inline-flex;
+  background: rgba(0, 0, 0, 0.35);
+  padding: 3px;
+  border-radius: 8px;
+  gap: 4px;
+}
+
+.webull-entrust-btn {
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: 6px;
+  border: none;
+  cursor: pointer;
+  background: transparent;
+  color: #94a3b8;
+  transition: all 0.2s ease;
+}
+
+.webull-entrust-btn.active {
+  background: #3b82f6;
+  color: #ffffff;
+}
+
+.combo-builder-card {
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  border-radius: 10px;
+  padding: 20px;
+  margin-bottom: 20px;
+}
+
+.combo-leg-card {
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 14px;
+  position: relative;
+}
+
+.combo-leg-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.combo-leg-badge.master {
+  background: rgba(59, 130, 246, 0.2);
+  color: #60a5fa;
+  border: 1px solid rgba(59, 130, 246, 0.4);
+}
+
+.combo-leg-badge.dependent {
+  background: rgba(168, 85, 247, 0.2);
+  color: #c084fc;
+  border: 1px solid rgba(168, 85, 247, 0.4);
 }

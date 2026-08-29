@@ -2146,19 +2146,50 @@ def api_webull_place_order():
         time_in_force = data.get('time_in_force', 'DAY')
         support_trading_session = data.get('support_trading_session', 'CORE')
 
+        # Stock trading parameters from Webull Stock Orders API
+        entrust_type = data.get('entrust_type', 'QTY')
+        total_cash_amount = data.get('total_cash_amount')
+        algo_type = data.get('algo_type')
+        algo_start_time = data.get('algo_start_time')
+        algo_end_time = data.get('algo_end_time')
+        max_target_percent = data.get('max_target_percent')
+        target_vol_percent = data.get('target_vol_percent')
+        combo_type = data.get('combo_type', 'NORMAL')
+        client_combo_order_id = data.get('client_combo_order_id')
+        combo_orders = data.get('combo_orders')
+        bracket_take_profit_price = data.get('bracket_take_profit_price')
+        bracket_stop_loss_price = data.get('bracket_stop_loss_price')
+        bracket_stop_loss_limit_price = data.get('bracket_stop_loss_limit_price')
+
         try:
             account_id = _require_webull_account_access(setting, account_id)
             instrument_type = _require_webull_instrument_account_match(setting, account_id, instrument_type)
         except WebullConnectionError as exc:
             return jsonify({'success': False, 'message': str(exc)}), 400
-        if not symbol:
-            return jsonify({'success': False, 'message': 'Choose an instrument symbol.'}), 400
-        if not side:
-            return jsonify({'success': False, 'message': 'Choose an order side (BUY or SELL).'}), 400
-        if not order_type:
-            return jsonify({'success': False, 'message': 'Choose a valid order type.'}), 400
-        if not quantity:
-            return jsonify({'success': False, 'message': 'Enter an order quantity.'}), 400
+
+        is_combo = bool(combo_orders and isinstance(combo_orders, list))
+        if not is_combo:
+            if not symbol:
+                return jsonify({'success': False, 'message': 'Choose an instrument symbol.'}), 400
+            if not side:
+                return jsonify({'success': False, 'message': 'Choose an order side (BUY, SELL, or SHORT).'}), 400
+            if not order_type:
+                return jsonify({'success': False, 'message': 'Choose a valid order type.'}), 400
+            if str(instrument_type).upper() == 'EQUITY' and str(entrust_type).upper() == 'AMOUNT':
+                try:
+                    if float(total_cash_amount or 0) < 5.0:
+                        return jsonify({'success': False, 'message': 'Total cash amount must be at least $5.00 for fractional orders.'}), 400
+                except (TypeError, ValueError):
+                    return jsonify({'success': False, 'message': 'Enter a valid total cash amount ($ USD).'}), 400
+            elif not quantity:
+                return jsonify({'success': False, 'message': 'Enter an order quantity.'}), 400
+
+        # Crypto safety guard: isolate crypto from equity-only features
+        if str(instrument_type).upper() == 'CRYPTO':
+            if str(side).upper() not in {'BUY', 'SELL'}:
+                return jsonify({'success': False, 'message': 'Crypto orders support BUY and SELL only.'}), 400
+            if str(order_type).upper() not in {'MARKET', 'LIMIT', 'STOP_LOSS_LIMIT'}:
+                return jsonify({'success': False, 'message': 'Crypto orders support Market, Limit, and Stop Loss Limit only.'}), 400
 
         # Options use their documented single-leg contract fields. Reject an
         # unsupported ticket before a 2FA token is consumed or an API request
@@ -2332,12 +2363,30 @@ def api_webull_place_order():
             trailing_stop_step=trailing_stop_step,
             time_in_force=time_in_force,
             support_trading_session=support_trading_session,
+            entrust_type=entrust_type,
+            total_cash_amount=total_cash_amount,
+            algo_type=algo_type,
+            algo_start_time=algo_start_time,
+            algo_end_time=algo_end_time,
+            max_target_percent=max_target_percent,
+            target_vol_percent=target_vol_percent,
+            combo_type=combo_type,
+            client_combo_order_id=client_combo_order_id,
+            combo_orders=combo_orders,
+            bracket_take_profit_price=bracket_take_profit_price,
+            bracket_stop_loss_price=bracket_stop_loss_price,
+            bracket_stop_loss_limit_price=bracket_stop_loss_limit_price,
         )
         logger.info(f"Webull order placed successfully: user={current_user.id} account={account_id} symbol={symbol} side={side} order_id={result.get('order_id')}")
+        order_msg = (
+            f"Webull combo order ({result.get('legs_count', 2)} legs) submitted successfully."
+            if result.get('client_combo_order_id')
+            else f"Webull {side} order for {quantity or total_cash_amount} {symbol} submitted successfully."
+        )
         return jsonify({
             'success': True,
             'order': result,
-            'message': f"Webull {side} order for {quantity} {symbol} submitted successfully.",
+            'message': order_msg,
         })
     except WebullConnectionError as exc:
         logger.warning('Webull order placement failed: %s', exc)
