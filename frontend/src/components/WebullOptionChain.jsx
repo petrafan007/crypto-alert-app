@@ -102,9 +102,7 @@ export default function WebullOptionChain({
   const [focusProfiles, setFocusProfiles] = useState(loadFocusColumns);
   const leftPaneRef = useRef(null);
   const rightPaneRef = useRef(null);
-  const leftScrollRailRef = useRef(null);
-  const rightScrollRailRef = useRef(null);
-  const [scrollRailWidths, setScrollRailWidths] = useState({ left: 0, right: 0 });
+  const [leftScrollRatio, setLeftScrollRatio] = useState(1);
   const mirrorScrollLock = useRef(false);
   const [strikeRange, setStrikeRange] = useState('20'); // '10', '20', 'all'
   const isMounted = useRef(true);
@@ -280,8 +278,7 @@ export default function WebullOptionChain({
     const frame = window.requestAnimationFrame(() => {
       if (leftPaneRef.current) leftPaneRef.current.scrollLeft = leftPaneRef.current.scrollWidth - leftPaneRef.current.clientWidth;
       if (rightPaneRef.current) rightPaneRef.current.scrollLeft = 0;
-      if (leftScrollRailRef.current) leftScrollRailRef.current.scrollLeft = leftScrollRailRef.current.scrollWidth - leftScrollRailRef.current.clientWidth;
-      if (rightScrollRailRef.current) rightScrollRailRef.current.scrollLeft = 0;
+      setLeftScrollRatio(1);
     });
     return () => window.cancelAnimationFrame(frame);
   }, [usesDualPane, strategy, activeFocus, selectedColumns.length, chainData?.underlying_symbol]);
@@ -293,11 +290,10 @@ export default function WebullOptionChain({
     const leftRatio = sourceSide === 'left' ? sourceRatio : 1 - sourceRatio;
     const targets = [
       [leftPaneRef.current, leftRatio],
-      [leftScrollRailRef.current, leftRatio],
       [rightPaneRef.current, 1 - leftRatio],
-      [rightScrollRailRef.current, 1 - leftRatio],
     ];
     mirrorScrollLock.current = true;
+    setLeftScrollRatio(leftRatio);
     targets.forEach(([target, ratio]) => {
       if (!target || target === source) return;
       const targetMax = Math.max(0, target.scrollWidth - target.clientWidth);
@@ -306,41 +302,18 @@ export default function WebullOptionChain({
     window.requestAnimationFrame(() => { mirrorScrollLock.current = false; });
   };
 
-  useEffect(() => {
-    if (!usesDualPane) return undefined;
-    const measure = () => {
-      setScrollRailWidths({
-        left: leftPaneRef.current?.scrollWidth || 0,
-        right: rightPaneRef.current?.scrollWidth || 0,
-      });
-    };
-    const frame = window.requestAnimationFrame(measure);
-    const observer = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(measure) : null;
-    if (leftPaneRef.current) observer?.observe(leftPaneRef.current);
-    if (rightPaneRef.current) observer?.observe(rightPaneRef.current);
-    window.addEventListener('resize', measure);
-    return () => {
-      window.cancelAnimationFrame(frame);
-      observer?.disconnect();
-      window.removeEventListener('resize', measure);
-    };
-  }, [usesDualPane, strategy, activeFocus, selectedColumns.length, chainData?.chain?.length]);
-
-  useEffect(() => {
-    if (!usesDualPane || !leftPaneRef.current || !rightPaneRef.current) return;
-    const frame = window.requestAnimationFrame(() => {
-      const leftPane = leftPaneRef.current;
-      const rightPane = rightPaneRef.current;
-      const leftRail = leftScrollRailRef.current;
-      const rightRail = rightScrollRailRef.current;
-      if (!leftPane || !rightPane || !leftRail || !rightRail) return;
-      const leftMax = Math.max(0, leftPane.scrollWidth - leftPane.clientWidth);
-      const leftRatio = leftMax > 0 ? leftPane.scrollLeft / leftMax : 1;
-      leftRail.scrollLeft = Math.max(0, leftRail.scrollWidth - leftRail.clientWidth) * leftRatio;
-      rightRail.scrollLeft = Math.max(0, rightRail.scrollWidth - rightRail.clientWidth) * (1 - leftRatio);
-    });
-    return () => window.cancelAnimationFrame(frame);
-  }, [usesDualPane, scrollRailWidths.left, scrollRailWidths.right]);
+  const setMirroredRatio = (nextLeftRatio) => {
+    const leftRatio = Math.max(0, Math.min(1, nextLeftRatio));
+    mirrorScrollLock.current = true;
+    setLeftScrollRatio(leftRatio);
+    if (leftPaneRef.current) {
+      leftPaneRef.current.scrollLeft = Math.max(0, leftPaneRef.current.scrollWidth - leftPaneRef.current.clientWidth) * leftRatio;
+    }
+    if (rightPaneRef.current) {
+      rightPaneRef.current.scrollLeft = Math.max(0, rightPaneRef.current.scrollWidth - rightPaneRef.current.clientWidth) * (1 - leftRatio);
+    }
+    window.requestAnimationFrame(() => { mirrorScrollLock.current = false; });
+  };
 
   useEffect(() => {
     const staleAfterMs = marketStatus === 'OPEN' ? 30000 : 120000;
@@ -739,60 +712,46 @@ export default function WebullOptionChain({
             <div className="no-data-cell">No options contracts available for {symbol} on {selectedExp}.</div>
           ) : usesDualPane ? (
             <>
+              <div className="option-dual-body-scroll">
+                <div className="option-dual-grid">
+                  <div
+                    className="option-pane-scroll option-pane-left"
+                    ref={leftPaneRef}
+                    onScroll={(event) => syncMirroredScroll('left', event.currentTarget)}
+                  >
+                    <table className="options-matrix-table option-pane-table">
+                      <thead>
+                        <tr><th className="call-th" colSpan={selectedColumns.length}>{viewMode === 'puts' ? 'PUTS' : 'CALLS'} · {activeStrategy.label}</th></tr>
+                        <tr>{[...selectedColumns].reverse().map((column) => <th key={`left-${column.id}`} className="call-th">{column.label}</th>)}</tr>
+                      </thead>
+                      <tbody>{renderOptionRows(viewMode === 'puts' ? 'PUT' : 'CALL', [...selectedColumns].reverse())}</tbody>
+                    </table>
+                  </div>
+                  <div className="option-strike-pane">
+                    <table className="options-matrix-table strike-pane-table">
+                      <thead><tr><th className="strike-th">STRIKE</th></tr><tr><th className="strike-th">{activeStrategy.usesWidth ? `Width ${strategyWidth}` : 'Anchor'}</th></tr></thead>
+                      <tbody>{renderStrikeRows()}</tbody>
+                    </table>
+                  </div>
+                  <div
+                    className="option-pane-scroll option-pane-right"
+                    ref={rightPaneRef}
+                    onScroll={(event) => syncMirroredScroll('right', event.currentTarget)}
+                  >
+                    <table className="options-matrix-table option-pane-table">
+                      <thead>
+                        <tr><th className="put-th" colSpan={selectedColumns.length}>{viewMode === 'calls' ? 'CALLS' : 'PUTS'} · {activeStrategy.label}</th></tr>
+                        <tr>{selectedColumns.map((column) => <th key={`right-${column.id}`} className="put-th">{column.label}</th>)}</tr>
+                      </thead>
+                      <tbody>{renderOptionRows(viewMode === 'calls' ? 'CALL' : 'PUT', selectedColumns)}</tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
               <div className="option-dual-scrollbars" aria-label="Mirrored option columns scroll controls">
-                <div
-                  className="option-scroll-rail option-scroll-rail-left"
-                  ref={leftScrollRailRef}
-                  onScroll={(event) => syncMirroredScroll('left', event.currentTarget)}
-                  aria-label="Scroll call-side option columns"
-                  role="region"
-                >
-                  <div style={{ width: `${scrollRailWidths.left}px` }} />
-                </div>
+                <input className="option-scroll-range option-scroll-range-left" type="range" min="0" max="1000" step="1" value={Math.round(leftScrollRatio * 1000)} onChange={(event) => setMirroredRatio(Number(event.target.value) / 1000)} aria-label="Scroll call-side option columns" />
                 <div className="option-scroll-rail-strike-spacer" aria-hidden="true" />
-                <div
-                  className="option-scroll-rail option-scroll-rail-right"
-                  ref={rightScrollRailRef}
-                  onScroll={(event) => syncMirroredScroll('right', event.currentTarget)}
-                  aria-label="Scroll put-side option columns"
-                  role="region"
-                >
-                  <div style={{ width: `${scrollRailWidths.right}px` }} />
-                </div>
-              </div>
-              <div className="option-dual-grid">
-              <div
-                className="option-pane-scroll option-pane-left"
-                ref={leftPaneRef}
-                onScroll={(event) => syncMirroredScroll('left', event.currentTarget)}
-              >
-                <table className="options-matrix-table option-pane-table">
-                  <thead>
-                    <tr><th className="call-th" colSpan={selectedColumns.length}>{viewMode === 'puts' ? 'PUTS' : 'CALLS'} · {activeStrategy.label}</th></tr>
-                    <tr>{[...selectedColumns].reverse().map((column) => <th key={`left-${column.id}`} className="call-th">{column.label}</th>)}</tr>
-                  </thead>
-                  <tbody>{renderOptionRows(viewMode === 'puts' ? 'PUT' : 'CALL', [...selectedColumns].reverse())}</tbody>
-                </table>
-              </div>
-              <div className="option-strike-pane">
-                <table className="options-matrix-table strike-pane-table">
-                  <thead><tr><th className="strike-th">STRIKE</th></tr><tr><th className="strike-th">{activeStrategy.usesWidth ? `Width ${strategyWidth}` : 'Anchor'}</th></tr></thead>
-                  <tbody>{renderStrikeRows()}</tbody>
-                </table>
-              </div>
-              <div
-                className="option-pane-scroll option-pane-right"
-                ref={rightPaneRef}
-                onScroll={(event) => syncMirroredScroll('right', event.currentTarget)}
-              >
-                <table className="options-matrix-table option-pane-table">
-                  <thead>
-                    <tr><th className="put-th" colSpan={selectedColumns.length}>{viewMode === 'calls' ? 'CALLS' : 'PUTS'} · {activeStrategy.label}</th></tr>
-                    <tr>{selectedColumns.map((column) => <th key={`right-${column.id}`} className="put-th">{column.label}</th>)}</tr>
-                  </thead>
-                  <tbody>{renderOptionRows(viewMode === 'calls' ? 'CALL' : 'PUT', selectedColumns)}</tbody>
-                </table>
-              </div>
+                <input className="option-scroll-range option-scroll-range-right" type="range" min="0" max="1000" step="1" value={Math.round((1 - leftScrollRatio) * 1000)} onChange={(event) => setMirroredRatio(1 - (Number(event.target.value) / 1000))} aria-label="Scroll put-side option columns" />
               </div>
             </>
           ) : (

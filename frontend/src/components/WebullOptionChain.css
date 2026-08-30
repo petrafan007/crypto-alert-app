@@ -884,8 +884,17 @@ body.light-mode .webull-option-chain-container .price-divider-line {
 }
 
 .chain-table-wrapper.dual-pane-chain {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) 24px;
   overflow-x: hidden !important;
-  overflow-y: auto !important;
+  overflow-y: hidden !important;
+}
+
+.chain-table-wrapper.dual-pane-chain .option-dual-body-scroll {
+  min-width: 0;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
 .chain-table-wrapper.dual-pane-chain .option-dual-scrollbars,
@@ -897,24 +906,56 @@ body.light-mode .webull-option-chain-container .price-divider-line {
 }
 
 .chain-table-wrapper.dual-pane-chain .option-dual-scrollbars {
-  position: sticky;
-  top: 0;
   z-index: 30;
-  height: 16px;
+  height: 24px;
+  align-items: center;
   background: #0b0f19;
 }
 
-.chain-table-wrapper.dual-pane-chain .option-scroll-rail {
+.chain-table-wrapper.dual-pane-chain .option-scroll-range {
+  appearance: none;
+  -webkit-appearance: none;
   min-width: 0;
-  height: 16px;
-  overflow-x: scroll;
-  overflow-y: hidden;
-  scrollbar-color: #64748b #172033;
-  scrollbar-width: auto;
+  width: calc(100% - 12px);
+  height: 14px;
+  margin: 0 6px;
+  border: 0;
+  background: transparent;
+  cursor: ew-resize;
 }
 
-.chain-table-wrapper.dual-pane-chain .option-scroll-rail > div {
-  height: 1px;
+.chain-table-wrapper.dual-pane-chain .option-scroll-range::-webkit-slider-runnable-track {
+  height: 6px;
+  border: 1px solid #475569;
+  border-radius: 999px;
+  background: #172033;
+}
+
+.chain-table-wrapper.dual-pane-chain .option-scroll-range::-webkit-slider-thumb {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 36px;
+  height: 12px;
+  margin-top: -4px;
+  border: 1px solid #94a3b8;
+  border-radius: 999px;
+  background: #64748b;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, .65);
+}
+
+.chain-table-wrapper.dual-pane-chain .option-scroll-range::-moz-range-track {
+  height: 6px;
+  border: 1px solid #475569;
+  border-radius: 999px;
+  background: #172033;
+}
+
+.chain-table-wrapper.dual-pane-chain .option-scroll-range::-moz-range-thumb {
+  width: 36px;
+  height: 12px;
+  border: 1px solid #94a3b8;
+  border-radius: 999px;
+  background: #64748b;
 }
 
 .chain-table-wrapper.dual-pane-chain .option-scroll-rail-strike-spacer {
@@ -974,11 +1015,11 @@ body.light-mode .webull-option-chain-container .price-divider-line {
 }
 
 .chain-table-wrapper.dual-pane-chain .options-matrix-table thead tr:first-child th {
-  top: 16px !important;
+  top: 0 !important;
 }
 
 .chain-table-wrapper.dual-pane-chain .options-matrix-table thead tr:nth-child(2) th {
-  top: 46px !important;
+  top: 30px !important;
 }
 
 .webull-option-chain-container.light-mode .chain-table-wrapper.dual-pane-chain .option-dual-scrollbars,
