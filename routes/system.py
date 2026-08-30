@@ -653,7 +653,7 @@ Bug Fixes:
             response_data.update({
                 "version": latest_version,
                 "release_notes": release_notes.strip(),
-                "download_url": f"{request.url_root}api/desktop/download-update",
+                "download_url": url_for("system.download_desktop_update", _external=True),
                 "file_hash": "sha256_hash_would_go_here",  # You'd compute this for the actual file
                 "file_size": 15728640,  # Example file size in bytes
                 "release_date": "2025-09-11T12:00:00Z"

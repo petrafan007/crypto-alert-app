@@ -13,6 +13,7 @@ except Exception:
     pass
 
 from core.extensions import db, login_manager, scheduler
+from core.proxy_security import configure_public_proxy_security
 from log import logger
 
 from routes.auth import auth_bp
@@ -28,6 +29,7 @@ from credentials import User
 app = Flask(__name__, static_folder='frontend/dist', static_url_path='/static', instance_relative_config=True)
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'super-secret-key')
 app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 0
+configure_public_proxy_security(app)
 
 app.config['SQLALCHEMY_DATABASE_URI'] = 'postgresql:///cryptoalertapp?host=/var/run/postgresql&port=5433'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False

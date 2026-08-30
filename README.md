@@ -125,6 +125,15 @@ The application utilizes a **unified PostgreSQL database**.
 
 Historical changelog entries retain the product name used when they were originally released. The application domain, repository slug, deployment folders, database, and service identifiers intentionally remain unchanged by the v2.45.0 brand update.
 
+## v2.61.5 (August 2026)
+
+- **Cloudflare-Aware HTTPS Origin Handling**:
+  - The application now accepts forwarded protocol and host values only when the request comes from the loopback Cloudflare Tunnel process. Public URL generation therefore uses `https://csdapp.online` without allowing direct LAN clients to spoof forwarded origin headers.
+  - Desktop update links now use Flask's routed external-URL generation instead of manually concatenating the raw request root.
+- **Secure Authentication Cookies**:
+  - Session and remember-me cookies now require HTTPS and explicitly use `Secure`, `HttpOnly`, and `SameSite=Lax` protections.
+  - Direct unencrypted LAN requests remain available for service diagnostics, but authenticated browser use is intentionally restricted to the public HTTPS domain.
+
 ## v2.61.4 (August 2026)
 
 - **Smooth Mirrored Option Scrolling**:
