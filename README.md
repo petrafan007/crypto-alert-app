@@ -127,6 +127,13 @@ The application utilizes a **unified PostgreSQL database**.
 
 Historical changelog entries retain the product name used when they were originally released. The application domain, repository slug, deployment folders, database, and service identifiers intentionally remain unchanged by the v2.45.0 brand update.
 
+## v2.62.3 (August 2026)
+
+- **Onboarding Exchange Logo Normalization**:
+  - Replaced hardcoded internal logo SVG primitives in the Onboarding workflow with the canonical, accurate Binance.US and Webull vectorized assets matching the dashboard UI.
+- **Onboarding Completion Redirection Loop Resolution**:
+  - Eliminated a caching guard condition within the application context session manager that prevented session hydration on Onboarding finish, resolving an infinite loop redirection that locked users on the setup review step.
+
 ## v2.62.2 (August 2026)
 
 - **Password Manager Modal Bleed-Through Prevention**:

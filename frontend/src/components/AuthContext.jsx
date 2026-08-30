@@ -52,13 +52,13 @@ export function AuthProvider({ children }) {
     checkAuthStatus();
   }, []);
 
-  const checkAuthStatus = async () => {
+  const checkAuthStatus = async (force = false) => {
     try {
       if (isLoggingOut || window.globalIsLoggingOut) {
         setLoading(false);
         return;
       }
-      if (user && user.id) {
+      if (!force && user && user.id) {
         setLoading(false);
         return;
       }
