@@ -186,6 +186,45 @@ def ensure_price_history(symbol, now_timestamp=None, is_traditional=False):
 
         if not klines:
             logger.debug("No Binance.US hourly price history found for %s; checking stock/ETF market data", symbol)
+            # Try Webull Data API first if credentials are configured
+            try:
+                from credentials import Credential
+                from services.webull_service import get_webull_market_bars
+                cred = Credential.query.filter(Credential._webull_app_key.isnot(None)).first()
+                if cred and cred.webull_app_key and cred.webull_app_secret:
+                    wb_bars = get_webull_market_bars(
+                        cred.webull_app_key, cred.webull_app_secret,
+                        environment=getattr(cred, 'webull_token_environment', 'production') or 'production',
+                        access_token=cred.webull_access_token,
+                        symbol=symbol, instrument_type='STOCK', interval='1h', limit=168
+                    )
+                    if wb_bars:
+                        existing_buckets = {int(row.timestamp) // 3600 for row in rows}
+                        added = 0
+                        for b in wb_bars:
+                            ts = int(b['time'])
+                            close_price = _as_float(b.get('close'))
+                            vol = _as_float(b.get('volume', 0))
+                            bucket = ts // 3600
+                            if ts < cutoff or close_price <= 0 or bucket in existing_buckets:
+                                continue
+                            db.session.add(PriceHistory(
+                                symbol=symbol,
+                                price=close_price,
+                                volume=vol,
+                                quote_volume=vol * close_price,
+                                timestamp=ts,
+                                exchange="webull",
+                            ))
+                            existing_buckets.add(bucket)
+                            added += 1
+                        if added:
+                            db.session.commit()
+                            logger.info("Backfilled %s hourly price/volume points for stock %s via Webull Data API", added, symbol)
+                            return True
+            except Exception as wb_err:
+                logger.debug("Webull price history backfill failed for %s: %s; trying yfinance fallback", symbol, wb_err)
+
             try:
                 import yfinance as yf
                 ticker = yf.Ticker(symbol)

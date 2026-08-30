@@ -1576,6 +1576,49 @@ def get_trading_klines(symbol):
                 last_err = api_err
 
         if not klines:
+            # Check Webull Data API first for equities / ETFs
+            wb_klines = None
+            if current_user and current_user.is_authenticated:
+                try:
+                    from credentials import Credential
+                    from services.webull_service import get_webull_market_bars
+                    cred = Credential.query.filter_by(user_id=current_user.id).first()
+                    if cred and cred.webull_app_key and cred.webull_app_secret:
+                        wb_interval_map = {'1m': 'm1', '5m': 'm5', '15m': 'm15', '30m': 'm30', '1h': 'h1', '1d': 'd1', '1w': 'w1'}
+                        wb_int = wb_interval_map.get(interval, 'h1')
+                        raw_wb_bars = get_webull_market_bars(
+                            cred.webull_app_key, cred.webull_app_secret,
+                            environment=getattr(cred, 'webull_token_environment', 'production') or 'production',
+                            access_token=cred.webull_access_token,
+                            symbol=symbol, instrument_type='STOCK', interval=wb_int, limit=limit
+                        )
+                        if raw_wb_bars:
+                            wb_klines = [
+                                [
+                                    int(b['time']) * 1000,
+                                    str(b.get('open', 0)),
+                                    str(b.get('high', 0)),
+                                    str(b.get('low', 0)),
+                                    str(b.get('close', 0)),
+                                    str(b.get('volume', 0)),
+                                    int(b['time']) * 1000 + 3600000,
+                                    "0", 0, "0", "0", "0"
+                                ]
+                                for b in raw_wb_bars if b.get('time')
+                            ]
+                except Exception as wb_exc:
+                    logger.debug(f"Webull klines lookup failed for {symbol}: {wb_exc}")
+
+            if wb_klines:
+                _KLINES_CACHE[cache_key] = (wb_klines, now)
+                return jsonify({
+                    'success': True,
+                    'symbol': symbol,
+                    'interval': interval,
+                    'klines': wb_klines,
+                    'source': 'webull'
+                })
+
             # Fallback to yfinance for equities / ETFs / non-Binance symbols
             yf_klines = _fetch_yfinance_klines(symbol, interval, limit)
             if yf_klines:
@@ -5130,17 +5173,53 @@ def api_watchlist_search_symbol():
     return jsonify({"results": results[:20]})
 
 
-def _fetch_stock_price_yf(symbol):
-    """Fetch the latest market price for a stock/ETF using yfinance."""
+def _fetch_stock_price_yf(symbol, user_id=None):
+    """Fetch the latest market price for a stock/ETF, prioritizing Webull Data API & Streaming with yfinance fallback."""
+    clean_sym = str(symbol or '').upper().strip()
+    if not clean_sym:
+        return 0.0
+
+    # 1. Check Webull real-time streaming cache
+    try:
+        from services.webull_streaming_service import get_latest_streaming_price
+        stream_price = get_latest_streaming_price(clean_sym)
+        if stream_price and stream_price > 0:
+            return stream_price
+    except Exception:
+        pass
+
+    # 2. Check Webull OpenAPI market snapshot
+    try:
+        from credentials import Credential
+        from services.webull_service import get_webull_market_snapshot
+        target_uid = user_id or (current_user.id if current_user and current_user.is_authenticated else None)
+        if target_uid:
+            cred = Credential.query.filter_by(user_id=target_uid).first()
+        else:
+            cred = Credential.query.filter(Credential._webull_app_key.isnot(None)).first()
+        if cred and cred.webull_app_key and cred.webull_app_secret:
+            snapshot = get_webull_market_snapshot(
+                cred.webull_app_key, cred.webull_app_secret,
+                environment=getattr(cred, 'webull_token_environment', 'production') or 'production',
+                access_token=cred.webull_access_token,
+                symbol=clean_sym, instrument_type='STOCK'
+            )
+            price = snapshot.get('price') or snapshot.get('regular_price')
+            if price and float(price) > 0:
+                return float(price)
+    except Exception as wb_err:
+        logger.debug(f"Webull price fetch failed for {clean_sym}: {wb_err}; falling back to yfinance")
+
+    # 3. Fallback to yfinance
     try:
         import yfinance as yf
-        ticker = yf.Ticker(symbol)
+        ticker = yf.Ticker(clean_sym)
         info = ticker.fast_info
         price = getattr(info, 'last_price', None) or getattr(info, 'regularMarketPrice', None)
         if price and float(price) > 0:
             return float(price)
     except Exception as e:
-        logger.warning(f"yfinance price fetch failed for {symbol}: {e}")
+        logger.warning(f"yfinance price fetch failed for {clean_sym}: {e}")
     return 0.0
 
 

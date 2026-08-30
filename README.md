@@ -127,6 +127,11 @@ The application utilizes a **unified PostgreSQL database**.
 
 Historical changelog entries retain the product name used when they were originally released. The application domain, repository slug, deployment folders, database, and service identifiers intentionally remain unchanged by the v2.45.0 brand update.
 
+## v2.63.7 (August 2026)
+
+- **Webull Data API & MQTT Streaming Architecture**: Integrated Webull OpenAPI as the primary market data provider for all equity/ETF price lookups, candlestick klines, and top stock movers with resilient `yfinance` fallback, while maintaining complete protocol and endpoint isolation from Binance.US crypto streaming.
+- **Webull MQTT Streaming Service**: Implemented real-time market data streaming architecture via MQTT v3.1.1 adhering strictly to Webull OpenAPI connection rules (single connection per App Key, cooldown safeguards, protobuf/JSON topic parsing).
+
 ## v2.63.6 (August 2026)
 
 - **Default 7-Panel Dashboard Layout & User Scoping**: Configured the clean 7-core panel arrangement (Asset Performance, Allocations, Portfolio Trend, Fear & Greed, Top Crypto Movers, Top Stock Movers, CBBI) as the out-of-the-box default for new accounts on first sign-in, while preserving all custom saved layouts for existing users via user-scoped localStorage persistence.

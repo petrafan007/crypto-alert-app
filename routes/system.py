@@ -2735,33 +2735,75 @@ def api_webull_cancel_order():
         return jsonify({'success': False, 'message': f'Order cancellation failed: {exc}'}), 500
 
 
+def _fetch_fallback_stock_movers():
+    """Fallback stock movers using popular large/mid-cap equities via yfinance."""
+    import yfinance as yf
+    symbols = ["AAPL", "NVDA", "MSFT", "AMZN", "GOOGL", "META", "TSLA", "AMD", "PLTR", "COIN", "MARA", "RIOT", "NFLX", "INTC", "BABA", "UBER", "DIS", "BA", "PYPL", "SOFI"]
+    try:
+        tickers = yf.Tickers(' '.join(symbols))
+        items = []
+        for sym in symbols:
+            try:
+                t = tickers.tickers.get(sym)
+                if not t:
+                    continue
+                fi = t.fast_info
+                p = float(getattr(fi, 'last_price', 0) or getattr(fi, 'regularMarketPrice', 0) or 0)
+                pc = float(getattr(fi, 'previous_close', 0) or getattr(fi, 'regularMarketPreviousClose', 0) or 0)
+                if p > 0 and pc > 0:
+                    change = ((p - pc) / pc) * 100
+                    items.append({
+                        'symbol': sym,
+                        'name': sym,
+                        'price': round(p, 2),
+                        'change': round(change, 2),
+                        'currency': 'USD'
+                    })
+            except Exception:
+                continue
+        gainers = sorted([i for i in items if i['change'] >= 0], key=lambda x: x['change'], reverse=True)
+        losers = sorted([i for i in items if i['change'] < 0], key=lambda x: x['change'])
+        return gainers, losers
+    except Exception as exc:
+        logger.warning("yfinance stock movers fallback failed: %s", exc)
+        return [], []
+
+
 @system_bp.route('/api/webull/stock-movers', methods=['GET'])
 @login_required
 def api_webull_stock_movers():
-    """Return top U.S. stock movers from Webull's read-only market screener."""
+    """Return top U.S. stock movers, prioritizing Webull OpenAPI with resilient yfinance fallback."""
     try:
         credential = Credential.query.filter_by(user_id=current_user.id).first()
         setting = UserSetting.query.filter_by(user_id=current_user.id).first()
         environment = normalize_webull_environment(getattr(setting, 'webull_environment', None) or 'production')
         if (
-            not credential or credential.webull_token_status != 'NORMAL'
-            or credential.webull_token_environment != environment or not credential.webull_access_token
+            credential and credential.webull_token_status == 'NORMAL'
+            and credential.webull_token_environment == environment and credential.webull_access_token
         ):
-            return jsonify({'success': False, 'movers': [], 'message': 'Connect Webull to load U.S. stock movers.'}), 400
-        gainers = get_webull_stock_movers(
-            credential.webull_app_key, credential.webull_app_secret, environment,
-            credential.webull_access_token, direction='DESC',
-        )
-        losers = get_webull_stock_movers(
-            credential.webull_app_key, credential.webull_app_secret, environment,
-            credential.webull_access_token, direction='ASC',
-        )
-        return jsonify({'success': True, 'gainers': gainers, 'losers': losers})
-    except WebullConnectionError as exc:
-        return jsonify({'success': False, 'movers': [], 'message': str(exc)}), 400
+            try:
+                gainers = get_webull_stock_movers(
+                    credential.webull_app_key, credential.webull_app_secret, environment,
+                    credential.webull_access_token, direction='DESC',
+                )
+                losers = get_webull_stock_movers(
+                    credential.webull_app_key, credential.webull_app_secret, environment,
+                    credential.webull_access_token, direction='ASC',
+                )
+                if gainers or losers:
+                    return jsonify({'success': True, 'gainers': gainers, 'losers': losers, 'source': 'webull'})
+            except Exception as wb_exc:
+                logger.info('Webull stock movers request failed (%s); attempting yfinance fallback.', wb_exc)
+
+        # Resilient fallback to yfinance
+        yf_gainers, yf_losers = _fetch_fallback_stock_movers()
+        if yf_gainers or yf_losers:
+            return jsonify({'success': True, 'gainers': yf_gainers, 'losers': yf_losers, 'source': 'yfinance'})
+
+        return jsonify({'success': False, 'gainers': [], 'losers': [], 'message': 'Unable to load U.S. stock movers.'}), 200
     except Exception as exc:
         logger.error('Webull stock-movers lookup failed: %s', exc, exc_info=True)
-        return jsonify({'success': False, 'movers': [], 'message': 'Unable to load U.S. stock movers.'}), 500
+        return jsonify({'success': False, 'gainers': [], 'losers': [], 'message': 'Unable to load U.S. stock movers.'}), 200
 
 
 @system_bp.route('/api/webull/market-bars', methods=['GET'])
