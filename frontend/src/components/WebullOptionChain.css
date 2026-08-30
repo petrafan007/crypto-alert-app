@@ -1227,7 +1227,7 @@ body.light-mode .webull-option-chain-container .chain-refresh-warning {
   border-color: #f59e0b;
 }
 
-/* v2.61.3 unified dual-sided matrix: one table, one header, one body. */
+/* v2.61.4 unified matrix with continuously translated metric tracks. */
 .chain-table-wrapper.dual-pane-chain {
   display: block !important;
   overflow-x: hidden !important;
@@ -1243,7 +1243,7 @@ body.light-mode .webull-option-chain-container .chain-refresh-warning {
   margin: 0 !important;
 }
 
-.chain-table-wrapper.dual-pane-chain .option-unified-dual-table col:not(.option-unified-strike-col) {
+.chain-table-wrapper.dual-pane-chain .option-unified-dual-table col.option-unified-side-col {
   width: auto;
 }
 
@@ -1282,10 +1282,73 @@ body.light-mode .webull-option-chain-container .chain-refresh-warning {
   box-sizing: border-box;
 }
 
+.chain-table-wrapper.dual-pane-chain .option-unified-dual-table .option-unified-metric-group {
+  min-width: 0;
+  padding: 0 !important;
+  overflow: hidden !important;
+  clip-path: inset(0);
+}
+
+.chain-table-wrapper.dual-pane-chain .option-metric-track {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: var(--option-metric-width, 94px);
+  height: 34px;
+  min-height: 34px;
+  will-change: transform;
+}
+
+.chain-table-wrapper.dual-pane-chain .option-metric-heading,
+.chain-table-wrapper.dual-pane-chain .option-metric-item {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  width: var(--option-metric-width, 94px);
+  min-width: var(--option-metric-width, 94px);
+  max-width: var(--option-metric-width, 94px);
+  height: 34px;
+  min-height: 34px;
+  padding: 7px 10px;
+  border-right: 1px solid #64748b;
+  box-sizing: border-box;
+  white-space: nowrap;
+}
+
+.chain-table-wrapper.dual-pane-chain .option-metric-heading {
+  color: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 16px;
+  text-transform: uppercase;
+}
+
+.chain-table-wrapper.dual-pane-chain .option-metric-item {
+  color: inherit;
+  font-size: 12px;
+}
+
+.webull-option-chain-container.light-mode .chain-table-wrapper.dual-pane-chain .option-metric-heading,
+.webull-option-chain-container.light-mode .chain-table-wrapper.dual-pane-chain .option-metric-item,
+body.light-mode .webull-option-chain-container .chain-table-wrapper.dual-pane-chain .option-metric-heading,
+body.light-mode .webull-option-chain-container .chain-table-wrapper.dual-pane-chain .option-metric-item {
+  border-right-color: #cbd5e1;
+}
+
 .chain-table-wrapper.dual-pane-chain .option-dual-scrollbars {
   position: sticky;
   bottom: 0;
   z-index: 46;
-  grid-template-columns: minmax(0, 1fr) 118px minmax(0, 1fr);
   margin: 0;
+}
+
+.chain-table-wrapper.dual-pane-chain .option-dual-scrollbars.option-view-both {
+  grid-template-columns: minmax(0, 1fr) 118px minmax(0, 1fr);
+}
+
+.chain-table-wrapper.dual-pane-chain .option-dual-scrollbars.option-view-calls {
+  grid-template-columns: minmax(0, 1fr) 118px;
+}
+
+.chain-table-wrapper.dual-pane-chain .option-dual-scrollbars.option-view-puts {
+  grid-template-columns: 118px minmax(0, 1fr);
 }

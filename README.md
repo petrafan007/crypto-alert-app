@@ -125,6 +125,15 @@ The application utilizes a **unified PostgreSQL database**.
 
 Historical changelog entries retain the product name used when they were originally released. The application domain, repository slug, deployment folders, database, and service identifiers intentionally remain unchanged by the v2.45.0 brand update.
 
+## v2.61.4 (August 2026)
+
+- **Smooth Mirrored Option Scrolling**:
+  - Dual-sided option matrices now move their complete metric tracks continuously by pixel while either bottom slider is dragged. The opposite side follows at the mirrored position without rounding or snapping to whole columns.
+  - Horizontal trackpad and Shift+wheel movement uses the same continuous mirrored position while the centered Strike column and two sticky header rows remain fixed in the existing unified table.
+- **Correct Calls-Only and Puts-Only Shapes**:
+  - **All Calls & Puts** keeps the full `Calls | Strike | Puts` matrix.
+  - **Calls Only** removes the complete put side and renders `Calls | Strike`; **Puts Only** removes the complete call side and renders `Strike | Puts`, with no duplicate or empty half-table.
+
 ## v2.61.3 (August 2026)
 
 - **Reliable Option-Table Headers**:
