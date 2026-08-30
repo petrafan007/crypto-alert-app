@@ -62,7 +62,7 @@ def enforce_required_onboarding():
     path = request.path
     allowed_exact = {
         '/onboarding', '/api/session', '/api/logout', '/logout',
-        '/privacy', '/terms', '/acceptable-use', '/support',
+        '/privacy', '/terms', '/acceptable-use', '/risk-disclosure', '/support',
         '/api/settings', '/api/test-binance-connection',
         '/api/test-webull-connection', '/api/webull/accounts',
         '/api/webull/enabled-accounts', '/api/webull/default-account',
@@ -218,13 +218,23 @@ def register():
             seed_new_user_defaults(new_user.id, new_settings)
             db.session.commit()
             
-            login_user(new_user)
+            # Log in the new user immediately
+            session.permanent = True
+            login_user(new_user, remember=True)
+            logger.info(f"User {new_user.username} registered successfully and logged in")
+
             return jsonify({
                 "success": True,
+                "message": "Account created successfully",
                 "redirect": "/onboarding",
-                "user": {"id": new_user.id, "username": new_user.username},
                 "onboarding_required": True,
-            }), 200
+                "user": {
+                    "id": new_user.id,
+                    "username": new_user.username,
+                    "email": new_user.email,
+                    "onboarding_required": True
+                }
+            }), 201
             
         except Exception as e:
             logger.error(f"Registration error: {str(e)}")

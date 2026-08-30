@@ -202,3 +202,4 @@ migrations/
 jcavallarojr_access_token.json*
 credentials.db*
 cookies*
+backups/

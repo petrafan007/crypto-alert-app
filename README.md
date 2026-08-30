@@ -2,6 +2,8 @@
 
 **Crypto & Securities Dashboard** is a comprehensive, non-custodial digital-asset and securities portfolio management and trading platform for Binance.US and Webull. It provides real-time portfolio tracking, automated price alerts, exchange-scoped order workflows, built-in staking management, and AI-powered market sentiment analysis. Webull supports explicitly authorized, account-scoped equity/ETF, crypto, single-leg and documented multi-leg option strategies, futures, and event contract orders; no provider data or orders cross exchange boundaries.
 
+**URL: https://csdapp.online**
+
 **Last Updated**: August 2026
 
 ## 🚀 Key Features & Capabilities
@@ -124,6 +126,19 @@ The application utilizes a **unified PostgreSQL database**.
 ## Version History & Changelog
 
 Historical changelog entries retain the product name used when they were originally released. The application domain, repository slug, deployment folders, database, and service identifiers intentionally remain unchanged by the v2.45.0 brand update.
+
+## v2.62.1 (August 2026)
+
+- **Registration Session & Onboarding Transition Fix**:
+  - Resolved an issue where newly registered users were redirected back to the login screen after clicking "Create Account & Continue".
+  - Configured Flask-Login unauthorized handler for API routes to return clean JSON (HTTP 401) instead of redirecting API callers to `/login`.
+  - Configured persistent session cookies on registration and ensured credential-sharing (`withCredentials: true`) on signup requests so users transition smoothly into the onboarding wizard (`/onboarding`).
+- **Interactive In-Page Legal Modals**:
+  - Replaced external page links on the signup form with non-disruptive modal overlays for **Terms of Service**, **Privacy Policy**, and **Acceptable Use Policy**.
+  - Users can review complete legal policies directly inside modal popups and close them with the "X" button without losing their entered form data or leaving the signup page.
+- **Trading Risk Disclosures**:
+  - Created comprehensive **Trading Risk Disclosures** detailing asset volatility, options/derivatives risks, non-custodial software boundaries, API third-party dependencies, and automated signal disclaimers.
+  - Linked the "trading-risk disclosures" text on the registration form to open in a dedicated modal overlay, and added `/risk-disclosure` to the router and application footer.
 
 ## v2.62.0 (August 2026)
 

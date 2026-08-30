@@ -51,6 +51,13 @@ except Exception as e:
 login_manager.init_app(app)
 login_manager.login_view = "auth.login"
 
+@login_manager.unauthorized_handler
+def handle_unauthorized():
+    from flask import request, jsonify, redirect, url_for
+    if request.path.startswith('/api/') or request.is_json:
+        return jsonify({"error": "Authentication required", "authenticated": False}), 401
+    return redirect(url_for('auth.login', next=request.url))
+
 @login_manager.user_loader
 def load_user(user_id):
     if not user_id:

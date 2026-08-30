@@ -17,6 +17,7 @@ import Help from './pages/Help';
 import PrivacyPolicy from './pages/PrivacyPolicy';
 import TermsOfService from './pages/TermsOfService';
 import AcceptableUse from './pages/AcceptableUse';
+import TradingRiskDisclosure from './pages/TradingRiskDisclosure';
 import Support from './pages/Support';
 import ToastNotifications from './components/ToastNotifications';
 import { APP_VERSION } from './version';
@@ -348,6 +349,7 @@ export default function App() {
             <Route path="/privacy" element={<PrivacyPolicy isLightMode={isLightMode} />} />
             <Route path="/terms" element={<TermsOfService isLightMode={isLightMode} />} />
             <Route path="/acceptable-use" element={<AcceptableUse isLightMode={isLightMode} />} />
+            <Route path="/risk-disclosure" element={<TradingRiskDisclosure isLightMode={isLightMode} />} />
             <Route path="/support" element={<Support isLightMode={isLightMode} />} />
           </Routes>
         </React.Suspense>
@@ -446,6 +448,9 @@ export default function App() {
           </Link>
           <Link to="/acceptable-use" style={{ color: '#4da6ff', textDecoration: 'none', fontSize: '14px' }}>
             Acceptable Use
+          </Link>
+          <Link to="/risk-disclosure" style={{ color: '#4da6ff', textDecoration: 'none', fontSize: '14px' }}>
+            Trading Risk Disclosures
           </Link>
           <Link to="/support" style={{ color: '#4da6ff', textDecoration: 'none', fontSize: '14px' }}>
             Support
