@@ -240,7 +240,10 @@ def register():
             logger.error(f"Registration error: {str(e)}")
             db.session.rollback()
             return jsonify({"error": "Registration failed. Please try again."}), 500
-    return jsonify({"error": "GET method not supported"}), 405
+    
+    # For GET requests, serve the React app by importing the shared helper
+    logger.info("Register GET request, serving React app")
+    return serve_react_app()
 
 @auth_bp.route("/login", methods=["GET", "POST"])
 def login():
@@ -352,7 +355,10 @@ def onboarding():
             db.session.rollback()
             return jsonify({"success": False, "error": "Credential encryption key missing. Configure CREDENTIALS_ENCRYPTION_KEY and retry."}), 500
         return jsonify({"success": True, "message": "Credentials saved successfully."})
-    return jsonify({"error": "GET method not supported"}), 405
+        
+    # For GET requests, serve the React app by importing the shared helper
+    logger.info("Onboarding GET request, serving React app")
+    return serve_react_app()
 
 
 @auth_bp.route('/api/onboarding/status', methods=['GET'])
