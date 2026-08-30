@@ -127,6 +127,11 @@ The application utilizes a **unified PostgreSQL database**.
 
 Historical changelog entries retain the product name used when they were originally released. The application domain, repository slug, deployment folders, database, and service identifiers intentionally remain unchanged by the v2.45.0 brand update.
 
+## v2.62.5 (August 2026)
+
+- Removed legacy OpenAI models and replaced them with the modern suite (`gpt-5.4-mini`, `gpt-5.4`, `gpt-5.5`, `gpt-5.6-luna`, `gpt-5.6-terra`, and `gpt-5.6-sol`).
+- Expanded the AI reasoning effort selector to include "Light", "Medium", "High", and "Extra High", and made it available globally across all supported AI providers in Settings and Onboarding.
+
 ## v2.62.4 (August 2026)
 
 - Fixed a "GET method not supported" error bug on the registration and onboarding routes caused by a backend route naming collision with the React frontend router.

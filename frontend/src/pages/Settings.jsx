@@ -1960,20 +1960,21 @@ export default function Settings({ isLightMode }) {
             </div>
           </div>
 
-          {/* Gemini Reasoning Effort */}
-          {settings.ai_provider === 'gemini' && (
+          {/* Reasoning Effort */}
+          {['gemini', 'openai'].includes(settings.ai_provider) && (
             <div className="settings-form-group">
               <label>Reasoning</label>
               <select
                 value={settings.ai_reasoning_level || 'medium'}
                 onChange={(e) => handleInputChange('ai_reasoning_level', e.target.value)}
               >
-                <option value="low">Low</option>
+                <option value="light">Light</option>
                 <option value="medium">Medium</option>
                 <option value="high">High</option>
+                <option value="extra high">Extra High</option>
               </select>
               <div className="settings-form-help">
-                Configure reasoning effort for Gemini models (Low, Medium, or High)
+                Configure reasoning effort for supported models
               </div>
             </div>
           )}
@@ -2112,20 +2113,21 @@ export default function Settings({ isLightMode }) {
             </div>
           </div>
 
-          {/* Gemini Reasoning Effort for Secondary */}
-          {(settings.ai_provider_secondary === 'gemini' || settings.ai_provider_fallback === 'gemini') && (
+          {/* Reasoning Effort for Secondary */}
+          {['gemini', 'openai'].includes(settings.ai_provider_secondary || settings.ai_provider_fallback) && (
             <div className="settings-form-group">
               <label>Reasoning</label>
               <select
                 value={settings.ai_reasoning_level_secondary || settings.ai_reasoning_level_fallback || 'medium'}
                 onChange={(e) => handleInputChange('ai_reasoning_level_secondary', e.target.value)}
               >
-                <option value="low">Low</option>
+                <option value="light">Light</option>
                 <option value="medium">Medium</option>
                 <option value="high">High</option>
+                <option value="extra high">Extra High</option>
               </select>
               <div className="settings-form-help">
-                Configure reasoning effort for Gemini models (Low, Medium, or High)
+                Configure reasoning effort for supported models
               </div>
             </div>
           )}
@@ -2264,20 +2266,21 @@ export default function Settings({ isLightMode }) {
             </div>
           </div>
 
-          {/* Gemini Reasoning Effort for Tertiary */}
-          {settings.ai_provider_tertiary === 'gemini' && (
+          {/* Reasoning Effort for Tertiary */}
+          {['gemini', 'openai'].includes(settings.ai_provider_tertiary) && (
             <div className="settings-form-group">
               <label>Reasoning</label>
               <select
                 value={settings.ai_reasoning_level_tertiary || 'medium'}
                 onChange={(e) => handleInputChange('ai_reasoning_level_tertiary', e.target.value)}
               >
-                <option value="low">Low</option>
+                <option value="light">Light</option>
                 <option value="medium">Medium</option>
                 <option value="high">High</option>
+                <option value="extra high">Extra High</option>
               </select>
               <div className="settings-form-help">
-                Configure reasoning effort for Gemini models (Low, Medium, or High)
+                Configure reasoning effort for supported models
               </div>
             </div>
           )}

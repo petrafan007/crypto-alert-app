@@ -882,8 +882,7 @@ def api_ai_settings():
 def get_ai_models():
     # These are the hardcoded models from the settings validation logic
     openai_models = {
-        'gpt-5', 'gpt-5-mini', 'gpt-5-nano', 'gpt-4.1', 'gpt-4.1-mini',
-        'gpt-4.1-nano', 'o4-mini', 'o3', 'o3-mini',
+        'gpt-5.4-mini', 'gpt-5.4', 'gpt-5.5', 'gpt-5.6-luna', 'gpt-5.6-terra', 'gpt-5.6-sol'
     }
     zai_models = {
         'glm-4.5-flash', 'glm-4.5', 'glm-4.5-air', 'glm-4.6', 'glm-4.7', 'glm-5.2', 'glm-5.3', 'glm-5.3-flash'
@@ -900,15 +899,12 @@ def get_ai_models():
     
     # Create a dictionary of labels for the models
     model_labels = {
-        'gpt-5': 'GPT-5',
-        'gpt-5-mini': 'GPT-5 Mini',
-        'gpt-5-nano': 'GPT-5 Nano',
-        'gpt-4.1': 'GPT-4.1',
-        'gpt-4.1-mini': 'GPT-4.1 Mini',
-        'gpt-4.1-nano': 'GPT-4.1 Nano',
-        'o4-mini': 'o4 Mini',
-        'o3': 'o3',
-        'o3-mini': 'o3 Mini',
+        'gpt-5.4-mini': '5.4 mini',
+        'gpt-5.4': '5.4',
+        'gpt-5.5': '5.5',
+        'gpt-5.6-luna': '5.6 Luna',
+        'gpt-5.6-terra': '5.6 Terra',
+        'gpt-5.6-sol': '5.6 Sol',
         'glm-4.5-flash': 'GLM-4.5 Flash (Free)',
         'glm-4.5': 'GLM-4.5',
         'glm-4.5-air': 'GLM-4.5 Air',
