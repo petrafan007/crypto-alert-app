@@ -100,6 +100,8 @@ export default function WebullOptionChain({
   const strategyControlRef = useRef(null);
   const [activeFocus, setActiveFocus] = useState('price');
   const [focusProfiles, setFocusProfiles] = useState(loadFocusColumns);
+  const leftHeaderRef = useRef(null);
+  const rightHeaderRef = useRef(null);
   const leftPaneRef = useRef(null);
   const rightPaneRef = useRef(null);
   const [leftScrollRatio, setLeftScrollRatio] = useState(1);
@@ -276,6 +278,8 @@ export default function WebullOptionChain({
   useEffect(() => {
     if (!usesDualPane) return undefined;
     const frame = window.requestAnimationFrame(() => {
+      if (leftHeaderRef.current) leftHeaderRef.current.scrollLeft = leftHeaderRef.current.scrollWidth - leftHeaderRef.current.clientWidth;
+      if (rightHeaderRef.current) rightHeaderRef.current.scrollLeft = 0;
       if (leftPaneRef.current) leftPaneRef.current.scrollLeft = leftPaneRef.current.scrollWidth - leftPaneRef.current.clientWidth;
       if (rightPaneRef.current) rightPaneRef.current.scrollLeft = 0;
       setLeftScrollRatio(1);
@@ -289,7 +293,9 @@ export default function WebullOptionChain({
     const sourceRatio = sourceMax > 0 ? source.scrollLeft / sourceMax : 0;
     const leftRatio = sourceSide === 'left' ? sourceRatio : 1 - sourceRatio;
     const targets = [
+      [leftHeaderRef.current, leftRatio],
       [leftPaneRef.current, leftRatio],
+      [rightHeaderRef.current, 1 - leftRatio],
       [rightPaneRef.current, 1 - leftRatio],
     ];
     mirrorScrollLock.current = true;
@@ -306,8 +312,14 @@ export default function WebullOptionChain({
     const leftRatio = Math.max(0, Math.min(1, nextLeftRatio));
     mirrorScrollLock.current = true;
     setLeftScrollRatio(leftRatio);
+    if (leftHeaderRef.current) {
+      leftHeaderRef.current.scrollLeft = Math.max(0, leftHeaderRef.current.scrollWidth - leftHeaderRef.current.clientWidth) * leftRatio;
+    }
     if (leftPaneRef.current) {
       leftPaneRef.current.scrollLeft = Math.max(0, leftPaneRef.current.scrollWidth - leftPaneRef.current.clientWidth) * leftRatio;
+    }
+    if (rightHeaderRef.current) {
+      rightHeaderRef.current.scrollLeft = Math.max(0, rightHeaderRef.current.scrollWidth - rightHeaderRef.current.clientWidth) * (1 - leftRatio);
     }
     if (rightPaneRef.current) {
       rightPaneRef.current.scrollLeft = Math.max(0, rightPaneRef.current.scrollWidth - rightPaneRef.current.clientWidth) * (1 - leftRatio);
@@ -712,6 +724,29 @@ export default function WebullOptionChain({
             <div className="no-data-cell">No options contracts available for {symbol} on {selectedExp}.</div>
           ) : usesDualPane ? (
             <>
+              <div className="option-dual-header-grid">
+                <div className="option-pane-header-scroll" ref={leftHeaderRef}>
+                  <table className="options-matrix-table option-pane-table option-pane-header-table">
+                    <thead>
+                      <tr><th className="call-th" colSpan={selectedColumns.length}>{viewMode === 'puts' ? 'PUTS' : 'CALLS'} · {activeStrategy.label}</th></tr>
+                      <tr>{[...selectedColumns].reverse().map((column) => <th key={`left-header-${column.id}`} className="call-th">{column.label}</th>)}</tr>
+                    </thead>
+                  </table>
+                </div>
+                <div className="option-strike-pane option-strike-header-pane">
+                  <table className="options-matrix-table strike-pane-table option-pane-header-table">
+                    <thead><tr><th className="strike-th">STRIKE</th></tr><tr><th className="strike-th">{activeStrategy.usesWidth ? `Width ${strategyWidth}` : 'Anchor'}</th></tr></thead>
+                  </table>
+                </div>
+                <div className="option-pane-header-scroll" ref={rightHeaderRef}>
+                  <table className="options-matrix-table option-pane-table option-pane-header-table">
+                    <thead>
+                      <tr><th className="put-th" colSpan={selectedColumns.length}>{viewMode === 'calls' ? 'CALLS' : 'PUTS'} · {activeStrategy.label}</th></tr>
+                      <tr>{selectedColumns.map((column) => <th key={`right-header-${column.id}`} className="put-th">{column.label}</th>)}</tr>
+                    </thead>
+                  </table>
+                </div>
+              </div>
               <div className="option-dual-body-scroll">
                 <div className="option-dual-grid">
                   <div
@@ -720,16 +755,11 @@ export default function WebullOptionChain({
                     onScroll={(event) => syncMirroredScroll('left', event.currentTarget)}
                   >
                     <table className="options-matrix-table option-pane-table">
-                      <thead>
-                        <tr><th className="call-th" colSpan={selectedColumns.length}>{viewMode === 'puts' ? 'PUTS' : 'CALLS'} · {activeStrategy.label}</th></tr>
-                        <tr>{[...selectedColumns].reverse().map((column) => <th key={`left-${column.id}`} className="call-th">{column.label}</th>)}</tr>
-                      </thead>
                       <tbody>{renderOptionRows(viewMode === 'puts' ? 'PUT' : 'CALL', [...selectedColumns].reverse())}</tbody>
                     </table>
                   </div>
                   <div className="option-strike-pane">
                     <table className="options-matrix-table strike-pane-table">
-                      <thead><tr><th className="strike-th">STRIKE</th></tr><tr><th className="strike-th">{activeStrategy.usesWidth ? `Width ${strategyWidth}` : 'Anchor'}</th></tr></thead>
                       <tbody>{renderStrikeRows()}</tbody>
                     </table>
                   </div>
@@ -739,10 +769,6 @@ export default function WebullOptionChain({
                     onScroll={(event) => syncMirroredScroll('right', event.currentTarget)}
                   >
                     <table className="options-matrix-table option-pane-table">
-                      <thead>
-                        <tr><th className="put-th" colSpan={selectedColumns.length}>{viewMode === 'calls' ? 'CALLS' : 'PUTS'} · {activeStrategy.label}</th></tr>
-                        <tr>{selectedColumns.map((column) => <th key={`right-${column.id}`} className="put-th">{column.label}</th>)}</tr>
-                      </thead>
                       <tbody>{renderOptionRows(viewMode === 'calls' ? 'CALL' : 'PUT', selectedColumns)}</tbody>
                     </table>
                   </div>

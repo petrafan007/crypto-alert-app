@@ -165,7 +165,7 @@
 }
 
 .dust-assets-table thead {
-  background: rgba(255,255,255,0.05);
+  background: #252b35;
 }
 
 .dust-assets-table thead th {
@@ -175,7 +175,7 @@
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  color: rgba(255,255,255,0.5);
+  color: #e2e8f0;
   border-bottom: 1px solid rgba(255,255,255,0.1);
   white-space: nowrap;
 }
@@ -411,8 +411,13 @@ body:not(.dark-mode) .dust-empty {
 
 body.light-mode .dust-assets-table thead th,
 body:not(.dark-mode) .dust-assets-table thead th {
-  color: #6b7280;
-  border-bottom-color: #e5e7eb;
+  color: #334155;
+  border-bottom-color: #cbd5e1;
+}
+
+body.light-mode .dust-assets-table thead,
+body:not(.dark-mode) .dust-assets-table thead {
+  background: #e2e8f0;
 }
 
 body.light-mode .dust-assets-table tbody tr td,

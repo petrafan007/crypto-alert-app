@@ -125,6 +125,16 @@ The application utilizes a **unified PostgreSQL database**.
 
 Historical changelog entries retain the product name used when they were originally released. The application domain, repository slug, deployment folders, database, and service identifiers intentionally remain unchanged by the v2.45.0 brand update.
 
+## v2.61.3 (August 2026)
+
+- **Reliable Option-Table Headers**:
+  - Split strategy tables now render their Calls/Strike/Puts row and metric/Anchor row in a dedicated fixed header grid above the vertically scrolling data rows. Horizontal movement remains synchronized with the quote panes, so each heading stays aligned with its data while both header tiers remain visible.
+  - Single-pane strategy tables now use the table viewport itself for horizontal and vertical scrolling, allowing both header rows to remain pinned without an intervening overflow container.
+- **Theme-Aware Option Scrolling**:
+  - The options matrix vertical scrollbar now matches the thin six-pixel scrollbar used by dashboard panels and the AI Copilot, including transparent dark-mode tracks and the lighter theme-aware track and thumb colors.
+- **Convert Dust Table Contrast**:
+  - Binance.US Convert Dust column headers now use distinct dark- and light-theme backgrounds with high-contrast header text, making every heading readable in either theme.
+
 ## v2.61.2 (August 2026)
 
 - **Correct Split Option-Table Geometry**:
