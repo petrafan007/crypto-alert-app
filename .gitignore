@@ -195,6 +195,7 @@ tests/
 !tests/
 tests/*
 !tests/test_sentiment_outcome_service.py
+!tests/test_onboarding.py
 migrations/
 
 # Exclude sensitive files explicitly

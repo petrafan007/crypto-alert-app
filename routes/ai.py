@@ -954,6 +954,10 @@ def api_test_binance_connection():
             data = request.get_json() or {}
             api_key = data.get('api_key')
             api_secret = data.get('api_secret')
+            save_on_success = bool(data.get('save_on_success'))
+        else:
+            data = {}
+            save_on_success = False
         
         # Fallback to credentials from database
         if not api_key or not api_secret:
@@ -961,8 +965,8 @@ def api_test_binance_connection():
             creds = Credential.query.filter_by(user_id=current_user.id).first()
             
             if creds:
-                api_key = decrypt_secret(creds.api_key)
-                api_secret = decrypt_secret(creds.api_secret)
+                api_key = creds.api_key
+                api_secret = creds.api_secret
             
         if not api_key or not api_secret:
             return jsonify({
@@ -1021,6 +1025,13 @@ def api_test_binance_connection():
                 "attempts": connection_attempts
             }), 400
             
+        if not account.get('canTrade'):
+            return jsonify({
+                'success': False,
+                'message': 'Binance.US connected, but Spot Trading permission is not enabled.',
+                'suggestion': 'Open Binance.US API Management, enable Spot Trading for this key, keep withdrawals disabled, and test again.',
+            }), 400
+
         # Get balances (filter out zero balances)
         balances = [
             {"asset": b['asset'], "free": b['free'], "locked": b['locked']}
@@ -1028,6 +1039,33 @@ def api_test_binance_connection():
             if float(b['free']) > 0 or float(b['locked']) > 0
         ]
         
+        if save_on_success:
+            try:
+                cred = Credential.query.filter_by(user_id=current_user.id).first()
+                if not cred:
+                    cred = Credential(user_id=current_user.id, username=current_user.username)
+                    db.session.add(cred)
+                cred.api_key = api_key
+                cred.api_secret = api_secret
+                onboarding = UserSetting.query.filter_by(user_id=current_user.id).first()
+                if not onboarding:
+                    onboarding = UserSetting(user_id=current_user.id)
+                    db.session.add(onboarding)
+                onboarding.onboarding_binance_verified = True
+                db.session.commit()
+                try:
+                    from services.binance_service import sync_portfolio_from_binance
+                    sync_portfolio_from_binance(current_user.id)
+                except Exception as sync_exc:
+                    logger.warning('Initial Binance.US onboarding sync failed: %s', sync_exc)
+            except Exception as save_exc:
+                db.session.rollback()
+                logger.error('Could not save verified Binance.US onboarding credentials: %s', save_exc)
+                return jsonify({
+                    'success': False,
+                    'message': 'The connection succeeded, but the encrypted credentials could not be saved.',
+                }), 500
+
         # Update last connection time
         try:
             user_obj = User.query.filter_by(username=current_user.username).first()

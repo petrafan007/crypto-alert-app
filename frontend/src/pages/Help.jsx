@@ -248,7 +248,7 @@ export default function Help({ isLightMode }) {
                 </ol>
 
                 <Tip>
-                    First time in the app? A one-time onboarding walkthrough highlights the main navigation areas.
+                    New accounts use a resumable, theme-aware setup flow for security, at least one required exchange connection, optional AI/search providers, Telegram testing, and a final review before Dashboard access.
                     You can always come back here for a full reference.
                 </Tip>
             </Section>

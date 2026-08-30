@@ -407,6 +407,19 @@ class UserSetting(db.Model):
     tax_cost_basis_method = db.Column(db.String, default='fifo')
     credentials_encryption_key_configured = db.Column(db.Boolean, default=False)
     has_seen_onboarding = db.Column(db.Boolean, default=False)
+    # Full first-run onboarding is opt-in for newly registered users so an
+    # upgrade never blocks established accounts. The page key makes the flow
+    # resumable without storing any secret in the browser.
+    onboarding_required = db.Column(db.Boolean, default=False)
+    onboarding_completed = db.Column(db.Boolean, default=False)
+    onboarding_page = db.Column(db.String(40), default='security-choice')
+    onboarding_exchange_choice = db.Column(db.String(20))
+    onboarding_binance_verified = db.Column(db.Boolean, default=False)
+    onboarding_webull_verified = db.Column(db.Boolean, default=False)
+    onboarding_two_factor_deferred = db.Column(db.Boolean, default=False)
+    onboarding_ai_skipped = db.Column(db.Boolean, default=False)
+    onboarding_search_skipped = db.Column(db.Boolean, default=False)
+    onboarding_telegram_skipped = db.Column(db.Boolean, default=False)
     browser_notifications_enabled = db.Column(db.Boolean, default=True)
     copilot_chat_pre = db.Column(db.Text)
     copilot_chat_post = db.Column(db.Text)
@@ -451,6 +464,16 @@ class UserSetting(db.Model):
     sentiment_chart_default_range = db.Column(db.String(10), default='3d')
     max_slippage_pct = db.Column(db.Float, default=2.0)
     webull_test_mode_enabled = db.Column(db.Boolean, default=False)
+
+
+class OnboardingDefaultProfile(db.Model):
+    """One-time, non-secret seed copied independently to every new user."""
+    __tablename__ = 'onboarding_default_profiles'
+    id = db.Column(db.Integer, primary_key=True, default=1)
+    settings_json = db.Column(db.Text, nullable=False, default='{}')
+    prompts_json = db.Column(db.Text, nullable=False, default='{}')
+    created_at = db.Column(db.DateTime, default=datetime.now, nullable=False)
+    updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now, nullable=False)
 
 class DesktopToken(db.Model):
     __tablename__ = "desktop_tokens"

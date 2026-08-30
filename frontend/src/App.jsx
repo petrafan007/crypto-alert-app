@@ -5,6 +5,7 @@ import axios from 'axios';
 import Dashboard from './pages/Dashboard';
 import Login from './pages/Login';
 import Signup from './pages/Signup';
+import Onboarding from './pages/Onboarding';
 import Trading from './pages/Trading';
 import WebullTrading from './pages/WebullTrading';
 import Orders from './pages/Orders';
@@ -42,13 +43,16 @@ function ProtectedRoute({ children, isLightMode }) {
   }
 
   // Inject theme prop into routed page components
-  return user ? React.cloneElement(children, { isLightMode }) : <Navigate to="/login" />;
+  if (!user) return <Navigate to="/login" />;
+  if (user.onboardingRequired) return <Navigate to="/onboarding" replace />;
+  return React.cloneElement(children, { isLightMode });
 }
 
 export default function App() {
   const { user, logout } = useAuth();
   const location = useLocation();
   const isDashboard = location.pathname === '/';
+  const isOnboarding = location.pathname === '/onboarding' || location.pathname === '/signup';
   const [message, setMessage] = useState('');
   const [messageType, setMessageType] = useState('');
   const [showUnhideModal, setShowUnhideModal] = useState(false);
@@ -186,7 +190,7 @@ export default function App() {
       )}
 
       {/* Navigation */}
-      <nav className="nav-container">
+      <nav className="nav-container" style={isOnboarding ? { display: 'none' } : undefined}>
         <div className="nav-content" style={{ flexDirection: 'column' }}>
           {user && (
             <div className="nav-links" style={{ width: '100%', justifyContent: 'center' }}>
@@ -275,7 +279,7 @@ export default function App() {
       </nav>
 
       {/* Main Content */}
-      <div className="main-content">
+      <div className={isOnboarding ? '' : 'main-content'}>
         <React.Suspense fallback={
           <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
             <div className="spinner-border text-primary" role="status">
@@ -285,7 +289,8 @@ export default function App() {
         }>
           <Routes>
             <Route path="/login" element={user ? <Navigate to="/" /> : <Login />} />
-            <Route path="/signup" element={user ? <Navigate to="/" /> : <Signup />} />
+            <Route path="/signup" element={user ? <Navigate to="/" /> : <Signup isLightMode={isLightMode} toggleTheme={toggleTheme} />} />
+            <Route path="/onboarding" element={user ? (user.onboardingRequired ? <Onboarding isLightMode={isLightMode} toggleTheme={toggleTheme} /> : <Navigate to="/" replace />) : <Navigate to="/login" replace />} />
             <Route path="/" element={
               <ProtectedRoute isLightMode={isLightMode}>
                 <Dashboard />
@@ -415,10 +420,11 @@ export default function App() {
       )}
 
       {/* AI Copilot Sidebar */}
-      <AICopilotSidebar />
+      {!isOnboarding && <AICopilotSidebar />}
 
       {/* Footer with Legal Links */}
       <footer style={{
+        display: isOnboarding ? 'none' : undefined,
         textAlign: 'center',
         padding: '20px',
         borderTop: `1px solid ${isLightMode ? '#dee2e6' : '#2d3748'}`,

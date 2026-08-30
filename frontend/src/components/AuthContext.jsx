@@ -62,14 +62,13 @@ export function AuthProvider({ children }) {
         setLoading(false);
         return;
       }
-      // Try to access a protected endpoint to check auth status and get user info
-      const response = await axios.get('/api/coin-data');
-      // If response has user info, set it
-      if (response.data && response.data.user_id && response.data.username) {
+      const response = await axios.get('/api/session', { withCredentials: true });
+      if (response.data?.user?.id) {
         setUser({
-          id: response.data.user_id,
-          username: response.data.username,
-          isAuthenticated: true
+          id: response.data.user.id,
+          username: response.data.user.username,
+          isAuthenticated: true,
+          onboardingRequired: Boolean(response.data.onboarding_required)
         });
       } else {
         setUser({ isAuthenticated: true });
@@ -108,11 +107,12 @@ export function AuthProvider({ children }) {
       }
 
       // If login successful, set user from response
-      if (response.data && response.data.user_id && response.data.username) {
+      if (response.data?.user?.id) {
         setUser({
-          id: response.data.user_id,
-          username: response.data.username,
-          isAuthenticated: true
+          id: response.data.user.id,
+          username: response.data.user.username,
+          isAuthenticated: true,
+          onboardingRequired: Boolean(response.data.onboarding_required)
         });
       } else {
         await checkAuthStatus();
@@ -207,4 +207,4 @@ export function AuthProvider({ children }) {
       {children}
     </AuthContext.Provider>
   );
-} 
+}

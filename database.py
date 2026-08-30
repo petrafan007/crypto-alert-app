@@ -6,7 +6,7 @@ def init_db(app=None):
     """Initialize the database with all models"""
     # Import models here to avoid circular imports
     from models import Coin, WatchlistCoin, Notification, AIPrompt, DefaultAIPrompt, StakedCoin, StakingReward, AIConversation, AICache, AIAnalysisSchedule, PriceHistory, WebullAccountSnapshot, WebullHolding, ExternalSentimentSignal, WebullTestAccount, WebullTestPosition, WebullTestOrder
-    from credentials import User, Credential, UserSetting, DesktopToken
+    from credentials import User, Credential, UserSetting, DesktopToken, OnboardingDefaultProfile
     from trading_models import TestOrder, RealOrder, TestPortfolio, TradingSettings, AllActivity, PortfolioValueHistory, StakingOrder
     
     target_app = app if app is not None else current_app
@@ -39,6 +39,16 @@ def init_db(app=None):
             ("user_settings", "webull_crypto_sentiment_horizon_hours", "INTEGER DEFAULT 24"),
             ("user_settings", "webull_equity_sentiment_horizon_hours", "INTEGER DEFAULT 24"),
             ("user_settings", "webull_test_mode_enabled", "BOOLEAN DEFAULT FALSE"),
+            ("user_settings", "onboarding_required", "BOOLEAN DEFAULT FALSE"),
+            ("user_settings", "onboarding_completed", "BOOLEAN DEFAULT FALSE"),
+            ("user_settings", "onboarding_page", "VARCHAR(40) DEFAULT 'security-choice'"),
+            ("user_settings", "onboarding_exchange_choice", "VARCHAR(20)"),
+            ("user_settings", "onboarding_binance_verified", "BOOLEAN DEFAULT FALSE"),
+            ("user_settings", "onboarding_webull_verified", "BOOLEAN DEFAULT FALSE"),
+            ("user_settings", "onboarding_two_factor_deferred", "BOOLEAN DEFAULT FALSE"),
+            ("user_settings", "onboarding_ai_skipped", "BOOLEAN DEFAULT FALSE"),
+            ("user_settings", "onboarding_search_skipped", "BOOLEAN DEFAULT FALSE"),
+            ("user_settings", "onboarding_telegram_skipped", "BOOLEAN DEFAULT FALSE"),
             ("credentials", "webull_app_key", "VARCHAR"),
             ("credentials", "webull_app_secret", "VARCHAR"),
             ("credentials", "webull_access_token", "VARCHAR"),

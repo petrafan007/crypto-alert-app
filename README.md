@@ -61,7 +61,7 @@ The application utilizes a **unified PostgreSQL database**.
 - **Unified PostgreSQL Database**: All tables (`coins`, `credentials`, `exchange_logs`, etc.) are in the `cryptoalertapp` database.
 - **Models Location**: 
   - `models.py`: Coin, WatchlistCoin, Notification, StakedCoin, StakingReward, AIPrompt, DefaultAIPrompt, AIConversation, AICache, AIAnalysisSchedule, PriceHistory
-  - `credentials.py`: User, Credential, UserSetting, DesktopToken, CredentialEncryptionKey
+  - `credentials.py`: User, Credential, UserSetting, OnboardingDefaultProfile, DesktopToken, CredentialEncryptionKey
   - `trading_models.py`: TestOrder, RealOrder, TradingSettings, AllActivity, PortfolioValueHistory, StakingOrder
 - **PostgreSQL Connection**: `postgresql:///cryptoalertapp?host=/var/run/postgresql&port=5433`
 
@@ -124,6 +124,21 @@ The application utilizes a **unified PostgreSQL database**.
 ## Version History & Changelog
 
 Historical changelog entries retain the product name used when they were originally released. The application domain, repository slug, deployment folders, database, and service identifiers intentionally remain unchanged by the v2.45.0 brand update.
+
+## v2.62.0 (August 2026)
+
+- **Complete New-User Onboarding**:
+  - Replaced the legacy welcome modal with a resumable six-stage onboarding workspace covering account security, exchange selection, Binance.US and Webull setup, AI providers, search/news grounding, Telegram, and final review.
+  - The complete experience is theme-aware, includes a visible light/dark switch, uses Binance.US and Webull branding, and supports Back, safe exit, saved resumption, optional-step skipping, and direct Edit actions from the final review.
+- **Required Exchange Gate**:
+  - New users must choose Binance.US, Webull, or both and successfully verify at least one selected exchange before Dashboard or application API access is allowed. Existing users are not placed into onboarding after upgrade.
+  - Selecting both runs Binance.US first and Webull second. Webull may be skipped only after Binance.US succeeds; Webull onboarding uses Production OpenAPI and then allows detected live and paper account selection and optional portfolio import.
+- **Trading Security and Credential Validation**:
+  - Authenticator 2FA remains optional during setup, but deferring it leaves live trade placement and cancellation locked while eligible Webull paper trading remains available.
+  - Binance.US onboarding requires Reading and Spot Trading permission before encrypted credentials are saved. Telegram credentials are saved only after the bot delivers a test message.
+- **Independent Starting Defaults**:
+  - Added a one-time, non-secret onboarding default profile for workflow prompts, sentiment settings, portfolio execution-safety values, and FIFO cost basis. Each newly registered user receives independent copies without inheriting credentials or account data.
+  - Added regression coverage for the server-side onboarding gate, existing-user compatibility, the one-exchange completion rule, and cross-user default isolation.
 
 ## v2.61.5 (August 2026)
 

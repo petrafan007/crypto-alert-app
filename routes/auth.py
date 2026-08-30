@@ -20,9 +20,67 @@ from models import DefaultAIPrompt, AIPrompt
 from log import logger
 from services.credential_service import get_user_credentials
 from credential_security import EncryptionKeyError, decrypt_secret
+from services.onboarding_service import (
+    ONBOARDING_PAGES,
+    exchange_requirement_met,
+    seed_new_user_defaults,
+)
+import json
+import re
 
 # Create Blueprint
 auth_bp = Blueprint('auth', __name__)
+
+
+def _onboarding_setting(user_id=None):
+    target_user_id = user_id or current_user.id
+    setting = UserSetting.query.filter_by(user_id=target_user_id).first()
+    if not setting:
+        setting = UserSetting(user_id=target_user_id)
+        db.session.add(setting)
+    return setting
+
+
+def _valid_password(password):
+    return bool(
+        password and len(password) >= 12
+        and re.search(r'[A-Z]', password)
+        and re.search(r'[a-z]', password)
+        and re.search(r'\d', password)
+        and re.search(r'[^A-Za-z0-9]', password)
+    )
+
+
+@auth_bp.before_app_request
+def enforce_required_onboarding():
+    """Keep new accounts out of the application until an exchange is verified."""
+    if not current_user.is_authenticated:
+        return None
+    setting = UserSetting.query.filter_by(user_id=current_user.id).first()
+    if not setting or not setting.onboarding_required or setting.onboarding_completed:
+        return None
+    path = request.path
+    allowed_exact = {
+        '/onboarding', '/api/session', '/api/logout', '/logout',
+        '/privacy', '/terms', '/acceptable-use', '/support',
+        '/api/settings', '/api/test-binance-connection',
+        '/api/test-webull-connection', '/api/webull/accounts',
+        '/api/webull/enabled-accounts', '/api/webull/default-account',
+        '/api/webull/portfolio-preview', '/api/webull/portfolio-sync',
+        '/api/test-ai-connection-generic', '/api/ai/models',
+        '/api/test-brave-search', '/api/trading/2fa/setup',
+        '/api/trading/2fa/verify-setup',
+    }
+    allowed_prefixes = ('/api/onboarding/', '/api/webull-token/', '/assets/', '/static/')
+    if path in allowed_exact or any(path.startswith(prefix) for prefix in allowed_prefixes):
+        return None
+    if path.startswith('/api/'):
+        return jsonify({
+            'success': False,
+            'onboarding_required': True,
+            'error': 'Complete onboarding before using the application.',
+        }), 428
+    return redirect('/onboarding')
 
 @auth_bp.route("/api/login", methods=["POST"])
 def api_login():
@@ -70,7 +128,23 @@ def api_login():
 
     login_user(user, remember=True)
     session.permanent = True
-    return jsonify({"success": True, "user": {"username": user.username, "id": user.id}})
+    onboarding = _onboarding_setting(user.id)
+    return jsonify({
+        "success": True,
+        "user": {"username": user.username, "id": user.id},
+        "onboarding_required": bool(onboarding.onboarding_required and not onboarding.onboarding_completed),
+    })
+
+
+@auth_bp.route('/api/session', methods=['GET'])
+@login_required
+def api_session():
+    setting = _onboarding_setting()
+    return jsonify({
+        'success': True,
+        'user': {'id': current_user.id, 'username': current_user.username},
+        'onboarding_required': bool(setting.onboarding_required and not setting.onboarding_completed),
+    })
 
 @auth_bp.route("/api/logout", methods=["POST"])
 @login_required
@@ -93,70 +167,69 @@ def register():
     if request.method == 'POST':
         if request.is_json:
             data = request.get_json()
-            username = data.get('username')
+            username = (data.get('username') or '').strip()
             password = data.get('password')
+            email = (data.get('email') or '').strip().lower()
+            accepted_terms = bool(data.get('accepted_terms'))
         else:
             username = request.form.get('username')
             password = request.form.get('password')
+            email = (request.form.get('email') or '').strip().lower()
+            accepted_terms = request.form.get('accepted_terms') in ('true', '1', 'yes', 'on')
         
-        if not username or not password:
-            return jsonify({"error": "Username and password are required"}), 400
+        if not username or not password or not email:
+            return jsonify({"error": "Username, email, and password are required."}), 400
+        if not 3 <= len(username) <= 80:
+            return jsonify({"error": "Username must be between 3 and 80 characters."}), 400
+        if not re.match(r'^[^@\s]+@[^@\s]+\.[^@\s]+$', email):
+            return jsonify({"error": "Enter a valid email address."}), 400
+        if not _valid_password(password):
+            return jsonify({"error": "Password must be at least 12 characters and include uppercase, lowercase, number, and special characters."}), 400
+        if not accepted_terms:
+            return jsonify({"error": "Accept the Terms, Privacy Policy, and trading-risk disclosures to continue."}), 400
         try:
             # Check if user exists
             user = db.session.query(User).filter_by(username=username).first()
             if user:
                 return jsonify({"error": "Username already exists"}), 400
+            if db.session.query(User).filter_by(email=email).first():
+                return jsonify({"error": "An account already uses that email address."}), 400
             
             # Create new user
-            new_user = User(username=username)
+            new_user = User(username=username, email=email)
             new_user.set_password(password)
             db.session.add(new_user)
-            db.session.commit()
+            db.session.flush()
             
             # Create empty Credential record for the new user
             new_cred = Credential(user_id=new_user.id, username=new_user.username)
             db.session.add(new_cred)
-            db.session.commit()
 
             # Create default UserSetting record
-            new_settings = UserSetting(user_id=new_user.id)
+            new_settings = UserSetting(
+                user_id=new_user.id,
+                onboarding_required=True,
+                onboarding_completed=False,
+                onboarding_page='security-choice',
+                webull_environment='production',
+                tax_cost_basis_method='fifo',
+            )
             db.session.add(new_settings)
+            seed_new_user_defaults(new_user.id, new_settings)
             db.session.commit()
             
-            # Seed all 10 AI prompts from defaults
-            try:
-                defaults = DefaultAIPrompt.query.first()
-                if defaults:
-                    new_prompts = AIPrompt(
-                        user_id=new_user.id,
-                        market_analysis_pre=defaults.market_analysis_pre,
-                        market_analysis_post=defaults.market_analysis_post,
-                        risk_assessment_pre=defaults.risk_assessment_pre,
-                        risk_assessment_post=defaults.risk_assessment_post,
-                        portfolio_review_pre=defaults.portfolio_review_pre,
-                        portfolio_review_post=defaults.portfolio_review_post,
-                        coin_analysis_pre=defaults.coin_analysis_pre,
-                        coin_analysis_post=defaults.coin_analysis_post,
-                        sentiment_prompt_pre=defaults.sentiment_prompt_pre,
-                        sentiment_prompt_post=defaults.sentiment_prompt_post,
-                        watchlist_sentiment_prompt_pre=getattr(defaults, 'watchlist_sentiment_prompt_pre', ''),
-                        watchlist_sentiment_prompt_post=getattr(defaults, 'watchlist_sentiment_prompt_post', ''),
-                        news_analysis_pre=getattr(defaults, 'news_analysis_pre', ''),
-                        news_analysis_post=getattr(defaults, 'news_analysis_post', '')
-                    )
-                    db.session.add(new_prompts)
-                    db.session.commit()
-                    logger.info(f"Seeded AI prompts for new user {new_user.id}")
-            except Exception as prompt_err:
-                logger.warning(f"Failed to seed prompts for new user: {prompt_err}")
-            
             login_user(new_user)
-            return jsonify({"success": True, "redirect": "/settings?new_user=true", "user_id": new_user.id}), 200
+            return jsonify({
+                "success": True,
+                "redirect": "/onboarding",
+                "user": {"id": new_user.id, "username": new_user.username},
+                "onboarding_required": True,
+            }), 200
             
         except Exception as e:
             logger.error(f"Registration error: {str(e)}")
             db.session.rollback()
-            return jsonify({"error": f"Registration failed: {str(e)}"}), 500
+            return jsonify({"error": "Registration failed. Please try again."}), 500
     return jsonify({"error": "GET method not supported"}), 405
 
 @auth_bp.route("/login", methods=["GET", "POST"])
@@ -208,8 +281,8 @@ def logout():
 def reset_password():
     if request.method == "POST":
         password = request.form.get("password")
-        if not password or len(password) < 6:
-            return jsonify({"error": "Password must be at least 6 characters"}), 400
+        if not _valid_password(password):
+            return jsonify({"error": "Password must be at least 12 characters and include uppercase, lowercase, number, and special characters."}), 400
         user = db.session.get(User, current_user.id)
         user.pwd_hash = generate_password_hash(password)
         db.session.commit()
@@ -270,6 +343,141 @@ def onboarding():
             return jsonify({"success": False, "error": "Credential encryption key missing. Configure CREDENTIALS_ENCRYPTION_KEY and retry."}), 500
         return jsonify({"success": True, "message": "Credentials saved successfully."})
     return jsonify({"error": "GET method not supported"}), 405
+
+
+@auth_bp.route('/api/onboarding/status', methods=['GET'])
+@login_required
+def onboarding_status():
+    from trading_models import TradingSettings
+
+    setting = _onboarding_setting()
+    cred = Credential.query.filter_by(user_id=current_user.id).first()
+    trading = TradingSettings.query.filter_by(user_id=current_user.id).first()
+    try:
+        connected_accounts = json.loads(setting.webull_connected_accounts or '[]')
+    except (TypeError, ValueError):
+        connected_accounts = []
+    try:
+        enabled_account_ids = json.loads(setting.webull_enabled_account_ids or '[]')
+    except (TypeError, ValueError):
+        enabled_account_ids = []
+    ai_tiers = {}
+    for tier, suffix in (('primary', ''), ('secondary', '_fallback'), ('tertiary', '_tertiary')):
+        provider_field = 'ai_provider' if tier == 'primary' else f'ai_provider_{tier}'
+        model_field = 'ai_model' if tier == 'primary' else f'ai_model_{tier}'
+        provider = getattr(setting, provider_field, None)
+        encrypted_key = getattr(cred, f'_{provider}_key{suffix}', None) if cred and provider else None
+        ai_tiers[tier] = {
+            'provider': provider or '',
+            'model': getattr(setting, model_field, None) or '',
+            'configured': bool(provider and encrypted_key),
+        }
+    return jsonify({
+        'success': True,
+        'required': bool(setting.onboarding_required),
+        'completed': bool(setting.onboarding_completed),
+        'page': setting.onboarding_page or 'security-choice',
+        'exchange_choice': setting.onboarding_exchange_choice or '',
+        'binance_verified': bool(setting.onboarding_binance_verified),
+        'webull_verified': bool(setting.onboarding_webull_verified),
+        'exchange_requirement_met': exchange_requirement_met(setting),
+        'two_factor_enabled': bool(trading and trading.totp_secret),
+        'two_factor_deferred': bool(setting.onboarding_two_factor_deferred),
+        'binance_configured': bool(cred and cred._api_key and cred._api_secret),
+        'webull_configured': bool(cred and cred._webull_app_key and cred._webull_app_secret),
+        'webull_token_status': getattr(cred, 'webull_token_status', None) if cred else None,
+        'webull_accounts': connected_accounts,
+        'webull_enabled_account_ids': enabled_account_ids,
+        'ai_tiers': ai_tiers,
+        'ai_skipped': bool(setting.onboarding_ai_skipped),
+        'search_skipped': bool(setting.onboarding_search_skipped),
+        'telegram_skipped': bool(setting.onboarding_telegram_skipped),
+        'search_configured': bool(cred and (cred._brave_search_api_key or cred._news_api)),
+        'telegram_configured': bool(cred and cred._telegram_token and cred._telegram_chat_id),
+    })
+
+
+@auth_bp.route('/api/onboarding/progress', methods=['POST'])
+@login_required
+def onboarding_progress():
+    setting = _onboarding_setting()
+    data = request.get_json(silent=True) or {}
+    if 'page' in data:
+        page = str(data.get('page') or '')
+        if page not in ONBOARDING_PAGES:
+            return jsonify({'success': False, 'error': 'Unknown onboarding page.'}), 400
+        setting.onboarding_page = page
+    if 'exchange_choice' in data:
+        choice = str(data.get('exchange_choice') or '').lower()
+        if choice not in {'binance', 'webull', 'both'}:
+            return jsonify({'success': False, 'error': 'Choose Binance.US, Webull, or both.'}), 400
+        setting.onboarding_exchange_choice = choice
+    flag_fields = {
+        'two_factor_deferred': 'onboarding_two_factor_deferred',
+        'ai_skipped': 'onboarding_ai_skipped',
+        'search_skipped': 'onboarding_search_skipped',
+        'telegram_skipped': 'onboarding_telegram_skipped',
+    }
+    for payload_field, model_field in flag_fields.items():
+        if payload_field in data:
+            setattr(setting, model_field, bool(data[payload_field]))
+    db.session.commit()
+    return jsonify({'success': True, 'page': setting.onboarding_page})
+
+
+@auth_bp.route('/api/onboarding/telegram-test', methods=['POST'])
+@login_required
+def onboarding_telegram_test():
+    data = request.get_json(silent=True) or {}
+    token = str(data.get('telegram_token') or '').strip()
+    chat_id = str(data.get('telegram_chat_id') or '').strip()
+    if not token or not chat_id:
+        return jsonify({'success': False, 'message': 'Enter both the bot token and chat ID.'}), 400
+    try:
+        response = requests.post(
+            f'https://api.telegram.org/bot{token}/sendMessage',
+            json={'chat_id': chat_id, 'text': 'Test message from Crypto & Securities Dashboard onboarding.'},
+            timeout=10,
+        )
+        result = response.json() if response.content else {}
+        if not response.ok or not result.get('ok'):
+            return jsonify({
+                'success': False,
+                'message': result.get('description') or 'Telegram could not deliver the test message.',
+            }), 400
+        cred = Credential.query.filter_by(user_id=current_user.id).first()
+        if not cred:
+            cred = Credential(user_id=current_user.id, username=current_user.username)
+            db.session.add(cred)
+        cred.telegram_token = token
+        cred.telegram_chat_id = chat_id
+        setting = _onboarding_setting()
+        setting.onboarding_telegram_skipped = False
+        db.session.commit()
+        return jsonify({'success': True, 'message': 'Test message delivered successfully.'})
+    except EncryptionKeyError:
+        db.session.rollback()
+        return jsonify({'success': False, 'message': 'Credential encryption is not configured.'}), 500
+    except Exception as exc:
+        db.session.rollback()
+        logger.warning('Telegram onboarding test failed: %s', exc)
+        return jsonify({'success': False, 'message': 'Telegram could not deliver the test message.'}), 502
+
+
+@auth_bp.route('/api/onboarding/finish', methods=['POST'])
+@login_required
+def onboarding_finish():
+    setting = _onboarding_setting()
+    if not setting.onboarding_exchange_choice:
+        return jsonify({'success': False, 'error': 'Choose at least one exchange.'}), 400
+    if not exchange_requirement_met(setting):
+        return jsonify({'success': False, 'error': 'Successfully connect at least one selected exchange before opening the Dashboard.'}), 400
+    setting.onboarding_completed = True
+    setting.onboarding_required = False
+    setting.has_seen_onboarding = True
+    setting.onboarding_page = 'review'
+    db.session.commit()
+    return jsonify({'success': True, 'redirect': '/'})
 
 
 

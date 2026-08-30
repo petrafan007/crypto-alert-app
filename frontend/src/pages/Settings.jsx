@@ -4,7 +4,6 @@ import axios from 'axios';
 import { useAuth } from '../components/AuthContext';
 import { FaToggleOn, FaToggleOff, FaInfoCircle } from 'react-icons/fa';
 import { useSearchParams } from 'react-router-dom';
-import OnboardingModal from '../components/OnboardingModal';
 
 const SENTIMENT_VARIABLES = [
   { label: 'Buy Immediately', code: 'BI', kind: 'directional', direction: 'up', correctKey: 'sentiment_buy_immediately_correct_pct', wrongKey: 'sentiment_buy_immediately_wrong_pct' },
@@ -198,8 +197,6 @@ export default function Settings({ isLightMode }) {
   const [twoFactorLoading, setTwoFactorLoading] = useState(false);
   const [twoFactorMessage, setTwoFactorMessage] = useState('');
 
-  // Onboarding Modal State
-  const [showOnboardingModal, setShowOnboardingModal] = useState(false);
   const [searchParams, setSearchParams] = useSearchParams();
 
   const SETTINGS_TABS = [
@@ -237,10 +234,6 @@ export default function Settings({ isLightMode }) {
   const [deleteError, setDeleteError] = useState('');
 
   useEffect(() => {
-    // Show onboarding for new users (redirected from signup with ?new_user=true)
-    if (searchParams.get('new_user') === 'true') {
-      setShowOnboardingModal(true);
-    }
     const tabParam = searchParams.get('tab');
     const validTabs = ['apis', 'ai-providers', 'ai-prompts', 'sentiment-strategy', 'web-search', 'security-2fa', 'system'];
     if (tabParam && validTabs.includes(tabParam)) {
@@ -1147,15 +1140,6 @@ export default function Settings({ isLightMode }) {
     );
   }
 
-  const handleOnboardingClose = async () => {
-    setShowOnboardingModal(false);
-    try {
-      await axios.post('/api/mark-onboarding-complete', {}, { withCredentials: true });
-    } catch (err) {
-      console.error('Failed to mark onboarding complete:', err);
-    }
-  };
-
   // Delete Account Handlers
   const handleExportTaxData = async () => {
     try {
@@ -1309,12 +1293,6 @@ export default function Settings({ isLightMode }) {
         </div>,
         document.body
       )}
-      {/* Onboarding Modal */}
-      <OnboardingModal
-        show={showOnboardingModal}
-        onClose={handleOnboardingClose}
-        isLightMode={isLightMode}
-      />
       {/* Header with Action Buttons */}
       <div className="settings-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
         <h1 style={{ margin: 0 }}>Settings & API Configuration</h1>

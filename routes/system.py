@@ -1898,6 +1898,13 @@ def api_save_webull_enabled_accounts():
         setting.webull_enabled_account_ids = json.dumps(enabled_ids)
         if setting.webull_default_account_id and setting.webull_default_account_id not in enabled_ids:
             setting.webull_default_account_id = None
+        credential = Credential.query.filter_by(user_id=current_user.id).first()
+        if (
+            enabled_ids and credential
+            and credential.webull_token_status == 'NORMAL'
+            and credential.webull_token_environment == (setting.webull_environment or 'production')
+        ):
+            setting.onboarding_webull_verified = True
         db.session.commit()
 
         return jsonify({
@@ -2069,6 +2076,15 @@ def api_webull_portfolio_sync():
         ):
             return jsonify({'success': False, 'message': 'Verify your Webull connection before importing its portfolio.'}), 400
         allowed_account_ids = _webull_allowed_account_ids(setting)
+        requested_ids = (request.get_json(silent=True) or {}).get('account_ids')
+        if requested_ids is not None:
+            if not isinstance(requested_ids, list):
+                return jsonify({'success': False, 'message': 'Invalid account import selection.'}), 400
+            requested_set = {str(value).strip() for value in requested_ids if str(value).strip()}
+            allowed_set = set(allowed_account_ids or [])
+            if not requested_set or not requested_set.issubset(allowed_set):
+                return jsonify({'success': False, 'message': 'Choose only enabled Webull accounts for import.'}), 400
+            allowed_account_ids = sorted(requested_set)
         preview = get_webull_portfolio_preview(
             credential.webull_app_key, credential.webull_app_secret, environment, credential.webull_access_token,
             account_ids=allowed_account_ids or None,
