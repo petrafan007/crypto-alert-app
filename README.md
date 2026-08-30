@@ -125,6 +125,19 @@ The application utilizes a **unified PostgreSQL database**.
 
 Historical changelog entries retain the product name used when they were originally released. The application domain, repository slug, deployment folders, database, and service identifiers intentionally remain unchanged by the v2.45.0 brand update.
 
+## v2.61.0 (August 2026)
+
+- **Strategy-Aware Option Tables**:
+  - Changing the option strategy now rebuilds every visible row from the selected strategy legs instead of leaving the matrix on single-contract values. Multi-leg quotes use execution-aware bid/ask combinations, Greeks use signed leg quantities, and liquidity reflects the least-liquid leg.
+  - Single Option, Covered Option, Vertical, Butterfly, Condor, Calendar, and Diagonal use a fixed center strike with independently visible horizontal scrollbars whose positions move as mirrors. Straddle, Strangle, Collar, Iron Butterfly, and Iron Condor use a single-side matrix and one horizontal scrollbar.
+  - Strategy rows display their actual strike combinations. Calendar and Diagonal rows use the next listed expiration supplied with the active chain.
+- **Option Focus Profiles and Column Customization**:
+  - Added Price Change, Greeks, and Volatility Focus profiles with the requested defaults and a pencil action beside each profile.
+  - Added the split **Option Items** modal with Quote, Greeks, and Analysis groups, an ordered Selected Items panel, per-profile reset, and persistent local preferences. User-facing captions include **% Change** and **% Change (Open)**.
+  - Added provider-backed bid/ask sizes, OHLC, open interest, Greeks, implied volatility, and probability fields. Mid, open change, intrinsic value, time value, and single-contract break-even values are derived from those quotes; unavailable historical volatility values display an em dash rather than a fabricated number.
+- **Strategy Help Placement**:
+  - Strategy illustrations now open above the selector, or to its left when there is insufficient space above, so the guidance cannot cover or interfere with the native strategy menu.
+
 ## v2.60.0 (August 2026)
 
 - **Options Strategies and Fresh Chain Data**:

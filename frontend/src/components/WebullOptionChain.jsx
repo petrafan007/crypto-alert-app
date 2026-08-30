@@ -1,11 +1,20 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import axios from 'axios';
 import SearchablePairSelect from './SearchablePairSelect';
+import OptionFocusControls from './OptionFocusControls';
 import {
   OPTION_STRATEGIES,
   buildOptionStrategyLegs,
   optionStrategyDefinition,
 } from '../utils/optionStrategies';
+import {
+  OPTION_COLUMNS,
+  buildStrategyMetrics,
+  formatOptionMetric,
+  loadFocusColumns,
+  optionMetricTitle,
+  saveFocusColumns,
+} from '../utils/optionChainColumns';
 import './WebullOptionChain.css';
 
 const PAYOFF_POINTS = {
@@ -20,9 +29,11 @@ const PAYOFF_POINTS = {
   ratio: '4,50 36,36 68,18 108,48',
 };
 
-function StrategyTooltip({ strategy }) {
+const DUAL_PANE_STRATEGIES = new Set(['SINGLE', 'COVERED_STOCK', 'VERTICAL', 'BUTTERFLY', 'CONDOR', 'CALENDAR', 'DIAGONAL']);
+
+function StrategyTooltip({ strategy, placement }) {
   return (
-    <div className="strategy-hover-card" role="tooltip">
+    <div className={`strategy-hover-card strategy-tooltip-${placement}`} role="tooltip">
       <svg viewBox="0 0 112 60" aria-label={`${strategy.label} payoff illustration`}>
         <line x1="4" y1="30" x2="108" y2="30" className="strategy-zero-line" />
         <polyline points={PAYOFF_POINTS[strategy.payoff] || PAYOFF_POINTS.single} className="strategy-payoff-line" />
@@ -43,6 +54,7 @@ export default function WebullOptionChain({
   selectedContract = null,
   onSelectOptionContract,
   onSymbolChange,
+  onStrategyChange,
   isLightMode = false,
 }) {
   const [symbol, setSymbol] = useState(defaultSymbol || 'AAPL');
@@ -54,6 +66,13 @@ export default function WebullOptionChain({
   const [strategy, setStrategy] = useState('SINGLE');
   const [strategyWidth, setStrategyWidth] = useState('auto');
   const [strategyError, setStrategyError] = useState('');
+  const [tooltipPlacement, setTooltipPlacement] = useState('above');
+  const strategyControlRef = useRef(null);
+  const [activeFocus, setActiveFocus] = useState('price');
+  const [focusProfiles, setFocusProfiles] = useState(loadFocusColumns);
+  const leftPaneRef = useRef(null);
+  const rightPaneRef = useRef(null);
+  const mirrorScrollLock = useRef(false);
   const [strikeRange, setStrikeRange] = useState('20'); // '10', '20', 'all'
   const isMounted = useRef(true);
   const requestSequence = useRef(0);
@@ -104,6 +123,12 @@ export default function WebullOptionChain({
       setSymbol(defaultSymbol);
     }
   }, [defaultSymbol]);
+
+  useEffect(() => {
+    const nextStrategy = String(selectedContract?.optionStrategy || '').toUpperCase();
+    if (nextStrategy && OPTION_STRATEGIES.some((item) => item.value === nextStrategy && !item.disabled)) setStrategy(nextStrategy);
+    if (selectedContract?.optionStrategyWidth) setStrategyWidth(String(selectedContract.optionStrategyWidth));
+  }, [selectedContract?.optionStrategy, selectedContract?.optionStrategyWidth]);
 
   const fetchOptionChain = async (targetSymbol, targetExpiration = '') => {
     const sym = (targetSymbol || symbol || 'AAPL').toUpperCase().trim();
@@ -173,6 +198,52 @@ export default function WebullOptionChain({
   const isPositive = changePct >= 0;
   const marketStatus = chainData?.market_status || 'CLOSED';
   const activeStrategy = optionStrategyDefinition(strategy);
+  const usesDualPane = DUAL_PANE_STRATEGIES.has(strategy);
+  const visibleSingleSide = viewMode === 'puts' ? 'PUT' : 'CALL';
+  const selectedColumns = (focusProfiles[activeFocus] || []).map((id) => OPTION_COLUMNS[id]).filter(Boolean);
+
+  const updateStrategyTooltipPlacement = () => {
+    const rect = strategyControlRef.current?.getBoundingClientRect();
+    setTooltipPlacement(rect && rect.top < 210 ? 'left' : 'above');
+  };
+
+  const handleStrategyChange = (nextStrategy) => {
+    setStrategy(nextStrategy);
+    setStrategyError('');
+    if (!DUAL_PANE_STRATEGIES.has(nextStrategy) && viewMode === 'both') setViewMode('calls');
+    onStrategyChange?.({ strategy: nextStrategy, width: strategyWidth });
+  };
+
+  const handleStrategyWidthChange = (nextWidth) => {
+    setStrategyWidth(nextWidth);
+    setStrategyError('');
+    onStrategyChange?.({ strategy, width: nextWidth });
+  };
+
+  const handleFocusProfileChange = (focusId, columns) => {
+    const next = { ...focusProfiles, [focusId]: columns };
+    setFocusProfiles(next);
+    saveFocusColumns(next);
+  };
+
+  useEffect(() => {
+    if (!usesDualPane) return undefined;
+    const frame = window.requestAnimationFrame(() => {
+      if (leftPaneRef.current) leftPaneRef.current.scrollLeft = leftPaneRef.current.scrollWidth - leftPaneRef.current.clientWidth;
+      if (rightPaneRef.current) rightPaneRef.current.scrollLeft = 0;
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [usesDualPane, strategy, activeFocus, selectedColumns.length, chainData?.underlying_symbol]);
+
+  const mirrorPaneScroll = (source, target) => {
+    if (mirrorScrollLock.current || !source || !target) return;
+    const sourceMax = Math.max(0, source.scrollWidth - source.clientWidth);
+    const targetMax = Math.max(0, target.scrollWidth - target.clientWidth);
+    const ratio = sourceMax > 0 ? source.scrollLeft / sourceMax : 1;
+    mirrorScrollLock.current = true;
+    target.scrollLeft = targetMax * (1 - ratio);
+    window.requestAnimationFrame(() => { mirrorScrollLock.current = false; });
+  };
 
   useEffect(() => {
     const staleAfterMs = marketStatus === 'OPEN' ? 30000 : 120000;
@@ -230,20 +301,37 @@ export default function WebullOptionChain({
     const contract = optionType === 'CALL' ? row.call : row.put;
     if (!contract || !onSelectOptionContract) return;
 
-    let targetPrice = contract.ask;
+    const displayedMetrics = buildStrategyMetrics({
+      strategy,
+      chainRows: chainData.chain,
+      nextRows: chainData.next_chain || [],
+      row,
+      optionType,
+      width: strategyWidth,
+      expiration: selectedExp,
+      expirations: chainData.expirations,
+      underlyingPrice,
+    });
+    if (!displayedMetrics || displayedMetrics.strategy_error) {
+      setStrategyError(displayedMetrics?.strategy_error || 'This strategy cannot be built at the selected strike.');
+      return;
+    }
+
+    let targetPrice = displayedMetrics.ask;
     let side = 'BUY';
 
-    if (priceField === 'bid' && contract.bid > 0) {
-      targetPrice = contract.bid;
+    if (priceField === 'bid' && Number.isFinite(Number(displayedMetrics.bid))) {
+      targetPrice = displayedMetrics.bid;
       side = 'SELL';
-    } else if (priceField === 'ask' && contract.ask > 0) {
-      targetPrice = contract.ask;
+    } else if (priceField === 'ask' && Number.isFinite(Number(displayedMetrics.ask))) {
+      targetPrice = displayedMetrics.ask;
       side = 'BUY';
-    } else if (contract.mid > 0) {
-      targetPrice = contract.mid;
+    } else if (Number.isFinite(Number(displayedMetrics.mid))) {
+      targetPrice = displayedMetrics.mid;
     } else {
-      targetPrice = contract.last || contract.ask || contract.bid || 0;
+      targetPrice = displayedMetrics.last || displayedMetrics.ask || displayedMetrics.bid || 0;
     }
+    targetPrice = Math.abs(Number(targetPrice));
 
     // A missing quote must never become an invented $1.00 premium. The order
     // ticket stays locked until the user selects a contract with a real price.
@@ -254,6 +342,7 @@ export default function WebullOptionChain({
       strategyLegs = buildOptionStrategyLegs({
         strategy,
         chainRows: chainData.chain,
+        nextChainRows: chainData.next_chain || [],
         anchorStrike: row.strike,
         optionType,
         side,
@@ -283,6 +372,86 @@ export default function WebullOptionChain({
       strategyLegs,
     });
   };
+
+  const strategyMetricsFor = (row, optionType) => buildStrategyMetrics({
+    strategy,
+    chainRows: chainData?.chain || [],
+    nextRows: chainData?.next_chain || [],
+    row,
+    optionType,
+    width: strategyWidth,
+    expiration: selectedExp,
+    expirations: chainData?.expirations || [],
+    underlyingPrice,
+  });
+
+  const renderMetricCells = (row, optionType, isITM, columns = selectedColumns) => {
+    const metrics = strategyMetricsFor(row, optionType);
+    const sideClass = optionType === 'CALL' ? 'call' : 'put';
+    return columns.map((column) => {
+      const tradeable = ['bid', 'ask'].includes(column.id) && metrics && !metrics.strategy_error;
+      const title = optionMetricTitle(column.id, metrics);
+      return (
+        <td
+          key={`${optionType}-${row.strike}-${column.id}`}
+          className={`${tradeable ? 'tradeable-cell' : 'data-cell'} ${sideClass}-${column.id} ${isITM ? `${sideClass}-itm` : ''}`}
+          onClick={tradeable ? () => handleContractClick(row, optionType, column.id) : undefined}
+          title={title || (tradeable ? `Select the ${activeStrategy.label} ${column.label.toLowerCase()} for this anchor strike.` : '')}
+        >
+          {formatOptionMetric(column.id, metrics?.[column.id])}
+        </td>
+      );
+    });
+  };
+
+  const strategyStrikeLabel = (row, optionType) => {
+    const metrics = strategyMetricsFor(row, optionType);
+    const strikes = (metrics?.strategy_legs || [])
+      .filter((leg) => leg.instrument_type === 'OPTION')
+      .map((leg) => Number(leg.strike_price))
+      .filter(Number.isFinite)
+      .filter((value, index, values) => values.indexOf(value) === index)
+      .sort((a, b) => a - b);
+    return (strikes.length ? strikes : [Number(row.strike)])
+      .map((value) => Number.isInteger(value) ? value.toFixed(0) : value.toFixed(2))
+      .join('/');
+  };
+
+  const isSelectedRow = (strike, optionType) => Boolean(
+    selectedContract
+    && selectedContract.optionType === optionType
+    && Number(selectedContract.strike) === Number(strike),
+  );
+
+  const renderOptionRows = (optionType, columns) => filteredChain.flatMap((row, index) => {
+    const strike = Number(row.strike);
+    const isITM = underlyingPrice > 0 && (optionType === 'CALL' ? strike < underlyingPrice : strike > underlyingPrice);
+    const nextRow = filteredChain[index + 1];
+    const divider = underlyingPrice > 0 && strike <= underlyingPrice && nextRow && Number(nextRow.strike) > underlyingPrice;
+    const rows = [(
+      <tr className={`matrix-row ${isSelectedRow(strike, optionType) ? 'row-selected' : ''}`} key={`${optionType}-${strike}`}>
+        {renderMetricCells(row, optionType, isITM, columns)}
+      </tr>
+    )];
+    if (divider) rows.push(
+      <tr className="price-divider-row" key={`${optionType}-${strike}-spot`}>
+        <td colSpan={columns.length}><div className="price-divider-line"><span>Spot ${underlyingPrice.toFixed(2)}</span></div></td>
+      </tr>,
+    );
+    return rows;
+  });
+
+  const renderStrikeRows = () => filteredChain.flatMap((row, index) => {
+    const strike = Number(row.strike);
+    const nextRow = filteredChain[index + 1];
+    const divider = underlyingPrice > 0 && strike <= underlyingPrice && nextRow && Number(nextRow.strike) > underlyingPrice;
+    const callLabel = strategyStrikeLabel(row, 'CALL');
+    const putLabel = strategyStrikeLabel(row, 'PUT');
+    const label = viewMode === 'calls' ? callLabel : viewMode === 'puts' ? putLabel : callLabel === putLabel ? callLabel : `${callLabel} | ${putLabel}`;
+    const rows = [<tr className="matrix-row" key={`strike-${strike}`}><td className="strike-cell text-center" title={callLabel === putLabel ? '' : `Calls ${callLabel}; Puts ${putLabel}`}>{label}</td></tr>];
+    if (divider) rows.push(<tr className="price-divider-row" key={`strike-${strike}-spot`}><td><div className="price-divider-line"><span>📍</span></div></td></tr>);
+    return rows;
+  });
 
   return (
     <div className={`webull-option-chain-container ${activeLightMode ? 'light-mode' : ''}`}>
@@ -366,6 +535,8 @@ export default function WebullOptionChain({
               type="button"
               className={`mode-btn ${viewMode === 'both' ? 'active' : ''}`}
               onClick={() => setViewMode('both')}
+              disabled={!usesDualPane}
+              title={!usesDualPane ? `${activeStrategy.label} displays one option side at a time.` : ''}
             >
               All (Calls &amp; Puts)
             </button>
@@ -387,16 +558,13 @@ export default function WebullOptionChain({
         </div>
 
         {/* Strategy Selector — hover/focus reveals compact visual guidance. */}
-        <div className="chain-control-group strategy-control-group">
+        <div className="chain-control-group strategy-control-group" ref={strategyControlRef} onMouseEnter={updateStrategyTooltipPlacement} onFocus={updateStrategyTooltipPlacement}>
           <label htmlFor="option-strategy-select" className="chain-control-label">Strategy:</label>
           <div className="strategy-select-with-help" tabIndex="0">
             <select
               id="option-strategy-select"
               value={strategy}
-              onChange={(event) => {
-                setStrategy(event.target.value);
-                setStrategyError('');
-              }}
+              onChange={(event) => handleStrategyChange(event.target.value)}
               className="chain-select"
               aria-describedby="option-strategy-hover-help"
             >
@@ -406,19 +574,26 @@ export default function WebullOptionChain({
                 </option>
               ))}
             </select>
-            <StrategyTooltip strategy={activeStrategy} />
+            <StrategyTooltip strategy={activeStrategy} placement={tooltipPlacement} />
           </div>
           <span id="option-strategy-hover-help" className="sr-only">Hover or focus the selected strategy to see its payoff illustration and description.</span>
           {activeStrategy.usesWidth && (
             <label className="strategy-width-control">
               <span>Width:</span>
-              <select value={strategyWidth} onChange={(event) => setStrategyWidth(event.target.value)} className="chain-select" aria-label="Strategy strike width">
+              <select value={strategyWidth} onChange={(event) => handleStrategyWidthChange(event.target.value)} className="chain-select" aria-label="Strategy strike width">
                 <option value="auto">Auto</option>
                 {Array.from({ length: 10 }, (_, index) => index + 1).map((value) => <option key={value} value={value}>{value}</option>)}
               </select>
             </label>
           )}
         </div>
+
+        <OptionFocusControls
+          activeFocus={activeFocus}
+          profiles={focusProfiles}
+          onFocusChange={setActiveFocus}
+          onProfileChange={handleFocusProfileChange}
+        />
 
         {/* Strikes Range Selector */}
         <div className="chain-control-group strike-filter-control">
@@ -450,7 +625,7 @@ export default function WebullOptionChain({
 
       {strategyError && <div className="chain-error-box" role="alert">⚠️ {strategyError}</div>}
 
-      {/* 4. STRADDLE OPTIONS MATRIX TABLE */}
+      {/* 4. STRATEGY-AWARE OPTIONS MATRIX TABLE */}
       {error ? (
         <div className="chain-error-box">
           ⚠️ {error}
@@ -461,162 +636,70 @@ export default function WebullOptionChain({
           <p>Loading {symbol} real-time options book...</p>
         </div>
       ) : (
-        <div className="chain-table-wrapper">
-          <table className="options-matrix-table">
-            <thead>
-              <tr>
-                {/* Calls Headers */}
-                {(viewMode === 'both' || viewMode === 'calls') && (
-                  <>
-                    <th className="call-th text-left">IV</th>
-                    <th className="call-th text-right">OI</th>
-                    <th className="call-th text-right">Vol</th>
-                    <th className="call-th text-right">Last</th>
-                    <th className="call-th call-bid-col text-right">Bid</th>
-                    <th className="call-th call-ask-col text-right">Ask</th>
-                  </>
-                )}
-
-                {/* Strike Header */}
-                <th className="strike-th text-center">STRIKE</th>
-
-                {/* Puts Headers */}
-                {(viewMode === 'both' || viewMode === 'puts') && (
-                  <>
-                    <th className="put-th put-bid-col text-left">Bid</th>
-                    <th className="put-th put-ask-col text-left">Ask</th>
-                    <th className="put-th text-left">Last</th>
-                    <th className="put-th text-left">Vol</th>
-                    <th className="put-th text-left">OI</th>
-                    <th className="put-th text-right">IV</th>
-                  </>
-                )}
-              </tr>
-            </thead>
-            <tbody>
-              {filteredChain.length === 0 ? (
-                <tr>
-                  <td colSpan={viewMode === 'both' ? 13 : 7} className="no-data-cell">
-                    No options contracts available for {symbol} on {selectedExp}.
-                  </td>
-                </tr>
-              ) : (
-                filteredChain.map((row, idx) => {
-                  const call = row.call;
-                  const put = row.put;
-                  const strike = row.strike;
-
-                  // ITM logic: Call is ITM when strike < underlyingPrice; Put is ITM when strike > underlyingPrice
-                  const isCallITM = underlyingPrice > 0 && strike < underlyingPrice;
-                  const isPutITM = underlyingPrice > 0 && strike > underlyingPrice;
-
-                  // Insert Divider marker right around current underlying price
-                  const nextRow = filteredChain[idx + 1];
-                  const isPriceBetween =
-                    underlyingPrice > 0 &&
-                    strike <= underlyingPrice &&
-                    nextRow &&
-                    nextRow.strike > underlyingPrice;
-
-                  const isCallSelected =
-                    selectedContract &&
-                    selectedContract.optionType === 'CALL' &&
-                    Number(selectedContract.strike) === Number(strike);
-
-                  const isPutSelected =
-                    selectedContract &&
-                    selectedContract.optionType === 'PUT' &&
-                    Number(selectedContract.strike) === Number(strike);
-
-                  return (
-                    <React.Fragment key={strike}>
-                      <tr className={`matrix-row ${isCallSelected || isPutSelected ? 'row-selected' : ''}`}>
-                        {/* Calls Side */}
-                        {(viewMode === 'both' || viewMode === 'calls') && (
-                          <>
-                            <td className={`data-cell text-left ${isCallITM ? 'call-itm' : ''}`}>
-                              {call ? `${call.implied_volatility}%` : '—'}
-                            </td>
-                            <td className={`data-cell text-right ${isCallITM ? 'call-itm' : ''}`}>
-                              {call && call.open_interest ? call.open_interest.toLocaleString() : '—'}
-                            </td>
-                            <td className={`data-cell text-right ${isCallITM ? 'call-itm' : ''}`}>
-                              {call && call.volume ? call.volume.toLocaleString() : '—'}
-                            </td>
-                            <td className={`data-cell text-right ${isCallITM ? 'call-itm' : ''}`}>
-                              ${call && call.last ? call.last.toFixed(2) : '—'}
-                            </td>
-                            <td
-                              className={`tradeable-cell call-bid text-right ${isCallITM ? 'call-itm' : ''}`}
-                              onClick={() => handleContractClick(row, 'CALL', 'bid')}
-                              title={call ? `Select this Call bid to sell an exact owned contract @ $${call.bid.toFixed(2)}` : ''}
-                            >
-                              ${call && call.bid ? call.bid.toFixed(2) : '0.00'}
-                            </td>
-                            <td
-                              className={`tradeable-cell call-ask text-right ${isCallITM ? 'call-itm' : ''}`}
-                              onClick={() => handleContractClick(row, 'CALL', 'ask')}
-                              title={call ? `Select this Call ask to buy @ $${call.ask.toFixed(2)}` : ''}
-                            >
-                              ${call && call.ask ? call.ask.toFixed(2) : '0.00'}
-                            </td>
-                          </>
-                        )}
-
-                        {/* Center Strike */}
-                        <td className="strike-cell text-center">
-                          <span className="strike-number">${strike.toFixed(2)}</span>
-                        </td>
-
-                        {/* Puts Side */}
-                        {(viewMode === 'both' || viewMode === 'puts') && (
-                          <>
-                            <td
-                              className={`tradeable-cell put-bid text-left ${isPutITM ? 'put-itm' : ''}`}
-                              onClick={() => handleContractClick(row, 'PUT', 'bid')}
-                              title={put ? `Select this Put bid to sell an exact owned contract @ $${put.bid.toFixed(2)}` : ''}
-                            >
-                              ${put && put.bid ? put.bid.toFixed(2) : '0.00'}
-                            </td>
-                            <td
-                              className={`tradeable-cell put-ask text-left ${isPutITM ? 'put-itm' : ''}`}
-                              onClick={() => handleContractClick(row, 'PUT', 'ask')}
-                              title={put ? `Select this Put ask to buy @ $${put.ask.toFixed(2)}` : ''}
-                            >
-                              ${put && put.ask ? put.ask.toFixed(2) : '0.00'}
-                            </td>
-                            <td className={`data-cell text-left ${isPutITM ? 'put-itm' : ''}`}>
-                              ${put && put.last ? put.last.toFixed(2) : '—'}
-                            </td>
-                            <td className={`data-cell text-left ${isPutITM ? 'put-itm' : ''}`}>
-                              {put && put.volume ? put.volume.toLocaleString() : '—'}
-                            </td>
-                            <td className={`data-cell text-left ${isPutITM ? 'put-itm' : ''}`}>
-                              {put && put.open_interest ? put.open_interest.toLocaleString() : '—'}
-                            </td>
-                            <td className={`data-cell text-right ${isPutITM ? 'put-itm' : ''}`}>
-                              {put ? `${put.implied_volatility}%` : '—'}
-                            </td>
-                          </>
-                        )}
+        <div className={`chain-table-wrapper ${usesDualPane ? 'dual-pane-chain' : 'single-pane-chain'}`}>
+          {filteredChain.length === 0 ? (
+            <div className="no-data-cell">No options contracts available for {symbol} on {selectedExp}.</div>
+          ) : usesDualPane ? (
+            <div className="option-dual-grid">
+              <div
+                className="option-pane-scroll option-pane-left"
+                ref={leftPaneRef}
+                onScroll={() => mirrorPaneScroll(leftPaneRef.current, rightPaneRef.current)}
+              >
+                <table className="options-matrix-table option-pane-table">
+                  <thead>
+                    <tr><th className="call-th" colSpan={selectedColumns.length}>{viewMode === 'puts' ? 'PUTS' : 'CALLS'} · {activeStrategy.label}</th></tr>
+                    <tr>{[...selectedColumns].reverse().map((column) => <th key={`left-${column.id}`} className="call-th">{column.label}</th>)}</tr>
+                  </thead>
+                  <tbody>{renderOptionRows(viewMode === 'puts' ? 'PUT' : 'CALL', [...selectedColumns].reverse())}</tbody>
+                </table>
+              </div>
+              <div className="option-strike-pane">
+                <table className="options-matrix-table strike-pane-table">
+                  <thead><tr><th className="strike-th">STRIKE</th></tr><tr><th className="strike-th">{activeStrategy.usesWidth ? `Width ${strategyWidth}` : 'Anchor'}</th></tr></thead>
+                  <tbody>{renderStrikeRows()}</tbody>
+                </table>
+              </div>
+              <div
+                className="option-pane-scroll option-pane-right"
+                ref={rightPaneRef}
+                onScroll={() => mirrorPaneScroll(rightPaneRef.current, leftPaneRef.current)}
+              >
+                <table className="options-matrix-table option-pane-table">
+                  <thead>
+                    <tr><th className="put-th" colSpan={selectedColumns.length}>{viewMode === 'calls' ? 'CALLS' : 'PUTS'} · {activeStrategy.label}</th></tr>
+                    <tr>{selectedColumns.map((column) => <th key={`right-${column.id}`} className="put-th">{column.label}</th>)}</tr>
+                  </thead>
+                  <tbody>{renderOptionRows(viewMode === 'calls' ? 'CALL' : 'PUT', selectedColumns)}</tbody>
+                </table>
+              </div>
+            </div>
+          ) : (
+            <div className="option-single-scroll">
+              <table className="options-matrix-table option-single-table">
+                <thead>
+                  <tr><th className="strike-th">STRIKE</th><th className={visibleSingleSide === 'CALL' ? 'call-th' : 'put-th'} colSpan={selectedColumns.length}>{visibleSingleSide === 'CALL' ? 'CALLS' : 'PUTS'} · {activeStrategy.label}</th></tr>
+                  <tr><th className="strike-th">{activeStrategy.usesWidth ? `Width ${strategyWidth}` : 'Anchor'}</th>{selectedColumns.map((column) => <th key={`single-${column.id}`} className={visibleSingleSide === 'CALL' ? 'call-th' : 'put-th'}>{column.label}</th>)}</tr>
+                </thead>
+                <tbody>
+                  {filteredChain.flatMap((row, index) => {
+                    const strike = Number(row.strike);
+                    const isITM = underlyingPrice > 0 && (visibleSingleSide === 'CALL' ? strike < underlyingPrice : strike > underlyingPrice);
+                    const nextRow = filteredChain[index + 1];
+                    const divider = underlyingPrice > 0 && strike <= underlyingPrice && nextRow && Number(nextRow.strike) > underlyingPrice;
+                    const rows = [(
+                      <tr className={`matrix-row ${isSelectedRow(strike, visibleSingleSide) ? 'row-selected' : ''}`} key={`single-${strike}`}>
+                        <td className="strike-cell">{strategyStrikeLabel(row, visibleSingleSide)}</td>
+                        {renderMetricCells(row, visibleSingleSide, isITM)}
                       </tr>
-
-                      {/* Stock Price Line Divider */}
-                      {isPriceBetween && (
-                        <tr className="price-divider-row">
-                          <td colSpan={viewMode === 'both' ? 13 : 7} className="price-divider-cell">
-                            <div className="price-divider-line">
-                              <span>📍 Spot Price: ${underlyingPrice.toFixed(2)}</span>
-                            </div>
-                          </td>
-                        </tr>
-                      )}
-                    </React.Fragment>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
+                    )];
+                    if (divider) rows.push(<tr className="price-divider-row" key={`single-${strike}-spot`}><td colSpan={selectedColumns.length + 1}><div className="price-divider-line">Spot ${underlyingPrice.toFixed(2)}</div></td></tr>);
+                    return rows;
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       )}
     </div>

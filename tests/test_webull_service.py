@@ -3,6 +3,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 from services.webull_service import (
+    _normalise_option_snapshot_record,
     WebullConnectionError,
     check_webull_access_token,
     create_webull_access_token,
@@ -37,6 +38,28 @@ class WebullServiceTests(unittest.TestCase):
         self.assertEqual(normalize_webull_environment('sandbox'), 'sandbox')
         with self.assertRaises(WebullConnectionError):
             normalize_webull_environment('staging')
+
+    def test_option_snapshot_normalizes_focus_quote_greeks_and_analysis_fields(self):
+        snapshot = _normalise_option_snapshot_record({
+            'symbol': 'AAPL260904C00320000',
+            'close': '4.25', 'bid': '4.20', 'ask': '4.30',
+            'bid_size': '14', 'ask_size': '11', 'open': '4.00',
+            'high': '4.60', 'low': '3.80', 'pre_close': '3.90',
+            'change': '0.35', 'change_ratio': '0.0897', 'volume': '1250',
+            'open_interest': '9876', 'imp_vol': '0.4621',
+            'delta': '0.51', 'gamma': '0.02', 'theta': '-0.08',
+            'vega': '0.04', 'rho': '0.01', 'iv_percentile': '67.5',
+            'iv_5_day_change': '-1.2', 'itm_probability': '0.54',
+        })
+
+        self.assertEqual(snapshot['symbol'], 'AAPL260904C00320000')
+        self.assertEqual(snapshot['last_price'], 4.25)
+        self.assertEqual(snapshot['bid_size'], 14.0)
+        self.assertEqual(snapshot['open_interest'], 9876.0)
+        self.assertEqual(snapshot['implied_volatility'], 0.4621)
+        self.assertEqual(snapshot['delta'], 0.51)
+        self.assertEqual(snapshot['iv_percentile'], 67.5)
+        self.assertEqual(snapshot['itm_percent'], 0.54)
 
     def test_account_list_connection_check_returns_non_sensitive_summary(self):
         response = Mock(status_code=200)

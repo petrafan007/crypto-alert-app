@@ -21,7 +21,7 @@ export const optionStrategyDefinition = (value) => (
 
 const opposite = (side) => (String(side).toUpperCase() === 'BUY' ? 'SELL' : 'BUY');
 
-export const buildOptionStrategyLegs = ({ strategy, chainRows, anchorStrike, optionType, side, width, expiration, expirations }) => {
+export const buildOptionStrategyLegs = ({ strategy, chainRows, nextChainRows = [], anchorStrike, optionType, side, width, expiration, expirations }) => {
   const cleanStrategy = String(strategy || 'SINGLE').toUpperCase();
   const rows = [...(chainRows || [])].sort((a, b) => Number(a.strike) - Number(b.strike));
   const anchorIndex = rows.findIndex((row) => Number(row.strike) === Number(anchorStrike));
@@ -36,7 +36,11 @@ export const buildOptionStrategyLegs = ({ strategy, chainRows, anchorStrike, opt
 
   const optionLeg = (row, type, legSide, quantity = 1, legExpiration = expiration) => {
     if (!row) throw new Error(`Width ${step} is not available around the selected strike. Choose a narrower width or show more strikes.`);
-    const quote = type === 'CALL' ? row.call : row.put;
+    const quoteRow = legExpiration === expiration
+      ? row
+      : nextChainRows.find((item) => Number(item.strike) === Number(row.strike));
+    const quote = type === 'CALL' ? quoteRow?.call : quoteRow?.put;
+    if (!quote?.contract_symbol) throw new Error(`No listed ${type.toLowerCase()} contract is available at ${row.strike} for ${legExpiration}.`);
     return {
       instrument_type: 'OPTION',
       side: legSide,
@@ -44,7 +48,7 @@ export const buildOptionStrategyLegs = ({ strategy, chainRows, anchorStrike, opt
       strike_price: Number(row.strike),
       option_type: type,
       option_expire_date: legExpiration,
-      contract_symbol: legExpiration === expiration ? quote?.contract_symbol || '' : '',
+      contract_symbol: quote.contract_symbol,
     };
   };
   const stockLeg = (legSide) => ({ instrument_type: 'EQUITY', side: legSide, quantity: 100 });

@@ -2716,10 +2716,22 @@ export default function WebullTrading({ isLightMode = false }) {
                         price: orderForm.price,
                         side: orderForm.side,
                         optionStrategy: orderForm.optionStrategy,
+                        optionStrategyWidth: orderForm.optionStrategyWidth,
                       }}
                       onSelectOptionContract={handleSelectOptionContract}
                       onSymbolChange={(newSym) => {
                         setSelectedSymbol(newSym);
+                      }}
+                      onStrategyChange={({ strategy, width }) => {
+                        setOrderForm((previous) => ({
+                          ...previous,
+                          optionStrategy: strategy,
+                          optionStrategyWidth: width,
+                          optionStrategyLegs: [],
+                          optionStrike: '',
+                          optionExpiration: '',
+                          price: '',
+                        }));
                       }}
                       isLightMode={isLightMode}
                     />

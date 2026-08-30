@@ -572,9 +572,8 @@ def _first_option_record(payload):
     return None
 
 
-def _normalise_option_snapshot(payload):
-    """Extract quote and Greeks from documented/legacy option snapshot shapes."""
-    raw = _first_option_record(payload)
+def _normalise_option_snapshot_record(raw):
+    """Extract documented quote, OHLC, size, volatility, and Greek fields."""
     if not isinstance(raw, dict):
         return None
 
@@ -599,16 +598,53 @@ def _normalise_option_snapshot(payload):
         'last_price': number('last_price', 'price', 'close', 'last'),
         'bid': number('bid', 'bid_price', 'bidPrice'),
         'ask': number('ask', 'ask_price', 'askPrice'),
+        'bid_size': number('bid_size', 'bidSize', 'bid_quantity', 'bidQuantity'),
+        'ask_size': number('ask_size', 'askSize', 'ask_quantity', 'askQuantity'),
+        'open': number('open', 'open_price', 'openPrice'),
+        'high': number('high', 'high_price', 'highPrice'),
+        'low': number('low', 'low_price', 'lowPrice'),
+        'previous_close': number('pre_close', 'prev_close', 'previous_close', 'previousClose'),
+        'change': number('change', 'price_change', 'priceChange'),
+        'percent_change': number('change_ratio', 'changeRatio', 'percent_change', 'percentChange'),
         'volume': number('volume'),
         'open_interest': number('open_interest', 'openInterest'),
-        'implied_volatility': number('implied_volatility', 'impliedVolatility', 'iv'),
+        'implied_volatility': number('imp_vol', 'implied_volatility', 'impliedVolatility', 'iv'),
         'delta': number('delta') if number('delta') is not None else _numeric_greek(greeks, 'delta'),
         'gamma': number('gamma') if number('gamma') is not None else _numeric_greek(greeks, 'gamma'),
         'theta': number('theta') if number('theta') is not None else _numeric_greek(greeks, 'theta'),
         'vega': number('vega') if number('vega') is not None else _numeric_greek(greeks, 'vega'),
         'rho': number('rho') if number('rho') is not None else _numeric_greek(greeks, 'rho'),
+        'iv_percentile': number('iv_percentile', 'ivPercentile'),
+        'iv_5_day_change': number('iv_5_day_change', 'iv5DayChange', 'iv_5d_change', 'iv5dChange'),
+        'itm_percent': number('itm_probability', 'itmProbability', 'probability_itm', 'probabilityItm'),
         'as_of': value('timestamp', 'time', 'last_trade_time', 'trade_time'),
     }
+
+
+def _normalise_option_snapshot(payload):
+    """Extract one option snapshot from documented/legacy response shapes."""
+    return _normalise_option_snapshot_record(_first_option_record(payload))
+
+
+def _get_webull_option_snapshots(app_key, app_secret, environment, access_token, symbols):
+    """Fetch read-only option snapshots in documented batches of at most 20."""
+    clean_symbols = list(dict.fromkeys(str(symbol or '').strip().upper() for symbol in symbols if symbol))
+    snapshots = {}
+    for start in range(0, len(clean_symbols), 20):
+        batch = clean_symbols[start:start + 20]
+        payload = _response_payload(
+            _webull_request(
+                app_key, app_secret, environment, 'GET', '/market-data/options/snapshots/list',
+                query_params={'symbols': ','.join(batch), 'category': 'US_OPTION'},
+                access_token=access_token,
+            ),
+            'option market-data request',
+        )
+        for raw in _webull_records(payload):
+            snapshot = _normalise_option_snapshot_record(raw)
+            if snapshot and snapshot.get('symbol'):
+                snapshots[str(snapshot['symbol']).upper()] = snapshot
+    return snapshots
 
 
 def _numeric_greek(greeks, key):
@@ -1030,61 +1066,167 @@ def get_webull_option_chain_data(app_key=None, app_secret=None, environment='pro
         except (ValueError, TypeError):
             return default
 
-    strike_map = {}
+    def _base_contract(row, option_type, expiration):
+        strike = _clean_num(row.get('strike'))
+        if strike <= 0:
+            return None
+        bid = _clean_num(row.get('bid'))
+        ask = _clean_num(row.get('ask'))
+        last = _clean_num(row.get('lastPrice'))
+        return {
+            'contract_symbol': str(row.get('contractSymbol') or ''),
+            'strike': strike,
+            'option_type': option_type,
+            'expiration': expiration,
+            'bid': bid,
+            'ask': ask,
+            'bid_size': None,
+            'ask_size': None,
+            'mid': round((bid + ask) / 2.0, 4) if (bid > 0 and ask > 0) else last,
+            'last': last,
+            'open': None,
+            'high': None,
+            'low': None,
+            'previous_close': None,
+            'change': _clean_num(row.get('change')),
+            'percent_change': _clean_num(row.get('percentChange')),
+            'change_open': None,
+            'percent_change_open': None,
+            'volume': _clean_int(row.get('volume')),
+            'open_interest': _clean_int(row.get('openInterest')),
+            'implied_volatility': round(_clean_num(row.get('impliedVolatility')) * 100, 2),
+            'delta': None,
+            'gamma': None,
+            'theta': None,
+            'vega': None,
+            'rho': None,
+            'iv_percentile': None,
+            'iv_5_day_change': None,
+            'itm_percent': None,
+            'otm_percent': None,
+            'breakeven': None,
+            'to_bep_percent': None,
+            'intrinsic_value': None,
+            'time_value': None,
+            'in_the_money': bool(row.get('inTheMoney') or (
+                underlying_price > 0 and (
+                    (option_type == 'CALL' and strike < underlying_price)
+                    or (option_type == 'PUT' and strike > underlying_price)
+                )
+            )),
+        }
 
-    if calls_df is not None and not calls_df.empty:
-        for _, row in calls_df.iterrows():
-            strike = _clean_num(row.get('strike'))
-            if strike <= 0:
+    def _build_chain_map(calls, puts, expiration):
+        result = {}
+        for frame, option_type, key in ((calls, 'CALL', 'call'), (puts, 'PUT', 'put')):
+            if frame is None or frame.empty:
                 continue
-            if strike not in strike_map:
-                strike_map[strike] = {'strike': strike, 'call': None, 'put': None}
-            bid = _clean_num(row.get('bid'))
-            ask = _clean_num(row.get('ask'))
-            mid = round((bid + ask) / 2.0, 2) if (bid > 0 and ask > 0) else _clean_num(row.get('lastPrice'))
-            strike_map[strike]['call'] = {
-                'contract_symbol': str(row.get('contractSymbol') or ''),
-                'strike': strike,
-                'option_type': 'CALL',
-                'expiration': selected_exp,
-                'bid': bid,
-                'ask': ask,
-                'mid': mid,
-                'last': _clean_num(row.get('lastPrice')),
-                'change': _clean_num(row.get('change')),
-                'percent_change': _clean_num(row.get('percentChange')),
-                'volume': _clean_int(row.get('volume')),
-                'open_interest': _clean_int(row.get('openInterest')),
-                'implied_volatility': round(_clean_num(row.get('impliedVolatility')) * 100, 1),
-                'in_the_money': bool(row.get('inTheMoney') or (underlying_price > 0 and strike < underlying_price)),
-            }
+            for _, row in frame.iterrows():
+                contract = _base_contract(row, option_type, expiration)
+                if not contract:
+                    continue
+                strike = contract['strike']
+                result.setdefault(strike, {'strike': strike, 'call': None, 'put': None})[key] = contract
+        return result
 
-    if puts_df is not None and not puts_df.empty:
-        for _, row in puts_df.iterrows():
-            strike = _clean_num(row.get('strike'))
-            if strike <= 0:
-                continue
-            if strike not in strike_map:
-                strike_map[strike] = {'strike': strike, 'call': None, 'put': None}
-            bid = _clean_num(row.get('bid'))
-            ask = _clean_num(row.get('ask'))
-            mid = round((bid + ask) / 2.0, 2) if (bid > 0 and ask > 0) else _clean_num(row.get('lastPrice'))
-            strike_map[strike]['put'] = {
-                'contract_symbol': str(row.get('contractSymbol') or ''),
-                'strike': strike,
-                'option_type': 'PUT',
-                'expiration': selected_exp,
-                'bid': bid,
-                'ask': ask,
-                'mid': mid,
-                'last': _clean_num(row.get('lastPrice')),
-                'change': _clean_num(row.get('change')),
-                'percent_change': _clean_num(row.get('percentChange')),
-                'volume': _clean_int(row.get('volume')),
-                'open_interest': _clean_int(row.get('openInterest')),
-                'implied_volatility': round(_clean_num(row.get('impliedVolatility')) * 100, 1),
-                'in_the_money': bool(row.get('inTheMoney') or (underlying_price > 0 and strike > underlying_price)),
-            }
+    def _apply_snapshot(contract, snapshot):
+        if not contract or not snapshot:
+            return
+        direct_fields = (
+            'bid', 'ask', 'bid_size', 'ask_size', 'last_price', 'open', 'high', 'low',
+            'previous_close', 'change', 'volume', 'open_interest', 'delta', 'gamma',
+            'theta', 'vega', 'rho', 'iv_percentile', 'iv_5_day_change', 'itm_percent',
+        )
+        for field in direct_fields:
+            value = snapshot.get(field)
+            if value is not None:
+                contract['last' if field == 'last_price' else field] = value
+        ratio = snapshot.get('percent_change')
+        if ratio is not None:
+            # Webull documents change_ratio as a decimal, while legacy and
+            # yfinance percentChange values arrive as percentage points.
+            contract['percent_change'] = ratio * 100 if abs(ratio) <= 2 else ratio
+        snapshot_iv = snapshot.get('implied_volatility')
+        if snapshot_iv is not None:
+            contract['implied_volatility'] = snapshot_iv * 100 if abs(snapshot_iv) <= 5 else snapshot_iv
+        bid, ask = float(contract.get('bid') or 0), float(contract.get('ask') or 0)
+        if bid > 0 and ask > 0:
+            contract['mid'] = round((bid + ask) / 2.0, 4)
+
+    def _finish_metrics(contract):
+        if not contract:
+            return
+        option_type = contract['option_type']
+        strike = float(contract['strike'])
+        premium = float(contract.get('mid') or contract.get('last') or 0)
+        intrinsic = max(0.0, underlying_price - strike) if option_type == 'CALL' else max(0.0, strike - underlying_price)
+        contract['intrinsic_value'] = round(intrinsic, 4)
+        contract['time_value'] = round(max(0.0, premium - intrinsic), 4)
+        contract['breakeven'] = round(strike + premium if option_type == 'CALL' else strike - premium, 4)
+        contract['to_bep_percent'] = round(abs(contract['breakeven'] - underlying_price) / underlying_price * 100, 2) if underlying_price > 0 else None
+        open_price = float(contract.get('open') or 0)
+        last_price = float(contract.get('last') or 0)
+        if open_price > 0 and last_price > 0:
+            contract['change_open'] = round(last_price - open_price, 4)
+            contract['percent_change_open'] = round((last_price - open_price) / open_price * 100, 2)
+        if contract.get('itm_percent') is None and contract.get('delta') is not None:
+            # Delta is not identical to exercise probability, but is the only
+            # provider-supplied probability proxy when Webull omits its
+            # dedicated probability field. Mark the source for the UI.
+            contract['itm_percent'] = round(min(100.0, max(0.0, abs(float(contract['delta'])) * 100)), 2)
+            contract['itm_percent_source'] = 'delta_proxy'
+        elif contract.get('itm_percent') is not None:
+            probability = float(contract['itm_percent'])
+            contract['itm_percent'] = round(probability * 100 if probability <= 1 else probability, 2)
+            contract['itm_percent_source'] = 'provider'
+        if contract.get('itm_percent') is not None:
+            contract['otm_percent'] = round(100 - float(contract['itm_percent']), 2)
+
+    strike_map = _build_chain_map(calls_df, puts_df, selected_exp)
+
+    if app_key and app_secret:
+        # The documented snapshot endpoint accepts at most 20 contracts per
+        # request.  Enrich the 40 strikes nearest the underlying (80 call/put
+        # contracts) so the default table remains fully populated without a
+        # full-chain refresh exceeding Webull's per-minute market-data limit.
+        nearest_strikes = sorted(
+            strike_map,
+            key=lambda strike: abs(float(strike) - float(underlying_price or strike)),
+        )[:40]
+        symbols = [
+            contract.get('contract_symbol')
+            for strike in nearest_strikes
+            for strike_row in (strike_map[strike],)
+            for contract in (strike_row.get('call'), strike_row.get('put'))
+            if contract and contract.get('contract_symbol')
+        ]
+        try:
+            snapshots = _get_webull_option_snapshots(app_key, app_secret, environment, access_token, symbols)
+            for strike_row in strike_map.values():
+                for contract in (strike_row.get('call'), strike_row.get('put')):
+                    if contract:
+                        _apply_snapshot(contract, snapshots.get(str(contract.get('contract_symbol') or '').upper()))
+        except Exception as exc:
+            logger.warning('Webull option snapshot enrichment unavailable for %s: %s', clean_underlying, exc)
+
+    for strike_row in strike_map.values():
+        _finish_metrics(strike_row.get('call'))
+        _finish_metrics(strike_row.get('put'))
+
+    next_expiration = None
+    next_chain_rows = []
+    selected_index = available_expirations.index(selected_exp)
+    if selected_index + 1 < len(available_expirations):
+        next_expiration = available_expirations[selected_index + 1]
+        try:
+            next_frame = ticker.option_chain(next_expiration)
+            next_map = _build_chain_map(next_frame.calls, next_frame.puts, next_expiration)
+            for strike_row in next_map.values():
+                _finish_metrics(strike_row.get('call'))
+                _finish_metrics(strike_row.get('put'))
+            next_chain_rows = [next_map[strike] for strike in sorted(next_map)]
+        except Exception as exc:
+            logger.warning('Farther option expiration unavailable for %s (%s): %s', clean_underlying, next_expiration, exc)
 
     sorted_strikes = sorted(strike_map.keys())
     chain_rows = [strike_map[s] for s in sorted_strikes]
@@ -1101,6 +1243,8 @@ def get_webull_option_chain_data(app_key=None, app_secret=None, environment='pro
         'expirations': expirations_list,
         'selected_expiration': selected_exp,
         'chain': chain_rows,
+        'next_expiration': next_expiration,
+        'next_chain': next_chain_rows,
     }
 
 
