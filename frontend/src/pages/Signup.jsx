@@ -202,7 +202,7 @@ export default function Signup({ isLightMode, toggleTheme }) {
           fontSize: '13px',
           paddingBottom: '24px'
         }}>
-          Crypto &amp; Securities Dashboard version {APP_VERSION}. © 2026 Cavallaro Services. All rights reserved.
+          Crypto &amp; Securities Dashboard version {APP_VERSION}. © 2026 Cavallaro Services, LLC. All rights reserved.
         </footer>
       </main>
 

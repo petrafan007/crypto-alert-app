@@ -259,6 +259,27 @@ export default function App() {
               >
                 Logout
               </button>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginLeft: '12px', padding: '6px 16px 6px 6px', backgroundColor: 'rgba(30, 35, 45, 0.6)', borderRadius: '30px', border: '1px solid rgba(255,255,255,0.1)' }}>
+                <div style={{
+                  width: '32px',
+                  height: '32px',
+                  borderRadius: '50%',
+                  background: 'linear-gradient(135deg, #a855f7, #7e22ce)',
+                  color: 'white',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontWeight: 'bold',
+                  fontSize: '16px',
+                  boxShadow: '0 0 10px rgba(168, 85, 247, 0.5)'
+                }}>
+                  {user.username ? user.username.charAt(0).toUpperCase() : '?'}
+                </div>
+                <span style={{ fontSize: '14px', color: '#e2e8f0' }}>
+                  Signed in as <strong style={{ color: 'white', fontWeight: 'bold' }}>{user.username}</strong>
+                </span>
+              </div>
             </div>
           )}
           <div className="brand-logo" aria-label="Crypto & Securities Dashboard">
@@ -461,7 +482,7 @@ export default function App() {
           fontSize: '12px',
           margin: 0
         }}>
-          Crypto &amp; Securities Dashboard version {APP_VERSION}. © 2026 Cavallaro Services. All rights reserved.
+          Crypto &amp; Securities Dashboard version {APP_VERSION}. © 2026 Cavallaro Services, LLC. All rights reserved.
         </p>
       </footer>
 
