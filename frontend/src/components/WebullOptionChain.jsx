@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import axios from 'axios';
 import SearchablePairSelect from './SearchablePairSelect';
 import OptionFocusControls from './OptionFocusControls';
@@ -31,6 +31,34 @@ const PAYOFF_POINTS = {
 
 const DUAL_PANE_STRATEGIES = new Set(['SINGLE', 'COVERED_STOCK', 'VERTICAL', 'BUTTERFLY', 'CONDOR', 'CALENDAR', 'DIAGONAL']);
 
+function mergeOptionRows(previousRows = [], incomingRows = []) {
+  const previousByStrike = new Map(previousRows.map((row) => [String(row?.strike), row]));
+  return incomingRows.map((incomingRow) => {
+    const previousRow = previousByStrike.get(String(incomingRow?.strike));
+    if (!previousRow) return incomingRow;
+    return {
+      ...previousRow,
+      ...incomingRow,
+      call: incomingRow.call ? { ...(previousRow.call || {}), ...incomingRow.call } : incomingRow.call,
+      put: incomingRow.put ? { ...(previousRow.put || {}), ...incomingRow.put } : incomingRow.put,
+    };
+  });
+}
+
+function mergeOptionChainData(previous, incoming) {
+  if (!previous
+    || previous.underlying_symbol !== incoming.underlying_symbol
+    || previous.selected_expiration !== incoming.selected_expiration) {
+    return incoming;
+  }
+  return {
+    ...previous,
+    ...incoming,
+    chain: mergeOptionRows(previous.chain, incoming.chain),
+    next_chain: mergeOptionRows(previous.next_chain, incoming.next_chain),
+  };
+}
+
 function StrategyTooltip({ strategy, placement }) {
   return (
     <div className={`strategy-hover-card strategy-tooltip-${placement}`} role="tooltip">
@@ -60,6 +88,8 @@ export default function WebullOptionChain({
   const [symbol, setSymbol] = useState(defaultSymbol || 'AAPL');
   const [chainData, setChainData] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [refreshWarning, setRefreshWarning] = useState('');
   const [error, setError] = useState('');
   const [selectedExp, setSelectedExp] = useState('');
   const [viewMode, setViewMode] = useState('both'); // 'both', 'calls', 'puts'
@@ -72,6 +102,9 @@ export default function WebullOptionChain({
   const [focusProfiles, setFocusProfiles] = useState(loadFocusColumns);
   const leftPaneRef = useRef(null);
   const rightPaneRef = useRef(null);
+  const leftScrollRailRef = useRef(null);
+  const rightScrollRailRef = useRef(null);
+  const [scrollRailWidths, setScrollRailWidths] = useState({ left: 0, right: 0 });
   const mirrorScrollLock = useRef(false);
   const [strikeRange, setStrikeRange] = useState('20'); // '10', '20', 'all'
   const isMounted = useRef(true);
@@ -130,21 +163,29 @@ export default function WebullOptionChain({
     if (selectedContract?.optionStrategyWidth) setStrategyWidth(String(selectedContract.optionStrategyWidth));
   }, [selectedContract?.optionStrategy, selectedContract?.optionStrategyWidth]);
 
-  const fetchOptionChain = async (targetSymbol, targetExpiration = '') => {
+  const fetchOptionChain = useCallback(async (targetSymbol, targetExpiration = '', { background = false } = {}) => {
     const sym = (targetSymbol || symbol || 'AAPL').toUpperCase().trim();
     if (!sym) return;
     const requestId = ++requestSequence.current;
     activeRequest.current?.abort();
     const controller = new AbortController();
     activeRequest.current = controller;
-    setLoading(true);
-    setError('');
-    setStrategyError('');
-    setIsStale(false);
-    // Never leave the previous symbol/expiration interactive while a new chain
-    // is loading. A successful response must match the request before it is
-    // allowed to replace the empty state.
-    setChainData(null);
+    if (background) {
+      setIsRefreshing(true);
+      setRefreshWarning('');
+    } else {
+      setLoading(true);
+      setError('');
+      setStrategyError('');
+      setRefreshWarning('');
+      setIsStale(false);
+    }
+    if (!background) {
+      // Never leave the previous symbol/expiration interactive while a new chain
+      // is loading. A successful response must match the request before it is
+      // allowed to replace the empty state.
+      setChainData(null);
+    }
     try {
       const res = await axios.get('/api/webull/options/chain', {
         params: {
@@ -161,20 +202,28 @@ export default function WebullOptionChain({
         if (responseSymbol !== sym || (targetExpiration && responseExpiration !== targetExpiration)) {
           throw new Error('The option-chain response did not match the requested symbol and expiration. Refresh before selecting a contract.');
         }
-        setChainData(res.data);
+        setChainData((previous) => background ? mergeOptionChainData(previous, res.data) : res.data);
         setSelectedExp(res.data.selected_expiration || '');
         setLastUpdatedAt(new Date());
+        setIsStale(false);
+        setRefreshWarning('');
       } else {
-        setError(res.data?.message || 'Unable to load option chain.');
+        const message = res.data?.message || 'Unable to load option chain.';
+        if (background) setRefreshWarning(message);
+        else setError(message);
       }
     } catch (err) {
       if (!isMounted.current || requestId !== requestSequence.current || axios.isCancel(err)) return;
       const msg = err.response?.data?.message || err.message || 'Failed to fetch options chain.';
-      setError(msg);
+      if (background) setRefreshWarning(msg);
+      else setError(msg);
     } finally {
-      if (isMounted.current && requestId === requestSequence.current) setLoading(false);
+      if (isMounted.current && requestId === requestSequence.current) {
+        setIsRefreshing(false);
+        setLoading(false);
+      }
     }
-  };
+  }, [symbol]);
 
   useEffect(() => {
     fetchOptionChain(symbol, '');
@@ -231,19 +280,67 @@ export default function WebullOptionChain({
     const frame = window.requestAnimationFrame(() => {
       if (leftPaneRef.current) leftPaneRef.current.scrollLeft = leftPaneRef.current.scrollWidth - leftPaneRef.current.clientWidth;
       if (rightPaneRef.current) rightPaneRef.current.scrollLeft = 0;
+      if (leftScrollRailRef.current) leftScrollRailRef.current.scrollLeft = leftScrollRailRef.current.scrollWidth - leftScrollRailRef.current.clientWidth;
+      if (rightScrollRailRef.current) rightScrollRailRef.current.scrollLeft = 0;
     });
     return () => window.cancelAnimationFrame(frame);
   }, [usesDualPane, strategy, activeFocus, selectedColumns.length, chainData?.underlying_symbol]);
 
-  const mirrorPaneScroll = (source, target) => {
-    if (mirrorScrollLock.current || !source || !target) return;
+  const syncMirroredScroll = (sourceSide, source) => {
+    if (mirrorScrollLock.current || !source) return;
     const sourceMax = Math.max(0, source.scrollWidth - source.clientWidth);
-    const targetMax = Math.max(0, target.scrollWidth - target.clientWidth);
-    const ratio = sourceMax > 0 ? source.scrollLeft / sourceMax : 1;
+    const sourceRatio = sourceMax > 0 ? source.scrollLeft / sourceMax : 0;
+    const leftRatio = sourceSide === 'left' ? sourceRatio : 1 - sourceRatio;
+    const targets = [
+      [leftPaneRef.current, leftRatio],
+      [leftScrollRailRef.current, leftRatio],
+      [rightPaneRef.current, 1 - leftRatio],
+      [rightScrollRailRef.current, 1 - leftRatio],
+    ];
     mirrorScrollLock.current = true;
-    target.scrollLeft = targetMax * (1 - ratio);
+    targets.forEach(([target, ratio]) => {
+      if (!target || target === source) return;
+      const targetMax = Math.max(0, target.scrollWidth - target.clientWidth);
+      target.scrollLeft = targetMax * ratio;
+    });
     window.requestAnimationFrame(() => { mirrorScrollLock.current = false; });
   };
+
+  useEffect(() => {
+    if (!usesDualPane) return undefined;
+    const measure = () => {
+      setScrollRailWidths({
+        left: leftPaneRef.current?.scrollWidth || 0,
+        right: rightPaneRef.current?.scrollWidth || 0,
+      });
+    };
+    const frame = window.requestAnimationFrame(measure);
+    const observer = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(measure) : null;
+    if (leftPaneRef.current) observer?.observe(leftPaneRef.current);
+    if (rightPaneRef.current) observer?.observe(rightPaneRef.current);
+    window.addEventListener('resize', measure);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      observer?.disconnect();
+      window.removeEventListener('resize', measure);
+    };
+  }, [usesDualPane, strategy, activeFocus, selectedColumns.length, chainData?.chain?.length]);
+
+  useEffect(() => {
+    if (!usesDualPane || !leftPaneRef.current || !rightPaneRef.current) return;
+    const frame = window.requestAnimationFrame(() => {
+      const leftPane = leftPaneRef.current;
+      const rightPane = rightPaneRef.current;
+      const leftRail = leftScrollRailRef.current;
+      const rightRail = rightScrollRailRef.current;
+      if (!leftPane || !rightPane || !leftRail || !rightRail) return;
+      const leftMax = Math.max(0, leftPane.scrollWidth - leftPane.clientWidth);
+      const leftRatio = leftMax > 0 ? leftPane.scrollLeft / leftMax : 1;
+      leftRail.scrollLeft = Math.max(0, leftRail.scrollWidth - leftRail.clientWidth) * leftRatio;
+      rightRail.scrollLeft = Math.max(0, rightRail.scrollWidth - rightRail.clientWidth) * (1 - leftRatio);
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [usesDualPane, scrollRailWidths.left, scrollRailWidths.right]);
 
   useEffect(() => {
     const staleAfterMs = marketStatus === 'OPEN' ? 30000 : 120000;
@@ -257,7 +354,7 @@ export default function WebullOptionChain({
     if (!chainData || !selectedExp) return undefined;
     const refreshMs = marketStatus === 'OPEN' ? 15000 : 60000;
     const refresh = () => {
-      if (document.visibilityState === 'visible') fetchOptionChain(symbol, selectedExp);
+      if (document.visibilityState === 'visible') fetchOptionChain(symbol, selectedExp, { background: true });
     };
     const interval = window.setInterval(refresh, refreshMs);
     window.addEventListener('focus', refresh);
@@ -491,12 +588,12 @@ export default function WebullOptionChain({
         <div className="chain-actions-section">
           <button
             type="button"
-            onClick={() => fetchOptionChain(symbol, selectedExp)}
-            disabled={loading}
+            onClick={() => fetchOptionChain(symbol, selectedExp, { background: Boolean(chainData) })}
+            disabled={loading || isRefreshing}
             className="btn btn-secondary btn-sm chain-refresh-btn"
             title="Refresh Option Chain"
           >
-            {loading ? '⏳ Refreshing...' : '🔄 Refresh'}
+            {loading || isRefreshing ? '⏳ Refreshing...' : '🔄 Refresh'}
           </button>
         </div>
       </div>
@@ -624,6 +721,7 @@ export default function WebullOptionChain({
       )}
 
       {strategyError && <div className="chain-error-box" role="alert">⚠️ {strategyError}</div>}
+      {refreshWarning && chainData && <div className="chain-refresh-warning" role="status">⚠️ Latest quote refresh failed: {refreshWarning}. Existing values remain displayed.</div>}
 
       {/* 4. STRATEGY-AWARE OPTIONS MATRIX TABLE */}
       {error ? (
@@ -640,11 +738,33 @@ export default function WebullOptionChain({
           {filteredChain.length === 0 ? (
             <div className="no-data-cell">No options contracts available for {symbol} on {selectedExp}.</div>
           ) : usesDualPane ? (
-            <div className="option-dual-grid">
+            <>
+              <div className="option-dual-scrollbars" aria-label="Mirrored option columns scroll controls">
+                <div
+                  className="option-scroll-rail option-scroll-rail-left"
+                  ref={leftScrollRailRef}
+                  onScroll={(event) => syncMirroredScroll('left', event.currentTarget)}
+                  aria-label="Scroll call-side option columns"
+                  role="region"
+                >
+                  <div style={{ width: `${scrollRailWidths.left}px` }} />
+                </div>
+                <div className="option-scroll-rail-strike-spacer" aria-hidden="true" />
+                <div
+                  className="option-scroll-rail option-scroll-rail-right"
+                  ref={rightScrollRailRef}
+                  onScroll={(event) => syncMirroredScroll('right', event.currentTarget)}
+                  aria-label="Scroll put-side option columns"
+                  role="region"
+                >
+                  <div style={{ width: `${scrollRailWidths.right}px` }} />
+                </div>
+              </div>
+              <div className="option-dual-grid">
               <div
                 className="option-pane-scroll option-pane-left"
                 ref={leftPaneRef}
-                onScroll={() => mirrorPaneScroll(leftPaneRef.current, rightPaneRef.current)}
+                onScroll={(event) => syncMirroredScroll('left', event.currentTarget)}
               >
                 <table className="options-matrix-table option-pane-table">
                   <thead>
@@ -663,7 +783,7 @@ export default function WebullOptionChain({
               <div
                 className="option-pane-scroll option-pane-right"
                 ref={rightPaneRef}
-                onScroll={() => mirrorPaneScroll(rightPaneRef.current, leftPaneRef.current)}
+                onScroll={(event) => syncMirroredScroll('right', event.currentTarget)}
               >
                 <table className="options-matrix-table option-pane-table">
                   <thead>
@@ -673,7 +793,8 @@ export default function WebullOptionChain({
                   <tbody>{renderOptionRows(viewMode === 'calls' ? 'CALL' : 'PUT', selectedColumns)}</tbody>
                 </table>
               </div>
-            </div>
+              </div>
+            </>
           ) : (
             <div className="option-single-scroll">
               <table className="options-matrix-table option-single-table">

@@ -125,6 +125,16 @@ The application utilizes a **unified PostgreSQL database**.
 
 Historical changelog entries retain the product name used when they were originally released. The application domain, repository slug, deployment folders, database, and service identifiers intentionally remain unchanged by the v2.45.0 brand update.
 
+## v2.61.2 (August 2026)
+
+- **Correct Split Option-Table Geometry**:
+  - Dual-pane strategies now reserve a compact, fixed-width center strike column instead of allowing the general table width rule to stretch the anchor across the page.
+  - Added permanently visible left and right horizontal scroll controls above the split matrix. Moving either side mirrors the other side around the strike column, while trackpad or wheel-based horizontal movement over the quote panes remains synchronized.
+  - Single-pane strategy layouts remain unchanged.
+- **Non-Disruptive Option Quote Refreshes**:
+  - Scheduled, focus-triggered, and manual refreshes now keep the current option matrix mounted and merge fresh contracts by strike, updating displayed quote and analysis values in place.
+  - Strategy, focus profile, selected contract, vertical position, and mirrored horizontal positions remain stable during background updates. A failed background refresh leaves the last valid values visible with a warning instead of replacing the matrix with a loading or error screen.
+
 ## v2.61.0 (August 2026)
 
 - **Strategy-Aware Option Tables**:

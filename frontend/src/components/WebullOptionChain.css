@@ -871,3 +871,130 @@ body.light-mode .webull-option-chain-container .price-divider-line {
   font-weight: 700 !important;
   text-shadow: none !important;
 }
+
+/* v2.61.2: Keep the split strategy matrix stable while quote cells refresh. */
+.chain-refresh-warning {
+  margin-bottom: 10px;
+  padding: 8px 12px;
+  border: 1px solid rgba(245, 158, 11, 0.42);
+  border-radius: 6px;
+  background: rgba(245, 158, 11, 0.12);
+  color: #fbbf24;
+  font-size: 12px;
+}
+
+.chain-table-wrapper.dual-pane-chain {
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
+}
+
+.chain-table-wrapper.dual-pane-chain .option-dual-scrollbars,
+.chain-table-wrapper.dual-pane-chain .option-dual-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 118px minmax(0, 1fr);
+  width: 100%;
+  min-width: 0;
+}
+
+.chain-table-wrapper.dual-pane-chain .option-dual-scrollbars {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  height: 16px;
+  background: #0b0f19;
+}
+
+.chain-table-wrapper.dual-pane-chain .option-scroll-rail {
+  min-width: 0;
+  height: 16px;
+  overflow-x: scroll;
+  overflow-y: hidden;
+  scrollbar-color: #64748b #172033;
+  scrollbar-width: auto;
+}
+
+.chain-table-wrapper.dual-pane-chain .option-scroll-rail > div {
+  height: 1px;
+}
+
+.chain-table-wrapper.dual-pane-chain .option-scroll-rail-strike-spacer {
+  width: 118px;
+  border-right: 1px solid #334155;
+  border-left: 1px solid #334155;
+  background: #1e293b;
+}
+
+.chain-table-wrapper.dual-pane-chain .option-pane-scroll {
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+
+.chain-table-wrapper.dual-pane-chain .option-pane-scroll::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
+.chain-table-wrapper.dual-pane-chain .option-pane-table {
+  width: max-content !important;
+  min-width: max-content !important;
+  table-layout: fixed !important;
+}
+
+.chain-table-wrapper.dual-pane-chain .option-pane-table th,
+.chain-table-wrapper.dual-pane-chain .option-pane-table td {
+  width: 94px;
+  min-width: 94px;
+  max-width: 94px;
+}
+
+.chain-table-wrapper.dual-pane-chain .option-strike-pane {
+  width: 118px;
+  min-width: 118px;
+  max-width: 118px;
+  overflow: hidden;
+}
+
+.chain-table-wrapper.dual-pane-chain .strike-pane-table {
+  width: 118px !important;
+  min-width: 118px !important;
+  max-width: 118px !important;
+  table-layout: fixed !important;
+}
+
+.chain-table-wrapper.dual-pane-chain .strike-pane-table th,
+.chain-table-wrapper.dual-pane-chain .strike-pane-table td {
+  width: 118px !important;
+  min-width: 118px !important;
+  max-width: 118px !important;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.chain-table-wrapper.dual-pane-chain .options-matrix-table thead tr:first-child th {
+  top: 16px !important;
+}
+
+.chain-table-wrapper.dual-pane-chain .options-matrix-table thead tr:nth-child(2) th {
+  top: 46px !important;
+}
+
+.webull-option-chain-container.light-mode .chain-table-wrapper.dual-pane-chain .option-dual-scrollbars,
+body.light-mode .webull-option-chain-container .chain-table-wrapper.dual-pane-chain .option-dual-scrollbars {
+  background: #ffffff;
+}
+
+.webull-option-chain-container.light-mode .chain-table-wrapper.dual-pane-chain .option-scroll-rail-strike-spacer,
+body.light-mode .webull-option-chain-container .chain-table-wrapper.dual-pane-chain .option-scroll-rail-strike-spacer {
+  border-color: #cbd5e1;
+  background: #f1f5f9;
+}
+
+.webull-option-chain-container.light-mode .chain-refresh-warning,
+body.light-mode .webull-option-chain-container .chain-refresh-warning {
+  color: #92400e;
+  background: #fffbeb;
+  border-color: #f59e0b;
+}
