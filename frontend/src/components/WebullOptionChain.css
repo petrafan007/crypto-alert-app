@@ -885,7 +885,7 @@ body.light-mode .webull-option-chain-container .price-divider-line {
 
 .chain-table-wrapper.dual-pane-chain {
   display: grid;
-  grid-template-rows: 60px minmax(0, 1fr) 24px;
+  grid-template-rows: 76px minmax(0, 1fr) 24px;
   overflow-x: hidden !important;
   overflow-y: hidden !important;
 }
@@ -911,7 +911,8 @@ body.light-mode .webull-option-chain-container .price-divider-line {
 .chain-table-wrapper.dual-pane-chain .option-dual-header-grid {
   position: relative;
   z-index: 35;
-  min-height: 60px;
+  height: 76px;
+  min-height: 76px;
   overflow: hidden;
   background: #0b0f19;
   box-shadow: 0 2px 6px rgba(0, 0, 0, .48);
@@ -924,12 +925,17 @@ body.light-mode .webull-option-chain-container .price-divider-line {
 }
 
 .chain-table-wrapper.dual-pane-chain .option-pane-header-table {
-  height: 60px;
+  height: 76px;
+  min-height: 76px !important;
 }
 
 .chain-table-wrapper.dual-pane-chain .option-pane-header-table th {
   position: static !important;
-  height: 30px;
+  height: 38px !important;
+  min-height: 38px !important;
+  line-height: 16px !important;
+  padding-top: 10px !important;
+  padding-bottom: 10px !important;
   box-sizing: border-box;
 }
 
