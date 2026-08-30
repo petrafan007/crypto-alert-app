@@ -726,25 +726,24 @@ export default function WebullOptionChain({
             <>
               <div className="option-dual-header-grid">
                 <div className="option-pane-header-scroll" ref={leftHeaderRef}>
-                  <table className="options-matrix-table option-pane-table option-pane-header-table">
-                    <thead>
-                      <tr><th className="call-th" colSpan={selectedColumns.length}>{viewMode === 'puts' ? 'PUTS' : 'CALLS'} · {activeStrategy.label}</th></tr>
-                      <tr>{[...selectedColumns].reverse().map((column) => <th key={`left-header-${column.id}`} className="call-th">{column.label}</th>)}</tr>
-                    </thead>
-                  </table>
+                  <div className="option-pane-header-content" style={{ width: `${selectedColumns.length * 94}px` }}>
+                    <div className="option-side-header call-th">{viewMode === 'puts' ? 'PUTS' : 'CALLS'} · {activeStrategy.label}</div>
+                    <div className="option-metric-header-row">
+                      {[...selectedColumns].reverse().map((column) => <div key={`left-header-${column.id}`} className="option-metric-header call-th">{column.label}</div>)}
+                    </div>
+                  </div>
                 </div>
-                <div className="option-strike-pane option-strike-header-pane">
-                  <table className="options-matrix-table strike-pane-table option-pane-header-table">
-                    <thead><tr><th className="strike-th">STRIKE</th></tr><tr><th className="strike-th">{activeStrategy.usesWidth ? `Width ${strategyWidth}` : 'Anchor'}</th></tr></thead>
-                  </table>
+                <div className="option-strike-header-pane">
+                  <div className="option-side-header strike-th">STRIKE</div>
+                  <div className="option-metric-header strike-th">{activeStrategy.usesWidth ? `Width ${strategyWidth}` : 'Anchor'}</div>
                 </div>
                 <div className="option-pane-header-scroll" ref={rightHeaderRef}>
-                  <table className="options-matrix-table option-pane-table option-pane-header-table">
-                    <thead>
-                      <tr><th className="put-th" colSpan={selectedColumns.length}>{viewMode === 'calls' ? 'CALLS' : 'PUTS'} · {activeStrategy.label}</th></tr>
-                      <tr>{selectedColumns.map((column) => <th key={`right-header-${column.id}`} className="put-th">{column.label}</th>)}</tr>
-                    </thead>
-                  </table>
+                  <div className="option-pane-header-content" style={{ width: `${selectedColumns.length * 94}px` }}>
+                    <div className="option-side-header put-th">{viewMode === 'calls' ? 'CALLS' : 'PUTS'} · {activeStrategy.label}</div>
+                    <div className="option-metric-header-row">
+                      {selectedColumns.map((column) => <div key={`right-header-${column.id}`} className="option-metric-header put-th">{column.label}</div>)}
+                    </div>
+                  </div>
                 </div>
               </div>
               <div className="option-dual-body-scroll">

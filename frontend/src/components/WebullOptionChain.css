@@ -884,19 +884,18 @@ body.light-mode .webull-option-chain-container .price-divider-line {
 }
 
 .chain-table-wrapper.dual-pane-chain {
-  display: grid;
-  grid-template-rows: 76px minmax(0, 1fr) 24px;
+  display: block;
   overflow-x: hidden !important;
-  overflow-y: hidden !important;
+  overflow-y: auto !important;
+  scrollbar-width: thin;
+  scrollbar-color: #475569 transparent;
 }
 
 .chain-table-wrapper.dual-pane-chain .option-dual-body-scroll {
   min-width: 0;
-  min-height: 0;
+  min-height: max-content;
   overflow-x: hidden;
-  overflow-y: auto;
-  scrollbar-width: thin;
-  scrollbar-color: #475569 transparent;
+  overflow-y: visible;
 }
 
 .chain-table-wrapper.dual-pane-chain .option-dual-header-grid,
@@ -909,13 +908,14 @@ body.light-mode .webull-option-chain-container .price-divider-line {
 }
 
 .chain-table-wrapper.dual-pane-chain .option-dual-header-grid {
-  position: relative;
+  position: sticky;
+  top: 0;
   z-index: 35;
-  height: 76px;
-  min-height: 76px;
+  height: 68px;
+  min-height: 68px;
   overflow: hidden;
   background: #0b0f19;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, .48);
+  box-shadow: 0 1px 0 #334155;
 }
 
 .chain-table-wrapper.dual-pane-chain .option-pane-header-scroll {
@@ -924,22 +924,79 @@ body.light-mode .webull-option-chain-container .price-divider-line {
   overflow: hidden;
 }
 
-.chain-table-wrapper.dual-pane-chain .option-pane-header-table {
-  height: 76px;
-  min-height: 76px !important;
+.chain-table-wrapper.dual-pane-chain .option-pane-header-content {
+  height: 68px;
+  min-width: max-content;
 }
 
-.chain-table-wrapper.dual-pane-chain .option-pane-header-table th {
-  position: static !important;
-  height: 38px !important;
-  min-height: 38px !important;
-  line-height: 16px !important;
-  padding-top: 10px !important;
-  padding-bottom: 10px !important;
+.chain-table-wrapper.dual-pane-chain .option-side-header,
+.chain-table-wrapper.dual-pane-chain .option-metric-header {
+  display: flex;
+  align-items: center;
+  height: 34px;
+  min-height: 34px;
+  padding: 8px 10px;
   box-sizing: border-box;
+  border-bottom: 1px solid #334155;
+  color: #94a3b8;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 16px;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.chain-table-wrapper.dual-pane-chain .option-side-header {
+  justify-content: center;
+}
+
+.chain-table-wrapper.dual-pane-chain .option-metric-header-row {
+  display: grid;
+  grid-template-columns: repeat(var(--option-column-count, 1), 94px);
+  grid-auto-columns: 94px;
+  grid-auto-flow: column;
+}
+
+.chain-table-wrapper.dual-pane-chain .option-metric-header {
+  justify-content: flex-end;
+  width: 94px;
+  min-width: 94px;
+  max-width: 94px;
+  border-right: 1px solid #64748b;
+}
+
+.chain-table-wrapper.dual-pane-chain .option-side-header.call-th,
+.chain-table-wrapper.dual-pane-chain .option-metric-header.call-th {
+  background: #064e3b;
+  color: #34d399;
+}
+
+.chain-table-wrapper.dual-pane-chain .option-side-header.put-th,
+.chain-table-wrapper.dual-pane-chain .option-metric-header.put-th {
+  background: #7f1d1d;
+  color: #fca5a5;
+}
+
+.chain-table-wrapper.dual-pane-chain .option-strike-header-pane {
+  position: relative;
+  z-index: 38;
+  width: 118px;
+  min-width: 118px;
+  max-width: 118px;
+  box-shadow: 0 0 14px rgba(0, 0, 0, .55);
+}
+
+.chain-table-wrapper.dual-pane-chain .option-strike-header-pane .option-side-header,
+.chain-table-wrapper.dual-pane-chain .option-strike-header-pane .option-metric-header {
+  justify-content: center;
+  width: 118px;
+  background: #1e293b;
+  color: #38bdf8;
 }
 
 .chain-table-wrapper.dual-pane-chain .option-dual-scrollbars {
+  position: sticky;
+  bottom: 0;
   z-index: 30;
   height: 24px;
   align-items: center;
@@ -1012,24 +1069,24 @@ body.light-mode .webull-option-chain-container .price-divider-line {
   height: 0;
 }
 
-.chain-table-wrapper.dual-pane-chain .option-dual-body-scroll::-webkit-scrollbar,
+.chain-table-wrapper.dual-pane-chain::-webkit-scrollbar,
 .chain-table-wrapper.single-pane-chain::-webkit-scrollbar {
   width: 6px;
   height: 6px;
 }
 
-.chain-table-wrapper.dual-pane-chain .option-dual-body-scroll::-webkit-scrollbar-track,
+.chain-table-wrapper.dual-pane-chain::-webkit-scrollbar-track,
 .chain-table-wrapper.single-pane-chain::-webkit-scrollbar-track {
   background: transparent;
 }
 
-.chain-table-wrapper.dual-pane-chain .option-dual-body-scroll::-webkit-scrollbar-thumb,
+.chain-table-wrapper.dual-pane-chain::-webkit-scrollbar-thumb,
 .chain-table-wrapper.single-pane-chain::-webkit-scrollbar-thumb {
   background: #475569;
   border-radius: 4px;
 }
 
-.chain-table-wrapper.dual-pane-chain .option-dual-body-scroll::-webkit-scrollbar-thumb:hover,
+.chain-table-wrapper.dual-pane-chain::-webkit-scrollbar-thumb:hover,
 .chain-table-wrapper.single-pane-chain::-webkit-scrollbar-thumb:hover {
   background: #64748b;
 }
@@ -1105,29 +1162,53 @@ body.light-mode .webull-option-chain-container .chain-table-wrapper.dual-pane-ch
   background: #ffffff;
 }
 
-.webull-option-chain-container.light-mode .chain-table-wrapper.dual-pane-chain .option-dual-body-scroll,
-body.light-mode .webull-option-chain-container .chain-table-wrapper.dual-pane-chain .option-dual-body-scroll,
+.webull-option-chain-container.light-mode .chain-table-wrapper.dual-pane-chain .option-side-header.call-th,
+.webull-option-chain-container.light-mode .chain-table-wrapper.dual-pane-chain .option-metric-header.call-th,
+body.light-mode .webull-option-chain-container .chain-table-wrapper.dual-pane-chain .option-side-header.call-th,
+body.light-mode .webull-option-chain-container .chain-table-wrapper.dual-pane-chain .option-metric-header.call-th {
+  background: #ecfdf5;
+  color: #047857;
+}
+
+.webull-option-chain-container.light-mode .chain-table-wrapper.dual-pane-chain .option-side-header.put-th,
+.webull-option-chain-container.light-mode .chain-table-wrapper.dual-pane-chain .option-metric-header.put-th,
+body.light-mode .webull-option-chain-container .chain-table-wrapper.dual-pane-chain .option-side-header.put-th,
+body.light-mode .webull-option-chain-container .chain-table-wrapper.dual-pane-chain .option-metric-header.put-th {
+  background: #fef2f2;
+  color: #b91c1c;
+}
+
+.webull-option-chain-container.light-mode .chain-table-wrapper.dual-pane-chain .option-strike-header-pane .option-side-header,
+.webull-option-chain-container.light-mode .chain-table-wrapper.dual-pane-chain .option-strike-header-pane .option-metric-header,
+body.light-mode .webull-option-chain-container .chain-table-wrapper.dual-pane-chain .option-strike-header-pane .option-side-header,
+body.light-mode .webull-option-chain-container .chain-table-wrapper.dual-pane-chain .option-strike-header-pane .option-metric-header {
+  background: #f1f5f9;
+  color: #0284c7;
+}
+
+.webull-option-chain-container.light-mode .chain-table-wrapper.dual-pane-chain,
+body.light-mode .webull-option-chain-container .chain-table-wrapper.dual-pane-chain,
 .webull-option-chain-container.light-mode .chain-table-wrapper.single-pane-chain,
 body.light-mode .webull-option-chain-container .chain-table-wrapper.single-pane-chain {
   scrollbar-color: #94a3b8 rgba(0, 0, 0, .04);
 }
 
-.webull-option-chain-container.light-mode .chain-table-wrapper.dual-pane-chain .option-dual-body-scroll::-webkit-scrollbar-track,
-body.light-mode .webull-option-chain-container .chain-table-wrapper.dual-pane-chain .option-dual-body-scroll::-webkit-scrollbar-track,
+.webull-option-chain-container.light-mode .chain-table-wrapper.dual-pane-chain::-webkit-scrollbar-track,
+body.light-mode .webull-option-chain-container .chain-table-wrapper.dual-pane-chain::-webkit-scrollbar-track,
 .webull-option-chain-container.light-mode .chain-table-wrapper.single-pane-chain::-webkit-scrollbar-track,
 body.light-mode .webull-option-chain-container .chain-table-wrapper.single-pane-chain::-webkit-scrollbar-track {
   background: rgba(0, 0, 0, .04);
 }
 
-.webull-option-chain-container.light-mode .chain-table-wrapper.dual-pane-chain .option-dual-body-scroll::-webkit-scrollbar-thumb,
-body.light-mode .webull-option-chain-container .chain-table-wrapper.dual-pane-chain .option-dual-body-scroll::-webkit-scrollbar-thumb,
+.webull-option-chain-container.light-mode .chain-table-wrapper.dual-pane-chain::-webkit-scrollbar-thumb,
+body.light-mode .webull-option-chain-container .chain-table-wrapper.dual-pane-chain::-webkit-scrollbar-thumb,
 .webull-option-chain-container.light-mode .chain-table-wrapper.single-pane-chain::-webkit-scrollbar-thumb,
 body.light-mode .webull-option-chain-container .chain-table-wrapper.single-pane-chain::-webkit-scrollbar-thumb {
   background: #94a3b8;
 }
 
-.webull-option-chain-container.light-mode .chain-table-wrapper.dual-pane-chain .option-dual-body-scroll::-webkit-scrollbar-thumb:hover,
-body.light-mode .webull-option-chain-container .chain-table-wrapper.dual-pane-chain .option-dual-body-scroll::-webkit-scrollbar-thumb:hover,
+.webull-option-chain-container.light-mode .chain-table-wrapper.dual-pane-chain::-webkit-scrollbar-thumb:hover,
+body.light-mode .webull-option-chain-container .chain-table-wrapper.dual-pane-chain::-webkit-scrollbar-thumb:hover,
 .webull-option-chain-container.light-mode .chain-table-wrapper.single-pane-chain::-webkit-scrollbar-thumb:hover,
 body.light-mode .webull-option-chain-container .chain-table-wrapper.single-pane-chain::-webkit-scrollbar-thumb:hover {
   background: #64748b;
