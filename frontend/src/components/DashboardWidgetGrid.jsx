@@ -25,9 +25,11 @@ const WIDGETS = [
   { id: 'gas_monitor', title: 'Network Gas & Fees' }
 ];
 
-const NEW_WIDGET_IDS = [
-  'top_movers',
-  'top_stock_movers',
+import { useAuth } from './AuthContext';
+
+const DEFAULT_HIDDEN_WIDGET_IDS = [
+  'portfolio_value',
+  'staking',
   'recent_trades',
   'ai_pulse',
   'staking_rewards',
@@ -59,10 +61,13 @@ const getWidgetBounds = (id) => {
 
 const getWidgetDefaultSize = (id, bp = 'lg') => {
   if (id === 'allocations') return (bp === 'sm' || bp === 'xs' || bp === 'xxs') ? { w: 6, h: 4 } : { w: 4, h: 4 };
-  if (id === 'trend') return (bp === 'sm' || bp === 'xs' || bp === 'xxs') ? { w: 6, h: 4 } : bp === 'md' ? { w: 6, h: 4 } : { w: 8, h: 4 };
-  if (id === 'performance') return (bp === 'sm' || bp === 'xs' || bp === 'xxs') ? { w: 6, h: 3 } : bp === 'md' ? { w: 10, h: 3 } : { w: 12, h: 3 };
+  if (id === 'trend') return (bp === 'sm' || bp === 'xs' || bp === 'xxs') ? { w: 6, h: 4 } : bp === 'md' ? { w: 10, h: 4 } : { w: 4, h: 4 };
+  if (id === 'performance') return (bp === 'sm' || bp === 'xs' || bp === 'xxs') ? { w: 6, h: 4 } : bp === 'md' ? { w: 5, h: 4 } : { w: 4, h: 4 };
   if (['top_movers', 'top_stock_movers', 'recent_trades', 'ai_pulse'].includes(id)) {
-    return (bp === 'sm' || bp === 'xs' || bp === 'xxs') ? { w: 6, h: 3 } : bp === 'md' ? { w: 5, h: 3 } : { w: 4, h: 3 };
+    return (bp === 'sm' || bp === 'xs' || bp === 'xxs') ? { w: 6, h: 3 } : bp === 'md' ? { w: 7, h: 3 } : { w: 4, h: 3 };
+  }
+  if (['fear_greed', 'cbbi'].includes(id)) {
+    return (bp === 'sm' || bp === 'xs' || bp === 'xxs') ? { w: 3, h: 3 } : bp === 'md' ? { w: 3, h: 3 } : { w: 2, h: 3 };
   }
   return (bp === 'sm' || bp === 'xs' || bp === 'xxs') ? { w: 6, h: 3 } : bp === 'md' ? { w: 5, h: 3 } : { w: 3, h: 3 };
 };
@@ -120,8 +125,8 @@ const DEFAULT_LAYOUTS = {
     { i: 'cbbi', x: 10, y: 4, w: 2, h: 3 }
   ]),
   md: mapLayoutBounds([
-    { i: 'performance', x: 0, y: 0, w: 4, h: 4 },
-    { i: 'allocations', x: 4, y: 0, w: 6, h: 4 },
+    { i: 'performance', x: 0, y: 0, w: 5, h: 4 },
+    { i: 'allocations', x: 5, y: 0, w: 5, h: 4 },
     { i: 'trend', x: 0, y: 4, w: 10, h: 4 },
     { i: 'fear_greed', x: 0, y: 8, w: 3, h: 3 },
     { i: 'top_movers', x: 3, y: 8, w: 7, h: 3 },
@@ -164,38 +169,15 @@ const ensureAllBreakpoints = (rawLayouts) => {
 
   for (const [bp, cols] of Object.entries(bpCols)) {
     if (!result[bp] || !Array.isArray(result[bp]) || result[bp].length === 0) {
-      let curY = 0;
-      result[bp] = baseLayout.map(item => {
-        const h = item.h || 3;
-        const layoutItem = {
-          i: item.i,
-          x: 0,
-          y: curY,
-          w: cols,
-          h: h,
-          ...getWidgetBounds(item.i)
-        };
-        curY += h;
-        return layoutItem;
-      });
+      result[bp] = DEFAULT_LAYOUTS[bp] || baseLayout.map((item, idx) => ({
+        i: item.i,
+        x: 0,
+        y: idx * (item.h || 3),
+        w: cols,
+        h: item.h || 3,
+        ...getWidgetBounds(item.i)
+      }));
     } else {
-      const existingIds = new Set(result[bp].map(item => item.i));
-      let maxY = result[bp].reduce((acc, item) => Math.max(acc, (item.y || 0) + (item.h || 1)), 0);
-
-      baseLayout.forEach(item => {
-        if (!existingIds.has(item.i)) {
-          const h = item.h || 3;
-          result[bp].push({
-            i: item.i,
-            x: 0,
-            y: maxY,
-            w: Math.min(item.w || cols, cols),
-            h: h,
-            ...getWidgetBounds(item.i)
-          });
-          maxY += h;
-        }
-      });
       result[bp] = mapLayoutBounds(result[bp]);
     }
   }
@@ -231,16 +213,26 @@ const LEGACY_HIDDEN_KEYS = [
   'crypto_dashboard_widget_hidden'
 ];
 
-const loadPersistedLayouts = () => {
+const loadPersistedLayouts = (uname) => {
   try {
-    for (const key of LEGACY_STORAGE_KEYS) {
-      const saved = localStorage.getItem(key);
-      if (saved !== null) {
-        const parsed = JSON.parse(saved);
-        if (parsed && typeof parsed === 'object' && Object.keys(parsed).length > 0) {
-          const synchronized = ensureAllBreakpoints(parsed);
-          localStorage.setItem(STORAGE_KEY, JSON.stringify(synchronized));
-          return synchronized;
+    const userKey = uname ? `_${uname}` : '';
+    const specificKey = `crypto_dashboard_widget_layout_persistent${userKey}`;
+    const saved = localStorage.getItem(specificKey);
+    if (saved !== null) {
+      const parsed = JSON.parse(saved);
+      if (parsed && typeof parsed === 'object' && Object.keys(parsed).length > 0) {
+        return ensureAllBreakpoints(parsed);
+      }
+    }
+    // Fallback to legacy/general persistent storage only for primary user or un-scoped
+    if (uname === 'jcavallarojr' || !uname) {
+      for (const key of LEGACY_STORAGE_KEYS) {
+        const legacySaved = localStorage.getItem(key);
+        if (legacySaved !== null) {
+          const parsed = JSON.parse(legacySaved);
+          if (parsed && typeof parsed === 'object' && Object.keys(parsed).length > 0) {
+            return ensureAllBreakpoints(parsed);
+          }
         }
       }
     }
@@ -250,33 +242,55 @@ const loadPersistedLayouts = () => {
   return ensureAllBreakpoints(DEFAULT_LAYOUTS);
 };
 
-const loadPersistedHiddenWidgets = () => {
+const loadPersistedHiddenWidgets = (uname) => {
   try {
-    for (const key of LEGACY_HIDDEN_KEYS) {
-      const saved = localStorage.getItem(key);
-      if (saved !== null) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed)) {
-          if (key !== HIDDEN_STORAGE_KEY) {
-            localStorage.setItem(HIDDEN_STORAGE_KEY, JSON.stringify(parsed));
+    const userKey = uname ? `_${uname}` : '';
+    const specificKey = `crypto_dashboard_widget_hidden_persistent${userKey}`;
+    const saved = localStorage.getItem(specificKey);
+    if (saved !== null) {
+      const parsed = JSON.parse(saved);
+      if (Array.isArray(parsed)) {
+        return parsed;
+      }
+    }
+    // Fallback to legacy/general persistent storage only for primary user or un-scoped
+    if (uname === 'jcavallarojr' || !uname) {
+      for (const key of LEGACY_HIDDEN_KEYS) {
+        const legacySaved = localStorage.getItem(key);
+        if (legacySaved !== null) {
+          const parsed = JSON.parse(legacySaved);
+          if (Array.isArray(parsed)) {
+            return parsed;
           }
-          return parsed;
         }
       }
     }
   } catch (e) {
     console.error('Error loading persisted hidden widgets:', e);
   }
-  return []; // Default: show all widgets
+  return DEFAULT_HIDDEN_WIDGET_IDS;
 };
 
 const DashboardWidgetGrid = ({
   isLightMode,
   renderWidgetContent
 }) => {
+  const { user } = useAuth() || {};
+  const username = user?.username || '';
+  const userKey = username ? `_${username}` : '';
+  const storageKey = `crypto_dashboard_widget_layout_persistent${userKey}`;
+  const hiddenKey = `crypto_dashboard_widget_hidden_persistent${userKey}`;
+
   const [isEditMode, setIsEditMode] = useState(false);
-  const [layouts, setLayouts] = useState(loadPersistedLayouts);
-  const [hiddenWidgetIds, setHiddenWidgetIds] = useState(loadPersistedHiddenWidgets);
+  const [layouts, setLayouts] = useState(() => loadPersistedLayouts(username));
+  const [hiddenWidgetIds, setHiddenWidgetIds] = useState(() => loadPersistedHiddenWidgets(username));
+
+  useEffect(() => {
+    if (username) {
+      setLayouts(loadPersistedLayouts(username));
+      setHiddenWidgetIds(loadPersistedHiddenWidgets(username));
+    }
+  }, [username]);
 
   const [initialSnapshot, setInitialSnapshot] = useState(null);
   const [history, setHistory] = useState([]);
@@ -308,8 +322,12 @@ const DashboardWidgetGrid = ({
     } else {
       // Done editing: ALWAYS save current layout and hidden widgets to localStorage
       try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(layouts));
-        localStorage.setItem(HIDDEN_STORAGE_KEY, JSON.stringify(hiddenWidgetIds));
+        localStorage.setItem(storageKey, JSON.stringify(layouts));
+        localStorage.setItem(hiddenKey, JSON.stringify(hiddenWidgetIds));
+        if (!username || username === 'jcavallarojr') {
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(layouts));
+          localStorage.setItem(HIDDEN_STORAGE_KEY, JSON.stringify(hiddenWidgetIds));
+        }
       } catch (e) {
         console.error('Error saving dashboard layout on Done Editing:', e);
       }
@@ -332,8 +350,16 @@ const DashboardWidgetGrid = ({
 
   // Explicit Save button
   const handleSaveOnly = () => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(layouts));
-    localStorage.setItem(HIDDEN_STORAGE_KEY, JSON.stringify(hiddenWidgetIds));
+    try {
+      localStorage.setItem(storageKey, JSON.stringify(layouts));
+      localStorage.setItem(hiddenKey, JSON.stringify(hiddenWidgetIds));
+      if (!username || username === 'jcavallarojr') {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(layouts));
+        localStorage.setItem(HIDDEN_STORAGE_KEY, JSON.stringify(hiddenWidgetIds));
+      }
+    } catch (e) {
+      console.error('Error saving dashboard layout:', e);
+    }
     setInitialSnapshot({
       layouts: JSON.parse(JSON.stringify(layouts)),
       hiddenWidgetIds: [...hiddenWidgetIds]
@@ -376,7 +402,17 @@ const DashboardWidgetGrid = ({
   const handleResetLayout = () => {
     pushHistory(layouts, hiddenWidgetIds);
     setLayouts(DEFAULT_LAYOUTS);
-    setHiddenWidgetIds(NEW_WIDGET_IDS);
+    setHiddenWidgetIds(DEFAULT_HIDDEN_WIDGET_IDS);
+    try {
+      localStorage.setItem(storageKey, JSON.stringify(DEFAULT_LAYOUTS));
+      localStorage.setItem(hiddenKey, JSON.stringify(DEFAULT_HIDDEN_WIDGET_IDS));
+      if (!username || username === 'jcavallarojr') {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(DEFAULT_LAYOUTS));
+        localStorage.setItem(HIDDEN_STORAGE_KEY, JSON.stringify(DEFAULT_HIDDEN_WIDGET_IDS));
+      }
+    } catch (e) {
+      console.error('Error resetting dashboard layout:', e);
+    }
   };
 
   const handleHideWidget = (id) => {

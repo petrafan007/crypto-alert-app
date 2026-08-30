@@ -127,6 +127,10 @@ The application utilizes a **unified PostgreSQL database**.
 
 Historical changelog entries retain the product name used when they were originally released. The application domain, repository slug, deployment folders, database, and service identifiers intentionally remain unchanged by the v2.45.0 brand update.
 
+## v2.63.6 (August 2026)
+
+- **Default 7-Panel Dashboard Layout & User Scoping**: Configured the clean 7-core panel arrangement (Asset Performance, Allocations, Portfolio Trend, Fear & Greed, Top Crypto Movers, Top Stock Movers, CBBI) as the out-of-the-box default for new accounts on first sign-in, while preserving all custom saved layouts for existing users via user-scoped localStorage persistence.
+
 ## v2.63.5 (August 2026)
 
 - **Account Deletion Fix**: Fixed an `ImportError` (`UserSettingSetting` typo) and missing table deletions in `/api/account/delete` that prevented users from deleting their own accounts from the Settings page.

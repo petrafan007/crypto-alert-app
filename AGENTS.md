@@ -13,7 +13,7 @@ The personal instance is a separate checkout from this source repository. Do not
 
 ## Situational Awareness & Operational Safety Guardrails
 
-1. **Strict Prompt Recency & Active Intent:** Never execute historical tasks, backlog items, or items summarized in context checkpoints (`{{ CHECKPOINT ... }}`) unless explicitly requested in the user's immediate, current prompt. Treat all checkpoint summaries and historical notes as passive reference material only.
+1. **Strict Prompt Recency & Active Intent:** Never execute historical tasks, backlog items, or items summarized in context checkpoints (`{{ CHECKPOINT ... }}`) unless explicitly requested in the user's immediate, current prompt. Treat all checkpoint summaries and historical notes as passive reference material only. If you were in the middle of active tasks requiring changes to the codebase when the checkpoint occurs, you MUST let the user know what tasks are still remaining and ask for permission to continue.
 2. **Destructive Action Confirmation Gate:** Never execute destructive database commands (`DELETE`, `DROP`, `TRUNCATE`, wiping users/tables, clearing records) autonomously based on inferred or historical intent. Always require explicit, in-turn confirmation from the user before executing destructive data mutations.
 3. **Execution Transparency & Stop-on-Query:** When the user asks for status, an update, or what is happening, immediately stop running commands and report the exact current state and findings in text first before taking further automated actions.
 
