@@ -531,7 +531,13 @@ def delete_account():
         
         # 1. Delete records from all tables
         # From models.py
-        from models import Coin, WatchlistCoin, Notification, StakedCoin, StakingReward, AIPrompt, AIConversation, AICache, AIAnalysisSchedule
+        from models import (
+            Coin, WatchlistCoin, Notification, StakedCoin, StakingReward,
+            AIPrompt, AIConversation, AICache, AIAnalysisSchedule,
+            SentimentHistory, ExternalSentimentSignal,
+            WebullAccountSnapshot, WebullHolding, WebullTestAccount,
+            WebullTestPosition, WebullTestOrder
+        )
         Coin.query.filter_by(user_id=user_id).delete()
         WatchlistCoin.query.filter_by(user_id=user_id).delete()
         Notification.query.filter_by(user_id=user_id).delete()
@@ -544,6 +550,13 @@ def delete_account():
         AIConversation.query.filter_by(user_id=user_id).delete()
         AICache.query.filter_by(user_id=user_id).delete()
         AIAnalysisSchedule.query.filter_by(user_id=user_id).delete()
+        SentimentHistory.query.filter_by(user_id=user_id).delete()
+        ExternalSentimentSignal.query.filter_by(user_id=user_id).delete()
+        WebullAccountSnapshot.query.filter_by(user_id=user_id).delete()
+        WebullHolding.query.filter_by(user_id=user_id).delete()
+        WebullTestAccount.query.filter_by(user_id=user_id).delete()
+        WebullTestPosition.query.filter_by(user_id=user_id).delete()
+        WebullTestOrder.query.filter_by(user_id=user_id).delete()
         
         # From trading_models.py
         from trading_models import TestOrder, RealOrder, TestPortfolio, TradingSettings, AllActivity, PortfolioValueHistory, StakingOrder
@@ -556,7 +569,7 @@ def delete_account():
         StakingOrder.query.filter_by(user_id=user_id).delete()
         
         # From credentials.py
-        from credentials import Credential, User, UserSettingSetting, DesktopToken, User
+        from credentials import Credential, UserSetting, DesktopToken, User
         Credential.query.filter_by(user_id=user_id).delete()
         UserSetting.query.filter_by(user_id=user_id).delete()
         DesktopToken.query.filter_by(user_id=user_id).delete()
@@ -575,7 +588,7 @@ def delete_account():
         
     except Exception as e:
         db.session.rollback()
-        logger.error(f"Error deleting account for user {current_user.id}: {e}")
+        logger.error(f"Error deleting account: {e}", exc_info=True)
         return jsonify({"error": "Failed to delete account. Please try again."}), 500
 
 @auth_bp.route('/api/account')

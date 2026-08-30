@@ -127,6 +127,22 @@ The application utilizes a **unified PostgreSQL database**.
 
 Historical changelog entries retain the product name used when they were originally released. The application domain, repository slug, deployment folders, database, and service identifiers intentionally remain unchanged by the v2.45.0 brand update.
 
+## v2.63.5 (August 2026)
+
+- **Account Deletion Fix**: Fixed an `ImportError` (`UserSettingSetting` typo) and missing table deletions in `/api/account/delete` that prevented users from deleting their own accounts from the Settings page.
+
+## v2.63.4 (August 2026)
+
+- **AI Scheduling Fix**: Resolved a schedule time-parsing error for strings formatted like `07:30`, and fixed a frontend bug where switching to workflow tabs was bypassing the user's scheduled frequency.
+
+## v2.63.3 (August 2026)
+
+- **AI Cache Hotfix**: Removed an invalid reference to a non-existent `symbol` attribute on `AIConversation` records during cache hydration.
+
+## v2.63.2 (August 2026)
+
+- **Dashboard Drag-and-Drop Hotfix**: Removed stale `onDragStop` and `onResizeStop` references that caused runtime reference crashes during dashboard panel customization.
+
 ## v2.63.1 (August 2026)
 
 - Fixed a bug where the manual "Generate Market Analysis" and "Generate Portfolio Review" buttons were failing to forcefully trigger fresh analyses, causing them to silently fallback to outdated cached results.
