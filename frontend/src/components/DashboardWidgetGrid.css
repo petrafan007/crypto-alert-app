@@ -276,7 +276,7 @@
 .edit-mode-active .react-resizable-handle:hover::after {
   opacity: 1;
   border-color: #34d399 !important;
-  box-shadow: 0 0 8px rgba(52, 211, 153, 0.6);
+  filter: drop-shadow(0 0 4px rgba(52, 211, 153, 0.6));
 }
 
 /* Corners */

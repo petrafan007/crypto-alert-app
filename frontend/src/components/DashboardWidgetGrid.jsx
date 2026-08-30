@@ -111,89 +111,49 @@ const mapLayoutBounds = (layout) => layout.map(item => ({ ...item, ...getWidgetB
 
 const DEFAULT_LAYOUTS = {
   lg: mapLayoutBounds([
-    { i: 'allocations', x: 0, y: 0, w: 4, h: 4 },
-    { i: 'trend', x: 4, y: 0, w: 8, h: 4 },
-    { i: 'portfolio_value', x: 0, y: 4, w: 3, h: 3 },
-    { i: 'fear_greed', x: 3, y: 4, w: 3, h: 3 },
-    { i: 'cbbi', x: 6, y: 4, w: 3, h: 3 },
-    { i: 'staking', x: 9, y: 4, w: 3, h: 3 },
-    { i: 'performance', x: 0, y: 7, w: 12, h: 2 },
-    { i: 'top_movers', x: 0, y: 9, w: 4, h: 3 },
-    { i: 'recent_trades', x: 4, y: 9, w: 4, h: 3 },
-    { i: 'ai_pulse', x: 8, y: 9, w: 4, h: 3 },
-    { i: 'staking_rewards', x: 0, y: 12, w: 3, h: 3 },
-    { i: 'risk_monitor', x: 3, y: 12, w: 3, h: 3 },
-    { i: 'quick_trade', x: 6, y: 12, w: 3, h: 3 },
-    { i: 'gas_monitor', x: 9, y: 12, w: 3, h: 3 },
-    { i: 'top_stock_movers', x: 0, y: 15, w: 4, h: 3 }
+    { i: 'performance', x: 0, y: 0, w: 4, h: 4 },
+    { i: 'allocations', x: 4, y: 0, w: 4, h: 4 },
+    { i: 'trend', x: 8, y: 0, w: 4, h: 4 },
+    { i: 'fear_greed', x: 0, y: 4, w: 2, h: 3 },
+    { i: 'top_movers', x: 2, y: 4, w: 4, h: 3 },
+    { i: 'top_stock_movers', x: 6, y: 4, w: 4, h: 3 },
+    { i: 'cbbi', x: 10, y: 4, w: 2, h: 3 }
   ]),
   md: mapLayoutBounds([
-    { i: 'allocations', x: 0, y: 0, w: 4, h: 4 },
-    { i: 'trend', x: 4, y: 0, w: 6, h: 4 },
-    { i: 'portfolio_value', x: 0, y: 4, w: 5, h: 3 },
-    { i: 'fear_greed', x: 5, y: 4, w: 5, h: 3 },
-    { i: 'cbbi', x: 0, y: 7, w: 5, h: 3 },
-    { i: 'staking', x: 5, y: 7, w: 5, h: 3 },
-    { i: 'performance', x: 0, y: 10, w: 10, h: 2 },
-    { i: 'top_movers', x: 0, y: 12, w: 5, h: 3 },
-    { i: 'recent_trades', x: 5, y: 12, w: 5, h: 3 },
-    { i: 'ai_pulse', x: 0, y: 15, w: 5, h: 3 },
-    { i: 'staking_rewards', x: 5, y: 15, w: 5, h: 3 },
-    { i: 'risk_monitor', x: 0, y: 18, w: 5, h: 3 },
-    { i: 'quick_trade', x: 5, y: 18, w: 5, h: 3 },
-    { i: 'gas_monitor', x: 0, y: 21, w: 5, h: 3 },
-    { i: 'top_stock_movers', x: 0, y: 24, w: 5, h: 3 }
+    { i: 'performance', x: 0, y: 0, w: 4, h: 4 },
+    { i: 'allocations', x: 4, y: 0, w: 6, h: 4 },
+    { i: 'trend', x: 0, y: 4, w: 10, h: 4 },
+    { i: 'fear_greed', x: 0, y: 8, w: 3, h: 3 },
+    { i: 'top_movers', x: 3, y: 8, w: 7, h: 3 },
+    { i: 'top_stock_movers', x: 0, y: 11, w: 7, h: 3 },
+    { i: 'cbbi', x: 7, y: 11, w: 3, h: 3 }
   ]),
   sm: mapLayoutBounds([
-    { i: 'allocations', x: 0, y: 0, w: 6, h: 4 },
-    { i: 'trend', x: 0, y: 4, w: 6, h: 4 },
-    { i: 'portfolio_value', x: 0, y: 8, w: 6, h: 3 },
-    { i: 'fear_greed', x: 0, y: 11, w: 6, h: 3 },
-    { i: 'cbbi', x: 0, y: 14, w: 6, h: 3 },
-    { i: 'staking', x: 0, y: 17, w: 6, h: 3 },
-    { i: 'performance', x: 0, y: 20, w: 6, h: 2 },
-    { i: 'top_movers', x: 0, y: 22, w: 6, h: 3 },
-    { i: 'recent_trades', x: 0, y: 25, w: 6, h: 3 },
-    { i: 'ai_pulse', x: 0, y: 28, w: 6, h: 3 },
-    { i: 'staking_rewards', x: 0, y: 31, w: 6, h: 3 },
-    { i: 'risk_monitor', x: 0, y: 34, w: 6, h: 3 },
-    { i: 'quick_trade', x: 0, y: 37, w: 6, h: 3 },
-    { i: 'gas_monitor', x: 0, y: 40, w: 6, h: 3 },
-    { i: 'top_stock_movers', x: 0, y: 43, w: 6, h: 3 }
+    { i: 'performance', x: 0, y: 0, w: 6, h: 4 },
+    { i: 'allocations', x: 0, y: 4, w: 6, h: 4 },
+    { i: 'trend', x: 0, y: 8, w: 6, h: 4 },
+    { i: 'fear_greed', x: 0, y: 12, w: 3, h: 3 },
+    { i: 'cbbi', x: 3, y: 12, w: 3, h: 3 },
+    { i: 'top_movers', x: 0, y: 15, w: 6, h: 3 },
+    { i: 'top_stock_movers', x: 0, y: 18, w: 6, h: 3 }
   ]),
   xs: mapLayoutBounds([
-    { i: 'allocations', x: 0, y: 0, w: 4, h: 4 },
-    { i: 'trend', x: 0, y: 4, w: 4, h: 4 },
-    { i: 'portfolio_value', x: 0, y: 8, w: 4, h: 3 },
-    { i: 'fear_greed', x: 0, y: 11, w: 4, h: 3 },
-    { i: 'cbbi', x: 0, y: 14, w: 4, h: 3 },
-    { i: 'staking', x: 0, y: 17, w: 4, h: 3 },
-    { i: 'performance', x: 0, y: 20, w: 4, h: 2 },
-    { i: 'top_movers', x: 0, y: 22, w: 4, h: 3 },
-    { i: 'recent_trades', x: 0, y: 25, w: 4, h: 3 },
-    { i: 'ai_pulse', x: 0, y: 28, w: 4, h: 3 },
-    { i: 'staking_rewards', x: 0, y: 31, w: 4, h: 3 },
-    { i: 'risk_monitor', x: 0, y: 34, w: 4, h: 3 },
-    { i: 'quick_trade', x: 0, y: 37, w: 4, h: 3 },
-    { i: 'gas_monitor', x: 0, y: 40, w: 4, h: 3 },
-    { i: 'top_stock_movers', x: 0, y: 43, w: 4, h: 3 }
+    { i: 'performance', x: 0, y: 0, w: 4, h: 4 },
+    { i: 'allocations', x: 0, y: 4, w: 4, h: 4 },
+    { i: 'trend', x: 0, y: 8, w: 4, h: 4 },
+    { i: 'fear_greed', x: 0, y: 12, w: 2, h: 3 },
+    { i: 'cbbi', x: 2, y: 12, w: 2, h: 3 },
+    { i: 'top_movers', x: 0, y: 15, w: 4, h: 3 },
+    { i: 'top_stock_movers', x: 0, y: 18, w: 4, h: 3 }
   ]),
   xxs: mapLayoutBounds([
-    { i: 'allocations', x: 0, y: 0, w: 2, h: 4 },
-    { i: 'trend', x: 0, y: 4, w: 2, h: 4 },
-    { i: 'portfolio_value', x: 0, y: 8, w: 2, h: 3 },
-    { i: 'fear_greed', x: 0, y: 11, w: 2, h: 3 },
-    { i: 'cbbi', x: 0, y: 14, w: 2, h: 3 },
-    { i: 'staking', x: 0, y: 17, w: 2, h: 3 },
-    { i: 'performance', x: 0, y: 20, w: 2, h: 2 },
-    { i: 'top_movers', x: 0, y: 22, w: 2, h: 3 },
-    { i: 'recent_trades', x: 0, y: 25, w: 2, h: 3 },
-    { i: 'ai_pulse', x: 0, y: 28, w: 2, h: 3 },
-    { i: 'staking_rewards', x: 0, y: 31, w: 2, h: 3 },
-    { i: 'risk_monitor', x: 0, y: 34, w: 2, h: 3 },
-    { i: 'quick_trade', x: 0, y: 37, w: 2, h: 3 },
-    { i: 'gas_monitor', x: 0, y: 40, w: 2, h: 3 },
-    { i: 'top_stock_movers', x: 0, y: 43, w: 2, h: 3 }
+    { i: 'performance', x: 0, y: 0, w: 2, h: 4 },
+    { i: 'allocations', x: 0, y: 4, w: 2, h: 4 },
+    { i: 'trend', x: 0, y: 8, w: 2, h: 4 },
+    { i: 'fear_greed', x: 0, y: 12, w: 2, h: 3 },
+    { i: 'cbbi', x: 0, y: 15, w: 2, h: 3 },
+    { i: 'top_movers', x: 0, y: 18, w: 2, h: 3 },
+    { i: 'top_stock_movers', x: 0, y: 21, w: 2, h: 3 }
   ])
 };
 
@@ -581,8 +541,9 @@ const DashboardWidgetGrid = ({
         draggableHandle=".dashboard-widget-drag-handle"
         isDraggable={isEditMode}
         isResizable={isEditMode}
-        compactType={null}
-        preventCollision={true}
+        onDragStop={onDragStop}
+        onResizeStop={onResizeStop}
+        compactType="vertical"
         resizeHandles={['se', 'sw', 'ne', 'nw', 'e', 'w', 'n', 's']}
         margin={[16, 16]}
         containerPadding={[0, 0]}

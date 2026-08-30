@@ -127,6 +127,13 @@ The application utilizes a **unified PostgreSQL database**.
 
 Historical changelog entries retain the product name used when they were originally released. The application domain, repository slug, deployment folders, database, and service identifiers intentionally remain unchanged by the v2.45.0 brand update.
 
+## v2.63.0 (August 2026)
+
+- Completely redesigned the default dashboard layout for new users, condensing the view to focus only on the 7 core panels (Asset Performance, Allocations, Portfolio Trend, Fear & Greed, Top Crypto/Stock Movers, and CBBI).
+- Enabled dynamic drag-and-drop panel collision, allowing panels to cleanly swap or push each other out of the way when reordering.
+- Fixed a CSS glitch that caused the panel resize corner handle to render as a bulky box instead of a clean arrow on hover.
+- Fixed a flexbox rendering bug where the navigation bar user profile badge was being squished when the Customize Layout button loaded in.
+
 ## v2.62.6 (August 2026)
 
 - Rebranded the platform copyright to "Cavallaro Services, LLC".

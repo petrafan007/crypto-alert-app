@@ -260,7 +260,7 @@ export default function App() {
                 Logout
               </button>
 
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginLeft: '12px', padding: '6px 16px 6px 6px', backgroundColor: 'rgba(30, 35, 45, 0.6)', borderRadius: '30px', border: '1px solid rgba(255,255,255,0.1)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginLeft: '12px', padding: '6px 16px 6px 6px', backgroundColor: 'rgba(30, 35, 45, 0.6)', borderRadius: '30px', border: '1px solid rgba(255,255,255,0.1)', flexShrink: 0 }}>
                 <div style={{
                   width: '32px',
                   height: '32px',
@@ -272,11 +272,12 @@ export default function App() {
                   justifyContent: 'center',
                   fontWeight: 'bold',
                   fontSize: '16px',
-                  boxShadow: '0 0 10px rgba(168, 85, 247, 0.5)'
+                  boxShadow: '0 0 10px rgba(168, 85, 247, 0.5)',
+                  flexShrink: 0
                 }}>
                   {user.username ? user.username.charAt(0).toUpperCase() : '?'}
                 </div>
-                <span style={{ fontSize: '14px', color: '#e2e8f0' }}>
+                <span style={{ fontSize: '14px', color: '#e2e8f0', whiteSpace: 'nowrap' }}>
                   Signed in as <strong style={{ color: 'white', fontWeight: 'bold' }}>{user.username}</strong>
                 </span>
               </div>
