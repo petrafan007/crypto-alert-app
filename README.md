@@ -128,7 +128,8 @@ Historical changelog entries retain the product name used when they were origina
 ## v2.61.3 (August 2026)
 
 - **Reliable Option-Table Headers**:
-  - Split strategy tables now render their Calls/Strike/Puts row and metric/Anchor row in a dedicated fixed header grid above the vertically scrolling data rows. Horizontal movement remains synchronized with the quote panes, so each heading stays aligned with its data while both header tiers remain visible.
+  - Dual-sided strategy views now render Calls, Strike, Puts, both header rows, and every data row in one continuous semantic table. The two native sticky header rows remain attached directly to the table body with no detached panes, gaps, or independent alignment calculations.
+  - The mirrored bottom controls change the visible left/right metric-column window in the single table, preserving the centered strike while avoiding separate horizontally scrolling table sections.
   - Single-pane strategy tables now use the table viewport itself for horizontal and vertical scrolling, allowing both header rows to remain pinned without an intervening overflow container.
 - **Theme-Aware Option Scrolling**:
   - The options matrix vertical scrollbar now matches the thin six-pixel scrollbar used by dashboard panels and the AI Copilot, including transparent dark-mode tracks and the lighter theme-aware track and thumb colors.

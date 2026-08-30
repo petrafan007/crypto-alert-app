@@ -1226,3 +1226,66 @@ body.light-mode .webull-option-chain-container .chain-refresh-warning {
   background: #fffbeb;
   border-color: #f59e0b;
 }
+
+/* v2.61.3 unified dual-sided matrix: one table, one header, one body. */
+.chain-table-wrapper.dual-pane-chain {
+  display: block !important;
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
+}
+
+.chain-table-wrapper.dual-pane-chain .option-unified-dual-table {
+  width: 100% !important;
+  min-width: 0 !important;
+  table-layout: fixed !important;
+  border-collapse: separate !important;
+  border-spacing: 0 !important;
+  margin: 0 !important;
+}
+
+.chain-table-wrapper.dual-pane-chain .option-unified-dual-table col:not(.option-unified-strike-col) {
+  width: auto;
+}
+
+.chain-table-wrapper.dual-pane-chain .option-unified-dual-table col.option-unified-strike-col {
+  width: 118px;
+}
+
+.chain-table-wrapper.dual-pane-chain .option-unified-dual-table thead th {
+  height: 34px !important;
+  min-height: 34px !important;
+  padding: 8px 10px !important;
+  line-height: 16px !important;
+  box-sizing: border-box !important;
+  vertical-align: middle !important;
+}
+
+.chain-table-wrapper.dual-pane-chain .option-unified-dual-table thead tr:first-child th {
+  position: sticky !important;
+  top: 0 !important;
+  z-index: 42 !important;
+  text-align: center !important;
+}
+
+.chain-table-wrapper.dual-pane-chain .option-unified-dual-table thead tr:nth-child(2) th {
+  position: sticky !important;
+  top: 34px !important;
+  z-index: 41 !important;
+}
+
+.chain-table-wrapper.dual-pane-chain .option-unified-dual-table thead .strike-th {
+  z-index: 45 !important;
+}
+
+.chain-table-wrapper.dual-pane-chain .option-unified-dual-table tbody td {
+  height: 34px;
+  box-sizing: border-box;
+}
+
+.chain-table-wrapper.dual-pane-chain .option-dual-scrollbars {
+  position: sticky;
+  bottom: 0;
+  z-index: 46;
+  grid-template-columns: minmax(0, 1fr) 118px minmax(0, 1fr);
+  margin: 0;
+}
