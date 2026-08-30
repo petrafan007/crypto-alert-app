@@ -127,6 +127,14 @@ The application utilizes a **unified PostgreSQL database**.
 
 Historical changelog entries retain the product name used when they were originally released. The application domain, repository slug, deployment folders, database, and service identifiers intentionally remain unchanged by the v2.45.0 brand update.
 
+## v2.62.2 (August 2026)
+
+- **Password Manager Modal Bleed-Through Prevention**:
+  - Elevated the `LegalModal` container and backdrop `z-index` to `2147483647` (maximum browser integer).
+  - Configured the underlying signup form to automatically hide and become `inert` whenever a legal modal is active, preventing browser extension autofill badges (such as Keeper, 1Password, or Bitwarden) from rendering on top of legal modal text and controls.
+- **Workflow Branding & Version Footers**:
+  - Added the official copyright and version notice footer ("Crypto & Securities Dashboard version {APP_VERSION}. © 2026 Cavallaro Services. All rights reserved.") to the bottom of the signup workflow card and onboarding process pages.
+
 ## v2.62.1 (August 2026)
 
 - **Registration Session & Onboarding Transition Fix**:

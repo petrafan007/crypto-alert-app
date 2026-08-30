@@ -5,17 +5,17 @@ export default function LegalModal({ isOpen, onClose, title, children }) {
 
   return (
     <div
-      className="ob-modal-backdrop"
+      className="ob-modal-backdrop legal-modal-backdrop"
       style={{
         position: 'fixed',
         inset: 0,
-        backgroundColor: 'rgba(0, 0, 0, 0.75)',
+        backgroundColor: 'rgba(0, 0, 0, 0.82)',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        zIndex: 9999,
+        zIndex: 2147483647,
         padding: '20px',
-        backdropFilter: 'blur(4px)'
+        backdropFilter: 'blur(6px)'
       }}
       onClick={onClose}
     >

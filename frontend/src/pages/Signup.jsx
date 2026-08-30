@@ -4,6 +4,7 @@ import axios from 'axios';
 import { useAuth } from '../components/AuthContext';
 import LegalModal from '../components/LegalModal';
 import { TRADING_RISK_CONTENT } from './TradingRiskDisclosure';
+import { APP_VERSION } from '../version';
 import './Onboarding.css';
 import './Signup.css';
 
@@ -91,7 +92,11 @@ export default function Signup({ isLightMode, toggleTheme }) {
 
           {error && <div className="ob-notice error">{error}</div>}
 
-          <form onSubmit={submit}>
+          <form
+            onSubmit={submit}
+            inert={activeModal ? '' : undefined}
+            style={activeModal ? { visibility: 'hidden' } : {}}
+          >
             <div className="ob-grid">
               <label className="ob-field">
                 <span>Username</span>
@@ -189,6 +194,16 @@ export default function Signup({ isLightMode, toggleTheme }) {
             </div>
           </form>
         </section>
+
+        <footer style={{
+          marginTop: '32px',
+          textAlign: 'center',
+          color: 'var(--text-tertiary, #888)',
+          fontSize: '13px',
+          paddingBottom: '24px'
+        }}>
+          Crypto &amp; Securities Dashboard version {APP_VERSION}. © 2026 Cavallaro Services. All rights reserved.
+        </footer>
       </main>
 
       {/* Terms of Service Modal */}
