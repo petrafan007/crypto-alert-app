@@ -130,6 +130,7 @@ Historical changelog entries retain the product name used when they were origina
 - **Correct Split Option-Table Geometry**:
   - Dual-pane strategies now reserve a compact, fixed-width center strike column instead of allowing the general table width rule to stretch the anchor across the page.
   - Added permanently visible left and right horizontal scroll controls along the bottom of the split matrix. Moving either side mirrors the other side around the strike column, while trackpad or wheel-based horizontal movement over the quote panes remains synchronized.
+  - The strategy heading row and the individual quote/Greek/analysis heading row remain pinned at the top during vertical scrolling, including the centered Strike and Anchor headings.
   - Single-pane strategy layouts remain unchanged.
 - **Non-Disruptive Option Quote Refreshes**:
   - Scheduled, focus-triggered, and manual refreshes now keep the current option matrix mounted and merge fresh contracts by strike, updating displayed quote and analysis values in place.

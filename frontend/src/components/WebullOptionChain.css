@@ -1016,10 +1016,42 @@ body.light-mode .webull-option-chain-container .price-divider-line {
 
 .chain-table-wrapper.dual-pane-chain .options-matrix-table thead tr:first-child th {
   top: 0 !important;
+  z-index: 22 !important;
+  height: 30px;
+  box-sizing: border-box;
 }
 
 .chain-table-wrapper.dual-pane-chain .options-matrix-table thead tr:nth-child(2) th {
   top: 30px !important;
+  z-index: 21 !important;
+  height: 30px;
+  box-sizing: border-box;
+}
+
+.chain-table-wrapper.dual-pane-chain .option-strike-pane thead tr:first-child th {
+  z-index: 26 !important;
+}
+
+.chain-table-wrapper.dual-pane-chain .option-strike-pane thead tr:nth-child(2) th {
+  z-index: 25 !important;
+}
+
+.chain-table-wrapper.single-pane-chain .options-matrix-table thead tr:first-child th {
+  top: 0 !important;
+  z-index: 22 !important;
+  height: 30px;
+  box-sizing: border-box;
+}
+
+.chain-table-wrapper.single-pane-chain .options-matrix-table thead tr:nth-child(2) th {
+  top: 30px !important;
+  z-index: 21 !important;
+  height: 30px;
+  box-sizing: border-box;
+}
+
+.chain-table-wrapper.single-pane-chain .options-matrix-table thead .strike-th {
+  z-index: 25 !important;
 }
 
 .webull-option-chain-container.light-mode .chain-table-wrapper.dual-pane-chain .option-dual-scrollbars,
