@@ -127,6 +127,10 @@ The application utilizes a **unified PostgreSQL database**.
 
 Historical changelog entries retain the product name used when they were originally released. The application domain, repository slug, deployment folders, database, and service identifiers intentionally remain unchanged by the v2.45.0 brand update.
 
+## v2.63.1 (August 2026)
+
+- Fixed a bug where the manual "Generate Market Analysis" and "Generate Portfolio Review" buttons were failing to forcefully trigger fresh analyses, causing them to silently fallback to outdated cached results.
+
 ## v2.63.0 (August 2026)
 
 - Completely redesigned the default dashboard layout for new users, condensing the view to focus only on the 7 core panels (Asset Performance, Allocations, Portfolio Trend, Fear & Greed, Top Crypto/Stock Movers, and CBBI).

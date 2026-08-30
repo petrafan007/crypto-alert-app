@@ -2924,7 +2924,7 @@ def api_market_analysis_workflow():
         logger.info(f"[AI_DEBUG] Settings for {username}: Window={analysis_window_start}-{analysis_window_end}, Cache={cache_duration_hours}h")
         
         # Check if we're in the analysis window (unless manual request)
-        manual_request = request.args.get('manual', 'false').lower() == 'true'
+        manual_request = request.args.get('manual', 'false').lower() == 'true' or request.args.get('refresh', 'false').lower() == 'true'
         if not manual_request and not is_user_analysis_window_active(analysis_window_start, analysis_window_end):
             logger.info(f"[AI_DEBUG] User {username} outside analysis window ({analysis_window_start}-{analysis_window_end})")
             
@@ -3169,7 +3169,7 @@ def api_portfolio_review_workflow():
         from models import AIConversation
         username = current_user.username
         user_id = current_user.id
-        manual_request = request.args.get('manual', 'false').lower() == 'true'
+        manual_request = request.args.get('manual', 'false').lower() == 'true' or request.args.get('refresh', 'false').lower() == 'true'
         user_settings = get_user_ai_settings(username)
         cache_duration_hours = user_settings.get('ai_cache_duration_hours', 4)
         analysis_window_start = user_settings.get('ai_analysis_window_start', '08:00')
