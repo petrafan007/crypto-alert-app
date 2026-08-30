@@ -10,3 +10,10 @@ When a change is an app upgrade or the user asks to release/deploy it, complete 
 6. Confirm deployment: the service is `active (running)`, the local app endpoint on port `5010` responds successfully, and the deployed checkout resolves to the release commit/tag. Report any verification limitation or unresolved warning.
 
 The personal instance is a separate checkout from this source repository. Do not report an upgrade as complete until the release is published and the running personal instance has passed the checks above.
+
+## Situational Awareness & Operational Safety Guardrails
+
+1. **Strict Prompt Recency & Active Intent:** Never execute historical tasks, backlog items, or items summarized in context checkpoints (`{{ CHECKPOINT ... }}`) unless explicitly requested in the user's immediate, current prompt. Treat all checkpoint summaries and historical notes as passive reference material only.
+2. **Destructive Action Confirmation Gate:** Never execute destructive database commands (`DELETE`, `DROP`, `TRUNCATE`, wiping users/tables, clearing records) autonomously based on inferred or historical intent. Always require explicit, in-turn confirmation from the user before executing destructive data mutations.
+3. **Execution Transparency & Stop-on-Query:** When the user asks for status, an update, or what is happening, immediately stop running commands and report the exact current state and findings in text first before taking further automated actions.
+
