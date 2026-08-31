@@ -127,6 +127,18 @@ The application utilizes a **unified PostgreSQL database**.
 
 Historical changelog entries retain the product name used when they were originally released. The application domain, repository slug, deployment folders, database, and service identifiers intentionally remain unchanged by the v2.45.0 brand update.
 
+## v2.65.1 (August 2026)
+
+- **Reliable Event Contract Categories**:
+  - The Event Category selector now exposes only the finite category codes accepted by Webull's Event Series endpoint. Display-only taxonomies such as Elections and Commodities can no longer generate unsupported-category failures.
+- **Rate-Limit-Safe Market Discovery**:
+  - Category traversal is serialized, paced, retried with backoff after provider rate limits, and cached so simultaneous browser requests cannot duplicate the full Series → Market fan-out.
+  - If Webull temporarily limits one series after other series have loaded, the successful contracts remain available with a clear partial-results notice instead of the entire category failing.
+- **Single Event Refresh Path**:
+  - Removed the duplicate category request triggered by both the selector handler and the search effect. Event Contracts also exit the generic stock/crypto snapshot loop before any timer or request is created.
+- **Regression Coverage**:
+  - Added tests for supported-category filtering, HTTP 429 retry behavior, and partial catalog preservation.
+
 ## v2.65.0 (August 2026)
 
 - **Complete Webull Event Contract Discovery**:

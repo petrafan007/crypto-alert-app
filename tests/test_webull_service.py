@@ -27,6 +27,7 @@ from services.webull_service import (
     clear_webull_order_cache,
     clear_webull_event_cache,
     get_webull_event_categories,
+    get_webull_event_catalog,
     get_webull_event_market,
     get_webull_event_markets,
     validate_webull_event_order_market,
@@ -126,6 +127,66 @@ class WebullServiceTests(unittest.TestCase):
         with patch('services.webull_service._webull_request', return_value=self._response({}, status_code=500)):
             with self.assertRaisesRegex(WebullConnectionError, 'HTTP 500'):
                 get_webull_event_categories('app-key', 'app-secret', access_token='token')
+
+    def test_event_categories_exclude_taxonomies_rejected_by_series_endpoint(self):
+        payload = {'data': [
+            {'category': 'ECONOMICS', 'name': 'Economics'},
+            {'category': 'ELECTIONS', 'name': 'Elections'},
+            {'category': 'COMMODITIES', 'name': 'Commodities'},
+            {'category': 'POLITICS', 'name': 'Politics'},
+        ]}
+        with patch('services.webull_service._webull_request', return_value=self._response(payload)):
+            categories = get_webull_event_categories('app-key', 'app-secret', access_token='token')
+
+        self.assertEqual([item['category_code'] for item in categories], ['ECONOMICS', 'POLITICS'])
+
+    def test_event_discovery_retries_provider_rate_limit(self):
+        responses = [
+            self._response({'error_code': 'TOO_MANY_REQUESTS'}, status_code=429),
+            self._response({'data': [{'series_id': 's1', 'symbol': 'KXRATE'}]}),
+        ]
+        with patch('services.webull_service._webull_request', side_effect=responses) as request_mock, \
+             patch('services.webull_service.WEBULL_EVENT_DISCOVERY_MIN_INTERVAL_SECONDS', 0), \
+             patch('services.webull_service.WEBULL_EVENT_DISCOVERY_RETRY_DELAYS_SECONDS', (0,)):
+            from services.webull_service import _event_paginated_records
+            records = _event_paginated_records(
+                'app-key', 'app-secret', 'production', 'token', '/series/list',
+                action='rate-limit test',
+            )
+
+        self.assertEqual(records[0]['symbol'], 'KXRATE')
+        self.assertEqual(request_mock.call_count, 2)
+
+    def test_event_catalog_keeps_successful_series_when_another_is_rate_limited(self):
+        def provider(*args, **kwargs):
+            path = args[4]
+            params = kwargs.get('query_params') or {}
+            if path.endswith('/categories/list'):
+                return self._response({'data': [{'category': 'FINANCIALS', 'name': 'Financials'}]})
+            if path.endswith('/series/list'):
+                return self._response({'data': [
+                    {'series_id': 's1', 'symbol': 'GOOD', 'name': 'Available series'},
+                    {'series_id': 's2', 'symbol': 'LIMITED', 'name': 'Limited series'},
+                ]})
+            if path.endswith('/markets/list') and params.get('series_symbol') == 'GOOD':
+                return self._response({'data': [{
+                    'instrument_id': 'm1', 'symbol': 'GOOD-YES', 'name': 'Available market',
+                    'status': 'LISTING', 'tradable_status': 'OC',
+                }]})
+            if path.endswith('/markets/list') and params.get('series_symbol') == 'LIMITED':
+                return self._response({'error_code': 'TOO_MANY_REQUESTS'}, status_code=429)
+            raise AssertionError(f'Unexpected Webull path: {path}')
+
+        with patch('services.webull_service._webull_request', side_effect=provider), \
+             patch('services.webull_service.WEBULL_EVENT_DISCOVERY_MIN_INTERVAL_SECONDS', 0), \
+             patch('services.webull_service.WEBULL_EVENT_DISCOVERY_RETRY_DELAYS_SECONDS', ()):
+            catalog = get_webull_event_catalog(
+                'app-key', 'app-secret', access_token='token', category_id='FINANCIALS',
+            )
+
+        self.assertTrue(catalog['partial'])
+        self.assertEqual([item['symbol'] for item in catalog['markets']], ['GOOD-YES'])
+        self.assertTrue(catalog['warnings'])
 
     def test_environment_normalization_accepts_only_supported_values(self):
         self.assertEqual(normalize_webull_environment('Production'), 'production')

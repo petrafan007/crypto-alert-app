@@ -22,12 +22,33 @@ _WEBULL_EVENT_CATALOG_CACHE = {}  # (...principal, category code) -> (timestamp,
 _WEBULL_EVENT_SNAPSHOT_CACHE = {}  # (...principal, symbol) -> (timestamp, snapshot)
 _WEBULL_ORDER_LOCK = threading.Lock()
 _WEBULL_EVENT_CACHE_LOCK = threading.Lock()
+_WEBULL_EVENT_DISCOVERY_LOCK = threading.Lock()
+_WEBULL_EVENT_RATE_LOCK = threading.Lock()
 _WEBULL_LAST_ORDER_REQUEST_TIME = 0.0
+_WEBULL_LAST_EVENT_DISCOVERY_REQUEST_TIME = 0.0
 
 WEBULL_EVENT_CATALOG_TTL_SECONDS = 300
+WEBULL_EVENT_PARTIAL_CATALOG_TTL_SECONDS = 30
 WEBULL_EVENT_SNAPSHOT_TTL_SECONDS = 5
 WEBULL_EVENT_MAX_ORDER_QUANTITY = 50000
 WEBULL_EVENT_SETTLEMENT_PAYOUT = 1.0
+WEBULL_EVENT_DISCOVERY_MIN_INTERVAL_SECONDS = 0.35
+WEBULL_EVENT_DISCOVERY_RETRY_DELAYS_SECONDS = (0.75, 1.5, 3.0, 6.0)
+
+# Webull's category-list response can include display taxonomies that the
+# series endpoint does not accept. These are the finite category codes Webull
+# advertises for /event-contracts/series/list; live markets remain API-driven.
+WEBULL_EVENT_SERIES_CATEGORIES = {
+    'ECONOMICS': 'Economics',
+    'FINANCIALS': 'Financials',
+    'POLITICS': 'Politics',
+    'ENTERTAINMENT': 'Entertainment',
+    'SCIENCE_TECHNOLOGY': 'Science & Technology',
+    'CLIMATE_WEATHER': 'Climate & Weather',
+    'TRANSPORTATION': 'Transportation',
+    'CRYPTO': 'Crypto',
+    'SPORTS': 'Sports',
+}
 
 # These schedules are explanatory labels from Webull's Event Contract Trading
 # guide.  The live ``tradable_status`` returned for each market is always the
@@ -909,6 +930,32 @@ def _event_time_sort_value(value):
         return 0.0
 
 
+def _event_discovery_request(*args, **kwargs):
+    """Pace catalog traversal and retry Webull's explicit rate-limit response."""
+    global _WEBULL_LAST_EVENT_DISCOVERY_REQUEST_TIME
+    retry_delays = (0.0, *WEBULL_EVENT_DISCOVERY_RETRY_DELAYS_SECONDS)
+    response = None
+    for attempt, retry_delay in enumerate(retry_delays):
+        if retry_delay:
+            time.sleep(retry_delay)
+        with _WEBULL_EVENT_RATE_LOCK:
+            elapsed = time.monotonic() - _WEBULL_LAST_EVENT_DISCOVERY_REQUEST_TIME
+            remaining = WEBULL_EVENT_DISCOVERY_MIN_INTERVAL_SECONDS - elapsed
+            if remaining > 0:
+                time.sleep(remaining)
+            response = _webull_request(*args, **kwargs)
+            _WEBULL_LAST_EVENT_DISCOVERY_REQUEST_TIME = time.monotonic()
+        if getattr(response, 'status_code', None) != 429:
+            return response
+        if attempt < len(retry_delays) - 1:
+            logger.warning(
+                'Webull Event Contract discovery rate limited; retry %s of %s.',
+                attempt + 1,
+                len(retry_delays) - 1,
+            )
+    return response
+
+
 def _event_paginated_records(
     app_key, app_secret, environment, access_token, path, *, params=None, action,
     cursor_param='pagination_key', cursor_fields=('pagination_key',), id_field=None, page_size=None,
@@ -922,7 +969,7 @@ def _event_paginated_records(
         if cursor:
             query[cursor_param] = cursor
         payload = _response_payload(
-            _webull_request(
+            _event_discovery_request(
                 app_key, app_secret, environment, 'GET', path,
                 query_params=query, access_token=access_token,
             ),
@@ -956,6 +1003,7 @@ def get_webull_event_categories(app_key, app_secret, environment='production', a
         'event category request',
     )
     categories = []
+    seen_codes = set()
     for raw in _webull_records(payload):
         if isinstance(raw, str):
             raw = {'category': raw}
@@ -963,11 +1011,14 @@ def get_webull_event_categories(app_key, app_secret, environment='production', a
             continue
         code = str(raw.get('category_code') or raw.get('category') or raw.get('code') or '').strip().upper()
         category_id = str(raw.get('category_id') or raw.get('id') or '').strip()
+        if code not in WEBULL_EVENT_SERIES_CATEGORIES or code in seen_codes:
+            continue
         name = str(raw.get('category_name') or raw.get('name') or '').strip()
         if code and not name:
-            name = code.replace('_', ' ').title()
+            name = WEBULL_EVENT_SERIES_CATEGORIES[code]
         if not code or not name:
             continue
+        seen_codes.add(code)
         categories.append({
             'category_id': category_id or code,
             'category_code': code,
@@ -1043,77 +1094,113 @@ def get_webull_event_catalog(
     if requested_category and not selected_categories:
         raise WebullConnectionError('Webull did not return that Event Contract category.')
     cache_key = (*principal, requested_category or '*')
-    now = time.time()
-    with _WEBULL_EVENT_CACHE_LOCK:
-        cached = _WEBULL_EVENT_CATALOG_CACHE.get(cache_key)
-        if cached and not force and now - cached[0] < WEBULL_EVENT_CATALOG_TTL_SECONDS:
-            return {
-                'categories': [dict(item) for item in cached[1]['categories']],
-                'markets': [dict(item) for item in cached[1]['markets']],
-                'as_of': cached[1]['as_of'],
-            }
+    def copy_catalog(catalog):
+        return {
+            'categories': [dict(item) for item in catalog['categories']],
+            'markets': [dict(item) for item in catalog['markets']],
+            'as_of': catalog['as_of'],
+            'partial': bool(catalog.get('partial')),
+            'warnings': list(catalog.get('warnings') or []),
+        }
 
-    series = []
-    for category in selected_categories:
-        category_series = _event_paginated_records(
-            app_key, app_secret, environment, access_token,
-            '/trading/instruments/event-contracts/series/list',
-            params={'category': category['category_code'], 'page_size': 500},
-            action=f"{category['name']} event series request",
-            cursor_param='last_series_id', cursor_fields=('last_series_id', 'next_last_series_id'),
-            id_field='series_id', page_size=500,
-        )
-        for item in category_series:
-            item = dict(item)
-            item['_category_code'] = category['category_code']
-            series.append(item)
-    series_categories = {}
-    raw_markets = []
-    for item in series:
-        series_symbol = str(item.get('symbol') or item.get('series_symbol') or '').strip().upper()
-        if not series_symbol:
-            continue
-        series_categories[series_symbol] = str(
-            item.get('category') or item.get('category_code') or item.get('_category_code') or ''
-        ).strip().upper()
-        series_markets = _event_paginated_records(
-            app_key, app_secret, environment, access_token,
-            '/trading/instruments/event-contracts/markets/list',
-            params={'series_symbol': series_symbol, 'page_size': 500},
-            action=f'{series_symbol} event market request',
-            cursor_param='last_instrument_id', cursor_fields=('last_instrument_id', 'next_last_instrument_id'),
-            id_field='instrument_id', page_size=500,
-        )
-        for raw in series_markets:
-            raw = dict(raw)
-            raw.setdefault('series_symbol', series_symbol)
-            raw.setdefault('series_name', item.get('name') or item.get('series_name'))
-            raw_markets.append(raw)
-    markets = []
-    seen_symbols = set()
-    for raw in raw_markets:
-        market = _normalise_event_market(raw, series_categories)
-        if not market or market['symbol'] in seen_symbols:
-            continue
-        if market['status'] not in {'LISTING', ''}:
-            continue
-        seen_symbols.add(market['symbol'])
-        markets.append(market)
-    if not markets:
-        raise WebullConnectionError('Webull returned no current Event Contract markets.')
+    def cached_catalog():
+        now = time.time()
+        with _WEBULL_EVENT_CACHE_LOCK:
+            cached = _WEBULL_EVENT_CATALOG_CACHE.get(cache_key)
+            if not cached or force:
+                return None
+            ttl = (WEBULL_EVENT_PARTIAL_CATALOG_TTL_SECONDS
+                   if cached[1].get('partial') else WEBULL_EVENT_CATALOG_TTL_SECONDS)
+            return copy_catalog(cached[1]) if now - cached[0] < ttl else None
 
-    catalog = {
-        'categories': categories,
-        'markets': markets,
-        'as_of': datetime.now(timezone.utc).isoformat(),
-    }
-    with _WEBULL_EVENT_CACHE_LOCK:
-        _WEBULL_EVENT_CATALOG_CACHE[cache_key] = (now, catalog)
-    return {
-        'categories': [dict(item) for item in categories],
-        'markets': [dict(item) for item in markets],
-        'as_of': catalog['as_of'],
-    }
+    cached = cached_catalog()
+    if cached:
+        return cached
+
+    # Only one category traversal may run at a time. A second browser request
+    # waits for the first and then consumes its cache instead of duplicating the
+    # entire series -> market fan-out against Webull.
+    with _WEBULL_EVENT_DISCOVERY_LOCK:
+        cached = cached_catalog()
+        if cached:
+            return cached
+
+        warnings = []
+        series = []
+        for category in selected_categories:
+            try:
+                category_series = _event_paginated_records(
+                    app_key, app_secret, environment, access_token,
+                    '/trading/instruments/event-contracts/series/list',
+                    params={'category': category['category_code'], 'page_size': 500},
+                    action=f"{category['name']} event series request",
+                    cursor_param='last_series_id', cursor_fields=('last_series_id', 'next_last_series_id'),
+                    id_field='series_id', page_size=500,
+                )
+            except WebullConnectionError as exc:
+                logger.warning('Skipping unavailable Webull Event category %s: %s', category['category_code'], exc)
+                warnings.append(str(exc))
+                continue
+            for item in category_series:
+                item = dict(item)
+                item['_category_code'] = category['category_code']
+                series.append(item)
+
+        series_categories = {}
+        raw_markets = []
+        for item in series:
+            series_symbol = str(item.get('symbol') or item.get('series_symbol') or '').strip().upper()
+            if not series_symbol:
+                continue
+            series_categories[series_symbol] = str(
+                item.get('category') or item.get('category_code') or item.get('_category_code') or ''
+            ).strip().upper()
+            try:
+                series_markets = _event_paginated_records(
+                    app_key, app_secret, environment, access_token,
+                    '/trading/instruments/event-contracts/markets/list',
+                    params={'series_symbol': series_symbol, 'page_size': 500},
+                    action=f'{series_symbol} event market request',
+                    cursor_param='last_instrument_id', cursor_fields=('last_instrument_id', 'next_last_instrument_id'),
+                    id_field='instrument_id', page_size=500,
+                )
+            except WebullConnectionError as exc:
+                logger.warning('Skipping unavailable Webull Event series %s: %s', series_symbol, exc)
+                warnings.append(str(exc))
+                continue
+            for raw in series_markets:
+                raw = dict(raw)
+                raw.setdefault('series_symbol', series_symbol)
+                raw.setdefault('series_name', item.get('name') or item.get('series_name'))
+                raw_markets.append(raw)
+
+        markets = []
+        seen_symbols = set()
+        for raw in raw_markets:
+            market = _normalise_event_market(raw, series_categories)
+            if not market or market['symbol'] in seen_symbols:
+                continue
+            if market['status'] not in {'LISTING', ''}:
+                continue
+            seen_symbols.add(market['symbol'])
+            markets.append(market)
+        if not markets:
+            if warnings:
+                raise WebullConnectionError(
+                    'Webull temporarily limited Event Contract discovery. Please wait a moment and try again.'
+                )
+            raise WebullConnectionError('Webull returned no current Event Contract markets.')
+
+        catalog = {
+            'categories': categories,
+            'markets': markets,
+            'as_of': datetime.now(timezone.utc).isoformat(),
+            'partial': bool(warnings),
+            'warnings': warnings,
+        }
+        with _WEBULL_EVENT_CACHE_LOCK:
+            _WEBULL_EVENT_CATALOG_CACHE[cache_key] = (time.time(), catalog)
+        return copy_catalog(catalog)
 
 
 def _normalise_event_snapshot(raw):
@@ -1225,12 +1312,25 @@ def get_webull_event_markets(
             if any(clean_query in str(item.get(field) or '').casefold() for field in fields)
         ]
     if not markets:
-        return {'markets': [], 'total_matches': 0, 'catalog_as_of': catalog['as_of']}
+        return {
+            'markets': [],
+            'total_matches': 0,
+            'catalog_as_of': catalog['as_of'],
+            'partial': bool(catalog.get('partial')),
+            'message': ('Some Webull series are temporarily unavailable; showing the results currently available.'
+                        if catalog.get('partial') else ''),
+        }
 
-    snapshots = get_webull_event_snapshots(
-        app_key, app_secret, environment, access_token,
-        symbols=[item['symbol'] for item in markets],
-    )
+    partial = bool(catalog.get('partial'))
+    try:
+        snapshots = get_webull_event_snapshots(
+            app_key, app_secret, environment, access_token,
+            symbols=[item['symbol'] for item in markets],
+        )
+    except WebullConnectionError as exc:
+        logger.warning('Webull Event snapshot enrichment unavailable: %s', exc)
+        snapshots = {}
+        partial = True
     enriched = []
     for market in markets:
         value = dict(market)
@@ -1260,6 +1360,9 @@ def get_webull_event_markets(
         'markets': enriched[:result_limit],
         'total_matches': len(enriched),
         'catalog_as_of': catalog['as_of'],
+        'partial': partial,
+        'message': ('Some Webull series or live rankings are temporarily unavailable; showing the results currently available.'
+                    if partial else ''),
     }
 
 

@@ -344,6 +344,7 @@ export default function WebullTrading({ isLightMode = false }) {
   const [eventLoading, setEventLoading] = useState(false);
   const [eventMessage, setEventMessage] = useState('');
   const eventMarketRequestRef = useRef(0);
+  const eventSelectFirstRef = useRef(false);
   const eventMarketSelectorRef = useRef(null);
   const eventAutoPriceRef = useRef(true);
 
@@ -1143,6 +1144,7 @@ export default function WebullTrading({ isLightMode = false }) {
       const mkts = response.data?.markets || [];
       setEventMarkets(mkts);
       setEventTotalMatches(Number(response.data?.total_matches || mkts.length));
+      setEventMessage(response.data?.message || '');
       if (selectFirst && mkts.length) applyEventMarket(mkts[0]);
     } catch (err) {
       if (requestId !== eventMarketRequestRef.current) return;
@@ -1163,9 +1165,9 @@ export default function WebullTrading({ isLightMode = false }) {
       setEventCategories(categories);
       if (!categories.length) throw new Error('Webull returned no Event Contract categories.');
       const initialCategory = categories[0].category_code || categories[0].category_id;
+      eventSelectFirstRef.current = true;
       setSelectedEventCategory(initialCategory);
       setEventMarketQuery('');
-      await loadEventMarkets({ category: initialCategory, query: '', selectFirst: true });
     } catch (err) {
       setEventMessage(err.response?.data?.message || err.message || 'Unable to load Webull Event Contract categories.');
     } finally {
@@ -1174,6 +1176,7 @@ export default function WebullTrading({ isLightMode = false }) {
   };
 
   const handleEventCategoryChange = (categoryCode) => {
+    eventSelectFirstRef.current = true;
     setSelectedEventCategory(categoryCode);
     setEventMarketQuery('');
     setSelectedEventMarket(null);
@@ -1181,7 +1184,6 @@ export default function WebullTrading({ isLightMode = false }) {
     setSelectedSymbol('');
     setEventMarketMenuOpen(true);
     setOrderForm((prev) => ({ ...prev, price: '', quantity: '', quoteQuantity: '' }));
-    loadEventMarkets({ category: categoryCode, query: '', selectFirst: true });
   };
 
   const chooseEventOutcome = (outcome) => {
@@ -1207,7 +1209,9 @@ export default function WebullTrading({ isLightMode = false }) {
   useEffect(() => {
     if (selectedInstrumentType !== 'EVENT' || !selectedEventCategory) return undefined;
     const timer = window.setTimeout(() => {
-      loadEventMarkets({ category: selectedEventCategory, query: eventMarketQuery });
+      const selectFirst = eventSelectFirstRef.current && !eventMarketQuery.trim();
+      eventSelectFirstRef.current = false;
+      loadEventMarkets({ category: selectedEventCategory, query: eventMarketQuery, selectFirst });
     }, 350);
     return () => window.clearTimeout(timer);
   }, [selectedInstrumentType, selectedEventCategory, eventMarketQuery]);
@@ -1299,14 +1303,18 @@ export default function WebullTrading({ isLightMode = false }) {
   // A current snapshot is the trade-ticket source of truth. Stored holdings
   // provide a fast initial fallback while the signed Webull quote arrives.
   useEffect(() => {
+    if (selectedInstrumentType === 'EVENT') {
+      setLivePrice(0);
+      return undefined;
+    }
     let active = true;
     const fallbackPrice = Number(currentHolding?.current_price || 0);
     if (fallbackPrice > 0) setLivePrice(fallbackPrice);
     const loadSnapshot = async () => {
       try {
-        if (selectedInstrumentType === 'EVENT') return;
         if (selectedInstrumentType === 'OPTION' && !currentHolding?.id) return;
         if (selectedInstrumentType === 'FUTURES' && !selectedFuturesContract?.symbol) return;
+        if (!['EQUITY', 'CRYPTO', 'OPTION', 'FUTURES'].includes(selectedInstrumentType)) return;
         const response = selectedInstrumentType === 'OPTION'
           ? await axios.get('/api/webull/option-market-data', {
             params: { holding_id: currentHolding.id },
