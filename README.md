@@ -1739,6 +1739,9 @@ Historical changelog entries retain the product name used when they were origina
 
 ---
 
+## Recent Major Updates (August 2026)
+- **Options Payoff Chart & Excel Export Fixes (v2.66.1)**: Fixed the Max Profit and Max Loss calculations on the Options Payoff Chart to use proper options math instead of strictly visual bounds. Added a draggable Hexagon badge tooltip overlay replicating the Webull UI. Corrected the X-axis mapping to use the actual underlying stock price instead of the option premium. Fixed the Days to Expiration slider to count down properly from Entry to Expiration. Updated the Excel Export model to use the actual underlying symbol (e.g. AAPL) instead of hardcoding "SPY", and expanded column widths to resolve `#` errors in the P&L matrix.
+
 ## Recent Major Updates (June 2026)
 - **Trading Chart Markers & Transaction Modal (v1.12-beta)**: Upgraded the trading chart to aggregate buys and sells across all cryptocurrencies into singular daily markers. Hovering over a marker now cleanly displays the total aggregated USDT value for that day. Clicking an arrow opens a detailed, interactive React-Bootstrap modal that allows cycling through exact transaction details (Coin Name, Exact Time, Price, Amount, and USDT Value) for that specific day's trades.
 - **Instant Price Alerts on Order Fill (v1.11-beta)**: Addressed missing instant price alerts when an order fills. The system now immediately evaluates price thresholds using the actual fill price, bypassing the standard polling delay.

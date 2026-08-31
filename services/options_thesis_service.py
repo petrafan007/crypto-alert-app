@@ -4,6 +4,7 @@ from openpyxl.styles import Font, Alignment, PatternFill, NumberFormatDescriptor
 import datetime
 
 def generate_thesis_excel(
+    underlying_symbol: str,
     baseline_price: float,
     strike_price: float,
     entry_premium: float,
@@ -24,7 +25,7 @@ def generate_thesis_excel(
     ws_assumptions.column_dimensions['C'].width = 15
     ws_assumptions.column_dimensions['D'].width = 60
     
-    ws_assumptions.cell(row=1, column=1, value="SPY Options Scenario Model").font = Font(bold=True)
+    ws_assumptions.cell(row=1, column=1, value=f"{underlying_symbol} Options Scenario Model").font = Font(bold=True)
     
     headers = ["Input", "Value", "Units", "Notes / Source"]
     for i, h in enumerate(headers, 1):
@@ -32,7 +33,7 @@ def generate_thesis_excel(
         c.font = Font(bold=True)
     
     inputs = [
-        ("Baseline SPY price", baseline_price, "$/share", "Current underlying price"),
+        (f"Baseline {underlying_symbol} price", baseline_price, "$/share", "Current underlying price"),
         ("Strike", strike_price, "$/share", f"Selected {option_type} strike"),
         ("Entry premium", entry_premium, "$/share", "Limit entry price"),
         ("Contract multiplier", multiplier, "shares/contract", "Standard multiplier"),
@@ -45,7 +46,7 @@ def generate_thesis_excel(
     for row_idx, (name, val, unit, note) in enumerate(inputs, start=4):
         ws_assumptions.cell(row=row_idx, column=1, value=name)
         val_cell = ws_assumptions.cell(row=row_idx, column=2, value=val)
-        if name in ["Baseline SPY price", "Strike", "Entry premium"]:
+        if name in [f"Baseline {underlying_symbol} price", "Strike", "Entry premium"]:
             val_cell.number_format = '$#,##0.00'
         elif name in ["Implied volatility", "Risk-free rate"]:
             val_cell.number_format = '0.00%'
@@ -93,6 +94,8 @@ def generate_thesis_excel(
     ws_price.cell(row=3, column=2, value="Price").font = Font(bold=True)
     
     for col_idx, (dte, dt) in enumerate(date_columns, start=3):
+        col_letter = get_column_letter(col_idx)
+        ws_price.column_dimensions[col_letter].width = 15
         c = ws_price.cell(row=3, column=col_idx, value=dt)
         c.number_format = 'mmm d, yyyy'
         c.font = Font(bold=True)
@@ -131,6 +134,8 @@ def generate_thesis_excel(
     ws_pnl.cell(row=3, column=2, value="Price").font = Font(bold=True)
     
     for col_idx, (dte, dt) in enumerate(date_columns, start=3):
+        col_letter = get_column_letter(col_idx)
+        ws_pnl.column_dimensions[col_letter].width = 15
         c = ws_pnl.cell(row=3, column=col_idx, value=dt)
         c.number_format = 'mmm d, yyyy'
         c.font = Font(bold=True)

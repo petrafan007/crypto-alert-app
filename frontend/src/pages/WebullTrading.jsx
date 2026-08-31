@@ -2954,7 +2954,8 @@ export default function WebullTrading({ isLightMode = false }) {
                   {selectedInstrumentType === 'OPTION' && orderForm.optionStrike && orderForm.optionExpiration && (
                     <div style={{ marginTop: '20px' }}>
                       <OptionsPayoffChart
-                        baselinePrice={Number(livePrice || 0) || Number(orderForm.optionStrike)}
+                        underlyingSymbol={selectedSymbol}
+                        baselinePrice={Number(livePrice || orderForm.optionStrike)}
                         strikePrice={Number(orderForm.optionStrike)}
                         entryPremium={Number(orderForm.price || 0)}
                         multiplier={100}

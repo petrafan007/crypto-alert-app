@@ -790,6 +790,7 @@ import datetime
 def export_options_thesis():
     try:
         data = request.json
+        underlying_symbol = str(data.get("underlying_symbol", "SPY")).upper()
         baseline_price = float(data.get("baseline_price", 0))
         strike_price = float(data.get("strike_price", 0))
         entry_premium = float(data.get("entry_premium", 0))
@@ -810,6 +811,7 @@ def export_options_thesis():
 
         from services.options_thesis_service import generate_thesis_excel
         wb = generate_thesis_excel(
+            underlying_symbol=underlying_symbol,
             baseline_price=baseline_price,
             strike_price=strike_price,
             entry_premium=entry_premium,
@@ -825,7 +827,7 @@ def export_options_thesis():
         os.close(fd)
         wb.save(temp_path)
         
-        filename = f"{option_type}_{strike_price}_Payout_Model.xlsx"
+        filename = f"{underlying_symbol}_{option_type}_{strike_price}_Payout_Model.xlsx"
         
         return send_file(
             temp_path,

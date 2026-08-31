@@ -35,6 +35,7 @@ function normsdist(x) {
 }
 
 export default function OptionsPayoffChart({
+  underlyingSymbol = 'SPY',
   baselinePrice,
   strikePrice,
   entryPremium,
@@ -45,7 +46,8 @@ export default function OptionsPayoffChart({
   optionType = 'PUT',
   action = 'BUY' // BUY or SELL
 }) {
-  const [sliderDTE, setSliderDTE] = useState(startingDTE);
+  const [daysElapsed, setDaysElapsed] = useState(0);
+  const currentDTE = Math.max(0, startingDTE - daysElapsed);
   const [hoverPrice, setHoverPrice] = useState(null);
   
   const chartRef = useRef(null);
@@ -80,7 +82,7 @@ export default function OptionsPayoffChart({
 
   const chartData = useMemo(() => {
     const dataPoints = xPoints.map((S) => {
-      const currentOptPrice = calculateOptionPrice(S, strikePrice, sliderDTE, riskFreeRate, iv, optionType);
+      const currentOptPrice = calculateOptionPrice(S, strikePrice, currentDTE, riskFreeRate, iv, optionType);
       let pnl = (currentOptPrice - entryPremium) * multiplier;
       if (action === 'SELL') pnl = -pnl;
       return pnl;
@@ -107,10 +109,27 @@ export default function OptionsPayoffChart({
         }
       ]
     };
-  }, [xPoints, strikePrice, entryPremium, multiplier, iv, riskFreeRate, sliderDTE, optionType, action]);
+  }, [xPoints, strikePrice, entryPremium, multiplier, iv, riskFreeRate, currentDTE, optionType, action]);
 
-  const maxProfit = action === 'BUY' && optionType === 'CALL' ? 'Unlimited' : Math.max(...chartData.datasets[0].data);
-  const maxLoss = action === 'BUY' ? -entryPremium * multiplier : (optionType === 'CALL' ? 'Unlimited' : -strikePrice * multiplier);
+  let maxProfit = 0;
+  let maxLoss = 0;
+  if (action === 'BUY') {
+    if (optionType === 'CALL') {
+      maxProfit = 'Unlimited';
+      maxLoss = -entryPremium * multiplier;
+    } else {
+      maxProfit = (strikePrice - entryPremium) * multiplier;
+      maxLoss = -entryPremium * multiplier;
+    }
+  } else {
+    if (optionType === 'CALL') {
+      maxProfit = entryPremium * multiplier;
+      maxLoss = 'Unlimited';
+    } else {
+      maxProfit = entryPremium * multiplier;
+      maxLoss = -(strikePrice - entryPremium) * multiplier;
+    }
+  }
 
   const handleExport = async () => {
     try {
@@ -118,6 +137,7 @@ export default function OptionsPayoffChart({
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('token')}` },
         body: JSON.stringify({
+          underlying_symbol: underlyingSymbol,
           baseline_price: baselinePrice,
           strike_price: strikePrice,
           entry_premium: entryPremium,
@@ -145,7 +165,7 @@ export default function OptionsPayoffChart({
         <button onClick={handleExport} className="btn btn-sm btn-primary">Export Excel Thesis</button>
       </div>
 
-      <div className="chart-wrapper">
+      <div className="chart-wrapper" style={{ position: 'relative' }}>
         <Line 
           ref={chartRef}
           data={chartData} 
@@ -163,22 +183,55 @@ export default function OptionsPayoffChart({
             }
           }} 
         />
-        {/* Draggable Hex Badge Overlay logic could go here */}
+        
+        {/* Hexagon Badge Overlay */}
+        <div style={{
+          position: 'absolute',
+          top: '35%',
+          left: '50%',
+          transform: 'translate(-50%, -50%)',
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          width: '70px',
+          height: '80px',
+          backgroundColor: '#0f766e',
+          clipPath: 'polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%)',
+          color: 'white',
+          fontSize: '11px',
+          fontWeight: 'bold',
+          border: '2px solid #2dd4bf',
+          boxShadow: '0 4px 6px rgba(0,0,0,0.3)',
+          zIndex: 10,
+          pointerEvents: 'none'
+        }}>
+          <div>{action === 'BUY' ? 'Buy' : 'Sell'} {multiplier / 10}</div>
+          <div style={{ margin: '4px 0' }}>${strikePrice.toFixed(2)}</div>
+          <div style={{ 
+            backgroundColor: '#14b8a6', 
+            borderRadius: '10px', 
+            padding: '2px 8px',
+            fontSize: '10px' 
+          }}>
+            {optionType.charAt(0).toUpperCase() + optionType.slice(1).toLowerCase()}
+          </div>
+        </div>
       </div>
 
       <div className="dte-slider-container mt-3">
-        <label>Days to Expiration: {sliderDTE}</label>
+        <label>Days to Expiration: {currentDTE} ({startingDTE} Day Contract)</label>
         <input 
           type="range" 
           min="0" 
           max={startingDTE} 
-          value={sliderDTE} 
-          onChange={(e) => setSliderDTE(parseInt(e.target.value))}
+          value={daysElapsed} 
+          onChange={(e) => setDaysElapsed(parseInt(e.target.value))}
           className="form-range" 
         />
         <div className="slider-labels d-flex justify-content-between">
-          <span>Exp (Day 0)</span>
-          <span>Entry (Day {startingDTE})</span>
+          <span>Entry ({startingDTE} DTE)</span>
+          <span>Exp (0 DTE)</span>
         </div>
       </div>
     </div>
