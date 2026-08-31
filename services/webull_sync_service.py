@@ -1,6 +1,7 @@
 """Automatic, read-only Webull account and activity synchronization."""
 
 import json
+import hashlib
 import threading
 import time
 from datetime import date, datetime, timedelta, timezone
@@ -8,10 +9,11 @@ from datetime import date, datetime, timedelta, timezone
 from core.extensions import db
 from credentials import Credential, UserSetting
 from log import logger
-from models import WebullAccountSnapshot, WebullActivity
+from models import WebullAccountSnapshot, WebullActivity, WebullHistoricalOrder
 from services.webull_import_service import import_webull_portfolio_snapshot
 from services.webull_service import (
     get_webull_cash_activities,
+    get_webull_order_history,
     get_webull_portfolio_preview,
     normalize_webull_environment,
 )
@@ -54,6 +56,13 @@ def _utc(value):
         return None
     else:
         text = str(value).strip()
+        try:
+            numeric = float(text)
+            if numeric > 100000000000:
+                numeric /= 1000
+            return datetime.fromtimestamp(numeric, tz=timezone.utc).replace(tzinfo=None)
+        except (TypeError, ValueError, OSError):
+            pass
         if text.endswith('Z'):
             text = text[:-1] + '+00:00'
         try:
@@ -172,8 +181,102 @@ def _sync_account_activities(*, user_id, environment, account_id, credential, sn
     return upserted
 
 
+def _first_value(item, *keys):
+    for key in keys:
+        value = item.get(key)
+        if value not in (None, ''):
+            return value
+    return None
+
+
+def _webull_order_key(item):
+    provider_id = _first_value(item, 'order_id', 'orderId')
+    client_id = _first_value(item, 'client_order_id', 'clientOrderId')
+    if provider_id:
+        return f'order:{provider_id}'
+    if client_id:
+        return f'client:{client_id}'
+    canonical = json.dumps(item, separators=(',', ':'), sort_keys=True, default=str)
+    return 'payload:' + hashlib.sha256(canonical.encode('utf-8')).hexdigest()
+
+
+def upsert_webull_historical_order(*, user_id, environment, account_id, item, now=None):
+    """Idempotently persist one Webull order without performing an API call."""
+    if not isinstance(item, dict):
+        return None
+    now = now or datetime.utcnow()
+    clean_account_id = str(account_id or item.get('_webull_account_id') or '').strip()
+    if not clean_account_id:
+        return None
+    order_key = _webull_order_key(item)
+    row = WebullHistoricalOrder.query.filter_by(
+        user_id=int(user_id),
+        environment=environment,
+        account_id=clean_account_id,
+        order_key=order_key,
+    ).first()
+    if row is None:
+        row = WebullHistoricalOrder(
+            user_id=int(user_id),
+            environment=environment,
+            account_id=clean_account_id,
+            order_key=order_key,
+        )
+        db.session.add(row)
+
+    row.webull_order_id = str(_first_value(item, 'order_id', 'orderId') or '').strip() or None
+    row.client_order_id = str(_first_value(item, 'client_order_id', 'clientOrderId') or '').strip() or None
+    row.symbol = str(_first_value(item, 'symbol', 'ticker') or 'UNKNOWN').strip().upper()
+    row.side = str(_first_value(item, 'side', 'action') or '').strip().upper() or None
+    row.order_type = str(_first_value(item, 'order_type', 'type') or '').strip().upper() or None
+    row.instrument_type = str(_first_value(item, 'instrument_type', 'security_type', 'asset_type') or '').strip().upper() or None
+    row.quantity = _amount(_first_value(item, 'total_quantity', 'quantity', 'order_quantity')) or 0.0
+    row.price = _amount(_first_value(item, 'limit_price', 'price', 'order_price')) or 0.0
+    row.stop_price = _amount(_first_value(item, 'stop_price', 'aux_price', 'trigger_price'))
+    row.filled_quantity = _amount(_first_value(item, 'filled_quantity', 'executed_quantity', 'filled_qty')) or 0.0
+    row.filled_price = _amount(_first_value(item, 'average_filled_price', 'avg_fill_price', 'filled_price')) or row.price
+    row.status = str(_first_value(item, 'status', 'order_status') or 'UNKNOWN').strip().upper()
+    row.time_in_force = str(_first_value(item, 'time_in_force', 'tif') or '').strip().upper() or None
+    created_at = _utc(_first_value(
+        item, 'created_at', 'create_time', 'placed_time', 'place_time',
+        'submitted_time', 'filled_time_at',
+    ))
+    updated_at = _utc(_first_value(
+        item, 'updated_at', 'update_time', 'filled_time', 'filled_time_at',
+        'last_updated_time',
+    ))
+    row.created_at = created_at or row.created_at or now
+    row.updated_at = updated_at or created_at or row.updated_at or now
+    row.raw_details = json.dumps(item, separators=(',', ':'), sort_keys=True, default=str)
+    row.synced_at = now
+    return row
+
+
+def _sync_account_orders(*, user_id, environment, account_id, credential, now):
+    """Refresh one account's provider history into the durable local ledger."""
+    orders = get_webull_order_history(
+        credential.webull_app_key,
+        credential.webull_app_secret,
+        environment,
+        credential.webull_access_token,
+        page_size=100,
+        account_id=account_id,
+    )
+    upserted = 0
+    for item in orders:
+        if upsert_webull_historical_order(
+            user_id=user_id,
+            environment=environment,
+            account_id=account_id,
+            item=item,
+            now=now,
+        ) is not None:
+            upserted += 1
+    return upserted
+
+
 def sync_webull_user_data(user_id, *, force=False):
-    """Refresh enabled Webull balances, positions, and the complete activity ledger.
+    """Refresh enabled Webull balances, positions, orders, and activity.
 
     This performs read-only API calls and local upserts only.  It never submits,
     modifies, or cancels an order in either live or test mode.
@@ -215,6 +318,7 @@ def sync_webull_user_data(user_id, *, force=False):
         portfolio_result = import_webull_portfolio_snapshot(user_id, preview)
         now = datetime.utcnow()
         activity_count = 0
+        order_count = 0
         for account in preview:
             account_id = str(account.get('account_id') or '').strip()
             if not account_id:
@@ -229,12 +333,30 @@ def sync_webull_user_data(user_id, *, force=False):
                 now=now,
             )
             db.session.commit()
+            try:
+                order_count += _sync_account_orders(
+                    user_id=user_id,
+                    environment=environment,
+                    account_id=account_id,
+                    credential=credential,
+                    now=now,
+                )
+                db.session.commit()
+            except Exception as order_exc:
+                db.session.rollback()
+                # A provider order-history outage must not discard a valid
+                # balance, position, or cash-ledger refresh for the account.
+                logger.warning(
+                    'Automatic Webull historical-order sync failed for user %s account %s: %s',
+                    user_id, account_id, order_exc,
+                )
 
         _last_success[user_id] = time.monotonic()
         return {
             'success': True,
             'accounts': portfolio_result['accounts'],
             'positions': portfolio_result['positions'],
+            'orders': order_count,
             'activities': activity_count,
             'synced_at': now.isoformat() + 'Z',
         }

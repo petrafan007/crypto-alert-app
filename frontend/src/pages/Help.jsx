@@ -370,7 +370,7 @@ export default function Help({ isLightMode }) {
                     <li>Under <strong>Connected Webull Accounts</strong>, use <strong>Refresh Accounts</strong> if needed. Account names, masked IDs, and types are displayed without exposing the full account number.</li>
                     <li>Check only the accounts you want available in Webull Trading. Unchecked accounts are excluded from Webull navigation and account-scoped actions.</li>
                     <li>Select <strong>Load Read-Only Portfolio Preview</strong> to inspect the enabled accounts' balances and open positions. This preview does not save or merge anything.</li>
-                    <li>Enable the accounts you want to use. Their balances, positions, orders, and complete API-exposed account activity synchronize automatically; there is no manual import step. The Dashboard keeps Webull rows separate by source and account, so same-symbol holdings are never merged with Binance.US.</li>
+                    <li>Enable the accounts you want to use. Their balances, positions, orders, and complete API-exposed account activity synchronize automatically; there is no manual import step. Orders and account activity are consolidated under Order History and load from the local database without waiting on Webull. The Dashboard keeps Webull rows separate by source and account, so same-symbol holdings are never merged with Binance.US.</li>
                 </ol>
 
                 <SubHeading>Navigate and set your default account</SubHeading>

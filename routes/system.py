@@ -59,7 +59,7 @@ from services.webull_service import (
     FALLBACK_US_FUTURES_PRODUCTS,
     test_webull_connection,
 )
-from services.webull_sync_service import sync_webull_user_data
+from services.webull_sync_service import sync_webull_user_data, upsert_webull_historical_order
 from services.webull_option_service import option_contract_label, resolve_option_contract
 
 
@@ -2179,13 +2179,6 @@ def api_webull_activities():
                 return jsonify({'success': False, 'message': str(exc)}), 400
             enabled_ids = [requested_account]
 
-        try:
-            sync_webull_user_data(current_user.id)
-        except Exception as sync_exc:
-            # Existing ledger rows remain useful during a transient provider
-            # error; disclose staleness without dropping the whole response.
-            logger.warning('On-demand automatic Webull synchronization failed: %s', sync_exc)
-
         query = WebullActivity.query.filter_by(user_id=current_user.id, environment=environment)
         if enabled_ids:
             query = query.filter(WebullActivity.account_id.in_(enabled_ids))
@@ -2753,6 +2746,26 @@ def api_webull_place_order():
             event_outcome=event_outcome,
             event_market=event_market,
         )
+        try:
+            upsert_webull_historical_order(
+                user_id=current_user.id,
+                environment=environment,
+                account_id=account_id,
+                item={
+                    **data,
+                    **(result if isinstance(result, dict) else {}),
+                    '_webull_account_id': account_id,
+                    'status': (result.get('status') if isinstance(result, dict) else None) or 'SUBMITTED',
+                    'created_at': (result or {}).get('created_at') if isinstance(result, dict) else None,
+                },
+            )
+            db.session.commit()
+        except Exception as persistence_exc:
+            db.session.rollback()
+            # The provider has already accepted the order. Never turn a
+            # successful trade into a false failure because local history
+            # persistence encountered a transient database problem.
+            logger.error('Webull order accepted but local history persistence failed: %s', persistence_exc, exc_info=True)
         logger.info(f"Webull order placed successfully: user={current_user.id} account={account_id} symbol={symbol} side={side} order_id={result.get('order_id')}")
         order_msg = (
             f"Webull combo order ({result.get('legs_count', 2)} legs) submitted successfully."

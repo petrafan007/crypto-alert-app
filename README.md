@@ -127,6 +127,18 @@ The application utilizes a **unified PostgreSQL database**.
 
 Historical changelog entries retain the product name used when they were originally released. The application domain, repository slug, deployment folders, database, and service identifiers intentionally remain unchanged by the v2.45.0 brand update.
 
+## v2.67.1 (August 2026)
+
+- **Instant Database-Backed Order History**:
+  - Webull Trading and the combined Orders page now load completed order history exclusively from the local database; opening Order History no longer authenticates with Webull or waits on its serialized 2.05-second order-history rate limit.
+  - Webull-scoped history requests default safely to the database path even when a future caller omits `history_source=database`.
+- **Background Webull Order Synchronization**:
+  - Added a durable, environment- and account-isolated Webull historical-order ledger. The automatic Webull feed now imports and idempotently updates provider orders in the background, including orders placed directly in Webull mobile or desktop.
+  - Orders accepted through CSD are written to local history immediately, while the background provider reconciliation remains authoritative for later status and fill updates.
+- **Consolidated History Presentation**:
+  - Removed the standalone Account Activity tabs from Webull Trading and the combined Orders page. Deposits, withdrawals, transfers, settlements, fees, dividends, interest, and other Webull ledger entries now appear inside the existing Order History tab beneath completed orders.
+  - Open Orders remains intentionally live and account-scoped; live/test isolation is unchanged.
+
 ## v2.67.0 (August 2026)
 
 - **Automatic Webull Account Synchronization**:

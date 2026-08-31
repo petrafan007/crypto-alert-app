@@ -238,7 +238,7 @@ export default function Orders() {
       const params = new URLSearchParams(window.location.search);
       const t = params.get('tab');
       if (['open', 'history', 'activity', 'market_analysis', 'portfolio_review'].includes(t)) {
-        return t;
+        return t === 'activity' ? 'history' : t;
       }
     } catch {}
     return 'open';
@@ -349,7 +349,7 @@ export default function Orders() {
   const loadHistory = async () => {
     setHistoryLoading(true);
     try {
-      const historyResponse = await axios.get('/api/trading/real-orders?limit=all', { withCredentials: true });
+      const historyResponse = await axios.get('/api/trading/real-orders?limit=all&history_source=database', { withCredentials: true });
       const allHistory = (historyResponse.data?.orders || []).map((order) => {
         const source = String(order?.source || '').toLowerCase();
         return normalize(order, ['auto_buy', 'auto_sell'].includes(source) ? source : (isWebull(order) ? 'webull' : 'binance'));
@@ -386,9 +386,11 @@ export default function Orders() {
   const load = async () => {
     setLoading(true);
     setNotice('');
-    await loadOpenOrders();
-    if (activeTab === 'history') await loadHistory();
-    if (activeTab === 'activity') await loadWebullActivities();
+    if (activeTab === 'history') {
+      await Promise.all([loadHistory(), loadWebullActivities()]);
+    } else {
+      await loadOpenOrders();
+    }
     setLoading(false);
   };
 
@@ -483,7 +485,7 @@ export default function Orders() {
     fetchWorkflowPrompt('portfolio-review');
   }, []);
   useEffect(() => {
-    if (activeTab !== 'activity') return undefined;
+    if (activeTab !== 'history') return undefined;
     const timer = window.setInterval(loadWebullActivities, 60000);
     return () => window.clearInterval(timer);
   }, [activeTab]);
@@ -523,8 +525,11 @@ export default function Orders() {
       url.searchParams.set('tab', tab);
       window.history.replaceState({}, '', url);
     } catch {}
-    if (tab === 'history' && !history.length && !historyLoading) loadHistory();
-    if (tab === 'activity' && !webullActivities.length && !activityLoading) loadWebullActivities();
+    if (tab === 'open') loadOpenOrders();
+    if (tab === 'history') {
+      if (!history.length && !historyLoading) loadHistory();
+      if (!webullActivities.length && !activityLoading) loadWebullActivities();
+    }
     if (tab === 'market_analysis' && !marketAnalysisData) loadLatestWorkflowData('market-analysis');
     if (tab === 'portfolio_review' && !portfolioReviewData) loadLatestWorkflowData('portfolio-review');
   };
@@ -627,9 +632,6 @@ export default function Orders() {
         <button className={`tab-button ${activeTab === 'history' ? 'active' : ''}`} onClick={() => selectTab('history')}>
           📜 <span className="tab-text">Order History</span>
         </button>
-        <button className={`tab-button ${activeTab === 'activity' ? 'active' : ''}`} onClick={() => selectTab('activity')}>
-          💵 <span className="tab-text">Webull Account Activity</span>
-        </button>
         <button className={`tab-button ${activeTab === 'market_analysis' ? 'active' : ''}`} onClick={() => selectTab('market_analysis')}>
           📊 <span className="tab-text">Market Analysis</span>
         </button>
@@ -664,18 +666,15 @@ export default function Orders() {
                 <h2>All Order History</h2>
                 <OrderTable orders={paginatedHistory} webullAccounts={webullAccounts} />
                 <Pagination page={historyPage} setPage={setHistoryPage} pageSize={historyPageSize} setPageSize={setHistoryPageSize} total={sortedHistory.length} />
+                <div style={{ marginTop: 28 }}>
+                  <h2>Webull Account Activity</h2>
+                  <p style={{ color: 'var(--text-secondary, #94a3b8)', marginTop: -6 }}>
+                    Deposits, withdrawals, transfers, trades, settlements, fees, dividends, interest, and other activity Webull exposes for your enabled accounts.
+                  </p>
+                  <WebullActivityTable activities={webullActivities} loading={activityLoading} />
+                </div>
               </>
             )}
-          </section>
-        )}
-
-        {activeTab === 'activity' && (
-          <section className="order-history-container">
-            <h2>Webull Account Activity</h2>
-            <p style={{ color: 'var(--text-secondary, #94a3b8)', marginTop: -6 }}>
-              Deposits, withdrawals, transfers, trades, settlements, fees, dividends, interest, and every other activity Webull exposes for your enabled accounts.
-            </p>
-            <WebullActivityTable activities={webullActivities} loading={activityLoading} />
           </section>
         )}
 

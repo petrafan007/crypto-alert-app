@@ -8,7 +8,7 @@ import re
 import traceback
 from flask import Blueprint, send_file, request, jsonify, render_template, current_app, redirect, url_for, session, make_response
 from flask_login import current_user, login_required, login_user, logout_user
-from models import Coin, WatchlistCoin, Notification, PriceHistory
+from models import Coin, WatchlistCoin, Notification, PriceHistory, WebullHistoricalOrder
 from credentials import Credential, User, UserSetting
 from core.extensions import db
 from log import logger
@@ -54,6 +54,14 @@ _KLINES_CACHE = {}
 _KLINES_CACHE_TTL = 300
 def _coerce_activity_datetime(dt): return dt # TODO: move to common
 def update_test_portfolio(*args, **kwargs): pass # TODO
+
+
+def _resolve_real_order_history_source(account_scope, requested_source=None):
+    """Default Webull history screens to the durable database feed."""
+    explicit = str(requested_source or '').strip().lower()
+    if explicit:
+        return explicit
+    return 'database' if account_scope == 'webull' else 'live'
 
 # Blueprint Definition
 portfolio_bp = Blueprint('portfolio', __name__)
@@ -2241,7 +2249,10 @@ def get_real_orders_only():
         # The Combined Orders view uses the persisted ledger so entering its
         # history tab is immediate. Other consumers can explicitly retain the
         # existing live exchange-history behavior.
-        history_source = str(request.args.get('history_source') or 'live').strip().lower()
+        history_source = _resolve_real_order_history_source(
+            account_scope,
+            request.args.get('history_source'),
+        )
         database_only = history_source == 'database'
 
         combined_orders = {}
@@ -2320,6 +2331,63 @@ def get_real_orders_only():
                 'trigger_type': 'auto_sell' if origin == 'auto_sell_cancellation' else None,
             }
             add_order(key, order_dict)
+
+        # Webull's rate-limited historical-order API is synchronized by the
+        # background feed. History screens read this durable table only, so
+        # opening a tab never blocks on provider authentication or pacing.
+        if account_scope != 'binance' and not webull_test_mode:
+            webull_environment = normalize_webull_environment(
+                getattr(webull_mode_setting, 'webull_environment', None) or 'production'
+            )
+            try:
+                enabled_accounts = {
+                    str(value) for value in json.loads(
+                        getattr(webull_mode_setting, 'webull_enabled_account_ids', '[]') or '[]'
+                    ) if str(value)
+                }
+            except Exception:
+                enabled_accounts = set()
+            target_account = str(request.args.get('account_id') or '').strip()
+            if target_account and target_account not in enabled_accounts:
+                return jsonify({'success': False, 'error': 'Choose an enabled Webull account.'}), 400
+
+            webull_query = WebullHistoricalOrder.query.filter_by(
+                user_id=current_user.id,
+                environment=webull_environment,
+            )
+            if target_account:
+                webull_query = webull_query.filter_by(account_id=target_account)
+            elif enabled_accounts:
+                webull_query = webull_query.filter(WebullHistoricalOrder.account_id.in_(enabled_accounts))
+            else:
+                webull_query = webull_query.filter(db.text('1 = 0'))
+            if symbol_filter:
+                webull_query = webull_query.filter_by(symbol=symbol_filter)
+            webull_rows = webull_query.order_by(WebullHistoricalOrder.created_at.desc()).all()
+
+            for row in webull_rows:
+                payload = {
+                    'id': row.webull_order_id or row.client_order_id or row.order_key,
+                    'client_order_id': row.client_order_id,
+                    'symbol': row.symbol,
+                    'side': row.side or 'UNKNOWN',
+                    'order_type': row.order_type or 'UNKNOWN',
+                    'quantity': float(row.quantity or 0.0),
+                    'price': float(row.price or 0.0),
+                    'stop_price': float(row.stop_price or 0.0),
+                    'filled_quantity': float(row.filled_quantity or 0.0),
+                    'filled_price': float(row.filled_price or row.price or 0.0),
+                    'status': row.status or 'UNKNOWN',
+                    'created_at': normalize_timestamp(row.created_at),
+                    'updated_at': normalize_timestamp(row.updated_at),
+                    'source': 'webull',
+                    'origin': 'webull',
+                    'origin_label': 'Webull',
+                    'instrument_type': row.instrument_type,
+                    'time_in_force': row.time_in_force,
+                    'webull_account_id': row.account_id,
+                }
+                add_order(f"webull-{row.account_id}-{payload['id']}", payload)
 
         if symbol_filter:
             symbols_to_check.add(symbol_filter)

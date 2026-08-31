@@ -36,6 +36,7 @@ from services.webull_service import (
     validate_webull_event_order_market,
 )
 from routes.system import _require_webull_instrument_account_match, _webull_account_response
+from routes.portfolio import _resolve_real_order_history_source
 from services.webull_paper_trading_service import _utc_iso
 
 
@@ -950,6 +951,12 @@ class AccountScopeAndFilteringTests(unittest.TestCase):
 
         all_orders = [o for o in orders]
         self.assertEqual(len(all_orders), 4)
+
+    def test_webull_history_defaults_to_database_without_overriding_explicit_source(self):
+        self.assertEqual(_resolve_real_order_history_source('webull'), 'database')
+        self.assertEqual(_resolve_real_order_history_source('all'), 'live')
+        self.assertEqual(_resolve_real_order_history_source('webull', 'live'), 'live')
+        self.assertEqual(_resolve_real_order_history_source('webull', 'database'), 'database')
 
     def test_filter_accounts_by_enabled_ids(self):
         accounts = [

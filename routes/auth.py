@@ -535,7 +535,7 @@ def delete_account():
             Coin, WatchlistCoin, Notification, StakedCoin, StakingReward,
             AIPrompt, AIConversation, AICache, AIAnalysisSchedule,
             SentimentHistory, ExternalSentimentSignal,
-            WebullAccountSnapshot, WebullActivity, WebullHolding, WebullTestAccount,
+            WebullAccountSnapshot, WebullActivity, WebullHistoricalOrder, WebullHolding, WebullTestAccount,
             WebullTestPosition, WebullTestOrder
         )
         Coin.query.filter_by(user_id=user_id).delete()
@@ -554,6 +554,7 @@ def delete_account():
         ExternalSentimentSignal.query.filter_by(user_id=user_id).delete()
         WebullAccountSnapshot.query.filter_by(user_id=user_id).delete()
         WebullActivity.query.filter_by(user_id=user_id).delete()
+        WebullHistoricalOrder.query.filter_by(user_id=user_id).delete()
         WebullHolding.query.filter_by(user_id=user_id).delete()
         WebullTestAccount.query.filter_by(user_id=user_id).delete()
         WebullTestPosition.query.filter_by(user_id=user_id).delete()

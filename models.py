@@ -117,6 +117,47 @@ class WebullActivity(db.Model):
     )
 
 
+class WebullHistoricalOrder(db.Model):
+    """Durable read-only copy of Webull historical orders.
+
+    Webull order history is synchronized in the background so history screens
+    never need to wait for the provider's serialized, rate-limited endpoint.
+    """
+    __tablename__ = 'webull_historical_orders'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, nullable=False)
+    environment = db.Column(db.String(20), nullable=False, default='production')
+    account_id = db.Column(db.String(80), nullable=False)
+    order_key = db.Column(db.String(180), nullable=False)
+    webull_order_id = db.Column(db.String(160), nullable=True)
+    client_order_id = db.Column(db.String(160), nullable=True)
+    symbol = db.Column(db.String(180), nullable=False, default='UNKNOWN')
+    side = db.Column(db.String(30), nullable=True)
+    order_type = db.Column(db.String(50), nullable=True)
+    instrument_type = db.Column(db.String(40), nullable=True)
+    quantity = db.Column(db.Float, default=0.0)
+    price = db.Column(db.Float, default=0.0)
+    stop_price = db.Column(db.Float, nullable=True)
+    filled_quantity = db.Column(db.Float, default=0.0)
+    filled_price = db.Column(db.Float, default=0.0)
+    status = db.Column(db.String(40), nullable=True)
+    time_in_force = db.Column(db.String(20), nullable=True)
+    created_at = db.Column(db.DateTime, nullable=True)
+    updated_at = db.Column(db.DateTime, nullable=True)
+    raw_details = db.Column(db.Text, nullable=True)
+    synced_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+    __table_args__ = (
+        db.UniqueConstraint(
+            'user_id', 'environment', 'account_id', 'order_key',
+            name='uq_webull_history_user_env_account_order',
+        ),
+        db.Index('ix_webull_history_user_time', 'user_id', 'created_at'),
+        db.Index('ix_webull_history_user_account', 'user_id', 'account_id'),
+    )
+
+
 class WebullHolding(db.Model):
     """Latest read-only Webull position snapshot; never a Binance trading record."""
     __tablename__ = 'webull_holdings'
