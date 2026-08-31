@@ -90,7 +90,7 @@ class OnboardingTests(unittest.TestCase):
             'password': 'StrongPassword!234',
             'accepted_terms': True,
         })
-        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.status_code, 201)
         self.assertEqual(response.get_json()['redirect'], '/onboarding')
         user = User.query.filter_by(username='newbeta').one()
         setting = db.session.get(UserSetting, user.id)

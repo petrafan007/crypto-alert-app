@@ -2432,6 +2432,17 @@ def api_webull_place_order():
             elif not quantity:
                 return jsonify({'success': False, 'message': 'Enter an order quantity.'}), 400
 
+        if str(instrument_type).upper() == 'EQUITY':
+            try:
+                is_fractional = (str(entrust_type).upper() == 'AMOUNT') or (quantity is not None and not float(quantity).is_integer())
+            except (TypeError, ValueError):
+                is_fractional = False
+            if is_fractional:
+                if str(support_trading_session or 'CORE').upper() != 'CORE':
+                    return jsonify({'success': False, 'message': 'Fractional stock and ETF orders are supported only during Regular Hours (CORE).'}), 400
+                if str(order_type or '').upper() != 'MARKET':
+                    return jsonify({'success': False, 'message': 'Webull supports fractional stock and ETF orders as Market orders only.'}), 400
+
         # Crypto safety guard: isolate crypto from equity-only features
         if str(instrument_type).upper() == 'CRYPTO':
             if str(side).upper() not in {'BUY', 'SELL'}:

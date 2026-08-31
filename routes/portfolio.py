@@ -2240,7 +2240,17 @@ def get_real_orders_only():
         # The Combined Orders view uses the persisted ledger so entering its
         # history tab is immediate. Other consumers can explicitly retain the
         # existing live exchange-history behavior.
-        history_source = str(request.args.get('history_source') or 'live').strip().lower()
+        #
+        # Guard: when account_scope=webull and no explicit history_source is
+        # provided, default to 'database'. Webull-scoped history already only
+        # returns Webull rows from the DB; hitting the live Webull API adds an
+        # unnecessary 2.05 s rate-limit delay per account for no extra data.
+        # Callers that genuinely need a live refresh can pass history_source=live.
+        explicit_history_source = request.args.get('history_source')
+        if account_scope == 'webull' and not explicit_history_source:
+            history_source = 'database'
+        else:
+            history_source = str(explicit_history_source or 'live').strip().lower()
         database_only = history_source == 'database'
 
         combined_orders = {}

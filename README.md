@@ -127,6 +127,21 @@ The application utilizes a **unified PostgreSQL database**.
 
 Historical changelog entries retain the product name used when they were originally released. The application domain, repository slug, deployment folders, database, and service identifiers intentionally remain unchanged by the v2.45.0 brand update.
 
+## v2.67.5 (August 2026)
+
+- **Onboarding Registration Flow**:
+  - Updated test expectations to match HTTP 201 Created returned by the registration endpoint.
+- **Fractional Webull Equity Validation**:
+  - Enforced preflight validation for fractional stock/ETF orders, requiring Regular Hours (`CORE`) and `MARKET` order types before provider submission.
+- **Futures Trailing-Stop Time in Force**:
+  - Preserved the caller's requested time-in-force (including `GTC`) for futures trailing-stop orders instead of overriding to `DAY`.
+- **Futures Trailing-Stop Parameter Validation**:
+  - Enforced required `AMOUNT` or `PERCENTAGE` trailing types and positive trail step values with explicit validation messages.
+- **Single-Leg Option Response Symbol**:
+  - Preserved the full option contract symbol (e.g. `TSLA240117C00250000`) in order placement responses while sending the underlying symbol to Webull OpenAPI order contracts.
+- **Webull Order Quantity Response Type**:
+  - Returned numeric `float` quantities in order response structures to ensure standard JSON numeric typing.
+
 ## v2.65.1 (August 2026)
 
 - **Reliable Event Contract Categories**:
@@ -1738,6 +1753,7 @@ Historical changelog entries retain the product name used when they were origina
 - **Fee Display & Calculation**: Improved fee rate calculation accuracy and fee section visibility in trading UI.
 
 ## Recent Major Updates (August 2026)
+- **Order Placement Validation & Test Suite Modernization (v2.67.5)**: Updated onboarding registration assertions to reflect HTTP 201 Created. Enforced preflight validation for Webull fractional equity orders to require Regular Hours (`CORE`) and `MARKET` execution. Preserved requested `time_in_force` (such as `GTC`) for futures trailing stops and enforced `AMOUNT` or `PERCENTAGE` parameter validation. Preserved full option contract identifiers in order placement results and standardized order quantity responses as numeric values.
 - **Options Order Monitoring & Event Contract Reliability (v2.66.5)**: Corrected option payoff quantity labels, quantity-scaled P&L, Eastern-calendar DTE, and the initial chart range so the underlying, strike, and breakeven are visible with retained zoom and drag controls. Paper-order timestamps now carry explicit UTC offsets and render in Eastern Time. Open Orders now shows an options-only Close-Now P&L using actual filled basis and executable bid/ask quotes, refreshed every 30 seconds; unfilled orders are explicitly identified instead of displaying fabricated profit. Event Contract category changes immediately clear the previous selection and results, never auto-select a market, show readable YES conditions with the raw contract symbol secondary, and use longer-lived category/catalog plus short result caches to reduce repeat loading time.
 - **Options Payoff Chart & Excel Export Reliability (v2.66.4)**: The payoff chart now receives the live underlying stock price separately from the selected option premium, uses a duplicate-free linear price axis with exact one-cent scenario points, and provides zoom controls around the underlying. The Excel export control is explicitly non-submitting, exported filenames include the actual option type, strike, and symbol, and every formula cell now carries a calculated result so the price, P&L, and Combined View matrices remain visible in Excel Protected View.
 - **Options Payoff Chart & Excel Export Fixes Part 3 (v2.66.3)**: Corrected the behavior of the Options Payoff Chart hexagon to act as a simulated strike price slider; dragging it recalculates the maximum profit/loss and dynamically redraws the P&L line across all target prices. Restored the native Webull hexagon CSS styling. Overhauled the chart fill using Chart.js to paint the positive profit area green and the negative loss area red relative to the zero-axis. Finally, fixed a critical circular reference in the Excel export Python script where the Days to Expiration (DTE) was colliding with the Options Price matrix, successfully restoring the blank matrices to fully populated values.

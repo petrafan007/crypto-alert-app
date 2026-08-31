@@ -602,14 +602,12 @@ export default function WebullTrading({ isLightMode = false }) {
     setHistoryLoading(true);
     try {
       const resp = await axios.get(
-        `/api/trading/real-orders?account_scope=webull&limit=100${accId ? `&account_id=${accId}` : ''}`,
+        `/api/trading/real-orders?account_scope=webull&history_source=database&limit=100${accId ? `&account_id=${accId}` : ''}`,
         { withCredentials: true }
       );
-      setHistory(
-        (resp.data?.orders || [])
-          .filter((order) => String(order?.source || '').toLowerCase() === 'webull')
-          .map(normalizeOrder)
-      );
+      // account_scope=webull + history_source=database already scopes results to
+      // Webull-sourced persisted rows; no additional client-side filter needed.
+      setHistory((resp.data?.orders || []).map(normalizeOrder));
     } catch (e) {
       // non-blocking
     } finally {

@@ -2427,6 +2427,14 @@ def place_webull_order(
         if clean_instrument == 'EQUITY' and clean_session not in {'CORE', 'ALL', 'NIGHT'}:
             raise WebullConnectionError('Choose Regular (CORE), Extended (ALL), or Overnight (NIGHT) trading hours.')
 
+        if clean_instrument == 'EQUITY':
+            is_fractional = (clean_entrust_type == 'AMOUNT') or (not qty.is_integer())
+            if is_fractional:
+                if clean_session != 'CORE':
+                    raise WebullConnectionError('Fractional stock and ETF orders are supported only during Regular Hours (CORE).')
+                if clean_type != 'MARKET':
+                    raise WebullConnectionError('Webull supports fractional stock and ETF orders as Market orders only.')
+
         clean_time_in_force = str(time_in_force or 'DAY').upper()
         if clean_instrument == 'CRYPTO':
             if clean_time_in_force not in {'DAY', 'GTC', 'IOC'}:
@@ -2477,18 +2485,19 @@ def place_webull_order(
             raise WebullConnectionError('Limit orders require a valid price greater than 0.')
 
     if clean_type == 'TRAILING_STOP_LOSS':
-        clean_trailing_type = str(trailing_type or 'AMOUNT').strip().upper()
-        if clean_trailing_type not in {'AMOUNT', 'PERCENTAGE'}:
+        if not trailing_type or str(trailing_type).strip().upper() not in {'AMOUNT', 'PERCENTAGE'}:
             raise WebullConnectionError('Choose AMOUNT or PERCENTAGE for trailing stop.')
+        clean_trailing_type = str(trailing_type).strip().upper()
         try:
             clean_trailing_step = float(trailing_stop_step)
             if clean_trailing_step <= 0:
                 raise ValueError()
         except (TypeError, ValueError):
-            raise WebullConnectionError('Trailing stops require a positive trail amount or percentage.')
+            raise WebullConnectionError('Trailing stops require a positive trail AMOUNT or PERCENTAGE.')
         order_payload['trailing_type'] = clean_trailing_type
         order_payload['trailing_stop_step'] = f'{clean_trailing_step:.4f}'.rstrip('0').rstrip('.')
-        order_payload['time_in_force'] = 'DAY'
+        if clean_instrument != 'FUTURES':
+            order_payload['time_in_force'] = 'DAY'
 
     # Algorithmic Orders (EQUITY only)
     if clean_instrument == 'EQUITY' and algo_type:
@@ -2619,10 +2628,10 @@ def place_webull_order(
         'order_id': order_id or request_body.get('client_combo_order_id') or primary_leg['client_order_id'],
         'client_order_id': primary_leg['client_order_id'],
         'client_combo_order_id': request_body.get('client_combo_order_id'),
-        'symbol': primary_leg.get('symbol', clean_symbol),
+        'symbol': clean_symbol or primary_leg.get('symbol', clean_symbol),
         'side': primary_leg.get('side', clean_side),
         'order_type': primary_leg.get('order_type', clean_type),
-        'quantity': primary_leg.get('quantity', qty),
+        'quantity': float(primary_leg['quantity']) if 'quantity' in primary_leg else qty,
         'legs_count': len(request_body['new_orders']),
         'raw': data,
     }
