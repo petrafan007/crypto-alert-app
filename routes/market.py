@@ -779,3 +779,60 @@ def api_cbbi_data():
             }
         }
         return jsonify(mock_data)
+
+from flask import request, send_file
+import tempfile
+import os
+import datetime
+
+@market_bp.route("/api/options/thesis/export", methods=["POST"])
+@login_required
+def export_options_thesis():
+    try:
+        data = request.json
+        baseline_price = float(data.get("baseline_price", 0))
+        strike_price = float(data.get("strike_price", 0))
+        entry_premium = float(data.get("entry_premium", 0))
+        multiplier = int(data.get("multiplier", 100))
+        iv = float(data.get("iv", 0))
+        risk_free_rate = float(data.get("risk_free_rate", 0))
+        expiration_date_str = data.get("expiration_date", "")
+        starting_dte = int(data.get("starting_dte", 0))
+        option_type = str(data.get("option_type", "PUT")).upper()
+
+        if not expiration_date_str:
+            expiration_date = datetime.date.today() + datetime.timedelta(days=starting_dte)
+        else:
+            try:
+                expiration_date = datetime.datetime.strptime(expiration_date_str, "%Y-%m-%d").date()
+            except ValueError:
+                expiration_date = datetime.date.today() + datetime.timedelta(days=starting_dte)
+
+        from services.options_thesis_service import generate_thesis_excel
+        wb = generate_thesis_excel(
+            baseline_price=baseline_price,
+            strike_price=strike_price,
+            entry_premium=entry_premium,
+            multiplier=multiplier,
+            iv=iv,
+            risk_free_rate=risk_free_rate,
+            expiration_date=expiration_date,
+            starting_dte=starting_dte,
+            option_type=option_type
+        )
+        
+        fd, temp_path = tempfile.mkstemp(suffix=".xlsx")
+        os.close(fd)
+        wb.save(temp_path)
+        
+        filename = f"{option_type}_{strike_price}_Payout_Model.xlsx"
+        
+        return send_file(
+            temp_path,
+            as_attachment=True,
+            download_name=filename,
+            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        )
+    except Exception as e:
+        logger.error(f"Error generating thesis excel: {e}")
+        return jsonify({"error": str(e)}), 500

@@ -1,0 +1,23 @@
+.options-payoff-container {
+  background: #1e1e1e;
+  padding: 20px;
+  border-radius: 8px;
+  color: #fff;
+}
+.payoff-header {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+.chart-wrapper {
+  position: relative;
+  height: 400px;
+  width: 100%;
+}
+.dte-slider-container {
+  padding-top: 15px;
+}
+.slider-labels span {
+  font-size: 0.85rem;
+  color: #aaa;
+}

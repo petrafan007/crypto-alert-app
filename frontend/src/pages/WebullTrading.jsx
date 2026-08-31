@@ -9,6 +9,7 @@ import CancelOrderModal from '../components/CancelOrderModal';
 import PercentPriceModal from '../components/PercentPriceModal';
 import WebullAIDashboard from '../components/WebullAIDashboard';
 import WebullOptionChain from '../components/WebullOptionChain';
+import OptionsPayoffChart from '../components/OptionsPayoffChart';
 import { formatEasternDate, formatEasternDateTime, formatEasternTime } from '../utils/dateTime';
 import { optionStrategyDefinition } from '../utils/optionStrategies';
 import {
@@ -2948,6 +2949,26 @@ export default function WebullTrading({ isLightMode = false }) {
                       isLightMode={isLightMode}
                     />
                   )}
+                  
+                  {/* Options Payoff Chart Preview */}
+                  {selectedInstrumentType === 'OPTION' && orderForm.optionStrike && orderForm.optionExpiration && (
+                    <div style={{ marginTop: '20px' }}>
+                      <OptionsPayoffChart
+                        baselinePrice={Number(latestAssetPrice || 0) || Number(orderForm.optionStrike)}
+                        strikePrice={Number(orderForm.optionStrike)}
+                        entryPremium={Number(orderForm.price || 0)}
+                        multiplier={100}
+                        iv={0.1501}
+                        riskFreeRate={0.0379}
+                        startingDTE={
+                          Math.max(0, Math.floor((new Date(orderForm.optionExpiration).getTime() - Date.now()) / (1000 * 3600 * 24))) || 1
+                        }
+                        optionType={orderForm.optionType}
+                        action={orderForm.side}
+                      />
+                    </div>
+                  )}
+
 
                   {/* Options Contract Setup (When OPTION selected) */}
                   {selectedInstrumentType === 'OPTION' && (

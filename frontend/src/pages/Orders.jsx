@@ -179,6 +179,7 @@ function OrderTable({ orders, open, onCancelOrder, cancellingId, webullAccounts 
           <thead>
             <tr>
               <th>Date / Time</th><th className="combined-order-account-heading">Account</th><th>Symbol</th><th>Side</th><th>Type</th><th>Quantity</th><th>Price</th><th>Filled</th><th>Fee</th><th>Status</th>
+              {open && <th>Est. P&L (if filled)</th>}
               {open && <th>Actions</th>}
             </tr>
           </thead>

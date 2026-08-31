@@ -21,3 +21,4 @@ psycopg2-binary>=2.9.0  # PostgreSQL driver
 yfinance>=0.2.0  # Yahoo Finance — stock price and symbol search for watchlist
 paho-mqtt>=1.6.1,<2  # MQTT client for Webull Data Streaming API
 webull-openapi-python-sdk>=2.0.18  # Webull OpenAPI SDK
+openpyxl==3.1.2
