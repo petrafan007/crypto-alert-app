@@ -114,6 +114,9 @@ class WebullHolding(db.Model):
     current_value = db.Column(db.Float, default=0.0)
     unrealized_profit_loss = db.Column(db.Float, nullable=True)
     currency = db.Column(db.String(12), default='USD')
+    hidden = db.Column(db.Boolean, default=False)
+    auto_hidden = db.Column(db.Boolean, default=False)
+    force_visible = db.Column(db.Boolean, default=False)
     synced_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
     __table_args__ = (

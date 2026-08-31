@@ -4640,26 +4640,53 @@ def api_sync_coins():
 @portfolio_bp.route("/api/unhide-all", methods=["POST"])
 @login_required
 def unhide_all():
-    data = request.get_json()
+    data = request.get_json() or {}
     coin_ids = data.get('coin_ids', [])
     
     if not coin_ids:
         return jsonify({"success": False, "error": "No coins selected"})
     
-    # Only unhide the selected coins
-    Coin.query.filter(
-        Coin.user_id == current_user.id,
-        Coin.hidden.is_(True),
-        Coin.id.in_(coin_ids)
-    ).update(
-        {
-            Coin.hidden: False,
-            Coin.auto_hidden: False,
-            Coin.force_visible: True
-        },
-        synchronize_session=False
-    )
-    
+    binance_ids = []
+    webull_ids = []
+    for cid in coin_ids:
+        if isinstance(cid, str) and cid.startswith('webull-'):
+            raw = cid.replace('webull-', '')
+            if raw.isdigit():
+                webull_ids.append(int(raw))
+        elif isinstance(cid, int) or (isinstance(cid, str) and cid.isdigit()):
+            binance_ids.append(int(cid))
+
+    # Unhide Binance coins
+    if binance_ids:
+        Coin.query.filter(
+            Coin.user_id == current_user.id,
+            Coin.hidden.is_(True),
+            Coin.id.in_(binance_ids)
+        ).update(
+            {
+                Coin.hidden: False,
+                Coin.auto_hidden: False,
+                Coin.force_visible: True
+            },
+            synchronize_session=False
+        )
+
+    # Unhide Webull holdings
+    if webull_ids:
+        from models import WebullHolding
+        WebullHolding.query.filter(
+            WebullHolding.user_id == current_user.id,
+            WebullHolding.hidden.is_(True),
+            WebullHolding.id.in_(webull_ids)
+        ).update(
+            {
+                WebullHolding.hidden: False,
+                WebullHolding.auto_hidden: False,
+                WebullHolding.force_visible: True
+            },
+            synchronize_session=False
+        )
+
     db.session.commit()
     return jsonify({"success": True})
 
@@ -4850,34 +4877,66 @@ def api_tax_report():
 @portfolio_bp.route("/api/hide-coin", methods=["POST"])
 @login_required
 def hide_coin():
-    data = request.get_json()
+    data = request.get_json() or {}
     coin_id = data.get("coin_id") or data.get("id")  # Support both coin_id and id
     hidden = data.get("hidden", True)
+    sym = data.get('symbol')
     
-    logger.info(f"Hide coin request: coin_id={coin_id}, hidden={hidden}, user_id={current_user.id}")
+    logger.info(f"Hide coin request: coin_id={coin_id}, symbol={sym}, hidden={hidden}, user_id={current_user.id}")
     
+    from models import WebullHolding
+
+    # 1. Check if coin_id is a Webull holding reference
+    wb_holding = None
+    if isinstance(coin_id, str) and coin_id.startswith('webull-'):
+        raw_wb_id = coin_id.replace('webull-', '')
+        if raw_wb_id.isdigit():
+            wb_holding = WebullHolding.query.filter_by(id=int(raw_wb_id), user_id=current_user.id).first()
+
+    if wb_holding:
+        wb_holding.hidden = hidden
+        if hidden:
+            wb_holding.alert_enabled = False
+            wb_holding.force_visible = False
+            wb_holding.auto_hidden = False
+        else:
+            wb_holding.auto_hidden = False
+            wb_holding.force_visible = True
+        db.session.commit()
+        logger.info(f"WebullHolding {wb_holding.symbol} (ID: {wb_holding.id}) hidden status updated to: {wb_holding.hidden}")
+        return jsonify({"success": True})
+
+    # 2. Check Binance Coin by ID
     coin = None
     if coin_id is not None:
         try:
             coin = Coin.query.filter_by(id=int(coin_id), user_id=current_user.id).first()
         except (ValueError, TypeError):
             pass
-    if not coin:
-        sym = data.get('symbol') or (str(coin_id) if isinstance(coin_id, str) and not coin_id.isdigit() else None)
-        if sym:
-            sym_clean = str(sym).upper()
-            from models import WebullHolding
-            wb_holding = WebullHolding.query.filter_by(symbol=sym_clean, user_id=current_user.id).first()
-            if wb_holding:
-                wb_holding.hidden = hidden
-                db.session.commit()
-                return jsonify({"success": True})
-            coin = Coin.query.filter_by(symbol=sym_clean, user_id=current_user.id).first()
-            if not coin:
-                coin = Coin(symbol=sym_clean, user_id=current_user.id, hidden=hidden, amount=0.0)
-                db.session.add(coin)
-                db.session.commit()
-                return jsonify({"success": True})
+
+    # 3. Check by Symbol
+    if not coin and (sym or (isinstance(coin_id, str) and not coin_id.isdigit() and not coin_id.startswith('webull-'))):
+        sym_clean = str(sym or coin_id).upper().strip()
+        wb_holding = WebullHolding.query.filter_by(symbol=sym_clean, user_id=current_user.id).first()
+        if wb_holding:
+            wb_holding.hidden = hidden
+            if hidden:
+                wb_holding.alert_enabled = False
+                wb_holding.force_visible = False
+                wb_holding.auto_hidden = False
+            else:
+                wb_holding.auto_hidden = False
+                wb_holding.force_visible = True
+            db.session.commit()
+            logger.info(f"WebullHolding {wb_holding.symbol} hidden status updated to: {wb_holding.hidden}")
+            return jsonify({"success": True})
+        coin = Coin.query.filter_by(symbol=sym_clean, user_id=current_user.id).first()
+        if not coin:
+            coin = Coin(symbol=sym_clean, user_id=current_user.id, hidden=hidden, amount=0.0)
+            db.session.add(coin)
+            db.session.commit()
+            return jsonify({"success": True})
+
     if coin:
         logger.info(f"Found coin: {coin.symbol}, current hidden status: {coin.hidden}")
         coin.hidden = hidden
@@ -5373,10 +5432,43 @@ def api_hidden_coins():
             db.session.rollback()
         # Legacy/sync artifacts without a ticker are not actionable coins and used
         # to render as a blank checkbox in the Unhide Coins modal.
+        result = []
+
+        # 1. Binance hidden coins
         coins = [coin for coin in Coin.query.filter_by(user_id=current_user.id, hidden=True).all()
                  if str(getattr(coin, 'symbol', '') or '').strip()]
-        logger.debug(f"Hidden coins for user {current_user.id}: {[c.symbol for c in coins]}")
-        result = [coin_to_dict(c) for c in coins]
+        for c in coins:
+            d = coin_to_dict(c)
+            d['source'] = 'binance'
+            d['source_label'] = 'Binance.US'
+            result.append(d)
+
+        # 2. Webull hidden holdings
+        from models import WebullHolding
+        wb_holdings = [h for h in WebullHolding.query.filter_by(user_id=current_user.id, hidden=True).all()
+                       if str(getattr(h, 'symbol', '') or '').strip()]
+        for wh in wb_holdings:
+            amount = float(wh.quantity or 0.0)
+            is_cash = (wh.instrument_type or '').upper() == 'CASH'
+            price = 1.0 if is_cash else float(wh.last_price or wh.cost_price or 1.0)
+            value = float(wh.current_value or (amount * price))
+            type_label = 'USD Cash' if is_cash else (wh.instrument_type or 'Security')
+            result.append({
+                'id': f'webull-{wh.id}',
+                'coin_id': f'webull-{wh.id}',
+                'raw_id': wh.id,
+                'symbol': wh.symbol,
+                'name': f"Webull · {type_label}",
+                'amount': amount,
+                'current_price': price,
+                'current_value': value,
+                'avg_entry': float(wh.cost_price or 1.0) if is_cash else float(wh.cost_price or 0.0),
+                'source': 'webull',
+                'source_label': 'Webull',
+                'instrument_type': wh.instrument_type or 'Security',
+                'is_external': True
+            })
+
         logger.debug(f"/api/hidden-coins result: {result}")
         return jsonify(result)
     except Exception as e:

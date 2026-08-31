@@ -409,14 +409,29 @@ export default function App() {
 
                   <div className="hidden-coins-list">
                     {hiddenCoins.map(coin => (
-                      <div key={coin.id} className="hidden-coin-item">
+                      <div key={coin.id} className="hidden-coin-item" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                         <input
                           type="checkbox"
                           checked={selectedHiddenCoins.includes(coin.id)}
                           onChange={() => handleSelectHiddenCoin(coin.id)}
                         />
-                        <span className="coin-symbol">{coin.symbol}</span>
-                        <span className="coin-name">{coin.name || ''}</span>
+                        <span className="coin-symbol" style={{ fontWeight: '600' }}>{coin.symbol}</span>
+                        {coin.source_label && (
+                          <span
+                            className="coin-source-badge"
+                            style={{
+                              fontSize: '0.75rem',
+                              padding: '2px 6px',
+                              borderRadius: '4px',
+                              background: coin.source === 'webull' ? 'rgba(56, 189, 248, 0.18)' : 'rgba(234, 179, 8, 0.18)',
+                              color: coin.source === 'webull' ? '#38bdf8' : '#eab308',
+                              fontWeight: '600'
+                            }}
+                          >
+                            {coin.source_label}
+                          </span>
+                        )}
+                        <span className="coin-name" style={{ marginLeft: 'auto', opacity: 0.75, fontSize: '0.85rem' }}>{coin.name || ''}</span>
                       </div>
                     ))}
                   </div>

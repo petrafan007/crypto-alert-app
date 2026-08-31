@@ -85,15 +85,23 @@ def import_webull_portfolio_snapshot(user_id, preview):
                 continue
             key = (symbol, instrument_type)
             received_keys.add(key)
+            new_qty = _number(position.get('quantity'))
             holding = WebullHolding.query.filter_by(
                 user_id=user_id, account_id=account_id, symbol=symbol, instrument_type=instrument_type,
             ).first()
             if holding is None:
                 holding = WebullHolding(
                     user_id=user_id, account_id=account_id, symbol=symbol, instrument_type=instrument_type,
+                    hidden=False, auto_hidden=False, force_visible=False,
                 )
                 db.session.add(holding)
-            holding.quantity = _number(position.get('quantity'))
+            else:
+                # If quantity changed significantly from a transaction/trade, automatically unhide
+                if abs((holding.quantity or 0.0) - new_qty) > 1e-6:
+                    holding.hidden = False
+                    holding.auto_hidden = False
+                    holding.force_visible = True
+            holding.quantity = new_qty
             holding.last_price = _number(position.get('last_price'), None)
             holding.cost_price = _number(position.get('cost_price'), None)
             # Webull may omit a position market value; calculate only when both fields exist.
@@ -117,8 +125,15 @@ def import_webull_portfolio_snapshot(user_id, preview):
             if usd_holding is None:
                 usd_holding = WebullHolding(
                     user_id=user_id, account_id=account_id, symbol='USD', instrument_type='CASH',
+                    hidden=False, auto_hidden=False, force_visible=False,
                 )
                 db.session.add(usd_holding)
+            else:
+                # Only unhide cash if balance changed significantly (new deposit/trade fill)
+                if abs((usd_holding.quantity or 0.0) - cash_balance) > 1e-4:
+                    usd_holding.hidden = False
+                    usd_holding.auto_hidden = False
+                    usd_holding.force_visible = True
             usd_holding.quantity = cash_balance
             usd_holding.last_price = 1.0
             usd_holding.cost_price = 1.0
@@ -198,6 +213,8 @@ def get_webull_portfolio_rows(user_id):
         pass  # Non-fatal: pill simply won't appear if metadata is unavailable
     rows = []
     for holding in WebullHolding.query.filter_by(user_id=user_id).order_by(WebullHolding.symbol.asc()).all():
+        if getattr(holding, 'hidden', False) and not getattr(holding, 'force_visible', False):
+            continue
         amount = _number(holding.quantity)
         is_cash = (holding.instrument_type or '').upper() == 'CASH'
         # USD cash rows always price at $1.00; never show a % change or unrealized PnL.
@@ -228,6 +245,8 @@ def get_webull_portfolio_rows(user_id):
             'option_strike': holding.option_strike,
             'option_type': holding.option_type,
             'option_multiplier': holding.option_multiplier,
+            'hidden': bool(getattr(holding, 'hidden', False)),
+            'force_visible': bool(getattr(holding, 'force_visible', False)),
             'last_updated': holding.synced_at.isoformat() if holding.synced_at else None,
             'custom_lower_type': holding.custom_lower_type or '#',
             'custom_upper_type': holding.custom_upper_type or '#',

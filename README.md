@@ -127,6 +127,15 @@ The application utilizes a **unified PostgreSQL database**.
 
 Historical changelog entries retain the product name used when they were originally released. The application domain, repository slug, deployment folders, database, and service identifiers intentionally remain unchanged by the v2.45.0 brand update.
 
+## v2.67.7 (August 2026)
+
+- **Persistent Webull Holding Visibility & USD Cash Row Hiding**:
+  - Added `hidden`, `auto_hidden`, and `force_visible` state tracking to `WebullHolding` database records. Hiding a Webull holding (such as a USD cash row or security) now reliably persists across background position syncs and dashboard data polls.
+  - Position syncs preserve the user's hidden status and will only automatically unhide a holding if a new transaction or trade alters its quantity.
+- **Unified Unhide Coins & Securities Modal**:
+  - Expanded `/api/hidden-coins` and `/api/unhide-all` to support both Binance crypto assets and Webull holdings (equities, cash, and securities).
+  - Added source badges (`Webull` vs. `Binance.US`) in the Unhide Coins modal for clear visibility and one-click bulk restoration.
+
 ## v2.67.6 (August 2026)
 
 - **Eliminated Duplicate Order Cancellation Notice**:
