@@ -43,6 +43,7 @@ export default function WebullTradingViewChart({
   allowDefaultAccount = true,
   holdings = [],
   isLightMode = false,
+  accountOnly = false,
 }) {
   const hostRef = useRef(null);
   const [status, setStatus] = useState('loading');
@@ -53,7 +54,7 @@ export default function WebullTradingViewChart({
   // Combine user's imported holdings with default lists
   const availableTraditional = useMemo(() => {
     const fromHoldings = holdings
-      .filter((h) => !/crypto|coin|token/i.test(h.instrument_type || '') && !['OPTION', 'FUTURES'].includes(String(h.instrument_type || '').toUpperCase()) && h.symbol)
+      .filter((h) => !/crypto|coin|token/i.test(h.instrument_type || '') && !['OPTION', 'FUTURES', 'EVENT'].includes(String(h.instrument_type || '').toUpperCase()) && h.symbol)
       .map((h) => ({
         id: h.symbol.toUpperCase(),
         symbol: h.symbol.toUpperCase(),
@@ -115,6 +116,7 @@ export default function WebullTradingViewChart({
 
   // Resolve TradingView widget symbol
   const tvSymbol = useMemo(() => {
+    if (accountOnly) return '';
     const clean = String(symbol || '').toUpperCase().trim();
     if (isFutures && !clean) return '';
     const resolved = clean || 'AAPL';
@@ -123,7 +125,7 @@ export default function WebullTradingViewChart({
       return `COINBASE:${pair}`;
     }
     return resolved;
-  }, [symbol, isCrypto, isFutures]);
+  }, [symbol, isCrypto, isFutures, accountOnly]);
 
   const pageUrl = tvSymbol
     ? `https://www.tradingview.com/symbols/${tvSymbol.replace(':', '-')}/`
@@ -191,7 +193,7 @@ export default function WebullTradingViewChart({
   }, [tvSymbol, isLightMode, pageUrl, symbol]);
 
   return (
-    <section className="advanced-trading-chart" aria-label={`${symbol} Webull advanced chart`}>
+    <section className="advanced-trading-chart" aria-label={accountOnly ? 'Webull Event Contract account' : `${symbol} Webull advanced chart`}>
       <header className="advanced-chart-header" style={{ flexWrap: 'wrap', gap: '16px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '16px', flexWrap: 'wrap', width: '100%' }}>
           {/* Webull Account Selector */}
@@ -261,7 +263,7 @@ export default function WebullTradingViewChart({
           )}
 
           {/* Unified Searchable Instrument / Pair Selector */}
-          <div className="advanced-chart-pair-control" style={{ width: 'min(100%, 340px)' }}>
+          {!accountOnly && <div className="advanced-chart-pair-control" style={{ width: 'min(100%, 340px)' }}>
             <span className="advanced-chart-control-label">
               {isCrypto ? 'Cryptocurrency Pair for Chart & Orders' : isOption ? 'Option Underlying Chart' : isFutures ? 'Webull Futures Contract' : 'Stock / ETF for Chart & Orders'}
             </span>
@@ -284,11 +286,11 @@ export default function WebullTradingViewChart({
                 placeholder={isCrypto ? 'Search crypto pairs (e.g. BTC, ETH, SOL)...' : 'Search stocks & ETFs (e.g. AAPL, NVDA, SPY)...'}
               />
             )}
-          </div>
+          </div>}
         </div>
       </header>
 
-      <div className="advanced-chart-capabilities">
+      {!accountOnly && <div className="advanced-chart-capabilities">
         <span>80+ indicators</span>
         <span>100+ drawings</span>
         <span>Native symbol search</span>
@@ -296,9 +298,9 @@ export default function WebullTradingViewChart({
         <span>Date ranges</span>
         <span>Details, hotlists &amp; calendar</span>
         <span>Image &amp; popup tools</span>
-      </div>
+      </div>}
 
-      <div className="advanced-chart-widget-shell">
+      {!accountOnly && <div className="advanced-chart-widget-shell">
         <div ref={hostRef} className="tradingview-widget-container advanced-chart-widget-host" />
         {!tvSymbol && <div className="advanced-chart-widget-status">Select an exact Webull futures contract below to load its chart.</div>}
         {tvSymbol && status === 'loading' && <div className="advanced-chart-widget-status">Loading TradingView Advanced Chart…</div>}
@@ -308,15 +310,15 @@ export default function WebullTradingViewChart({
             <a href={pageUrl} target="_blank" rel="noopener noreferrer">Open on TradingView</a>
           </div>
         )}
-      </div>
+      </div>}
 
-      <p className="advanced-chart-sync-note">
+      {!accountOnly && <p className="advanced-chart-sync-note">
         {isOption
           ? 'The chart shows the option underlying. The imported holding and its strike, expiration, and call/put terms remain locked into the option ticket below.'
           : isFutures
             ? 'Choose a Webull futures contract in the ticket below. The selected contract stays locked into the order ticket while TradingView remains available for market research.'
           : 'The selector above keeps the order ticket and Webull chart synchronized. TradingView\'s built-in symbol search remains available for independent market research.'}
-      </p>
+      </p>}
     </section>
   );
 }

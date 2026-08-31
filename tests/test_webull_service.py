@@ -25,6 +25,11 @@ from services.webull_service import (
     parse_webull_expiry,
     test_webull_connection as check_webull_connection,
     clear_webull_order_cache,
+    clear_webull_event_cache,
+    get_webull_event_categories,
+    get_webull_event_market,
+    get_webull_event_markets,
+    validate_webull_event_order_market,
 )
 from routes.system import _require_webull_instrument_account_match, _webull_account_response
 
@@ -32,6 +37,95 @@ from routes.system import _require_webull_instrument_account_match, _webull_acco
 class WebullServiceTests(unittest.TestCase):
     def setUp(self):
         clear_webull_order_cache()
+        clear_webull_event_cache()
+
+    @staticmethod
+    def _response(payload, status_code=200):
+        response = Mock(status_code=status_code, text='' if status_code == 200 else 'provider error')
+        response.json.return_value = payload
+        return response
+
+    def test_event_catalog_traverses_categories_series_and_markets_then_ranks_live_volume(self):
+        def provider(*args, **kwargs):
+            path = args[4]
+            params = kwargs.get('query_params') or {}
+            if path.endswith('/categories/list'):
+                return self._response({'data': [{'category': 'ECONOMICS', 'name': 'Economics'}]})
+            if path.endswith('/series/list'):
+                self.assertEqual(params['category'], 'ECONOMICS')
+                self.assertEqual(params['page_size'], 500)
+                return self._response({'data': [
+                    {'series_id': 's1', 'symbol': 'KXRATE', 'name': 'Fed rates'},
+                    {'series_id': 's2', 'symbol': 'KXCPI', 'name': 'Inflation'},
+                ]})
+            if path.endswith('/markets/list'):
+                self.assertIn(params['series_symbol'], {'KXRATE', 'KXCPI'})
+                symbol = 'KXRATE-26-T3' if params['series_symbol'] == 'KXRATE' else 'KXCPI-26-HIGH'
+                return self._response({'data': [{
+                    'instrument_id': f'i-{symbol}', 'symbol': symbol, 'name': f'{symbol} market',
+                    'status': 'LISTING', 'tradable_status': 'OC', 'fractionable': False,
+                    'price_ranges': [{'start': '0.01', 'end': '0.99', 'step': '0.01'}],
+                }]})
+            if path.endswith('/snapshots/list'):
+                self.assertEqual(params['category'], 'US_EVENT')
+                return self._response({'data': [
+                    {'symbol': 'KXRATE-26-T3', 'price': '0.42', 'volume': '125', 'open_interest': '50', 'yes_ask': '0.43', 'no_ask': '0.59'},
+                    {'symbol': 'KXCPI-26-HIGH', 'price': '0.25', 'volume': '900', 'open_interest': '80', 'yes_ask': '0.26', 'no_ask': '0.76'},
+                ]})
+            raise AssertionError(f'Unexpected Webull path: {path}')
+
+        with patch('services.webull_service._webull_request', side_effect=provider) as request_mock:
+            result = get_webull_event_markets(
+                'app-key', 'app-secret', access_token='token', category_id='ECONOMICS', limit=10,
+            )
+
+        self.assertEqual([item['symbol'] for item in result['markets']], ['KXCPI-26-HIGH', 'KXRATE-26-T3'])
+        self.assertEqual(result['markets'][0]['category_code'], 'ECONOMICS')
+        self.assertEqual(result['markets'][0]['rules']['trading_hours'], 'Monday–Friday, 8:00 AM–11:00 PM ET')
+        market_calls = [call for call in request_mock.call_args_list if call.args[4].endswith('/markets/list')]
+        self.assertEqual(len(market_calls), 2)
+
+    def test_event_search_matches_symbol_title_and_condition_without_a_fabricated_list(self):
+        catalog = {
+            'categories': [{'category_id': 'ECONOMICS', 'category_code': 'ECONOMICS', 'name': 'Economics'}],
+            'markets': [
+                {'symbol': 'KXRATE-ONE', 'name': 'Will rates fall?', 'yes_condition': 'Fed cuts once', 'category_code': 'ECONOMICS', 'price_ranges': [], 'tradable_status': 'OC'},
+                {'symbol': 'KXCPI-TWO', 'name': 'Will CPI rise?', 'yes_condition': 'CPI exceeds estimate', 'category_code': 'ECONOMICS', 'price_ranges': [], 'tradable_status': 'OC'},
+            ],
+            'as_of': '2026-08-30T00:00:00+00:00',
+        }
+        snapshots = {
+            'KXRATE-ONE': {'symbol': 'KXRATE-ONE', 'volume': 10},
+            'KXCPI-TWO': {'symbol': 'KXCPI-TWO', 'volume': 20},
+        }
+        with patch('services.webull_service.get_webull_event_catalog', return_value=catalog), \
+             patch('services.webull_service.get_webull_event_snapshots', return_value=snapshots):
+            by_title = get_webull_event_markets('a', 's', category_id='ECONOMICS', query='rates')
+            by_symbol = get_webull_event_markets('a', 's', category_id='ECONOMICS', query='kxcpi')
+            by_condition = get_webull_event_markets('a', 's', category_id='ECONOMICS', query='estimate')
+
+        self.assertEqual(by_title['markets'][0]['symbol'], 'KXRATE-ONE')
+        self.assertEqual(by_symbol['markets'][0]['symbol'], 'KXCPI-TWO')
+        self.assertEqual(by_condition['markets'][0]['symbol'], 'KXCPI-TWO')
+
+    def test_event_validation_honors_provider_tradable_status_fractionality_and_tick(self):
+        market = {
+            'tradable_status': 'OC', 'fractionable': False,
+            'price_ranges': [{'start': 0.01, 'end': 0.99, 'step': 0.01}],
+        }
+        validate_webull_event_order_market(market, side='BUY', quantity=1, limit_price=0.42)
+        with self.assertRaisesRegex(WebullConnectionError, 'whole-number'):
+            validate_webull_event_order_market(market, side='BUY', quantity=1.5, limit_price=0.42)
+        with self.assertRaisesRegex(WebullConnectionError, 'tick size'):
+            validate_webull_event_order_market(market, side='BUY', quantity=1, limit_price=0.425)
+        with self.assertRaisesRegex(WebullConnectionError, 'not currently open'):
+            validate_webull_event_order_market({**market, 'tradable_status': 'NT'}, side='BUY', quantity=1, limit_price=0.42)
+        validate_webull_event_order_market({**market, 'tradable_status': 'CO'}, side='SELL', quantity=1, limit_price=0.42)
+
+    def test_event_categories_fail_closed_instead_of_returning_hardcoded_markets(self):
+        with patch('services.webull_service._webull_request', return_value=self._response({}, status_code=500)):
+            with self.assertRaisesRegex(WebullConnectionError, 'HTTP 500'):
+                get_webull_event_categories('app-key', 'app-secret', access_token='token')
 
     def test_environment_normalization_accepts_only_supported_values(self):
         self.assertEqual(normalize_webull_environment('Production'), 'production')

@@ -53,7 +53,9 @@ from services.webull_service import (
     normalize_webull_environment,
     parse_webull_expiry,
     get_webull_event_categories,
+    get_webull_event_market,
     get_webull_event_markets,
+    validate_webull_event_order_market,
     FALLBACK_US_FUTURES_PRODUCTS,
     test_webull_connection,
 )
@@ -165,6 +167,75 @@ def _live_webull_option_order_capability(credential, environment, account_id, *,
         )
     )
     return available_cash, owned_contracts
+
+
+def _live_webull_event_owned_contracts(credential, environment, account_id, *, symbol, event_outcome):
+    """Return the provider's currently available quantity for one exact Yes/No position."""
+    preview = get_webull_portfolio_preview(
+        credential.webull_app_key,
+        credential.webull_app_secret,
+        environment,
+        credential.webull_access_token,
+        account_ids=[account_id],
+    )
+    account = next((item for item in preview if str(item.get('account_id') or '') == str(account_id)), None)
+    if not account:
+        raise WebullConnectionError('Webull did not return the selected Event Contract account.')
+    clean_symbol = str(symbol or '').strip().upper()
+    clean_outcome = str(event_outcome or '').strip().upper()
+    available = 0.0
+    for position in account.get('positions') or []:
+        if not isinstance(position, dict) or str(position.get('instrument_type') or '').strip().upper() != 'EVENT':
+            continue
+        position_symbol = str(position.get('underlying_symbol') or position.get('symbol') or '').strip().upper()
+        suffix_match = position_symbol.rsplit(' ', 1) if position_symbol.endswith((' YES', ' NO')) else (position_symbol, '')
+        position_outcome = str(position.get('event_outcome') or suffix_match[1] or '').strip().upper()
+        if suffix_match[0] != clean_symbol or position_outcome != clean_outcome:
+            continue
+        available += max(0.0, _webull_number(
+            position.get('available_quantity', position.get('quantity', position.get('amount', 0.0)))
+        ))
+    return available
+
+
+def _webull_event_connection(setting=None):
+    setting = setting or UserSetting.query.filter_by(user_id=current_user.id).first()
+    credential = Credential.query.filter_by(user_id=current_user.id).first()
+    environment = normalize_webull_environment(getattr(setting, 'webull_environment', None) or 'production')
+    if (
+        not credential or credential.webull_token_status != 'NORMAL'
+        or credential.webull_token_environment != environment or not credential.webull_access_token
+    ):
+        raise WebullConnectionError('Connect Webull before loading Event Contracts.')
+    return credential, environment
+
+
+def _preflight_webull_event_order(data, setting=None):
+    if str(data.get('order_type') or '').strip().upper() != 'LIMIT':
+        raise WebullConnectionError('Webull event contract orders support Limit orders only.')
+    if str(data.get('time_in_force') or 'DAY').strip().upper() != 'DAY':
+        raise WebullConnectionError('Webull event contract orders support Day time in force only.')
+    side = str(data.get('side') or '').strip().upper()
+    if side not in {'BUY', 'SELL'}:
+        raise WebullConnectionError('Webull event contract orders support Buy and Sell only.')
+    if str(data.get('event_outcome') or '').strip().lower() not in {'yes', 'no'}:
+        raise WebullConnectionError('Event contracts require choosing Yes or No for the outcome.')
+    try:
+        quantity = float(data.get('quantity'))
+        limit_price = float(data.get('limit_price'))
+    except (TypeError, ValueError) as exc:
+        raise WebullConnectionError('Enter a valid Event Contract quantity and limit price.') from exc
+
+    credential, environment = _webull_event_connection(setting)
+    market = get_webull_event_market(
+        credential.webull_app_key, credential.webull_app_secret,
+        environment, credential.webull_access_token,
+        symbol=data.get('symbol'), force=True,
+    )
+    validate_webull_event_order_market(
+        market, side=side, quantity=quantity, limit_price=limit_price,
+    )
+    return market
 
 
 def _webull_json_collection(raw_value, expected_type, fallback):
@@ -2275,6 +2346,13 @@ def api_webull_place_order():
         # The persisted server setting is authoritative. A stale or modified
         # browser payload cannot opt out of Test Mode and reach live trading.
         is_test_order = paper_mode_enabled
+        event_market = None
+        if str(data.get('instrument_type') or '').strip().upper() == 'EVENT':
+            try:
+                event_market = _preflight_webull_event_order(data, setting)
+                data['_event_market_rules'] = event_market.get('rules') or {}
+            except WebullConnectionError as exc:
+                return jsonify({'success': False, 'message': str(exc)}), 400
         if is_test_order:
             data['test_mode'] = True
             data['account_id'] = 'TEST_PAPER_ACCOUNT'
@@ -2360,30 +2438,6 @@ def api_webull_place_order():
                 return jsonify({'success': False, 'message': 'Crypto orders support BUY and SELL only.'}), 400
             if str(order_type).upper() not in {'MARKET', 'LIMIT', 'STOP_LOSS_LIMIT'}:
                 return jsonify({'success': False, 'message': 'Crypto orders support Market, Limit, and Stop Loss Limit only.'}), 400
-
-        # Event Contract validation
-        if str(instrument_type).upper() == 'EVENT':
-            if str(order_type or '').strip().upper() != 'LIMIT':
-                return jsonify({'success': False, 'message': 'Webull event contract orders support Limit orders only.'}), 400
-            if str(side or '').strip().upper() not in {'BUY', 'SELL'}:
-                return jsonify({'success': False, 'message': 'Webull event contract orders support Buy and Sell only.'}), 400
-            clean_outcome = str(event_outcome or '').strip().lower()
-            if clean_outcome not in {'yes', 'no'}:
-                return jsonify({'success': False, 'message': 'Event contracts require choosing Yes or No for the outcome.'}), 400
-            try:
-                event_qty = float(quantity)
-                if event_qty <= 0 or not event_qty.is_integer():
-                    raise ValueError()
-                if event_qty > 50000:
-                    return jsonify({'success': False, 'message': 'Maximum quantity for event contracts is 50,000 contracts.'}), 400
-            except (TypeError, ValueError):
-                return jsonify({'success': False, 'message': 'Event contracts require a whole number of contracts.'}), 400
-            try:
-                event_px = float(limit_price)
-                if event_px < 0.01 or event_px > 0.99:
-                    raise ValueError()
-            except (TypeError, ValueError):
-                return jsonify({'success': False, 'message': 'Event contract limit price must be between $0.01 and $0.99.'}), 400
 
         # Options use their documented single-leg contract fields. Reject an
         # unsupported ticket before a 2FA token is consumed or an API request
@@ -2542,6 +2596,27 @@ def api_webull_place_order():
                     'message': 'Choose an exact tradable Webull futures contract from the Futures Contract Setup before placing an order.',
                 }), 400
 
+        if str(instrument_type).upper() == 'EVENT' and str(side or '').strip().upper() == 'SELL':
+            try:
+                event_quantity = float(quantity)
+            except (TypeError, ValueError):
+                return jsonify({'success': False, 'message': 'Enter a valid Event Contract quantity.'}), 400
+            owned_event_contracts = _live_webull_event_owned_contracts(
+                credential,
+                environment,
+                account_id,
+                symbol=symbol,
+                event_outcome=event_outcome,
+            )
+            if owned_event_contracts + WEBULL_OPTION_STRIKE_EPSILON < event_quantity:
+                return jsonify({
+                    'success': False,
+                    'message': (
+                        'Event Contract Sell orders can only close an exact owned Yes/No position. '
+                        f'Available contracts: {owned_event_contracts:g}.'
+                    ),
+                }), 400
+
         # Enforce 2FA verification if enabled for user
         from trading_models import TradingSettings
         trading_settings = TradingSettings.query.filter_by(user_id=current_user.id).first()
@@ -2603,6 +2678,7 @@ def api_webull_place_order():
             bracket_stop_loss_price=bracket_stop_loss_price,
             bracket_stop_loss_limit_price=bracket_stop_loss_limit_price,
             event_outcome=event_outcome,
+            event_market=event_market,
         )
         logger.info(f"Webull order placed successfully: user={current_user.id} account={account_id} symbol={symbol} side={side} order_id={result.get('order_id')}")
         order_msg = (
@@ -2627,19 +2703,18 @@ def api_webull_place_order():
 def api_webull_event_categories():
     """Return available Webull Event Contract categories."""
     try:
-        credential = Credential.query.filter_by(user_id=current_user.id).first()
         setting = UserSetting.query.filter_by(user_id=current_user.id).first()
-        environment = normalize_webull_environment(getattr(setting, 'webull_environment', None) or 'production')
+        credential, environment = _webull_event_connection(setting)
         categories = get_webull_event_categories(
-            credential.webull_app_key if credential else None,
-            credential.webull_app_secret if credential else None,
+            credential.webull_app_key,
+            credential.webull_app_secret,
             environment,
-            credential.webull_access_token if credential else None,
+            credential.webull_access_token,
         )
-        return jsonify({'success': True, 'categories': categories})
-    except Exception as exc:
+        return jsonify({'success': True, 'categories': categories, 'source': 'webull'})
+    except WebullConnectionError as exc:
         logger.error('Error fetching Webull event categories: %s', exc)
-        return jsonify({'success': True, 'categories': get_webull_event_categories()})
+        return jsonify({'success': False, 'categories': [], 'message': str(exc)}), 502
 
 
 @system_bp.route('/api/webull/events/markets', methods=['GET'])
@@ -2647,23 +2722,33 @@ def api_webull_event_categories():
 def api_webull_event_markets():
     """Return available Webull Event Contract markets/instruments."""
     try:
-        category_id = request.args.get('category_id')
-        symbol = request.args.get('symbol')
-        credential = Credential.query.filter_by(user_id=current_user.id).first()
+        category_id = request.args.get('category_id') or request.args.get('category')
+        symbol = str(request.args.get('symbol') or '').strip().upper()
+        query = request.args.get('query') or request.args.get('q')
+        try:
+            limit = max(1, min(int(request.args.get('limit') or 10), 50))
+        except (TypeError, ValueError):
+            return jsonify({'success': False, 'markets': [], 'message': 'Limit must be a whole number from 1 to 50.'}), 400
         setting = UserSetting.query.filter_by(user_id=current_user.id).first()
-        environment = normalize_webull_environment(getattr(setting, 'webull_environment', None) or 'production')
-        markets = get_webull_event_markets(
-            credential.webull_app_key if credential else None,
-            credential.webull_app_secret if credential else None,
-            environment,
-            credential.webull_access_token if credential else None,
-            category_id=category_id,
-            symbol=symbol,
-        )
-        return jsonify({'success': True, 'markets': markets})
-    except Exception as exc:
+        credential, environment = _webull_event_connection(setting)
+        if symbol:
+            market = get_webull_event_market(
+                credential.webull_app_key, credential.webull_app_secret,
+                environment, credential.webull_access_token,
+                symbol=symbol, force=True,
+            )
+            result = {'markets': [market], 'total_matches': 1, 'catalog_as_of': market.get('quote_as_of')}
+        else:
+            result = get_webull_event_markets(
+                credential.webull_app_key, credential.webull_app_secret,
+                environment, credential.webull_access_token,
+                category_id=category_id, query=query, limit=limit,
+                force=request.args.get('refresh') == '1',
+            )
+        return jsonify({'success': True, **result, 'source': 'webull'})
+    except WebullConnectionError as exc:
         logger.error('Error fetching Webull event markets: %s', exc)
-        return jsonify({'success': True, 'markets': get_webull_event_markets(category_id=category_id, symbol=symbol)})
+        return jsonify({'success': False, 'markets': [], 'message': str(exc)}), 502
 
 
 @system_bp.route('/api/webull/orders/cancel', methods=['POST'])

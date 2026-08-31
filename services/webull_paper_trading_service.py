@@ -223,19 +223,38 @@ def fetch_live_price(
     option_type: Optional[str] = None,
     option_strike: Optional[float] = None,
     option_expiration: Optional[str] = None,
+    event_outcome: Optional[str] = None,
 ) -> float:
     """Fetch live real-world pricing for paper order execution and valuation across all asset classes."""
     clean_sym = (symbol or '').upper().strip()
     clean_type = (instrument_type or 'EQUITY').upper().strip()
 
-    # 1. EVENT contracts trade between $0.01 and $0.99
+    # 1. Event positions use the selected outcome's current Webull quote.
     if clean_type == 'EVENT':
-        existing = WebullTestPosition.query.filter_by(user_id=user_id, symbol=clean_sym).first()
-        if existing and existing.last_price and 0.01 <= existing.last_price <= 0.99:
-            return float(existing.last_price)
-        if existing and existing.cost_price and 0.01 <= existing.cost_price <= 0.99:
-            return float(existing.cost_price)
-        return 0.50
+        from credentials import Credential, UserSetting
+        from services.webull_service import get_webull_event_market, normalize_webull_environment
+        market_symbol = clean_sym.rsplit(' ', 1)[0] if clean_sym.endswith((' YES', ' NO')) else clean_sym
+        outcome = str(event_outcome or (clean_sym.rsplit(' ', 1)[-1] if clean_sym.endswith((' YES', ' NO')) else 'YES')).lower()
+        credential = Credential.query.filter_by(user_id=user_id).first()
+        setting = UserSetting.query.filter_by(user_id=user_id).first()
+        environment = normalize_webull_environment(getattr(setting, 'webull_environment', None) or 'production')
+        if not credential or not credential.webull_access_token:
+            raise ValueError('Connect Webull before valuing simulated Event Contract positions.')
+        market = get_webull_event_market(
+            credential.webull_app_key, credential.webull_app_secret,
+            environment, credential.webull_access_token,
+            symbol=market_symbol,
+        )
+        if outcome == 'no':
+            candidates = (market.get('no_bid'), market.get('no_ask'))
+            if not any(value is not None for value in candidates) and market.get('last_price') is not None:
+                candidates = (1 - float(market['last_price']),)
+        else:
+            candidates = (market.get('yes_bid'), market.get('yes_ask'), market.get('last_price'))
+        valid = [float(value) for value in candidates if value is not None and float(value) >= 0]
+        if not valid:
+            raise ValueError('Webull returned no current price for this Event Contract outcome.')
+        return sum(valid[:2]) / min(2, len(valid))
 
     # 2. Options pricing
     if clean_type in {'OPTION', 'OPTIONS'}:
@@ -413,7 +432,10 @@ def get_webull_test_account_summary(user_id: int) -> Dict[str, Any]:
                 option_type=pos.option_type, option_strike=pos.option_strike, option_expiration=pos.option_expiration
             )
         else:
-            curr_price = fetch_live_price(user_id, pos.symbol, pos.instrument_type)
+            curr_price = fetch_live_price(
+                user_id, pos.symbol, pos.instrument_type,
+                event_outcome=pos.event_outcome,
+            )
 
         pos.last_price = curr_price
         multiplier = int(pos.contract_multiplier or (100 if pos.instrument_type == 'OPTION' else 1))
@@ -471,7 +493,11 @@ def get_webull_test_positions(user_id: int) -> List[Dict[str, Any]]:
     positions = WebullTestPosition.query.filter_by(user_id=user_id).all()
     rows = []
     for pos in positions:
-        curr_price = pos.last_price or fetch_live_price(user_id, pos.symbol, pos.instrument_type)
+        curr_price = (
+            fetch_live_price(user_id, pos.symbol, pos.instrument_type, event_outcome=pos.event_outcome)
+            if pos.instrument_type == 'EVENT'
+            else pos.last_price or fetch_live_price(user_id, pos.symbol, pos.instrument_type)
+        )
         pos.last_price = curr_price
         multiplier = int(pos.contract_multiplier or (100 if pos.instrument_type == 'OPTION' else 1))
         qty = float(pos.quantity or 0.0)
@@ -785,7 +811,8 @@ def execute_webull_test_order(user_id: int, data: Dict[str, Any]) -> Dict[str, A
     # Fetch live execution quote
     live_price = fetch_live_price(
         user_id, underlying_sym or symbol, instrument_type,
-        option_type=option_type, option_strike=option_strike, option_expiration=option_expiration
+        option_type=option_type, option_strike=option_strike, option_expiration=option_expiration,
+        event_outcome=event_outcome,
     )
 
     limit_price = float(data.get('limit_price')) if data.get('limit_price') is not None else None
@@ -808,18 +835,39 @@ def execute_webull_test_order(user_id: int, data: Dict[str, Any]) -> Dict[str, A
 
     # Event contract validations
     if instrument_type == 'EVENT':
-        if not float(quantity).is_integer() or quantity < 1:
-            raise ValueError("Event contracts require a whole number of contracts.")
-        if quantity > 50000:
-            raise ValueError("Maximum quantity for event contracts is 50,000.")
-        if limit_price is not None and not (0.01 <= limit_price <= 0.99):
-            raise ValueError("Event contract limit price must be between $0.01 and $0.99.")
-        fill_price = limit_price if (limit_price and 0.01 <= limit_price <= 0.99) else 0.50
+        event_rules = data.get('_event_market_rules') if isinstance(data.get('_event_market_rules'), dict) else {}
+        max_quantity = float(event_rules.get('max_quantity') or 0)
+        price_ranges = event_rules.get('price_ranges') if isinstance(event_rules.get('price_ranges'), list) else []
+        if not max_quantity or not price_ranges:
+            raise ValueError('Current Webull Event Contract rules are unavailable. Refresh the market and try again.')
+        if quantity <= 0 or quantity > max_quantity:
+            raise ValueError(f'Maximum quantity for this event contract is {max_quantity:g}.')
+        if not event_rules.get('fractionable') and not float(quantity).is_integer():
+            raise ValueError('This event contract requires a whole-number quantity.')
+        if limit_price is None:
+            raise ValueError('Event contracts require a limit price.')
+        valid_price = False
+        for price_range in price_ranges:
+            try:
+                start = float(price_range['start'])
+                end = float(price_range['end'])
+                step = float(price_range['step'])
+                ticks = (limit_price - start) / step
+                if start <= limit_price <= end and abs(ticks - round(ticks)) <= 1e-6:
+                    valid_price = True
+                    break
+            except (KeyError, TypeError, ValueError, ZeroDivisionError):
+                continue
+        if not valid_price:
+            raise ValueError('The limit price does not match this event contract’s current Webull price range and tick size.')
+        fill_price = limit_price
 
     # Options contract display symbol
     contract_symbol = symbol
     if instrument_type in {'OPTION', 'OPTIONS'} and option_strike and option_expiration:
         contract_symbol = f"{underlying_sym} {option_expiration} ${option_strike:g} {option_type}"
+    elif instrument_type == 'EVENT':
+        contract_symbol = f"{symbol} {event_outcome.upper()}"
 
     total_trade_amount = round(quantity * fill_price * multiplier, 2)
 

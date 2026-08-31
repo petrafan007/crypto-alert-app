@@ -127,6 +127,20 @@ The application utilizes a **unified PostgreSQL database**.
 
 Historical changelog entries retain the product name used when they were originally released. The application domain, repository slug, deployment folders, database, and service identifiers intentionally remain unchanged by the v2.45.0 brand update.
 
+## v2.65.0 (August 2026)
+
+- **Complete Webull Event Contract Discovery**:
+  - Replaced the fixed category and market samples with Webull's live Category → Series → Market catalog. Every current market in the selected provider category is searchable by market title, condition, event or series name, and exact symbol.
+  - The market selector shows the ten most active contracts in the chosen category when no search is entered, then searches the complete category catalog as the user types. The separate custom-symbol field is no longer needed.
+- **Live Quotes, Rules, and Payouts**:
+  - Yes/No controls now show current bid, ask, available size, volume, open interest, and last-trade information from Webull Event snapshots. Winning payout, potential profit, maximum quantity, fractionality, and every provider price range/tick are reflected in the ticket without fabricated fallback quotes.
+  - Event Contract orders remain Limit/Day and are preflighted against a freshly fetched provider market profile. Webull's `OC`, `CO`, and `NT` states control whether buying or closing is available, so both live and simulated tickets honor provider trading availability and contract-specific hours.
+- **Independent Event Contract Workspace**:
+  - Event market symbols are isolated from equities, ETFs, crypto, options, and futures. Event selection never enters TradingView, stock/ETF search, or the option-underlying chart, and each asset class restores its own last-selected instrument when the user returns.
+  - Event positions retain their Yes/No identity independently, while event holdings are excluded from equity selectors and analysis lists. Sell to Close requires the exact owned outcome, preventing negative Event Contract positions.
+- **Regression Coverage**:
+  - Added provider-contract tests for Category → Series → Market traversal, live activity ranking, full-catalog text search, trading-status enforcement, fractionality, price ticks, and fail-closed behavior when Webull is unavailable.
+
 ## v2.64.0 (August 2026)
 
 - **Webull USD Cash Balance Row**: Deposited cash in each Webull account now appears as a dedicated `USD` row in the portfolio table — one row per account that holds a positive balance. The row carries the Webull icon, `$` symbol indicator, and the existing blue account-type pill (e.g. "Cash", "Roth IRA"). The row is automatically created or removed on each Webull sync based on the live `total_cash_balance`.

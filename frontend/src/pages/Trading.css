@@ -2215,3 +2215,404 @@ body.light-mode .pagination-btn.active {
   color: #c084fc;
   border: 1px solid rgba(168, 85, 247, 0.4);
 }
+
+/* Webull Event Contract discovery, quotes, rules, and payout preview */
+.event-contract-card {
+  position: relative;
+  z-index: 12;
+  margin-bottom: 1rem;
+  padding: 1rem;
+  border: 1px solid rgba(244, 114, 182, 0.35);
+  border-radius: 10px;
+  background: rgba(236, 72, 153, 0.1);
+}
+
+.event-contract-card-header,
+.event-contract-card-title,
+.event-market-results-heading,
+.selected-event-market,
+.selected-event-market-stats,
+.event-payout-summary {
+  display: flex;
+  align-items: center;
+}
+
+.event-contract-card-header {
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.event-contract-card-title {
+  gap: 0.4rem;
+  color: #f472b6;
+  font-size: 0.85rem;
+  font-weight: 800;
+}
+
+.event-market-status {
+  padding: 0.25rem 0.6rem;
+  border: 1px solid #64748b;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.7);
+  color: #cbd5e1;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.event-market-status.status-oc {
+  border-color: rgba(34, 197, 94, 0.55);
+  background: rgba(34, 197, 94, 0.15);
+  color: #86efac;
+}
+
+.event-market-status.status-co {
+  border-color: rgba(245, 158, 11, 0.55);
+  background: rgba(245, 158, 11, 0.15);
+  color: #fcd34d;
+}
+
+.event-market-status.status-nt {
+  border-color: rgba(239, 68, 68, 0.55);
+  background: rgba(239, 68, 68, 0.15);
+  color: #fca5a5;
+}
+
+.event-contract-selector-grid {
+  display: grid;
+  grid-template-columns: minmax(190px, 0.7fr) minmax(300px, 1.8fr);
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.event-market-combobox {
+  position: relative;
+  z-index: 5;
+}
+
+.event-market-search-row {
+  position: relative;
+}
+
+.event-market-search-input {
+  padding-right: 2.5rem !important;
+}
+
+.event-market-menu-toggle {
+  position: absolute;
+  top: 50%;
+  right: 0.45rem;
+  width: 1.8rem;
+  height: 1.8rem;
+  padding: 0;
+  transform: translateY(-50%);
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: #cbd5e1;
+  cursor: pointer;
+  font-size: 1rem;
+}
+
+.event-market-menu-toggle:hover {
+  background: rgba(148, 163, 184, 0.14);
+}
+
+.event-market-results {
+  position: absolute;
+  top: calc(100% + 0.35rem);
+  right: 0;
+  left: 0;
+  z-index: 40;
+  max-height: 24rem;
+  overflow-y: auto;
+  border: 1px solid #475569;
+  border-radius: 8px;
+  background: #0f172a;
+  box-shadow: 0 16px 42px rgba(0, 0, 0, 0.5);
+  scrollbar-color: #64748b transparent;
+  scrollbar-width: thin;
+}
+
+.event-market-results-heading {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.55rem 0.75rem;
+  border-bottom: 1px solid #334155;
+  background: #111c30;
+  color: #94a3b8;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.event-market-result {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  width: 100%;
+  gap: 0.75rem;
+  padding: 0.7rem 0.75rem;
+  border: 0;
+  border-bottom: 1px solid rgba(71, 85, 105, 0.55);
+  background: transparent;
+  color: #e2e8f0;
+  cursor: pointer;
+  text-align: left;
+}
+
+.event-market-result:hover,
+.event-market-result.selected {
+  background: rgba(236, 72, 153, 0.14);
+}
+
+.event-market-result-copy,
+.event-market-result-prices {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 0;
+}
+
+.event-market-result-copy strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.8rem;
+}
+
+.event-market-result-copy small,
+.event-market-result-prices small {
+  color: #94a3b8;
+  font-size: 0.68rem;
+}
+
+.event-market-result-prices {
+  align-items: flex-end;
+  color: #cbd5e1;
+  font-size: 0.72rem;
+  white-space: nowrap;
+}
+
+.event-market-empty {
+  padding: 1rem;
+  color: #94a3b8;
+  font-size: 0.8rem;
+  text-align: center;
+}
+
+.selected-event-market {
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+  margin-bottom: 0.85rem;
+  padding: 0.75rem;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.56);
+}
+
+.selected-event-market > div:first-child {
+  min-width: 0;
+}
+
+.selected-event-market strong,
+.selected-event-market span,
+.selected-event-market p {
+  display: block;
+}
+
+.selected-event-market > div:first-child > strong {
+  color: #f8fafc;
+  font-size: 0.85rem;
+}
+
+.selected-event-market > div:first-child > span,
+.selected-event-market p {
+  margin: 0.2rem 0 0;
+  color: #94a3b8;
+  font-size: 0.72rem;
+}
+
+.selected-event-market-stats {
+  justify-content: flex-end;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 0.45rem 0.8rem;
+  color: #94a3b8;
+  font-size: 0.7rem;
+  text-align: right;
+}
+
+.selected-event-market-stats strong {
+  display: inline;
+  color: #e2e8f0;
+}
+
+.event-outcome-section {
+  margin-bottom: 0.75rem;
+}
+
+.event-outcome-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+}
+
+.event-outcome-button {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 0.75rem;
+  border: 1px solid #475569;
+  border-radius: 8px;
+  background: rgba(2, 6, 23, 0.48);
+  color: #cbd5e1;
+  cursor: pointer;
+  text-align: center;
+}
+
+.event-outcome-button.yes.selected {
+  border: 2px solid #22c55e;
+  background: rgba(34, 197, 94, 0.2);
+}
+
+.event-outcome-button.no.selected {
+  border: 2px solid #ef4444;
+  background: rgba(239, 68, 68, 0.2);
+}
+
+.event-outcome-button.yes strong { color: #4ade80; }
+.event-outcome-button.no strong { color: #f87171; }
+.event-outcome-button span,
+.event-outcome-button small { font-size: 0.7rem; }
+.event-outcome-button small { color: #94a3b8; }
+
+.event-rules-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(145px, 1fr));
+  gap: 0.5rem;
+  padding: 0.7rem;
+  border-radius: 7px;
+  background: rgba(2, 6, 23, 0.42);
+}
+
+.event-rules-grid > div {
+  min-width: 0;
+}
+
+.event-rules-grid span,
+.event-rules-grid strong {
+  display: block;
+}
+
+.event-rules-grid span {
+  color: #94a3b8;
+  font-size: 0.68rem;
+}
+
+.event-rules-grid strong {
+  margin-top: 0.18rem;
+  color: #e2e8f0;
+  font-size: 0.74rem;
+  line-height: 1.35;
+}
+
+.event-payout-summary {
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+  margin-top: 0.75rem;
+  padding: 0.7rem;
+  border: 1px solid rgba(34, 197, 94, 0.32);
+  border-radius: 7px;
+  background: rgba(34, 197, 94, 0.08);
+  color: #94a3b8;
+  font-size: 0.72rem;
+}
+
+.event-payout-summary strong {
+  margin-left: 0.3rem;
+  color: #86efac;
+}
+
+body.light-mode .event-contract-card {
+  background: #fff1f7;
+  border-color: #f9a8d4;
+}
+
+body.light-mode .event-market-status,
+body.light-mode .selected-event-market,
+body.light-mode .event-outcome-button,
+body.light-mode .event-rules-grid {
+  background: rgba(255, 255, 255, 0.82);
+}
+
+body.light-mode .event-market-status { color: #334155; }
+body.light-mode .event-market-status.status-oc { color: #166534; }
+body.light-mode .event-market-status.status-co { color: #92400e; }
+body.light-mode .event-market-status.status-nt { color: #991b1b; }
+
+body.light-mode .event-market-results {
+  border-color: #94a3b8;
+  background: #ffffff;
+  box-shadow: 0 16px 38px rgba(15, 23, 42, 0.18);
+}
+
+body.light-mode .event-market-results-heading {
+  border-color: #cbd5e1;
+  background: #f8fafc;
+  color: #475569;
+}
+
+body.light-mode .event-market-result {
+  border-color: #e2e8f0;
+  color: #0f172a;
+}
+
+body.light-mode .event-market-result:hover,
+body.light-mode .event-market-result.selected {
+  background: #fce7f3;
+}
+
+body.light-mode .event-market-result-copy small,
+body.light-mode .event-market-result-prices small,
+body.light-mode .selected-event-market > div:first-child > span,
+body.light-mode .selected-event-market p,
+body.light-mode .selected-event-market-stats,
+body.light-mode .event-rules-grid span,
+body.light-mode .event-payout-summary {
+  color: #475569;
+}
+
+body.light-mode .event-market-result-prices,
+body.light-mode .selected-event-market > div:first-child > strong,
+body.light-mode .selected-event-market-stats strong,
+body.light-mode .event-rules-grid strong {
+  color: #0f172a;
+}
+
+body.light-mode .event-payout-summary {
+  border-color: #86efac;
+  background: #f0fdf4;
+}
+
+body.light-mode .event-payout-summary strong { color: #166534; }
+
+@media (max-width: 760px) {
+  .event-contract-selector-grid,
+  .event-outcome-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .selected-event-market {
+    flex-direction: column;
+  }
+
+  .selected-event-market-stats {
+    justify-content: flex-start;
+    align-items: flex-start;
+    text-align: left;
+  }
+}
