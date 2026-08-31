@@ -37,8 +37,10 @@ WEBULL_EVENT_CATEGORY_TTL_SECONDS = 1800
 WEBULL_EVENT_MARKET_RESULT_TTL_SECONDS = 30
 WEBULL_EVENT_MAX_ORDER_QUANTITY = 50000
 WEBULL_EVENT_SETTLEMENT_PAYOUT = 1.0
-WEBULL_EVENT_DISCOVERY_MIN_INTERVAL_SECONDS = 0.35
+WEBULL_EVENT_DISCOVERY_MIN_INTERVAL_SECONDS = 2.05
 WEBULL_EVENT_DISCOVERY_RETRY_DELAYS_SECONDS = (0.75, 1.5, 3.0, 6.0)
+WEBULL_EVENT_INITIAL_SERIES_LIMIT = 3
+WEBULL_EVENT_INITIAL_MARKET_TARGET = 25
 
 # Webull's category-list response can include display taxonomies that the
 # series endpoint does not accept. These are the finite category codes Webull
@@ -1109,8 +1111,20 @@ def _normalise_event_market(raw, series_categories):
     }
 
 
+def _start_webull_event_catalog_warmup(category_code, target):
+    """Finish a provider catalog traversal without holding the browser request."""
+    thread = threading.Thread(
+        target=target,
+        name=f"webull-event-catalog-{str(category_code or 'all').lower()}",
+        daemon=True,
+    )
+    thread.start()
+    return thread
+
+
 def get_webull_event_catalog(
     app_key, app_secret, environment='production', access_token=None, *, category_id=None, force=False,
+    progressive=False,
 ):
     """Load complete current markets for one provider category (or every category)."""
     principal = _webull_event_principal(app_key, environment, access_token)
@@ -1131,6 +1145,7 @@ def get_webull_event_catalog(
             'markets': [dict(item) for item in catalog['markets']],
             'as_of': catalog['as_of'],
             'partial': bool(catalog.get('partial')),
+            'loading': bool(catalog.get('loading')),
             'warnings': list(catalog.get('warnings') or []),
         }
 
@@ -1138,7 +1153,7 @@ def get_webull_event_catalog(
         now = time.time()
         with _WEBULL_EVENT_CACHE_LOCK:
             cached = _WEBULL_EVENT_CATALOG_CACHE.get(cache_key)
-            if not cached or force:
+            if not cached or (force and not cached[1].get('loading')):
                 return None
             ttl = (WEBULL_EVENT_PARTIAL_CATALOG_TTL_SECONDS
                    if cached[1].get('partial') else WEBULL_EVENT_CATALOG_TTL_SECONDS)
@@ -1179,10 +1194,10 @@ def get_webull_event_catalog(
 
         series_categories = {}
         raw_markets = []
-        for item in series:
+        def load_series_markets(item, warnings_target):
             series_symbol = str(item.get('symbol') or item.get('series_symbol') or '').strip().upper()
             if not series_symbol:
-                continue
+                return
             series_categories[series_symbol] = str(
                 item.get('category') or item.get('category_code') or item.get('_category_code') or ''
             ).strip().upper()
@@ -1197,40 +1212,77 @@ def get_webull_event_catalog(
                 )
             except WebullConnectionError as exc:
                 logger.warning('Skipping unavailable Webull Event series %s: %s', series_symbol, exc)
-                warnings.append(str(exc))
-                continue
+                warnings_target.append(str(exc))
+                return
             for raw in series_markets:
                 raw = dict(raw)
                 raw.setdefault('series_symbol', series_symbol)
                 raw.setdefault('series_name', item.get('name') or item.get('series_name'))
                 raw_markets.append(raw)
 
-        markets = []
-        seen_symbols = set()
-        for raw in raw_markets:
-            market = _normalise_event_market(raw, series_categories)
-            if not market or market['symbol'] in seen_symbols:
-                continue
-            if market['status'] not in {'LISTING', ''}:
-                continue
-            seen_symbols.add(market['symbol'])
-            markets.append(market)
-        if not markets:
+        def build_catalog(*, loading):
+            markets = []
+            seen_symbols = set()
+            for raw in raw_markets:
+                market = _normalise_event_market(raw, series_categories)
+                if not market or market['symbol'] in seen_symbols:
+                    continue
+                if market['status'] not in {'LISTING', ''}:
+                    continue
+                seen_symbols.add(market['symbol'])
+                markets.append(market)
+            return {
+                'categories': categories,
+                'markets': markets,
+                'as_of': datetime.now(timezone.utc).isoformat(),
+                'partial': bool(loading or warnings),
+                'loading': bool(loading),
+                'warnings': list(warnings),
+            }
+
+        def store_catalog(catalog):
+            with _WEBULL_EVENT_CACHE_LOCK:
+                _WEBULL_EVENT_CATALOG_CACHE[cache_key] = (time.time(), catalog)
+                # Progressive discovery changes the searchable and rankable
+                # universe, so cached query results must not hide new rows.
+                _WEBULL_EVENT_MARKET_RESULT_CACHE.clear()
+
+        remaining_series = []
+        for index, item in enumerate(series):
+            load_series_markets(item, warnings)
+            if progressive and index + 1 >= WEBULL_EVENT_INITIAL_SERIES_LIMIT:
+                initial_catalog = build_catalog(loading=index + 1 < len(series))
+                if (len(initial_catalog['markets']) >= WEBULL_EVENT_INITIAL_MARKET_TARGET
+                        or index + 1 >= min(len(series), WEBULL_EVENT_INITIAL_SERIES_LIMIT * 2)):
+                    remaining_series = series[index + 1:]
+                    break
+
+        if progressive and remaining_series:
+            catalog = build_catalog(loading=True)
+            store_catalog(catalog)
+
+            def finish_catalog():
+                try:
+                    for item in remaining_series:
+                        load_series_markets(item, warnings)
+                        store_catalog(build_catalog(loading=True))
+                    store_catalog(build_catalog(loading=False))
+                except Exception as exc:  # pragma: no cover - defensive thread boundary
+                    logger.error('Webull Event Contract catalog warmup failed: %s', exc, exc_info=True)
+                    warnings.append(str(exc))
+                    store_catalog(build_catalog(loading=False))
+
+            _start_webull_event_catalog_warmup(requested_category, finish_catalog)
+            return copy_catalog(catalog)
+
+        catalog = build_catalog(loading=False)
+        if not catalog['markets']:
             if warnings:
                 raise WebullConnectionError(
                     'Webull temporarily limited Event Contract discovery. Please wait a moment and try again.'
                 )
             raise WebullConnectionError('Webull returned no current Event Contract markets.')
-
-        catalog = {
-            'categories': categories,
-            'markets': markets,
-            'as_of': datetime.now(timezone.utc).isoformat(),
-            'partial': bool(warnings),
-            'warnings': warnings,
-        }
-        with _WEBULL_EVENT_CACHE_LOCK:
-            _WEBULL_EVENT_CATALOG_CACHE[cache_key] = (time.time(), catalog)
+        store_catalog(catalog)
         return copy_catalog(catalog)
 
 
@@ -1315,7 +1367,7 @@ def _event_market_rules(market):
 
 def get_webull_event_markets(
     app_key, app_secret, environment='production', access_token=None, *,
-    category_id=None, symbol=None, query=None, limit=10, force=False,
+    category_id=None, symbol=None, query=None, limit=10, force=False, progressive=False,
 ):
     """Search the complete catalog and rank unfiltered results by live activity."""
     clean_category = str(category_id or '').strip().upper()
@@ -1331,7 +1383,7 @@ def get_webull_event_markets(
                 return json.loads(json.dumps(cached_result[1]))
     catalog = get_webull_event_catalog(
         app_key, app_secret, environment, access_token,
-        category_id=clean_category or None, force=force,
+        category_id=clean_category or None, force=force, progressive=progressive,
     )
     category_by_id = {
         str(item.get('category_id') or '').upper(): str(item.get('category_code') or '').upper()
@@ -1359,7 +1411,10 @@ def get_webull_event_markets(
             'total_matches': 0,
             'catalog_as_of': catalog['as_of'],
             'partial': bool(catalog.get('partial')),
-            'message': ('Some Webull series are temporarily unavailable; showing the results currently available.'
+            'loading': bool(catalog.get('loading')),
+            'message': ('Loading additional Webull contracts; results will update automatically.'
+                        if catalog.get('loading') else
+                        'Some Webull series are temporarily unavailable; showing the results currently available.'
                         if catalog.get('partial') else ''),
         }
         with _WEBULL_EVENT_CACHE_LOCK:
@@ -1405,7 +1460,10 @@ def get_webull_event_markets(
         'total_matches': len(enriched),
         'catalog_as_of': catalog['as_of'],
         'partial': partial,
-        'message': ('Some Webull series or live rankings are temporarily unavailable; showing the results currently available.'
+        'loading': bool(catalog.get('loading')),
+        'message': ('Loading additional Webull contracts; results will update automatically.'
+                    if catalog.get('loading') else
+                    'Some Webull series or live rankings are temporarily unavailable; showing the results currently available.'
                     if partial else ''),
     }
     with _WEBULL_EVENT_CACHE_LOCK:

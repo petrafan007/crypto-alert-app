@@ -2744,6 +2744,7 @@ def api_webull_event_markets():
                 environment, credential.webull_access_token,
                 category_id=category_id, query=query, limit=limit,
                 force=request.args.get('refresh') == '1',
+                progressive=True,
             )
         return jsonify({'success': True, **result, 'source': 'webull'})
     except WebullConnectionError as exc:

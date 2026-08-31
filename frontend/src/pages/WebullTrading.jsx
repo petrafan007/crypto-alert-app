@@ -371,6 +371,7 @@ export default function WebullTrading({ isLightMode = false }) {
   const [eventMarketMenuOpen, setEventMarketMenuOpen] = useState(false);
   const [eventTotalMatches, setEventTotalMatches] = useState(0);
   const [eventLoading, setEventLoading] = useState(false);
+  const [eventCatalogLoading, setEventCatalogLoading] = useState(false);
   const [eventMessage, setEventMessage] = useState('');
   const eventMarketRequestRef = useRef(0);
   const eventMarketSelectorRef = useRef(null);
@@ -1172,11 +1173,13 @@ export default function WebullTrading({ isLightMode = false }) {
       const mkts = response.data?.markets || [];
       setEventMarkets(mkts);
       setEventTotalMatches(Number(response.data?.total_matches || mkts.length));
+      setEventCatalogLoading(Boolean(response.data?.loading));
       setEventMessage(response.data?.message || '');
     } catch (err) {
       if (requestId !== eventMarketRequestRef.current) return;
       setEventMarkets([]);
       setEventTotalMatches(0);
+      setEventCatalogLoading(false);
       setEventMessage(err.response?.data?.message || 'Unable to load Webull Event Contract markets.');
     } finally {
       if (requestId === eventMarketRequestRef.current) setEventLoading(false);
@@ -1196,6 +1199,7 @@ export default function WebullTrading({ isLightMode = false }) {
       setEventMarketQuery('');
       setEventMarkets([]);
       setEventTotalMatches(0);
+      setEventCatalogLoading(true);
     } catch (err) {
       setEventMessage(err.response?.data?.message || err.message || 'Unable to load Webull Event Contract categories.');
     } finally {
@@ -1213,6 +1217,7 @@ export default function WebullTrading({ isLightMode = false }) {
     setEventTotalMatches(0);
     setEventMessage('');
     setEventLoading(true);
+    setEventCatalogLoading(true);
     setSelectedEventMarket(null);
     assetSymbolMemoryRef.current.EVENT = '';
     setSelectedSymbol('');
@@ -1247,6 +1252,14 @@ export default function WebullTrading({ isLightMode = false }) {
     }, eventMarketQuery.trim() ? 250 : 0);
     return () => window.clearTimeout(timer);
   }, [selectedInstrumentType, selectedEventCategory, eventMarketQuery]);
+
+  useEffect(() => {
+    if (selectedInstrumentType !== 'EVENT' || !selectedEventCategory || !eventCatalogLoading) return undefined;
+    const interval = window.setInterval(() => {
+      loadEventMarkets({ category: selectedEventCategory, query: eventMarketQuery });
+    }, 5000);
+    return () => window.clearInterval(interval);
+  }, [selectedInstrumentType, selectedEventCategory, eventMarketQuery, eventCatalogLoading]);
 
   useEffect(() => {
     if (selectedInstrumentType !== 'EVENT' || !selectedEventMarket?.symbol) return undefined;
@@ -2920,10 +2933,16 @@ export default function WebullTrading({ isLightMode = false }) {
                             <div className="event-market-results" id="event-market-results" role="listbox">
                               <div className="event-market-results-heading">
                                 <span>{eventMarketQuery.trim() ? `${eventTotalMatches} matching contracts` : 'Top 10 trending contracts'}</span>
-                                {eventLoading && <span>Refreshing…</span>}
+                                {(eventLoading || eventCatalogLoading) && (
+                                  <span>{eventLoading ? 'Refreshing…' : 'Loading catalog…'}</span>
+                                )}
                               </div>
                               {!eventLoading && !eventMarkets.length && (
-                                <div className="event-market-empty">No available Webull contracts match this category and search.</div>
+                                <div className="event-market-empty">
+                                  {eventCatalogLoading
+                                    ? 'Loading available Webull contracts…'
+                                    : 'No available Webull contracts match this category and search.'}
+                                </div>
                               )}
                               {eventMarkets.map((market) => (
                                 <button

@@ -186,6 +186,40 @@ class WebullServiceTests(unittest.TestCase):
         self.assertEqual(first, second)
         self.assertEqual(snapshot_mock.call_count, 1)
 
+    def test_event_catalog_returns_initial_rows_before_warming_remaining_series(self):
+        def provider(*args, **kwargs):
+            path = args[4]
+            params = kwargs.get('query_params') or {}
+            if path.endswith('/categories/list'):
+                return self._response({'data': [{'category': 'CRYPTO', 'name': 'Crypto'}]})
+            if path.endswith('/series/list'):
+                return self._response({'data': [
+                    {'series_id': 's1', 'symbol': 'FIRST', 'name': 'First series'},
+                    {'series_id': 's2', 'symbol': 'SECOND', 'name': 'Second series'},
+                ]})
+            if path.endswith('/markets/list') and params.get('series_symbol') == 'FIRST':
+                return self._response({'data': [{
+                    'instrument_id': 'm1', 'symbol': 'FIRST-YES', 'name': 'First market',
+                    'status': 'LISTING', 'tradable_status': 'OC',
+                }]})
+            raise AssertionError(f'Unexpected Webull path: {path}')
+
+        with patch('services.webull_service._webull_request', side_effect=provider) as request_mock, \
+             patch('services.webull_service.WEBULL_EVENT_DISCOVERY_MIN_INTERVAL_SECONDS', 0), \
+             patch('services.webull_service.WEBULL_EVENT_INITIAL_SERIES_LIMIT', 1), \
+             patch('services.webull_service.WEBULL_EVENT_INITIAL_MARKET_TARGET', 1), \
+             patch('services.webull_service._start_webull_event_catalog_warmup') as warmup_mock:
+            catalog = get_webull_event_catalog(
+                'app-key', 'app-secret', access_token='token', category_id='CRYPTO', progressive=True,
+            )
+
+        self.assertTrue(catalog['loading'])
+        self.assertTrue(catalog['partial'])
+        self.assertEqual([item['symbol'] for item in catalog['markets']], ['FIRST-YES'])
+        market_calls = [call for call in request_mock.call_args_list if call.args[4].endswith('/markets/list')]
+        self.assertEqual(len(market_calls), 1)
+        warmup_mock.assert_called_once()
+
     def test_paper_order_timestamps_are_serialized_as_explicit_utc(self):
         self.assertEqual(_utc_iso(datetime(2026, 8, 31, 4, 4, 0)), '2026-08-31T04:04:00Z')
         eastern_offset = timezone(timedelta(hours=-4))
