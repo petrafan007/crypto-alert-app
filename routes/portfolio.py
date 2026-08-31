@@ -877,6 +877,7 @@ def api_pending_orders():
                 symbol = order.get('symbol', '')
                 # Extract asset from symbol (remove USDT or USD suffix)
                 asset = symbol.replace('USDT', '').replace('USD', '')
+                quote_currency = 'USDT' if symbol.endswith('USDT') else 'USD' if symbol.endswith('USD') else ''
                 
                 order_type = order.get('type', 'LIMIT')
                 side = order.get('side', '')  # BUY or SELL
@@ -884,23 +885,20 @@ def api_pending_orders():
                 stop_price = float(order.get('stopPrice', 0)) if order.get('stopPrice') else None
                 quantity = float(order.get('origQty', 0))
                 
-                # Determine order direction text
-                if side == 'SELL':
-                    if stop_price:
-                        # Stop-limit sell: triggers when price drops below stop price
-                        direction = 'drops below'
-                        trigger_price = stop_price
-                    else:
-                        # Regular limit sell: executes when price rises to limit price
-                        direction = 'rises above'
-                        trigger_price = price
-                else:  # BUY
-                    if stop_price:
-                        direction = 'rises above'
-                        trigger_price = stop_price
-                    else:
-                        direction = 'drops below'
-                        trigger_price = price
+                # Conditional order direction depends on the order family, not
+                # merely on whether a stop price happens to be present.
+                if stop_price and order_type in ('TAKE_PROFIT', 'TAKE_PROFIT_LIMIT'):
+                    direction = 'rises to or above' if side == 'SELL' else 'drops to or below'
+                    trigger_price = stop_price
+                elif stop_price and order_type in ('STOP_LOSS', 'STOP_LOSS_LIMIT'):
+                    direction = 'drops to or below' if side == 'SELL' else 'rises to or above'
+                    trigger_price = stop_price
+                elif side == 'SELL':
+                    direction = 'rises to or above'
+                    trigger_price = price
+                else:
+                    direction = 'drops to or below'
+                    trigger_price = price
                 
                 # Check if this is an OCO order (has both stop and limit)
                 is_oco = order.get('type') == 'STOP_LOSS_LIMIT' and order.get('stopPrice') and order.get('price')
@@ -924,6 +922,8 @@ def api_pending_orders():
                     'is_oco': is_oco,
                     'direction': direction,
                     'trigger_price': trigger_price,
+                    'quote_currency': quote_currency,
+                    'quantity_quote': quote_amount,
                     'quantity_usdt': quote_amount
                 })
             
@@ -2014,10 +2014,10 @@ def place_test_order():
                 elif order_type == 'TAKE_PROFIT_LIMIT':
                     if formatted_price <= 0:
                         return jsonify({'success': False, 'error': 'Limit price must be greater than 0 for take-profit limit orders'}), 400
-                    if side == 'BUY' and formatted_price > formatted_stop_price:
-                        return jsonify({'success': False, 'error': 'For buy take-profit limit orders, limit price must be less than or equal to stop price.'}), 400
-                    if side == 'SELL' and formatted_price < formatted_stop_price:
-                        return jsonify({'success': False, 'error': 'For sell take-profit limit orders, limit price must be greater than or equal to stop price.'}), 400
+                    if side == 'BUY' and formatted_price < formatted_stop_price:
+                        return jsonify({'success': False, 'error': 'For buy take-profit limit orders, limit price must be greater than or equal to stop price.'}), 400
+                    if side == 'SELL' and formatted_price > formatted_stop_price:
+                        return jsonify({'success': False, 'error': 'For sell take-profit limit orders, limit price must be less than or equal to stop price.'}), 400
 
             # Pre-validate price collar against current market price
             try:
@@ -3322,10 +3322,10 @@ def place_real_order():
             if side == 'SELL' and formatted_price > formatted_stop_price:
                 return jsonify({'success': False, 'error': 'For sell stop-loss limit orders, limit price must be less than or equal to stop price.'}), 400
         elif order_type == 'TAKE_PROFIT_LIMIT':
-            if side == 'BUY' and formatted_price > formatted_stop_price:
-                return jsonify({'success': False, 'error': 'For buy take-profit limit orders, limit price must be less than or equal to stop price.'}), 400
-            if side == 'SELL' and formatted_price < formatted_stop_price:
-                return jsonify({'success': False, 'error': 'For sell take-profit limit orders, limit price must be greater than or equal to stop price.'}), 400
+            if side == 'BUY' and formatted_price < formatted_stop_price:
+                return jsonify({'success': False, 'error': 'For buy take-profit limit orders, limit price must be greater than or equal to stop price.'}), 400
+            if side == 'SELL' and formatted_price > formatted_stop_price:
+                return jsonify({'success': False, 'error': 'For sell take-profit limit orders, limit price must be less than or equal to stop price.'}), 400
 
         # Pre-validate price collar against current market price
         from services.binance_service import validate_order_price_collar

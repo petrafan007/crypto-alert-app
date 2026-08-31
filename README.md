@@ -13,7 +13,7 @@
   - **Interactive Customizable Dashboard Grid**: Modern drag-and-drop (`⠿`) reordering, multi-handle resizing, and custom panel visibility for all upper dashboard widgets.
   - **Market Gauges & Performance**: Built-in Fear & Greed Index, CBBI Bull Run Peak Confidence metric, Staking Yield overview, and 7-day multi-interval performance tickers.
   - **True Portfolio Trend Charts**: Saved, user-selectable quick ranges from 1H through All-time with live portfolio net-worth updates.
-  - **Cryptocurrency Vector Icons**: Rich, high-resolution coin icons for effortless asset recognition across all tables.
+  - **Provider-Sourced Cryptocurrency Icons**: Live CoinGecko metadata supplies legitimate asset icons across portfolio and watchlist tables without hardcoded or generated symbol artwork.
   - **Automatic Webull Read-Only Feed**: Enabled Webull accounts continuously synchronize balances, positions, orders, and the complete API-exposed account activity ledger without a manual import step. Webull equities, ETFs, crypto, options, futures, and event-related cash activity remain isolated from Binance.US data and from Webull Test Mode.
 
 - **⚡ Professional Trading Terminal (USD & USDT)**
@@ -126,6 +126,25 @@ The application utilizes a **unified PostgreSQL database**.
 ## Version History & Changelog
 
 Historical changelog entries retain the product name used when they were originally released. The application domain, repository slug, deployment folders, database, and service identifiers intentionally remain unchanged by the v2.45.0 brand update.
+
+## v2.67.3 (August 2026)
+
+- **Predictable USD Visibility**:
+  - A manual Hide choice for the Binance.US USD row now survives ordinary balance refreshes, background synchronization, and page reloads.
+  - A newly completed trade in an actual USD-quoted market intentionally reveals USD for review. USDT trades do not override the USD preference, and the user can hide USD again afterward.
+- **Correct Binance.US Take Profit Limit Behavior**:
+  - SELL Take Profit Limit descriptions now state that the stop triggers when the market rises to or above it, then clearly identify the separate limit execution price.
+  - The percentage calculator sets the SELL stop above the selected reference and subtracts the chosen percentage from that stop for the limit price. Frontend and backend validation now enforce the same relationship.
+- **Clearer Order History**:
+  - The unified Order History table now presents Eastern date and Eastern time in separate columns.
+- **Dynamic Asset Icons**:
+  - Replaced hardcoded and generated cryptocurrency symbol art with exact-symbol CoinGecko metadata lookups, including provider-hosted icons for less common assets such as HYPE.
+  - Failed icon lookups fall back to neutral spacing rather than fabricated artwork.
+- **Security Settings Consolidation**:
+  - Added an in-page Reset Password form under Security & 2FA with current-password verification, onboarding-equivalent strength rules, confirmation matching, and password-manager-compatible field metadata.
+  - Moved Credential Encryption and Delete Account into Security & 2FA and renamed Notifications & System to Notifications.
+- **Regression Coverage**:
+  - Added tests for persistent manual USD hiding, USD-trade reappearance, password verification and strength enforcement, and exact ranked CoinGecko icon selection.
 
 ## v2.67.2 (August 2026)
 

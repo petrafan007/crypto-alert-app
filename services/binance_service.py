@@ -455,6 +455,7 @@ def process_binance_trades(user_id, trades):
         
     processed_count = 0
     updated_assets = set()
+    completed_usd_symbols = set()
     
     for trade in trades:
         try:
@@ -513,6 +514,8 @@ def process_binance_trades(user_id, trades):
                 db.session.add(new_activity)
                 processed_count += 1
                 updated_assets.add(asset)
+                if symbol.endswith('USD') and not symbol.endswith('USDT'):
+                    completed_usd_symbols.add(symbol)
             
         except Exception as e:
             logger.error(f"Error processing trade {trade.get('id', 'unknown')}: {e}")
@@ -521,6 +524,14 @@ def process_binance_trades(user_id, trades):
     try:
         db.session.commit()
         if processed_count > 0:
+            if completed_usd_symbols:
+                from services.portfolio_service import reveal_hidden_usd_after_completed_trade
+                visibility_changed = any(
+                    reveal_hidden_usd_after_completed_trade(user_id, symbol)
+                    for symbol in completed_usd_symbols
+                )
+                if visibility_changed:
+                    db.session.commit()
             update_average_entry_prices(user_id, trades)
             for asset in updated_assets:
                 try:

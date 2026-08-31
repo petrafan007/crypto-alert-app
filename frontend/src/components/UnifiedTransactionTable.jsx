@@ -1,5 +1,5 @@
 import React from 'react';
-import { formatEasternDateTime as formatEasternDateTimeValue } from '../utils/dateTime';
+import { formatEasternDate, formatEasternTime } from '../utils/dateTime';
 import { formatOrderSide, formatOrderStatus, formatOrderType } from '../utils/orderDisplay';
 
 const number = (value, digits = 6) => Number.isFinite(Number(value))
@@ -172,12 +172,13 @@ export default function UnifiedTransactionTable({ rows = [], emptyMessage = 'No 
       <div className="order-table-scroll">
         <table className="unified-transaction-table">
           <thead><tr>
-            <th>Date / Time (ET)</th><th>Source / Account</th><th>Category</th><th>Instrument / Details</th>
+            <th>Date (ET)</th><th>Time (ET)</th><th>Source / Account</th><th>Category</th><th>Instrument / Details</th>
             <th>Direction</th><th>Type</th><th>Quantity / Amount</th><th>Price</th><th>Filled</th><th>Fee</th><th>Status</th>
           </tr></thead>
           <tbody>{rows.map((row) => (
             <tr key={row.id}>
-              <td>{formatEasternDateTimeValue(row.date)}</td>
+              <td>{formatEasternDate(row.date)}</td>
+              <td>{formatEasternTime(row.date)}</td>
               <td><strong>{row.sourceLabel}</strong><small>{row.accountLabel}</small></td>
               <td>{row.categoryLabel}</td>
               <td><strong>{row.instrument || '—'}</strong>{row.details && <small>{row.details}</small>}</td>

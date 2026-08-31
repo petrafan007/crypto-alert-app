@@ -25,6 +25,10 @@ _ticker_24h_cache = {
     "data": {}
 }
 
+_asset_icon_cache = {}
+_ASSET_ICON_CACHE_TTL = 24 * 60 * 60
+_ASSET_ICON_MISS_TTL = 15 * 60
+
 
 def _refresh_and_include_live_webull(user_id):
     """Refresh the automatic feed unless the UI is isolated in Test Mode."""
@@ -61,6 +65,53 @@ def _get_binance_24h_tickers():
     except Exception as e:
         logger.error(f"Error fetching 24h tickers from Binance: {e}")
         return _ticker_24h_cache.get("data", {})
+
+
+@market_bp.route('/api/asset-icon/<symbol>')
+@login_required
+def asset_icon(symbol):
+    """Resolve a cryptocurrency icon dynamically from CoinGecko metadata."""
+    clean_symbol = ''.join(ch for ch in str(symbol or '').upper() if ch.isalnum())[:20]
+    if not clean_symbol:
+        return jsonify({'icon_url': None, 'provider': 'CoinGecko'}), 400
+
+    now = time.time()
+    cached = _asset_icon_cache.get(clean_symbol)
+    cache_ttl = _ASSET_ICON_CACHE_TTL if cached and cached['payload'].get('icon_url') else _ASSET_ICON_MISS_TTL
+    if cached and now - cached['timestamp'] < cache_ttl:
+        return jsonify(cached['payload'])
+
+    payload = {'symbol': clean_symbol, 'icon_url': None, 'provider': 'CoinGecko'}
+    try:
+        response = requests.get(
+            'https://api.coingecko.com/api/v3/search',
+            params={'query': clean_symbol},
+            headers={'Accept': 'application/json', 'User-Agent': 'Crypto-Securities-Dashboard/2.67.3'},
+            timeout=8,
+        )
+        response.raise_for_status()
+        exact_matches = [
+            coin for coin in (response.json().get('coins') or [])
+            if str(coin.get('symbol') or '').upper() == clean_symbol
+        ]
+        exact_matches.sort(key=lambda coin: (
+            coin.get('market_cap_rank') is None,
+            coin.get('market_cap_rank') or float('inf'),
+        ))
+        if exact_matches:
+            selected = exact_matches[0]
+            icon_url = selected.get('small') or selected.get('thumb') or selected.get('large')
+            if icon_url:
+                payload.update({
+                    'icon_url': icon_url,
+                    'asset_id': selected.get('id'),
+                    'asset_name': selected.get('name'),
+                })
+    except Exception as exc:
+        logger.info('CoinGecko icon lookup unavailable for %s: %s', clean_symbol, exc)
+
+    _asset_icon_cache[clean_symbol] = {'timestamp': now, 'payload': payload}
+    return jsonify(payload)
 
 
 @market_bp.route("/api/pionex-price")

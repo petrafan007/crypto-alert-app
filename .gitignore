@@ -197,6 +197,7 @@ tests/*
 !tests/test_webull_sync_service.py
 !tests/test_sentiment_outcome_service.py
 !tests/test_onboarding.py
+!tests/test_v2673_regressions.py
 migrations/
 
 # Exclude sensitive files explicitly

@@ -1550,26 +1550,42 @@ function Dashboard({ isLightMode }) {
 
     if (orders && orders.length > 0) {
       const describeOrder = (order) => {
-        const orderTypeName = (order.type || 'LIMIT').replace(/_/g, ' ').toLowerCase();
-        const side = (order.side || '').toLowerCase();
-        const trigger = order.trigger_price
-          ? order.trigger_price.toFixed(4)
-          : order.price
-            ? Number(order.price).toFixed(4)
-            : 'N/A';
+        const orderType = String(order.type || 'LIMIT').toUpperCase();
+        const orderTypeName = orderType.replace(/_/g, ' ').toLowerCase();
+        const side = String(order.side || '').toUpperCase();
+        const sideName = side.toLowerCase();
+        const triggerValue = Number(order.trigger_price || 0);
+        const limitValue = Number(order.price || 0);
+        const trigger = triggerValue > 0 ? triggerValue.toFixed(4) : 'N/A';
+        const limit = limitValue > 0 ? limitValue.toFixed(4) : 'N/A';
         const orderQuantity = Number(order.quantity ?? 0);
         const quantityText = formatOrderQuantity(orderQuantity);
         const assetSymbol = (order.asset || coin?.symbol || '').toUpperCase();
-        const priceReference = Number(order.trigger_price || order.price || 0);
-        const quoteValue = order.quantity_usdt !== undefined && order.quantity_usdt !== null
-          ? Number(order.quantity_usdt)
-          : orderQuantity * priceReference;
+        const quoteCurrency = order.quote_currency || (String(order.symbol || '').endsWith('USD') ? 'USD' : 'USDT');
+        const priceReference = limitValue || triggerValue;
+        const quoteValue = orderQuantity > 0 && priceReference > 0
+          ? orderQuantity * priceReference
+          : order.quantity_quote !== undefined && order.quantity_quote !== null
+            ? Number(order.quantity_quote)
+            : order.quantity_usdt !== undefined && order.quantity_usdt !== null
+              ? Number(order.quantity_usdt)
+            : null;
         const usdText = formatOrderUsd(quoteValue);
         const sizeDescription = quantityText
-          ? `${quantityText} ${assetSymbol}${usdText ? ` (~${usdText} USDT)` : ''}`
+          ? `${quantityText} ${assetSymbol}${usdText ? ` (~${usdText} ${quoteCurrency})` : ''}`
           : assetSymbol || 'this asset';
 
-        return `Pending ${orderTypeName} ${side} for ${sizeDescription} when price ${order.direction || ''} ${trigger} USDT`;
+        if (orderType === 'TAKE_PROFIT_LIMIT' && triggerValue > 0 && limitValue > 0) {
+          const direction = side === 'SELL' ? 'rises to or above' : 'drops to or below';
+          return `Pending ${orderTypeName} ${sideName}: when the last price ${direction} ${trigger} ${quoteCurrency}, submit a limit ${sideName} for ${sizeDescription} at ${limit} ${quoteCurrency}`;
+        }
+
+        if (orderType === 'STOP_LOSS_LIMIT' && triggerValue > 0 && limitValue > 0) {
+          const direction = side === 'SELL' ? 'drops to or below' : 'rises to or above';
+          return `Pending ${orderTypeName} ${sideName}: when the last price ${direction} ${trigger} ${quoteCurrency}, submit a limit ${sideName} for ${sizeDescription} at ${limit} ${quoteCurrency}`;
+        }
+
+        return `Pending ${orderTypeName} ${sideName} for ${sizeDescription} when price ${order.direction || ''} ${triggerValue > 0 ? trigger : limit} ${quoteCurrency}`;
       };
       lines.push(...orders.map(describeOrder));
     }

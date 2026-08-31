@@ -194,6 +194,13 @@ export default function Settings({ isLightMode }) {
   const [disableCode, setDisableCode] = useState('');
   const [twoFactorLoading, setTwoFactorLoading] = useState(false);
   const [twoFactorMessage, setTwoFactorMessage] = useState('');
+  const [passwordForm, setPasswordForm] = useState({
+    currentPassword: '',
+    newPassword: '',
+    confirmPassword: ''
+  });
+  const [passwordLoading, setPasswordLoading] = useState(false);
+  const [passwordMessage, setPasswordMessage] = useState({ type: '', text: '' });
 
   const [searchParams, setSearchParams] = useSearchParams();
 
@@ -204,7 +211,7 @@ export default function Settings({ isLightMode }) {
     { id: 'sentiment-strategy', label: 'Sentiment & Strategy', icon: '🎯' },
     { id: 'web-search', label: 'Web Search & News', icon: '🔍' },
     { id: 'security-2fa', label: 'Security & 2FA', icon: '🔐' },
-    { id: 'system', label: 'Notifications & System', icon: '⚙️' },
+    { id: 'system', label: 'Notifications', icon: '🔔' },
   ];
 
   const [activeTab, setActiveTab] = useState(() => {
@@ -1118,6 +1125,43 @@ export default function Settings({ isLightMode }) {
     }
   };
 
+  const passwordRules = {
+    length: passwordForm.newPassword.length >= 12,
+    upper: /[A-Z]/.test(passwordForm.newPassword),
+    lower: /[a-z]/.test(passwordForm.newPassword),
+    number: /\d/.test(passwordForm.newPassword),
+    special: /[^A-Za-z0-9]/.test(passwordForm.newPassword),
+    match: Boolean(passwordForm.newPassword) && passwordForm.newPassword === passwordForm.confirmPassword
+  };
+  const passwordReady = Boolean(passwordForm.currentPassword) && Object.values(passwordRules).every(Boolean);
+
+  const handlePasswordUpdate = async (event) => {
+    event.preventDefault();
+    if (!passwordReady) {
+      setPasswordMessage({ type: 'error', text: 'Complete all password requirements before updating your password.' });
+      return;
+    }
+
+    setPasswordLoading(true);
+    setPasswordMessage({ type: '', text: '' });
+    try {
+      const response = await axios.post('/api/account/password', {
+        current_password: passwordForm.currentPassword,
+        new_password: passwordForm.newPassword,
+        confirm_password: passwordForm.confirmPassword
+      }, { withCredentials: true });
+      setPasswordForm({ currentPassword: '', newPassword: '', confirmPassword: '' });
+      setPasswordMessage({ type: 'success', text: response.data?.message || 'Password updated successfully.' });
+    } catch (error) {
+      setPasswordMessage({
+        type: 'error',
+        text: error.response?.data?.error || 'Unable to update your password. Please try again.'
+      });
+    } finally {
+      setPasswordLoading(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="settings-loading">
@@ -1335,22 +1379,6 @@ export default function Settings({ isLightMode }) {
             }}
           >
             {saving ? 'Saving...' : 'Save Settings'}
-          </button>
-
-          <button
-            onClick={() => window.open('/reset-password', '_blank')}
-            style={{
-              padding: '12px 24px',
-              borderRadius: 6,
-              border: '1px solid #f56565',
-              background: 'transparent',
-              color: '#f56565',
-              fontSize: '16px',
-              cursor: 'pointer',
-              transition: 'all 0.2s'
-            }}
-          >
-            Reset Password
           </button>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
@@ -1675,38 +1703,12 @@ export default function Settings({ isLightMode }) {
           </div>
         </div>
 
-        {/* Credential Encryption - ONLY for Admin (id=1) */}
-          {user && user.id === 1 && (
-            <div className="settings-page-section" style={{ gridColumn: '1 / -1' }}>
-              <h3>Credential Encryption</h3>
-              <p>
-                Store a Fernet key to encrypt Binance, Webull, AI, and notification credentials at rest. Provide either a 32-character raw secret or a URL-safe base64 string.
-              </p>
-              <div className="settings-form-group">
-                <label>Encryption Key</label>
-                <input
-                  type="password"
-                  value={settings.credentials_encryption_key || ''}
-                  onChange={(e) => handleInputChange('credentials_encryption_key', e.target.value)}
-                  placeholder="Enter Fernet key and click Save Settings"
-                />
-                <p className="settings-form-help">
-                  {encryptionStatus.configured ? (
-                    encryptionStatus.persisted
-                      ? 'Encryption is active and stored securely in the database.'
-                      : 'Encryption is active via environment configuration.'
-                  ) : (
-                    'Encryption is not configured yet. Add a key to enable it.'
-                  )}
-                </p>
-              </div>
-            </div>
-          )}
         </div>
       )}
 
       {/* Security & 2FA Tab */}
       {activeTab === 'security-2fa' && (
+        <>
         <div className="settings-page-section">
           <h3>🔐 Two-Factor Authentication (2FA)</h3>
 
@@ -1896,6 +1898,128 @@ export default function Settings({ isLightMode }) {
             </div>
           )}
         </div>
+        <form className="settings-page-section" onSubmit={handlePasswordUpdate} autoComplete="on">
+          <h3>🔑 Reset Password</h3>
+          <p className="settings-form-help" style={{ marginBottom: '18px' }}>
+            Verify your current password, then choose a strong new password. Compatible password managers can detect this standard password form and offer to save the update.
+          </p>
+          <input
+            type="text"
+            name="username"
+            value={user?.username || ''}
+            readOnly
+            autoComplete="username"
+            aria-hidden="true"
+            tabIndex={-1}
+            style={{ position: 'absolute', opacity: 0, pointerEvents: 'none', width: 1, height: 1 }}
+          />
+          <div className="settings-form-group">
+            <label htmlFor="current-password">Current Password</label>
+            <input
+              id="current-password"
+              name="current-password"
+              type="password"
+              value={passwordForm.currentPassword}
+              onChange={(event) => setPasswordForm((current) => ({ ...current, currentPassword: event.target.value }))}
+              autoComplete="current-password"
+              required
+            />
+          </div>
+          <div className="settings-form-group">
+            <label htmlFor="new-password">New Password</label>
+            <input
+              id="new-password"
+              name="new-password"
+              type="password"
+              value={passwordForm.newPassword}
+              onChange={(event) => setPasswordForm((current) => ({ ...current, newPassword: event.target.value }))}
+              autoComplete="new-password"
+              minLength={12}
+              required
+            />
+          </div>
+          <div className="settings-form-group">
+            <label htmlFor="confirm-password">Confirm New Password</label>
+            <input
+              id="confirm-password"
+              name="confirm-password"
+              type="password"
+              value={passwordForm.confirmPassword}
+              onChange={(event) => setPasswordForm((current) => ({ ...current, confirmPassword: event.target.value }))}
+              autoComplete="new-password"
+              minLength={12}
+              required
+            />
+          </div>
+          <div style={{ display: 'grid', gap: '6px', margin: '14px 0 18px', color: 'var(--text-secondary, #a0aec0)', fontSize: '13px' }}>
+            {[
+              ['length', 'At least 12 characters'],
+              ['upper', 'One uppercase letter'],
+              ['lower', 'One lowercase letter'],
+              ['number', 'One number'],
+              ['special', 'One special character'],
+              ['match', 'Passwords match']
+            ].map(([key, label]) => (
+              <span key={key} style={{ color: passwordRules[key] ? '#48bb78' : 'inherit' }}>
+                {passwordRules[key] ? '✓' : '○'} {label}
+              </span>
+            ))}
+          </div>
+          {passwordMessage.text && (
+            <div role="status" style={{
+              padding: '12px', marginBottom: '16px', borderRadius: '6px',
+              color: passwordMessage.type === 'success' ? '#48bb78' : '#fc8181',
+              background: passwordMessage.type === 'success' ? 'rgba(72, 187, 120, 0.12)' : 'rgba(245, 101, 101, 0.12)'
+            }}>
+              {passwordMessage.text}
+            </div>
+          )}
+          <button type="submit" className="settings-button" disabled={passwordLoading || !passwordReady}>
+            {passwordLoading ? 'Updating Password...' : 'Update Password'}
+          </button>
+        </form>
+
+        {user && user.id === 1 && (
+          <div className="settings-page-section">
+            <h3>Credential Encryption</h3>
+            <p>
+              Store a Fernet key to encrypt Binance, Webull, AI, and notification credentials at rest. Provide either a 32-character raw secret or a URL-safe base64 string.
+            </p>
+            <div className="settings-form-group">
+              <label>Encryption Key</label>
+              <input
+                type="password"
+                value={settings.credentials_encryption_key || ''}
+                onChange={(e) => handleInputChange('credentials_encryption_key', e.target.value)}
+                placeholder="Enter Fernet key and click Save Settings"
+                autoComplete="off"
+              />
+              <p className="settings-form-help">
+                {encryptionStatus.configured
+                  ? encryptionStatus.persisted
+                    ? 'Encryption is active and stored securely in the database.'
+                    : 'Encryption is active via environment configuration.'
+                  : 'Encryption is not configured yet. Add a key to enable it.'}
+              </p>
+              <button type="button" className="settings-button" onClick={saveSettings} disabled={saving}>
+                {saving ? 'Saving...' : 'Save Encryption Settings'}
+              </button>
+            </div>
+          </div>
+        )}
+
+        <div className="settings-page-section" style={{ borderTop: '1px solid #f56565' }}>
+          <h3 style={{ color: '#f56565' }}>⚠️ Delete Account</h3>
+          <p className="settings-form-help" style={{ marginBottom: '16px' }}>
+            Permanently delete your account and all associated data. This action cannot be undone.
+          </p>
+          <button type="button" onClick={() => setShowDeleteModal(true)} style={{
+            padding: '12px 24px', backgroundColor: '#dc3545', color: 'white', border: 'none', borderRadius: '6px', fontSize: '16px', fontWeight: 600, cursor: 'pointer'
+          }}>
+            Delete My Account
+          </button>
+        </div>
+        </>
       )}
 
       {/* AI Providers & Models Tab */}
@@ -3384,7 +3508,7 @@ export default function Settings({ isLightMode }) {
       </section>
       )}
 
-      {/* Notifications & System Tab */}
+      {/* Notifications Tab */}
       {activeTab === 'system' && (
         <>
           {/* Notifications & Tax Configuration - Side by Side */}
@@ -3586,28 +3710,6 @@ export default function Settings({ isLightMode }) {
         </div>
       </div>
 
-      {/* Delete Account Section */}
-      <div className="settings-page-section" style={{ borderTop: '1px solid #f56565', marginTop: '32px', paddingTop: '24px' }}>
-        <h3 style={{ color: '#f56565' }}>⚠️ Delete Account</h3>
-        <p style={{ color: '#e0e0e0', marginBottom: '16px' }}>
-          Permanently delete your account and all associated data. This action cannot be undone.
-        </p>
-        <button
-          onClick={() => setShowDeleteModal(true)}
-          style={{
-            padding: '12px 24px',
-            backgroundColor: '#dc3545',
-            color: 'white',
-            border: 'none',
-            borderRadius: '6px',
-            fontSize: '16px',
-            fontWeight: 600,
-            cursor: 'pointer'
-          }}
-        >
-          Delete My Account
-        </button>
-      </div>
         </>
       )}
 

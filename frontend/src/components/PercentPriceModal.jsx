@@ -162,7 +162,9 @@ export default function PercentPriceModal({
       if (side === 'SELL') {
         const diff = anchorPrice * (P / 100);
         const stop = anchorPrice + diff;
-        const limit = stop + (diff * (P / 100));
+        // A SELL take-profit limit triggers above the reference price, then
+        // posts a sell limit below that stop so a modest pullback can fill.
+        const limit = stop * (1 - (P / 100));
 
         stopPrice = formatCalculatedPrice(stop);
         price = formatCalculatedPrice(limit);
@@ -496,7 +498,11 @@ export default function PercentPriceModal({
                   <span className="preview-card-label">Limit Price</span>
                   <span className="preview-card-val">${calculatedResult.price}</span>
                   <span className="preview-card-sub">
-                    {orderType === 'STOP_LOSS_LIMIT' ? 'Execution (with 10% buffer)' : 'Execution'}
+                    {orderType === 'STOP_LOSS_LIMIT'
+                      ? 'Execution below the stop trigger'
+                      : orderType === 'TAKE_PROFIT_LIMIT' && side === 'SELL'
+                        ? `${percentValue}% below the stop price`
+                        : 'Execution'}
                   </span>
                 </div>
               )}

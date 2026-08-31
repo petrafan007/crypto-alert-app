@@ -516,6 +516,31 @@ def remove_auto_watchlist_entry(user_id, symbol):
     if watch:
         db.session.delete(watch)
 
+
+def reveal_hidden_usd_after_completed_trade(user_id, symbol):
+    """Reveal manually hidden USD only after a completed USD-quoted trade.
+
+    Balance refreshes must preserve a user's manual Hide choice.  A completed
+    trade in a ``*USD`` market is the one deliberate exception because the USD
+    balance has just materially changed and should be visible for review.
+    ``*USDT`` markets are intentionally excluded.
+    """
+    normalized_symbol = str(symbol or '').strip().upper()
+    if not normalized_symbol.endswith('USD') or normalized_symbol.endswith('USDT'):
+        return False
+
+    usd_coin = Coin.query.filter_by(user_id=user_id, symbol='USD').first()
+    if not usd_coin or not bool(usd_coin.hidden):
+        return False
+
+    usd_coin.hidden = False
+    usd_coin.auto_hidden = False
+    usd_coin.force_visible = True
+    usd_coin.current = 1.0
+    usd_coin.avg_entry = 1.0
+    logger.info('Revealed USD for user %s after completed trade in %s', user_id, normalized_symbol)
+    return True
+
 def update_portfolio_from_real_order(user_id, symbol, side, quantity, price, commission, commission_asset, order_id, quote_quantity=None):
     """Update base and quote coin balances plus all_activities after a real fill."""
     from services.trading_service import calculate_avg_entry_fifo
@@ -633,8 +658,12 @@ def update_portfolio_from_real_order(user_id, symbol, side, quantity, price, com
             quote_coin.amount = max(0.0, (quote_coin.amount or 0) + quote_delta)
             quote_coin.current = 1.0
             quote_coin.avg_entry = 1.0
-            quote_coin.hidden = False
-            quote_coin.auto_hidden = False
+            if quote_asset == 'USD':
+                # A completed USD-quoted trade is the only event allowed to
+                # override a manual Hide choice for USD.
+                quote_coin.hidden = False
+                quote_coin.auto_hidden = False
+                quote_coin.force_visible = True
             logger.info(f"Updated {quote_asset} after {side} {base_asset}: New amount={quote_coin.amount}")
 
         if coin:

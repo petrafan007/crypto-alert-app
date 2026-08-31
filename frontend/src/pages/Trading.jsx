@@ -1429,19 +1429,19 @@ const Trading = ({ isLightMode = false }) => {
           setLoading(false);
           return;
         }
-        if (orderForm.side === 'BUY' && limit > stop) {
+        if (orderForm.side === 'BUY' && limit < stop) {
           setFeedbackModal({
             isVisible: true,
-            message: 'For buy take-profit limit orders, the limit price must be less than or equal to the stop price.',
+            message: 'For buy take-profit limit orders, the limit price must be greater than or equal to the stop price.',
             type: 'error'
           });
           setLoading(false);
           return;
         }
-        if (orderForm.side === 'SELL' && limit < stop) {
+        if (orderForm.side === 'SELL' && limit > stop) {
           setFeedbackModal({
             isVisible: true,
-            message: 'For sell take-profit limit orders, the limit price must be greater than or equal to the stop price.',
+            message: 'For sell take-profit limit orders, the limit price must be less than or equal to the stop price.',
             type: 'error'
           });
           setLoading(false);

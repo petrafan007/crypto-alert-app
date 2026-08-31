@@ -12,8 +12,6 @@ from routes.helpers import *
 
 from flask import Blueprint, request, jsonify, session, redirect, url_for
 from flask_login import login_user, logout_user, login_required, current_user
-from werkzeug.security import generate_password_hash
-
 from core.extensions import db
 from credentials import User, Credential, UserSetting
 from models import DefaultAIPrompt, AIPrompt
@@ -290,42 +288,28 @@ def logout():
     return redirect(url_for("auth.login"))
 
 @auth_bp.route("/reset-password", methods=["GET", "POST"])
+@auth_bp.route("/api/account/password", methods=["POST"])
 @login_required
 def reset_password():
     if request.method == "POST":
-        password = request.form.get("password")
+        data = request.get_json(silent=True) or request.form or {}
+        current_password = data.get("current_password") or ''
+        password = data.get("new_password") or data.get("password") or ''
+        confirmation = data.get("confirm_password") or ''
+        user = db.session.get(User, current_user.id)
+        if not current_password or not user or not user.check_password(current_password):
+            return jsonify({"success": False, "error": "Current password is incorrect."}), 400
+        if not confirmation or password != confirmation:
+            return jsonify({"success": False, "error": "New password and confirmation do not match."}), 400
         if not _valid_password(password):
             return jsonify({"error": "Password must be at least 12 characters and include uppercase, lowercase, number, and special characters."}), 400
-        user = db.session.get(User, current_user.id)
-        user.pwd_hash = generate_password_hash(password)
+        if user.check_password(password):
+            return jsonify({"success": False, "error": "Choose a new password that is different from your current password."}), 400
+        user.set_password(password)
         db.session.commit()
-        return jsonify({"success": True, "message": "Password updated"})
-    
-    return '''
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <title>Reset Password</title>
-        <style>
-            body { font-family: Arial, sans-serif; margin: 40px; }
-            .form-group { margin-bottom: 15px; }
-            input[type="password"] { padding: 8px; width: 200px; }
-            button { padding: 10px 20px; background: #007bff; color: white; border: none; cursor: pointer; }
-            button:hover { background: #0056b3; }
-        </style>
-    </head>
-    <body>
-        <h2>Reset Password</h2>
-        <form method="POST">
-            <div class="form-group">
-                <label for="password">New Password:</label><br>
-                <input type="password" id="password" name="password" required minlength="6">
-            </div>
-            <button type="submit">Update Password</button>
-        </form>
-    </body>
-    </html>
-    '''
+        return jsonify({"success": True, "message": "Password updated successfully."})
+
+    return redirect('/settings?tab=security-2fa')
 
 
 @auth_bp.route('/onboarding', methods=['GET', 'POST'])
