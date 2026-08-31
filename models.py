@@ -117,6 +117,36 @@ class WebullActivity(db.Model):
     )
 
 
+class WebullEventSettlement(db.Model):
+    """Provider-explicit Event Contract settlement received from Webull's event stream."""
+    __tablename__ = 'webull_event_settlements'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, nullable=False)
+    environment = db.Column(db.String(20), nullable=False, default='production')
+    account_id = db.Column(db.String(80), nullable=False)
+    event_key = db.Column(db.String(180), nullable=False)
+    position_id = db.Column(db.String(120), nullable=True)
+    symbol = db.Column(db.String(120), nullable=True)
+    event_name = db.Column(db.String(300), nullable=True)
+    yes_condition = db.Column(db.String(500), nullable=True)
+    settle_result = db.Column(db.String(40), nullable=True)
+    settle_side = db.Column(db.String(20), nullable=True)
+    quantity = db.Column(db.Float, nullable=True)
+    cost = db.Column(db.Float, nullable=True)
+    settle_amount = db.Column(db.Float, nullable=True)
+    biz_type = db.Column(db.String(80), nullable=True)
+    event_time = db.Column(db.DateTime, nullable=True)
+    raw_details = db.Column(db.Text, nullable=True)
+    synced_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+    __table_args__ = (
+        db.UniqueConstraint('user_id', 'environment', 'account_id', 'event_key', name='uq_webull_event_settlement'),
+        db.Index('ix_webull_event_settlement_user_time', 'user_id', 'event_time'),
+        db.Index('ix_webull_event_settlement_account', 'user_id', 'account_id'),
+    )
+
+
 class WebullHistoricalOrder(db.Model):
     """Durable read-only copy of Webull historical orders.
 

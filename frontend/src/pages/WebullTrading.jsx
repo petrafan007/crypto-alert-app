@@ -10,7 +10,7 @@ import PercentPriceModal from '../components/PercentPriceModal';
 import WebullAIDashboard from '../components/WebullAIDashboard';
 import WebullOptionChain from '../components/WebullOptionChain';
 import OptionsPayoffChart from '../components/OptionsPayoffChart';
-import WebullActivityTable from '../components/WebullActivityTable';
+import UnifiedTransactionTable, { buildUnifiedTransactionRows } from '../components/UnifiedTransactionTable';
 import { differenceInEasternCalendarDays, formatEasternDate, formatEasternDateTime, formatEasternTime } from '../utils/dateTime';
 import { optionStrategyDefinition } from '../utils/optionStrategies';
 import {
@@ -118,12 +118,12 @@ const normalizeOrder = (order) => ({
   created_at: order.created_at || order.create_time || order.placed_time || order.place_time || order.filled_time_at || order.update_time,
 });
 
-function Pagination({ page, setPage, pageSize, setPageSize, total }) {
+function Pagination({ page, setPage, pageSize, setPageSize, total, itemLabel = 'orders' }) {
   const pages = Math.max(1, Math.ceil(total / pageSize));
   return (
     <div className="order-history-pagination">
       <div className="order-history-pagination-info">
-        Showing {total ? (page - 1) * pageSize + 1 : 0}–{Math.min(page * pageSize, total)} of {total} orders
+        Showing {total ? (page - 1) * pageSize + 1 : 0}–{Math.min(page * pageSize, total)} of {total} {itemLabel}
       </div>
       <div className="order-history-pagination-controls">
         <label className="order-page-size-label">
@@ -2420,7 +2420,11 @@ export default function WebullTrading({ isLightMode = false }) {
       window.clearInterval(timer);
     };
   }, [activeTab, displayOpenOrders]);
-  const sortedHistory = useMemo(() => [...modeHistory].sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || ''))), [modeHistory]);
+  const unifiedHistory = useMemo(
+    () => buildUnifiedTransactionRows(modeHistory.map((order) => ({ ...order, source: 'webull' })), isTestMode ? [] : webullActivities, accounts),
+    [modeHistory, isTestMode, webullActivities, accounts],
+  );
+  const sortedHistory = useMemo(() => [...unifiedHistory].sort((a, b) => String(b.date || '').localeCompare(String(a.date || ''))), [unifiedHistory]);
   const historyPages = Math.max(1, Math.ceil(sortedHistory.length / historyPageSize));
   const paginatedHistory = useMemo(() => sortedHistory.slice((historyPage - 1) * historyPageSize, historyPage * historyPageSize), [sortedHistory, historyPage, historyPageSize]);
   useEffect(() => { if (historyPage > historyPages) setHistoryPage(historyPages); }, [historyPage, historyPages]);
@@ -4367,17 +4371,9 @@ export default function WebullTrading({ isLightMode = false }) {
                   <div className="empty-state"><p>Loading Webull order history…</p></div>
                 ) : (
                   <>
-                    <WebullOrderTable orders={paginatedHistory} emptyText="No Webull order history is available yet." />
-                    <Pagination page={historyPage} setPage={setHistoryPage} pageSize={historyPageSize} setPageSize={setHistoryPageSize} total={sortedHistory.length} />
-                    {!isTestMode && (
-                      <div style={{ marginTop: 28 }}>
-                        <h2>Webull Account Activity</h2>
-                        <p style={{ color: 'var(--text-secondary, #94a3b8)', marginTop: -6 }}>
-                          Deposits, withdrawals, transfers, trades, settlements, fees, dividends, interest, and other activity Webull exposes for this account.
-                        </p>
-                        <WebullActivityTable activities={webullActivities} loading={activityLoading} />
-                      </div>
-                    )}
+                    <p className="order-history-description">Every persisted Webull order and account transaction is shown in this single chronological table.</p>
+                    <UnifiedTransactionTable rows={paginatedHistory} emptyMessage="No Webull order or transaction history is available yet." />
+                    <Pagination page={historyPage} setPage={setHistoryPage} pageSize={historyPageSize} setPageSize={setHistoryPageSize} total={sortedHistory.length} itemLabel="transactions" />
                   </>
                 )}
               </section>

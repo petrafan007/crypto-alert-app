@@ -9,6 +9,7 @@ export default function TaxReport({ isLightMode }) {
   const [error, setError] = useState(null);
   const [selectedAsset, setSelectedAsset] = useState('all');
   const [selectedYear, setSelectedYear] = useState('all');
+  const [selectedExchange, setSelectedExchange] = useState('all');
   const [sortConfig, setSortConfig] = useState({ key: 'date', direction: 'desc' });
   const [filters, setFilters] = useState({
     type: [],
@@ -326,11 +327,12 @@ export default function TaxReport({ isLightMode }) {
   const exportToCSV = () => {
     if (!taxData) return;
     
-    const headers = ['Date (ET)', 'Type', 'Asset', 'Amount', 'Price Traded At', 'Proceeds', 'Fee', 'Cost Basis', 'Gain/Loss', 'Gain/Loss Type', 'TxID'];
+    const headers = ['Date (ET)', 'Exchange', 'Type', 'Asset', 'Amount', 'Price Traded At', 'Proceeds', 'Fee', 'Cost Basis', 'Gain/Loss', 'Gain/Loss Type', 'TxID'];
     const csvContent = [
       headers.join(','),
       ...applyFilters(sortData(filteredTransactions, sortConfig.key)).map(tx => [
         `"${tx.date}"`,
+        `"${String(tx.exchange || '').toLowerCase() === 'webull' ? 'Webull' : 'Binance.US'}"`,
         `"${tx.type}"`,
         `"${tx.asset}"`,
         tx.amount,
@@ -348,7 +350,7 @@ export default function TaxReport({ isLightMode }) {
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `tax_report_${selectedYear !== 'all' ? selectedYear : 'all_years'}_${selectedAsset !== 'all' ? selectedAsset : 'all_assets'}.csv`;
+    a.download = `tax_report_${selectedExchange}_${selectedYear !== 'all' ? selectedYear : 'all_years'}_${selectedAsset !== 'all' ? selectedAsset : 'all_assets'}.csv`;
     a.click();
     window.URL.revokeObjectURL(url);
   };
@@ -361,6 +363,10 @@ export default function TaxReport({ isLightMode }) {
     if (!taxData) return [];
     
     let filtered = taxData.transactions;
+
+    if (selectedExchange !== 'all') {
+      filtered = filtered.filter(tx => String(tx.exchange || 'binance').toLowerCase() === selectedExchange);
+    }
     
     if (selectedAsset !== 'all') {
       filtered = filtered.filter(tx => tx.asset === selectedAsset);
@@ -376,6 +382,9 @@ export default function TaxReport({ isLightMode }) {
   const filteredTransactions = useMemo(() => {
     if (!taxData?.transactions) return [];
     let filtered = taxData.transactions;
+    if (selectedExchange !== 'all') {
+      filtered = filtered.filter(tx => String(tx.exchange || 'binance').toLowerCase() === selectedExchange);
+    }
     if (selectedAsset !== 'all') {
       filtered = filtered.filter(tx => tx.asset === selectedAsset);
     }
@@ -383,7 +392,17 @@ export default function TaxReport({ isLightMode }) {
       filtered = filtered.filter(tx => (tx.date || '').startsWith(selectedYear));
     }
     return filtered;
-  }, [taxData, selectedAsset, selectedYear]);
+  }, [taxData, selectedAsset, selectedYear, selectedExchange]);
+
+  const displayedHoldings = useMemo(() => {
+    const groups = taxData?.current_holdings_by_exchange || { binance: taxData?.current_holdings || {}, webull: {} };
+    if (selectedExchange === 'binance') return groups.binance || {};
+    if (selectedExchange === 'webull') return groups.webull || {};
+    const combined = {};
+    Object.entries(groups.binance || {}).forEach(([asset, holding]) => { combined[`${asset} (Binance.US)`] = holding; });
+    Object.entries(groups.webull || {}).forEach(([asset, holding]) => { combined[`${asset} (Webull)`] = holding; });
+    return combined;
+  }, [taxData, selectedExchange]);
 
   const filterSummary = useMemo(() => {
     let realizedGainLoss = 0;
@@ -419,13 +438,19 @@ export default function TaxReport({ isLightMode }) {
 
   const getYears = () => {
     if (!taxData) return [];
-    const years = [...new Set(taxData.transactions.map(tx => tx.date.substring(0, 4)))];
+    const years = [...new Set(taxData.transactions
+      .filter((tx) => selectedExchange === 'all' || String(tx.exchange || 'binance').toLowerCase() === selectedExchange)
+      .map(tx => String(tx.date || '').substring(0, 4))
+      .filter(Boolean))];
     return years.sort();
   };
 
   const getAssets = () => {
     if (!taxData) return [];
-    return taxData.summary.assets_traded.sort();
+    return [...new Set(taxData.transactions
+      .filter((tx) => selectedExchange === 'all' || String(tx.exchange || 'binance').toLowerCase() === selectedExchange)
+      .map((tx) => tx.asset)
+      .filter(Boolean))].sort();
   };
 
   if (loading) {
@@ -461,6 +486,11 @@ export default function TaxReport({ isLightMode }) {
   const manualInvestedUpdatedAt = taxData?.summary?.manual_invested_updated_at
     ? new Date(taxData.summary.manual_invested_updated_at).toLocaleString('en-US', { timeZone: 'America/New_York' })
     : null;
+  const displayedHoldingsValue = selectedExchange === 'webull'
+    ? (parseFloat(taxData?.summary?.webull_holdings_value) || 0)
+    : selectedExchange === 'binance'
+      ? (parseFloat(taxData?.summary?.binance_holdings_value) || 0)
+      : (parseFloat(taxData?.summary?.current_holdings_value) || 0);
 
   return (
     <div className="main-container tax-report-container">
@@ -468,6 +498,16 @@ export default function TaxReport({ isLightMode }) {
         <div className="table-header">
           <h2 className="table-title">Tax Report</h2>
           <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+            <select
+              value={selectedExchange}
+              onChange={(e) => { setSelectedExchange(e.target.value); setSelectedAsset('all'); }}
+              className="tax-report-selector"
+              aria-label="Exchange"
+            >
+              <option value="all">All Exchanges</option>
+              <option value="binance">Binance.US Only</option>
+              <option value="webull">Webull Only</option>
+            </select>
             <select
               value={selectedAsset}
               onChange={(e) => setSelectedAsset(e.target.value)}
@@ -613,9 +653,9 @@ export default function TaxReport({ isLightMode }) {
         {taxData && (
           <div className="tax-summary-cards">
             <div className="tax-summary-card">
-              <h3>{selectedYear !== 'all' ? `Realized Gain/Loss (${selectedYear})` : 'Total Gain/Loss'}</h3>
-              <div className={`value ${(selectedYear !== 'all' ? filterSummary.realizedGainLoss : taxData.summary.total_gain_loss) >= 0 ? 'positive' : 'negative'}`}>
-                {formatCurrency(selectedYear !== 'all' ? filterSummary.realizedGainLoss : taxData.summary.total_gain_loss)}
+              <h3>Realized Gain/Loss{selectedYear !== 'all' ? ` (${selectedYear})` : ''}</h3>
+              <div className={`value ${filterSummary.realizedGainLoss >= 0 ? 'positive' : 'negative'}`}>
+                {formatCurrency(filterSummary.realizedGainLoss)}
               </div>
             </div>
 
@@ -634,9 +674,9 @@ export default function TaxReport({ isLightMode }) {
             </div>
 
             <div className="tax-summary-card">
-              <h3>Current Holdings</h3>
+              <h3>Current Holdings ({selectedExchange === 'webull' ? 'Webull' : selectedExchange === 'binance' ? 'Binance.US' : 'All'})</h3>
               <div className="value">
-                {formatCurrency(taxData.summary.current_holdings_value || 0)}
+                {formatCurrency(displayedHoldingsValue)}
               </div>
             </div>
 
@@ -650,7 +690,7 @@ export default function TaxReport({ isLightMode }) {
         )}
 
         {/* Current Holdings */}
-        {taxData && taxData.current_holdings && Object.keys(taxData.current_holdings).length > 0 && (
+        {taxData && Object.keys(displayedHoldings).length > 0 && (
           <div style={{ marginBottom: '24px' }}>
             <h3 style={{ color: '#4fd1c5', marginBottom: '16px', textAlign: 'center' }}>Current Holdings</h3>
             <div style={{
@@ -671,7 +711,7 @@ export default function TaxReport({ isLightMode }) {
                   </tr>
                 </thead>
                 <tbody>
-                  {Object.entries(taxData.current_holdings).map(([asset, holding]) => (
+                  {Object.entries(displayedHoldings).map(([asset, holding]) => (
                     <tr key={asset}>
                       <td style={{ padding: '8px 12px', color: '#fff' }}>{asset}</td>
                       <td style={{ textAlign: 'right', padding: '8px 12px', color: '#fff' }}>
@@ -717,6 +757,9 @@ export default function TaxReport({ isLightMode }) {
             <tr>
               <th onClick={() => handleSort('date')} style={{ cursor: 'pointer', textAlign: 'center', padding: '8px 12px', color: '#4fd1c5' }}>
                 Date {getSortIcon('date')}
+              </th>
+              <th onClick={() => handleSort('exchange')} style={{ cursor: 'pointer', textAlign: 'center', padding: '8px 12px', color: '#4fd1c5' }}>
+                Exchange {getSortIcon('exchange')}
               </th>
               <th style={{ textAlign: 'center', padding: '8px 12px', color: '#4fd1c5' }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}>
@@ -804,18 +847,18 @@ export default function TaxReport({ isLightMode }) {
             <tbody>
               {filteredAndSortedTransactions.length === 0 ? (
                 <tr>
-                  <td colSpan="11" style={{ textAlign: 'center', padding: '16px', color: '#999' }}>
+                  <td colSpan="12" style={{ textAlign: 'center', padding: '16px', color: '#999' }}>
                     No transactions found
                   </td>
                 </tr>
               ) : (
                 filteredAndSortedTransactions.map((tx, index) => (
                   <tr key={tx.id}>
-                    {['date', 'type', 'asset', 'amount', 'price_sold_at', 'proceeds', 'fee', 'cost_basis', 'gain_loss', 'gain_loss_type', 'txid'].map(columnKey => (
+                    {['date', 'exchange', 'type', 'asset', 'amount', 'price_sold_at', 'proceeds', 'fee', 'cost_basis', 'gain_loss', 'gain_loss_type', 'txid'].map(columnKey => (
                       <td 
                         key={columnKey}
                         style={{ textAlign: 'center', padding: '8px 12px' }}
-                        onDoubleClick={() => startEdit(index, columnKey, tx[columnKey])}
+                        onDoubleClick={() => { if (!tx.read_only && columnKey !== 'exchange') startEdit(index, columnKey, tx[columnKey]); }}
                       >
                         {editingCell && editingCell.rowIndex === index && editingCell.columnKey === columnKey ? (
                           <input
@@ -838,6 +881,7 @@ export default function TaxReport({ isLightMode }) {
                         ) : (
                           <span style={{ cursor: 'pointer' }}>
                             {columnKey === 'date' ? formatEasternDate(tx[columnKey]) :
+                             columnKey === 'exchange' ? (String(tx[columnKey] || '').toLowerCase() === 'webull' ? 'Webull' : 'Binance.US') :
                              columnKey === 'type' ? (
                                <span style={{
                                  padding: '2px 8px',

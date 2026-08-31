@@ -8,7 +8,7 @@ import re
 import traceback
 from flask import Blueprint, send_file, request, jsonify, render_template, current_app, redirect, url_for, session, make_response
 from flask_login import current_user, login_required, login_user, logout_user
-from models import Coin, WatchlistCoin, Notification, PriceHistory, WebullHistoricalOrder
+from models import Coin, WatchlistCoin, Notification, PriceHistory, WebullActivity, WebullEventSettlement, WebullHistoricalOrder, WebullHolding
 from credentials import Credential, User, UserSetting
 from core.extensions import db
 from log import logger
@@ -4820,6 +4820,93 @@ def api_tax_report():
             }
             
             tax_data.append(tax_info)
+
+        # Webull's account-activity feed is the authoritative ledger for all
+        # provider-exposed asset classes and cash movements.  Keep these rows
+        # separate from Binance FIFO calculations because Webull does not
+        # always expose quantity/cost-basis detail (notably event settlements).
+        webull_activities = WebullActivity.query.filter_by(
+            user_id=current_user.id,
+            environment='production',
+        ).order_by(WebullActivity.biz_time.asc(), WebullActivity.id.asc()).all()
+        event_settlements = WebullEventSettlement.query.filter_by(
+            user_id=current_user.id,
+            environment='production',
+        ).order_by(WebullEventSettlement.event_time.asc(), WebullEventSettlement.id.asc()).all()
+        used_settlement_ids = set()
+
+        def matching_event_settlement(activity):
+            if activity.biz_time is None or activity.net_amount is None:
+                return None
+            matches = []
+            for settlement in event_settlements:
+                if settlement.id in used_settlement_ids or str(settlement.account_id) != str(activity.account_id):
+                    continue
+                if settlement.event_time is None or settlement.settle_amount is None:
+                    continue
+                seconds = abs((settlement.event_time - activity.biz_time).total_seconds())
+                if seconds <= 15 * 60 and abs(float(activity.net_amount) - float(settlement.settle_amount)) <= 0.011:
+                    matches.append((seconds, settlement))
+            if len(matches) != 1:
+                return None
+            settlement = matches[0][1]
+            used_settlement_ids.add(settlement.id)
+            return settlement
+
+        for activity in webull_activities:
+            settlement = matching_event_settlement(activity)
+            activity_type = 'EVENT_CONTRACT_SETTLEMENT' if settlement else (activity.activity_sub_type or activity.activity_type or 'ACTIVITY').upper()
+            net_amount = float(activity.net_amount or 0.0)
+            event_proceeds = float(settlement.settle_amount or 0.0) if settlement else 0.0
+            event_cost = float(settlement.cost or 0.0) if settlement else 0.0
+            event_gain = event_proceeds - event_cost if settlement else None
+            activity_date = activity.biz_time or activity.trade_date
+            tax_data.append({
+                'id': f'webull-{activity.id}',
+                'date': _format_activity_date(activity_date),
+                'type': activity_type,
+                'asset': (settlement.symbol if settlement else None) or activity.symbol or activity.currency or 'USD',
+                'amount': float(settlement.quantity or 0.0) if settlement else net_amount,
+                'proceeds': event_proceeds,
+                'fee': 0.0,
+                'txid': activity.webull_activity_id,
+                'cost_basis': event_cost,
+                'gain_loss': event_gain,
+                'gain_loss_type': 'short_term' if settlement else None,
+                'price_sold_at': None,
+                'exchange': 'webull',
+                'details': ' / '.join(filter(None, [
+                    settlement.event_name if settlement else None,
+                    settlement.yes_condition if settlement else None,
+                    f'Result: {settlement.settle_result}' if settlement and settlement.settle_result else None,
+                    activity.activity_type,
+                    activity.activity_sub_type,
+                ])),
+                'read_only': True,
+            })
+
+        for settlement in event_settlements:
+            if settlement.id in used_settlement_ids:
+                continue
+            tax_data.append({
+                'id': f'webull-event-{settlement.id}',
+                'date': _format_activity_date(settlement.event_time),
+                'type': 'EVENT_CONTRACT_SETTLEMENT',
+                'asset': settlement.symbol or 'EVENT',
+                'amount': float(settlement.quantity or 0.0),
+                'proceeds': float(settlement.settle_amount or 0.0),
+                'fee': 0.0,
+                'txid': settlement.event_key,
+                'cost_basis': float(settlement.cost or 0.0),
+                'gain_loss': float(settlement.settle_amount or 0.0) - float(settlement.cost or 0.0),
+                'gain_loss_type': 'short_term',
+                'price_sold_at': None,
+                'exchange': 'webull',
+                'details': ' / '.join(filter(None, [settlement.event_name, settlement.yes_condition, settlement.settle_result])),
+                'read_only': True,
+            })
+
+        tax_data.sort(key=lambda item: str(item.get('date') or ''))
         
         # Get actual current holdings from the coins table (which reflects real balances)
         current_coins = Coin.query.filter_by(user_id=current_user.id, hidden=False).all()
@@ -4828,6 +4915,27 @@ def api_tax_report():
         current_holdings = performance['holdings_map']
         portfolio_holdings_value = float(performance['holdings_value'])
         portfolio_holdings_cost = performance['holdings_cost']
+
+        webull_holdings = {}
+        webull_holdings_value = 0.0
+        for holding in WebullHolding.query.filter_by(user_id=current_user.id).all():
+            quantity = float(holding.quantity or 0.0)
+            if abs(quantity) <= 0.0000001:
+                continue
+            symbol = (holding.symbol or holding.underlying_symbol or 'UNKNOWN').upper()
+            key = f"{symbol} · {holding.account_id[-4:]}" if holding.account_id else symbol
+            cost_basis = float(holding.cost_price or 0.0) * quantity
+            current_value = float(holding.current_value or 0.0)
+            webull_holdings[key] = {
+                'amount': quantity,
+                'cost_basis': cost_basis,
+                'avg_price_per_unit': float(holding.cost_price or 0.0),
+                'current_price': float(holding.last_price or 0.0),
+                'current_value': current_value,
+                'source': 'webull',
+                'symbol': symbol,
+            }
+            webull_holdings_value += current_value
 
         staking_active_value = 0.0
         staking_pending_value = 0.0
@@ -4857,7 +4965,8 @@ def api_tax_report():
             staking_pending_value = 0.0
 
         total_staking_value = staking_active_value + staking_pending_value
-        combined_holdings_value = portfolio_holdings_value + total_staking_value
+        binance_holdings_value = portfolio_holdings_value + total_staking_value
+        combined_holdings_value = binance_holdings_value + webull_holdings_value
 
         manual_invested = get_manual_tax_investment(current_user.id)
         user_setting_for_tax = UserSetting.query.filter_by(user_id=current_user.id).first()
@@ -4887,13 +4996,15 @@ def api_tax_report():
             'current_holdings_value': combined_holdings_value,
             'current_holdings_cost_basis': portfolio_holdings_cost,
             'portfolio_holdings_value': portfolio_holdings_value,
+            'webull_holdings_value': webull_holdings_value,
+            'binance_holdings_value': binance_holdings_value,
             'staking_active_value': staking_active_value,
             'staking_pending_value': staking_pending_value,
             'staking_total_value': total_staking_value,
             'total_fees_paid': performance['total_fees_paid'],
             'total_buy_volume': performance['total_buy_cost'],
             'total_sell_proceeds': performance['total_sell_proceeds'],
-            'assets_traded': list(set(t['asset'] for t in tax_data)),
+            'assets_traded': sorted(set(t['asset'] for t in tax_data if t.get('asset'))),
             'assets_with_current_holdings': len(current_holdings),
             'date_range': {
                 'start': min(t['date'] for t in tax_data) if tax_data else None,
@@ -4905,6 +5016,10 @@ def api_tax_report():
             'transactions': tax_data,
             'summary': summary,
             'current_holdings': current_holdings,
+            'current_holdings_by_exchange': {
+                'binance': current_holdings,
+                'webull': webull_holdings,
+            },
             'fifo_lots': performance['fifo_lots']
         })
         
@@ -6105,8 +6220,18 @@ def export_tax_report_csv():
         from trading_models import AllActivity
         import io
         import csv
-        
-        activities = AllActivity.query.filter_by(user_id=current_user.id).order_by(AllActivity.date.desc()).all()
+
+        source = str(request.args.get('source') or 'all').strip().lower()
+        if source not in {'all', 'binance', 'webull'}:
+            return jsonify({'error': 'source must be all, binance, or webull'}), 400
+
+        activities = [] if source == 'webull' else AllActivity.query.filter_by(
+            user_id=current_user.id
+        ).order_by(AllActivity.date.desc()).all()
+        webull_activities = [] if source == 'binance' else WebullActivity.query.filter_by(
+            user_id=current_user.id,
+            environment='production',
+        ).order_by(WebullActivity.biz_time.desc(), WebullActivity.id.desc()).all()
         
         output = io.StringIO()
         writer = csv.writer(output)
@@ -6128,6 +6253,22 @@ def export_tax_report_csv():
                 act.description or '',
                 act.exchange or '',
                 act.txid or ''
+            ])
+
+        for act in webull_activities:
+            writer.writerow([
+                act.biz_time or act.trade_date or '',
+                act.activity_sub_type or act.activity_type or 'ACTIVITY',
+                act.symbol or act.currency or 'USD',
+                act.net_amount or 0,
+                '',
+                '',
+                '',
+                '',
+                '',
+                ' / '.join(filter(None, [act.activity_type, act.activity_sub_type])),
+                'webull',
+                act.webull_activity_id or '',
             ])
             
         output.seek(0)

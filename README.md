@@ -127,6 +127,20 @@ The application utilizes a **unified PostgreSQL database**.
 
 Historical changelog entries retain the product name used when they were originally released. The application domain, repository slug, deployment folders, database, and service identifiers intentionally remain unchanged by the v2.45.0 brand update.
 
+## v2.67.2 (August 2026)
+
+- **One Complete Transaction History**:
+  - Webull Trading now presents persisted orders and every API-exposed Webull account activity row in one chronological Order History table instead of splitting them into separate sections.
+  - The combined Orders page uses the same unified transaction model for Binance.US orders and account activity, Webull orders and account activity, and application automation while retaining source, account, category, and instrument details.
+  - Added a durable Webull Event Contract settlement feed. Webull-mobile and desktop settlements are correlated to cash-ledger entries using the provider's explicit position event, account, timestamp, and amount, while unmatched generic internal transfers remain truthfully identified as transfers.
+- **Open-Order Action Alignment**:
+  - Restored the missing estimated-P&L body cell so the Cancel control appears under the themed Actions column instead of leaving a blank white column.
+- **Exchange-Aware Tax Reporting**:
+  - Added every automatically synchronized Webull activity row to the Tax Report and CSV export without feeding incomplete Webull cash movements into Binance FIFO calculations.
+  - Added an All Exchanges, Binance.US Only, and Webull Only selector that filters the transaction log, summaries, exports, asset/year choices, and current holdings display.
+- **Accurate Hosted-Service Disclosure**:
+  - Corrected Help to explain both self-hosted deployments and CSDapp.online, including encrypted hosted credential and account-data storage, without changing the platform's non-custodial status.
+
 ## v2.67.1 (August 2026)
 
 - **Instant Database-Backed Order History**:

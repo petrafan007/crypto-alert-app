@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
 import CancelOrderModal from '../components/CancelOrderModal';
-import WebullActivityTable from '../components/WebullActivityTable';
+import UnifiedTransactionTable, { buildUnifiedTransactionRows } from '../components/UnifiedTransactionTable';
 import { formatEasternDateTime as formatEasternDateTimeValue } from '../utils/dateTime';
 import './Trading.css';
 import './AIDashboard.css';
@@ -206,7 +206,10 @@ function OrderTable({ orders, open, onCancelOrder, cancellingId, webullAccounts 
                 </td>
                 <td>{order.status}</td>
                 {open && (
-                  <td>
+                  <td aria-label="Estimated profit and loss if filled">—</td>
+                )}
+                {open && (
+                  <td className="order-actions-cell">
                     <button
                       type="button"
                       className="btn btn-sm btn-danger"
@@ -227,9 +230,9 @@ function OrderTable({ orders, open, onCancelOrder, cancellingId, webullAccounts 
   );
 }
 
-function Pagination({ page, setPage, pageSize, setPageSize, total }) {
+function Pagination({ page, setPage, pageSize, setPageSize, total, itemLabel = 'orders' }) {
   const pages = Math.max(1, Math.ceil(total / pageSize));
-  return <div className="order-history-pagination"><div className="order-history-pagination-info">Showing {total ? (page - 1) * pageSize + 1 : 0}–{Math.min(page * pageSize, total)} of {total} orders</div><div className="order-history-pagination-controls"><label className="order-page-size-label">Rows <select value={pageSize} onChange={(event) => { setPageSize(Number(event.target.value)); setPage(1); }}>{PAGE_SIZES.map((size) => <option key={size} value={size}>{size}</option>)}</select></label><button type="button" className="pagination-btn" onClick={() => setPage((current) => Math.max(1, current - 1))} disabled={page === 1}>‹ Prev</button><span className="order-page-indicator">Page {page} of {pages}</span><button type="button" className="pagination-btn" onClick={() => setPage((current) => Math.min(pages, current + 1))} disabled={page === pages}>Next ›</button></div></div>;
+  return <div className="order-history-pagination"><div className="order-history-pagination-info">Showing {total ? (page - 1) * pageSize + 1 : 0}–{Math.min(page * pageSize, total)} of {total} {itemLabel}</div><div className="order-history-pagination-controls"><label className="order-page-size-label">Rows <select value={pageSize} onChange={(event) => { setPageSize(Number(event.target.value)); setPage(1); }}>{PAGE_SIZES.map((size) => <option key={size} value={size}>{size}</option>)}</select></label><button type="button" className="pagination-btn" onClick={() => setPage((current) => Math.max(1, current - 1))} disabled={page === 1}>‹ Prev</button><span className="order-page-indicator">Page {page} of {pages}</span><button type="button" className="pagination-btn" onClick={() => setPage((current) => Math.min(pages, current + 1))} disabled={page === pages}>Next ›</button></div></div>;
 }
 
 export default function Orders() {
@@ -254,6 +257,7 @@ export default function Orders() {
   const [history, setHistory] = useState([]);
   const [openOrders, setOpenOrders] = useState([]);
   const [webullActivities, setWebullActivities] = useState([]);
+  const [binanceActivities, setBinanceActivities] = useState([]);
   const [activityLoading, setActivityLoading] = useState(false);
   const [loading, setLoading] = useState(true);
   const [notice, setNotice] = useState('');
@@ -383,11 +387,20 @@ export default function Orders() {
     }
   };
 
+  const loadBinanceActivities = async () => {
+    try {
+      const response = await axios.get('/api/logs/all?history_source=database', { withCredentials: true });
+      setBinanceActivities(Array.isArray(response.data) ? response.data : []);
+    } catch (error) {
+      setNotice(error.response?.data?.message || 'Unable to load Binance.US account activity.');
+    }
+  };
+
   const load = async () => {
     setLoading(true);
     setNotice('');
     if (activeTab === 'history') {
-      await Promise.all([loadHistory(), loadWebullActivities()]);
+      await Promise.all([loadHistory(), loadWebullActivities(), loadBinanceActivities()]);
     } else {
       await loadOpenOrders();
     }
@@ -490,8 +503,15 @@ export default function Orders() {
     return () => window.clearInterval(timer);
   }, [activeTab]);
   const activeOpenOrders = useMemo(() => openOrders.filter((order) => OPEN_STATUSES.has(String(order.status).toUpperCase()) || !order.status || order.status === '—'), [openOrders]);
+  const unifiedHistory = useMemo(
+    () => buildUnifiedTransactionRows(history, webullActivities, webullAccounts, binanceActivities),
+    [history, webullActivities, webullAccounts, binanceActivities],
+  );
   const filterableOrders = useMemo(() => [...activeOpenOrders, ...history], [activeOpenOrders, history]);
-  const statusOptions = useMemo(() => [...new Set(filterableOrders.map((order) => String(order.status || 'Unknown').toUpperCase()))].sort(), [filterableOrders]);
+  const statusOptions = useMemo(() => [...new Set([
+    ...filterableOrders.map((order) => String(order.status || 'Unknown').toUpperCase()),
+    ...unifiedHistory.map((row) => String(row.status || 'Unknown').toUpperCase()),
+  ])].sort(), [filterableOrders, unifiedHistory]);
   const matchesFilters = (order) => {
     if (filters.source !== 'all' && orderSource(order) !== filters.source) return false;
     if (filters.account === 'binance' && isWebull(order)) return false;
@@ -509,7 +529,23 @@ export default function Orders() {
   const filteredOpenOrders = useMemo(() => activeOpenOrders
     .filter(matchesFilters)
     .sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || ''))), [activeOpenOrders, filters, webullAccounts]);
-  const sortedHistory = useMemo(() => history.filter(matchesFilters).sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || ''))), [history, filters, webullAccounts]);
+  const matchesUnifiedFilters = (row) => {
+    if (filters.source !== 'all' && row.source !== filters.source) return false;
+    if (filters.account === 'binance' && row.source !== 'binance') return false;
+    if (filters.account !== 'all' && filters.account !== 'binance' && row.accountId !== filters.account) return false;
+    if (filters.symbol && !`${row.symbol || ''} ${row.instrument || ''} ${row.details || ''}`.toUpperCase().includes(filters.symbol.trim().toUpperCase())) return false;
+    if (filters.product !== 'all' && row.categoryKey !== filters.product) return false;
+    if (filters.status !== 'all' && String(row.status || 'Unknown').toUpperCase() !== filters.status) return false;
+    if (filters.timeRange !== 'all') {
+      const createdAt = new Date(row.date);
+      const days = Number(filters.timeRange);
+      if (Number.isNaN(createdAt.getTime()) || createdAt.getTime() < Date.now() - days * 24 * 60 * 60 * 1000) return false;
+    }
+    return true;
+  };
+  const sortedHistory = useMemo(() => unifiedHistory
+    .filter(matchesUnifiedFilters)
+    .sort((a, b) => String(b.date || '').localeCompare(String(a.date || ''))), [unifiedHistory, filters]);
   const historyPages = Math.max(1, Math.ceil(sortedHistory.length / historyPageSize));
   const paginatedHistory = useMemo(() => sortedHistory.slice((historyPage - 1) * historyPageSize, historyPage * historyPageSize), [sortedHistory, historyPage, historyPageSize]);
   useEffect(() => { if (historyPage > historyPages) setHistoryPage(historyPages); }, [historyPage, historyPages]);
@@ -529,6 +565,7 @@ export default function Orders() {
     if (tab === 'history') {
       if (!history.length && !historyLoading) loadHistory();
       if (!webullActivities.length && !activityLoading) loadWebullActivities();
+      if (!binanceActivities.length) loadBinanceActivities();
     }
     if (tab === 'market_analysis' && !marketAnalysisData) loadLatestWorkflowData('market-analysis');
     if (tab === 'portfolio_review' && !portfolioReviewData) loadLatestWorkflowData('portfolio-review');
@@ -646,7 +683,7 @@ export default function Orders() {
               <label>Source<select value={filters.source} onChange={(event) => setFilter('source', event.target.value)}><option value="all">All sources</option><option value="binance">Binance.US</option><option value="webull">Webull</option><option value="automation">Auto-Buy / Auto-Sell</option></select></label>
               <label>Account<select value={filters.account} onChange={(event) => setFilter('account', event.target.value)}><option value="all">All accounts</option><option value="binance">Binance.US</option>{webullAccounts.map((account) => <option key={account.account_id} value={account.account_id}>{accountLabel(account)}</option>)}</select></label>
               <label>Symbol<input type="search" value={filters.symbol} onChange={(event) => setFilter('symbol', event.target.value)} placeholder="BTC, TSLA…" /></label>
-              <label>Product<select value={filters.product} onChange={(event) => setFilter('product', event.target.value)}><option value="all">All products</option><option value="crypto">Crypto</option><option value="equity">Stock / ETF</option><option value="option">Options</option><option value="future">Futures</option><option value="automation">Automation</option><option value="other">Other</option></select></label>
+              <label>Product<select value={filters.product} onChange={(event) => setFilter('product', event.target.value)}><option value="all">All products</option><option value="crypto">Crypto</option><option value="equity">Stock / ETF</option><option value="option">Options</option><option value="future">Futures</option><option value="event">Event Contracts</option><option value="activity">Account Activity</option><option value="automation">Automation</option><option value="other">Other</option></select></label>
               <label>Status<select value={filters.status} onChange={(event) => setFilter('status', event.target.value)}><option value="all">All statuses</option>{statusOptions.map((status) => <option key={status} value={status}>{displayType(status)}</option>)}</select></label>
               <label>Time range<select value={filters.timeRange} onChange={(event) => setFilter('timeRange', event.target.value)}><option value="all">All time</option><option value="1">Past 24 hours</option><option value="7">Past 7 days</option><option value="30">Past 30 days</option><option value="90">Past 90 days</option></select></label>
               <button type="button" className="btn btn-secondary combined-order-filter-reset" onClick={resetFilters}>Reset filters</button>
@@ -664,15 +701,9 @@ export default function Orders() {
             ) : (
               <>
                 <h2>All Order History</h2>
-                <OrderTable orders={paginatedHistory} webullAccounts={webullAccounts} />
-                <Pagination page={historyPage} setPage={setHistoryPage} pageSize={historyPageSize} setPageSize={setHistoryPageSize} total={sortedHistory.length} />
-                <div style={{ marginTop: 28 }}>
-                  <h2>Webull Account Activity</h2>
-                  <p style={{ color: 'var(--text-secondary, #94a3b8)', marginTop: -6 }}>
-                    Deposits, withdrawals, transfers, trades, settlements, fees, dividends, interest, and other activity Webull exposes for your enabled accounts.
-                  </p>
-                  <WebullActivityTable activities={webullActivities} loading={activityLoading} />
-                </div>
+                <p className="order-history-description">Every persisted order and account transaction from Binance.US and Webull, shown together in chronological order.</p>
+                <UnifiedTransactionTable rows={paginatedHistory} emptyMessage="No order or transaction history matches these filters." />
+                <Pagination page={historyPage} setPage={setHistoryPage} pageSize={historyPageSize} setPageSize={setHistoryPageSize} total={sortedHistory.length} itemLabel="transactions" />
               </>
             )}
           </section>

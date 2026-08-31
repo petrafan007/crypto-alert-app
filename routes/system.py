@@ -20,7 +20,7 @@ from sqlalchemy import text
 
 # Database & Models
 from core.extensions import db
-from models import Notification, Coin, WatchlistCoin, AIPrompt, DefaultAIPrompt, WebullAccountSnapshot, WebullActivity, WebullHolding, WebullTestPosition
+from models import Notification, Coin, WatchlistCoin, AIPrompt, DefaultAIPrompt, WebullAccountSnapshot, WebullActivity, WebullEventSettlement, WebullHolding, WebullTestPosition
 from credentials import User, UserSetting, Credential
 
 # Log
@@ -839,12 +839,13 @@ def api_hide_notification(notif_id):
 @system_bp.route('/api/logs/all')
 @login_required
 def api_logs_all():
-    try:
-        # Try to sync Binance logs, but don't fail if API is broken
-        sync_binance_logs()
-    except Exception as e:
-        logger.warning(f"Logs sync failed, returning existing data: {str(e)}")
-        # Continue with existing data even if sync fails
+    if str(request.args.get('history_source') or '').lower() != 'database':
+        try:
+            # Explicit live callers may refresh Binance first. History screens
+            # use the durable database path so tab activation remains instant.
+            sync_binance_logs()
+        except Exception as e:
+            logger.warning(f"Logs sync failed, returning existing data: {str(e)}")
     
     try:
         from trading_models import AllActivity
@@ -2155,6 +2156,39 @@ def api_webull_portfolio_sync():
     }), 410
 
 
+def _webull_activity_category(row):
+    """Classify only provider-explicit activity metadata; never infer an event from cash movement."""
+    raw = {}
+    try:
+        raw = json.loads(getattr(row, 'raw_details', None) or '{}')
+    except (TypeError, ValueError):
+        raw = {}
+
+    explicit_values = []
+    candidate_keys = {
+        'asset_type', 'assetType', 'instrument_type', 'instrumentType',
+        'security_type', 'securityType', 'product_type', 'productType',
+        'contract_type', 'contractType', 'category', 'market_type', 'marketType',
+    }
+
+    def collect(value):
+        if isinstance(value, dict):
+            for key, nested in value.items():
+                if key in candidate_keys and nested is not None:
+                    explicit_values.append(str(nested))
+                if isinstance(nested, (dict, list)):
+                    collect(nested)
+        elif isinstance(value, list):
+            for nested in value:
+                collect(nested)
+
+    collect(raw)
+    symbol = str(getattr(row, 'symbol', None) or '').upper()
+    if any('EVENT' in value.upper() for value in explicit_values) or symbol.startswith('KX'):
+        return 'EVENT_CONTRACT'
+    return None
+
+
 @system_bp.route('/api/webull/activities', methods=['GET'])
 @login_required
 def api_webull_activities():
@@ -2202,6 +2236,41 @@ def api_webull_activities():
             ordered = ordered.limit(limit)
         rows = ordered.all()
 
+        settlement_query = WebullEventSettlement.query.filter_by(
+            user_id=current_user.id,
+            environment=environment,
+        )
+        if enabled_ids:
+            settlement_query = settlement_query.filter(WebullEventSettlement.account_id.in_(enabled_ids))
+        else:
+            settlement_query = settlement_query.filter(db.text('1 = 0'))
+        settlements = settlement_query.order_by(WebullEventSettlement.event_time.desc()).all()
+        used_settlement_ids = set()
+
+        def settlement_for_activity(activity):
+            if activity.biz_time is None or activity.net_amount is None:
+                return None
+            candidates = []
+            for settlement in settlements:
+                if settlement.id in used_settlement_ids or str(settlement.account_id) != str(activity.account_id):
+                    continue
+                if settlement.event_time is None:
+                    continue
+                seconds = abs((settlement.event_time - activity.biz_time).total_seconds())
+                if seconds > 15 * 60:
+                    continue
+                amount_matches = (
+                    settlement.settle_amount is not None
+                    and abs(float(activity.net_amount) - float(settlement.settle_amount)) <= 0.011
+                )
+                if amount_matches:
+                    candidates.append((seconds, settlement))
+            if len(candidates) != 1:
+                return None
+            match = candidates[0][1]
+            used_settlement_ids.add(match.id)
+            return match
+
         aliases = _webull_account_aliases(setting)
         connected = {}
         try:
@@ -2214,6 +2283,7 @@ def api_webull_activities():
         for row in rows:
             account = connected.get(str(row.account_id), {})
             label = aliases.get(str(row.account_id)) or account.get('account_label') or account.get('account_name') or account.get('account_type') or 'Webull Account'
+            settlement = settlement_for_activity(row)
             activities.append({
                 'id': row.webull_activity_id,
                 'account_id': row.account_id,
@@ -2224,14 +2294,54 @@ def api_webull_activities():
                 'currency': row.currency,
                 'market': row.market,
                 'symbol': row.symbol,
+                'activity_category': 'EVENT_CONTRACT' if settlement else _webull_activity_category(row),
+                'event_name': settlement.event_name if settlement else None,
+                'yes_condition': settlement.yes_condition if settlement else None,
+                'settle_result': settlement.settle_result if settlement else None,
+                'settle_side': settlement.settle_side if settlement else None,
+                'settle_quantity': settlement.quantity if settlement else None,
+                'settle_cost': settlement.cost if settlement else None,
+                'settle_amount': settlement.settle_amount if settlement else None,
                 'trade_date': row.trade_date.isoformat() if row.trade_date else None,
                 'net_amount': row.net_amount,
                 'biz_time': row.biz_time.isoformat() + 'Z' if row.biz_time else None,
             })
+
+        # A zero-dollar loss may not produce a cash-ledger row.  Preserve the
+        # explicit provider settlement as its own transaction rather than
+        # dropping it or disguising it as a generic transfer.
+        for settlement in settlements:
+            if settlement.id in used_settlement_ids:
+                continue
+            account = connected.get(str(settlement.account_id), {})
+            label = aliases.get(str(settlement.account_id)) or account.get('account_label') or account.get('account_name') or account.get('account_type') or 'Webull Account'
+            activities.append({
+                'id': f'event-settlement-{settlement.id}',
+                'account_id': settlement.account_id,
+                'account_id_masked': account.get('account_id_masked') or f"••••{str(settlement.account_id)[-4:]}",
+                'account_label': label,
+                'activity_type': 'EVENT_CONTRACT',
+                'activity_sub_type': 'SETTLEMENT',
+                'activity_category': 'EVENT_CONTRACT',
+                'currency': 'USD',
+                'market': 'US',
+                'symbol': settlement.symbol,
+                'event_name': settlement.event_name,
+                'yes_condition': settlement.yes_condition,
+                'settle_result': settlement.settle_result,
+                'settle_side': settlement.settle_side,
+                'settle_quantity': settlement.quantity,
+                'settle_cost': settlement.cost,
+                'settle_amount': settlement.settle_amount,
+                'trade_date': settlement.event_time.date().isoformat() if settlement.event_time else None,
+                'net_amount': settlement.settle_amount,
+                'biz_time': settlement.event_time.isoformat() + 'Z' if settlement.event_time else None,
+            })
+        activities.sort(key=lambda item: str(item.get('biz_time') or item.get('trade_date') or ''), reverse=True)
         return jsonify({
             'success': True,
             'activities': activities,
-            'total': total,
+            'total': len(activities) if unlimited else total + len([item for item in activities if str(item.get('id', '')).startswith('event-settlement-')]),
             'environment': environment,
             'test_mode': False,
         })

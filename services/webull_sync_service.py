@@ -373,6 +373,8 @@ def webull_auto_sync_loop(app, interval_seconds=60):
     while True:
         with app.app_context():
             try:
+                from services.webull_event_stream_service import ensure_webull_event_streams
+                ensure_webull_event_streams(app)
                 user_ids = [row[0] for row in db.session.query(Credential.user_id).filter(
                     Credential.webull_token_status == 'NORMAL'
                 ).all()]

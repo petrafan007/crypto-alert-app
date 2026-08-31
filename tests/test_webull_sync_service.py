@@ -6,7 +6,8 @@ from unittest.mock import patch
 from flask import Flask
 
 from core.extensions import db
-from models import WebullAccountSnapshot, WebullActivity, WebullHistoricalOrder
+from models import WebullAccountSnapshot, WebullActivity, WebullEventSettlement, WebullHistoricalOrder
+from services.webull_event_stream_service import persist_webull_event_settlement
 from services.webull_sync_service import _sync_account_activities, _sync_account_orders
 
 
@@ -31,6 +32,7 @@ class WebullSyncServiceTests(unittest.TestCase):
         cls.context.pop()
 
     def setUp(self):
+        WebullEventSettlement.query.delete()
         WebullHistoricalOrder.query.delete()
         WebullActivity.query.delete()
         WebullAccountSnapshot.query.delete()
@@ -126,6 +128,30 @@ class WebullSyncServiceTests(unittest.TestCase):
         self.assertEqual(row.status, 'FILLED')
         self.assertEqual(row.filled_quantity, 2.0)
         self.assertEqual(row.filled_price, 205.25)
+
+    def test_event_settlement_is_provider_explicit_and_idempotent(self):
+        payload = {
+            'account_id': 'account-1',
+            'position_id': 'event-position-1',
+            'symbol': 'KXRATECUTCOUNT-26DEC31-T14',
+            'event_name': 'Number of rate cuts in 2026',
+            'yes_condition': 'Exactly 8 cuts',
+            'settle_result': 'Yes',
+            'settle_side': 'Yes',
+            'quantity': '40',
+            'cost': '20.00',
+            'settle_amount': '40.00',
+            'biz_type': 'EVENT_POSITION_SETTLED',
+        }
+        persist_webull_event_settlement(1, 'production', payload, 1788148800000)
+        persist_webull_event_settlement(1, 'production', {**payload, 'settle_amount': '41.00'}, 1788148860000)
+
+        self.assertEqual(WebullEventSettlement.query.count(), 1)
+        settlement = WebullEventSettlement.query.one()
+        self.assertEqual(settlement.symbol, 'KXRATECUTCOUNT-26DEC31-T14')
+        self.assertEqual(settlement.biz_type, 'EVENT_POSITION_SETTLED')
+        self.assertEqual(settlement.settle_amount, 41.0)
+        self.assertEqual(settlement.event_time, datetime(2026, 8, 31, 4, 1, 0))
 
 
 if __name__ == '__main__':

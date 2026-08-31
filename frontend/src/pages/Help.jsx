@@ -234,13 +234,16 @@ export default function Help({ isLightMode }) {
                     Welcome to Crypto &amp; Securities Dashboard! This is a non-custodial crypto and securities portfolio
                     management and trading platform for Binance.US and Webull. It covers real-time portfolio tracking,
                     exchange-aware trading, staking, automated Binance.US crash/surge protection, and AI-powered market
-                    analysis — all self-hosted, so your credentials and data never leave your own server.
+                    analysis. You can self-host the application, or use the hosted service at CSDapp.online. When you use
+                    CSDapp.online, your encrypted API credentials and the account data needed to provide the service are
+                    securely stored and processed on CSDapp.online&apos;s servers. The platform remains non-custodial: it does
+                    not take possession of your cash, cryptocurrency, or securities.
                 </p>
 
                 <SubHeading>Quick Start Steps:</SubHeading>
                 <ol style={{ paddingLeft: '20px', lineHeight: '1.8' }}>
-                    <li><strong>Set up your Binance.US API key</strong> in Settings for crypto portfolio sync, trading, staking, and app automation</li>
-                    <li><strong>Optionally connect Webull OpenAPI</strong> in Settings, choose the accounts to include, preview them, and import their read-only portfolio snapshots</li>
+                    <li><strong>Connect at least one exchange</strong> during setup: Binance.US, Webull, or both</li>
+                    <li><strong>Select the Webull accounts you want to use</strong>, if connected; enabled accounts then synchronize automatically without a manual import step</li>
                     <li><strong>Configure alerts</strong> via Telegram and/or browser notifications for price and trade updates</li>
                     <li><strong>Enable AI integration</strong> for sentiment analysis and the AI Copilot (optional)</li>
                     <li><strong>Explore your Dashboard</strong> — add coins to your Portfolio and Watchlist, then customize the widget layout</li>
