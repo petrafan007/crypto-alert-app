@@ -1,11 +1,11 @@
 import unittest
 from unittest.mock import Mock, patch
 
-from flask import Flask
+from flask import Flask, g
 
 from core.extensions import db, login_manager
 from credentials import User, UserSetting
-from models import Coin
+from models import AssetIconCache, Coin
 from routes.auth import auth_bp
 from routes.market import market_bp
 from services.binance_service import update_coins_from_binance_balances
@@ -43,7 +43,8 @@ class Version2673RegressionTests(unittest.TestCase):
 
     def setUp(self):
         db.session.remove()
-        for model in (Coin, UserSetting, User):
+        g.pop('_login_user', None)
+        for model in (AssetIconCache, Coin, UserSetting, User):
             db.session.query(model).delete()
         db.session.commit()
 
@@ -137,21 +138,27 @@ class Version2673RegressionTests(unittest.TestCase):
     def test_asset_icon_uses_exact_ranked_coingecko_match(self, mock_get):
         response = Mock()
         response.raise_for_status.return_value = None
-        response.json.return_value = {
-            'coins': [
-                {'id': 'unrelated', 'symbol': 'NOPE', 'name': 'Nope', 'market_cap_rank': 1, 'thumb': 'https://example.com/nope.png'},
-                {'id': 'lower-rank', 'symbol': 'HYPE', 'name': 'Other Hype', 'market_cap_rank': 900, 'thumb': 'https://example.com/other.png'},
-                {'id': 'hyperliquid', 'symbol': 'hype', 'name': 'Hyperliquid', 'market_cap_rank': 10, 'small': 'https://assets.coingecko.com/hype.png'},
-            ]
-        }
+        response.json.return_value = [
+            {'id': 'unrelated', 'symbol': 'NOPE', 'name': 'Nope', 'market_cap_rank': 1, 'image': 'https://example.com/nope.png'},
+            {'id': 'lower-rank', 'symbol': 'HYPE', 'name': 'Other Hype', 'market_cap_rank': 900, 'image': 'https://example.com/other.png'},
+            {'id': 'hyperliquid', 'symbol': 'hype', 'name': 'Hyperliquid', 'market_cap_rank': 10, 'image': 'https://assets.coingecko.com/hype.png'},
+        ]
         mock_get.return_value = response
 
-        result = self.client().get('/api/asset-icon/HYPE')
+        result = self.client().post('/api/asset-icons', json={'symbols': ['HYPE', 'NOPE', 'HYPE']})
         self.assertEqual(result.status_code, 200)
-        payload = result.get_json()
+        payload = result.get_json()['icons']['HYPE']
         self.assertEqual(payload['asset_id'], 'hyperliquid')
         self.assertEqual(payload['icon_url'], 'https://assets.coingecko.com/hype.png')
         self.assertEqual(payload['provider'], 'CoinGecko')
+        self.assertIn('hype,nope', mock_get.call_args.kwargs['params']['symbols'])
+        self.assertEqual(mock_get.call_args.kwargs['params']['include_tokens'], 'all')
+
+        # The second request is served from the persistent 30-day cache.
+        second = self.client().get('/api/asset-icon/HYPE')
+        self.assertEqual(second.status_code, 200)
+        self.assertEqual(second.get_json()['asset_id'], 'hyperliquid')
+        self.assertEqual(mock_get.call_count, 1)
 
 
 if __name__ == '__main__':

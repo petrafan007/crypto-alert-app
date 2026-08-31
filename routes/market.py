@@ -4,7 +4,7 @@ import requests
 import time
 from flask import send_file, request, jsonify, render_template, current_app, redirect, url_for
 from flask_login import current_user, login_required, login_user, logout_user
-from models import Coin, WatchlistCoin, Notification, PriceHistory, WebullHolding
+from models import Coin, WatchlistCoin, Notification, PriceHistory, WebullHolding, AssetIconCache
 from services.webull_import_service import get_webull_portfolio_rows
 from credentials import Credential, User, UserSetting
 from core.extensions import db
@@ -25,9 +25,9 @@ _ticker_24h_cache = {
     "data": {}
 }
 
-_asset_icon_cache = {}
-_ASSET_ICON_CACHE_TTL = 24 * 60 * 60
-_ASSET_ICON_MISS_TTL = 15 * 60
+_ASSET_ICON_CACHE_TTL = timedelta(days=30)
+_ASSET_ICON_MISS_TTL = timedelta(minutes=15)
+_ASSET_ICON_BATCH_SIZE = 50
 
 
 def _refresh_and_include_live_webull(user_id):
@@ -67,51 +67,139 @@ def _get_binance_24h_tickers():
         return _ticker_24h_cache.get("data", {})
 
 
+def _clean_asset_symbol(symbol):
+    return ''.join(ch for ch in str(symbol or '').upper() if ch.isalnum())[:20]
+
+
+def _asset_icon_payload(row):
+    return {
+        'symbol': row.symbol,
+        'icon_url': row.icon_url,
+        'asset_id': row.asset_id,
+        'asset_name': row.asset_name,
+        'provider': row.provider or 'CoinGecko',
+    }
+
+
+def _resolve_asset_icons(symbols):
+    """Resolve icons from a persistent cache, batching only expired/missing symbols."""
+    clean_symbols = list(dict.fromkeys(filter(None, (_clean_asset_symbol(value) for value in symbols))))
+    if not clean_symbols:
+        return {}
+
+    now = datetime.now()
+    rows = AssetIconCache.query.filter(AssetIconCache.symbol.in_(clean_symbols)).all()
+    cached_rows = {row.symbol: row for row in rows}
+    resolved = {}
+    refresh_symbols = []
+
+    for symbol in clean_symbols:
+        row = cached_rows.get(symbol)
+        if row:
+            ttl = _ASSET_ICON_CACHE_TTL if row.icon_url else _ASSET_ICON_MISS_TTL
+            if row.fetched_at and now - row.fetched_at < ttl:
+                resolved[symbol] = _asset_icon_payload(row)
+                continue
+        refresh_symbols.append(symbol)
+
+    for offset in range(0, len(refresh_symbols), _ASSET_ICON_BATCH_SIZE):
+        chunk = refresh_symbols[offset:offset + _ASSET_ICON_BATCH_SIZE]
+        provider_results = None
+        try:
+            response = requests.get(
+                'https://api.coingecko.com/api/v3/coins/markets',
+                params={
+                    'vs_currency': 'usd',
+                    'symbols': ','.join(symbol.lower() for symbol in chunk),
+                    'include_tokens': 'all',
+                    'order': 'market_cap_desc',
+                    'per_page': 250,
+                    'page': 1,
+                    'sparkline': 'false',
+                },
+                headers={'Accept': 'application/json', 'User-Agent': 'Crypto-Securities-Dashboard/2.67.4'},
+                timeout=10,
+            )
+            response.raise_for_status()
+            response_body = response.json()
+            provider_results = response_body if isinstance(response_body, list) else []
+        except Exception as exc:
+            logger.info('CoinGecko batched icon lookup unavailable for %s: %s', ','.join(chunk), exc)
+
+        if provider_results is None:
+            # Preserve a stale successful URL during a provider outage and extend it
+            # so page loads do not repeatedly hit a rate-limited provider.
+            for symbol in chunk:
+                stale = cached_rows.get(symbol)
+                if stale and stale.icon_url:
+                    stale.fetched_at = now
+                    resolved[symbol] = _asset_icon_payload(stale)
+                else:
+                    row = stale or AssetIconCache(symbol=symbol)
+                    row.icon_url = None
+                    row.provider = 'CoinGecko'
+                    row.fetched_at = now
+                    if row.id is None:
+                        db.session.add(row)
+                        cached_rows[symbol] = row
+                    resolved[symbol] = _asset_icon_payload(row)
+            continue
+
+        exact_matches = {symbol: [] for symbol in chunk}
+        for coin in provider_results:
+            symbol = _clean_asset_symbol(coin.get('symbol'))
+            if symbol in exact_matches:
+                exact_matches[symbol].append(coin)
+
+        for symbol in chunk:
+            matches = exact_matches[symbol]
+            matches.sort(key=lambda coin: (
+                coin.get('market_cap_rank') is None,
+                coin.get('market_cap_rank') or float('inf'),
+            ))
+            selected = matches[0] if matches else {}
+            row = cached_rows.get(symbol) or AssetIconCache(symbol=symbol)
+            row.icon_url = selected.get('image')
+            row.asset_id = selected.get('id')
+            row.asset_name = selected.get('name')
+            row.provider = 'CoinGecko'
+            row.fetched_at = now
+            if row.id is None:
+                db.session.add(row)
+                cached_rows[symbol] = row
+            resolved[symbol] = _asset_icon_payload(row)
+
+    try:
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        logger.exception('Unable to persist the asset icon cache')
+
+    return resolved
+
+
+@market_bp.route('/api/asset-icons', methods=['POST'])
+@login_required
+def asset_icons():
+    """Resolve up to 200 symbols using the shared persistent provider cache."""
+    body = request.get_json(silent=True) or {}
+    symbols = body.get('symbols') if isinstance(body.get('symbols'), list) else []
+    clean_symbols = list(dict.fromkeys(filter(None, (_clean_asset_symbol(value) for value in symbols))))[:200]
+    return jsonify({'icons': _resolve_asset_icons(clean_symbols)})
+
+
 @market_bp.route('/api/asset-icon/<symbol>')
 @login_required
 def asset_icon(symbol):
-    """Resolve a cryptocurrency icon dynamically from CoinGecko metadata."""
-    clean_symbol = ''.join(ch for ch in str(symbol or '').upper() if ch.isalnum())[:20]
+    """Backward-compatible single-symbol access to the persistent icon cache."""
+    clean_symbol = _clean_asset_symbol(symbol)
     if not clean_symbol:
         return jsonify({'icon_url': None, 'provider': 'CoinGecko'}), 400
-
-    now = time.time()
-    cached = _asset_icon_cache.get(clean_symbol)
-    cache_ttl = _ASSET_ICON_CACHE_TTL if cached and cached['payload'].get('icon_url') else _ASSET_ICON_MISS_TTL
-    if cached and now - cached['timestamp'] < cache_ttl:
-        return jsonify(cached['payload'])
-
-    payload = {'symbol': clean_symbol, 'icon_url': None, 'provider': 'CoinGecko'}
-    try:
-        response = requests.get(
-            'https://api.coingecko.com/api/v3/search',
-            params={'query': clean_symbol},
-            headers={'Accept': 'application/json', 'User-Agent': 'Crypto-Securities-Dashboard/2.67.3'},
-            timeout=8,
-        )
-        response.raise_for_status()
-        exact_matches = [
-            coin for coin in (response.json().get('coins') or [])
-            if str(coin.get('symbol') or '').upper() == clean_symbol
-        ]
-        exact_matches.sort(key=lambda coin: (
-            coin.get('market_cap_rank') is None,
-            coin.get('market_cap_rank') or float('inf'),
-        ))
-        if exact_matches:
-            selected = exact_matches[0]
-            icon_url = selected.get('small') or selected.get('thumb') or selected.get('large')
-            if icon_url:
-                payload.update({
-                    'icon_url': icon_url,
-                    'asset_id': selected.get('id'),
-                    'asset_name': selected.get('name'),
-                })
-    except Exception as exc:
-        logger.info('CoinGecko icon lookup unavailable for %s: %s', clean_symbol, exc)
-
-    _asset_icon_cache[clean_symbol] = {'timestamp': now, 'payload': payload}
-    return jsonify(payload)
+    return jsonify(_resolve_asset_icons([clean_symbol]).get(clean_symbol, {
+        'symbol': clean_symbol,
+        'icon_url': None,
+        'provider': 'CoinGecko',
+    }))
 
 
 @market_bp.route("/api/pionex-price")

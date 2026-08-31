@@ -13,7 +13,7 @@
   - **Interactive Customizable Dashboard Grid**: Modern drag-and-drop (`⠿`) reordering, multi-handle resizing, and custom panel visibility for all upper dashboard widgets.
   - **Market Gauges & Performance**: Built-in Fear & Greed Index, CBBI Bull Run Peak Confidence metric, Staking Yield overview, and 7-day multi-interval performance tickers.
   - **True Portfolio Trend Charts**: Saved, user-selectable quick ranges from 1H through All-time with live portfolio net-worth updates.
-  - **Provider-Sourced Cryptocurrency Icons**: Live CoinGecko metadata supplies legitimate asset icons across portfolio and watchlist tables without hardcoded or generated symbol artwork.
+  - **Provider-Sourced Cryptocurrency Icons**: Batched CoinGecko metadata supplies legitimate asset icons across portfolio and watchlist tables without hardcoded or generated symbol artwork, backed by a persistent 30-day cache.
   - **Automatic Webull Read-Only Feed**: Enabled Webull accounts continuously synchronize balances, positions, orders, and the complete API-exposed account activity ledger without a manual import step. Webull equities, ETFs, crypto, options, futures, and event-related cash activity remain isolated from Binance.US data and from Webull Test Mode.
 
 - **⚡ Professional Trading Terminal (USD & USDT)**
@@ -126,6 +126,15 @@ The application utilizes a **unified PostgreSQL database**.
 ## Version History & Changelog
 
 Historical changelog entries retain the product name used when they were originally released. The application domain, repository slug, deployment folders, database, and service identifiers intentionally remain unchanged by the v2.45.0 brand update.
+
+## v2.67.4 (August 2026)
+
+- **Persistent Cryptocurrency Icon Cache**:
+  - Added a shared database-backed cache that retains successful symbol-to-icon metadata for 30 days across service restarts and deployments.
+  - Portfolio, watchlist, trading, tax, and analysis icon components now combine simultaneous uncached symbols into one batched request instead of issuing a provider request for every row.
+  - Only new, missing, or expired symbols contact CoinGecko. Unresolved symbols use a short retry cache, and a previously cached icon remains available during a temporary provider outage or rate limit.
+- **Regression Coverage**:
+  - Updated icon tests to verify exact-symbol rank selection, batch parameters, persistence, and reuse without a second provider request.
 
 ## v2.67.3 (August 2026)
 

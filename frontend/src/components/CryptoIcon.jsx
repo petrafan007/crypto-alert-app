@@ -3,6 +3,9 @@ import './CryptoIcon.css';
 
 const iconCache = new Map();
 const iconRequests = new Map();
+const queuedSymbols = new Set();
+const queuedResolvers = new Map();
+let batchTimer = null;
 
 const normalizeAssetSymbol = (symbol) => {
   let clean = String(symbol || '').toUpperCase().trim();
@@ -12,30 +15,53 @@ const normalizeAssetSymbol = (symbol) => {
   return clean.replace(/[^A-Z0-9]/g, '').slice(0, 20);
 };
 
-const resolveIcon = async (symbol) => {
-  if (iconCache.has(symbol)) return iconCache.get(symbol);
+const flushIconBatch = async () => {
+  const symbols = Array.from(queuedSymbols);
+  symbols.forEach((symbol) => queuedSymbols.delete(symbol));
+  batchTimer = null;
+
+  let icons = {};
+  try {
+    const response = await fetch('/api/asset-icons', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ symbols }),
+    });
+    if (response.ok) icons = (await response.json())?.icons || {};
+  } catch {
+    icons = {};
+  }
+
+  symbols.forEach((symbol) => {
+    const payload = icons[symbol];
+    const result = payload?.icon_url ? {
+      url: payload.icon_url,
+      name: payload.asset_name || symbol,
+      provider: payload.provider || 'CoinGecko',
+    } : null;
+    if (result) iconCache.set(symbol, result);
+    (queuedResolvers.get(symbol) || []).forEach((resolve) => resolve(result));
+    queuedResolvers.delete(symbol);
+    iconRequests.delete(symbol);
+  });
+
+  if (queuedSymbols.size && !batchTimer) batchTimer = setTimeout(flushIconBatch, 40);
+};
+
+const resolveIcon = (symbol) => {
+  if (iconCache.has(symbol)) return Promise.resolve(iconCache.get(symbol));
   if (iconRequests.has(symbol)) return iconRequests.get(symbol);
 
-  const request = fetch(`/api/asset-icon/${encodeURIComponent(symbol)}`, {
-    credentials: 'same-origin',
-    headers: { Accept: 'application/json' },
-  })
-    .then(async (response) => {
-      if (!response.ok) return null;
-      const payload = await response.json();
-      return payload?.icon_url ? {
-        url: payload.icon_url,
-        name: payload.asset_name || symbol,
-        provider: payload.provider || 'CoinGecko',
-      } : null;
-    })
-    .catch(() => null)
-    .finally(() => iconRequests.delete(symbol));
+  const request = new Promise((resolve) => {
+    queuedSymbols.add(symbol);
+    if (!queuedResolvers.has(symbol)) queuedResolvers.set(symbol, []);
+    queuedResolvers.get(symbol).push(resolve);
+    if (!batchTimer) batchTimer = setTimeout(flushIconBatch, 40);
+  });
 
   iconRequests.set(symbol, request);
-  const result = await request;
-  iconCache.set(symbol, result);
-  return result;
+  return request;
 };
 
 export const CryptoIcon = ({ symbol, size = 20, className = '' }) => {
@@ -88,7 +114,7 @@ export const CryptoIcon = ({ symbol, size = 20, className = '' }) => {
         loading="lazy"
         referrerPolicy="no-referrer"
         onError={() => {
-          iconCache.set(cleanSymbol, null);
+          iconCache.delete(cleanSymbol);
           setIcon(null);
         }}
       />

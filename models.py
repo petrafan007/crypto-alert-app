@@ -600,6 +600,19 @@ class AICache(db.Model):
         db.Index('ix_ai_cache_lookup', 'user_id', 'cache_key', 'cache_type'),
     )
 
+
+class AssetIconCache(db.Model):
+    """Persistent provider metadata for cryptocurrency symbol icons."""
+    __tablename__ = 'asset_icon_cache'
+
+    id = db.Column(db.Integer, primary_key=True)
+    symbol = db.Column(db.String(20), nullable=False, unique=True, index=True)
+    icon_url = db.Column(db.Text, nullable=True)
+    asset_id = db.Column(db.String(120), nullable=True)
+    asset_name = db.Column(db.String(200), nullable=True)
+    provider = db.Column(db.String(50), nullable=False, default='CoinGecko')
+    fetched_at = db.Column(db.DateTime, nullable=False, default=datetime.now, index=True)
+
 class AIAnalysisSchedule(db.Model):
     """Schedule for AI analysis runs"""
     __tablename__ = 'ai_analysis_schedule'
