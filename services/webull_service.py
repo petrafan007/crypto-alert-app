@@ -267,13 +267,59 @@ def _get_webull_account_resource(app_key, app_secret, environment, access_token,
     return _response_payload(response, 'account resource request')
 
 
+# Ordered list of field names Webull may use for cash/settled balance across API versions.
+_WEBULL_CASH_BALANCE_ALIASES = (
+    'total_cash_balance',
+    'cash_balance',
+    'settled_cash',
+    'buying_power',
+    'cashBalance',
+    'settledCash',
+    'totalCashBalance',
+    'availableCash',
+    'available_cash',
+    'free_cash',
+    'freeCash',
+)
+
+
+def _normalise_webull_balance(raw):
+    """Return a balance dict with a guaranteed ``total_cash_balance`` key.
+
+    Webull's balance API uses different field names across account types and API
+    versions.  Callers should access ``total_cash_balance`` rather than the raw
+    field name so that cash is always captured regardless of payload shape.
+    """
+    if not isinstance(raw, dict):
+        return raw
+    if raw.get('total_cash_balance') not in (None, '', 0):
+        return raw  # already canonical
+    for alias in _WEBULL_CASH_BALANCE_ALIASES[1:]:
+        value = raw.get(alias)
+        if value not in (None, ''):
+            try:
+                numeric = float(str(value).replace(',', '').replace('$', '').strip())
+                if numeric > 0:
+                    result = dict(raw)
+                    result['total_cash_balance'] = numeric
+                    return result
+            except (TypeError, ValueError):
+                continue
+    return raw
+
+
 def get_webull_account_balance(app_key, app_secret, environment, access_token, account_id):
-    """Fetch one selected account's balance, without persisting it."""
+    """Fetch one selected account's balance, without persisting it.
+
+    The returned dict always carries a ``total_cash_balance`` key resolved via
+    ``_normalise_webull_balance``.
+    """
     payload = _get_webull_account_resource(
         app_key, app_secret, environment, access_token, account_id,
         '/trading/assets/balances/get', '/openapi/assets/balance',
     )
-    return payload.get('data', payload) if isinstance(payload, dict) else payload
+    raw = payload.get('data', payload) if isinstance(payload, dict) else payload
+    return _normalise_webull_balance(raw) if isinstance(raw, dict) else raw
 
 
 def get_webull_account_positions(app_key, app_secret, environment, access_token, account_id):

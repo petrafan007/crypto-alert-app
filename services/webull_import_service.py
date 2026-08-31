@@ -106,9 +106,34 @@ def import_webull_portfolio_snapshot(user_id, preview):
             holding.synced_at = now
             imported_positions += 1
 
+        # Upsert or delete the synthetic USD/CASH holding for this account.
+        # Cash sits in WebullAccountSnapshot.total_cash_balance; we surface it as a
+        # WebullHolding row so it appears in the portfolio table alongside equities.
+        cash_balance = _number(snapshot.total_cash_balance)
+        usd_holding = WebullHolding.query.filter_by(
+            user_id=user_id, account_id=account_id, symbol='USD', instrument_type='CASH',
+        ).first()
+        if cash_balance > 0:
+            if usd_holding is None:
+                usd_holding = WebullHolding(
+                    user_id=user_id, account_id=account_id, symbol='USD', instrument_type='CASH',
+                )
+                db.session.add(usd_holding)
+            usd_holding.quantity = cash_balance
+            usd_holding.last_price = 1.0
+            usd_holding.cost_price = 1.0
+            usd_holding.current_value = cash_balance
+            usd_holding.unrealized_profit_loss = 0.0
+            usd_holding.currency = snapshot.currency or 'USD'
+            usd_holding.synced_at = now
+            received_keys.add(('USD', 'CASH'))
+        elif usd_holding is not None:
+            db.session.delete(usd_holding)
+
         existing = WebullHolding.query.filter_by(user_id=user_id, account_id=account_id).all()
         for holding in existing:
-            if (holding.symbol, holding.instrument_type or 'Security') not in received_keys:
+            key_type = holding.instrument_type or 'Security'
+            if (holding.symbol, key_type) not in received_keys:
                 db.session.delete(holding)
 
     if account_ids:
@@ -174,11 +199,13 @@ def get_webull_portfolio_rows(user_id):
     rows = []
     for holding in WebullHolding.query.filter_by(user_id=user_id).order_by(WebullHolding.symbol.asc()).all():
         amount = _number(holding.quantity)
-        current = _number(holding.last_price, None)
-        cost = _number(holding.cost_price, None)
-        value = _number(holding.current_value)
-        pnl = _number(holding.unrealized_profit_loss, None)
-        pct = ((current - cost) / cost * 100) if current is not None and cost and cost > 0 else None
+        is_cash = (holding.instrument_type or '').upper() == 'CASH'
+        # USD cash rows always price at $1.00; never show a % change or unrealized PnL.
+        current = 1.0 if is_cash else _number(holding.last_price, None)
+        cost = 1.0 if is_cash else _number(holding.cost_price, None)
+        value = _number(holding.current_value) if _number(holding.current_value) else (amount if is_cash else 0.0)
+        pnl = 0.0 if is_cash else _number(holding.unrealized_profit_loss, None)
+        pct = None if is_cash else (((current - cost) / cost * 100) if current is not None and cost and cost > 0 else None)
         latest_signal = ExternalSentimentSignal.query.filter_by(
             user_id=user_id, provider='webull', symbol=holding.symbol,
             instrument_type=str(holding.instrument_type or '').upper(),

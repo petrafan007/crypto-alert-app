@@ -127,6 +127,11 @@ The application utilizes a **unified PostgreSQL database**.
 
 Historical changelog entries retain the product name used when they were originally released. The application domain, repository slug, deployment folders, database, and service identifiers intentionally remain unchanged by the v2.45.0 brand update.
 
+## v2.64.0 (August 2026)
+
+- **Webull USD Cash Balance Row**: Deposited cash in each Webull account now appears as a dedicated `USD` row in the portfolio table — one row per account that holds a positive balance. The row carries the Webull icon, `$` symbol indicator, and the existing blue account-type pill (e.g. "Cash", "Roth IRA"). The row is automatically created or removed on each Webull sync based on the live `total_cash_balance`.
+- **Webull Balance Field Aliasing**: The balance import now resolves the cash field across all known Webull API field-name variants (`cash_balance`, `settled_cash`, `buying_power`, etc.) so deposits are captured even when the API returns a non-canonical field name.
+
 ## v2.63.7 (August 2026)
 
 - **Webull Data API & MQTT Streaming Architecture**: Integrated Webull OpenAPI as the primary market data provider for all equity/ETF price lookups, candlestick klines, and top stock movers with resilient `yfinance` fallback, while maintaining complete protocol and endpoint isolation from Binance.US crypto streaming.

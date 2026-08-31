@@ -2148,12 +2148,14 @@ function Dashboard({ isLightMode }) {
         return item.current_value !== undefined && item.current_value !== null ? Number(item.current_value) : null;
       }
       if (key === 'avg_entry') {
-        const isStable = ['USD', 'USDT', 'USDC', 'BUSD', 'DAI'].includes((item.symbol || '').toUpperCase());
+        const isStable = ['USD', 'USDT', 'USDC', 'BUSD', 'DAI'].includes((item.symbol || '').toUpperCase())
+          || ((item.is_external === true || item.source === 'webull') && (item.instrument_type || '').toUpperCase() === 'CASH');
         if (isStable) return 1.0;
         return item.avg_entry !== undefined && item.avg_entry !== null ? Number(item.avg_entry) : null;
       }
       if (key === 'current_price') {
-        const isStable = ['USD', 'USDT', 'USDC', 'BUSD', 'DAI'].includes((item.symbol || '').toUpperCase());
+        const isStable = ['USD', 'USDT', 'USDC', 'BUSD', 'DAI'].includes((item.symbol || '').toUpperCase())
+          || ((item.is_external === true || item.source === 'webull') && (item.instrument_type || '').toUpperCase() === 'CASH');
         if (isStable) return 1.0;
         return item.current_price !== undefined && item.current_price !== null ? Number(item.current_price) : null;
       }
@@ -4601,7 +4603,7 @@ function Dashboard({ isLightMode }) {
                     const sym = (coin.symbol || '').toUpperCase().trim();
                     const isExternal = coin.is_external === true || coin.source === 'webull';
                     const isCryptoAsset = !isExternal || /crypto|coin|token/i.test(coin.instrument_type || '');
-                    const isStable = ['USD', 'USDT', 'USDC', 'BUSD', 'DAI', 'TUSD', 'USDP'].includes(sym);
+                    const isStable = ['USD', 'USDT', 'USDC', 'BUSD', 'DAI', 'TUSD', 'USDP'].includes(sym) || (isExternal && (coin.instrument_type || '').toUpperCase() === 'CASH');
                     const isPlaceholder = !!coin.pendingPlaceholder || !coin.id;
                     const alertTitle = isPlaceholder
                       ? 'Alerts unavailable for pending-only entries'
