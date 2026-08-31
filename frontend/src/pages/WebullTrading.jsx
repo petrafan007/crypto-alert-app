@@ -2950,25 +2950,7 @@ export default function WebullTrading({ isLightMode = false }) {
                     />
                   )}
                   
-                  {/* Options Payoff Chart Preview */}
-                  {selectedInstrumentType === 'OPTION' && orderForm.optionStrike && orderForm.optionExpiration && (
-                    <div style={{ marginTop: '20px' }}>
-                      <OptionsPayoffChart
-                        underlyingSymbol={selectedSymbol}
-                        baselinePrice={Number(livePrice || orderForm.optionStrike)}
-                        strikePrice={Number(orderForm.optionStrike)}
-                        entryPremium={Number(orderForm.price || 0)}
-                        multiplier={100}
-                        iv={0.1501}
-                        riskFreeRate={0.0379}
-                        startingDTE={
-                          Math.max(0, Math.floor((new Date(orderForm.optionExpiration).getTime() - Date.now()) / (1000 * 3600 * 24))) || 1
-                        }
-                        optionType={orderForm.optionType}
-                        action={orderForm.side}
-                      />
-                    </div>
-                  )}
+
 
 
                   {/* Options Contract Setup (When OPTION selected) */}
@@ -3739,6 +3721,26 @@ export default function WebullTrading({ isLightMode = false }) {
                       </span>
                     </div>
                   </div>
+
+                  {/* Options Payoff Chart Preview */}
+                  {selectedInstrumentType === 'OPTION' && orderForm.optionStrike && orderForm.optionExpiration && (
+                    <div style={{ marginTop: '20px', marginBottom: '20px' }}>
+                      <OptionsPayoffChart
+                        underlyingSymbol={selectedSymbol}
+                        baselinePrice={Number(livePrice || orderForm.optionStrike)}
+                        strikePrice={Number(orderForm.optionStrike)}
+                        entryPremium={Number(orderForm.price || 0)}
+                        multiplier={100}
+                        iv={0.1501}
+                        riskFreeRate={0.0379}
+                        startingDTE={
+                          Math.max(0, Math.floor((new Date(orderForm.optionExpiration + 'T00:00:00').getTime() - new Date().setHours(0,0,0,0)) / (1000 * 3600 * 24))) || 1
+                        }
+                        optionType={orderForm.optionType}
+                        action={orderForm.side}
+                      />
+                    </div>
+                  )}
 
                   {/* Row 5: Action Button (Binance parity) */}
                   <div className="order-submit-row">

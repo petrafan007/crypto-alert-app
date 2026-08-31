@@ -112,11 +112,12 @@ def generate_thesis_excel(
             S = f"$B{r_idx}"
             K = "'Assumptions'!$B$5"
             T = f"({col_letter}$24/365)"
+            T_safe = f"MAX({T}, 0.00001)"
             r = "'Assumptions'!$B$9"
             v = "'Assumptions'!$B$8"
             
-            d1 = f"((LN({S}/{K})+({r}+0.5*{v}^2)*{T})/({v}*SQRT({T})))"
-            d2 = f"({d1}-{v}*SQRT({T}))"
+            d1 = f"((LN({S}/{K})+({r}+0.5*{v}^2)*{T_safe})/({v}*SQRT({T_safe})))"
+            d2 = f"({d1}-{v}*SQRT({T_safe}))"
             
             if option_type.upper() == "CALL":
                 # Call Price = S * N(d1) - K * exp(-rT) * N(d2)

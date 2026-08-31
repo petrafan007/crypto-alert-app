@@ -1737,9 +1737,8 @@ Historical changelog entries retain the product name used when they were origina
 - **serve_react_app**: Restored accidentally removed helper function causing 404 on all React routes.
 - **Fee Display & Calculation**: Improved fee rate calculation accuracy and fee section visibility in trading UI.
 
----
-
 ## Recent Major Updates (August 2026)
+- **Options Payoff Chart & Excel Export Fixes Part 2 (v2.66.2)**: Upgraded the Options Payoff Chart hexagon tooltip to be fully draggable along the X-axis with dynamic real-time P&L calculations. Moved the chart down the page to sit directly above the order submit buttons for better visibility. Fixed an issue where the Export Excel button accidentally triggered order placement. Resolved `#DIV/0!` formula errors in the Excel export for expiration day 0 which were causing empty P&L matrices, and fixed the DTE parsing logic to correctly bind to the user's selected option expiration.
 - **Options Payoff Chart & Excel Export Fixes (v2.66.1)**: Fixed the Max Profit and Max Loss calculations on the Options Payoff Chart to use proper options math instead of strictly visual bounds. Added a draggable Hexagon badge tooltip overlay replicating the Webull UI. Corrected the X-axis mapping to use the actual underlying stock price instead of the option premium. Fixed the Days to Expiration slider to count down properly from Entry to Expiration. Updated the Excel Export model to use the actual underlying symbol (e.g. AAPL) instead of hardcoding "SPY", and expanded column widths to resolve `#` errors in the P&L matrix.
 
 ## Recent Major Updates (June 2026)

@@ -51,6 +51,14 @@ export default function OptionsPayoffChart({
   const [hoverPrice, setHoverPrice] = useState(null);
   
   const chartRef = useRef(null);
+  
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragPrice, setDragPrice] = useState(strikePrice);
+  
+  // Sync dragPrice when strikePrice changes
+  useEffect(() => {
+    setDragPrice(strikePrice);
+  }, [strikePrice]);
 
   // Generate X-axis points (e.g., +/- 15% around strike)
   const xPoints = useMemo(() => {
@@ -130,6 +138,37 @@ export default function OptionsPayoffChart({
       maxLoss = -(strikePrice - entryPremium) * multiplier;
     }
   }
+  
+  // Calculate dynamic PnL for the draggable hexagon
+  const dynamicOptPrice = calculateOptionPrice(dragPrice, strikePrice, currentDTE, riskFreeRate, iv, optionType);
+  let dynamicPnL = (dynamicOptPrice - entryPremium) * multiplier;
+  if (action === 'SELL') dynamicPnL = -dynamicPnL;
+  
+  const minP = xPoints[0];
+  const maxP = xPoints[xPoints.length - 1];
+  // Calculate left position, constrain between 5% and 95% so it doesn't clip
+  let hexLeftPercent = ((dragPrice - minP) / (maxP - minP)) * 100;
+  hexLeftPercent = Math.max(5, Math.min(95, hexLeftPercent));
+
+  const handlePointerDown = (e) => setIsDragging(true);
+  const handlePointerUp = (e) => setIsDragging(false);
+  const handlePointerMove = (e) => {
+    if (!isDragging) return;
+    const chart = chartRef.current;
+    if (!chart) return;
+    
+    // Attempt to map X coordinate to the category scale index
+    const canvas = chart.canvas;
+    const rect = canvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const xAxis = chart.scales.x;
+    
+    // getValueForPixel works well for CategoryScale returning the index
+    const index = Math.round(xAxis.getValueForPixel(x));
+    if (index >= 0 && index < xPoints.length) {
+      setDragPrice(xPoints[index]);
+    }
+  };
 
   const handleExport = async () => {
     try {
@@ -162,10 +201,17 @@ export default function OptionsPayoffChart({
       <div className="payoff-header">
         <div><strong>Max Profit:</strong> {maxProfit === 'Unlimited' ? 'Unlimited' : `$${maxProfit.toFixed(2)}`}</div>
         <div><strong>Max Loss:</strong> {maxLoss === 'Unlimited' ? 'Unlimited' : `$${maxLoss.toFixed(2)}`}</div>
-        <button onClick={handleExport} className="btn btn-sm btn-primary">Export Excel Thesis</button>
+        <button type="button" onClick={handleExport} className="btn btn-sm btn-primary">Export Excel Thesis</button>
       </div>
 
-      <div className="chart-wrapper" style={{ position: 'relative' }}>
+      <div 
+        className="chart-wrapper" 
+        style={{ position: 'relative', cursor: isDragging ? 'grabbing' : 'grab' }}
+        onPointerDown={handlePointerDown}
+        onPointerUp={handlePointerUp}
+        onPointerMove={handlePointerMove}
+        onPointerLeave={handlePointerUp}
+      >
         <Line 
           ref={chartRef}
           data={chartData} 
@@ -180,42 +226,62 @@ export default function OptionsPayoffChart({
               y: {
                 grid: { color: (ctx) => ctx.tick.value === 0 ? '#aaa' : '#333' }
               }
-            }
+            },
+            animation: false // Disable animation for smoother dragging
           }} 
         />
         
-        {/* Hexagon Badge Overlay */}
+        {/* Modern Draggable Badge Overlay */}
         <div style={{
           position: 'absolute',
           top: '35%',
-          left: '50%',
+          left: `${hexLeftPercent}%`,
           transform: 'translate(-50%, -50%)',
           display: 'flex',
           flexDirection: 'column',
           alignItems: 'center',
           justifyContent: 'center',
-          width: '70px',
-          height: '80px',
-          backgroundColor: '#0f766e',
-          clipPath: 'polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%)',
+          width: '90px',
+          height: '60px',
+          backgroundColor: 'rgba(30, 41, 59, 0.9)',
+          borderRadius: '8px',
           color: 'white',
-          fontSize: '11px',
+          fontSize: '12px',
           fontWeight: 'bold',
-          border: '2px solid #2dd4bf',
-          boxShadow: '0 4px 6px rgba(0,0,0,0.3)',
+          border: '1px solid #475569',
+          boxShadow: '0 4px 12px rgba(0,0,0,0.5)',
           zIndex: 10,
-          pointerEvents: 'none'
+          pointerEvents: 'none',
+          transition: isDragging ? 'none' : 'left 0.1s ease-out'
         }}>
-          <div>{action === 'BUY' ? 'Buy' : 'Sell'} {multiplier / 10}</div>
-          <div style={{ margin: '4px 0' }}>${strikePrice.toFixed(2)}</div>
-          <div style={{ 
-            backgroundColor: '#14b8a6', 
-            borderRadius: '10px', 
-            padding: '2px 8px',
-            fontSize: '10px' 
-          }}>
-            {optionType.charAt(0).toUpperCase() + optionType.slice(1).toLowerCase()}
+          <div style={{ color: dynamicPnL >= 0 ? '#4ade80' : '#f87171' }}>
+            {dynamicPnL >= 0 ? '+' : '-'}${Math.abs(dynamicPnL).toFixed(2)}
           </div>
+          <div style={{ margin: '2px 0', fontSize: '11px', color: '#94a3b8' }}>
+            Target: ${dragPrice.toFixed(2)}
+          </div>
+          <div style={{ 
+            backgroundColor: action === 'BUY' ? '#0ea5e9' : '#f59e0b', 
+            borderRadius: '4px', 
+            padding: '1px 6px',
+            fontSize: '9px',
+            textTransform: 'uppercase'
+          }}>
+            {action} {optionType}
+          </div>
+          
+          {/* Small pointer triangle at the bottom */}
+          <div style={{
+            position: 'absolute',
+            bottom: '-6px',
+            left: '50%',
+            transform: 'translateX(-50%)',
+            width: 0, 
+            height: 0, 
+            borderLeft: '6px solid transparent',
+            borderRight: '6px solid transparent',
+            borderTop: '6px solid rgba(30, 41, 59, 0.9)',
+          }} />
         </div>
       </div>
 
