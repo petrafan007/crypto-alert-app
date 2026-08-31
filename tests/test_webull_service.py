@@ -1,4 +1,5 @@
 import unittest
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
@@ -30,9 +31,11 @@ from services.webull_service import (
     get_webull_event_catalog,
     get_webull_event_market,
     get_webull_event_markets,
+    _normalise_event_market,
     validate_webull_event_order_market,
 )
 from routes.system import _require_webull_instrument_account_match, _webull_account_response
+from services.webull_paper_trading_service import _utc_iso
 
 
 class WebullServiceTests(unittest.TestCase):
@@ -139,6 +142,57 @@ class WebullServiceTests(unittest.TestCase):
             categories = get_webull_event_categories('app-key', 'app-secret', access_token='token')
 
         self.assertEqual([item['category_code'] for item in categories], ['ECONOMICS', 'POLITICS'])
+
+    def test_event_categories_are_cached_per_connection_principal(self):
+        payload = {'data': [{'category': 'CRYPTO', 'name': 'Crypto'}]}
+        with patch('services.webull_service._webull_request', return_value=self._response(payload)) as request_mock:
+            first = get_webull_event_categories('app-key', 'app-secret', access_token='token')
+            second = get_webull_event_categories('app-key', 'app-secret', access_token='token')
+
+        self.assertEqual(first, second)
+        self.assertEqual(request_mock.call_count, 1)
+
+    def test_event_market_exposes_readable_condition_and_symbol_threshold_fallback(self):
+        explicit = _normalise_event_market({
+            'symbol': 'KXETHD-26SEP0417-T3409.99',
+            'name': 'Ethereum price at Sep 4, 2026 at 5pm EDT?',
+            'series_symbol': 'KXETHD',
+            'yes_condition': '$3,410 or above',
+        }, {'KXETHD': 'CRYPTO'})
+        fallback = _normalise_event_market({
+            'symbol': 'KXETHD-26SEP0417-T3409.99',
+            'name': 'Ethereum price at Sep 4, 2026 at 5pm EDT?',
+            'series_symbol': 'KXETHD',
+        }, {'KXETHD': 'CRYPTO'})
+
+        self.assertEqual(explicit['display_condition'], '$3,410 or above')
+        self.assertEqual(fallback['display_condition'], 'Threshold: $3,409.99')
+
+    def test_event_market_results_are_cached_briefly_for_repeat_category_views(self):
+        catalog = {
+            'categories': [{'category_id': 'CRYPTO', 'category_code': 'CRYPTO', 'name': 'Crypto'}],
+            'markets': [{
+                'symbol': 'KXBTC-T100000', 'name': 'Bitcoin threshold',
+                'category_code': 'CRYPTO', 'price_ranges': [], 'tradable_status': 'OC',
+            }],
+            'as_of': '2026-08-31T00:00:00+00:00',
+        }
+        snapshots = {'KXBTC-T100000': {'symbol': 'KXBTC-T100000', 'volume': 100}}
+        with patch('services.webull_service.get_webull_event_catalog', return_value=catalog), \
+             patch('services.webull_service.get_webull_event_snapshots', return_value=snapshots) as snapshot_mock:
+            first = get_webull_event_markets('a', 's', access_token='t', category_id='CRYPTO')
+            second = get_webull_event_markets('a', 's', access_token='t', category_id='CRYPTO')
+
+        self.assertEqual(first, second)
+        self.assertEqual(snapshot_mock.call_count, 1)
+
+    def test_paper_order_timestamps_are_serialized_as_explicit_utc(self):
+        self.assertEqual(_utc_iso(datetime(2026, 8, 31, 4, 4, 0)), '2026-08-31T04:04:00Z')
+        eastern_offset = timezone(timedelta(hours=-4))
+        self.assertEqual(
+            _utc_iso(datetime(2026, 8, 31, 0, 4, 0, tzinfo=eastern_offset)),
+            '2026-08-31T04:04:00Z',
+        )
 
     def test_event_discovery_retries_provider_rate_limit(self):
         responses = [

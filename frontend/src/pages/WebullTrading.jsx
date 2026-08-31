@@ -10,7 +10,7 @@ import PercentPriceModal from '../components/PercentPriceModal';
 import WebullAIDashboard from '../components/WebullAIDashboard';
 import WebullOptionChain from '../components/WebullOptionChain';
 import OptionsPayoffChart from '../components/OptionsPayoffChart';
-import { formatEasternDate, formatEasternDateTime, formatEasternTime } from '../utils/dateTime';
+import { differenceInEasternCalendarDays, formatEasternDate, formatEasternDateTime, formatEasternTime } from '../utils/dateTime';
 import { optionStrategyDefinition } from '../utils/optionStrategies';
 import {
   formatComboRole,
@@ -47,6 +47,12 @@ const eventMoney = (value) => {
 const eventPriceRangeLabel = (ranges = []) => ranges.length
   ? ranges.map((range) => `${eventMoney(range.start)}–${eventMoney(range.end)} (tick ${eventMoney(range.step)})`).join(', ')
   : 'Unavailable';
+
+const eventConditionLabel = (market) => {
+  const condition = String(market?.display_condition || market?.yes_condition || '').trim();
+  if (!condition) return 'Condition details unavailable';
+  return /^(yes\b|threshold:)/i.test(condition) ? condition : `YES if ${condition}`;
+};
 
 const eventPriceMatchesRanges = (price, ranges = []) => {
   const numericPrice = Number(price);
@@ -137,9 +143,10 @@ function Pagination({ page, setPage, pageSize, setPageSize, total }) {
   );
 }
 
-function WebullOrderTable({ orders, emptyText, onCancelOrder, cancellingId }) {
+function WebullOrderTable({ orders, emptyText, onCancelOrder, cancellingId, optionClosePnlByOrder = null }) {
   if (!orders.length) return <div className="empty-state"><p>{emptyText}</p></div>;
   const showOptionColumns = orders.some((order) => optionContractDetails(order).isOption);
+  const showClosePnlColumn = showOptionColumns && optionClosePnlByOrder !== null;
   return (
     <div className="table-container trading-table">
       <div className="order-table-scroll">
@@ -148,13 +155,16 @@ function WebullOrderTable({ orders, emptyText, onCancelOrder, cancellingId }) {
             <tr>
               <th>Date</th><th>Time (ET)</th><th style={{ textAlign: 'center' }}>Symbol</th>
               {showOptionColumns && <><th>Expiration</th><th>Strike</th><th>Call / Put</th></>}
-              <th>Side</th><th>Type</th><th>Quantity</th><th>Price</th><th>Filled</th><th>Status</th><th>Source</th>
+              <th>Side</th><th>Type</th><th>Quantity</th><th>Price</th><th>Filled</th>
+              {showClosePnlColumn && <th title="Estimated before fees from the filled basis and current executable close quote.">Close-Now P&amp;L</th>}
+              <th>Status</th><th>Source</th>
               {onCancelOrder && <th>Action</th>}
             </tr>
           </thead>
           <tbody>
             {orders.map((order) => {
               const option = optionContractDetails(order);
+              const closePnl = optionClosePnlByOrder?.[order.id];
               return <tr key={order.id}>
                 <td>{formatEasternDate(order.created_at)}</td>
                 <td>{formatEasternTime(order.created_at)}</td>
@@ -169,6 +179,22 @@ function WebullOrderTable({ orders, emptyText, onCancelOrder, cancellingId }) {
                 <td>{number(order.quantity, 6)}</td>
                 <td>{order.price ? `$${number(order.price, 4)}` : 'Market'}</td>
                 <td>{number(order.filled_quantity, 6)}</td>
+                {showClosePnlColumn && (
+                  <td>
+                    {!option.isOption ? '—' : closePnl?.status === 'loading' ? (
+                      <span className="option-close-pnl-muted">Refreshing…</span>
+                    ) : closePnl?.status === 'not_filled' ? (
+                      <span className="option-close-pnl-muted" title="P&amp;L requires an actual fill price and filled quantity.">Not filled</span>
+                    ) : closePnl?.status === 'available' ? (
+                      <span className={closePnl.pnl >= 0 ? 'option-close-pnl-positive' : 'option-close-pnl-negative'}>
+                        {closePnl.pnl >= 0 ? '+' : '-'}${number(Math.abs(closePnl.pnl), 2)}
+                        <small>@ {closePnl.closeSide} ${number(closePnl.closePrice, 4)}</small>
+                      </span>
+                    ) : (
+                      <span className="option-close-pnl-muted" title={closePnl?.message || 'A current executable quote is unavailable.'}>Unavailable</span>
+                    )}
+                  </td>
+                )}
                 <td>{formatOrderStatus(order.status)}</td>
                 <td><span className="badge" style={{ background: 'rgba(96, 165, 250, .16)', color: '#60a5fa' }}>Webull</span></td>
                 {onCancelOrder && (
@@ -292,6 +318,7 @@ export default function WebullTrading({ isLightMode = false }) {
   const [holdings, setHoldings] = useState([]);
   const [history, setHistory] = useState([]);
   const [openOrders, setOpenOrders] = useState([]);
+  const [optionClosePnlByOrder, setOptionClosePnlByOrder] = useState({});
   const [accounts, setAccounts] = useState([]);
   const [selectedAccountId, setSelectedAccountId] = useState('');
   const [defaultAccountId, setDefaultAccountId] = useState('');
@@ -346,7 +373,6 @@ export default function WebullTrading({ isLightMode = false }) {
   const [eventLoading, setEventLoading] = useState(false);
   const [eventMessage, setEventMessage] = useState('');
   const eventMarketRequestRef = useRef(0);
-  const eventSelectFirstRef = useRef(false);
   const eventMarketSelectorRef = useRef(null);
   const eventAutoPriceRef = useRef(true);
 
@@ -1132,7 +1158,7 @@ export default function WebullTrading({ isLightMode = false }) {
     }));
   };
 
-  const loadEventMarkets = async ({ category = selectedEventCategory, query = eventMarketQuery, selectFirst = false } = {}) => {
+  const loadEventMarkets = async ({ category = selectedEventCategory, query = eventMarketQuery } = {}) => {
     if (!category) return;
     const requestId = ++eventMarketRequestRef.current;
     setEventLoading(true);
@@ -1147,7 +1173,6 @@ export default function WebullTrading({ isLightMode = false }) {
       setEventMarkets(mkts);
       setEventTotalMatches(Number(response.data?.total_matches || mkts.length));
       setEventMessage(response.data?.message || '');
-      if (selectFirst && mkts.length) applyEventMarket(mkts[0]);
     } catch (err) {
       if (requestId !== eventMarketRequestRef.current) return;
       setEventMarkets([]);
@@ -1167,9 +1192,10 @@ export default function WebullTrading({ isLightMode = false }) {
       setEventCategories(categories);
       if (!categories.length) throw new Error('Webull returned no Event Contract categories.');
       const initialCategory = categories[0].category_code || categories[0].category_id;
-      eventSelectFirstRef.current = true;
       setSelectedEventCategory(initialCategory);
       setEventMarketQuery('');
+      setEventMarkets([]);
+      setEventTotalMatches(0);
     } catch (err) {
       setEventMessage(err.response?.data?.message || err.message || 'Unable to load Webull Event Contract categories.');
     } finally {
@@ -1178,9 +1204,15 @@ export default function WebullTrading({ isLightMode = false }) {
   };
 
   const handleEventCategoryChange = (categoryCode) => {
-    eventSelectFirstRef.current = true;
+    // Invalidate any slower response from the previous category before the
+    // next request begins, and clear every selection-dependent ticket value.
+    eventMarketRequestRef.current += 1;
     setSelectedEventCategory(categoryCode);
     setEventMarketQuery('');
+    setEventMarkets([]);
+    setEventTotalMatches(0);
+    setEventMessage('');
+    setEventLoading(true);
     setSelectedEventMarket(null);
     assetSymbolMemoryRef.current.EVENT = '';
     setSelectedSymbol('');
@@ -1211,10 +1243,8 @@ export default function WebullTrading({ isLightMode = false }) {
   useEffect(() => {
     if (selectedInstrumentType !== 'EVENT' || !selectedEventCategory) return undefined;
     const timer = window.setTimeout(() => {
-      const selectFirst = eventSelectFirstRef.current && !eventMarketQuery.trim();
-      eventSelectFirstRef.current = false;
-      loadEventMarkets({ category: selectedEventCategory, query: eventMarketQuery, selectFirst });
-    }, 350);
+      loadEventMarkets({ category: selectedEventCategory, query: eventMarketQuery });
+    }, eventMarketQuery.trim() ? 250 : 0);
     return () => window.clearTimeout(timer);
   }, [selectedInstrumentType, selectedEventCategory, eventMarketQuery]);
 
@@ -2252,6 +2282,98 @@ export default function WebullTrading({ isLightMode = false }) {
     [history, isTestMode]
   );
   const displayOpenOrders = useMemo(() => modeOpenOrders.filter((order) => OPEN_STATUSES.has(String(order.status).toUpperCase()) || !order.status), [modeOpenOrders]);
+
+  useEffect(() => {
+    if (activeTab !== 'open_orders' || !selectedAccountId) return undefined;
+    const refresh = () => loadOpenOrders(selectedAccountId, isTestMode);
+    refresh();
+    const timer = window.setInterval(refresh, 30000);
+    return () => window.clearInterval(timer);
+  }, [activeTab, selectedAccountId, isTestMode]);
+
+  useEffect(() => {
+    if (activeTab !== 'open_orders') return undefined;
+    let cancelled = false;
+    const optionOrders = displayOpenOrders.filter((order) => optionContractDetails(order).isOption);
+
+    const refreshClosePnl = async () => {
+      const pending = {};
+      const filledOrders = [];
+      optionOrders.forEach((order) => {
+        const filledQuantity = Number(order.filled_quantity || 0);
+        if (filledQuantity <= 0) pending[order.id] = { status: 'not_filled' };
+        else {
+          const option = optionContractDetails(order);
+          const optionType = String(option.optionType || '').toUpperCase();
+          const hasSingleContractIdentity = Boolean(
+            option.symbol && /^\d{4}-\d{2}-\d{2}$/.test(option.expiration)
+            && Number.isFinite(Number(option.strike)) && ['CALL', 'PUT'].includes(optionType)
+          );
+          if (!hasSingleContractIdentity) {
+            pending[order.id] = { status: 'unavailable', message: 'A single filled option contract identity is required.' };
+          } else {
+            pending[order.id] = { status: 'loading' };
+            filledOrders.push(order);
+          }
+        }
+      });
+      if (!cancelled) setOptionClosePnlByOrder(pending);
+      if (!filledOrders.length) return;
+
+      const groups = new Map();
+      filledOrders.forEach((order) => {
+        const option = optionContractDetails(order);
+        const key = `${option.symbol}|${option.expiration}`;
+        if (!groups.has(key)) groups.set(key, { symbol: option.symbol, expiration: option.expiration, orders: [] });
+        groups.get(key).orders.push({ order, option });
+      });
+
+      const results = { ...pending };
+      await Promise.all([...groups.values()].map(async (group) => {
+        try {
+          const response = await axios.get('/api/webull/options/chain', {
+            params: { symbol: group.symbol, expiration: group.expiration },
+            withCredentials: true,
+          });
+          const chain = response.data?.chain || [];
+          group.orders.forEach(({ order, option }) => {
+            const strikeRow = chain.find((row) => Math.abs(Number(row.strike) - Number(option.strike)) <= OPTION_STRIKE_EPSILON);
+            const quote = strikeRow?.[String(option.optionType).toUpperCase() === 'PUT' ? 'put' : 'call'];
+            const side = String(order.side || '').toUpperCase();
+            const isLong = ['BUY', 'BUY_TO_OPEN'].includes(side);
+            const closeSide = isLong ? 'bid' : 'ask';
+            const closePrice = Number(quote?.[closeSide]);
+            const entryPrice = Number(
+              order.avg_fill_price ?? order.average_fill_price ?? order.filled_price
+              ?? order.avg_price ?? order.average_price
+            );
+            const filledQuantity = Number(order.filled_quantity || 0);
+            if (!(closePrice >= 0) || !(entryPrice >= 0) || filledQuantity <= 0) {
+              results[order.id] = { status: 'unavailable', message: 'A filled basis or executable close quote is unavailable.' };
+              return;
+            }
+            const pnl = (isLong ? closePrice - entryPrice : entryPrice - closePrice) * filledQuantity * 100;
+            results[order.id] = { status: 'available', pnl, closePrice, closeSide };
+          });
+        } catch (requestError) {
+          group.orders.forEach(({ order }) => {
+            results[order.id] = {
+              status: 'unavailable',
+              message: requestError.response?.data?.message || 'Unable to refresh the option close quote.',
+            };
+          });
+        }
+      }));
+      if (!cancelled) setOptionClosePnlByOrder(results);
+    };
+
+    refreshClosePnl();
+    const timer = window.setInterval(refreshClosePnl, 30000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [activeTab, displayOpenOrders]);
   const sortedHistory = useMemo(() => [...modeHistory].sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || ''))), [modeHistory]);
   const historyPages = Math.max(1, Math.ceil(sortedHistory.length / historyPageSize));
   const paginatedHistory = useMemo(() => sortedHistory.slice((historyPage - 1) * historyPageSize, historyPage * historyPageSize), [sortedHistory, historyPage, historyPageSize]);
@@ -2814,7 +2936,8 @@ export default function WebullTrading({ isLightMode = false }) {
                                 >
                                   <span className="event-market-result-copy">
                                     <strong>{market.name}</strong>
-                                    <small>{market.symbol} · {market.event_name || market.series_name || market.category_code}</small>
+                                    <span className="event-market-condition">{eventConditionLabel(market)}</span>
+                                    <small className="event-market-symbol">{market.symbol}</small>
                                   </span>
                                   <span className="event-market-result-prices">
                                     <span>Yes {eventMoney(market.yes_ask)}</span>
@@ -2833,7 +2956,7 @@ export default function WebullTrading({ isLightMode = false }) {
                           <div>
                             <strong>{selectedEventMarket.name}</strong>
                             <span>{selectedEventMarket.symbol}</span>
-                            {selectedEventMarket.yes_condition && <p>Yes condition: {selectedEventMarket.yes_condition}</p>}
+                            <p>{eventConditionLabel(selectedEventMarket)}</p>
                           </div>
                           <div className="selected-event-market-stats">
                             <span>Volume <strong>{number(selectedEventMarket.volume, 0)}</strong></span>
@@ -3737,12 +3860,11 @@ export default function WebullTrading({ isLightMode = false }) {
                         strikePrice={Number(orderForm.optionStrike)}
                         entryPremium={Number(orderForm.price || 0)}
                         multiplier={100}
+                        quantity={Number(orderForm.quantity || 0)}
                         iv={0.1501}
                         riskFreeRate={0.0379}
                         expirationDate={orderForm.optionExpiration}
-                        startingDTE={
-                          Math.max(0, Math.floor((new Date(orderForm.optionExpiration + 'T00:00:00').getTime() - new Date().setHours(0,0,0,0)) / (1000 * 3600 * 24))) || 1
-                        }
+                        startingDTE={differenceInEasternCalendarDays(orderForm.optionExpiration)}
                         optionType={orderForm.optionType}
                         action={orderForm.side}
                       />
@@ -4180,6 +4302,7 @@ export default function WebullTrading({ isLightMode = false }) {
                   emptyText="No Webull open orders found."
                   onCancelOrder={openCancelModalForOrder}
                   cancellingId={cancellingOrderId}
+                  optionClosePnlByOrder={optionClosePnlByOrder}
                 />
               </section>
             )}

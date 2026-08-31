@@ -6,6 +6,7 @@ import hmac
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 import json
+import re
 import threading
 import time
 from urllib.parse import quote
@@ -20,6 +21,8 @@ _WEBULL_OPEN_ORDERS_CACHE = {}    # (app_key, environment, token fingerprint, ac
 _WEBULL_ORDER_HISTORY_CACHE = {}  # (app_key, environment, token fingerprint, account_id) -> (timestamp, records)
 _WEBULL_EVENT_CATALOG_CACHE = {}  # (...principal, category code) -> (timestamp, catalog)
 _WEBULL_EVENT_SNAPSHOT_CACHE = {}  # (...principal, symbol) -> (timestamp, snapshot)
+_WEBULL_EVENT_CATEGORY_CACHE = {}  # (...principal) -> (timestamp, categories)
+_WEBULL_EVENT_MARKET_RESULT_CACHE = {}  # (...principal, category, query, limit) -> (timestamp, response)
 _WEBULL_ORDER_LOCK = threading.Lock()
 _WEBULL_EVENT_CACHE_LOCK = threading.Lock()
 _WEBULL_EVENT_DISCOVERY_LOCK = threading.Lock()
@@ -27,9 +30,11 @@ _WEBULL_EVENT_RATE_LOCK = threading.Lock()
 _WEBULL_LAST_ORDER_REQUEST_TIME = 0.0
 _WEBULL_LAST_EVENT_DISCOVERY_REQUEST_TIME = 0.0
 
-WEBULL_EVENT_CATALOG_TTL_SECONDS = 300
-WEBULL_EVENT_PARTIAL_CATALOG_TTL_SECONDS = 30
+WEBULL_EVENT_CATALOG_TTL_SECONDS = 1800
+WEBULL_EVENT_PARTIAL_CATALOG_TTL_SECONDS = 60
 WEBULL_EVENT_SNAPSHOT_TTL_SECONDS = 5
+WEBULL_EVENT_CATEGORY_TTL_SECONDS = 1800
+WEBULL_EVENT_MARKET_RESULT_TTL_SECONDS = 30
 WEBULL_EVENT_MAX_ORDER_QUANTITY = 50000
 WEBULL_EVENT_SETTLEMENT_PAYOUT = 1.0
 WEBULL_EVENT_DISCOVERY_MIN_INTERVAL_SECONDS = 0.35
@@ -73,6 +78,8 @@ def clear_webull_event_cache():
     with _WEBULL_EVENT_CACHE_LOCK:
         _WEBULL_EVENT_CATALOG_CACHE.clear()
         _WEBULL_EVENT_SNAPSHOT_CACHE.clear()
+        _WEBULL_EVENT_CATEGORY_CACHE.clear()
+        _WEBULL_EVENT_MARKET_RESULT_CACHE.clear()
 
 
 def _webull_cache_principal(access_token):
@@ -994,6 +1001,12 @@ def _event_paginated_records(
 
 def get_webull_event_categories(app_key, app_secret, environment='production', access_token=None):
     """Return the complete provider category catalog without fabricated fallbacks."""
+    principal = _webull_event_principal(app_key, environment, access_token)
+    now = time.time()
+    with _WEBULL_EVENT_CACHE_LOCK:
+        cached = _WEBULL_EVENT_CATEGORY_CACHE.get(principal)
+        if cached and now - cached[0] < WEBULL_EVENT_CATEGORY_TTL_SECONDS:
+            return [dict(item) for item in cached[1]]
     payload = _response_payload(
         _webull_request(
             app_key, app_secret, environment, 'GET',
@@ -1030,7 +1043,24 @@ def get_webull_event_categories(app_key, app_secret, environment='production', a
         })
     if not categories:
         raise WebullConnectionError('Webull returned no Event Contract categories.')
-    return categories
+    with _WEBULL_EVENT_CACHE_LOCK:
+        _WEBULL_EVENT_CATEGORY_CACHE[principal] = (now, categories)
+    return [dict(item) for item in categories]
+
+
+def _event_condition_label(raw, symbol):
+    explicit = str(raw.get('yes_condition') or raw.get('yesCondition') or '').strip()
+    if explicit:
+        return explicit
+    # Some catalog rows omit the prose condition but encode a numeric threshold
+    # in the documented contract symbol. Keep the raw symbol secondary and give
+    # the user a readable threshold without inventing an above/below operator.
+    match = re.search(r'-T(-?\d+(?:\.\d+)?)$', str(symbol or '').upper())
+    if not match:
+        return ''
+    threshold = float(match.group(1))
+    precision = 0 if threshold.is_integer() else min(4, len(match.group(1).split('.')[-1]))
+    return f"Threshold: ${threshold:,.{precision}f}"
 
 
 def _normalise_event_market(raw, series_categories):
@@ -1060,7 +1090,8 @@ def _normalise_event_market(raw, series_categories):
         'instrument_id': raw.get('instrument_id'),
         'symbol': symbol,
         'name': name,
-        'yes_condition': raw.get('yes_condition'),
+        'yes_condition': raw.get('yes_condition') or raw.get('yesCondition'),
+        'display_condition': _event_condition_label(raw, symbol),
         'category_code': category_code,
         'status': str(raw.get('status') or '').upper(),
         'tradable_status': str(raw.get('tradable_status') or '').upper(),
@@ -1290,6 +1321,14 @@ def get_webull_event_markets(
     clean_category = str(category_id or '').strip().upper()
     clean_symbol = str(symbol or '').strip().upper()
     clean_query = str(query or '').strip().casefold()
+    result_limit = max(1, min(int(limit or 10), 50))
+    principal = _webull_event_principal(app_key, environment, access_token)
+    result_cache_key = (*principal, clean_category, clean_symbol, clean_query, result_limit)
+    if not force:
+        with _WEBULL_EVENT_CACHE_LOCK:
+            cached_result = _WEBULL_EVENT_MARKET_RESULT_CACHE.get(result_cache_key)
+            if cached_result and time.time() - cached_result[0] < WEBULL_EVENT_MARKET_RESULT_TTL_SECONDS:
+                return json.loads(json.dumps(cached_result[1]))
     catalog = get_webull_event_catalog(
         app_key, app_secret, environment, access_token,
         category_id=clean_category or None, force=force,
@@ -1306,13 +1345,16 @@ def get_webull_event_markets(
     if clean_symbol:
         markets = [item for item in markets if item.get('symbol') == clean_symbol]
     if clean_query:
-        fields = ('symbol', 'name', 'event_symbol', 'event_name', 'series_symbol', 'series_name', 'yes_condition')
+        fields = (
+            'symbol', 'name', 'event_symbol', 'event_name', 'series_symbol',
+            'series_name', 'yes_condition', 'display_condition',
+        )
         markets = [
             item for item in markets
             if any(clean_query in str(item.get(field) or '').casefold() for field in fields)
         ]
     if not markets:
-        return {
+        result = {
             'markets': [],
             'total_matches': 0,
             'catalog_as_of': catalog['as_of'],
@@ -1320,6 +1362,9 @@ def get_webull_event_markets(
             'message': ('Some Webull series are temporarily unavailable; showing the results currently available.'
                         if catalog.get('partial') else ''),
         }
+        with _WEBULL_EVENT_CACHE_LOCK:
+            _WEBULL_EVENT_MARKET_RESULT_CACHE[result_cache_key] = (time.time(), result)
+        return result
 
     partial = bool(catalog.get('partial'))
     try:
@@ -1355,8 +1400,7 @@ def get_webull_event_markets(
             ),
             reverse=True,
         )
-    result_limit = max(1, min(int(limit or 10), 50))
-    return {
+    result = {
         'markets': enriched[:result_limit],
         'total_matches': len(enriched),
         'catalog_as_of': catalog['as_of'],
@@ -1364,6 +1408,9 @@ def get_webull_event_markets(
         'message': ('Some Webull series or live rankings are temporarily unavailable; showing the results currently available.'
                     if partial else ''),
     }
+    with _WEBULL_EVENT_CACHE_LOCK:
+        _WEBULL_EVENT_MARKET_RESULT_CACHE[result_cache_key] = (time.time(), result)
+    return json.loads(json.dumps(result))
 
 
 def get_webull_event_market(app_key, app_secret, environment='production', access_token=None, *, symbol, force=False):
@@ -1536,7 +1583,7 @@ def get_webull_option_chain_data(app_key=None, app_secret=None, environment='pro
         raise WebullConnectionError(f'No options contracts found for {clean_underlying}.')
 
     # Calculate Days to Expiration (DTE)
-    today = datetime.now(timezone.utc).date()
+    today = datetime.now(ZoneInfo('America/New_York')).date()
     expirations_list = []
     for exp_str in available_expirations:
         try:

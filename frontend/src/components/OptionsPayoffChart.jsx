@@ -14,7 +14,7 @@ import './OptionsPayoffChart.css';
 
 ChartJS.register(LinearScale, PointElement, LineElement, Title, Tooltip, Legend, Filler);
 
-const ZOOM_RANGES = [5, 10, 15, 25, 50];
+const ZOOM_RANGES = [5, 10, 15, 25, 50, 75, 100];
 
 // Normal distribution CDF approximation for JS (Black-Scholes)
 function normsdist(x) {
@@ -54,6 +54,7 @@ export default function OptionsPayoffChart({
   strikePrice,
   entryPremium,
   multiplier = 100,
+  quantity = 1,
   iv = 0.15,
   riskFreeRate = 0.03,
   expirationDate = '',
@@ -64,11 +65,20 @@ export default function OptionsPayoffChart({
   const [daysElapsed, setDaysElapsed] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
   const [simulatedStrike, setSimulatedStrike] = useState(strikePrice);
-  const [rangePercent, setRangePercent] = useState(15);
+  const [rangePercent, setRangePercent] = useState(50);
   const chartRef = useRef(null);
 
   const centerPrice = safePrice(baselinePrice, safePrice(strikePrice, 1));
+  const safeQuantity = Math.max(0, Number(quantity) || 0);
   const currentDTE = Math.max(0, startingDTE - daysElapsed);
+
+  const requiredRangePercent = useMemo(() => {
+    const strike = safePrice(strikePrice, centerPrice);
+    const premium = Math.max(0, Number(entryPremium) || 0);
+    const breakeven = String(optionType).toUpperCase() === 'CALL' ? strike + premium : strike - premium;
+    const farthest = Math.max(Math.abs(strike - centerPrice), Math.abs(breakeven - centerPrice));
+    return Math.min(100, Math.max(50, Math.ceil((farthest / centerPrice) * 100 + 5)));
+  }, [centerPrice, strikePrice, entryPremium, optionType]);
 
   useEffect(() => {
     setSimulatedStrike(strikePrice);
@@ -77,6 +87,10 @@ export default function OptionsPayoffChart({
   useEffect(() => {
     setDaysElapsed(0);
   }, [startingDTE, strikePrice]);
+
+  useEffect(() => {
+    setRangePercent(ZOOM_RANGES.find((range) => range >= requiredRangePercent) || 100);
+  }, [centerPrice, strikePrice, entryPremium, optionType, requiredRangePercent]);
 
   // Use exact one-cent price points around the underlying stock price. Integer
   // cents prevent floating-point drift and duplicate axis labels.
@@ -116,7 +130,7 @@ export default function OptionsPayoffChart({
             iv,
             optionType,
           );
-          let pnl = (currentOptPrice - entryPremium) * multiplier;
+          let pnl = (currentOptPrice - entryPremium) * multiplier * safeQuantity;
           if (action === 'SELL') pnl = -pnl;
           return { x: underlyingPrice, y: pnl };
         }),
@@ -136,24 +150,24 @@ export default function OptionsPayoffChart({
         tension: 0.1,
       },
     ],
-  }), [xPoints, simulatedStrike, entryPremium, multiplier, iv, riskFreeRate, currentDTE, optionType, action]);
+  }), [xPoints, simulatedStrike, entryPremium, multiplier, safeQuantity, iv, riskFreeRate, currentDTE, optionType, action]);
 
   let maxProfit = 0;
   let maxLoss = 0;
   if (action === 'BUY') {
     if (optionType === 'CALL') {
       maxProfit = 'Unlimited';
-      maxLoss = -entryPremium * multiplier;
+      maxLoss = -entryPremium * multiplier * safeQuantity;
     } else {
-      maxProfit = (simulatedStrike - entryPremium) * multiplier;
-      maxLoss = -entryPremium * multiplier;
+      maxProfit = (simulatedStrike - entryPremium) * multiplier * safeQuantity;
+      maxLoss = -entryPremium * multiplier * safeQuantity;
     }
   } else if (optionType === 'CALL') {
-    maxProfit = entryPremium * multiplier;
+    maxProfit = entryPremium * multiplier * safeQuantity;
     maxLoss = 'Unlimited';
   } else {
-    maxProfit = entryPremium * multiplier;
-    maxLoss = -(simulatedStrike - entryPremium) * multiplier;
+    maxProfit = entryPremium * multiplier * safeQuantity;
+    maxLoss = -(simulatedStrike - entryPremium) * multiplier * safeQuantity;
   }
 
   const minP = xPoints[0];
@@ -194,6 +208,7 @@ export default function OptionsPayoffChart({
           expiration_date: expirationDate,
           starting_dte: startingDTE,
           option_type: optionType,
+          quantity: safeQuantity,
         }),
       });
       if (!response.ok) throw new Error('Export failed');
@@ -294,7 +309,7 @@ export default function OptionsPayoffChart({
           zIndex: 10,
           pointerEvents: 'none',
         }}>
-          <div>{action === 'BUY' ? 'Buy' : 'Sell'} {multiplier / 10}</div>
+          <div>{action === 'BUY' ? 'Buy' : 'Sell'} {safeQuantity.toLocaleString()}</div>
           <div style={{ margin: '4px 0' }}>${Number(simulatedStrike).toFixed(2)}</div>
           <div style={{
             backgroundColor: '#14b8a6',

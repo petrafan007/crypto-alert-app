@@ -2383,6 +2383,17 @@ body.light-mode .pagination-btn.active {
   font-size: 0.8rem;
 }
 
+.event-market-condition {
+  color: #f8fafc;
+  font-size: 0.72rem;
+  line-height: 1.35;
+  white-space: normal;
+}
+
+.event-market-symbol {
+  overflow-wrap: anywhere;
+}
+
 .event-market-result-copy small,
 .event-market-result-prices small {
   color: #94a3b8;
@@ -2394,6 +2405,28 @@ body.light-mode .pagination-btn.active {
   color: #cbd5e1;
   font-size: 0.72rem;
   white-space: nowrap;
+}
+
+.option-close-pnl-positive,
+.option-close-pnl-negative,
+.option-close-pnl-muted {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 0.12rem;
+  white-space: nowrap;
+  font-weight: 700;
+}
+
+.option-close-pnl-positive { color: #10b981; }
+.option-close-pnl-negative { color: #ef4444; }
+.option-close-pnl-muted { color: #94a3b8; font-weight: 500; }
+
+.option-close-pnl-positive small,
+.option-close-pnl-negative small {
+  color: #94a3b8;
+  font-size: 0.66rem;
+  font-weight: 500;
+  text-transform: uppercase;
 }
 
 .event-market-empty {
@@ -2577,6 +2610,7 @@ body.light-mode .event-market-result.selected {
 }
 
 body.light-mode .event-market-result-copy small,
+body.light-mode .event-market-condition,
 body.light-mode .event-market-result-prices small,
 body.light-mode .selected-event-market > div:first-child > span,
 body.light-mode .selected-event-market p,

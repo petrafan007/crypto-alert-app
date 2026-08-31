@@ -1,7 +1,7 @@
 import logging
 import json
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, Any, List, Optional
 
 from core.extensions import db
@@ -34,6 +34,14 @@ FUTURES_TICKER_MAP = {
     'SI': 'SI=F',
     'BTC': 'BTC=F',
 }
+
+
+def _utc_iso(value):
+    """Serialize database-naive UTC timestamps with an explicit UTC zone."""
+    if not value:
+        return None
+    aware = value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value.astimezone(timezone.utc)
+    return aware.isoformat().replace('+00:00', 'Z')
 
 
 def _find_or_merge_position(user_id: int, symbol: str, instrument_type: str, side: str):
@@ -574,8 +582,8 @@ def get_webull_test_orders(user_id: int) -> List[Dict[str, Any]]:
             'stop_price': o.stop_price,
             'avg_price': o.filled_price or o.limit_price or 0.0,
             'status': status,
-            'placed_time': o.created_at.strftime('%Y-%m-%d %H:%M:%S') if o.created_at else None,
-            'created_at': o.created_at.strftime('%Y-%m-%d %H:%M:%S') if o.created_at else None,
+            'placed_time': _utc_iso(o.created_at),
+            'created_at': _utc_iso(o.created_at),
             'combo_type': o.combo_type,
             'combo_orders': o.combo_orders,
             'time_in_force': o.time_in_force,

@@ -2735,7 +2735,7 @@ def api_webull_event_markets():
             market = get_webull_event_market(
                 credential.webull_app_key, credential.webull_app_secret,
                 environment, credential.webull_access_token,
-                symbol=symbol, force=True,
+                symbol=symbol, force=False,
             )
             result = {'markets': [market], 'total_matches': 1, 'catalog_as_of': market.get('quote_as_of')}
         else:
