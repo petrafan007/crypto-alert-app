@@ -389,6 +389,37 @@ def get_webull_account_positions(app_key, app_secret, environment, access_token,
     return positions if isinstance(positions, list) else []
 
 
+def get_webull_cash_activities(
+    app_key, app_secret, environment, access_token, account_id, *,
+    start_time, end_time, page_size=100, last_activity_id=None,
+):
+    """Read one page of Webull's authoritative account activity ledger.
+
+    Webull calls this resource "cash activities", but it is the documented
+    account ledger for deposits, withdrawals, transfers, trades and other
+    cash-affecting activity across supported asset classes.  The caller owns
+    pagination so it can checkpoint each account independently.
+    """
+    params = {
+        'account_id': str(account_id),
+        'start_time': start_time,
+        'end_time': end_time,
+        'page_size': max(10, min(int(page_size or 100), 100)),
+    }
+    if last_activity_id:
+        params['last_activity_id'] = str(last_activity_id)
+    response = _webull_request(
+        app_key, app_secret, environment, 'GET',
+        '/trading/activities/cash-activities/list',
+        query_params=params, access_token=access_token,
+    )
+    payload = _response_payload(response, 'cash-activity request')
+    items = payload.get('data', payload) if isinstance(payload, dict) else payload
+    if isinstance(items, dict):
+        items = items.get('activities') or items.get('items') or items.get('list') or []
+    return items if isinstance(items, list) else []
+
+
 def get_webull_portfolio_preview(app_key, app_secret, environment='production', access_token=None, *, account_ids=None):
     """Read selected accounts' balances and positions for preview only; performs no imports or trading."""
     selected_ids = {str(account_id).strip() for account_id in (account_ids or []) if str(account_id).strip()}
@@ -1940,25 +1971,39 @@ def get_webull_order_history(app_key, app_secret, environment='production', acce
     safe_page_size = max(1, min(int(page_size or 100), 100))
     for account in target_accounts:
         acc_id = account['account_id']
-        params = {'account_id': acc_id, 'page_size': safe_page_size}
-        response = _rate_limited_order_request(
-            app_key, app_secret, environment, 'GET', '/trading/orders/historical-orders/list',
-            query_params=params, access_token=access_token,
-        )
-        if getattr(response, 'status_code', None) == 404:
+        cursor = None
+        seen_cursors = set()
+        for _page in range(100):
+            params = {'account_id': acc_id, 'page_size': safe_page_size}
+            if cursor:
+                params['last_client_order_id'] = cursor
             response = _rate_limited_order_request(
-                app_key, app_secret, environment, 'GET', '/openapi/trade/order/history',
+                app_key, app_secret, environment, 'GET', '/trading/orders/historical-orders/list',
                 query_params=params, access_token=access_token,
             )
-        payload = _response_payload(response, 'order-history request')
-        items = payload.get('data', payload) if isinstance(payload, dict) else payload
-        if isinstance(items, dict):
-            items = items.get('orders') or items.get('items') or items.get('list') or []
-        if not isinstance(items, list):
-            continue
-        for order in _flatten_webull_order_groups(items):
-            if isinstance(order, dict):
-                records.append({**order, '_webull_account_id': acc_id, '_webull_account_type': account.get('account_type')})
+            if getattr(response, 'status_code', None) == 404:
+                response = _rate_limited_order_request(
+                    app_key, app_secret, environment, 'GET', '/openapi/trade/order/history',
+                    query_params=params, access_token=access_token,
+                )
+            payload = _response_payload(response, 'order-history request')
+            items = payload.get('data', payload) if isinstance(payload, dict) else payload
+            if isinstance(items, dict):
+                items = items.get('orders') or items.get('items') or items.get('list') or []
+            if not isinstance(items, list) or not items:
+                break
+            for order in _flatten_webull_order_groups(items):
+                if isinstance(order, dict):
+                    records.append({**order, '_webull_account_id': acc_id, '_webull_account_type': account.get('account_type')})
+            if len(items) < safe_page_size:
+                break
+            last_group = items[-1] if isinstance(items[-1], dict) else {}
+            next_cursor = last_group.get('client_order_id') or last_group.get('clientOrderId')
+            next_cursor = str(next_cursor or '').strip()
+            if not next_cursor or next_cursor in seen_cursors:
+                break
+            seen_cursors.add(next_cursor)
+            cursor = next_cursor
 
     _WEBULL_ORDER_HISTORY_CACHE[cache_key] = (now, records)
     return records

@@ -1276,6 +1276,13 @@ def start_background_jobs(app=None):
     sync_thread = threading.Thread(target=background_binance_sync_loop, args=(app,), daemon=True)
     sync_thread.start()
 
+    # 1a. Webull is an automatic read-only feed once accounts are connected.
+    # Balances, positions and the complete account activity ledger are upserted
+    # without requiring a user-facing import action.
+    from services.webull_sync_service import webull_auto_sync_loop
+    webull_sync_thread = threading.Thread(target=webull_auto_sync_loop, args=(app,), daemon=True)
+    webull_sync_thread.start()
+
     # 1b. Fast Real Order Status Loop (catches fills within seconds instead of 5 minutes)
     order_status_thread = threading.Thread(target=real_order_status_loop, args=(app,), daemon=True)
     order_status_thread.start()
@@ -1310,6 +1317,7 @@ def start_background_jobs(app=None):
     return {
         "options_thesis": t_opt,
         "sync": sync_thread,
+        "webull_sync": webull_sync_thread,
         "order_status": order_status_thread,
         "portfolio": portfolio_thread,
         "watchlist": watchlist_thread,

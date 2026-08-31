@@ -5,7 +5,7 @@ from core.extensions import db
 def init_db(app=None):
     """Initialize the database with all models"""
     # Import models here to avoid circular imports
-    from models import Coin, WatchlistCoin, Notification, AIPrompt, DefaultAIPrompt, StakedCoin, StakingReward, AIConversation, AICache, AIAnalysisSchedule, PriceHistory, WebullAccountSnapshot, WebullHolding, ExternalSentimentSignal, WebullTestAccount, WebullTestPosition, WebullTestOrder
+    from models import Coin, WatchlistCoin, Notification, AIPrompt, DefaultAIPrompt, StakedCoin, StakingReward, AIConversation, AICache, AIAnalysisSchedule, PriceHistory, WebullAccountSnapshot, WebullActivity, WebullHolding, ExternalSentimentSignal, WebullTestAccount, WebullTestPosition, WebullTestOrder
     from credentials import User, Credential, UserSetting, DesktopToken, OnboardingDefaultProfile
     from trading_models import TestOrder, RealOrder, TestPortfolio, TradingSettings, AllActivity, PortfolioValueHistory, StakingOrder
     
@@ -71,6 +71,9 @@ def init_db(app=None):
             ("webull_holdings", "alert_enabled", "BOOLEAN DEFAULT FALSE"),
             ("webull_holdings", "volatility_pct", "FLOAT"),
             ("webull_holdings", "sentiment_tracking_enabled", "BOOLEAN DEFAULT TRUE"),
+            ("webull_account_snapshots", "activity_synced_at", "TIMESTAMP"),
+            ("webull_account_snapshots", "activity_sync_environment", "VARCHAR(20)"),
+            ("webull_account_snapshots", "environment", "VARCHAR(20) DEFAULT 'production'"),
             ("portfolio_value_history", "source", "VARCHAR(20) DEFAULT 'all'"),
             ("coins", "sentiment_reason", "TEXT"),
             ("watchlist", "sentiment_reason", "TEXT"),

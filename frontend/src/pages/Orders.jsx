@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
 import CancelOrderModal from '../components/CancelOrderModal';
+import WebullActivityTable from '../components/WebullActivityTable';
 import { formatEasternDateTime as formatEasternDateTimeValue } from '../utils/dateTime';
 import './Trading.css';
 import './AIDashboard.css';
@@ -236,7 +237,7 @@ export default function Orders() {
     try {
       const params = new URLSearchParams(window.location.search);
       const t = params.get('tab');
-      if (['open', 'history', 'market_analysis', 'portfolio_review'].includes(t)) {
+      if (['open', 'history', 'activity', 'market_analysis', 'portfolio_review'].includes(t)) {
         return t;
       }
     } catch {}
@@ -252,6 +253,8 @@ export default function Orders() {
   const [workflowError, setWorkflowError] = useState({ marketAnalysis: '', portfolioReview: '' });
   const [history, setHistory] = useState([]);
   const [openOrders, setOpenOrders] = useState([]);
+  const [webullActivities, setWebullActivities] = useState([]);
+  const [activityLoading, setActivityLoading] = useState(false);
   const [loading, setLoading] = useState(true);
   const [notice, setNotice] = useState('');
   const [cancellingId, setCancellingId] = useState(null);
@@ -346,7 +349,7 @@ export default function Orders() {
   const loadHistory = async () => {
     setHistoryLoading(true);
     try {
-      const historyResponse = await axios.get('/api/trading/real-orders?limit=100&history_source=database', { withCredentials: true });
+      const historyResponse = await axios.get('/api/trading/real-orders?limit=all', { withCredentials: true });
       const allHistory = (historyResponse.data?.orders || []).map((order) => {
         const source = String(order?.source || '').toLowerCase();
         return normalize(order, ['auto_buy', 'auto_sell'].includes(source) ? source : (isWebull(order) ? 'webull' : 'binance'));
@@ -367,10 +370,25 @@ export default function Orders() {
     }
   };
 
+  const loadWebullActivities = async () => {
+    setActivityLoading(true);
+    try {
+      const response = await axios.get('/api/webull/activities?limit=all', { withCredentials: true });
+      setWebullActivities(response.data?.activities || []);
+      if (response.data?.message) setNotice(response.data.message);
+    } catch (error) {
+      setNotice(error.response?.data?.message || 'Unable to load Webull account activity.');
+    } finally {
+      setActivityLoading(false);
+    }
+  };
+
   const load = async () => {
     setLoading(true);
     setNotice('');
     await loadOpenOrders();
+    if (activeTab === 'history') await loadHistory();
+    if (activeTab === 'activity') await loadWebullActivities();
     setLoading(false);
   };
 
@@ -464,6 +482,11 @@ export default function Orders() {
     fetchWorkflowPrompt('market-analysis');
     fetchWorkflowPrompt('portfolio-review');
   }, []);
+  useEffect(() => {
+    if (activeTab !== 'activity') return undefined;
+    const timer = window.setInterval(loadWebullActivities, 60000);
+    return () => window.clearInterval(timer);
+  }, [activeTab]);
   const activeOpenOrders = useMemo(() => openOrders.filter((order) => OPEN_STATUSES.has(String(order.status).toUpperCase()) || !order.status || order.status === '—'), [openOrders]);
   const filterableOrders = useMemo(() => [...activeOpenOrders, ...history], [activeOpenOrders, history]);
   const statusOptions = useMemo(() => [...new Set(filterableOrders.map((order) => String(order.status || 'Unknown').toUpperCase()))].sort(), [filterableOrders]);
@@ -501,6 +524,7 @@ export default function Orders() {
       window.history.replaceState({}, '', url);
     } catch {}
     if (tab === 'history' && !history.length && !historyLoading) loadHistory();
+    if (tab === 'activity' && !webullActivities.length && !activityLoading) loadWebullActivities();
     if (tab === 'market_analysis' && !marketAnalysisData) loadLatestWorkflowData('market-analysis');
     if (tab === 'portfolio_review' && !portfolioReviewData) loadLatestWorkflowData('portfolio-review');
   };
@@ -603,6 +627,9 @@ export default function Orders() {
         <button className={`tab-button ${activeTab === 'history' ? 'active' : ''}`} onClick={() => selectTab('history')}>
           📜 <span className="tab-text">Order History</span>
         </button>
+        <button className={`tab-button ${activeTab === 'activity' ? 'active' : ''}`} onClick={() => selectTab('activity')}>
+          💵 <span className="tab-text">Webull Account Activity</span>
+        </button>
         <button className={`tab-button ${activeTab === 'market_analysis' ? 'active' : ''}`} onClick={() => selectTab('market_analysis')}>
           📊 <span className="tab-text">Market Analysis</span>
         </button>
@@ -639,6 +666,16 @@ export default function Orders() {
                 <Pagination page={historyPage} setPage={setHistoryPage} pageSize={historyPageSize} setPageSize={setHistoryPageSize} total={sortedHistory.length} />
               </>
             )}
+          </section>
+        )}
+
+        {activeTab === 'activity' && (
+          <section className="order-history-container">
+            <h2>Webull Account Activity</h2>
+            <p style={{ color: 'var(--text-secondary, #94a3b8)', marginTop: -6 }}>
+              Deposits, withdrawals, transfers, trades, settlements, fees, dividends, interest, and every other activity Webull exposes for your enabled accounts.
+            </p>
+            <WebullActivityTable activities={webullActivities} loading={activityLoading} />
           </section>
         )}
 

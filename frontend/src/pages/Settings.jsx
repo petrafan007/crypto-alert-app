@@ -163,8 +163,6 @@ export default function Settings({ isLightMode }) {
   const [loadingWebullPreview, setLoadingWebullPreview] = useState(false);
   const [webullPortfolioPreview, setWebullPortfolioPreview] = useState([]);
   const [webullPreviewMessage, setWebullPreviewMessage] = useState('');
-  const [syncingWebullPortfolio, setSyncingWebullPortfolio] = useState(false);
-  const [webullImportMessage, setWebullImportMessage] = useState('');
   const [testingTrading, setTestingTrading] = useState(false);
   const [testingPrimaryAi, setTestingPrimaryAi] = useState(false);
   const [primaryAiTestResult, setPrimaryAiTestResult] = useState(null);
@@ -702,9 +700,12 @@ export default function Settings({ isLightMode }) {
       : [...enabledAccountIds, accountId];
     setEnabledAccountIds(nextEnabled);
     try {
-      await axios.post('/api/webull/enabled-accounts', { enabled_account_ids: nextEnabled }, { withCredentials: true });
+      const response = await axios.post('/api/webull/enabled-accounts', { enabled_account_ids: nextEnabled }, { withCredentials: true });
+      setWebullAccountsMessage(response.data?.message || 'Webull account selection saved and automatic synchronization started.');
     } catch (err) {
       console.error('Failed to update enabled Webull accounts:', err);
+      setEnabledAccountIds(enabledAccountIds);
+      setWebullAccountsMessage(err.response?.data?.message || 'Unable to save the Webull account selection.');
     }
   };
 
@@ -722,21 +723,6 @@ export default function Settings({ isLightMode }) {
       setWebullPreviewMessage(`Unable to load preview: ${error.response?.data?.message || 'Please try again.'}`);
     } finally {
       setLoadingWebullPreview(false);
-    }
-  };
-
-  const syncWebullPortfolio = async () => {
-    setSyncingWebullPortfolio(true);
-    setWebullImportMessage('');
-    try {
-      const response = await axios.post('/api/webull/portfolio-sync', {}, { withCredentials: true });
-      const result = response.data || {};
-      setWebullImportMessage(result.message || 'Webull portfolio imported.');
-    } catch (error) {
-      console.error('Error importing Webull portfolio:', error);
-      setWebullImportMessage(`Unable to import Webull portfolio: ${error.response?.data?.message || 'Please try again.'}`);
-    } finally {
-      setSyncingWebullPortfolio(false);
     }
   };
 
@@ -1494,11 +1480,11 @@ export default function Settings({ isLightMode }) {
           </div>
         </div>
 
-        {/* Connection verification is read-only; imported selected accounts may then be used in the scoped Webull workspace. */}
+        {/* Connected accounts continuously feed the read-only dashboard and scoped Webull workspace. */}
         <div className="settings-page-section">
           <h3>Webull OpenAPI Connection</h3>
           <p>
-            Connect your personal Webull Trading API application. Verification only confirms account access; choose and import account snapshots before using their scoped Webull trading workspace.
+            Connect your personal Webull Trading API application. Once you enable an account, its balances, positions, orders, and complete account activity synchronize automatically.
           </p>
 
           <div className="settings-form-group">
@@ -1599,7 +1585,7 @@ export default function Settings({ isLightMode }) {
                   <div>
                     <strong>Connected Webull Accounts</strong>
                     <p className="settings-form-help" style={{ margin: '4px 0 0' }}>
-                      Discovery is read-only. Balances, positions, orders, and portfolio data have not been imported.
+                      Connection and synchronization are read-only. Enabled accounts automatically feed balances, positions, orders, and account activity into the dashboard.
                     </p>
                   </div>
                   <button
@@ -1649,9 +1635,9 @@ export default function Settings({ isLightMode }) {
                   </div>
                 )}
                 <div style={{ marginTop: '14px', paddingTop: '12px', borderTop: '1px solid rgba(79, 209, 197, 0.20)' }}>
-                  <strong>Portfolio Preview</strong>
+                  <strong>Live Account Snapshot</strong>
                   <p className="settings-form-help" style={{ margin: '4px 0 10px' }}>
-                    Your enabled Webull accounts are included. This fetches a live, read-only preview of balances and open positions; it does not merge or save them into the dashboard yet.
+                    Enabled Webull accounts synchronize automatically. This optional view fetches the latest balances and open positions so you can inspect what Webull is returning.
                   </p>
                   <button
                     type="button"
@@ -1659,18 +1645,9 @@ export default function Settings({ isLightMode }) {
                     disabled={loadingWebullPreview}
                     style={{ padding: '7px 12px', backgroundColor: loadingWebullPreview ? '#6c757d' : '#0f766e', color: '#fff', border: 'none', borderRadius: '4px', cursor: loadingWebullPreview ? 'not-allowed' : 'pointer', fontSize: '13px', fontWeight: 'bold' }}
                   >
-                    {loadingWebullPreview ? 'Loading Preview...' : 'Load Read-Only Portfolio Preview'}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={syncWebullPortfolio}
-                    disabled={syncingWebullPortfolio}
-                    style={{ marginLeft: '8px', padding: '7px 12px', backgroundColor: syncingWebullPortfolio ? '#6c757d' : '#2563eb', color: '#fff', border: 'none', borderRadius: '4px', cursor: syncingWebullPortfolio ? 'not-allowed' : 'pointer', fontSize: '13px', fontWeight: 'bold' }}
-                  >
-                    {syncingWebullPortfolio ? 'Importing...' : 'Import into Unified Portfolio'}
+                    {loadingWebullPreview ? 'Loading Snapshot...' : 'View Latest Account Snapshot'}
                   </button>
                   {webullPreviewMessage && <p className="settings-form-help" style={{ margin: '10px 0 0' }}>{webullPreviewMessage}</p>}
-                  {webullImportMessage && <p className="settings-form-help" style={{ margin: '10px 0 0' }}>{webullImportMessage}</p>}
                   {webullPortfolioPreview.map((account, index) => (
                     <div key={`${account.account_type}-${account.account_id_masked}-${index}`} style={{ marginTop: '10px', padding: '10px', borderRadius: '4px', background: 'rgba(15, 23, 42, 0.45)' }}>
                       <strong>{account.account_type || 'Webull Account'} · {account.account_id_masked}</strong>

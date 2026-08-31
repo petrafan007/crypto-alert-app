@@ -11,6 +11,7 @@ from services.webull_service import (
     generate_webull_signature,
     get_webull_accounts,
     get_webull_account_list,
+    get_webull_cash_activities,
     get_webull_market_bars,
     get_webull_futures_catalog,
     get_webull_futures_contracts,
@@ -481,6 +482,42 @@ class WebullServiceTests(unittest.TestCase):
             'side': 'BUY', 'order_type': 'LIMIT', 'total_quantity': '2',
             '_webull_account_id': '1234', '_webull_account_type': 'STOCK',
         }])
+
+    def test_cash_activity_uses_documented_ledger_endpoint_and_cursor(self):
+        response = self._response({'data': [{
+            'id': 'activity-1', 'activity_type': 'TRANSFER',
+            'activity_sub_type': 'INTERNAL_TRANSFER', 'net_amount': '5.00',
+        }]})
+        with patch('services.webull_service._webull_request', return_value=response) as request_mock:
+            activities = get_webull_cash_activities(
+                'app-key', 'app-secret', 'production', 'private-token', 'account-1',
+                start_time='2026-08-01T00:00:00.000Z',
+                end_time='2026-09-01T00:00:00.000Z',
+                last_activity_id='activity-0',
+            )
+
+        self.assertEqual(activities[0]['id'], 'activity-1')
+        self.assertEqual(request_mock.call_args.args[4], '/trading/activities/cash-activities/list')
+        self.assertEqual(request_mock.call_args.kwargs['query_params']['account_id'], 'account-1')
+        self.assertEqual(request_mock.call_args.kwargs['query_params']['last_activity_id'], 'activity-0')
+
+    def test_order_history_reads_every_cursor_page(self):
+        accounts = [{'account_id': '1234', 'account_type': 'STOCK'}]
+        first_page = [{'client_order_id': f'order-{index}', 'symbol': 'AAPL'} for index in range(100)]
+        responses = [self._response({'data': {'items': first_page}}), self._response({'data': {'items': [
+            {'client_order_id': 'order-100', 'symbol': 'MSFT'},
+        ]}})]
+        with patch('services.webull_service.get_webull_accounts', return_value=accounts), \
+             patch('services.webull_service._rate_limited_order_request', side_effect=responses) as request_mock:
+            orders = get_webull_order_history('app-key', 'app-secret', access_token='private-token')
+
+        self.assertEqual(len(orders), 101)
+        self.assertEqual(orders[-1]['symbol'], 'MSFT')
+        self.assertEqual(request_mock.call_count, 2)
+        self.assertEqual(
+            request_mock.call_args_list[1].kwargs['query_params']['last_client_order_id'],
+            'order-99',
+        )
 
     def test_market_bars_choose_the_crypto_endpoint_and_normalize_epoch_milliseconds(self):
         response = Mock(status_code=200)

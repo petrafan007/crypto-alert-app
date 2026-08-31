@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import axios from 'axios';
 import { FaBitcoin, FaDollarSign } from 'react-icons/fa';
 
@@ -20,13 +21,18 @@ export default function WatchlistSymbolPicker({ onSelect, disabled = false, isLi
   const [highlightedIdx, setHighlightedIdx] = useState(0);
   const inputRef = useRef(null);
   const containerRef = useRef(null);
+  const dropdownRef = useRef(null);
   const debounceRef = useRef(null);
   const requestIdRef = useRef(0);
+  const [dropdownPosition, setDropdownPosition] = useState({ left: 0, top: 0, width: 320, maxHeight: 320 });
 
   // Close dropdown on outside click
   useEffect(() => {
     const handler = (e) => {
-      if (containerRef.current && !containerRef.current.contains(e.target)) {
+      if (
+        containerRef.current && !containerRef.current.contains(e.target)
+        && (!dropdownRef.current || !dropdownRef.current.contains(e.target))
+      ) {
         setIsOpen(false);
       }
     };
@@ -35,6 +41,33 @@ export default function WatchlistSymbolPicker({ onSelect, disabled = false, isLi
   }, []);
 
   useEffect(() => () => clearTimeout(debounceRef.current), []);
+
+  const updateDropdownPosition = useCallback(() => {
+    if (!containerRef.current) return;
+    const rect = containerRef.current.getBoundingClientRect();
+    const gap = 6;
+    const below = window.innerHeight - rect.bottom - gap;
+    const above = rect.top - gap;
+    const useAbove = below < 180 && above > below;
+    const maxHeight = Math.max(120, Math.min(320, (useAbove ? above : below) - 8));
+    setDropdownPosition({
+      left: rect.left,
+      top: useAbove ? Math.max(8, rect.top - maxHeight - gap) : rect.bottom + gap,
+      width: rect.width,
+      maxHeight,
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!isOpen) return undefined;
+    updateDropdownPosition();
+    window.addEventListener('resize', updateDropdownPosition);
+    window.addEventListener('scroll', updateDropdownPosition, true);
+    return () => {
+      window.removeEventListener('resize', updateDropdownPosition);
+      window.removeEventListener('scroll', updateDropdownPosition, true);
+    };
+  }, [isOpen, updateDropdownPosition]);
 
   const search = useCallback(async (q) => {
     const requestId = ++requestIdRef.current;
@@ -122,16 +155,16 @@ export default function WatchlistSymbolPicker({ onSelect, disabled = false, isLi
   };
 
   const dropdownStyle = {
-    position: 'absolute',
-    top: 'calc(100% + 6px)',
-    left: 0,
-    right: 0,
-    zIndex: 9999,
+    position: 'fixed',
+    left: dropdownPosition.left,
+    top: dropdownPosition.top,
+    width: dropdownPosition.width,
+    zIndex: 100000,
     background: isLightMode ? '#ffffff' : '#0f172a',
     border: isLightMode ? '1px solid #cbd5e1' : '1px solid rgba(129,140,248,.35)',
     borderRadius: '10px',
     boxShadow: '0 12px 40px rgba(0,0,0,.35)',
-    maxHeight: '320px',
+    maxHeight: dropdownPosition.maxHeight,
     overflowY: 'auto',
   };
 
@@ -221,8 +254,8 @@ export default function WatchlistSymbolPicker({ onSelect, disabled = false, isLi
           Searching…
         </span>
       )}
-      {isOpen && results.length > 0 && (
-        <div style={dropdownStyle}>
+      {isOpen && results.length > 0 && typeof document !== 'undefined' && createPortal(
+        <div ref={dropdownRef} style={dropdownStyle}>
           {cryptoResults.length > 0 && (
             <>
               <div style={{ ...groupHeaderStyle, borderTop: 'none', marginTop: 0 }}>
@@ -246,12 +279,14 @@ export default function WatchlistSymbolPicker({ onSelect, disabled = false, isLi
           <div style={{ padding: '6px 12px 8px', fontSize: '0.7rem', color: '#64748b', textAlign: 'center' }}>
             Select a result to add it to your watchlist
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
-      {isOpen && !loading && query.length > 0 && results.length === 0 && (
-        <div style={{ ...dropdownStyle, padding: '14px', textAlign: 'center', fontSize: '0.85rem', color: '#94a3b8' }}>
+      {isOpen && !loading && query.length > 0 && results.length === 0 && typeof document !== 'undefined' && createPortal(
+        <div ref={dropdownRef} style={{ ...dropdownStyle, padding: '14px', textAlign: 'center', fontSize: '0.85rem', color: '#94a3b8' }}>
           No results for &ldquo;{query}&rdquo;
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   );

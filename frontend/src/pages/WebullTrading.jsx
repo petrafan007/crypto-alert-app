@@ -10,6 +10,7 @@ import PercentPriceModal from '../components/PercentPriceModal';
 import WebullAIDashboard from '../components/WebullAIDashboard';
 import WebullOptionChain from '../components/WebullOptionChain';
 import OptionsPayoffChart from '../components/OptionsPayoffChart';
+import WebullActivityTable from '../components/WebullActivityTable';
 import { differenceInEasternCalendarDays, formatEasternDate, formatEasternDateTime, formatEasternTime } from '../utils/dateTime';
 import { optionStrategyDefinition } from '../utils/optionStrategies';
 import {
@@ -317,6 +318,8 @@ export default function WebullTrading({ isLightMode = false }) {
   const [activeTab, setActiveTab] = useState('order');
   const [holdings, setHoldings] = useState([]);
   const [history, setHistory] = useState([]);
+  const [webullActivities, setWebullActivities] = useState([]);
+  const [activityLoading, setActivityLoading] = useState(false);
   const [openOrders, setOpenOrders] = useState([]);
   const [optionClosePnlByOrder, setOptionClosePnlByOrder] = useState({});
   const [accounts, setAccounts] = useState([]);
@@ -602,7 +605,7 @@ export default function WebullTrading({ isLightMode = false }) {
     setHistoryLoading(true);
     try {
       const resp = await axios.get(
-        `/api/trading/real-orders?account_scope=webull&limit=100${accId ? `&account_id=${accId}` : ''}`,
+        `/api/trading/real-orders?account_scope=webull&limit=all${accId ? `&account_id=${accId}` : ''}`,
         { withCredentials: true }
       );
       setHistory(
@@ -614,6 +617,26 @@ export default function WebullTrading({ isLightMode = false }) {
       // non-blocking
     } finally {
       setHistoryLoading(false);
+    }
+  };
+
+  const loadWebullActivities = async (targetAccId) => {
+    if (isTestMode) {
+      setWebullActivities([]);
+      return;
+    }
+    const accId = targetAccId || selectedAccountId;
+    setActivityLoading(true);
+    try {
+      const response = await axios.get(
+        `/api/webull/activities?limit=all${accId ? `&account_id=${encodeURIComponent(accId)}` : ''}`,
+        { withCredentials: true },
+      );
+      setWebullActivities(response.data?.activities || []);
+    } catch (requestError) {
+      setError(requestError.response?.data?.message || 'Unable to load Webull account activity.');
+    } finally {
+      setActivityLoading(false);
     }
   };
 
@@ -921,7 +944,13 @@ export default function WebullTrading({ isLightMode = false }) {
     if (['history', 'trade_chart'].includes(activeTab) && !history.length && !historyLoading) {
       loadHistory(undefined, isTestMode);
     }
-  }, [activeTab, isTestMode]);
+    if (activeTab === 'activity' && !isTestMode) {
+      loadWebullActivities();
+      const timer = window.setInterval(() => loadWebullActivities(), 60000);
+      return () => window.clearInterval(timer);
+    }
+    return undefined;
+  }, [activeTab, isTestMode, selectedAccountId]);
 
   // Refetch open orders when account changes
   useEffect(() => {
@@ -1471,7 +1500,7 @@ export default function WebullTrading({ isLightMode = false }) {
   };
 
   useEffect(() => {
-    if (isTestMode && activeTab === 'ai_analysis') setActiveTab('order');
+    if (isTestMode && ['ai_analysis', 'activity'].includes(activeTab)) setActiveTab('order');
   }, [activeTab, isTestMode]);
 
   // Dual Input Quantity / Value calculations
@@ -2634,6 +2663,11 @@ export default function WebullTrading({ isLightMode = false }) {
         <button className={`tab-button ${activeTab === 'history' ? 'active' : ''}`} onClick={() => setActiveTab('history')}>
           📜 <span className="tab-text">Order History</span>
         </button>
+        {!isTestMode && (
+          <button className={`tab-button ${activeTab === 'activity' ? 'active' : ''}`} onClick={() => setActiveTab('activity')}>
+            💵 <span className="tab-text">Account Activity</span>
+          </button>
+        )}
         <button className={`tab-button ${activeTab === 'trade_chart' ? 'active' : ''}`} onClick={() => setActiveTab('trade_chart')}>
           📈 <span className="tab-text">Trade Chart</span>
         </button>
@@ -4338,6 +4372,16 @@ export default function WebullTrading({ isLightMode = false }) {
                     <Pagination page={historyPage} setPage={setHistoryPage} pageSize={historyPageSize} setPageSize={setHistoryPageSize} total={sortedHistory.length} />
                   </>
                 )}
+              </section>
+            )}
+
+            {!isTestMode && activeTab === 'activity' && (
+              <section className="order-history-container">
+                <h2>Webull Account Activity</h2>
+                <p style={{ color: 'var(--text-secondary, #94a3b8)', marginTop: -6 }}>
+                  Complete API-exposed activity for the selected account, including transactions made directly in Webull.
+                </p>
+                <WebullActivityTable activities={webullActivities} loading={activityLoading} />
               </section>
             )}
 

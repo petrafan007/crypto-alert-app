@@ -14,7 +14,7 @@
   - **Market Gauges & Performance**: Built-in Fear & Greed Index, CBBI Bull Run Peak Confidence metric, Staking Yield overview, and 7-day multi-interval performance tickers.
   - **True Portfolio Trend Charts**: Saved, user-selectable quick ranges from 1H through All-time with live portfolio net-worth updates.
   - **Cryptocurrency Vector Icons**: Rich, high-resolution coin icons for effortless asset recognition across all tables.
-  - **Webull Read-Only Views**: Imported Webull equities, ETFs, crypto, and contract-mapped options can appear alongside Binance.US holdings, with exchange-aware order views and Webull price charts that overlay completed Webull trades. Option charts, quotes, and Greeks remain contract-specific and safely report missing OPRA data.
+  - **Automatic Webull Read-Only Feed**: Enabled Webull accounts continuously synchronize balances, positions, orders, and the complete API-exposed account activity ledger without a manual import step. Webull equities, ETFs, crypto, options, futures, and event-related cash activity remain isolated from Binance.US data and from Webull Test Mode.
 
 - **⚡ Professional Trading Terminal (USD & USDT)**
   - **Dual-Quote Currency Trading**: Instant one-click spot trading for both **USD** and **USDT** quote pairs directly from Portfolio and Watchlist rows.
@@ -126,6 +126,21 @@ The application utilizes a **unified PostgreSQL database**.
 ## Version History & Changelog
 
 Historical changelog entries retain the product name used when they were originally released. The application domain, repository slug, deployment folders, database, and service identifiers intentionally remain unchanged by the v2.45.0 brand update.
+
+## v2.67.0 (August 2026)
+
+- **Automatic Webull Account Synchronization**:
+  - Removed the manual Webull portfolio import control from Settings and Onboarding. Once an account is connected and enabled, CSD automatically refreshes its authoritative balance, positions, and activity without requiring a merge/upsert button.
+  - The dashboard and Webull Trading cash figures now come from regularly refreshed Webull balance snapshots, correcting stale values such as a previously saved $20 balance when Webull reports $39.
+- **Complete Webull Account Activity Ledger**:
+  - Added durable, account-scoped ingestion of Webull's cash-activity API with complete first-run backfill, cursor pagination, recurring updates, and idempotent upserts.
+  - Added Account Activity views to both the combined Orders page and Webull Trading. These show every API-exposed deposit, withdrawal, transfer, trade, settlement, fee, dividend, interest, and other provider activity, including activity initiated directly in Webull.
+  - Event Contract settlements are represented exactly as Webull exposes them. When the API reports them as internal transfers without a contract title, CSD preserves that truthful ledger classification instead of inventing an order or symbol.
+- **Complete External Order History and Isolation**:
+  - Webull historical-order reads now traverse every provider page instead of stopping after the first 100 groups, so orders placed outside CSD appear whenever Webull exposes them through the order API.
+  - Live Webull activity, history, balances, and positions remain hidden from Test Mode views.
+- **Watchlist Search Visibility**:
+  - The symbol-search results menu now renders in a viewport-level overlay, allowing it to extend beyond the bottom of the watchlist table without being clipped.
 
 ## v2.65.1 (August 2026)
 

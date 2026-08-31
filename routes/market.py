@@ -25,6 +25,20 @@ _ticker_24h_cache = {
     "data": {}
 }
 
+
+def _refresh_and_include_live_webull(user_id):
+    """Refresh the automatic feed unless the UI is isolated in Test Mode."""
+    setting = UserSetting.query.filter_by(user_id=user_id).first()
+    if bool(getattr(setting, 'webull_test_mode_enabled', False)):
+        return False
+    try:
+        from services.webull_sync_service import sync_webull_user_data
+        sync_webull_user_data(user_id)
+    except Exception as exc:
+        # Serve the last successful snapshot during a transient provider error.
+        logger.warning('Automatic Webull refresh failed while loading portfolio: %s', exc)
+    return True
+
 def _get_binance_24h_tickers():
     global _ticker_24h_cache
     now = time.time()
@@ -365,7 +379,8 @@ def api_coin_data_live():
         # workspace consumes this live portfolio endpoint, so omitting them
         # here made an account-correct position appear as zero shares even
         # though it was present on the Portfolio table.
-        portfolio.extend(get_webull_portfolio_rows(current_user.id))
+        if _refresh_and_include_live_webull(current_user.id):
+            portfolio.extend(get_webull_portfolio_rows(current_user.id))
         logger.error(f"[LIVE] Final portfolio response: {[c['symbol'] for c in portfolio]}")
         return jsonify({"portfolio": portfolio})
 
@@ -510,7 +525,8 @@ def api_coin_data():
 
         # Webull snapshots are deliberately appended as read-only, exchange-sourced
         # rows. They never become Coin records or Binance trade candidates.
-        portfolio.extend(get_webull_portfolio_rows(current_user.id))
+        if _refresh_and_include_live_webull(current_user.id):
+            portfolio.extend(get_webull_portfolio_rows(current_user.id))
         # logger.error(f"[DEBUG] Final portfolio response: {[c['symbol'] for c in portfolio]}")
         return jsonify({"portfolio": portfolio})
     except Exception as e:

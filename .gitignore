@@ -194,6 +194,7 @@ crypto_desktop_app/
 tests/
 !tests/
 tests/*
+!tests/test_webull_sync_service.py
 !tests/test_sentiment_outcome_service.py
 !tests/test_onboarding.py
 migrations/

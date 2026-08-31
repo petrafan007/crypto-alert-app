@@ -65,6 +65,7 @@ def import_webull_portfolio_snapshot(user_id, preview):
         if snapshot is None:
             snapshot = WebullAccountSnapshot(user_id=user_id, account_id=account_id)
             db.session.add(snapshot)
+        snapshot.environment = str(account.get('_environment') or 'production')
         snapshot.account_type = str(account.get('account_type') or 'Webull Account')
         snapshot.account_name = str(account.get('account_name') or '')
         snapshot.currency = str(balance.get('total_asset_currency') or balance.get('currency') or 'USD')
@@ -176,9 +177,17 @@ def get_webull_portfolio_rows(user_id):
     # Build a fast lookup from local account metadata.  Raw account numbers
     # stay server-only; dashboard rows need only a stable masked display value.
     account_meta = {}  # keyed by account_id
+    allowed_account_ids = None
     try:
         from credentials import UserSetting  # local import to avoid circular deps
         setting = UserSetting.query.filter_by(user_id=user_id).first()
+        active_environment = str(getattr(setting, 'webull_environment', None) or 'production')
+        allowed_account_ids = {
+            str(snapshot.account_id)
+            for snapshot in WebullAccountSnapshot.query.filter_by(
+                user_id=user_id, environment=active_environment,
+            ).all()
+        }
         raw = getattr(setting, 'webull_connected_accounts', '[]') or '[]'
         stored_accounts = json.loads(raw) if isinstance(raw, str) else (raw or [])
         for acc in stored_accounts:
@@ -195,9 +204,13 @@ def get_webull_portfolio_rows(user_id):
                     ),
                 }
     except Exception:
-        pass  # Non-fatal: pill simply won't appear if metadata is unavailable
+        # Fail closed on account/environment scope. Metadata can be omitted,
+        # but a scope lookup failure must never expose another environment.
+        allowed_account_ids = set()
     rows = []
     for holding in WebullHolding.query.filter_by(user_id=user_id).order_by(WebullHolding.symbol.asc()).all():
+        if allowed_account_ids is not None and str(holding.account_id) not in allowed_account_ids:
+            continue
         amount = _number(holding.quantity)
         is_cash = (holding.instrument_type or '').upper() == 'CASH'
         # USD cash rows always price at $1.00; never show a % change or unrealized PnL.
@@ -251,4 +264,11 @@ def get_webull_portfolio_rows(user_id):
 
 
 def get_webull_total_value(user_id):
-    return sum(_number(item.total_net_liquidation_value) for item in WebullAccountSnapshot.query.filter_by(user_id=user_id).all())
+    try:
+        from credentials import UserSetting
+        setting = UserSetting.query.filter_by(user_id=user_id).first()
+        environment = str(getattr(setting, 'webull_environment', None) or 'production')
+        snapshots = WebullAccountSnapshot.query.filter_by(user_id=user_id, environment=environment).all()
+    except Exception:
+        snapshots = WebullAccountSnapshot.query.filter_by(user_id=user_id).all()
+    return sum(_number(item.total_net_liquidation_value) for item in snapshots)

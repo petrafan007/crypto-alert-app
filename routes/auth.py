@@ -66,7 +66,7 @@ def enforce_required_onboarding():
         '/api/settings', '/api/test-binance-connection',
         '/api/test-webull-connection', '/api/webull/accounts',
         '/api/webull/enabled-accounts', '/api/webull/default-account',
-        '/api/webull/portfolio-preview', '/api/webull/portfolio-sync',
+        '/api/webull/portfolio-preview',
         '/api/test-ai-connection-generic', '/api/ai/models',
         '/api/test-brave-search', '/api/trading/2fa/setup',
         '/api/trading/2fa/verify-setup',
@@ -535,7 +535,7 @@ def delete_account():
             Coin, WatchlistCoin, Notification, StakedCoin, StakingReward,
             AIPrompt, AIConversation, AICache, AIAnalysisSchedule,
             SentimentHistory, ExternalSentimentSignal,
-            WebullAccountSnapshot, WebullHolding, WebullTestAccount,
+            WebullAccountSnapshot, WebullActivity, WebullHolding, WebullTestAccount,
             WebullTestPosition, WebullTestOrder
         )
         Coin.query.filter_by(user_id=user_id).delete()
@@ -553,6 +553,7 @@ def delete_account():
         SentimentHistory.query.filter_by(user_id=user_id).delete()
         ExternalSentimentSignal.query.filter_by(user_id=user_id).delete()
         WebullAccountSnapshot.query.filter_by(user_id=user_id).delete()
+        WebullActivity.query.filter_by(user_id=user_id).delete()
         WebullHolding.query.filter_by(user_id=user_id).delete()
         WebullTestAccount.query.filter_by(user_id=user_id).delete()
         WebullTestPosition.query.filter_by(user_id=user_id).delete()

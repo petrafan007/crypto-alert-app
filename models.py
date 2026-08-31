@@ -63,6 +63,7 @@ class WebullAccountSnapshot(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, nullable=False)
     account_id = db.Column(db.String(80), nullable=False)
+    environment = db.Column(db.String(20), nullable=False, default='production')
     account_type = db.Column(db.String(80), nullable=True)
     account_name = db.Column(db.String(160), nullable=True)
     currency = db.Column(db.String(12), default='USD')
@@ -71,10 +72,48 @@ class WebullAccountSnapshot(db.Model):
     total_market_value = db.Column(db.Float, default=0.0)
     total_unrealized_profit_loss = db.Column(db.Float, nullable=True)
     synced_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    activity_synced_at = db.Column(db.DateTime, nullable=True)
+    activity_sync_environment = db.Column(db.String(20), nullable=True)
 
     __table_args__ = (
         db.UniqueConstraint('user_id', 'account_id', name='uq_webull_account_snapshot_user_account'),
         db.Index('ix_webull_account_snapshot_user', 'user_id'),
+    )
+
+
+class WebullActivity(db.Model):
+    """Authoritative read-only Webull cash/activity ledger.
+
+    This table is intentionally separate from ``AllActivity``.  The latter is
+    used by Binance cost-basis and automation code, while these rows can cover
+    every Webull asset class plus deposits, withdrawals, transfers, fees,
+    dividends, interest, corporate actions, and event-contract settlements.
+    """
+    __tablename__ = 'webull_activities'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, nullable=False)
+    environment = db.Column(db.String(20), nullable=False, default='production')
+    account_id = db.Column(db.String(80), nullable=False)
+    webull_activity_id = db.Column(db.String(120), nullable=False)
+    activity_type = db.Column(db.String(40), nullable=True)
+    activity_sub_type = db.Column(db.String(80), nullable=True)
+    currency = db.Column(db.String(12), nullable=True)
+    market = db.Column(db.String(20), nullable=True)
+    symbol = db.Column(db.String(80), nullable=True)
+    trade_date = db.Column(db.Date, nullable=True)
+    net_amount = db.Column(db.Float, nullable=True)
+    biz_time = db.Column(db.DateTime, nullable=True)
+    raw_details = db.Column(db.Text, nullable=True)
+    synced_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+    __table_args__ = (
+        db.UniqueConstraint(
+            'user_id', 'environment', 'account_id', 'webull_activity_id',
+            name='uq_webull_activity_user_env_account_activity',
+        ),
+        db.Index('ix_webull_activity_user_time', 'user_id', 'biz_time'),
+        db.Index('ix_webull_activity_user_account', 'user_id', 'account_id'),
     )
 
 

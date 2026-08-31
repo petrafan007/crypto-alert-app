@@ -2213,9 +2213,10 @@ def get_real_orders_only():
         account_scope = request.args.get('account_scope', 'all').lower()
         if account_scope not in {'all', 'binance', 'webull'}:
             account_scope = 'all'
+        webull_mode_setting = UserSetting.query.filter_by(user_id=current_user.id).first()
+        webull_test_mode = bool(getattr(webull_mode_setting, 'webull_test_mode_enabled', False))
         if account_scope == 'webull':
-            webull_mode_setting = UserSetting.query.filter_by(user_id=current_user.id).first()
-            if bool(getattr(webull_mode_setting, 'webull_test_mode_enabled', False)):
+            if webull_test_mode:
                 return jsonify({
                     'success': True,
                     'orders': [],
@@ -2461,7 +2462,7 @@ def get_real_orders_only():
         # Merge read-only Webull historical orders. They use their own unique
         # source keys and may represent equities, options, futures, or crypto;
         # none are treated as Binance tradable symbols.
-        if account_scope != 'binance' and not database_only:
+        if account_scope != 'binance' and not database_only and not webull_test_mode:
             try:
                 webull_credential = Credential.query.filter_by(user_id=current_user.id).first()
                 webull_setting = UserSetting.query.filter_by(user_id=current_user.id).first()
@@ -2473,7 +2474,14 @@ def get_real_orders_only():
                     and webull_credential.webull_token_environment == webull_environment
                     and webull_credential.webull_access_token
                 ):
-                    target_acc = request.args.get('account_id')
+                    target_acc = str(request.args.get('account_id') or '').strip() or None
+                    if target_acc:
+                        try:
+                            enabled_accounts = json.loads(getattr(webull_setting, 'webull_enabled_account_ids', '[]') or '[]')
+                        except Exception:
+                            enabled_accounts = []
+                        if target_acc not in {str(value) for value in enabled_accounts}:
+                            return jsonify({'success': False, 'error': 'Choose an enabled Webull account.'}), 400
                     webull_orders = get_webull_order_history(
                         webull_credential.webull_app_key, webull_credential.webull_app_secret,
                         webull_environment, webull_credential.webull_access_token, page_size=100,
@@ -2613,8 +2621,7 @@ def get_real_orders_only():
         # Sort and limit
         order_list = list(combined_orders.values())
         if account_scope == 'all':
-            webull_mode_setting = UserSetting.query.filter_by(user_id=current_user.id).first()
-            if bool(getattr(webull_mode_setting, 'webull_test_mode_enabled', False)):
+            if webull_test_mode:
                 order_list = [o for o in order_list if o.get('source') != 'webull']
         if account_scope == 'binance':
             order_list = [o for o in order_list if o.get('source') != 'webull']

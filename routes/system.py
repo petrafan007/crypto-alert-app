@@ -20,7 +20,7 @@ from sqlalchemy import text
 
 # Database & Models
 from core.extensions import db
-from models import Notification, Coin, WatchlistCoin, AIPrompt, DefaultAIPrompt, WebullAccountSnapshot, WebullHolding, WebullTestPosition
+from models import Notification, Coin, WatchlistCoin, AIPrompt, DefaultAIPrompt, WebullAccountSnapshot, WebullActivity, WebullHolding, WebullTestPosition
 from credentials import User, UserSetting, Credential
 
 # Log
@@ -59,7 +59,7 @@ from services.webull_service import (
     FALLBACK_US_FUTURES_PRODUCTS,
     test_webull_connection,
 )
-from services.webull_import_service import import_webull_portfolio_snapshot
+from services.webull_sync_service import sync_webull_user_data
 from services.webull_option_service import option_contract_label, resolve_option_contract
 
 
@@ -1883,7 +1883,9 @@ def api_webull_accounts():
         aliases = _webull_account_aliases(setting)
         snapshots = {
             str(snapshot.account_id): snapshot
-            for snapshot in WebullAccountSnapshot.query.filter_by(user_id=current_user.id).all()
+            for snapshot in WebullAccountSnapshot.query.filter_by(
+                user_id=current_user.id, environment=environment,
+            ).all()
             if snapshot.account_id
         }
 
@@ -1978,10 +1980,21 @@ def api_save_webull_enabled_accounts():
             setting.onboarding_webull_verified = True
         db.session.commit()
 
+        sync_result = None
+        if enabled_ids:
+            try:
+                sync_result = sync_webull_user_data(current_user.id, force=True)
+            except Exception as sync_exc:
+                # Account selection has already been saved.  The continuous
+                # synchronizer will retry, so a temporary provider error must
+                # not undo the user's selection or trap onboarding.
+                logger.warning('Initial automatic Webull synchronization failed: %s', sync_exc)
+
         return jsonify({
             'success': True,
             'enabled_account_ids': enabled_ids,
-            'message': 'Enabled Webull accounts saved successfully.',
+            'sync': sync_result,
+            'message': 'Enabled Webull accounts saved. Balances, positions, orders, and activity now synchronize automatically.',
         })
     except Exception as exc:
         db.session.rollback()
@@ -2134,44 +2147,104 @@ def api_save_webull_account_aliases():
 @system_bp.route('/api/webull/portfolio-sync', methods=['POST'])
 @login_required
 def api_webull_portfolio_sync():
-    """Import a current all-account Webull snapshot for unified, read-only display."""
+    """Retired manual-import endpoint kept only for clear legacy-client feedback."""
+    return jsonify({
+        'success': False,
+        'automatic': True,
+        'message': 'Manual Webull import has been removed. Connected accounts synchronize automatically.',
+    }), 410
+
+
+@system_bp.route('/api/webull/activities', methods=['GET'])
+@login_required
+def api_webull_activities():
+    """Return the complete API-exposed Webull ledger for enabled live accounts."""
     try:
-        credential = Credential.query.filter_by(user_id=current_user.id).first()
         setting = UserSetting.query.filter_by(user_id=current_user.id).first()
+        if bool(getattr(setting, 'webull_test_mode_enabled', False)):
+            return jsonify({
+                'success': True,
+                'activities': [],
+                'message': 'Live Webull activity is hidden while Test Mode is active.',
+                'test_mode': True,
+            })
+
         environment = normalize_webull_environment(getattr(setting, 'webull_environment', None) or 'production')
-        if getattr(setting, 'webull_account_selection_mode', None) not in (None, 'all'):
-            return jsonify({'success': False, 'message': 'No Webull accounts are selected for import.'}), 400
-        if (
-            not credential or credential.webull_token_status != 'NORMAL'
-            or credential.webull_token_environment != environment or not credential.webull_access_token
-        ):
-            return jsonify({'success': False, 'message': 'Verify your Webull connection before importing its portfolio.'}), 400
-        allowed_account_ids = _webull_allowed_account_ids(setting)
-        requested_ids = (request.get_json(silent=True) or {}).get('account_ids')
-        if requested_ids is not None:
-            if not isinstance(requested_ids, list):
-                return jsonify({'success': False, 'message': 'Invalid account import selection.'}), 400
-            requested_set = {str(value).strip() for value in requested_ids if str(value).strip()}
-            allowed_set = set(allowed_account_ids or [])
-            if not requested_set or not requested_set.issubset(allowed_set):
-                return jsonify({'success': False, 'message': 'Choose only enabled Webull accounts for import.'}), 400
-            allowed_account_ids = sorted(requested_set)
-        preview = get_webull_portfolio_preview(
-            credential.webull_app_key, credential.webull_app_secret, environment, credential.webull_access_token,
-            account_ids=allowed_account_ids or None,
-        )
-        result = import_webull_portfolio_snapshot(current_user.id, preview)
+        enabled_ids = _webull_allowed_account_ids(setting)
+        requested_account = str(request.args.get('account_id') or '').strip()
+        if requested_account:
+            try:
+                _require_webull_account_access(setting, requested_account)
+            except WebullConnectionError as exc:
+                return jsonify({'success': False, 'message': str(exc)}), 400
+            enabled_ids = [requested_account]
+
+        try:
+            sync_webull_user_data(current_user.id)
+        except Exception as sync_exc:
+            # Existing ledger rows remain useful during a transient provider
+            # error; disclose staleness without dropping the whole response.
+            logger.warning('On-demand automatic Webull synchronization failed: %s', sync_exc)
+
+        query = WebullActivity.query.filter_by(user_id=current_user.id, environment=environment)
+        if enabled_ids:
+            query = query.filter(WebullActivity.account_id.in_(enabled_ids))
+        else:
+            query = query.filter(db.text('1 = 0'))
+
+        limit_arg = str(request.args.get('limit') or '500').strip().lower()
+        unlimited = limit_arg in {'all', '*', 'infinite'}
+        try:
+            limit = max(1, min(int(limit_arg), 5000)) if not unlimited else None
+        except ValueError:
+            limit = 500
+        try:
+            offset = max(0, int(request.args.get('offset') or 0))
+        except ValueError:
+            offset = 0
+
+        total = query.count()
+        ordered = query.order_by(WebullActivity.biz_time.desc(), WebullActivity.id.desc()).offset(offset)
+        if limit is not None:
+            ordered = ordered.limit(limit)
+        rows = ordered.all()
+
+        aliases = _webull_account_aliases(setting)
+        connected = {}
+        try:
+            connected_rows = json.loads(getattr(setting, 'webull_connected_accounts', '[]') or '[]')
+            connected = {str(row.get('account_id')): row for row in connected_rows if row.get('account_id')}
+        except Exception:
+            pass
+
+        activities = []
+        for row in rows:
+            account = connected.get(str(row.account_id), {})
+            label = aliases.get(str(row.account_id)) or account.get('account_label') or account.get('account_name') or account.get('account_type') or 'Webull Account'
+            activities.append({
+                'id': row.webull_activity_id,
+                'account_id': row.account_id,
+                'account_id_masked': account.get('account_id_masked') or f"••••{str(row.account_id)[-4:]}",
+                'account_label': label,
+                'activity_type': row.activity_type,
+                'activity_sub_type': row.activity_sub_type,
+                'currency': row.currency,
+                'market': row.market,
+                'symbol': row.symbol,
+                'trade_date': row.trade_date.isoformat() if row.trade_date else None,
+                'net_amount': row.net_amount,
+                'biz_time': row.biz_time.isoformat() + 'Z' if row.biz_time else None,
+            })
         return jsonify({
-            'success': True, 'accounts': result['accounts'], 'positions': result['positions'],
-            'message': f"Imported {result['positions']} Webull position(s) from {result['accounts']} account(s). Webull rows are read-only.",
+            'success': True,
+            'activities': activities,
+            'total': total,
+            'environment': environment,
+            'test_mode': False,
         })
-    except WebullConnectionError as exc:
-        db.session.rollback()
-        return jsonify({'success': False, 'message': str(exc)}), 400
     except Exception as exc:
-        db.session.rollback()
-        logger.error('Webull portfolio import failed: %s', exc, exc_info=True)
-        return jsonify({'success': False, 'message': 'Unable to import the Webull portfolio.'}), 500
+        logger.error('Failed to load Webull account activity: %s', exc, exc_info=True)
+        return jsonify({'success': False, 'activities': [], 'message': 'Unable to load Webull account activity.'}), 500
 
 
 @system_bp.route('/api/webull/open-orders', methods=['GET'])
