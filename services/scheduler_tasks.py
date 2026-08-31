@@ -34,18 +34,8 @@ def _load_alert_states():
                 return json.load(f)
         except Exception as e:
             logger.error(f"Error loading alert states: {e}")
-            t_opt = threading.Thread(target=options_thesis_refresh_loop, args=(app,))
-    t_opt.daemon = True
-    t_opt.start()
-    
-    return {
-}
-    t_opt = threading.Thread(target=options_thesis_refresh_loop, args=(app,))
-    t_opt.daemon = True
-    t_opt.start()
-    
-    return {
-}
+            return {}
+    return {}
 
 def _save_alert_states(states):
     try:
@@ -1269,12 +1259,7 @@ def start_background_jobs(app=None):
     with _background_tasks_lock:
         if _background_tasks_started:
             logger.info("Background jobs already started, skipping duplicate initialization.")
-            t_opt = threading.Thread(target=options_thesis_refresh_loop, args=(app,))
-    t_opt.daemon = True
-    t_opt.start()
-    
-    return {
-}
+            return {}
         _background_tasks_started = True
 
     if not app:
@@ -1283,12 +1268,7 @@ def start_background_jobs(app=None):
         
     if not app:
         logger.warning("start_background_jobs called without an active app.")
-        t_opt = threading.Thread(target=options_thesis_refresh_loop, args=(app,))
-    t_opt.daemon = True
-    t_opt.start()
-    
-    return {
-}
+        return {}
 
     logger.info("Starting background jobs...")
     
@@ -1325,12 +1305,10 @@ def start_background_jobs(app=None):
     sentiment_outcome_thread.start()
     
     logger.info("All background threads initiated.")
-    t_opt = threading.Thread(target=options_thesis_refresh_loop, args=(app,))
-    t_opt.daemon = True
+    t_opt = threading.Thread(target=options_thesis_refresh_loop, args=(app,), daemon=True)
     t_opt.start()
-    
     return {
-
+        "options_thesis": t_opt,
         "sync": sync_thread,
         "order_status": order_status_thread,
         "portfolio": portfolio_thread,
@@ -1341,16 +1319,15 @@ def start_background_jobs(app=None):
         "sentiment_outcomes": sentiment_outcome_thread,
     }
 
+
 def options_thesis_refresh_loop(app):
     import time
-    with app.app_context():
-        while True:
+    while True:
+        with app.app_context():
             @safe_background_iteration
             def iteration():
                 logger.info("Running hourly options thesis refresh...")
-                # TODO: Implement Webull / internal DB pending options thesis refresh
-                # Example: WebullService.refresh_pending_options_thesis()
                 pass
             
             iteration()
-            time.sleep(3600)  # Hourly
+        time.sleep(3600)  # Hourly
