@@ -1,7 +1,6 @@
 import React, { useEffect, useState, useRef, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
-import useNotificationPoller from '../hooks/useNotificationPoller';
 import axios from 'axios';
 import { PortfolioPie, PortfolioTrend } from '../components/DashboardCharts';
 import PriceHistoryPopup from '../components/PriceHistoryPopup';
@@ -593,14 +592,7 @@ function Dashboard({ isLightMode }) {
     ? { display: 'flex', flexDirection: 'column', gap: 4, margin: '0 0 4px' }
     : { position: 'fixed', top: openTradeQuoteMenu.position?.top ?? 0, left: openTradeQuoteMenu.position?.left ?? 0, zIndex: 10001, display: 'flex', flexDirection: 'column', gap: 4, width: 220, maxHeight: 'calc(100vh - 16px)', overflowY: 'auto' };
 
-  // Toast for backend notifications
-  useNotificationPoller(user && user.id, notif => {
-    showAppToast(
-      notif.symbol ? `ALERT: ${notif.symbol} ${notif.direction} at ${notif.crossing_price} (current: ${notif.current_price})` : notif.message || 'New notification',
-      'info',
-      { symbol: notif.symbol }
-    );
-  });
+
 
 
 

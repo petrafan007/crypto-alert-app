@@ -127,6 +127,16 @@ The application utilizes a **unified PostgreSQL database**.
 
 Historical changelog entries retain the product name used when they were originally released. The application domain, repository slug, deployment folders, database, and service identifiers intentionally remain unchanged by the v2.45.0 brand update.
 
+## v2.67.6 (August 2026)
+
+- **Eliminated Duplicate Order Cancellation Notice**:
+  - Removed legacy redundant notification poller in `Dashboard.jsx` that was intercepting order cancellation notifications and re-broadcasting malformed `ALERT: <symbol> null at 0 (current: 0)` toasts. All notifications now flow exclusively through the global `ToastNotifications` system.
+- **Correct Take Profit Limit Auto-Calculate Logic**:
+  - Corrected execution price calculation in `PercentPriceModal.jsx` for Take Profit Limit orders:
+    - **Sell Orders**: Calculates the limit execution price by subtracting the selected buffer percentage from the profit delta between entry/current price and the stop trigger (`limit = stop - (diff * (P / 100))`), ensuring the execution price sits right below the trigger without an overly aggressive discount.
+    - **Buy Orders**: Calculates the limit execution price by adding the selected buffer percentage to the pullback delta above the stop trigger (`limit = stop + (diff * (P / 100))`).
+  - Updated calculation preview badge to display dynamic buffer percentage information.
+
 ## v2.67.5 (August 2026)
 
 - **Onboarding Registration Flow**:

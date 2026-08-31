@@ -162,7 +162,7 @@ export default function PercentPriceModal({
       if (side === 'SELL') {
         const diff = anchorPrice * (P / 100);
         const stop = anchorPrice + diff;
-        const limit = stop + (diff * (P / 100));
+        const limit = stop - (diff * (P / 100)); // buffer is P% of the profit delta (diff), subtracted from the stop trigger
 
         stopPrice = formatCalculatedPrice(stop);
         price = formatCalculatedPrice(limit);
@@ -176,7 +176,7 @@ export default function PercentPriceModal({
         // BUY TAKE_PROFIT_LIMIT (Pullback / Support Buy)
         const diff = anchorPrice * (P / 100);
         const stop = anchorPrice - diff;
-        const limit = stop - (diff * (P / 100));
+        const limit = stop + (diff * (P / 100)); // buffer is P% of the pullback delta (diff), added to the stop trigger
 
         stopPrice = formatCalculatedPrice(stop);
         price = formatCalculatedPrice(limit);
@@ -496,7 +496,7 @@ export default function PercentPriceModal({
                   <span className="preview-card-label">Limit Price</span>
                   <span className="preview-card-val">${calculatedResult.price}</span>
                   <span className="preview-card-sub">
-                    {orderType === 'STOP_LOSS_LIMIT' ? 'Execution (with 10% buffer)' : 'Execution'}
+                    {orderType === 'STOP_LOSS_LIMIT' || orderType === 'TAKE_PROFIT_LIMIT' ? `Execution (with ${percentValue}% buffer)` : 'Execution'}
                   </span>
                 </div>
               )}
