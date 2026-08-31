@@ -48,17 +48,15 @@ export default function OptionsPayoffChart({
 }) {
   const [daysElapsed, setDaysElapsed] = useState(0);
   const currentDTE = Math.max(0, startingDTE - daysElapsed);
-  const [hoverPrice, setHoverPrice] = useState(null);
-  
-  const chartRef = useRef(null);
-  
   const [isDragging, setIsDragging] = useState(false);
-  const [dragPrice, setDragPrice] = useState(strikePrice);
+  const [simulatedStrike, setSimulatedStrike] = useState(strikePrice);
   
-  // Sync dragPrice when strikePrice changes
+  // Sync simulatedStrike when strikePrice changes
   useEffect(() => {
-    setDragPrice(strikePrice);
+    setSimulatedStrike(strikePrice);
   }, [strikePrice]);
+
+  const chartRef = useRef(null);
 
   // Generate X-axis points (e.g., +/- 15% around strike)
   const xPoints = useMemo(() => {
@@ -90,7 +88,7 @@ export default function OptionsPayoffChart({
 
   const chartData = useMemo(() => {
     const dataPoints = xPoints.map((S) => {
-      const currentOptPrice = calculateOptionPrice(S, strikePrice, currentDTE, riskFreeRate, iv, optionType);
+      const currentOptPrice = calculateOptionPrice(S, simulatedStrike, currentDTE, riskFreeRate, iv, optionType);
       let pnl = (currentOptPrice - entryPremium) * multiplier;
       if (action === 'SELL') pnl = -pnl;
       return pnl;
@@ -102,15 +100,14 @@ export default function OptionsPayoffChart({
         {
           label: 'P&L',
           data: dataPoints,
-          borderColor: (ctx) => {
-             const val = ctx.raw;
-             return val >= 0 ? 'rgba(0, 200, 100, 1)' : 'rgba(255, 50, 50, 1)';
+          fill: {
+            target: 'origin',
+            above: 'rgba(16, 185, 129, 0.2)',
+            below: 'rgba(239, 68, 68, 0.2)'
           },
-          backgroundColor: (ctx) => {
-             // Gradient fill based on positive/negative
-             return 'rgba(0, 200, 100, 0.2)'; // Simplified for now
+          segment: {
+            borderColor: ctx => ctx.p0.parsed.y >= 0 ? 'rgba(16, 185, 129, 1)' : 'rgba(239, 68, 68, 1)'
           },
-          fill: true,
           pointRadius: 0,
           pointHoverRadius: 6,
           tension: 0.1
@@ -126,7 +123,7 @@ export default function OptionsPayoffChart({
       maxProfit = 'Unlimited';
       maxLoss = -entryPremium * multiplier;
     } else {
-      maxProfit = (strikePrice - entryPremium) * multiplier;
+      maxProfit = (simulatedStrike - entryPremium) * multiplier;
       maxLoss = -entryPremium * multiplier;
     }
   } else {
@@ -135,19 +132,14 @@ export default function OptionsPayoffChart({
       maxLoss = 'Unlimited';
     } else {
       maxProfit = entryPremium * multiplier;
-      maxLoss = -(strikePrice - entryPremium) * multiplier;
+      maxLoss = -(simulatedStrike - entryPremium) * multiplier;
     }
   }
-  
-  // Calculate dynamic PnL for the draggable hexagon
-  const dynamicOptPrice = calculateOptionPrice(dragPrice, strikePrice, currentDTE, riskFreeRate, iv, optionType);
-  let dynamicPnL = (dynamicOptPrice - entryPremium) * multiplier;
-  if (action === 'SELL') dynamicPnL = -dynamicPnL;
-  
+
   const minP = xPoints[0];
   const maxP = xPoints[xPoints.length - 1];
   // Calculate left position, constrain between 5% and 95% so it doesn't clip
-  let hexLeftPercent = ((dragPrice - minP) / (maxP - minP)) * 100;
+  let hexLeftPercent = ((simulatedStrike - minP) / (maxP - minP)) * 100;
   hexLeftPercent = Math.max(5, Math.min(95, hexLeftPercent));
 
   const handlePointerDown = (e) => setIsDragging(true);
@@ -166,7 +158,7 @@ export default function OptionsPayoffChart({
     // getValueForPixel works well for CategoryScale returning the index
     const index = Math.round(xAxis.getValueForPixel(x));
     if (index >= 0 && index < xPoints.length) {
-      setDragPrice(xPoints[index]);
+      setSimulatedStrike(xPoints[index]);
     }
   };
 
@@ -201,7 +193,7 @@ export default function OptionsPayoffChart({
       <div className="payoff-header">
         <div><strong>Max Profit:</strong> {maxProfit === 'Unlimited' ? 'Unlimited' : `$${maxProfit.toFixed(2)}`}</div>
         <div><strong>Max Loss:</strong> {maxLoss === 'Unlimited' ? 'Unlimited' : `$${maxLoss.toFixed(2)}`}</div>
-        <button type="button" onClick={handleExport} className="btn btn-sm btn-primary">Export Excel Thesis</button>
+        <button onClick={handleExport} className="btn btn-sm btn-primary">Export Excel Thesis</button>
       </div>
 
       <div 
@@ -212,9 +204,9 @@ export default function OptionsPayoffChart({
         onPointerMove={handlePointerMove}
         onPointerLeave={handlePointerUp}
       >
-        <Line 
+        <Line
           ref={chartRef}
-          data={chartData} 
+          data={chartData}
           options={{
             responsive: true,
             maintainAspectRatio: false,
@@ -228,10 +220,10 @@ export default function OptionsPayoffChart({
               }
             },
             animation: false // Disable animation for smoother dragging
-          }} 
+          }}
         />
-        
-        {/* Modern Draggable Badge Overlay */}
+
+        {/* Hexagon Badge Overlay */}
         <div style={{
           position: 'absolute',
           top: '35%',
@@ -241,59 +233,40 @@ export default function OptionsPayoffChart({
           flexDirection: 'column',
           alignItems: 'center',
           justifyContent: 'center',
-          width: '90px',
-          height: '60px',
-          backgroundColor: 'rgba(30, 41, 59, 0.9)',
-          borderRadius: '8px',
+          width: '70px',
+          height: '80px',
+          backgroundColor: '#0f766e',
+          clipPath: 'polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%)',
           color: 'white',
-          fontSize: '12px',
+          fontSize: '11px',
           fontWeight: 'bold',
-          border: '1px solid #475569',
-          boxShadow: '0 4px 12px rgba(0,0,0,0.5)',
+          border: '2px solid #2dd4bf',
+          boxShadow: '0 4px 6px rgba(0,0,0,0.3)',
           zIndex: 10,
-          pointerEvents: 'none',
-          transition: isDragging ? 'none' : 'left 0.1s ease-out'
+          pointerEvents: 'none'
         }}>
-          <div style={{ color: dynamicPnL >= 0 ? '#4ade80' : '#f87171' }}>
-            {dynamicPnL >= 0 ? '+' : '-'}${Math.abs(dynamicPnL).toFixed(2)}
-          </div>
-          <div style={{ margin: '2px 0', fontSize: '11px', color: '#94a3b8' }}>
-            Target: ${dragPrice.toFixed(2)}
-          </div>
-          <div style={{ 
-            backgroundColor: action === 'BUY' ? '#0ea5e9' : '#f59e0b', 
-            borderRadius: '4px', 
-            padding: '1px 6px',
-            fontSize: '9px',
-            textTransform: 'uppercase'
-          }}>
-            {action} {optionType}
-          </div>
-          
-          {/* Small pointer triangle at the bottom */}
+          <div>{action === 'BUY' ? 'Buy' : 'Sell'} {multiplier / 10}</div>
+          <div style={{ margin: '4px 0' }}>${simulatedStrike.toFixed(2)}</div>
           <div style={{
-            position: 'absolute',
-            bottom: '-6px',
-            left: '50%',
-            transform: 'translateX(-50%)',
-            width: 0, 
-            height: 0, 
-            borderLeft: '6px solid transparent',
-            borderRight: '6px solid transparent',
-            borderTop: '6px solid rgba(30, 41, 59, 0.9)',
-          }} />
+            backgroundColor: '#14b8a6',
+            borderRadius: '10px',
+            padding: '2px 8px',
+            fontSize: '10px'
+          }}>
+            {optionType.charAt(0).toUpperCase() + optionType.slice(1).toLowerCase()}
+          </div>
         </div>
       </div>
 
       <div className="dte-slider-container mt-3">
         <label>Days to Expiration: {currentDTE} ({startingDTE} Day Contract)</label>
-        <input 
-          type="range" 
-          min="0" 
-          max={startingDTE} 
-          value={daysElapsed} 
+        <input
+          type="range"
+          min="0"
+          max={startingDTE}
+          value={daysElapsed}
           onChange={(e) => setDaysElapsed(parseInt(e.target.value))}
-          className="form-range" 
+          className="form-range"
         />
         <div className="slider-labels d-flex justify-content-between">
           <span>Entry ({startingDTE} DTE)</span>

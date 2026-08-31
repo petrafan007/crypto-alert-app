@@ -99,8 +99,8 @@ def generate_thesis_excel(
         c = ws_price.cell(row=3, column=col_idx, value=dt)
         c.number_format = 'mmm d, yyyy'
         c.font = Font(bold=True)
-        # Store DTE in row 24 for formulas
-        ws_price.cell(row=24, column=col_idx, value=dte)
+        # Store DTE in row 2 for formulas (avoids circular reference in matrix)
+        ws_price.cell(row=2, column=col_idx, value=dte)
 
     for r_idx, pct in enumerate(pct_steps, start=4):
         ws_price.cell(row=r_idx, column=1, value=pct).number_format = '0.00%'
@@ -111,7 +111,7 @@ def generate_thesis_excel(
             # Black-Scholes Formula in Excel
             S = f"$B{r_idx}"
             K = "'Assumptions'!$B$5"
-            T = f"({col_letter}$24/365)"
+            T = f"({col_letter}$2/365)"
             T_safe = f"MAX({T}, 0.00001)"
             r = "'Assumptions'!$B$9"
             v = "'Assumptions'!$B$8"
@@ -121,10 +121,10 @@ def generate_thesis_excel(
             
             if option_type.upper() == "CALL":
                 # Call Price = S * N(d1) - K * exp(-rT) * N(d2)
-                bs_formula = f"IF({col_letter}$24=0,MAX({S}-{K},0),{S}*NORMSDIST({d1})-{K}*EXP(-{r}*{T})*NORMSDIST({d2}))"
+                bs_formula = f"IF({col_letter}$2=0,MAX({S}-{K},0),{S}*NORMSDIST({d1})-{K}*EXP(-{r}*{T})*NORMSDIST({d2}))"
             else:
                 # Put Price = K * exp(-rT) * N(-d2) - S * N(-d1)
-                bs_formula = f"IF({col_letter}$24=0,MAX({K}-{S},0),{K}*EXP(-{r}*{T})*NORMSDIST(-{d2})-{S}*NORMSDIST(-{d1}))"
+                bs_formula = f"IF({col_letter}$2=0,MAX({K}-{S},0),{K}*EXP(-{r}*{T})*NORMSDIST(-{d2})-{S}*NORMSDIST(-{d1}))"
             
             ws_price.cell(row=r_idx, column=col_idx, value=f"={bs_formula}").number_format = '$#,##0.00'
 
