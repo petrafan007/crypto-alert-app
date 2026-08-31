@@ -1,4 +1,5 @@
 from datetime import timedelta, datetime
+import datetime as datetime_module
 import requests
 import time
 from flask import send_file, request, jsonify, render_template, current_app, redirect, url_for
@@ -780,17 +781,12 @@ def api_cbbi_data():
         }
         return jsonify(mock_data)
 
-from flask import request, send_file
-import tempfile
-import os
-import datetime
-
 @market_bp.route("/api/options/thesis/export", methods=["POST"])
 @login_required
 def export_options_thesis():
     try:
-        data = request.json
-        underlying_symbol = str(data.get("underlying_symbol", "SPY")).upper()
+        data = request.get_json(silent=True) or {}
+        underlying_symbol = str(data.get("underlying_symbol", "SPY")).upper().strip()
         baseline_price = float(data.get("baseline_price", 0))
         strike_price = float(data.get("strike_price", 0))
         entry_premium = float(data.get("entry_premium", 0))
@@ -802,15 +798,15 @@ def export_options_thesis():
         option_type = str(data.get("option_type", "PUT")).upper()
 
         if not expiration_date_str:
-            expiration_date = datetime.date.today() + datetime.timedelta(days=starting_dte)
+            expiration_date = datetime_module.date.today() + datetime_module.timedelta(days=starting_dte)
         else:
             try:
-                expiration_date = datetime.datetime.strptime(expiration_date_str, "%Y-%m-%d").date()
+                expiration_date = datetime_module.datetime.strptime(expiration_date_str, "%Y-%m-%d").date()
             except ValueError:
-                expiration_date = datetime.date.today() + datetime.timedelta(days=starting_dte)
+                expiration_date = datetime_module.date.today() + datetime_module.timedelta(days=starting_dte)
 
         from services.options_thesis_service import generate_thesis_excel
-        wb = generate_thesis_excel(
+        workbook_stream = generate_thesis_excel(
             underlying_symbol=underlying_symbol,
             baseline_price=baseline_price,
             strike_price=strike_price,
@@ -822,15 +818,13 @@ def export_options_thesis():
             starting_dte=starting_dte,
             option_type=option_type
         )
-        
-        fd, temp_path = tempfile.mkstemp(suffix=".xlsx")
-        os.close(fd)
-        wb.save(temp_path)
-        
-        filename = f"{underlying_symbol}_{option_type}_{strike_price}_Payout_Model.xlsx"
-        
+
+        safe_symbol = "".join(character for character in underlying_symbol if character.isalnum() or character in ".-") or "OPTION"
+        strike_token = f"{strike_price:.8f}".rstrip("0").rstrip(".")
+        filename = f"{option_type}_{strike_token}_{safe_symbol}_Payout_Model.xlsx"
+
         return send_file(
-            temp_path,
+            workbook_stream,
             as_attachment=True,
             download_name=filename,
             mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'

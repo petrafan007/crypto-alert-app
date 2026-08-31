@@ -333,6 +333,7 @@ export default function WebullTrading({ isLightMode = false }) {
   const [futuresLoading, setFuturesLoading] = useState(false);
   const [futuresMessage, setFuturesMessage] = useState('');
   const [livePrice, setLivePrice] = useState(0);
+  const [optionUnderlyingPrice, setOptionUnderlyingPrice] = useState(0);
 
   // Event Contracts State (Binary Outcome Contracts)
   const [eventCategories, setEventCategories] = useState([]);
@@ -2297,6 +2298,9 @@ export default function WebullTrading({ isLightMode = false }) {
     }
     setSelectedOptionHoldingId('');
     const premium = nonNegativeNumber(contractData.price);
+    if (Number(contractData.underlyingPrice) > 0) {
+      setOptionUnderlyingPrice(Number(contractData.underlyingPrice));
+    }
     if (premium > 0) {
       setLivePrice(premium);
     }
@@ -2932,7 +2936,9 @@ export default function WebullTrading({ isLightMode = false }) {
                         optionStrategyWidth: orderForm.optionStrategyWidth,
                       }}
                       onSelectOptionContract={handleSelectOptionContract}
+                      onUnderlyingPriceChange={setOptionUnderlyingPrice}
                       onSymbolChange={(newSym) => {
+                        setOptionUnderlyingPrice(0);
                         setSelectedSymbol(newSym);
                       }}
                       onStrategyChange={({ strategy, width }) => {
@@ -3727,12 +3733,13 @@ export default function WebullTrading({ isLightMode = false }) {
                     <div style={{ marginTop: '20px', marginBottom: '20px' }}>
                       <OptionsPayoffChart
                         underlyingSymbol={selectedSymbol}
-                        baselinePrice={Number(livePrice || orderForm.optionStrike)}
+                        baselinePrice={Number(optionUnderlyingPrice || orderForm.optionStrike)}
                         strikePrice={Number(orderForm.optionStrike)}
                         entryPremium={Number(orderForm.price || 0)}
                         multiplier={100}
                         iv={0.1501}
                         riskFreeRate={0.0379}
+                        expirationDate={orderForm.optionExpiration}
                         startingDTE={
                           Math.max(0, Math.floor((new Date(orderForm.optionExpiration + 'T00:00:00').getTime() - new Date().setHours(0,0,0,0)) / (1000 * 3600 * 24))) || 1
                         }

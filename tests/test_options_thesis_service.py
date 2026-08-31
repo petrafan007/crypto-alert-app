@@ -1,0 +1,66 @@
+import datetime
+import re
+import unittest
+import zipfile
+
+from services.options_thesis_service import generate_thesis_excel
+
+
+def _formula_and_cached_value(archive, worksheet_path, address):
+    worksheet_xml = archive.read(worksheet_path).decode("utf-8")
+    match = re.search(
+        rf'<c[^>]*r="{address}"[^>]*>.*?<f[^>]*>(.*?)</f>.*?<v>(.*?)</v>',
+        worksheet_xml,
+        re.DOTALL,
+    )
+    if not match:
+        raise AssertionError(f"Formula cell {worksheet_path}:{address} was not found")
+    return match.group(1), match.group(2)
+
+
+class OptionsThesisServiceTests(unittest.TestCase):
+    def setUp(self):
+        self.workbook_stream = generate_thesis_excel(
+            underlying_symbol="AAPL",
+            baseline_price=245.00,
+            strike_price=245.00,
+            entry_premium=0.08,
+            multiplier=100,
+            iv=0.1501,
+            risk_free_rate=0.0379,
+            expiration_date=datetime.date(2026, 9, 25),
+            starting_dte=26,
+            option_type="PUT",
+        )
+
+    def test_formula_cells_include_visible_cached_results(self):
+        with zipfile.ZipFile(self.workbook_stream) as archive:
+            option_formula, option_value = _formula_and_cached_value(
+                archive, "xl/worksheets/sheet2.xml", "C4"
+            )
+            pnl_formula, pnl_value = _formula_and_cached_value(
+                archive, "xl/worksheets/sheet3.xml", "C4"
+            )
+            combined_formula, combined_value = _formula_and_cached_value(
+                archive, "xl/worksheets/sheet4.xml", "C4"
+            )
+
+        self.assertIn("NORM.S.DIST", option_formula)
+        self.assertNotEqual(option_value, "")
+        self.assertIn("Option Price Matrix", pnl_formula)
+        self.assertNotEqual(pnl_value, "")
+        self.assertIn("TEXT", combined_formula)
+        self.assertRegex(combined_value, r"^\$\d+\.\d{2} / ")
+
+    def test_underlying_price_column_is_populated(self):
+        with zipfile.ZipFile(self.workbook_stream) as archive:
+            formula, cached_value = _formula_and_cached_value(
+                archive, "xl/worksheets/sheet4.xml", "B4"
+            )
+
+        self.assertIn("Option Price Matrix", formula)
+        self.assertEqual(float(cached_value), 269.5)
+
+
+if __name__ == "__main__":
+    unittest.main()

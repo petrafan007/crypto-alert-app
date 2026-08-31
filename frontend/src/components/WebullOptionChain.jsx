@@ -83,6 +83,7 @@ export default function WebullOptionChain({
   onSelectOptionContract,
   onSymbolChange,
   onStrategyChange,
+  onUnderlyingPriceChange,
   isLightMode = false,
 }) {
   const [symbol, setSymbol] = useState(defaultSymbol || 'AAPL');
@@ -260,6 +261,10 @@ export default function WebullOptionChain({
   const dualOverflowWidth = Math.max(0, dualTrackWidth - dualPaneWidth);
   const leftTrackOffset = -(leftScrollRatio * dualOverflowWidth);
   const rightTrackOffset = -((1 - leftScrollRatio) * dualOverflowWidth);
+
+  useEffect(() => {
+    if (Number(underlyingPrice) > 0) onUnderlyingPriceChange?.(Number(underlyingPrice));
+  }, [underlyingPrice, onUnderlyingPriceChange]);
 
   const updateStrategyTooltipPlacement = () => {
     const rect = strategyControlRef.current?.getBoundingClientRect();
@@ -451,6 +456,7 @@ export default function WebullOptionChain({
       optionStrategy: strategy,
       strategyWidth,
       strategyLegs,
+      underlyingPrice,
     });
   };
 

@@ -7,7 +7,43 @@
 .payoff-header {
   display: flex;
   justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
   margin-bottom: 10px;
+}
+.payoff-header-actions,
+.payoff-zoom-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.payoff-zoom-controls {
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  border-radius: 6px;
+  padding: 3px;
+  background: rgba(15, 23, 42, 0.65);
+}
+.payoff-zoom-controls button {
+  width: 28px;
+  height: 28px;
+  border: 1px solid rgba(56, 189, 248, 0.45);
+  border-radius: 4px;
+  background: rgba(30, 41, 59, 0.9);
+  color: #e2e8f0;
+  font-weight: 700;
+  line-height: 1;
+}
+.payoff-zoom-controls button:disabled {
+  cursor: not-allowed;
+  opacity: 0.35;
+}
+.payoff-zoom-controls span {
+  min-width: 48px;
+  text-align: center;
+  color: #cbd5e1;
+  font-size: 12px;
+  font-weight: 600;
 }
 .chart-wrapper {
   position: relative;
