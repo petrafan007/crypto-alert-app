@@ -127,6 +127,12 @@ The application utilizes a **unified PostgreSQL database**.
 
 Historical changelog entries retain the product name used when they were originally released. The application domain, repository slug, deployment folders, database, and service identifiers intentionally remain unchanged by the v2.45.0 brand update.
 
+## v2.74.2 (September 2026)
+
+- **Live Event Underlying Quote Fix**:
+  - Crypto Event Contracts such as Webull's `KXBTC15M` series now resolve their associated asset symbol from provider series/title metadata when the response omits `underlying_symbol`.
+  - The `REAL-TIME PRICE` card therefore requests and refreshes the actual associated USD market snapshot on the same five-second cadence as Event Contract Yes/No quotes, rather than remaining on a static contract reference price.
+
 ## v2.74.1 (September 2026)
 
 - **Event Contract Reference Price Fallback**:

@@ -96,6 +96,43 @@ const eventReferencePriceFor = (market) => {
   return conditionReference > 0 ? conditionReference : 0;
 };
 
+const EVENT_CRYPTO_SYMBOL_ALIASES = {
+  BITCOIN: 'BTC', BTC: 'BTC',
+  ETHEREUM: 'ETH', ETH: 'ETH',
+  SOLANA: 'SOL', SOL: 'SOL',
+  DOGECOIN: 'DOGE', DOGE: 'DOGE',
+  RIPPLE: 'XRP', XRP: 'XRP',
+  CARDANO: 'ADA', ADA: 'ADA',
+  AVALANCHE: 'AVAX', AVAX: 'AVAX',
+  CHAINLINK: 'LINK', LINK: 'LINK',
+  LITECOIN: 'LTC', LTC: 'LTC',
+  BITCOIN_CASH: 'BCH', BCH: 'BCH',
+  SHIBA: 'SHIB', SHIB: 'SHIB',
+  UNISWAP: 'UNI', UNI: 'UNI',
+};
+
+const eventUnderlyingSymbolFor = (market, category) => {
+  const providerSymbol = String(market?.underlying_symbol || '').trim().toUpperCase();
+  if (providerSymbol) return providerSymbol;
+
+  const metadata = [market?.series_symbol, market?.series_name, market?.event_symbol, market?.event_name, market?.name]
+    .filter(Boolean)
+    .join(' ')
+    .toUpperCase();
+  if (category === 'CRYPTO') {
+    const cryptoAlias = Object.entries(EVENT_CRYPTO_SYMBOL_ALIASES)
+      .find(([alias]) => new RegExp(`(?:^|[^A-Z0-9])${alias}(?:[^A-Z0-9]|$)|KX${alias}`).test(metadata));
+    return cryptoAlias?.[1] || '';
+  }
+  if (category === 'FINANCIALS') {
+    const explicitTicker = metadata.match(/\$([A-Z][A-Z0-9.-]{0,9})\b/);
+    if (explicitTicker) return explicitTicker[1];
+    const seriesTicker = String(market?.series_symbol || '').trim().toUpperCase().match(/^KX([A-Z]{1,5})$/);
+    return seriesTicker?.[1] || '';
+  }
+  return '';
+};
+
 const eventPropositionFor = (market) => {
   const title = String(market?.name || '').trim();
   const condition = String(market?.display_condition || market?.yes_condition || '').trim();
@@ -1269,7 +1306,7 @@ export default function WebullTrading({ isLightMode = false }) {
 
   const eventUnderlyingQuote = useMemo(() => {
     const category = String(selectedEventMarket?.category_code || selectedEventCategory || '').toUpperCase();
-    const rawSymbol = String(selectedEventMarket?.underlying_symbol || '').trim().toUpperCase();
+    const rawSymbol = eventUnderlyingSymbolFor(selectedEventMarket, category);
     if (!rawSymbol || !['CRYPTO', 'FINANCIALS'].includes(category)) return null;
     if (category === 'CRYPTO') {
       const symbol = rawSymbol.replace(/[^A-Z0-9]/g, '');
