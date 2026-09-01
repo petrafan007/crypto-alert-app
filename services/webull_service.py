@@ -408,15 +408,33 @@ def get_webull_portfolio_preview(app_key, app_secret, environment='production', 
     if selected_ids:
         accounts = [account for account in accounts if str(account.get('account_id') or '') in selected_ids]
     preview = []
+    def load_with_rate_limit_retry(fetch):
+        try:
+            return fetch()
+        except WebullConnectionError as exc:
+            if 'HTTP 429' not in str(exc):
+                raise
+            # Wait for the documented two-per-two-second window before one retry.
+            time.sleep(2.1)
+            return fetch()
+
     for index, account in enumerate(accounts):
-        if index:
-            # Production balance/position requests are limited to two per two seconds.
-            time.sleep(2.05)
         account_id = account['account_id']
+        balance = load_with_rate_limit_retry(
+            lambda: get_webull_account_balance(app_key, app_secret, environment, access_token, account_id)
+        )
+        # Space every account-resource request rather than bursting balance and
+        # position reads together at the start of each account.
+        time.sleep(1.05)
+        positions = load_with_rate_limit_retry(
+            lambda: get_webull_account_positions(app_key, app_secret, environment, access_token, account_id)
+        )
+        if index + 1 < len(accounts):
+            time.sleep(1.05)
         preview.append({
             **account,
-            'balance': get_webull_account_balance(app_key, app_secret, environment, access_token, account_id),
-            'positions': get_webull_account_positions(app_key, app_secret, environment, access_token, account_id),
+            'balance': balance,
+            'positions': positions,
         })
     return preview
 

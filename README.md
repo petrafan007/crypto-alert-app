@@ -127,6 +127,12 @@ The application utilizes a **unified PostgreSQL database**.
 
 Historical changelog entries retain the product name used when they were originally released. The application domain, repository slug, deployment folders, database, and service identifiers intentionally remain unchanged by the v2.45.0 brand update.
 
+## v2.75.3 (September 2026)
+
+- **Reliable Webull Reconciliation**:
+  - Webull portfolio refreshes now pace each balance and position request instead of bursting the two account-resource calls together. A provider `429 Too Many Requests` waits for the documented rate-limit window and retries once.
+  - A temporary historical-order refresh failure no longer prevents a successfully retrieved Webull cash and holdings snapshot from being saved. The next history refresh continues to populate the durable Webull order ledger.
+
 ## v2.75.2 (September 2026)
 
 - **Persistent Live Webull Reconciliation**:

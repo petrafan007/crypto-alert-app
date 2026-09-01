@@ -1098,6 +1098,21 @@ class WebullServiceTests(unittest.TestCase):
         self.assertEqual([account['account_id'] for account in preview], ['cash-account'])
         self.assertEqual(balance_mock.call_args.args[-1], 'cash-account')
 
+    def test_portfolio_preview_retries_rate_limited_resource_and_spaces_requests(self):
+        accounts = [{'account_id': 'cash-account', 'account_type': 'CASH', 'account_name': 'Cash'}]
+        with patch('services.webull_service.get_webull_accounts', return_value=accounts), \
+             patch(
+                 'services.webull_service.get_webull_account_balance',
+                 side_effect=[WebullConnectionError('HTTP 429: Too many requests'), {'total_cash_balance': '13.94'}],
+             ) as balance_mock, \
+             patch('services.webull_service.get_webull_account_positions', return_value=[]), \
+             patch('services.webull_service.time.sleep') as sleep_mock:
+            preview = get_webull_portfolio_preview('app-key', 'app-secret', access_token='private-token')
+
+        self.assertEqual(preview[0]['balance']['total_cash_balance'], '13.94')
+        self.assertEqual(balance_mock.call_count, 2)
+        self.assertEqual(sleep_mock.call_args_list, [unittest.mock.call(2.1), unittest.mock.call(1.05)])
+
     def test_open_orders_are_read_only_and_tagged_with_the_source_account(self):
         accounts = [{'account_id': '1234', 'account_type': 'STOCK', 'account_name': 'Individual'}]
         response = Mock(status_code=200)
