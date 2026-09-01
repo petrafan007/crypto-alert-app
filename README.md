@@ -127,6 +127,13 @@ The application utilizes a **unified PostgreSQL database**.
 
 Historical changelog entries retain the product name used when they were originally released. The application domain, repository slug, deployment folders, database, and service identifiers intentionally remain unchanged by the v2.45.0 brand update.
 
+## v2.73.12 (September 2026)
+
+- **Explicit Intraday Event Periods**:
+  - Decodes Webull 15-minute Event symbols into their exact Eastern-time contract window, showing the period in search results and the selected-contract brief instead of leaving customers to interpret provider symbols.
+  - Excludes new-position results when Webull marks a settlement condition or reference price `TBD`; those short-lived records use a five-second metadata cache so a resolved condition becomes available promptly on a later explicit search.
+  - Labels a supplied target as Webull's reference price and states when the API does not supply its comparison operator, rather than implying an unsupported settlement rule.
+
 ## v2.73.11 (September 2026)
 
 - **Explicit Event Contract Search**:

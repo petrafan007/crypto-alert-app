@@ -2472,6 +2472,17 @@ body.light-mode .pagination-btn.active {
   font-size: 0.68rem;
 }
 
+.event-market-period,
+.event-contract-period {
+  color: #bfdbfe;
+  font-size: 0.72rem;
+  line-height: 1.35;
+}
+
+.event-contract-period {
+  margin: -0.25rem 0 0.25rem;
+}
+
 .event-market-result-prices {
   align-items: flex-end;
   color: #cbd5e1;

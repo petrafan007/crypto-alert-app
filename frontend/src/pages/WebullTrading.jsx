@@ -62,6 +62,7 @@ const eventPriceRangeLabel = (ranges = []) => ranges.length
 const eventConditionLabel = (market) => {
   const condition = String(market?.display_condition || market?.yes_condition || '').trim();
   if (!condition) return 'Condition details unavailable';
+  if (/^target price:/i.test(condition)) return `Webull reference price: ${condition.replace(/^target price:\s*/i, '')}`;
   return /^(yes\b|threshold:)/i.test(condition) ? condition : `YES if ${condition}`;
 };
 
@@ -79,6 +80,13 @@ const eventCutoffLabel = (value) => {
   return eventTimestampLabel(value);
 };
 
+const eventPeriodLabel = (market) => {
+  const start = market?.contract_period_start;
+  const end = market?.contract_period_end;
+  if (!start || !end) return 'Period details unavailable from Webull';
+  return `${formatEasternDate(start)} · ${formatEasternTime(start, { second: undefined })} to ${formatEasternTime(end, { second: undefined })}`;
+};
+
 const eventPropositionFor = (market) => {
   const title = String(market?.name || '').trim();
   const condition = String(market?.display_condition || market?.yes_condition || '').trim();
@@ -87,6 +95,23 @@ const eventPropositionFor = (market) => {
   const conditionTargetMatch = condition.match(/\$\s*([\d,]+(?:\.\d+)?)/);
   const conditionTarget = Number(String(conditionTargetMatch?.[1] || '').replaceAll(',', ''));
   const target = structuredTarget > 0 ? structuredTarget : conditionTarget > 0 ? conditionTarget : null;
+  const directionContract = /\b(?:price\s+)?up\b|\bhigher\b/i.test(title);
+  if (market?.condition_pending) {
+    return {
+      basis: 'Webull settlement condition pending',
+      yes: 'Webull has not supplied the reference price or settlement condition for this contract.',
+      no: 'This contract is excluded from new-position search until Webull supplies the missing condition.',
+      detail: 'The provider marked the condition as pending. An existing owner may still inspect or close the exact contract, but the app will not present it for a new position.',
+    };
+  }
+  if (target && directionContract) {
+    return {
+      basis: `Webull reference price: ${eventMoney(target)}`,
+      yes: `YES if Webull settles ${underlying} as up for this contract period.`,
+      no: `NO if Webull does not settle ${underlying} as up for this contract period.`,
+      detail: 'Webull supplied the reference price but not an explicit comparison operator in this API response. Confirm its settlement rules before ordering.',
+    };
+  }
   if (condition) {
     const yes = /^(yes\b|threshold:)/i.test(condition) ? condition : `YES if ${condition}`;
     return {
@@ -104,7 +129,7 @@ const eventPropositionFor = (market) => {
       detail: String(market?.description || market?.provider_rules || '').trim(),
     };
   }
-  if (/\b(?:price\s+)?up\b|\bhigher\b/i.test(title)) {
+  if (directionContract) {
     return {
       basis: 'Direction contract · exact reference levels not included',
       yes: `YES if Webull settles ${underlying} as up for this contract interval.`,
@@ -3226,6 +3251,7 @@ export default function WebullTrading({ isLightMode = false }) {
                                   <span className="event-market-result-copy">
                                     <strong>{market.name}</strong>
                                     <span className="event-market-condition">{eventConditionLabel(market)}</span>
+                                    <small className="event-market-period">{eventPeriodLabel(market)}</small>
                                     <small className="event-market-symbol">{market.symbol}</small>
                                   </span>
                                   <span className="event-market-result-prices">
@@ -3257,6 +3283,7 @@ export default function WebullTrading({ isLightMode = false }) {
                             <span>Last trade <strong>{eventTimestampLabel(selectedEventMarket.last_trade_time)}</strong></span>
                           </div>
                           <div className="event-contract-basis">{eventProposition.basis}</div>
+                          <div className="event-contract-period">Contract period: <strong>{eventPeriodLabel(selectedEventMarket)}</strong></div>
                           <div className="event-proposition-grid">
                             <div className="yes">
                               <span>YES settles at {eventMoney(eventSettlementPayout)}</span>

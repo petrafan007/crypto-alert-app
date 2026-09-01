@@ -3,7 +3,7 @@
 import base64
 import hashlib
 import hmac
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 import json
 import re
@@ -40,6 +40,7 @@ WEBULL_EVENT_SNAPSHOT_TTL_SECONDS = 5
 WEBULL_EVENT_BARS_TTL_SECONDS = 30
 WEBULL_EVENT_CATEGORY_TTL_SECONDS = 1800
 WEBULL_EVENT_MARKET_RESULT_TTL_SECONDS = 30
+WEBULL_EVENT_PENDING_CONDITION_TTL_SECONDS = 5
 WEBULL_EVENT_MAX_ORDER_QUANTITY = 50000
 WEBULL_EVENT_SETTLEMENT_PAYOUT = 1.0
 WEBULL_EVENT_DISCOVERY_MIN_INTERVAL_SECONDS = 2.05
@@ -962,25 +963,37 @@ _EVENT_SYMBOL_MONTHS = {
 }
 
 
-def _event_symbol_cutoff(value):
-    """Parse Webull's explicit YYMMMDDHHMM Event symbol cutoff in Eastern time."""
+def _event_symbol_interval(value):
+    """Parse a Webull 15-minute Event symbol into an explicit Eastern interval."""
     match = re.search(
-        r'-(\d{2})(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)(\d{2})(\d{2})(\d{2})(?:-|$)',
+        r'-(\d{2})(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)(\d{2})(\d{2})(\d{2})-(15)(?:-|$)',
         str(value or '').strip().upper(),
     )
     if not match:
-        return 0.0
+        return None
     try:
-        return datetime(
+        end = datetime(
             2000 + int(match.group(1)),
             _EVENT_SYMBOL_MONTHS[match.group(2)],
             int(match.group(3)),
             int(match.group(4)),
             int(match.group(5)),
             tzinfo=ZoneInfo('America/New_York'),
-        ).timestamp()
+        )
+        start = end - timedelta(minutes=int(match.group(6)))
+        return {
+            'start': start,
+            'end': end,
+            'minutes': int(match.group(6)),
+        }
     except (KeyError, ValueError):
-        return 0.0
+        return None
+
+
+def _event_symbol_cutoff(value):
+    """Parse Webull's explicit Event-symbol cutoff in Eastern time."""
+    interval = _event_symbol_interval(value)
+    return interval['end'].timestamp() if interval else 0.0
 
 
 def _event_market_cutoff_value(market):
@@ -990,6 +1003,10 @@ def _event_market_cutoff_value(market):
         if symbol_cutoff:
             return symbol_cutoff
     return _event_time_sort_value(raw_cutoff, end_of_day=True)
+
+
+def _event_condition_is_pending(value):
+    return bool(re.search(r'\b(?:tbd|to be determined|pending)\b', str(value or ''), re.IGNORECASE))
 
 
 def _event_first_value(raw, *keys):
@@ -1112,9 +1129,12 @@ def _event_market_is_discoverable(market):
     now = time.time()
     open_time = _event_time_sort_value(market.get('open_date'))
     cutoff_time = _event_market_cutoff_value(market)
+    condition = market.get('yes_condition') or market.get('display_condition')
     return (
         str(market.get('status') or '').strip().upper() in {'', 'LISTING'}
         and str(market.get('tradable_status') or '').strip().upper() == 'OC'
+        and not market.get('condition_pending')
+        and not _event_condition_is_pending(condition)
         and (not open_time or open_time <= now)
         and (not cutoff_time or cutoff_time > now)
     )
@@ -1333,7 +1353,14 @@ def get_webull_event_duration_options(
 def _cached_webull_event_series_markets(principal, series_symbol, *, force=False):
     with _WEBULL_EVENT_CACHE_LOCK:
         cached = _WEBULL_EVENT_SERIES_MARKET_CACHE.get((*principal, series_symbol))
-        if not cached or force or time.time() - cached[0] >= WEBULL_EVENT_CATALOG_TTL_SECONDS:
+        if not cached or force:
+            return None
+        cache_ttl = (
+            WEBULL_EVENT_PENDING_CONDITION_TTL_SECONDS
+            if any(item.get('condition_pending') for item in cached[1])
+            else WEBULL_EVENT_CATALOG_TTL_SECONDS
+        )
+        if time.time() - cached[0] >= cache_ttl:
             return None
         return cached[0], [dict(item) for item in cached[1]]
 
@@ -1397,6 +1424,8 @@ def _normalise_event_market(raw, series_categories):
     name = str(raw.get('name') or '').strip()
     if not symbol or not name:
         return None
+    interval = _event_symbol_interval(symbol)
+    yes_condition = raw.get('yes_condition') or raw.get('yesCondition')
     series_symbol = str(raw.get('series_symbol') or '').strip().upper()
     category_code = str(series_categories.get(series_symbol) or raw.get('category') or '').strip().upper()
     price_ranges = []
@@ -1418,8 +1447,12 @@ def _normalise_event_market(raw, series_categories):
         'instrument_id': raw.get('instrument_id'),
         'symbol': symbol,
         'name': name,
-        'yes_condition': raw.get('yes_condition') or raw.get('yesCondition'),
+        'yes_condition': yes_condition,
         'display_condition': _event_condition_label(raw, symbol),
+        'condition_pending': _event_condition_is_pending(yes_condition),
+        'contract_period_start': interval['start'].isoformat() if interval else None,
+        'contract_period_end': interval['end'].isoformat() if interval else None,
+        'contract_period_minutes': interval['minutes'] if interval else None,
         'category_code': category_code,
         'status': str(raw.get('status') or '').upper(),
         'tradable_status': str(raw.get('tradable_status') or '').upper(),
