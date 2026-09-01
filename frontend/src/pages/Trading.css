@@ -2418,6 +2418,31 @@ body.light-mode .pagination-btn.active {
   position: relative;
 }
 
+.event-trending-topics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.38rem;
+  margin-top: 0.5rem;
+}
+
+.event-trending-topic {
+  padding: 0.22rem 0.55rem;
+  border: 1px solid rgba(56, 189, 248, 0.38);
+  border-radius: 999px;
+  background: rgba(14, 116, 144, 0.16);
+  color: #bae6fd;
+  cursor: pointer;
+  font-size: 0.7rem;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.event-trending-topic:hover {
+  border-color: #38bdf8;
+  background: rgba(14, 116, 144, 0.34);
+  color: #e0f2fe;
+}
+
 .event-market-search-input {
   padding-right: 2.5rem !important;
 }
@@ -2442,6 +2467,11 @@ body.light-mode .pagination-btn.active {
 
 .event-market-menu-toggle:hover {
   background: rgba(148, 163, 184, 0.14);
+}
+
+.event-catalog-status-bounded {
+  grid-column: 1 / span 2;
+  margin: 0;
 }
 
 .event-market-results {
@@ -2914,6 +2944,10 @@ body.light-mode .event-payout-summary strong { color: #166534; }
   .event-proposition-grid,
   .selected-event-market {
     grid-template-columns: 1fr;
+  }
+
+  .event-catalog-status-bounded {
+    grid-column: auto;
   }
 
   .selected-event-market-stats {

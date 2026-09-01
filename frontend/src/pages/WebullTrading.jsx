@@ -127,6 +127,19 @@ const EVENT_CRYPTO_SYMBOL_ALIASES = {
   UNISWAP: 'UNI', UNI: 'UNI',
 };
 
+const EVENT_TRENDING_TOPICS = {
+  CRYPTO: ['BTC', 'ETH', 'XRP', 'SOL', 'DOGE', 'ADA', 'AVAX', 'LINK', 'LTC', 'SHIB'],
+  FINANCIALS: ['S&P 500', 'Nasdaq', 'Dow Jones', 'Russell 2000', 'AAPL', 'NVDA', 'TSLA', 'MSFT', 'AMZN', 'Gold'],
+  CLIMATE_WEATHER: ['Max temperature', 'Min temperature', 'Rainfall', 'Snowfall', 'Hurricane', 'Heat wave', 'New York weather', 'Chicago weather', 'Miami weather', 'Los Angeles weather'],
+  SPORTS: ['Atlanta', 'Cincinnati', 'Baltimore', 'Boston', 'New York', 'Los Angeles', 'Chicago', 'Dallas', 'Miami', 'Philadelphia'],
+  SCIENCE_TECHNOLOGY: ['SpaceX', 'Baidu', 'ZAI', 'Meta', 'OpenAI', 'Google', 'Apple', 'Nvidia', 'Tesla', 'AI'],
+  ENTERTAINMENT: ['Box office', 'Academy Awards', 'Grammy Awards', 'Emmy Awards', 'Netflix', 'Taylor Swift', 'Disney', 'Marvel', 'Billboard', 'Broadway'],
+  ECONOMICS: ['Fed rate', 'CPI', 'Jobs report', 'GDP', 'Inflation', 'Unemployment', 'Retail sales', 'PCE', 'Treasury yield', 'Consumer confidence'],
+};
+
+const eventTrendingTopicsFor = (category) => EVENT_TRENDING_TOPICS[String(category || '').toUpperCase()]
+  || ['Markets', 'Economy', 'Technology', 'Weather', 'Sports', 'Politics', 'Entertainment', 'Science', 'Energy', 'Global'];
+
 const eventUnderlyingSymbolFor = (market, category) => {
   const providerSymbol = String(market?.underlying_symbol || '').trim().toUpperCase();
   if (providerSymbol) return providerSymbol;
@@ -1528,6 +1541,13 @@ export default function WebullTrading({ isLightMode = false }) {
     }
     setEventSearchSubmitted(true);
     loadEventMarkets({ query });
+  };
+
+  const searchEventTrendingTopic = (topic) => {
+    setEventMarketQuery(topic);
+    setEventMarketMenuOpen(true);
+    setEventSearchSubmitted(true);
+    loadEventMarkets({ query: topic });
   };
 
   const chooseEventOutcome = (outcome) => {
@@ -3377,6 +3397,20 @@ export default function WebullTrading({ isLightMode = false }) {
                               <FaSearch aria-hidden="true" />
                             </button>
                           </div>
+                          {eventDuration && (
+                            <div className="event-trending-topics" aria-label={`${selectedEventCategory} trending Event Contract topics`}>
+                              {eventTrendingTopicsFor(selectedEventCategory).map((topic) => (
+                                <button
+                                  key={topic}
+                                  type="button"
+                                  className="event-trending-topic"
+                                  onClick={() => searchEventTrendingTopic(topic)}
+                                >
+                                  {topic}
+                                </button>
+                              ))}
+                            </div>
+                          )}
                           {eventMarketMenuOpen && (
                             <div className="event-market-results" id="event-market-results" role="listbox">
                               <div className="event-market-results-heading">
@@ -3422,11 +3456,10 @@ export default function WebullTrading({ isLightMode = false }) {
                             </div>
                           )}
                         </div>
+                        {eventSearchSubmitted && eventMessage && (
+                          <p className="event-catalog-status event-catalog-status-bounded" role="status">⚠️ {eventMessage}</p>
+                        )}
                       </div>
-
-                      {eventSearchSubmitted && eventMessage && (
-                        <p className="event-catalog-status" role="status">⚠️ {eventMessage}</p>
-                      )}
 
                       {selectedEventMarket && (
                         <div className="selected-event-market" aria-live="polite">

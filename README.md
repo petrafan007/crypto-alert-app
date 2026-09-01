@@ -127,6 +127,12 @@ The application utilizes a **unified PostgreSQL database**.
 
 Historical changelog entries retain the product name used when they were originally released. The application domain, repository slug, deployment folders, database, and service identifiers intentionally remain unchanged by the v2.45.0 brand update.
 
+## v2.74.5 (September 2026)
+
+- **Event Contract Quick Topics**:
+  - After a category and duration are chosen, the Event market selector shows ten category-relevant topic pills. Selecting one fills the search field and immediately runs the existing verified live-contract search.
+  - The bounded Webull scan notice now spans only the Event Category and Duration / Frequency columns, leaving the Event market selector column visually clear.
+
 ## v2.74.4 (September 2026)
 
 - **Synchronized Event Underlying Quotes**:
