@@ -303,6 +303,65 @@
   flex-wrap: wrap;
 }
 
+.webull-trading-tabs {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  width: 100%;
+}
+
+.webull-trading-tabs .tab-button {
+  justify-content: center;
+  min-width: 0;
+  padding: 10px 8px;
+}
+
+.webull-trading-tabs .tab-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.38;
+  filter: grayscale(1);
+}
+
+.equity-order-mode-tabs {
+  display: inline-flex;
+  gap: 4px;
+  margin-bottom: 16px;
+  padding: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.72);
+}
+
+.equity-order-mode-tabs button {
+  padding: 7px 12px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #94a3b8;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.equity-order-mode-tabs button.active {
+  background: #2563eb;
+  color: #ffffff;
+}
+
+body.light-mode .equity-order-mode-tabs,
+.light-mode .equity-order-mode-tabs {
+  border-color: rgba(15, 23, 42, 0.12);
+  background: rgba(241, 245, 249, 0.9);
+}
+
+body.light-mode .equity-order-mode-tabs button,
+.light-mode .equity-order-mode-tabs button {
+  color: #475569;
+}
+
+body.light-mode .equity-order-mode-tabs button.active,
+.light-mode .equity-order-mode-tabs button.active {
+  color: #ffffff;
+}
+
 .tab-button {
   display: inline-flex;
   align-items: center;
@@ -1319,7 +1378,10 @@ body:not(.dark-mode) .order-summary-total {
     font-size: 2rem;
   }
 
-  .trading-tabs {
+  .trading-tabs,
+  .webull-trading-tabs {
+    display: flex;
+    flex-wrap: nowrap;
     overflow-x: auto;
   }
 

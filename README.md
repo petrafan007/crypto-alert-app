@@ -127,6 +127,18 @@ The application utilizes a **unified PostgreSQL database**.
 
 Historical changelog entries retain the product name used when they were originally released. The application domain, repository slug, deployment folders, database, and service identifiers intentionally remain unchanged by the v2.45.0 brand update.
 
+## v2.69.0 (August 2026)
+
+- **Direct Webull Asset Navigation**:
+  - Replaced the generic Place Order tab with responsive top-level Equities & ETFs, Crypto, Options, Futures, and Event Contracts tabs.
+  - Preserved each asset class's existing symbol selection, order fields, quote sources, validation, account restrictions, and submission behavior rather than merging the distinct ticket workflows.
+  - Kept Open Orders, Order History, Trade Chart, and AI Analysis in the same navigation, using a five-column desktop layout and a horizontally scrollable mobile rail.
+- **Correct Combo Order Integration**:
+  - Moved Webull stock OTO, OCO, and OTOCO conditional combinations under Equities & ETFs as a Single Order / Conditional Orders workflow instead of presenting them as a separate asset-level tab.
+  - Retained listed multi-leg option strategies inside the Options chain and synchronized the equity conditional-order symbol with the active equity selection.
+- **Webull Sentiment Chart Reliability**:
+  - Fixed the market-history fallback path that could shadow the shared Credential model and raise `cannot access local variable 'Credential' where it is not associated with a value`.
+
 ## v2.68.2 (August 2026)
 
 - **Payoff and Thesis Scenario Parity**:

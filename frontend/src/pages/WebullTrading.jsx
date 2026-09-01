@@ -315,6 +315,7 @@ const holdingMatchesOptionContract = (holding, { accountId, underlyingSymbol, op
 
 export default function WebullTrading({ isLightMode = false }) {
   const [activeTab, setActiveTab] = useState('order');
+  const [equityOrderMode, setEquityOrderMode] = useState('single');
   const [holdings, setHoldings] = useState([]);
   const [history, setHistory] = useState([]);
   const [openOrders, setOpenOrders] = useState([]);
@@ -1040,6 +1041,20 @@ export default function WebullTrading({ isLightMode = false }) {
     }));
   };
 
+  const handleAssetTabChange = (nextType) => {
+    if (assetClassDisabled(nextType)) return;
+    setActiveTab('order');
+    if (nextType === 'EQUITY') setEquityOrderMode('single');
+    if (nextType !== selectedInstrumentType) handleAssetClassChange(nextType);
+  };
+
+  const handleEquityOrderModeChange = (nextMode) => {
+    setEquityOrderMode(nextMode);
+    if (nextMode === 'combo' && selectedSymbol) {
+      setComboForm((previous) => ({ ...previous, symbol: selectedSymbol }));
+    }
+  };
+
   // Automatically default session for cash-based accounts when instrument or account changes
   useEffect(() => {
     if (selectedInstrumentType === 'EQUITY' && isCashBasedAccount(activeAccount) && !userChangedSessionRef.current) {
@@ -1418,6 +1433,7 @@ export default function WebullTrading({ isLightMode = false }) {
 
   const handleAccountChange = (newAccountId) => {
     userChangedSessionRef.current = false;
+    setEquityOrderMode('single');
     assetSymbolMemoryRef.current[selectedInstrumentType] = selectedSymbol;
     setSelectedAccountId(newAccountId);
     setSelectedOptionHoldingId('');
@@ -1697,19 +1713,6 @@ export default function WebullTrading({ isLightMode = false }) {
     const masked = activeAccount?.account_id_masked || (selectedAccountId ? `••••${String(selectedAccountId).slice(-4)}` : '');
     return masked ? `${name} (${masked})` : name;
   };
-
-  const assetClassButtonStyle = (assetClass, activeBackground) => ({
-    padding: '5px 12px',
-    borderRadius: '6px',
-    border: 'none',
-    background: selectedInstrumentType === assetClass ? activeBackground : 'transparent',
-    color: '#fff',
-    fontSize: '12px',
-    fontWeight: 700,
-    cursor: assetClassDisabled(assetClass) ? 'not-allowed' : 'pointer',
-    opacity: assetClassDisabled(assetClass) ? 0.38 : 1,
-    filter: assetClassDisabled(assetClass) ? 'grayscale(1)' : 'none',
-  });
 
   const webullTwoFactorOrderDetails = () => ({
     provider: 'Webull',
@@ -2148,6 +2151,7 @@ export default function WebullTrading({ isLightMode = false }) {
 
   const handleSelectHolding = (holding) => {
     if (!holding) return;
+    setEquityOrderMode('single');
     const isOption = String(holding.instrument_type || '').toUpperCase() === 'OPTION';
     const isFutures = ['FUTURE', 'FUTURES'].includes(String(holding.instrument_type || '').toUpperCase());
     const isEvent = String(holding.instrument_type || '').toUpperCase() === 'EVENT';
@@ -2628,12 +2632,21 @@ export default function WebullTrading({ isLightMode = false }) {
       )}
 
       {/* Navigation Tabs */}
-      <div className="trading-tabs">
-        <button className={`tab-button ${activeTab === 'order' ? 'active' : ''}`} onClick={() => setActiveTab('order')}>
-          📝 <span className="tab-text">Place Order</span>
+      <div className="trading-tabs webull-trading-tabs">
+        <button className={`tab-button ${activeTab === 'order' && selectedInstrumentType === 'EQUITY' ? 'active' : ''}`} onClick={() => handleAssetTabChange('EQUITY')} disabled={assetClassDisabled('EQUITY')} title={assetClassDisabled('EQUITY') ? 'Stocks and ETFs are unavailable in a Crypto Webull account.' : 'Trade stocks and ETFs'}>
+          <span className="tab-text">Equities &amp; ETFs</span>
         </button>
-        <button className={`tab-button ${activeTab === 'combo' ? 'active' : ''}`} onClick={() => setActiveTab('combo')}>
-          🔗 <span className="tab-text">Combo Orders (OTO/OCO)</span>
+        <button className={`tab-button ${activeTab === 'order' && selectedInstrumentType === 'CRYPTO' ? 'active' : ''}`} onClick={() => handleAssetTabChange('CRYPTO')} disabled={assetClassDisabled('CRYPTO')} title={assetClassDisabled('CRYPTO') ? 'Crypto is available only in a Crypto Webull account.' : 'Trade Webull crypto'}>
+          <span className="tab-text">Crypto</span>
+        </button>
+        <button className={`tab-button ${activeTab === 'order' && selectedInstrumentType === 'OPTION' ? 'active' : ''}`} onClick={() => handleAssetTabChange('OPTION')} disabled={assetClassDisabled('OPTION')} title={assetClassDisabled('OPTION') ? 'Options are unavailable in a Crypto Webull account.' : 'Trade calls, puts, and option strategies'}>
+          <span className="tab-text">Options</span>
+        </button>
+        <button className={`tab-button ${activeTab === 'order' && selectedInstrumentType === 'FUTURES' ? 'active' : ''}`} onClick={() => handleAssetTabChange('FUTURES')} disabled={assetClassDisabled('FUTURES')} title={assetClassDisabled('FUTURES') ? 'Futures are unavailable in a Crypto Webull account.' : 'Trade Webull futures'}>
+          <span className="tab-text">Futures</span>
+        </button>
+        <button className={`tab-button ${activeTab === 'order' && selectedInstrumentType === 'EVENT' ? 'active' : ''}`} onClick={() => handleAssetTabChange('EVENT')} disabled={assetClassDisabled('EVENT')} title={assetClassDisabled('EVENT') ? 'Event Contracts are unavailable in a Crypto Webull account.' : 'Trade Webull event contracts'}>
+          <span className="tab-text">Event Contracts</span>
         </button>
         <button className={`tab-button ${activeTab === 'open_orders' ? 'active' : ''}`} onClick={() => setActiveTab('open_orders')}>
           ⏳ <span className="tab-text">Open Orders</span>
@@ -2657,8 +2670,19 @@ export default function WebullTrading({ isLightMode = false }) {
           <div className="empty-state"><p>Loading Webull data…</p></div>
         ) : (
           <>
-            {/* PLACE ORDER TAB */}
-            {activeTab === 'order' && (
+            {activeTab === 'order' && selectedInstrumentType === 'EQUITY' && (
+              <div className="equity-order-mode-tabs" role="group" aria-label="Equities order workflow">
+                <button type="button" className={equityOrderMode === 'single' ? 'active' : ''} onClick={() => handleEquityOrderModeChange('single')}>
+                  Single Order
+                </button>
+                <button type="button" className={equityOrderMode === 'combo' ? 'active' : ''} onClick={() => handleEquityOrderModeChange('combo')}>
+                  Conditional Orders
+                </button>
+              </div>
+            )}
+
+            {/* ASSET ORDER WORKSPACE */}
+            {activeTab === 'order' && !(selectedInstrumentType === 'EQUITY' && equityOrderMode === 'combo') && (
               <div className="order-form-container">
                 {/* 1. Full-Width TradingView Advanced Chart with Webull Account & Instrument Selector */}
                 <WebullTradingViewChart
@@ -2745,60 +2769,6 @@ export default function WebullTrading({ isLightMode = false }) {
 
                 {/* 3. Redesigned Modern Order Panel (matching Binance.US) */}
                 <form onSubmit={handleOrderSubmit} className="trading-order-panel" noValidate>
-                  {/* Asset Class Switcher — asset lanes follow the selected Webull account. */}
-                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap', marginBottom: '14px' }}>
-                    <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-secondary, #94a3b8)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                      Asset Class:
-                    </span>
-                    <div style={{ display: 'inline-flex', background: 'rgba(0,0,0,0.35)', padding: '3px', borderRadius: '8px', gap: '4px' }}>
-                      <button
-                        type="button"
-                        onClick={() => handleAssetClassChange('EQUITY')}
-                        disabled={assetClassDisabled('EQUITY')}
-                        title={assetClassDisabled('EQUITY') ? 'Stocks & ETFs are unavailable in a Crypto Webull account.' : 'Trade stocks and ETFs'}
-                        style={assetClassButtonStyle('EQUITY', 'linear-gradient(135deg, #3b82f6, #2563eb)')}
-                      >
-                        🏛️ Equities &amp; ETFs
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleAssetClassChange('CRYPTO')}
-                        disabled={assetClassDisabled('CRYPTO')}
-                        title={assetClassDisabled('CRYPTO') ? 'Crypto is available only in a Crypto Webull account.' : 'Trade Webull crypto'}
-                        style={assetClassButtonStyle('CRYPTO', 'linear-gradient(135deg, #f59e0b, #d97706)')}
-                      >
-                        🪙 Crypto
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleAssetClassChange('OPTION')}
-                        disabled={assetClassDisabled('OPTION')}
-                        title={assetClassDisabled('OPTION') ? 'Options are unavailable in a Crypto Webull account.' : 'Trade calls and puts'}
-                        style={assetClassButtonStyle('OPTION', 'linear-gradient(135deg, #8b5cf6, #7c3aed)')}
-                      >
-                        ⚡ Options (Calls &amp; Puts)
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleAssetClassChange('FUTURES')}
-                        disabled={assetClassDisabled('FUTURES')}
-                        title={assetClassDisabled('FUTURES') ? 'Futures are unavailable in a Crypto Webull account.' : 'Trade Webull futures'}
-                        style={assetClassButtonStyle('FUTURES', 'linear-gradient(135deg, #0f766e, #0d9488)')}
-                      >
-                        🏁 Futures
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleAssetClassChange('EVENT')}
-                        disabled={assetClassDisabled('EVENT')}
-                        title={assetClassDisabled('EVENT') ? 'Event Contracts are unavailable in a Crypto Webull account.' : 'Trade Webull binary event contracts'}
-                        style={assetClassButtonStyle('EVENT', 'linear-gradient(135deg, #ec4899, #db2777)')}
-                      >
-                        🎯 Event Contracts
-                      </button>
-                    </div>
-                  </div>
-
                   {selectedInstrumentType === 'FUTURES' && (
                     <div style={{ background: 'rgba(13, 148, 136, 0.12)', border: '1px solid rgba(45, 212, 191, 0.36)', borderRadius: '8px', padding: '14px', marginBottom: '14px' }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', alignItems: 'center', flexWrap: 'wrap', marginBottom: '8px' }}>
@@ -4097,8 +4067,8 @@ export default function WebullTrading({ isLightMode = false }) {
               </div>
             )}
 
-            {/* COMBO ORDERS (OTO / OCO / OTOCO) BUILDER TAB */}
-            {activeTab === 'combo' && (
+            {/* EQUITY CONDITIONAL ORDERS (OTO / OCO / OTOCO) */}
+            {activeTab === 'order' && selectedInstrumentType === 'EQUITY' && equityOrderMode === 'combo' && (
               <div className="order-form-container">
                 <div className="combo-builder-card">
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '12px' }}>

@@ -1580,7 +1580,6 @@ def get_trading_klines(symbol):
             wb_klines = None
             if current_user and current_user.is_authenticated:
                 try:
-                    from credentials import Credential
                     from services.webull_service import get_webull_market_bars
                     cred = Credential.query.filter_by(user_id=current_user.id).first()
                     if cred and cred.webull_app_key and cred.webull_app_secret:
