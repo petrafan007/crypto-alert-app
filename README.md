@@ -127,6 +127,12 @@ The application utilizes a **unified PostgreSQL database**.
 
 Historical changelog entries retain the product name used when they were originally released. The application domain, repository slug, deployment folders, database, and service identifiers intentionally remain unchanged by the v2.45.0 brand update.
 
+## v2.73.15 (September 2026)
+
+- **Webull Order 2FA Regression Coverage**:
+  - Adds end-to-end route coverage proving a freshly verified two-factor token reaches the Webull submission layer for Event Contracts, single-leg Options, and Futures.
+  - Retains separate validation for exact option contract identity, option strategy legs, and selected futures contract eligibility before a token can be consumed.
+
 ## v2.73.14 (September 2026)
 
 - **Reliable Webull 2FA Order Submission**:
