@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState, useRef } from 'react';
 import axios from 'axios';
 import CryptoIcon, { WebullLogo } from '../components/CryptoIcon';
-import { FaSearch, FaToggleOn, FaToggleOff } from 'react-icons/fa';
+import { FaArrowDown, FaArrowUp, FaSearch, FaToggleOn, FaToggleOff } from 'react-icons/fa';
 import WebullTradingViewChart, { DEFAULT_STOCKS } from '../components/WebullTradingViewChart';
 import WebullTradeTimelineChart from '../components/WebullTradeTimelineChart';
 import TwoFactorModal from '../components/TwoFactorModal';
@@ -54,6 +54,22 @@ const eventCents = (value) => {
   const cents = parsed * 100;
   return `${Number.isInteger(cents) ? cents.toFixed(0) : cents.toFixed(2)}¢`;
 };
+
+const EVENT_PRICE_CHANGE_INTERVALS = [
+  { label: '1m', milliseconds: 60 * 1000 },
+  { label: '5m', milliseconds: 5 * 60 * 1000 },
+  { label: '15m', milliseconds: 15 * 60 * 1000 },
+];
+const EVENT_PRICE_HISTORY_RETENTION_MS = 16 * 60 * 1000;
+
+const eventPriceChangesFor = (history, currentPrice, timestamp) => EVENT_PRICE_CHANGE_INTERVALS.map((interval) => {
+  const cutoff = timestamp - interval.milliseconds;
+  const baseline = [...history].reverse().find((sample) => sample.timestamp <= cutoff && sample.price > 0);
+  if (!baseline || !currentPrice || baseline.price <= 0) {
+    return { ...interval, percent: null };
+  }
+  return { ...interval, percent: ((currentPrice - baseline.price) / baseline.price) * 100 };
+});
 
 const eventPriceRangeLabel = (ranges = []) => ranges.length
   ? ranges.map((range) => `${eventCents(range.start)} to ${eventCents(range.end)}, in ${eventCents(range.step)} increments`).join('; ')
@@ -522,6 +538,7 @@ export default function WebullTrading({ isLightMode = false }) {
   const [eventMessage, setEventMessage] = useState('');
   const [eventQuoteMessage, setEventQuoteMessage] = useState('');
   const [eventUnderlyingPrice, setEventUnderlyingPrice] = useState(0);
+  const [eventUnderlyingPriceHistory, setEventUnderlyingPriceHistory] = useState([]);
   const eventMarketRequestRef = useRef(0);
   const eventMarketAbortControllerRef = useRef(null);
   const eventMetadataRequestRef = useRef(0);
@@ -1323,6 +1340,10 @@ export default function WebullTrading({ isLightMode = false }) {
   }, [selectedEventMarket?.category_code, selectedEventMarket?.reference_price, selectedEventMarket?.target_value, selectedEventMarket?.display_condition, selectedEventMarket?.yes_condition, selectedEventCategory]);
 
   const eventDisplayPrice = eventUnderlyingPrice > 0 ? eventUnderlyingPrice : eventReferencePrice;
+  const eventPriceChanges = useMemo(
+    () => eventPriceChangesFor(eventUnderlyingPriceHistory, eventUnderlyingPrice, Date.now()),
+    [eventUnderlyingPriceHistory, eventUnderlyingPrice],
+  );
 
   useEffect(() => {
     assetSymbolMemoryRef.current[selectedInstrumentType] = selectedSymbol;
@@ -1332,6 +1353,8 @@ export default function WebullTrading({ isLightMode = false }) {
     if (!market?.symbol) return;
     const suggestedPrice = eventQuoteFor(market);
     setSelectedEventMarket(market);
+    setEventUnderlyingPrice(0);
+    setEventUnderlyingPriceHistory([]);
     assetSymbolMemoryRef.current.EVENT = market.symbol;
     setSelectedSymbol(market.symbol);
     setEventMarketMenuOpen(false);
@@ -1538,6 +1561,35 @@ export default function WebullTrading({ isLightMode = false }) {
   useEffect(() => {
     if (selectedInstrumentType !== 'EVENT' || !selectedEventMarket?.symbol) return undefined;
     let cancelled = false;
+    const refreshUnderlyingPrice = async () => {
+      if (!eventUnderlyingQuote) {
+        setEventUnderlyingPrice(0);
+        setEventUnderlyingPriceHistory([]);
+        return;
+      }
+      try {
+        const response = eventUnderlyingQuote.instrumentType === 'CRYPTO'
+          ? await axios.get(`/api/market-data/${eventUnderlyingQuote.symbol.replace(/USD$/, '')}`, {
+            withCredentials: true,
+          })
+          : await axios.get('/api/webull/market-snapshot', {
+            params: eventUnderlyingQuote,
+            withCredentials: true,
+          });
+        const price = Number(eventUnderlyingQuote.instrumentType === 'CRYPTO'
+          ? response.data?.price
+          : response.data?.snapshot?.price);
+        if (cancelled || price <= 0) return;
+        const timestamp = Date.now();
+        setEventUnderlyingPrice(price);
+        setEventUnderlyingPriceHistory((history) => [
+          ...history.filter((sample) => sample.timestamp > timestamp - EVENT_PRICE_HISTORY_RETENTION_MS),
+          { price, timestamp },
+        ]);
+      } catch {
+        if (!cancelled) setEventUnderlyingPrice(0);
+      }
+    };
     const refreshQuote = async () => {
       try {
         const response = await axios.get('/api/webull/events/markets', {
@@ -1561,6 +1613,7 @@ export default function WebullTrading({ isLightMode = false }) {
             };
           });
         }
+        await refreshUnderlyingPrice();
       } catch (err) {
         if (!cancelled) setEventQuoteMessage(err.response?.data?.message || 'Live Event Contract pricing is temporarily unavailable.');
       }
@@ -1571,39 +1624,7 @@ export default function WebullTrading({ isLightMode = false }) {
       cancelled = true;
       window.clearInterval(interval);
     };
-  }, [selectedInstrumentType, selectedEventMarket?.symbol]);
-
-  useEffect(() => {
-    if (selectedInstrumentType !== 'EVENT' || !eventUnderlyingQuote) {
-      setEventUnderlyingPrice(0);
-      return undefined;
-    }
-    let cancelled = false;
-    const refreshUnderlyingPrice = async () => {
-      try {
-        const response = eventUnderlyingQuote.instrumentType === 'CRYPTO'
-          ? await axios.get(`/api/market-data/${eventUnderlyingQuote.symbol.replace(/USD$/, '')}`, {
-            withCredentials: true,
-          })
-          : await axios.get('/api/webull/market-snapshot', {
-            params: eventUnderlyingQuote,
-            withCredentials: true,
-          });
-        const price = Number(eventUnderlyingQuote.instrumentType === 'CRYPTO'
-          ? response.data?.price
-          : response.data?.snapshot?.price);
-        if (!cancelled && price > 0) setEventUnderlyingPrice(price);
-      } catch {
-        if (!cancelled) setEventUnderlyingPrice(0);
-      }
-    };
-    refreshUnderlyingPrice();
-    const interval = window.setInterval(refreshUnderlyingPrice, 5000);
-    return () => {
-      cancelled = true;
-      window.clearInterval(interval);
-    };
-  }, [selectedInstrumentType, eventUnderlyingQuote]);
+  }, [selectedInstrumentType, selectedEventMarket?.symbol, eventUnderlyingQuote]);
 
   useEffect(() => {
     const closeMenu = (event) => {
@@ -3167,11 +3188,33 @@ export default function WebullTrading({ isLightMode = false }) {
                       <span className="trading-asset-card-label">REAL-TIME PRICE</span>
                       <span className="live-pulse-dot" />
                     </div>
-                    <div className="trading-asset-card-value price-highlight">
-                      {(selectedInstrumentType === 'EVENT' ? eventDisplayPrice : livePrice) > 0
-                        ? `$${number(selectedInstrumentType === 'EVENT' ? eventDisplayPrice : livePrice, (selectedInstrumentType === 'EVENT' ? eventDisplayPrice : livePrice) >= 1 ? 2 : 4)}`
-                        : 'Market Price'}{' '}
-                      <small>USD</small>
+                    <div className="event-price-value-row">
+                      <div className="trading-asset-card-value price-highlight">
+                        {(selectedInstrumentType === 'EVENT' ? eventDisplayPrice : livePrice) > 0
+                          ? `$${number(selectedInstrumentType === 'EVENT' ? eventDisplayPrice : livePrice, (selectedInstrumentType === 'EVENT' ? eventDisplayPrice : livePrice) >= 1 ? 2 : 4)}`
+                          : 'Market Price'}{' '}
+                        <small>USD</small>
+                      </div>
+                      {selectedInstrumentType === 'EVENT' && eventUnderlyingPrice > 0 && (
+                        <div className="event-price-changes" aria-label="Event underlying price changes">
+                          {eventPriceChanges.map((change) => {
+                            const isUp = change.percent > 0;
+                            const isDown = change.percent < 0;
+                            return (
+                              <span
+                                key={change.label}
+                                className={`event-price-change ${isUp ? 'up' : isDown ? 'down' : 'flat'}`}
+                                title={change.percent == null ? `${change.label} price history is still collecting` : `${change.label} underlying price change`}
+                              >
+                                <strong>{change.label}</strong>
+                                {isUp && <FaArrowUp aria-hidden="true" />}
+                                {isDown && <FaArrowDown aria-hidden="true" />}
+                                <span>{change.percent == null ? '--' : `${Math.abs(change.percent).toFixed(2)}%`}</span>
+                              </span>
+                            );
+                          })}
+                        </div>
+                      )}
                     </div>
                     <span className="trading-asset-card-sub" title={selectedInstrumentType === 'EVENT' && !eventUnderlyingPrice && eventReferencePrice ? 'Webull contract reference price' : undefined}>Instant Market Rate</span>
                   </div>

@@ -127,6 +127,12 @@ The application utilizes a **unified PostgreSQL database**.
 
 Historical changelog entries retain the product name used when they were originally released. The application domain, repository slug, deployment folders, database, and service identifiers intentionally remain unchanged by the v2.45.0 brand update.
 
+## v2.74.4 (September 2026)
+
+- **Synchronized Event Underlying Quotes**:
+  - The Event Contract underlying quote now runs as part of every successful Yes/No bid-and-ask refresh cycle, eliminating the former independently timed price poll.
+  - Event price cards include 1-minute, 5-minute, and 15-minute underlying percentage changes beside the live price. Positive moves show a green up arrow, negative moves show a red down arrow, and each interval begins after its corresponding history has accumulated.
+
 ## v2.74.3 (September 2026)
 
 - **Working Live Crypto Event Quote**:

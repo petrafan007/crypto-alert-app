@@ -508,6 +508,59 @@ body.light-mode .equity-order-mode-tabs button.active,
   font-weight: 500;
 }
 
+.event-price-value-row {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  width: 100%;
+}
+
+.event-price-changes {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 18px;
+}
+
+.event-price-change {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #94a3b8;
+  white-space: nowrap;
+}
+
+.event-price-change strong {
+  color: #94a3b8;
+  font-weight: 600;
+}
+
+.event-price-change svg {
+  font-size: 0.65rem;
+}
+
+.event-price-change.up {
+  color: #22c55e;
+}
+
+.event-price-change.down {
+  color: #ef4444;
+}
+
+@media (max-width: 500px) {
+  .event-price-value-row {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .event-price-changes {
+    gap: 7px;
+  }
+}
+
 .trading-asset-card-sub {
   font-size: 0.75rem;
   color: #64748b;
