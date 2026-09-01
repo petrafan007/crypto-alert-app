@@ -272,6 +272,8 @@ const normalizedWebullInstrumentType = (value) => {
   return 'EQUITY';
 };
 
+const isSecurityHolding = (holding) => String(holding?.instrument_type || '').trim().toUpperCase() !== 'CASH';
+
 const QUANTITY_EPSILON = 1e-8;
 const OPTION_CONTRACT_MULTIPLIER = 100;
 const OPTION_STRIKE_EPSILON = 0.0001;
@@ -335,6 +337,10 @@ export default function WebullTrading({ isLightMode = false }) {
   const modeHoldings = useMemo(
     () => holdings.filter((holding) => orderIsPaper(holding) === isTestMode),
     [holdings, isTestMode]
+  );
+  const securityPositionCount = useMemo(
+    () => modeHoldings.filter(isSecurityHolding).length,
+    [modeHoldings]
   );
   const [paperSummary, setPaperSummary] = useState(null);
   const [showDepositModal, setShowDepositModal] = useState(false);
@@ -2658,7 +2664,7 @@ export default function WebullTrading({ isLightMode = false }) {
         </button>
         <button className={`tab-button ${activeTab === 'positions' ? 'active' : ''}`} onClick={() => setActiveTab('positions')}>
           <span className="tab-text">Positions</span>
-          {modeHoldings.length > 0 && <span className="tab-badge">{modeHoldings.length}</span>}
+          {securityPositionCount > 0 && <span className="tab-badge">{securityPositionCount}</span>}
         </button>
         <button className={`tab-button ${activeTab === 'trade_chart' ? 'active' : ''}`} onClick={() => setActiveTab('trade_chart')}>
           📈 <span className="tab-text">Trade Chart</span>
@@ -3861,6 +3867,7 @@ export default function WebullTrading({ isLightMode = false }) {
                         optionType={orderForm.optionType}
                         action={orderForm.side}
                         onStrikeSelect={handlePayoffChartStrikeSelect}
+                        isLightMode={isLightMode}
                       />
                     </div>
                   )}
@@ -4068,7 +4075,7 @@ export default function WebullTrading({ isLightMode = false }) {
                 )}
 
                 {/* Holdings Table Below */}
-                <WebullHoldings holdings={modeHoldings} onSelectHolding={handleSelectHolding} isTestMode={isTestMode} />
+                <WebullHoldings holdings={modeHoldings} instrumentType={selectedInstrumentType} onSelectHolding={handleSelectHolding} isTestMode={isTestMode} />
               </div>
             )}
 
@@ -4511,103 +4518,117 @@ function WebullSignalTable({ signals }) {
   );
 }
 
-function WebullHoldings({ holdings, compact = false, onSelectHolding, isTestMode = false }) {
-  if (!holdings.length) {
+function WebullHoldings({ holdings, instrumentType = 'EQUITY', compact = false, onSelectHolding, isTestMode = false }) {
+  const scopedHoldings = holdings.filter((holding) => (
+    isSecurityHolding(holding)
+    && normalizedWebullInstrumentType(holding.instrument_type) === instrumentType
+  ));
+  const sectionLabel = {
+    EQUITY: 'equity or ETF',
+    CRYPTO: 'crypto',
+    OPTION: 'option',
+    FUTURES: 'futures',
+    EVENT: 'event contract',
+  }[instrumentType] || 'security';
+
+  if (!scopedHoldings.length) {
     return (
       <div className="empty-state">
         <p>
           {isTestMode
-            ? 'No simulated holdings yet. Place a test order above to build your paper portfolio!'
-            : 'No imported Webull holdings. Import a Webull portfolio snapshot in Settings first.'}
+            ? `No simulated ${sectionLabel} positions yet.`
+            : `No imported Webull ${sectionLabel} positions are available.`}
         </p>
       </div>
     );
   }
-  const showOptionColumns = holdings.some((holding) => optionContractDetails(holding).isOption);
+
+  const priceCell = (value, digits = 4) => value == null ? '—' : `$${number(value, digits)}`;
+  const pnlCell = (holding) => {
+    const value = holding.webull_unrealized_pnl ?? holding.unrealized_profit_loss;
+    if (value == null) return <td>—</td>;
+    return <td style={{ color: Number(value) >= 0 ? '#4ade80' : '#f87171' }}>{priceCell(value, 2)}</td>;
+  };
+  const pnlPercentCell = (holding) => {
+    const explicit = holding.unrealized_profit_loss_rate ?? holding.pct_change;
+    const current = Number(holding.current_price ?? holding.last_price);
+    const cost = Number(holding.avg_entry ?? holding.cost_price);
+    const value = explicit != null ? Number(explicit) : (Number.isFinite(current) && cost > 0 ? ((current - cost) / cost) * 100 : null);
+    if (!Number.isFinite(value)) return <td>—</td>;
+    return <td style={{ color: value >= 0 ? '#4ade80' : '#f87171' }}>{value >= 0 ? '▲' : '▼'} {Math.abs(value).toFixed(2)}%</td>;
+  };
+  const tradeButton = (holding, option) => (
+    <button
+      type="button"
+      className="badge"
+      style={{
+        background: 'rgba(56, 189, 248, .18)',
+        border: '1px solid rgba(56, 189, 248, .35)',
+        color: '#38bdf8',
+        cursor: 'pointer',
+        padding: '5px 14px',
+        fontWeight: 700,
+        borderRadius: '6px',
+        fontSize: '0.82rem',
+      }}
+      onClick={(event) => {
+        event.stopPropagation();
+        onSelectHolding?.(holding);
+      }}
+      title={`Load ${option.isOption ? `${option.symbol} ${option.expiration} $${option.strike} ${option.optionType}` : option.symbol} into trade ticket`}
+    >
+      Trade
+    </button>
+  );
+
+  const headers = {
+    EQUITY: ['Symbol', 'Quantity', 'Average Price', 'Last', 'Market Value', 'Open P&L', 'Open P&L %', 'Action'],
+    CRYPTO: ['Pair', 'Quantity', 'Average Cost', 'Last', 'Market Value', 'Open P&L', 'Open P&L %', 'Action'],
+    OPTION: ['Contract', 'Expiration', 'Strike', 'Type', 'Position', 'Contracts', 'Average Premium', 'Mark', 'Market Value', 'Open P&L', 'Action'],
+    FUTURES: ['Contract', 'Expiration', 'Position', 'Quantity', 'Available', 'Average Price', 'Last', 'Market Value', 'Open P&L', 'Action'],
+    EVENT: ['Market', 'Outcome', 'Position', 'Contracts', 'Available', 'Average Price', 'Last', 'Market Value', 'Open P&L', 'Action'],
+  }[instrumentType];
+
   return (
     <div className="table-container trading-table" style={{ marginTop: compact ? 12 : 20 }}>
       <div className="order-table-scroll">
         <table>
           <thead>
             <tr>
-              <th style={{ textAlign: 'center' }}>Symbol</th>
-              {showOptionColumns && <><th>Expiration</th><th>Strike</th><th>Call / Put</th></>}
-              <th>Asset Class</th><th>Position</th><th>Quantity</th><th>Available</th><th>Last Price</th><th>Value</th><th>Unrealized P&amp;L</th><th style={{ textAlign: 'center' }}>Action</th>
+              {headers.map((header) => <th key={header} style={{ textAlign: 'center' }}>{header}</th>)}
             </tr>
           </thead>
           <tbody>
-            {holdings.map((holding) => {
+            {scopedHoldings.map((holding) => {
               const option = optionContractDetails(holding);
-              const isOption = option.isOption;
+              const side = String(holding.position_side || holding.side || 'LONG').toUpperCase() === 'SHORT' ? 'Short' : 'Long';
+              const quantity = holding.quantity ?? holding.amount;
+              const available = holding.available_quantity ?? quantity;
+              const average = holding.avg_entry ?? holding.cost_price;
+              const last = holding.current_price ?? holding.last_price;
+              const marketValue = holding.current_value ?? holding.market_value;
+              const eventOutcome = holding.event_outcome || String(holding.symbol || '').match(/\s+(YES|NO)$/i)?.[1] || '—';
               return (
                 <tr
                   key={holding.id}
                   onClick={() => onSelectHolding?.(holding)}
                   style={{ cursor: onSelectHolding ? 'pointer' : 'default' }}
-                  title={onSelectHolding ? `Click to load ${isOption ? `${option.symbol} ${option.expiration} $${option.strike} ${option.optionType}` : option.symbol} into the order terminal` : undefined}
+                  title={onSelectHolding ? `Click to load ${option.isOption ? `${option.symbol} ${option.expiration} $${option.strike} ${option.optionType}` : option.symbol} into the order terminal` : undefined}
                 >
-                  <td style={{ textAlign: 'center' }}>
-                    <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 8, textAlign: 'left' }}>
-                      <CryptoIcon symbol={option.symbol} size={22} />
-                      <span>
-                        {option.symbol}
-                        {(holding.is_paper || isTestMode) && (
-                          <span className="badge" style={{ background: 'rgba(79, 209, 197, 0.2)', color: '#4fd1c5', border: '1px solid rgba(79, 209, 197, 0.4)', marginLeft: 6, fontSize: '0.7rem', fontWeight: 700 }}>
-                            PAPER
-                          </span>
-                        )}
-                      </span>
-                    </div>
-                  </td>
-                  {showOptionColumns && <>
-                    <td>{isOption ? option.expiration || '—' : '—'}</td>
-                    <td>{isOption ? option.strikeLabel : '—'}</td>
-                    <td>{isOption ? option.optionType || '—' : '—'}</td>
+                  {['EQUITY', 'CRYPTO'].includes(instrumentType) && <>
+                    <td style={{ textAlign: 'center' }}><CryptoIcon symbol={option.symbol} size={22} /> <strong>{option.symbol}</strong>{(holding.is_paper || isTestMode) && <small className="badge" style={{ marginLeft: 6 }}>PAPER</small>}</td>
+                    <td>{number(quantity, 6)}</td><td>{priceCell(average)}</td><td>{priceCell(last)}</td><td>{priceCell(marketValue, 2)}</td>{pnlCell(holding)}{pnlPercentCell(holding)}<td style={{ textAlign: 'center' }}>{tradeButton(holding, option)}</td>
                   </>}
-                  <td>
-                    {holding.instrument_type || 'Security'}
-                    {isOption && !holding.instrument_id && !holding.is_paper && <small style={{ display: 'block', color: '#fbbf24' }}>Contract resolution needed</small>}
-                  </td>
-                  <td>{String(holding.position_side || holding.side || 'LONG').toUpperCase() === 'SHORT' ? 'Short' : 'Long'}</td>
-                  <td>{number(holding.quantity ?? holding.amount, 6)}</td>
-                  <td>{number(holding.available_quantity ?? holding.quantity ?? holding.amount, 6)}</td>
-                  <td>{(holding.current_price ?? holding.last_price) ? `$${number(holding.current_price ?? holding.last_price, 4)}` : '—'}</td>
-                  <td>{(holding.current_value ?? holding.market_value) != null ? `$${number(holding.current_value ?? holding.market_value)}` : '—'}</td>
-                  <td style={{ color: Number(holding.webull_unrealized_pnl ?? holding.unrealized_profit_loss) >= 0 ? '#4ade80' : '#f87171' }}>
-                    {(holding.webull_unrealized_pnl ?? holding.unrealized_profit_loss) == null ? '—' : `$${number(holding.webull_unrealized_pnl ?? holding.unrealized_profit_loss)}`}
-                  </td>
-                  <td style={{ textAlign: 'center' }}>
-                    <button
-                      type="button"
-                      className="badge"
-                      style={{
-                        background: 'rgba(56, 189, 248, .18)',
-                        border: '1px solid rgba(56, 189, 248, .35)',
-                        color: '#38bdf8',
-                        cursor: 'pointer',
-                        padding: '5px 14px',
-                        fontWeight: 700,
-                        borderRadius: '6px',
-                        fontSize: '0.82rem',
-                        transition: 'all 0.2s ease',
-                      }}
-                      onMouseEnter={(e) => {
-                        e.currentTarget.style.background = 'rgba(56, 189, 248, .35)';
-                        e.currentTarget.style.color = '#ffffff';
-                      }}
-                      onMouseLeave={(e) => {
-                        e.currentTarget.style.background = 'rgba(56, 189, 248, .18)';
-                        e.currentTarget.style.color = '#38bdf8';
-                      }}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onSelectHolding?.(holding);
-                      }}
-                      title={`Load ${isOption ? `${option.symbol} ${option.expiration} $${option.strike} ${option.optionType}` : option.symbol} into trade ticket`}
-                    >
-                      Trade
-                    </button>
-                  </td>
+                  {instrumentType === 'OPTION' && <>
+                    <td><strong>{option.symbol}</strong>{!holding.instrument_id && !holding.is_paper && <small style={{ display: 'block', color: '#fbbf24' }}>Contract resolution needed</small>}</td>
+                    <td>{option.expiration || '—'}</td><td>{option.strikeLabel}</td><td>{option.optionType || '—'}</td><td>{side}</td><td>{number(quantity, 4)}</td><td>{priceCell(average)}</td><td>{priceCell(last)}</td><td>{priceCell(marketValue, 2)}</td>{pnlCell(holding)}<td style={{ textAlign: 'center' }}>{tradeButton(holding, option)}</td>
+                  </>}
+                  {instrumentType === 'FUTURES' && <>
+                    <td><strong>{option.symbol}</strong></td><td>{holding.expiration_date || '—'}</td><td>{side}</td><td>{number(quantity, 4)}</td><td>{number(available, 4)}</td><td>{priceCell(average)}</td><td>{priceCell(last)}</td><td>{priceCell(marketValue, 2)}</td>{pnlCell(holding)}<td style={{ textAlign: 'center' }}>{tradeButton(holding, option)}</td>
+                  </>}
+                  {instrumentType === 'EVENT' && <>
+                    <td><strong>{String(option.symbol).replace(/\s+(YES|NO)$/i, '')}</strong></td><td>{String(eventOutcome).toUpperCase()}</td><td>{side}</td><td>{number(quantity, 4)}</td><td>{number(available, 4)}</td><td>{priceCell(average)}</td><td>{priceCell(last)}</td><td>{priceCell(marketValue, 2)}</td>{pnlCell(holding)}<td style={{ textAlign: 'center' }}>{tradeButton(holding, option)}</td>
+                  </>}
                 </tr>
               );
             })}

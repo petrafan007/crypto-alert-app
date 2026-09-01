@@ -1,8 +1,9 @@
 .options-payoff-container {
-  background: #1e1e1e;
+  background: var(--card-bg, #1e293b);
+  border: 1px solid var(--card-border, #334155);
   padding: 20px;
   border-radius: 8px;
-  color: #fff;
+  color: var(--text-primary, #f8fafc);
 }
 .payoff-header {
   display: flex;
@@ -25,18 +26,18 @@
   white-space: nowrap;
 }
 .payoff-zoom-controls {
-  border: 1px solid rgba(148, 163, 184, 0.35);
+  border: 1px solid var(--border-color, rgba(148, 163, 184, 0.35));
   border-radius: 6px;
   padding: 3px;
-  background: rgba(15, 23, 42, 0.65);
+  background: var(--bg-tertiary, rgba(15, 23, 42, 0.65));
 }
 .payoff-zoom-controls button {
   width: 28px;
   height: 28px;
   border: 1px solid rgba(56, 189, 248, 0.45);
   border-radius: 4px;
-  background: rgba(30, 41, 59, 0.9);
-  color: #e2e8f0;
+  background: var(--bg-secondary, rgba(30, 41, 59, 0.9));
+  color: var(--text-primary, #e2e8f0);
   font-weight: 700;
   line-height: 1;
 }
@@ -47,7 +48,7 @@
 .payoff-zoom-controls span {
   min-width: 48px;
   text-align: center;
-  color: #cbd5e1;
+  color: var(--text-secondary, #cbd5e1);
   font-size: 12px;
   font-weight: 600;
 }
@@ -61,5 +62,42 @@
 }
 .slider-labels span {
   font-size: 0.85rem;
-  color: #aaa;
+  color: var(--text-tertiary, #94a3b8);
+}
+
+body.dark-mode .options-payoff-container {
+  background: #182126;
+  border-color: #334155;
+  color: #f8fafc;
+}
+
+body.dark-mode .payoff-zoom-controls {
+  border-color: #475569;
+  background: #11191e;
+}
+
+body.dark-mode .payoff-zoom-controls button {
+  border-color: #475569;
+  background: #26343c;
+  color: #e2e8f0;
+}
+
+body.light-mode .options-payoff-container,
+body:not(.dark-mode) .options-payoff-container {
+  background: #ffffff;
+  border-color: #e2e8f0;
+  color: #1e293b;
+}
+
+body.light-mode .payoff-zoom-controls,
+body:not(.dark-mode) .payoff-zoom-controls {
+  border-color: #cbd5e1;
+  background: #f1f5f9;
+}
+
+body.light-mode .payoff-zoom-controls button,
+body:not(.dark-mode) .payoff-zoom-controls button {
+  border-color: #94a3b8;
+  background: #ffffff;
+  color: #334155;
 }

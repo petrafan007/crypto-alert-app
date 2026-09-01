@@ -127,6 +127,17 @@ The application utilizes a **unified PostgreSQL database**.
 
 Historical changelog entries retain the product name used when they were originally released. The application domain, repository slug, deployment folders, database, and service identifiers intentionally remain unchanged by the v2.45.0 brand update.
 
+## v2.72.0 (August 2026)
+
+- **Webull Position Consistency**:
+  - Excluded the synthetic cash balance from the Positions badge so the navigation count, filtered total, and visible security rows agree.
+  - Centered every Positions workspace column header while retaining appropriate alignment for the data cells.
+  - Scoped each order-ticket holdings table to its active asset class and added dedicated columns for equities and ETFs, crypto, options, futures, and event contracts. Open Orders remains independent and continues to show pending and working orders.
+- **Options Thesis and Payoff Display**:
+  - Added stable matrix column widths and usable horizontal overflow so scenario dates no longer compress together.
+  - Added thin, theme-aware horizontal and vertical scrollbars plus explicit light and dark matrix surfaces.
+  - Made the payoff chart panel, controls, axes, grid, ticks, and legend respond consistently to the active theme.
+
 ## v2.71.0 (August 2026)
 
 - **Webull Positions Workspace**:

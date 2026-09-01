@@ -88,7 +88,7 @@
   color: var(--text-secondary);
   font-size: 13px;
   font-weight: 800;
-  text-align: right;
+  text-align: center;
   cursor: pointer;
 }
 
@@ -108,7 +108,7 @@
 }
 
 .webull-positions-table th:first-child button {
-  text-align: left;
+  text-align: center;
 }
 
 .webull-positions-table tbody tr:hover td {

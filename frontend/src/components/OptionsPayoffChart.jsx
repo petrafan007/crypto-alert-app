@@ -65,6 +65,7 @@ export default function OptionsPayoffChart({
   optionType = 'PUT',
   action = 'BUY',
   onStrikeSelect,
+  isLightMode = false,
 }) {
   const [daysElapsed, setDaysElapsed] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
@@ -312,7 +313,10 @@ export default function OptionsPayoffChart({
                 type: 'linear',
                 min: minP,
                 max: maxP,
+                border: { color: isLightMode ? '#cbd5e1' : '#475569' },
+                grid: { color: isLightMode ? 'rgba(100, 116, 139, 0.18)' : 'rgba(148, 163, 184, 0.14)' },
                 ticks: {
+                  color: isLightMode ? '#475569' : '#cbd5e1',
                   autoSkip: true,
                   maxTicksLimit: 12,
                   precision: 2,
@@ -320,10 +324,13 @@ export default function OptionsPayoffChart({
                 },
               },
               y: {
-                grid: { color: (context) => context.tick.value === 0 ? '#aaa' : '#333' },
+                border: { color: isLightMode ? '#cbd5e1' : '#475569' },
+                grid: { color: (context) => context.tick.value === 0 ? (isLightMode ? '#64748b' : '#94a3b8') : (isLightMode ? 'rgba(100, 116, 139, 0.18)' : 'rgba(148, 163, 184, 0.14)') },
+                ticks: { color: isLightMode ? '#475569' : '#cbd5e1' },
               },
             },
             plugins: {
+              legend: { labels: { color: isLightMode ? '#334155' : '#e2e8f0' } },
               tooltip: {
                 callbacks: {
                   title: (items) => items.length ? `Underlying: $${Number(items[0].parsed.x).toFixed(2)}` : '',
