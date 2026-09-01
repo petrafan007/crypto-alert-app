@@ -127,6 +127,11 @@ The application utilizes a **unified PostgreSQL database**.
 
 Historical changelog entries retain the product name used when they were originally released. The application domain, repository slug, deployment folders, database, and service identifiers intentionally remain unchanged by the v2.45.0 brand update.
 
+## v2.73.9 (September 2026)
+
+- **Usable Mobile Event Ticket**:
+  - Reduces nested mobile ticket spacing so Event Contract filters, including the full Duration / Frequency value, retain a readable control width on narrow screens.
+
 ## v2.73.8 (September 2026)
 
 - **Fastest Relevant Series First**:

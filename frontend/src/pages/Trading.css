@@ -2794,6 +2794,27 @@ body.light-mode .event-payout-summary {
 body.light-mode .event-payout-summary strong { color: #166534; }
 
 @media (max-width: 760px) {
+  .trading-page {
+    padding: 8px;
+  }
+
+  .trading-content {
+    padding: 10px;
+  }
+
+  #webull-order-ticket-section {
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  .trading-order-panel {
+    padding: 14px;
+  }
+
+  .event-contract-card {
+    padding: 12px;
+  }
+
   .event-contract-selector-grid,
   .event-outcome-grid,
   .event-proposition-grid,
