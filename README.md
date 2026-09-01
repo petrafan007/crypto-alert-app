@@ -127,6 +127,12 @@ The application utilizes a **unified PostgreSQL database**.
 
 Historical changelog entries retain the product name used when they were originally released. The application domain, repository slug, deployment folders, database, and service identifiers intentionally remain unchanged by the v2.45.0 brand update.
 
+## v2.73.13 (September 2026)
+
+- **15-Minute Provider Symbol Compatibility**:
+  - Corrects the period decoder for Webull 15-minute series whose final symbol segment varies by listing. Any `15M` Event series now shows its actual 15-minute Eastern-time window, including live symbols such as `KXBTC15M-26SEP011030-30`.
+  - Retains timestamp cutoff parsing for non-15-minute Event symbols.
+
 ## v2.73.12 (September 2026)
 
 - **Explicit Intraday Event Periods**:

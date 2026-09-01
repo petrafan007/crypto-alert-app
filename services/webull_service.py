@@ -965,9 +965,12 @@ _EVENT_SYMBOL_MONTHS = {
 
 def _event_symbol_interval(value):
     """Parse a Webull 15-minute Event symbol into an explicit Eastern interval."""
+    symbol = str(value or '').strip().upper()
+    if not re.search(r'(?:^|-)[A-Z0-9]*15M-', symbol):
+        return None
     match = re.search(
-        r'-(\d{2})(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)(\d{2})(\d{2})(\d{2})-(15)(?:-|$)',
-        str(value or '').strip().upper(),
+        r'-(\d{2})(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)(\d{2})(\d{2})(\d{2})(?:-|$)',
+        symbol,
     )
     if not match:
         return None
@@ -980,11 +983,11 @@ def _event_symbol_interval(value):
             int(match.group(5)),
             tzinfo=ZoneInfo('America/New_York'),
         )
-        start = end - timedelta(minutes=int(match.group(6)))
+        start = end - timedelta(minutes=15)
         return {
             'start': start,
             'end': end,
-            'minutes': int(match.group(6)),
+            'minutes': 15,
         }
     except (KeyError, ValueError):
         return None
@@ -993,7 +996,25 @@ def _event_symbol_interval(value):
 def _event_symbol_cutoff(value):
     """Parse Webull's explicit Event-symbol cutoff in Eastern time."""
     interval = _event_symbol_interval(value)
-    return interval['end'].timestamp() if interval else 0.0
+    if interval:
+        return interval['end'].timestamp()
+    match = re.search(
+        r'-(\d{2})(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)(\d{2})(\d{2})(\d{2})(?:-|$)',
+        str(value or '').strip().upper(),
+    )
+    if not match:
+        return 0.0
+    try:
+        return datetime(
+            2000 + int(match.group(1)),
+            _EVENT_SYMBOL_MONTHS[match.group(2)],
+            int(match.group(3)),
+            int(match.group(4)),
+            int(match.group(5)),
+            tzinfo=ZoneInfo('America/New_York'),
+        ).timestamp()
+    except (KeyError, ValueError):
+        return 0.0
 
 
 def _event_market_cutoff_value(market):

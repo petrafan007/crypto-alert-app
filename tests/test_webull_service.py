@@ -2,6 +2,7 @@ import unittest
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
+from zoneinfo import ZoneInfo
 
 from flask import Flask
 from flask_login import LoginManager
@@ -36,6 +37,7 @@ from services.webull_service import (
     get_webull_event_catalog,
     get_webull_event_market,
     get_webull_event_markets,
+    _event_symbol_cutoff,
     _normalise_event_market,
     validate_webull_event_order_market,
 )
@@ -289,7 +291,7 @@ class WebullServiceTests(unittest.TestCase):
                     'yes_condition': 'Target price: TBD', 'price_ranges': [],
                 },
                 {
-                    'symbol': 'KXBTC15M-26SEP011030-15', 'name': 'BTC price up in next 15 mins?',
+                    'symbol': 'KXBTC15M-26SEP011030-30', 'name': 'BTC price up in next 15 mins?',
                     'series_symbol': 'KXBTC15M', 'category_code': 'CRYPTO', 'status': 'LISTING',
                     'tradable_status': 'OC', 'last_trading_date': '2026-09-01',
                     'yes_condition': 'Target Price: $77,995.70', 'price_ranges': [],
@@ -301,21 +303,25 @@ class WebullServiceTests(unittest.TestCase):
         with patch('services.webull_service.time.time', return_value=now), \
              patch('services.webull_service._targeted_webull_event_catalog', return_value=(catalog, [])), \
              patch('services.webull_service.get_webull_event_snapshots', return_value={
-                 'KXBTC15M-26SEP011030-15': {'symbol': 'KXBTC15M-26SEP011030-15', 'yes_ask': 0.48},
+                'KXBTC15M-26SEP011030-30': {'symbol': 'KXBTC15M-26SEP011030-30', 'yes_ask': 0.48},
              }) as snapshot_mock:
             result = get_webull_event_markets(
                 'a', 's', category_id='CRYPTO', query='btc', limit=1, progressive=True,
             )
 
-        self.assertEqual(snapshot_mock.call_args.kwargs['symbols'], ['KXBTC15M-26SEP011030-15'])
+        self.assertEqual(snapshot_mock.call_args.kwargs['symbols'], ['KXBTC15M-26SEP011030-30'])
         self.assertEqual(snapshot_mock.call_count, 1)
-        self.assertEqual([item['symbol'] for item in result['markets']], ['KXBTC15M-26SEP011030-15'])
+        self.assertEqual([item['symbol'] for item in result['markets']], ['KXBTC15M-26SEP011030-30'])
 
         normalized = _normalise_event_market(catalog['markets'][1], {'KXBTC15M': 'CRYPTO'})
         self.assertEqual(normalized['contract_period_start'], '2026-09-01T10:15:00-04:00')
         self.assertEqual(normalized['contract_period_end'], '2026-09-01T10:30:00-04:00')
         self.assertEqual(normalized['contract_period_minutes'], 15)
         self.assertFalse(normalized['condition_pending'])
+        self.assertEqual(
+            _event_symbol_cutoff('KXBTC-26SEP011030-30'),
+            datetime(2026, 9, 1, 10, 30, tzinfo=ZoneInfo('America/New_York')).timestamp(),
+        )
 
     def test_event_discovery_excludes_future_and_liquidate_only_markets_before_snapshots(self):
         now = datetime.now(timezone.utc).timestamp()
