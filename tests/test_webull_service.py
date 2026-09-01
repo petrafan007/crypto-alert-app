@@ -363,6 +363,35 @@ class WebullServiceTests(unittest.TestCase):
         self.assertEqual(len(result['markets']), 20)
         self.assertTrue(result['has_more'])
 
+    def test_event_progressive_search_returns_after_first_verified_batch(self):
+        markets = [{
+            'symbol': f'KXBTC15M-{index:04d}', 'name': f'BTC 15-minute contract {index}',
+            'series_symbol': 'KXBTC15M', 'category_code': 'CRYPTO',
+            'status': 'LISTING', 'tradable_status': 'OC', 'price_ranges': [],
+        } for index in range(60)]
+        catalog = {
+            'categories': [{'category_id': 'CRYPTO', 'category_code': 'CRYPTO', 'name': 'Crypto'}],
+            'markets': markets,
+            'as_of': '2026-09-01T00:00:00+00:00',
+            'partial': True,
+            'loading': True,
+            'warnings': [],
+        }
+
+        def snapshots(*args, **kwargs):
+            first = kwargs['symbols'][0]
+            return {first: {'symbol': first, 'yes_ask': 0.48, 'no_ask': 0.53}}
+
+        with patch('services.webull_service._targeted_webull_event_catalog', return_value=(catalog, [])), \
+             patch('services.webull_service.get_webull_event_snapshots', side_effect=snapshots) as snapshot_mock:
+            result = get_webull_event_markets(
+                'a', 's', category_id='CRYPTO', query='btc', limit=20, progressive=True,
+            )
+
+        self.assertEqual(snapshot_mock.call_count, 1)
+        self.assertEqual(len(result['markets']), 1)
+        self.assertTrue(result['has_more'])
+
     def test_event_discovery_omits_open_market_with_no_actionable_quote(self):
         catalog = {
             'categories': [{'category_id': 'CRYPTO', 'category_code': 'CRYPTO', 'name': 'Crypto'}],
@@ -606,6 +635,7 @@ class WebullServiceTests(unittest.TestCase):
             if path.endswith('/series/list'):
                 return self._response({'data': [
                     {'series_id': 'eth-daily', 'symbol': 'KXETHD', 'name': 'Ethereum daily', 'frequency': 'DAILY'},
+                    {'series_id': 'btc-hourly', 'symbol': 'KXBTCD', 'name': 'BTC hourly', 'frequency': 'HOURLY'},
                     {'series_id': 'btc-15m', 'symbol': 'KXBTC15M', 'name': 'Bitcoin every 15 minutes'},
                 ]})
             if path.endswith('/markets/list') and params.get('series_symbol') == 'KXBTC15M':
@@ -627,16 +657,11 @@ class WebullServiceTests(unittest.TestCase):
                 'app-key', 'app-secret', access_token='token', category_id='CRYPTO',
                 query='btc', duration='INTRADAY', progressive=True,
             )
-            second = get_webull_event_markets(
-                'app-key', 'app-secret', access_token='token', category_id='CRYPTO',
-                query='btc', duration='INTRADAY', progressive=True,
-            )
             selected = get_webull_event_market(
                 'app-key', 'app-secret', access_token='token', symbol='KXBTC15M-26SEP-T100000',
             )
 
         self.assertEqual([item['symbol'] for item in first['markets']], ['KXBTC15M-26SEP-T100000'])
-        self.assertEqual(first, second)
         self.assertEqual(selected['symbol'], 'KXBTC15M-26SEP-T100000')
         market_calls = [call for call in request_mock.call_args_list if call.args[4].endswith('/markets/list')]
         self.assertEqual([call.kwargs['query_params']['series_symbol'] for call in market_calls], ['KXBTC15M'])

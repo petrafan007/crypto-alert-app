@@ -127,6 +127,11 @@ The application utilizes a **unified PostgreSQL database**.
 
 Historical changelog entries retain the product name used when they were originally released. The application domain, repository slug, deployment folders, database, and service identifiers intentionally remain unchanged by the v2.45.0 brand update.
 
+## v2.73.8 (September 2026)
+
+- **Fastest Relevant Series First**:
+  - Prioritizes matching 15-minute and hourly Series ahead of longer-cadence Series before alphabetical ordering, so a broad search such as `btc` returns the active short-duration contracts before scanning hundreds of hourly threshold rows.
+
 ## v2.73.7 (September 2026)
 
 - **Current Intraday Contract Prioritization**:

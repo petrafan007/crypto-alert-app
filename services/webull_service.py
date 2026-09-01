@@ -1785,14 +1785,24 @@ def _targeted_webull_event_catalog(
             'warnings': [],
         }, duration_options
     candidates = [item for item in series if _event_duration_matches(item, duration)]
+    duration_priority = {value: index for index, value in enumerate(_EVENT_DURATION_ORDER)}
     if query:
         scored = [(_event_query_match_count(item, query), item) for item in candidates]
         matching = [(score, item) for score, item in scored if score]
         if matching:
             candidates = [item for _, item in sorted(
                 matching,
-                key=lambda value: (-value[0], str(value[1].get('series_name') or '').casefold()),
+                key=lambda value: (
+                    -value[0],
+                    duration_priority.get(_event_market_duration(value[1]), len(duration_priority)),
+                    str(value[1].get('series_name') or '').casefold(),
+                ),
             )]
+    else:
+        candidates.sort(key=lambda item: (
+            duration_priority.get(_event_market_duration(item), len(duration_priority)),
+            str(item.get('series_name') or '').casefold(),
+        ))
 
     principal = _webull_event_principal(app_key, environment, access_token)
     markets = []
@@ -1988,7 +1998,7 @@ def get_webull_event_markets(
             value.update(snapshot or {})
             value['rules'] = _event_market_rules(value)
             enriched.append(value)
-        if clean_symbol or len(enriched) >= result_limit:
+        if clean_symbol or len(enriched) >= result_limit or (progressive and enriched):
             break
 
     verified_matches = len(enriched)
