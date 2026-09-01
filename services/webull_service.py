@@ -44,6 +44,8 @@ WEBULL_EVENT_DISCOVERY_MIN_INTERVAL_SECONDS = 2.05
 WEBULL_EVENT_DISCOVERY_RETRY_DELAYS_SECONDS = (0.75, 1.5, 3.0, 6.0)
 WEBULL_EVENT_INITIAL_SERIES_LIMIT = 3
 WEBULL_EVENT_INITIAL_MARKET_TARGET = 25
+WEBULL_EVENT_MARKET_SNAPSHOT_BATCH_SIZE = 100
+WEBULL_EVENT_MARKET_SNAPSHOT_BATCH_LIMIT = 4
 
 # Webull's category-list response can include display taxonomies that the
 # series endpoint does not accept. These are the finite category codes Webull
@@ -1540,7 +1542,13 @@ def get_webull_event_markets(
     if not force:
         with _WEBULL_EVENT_CACHE_LOCK:
             cached_result = _WEBULL_EVENT_MARKET_RESULT_CACHE.get(result_cache_key)
-            if cached_result and time.time() - cached_result[0] < WEBULL_EVENT_MARKET_RESULT_TTL_SECONDS:
+            if (
+                cached_result
+                and not cached_result[1].get('partial')
+                and not cached_result[1].get('loading')
+                and not cached_result[1].get('has_more')
+                and time.time() - cached_result[0] < WEBULL_EVENT_MARKET_RESULT_TTL_SECONDS
+            ):
                 return json.loads(json.dumps(cached_result[1]))
     category_by_id = {
         str(item.get('category_id') or '').upper(): str(item.get('category_code') or '').upper()
@@ -1571,19 +1579,23 @@ def get_webull_event_markets(
         result = {
             'markets': [],
             'total_matches': 0,
+            'catalog_matches': 0,
+            'verified_matches': 0,
+            'has_more': bool(catalog.get('loading')),
             'catalog_as_of': catalog['as_of'],
             'partial': bool(catalog.get('partial')),
             'loading': bool(catalog.get('loading')),
             'message': ('Loading additional Webull contracts; results will update automatically.'
                         if catalog.get('loading') else
                         'Some Webull series are temporarily unavailable; showing the results currently available.'
-                        if catalog.get('partial') else ''),
+                        if catalog.get('partial') else
+                        'No current Webull Event Contracts match this category and search.'),
+            'status': ('loading' if catalog.get('loading') else
+                       'partial' if catalog.get('partial') else 'no_catalog_matches'),
         }
-        with _WEBULL_EVENT_CACHE_LOCK:
-            _WEBULL_EVENT_MARKET_RESULT_CACHE[result_cache_key] = (time.time(), result)
         return result
 
-    total_matches = len(markets)
+    catalog_matches = len(markets)
     if clean_query:
         def static_relevance(item):
             symbol_value = str(item.get('symbol') or '').casefold()
@@ -1596,36 +1608,74 @@ def get_webull_event_markets(
         markets.sort(key=_event_market_static_sort_key)
 
     # Webull accepts at most 100 Event Contract symbols per snapshot request.
-    # Enriching a bounded, already-filtered group prevents a 700+ result search
-    # from making eight serialized provider calls before the browser sees ten.
-    candidate_limit = min(len(markets), max(result_limit * 2, 20), 100)
-    candidates = markets[:candidate_limit]
+    # Continue through a safe number of batches when early candidates lack live
+    # quotes, rather than presenting an empty selector for an otherwise usable
+    # catalog. The response explicitly identifies when this bounded scan did
+    # not verify every static catalog candidate.
     partial = bool(catalog.get('partial'))
-    snapshot_lookup_succeeded = True
-    try:
-        snapshots = get_webull_event_snapshots(
-            app_key, app_secret, environment, access_token,
-            symbols=[item['symbol'] for item in candidates],
-        )
-    except WebullConnectionError as exc:
-        logger.warning('Webull Event snapshot enrichment unavailable: %s', exc)
-        snapshots = {}
-        partial = True
-        snapshot_lookup_succeeded = False
     enriched = []
-    for market in candidates:
-        value = dict(market)
-        snapshot = snapshots.get(market['symbol'])
-        # Exact-symbol access must keep an owned CO/NT contract inspectable.
-        # Discovery rows with a successful but empty/zero snapshot are not
-        # immediately actionable and should not appear as disabled duplicates.
-        if not clean_symbol and snapshot_lookup_succeeded and not _event_snapshot_has_actionable_quote(snapshot):
-            continue
-        value.update(snapshot or {})
-        value['rules'] = _event_market_rules(value)
-        enriched.append(value)
-    if snapshot_lookup_succeeded and total_matches <= candidate_limit:
-        total_matches = len(enriched)
+    scanned_candidates = 0
+    snapshot_error = None
+    snapshot_batches = 0
+    batch_size = WEBULL_EVENT_MARKET_SNAPSHOT_BATCH_SIZE
+    for start in range(0, len(markets), batch_size):
+        if snapshot_batches >= WEBULL_EVENT_MARKET_SNAPSHOT_BATCH_LIMIT:
+            break
+        candidates = markets[start:start + batch_size]
+        if not candidates:
+            break
+        snapshot_batches += 1
+        scanned_candidates += len(candidates)
+        try:
+            snapshots = get_webull_event_snapshots(
+                app_key, app_secret, environment, access_token,
+                symbols=[item['symbol'] for item in candidates],
+            )
+        except WebullConnectionError as exc:
+            snapshot_error = str(exc)
+            logger.warning('Webull Event snapshot enrichment unavailable: %s', exc)
+            partial = True
+            break
+        for market in candidates:
+            value = dict(market)
+            snapshot = snapshots.get(market['symbol'])
+            # Exact-symbol access must keep an owned CO/NT contract inspectable.
+            # Discovery rows with an empty/zero snapshot are not actionable and
+            # must not appear as disabled new-position choices.
+            if not clean_symbol and not _event_snapshot_has_actionable_quote(snapshot):
+                continue
+            value.update(snapshot or {})
+            value['rules'] = _event_market_rules(value)
+            enriched.append(value)
+        if clean_symbol or len(enriched) >= result_limit:
+            break
+
+    verified_matches = len(enriched)
+    has_more = bool(catalog.get('loading')) or scanned_candidates < catalog_matches
+    if has_more:
+        partial = True
+    if snapshot_error:
+        snapshot_status = 'rate_limited' if re.search(r'\b429\b|rate.limit', snapshot_error, re.IGNORECASE) else 'snapshot_error'
+        message = (
+            'Webull rate-limited live Event Contract quotes. Showing verified contracts found so far; try again shortly.'
+            if snapshot_status == 'rate_limited' else
+            'Webull could not verify live Event Contract quotes. Showing verified contracts found so far; try again shortly.'
+        )
+    elif not enriched:
+        snapshot_status = 'no_live_quotes'
+        message = 'Webull returned no live quotes for the available Event Contracts. Try again shortly.'
+    elif catalog.get('loading'):
+        snapshot_status = 'loading'
+        message = 'Loading additional Webull contracts; verified results will update automatically.'
+    elif has_more:
+        snapshot_status = 'partial'
+        message = 'Showing verified live contracts from a bounded Webull quote scan. Refine the search or try again shortly.'
+    elif catalog.get('partial'):
+        snapshot_status = 'partial'
+        message = 'Some Webull series or live rankings are temporarily unavailable; showing verified contracts currently available.'
+    else:
+        snapshot_status = 'ready'
+        message = ''
 
     if clean_query:
         def relevance(item):
@@ -1646,17 +1696,21 @@ def get_webull_event_markets(
         )
     result = {
         'markets': enriched[:result_limit],
-        'total_matches': total_matches,
+        # Retained for existing clients. Unlike the catalog count, this number
+        # is always based only on contracts with verified actionable quotes.
+        'total_matches': verified_matches,
+        'catalog_matches': catalog_matches,
+        'verified_matches': verified_matches,
+        'has_more': has_more,
         'catalog_as_of': catalog['as_of'],
         'partial': partial,
-        'loading': bool(catalog.get('loading')),
-        'message': ('Loading additional Webull contracts; results will update automatically.'
-                    if catalog.get('loading') else
-                    'Some Webull series or live rankings are temporarily unavailable; showing the results currently available.'
-                    if partial else ''),
+        'loading': bool(catalog.get('loading')) and not snapshot_error,
+        'message': message,
+        'status': snapshot_status,
     }
-    with _WEBULL_EVENT_CACHE_LOCK:
-        _WEBULL_EVENT_MARKET_RESULT_CACHE[result_cache_key] = (time.time(), result)
+    if not partial and not result['loading'] and not has_more:
+        with _WEBULL_EVENT_CACHE_LOCK:
+            _WEBULL_EVENT_MARKET_RESULT_CACHE[result_cache_key] = (time.time(), result)
     return json.loads(json.dumps(result))
 
 

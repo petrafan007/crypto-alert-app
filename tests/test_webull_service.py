@@ -139,7 +139,7 @@ class WebullServiceTests(unittest.TestCase):
         self.assertEqual([item['symbol'] for item in result['markets']], ['BTC-CURRENT'])
         self.assertEqual(snapshot_mock.call_args.kwargs['symbols'], ['BTC-CURRENT'])
 
-    def test_event_search_enriches_at_most_one_provider_batch(self):
+    def test_event_search_reports_verified_count_when_bounded_scan_has_more_candidates(self):
         markets = [{
             'symbol': f'KXBTC-{index:04d}', 'name': f'BTC contract {index}',
             'category_code': 'CRYPTO', 'status': 'LISTING', 'tradable_status': 'OC',
@@ -164,7 +164,10 @@ class WebullServiceTests(unittest.TestCase):
              patch('services.webull_service.get_webull_event_snapshots', side_effect=snapshots) as snapshot_mock:
             result = get_webull_event_markets('a', 's', category_id='CRYPTO', query='btc', limit=50)
 
-        self.assertEqual(result['total_matches'], 732)
+        self.assertEqual(result['catalog_matches'], 732)
+        self.assertEqual(result['verified_matches'], 100)
+        self.assertEqual(result['total_matches'], 100)
+        self.assertTrue(result['has_more'])
         self.assertEqual(len(result['markets']), 50)
         self.assertEqual(snapshot_mock.call_count, 1)
 
@@ -185,6 +188,75 @@ class WebullServiceTests(unittest.TestCase):
 
         self.assertEqual(result['markets'], [])
         self.assertEqual(result['total_matches'], 0)
+        self.assertEqual(result['verified_matches'], 0)
+        self.assertEqual(result['status'], 'no_live_quotes')
+        self.assertIn('no live quotes', result['message'].lower())
+
+    def test_event_discovery_never_labels_unquoted_catalog_records_as_matches(self):
+        catalog = {
+            'categories': [{'category_id': 'CRYPTO', 'category_code': 'CRYPTO', 'name': 'Crypto'}],
+            'markets': [{
+                'symbol': f'KXBTC-{index:03d}', 'name': f'BTC contract {index}',
+                'category_code': 'CRYPTO', 'status': 'LISTING', 'tradable_status': 'OC', 'price_ranges': [],
+            } for index in range(288)],
+            'as_of': '2026-09-01T00:00:00+00:00', 'partial': False, 'loading': False,
+        }
+        with patch('services.webull_service.get_webull_event_catalog', return_value=catalog), \
+             patch('services.webull_service.get_webull_event_snapshots', return_value={}):
+            result = get_webull_event_markets('a', 's', category_id='CRYPTO', query='btc')
+
+        self.assertEqual(result['catalog_matches'], 288)
+        self.assertEqual(result['verified_matches'], 0)
+        self.assertEqual(result['total_matches'], 0)
+        self.assertEqual(result['markets'], [])
+
+    def test_event_discovery_checks_later_snapshot_batch_after_empty_first_batch(self):
+        catalog = {
+            'categories': [{'category_id': 'CRYPTO', 'category_code': 'CRYPTO', 'name': 'Crypto'}],
+            'markets': [{
+                'symbol': f'KXBTC-{index:03d}', 'name': f'BTC contract {index:03d}',
+                'category_code': 'CRYPTO', 'status': 'LISTING', 'tradable_status': 'OC', 'price_ranges': [],
+            } for index in range(120)],
+            'as_of': '2026-09-01T00:00:00+00:00', 'partial': False, 'loading': False,
+        }
+
+        def snapshots(*args, **kwargs):
+            symbols = kwargs['symbols']
+            return {
+                symbol: {'symbol': symbol, 'yes_ask': 0.48, 'no_ask': 0.53}
+                for symbol in symbols if int(symbol.rsplit('-', 1)[1]) >= 100
+            }
+
+        with patch('services.webull_service.get_webull_event_catalog', return_value=catalog), \
+             patch('services.webull_service.get_webull_event_snapshots', side_effect=snapshots) as snapshot_mock:
+            result = get_webull_event_markets('a', 's', category_id='CRYPTO', query='btc', limit=20)
+
+        self.assertEqual(snapshot_mock.call_count, 2)
+        self.assertEqual([item['symbol'] for item in result['markets']], [f'KXBTC-{index:03d}' for index in range(100, 120)])
+        self.assertEqual(result['verified_matches'], 20)
+        self.assertFalse(result['has_more'])
+
+    def test_event_snapshot_rate_limit_returns_truthful_partial_status(self):
+        catalog = {
+            'categories': [{'category_id': 'CRYPTO', 'category_code': 'CRYPTO', 'name': 'Crypto'}],
+            'markets': [{
+                'symbol': 'KXBTC-ONE', 'name': 'BTC contract', 'category_code': 'CRYPTO',
+                'status': 'LISTING', 'tradable_status': 'OC', 'price_ranges': [],
+            }],
+            'as_of': '2026-09-01T00:00:00+00:00', 'partial': False, 'loading': False,
+        }
+        with patch('services.webull_service.get_webull_event_catalog', return_value=catalog), \
+             patch(
+                 'services.webull_service.get_webull_event_snapshots',
+                 side_effect=WebullConnectionError('event market snapshot request failed with HTTP 429'),
+             ):
+            result = get_webull_event_markets('a', 's', category_id='CRYPTO', query='btc')
+
+        self.assertEqual(result['status'], 'rate_limited')
+        self.assertTrue(result['partial'])
+        self.assertFalse(result['loading'])
+        self.assertEqual(result['verified_matches'], 0)
+        self.assertIn('rate-limited', result['message'])
 
     def test_exact_event_position_lookup_keeps_liquidate_only_market(self):
         symbol = 'KXBTC15M-26SEP010015-15'

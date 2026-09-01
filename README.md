@@ -4,7 +4,7 @@
 
 **URL: https://csdapp.online**
 
-**Last Updated**: August 2026
+**Last Updated**: September 2026
 
 ## 🚀 Key Features & Capabilities
 
@@ -126,6 +126,14 @@ The application utilizes a **unified PostgreSQL database**.
 ## Version History & Changelog
 
 Historical changelog entries retain the product name used when they were originally released. The application domain, repository slug, deployment folders, database, and service identifiers intentionally remain unchanged by the v2.45.0 brand update.
+
+## v2.73.1 (September 2026)
+
+- **Event Contract Catalog Recovery**:
+  - Corrected Event Contract result counts so the selector reports only contracts with verified actionable live quotes, while exposing separate catalog and verification progress metadata for bounded scans.
+  - Continued quote validation through later bounded batches when early catalog rows are unquoted, with truthful no-live-quote and provider-rate-limit states instead of an empty selector labeled with the raw catalog count.
+  - Replaced the one-shot catalog refresh with cancellable, bounded backoff polling. Searches now debounce longer and abort stale requests, existing valid results remain visible during progressive loading, and the UI gives a clear retry message if catalog completion cannot be confirmed.
+  - Retained exact-symbol lookup for owned closing-only and non-tradable Event Contract positions; this hotfix does not alter order placement behavior.
 
 ## v2.73.0 (September 2026)
 

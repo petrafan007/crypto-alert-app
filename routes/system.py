@@ -2749,7 +2749,17 @@ def api_webull_event_markets():
                 environment, credential.webull_access_token,
                 symbol=symbol, force=False,
             )
-            result = {'markets': [market], 'total_matches': 1, 'catalog_as_of': market.get('quote_as_of')}
+            result = {
+                'markets': [market],
+                'total_matches': 1,
+                'catalog_matches': 1,
+                'verified_matches': 1,
+                'has_more': False,
+                'partial': False,
+                'loading': False,
+                'status': 'exact_market',
+                'catalog_as_of': market.get('quote_as_of'),
+            }
         else:
             result = get_webull_event_markets(
                 credential.webull_app_key, credential.webull_app_secret,
