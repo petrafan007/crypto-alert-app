@@ -935,12 +935,19 @@ def _event_bool(value):
     return str(value or '').strip().lower() in {'1', 'true', 'yes', 'y'}
 
 
-def _event_time_sort_value(value):
+def _event_time_sort_value(value, *, end_of_day=False):
     numeric = _event_number(value)
     if numeric is not None:
         return numeric / 1000 if numeric > 100000000000 else numeric
     try:
-        return datetime.fromisoformat(str(value or '').replace('Z', '+00:00')).timestamp()
+        clean_value = str(value or '').strip()
+        parsed = datetime.fromisoformat(clean_value.replace('Z', '+00:00'))
+        if end_of_day and re.fullmatch(r'\d{4}-\d{2}-\d{2}', clean_value):
+            parsed = parsed.replace(
+                hour=23, minute=59, second=59, microsecond=999999,
+                tzinfo=ZoneInfo('America/New_York'),
+            )
+        return parsed.timestamp()
     except (TypeError, ValueError):
         return 0.0
 
@@ -954,12 +961,65 @@ def _event_first_value(raw, *keys):
     return None
 
 
+_EVENT_SEARCH_FIELDS = (
+    'symbol', 'name', 'event_symbol', 'event_name', 'series_symbol',
+    'series_name', 'yes_condition', 'display_condition', 'description',
+    'underlying_symbol', 'underlying_name',
+)
+_EVENT_SEARCH_STOP_WORDS = {
+    'a', 'an', 'are', 'at', 'by', 'does', 'for', 'in', 'is', 'of', 'on',
+    'the', 'to', 'will', 'within',
+}
+_EVENT_SEARCH_NUMBER_WORDS = {
+    'one': '1', 'two': '2', 'three': '3', 'four': '4', 'five': '5',
+    'six': '6', 'seven': '7', 'eight': '8', 'nine': '9', 'ten': '10',
+    'eleven': '11', 'twelve': '12', 'thirteen': '13', 'fourteen': '14',
+    'fifteen': '15', 'sixteen': '16', 'seventeen': '17', 'eighteen': '18',
+    'nineteen': '19', 'twenty': '20', 'thirty': '30', 'forty': '40',
+    'fifty': '50', 'sixty': '60',
+}
+_EVENT_SEARCH_ALIASES = {
+    'bitcoin': 'btc', 'ethereum': 'eth', 'ripple': 'xrp', 'solana': 'sol',
+    'mins': 'minute', 'min': 'minute', 'minutes': 'minute',
+    'hrs': 'hour', 'hr': 'hour', 'hours': 'hour',
+    'days': 'day', 'weeks': 'week', 'months': 'month',
+}
+
+
+def _event_search_tokens(value):
+    """Normalize natural-language and compact provider terms for catalog search."""
+    text = str(value or '').casefold()
+    text = re.sub(r'(?<=\d)\s*(?:minutes?|mins?|min|m)\b', ' minute ', text)
+    text = re.sub(r'(?<=\d)\s*(?:hours?|hrs?|hr|h)\b', ' hour ', text)
+    return {
+        _EVENT_SEARCH_NUMBER_WORDS.get(token, _EVENT_SEARCH_ALIASES.get(token, token))
+        for token in re.findall(r'[a-z]+|\d+(?:\.\d+)?', text)
+        if token not in _EVENT_SEARCH_STOP_WORDS
+    }
+
+
+def _event_market_matches_query(market, query):
+    """Require every meaningful query concept anywhere in the market metadata."""
+    query_tokens = _event_search_tokens(query)
+    if not query_tokens:
+        return True
+    document_tokens = set()
+    for field in _EVENT_SEARCH_FIELDS:
+        document_tokens.update(_event_search_tokens(market.get(field)))
+    return all(
+        token in document_tokens
+        or (not token[0].isdigit() and any(candidate.startswith(token) for candidate in document_tokens))
+        for token in query_tokens
+    )
+
+
 def _event_market_is_discoverable(market):
     """Only markets open for new positions belong in discovery/search results."""
     now = time.time()
     open_time = _event_time_sort_value(market.get('open_date'))
     cutoff_time = _event_time_sort_value(
-        market.get('last_trading_date') or market.get('expected_exp_date') or market.get('latest_exp_date')
+        market.get('last_trading_date') or market.get('expected_exp_date') or market.get('latest_exp_date'),
+        end_of_day=True,
     )
     return (
         str(market.get('status') or '').strip().upper() in {'', 'LISTING'}
@@ -985,7 +1045,8 @@ def _event_snapshot_has_actionable_quote(snapshot):
 def _event_market_static_sort_key(market):
     """Prefer contracts with the nearest future cutoff before live enrichment."""
     cutoff = _event_time_sort_value(
-        market.get('last_trading_date') or market.get('expected_exp_date') or market.get('latest_exp_date')
+        market.get('last_trading_date') or market.get('expected_exp_date') or market.get('latest_exp_date'),
+        end_of_day=True,
     )
     now = time.time()
     future_cutoff = cutoff if cutoff >= now else float('inf')
@@ -1567,14 +1628,7 @@ def get_webull_event_markets(
         # markets never inflate search counts or expose disabled Yes/No rows.
         markets = [item for item in markets if _event_market_is_discoverable(item)]
     if clean_query:
-        fields = (
-            'symbol', 'name', 'event_symbol', 'event_name', 'series_symbol',
-            'series_name', 'yes_condition', 'display_condition',
-        )
-        markets = [
-            item for item in markets
-            if any(clean_query in str(item.get(field) or '').casefold() for field in fields)
-        ]
+        markets = [item for item in markets if _event_market_matches_query(item, clean_query)]
     if not markets:
         result = {
             'markets': [],

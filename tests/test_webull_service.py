@@ -113,6 +113,67 @@ class WebullServiceTests(unittest.TestCase):
         self.assertEqual(by_symbol['markets'][0]['symbol'], 'KXCPI-TWO')
         self.assertEqual(by_condition['markets'][0]['symbol'], 'KXCPI-TWO')
 
+    def test_event_search_matches_natural_language_terms_across_market_fields(self):
+        catalog = {
+            'categories': [{'category_id': 'CRYPTO', 'category_code': 'CRYPTO', 'name': 'Crypto'}],
+            'markets': [
+                {
+                    'symbol': 'KXBTC15M-26SEP011215-15', 'name': 'Bitcoin price up?',
+                    'event_name': 'BTC Up or Down - 15 minutes',
+                    'series_name': 'Bitcoin Up or Down-15minutes',
+                    'category_code': 'CRYPTO', 'tradable_status': 'OC', 'price_ranges': [],
+                },
+                {
+                    'symbol': 'KXBTCD-26SEP04', 'name': 'Bitcoin price on Sep 4?',
+                    'series_name': 'Bitcoin price above/below',
+                    'category_code': 'CRYPTO', 'tradable_status': 'OC', 'price_ranges': [],
+                },
+                {
+                    'symbol': 'KXETH15M-26SEP011215-15', 'name': 'Ethereum price up?',
+                    'event_name': 'ETH Up or Down - 15 mins',
+                    'category_code': 'CRYPTO', 'tradable_status': 'OC', 'price_ranges': [],
+                },
+            ],
+            'as_of': '2026-09-01T00:00:00+00:00', 'partial': False, 'loading': False,
+        }
+        snapshots = {
+            'KXBTC15M-26SEP011215-15': {
+                'symbol': 'KXBTC15M-26SEP011215-15', 'yes_ask': 0.48, 'no_ask': 0.53,
+            },
+        }
+        with patch('services.webull_service.get_webull_event_catalog', return_value=catalog), \
+             patch('services.webull_service.get_webull_event_snapshots', return_value=snapshots):
+            result = get_webull_event_markets(
+                'a', 's', category_id='CRYPTO', query='Bitcoin fifteen minutes', limit=50,
+            )
+
+        self.assertEqual(result['catalog_matches'], 1)
+        self.assertEqual([item['symbol'] for item in result['markets']], ['KXBTC15M-26SEP011215-15'])
+
+    def test_event_discovery_treats_date_only_close_as_end_of_trading_day(self):
+        catalog = {
+            'categories': [{'category_id': 'CRYPTO', 'category_code': 'CRYPTO', 'name': 'Crypto'}],
+            'markets': [{
+                'symbol': 'KXBTC15M-CURRENT', 'name': 'Bitcoin price up in next 15 mins?',
+                'series_name': 'Bitcoin Up or Down-15minutes', 'category_code': 'CRYPTO',
+                'status': 'LISTING', 'tradable_status': 'OC', 'last_trading_date': '2026-09-01',
+                'price_ranges': [],
+            }],
+            'as_of': '2026-09-01T12:00:00+00:00', 'partial': False, 'loading': False,
+        }
+        snapshots = {
+            'KXBTC15M-CURRENT': {'symbol': 'KXBTC15M-CURRENT', 'yes_ask': 0.48, 'no_ask': 0.53},
+        }
+        midday = datetime(2026, 9, 1, 16, 0, tzinfo=timezone.utc).timestamp()
+        with patch('services.webull_service.time.time', return_value=midday), \
+             patch('services.webull_service.get_webull_event_catalog', return_value=catalog), \
+             patch('services.webull_service.get_webull_event_snapshots', return_value=snapshots):
+            result = get_webull_event_markets(
+                'a', 's', category_id='CRYPTO', query='bitcoin fifteen minutes', limit=50,
+            )
+
+        self.assertEqual([item['symbol'] for item in result['markets']], ['KXBTC15M-CURRENT'])
+
     def test_event_discovery_excludes_future_and_liquidate_only_markets_before_snapshots(self):
         now = datetime.now(timezone.utc).timestamp()
         catalog = {

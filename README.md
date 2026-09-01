@@ -127,6 +127,15 @@ The application utilizes a **unified PostgreSQL database**.
 
 Historical changelog entries retain the product name used when they were originally released. The application domain, repository slug, deployment folders, database, and service identifiers intentionally remain unchanged by the v2.45.0 brand update.
 
+## v2.73.2 (September 2026)
+
+- **Natural-Language Event Contract Search**:
+  - Changed Event Contract search from one contiguous substring to all-term matching across the contract symbol, title, event, series, condition, description, and underlying metadata.
+  - Normalized common asset and duration aliases, so searches such as `Bitcoin fifteen minutes`, `BTC 15 min`, and `bitcoin 15m` locate the same relevant contracts without requiring exact provider wording.
+- **Same-Day Rotating Contract Eligibility**:
+  - Interpreted provider date-only trading cutoffs as the end of that Eastern trading day rather than midnight. Intraday contracts prelisted for later the same day are now eligible for live-quote verification, while exact timestamp cutoffs and future/expired protections remain unchanged.
+  - Kept the selector focused on contracts with actionable live quotes; no automatic contract selection or order behavior changed.
+
 ## v2.73.1 (September 2026)
 
 - **Event Contract Catalog Recovery**:
