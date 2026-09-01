@@ -127,6 +127,13 @@ The application utilizes a **unified PostgreSQL database**.
 
 Historical changelog entries retain the product name used when they were originally released. The application domain, repository slug, deployment folders, database, and service identifiers intentionally remain unchanged by the v2.45.0 brand update.
 
+## v2.74.7 (September 2026)
+
+- **Prompt Intraday Event Contract Rollovers**:
+  - Cached 15-minute and hourly Event Contract series now expire at their latest contract cutoff instead of remaining stale for the normal 30-minute catalog window.
+  - An active Event Contract search automatically retries every 10 seconds. When Webull has listed a new cycle but has not yet published a positive live quote, that unquoted response is retried on the same interval rather than keeping the selector empty for 30 seconds.
+  - Orders remain unavailable until Webull reports an actionable quote and tradable status; the change improves discovery timing without weakening execution checks.
+
 ## v2.74.6 (September 2026)
 
 - **Immediate Event Price Change History**:

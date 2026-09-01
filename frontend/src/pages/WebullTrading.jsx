@@ -1597,6 +1597,13 @@ export default function WebullTrading({ isLightMode = false }) {
   }, [selectedInstrumentType, selectedEventCategory]);
 
   useEffect(() => {
+    if (selectedInstrumentType !== 'EVENT' || !eventSearchSubmitted || !eventMarketQuery.trim()) return undefined;
+    const refreshActiveSearch = () => loadEventMarkets({ query: eventMarketQuery });
+    const interval = window.setInterval(refreshActiveSearch, 10000);
+    return () => window.clearInterval(interval);
+  }, [selectedInstrumentType, selectedEventCategory, eventDuration, eventSearchSubmitted, eventMarketQuery]);
+
+  useEffect(() => {
     if (selectedInstrumentType !== 'EVENT' || !eventUnderlyingQuote) {
       setEventUnderlyingPriceHistory([]);
       setEventUnderlyingHistorySource('');

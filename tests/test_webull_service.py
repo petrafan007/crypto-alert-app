@@ -8,6 +8,9 @@ from flask import Flask
 from flask_login import LoginManager
 
 from services.webull_service import (
+    _WEBULL_EVENT_SERIES_MARKET_CACHE,
+    _WEBULL_EVENT_CACHE_LOCK,
+    _cached_webull_event_series_markets,
     _normalise_option_snapshot_record,
     WebullConnectionError,
     check_webull_access_token,
@@ -38,6 +41,7 @@ from services.webull_service import (
     get_webull_event_market,
     get_webull_event_markets,
     _event_symbol_cutoff,
+    _webull_event_principal,
     _normalise_event_market,
     _normalise_event_snapshot,
     validate_webull_event_order_market,
@@ -666,6 +670,54 @@ class WebullServiceTests(unittest.TestCase):
 
         self.assertEqual(first, second)
         self.assertEqual(snapshot_mock.call_count, 1)
+
+    def test_expired_intraday_series_cache_retries_at_rollover(self):
+        token = 'rollover-token'
+        principal = _webull_event_principal('app-key', 'production', token)
+        before_cutoff = datetime(2026, 9, 1, 14, 29, 55, tzinfo=timezone.utc).timestamp()
+        at_cutoff = datetime(2026, 9, 1, 14, 30, 0, tzinfo=timezone.utc).timestamp()
+        market = _normalise_event_market({
+            'symbol': 'KXBTC15M-26SEP011030-30', 'name': 'BTC price up?',
+            'series_symbol': 'KXBTC15M', 'category': 'CRYPTO', 'status': 'LISTING',
+            'tradable_status': 'OC', 'last_trading_date': '2026-09-01',
+        }, {'KXBTC15M': 'CRYPTO'})
+        with _WEBULL_EVENT_CACHE_LOCK:
+            _WEBULL_EVENT_SERIES_MARKET_CACHE[(*principal, 'KXBTC15M')] = (before_cutoff, [market])
+
+        with patch('services.webull_service.time.time', return_value=before_cutoff):
+            self.assertIsNotNone(_cached_webull_event_series_markets(principal, 'KXBTC15M'))
+        with patch('services.webull_service.time.time', return_value=at_cutoff):
+            self.assertIsNone(_cached_webull_event_series_markets(principal, 'KXBTC15M'))
+
+    def test_unquoted_event_search_retries_after_rollover_interval(self):
+        catalog = {
+            'categories': [{'category_id': 'CRYPTO', 'category_code': 'CRYPTO', 'name': 'Crypto'}],
+            'markets': [{
+                'symbol': 'KXBTC15M-26SEP011030-30', 'name': 'BTC price up?',
+                'series_symbol': 'KXBTC15M', 'category_code': 'CRYPTO', 'status': 'LISTING',
+                'tradable_status': 'OC', 'price_ranges': [],
+            }],
+            'as_of': '2026-09-01T14:30:00+00:00', 'partial': False, 'loading': False,
+        }
+        snapshots = Mock(side_effect=[{}, {
+            'KXBTC15M-26SEP011030-30': {
+                'symbol': 'KXBTC15M-26SEP011030-30', 'yes_ask': 0.48,
+            },
+        }])
+        kwargs = {'category_id': 'CRYPTO', 'query': 'btc', 'duration': 'FIFTEEN_MINUTES'}
+        with patch('services.webull_service.get_webull_event_catalog', return_value=catalog), \
+             patch('services.webull_service.get_webull_event_snapshots', snapshots):
+            with patch('services.webull_service.time.time', return_value=100):
+                first = get_webull_event_markets('a', 's', **kwargs)
+            with patch('services.webull_service.time.time', return_value=109):
+                second = get_webull_event_markets('a', 's', **kwargs)
+            with patch('services.webull_service.time.time', return_value=110):
+                third = get_webull_event_markets('a', 's', **kwargs)
+
+        self.assertEqual(first['status'], 'no_live_quotes')
+        self.assertEqual(second['status'], 'no_live_quotes')
+        self.assertEqual([item['symbol'] for item in third['markets']], ['KXBTC15M-26SEP011030-30'])
+        self.assertEqual(snapshots.call_count, 2)
 
     def test_event_category_duration_options_do_not_traverse_markets(self):
         def provider(*args, **kwargs):

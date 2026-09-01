@@ -41,6 +41,7 @@ WEBULL_EVENT_BARS_TTL_SECONDS = 30
 WEBULL_EVENT_CATEGORY_TTL_SECONDS = 1800
 WEBULL_EVENT_MARKET_RESULT_TTL_SECONDS = 30
 WEBULL_EVENT_PENDING_CONDITION_TTL_SECONDS = 5
+WEBULL_EVENT_ROLLOVER_RETRY_TTL_SECONDS = 10
 WEBULL_EVENT_MAX_ORDER_QUANTITY = 50000
 WEBULL_EVENT_SETTLEMENT_PAYOUT = 1.0
 WEBULL_EVENT_DISCOVERY_MIN_INTERVAL_SECONDS = 2.05
@@ -1376,14 +1377,27 @@ def _cached_webull_event_series_markets(principal, series_symbol, *, force=False
         cached = _WEBULL_EVENT_SERIES_MARKET_CACHE.get((*principal, series_symbol))
         if not cached or force:
             return None
+        markets = cached[1]
+        now = time.time()
+        intraday_cutoffs = [
+            _event_market_cutoff_value(market)
+            for market in markets
+            if _event_market_duration(market) in {'FIFTEEN_MINUTES', 'HOURLY'}
+        ]
+        rollover_pending = intraday_cutoffs and max(intraday_cutoffs) <= now
+        if rollover_pending:
+            rollover_checked_at = cached[2] if len(cached) > 2 else None
+            if rollover_checked_at is None or now - rollover_checked_at >= WEBULL_EVENT_ROLLOVER_RETRY_TTL_SECONDS:
+                return None
+            return cached[0], [dict(item) for item in markets]
         cache_ttl = (
             WEBULL_EVENT_PENDING_CONDITION_TTL_SECONDS
-            if any(item.get('condition_pending') for item in cached[1])
+            if any(item.get('condition_pending') for item in markets)
             else WEBULL_EVENT_CATALOG_TTL_SECONDS
         )
-        if time.time() - cached[0] >= cache_ttl:
+        if now - cached[0] >= cache_ttl:
             return None
-        return cached[0], [dict(item) for item in cached[1]]
+        return cached[0], [dict(item) for item in markets]
 
 
 def _get_webull_event_series_markets(
@@ -1419,7 +1433,17 @@ def _get_webull_event_series_markets(
         seen_symbols.add(market['symbol'])
         markets.append(market)
     with _WEBULL_EVENT_CACHE_LOCK:
-        _WEBULL_EVENT_SERIES_MARKET_CACHE[(*principal, series_symbol)] = (time.time(), markets)
+        cached_at = time.time()
+        rollover_checked_at = (
+            cached_at
+            if any(
+                _event_market_duration(market) in {'FIFTEEN_MINUTES', 'HOURLY'}
+                and _event_market_cutoff_value(market) <= cached_at
+                for market in markets
+            )
+            else None
+        )
+        _WEBULL_EVENT_SERIES_MARKET_CACHE[(*principal, series_symbol)] = (cached_at, markets, rollover_checked_at)
     return [dict(item) for item in markets]
 
 
@@ -1971,7 +1995,11 @@ def get_webull_event_markets(
                 and not cached_result[1].get('partial')
                 and not cached_result[1].get('loading')
                 and not cached_result[1].get('has_more')
-                and time.time() - cached_result[0] < WEBULL_EVENT_MARKET_RESULT_TTL_SECONDS
+                and time.time() - cached_result[0] < (
+                    WEBULL_EVENT_ROLLOVER_RETRY_TTL_SECONDS
+                    if cached_result[1].get('status') == 'no_live_quotes'
+                    else WEBULL_EVENT_MARKET_RESULT_TTL_SECONDS
+                )
             ):
                 return json.loads(json.dumps(cached_result[1]))
     category_by_id = {
