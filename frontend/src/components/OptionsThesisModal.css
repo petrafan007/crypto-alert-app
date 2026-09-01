@@ -432,28 +432,28 @@ body.dark-mode .thesis-matrix .thesis-loss-cell {
   color: #f87171 !important;
 }
 
-body.dark-mode .trading-page-container .options-thesis-modal .thesis-matrix {
+body.dark-mode .trading-page .options-thesis-modal .thesis-matrix {
   background: #182126 !important;
 }
 
-body.dark-mode .trading-page-container .options-thesis-modal .thesis-matrix tbody td,
-body.dark-mode .trading-page-container .options-thesis-modal .thesis-matrix tbody tr:nth-child(even) td,
-body.dark-mode .trading-page-container .options-thesis-modal .thesis-matrix tbody tr:nth-child(odd) td {
+body.dark-mode .trading-page .options-thesis-modal .thesis-matrix tbody td,
+body.dark-mode .trading-page .options-thesis-modal .thesis-matrix tbody tr:nth-child(even) td,
+body.dark-mode .trading-page .options-thesis-modal .thesis-matrix tbody tr:nth-child(odd) td {
   background: #182126 !important;
   color: #f8fafc !important;
 }
 
-body.dark-mode .trading-page-container .options-thesis-modal .thesis-matrix tbody td.thesis-profit-cell {
+body.dark-mode .trading-page .options-thesis-modal .thesis-matrix tbody td.thesis-profit-cell {
   background: #17352b !important;
   color: #4ade80 !important;
 }
 
-body.dark-mode .trading-page-container .options-thesis-modal .thesis-matrix tbody td.thesis-loss-cell {
+body.dark-mode .trading-page .options-thesis-modal .thesis-matrix tbody td.thesis-loss-cell {
   background: #3a2328 !important;
   color: #f87171 !important;
 }
 
-body.dark-mode .trading-page-container .options-thesis-modal .thesis-matrix tbody td.thesis-underlying-price {
+body.dark-mode .trading-page .options-thesis-modal .thesis-matrix tbody td.thesis-underlying-price {
   background: #202c32 !important;
   color: #f8fafc !important;
 }

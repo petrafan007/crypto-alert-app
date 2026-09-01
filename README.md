@@ -127,6 +127,11 @@ The application utilizes a **unified PostgreSQL database**.
 
 Historical changelog entries retain the product name used when they were originally released. The application domain, repository slug, deployment folders, database, and service identifiers intentionally remain unchanged by the v2.45.0 brand update.
 
+## v2.72.2 (August 2026)
+
+- **Dark Thesis Matrix Correction**:
+  - Corrected the live Webull trading-page selector so the Option Price, P&L, and Combined matrices use opaque dark neutral, profit, and loss cells instead of compositing translucent fills over the global table background.
+
 ## v2.72.1 (August 2026)
 
 - **Fact-Based Option Thesis Modeling**:
