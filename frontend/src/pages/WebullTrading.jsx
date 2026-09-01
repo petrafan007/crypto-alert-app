@@ -41,20 +41,68 @@ const number = (value, digits = 2) => {
 };
 
 const eventMoney = (value) => {
+  if (value == null || value === '') return '—';
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) return '—';
   const digits = Math.abs(parsed * 100 - Math.round(parsed * 100)) > 1e-8 ? 4 : 2;
   return `$${parsed.toFixed(digits)}`;
 };
 
+const eventCents = (value) => {
+  if (value == null || value === '') return '—';
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return '—';
+  const cents = parsed * 100;
+  return `${Number.isInteger(cents) ? cents.toFixed(0) : cents.toFixed(2)}¢`;
+};
+
 const eventPriceRangeLabel = (ranges = []) => ranges.length
-  ? ranges.map((range) => `${eventMoney(range.start)}–${eventMoney(range.end)} (tick ${eventMoney(range.step)})`).join(', ')
+  ? ranges.map((range) => `${eventCents(range.start)} to ${eventCents(range.end)}, in ${eventCents(range.step)} increments`).join('; ')
   : 'Unavailable';
 
 const eventConditionLabel = (market) => {
   const condition = String(market?.display_condition || market?.yes_condition || '').trim();
   if (!condition) return 'Condition details unavailable';
   return /^(yes\b|threshold:)/i.test(condition) ? condition : `YES if ${condition}`;
+};
+
+const eventPropositionFor = (market) => {
+  const title = String(market?.name || '').trim();
+  const condition = String(market?.display_condition || market?.yes_condition || '').trim();
+  const underlying = String(market?.underlying_name || market?.underlying_symbol || '').trim() || 'the named asset';
+  const target = Number(market?.target_value);
+  if (condition) {
+    const yes = /^(yes\b|threshold:)/i.test(condition) ? condition : `YES if ${condition}`;
+    return {
+      basis: Number.isFinite(target) ? `Fixed target: ${eventMoney(target)}` : 'Webull-defined contract condition',
+      yes,
+      no: 'NO if that condition is not met under Webull’s settlement rules.',
+      detail: String(market?.description || market?.provider_rules || '').trim(),
+    };
+  }
+  if (Number.isFinite(target)) {
+    return {
+      basis: `Fixed target: ${eventMoney(target)}`,
+      yes: `YES if ${underlying} meets the ${eventMoney(target)} target under Webull’s settlement rules.`,
+      no: `NO if ${underlying} does not meet that target.`,
+      detail: String(market?.description || market?.provider_rules || '').trim(),
+    };
+  }
+  if (/\b(?:price\s+)?up\b|\bhigher\b/i.test(title)) {
+    return {
+      basis: 'Direction contract · exact reference levels not included',
+      yes: `YES if Webull settles ${underlying} as up for this contract interval.`,
+      no: `NO if Webull does not settle ${underlying} as up for this contract interval.`,
+      detail: 'Webull’s API response did not include the starting or ending reference price, so the app cannot truthfully show “up from $X to $Y.” Verify those exact reference levels and the cutoff in Webull’s contract rules before ordering.',
+    };
+  }
+  return {
+    basis: 'Binary event contract',
+    yes: `YES if “${title || 'the stated event'}” occurs under Webull’s settlement rules.`,
+    no: 'NO if the stated event does not occur.',
+    detail: String(market?.description || market?.provider_rules || '').trim()
+      || 'Webull did not include a more specific condition in this market response.',
+  };
 };
 
 const eventPriceMatchesRanges = (price, ranges = []) => {
@@ -387,6 +435,7 @@ export default function WebullTrading({ isLightMode = false }) {
   const [eventLoading, setEventLoading] = useState(false);
   const [eventCatalogLoading, setEventCatalogLoading] = useState(false);
   const [eventMessage, setEventMessage] = useState('');
+  const [eventQuoteMessage, setEventQuoteMessage] = useState('');
   const eventMarketRequestRef = useRef(0);
   const eventMarketSelectorRef = useRef(null);
   const eventAutoPriceRef = useRef(true);
@@ -1178,6 +1227,7 @@ export default function WebullTrading({ isLightMode = false }) {
     assetSymbolMemoryRef.current.EVENT = market.symbol;
     setSelectedSymbol(market.symbol);
     setEventMarketMenuOpen(false);
+    setEventQuoteMessage('');
     eventAutoPriceRef.current = resetPrice;
     setOrderValidationError('');
     setOrderForm((prev) => ({
@@ -1328,6 +1378,7 @@ export default function WebullTrading({ isLightMode = false }) {
         });
         const market = response.data?.markets?.[0];
         if (!market || cancelled) return;
+        setEventQuoteMessage('');
         setSelectedEventMarket(market);
         setEventMarkets((current) => current.map((item) => (item.symbol === market.symbol ? market : item)));
         if (eventAutoPriceRef.current) {
@@ -1343,7 +1394,7 @@ export default function WebullTrading({ isLightMode = false }) {
           });
         }
       } catch (err) {
-        if (!cancelled) setEventMessage(err.response?.data?.message || 'Live Event Contract pricing is temporarily unavailable.');
+        if (!cancelled) setEventQuoteMessage(err.response?.data?.message || 'Live Event Contract pricing is temporarily unavailable.');
       }
     };
     refreshQuote();
@@ -1698,6 +1749,7 @@ export default function WebullTrading({ isLightMode = false }) {
     && String(selectedFuturesContract.symbol).toUpperCase() === String(selectedSymbol || '').toUpperCase();
   const futuresOrderControlsDisabled = selectedInstrumentType === 'FUTURES' && !futuresContractSelected;
   const eventRules = selectedEventMarket?.rules || {};
+  const eventProposition = eventPropositionFor(selectedEventMarket);
   const eventTradableStatus = String(selectedEventMarket?.tradable_status || eventRules.tradable_status || '').toUpperCase();
   const eventBuyEnabled = selectedInstrumentType !== 'EVENT' || (Boolean(selectedEventMarket?.symbol) && eventTradableStatus === 'OC');
   const eventSellEnabled = selectedInstrumentType !== 'EVENT' || (
@@ -1722,6 +1774,9 @@ export default function WebullTrading({ isLightMode = false }) {
       : '';
   const eventSelectedQuote = eventQuoteFor(selectedEventMarket, orderForm.eventOutcome, orderForm.side);
   const eventSettlementPayout = Number(eventRules.settlement_payout);
+  const eventContractCutoff = selectedEventMarket?.last_trading_date
+    || selectedEventMarket?.expected_exp_date
+    || selectedEventMarket?.latest_exp_date;
   const eventQuantity = Number(orderForm.quantity);
   const eventLimitPrice = Number(orderForm.price);
   const eventPotentialProfitEach = Number.isFinite(eventSettlementPayout) && Number.isFinite(eventLimitPrice)
@@ -2377,7 +2432,7 @@ export default function WebullTrading({ isLightMode = false }) {
             quoteQuantity: Number(prev.quantity) > 0 ? (Number(prev.quantity) * bid).toFixed(2) : '',
           }));
         }
-      }).catch(() => setEventMessage('Unable to refresh the selected Event Contract position quote.'));
+      }).catch(() => setEventQuoteMessage('Unable to refresh the selected Event Contract position quote.'));
     } else {
       setSelectedInstrumentType(isCrypto ? 'CRYPTO' : 'EQUITY');
       setSelectedSecurityType(isCrypto ? 'CRYPTO' : (String(holding.instrument_type || '').toUpperCase() === 'ETF' ? 'ETF' : 'EQUITY'));
@@ -3103,18 +3158,34 @@ export default function WebullTrading({ isLightMode = false }) {
                         </div>
                       </div>
 
+                      {eventMessage && (
+                        <p className="event-catalog-status" role="status">⚠️ {eventMessage}</p>
+                      )}
+
                       {selectedEventMarket && (
                         <div className="selected-event-market" aria-live="polite">
-                          <div>
+                          <div className="selected-event-market-heading">
+                            <span>Selected contract</span>
                             <strong>{selectedEventMarket.name}</strong>
-                            <span>{selectedEventMarket.symbol}</span>
-                            <p>{eventConditionLabel(selectedEventMarket)}</p>
+                            <code>{selectedEventMarket.symbol}</code>
                           </div>
                           <div className="selected-event-market-stats">
                             <span>Volume <strong>{number(selectedEventMarket.volume, 0)}</strong></span>
                             <span>Open interest <strong>{number(selectedEventMarket.open_interest, 0)}</strong></span>
                             <span>Last trade <strong>{formatDate(selectedEventMarket.last_trade_time)}</strong></span>
                           </div>
+                          <div className="event-contract-basis">{eventProposition.basis}</div>
+                          <div className="event-proposition-grid">
+                            <div className="yes">
+                              <span>YES settles at {eventMoney(eventSettlementPayout)}</span>
+                              <strong>{eventProposition.yes}</strong>
+                            </div>
+                            <div className="no">
+                              <span>NO settles at {eventMoney(eventSettlementPayout)}</span>
+                              <strong>{eventProposition.no}</strong>
+                            </div>
+                          </div>
+                          {eventProposition.detail && <p className="event-contract-detail">{eventProposition.detail}</p>}
                         </div>
                       )}
 
@@ -3148,27 +3219,23 @@ export default function WebullTrading({ isLightMode = false }) {
                       <div className="event-rules-grid">
                         <div>
                           <span>Order Type</span>
-                          <strong>{eventRules.order_types?.map((rule) => `${rule.order_type} (${(rule.time_in_force || []).join('/')})`).join(', ') || 'Unavailable'}</strong>
+                          <strong>{eventRules.order_types?.map((rule) => `${rule.order_type} · ${(rule.time_in_force || []).join('/')}`).join(', ') || 'Unavailable'}</strong>
                         </div>
                         <div>
-                          <span>Price Range</span>
+                          <span>Allowed Order Price</span>
                           <strong>{eventPriceRangeLabel(eventRules.price_ranges)}</strong>
                         </div>
                         <div>
-                          <span>Win Payout</span>
-                          <strong>{Number.isFinite(eventSettlementPayout) ? `${eventMoney(eventSettlementPayout)} per correct contract` : 'Unavailable'}</strong>
+                          <span>Settlement</span>
+                          <strong>{Number.isFinite(eventSettlementPayout) ? `${eventMoney(eventSettlementPayout)} if correct · $0.00 if incorrect` : 'Unavailable'}</strong>
                         </div>
                         <div>
-                          <span>Max Quantity</span>
-                          <strong>{eventRules.max_quantity ? `${number(eventRules.max_quantity, 0)} contracts` : 'Unavailable'}</strong>
+                          <span>Contract Cutoff</span>
+                          <strong>{eventContractCutoff ? formatDate(eventContractCutoff) : 'See Webull contract rules'}</strong>
                         </div>
                         <div>
-                          <span>Quantity Type</span>
-                          <strong>{eventRules.fractionable ? 'Fractional contracts supported' : 'Whole contracts only'}</strong>
-                        </div>
-                        <div>
-                          <span>Trading Hours</span>
-                          <strong>{eventRules.trading_hours || 'Unavailable'}</strong>
+                          <span>Order Quantity</span>
+                          <strong>{eventRules.fractionable ? 'Fractional contracts allowed' : 'Whole contracts only'}{eventRules.max_quantity ? ` · max ${number(eventRules.max_quantity, 0)}` : ''}</strong>
                         </div>
                       </div>
 
@@ -3191,7 +3258,7 @@ export default function WebullTrading({ isLightMode = false }) {
                         </span>
                       </div>
 
-                      {eventMessage && <p className="option-ticket-status" role="status">⚠️ {eventMessage}</p>}
+                      {eventQuoteMessage && <p className="event-quote-status" role="status">⚠️ {eventQuoteMessage}</p>}
                     </div>
                   )}
 

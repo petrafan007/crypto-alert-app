@@ -505,6 +505,115 @@ class WebullServiceTests(unittest.TestCase):
         self.assertEqual(first, second)
         self.assertEqual(snapshot_mock.call_count, 1)
 
+    def test_event_category_duration_options_do_not_traverse_markets(self):
+        def provider(*args, **kwargs):
+            path = args[4]
+            if path.endswith('/categories/list'):
+                return self._response({'data': [{'category': 'CRYPTO', 'name': 'Crypto'}]})
+            if path.endswith('/series/list'):
+                return self._response({'data': [
+                    {'series_id': 'btc-15m', 'symbol': 'KXBTC15M', 'name': 'Bitcoin every 15 minutes'},
+                    {'series_id': 'eth-daily', 'symbol': 'KXETHD', 'name': 'Ethereum daily', 'frequency': 'DAILY'},
+                ]})
+            raise AssertionError(f'Category metadata unexpectedly requested Webull path: {path}')
+
+        with patch('services.webull_service._webull_request', side_effect=provider) as request_mock, \
+             patch('services.webull_service.WEBULL_EVENT_DISCOVERY_MIN_INTERVAL_SECONDS', 0):
+            result = get_webull_event_markets(
+                'app-key', 'app-secret', access_token='token', category_id='CRYPTO', progressive=True,
+            )
+
+        self.assertEqual(result['markets'], [])
+        self.assertFalse(result['loading'])
+        self.assertEqual(
+            [item['value'] for item in result['duration_options']],
+            ['INTRADAY', 'FIFTEEN_MINUTES', 'DAILY'],
+        )
+        market_calls = [call for call in request_mock.call_args_list if call.args[4].endswith('/markets/list')]
+        self.assertEqual(market_calls, [])
+
+    def test_event_targeted_search_loads_only_matching_series_and_reuses_cache(self):
+        def provider(*args, **kwargs):
+            path = args[4]
+            params = kwargs.get('query_params') or {}
+            if path.endswith('/categories/list'):
+                return self._response({'data': [{'category': 'CRYPTO', 'name': 'Crypto'}]})
+            if path.endswith('/series/list'):
+                return self._response({'data': [
+                    {'series_id': 'eth-daily', 'symbol': 'KXETHD', 'name': 'Ethereum daily', 'frequency': 'DAILY'},
+                    {'series_id': 'btc-15m', 'symbol': 'KXBTC15M', 'name': 'Bitcoin every 15 minutes'},
+                ]})
+            if path.endswith('/markets/list') and params.get('series_symbol') == 'KXBTC15M':
+                return self._response({'data': [{
+                    'instrument_id': 'btc-market', 'symbol': 'KXBTC15M-26SEP-T100000',
+                    'name': 'Bitcoin price in 15 minutes', 'status': 'LISTING', 'tradable_status': 'OC',
+                }]})
+            raise AssertionError(f'Targeted search unexpectedly requested Webull path: {path}')
+
+        snapshots = {
+            'KXBTC15M-26SEP-T100000': {
+                'symbol': 'KXBTC15M-26SEP-T100000', 'yes_bid': 0.48, 'yes_ask': 0.50,
+            },
+        }
+        with patch('services.webull_service._webull_request', side_effect=provider) as request_mock, \
+             patch('services.webull_service.get_webull_event_snapshots', return_value=snapshots), \
+             patch('services.webull_service.WEBULL_EVENT_DISCOVERY_MIN_INTERVAL_SECONDS', 0):
+            first = get_webull_event_markets(
+                'app-key', 'app-secret', access_token='token', category_id='CRYPTO',
+                query='btc', duration='INTRADAY', progressive=True,
+            )
+            second = get_webull_event_markets(
+                'app-key', 'app-secret', access_token='token', category_id='CRYPTO',
+                query='btc', duration='INTRADAY', progressive=True,
+            )
+            selected = get_webull_event_market(
+                'app-key', 'app-secret', access_token='token', symbol='KXBTC15M-26SEP-T100000',
+            )
+
+        self.assertEqual([item['symbol'] for item in first['markets']], ['KXBTC15M-26SEP-T100000'])
+        self.assertEqual(first, second)
+        self.assertEqual(selected['symbol'], 'KXBTC15M-26SEP-T100000')
+        market_calls = [call for call in request_mock.call_args_list if call.args[4].endswith('/markets/list')]
+        self.assertEqual([call.kwargs['query_params']['series_symbol'] for call in market_calls], ['KXBTC15M'])
+
+    def test_event_full_catalog_reuses_series_loaded_by_targeted_search(self):
+        def provider(*args, **kwargs):
+            path = args[4]
+            params = kwargs.get('query_params') or {}
+            if path.endswith('/categories/list'):
+                return self._response({'data': [{'category': 'CRYPTO', 'name': 'Crypto'}]})
+            if path.endswith('/series/list'):
+                return self._response({'data': [
+                    {'series_id': 'btc', 'symbol': 'KXBTC15M', 'name': 'Bitcoin every 15 minutes'},
+                    {'series_id': 'eth', 'symbol': 'KXETHD', 'name': 'Ethereum daily', 'frequency': 'DAILY'},
+                ]})
+            if path.endswith('/markets/list'):
+                series_symbol = params.get('series_symbol')
+                return self._response({'data': [{
+                    'instrument_id': f'{series_symbol}-market', 'symbol': f'{series_symbol}-YES',
+                    'name': f'{series_symbol} market', 'status': 'LISTING', 'tradable_status': 'OC',
+                }]})
+            raise AssertionError(f'Unexpected Webull path: {path}')
+
+        snapshots = {'KXBTC15M-YES': {'symbol': 'KXBTC15M-YES', 'yes_ask': 0.50}}
+        with patch('services.webull_service._webull_request', side_effect=provider) as request_mock, \
+             patch('services.webull_service.get_webull_event_snapshots', return_value=snapshots), \
+             patch('services.webull_service.WEBULL_EVENT_DISCOVERY_MIN_INTERVAL_SECONDS', 0):
+            get_webull_event_markets(
+                'app-key', 'app-secret', access_token='token', category_id='CRYPTO',
+                query='btc', duration='INTRADAY', progressive=True,
+            )
+            catalog = get_webull_event_catalog(
+                'app-key', 'app-secret', access_token='token', category_id='CRYPTO',
+            )
+
+        self.assertEqual({item['symbol'] for item in catalog['markets']}, {'KXBTC15M-YES', 'KXETHD-YES'})
+        market_calls = [call for call in request_mock.call_args_list if call.args[4].endswith('/markets/list')]
+        self.assertEqual(
+            [call.kwargs['query_params']['series_symbol'] for call in market_calls],
+            ['KXBTC15M', 'KXETHD'],
+        )
+
     def test_event_catalog_returns_initial_rows_before_warming_remaining_series(self):
         def provider(*args, **kwargs):
             path = args[4]

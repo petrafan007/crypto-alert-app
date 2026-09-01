@@ -2498,18 +2498,34 @@ body.light-mode .pagination-btn.active {
   text-align: center;
 }
 
+.event-catalog-status,
+.event-quote-status {
+  margin: 0 0 0.75rem;
+  padding: 0.55rem 0.7rem;
+  border-left: 3px solid #f59e0b;
+  background: rgba(245, 158, 11, 0.1);
+  color: #fcd34d;
+  font-size: 0.72rem;
+  line-height: 1.45;
+}
+
+.event-quote-status {
+  margin: 0.75rem 0 0;
+}
+
 .selected-event-market {
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(240px, 0.6fr);
   align-items: flex-start;
   gap: 1rem;
   margin-bottom: 0.85rem;
-  padding: 0.75rem;
+  padding: 0.85rem;
   border: 1px solid rgba(148, 163, 184, 0.25);
   border-radius: 8px;
   background: rgba(15, 23, 42, 0.56);
 }
 
-.selected-event-market > div:first-child {
+.selected-event-market-heading {
   min-width: 0;
 }
 
@@ -2519,16 +2535,26 @@ body.light-mode .pagination-btn.active {
   display: block;
 }
 
-.selected-event-market > div:first-child > strong {
-  color: #f8fafc;
-  font-size: 0.85rem;
+.selected-event-market-heading > span {
+  color: #94a3b8;
+  font-size: 0.66rem;
+  font-weight: 700;
+  text-transform: uppercase;
 }
 
-.selected-event-market > div:first-child > span,
-.selected-event-market p {
+.selected-event-market-heading > strong {
+  margin-top: 0.2rem;
+  color: #f8fafc;
+  font-size: 0.95rem;
+  line-height: 1.35;
+}
+
+.selected-event-market-heading code {
+  display: block;
   margin: 0.2rem 0 0;
   color: #94a3b8;
-  font-size: 0.72rem;
+  font-size: 0.68rem;
+  overflow-wrap: anywhere;
 }
 
 .selected-event-market-stats {
@@ -2544,6 +2570,59 @@ body.light-mode .pagination-btn.active {
 .selected-event-market-stats strong {
   display: inline;
   color: #e2e8f0;
+}
+
+.event-contract-basis,
+.event-proposition-grid,
+.event-contract-detail {
+  grid-column: 1 / -1;
+}
+
+.event-contract-basis {
+  width: fit-content;
+  padding: 0.3rem 0.55rem;
+  border: 1px solid rgba(56, 189, 248, 0.35);
+  border-radius: 5px;
+  background: rgba(14, 165, 233, 0.1);
+  color: #7dd3fc;
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+
+.event-proposition-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.65rem;
+}
+
+.event-proposition-grid > div {
+  padding: 0.65rem 0.7rem;
+  border-left: 3px solid;
+  background: rgba(2, 6, 23, 0.38);
+}
+
+.event-proposition-grid > .yes { border-color: #22c55e; }
+.event-proposition-grid > .no { border-color: #ef4444; }
+
+.event-proposition-grid span {
+  color: #94a3b8;
+  font-size: 0.66rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.event-proposition-grid strong {
+  margin-top: 0.25rem;
+  color: #e2e8f0;
+  font-size: 0.76rem;
+  line-height: 1.45;
+}
+
+.event-contract-detail {
+  margin: -0.25rem 0 0;
+  color: #cbd5e1;
+  font-size: 0.72rem;
+  line-height: 1.5;
 }
 
 .event-outcome-section {
@@ -2674,8 +2753,8 @@ body.light-mode .event-market-result.selected {
 body.light-mode .event-market-result-copy small,
 body.light-mode .event-market-condition,
 body.light-mode .event-market-result-prices small,
-body.light-mode .selected-event-market > div:first-child > span,
-body.light-mode .selected-event-market p,
+body.light-mode .selected-event-market-heading > span,
+body.light-mode .selected-event-market-heading code,
 body.light-mode .selected-event-market-stats,
 body.light-mode .event-rules-grid span,
 body.light-mode .event-payout-summary {
@@ -2683,10 +2762,28 @@ body.light-mode .event-payout-summary {
 }
 
 body.light-mode .event-market-result-prices,
-body.light-mode .selected-event-market > div:first-child > strong,
+body.light-mode .selected-event-market-heading > strong,
 body.light-mode .selected-event-market-stats strong,
-body.light-mode .event-rules-grid strong {
+body.light-mode .event-rules-grid strong,
+body.light-mode .event-proposition-grid strong,
+body.light-mode .event-contract-detail {
   color: #0f172a;
+}
+
+body.light-mode .event-contract-basis {
+  border-color: #38bdf8;
+  background: #f0f9ff;
+  color: #075985;
+}
+
+body.light-mode .event-proposition-grid > div {
+  background: #f8fafc;
+}
+
+body.light-mode .event-catalog-status,
+body.light-mode .event-quote-status {
+  background: #fffbeb;
+  color: #92400e;
 }
 
 body.light-mode .event-payout-summary {
@@ -2698,12 +2795,10 @@ body.light-mode .event-payout-summary strong { color: #166534; }
 
 @media (max-width: 760px) {
   .event-contract-selector-grid,
-  .event-outcome-grid {
-    grid-template-columns: 1fr;
-  }
-
+  .event-outcome-grid,
+  .event-proposition-grid,
   .selected-event-market {
-    flex-direction: column;
+    grid-template-columns: 1fr;
   }
 
   .selected-event-market-stats {

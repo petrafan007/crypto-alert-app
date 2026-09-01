@@ -127,6 +127,16 @@ The application utilizes a **unified PostgreSQL database**.
 
 Historical changelog entries retain the product name used when they were originally released. The application domain, repository slug, deployment folders, database, and service identifiers intentionally remain unchanged by the v2.45.0 brand update.
 
+## v2.73.4 (September 2026)
+
+- **Immediate Event Search Metadata and Targeted Discovery**:
+  - Decoupled lightweight Webull Series metadata from the expensive Markets catalog traversal. Category duration options now require only the selected category's Series request, while query and duration searches load only matching Series instead of waiting for every category market.
+  - Added principal-scoped Series and per-Series Markets caches shared by targeted search, exact-symbol quote refreshes, and full background catalog warmup. Repeated searches and selected-contract polling no longer repeat provider discovery calls.
+- **Human-Readable Event Contract Brief**:
+  - Rebuilt the selected-contract summary around the actual YES/NO proposition. Direction contracts such as “BTC price up” now disclose when Webull's API omitted the exact reference levels instead of implying an unspecified fixed target.
+  - Replaced the raw Price Range tile with Allowed Order Price in cents and tick increments, added clear $1/$0 settlement and contract-cutoff details, and removed the unnecessary Trading Hours tile.
+  - Moved bounded-scan catalog warnings into a dedicated status band near discovery results so they cannot displace the current YES/NO bid or ask summary. Live quote failures now use a separate selected-contract status.
+
 ## v2.73.3 (September 2026)
 
 - **Provider-Backed Event Duration Filter**:
