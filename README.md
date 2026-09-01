@@ -127,6 +127,13 @@ The application utilizes a **unified PostgreSQL database**.
 
 Historical changelog entries retain the product name used when they were originally released. The application domain, repository slug, deployment folders, database, and service identifiers intentionally remain unchanged by the v2.45.0 brand update.
 
+## v2.75.2 (September 2026)
+
+- **Persistent Live Webull Reconciliation**:
+  - Webull account snapshots, cash, holdings, and Event Contract metadata are now refreshed from Webull and saved per user in the database from the active Dashboard on a bounded 45-second cadence. The saved snapshot remains the fast initial view and a provider fallback.
+  - Completed and working Webull orders, including mobile-created Event Contracts, are now upserted into a per-user Webull order ledger whenever the provider returns them. The Webull Trading and consolidated Order History pages now use live Webull history rather than an empty database-only source, then retain returned records for fast subsequent loading.
+  - Webull stock and ETF watchlist selections now preserve their broker identity in a dedicated per-user watchlist record, receive bounded live quote updates, and remain visible in the Webull account scope.
+
 ## v2.75.1 (September 2026)
 
 - **Event Order Visibility Hardening**:

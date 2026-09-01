@@ -122,6 +122,7 @@ function Dashboard({ isLightMode }) {
   const MINIMUM_PORTFOLIO_AMOUNT = 0.0001;
   const { isLoggingOut, user } = useAuth();
   const navigate = useNavigate();
+  const webullPortfolioRefreshRef = useRef({ inFlight: false, lastStartedAt: 0 });
   const [totalValue, setTotalValue] = useState(null);
   const [accountTotals, setAccountTotals] = useState({ all: 0, binance: 0, webull: 0 });
   const [accountScope, setAccountScope] = useState(() => localStorage.getItem('dashboard_account_scope') || 'all');
@@ -385,9 +386,14 @@ function Dashboard({ isLightMode }) {
     () => scopedPortfolio.filter(asset => matchesAssetFilter(asset, portfolioAssetFilter)),
     [scopedPortfolio, portfolioAssetFilter]
   );
+  const scopedWatchlist = useMemo(() => {
+    if (accountScope === 'webull') return watchlist.filter(isWebullAsset);
+    if (accountScope === 'binance') return watchlist.filter((asset) => !isWebullAsset(asset));
+    return watchlist;
+  }, [watchlist, accountScope]);
   const displayedWatchlist = useMemo(
-    () => watchlist.filter(asset => matchesAssetFilter(asset, watchlistAssetFilter)),
-    [watchlist, watchlistAssetFilter]
+    () => scopedWatchlist.filter(asset => matchesAssetFilter(asset, watchlistAssetFilter)),
+    [scopedWatchlist, watchlistAssetFilter]
   );
   const changeAssetFilter = (table, nextFilter) => {
     if (table === 'portfolio') {
@@ -1625,6 +1631,36 @@ function Dashboard({ isLightMode }) {
   useEffect(() => {
     let refreshInterval;
 
+    const refreshStoredWebullPortfolio = async () => {
+      const refreshState = webullPortfolioRefreshRef.current;
+      const now = Date.now();
+      if (refreshState.inFlight || now - refreshState.lastStartedAt < 45000) return;
+      refreshState.inFlight = true;
+      refreshState.lastStartedAt = now;
+      try {
+        const syncResponse = await axios.post('/api/webull/portfolio-sync', {}, { withCredentials: true });
+        if (!syncResponse.data?.success) return;
+        const [portfolioResponse, totalResponse, summaryResponse] = await Promise.all([
+          axios.get('/api/coin-data', { withCredentials: true }),
+          axios.get(`/api/true-portfolio-value?ts=${Date.now()}`, { withCredentials: true }),
+          axios.get('/api/account-summary', { withCredentials: true }),
+        ]);
+        const refreshedWebullRows = (portfolioResponse.data?.portfolio || []).filter(
+          (item) => item.is_external === true || item.source === 'webull',
+        );
+        setPortfolio((previous) => [
+          ...previous.filter((item) => !(item.is_external === true || item.source === 'webull')),
+          ...refreshedWebullRows,
+        ]);
+        setTotalValue(totalResponse.data?.total_value || 0);
+        setAccountTotals(summaryResponse.data?.totals || { all: 0, binance: 0, webull: 0 });
+      } catch (error) {
+        console.warn('Webull portfolio refresh failed:', error);
+      } finally {
+        refreshState.inFlight = false;
+      }
+    };
+
     async function fetchData(isInitialLoad = true) {
       try {
         // Don't make any API calls if we're logging out
@@ -1674,6 +1710,7 @@ function Dashboard({ isLightMode }) {
           if (isInitialLoad) {
             setLoading(false);
           }
+          void refreshStoredWebullPortfolio();
         } catch (error) {
           console.error('Error fetching portfolio:', error);
           // Check if it's an authentication error (302 redirect or 401)
@@ -2884,7 +2921,7 @@ function Dashboard({ isLightMode }) {
             <button
               onClick={() => {
                 if (isPortfolio && !isPlaceholder) hideCoin(coin.id, coin.symbol);
-                if (isWatchlist) deleteWatchlistItem(item.symbol);
+                if (isWatchlist) deleteWatchlistItem(item);
                 closeActionMenu();
               }}
               disabled={isPortfolio ? isPlaceholder : false}
@@ -3021,7 +3058,7 @@ function Dashboard({ isLightMode }) {
           role="menuitem"
           onClick={() => {
             if (isPortfolio && !isPlaceholder) hideCoin(coin.id, coin.symbol);
-            if (isWatchlist) deleteWatchlistItem(item.symbol);
+            if (isWatchlist) deleteWatchlistItem(item);
             closeActionMenu();
           }}
           disabled={isPlaceholder}
@@ -3283,13 +3320,19 @@ function Dashboard({ isLightMode }) {
   };
 
   // Delete watchlist item function
-  const deleteWatchlistItem = async (symbol) => {
-    const cleanSym = (symbol || '').toUpperCase().trim();
+  const deleteWatchlistItem = async (itemOrSymbol) => {
+    const item = typeof itemOrSymbol === 'object' ? itemOrSymbol : null;
+    const cleanSym = (item?.symbol || itemOrSymbol || '').toUpperCase().trim();
+    const isWebull = item?.provider === 'webull' || item?.source === 'webull';
     pendingAddedWatchlistSymbolsRef.current.delete(cleanSym);
-    setWatchlist(prev => prev.filter(item => (item.symbol || '').toUpperCase().trim() !== cleanSym));
+    setWatchlist(prev => prev.filter((current) => isWebull
+      ? current.id !== item?.id
+      : (current.symbol || '').toUpperCase().trim() !== cleanSym));
     try {
       await axios.post('/api/watchlist/remove', {
-        symbol: cleanSym
+        symbol: cleanSym,
+        provider: isWebull ? 'webull' : undefined,
+        id: item?.id,
       }, { withCredentials: true });
     } catch (err) {
       console.error('Delete watchlist item error:', err);
@@ -3298,7 +3341,7 @@ function Dashboard({ isLightMode }) {
 
   // Add to watchlist function
   const addToWatchlist = async (selection) => {
-    const { symbol: rawSym, asset_type = 'crypto' } = selection || {};
+    const { symbol: rawSym, asset_type = 'crypto', name, provider } = selection || {};
     const cleanSym = (rawSym || '').trim().toUpperCase();
     if (!cleanSym) return;
 
@@ -3337,6 +3380,8 @@ function Dashboard({ isLightMode }) {
       const response = await axios.post('/api/watchlist/add', {
         symbol: cleanSym,
         asset_type,
+        name,
+        provider,
       }, { withCredentials: true });
 
       if (response.data && response.data.success) {
@@ -5035,11 +5080,6 @@ function Dashboard({ isLightMode }) {
         )}
 
         {/* Watchlist Section */}
-        {accountScope === 'webull' ? (
-          <div className="table-container watchlist-table" style={{ padding: '22px', color: 'var(--text-secondary, #94a3b8)', textAlign: 'center' }}>
-            Binance.US Watchlist is hidden while viewing Webull-only accounts.
-          </div>
-        ) : (
         <div className="table-container watchlist-table">
           <div className="table-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
             <h2 className="table-title" style={{ margin: 0 }}>Watchlist</h2>
@@ -5356,7 +5396,7 @@ function Dashboard({ isLightMode }) {
                                       })()}
                                       <button
                                         className="trade-action-btn delete"
-                                        onClick={() => deleteWatchlistItem(item.symbol)}
+                                        onClick={() => deleteWatchlistItem(item)}
                                         title="Delete from watchlist"
                                       >
                                         🗑️
@@ -5377,7 +5417,6 @@ function Dashboard({ isLightMode }) {
             </table>
           </div>
         </div>
-        )}
       </div>
 
       {/* Note Modal */}

@@ -891,14 +891,12 @@ export default function WebullTrading({ isLightMode = false }) {
     setHistoryLoading(true);
     try {
       const resp = await axios.get(
-        `/api/trading/real-orders?account_scope=webull&history_source=database&limit=100${accId ? `&account_id=${accId}` : ''}`,
+        `/api/trading/real-orders?account_scope=webull&history_source=live&limit=100${accId ? `&account_id=${accId}` : ''}`,
         { withCredentials: true }
       );
-      // account_scope=webull + history_source=database already scopes results to
-      // Webull-sourced persisted rows; no additional client-side filter needed.
       setHistory((resp.data?.orders || []).map(normalizeOrder));
-    } catch (e) {
-      // non-blocking
+    } catch (error) {
+      setError(error.response?.data?.message || 'Unable to load Webull order history.');
     } finally {
       setHistoryLoading(false);
     }

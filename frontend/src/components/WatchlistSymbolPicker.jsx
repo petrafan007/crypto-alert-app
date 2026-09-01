@@ -8,7 +8,7 @@ import { FaBitcoin, FaDollarSign } from 'react-icons/fa';
  * The user MUST select from the dropdown — no blind text submission.
  *
  * Props:
- *   onSelect({ symbol, asset_type, name }) — called when user picks a result
+ *   onSelect({ symbol, asset_type, name, provider }) — called when user picks a result
  *   disabled — disables the input
  *   isLightMode — theme flag
  */
@@ -71,7 +71,12 @@ export default function WatchlistSymbolPicker({ onSelect, disabled = false, isLi
     setQuery('');
     setResults([]);
     setIsOpen(false);
-    onSelect({ symbol: item.symbol, asset_type: item.asset_type, name: item.name });
+    onSelect({
+      symbol: item.symbol,
+      asset_type: item.asset_type,
+      name: item.name,
+      provider: item.asset_type === 'stock' ? 'webull' : 'binance',
+    });
   };
 
   const handleKeyDown = (e) => {

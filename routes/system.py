@@ -48,6 +48,7 @@ from services.webull_service import (
     get_webull_option_chain_data,
     get_webull_stock_movers,
     get_webull_open_orders,
+    get_webull_order_history,
     get_webull_portfolio_preview,
     place_webull_order,
     cancel_webull_order,
@@ -62,7 +63,7 @@ from services.webull_service import (
     FALLBACK_US_FUTURES_PRODUCTS,
     test_webull_connection,
 )
-from services.webull_import_service import import_webull_portfolio_snapshot
+from services.webull_import_service import import_webull_orders, import_webull_portfolio_snapshot
 from services.webull_option_service import option_contract_label, resolve_option_contract
 
 _EVENT_UNDERLYING_HISTORY_CACHE = {}
@@ -2221,9 +2222,14 @@ def api_webull_portfolio_sync():
             account_ids=allowed_account_ids or None,
         )
         result = import_webull_portfolio_snapshot(current_user.id, preview)
+        historical_orders = get_webull_order_history(
+            credential.webull_app_key, credential.webull_app_secret,
+            environment, credential.webull_access_token,
+        )
+        imported_orders = import_webull_orders(current_user.id, historical_orders)
         return jsonify({
-            'success': True, 'accounts': result['accounts'], 'positions': result['positions'],
-            'message': f"Imported {result['positions']} Webull position(s) from {result['accounts']} account(s). Webull rows are read-only.",
+            'success': True, 'accounts': result['accounts'], 'positions': result['positions'], 'orders': imported_orders,
+            'message': f"Imported {result['positions']} Webull position(s) and {imported_orders} order(s) from {result['accounts']} account(s). Webull rows are read-only.",
         })
     except WebullConnectionError as exc:
         db.session.rollback()
@@ -2277,6 +2283,7 @@ def api_webull_open_orders():
             environment, credential.webull_access_token,
             account_id=account_id,
         )
+        import_webull_orders(current_user.id, orders)
         if not account_id:
             allowed_ids = _webull_allowed_account_ids(setting)
             orders = [

@@ -349,7 +349,7 @@ export default function Orders() {
   const loadHistory = async () => {
     setHistoryLoading(true);
     try {
-      const historyResponse = await axios.get('/api/trading/real-orders?limit=100&history_source=database', { withCredentials: true });
+      const historyResponse = await axios.get('/api/trading/real-orders?limit=100&history_source=live', { withCredentials: true });
       const allHistory = (historyResponse.data?.orders || []).map((order) => {
         const source = String(order?.source || '').toLowerCase();
         return normalize(order, ['auto_buy', 'auto_sell'].includes(source) ? source : (isWebull(order) ? 'webull' : 'binance'));
@@ -364,7 +364,7 @@ export default function Orders() {
         });
       }
     } catch (error) {
-      // Background history loading errors non-blocking
+      setNotice(error.response?.data?.message || 'Unable to load order history.');
     } finally {
       setHistoryLoading(false);
     }

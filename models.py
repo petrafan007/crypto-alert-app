@@ -97,6 +97,7 @@ class WebullHolding(db.Model):
     option_strike = db.Column(db.Float, nullable=True)
     option_type = db.Column(db.String(12), nullable=True)
     option_multiplier = db.Column(db.Float, nullable=True)
+    event_outcome = db.Column(db.String(10), nullable=True)
     # Monitoring preferences are deliberately local to Crypto & Securities Dashboard. They
     # never grant Webull trading permission or create an order at Webull.
     custom_lower_type = db.Column(db.String(10), default='#')
@@ -123,6 +124,61 @@ class WebullHolding(db.Model):
         db.UniqueConstraint('user_id', 'account_id', 'symbol', 'instrument_type', name='uq_webull_holding_user_account_symbol_type'),
         db.Index('ix_webull_holding_user', 'user_id'),
         db.Index('ix_webull_holding_option_contract', 'user_id', 'instrument_id'),
+    )
+
+
+class WebullOrder(db.Model):
+    """A provider-backed, per-user Webull order ledger."""
+    __tablename__ = 'webull_orders'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, nullable=False)
+    account_id = db.Column(db.String(80), nullable=False)
+    provider_order_id = db.Column(db.String(120), nullable=False)
+    client_order_id = db.Column(db.String(120), nullable=True)
+    symbol = db.Column(db.String(100), nullable=False)
+    instrument_type = db.Column(db.String(60), nullable=True)
+    event_outcome = db.Column(db.String(10), nullable=True)
+    side = db.Column(db.String(20), nullable=True)
+    order_type = db.Column(db.String(30), nullable=True)
+    quantity = db.Column(db.Float, default=0.0)
+    filled_quantity = db.Column(db.Float, default=0.0)
+    price = db.Column(db.Float, nullable=True)
+    filled_price = db.Column(db.Float, nullable=True)
+    status = db.Column(db.String(40), nullable=True)
+    created_at = db.Column(db.DateTime, nullable=True)
+    updated_at = db.Column(db.DateTime, nullable=True)
+    synced_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+    __table_args__ = (
+        db.UniqueConstraint('user_id', 'account_id', 'provider_order_id', name='uq_webull_order_user_account_provider_order'),
+        db.Index('ix_webull_order_user_created', 'user_id', 'created_at'),
+    )
+
+
+class WebullWatchlistItem(db.Model):
+    """A user-managed Webull instrument watchlist with broker identity preserved."""
+    __tablename__ = 'webull_watchlist_items'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, nullable=False)
+    instrument_id = db.Column(db.String(120), nullable=True)
+    symbol = db.Column(db.String(100), nullable=False)
+    instrument_type = db.Column(db.String(60), nullable=True)
+    underlying_symbol = db.Column(db.String(40), nullable=True)
+    event_outcome = db.Column(db.String(10), nullable=False, default='')
+    display_name = db.Column(db.String(240), nullable=True)
+    last_price = db.Column(db.Float, nullable=True)
+    currency = db.Column(db.String(12), default='USD')
+    alert_enabled = db.Column(db.Boolean, default=False)
+    note = db.Column(db.Text, default='')
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    refreshed_at = db.Column(db.DateTime, nullable=True)
+
+    __table_args__ = (
+        db.UniqueConstraint('user_id', 'symbol', 'instrument_type', 'event_outcome', name='uq_webull_watchlist_user_instrument'),
+        db.Index('ix_webull_watchlist_user', 'user_id'),
     )
 
 

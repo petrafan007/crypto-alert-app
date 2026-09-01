@@ -1,10 +1,10 @@
 """Persistence and display helpers for read-only Webull portfolio snapshots."""
 
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 
 from core.extensions import db
-from models import ExternalSentimentSignal, WebullAccountSnapshot, WebullHolding
+from models import ExternalSentimentSignal, WebullAccountSnapshot, WebullHolding, WebullOrder
 
 
 def _number(value, default=0.0):
@@ -22,6 +22,99 @@ def _first_value(payload, *keys):
         if value not in (None, ''):
             return value
     return None
+
+
+def _webull_order_datetime(value):
+    if value in (None, ''):
+        return None
+    if isinstance(value, datetime):
+        return value.astimezone(timezone.utc).replace(tzinfo=None) if value.tzinfo else value
+    try:
+        timestamp = float(value)
+        if timestamp > 100000000000:
+            timestamp /= 1000
+        if timestamp > 100000000:
+            return datetime.fromtimestamp(timestamp, tz=timezone.utc).replace(tzinfo=None)
+    except (TypeError, ValueError):
+        pass
+    try:
+        parsed = datetime.fromisoformat(str(value).replace('Z', '+00:00'))
+        return parsed.astimezone(timezone.utc).replace(tzinfo=None) if parsed.tzinfo else parsed
+    except (TypeError, ValueError):
+        return None
+
+
+def _webull_order_id(order):
+    return str(_first_value(order, 'order_id', 'orderId', 'id', 'client_order_id', 'clientOrderId') or '').strip()
+
+
+def import_webull_orders(user_id, orders):
+    """Upsert provider orders into the durable per-user Webull ledger."""
+    now = datetime.utcnow()
+    imported = 0
+    for order in orders or []:
+        if not isinstance(order, dict):
+            continue
+        account_id = str(_first_value(order, '_webull_account_id', 'webull_account_id', 'account_id') or '').strip()
+        provider_order_id = _webull_order_id(order)
+        symbol = str(_first_value(order, 'symbol', 'ticker') or '').strip().upper()
+        if not account_id or not provider_order_id or not symbol:
+            continue
+        record = WebullOrder.query.filter_by(
+            user_id=user_id, account_id=account_id, provider_order_id=provider_order_id,
+        ).first()
+        if record is None:
+            record = WebullOrder(
+                user_id=user_id, account_id=account_id, provider_order_id=provider_order_id, symbol=symbol,
+            )
+            db.session.add(record)
+        record.client_order_id = str(_first_value(order, 'client_order_id', 'clientOrderId') or '').strip() or None
+        record.symbol = symbol
+        record.instrument_type = str(_first_value(order, 'instrument_type', 'instrumentType', 'security_type', 'securityType', 'asset_type', 'assetType') or '').strip().upper() or None
+        record.event_outcome = str(_first_value(order, 'event_outcome', 'eventOutcome', 'outcome') or '').strip().upper() or None
+        record.side = str(_first_value(order, 'side') or '').strip().upper() or None
+        record.order_type = str(_first_value(order, 'order_type', 'orderType', 'type') or '').strip().upper() or None
+        record.quantity = _number(_first_value(order, 'total_quantity', 'quantity', 'order_quantity'), 0.0)
+        record.filled_quantity = _number(_first_value(order, 'filled_quantity', 'executed_quantity', 'filled_qty'), 0.0)
+        record.price = _number(_first_value(order, 'limit_price', 'price', 'order_price'), None)
+        record.filled_price = _number(_first_value(order, 'average_filled_price', 'avg_fill_price', 'filled_price'), record.price)
+        record.status = str(_first_value(order, 'status', 'order_status') or '').strip().upper() or None
+        record.created_at = _webull_order_datetime(_first_value(order, 'created_at', 'create_time', 'placed_time', 'place_time', 'submitted_time', 'filled_time_at')) or record.created_at
+        record.updated_at = _webull_order_datetime(_first_value(order, 'updated_at', 'update_time', 'filled_time', 'filled_time_at', 'last_updated_time')) or record.updated_at
+        record.synced_at = now
+        imported += 1
+    db.session.commit()
+    return imported
+
+
+def get_webull_order_rows(user_id, *, account_id=None, limit=100):
+    """Return persisted Webull orders in the same canonical shape as live history."""
+    query = WebullOrder.query.filter_by(user_id=user_id)
+    if account_id:
+        query = query.filter_by(account_id=str(account_id))
+    records = query.order_by(WebullOrder.created_at.desc(), WebullOrder.id.desc()).limit(max(1, min(int(limit or 100), 500))).all()
+    account_types = {
+        snapshot.account_id: snapshot.account_type
+        for snapshot in WebullAccountSnapshot.query.filter_by(user_id=user_id).all()
+    }
+    return [{
+        'id': record.provider_order_id,
+        'symbol': record.symbol,
+        'side': record.side or 'UNKNOWN',
+        'order_type': record.order_type or 'UNKNOWN',
+        'quantity': record.quantity or 0.0,
+        'price': record.price or 0.0,
+        'filled_quantity': record.filled_quantity or 0.0,
+        'filled_price': record.filled_price or record.price or 0.0,
+        'status': record.status or 'UNKNOWN',
+        'created_at': record.created_at.isoformat() if record.created_at else None,
+        'updated_at': record.updated_at.isoformat() if record.updated_at else None,
+        'source': 'webull', 'origin': 'webull', 'origin_label': 'Webull',
+        'instrument_type': record.instrument_type,
+        'event_outcome': record.event_outcome,
+        'webull_account_id': record.account_id,
+        'webull_account_type': account_types.get(record.account_id),
+    } for record in records]
 
 
 def _normalise_option_metadata(position):
@@ -111,6 +204,7 @@ def import_webull_portfolio_snapshot(user_id, preview):
             holding.currency = str(position.get('currency') or snapshot.currency or 'USD')
             for field, value in _normalise_option_metadata(position).items():
                 setattr(holding, field, str(value).upper() if field == 'option_type' and value else value)
+            holding.event_outcome = str(_first_value(position, 'event_outcome', 'eventOutcome', 'outcome') or '').upper() or None
             holding.synced_at = now
             imported_positions += 1
 
@@ -245,6 +339,7 @@ def get_webull_portfolio_rows(user_id):
             'option_strike': holding.option_strike,
             'option_type': holding.option_type,
             'option_multiplier': holding.option_multiplier,
+            'event_outcome': holding.event_outcome,
             'hidden': bool(getattr(holding, 'hidden', False)),
             'force_visible': bool(getattr(holding, 'force_visible', False)),
             'last_updated': holding.synced_at.isoformat() if holding.synced_at else None,

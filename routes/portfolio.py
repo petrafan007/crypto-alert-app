@@ -8,7 +8,7 @@ import re
 import traceback
 from flask import Blueprint, send_file, request, jsonify, render_template, current_app, redirect, url_for, session, make_response
 from flask_login import current_user, login_required, login_user, logout_user
-from models import Coin, WatchlistCoin, Notification, PriceHistory
+from models import Coin, WatchlistCoin, Notification, PriceHistory, WebullWatchlistItem
 from credentials import Credential, User, UserSetting
 from core.extensions import db
 from log import logger
@@ -43,7 +43,7 @@ from services.staking_service import (
 )
 from services.credential_service import get_user_credentials
 from services.webull_service import WebullConnectionError, get_webull_order_history, normalize_webull_environment
-from services.webull_import_service import get_webull_total_value
+from services.webull_import_service import get_webull_order_rows, get_webull_total_value, import_webull_orders
 from services.notification_service import notify_order_fill, create_system_notification, send_telegram_message
 from services.common import _coerce_float, format_price, format_quantity
 from credential_security import decrypt_secret
@@ -52,6 +52,8 @@ from transaction_utils import recalculate_asset_activity
 # Stubs for missing functions/constants (to be moved/removed later)
 _KLINES_CACHE = {}
 _KLINES_CACHE_TTL = 300
+_WEBULL_WATCHLIST_REFRESHED_AT = {}
+_WEBULL_WATCHLIST_REFRESH_TTL = 45
 def _coerce_activity_datetime(dt): return dt # TODO: move to common
 def update_test_portfolio(*args, **kwargs): pass # TODO
 
@@ -2329,6 +2331,15 @@ def get_real_orders_only():
             }
             add_order(key, order_dict)
 
+        if account_scope != 'binance':
+            persisted_webull_orders = get_webull_order_rows(
+                current_user.id,
+                account_id=request.args.get('account_id'),
+                limit=limit if not unlimited else 500,
+            )
+            for order in persisted_webull_orders:
+                add_order(f"webull-{order['webull_account_id']}-{order['id']}", order)
+
         if symbol_filter:
             symbols_to_check.add(symbol_filter)
         else:
@@ -2488,6 +2499,7 @@ def get_real_orders_only():
                         webull_environment, webull_credential.webull_access_token, page_size=100,
                         account_id=target_acc,
                     )
+                    import_webull_orders(current_user.id, webull_orders)
                     for order in webull_orders:
                         order_id = order.get('order_id') or order.get('orderId') or order.get('client_order_id') or order.get('clientOrderId')
                         symbol = str(order.get('symbol') or order.get('ticker') or 'UNKNOWN').upper()
@@ -5046,6 +5058,9 @@ def api_watchlist():
             "cached_news": w_news.get('text', ''),
             "cached_news_date": w_news.get('created_at', None)
         })
+
+    for item in WebullWatchlistItem.query.filter_by(user_id=current_user.id).order_by(WebullWatchlistItem.symbol.asc()).all():
+        watchlist_data.append(_webull_watchlist_item_payload(item))
     
     return jsonify(watchlist_data)
 
@@ -5123,6 +5138,20 @@ def api_watchlist_live():
             "cached_news": w_news.get('text', ''),
             "cached_news_date": w_news.get('created_at', None)
         })
+
+    webull_items = WebullWatchlistItem.query.filter_by(user_id=current_user.id).all()
+    last_refresh = _WEBULL_WATCHLIST_REFRESHED_AT.get(current_user.id, 0)
+    if webull_items and time.time() - last_refresh >= _WEBULL_WATCHLIST_REFRESH_TTL:
+        _WEBULL_WATCHLIST_REFRESHED_AT[current_user.id] = time.time()
+        for item in webull_items:
+            try:
+                price = _fetch_stock_price_yf(item.symbol, current_user.id)
+                if price > 0:
+                    item.last_price = price
+                item.refreshed_at = datetime.utcnow()
+            except Exception as exc:
+                logger.warning('Failed to refresh Webull watchlist item %s: %s', item.symbol, exc)
+    watchlist_data.extend(_webull_watchlist_item_payload(item) for item in webull_items)
     
     try:
         db.session.commit()
@@ -5291,16 +5320,76 @@ def _fetch_stock_price_yf(symbol, user_id=None):
     return 0.0
 
 
+def _webull_watchlist_item_payload(item):
+    return {
+        'id': f'webull-watchlist-{item.id}',
+        'symbol': item.symbol,
+        'asset_type': 'stock',
+        'instrument_type': item.instrument_type or 'EQUITY',
+        'instrument_id': item.instrument_id,
+        'underlying_symbol': item.underlying_symbol,
+        'event_outcome': item.event_outcome,
+        'name': item.display_name or item.symbol,
+        'source': 'webull',
+        'source_label': 'Webull',
+        'is_external': True,
+        'provider': 'webull',
+        'alert_enabled': item.alert_enabled,
+        'down_val': None,
+        'up_val': None,
+        'note': item.note or '',
+        'favorite': False,
+        'hidden': False,
+        'action': 'Watch',
+        'current_price': item.last_price or 0.0,
+        'sentiment': 'Watch',
+        'sentiment_reason': '',
+        'sentiment_tracking_enabled': True,
+        'volatility_pct': None,
+        'last_updated': item.refreshed_at.isoformat() if item.refreshed_at else None,
+        'cached_news': '',
+        'cached_news_date': None,
+    }
+
+
 @portfolio_bp.route("/api/watchlist/add", methods=["POST"])
 @login_required
 def api_watchlist_add():
     data = request.get_json() or {}
     symbol = data.get("symbol", "").upper().strip()
     asset_type = (data.get("asset_type") or "crypto").strip().lower()
+    provider = str(data.get('provider') or '').strip().lower()
     if asset_type not in ("crypto", "stock"):
         asset_type = "crypto"
     if not symbol:
         return jsonify({"success": False, "error": "Missing symbol"}), 400
+
+    if provider == 'webull':
+        instrument_type = str(data.get('instrument_type') or 'EQUITY').strip().upper()
+        event_outcome = str(data.get('event_outcome') or '').strip().upper()
+        item = WebullWatchlistItem.query.filter_by(
+            user_id=current_user.id, symbol=symbol, instrument_type=instrument_type, event_outcome=event_outcome,
+        ).first()
+        if item is None:
+            item = WebullWatchlistItem(
+                user_id=current_user.id,
+                symbol=symbol,
+                instrument_type=instrument_type,
+                event_outcome=event_outcome,
+            )
+            db.session.add(item)
+        item.instrument_id = str(data.get('instrument_id') or '').strip() or None
+        item.underlying_symbol = str(data.get('underlying_symbol') or '').strip().upper() or None
+        item.display_name = str(data.get('name') or '').strip() or None
+        try:
+            price = _fetch_stock_price_yf(symbol, current_user.id)
+            if price > 0:
+                item.last_price = price
+            item.refreshed_at = datetime.utcnow()
+        except Exception as exc:
+            logger.warning('Failed to fetch initial Webull watchlist price for %s: %s', symbol, exc)
+        db.session.commit()
+        return jsonify({'success': True, 'message': 'Webull instrument added to watchlist', 'item': _webull_watchlist_item_payload(item)})
 
     exists = WatchlistCoin.query.filter_by(user_id=current_user.id, symbol=symbol).first()
     if exists:
@@ -5411,8 +5500,19 @@ def api_watchlist_add():
 @portfolio_bp.route("/api/watchlist/remove", methods=["POST"])
 @login_required
 def api_watchlist_remove():
-    data = request.get_json()
+    data = request.get_json() or {}
     symbol = data.get("symbol", "").upper()
+    if str(data.get('provider') or '').strip().lower() == 'webull':
+        raw_id = str(data.get('id') or '').removeprefix('webull-watchlist-')
+        item = None
+        try:
+            item = WebullWatchlistItem.query.filter_by(id=int(raw_id), user_id=current_user.id).first()
+        except (TypeError, ValueError):
+            item = WebullWatchlistItem.query.filter_by(user_id=current_user.id, symbol=symbol).first()
+        if item:
+            db.session.delete(item)
+            db.session.commit()
+        return jsonify({'success': True})
     wl = WatchlistCoin.query.filter_by(user_id=current_user.id, symbol=symbol).first()
     if wl:
         db.session.delete(wl)
