@@ -39,6 +39,7 @@ from services.webull_service import (
     get_webull_event_markets,
     _event_symbol_cutoff,
     _normalise_event_market,
+    _normalise_event_snapshot,
     validate_webull_event_order_market,
 )
 from routes.system import _require_webull_instrument_account_match, _webull_account_response, system_bp
@@ -629,6 +630,24 @@ class WebullServiceTests(unittest.TestCase):
 
         self.assertEqual(explicit['display_condition'], '$3,410 or above')
         self.assertEqual(fallback['display_condition'], 'Threshold: $3,409.99')
+
+    def test_event_market_preserves_provider_reference_price(self):
+        market = _normalise_event_market({
+            'symbol': 'KXBTC15M-26SEP011645-45',
+            'name': 'BTC price up in next 15 mins?',
+            'series_symbol': 'KXBTC15M',
+            'reference_price': '77362.10',
+        }, {'KXBTC15M': 'CRYPTO'})
+
+        self.assertEqual(market['reference_price'], 77362.10)
+
+    def test_event_snapshot_omits_missing_reference_price(self):
+        snapshot = _normalise_event_snapshot({
+            'symbol': 'KXBTC15M-26SEP011645-45',
+            'price': '0.32',
+        })
+
+        self.assertNotIn('reference_price', snapshot)
 
     def test_event_market_results_are_cached_briefly_for_repeat_category_views(self):
         catalog = {

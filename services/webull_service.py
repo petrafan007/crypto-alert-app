@@ -1492,6 +1492,9 @@ def _normalise_event_market(raw, series_categories):
         'provider_rules': _event_first_value(raw, 'rules', 'market_rules', 'rule_text'),
         'underlying_symbol': _event_first_value(raw, 'underlying_symbol', 'reference_symbol'),
         'underlying_name': _event_first_value(raw, 'underlying_name', 'reference_name'),
+        'reference_price': _event_number(_event_first_value(
+            raw, 'reference_price', 'referencePrice', 'underlying_price', 'underlyingPrice',
+        )),
         'target_value': _event_number(_event_first_value(raw, 'target_value', 'target_price', 'strike_price')),
         'fractionable': _event_bool(raw.get('fractionable')),
         'price_ranges': price_ranges,
@@ -1661,7 +1664,10 @@ def _normalise_event_snapshot(raw):
     symbol = str(raw.get('symbol') or '').strip().upper()
     if not symbol:
         return None
-    return {
+    reference_price = _event_number(_event_first_value(
+        raw, 'reference_price', 'referencePrice', 'underlying_price', 'underlyingPrice',
+    ))
+    snapshot = {
         'symbol': symbol,
         'instrument_id': raw.get('instrument_id'),
         'quote_name': raw.get('name'),
@@ -1679,6 +1685,9 @@ def _normalise_event_snapshot(raw):
         'no_ask_size': _event_number(raw.get('no_ask_size')),
         'quote_as_of': datetime.now(timezone.utc).isoformat(),
     }
+    if reference_price is not None:
+        snapshot['reference_price'] = reference_price
+    return snapshot
 
 
 def get_webull_event_snapshots(

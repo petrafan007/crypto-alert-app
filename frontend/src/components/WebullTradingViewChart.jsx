@@ -42,6 +42,7 @@ export default function WebullTradingViewChart({
   savingDefaultAccount = false,
   allowDefaultAccount = true,
   holdings = [],
+  optionUnderlyingInstruments = [],
   isLightMode = false,
   accountOnly = false,
 }) {
@@ -113,6 +114,11 @@ export default function WebullTradingViewChart({
     });
     return Array.from(map.values());
   }, [holdings]);
+
+  const optionUnderlyings = useMemo(
+    () => optionUnderlyingInstruments.length ? optionUnderlyingInstruments : availableTraditional,
+    [optionUnderlyingInstruments, availableTraditional],
+  );
 
   // Resolve TradingView widget symbol
   const tvSymbol = useMemo(() => {
@@ -267,9 +273,9 @@ export default function WebullTradingViewChart({
             <span className="advanced-chart-control-label">
               {isCrypto ? 'Cryptocurrency Pair for Chart & Orders' : isOption ? 'Option Underlying Chart' : isFutures ? 'Webull Futures Contract' : 'Stock / ETF for Chart & Orders'}
             </span>
-            {isOption || isFutures ? (
+            {isFutures ? (
               <div className="order-styled-input" aria-label={isFutures ? 'Selected Webull futures contract' : 'Selected option underlying'} style={{ padding: '10px 12px', color: isLightMode ? '#0f172a' : '#e2e8f0' }}>
-                {symbol || 'Choose a contract below'} · {isFutures ? 'selected futures contract' : 'selected option contract'}
+                {symbol || 'Choose a contract below'} · selected futures contract
               </div>
             ) : (
               <SearchablePairSelect
@@ -277,13 +283,13 @@ export default function WebullTradingViewChart({
                 onChange={(nextSym, selectedItem) => {
                   onInstrumentChange?.({
                     symbol: nextSym,
-                    instrumentType: isCrypto ? 'CRYPTO' : 'EQUITY',
+                    instrumentType: isCrypto ? 'CRYPTO' : isOption ? 'OPTION' : 'EQUITY',
                     securityType: isCrypto ? 'CRYPTO' : String(selectedItem?.type || 'EQUITY').toUpperCase(),
                   });
                 }}
-                tradingPairs={isCrypto ? availableCrypto : availableTraditional}
+                tradingPairs={isCrypto ? availableCrypto : isOption ? optionUnderlyings : availableTraditional}
                 mode={isCrypto ? 'crypto' : 'traditional'}
-                placeholder={isCrypto ? 'Search crypto pairs (e.g. BTC, ETH, SOL)...' : 'Search stocks & ETFs (e.g. AAPL, NVDA, SPY)...'}
+                placeholder={isCrypto ? 'Search crypto pairs (e.g. BTC, ETH, SOL)...' : isOption ? 'Search option underlyings (e.g. AAPL, NVDA, SPY)...' : 'Search stocks & ETFs (e.g. AAPL, NVDA, SPY)...'}
               />
             )}
           </div>}

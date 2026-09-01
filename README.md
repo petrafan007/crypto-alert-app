@@ -127,6 +127,16 @@ The application utilizes a **unified PostgreSQL database**.
 
 Historical changelog entries retain the product name used when they were originally released. The application domain, repository slug, deployment folders, database, and service identifiers intentionally remain unchanged by the v2.45.0 brand update.
 
+## v2.74.0 (September 2026)
+
+- **Event Contract Underlying Price**:
+  - The Event Contract price card now displays the associated crypto or Financials underlying in USD, refreshing every five seconds when Webull provides an associated symbol.
+  - If an associated live quote is unavailable, the card shows Webull's supplied contract reference price rather than an invented market value, while retaining the `REAL-TIME PRICE`, `Market Price USD`, and `Instant Market Rate` presentation.
+  - Preserves provider `reference_price` values across catalog and snapshot updates.
+- **Option Underlying Selection from Either Workspace**:
+  - The formerly read-only Option Underlying Chart field next to the Webull account is now a searchable stock/ETF selector with filtering, custom ticker lookup, and shared favorites.
+  - Selecting an underlying from the chart or the option chain updates both locations and clears stale contract-specific terms before loading the new chain.
+
 ## v2.73.16 (September 2026)
 
 - **Webull Provider Failure Visibility**:

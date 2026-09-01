@@ -478,6 +478,7 @@ export default function WebullTrading({ isLightMode = false }) {
   const [eventMetadataLoading, setEventMetadataLoading] = useState(false);
   const [eventMessage, setEventMessage] = useState('');
   const [eventQuoteMessage, setEventQuoteMessage] = useState('');
+  const [eventUnderlyingPrice, setEventUnderlyingPrice] = useState(0);
   const eventMarketRequestRef = useRef(0);
   const eventMarketAbortControllerRef = useRef(null);
   const eventMetadataRequestRef = useRef(0);
@@ -1260,6 +1261,27 @@ export default function WebullTrading({ isLightMode = false }) {
     return Number.isFinite(value) && value >= 0 ? value : null;
   };
 
+  const eventUnderlyingQuote = useMemo(() => {
+    const category = String(selectedEventMarket?.category_code || selectedEventCategory || '').toUpperCase();
+    const rawSymbol = String(selectedEventMarket?.underlying_symbol || '').trim().toUpperCase();
+    if (!rawSymbol || !['CRYPTO', 'FINANCIALS'].includes(category)) return null;
+    if (category === 'CRYPTO') {
+      const symbol = rawSymbol.replace(/[^A-Z0-9]/g, '');
+      return symbol ? { symbol: symbol.endsWith('USD') ? symbol : `${symbol}USD`, instrumentType: 'CRYPTO' } : null;
+    }
+    const symbol = rawSymbol.replace(/[^A-Z0-9.-]/g, '');
+    return symbol ? { symbol, instrumentType: 'EQUITY' } : null;
+  }, [selectedEventMarket?.category_code, selectedEventMarket?.underlying_symbol, selectedEventCategory]);
+
+  const eventReferencePrice = useMemo(() => {
+    const category = String(selectedEventMarket?.category_code || selectedEventCategory || '').toUpperCase();
+    if (!['CRYPTO', 'FINANCIALS'].includes(category)) return 0;
+    const referencePrice = Number(selectedEventMarket?.reference_price ?? selectedEventMarket?.target_value);
+    return Number.isFinite(referencePrice) && referencePrice > 0 ? referencePrice : 0;
+  }, [selectedEventMarket?.category_code, selectedEventMarket?.reference_price, selectedEventMarket?.target_value, selectedEventCategory]);
+
+  const eventDisplayPrice = eventUnderlyingPrice > 0 ? eventUnderlyingPrice : eventReferencePrice;
+
   useEffect(() => {
     assetSymbolMemoryRef.current[selectedInstrumentType] = selectedSymbol;
   }, [selectedInstrumentType, selectedSymbol]);
@@ -1510,6 +1532,32 @@ export default function WebullTrading({ isLightMode = false }) {
   }, [selectedInstrumentType, selectedEventMarket?.symbol]);
 
   useEffect(() => {
+    if (selectedInstrumentType !== 'EVENT' || !eventUnderlyingQuote) {
+      setEventUnderlyingPrice(0);
+      return undefined;
+    }
+    let cancelled = false;
+    const refreshUnderlyingPrice = async () => {
+      try {
+        const response = await axios.get('/api/webull/market-snapshot', {
+          params: eventUnderlyingQuote,
+          withCredentials: true,
+        });
+        const price = Number(response.data?.snapshot?.price);
+        if (!cancelled && price > 0) setEventUnderlyingPrice(price);
+      } catch {
+        if (!cancelled) setEventUnderlyingPrice(0);
+      }
+    };
+    refreshUnderlyingPrice();
+    const interval = window.setInterval(refreshUnderlyingPrice, 5000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [selectedInstrumentType, eventUnderlyingQuote]);
+
+  useEffect(() => {
     const closeMenu = (event) => {
       if (eventMarketSelectorRef.current && !eventMarketSelectorRef.current.contains(event.target)) {
         setEventMarketMenuOpen(false);
@@ -1606,9 +1654,41 @@ export default function WebullTrading({ isLightMode = false }) {
     return () => { active = false; window.clearInterval(timer); };
   }, [selectedSymbol, selectedInstrumentType, selectedSecurityType, currentHolding, selectedFuturesContract]);
 
+  const handleOptionUnderlyingChange = (nextSymbol) => {
+    const symbol = String(nextSymbol || '').trim().toUpperCase();
+    if (!symbol) return;
+    setSelectedSymbol(symbol);
+    setSelectedInstrumentType('OPTION');
+    setSelectedSecurityType('OPTION');
+    setSelectedOptionHoldingId('');
+    setOptionUnderlyingPrice(0);
+    setLivePrice(0);
+    setBalancePercentage(0);
+    setOrderValidationError('');
+    setOrderForm((prev) => ({
+      ...prev,
+      type: 'LIMIT',
+      quantity: '',
+      quoteQuantity: '',
+      price: '',
+      stopPrice: '',
+      trailingStopStep: '',
+      optionType: '',
+      optionStrike: '',
+      optionExpiration: '',
+      optionIv: '',
+      optionMarketPrice: '',
+      optionStrategyLegs: [],
+    }));
+  };
+
   // Handlers for Instrument change from Top TradingView Chart
   const handleInstrumentChange = ({ symbol: nextSymbol, instrumentType: nextType, securityType }) => {
     if (assetClassDisabled(nextType)) return;
+    if (nextType === 'OPTION') {
+      handleOptionUnderlyingChange(nextSymbol);
+      return;
+    }
     userChangedSessionRef.current = false;
     setSelectedSymbol(nextSymbol);
     setSelectedInstrumentType(nextType);
@@ -2976,6 +3056,7 @@ export default function WebullTrading({ isLightMode = false }) {
                   savingDefaultAccount={savingDefaultAccount}
                   allowDefaultAccount={!isTestMode}
                   holdings={modeHoldings}
+                  optionUnderlyingInstruments={availableTraditional}
                   isLightMode={isLightMode}
                   accountOnly={selectedInstrumentType === 'EVENT'}
                 />
@@ -3035,14 +3116,16 @@ export default function WebullTrading({ isLightMode = false }) {
                   {/* Real-time Price Card */}
                   <div className="trading-asset-card trading-price-card">
                     <div className="trading-price-header">
-                      <span className="trading-asset-card-label">Real-time Price</span>
+                      <span className="trading-asset-card-label">REAL-TIME PRICE</span>
                       <span className="live-pulse-dot" />
                     </div>
                     <div className="trading-asset-card-value price-highlight">
-                      {livePrice > 0 ? `$${number(livePrice, livePrice >= 1 ? 2 : 4)}` : 'Market Price'}{' '}
+                      {(selectedInstrumentType === 'EVENT' ? eventDisplayPrice : livePrice) > 0
+                        ? `$${number(selectedInstrumentType === 'EVENT' ? eventDisplayPrice : livePrice, (selectedInstrumentType === 'EVENT' ? eventDisplayPrice : livePrice) >= 1 ? 2 : 4)}`
+                        : 'Market Price'}{' '}
                       <small>USD</small>
                     </div>
-                    <span className="trading-asset-card-sub">Instant Market Rate</span>
+                    <span className="trading-asset-card-sub" title={selectedInstrumentType === 'EVENT' && !eventUnderlyingPrice && eventReferencePrice ? 'Webull contract reference price' : undefined}>Instant Market Rate</span>
                   </div>
                 </div>
 
@@ -3379,13 +3462,7 @@ export default function WebullTrading({ isLightMode = false }) {
                         ));
                       }}
                       onSymbolChange={(newSym) => {
-                        setOptionUnderlyingPrice(0);
-                        setOrderForm((previous) => ({
-                          ...previous,
-                          optionIv: '',
-                          optionMarketPrice: '',
-                        }));
-                        setSelectedSymbol(newSym);
+                        handleOptionUnderlyingChange(newSym);
                       }}
                       onStrategyChange={({ strategy, width }) => {
                         setOrderForm((previous) => ({
