@@ -127,6 +127,12 @@ The application utilizes a **unified PostgreSQL database**.
 
 Historical changelog entries retain the product name used when they were originally released. The application domain, repository slug, deployment folders, database, and service identifiers intentionally remain unchanged by the v2.45.0 brand update.
 
+## v2.73.5 (September 2026)
+
+- **Event Contract Brief Accuracy**:
+  - Ignored Webull's zero-value target placeholder when the provider condition contains the real positive target, preventing valid contracts from being labeled with a `$0.00` target.
+  - Humanized millisecond timestamps, preserved date-only contract cutoffs without an Eastern-time date shift, and stopped empty quantities from displaying a misleading `$0.00` winning payout or profit.
+
 ## v2.73.4 (September 2026)
 
 - **Immediate Event Search Metadata and Targeted Discovery**:

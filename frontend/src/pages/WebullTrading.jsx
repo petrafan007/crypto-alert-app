@@ -66,21 +66,38 @@ const eventConditionLabel = (market) => {
   return /^(yes\b|threshold:)/i.test(condition) ? condition : `YES if ${condition}`;
 };
 
+const eventTimestampLabel = (value) => {
+  const text = String(value ?? '').trim();
+  return /^\d{10,13}$/.test(text) ? formatEasternDateTime(Number(text)) : formatEasternDateTime(value);
+};
+
+const eventCutoffLabel = (value) => {
+  const text = String(value ?? '').trim();
+  const dateOnly = text.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (dateOnly) {
+    return `${Number(dateOnly[2])}/${Number(dateOnly[3])}/${dateOnly[1]} · exact time in Webull rules`;
+  }
+  return eventTimestampLabel(value);
+};
+
 const eventPropositionFor = (market) => {
   const title = String(market?.name || '').trim();
   const condition = String(market?.display_condition || market?.yes_condition || '').trim();
   const underlying = String(market?.underlying_name || market?.underlying_symbol || '').trim() || 'the named asset';
-  const target = Number(market?.target_value);
+  const structuredTarget = Number(market?.target_value);
+  const conditionTargetMatch = condition.match(/\$\s*([\d,]+(?:\.\d+)?)/);
+  const conditionTarget = Number(String(conditionTargetMatch?.[1] || '').replaceAll(',', ''));
+  const target = structuredTarget > 0 ? structuredTarget : conditionTarget > 0 ? conditionTarget : null;
   if (condition) {
     const yes = /^(yes\b|threshold:)/i.test(condition) ? condition : `YES if ${condition}`;
     return {
-      basis: Number.isFinite(target) ? `Fixed target: ${eventMoney(target)}` : 'Webull-defined contract condition',
+      basis: target ? `Fixed target: ${eventMoney(target)}` : 'Webull-defined contract condition',
       yes,
       no: 'NO if that condition is not met under Webull’s settlement rules.',
       detail: String(market?.description || market?.provider_rules || '').trim(),
     };
   }
-  if (Number.isFinite(target)) {
+  if (target) {
     return {
       basis: `Fixed target: ${eventMoney(target)}`,
       yes: `YES if ${underlying} meets the ${eventMoney(target)} target under Webull’s settlement rules.`,
@@ -1777,15 +1794,15 @@ export default function WebullTrading({ isLightMode = false }) {
   const eventContractCutoff = selectedEventMarket?.last_trading_date
     || selectedEventMarket?.expected_exp_date
     || selectedEventMarket?.latest_exp_date;
-  const eventQuantity = Number(orderForm.quantity);
-  const eventLimitPrice = Number(orderForm.price);
+  const eventQuantity = orderForm.quantity === '' ? NaN : Number(orderForm.quantity);
+  const eventLimitPrice = orderForm.price === '' ? NaN : Number(orderForm.price);
   const eventPotentialProfitEach = Number.isFinite(eventSettlementPayout) && Number.isFinite(eventLimitPrice)
     ? Math.max(0, eventSettlementPayout - eventLimitPrice)
     : null;
-  const eventGrossWinningPayout = Number.isFinite(eventSettlementPayout) && Number.isFinite(eventQuantity)
+  const eventGrossWinningPayout = Number.isFinite(eventSettlementPayout) && Number.isFinite(eventQuantity) && eventQuantity > 0
     ? eventSettlementPayout * eventQuantity
     : null;
-  const eventPotentialProfitTotal = eventPotentialProfitEach != null && Number.isFinite(eventQuantity)
+  const eventPotentialProfitTotal = eventPotentialProfitEach != null && Number.isFinite(eventQuantity) && eventQuantity > 0
     ? eventPotentialProfitEach * eventQuantity
     : null;
   const eventStatusLabel = eventTradableStatus === 'OC'
@@ -3172,7 +3189,7 @@ export default function WebullTrading({ isLightMode = false }) {
                           <div className="selected-event-market-stats">
                             <span>Volume <strong>{number(selectedEventMarket.volume, 0)}</strong></span>
                             <span>Open interest <strong>{number(selectedEventMarket.open_interest, 0)}</strong></span>
-                            <span>Last trade <strong>{formatDate(selectedEventMarket.last_trade_time)}</strong></span>
+                            <span>Last trade <strong>{eventTimestampLabel(selectedEventMarket.last_trade_time)}</strong></span>
                           </div>
                           <div className="event-contract-basis">{eventProposition.basis}</div>
                           <div className="event-proposition-grid">
@@ -3231,7 +3248,7 @@ export default function WebullTrading({ isLightMode = false }) {
                         </div>
                         <div>
                           <span>Contract Cutoff</span>
-                          <strong>{eventContractCutoff ? formatDate(eventContractCutoff) : 'See Webull contract rules'}</strong>
+                          <strong>{eventContractCutoff ? eventCutoffLabel(eventContractCutoff) : 'See Webull contract rules'}</strong>
                         </div>
                         <div>
                           <span>Order Quantity</span>
