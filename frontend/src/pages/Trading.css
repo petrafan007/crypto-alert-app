@@ -2343,7 +2343,7 @@ body.light-mode .pagination-btn.active {
 
 .event-contract-selector-grid {
   display: grid;
-  grid-template-columns: minmax(190px, 0.7fr) minmax(300px, 1.8fr);
+  grid-template-columns: minmax(170px, 0.65fr) minmax(190px, 0.75fr) minmax(300px, 1.6fr);
   gap: 0.75rem;
   margin-bottom: 0.75rem;
 }

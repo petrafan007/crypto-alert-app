@@ -379,6 +379,8 @@ export default function WebullTrading({ isLightMode = false }) {
   const [eventMarkets, setEventMarkets] = useState([]);
   const [selectedEventMarket, setSelectedEventMarket] = useState(null);
   const [eventMarketQuery, setEventMarketQuery] = useState('');
+  const [eventDuration, setEventDuration] = useState('');
+  const [eventDurationOptions, setEventDurationOptions] = useState([]);
   const [eventMarketMenuOpen, setEventMarketMenuOpen] = useState(false);
   const [eventTotalMatches, setEventTotalMatches] = useState(0);
   const [eventHasMore, setEventHasMore] = useState(false);
@@ -1187,20 +1189,29 @@ export default function WebullTrading({ isLightMode = false }) {
     }));
   };
 
-  const loadEventMarkets = async ({ category = selectedEventCategory, query = eventMarketQuery, signal } = {}) => {
+  const loadEventMarkets = async ({
+    category = selectedEventCategory,
+    query = eventMarketQuery,
+    duration = eventDuration,
+    signal,
+  } = {}) => {
     if (!category) return;
     const requestId = ++eventMarketRequestRef.current;
     setEventLoading(true);
     setEventMessage('');
     try {
       const response = await axios.get('/api/webull/events/markets', {
-        params: { category, query: query.trim(), limit: query.trim() ? 50 : 10 },
+        params: { category, query: query.trim(), duration, limit: query.trim() || duration ? 50 : 10 },
         withCredentials: true,
         signal,
       });
       if (requestId !== eventMarketRequestRef.current || signal?.aborted) return { aborted: true };
       const mkts = response.data?.markets || [];
+      const durationOptions = response.data?.duration_options || [];
       setEventMarkets((current) => (mkts.length || !response.data?.loading ? mkts : current));
+      setEventDurationOptions((current) => (
+        durationOptions.length || !response.data?.loading ? durationOptions : current
+      ));
       setEventTotalMatches(Number(response.data?.total_matches || mkts.length));
       setEventHasMore(Boolean(response.data?.has_more));
       setEventCatalogLoading(Boolean(response.data?.loading));
@@ -1230,6 +1241,8 @@ export default function WebullTrading({ isLightMode = false }) {
       const initialCategory = categories[0].category_code || categories[0].category_id;
       setSelectedEventCategory(initialCategory);
       setEventMarketQuery('');
+      setEventDuration('');
+      setEventDurationOptions([]);
       setEventMarkets([]);
       setEventTotalMatches(0);
       setEventHasMore(false);
@@ -1247,6 +1260,8 @@ export default function WebullTrading({ isLightMode = false }) {
     eventMarketRequestRef.current += 1;
     setSelectedEventCategory(categoryCode);
     setEventMarketQuery('');
+    setEventDuration('');
+    setEventDurationOptions([]);
     setEventMarkets([]);
     setEventTotalMatches(0);
     setEventHasMore(false);
@@ -1283,7 +1298,7 @@ export default function WebullTrading({ isLightMode = false }) {
   useEffect(() => {
     if (selectedInstrumentType !== 'EVENT' || !selectedEventCategory) return undefined;
     const poller = createEventCatalogPoller(
-      ({ category, query }, { signal }) => loadEventMarkets({ category, query, signal }),
+      ({ category, query, duration }, { signal }) => loadEventMarkets({ category, query, duration, signal }),
       {
         onExhausted: () => {
           setEventCatalogLoading(false);
@@ -1296,11 +1311,11 @@ export default function WebullTrading({ isLightMode = false }) {
       },
     );
     poller.start(
-      { category: selectedEventCategory, query: eventMarketQuery },
-      eventMarketQuery.trim() ? EVENT_SEARCH_DEBOUNCE_MS : 0,
+      { category: selectedEventCategory, query: eventMarketQuery, duration: eventDuration },
+      eventMarketQuery.trim() || eventDuration ? EVENT_SEARCH_DEBOUNCE_MS : 0,
     );
     return () => poller.stop();
-  }, [selectedInstrumentType, selectedEventCategory, eventMarketQuery]);
+  }, [selectedInstrumentType, selectedEventCategory, eventMarketQuery, eventDuration]);
 
   useEffect(() => {
     if (selectedInstrumentType !== 'EVENT' || !selectedEventMarket?.symbol) return undefined;
@@ -2996,6 +3011,23 @@ export default function WebullTrading({ isLightMode = false }) {
                               <option key={cat.category_id || cat.category_code} value={cat.category_code || cat.category_id}>
                                 {cat.name}
                               </option>
+                            ))}
+                          </select>
+                        </div>
+
+                        <div>
+                          <label className="order-field-label">Duration / Frequency</label>
+                          <select
+                            value={eventDuration}
+                            onChange={(event) => {
+                              setEventDuration(event.target.value);
+                              setEventMarketMenuOpen(true);
+                            }}
+                            className="order-styled-input"
+                          >
+                            <option value="">All durations</option>
+                            {eventDurationOptions.map((option) => (
+                              <option key={option.value} value={option.value}>{option.label}</option>
                             ))}
                           </select>
                         </div>

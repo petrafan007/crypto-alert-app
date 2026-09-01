@@ -984,6 +984,17 @@ _EVENT_SEARCH_ALIASES = {
     'hrs': 'hour', 'hr': 'hour', 'hours': 'hour',
     'days': 'day', 'weeks': 'week', 'months': 'month',
 }
+_EVENT_DURATION_LABELS = {
+    'FIFTEEN_MINUTES': '15 minutes',
+    'HOURLY': 'Hourly',
+    'DAILY': 'Daily',
+    'WEEKLY': 'Weekly',
+    'MONTHLY': 'Monthly',
+    'ANNUAL': 'Annual',
+    'ONE_OFF': 'One-off',
+    'CUSTOM': 'Custom schedule',
+}
+_EVENT_DURATION_ORDER = tuple(_EVENT_DURATION_LABELS)
 
 
 def _event_search_tokens(value):
@@ -1011,6 +1022,36 @@ def _event_market_matches_query(market, query):
         or (not token[0].isdigit() and any(candidate.startswith(token) for candidate in document_tokens))
         for token in query_tokens
     )
+
+
+def _event_market_duration(market):
+    """Return Webull's series frequency, deriving only explicit 15-minute series."""
+    series_identity = ' '.join(str(market.get(field) or '') for field in (
+        'series_symbol', 'series_name', 'event_name',
+    ))
+    if re.search(r'15\s*(?:m\b|min(?:ute)?s?\b)', series_identity, re.IGNORECASE):
+        return 'FIFTEEN_MINUTES'
+    frequency = str(market.get('series_frequency') or '').strip().upper()
+    return frequency if frequency in _EVENT_DURATION_LABELS else ''
+
+
+def _event_duration_matches(market, duration):
+    market_duration = _event_market_duration(market)
+    if duration == 'INTRADAY':
+        return market_duration in {'FIFTEEN_MINUTES', 'HOURLY'}
+    return not duration or market_duration == duration
+
+
+def _event_duration_options(markets):
+    available = {_event_market_duration(market) for market in markets}
+    options = []
+    if available.intersection({'FIFTEEN_MINUTES', 'HOURLY'}):
+        options.append({'value': 'INTRADAY', 'label': 'Intraday (15 min + hourly)'})
+    options.extend(
+        {'value': value, 'label': _EVENT_DURATION_LABELS[value]}
+        for value in _EVENT_DURATION_ORDER if value in available
+    )
+    return options
 
 
 def _event_market_is_discoverable(market):
@@ -1201,6 +1242,7 @@ def _normalise_event_market(raw, series_categories):
         'series_id': raw.get('series_id'),
         'series_symbol': series_symbol,
         'series_name': raw.get('series_name'),
+        'series_frequency': str(raw.get('series_frequency') or raw.get('frequency') or '').strip().upper(),
         'event_symbol': raw.get('event_symbol'),
         'event_name': raw.get('event_name'),
         'instrument_id': raw.get('instrument_id'),
@@ -1343,6 +1385,7 @@ def get_webull_event_catalog(
                 raw = dict(raw)
                 raw.setdefault('series_symbol', series_symbol)
                 raw.setdefault('series_name', item.get('name') or item.get('series_name'))
+                raw.setdefault('series_frequency', item.get('frequency'))
                 raw_markets.append(raw)
 
         def build_catalog(*, loading):
@@ -1583,12 +1626,16 @@ def _event_market_rules(market):
 
 def get_webull_event_markets(
     app_key, app_secret, environment='production', access_token=None, *,
-    category_id=None, symbol=None, query=None, limit=10, force=False, progressive=False,
+    category_id=None, symbol=None, query=None, duration=None, limit=10, force=False, progressive=False,
 ):
     """Search open, actionable markets and enrich only a bounded candidate set."""
     clean_category = str(category_id or '').strip().upper()
     clean_symbol = str(symbol or '').strip().upper()
     clean_query = str(query or '').strip().casefold()
+    clean_duration = str(duration or '').strip().upper()
+    valid_durations = {'', 'INTRADAY', *_EVENT_DURATION_LABELS}
+    if clean_duration not in valid_durations:
+        raise WebullConnectionError('Choose a valid Event Contract duration or frequency.')
     result_limit = max(1, min(int(limit or 10), 50))
     principal = _webull_event_principal(app_key, environment, access_token)
     catalog = get_webull_event_catalog(
@@ -1598,7 +1645,8 @@ def get_webull_event_markets(
     # The catalog timestamp is its generation. Progressive warmup can replace
     # that generation without globally invalidating unrelated users' searches.
     result_cache_key = (
-        *principal, clean_category, clean_symbol, clean_query, result_limit, catalog.get('as_of'),
+        *principal, clean_category, clean_symbol, clean_query, clean_duration,
+        result_limit, catalog.get('as_of'),
     )
     if not force:
         with _WEBULL_EVENT_CACHE_LOCK:
@@ -1627,11 +1675,15 @@ def get_webull_event_markets(
         # through exact-symbol lookups for an owned position, while NT/future
         # markets never inflate search counts or expose disabled Yes/No rows.
         markets = [item for item in markets if _event_market_is_discoverable(item)]
+    duration_options = _event_duration_options(markets) if not clean_symbol else []
     if clean_query:
         markets = [item for item in markets if _event_market_matches_query(item, clean_query)]
+    if clean_duration:
+        markets = [item for item in markets if _event_duration_matches(item, clean_duration)]
     if not markets:
         result = {
             'markets': [],
+            'duration_options': duration_options,
             'total_matches': 0,
             'catalog_matches': 0,
             'verified_matches': 0,
@@ -1750,6 +1802,7 @@ def get_webull_event_markets(
         )
     result = {
         'markets': enriched[:result_limit],
+        'duration_options': duration_options,
         # Retained for existing clients. Unlike the catalog count, this number
         # is always based only on contracts with verified actionable quotes.
         'total_matches': verified_matches,

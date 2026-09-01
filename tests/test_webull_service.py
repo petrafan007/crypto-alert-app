@@ -150,6 +150,72 @@ class WebullServiceTests(unittest.TestCase):
         self.assertEqual(result['catalog_matches'], 1)
         self.assertEqual([item['symbol'] for item in result['markets']], ['KXBTC15M-26SEP011215-15'])
 
+    def test_event_duration_filter_uses_provider_frequency_and_explicit_intraday_series(self):
+        catalog = {
+            'categories': [{'category_id': 'CRYPTO', 'category_code': 'CRYPTO', 'name': 'Crypto'}],
+            'markets': [
+                {
+                    'symbol': 'KXBTC15M-CURRENT', 'name': 'Bitcoin price up?',
+                    'series_symbol': 'KXBTC15M', 'series_name': 'BTC Up or Down-15minutes',
+                    'category_code': 'CRYPTO', 'tradable_status': 'OC', 'price_ranges': [],
+                },
+                {
+                    'symbol': 'KXBTCD-HOURLY', 'name': 'Bitcoin hourly price?',
+                    'series_symbol': 'KXBTCD', 'series_frequency': 'HOURLY',
+                    'category_code': 'CRYPTO', 'tradable_status': 'OC', 'price_ranges': [],
+                },
+                {
+                    'symbol': 'KXBTC-DAILY', 'name': 'Bitcoin daily range?',
+                    'series_symbol': 'KXBTC', 'series_frequency': 'DAILY',
+                    'category_code': 'CRYPTO', 'tradable_status': 'OC', 'price_ranges': [],
+                },
+                {
+                    'symbol': 'KXBTC-YEAR', 'name': 'Bitcoin this year?',
+                    'series_symbol': 'KXBTCMAXY', 'series_frequency': 'ANNUAL',
+                    'category_code': 'CRYPTO', 'tradable_status': 'OC', 'price_ranges': [],
+                },
+            ],
+            'as_of': '2026-09-01T12:00:00+00:00', 'partial': False, 'loading': False,
+        }
+        snapshots = {
+            symbol: {'symbol': symbol, 'yes_ask': 0.48, 'no_ask': 0.53}
+            for symbol in ('KXBTC15M-CURRENT', 'KXBTCD-HOURLY', 'KXBTC-DAILY', 'KXBTC-YEAR')
+        }
+        with patch('services.webull_service.get_webull_event_catalog', return_value=catalog), \
+             patch('services.webull_service.get_webull_event_snapshots', return_value=snapshots) as snapshot_mock:
+            intraday = get_webull_event_markets('a', 's', category_id='CRYPTO', duration='INTRADAY', limit=50)
+
+        self.assertEqual(
+            [option['value'] for option in intraday['duration_options']],
+            ['INTRADAY', 'FIFTEEN_MINUTES', 'HOURLY', 'DAILY', 'ANNUAL'],
+        )
+        self.assertEqual(
+            {item['symbol'] for item in intraday['markets']},
+            {'KXBTC15M-CURRENT', 'KXBTCD-HOURLY'},
+        )
+        self.assertEqual(
+            set(snapshot_mock.call_args.kwargs['symbols']),
+            {'KXBTC15M-CURRENT', 'KXBTCD-HOURLY'},
+        )
+
+    def test_event_daily_duration_filter_excludes_other_frequencies_before_snapshots(self):
+        catalog = {
+            'categories': [{'category_id': 'FINANCIALS', 'category_code': 'FINANCIALS', 'name': 'Financials'}],
+            'markets': [
+                {'symbol': 'DAILY-ONE', 'name': 'Daily market', 'series_frequency': 'DAILY', 'category_code': 'FINANCIALS', 'tradable_status': 'OC', 'price_ranges': []},
+                {'symbol': 'WEEKLY-ONE', 'name': 'Weekly market', 'series_frequency': 'WEEKLY', 'category_code': 'FINANCIALS', 'tradable_status': 'OC', 'price_ranges': []},
+            ],
+            'as_of': '2026-09-01T12:00:00+00:00', 'partial': False, 'loading': False,
+        }
+        with patch('services.webull_service.get_webull_event_catalog', return_value=catalog), \
+             patch('services.webull_service.get_webull_event_snapshots', return_value={
+                 'DAILY-ONE': {'symbol': 'DAILY-ONE', 'yes_ask': 0.48},
+             }) as snapshot_mock:
+            result = get_webull_event_markets('a', 's', category_id='FINANCIALS', duration='DAILY')
+
+        self.assertEqual([item['symbol'] for item in result['markets']], ['DAILY-ONE'])
+        self.assertEqual(snapshot_mock.call_args.kwargs['symbols'], ['DAILY-ONE'])
+
     def test_event_discovery_treats_date_only_close_as_end_of_trading_day(self):
         catalog = {
             'categories': [{'category_id': 'CRYPTO', 'category_code': 'CRYPTO', 'name': 'Crypto'}],

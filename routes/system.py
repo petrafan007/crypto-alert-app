@@ -2737,6 +2737,7 @@ def api_webull_event_markets():
         category_id = request.args.get('category_id') or request.args.get('category')
         symbol = str(request.args.get('symbol') or '').strip().upper()
         query = request.args.get('query') or request.args.get('q')
+        duration = request.args.get('duration') or request.args.get('frequency')
         try:
             limit = max(1, min(int(request.args.get('limit') or 10), 50))
         except (TypeError, ValueError):
@@ -2764,7 +2765,7 @@ def api_webull_event_markets():
             result = get_webull_event_markets(
                 credential.webull_app_key, credential.webull_app_secret,
                 environment, credential.webull_access_token,
-                category_id=category_id, query=query, limit=limit,
+                category_id=category_id, query=query, duration=duration, limit=limit,
                 force=request.args.get('refresh') == '1',
                 progressive=True,
             )

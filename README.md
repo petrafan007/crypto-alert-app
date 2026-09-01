@@ -127,6 +127,13 @@ The application utilizes a **unified PostgreSQL database**.
 
 Historical changelog entries retain the product name used when they were originally released. The application domain, repository slug, deployment folders, database, and service identifiers intentionally remain unchanged by the v2.45.0 brand update.
 
+## v2.73.3 (September 2026)
+
+- **Provider-Backed Event Duration Filter**:
+  - Added a Duration / Frequency selector beside Event Category and market search. Options are generated from the frequencies Webull currently exposes in the selected category: Hourly, Daily, Weekly, Monthly, Annual, One-off, and Custom schedule.
+  - Added 15 minutes for Webull's explicitly named 15-minute crypto series, whose provider frequency field is currently empty, plus an Intraday group that combines those contracts with Webull's Hourly series.
+  - Applied duration filtering before live snapshot batching, so unrelated frequencies do not consume quote requests. Natural-language search and duration filtering can be combined without automatically selecting a contract or changing order behavior.
+
 ## v2.73.2 (September 2026)
 
 - **Natural-Language Event Contract Search**:
