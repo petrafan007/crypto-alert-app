@@ -83,6 +83,33 @@ class OptionsThesisServiceTests(unittest.TestCase):
         self.assertIn("'Assumptions'!$B$8", formula)
         self.assertEqual(float(cached_value), 4884.0)
 
+    def test_scenario_prices_round_to_the_chart_cent_increment(self):
+        workbook_stream = generate_thesis_excel(
+            underlying_symbol="AAPL",
+            baseline_price=316.85,
+            strike_price=302.50,
+            entry_premium=0.05,
+            multiplier=100,
+            quantity=2,
+            iv=0.1501,
+            risk_free_rate=0.0379,
+            expiration_date=datetime.date(2026, 9, 2),
+            starting_dte=0,
+            option_type="PUT",
+        )
+        with zipfile.ZipFile(workbook_stream) as archive:
+            price_formula, price_value = _formula_and_cached_value(
+                archive, "xl/worksheets/sheet2.xml", "B24"
+            )
+            pnl_formula, pnl_value = _formula_and_cached_value(
+                archive, "xl/worksheets/sheet3.xml", "C24"
+            )
+
+        self.assertIn("ROUND", price_formula)
+        self.assertEqual(float(price_value), 285.17)
+        self.assertIn("'Assumptions'!$B$8", pnl_formula)
+        self.assertAlmostEqual(float(pnl_value), 3456.0, places=2)
+
 
 if __name__ == "__main__":
     unittest.main()

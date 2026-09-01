@@ -194,9 +194,9 @@ def generate_thesis_excel(
     cached_option_prices = {}
     for row, pct in enumerate(pct_steps, start=3):
         excel_row = row + 1
-        scenario_price = baseline_price * (1 + pct)
+        scenario_price = round(baseline_price * (1 + pct), 2)
         price_sheet.write_number(row, 0, pct, percent_format)
-        price_sheet.write_formula(row, 1, f"='Assumptions'!$B$4*(1+A{excel_row})", currency_format, scenario_price)
+        price_sheet.write_formula(row, 1, f"=ROUND('Assumptions'!$B$4*(1+A{excel_row}),2)", currency_format, scenario_price)
         for column, (dte, _) in enumerate(date_columns, start=2):
             excel_column = xl_col_to_name(column)
             underlying_ref = f"$B{excel_row}"
@@ -249,7 +249,7 @@ def generate_thesis_excel(
     cached_pnl = {}
     for row, pct in enumerate(pct_steps, start=3):
         excel_row = row + 1
-        scenario_price = baseline_price * (1 + pct)
+        scenario_price = round(baseline_price * (1 + pct), 2)
         pnl_sheet.write_number(row, 0, pct, percent_format)
         pnl_sheet.write_formula(row, 1, f"='Option Price Matrix'!B{excel_row}", currency_format, scenario_price)
         for column, _ in enumerate(date_columns, start=2):
@@ -285,7 +285,7 @@ def generate_thesis_excel(
 
     for row, pct in enumerate(pct_steps, start=3):
         excel_row = row + 1
-        scenario_price = baseline_price * (1 + pct)
+        scenario_price = round(baseline_price * (1 + pct), 2)
         combined_sheet.write_number(row, 0, pct, percent_format)
         combined_sheet.write_formula(row, 1, f"='Option Price Matrix'!B{excel_row}", currency_format, scenario_price)
         for column, _ in enumerate(date_columns, start=2):

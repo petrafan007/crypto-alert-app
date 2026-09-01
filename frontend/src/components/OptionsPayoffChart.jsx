@@ -70,8 +70,9 @@ export default function OptionsPayoffChart({
   const chartRef = useRef(null);
   const simulatedPriceRef = useRef(strikePrice);
 
-  const chartCenterPrice = safePrice(strikePrice, safePrice(baselinePrice, 1));
-  const baseline = safePrice(baselinePrice, chartCenterPrice);
+  const selectedStrike = safePrice(strikePrice, safePrice(baselinePrice, 1));
+  const baseline = safePrice(baselinePrice, selectedStrike);
+  const chartCenterPrice = baseline;
   const safeQuantity = Math.max(0, Number(quantity) || 0);
   const currentDTE = Math.max(0, startingDTE - daysElapsed);
 
@@ -88,12 +89,12 @@ export default function OptionsPayoffChart({
     setRangePercent(10);
   }, [strikePrice]);
 
-  // Use exact one-cent price points around the selected strike price. Integer
+  // Use exact one-cent price points around the current underlying price. Integer
   // cents prevent floating-point drift and duplicate axis labels.
   const xPoints = useMemo(() => {
     const range = chartCenterPrice * (rangePercent / 100);
-    const minCents = Math.max(1, Math.floor((chartCenterPrice - range) * 100));
-    const maxCents = Math.max(minCents + 1, Math.ceil((chartCenterPrice + range) * 100));
+    const minCents = Math.max(1, Math.round((chartCenterPrice - range) * 100));
+    const maxCents = Math.max(minCents + 1, Math.round((chartCenterPrice + range) * 100));
     return Array.from({ length: maxCents - minCents + 1 }, (_, index) => (minCents + index) / 100);
   }, [chartCenterPrice, rangePercent]);
 
@@ -120,7 +121,7 @@ export default function OptionsPayoffChart({
         data: xPoints.map((underlyingPrice) => {
           const currentOptPrice = calculateOptionPrice(
             underlyingPrice,
-            chartCenterPrice,
+            selectedStrike,
             currentDTE,
             riskFreeRate,
             iv,
@@ -146,7 +147,7 @@ export default function OptionsPayoffChart({
         tension: 0.1,
       },
     ],
-  }), [xPoints, chartCenterPrice, entryPremium, multiplier, safeQuantity, iv, riskFreeRate, currentDTE, optionType, action]);
+  }), [xPoints, selectedStrike, entryPremium, multiplier, safeQuantity, iv, riskFreeRate, currentDTE, optionType, action]);
 
   let maxProfit = 0;
   let maxLoss = 0;
@@ -155,7 +156,7 @@ export default function OptionsPayoffChart({
       maxProfit = 'Unlimited';
       maxLoss = -entryPremium * multiplier * safeQuantity;
     } else {
-      maxProfit = (chartCenterPrice - entryPremium) * multiplier * safeQuantity;
+      maxProfit = (selectedStrike - entryPremium) * multiplier * safeQuantity;
       maxLoss = -entryPremium * multiplier * safeQuantity;
     }
   } else if (optionType === 'CALL') {
@@ -163,7 +164,7 @@ export default function OptionsPayoffChart({
     maxLoss = 'Unlimited';
   } else {
     maxProfit = entryPremium * multiplier * safeQuantity;
-    maxLoss = -(chartCenterPrice - entryPremium) * multiplier * safeQuantity;
+    maxLoss = -(selectedStrike - entryPremium) * multiplier * safeQuantity;
   }
 
   const minP = xPoints[0];

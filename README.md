@@ -127,6 +127,13 @@ The application utilizes a **unified PostgreSQL database**.
 
 Historical changelog entries retain the product name used when they were originally released. The application domain, repository slug, deployment folders, database, and service identifiers intentionally remain unchanged by the v2.45.0 brand update.
 
+## v2.68.2 (August 2026)
+
+- **Payoff and Thesis Scenario Parity**:
+  - Centered the payoff chart's percentage range on the current underlying price, matching the Excel thesis matrix. A `-10%` scenario now represents the same cent-rounded underlying price in both views.
+  - Retained the selected strike for option valuation, risk, and contract selection, so dragging the hexagon still changes the selected Webull contract without changing the thesis scenario definition.
+  - Rounded percentage scenario prices to cents before pricing the Excel matrix, eliminating fractional-cent display and P&L discrepancies between the chart and workbook.
+
 ## v2.68.1 (August 2026)
 
 - **Webull-Style Payoff Contract Selection**:
