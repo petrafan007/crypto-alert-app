@@ -127,6 +127,13 @@ The application utilizes a **unified PostgreSQL database**.
 
 Historical changelog entries retain the product name used when they were originally released. The application domain, repository slug, deployment folders, database, and service identifiers intentionally remain unchanged by the v2.45.0 brand update.
 
+## v2.75.0 (September 2026)
+
+- **Event Contract Open-Order Management**:
+  - The Event Contracts page now shows the selected account's live working Event Contract orders at the bottom of the order workspace, rather than an imported positions table that is usually empty once short-duration contracts settle.
+  - Orders placed through Webull's mobile app and through the dashboard appear in the same table with their contract, Yes/No outcome, side, requested, filled, and remaining quantity, limit price, and status.
+  - Each order's Manage action reuses the existing live Event Contract chart, quote, countdown, Buy Yes, Buy No, and conditional Close controls. It adds Cancel Open Order through the existing Webull confirmation and two-factor security workflow.
+
 ## v2.74.7 (September 2026)
 
 - **Prompt Intraday Event Contract Rollovers**:

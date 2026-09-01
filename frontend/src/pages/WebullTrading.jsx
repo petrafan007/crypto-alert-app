@@ -288,6 +288,8 @@ const normalizeOrder = (order) => ({
   ...order,
   id: order.id || order.order_id || order.orderId || `${order.symbol}-${order.created_at || order.create_time || ''}`,
   symbol: String(order.symbol || order.ticker || '—').toUpperCase(),
+  instrument_type: order.instrument_type || order.instrumentType || order.security_type || order.securityType || order.asset_type || order.assetType || '',
+  event_outcome: order.event_outcome || order.eventOutcome || order.outcome || '',
   side: order.side || '—',
   order_type: order.order_type || order.type || '—',
   quantity: order.quantity ?? order.total_quantity ?? order.order_quantity,
@@ -296,6 +298,18 @@ const normalizeOrder = (order) => ({
   status: order.status || order.order_status || '—',
   created_at: order.created_at || order.create_time || order.placed_time || order.place_time || order.filled_time_at || order.update_time,
 });
+
+const eventContractOrderDetails = (order = {}) => {
+  const instrumentType = String(order.instrument_type || '').trim().toUpperCase();
+  const rawSymbol = String(order.event_symbol || order.underlying_symbol || order.symbol || '').trim().toUpperCase();
+  const symbolOutcome = rawSymbol.match(/\s+(YES|NO)$/i)?.[1] || '';
+  const outcome = String(order.event_outcome || symbolOutcome || '').trim().toUpperCase();
+  return {
+    isEvent: ['EVENT', 'EVENT_CONTRACT', 'EVENT_CONTRACTS'].includes(instrumentType) || ['YES', 'NO'].includes(outcome),
+    symbol: rawSymbol.replace(/\s+(YES|NO)$/i, ''),
+    outcome,
+  };
+};
 
 function Pagination({ page, setPage, pageSize, setPageSize, total }) {
   const pages = Math.max(1, Math.ceil(total / pageSize));
@@ -391,6 +405,60 @@ function WebullOrderTable({ orders, emptyText, onCancelOrder, cancellingId, opti
                   </td>
                 )}
               </tr>;
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function EventContractOpenOrders({ orders, onManageOrder }) {
+  if (!orders.length) return <div className="empty-state"><p>No active Webull Event Contract orders are available.</p></div>;
+  return (
+    <div className="table-container trading-table" style={{ marginTop: 20 }}>
+      <div className="order-table-scroll">
+        <table>
+          <thead>
+            <tr>
+              <th>Date</th><th>Time (ET)</th><th>Contract</th><th>Outcome</th><th>Side</th>
+              <th>Order Qty</th><th>Filled</th><th>Remaining</th><th>Limit</th><th>Status</th><th>Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            {orders.map((order) => {
+              const event = eventContractOrderDetails(order);
+              const quantity = Number(order.quantity || 0);
+              const filledQuantity = Number(order.filled_quantity || 0);
+              const remainingQuantity = Math.max(0, quantity - filledQuantity);
+              return (
+                <tr key={order.id}>
+                  <td>{formatEasternDate(order.created_at)}</td>
+                  <td>{formatEasternTime(order.created_at)}</td>
+                  <td><strong>{event.symbol || '—'}</strong></td>
+                  <td>{event.outcome || '—'}</td>
+                  <td>{formatOrderSide(order.side)}</td>
+                  <td>{number(order.quantity, 6)}</td>
+                  <td>{number(order.filled_quantity, 6)}</td>
+                  <td>{number(remainingQuantity, 6)}</td>
+                  <td>{order.price ? `$${number(order.price, 4)}` : 'Market'}</td>
+                  <td>{formatOrderStatus(order.status)}</td>
+                  <td style={{ textAlign: 'center' }}>
+                    <button
+                      type="button"
+                      className="badge"
+                      style={{
+                        background: 'rgba(56, 189, 248, .18)', border: '1px solid rgba(56, 189, 248, .35)',
+                        color: '#38bdf8', cursor: 'pointer', padding: '5px 14px', fontWeight: 700,
+                        borderRadius: '6px', fontSize: '0.82rem',
+                      }}
+                      onClick={() => onManageOrder?.(order)}
+                    >
+                      Manage
+                    </button>
+                  </td>
+                </tr>
+              );
             })}
           </tbody>
         </table>
@@ -575,6 +643,7 @@ export default function WebullTrading({ isLightMode = false }) {
   const eventMarketSelectorRef = useRef(null);
   const eventAutoPriceRef = useRef(true);
   const [eventPositionHolding, setEventPositionHolding] = useState(null);
+  const [eventOpenOrder, setEventOpenOrder] = useState(null);
   const [pendingEventPositionOrder, setPendingEventPositionOrder] = useState(null);
 
   // Helper to detect cash-based Webull accounts (Individual Cash, Roth IRA, Rollover IRA)
@@ -1129,6 +1198,14 @@ export default function WebullTrading({ isLightMode = false }) {
       loadOpenOrders(selectedAccountId, isTestMode);
     }
   }, [selectedAccountId, isTestMode]);
+
+  useEffect(() => {
+    if (selectedInstrumentType !== 'EVENT' || !selectedAccountId) return undefined;
+    const refresh = () => loadOpenOrders(selectedAccountId, isTestMode);
+    refresh();
+    const timer = window.setInterval(refresh, 15000);
+    return () => window.clearInterval(timer);
+  }, [selectedInstrumentType, selectedAccountId, isTestMode]);
 
   // Sync active account and cash balance
   const activeAccount = useMemo(() => {
@@ -2593,6 +2670,7 @@ export default function WebullTrading({ isLightMode = false }) {
       if (response.data?.success) {
         setOrderFeedback({ type: 'success', message: response.data.message || 'Order cancelled successfully.' });
         setCancelModal({ isVisible: false, order: null, error: '', loading: false });
+        setEventOpenOrder((current) => current?.id === order.id ? null : current);
         loadOpenOrders(selectedAccountId);
       } else {
         setCancelModal((current) => ({ ...current, loading: false, error: response.data?.message || 'Unable to cancel order.' }));
@@ -2609,11 +2687,17 @@ export default function WebullTrading({ isLightMode = false }) {
   };
 
   const handleOpenEventPosition = (holding) => {
+    setEventOpenOrder(null);
     setEventPositionHolding(holding || null);
   };
 
+  const handleManageEventOrder = (order) => {
+    setEventPositionHolding(null);
+    setEventOpenOrder(order || null);
+  };
+
   const handleReviewEventPositionOrder = ({ holding, market, side, outcome, quantity, price }) => {
-    const accountId = String(holding?.account_id || selectedAccountId || '');
+    const accountId = String(holding?.account_id || holding?._webull_account_id || holding?.webull_account_id || selectedAccountId || '');
     const symbol = String(market?.symbol || holding?.underlying_symbol || holding?.symbol || '')
       .replace(/\s+(YES|NO)$/i, '')
       .trim()
@@ -2645,6 +2729,7 @@ export default function WebullTrading({ isLightMode = false }) {
       eventOutcome: String(outcome).toLowerCase(),
     }));
     setEventPositionHolding(null);
+    setEventOpenOrder(null);
     setPendingEventPositionOrder({
       accountId,
       symbol,
@@ -2808,6 +2893,10 @@ export default function WebullTrading({ isLightMode = false }) {
     [history, isTestMode]
   );
   const displayOpenOrders = useMemo(() => modeOpenOrders.filter((order) => OPEN_STATUSES.has(String(order.status).toUpperCase()) || !order.status), [modeOpenOrders]);
+  const eventOpenOrders = useMemo(
+    () => displayOpenOrders.filter((order) => eventContractOrderDetails(order).isEvent),
+    [displayOpenOrders],
+  );
 
   useEffect(() => {
     if (activeTab !== 'open_orders' || !selectedAccountId) return undefined;
@@ -4660,14 +4749,20 @@ export default function WebullTrading({ isLightMode = false }) {
                   </div>
                 )}
 
-                {/* Holdings Table Below */}
-                <WebullHoldings
-                  holdings={modeHoldings}
-                  instrumentType={selectedInstrumentType}
-                  onSelectHolding={handleSelectHolding}
-                  onOpenEventPosition={handleOpenEventPosition}
-                  isTestMode={isTestMode}
-                />
+                {selectedInstrumentType === 'EVENT' ? (
+                  <EventContractOpenOrders
+                    orders={eventOpenOrders}
+                    onManageOrder={handleManageEventOrder}
+                  />
+                ) : (
+                  <WebullHoldings
+                    holdings={modeHoldings}
+                    instrumentType={selectedInstrumentType}
+                    onSelectHolding={handleSelectHolding}
+                    onOpenEventPosition={handleOpenEventPosition}
+                    isTestMode={isTestMode}
+                  />
+                )}
               </div>
             )}
 
@@ -4935,12 +5030,18 @@ export default function WebullTrading({ isLightMode = false }) {
         )}
       </div>
       <EventPositionModal
-        isOpen={Boolean(eventPositionHolding)}
+        isOpen={Boolean(eventPositionHolding || eventOpenOrder)}
         holding={eventPositionHolding}
+        openOrder={eventOpenOrder}
         isTestMode={isTestMode}
         isLightMode={isLightMode}
-        onClose={() => setEventPositionHolding(null)}
+        onClose={() => {
+          setEventPositionHolding(null);
+          setEventOpenOrder(null);
+        }}
         onReviewOrder={handleReviewEventPositionOrder}
+        onCancelOrder={openCancelModalForOrder}
+        cancellingOrderId={cancellingOrderId}
       />
       <TwoFactorModal
         isVisible={twoFactorModal.isVisible}

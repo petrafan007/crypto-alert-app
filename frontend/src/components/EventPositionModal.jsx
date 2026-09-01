@@ -100,15 +100,22 @@ function EventCountdown({ cutoff, serverOffset, onExpire }) {
 export default function EventPositionModal({
   isOpen,
   holding,
+  openOrder = null,
   isTestMode = false,
   isLightMode = false,
   onClose,
   onReviewOrder,
+  onCancelOrder,
+  cancellingOrderId,
 }) {
-  const symbol = contractSymbol(holding);
-  const positionOutcome = heldOutcome(holding);
-  const accountId = String(holding?.account_id || '');
-  const storedQuantity = numeric(holding?.available_quantity ?? holding?.quantity ?? holding?.amount, 0);
+  const record = openOrder || holding;
+  const isOpenOrder = Boolean(openOrder);
+  const symbol = contractSymbol(record);
+  const positionOutcome = heldOutcome(record);
+  const accountId = String(record?.account_id || record?._webull_account_id || record?.webull_account_id || '');
+  const storedQuantity = isOpenOrder
+    ? numeric(record?.filled_quantity, 0)
+    : numeric(record?.available_quantity ?? record?.quantity ?? record?.amount, 0);
   const [market, setMarket] = useState(null);
   const [bars, setBars] = useState([]);
   const [availableQuantity, setAvailableQuantity] = useState(storedQuantity);
@@ -117,7 +124,7 @@ export default function EventPositionModal({
   const [chartMessage, setChartMessage] = useState('');
   const [serverOffset, setServerOffset] = useState(0);
   const [cutoffExpired, setCutoffExpired] = useState(false);
-  const [side, setSide] = useState('SELL');
+  const [side, setSide] = useState(isOpenOrder ? 'BUY' : 'SELL');
   const [outcome, setOutcome] = useState(positionOutcome);
   const [quantity, setQuantity] = useState(storedQuantity > 0 ? String(storedQuantity) : '1');
   const [price, setPrice] = useState('');
@@ -145,7 +152,7 @@ export default function EventPositionModal({
     setChartMessage('');
     setMarket(null);
     setBars([]);
-    setSide('SELL');
+    setSide(isOpenOrder ? 'BUY' : 'SELL');
     setOutcome(positionOutcome);
     setAvailableQuantity(storedQuantity);
     setQuantity(storedQuantity > 0 ? String(storedQuantity) : '1');
@@ -176,7 +183,7 @@ export default function EventPositionModal({
       }
       const serverTime = providerTime(details.server_time);
       setServerOffset(serverTime ? serverTime.getTime() - Date.now() : 0);
-      const suggested = quoteFor(nextMarket, positionOutcome, 'SELL');
+      const suggested = quoteFor(nextMarket, positionOutcome, isOpenOrder ? 'BUY' : 'SELL');
       setPrice(suggested === null ? '' : String(suggested));
     }).catch((requestError) => {
       if (!cancelled) {
@@ -186,7 +193,7 @@ export default function EventPositionModal({
       if (!cancelled) setLoading(false);
     });
     return () => { cancelled = true; };
-  }, [isOpen, symbol, accountId, positionOutcome, isTestMode, storedQuantity]);
+  }, [isOpen, symbol, accountId, positionOutcome, isTestMode, storedQuantity, isOpenOrder]);
 
   useEffect(() => {
     if (!isOpen || !symbol || !market) return undefined;
@@ -225,12 +232,14 @@ export default function EventPositionModal({
         ? 'Trading closed / awaiting determination'
         : 'Status unavailable';
   const rules = market?.rules || {};
-  const averagePrice = numeric(holding?.avg_entry ?? holding?.cost_price, 0);
-  const positionQuantity = numeric(holding?.quantity ?? holding?.amount, 0);
+  const averagePrice = isOpenOrder ? null : numeric(record?.avg_entry ?? record?.cost_price, 0);
+  const positionQuantity = isOpenOrder ? availableQuantity : numeric(record?.quantity ?? record?.amount, 0);
+  const orderQuantity = numeric(record?.quantity, 0);
+  const orderFilledQuantity = numeric(record?.filled_quantity, 0);
+  const orderRemainingQuantity = Math.max(0, orderQuantity - orderFilledQuantity);
   const executableBid = quoteFor(market, positionOutcome, 'SELL');
-  const mark = numeric(holding?.current_price ?? holding?.last_price, executableBid);
   const estimatedCloseValue = executableBid === null ? null : executableBid * availableQuantity;
-  const unrealizedPnl = executableBid === null ? null : (executableBid - averagePrice) * positionQuantity;
+  const unrealizedPnl = executableBid === null || averagePrice === null ? null : (executableBid - averagePrice) * positionQuantity;
   const winningPayout = positionQuantity * numeric(rules.settlement_payout, 1);
   const selectedQuote = quoteFor(market, outcome, side);
 
@@ -269,7 +278,7 @@ export default function EventPositionModal({
     },
   }), [isLightMode]);
 
-  if (!isOpen || !holding) return null;
+  if (!isOpen || !record) return null;
 
   const chooseOrder = (nextSide, nextOutcome) => {
     const nextQuote = quoteFor(market, nextOutcome, nextSide);
@@ -312,7 +321,7 @@ export default function EventPositionModal({
       return;
     }
     onReviewOrder?.({
-      holding,
+      holding: record,
       market,
       side,
       outcome,
@@ -326,7 +335,7 @@ export default function EventPositionModal({
       <section className="event-position-modal" role="dialog" aria-modal="true" aria-labelledby="event-position-title">
         <header className="event-position-modal-header">
           <div>
-            <span className="event-position-kicker">Current Event Contract Position</span>
+            <span className="event-position-kicker">{isOpenOrder ? 'Event Contract Open Order' : 'Current Event Contract Position'}</span>
             <h2 id="event-position-title">{market?.name || symbol}</h2>
             <p>{market?.display_condition || market?.yes_condition || 'Contract condition unavailable'}</p>
           </div>
@@ -347,6 +356,18 @@ export default function EventPositionModal({
 
           {market && (
             <>
+              {isOpenOrder && (
+                <div className="event-position-facts-grid event-position-order-summary">
+                  <div><span>Open order side</span><strong>{String(record?.side || 'BUY').toUpperCase()}</strong></div>
+                  <div><span>Order outcome</span><strong>{positionOutcome.toUpperCase()}</strong></div>
+                  <div><span>Order quantity</span><strong>{quantityText(orderQuantity)}</strong></div>
+                  <div><span>Filled / remaining</span><strong>{quantityText(orderFilledQuantity)} / {quantityText(orderRemainingQuantity)}</strong></div>
+                  <div><span>Order limit</span><strong>{cents(record?.price ?? record?.limit_price)}</strong></div>
+                  <div><span>Order status</span><strong>{String(record?.status || 'Working')}</strong></div>
+                  <div><span>Available to close</span><strong>{quantityText(availableQuantity)}</strong></div>
+                  <div><span>Order submitted</span><strong>{record?.created_at || record?.create_time || record?.placed_time || 'Not provided'}</strong></div>
+                </div>
+              )}
               <div className="event-position-chart-card">
                 <div className="event-position-chart-heading">
                   <div><strong>Yes price history</strong><span>Provider OHLCV · Eastern Time</span></div>
@@ -358,8 +379,8 @@ export default function EventPositionModal({
               </div>
 
               <div className="event-position-facts-grid">
-                <div><span>Held outcome</span><strong>{positionOutcome.toUpperCase()}</strong></div>
-                <div><span>Contracts</span><strong>{quantityText(positionQuantity)}</strong></div>
+                <div><span>{isOpenOrder ? 'Order outcome' : 'Held outcome'}</span><strong>{positionOutcome.toUpperCase()}</strong></div>
+                <div><span>{isOpenOrder ? 'Live contracts owned' : 'Contracts'}</span><strong>{quantityText(positionQuantity)}</strong></div>
                 <div><span>Available to close</span><strong>{quantityText(availableQuantity)}</strong></div>
                 <div><span>Average entry</span><strong>{cents(averagePrice)}</strong></div>
                 <div><span>Executable bid</span><strong>{cents(executableBid)}</strong></div>
@@ -384,8 +405,18 @@ export default function EventPositionModal({
               </div>
 
               <div className="event-position-order-card">
-                <h3>Manage this position</h3>
+                <h3>{isOpenOrder ? 'Manage this open order' : 'Manage this position'}</h3>
                 <div className="event-position-order-actions">
+                  {isOpenOrder && (
+                    <button
+                      type="button"
+                      className="cancel-open-order"
+                      disabled={cancellingOrderId === record.id}
+                      onClick={() => onCancelOrder?.(record)}
+                    >
+                      {cancellingOrderId === record.id ? 'Cancelling...' : 'Cancel Open Order'}
+                    </button>
+                  )}
                   <button type="button" className={side === 'BUY' && outcome === 'yes' ? 'active yes' : ''} disabled={effectiveStatus !== 'OC'} onClick={() => chooseOrder('BUY', 'yes')}>Buy Yes {cents(market.yes_ask)}</button>
                   <button type="button" className={side === 'BUY' && outcome === 'no' ? 'active no' : ''} disabled={effectiveStatus !== 'OC'} onClick={() => chooseOrder('BUY', 'no')}>Buy No {cents(market.no_ask)}</button>
                   <button type="button" className={side === 'SELL' ? 'active close-position' : ''} disabled={!['OC', 'CO'].includes(effectiveStatus) || availableQuantity <= 0} onClick={() => chooseOrder('SELL', positionOutcome)}>Close {positionOutcome.toUpperCase()} Position {cents(executableBid)}</button>

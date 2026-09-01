@@ -224,6 +224,7 @@
 .event-position-order-actions button.active.yes { border-color: #22c55e; background: rgba(34, 197, 94, 0.18); }
 .event-position-order-actions button.active.no { border-color: #e879f9; background: rgba(217, 70, 239, 0.16); }
 .event-position-order-actions button.active.close-position { border-color: #fb923c; background: rgba(249, 115, 22, 0.16); }
+.event-position-order-actions button.cancel-open-order { border-color: #ef4444; background: rgba(239, 68, 68, 0.16); color: #fecaca; }
 .event-position-order-actions button:disabled,
 .event-position-review:disabled { opacity: 0.45; cursor: not-allowed; }
 
