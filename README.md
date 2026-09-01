@@ -127,6 +127,11 @@ The application utilizes a **unified PostgreSQL database**.
 
 Historical changelog entries retain the product name used when they were originally released. The application domain, repository slug, deployment folders, database, and service identifiers intentionally remain unchanged by the v2.45.0 brand update.
 
+## v2.74.1 (September 2026)
+
+- **Event Contract Reference Price Fallback**:
+  - Resolves a provider reference price from Webull's supplied contract condition when the market response omits a structured `reference_price` or `target_value`, ensuring the Event price card remains populated for current Crypto contracts.
+
 ## v2.74.0 (September 2026)
 
 - **Event Contract Underlying Price**:

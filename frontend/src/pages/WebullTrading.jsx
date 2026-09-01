@@ -87,14 +87,20 @@ const eventPeriodLabel = (market) => {
   return `${formatEasternDate(start)} · ${formatEasternTime(start, { second: undefined })} to ${formatEasternTime(end, { second: undefined })}`;
 };
 
+const eventReferencePriceFor = (market) => {
+  const structuredReference = Number(market?.reference_price ?? market?.target_value);
+  if (structuredReference > 0) return structuredReference;
+  const condition = String(market?.display_condition || market?.yes_condition || '').trim();
+  const conditionTargetMatch = condition.match(/\$\s*([\d,]+(?:\.\d+)?)/);
+  const conditionReference = Number(String(conditionTargetMatch?.[1] || '').replaceAll(',', ''));
+  return conditionReference > 0 ? conditionReference : 0;
+};
+
 const eventPropositionFor = (market) => {
   const title = String(market?.name || '').trim();
   const condition = String(market?.display_condition || market?.yes_condition || '').trim();
   const underlying = String(market?.underlying_name || market?.underlying_symbol || '').trim() || 'the named asset';
-  const structuredTarget = Number(market?.target_value);
-  const conditionTargetMatch = condition.match(/\$\s*([\d,]+(?:\.\d+)?)/);
-  const conditionTarget = Number(String(conditionTargetMatch?.[1] || '').replaceAll(',', ''));
-  const target = structuredTarget > 0 ? structuredTarget : conditionTarget > 0 ? conditionTarget : null;
+  const target = eventReferencePriceFor(market) || null;
   const directionContract = /\b(?:price\s+)?up\b|\bhigher\b/i.test(title);
   if (market?.condition_pending) {
     return {
@@ -1276,9 +1282,8 @@ export default function WebullTrading({ isLightMode = false }) {
   const eventReferencePrice = useMemo(() => {
     const category = String(selectedEventMarket?.category_code || selectedEventCategory || '').toUpperCase();
     if (!['CRYPTO', 'FINANCIALS'].includes(category)) return 0;
-    const referencePrice = Number(selectedEventMarket?.reference_price ?? selectedEventMarket?.target_value);
-    return Number.isFinite(referencePrice) && referencePrice > 0 ? referencePrice : 0;
-  }, [selectedEventMarket?.category_code, selectedEventMarket?.reference_price, selectedEventMarket?.target_value, selectedEventCategory]);
+    return eventReferencePriceFor(selectedEventMarket);
+  }, [selectedEventMarket?.category_code, selectedEventMarket?.reference_price, selectedEventMarket?.target_value, selectedEventMarket?.display_condition, selectedEventMarket?.yes_condition, selectedEventCategory]);
 
   const eventDisplayPrice = eventUnderlyingPrice > 0 ? eventUnderlyingPrice : eventReferencePrice;
 
