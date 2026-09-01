@@ -1924,7 +1924,11 @@ def get_webull_event_markets(
     scanned_candidates = 0
     snapshot_error = None
     snapshot_batches = 0
-    batch_size = WEBULL_EVENT_MARKET_SNAPSHOT_BATCH_SIZE
+    batch_size = (
+        min(WEBULL_EVENT_MARKET_SNAPSHOT_BATCH_SIZE, result_limit)
+        if progressive and (clean_query or clean_duration)
+        else WEBULL_EVENT_MARKET_SNAPSHOT_BATCH_SIZE
+    )
     for start in range(0, len(markets), batch_size):
         if snapshot_batches >= WEBULL_EVENT_MARKET_SNAPSHOT_BATCH_LIMIT:
             break

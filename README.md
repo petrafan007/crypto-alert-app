@@ -127,6 +127,11 @@ The application utilizes a **unified PostgreSQL database**.
 
 Historical changelog entries retain the product name used when they were originally released. The application domain, repository slug, deployment folders, database, and service identifiers intentionally remain unchanged by the v2.45.0 brand update.
 
+## v2.73.6 (September 2026)
+
+- **Faster Verified Event Search Results**:
+  - Reduced progressive search dropdowns from 50 to 20 results and limited each initial live snapshot request to those 20 candidates instead of sending 100 symbols to Webull. Complete service scans retain 100-symbol batching and later-batch quote checks.
+
 ## v2.73.5 (September 2026)
 
 - **Event Contract Brief Accuracy**:

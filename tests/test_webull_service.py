@@ -298,6 +298,37 @@ class WebullServiceTests(unittest.TestCase):
         self.assertEqual(len(result['markets']), 50)
         self.assertEqual(snapshot_mock.call_count, 1)
 
+    def test_event_progressive_search_limits_initial_snapshot_payload_to_ui_results(self):
+        markets = [{
+            'symbol': f'KXBTC-{index:04d}', 'name': f'BTC contract {index}',
+            'category_code': 'CRYPTO', 'status': 'LISTING', 'tradable_status': 'OC',
+            'price_ranges': [],
+        } for index in range(100)]
+        catalog = {
+            'categories': [{'category_id': 'CRYPTO', 'category_code': 'CRYPTO', 'name': 'Crypto'}],
+            'markets': markets,
+            'as_of': '2026-09-01T00:00:00+00:00',
+            'partial': True,
+            'loading': True,
+            'warnings': [],
+        }
+
+        def snapshots(*args, **kwargs):
+            return {
+                symbol: {'symbol': symbol, 'yes_ask': 0.48, 'no_ask': 0.53}
+                for symbol in kwargs['symbols']
+            }
+
+        with patch('services.webull_service._targeted_webull_event_catalog', return_value=(catalog, [])), \
+             patch('services.webull_service.get_webull_event_snapshots', side_effect=snapshots) as snapshot_mock:
+            result = get_webull_event_markets(
+                'a', 's', category_id='CRYPTO', query='btc', limit=20, progressive=True,
+            )
+
+        self.assertEqual(len(snapshot_mock.call_args.kwargs['symbols']), 20)
+        self.assertEqual(len(result['markets']), 20)
+        self.assertTrue(result['has_more'])
+
     def test_event_discovery_omits_open_market_with_no_actionable_quote(self):
         catalog = {
             'categories': [{'category_id': 'CRYPTO', 'category_code': 'CRYPTO', 'name': 'Crypto'}],

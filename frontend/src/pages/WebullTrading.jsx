@@ -1268,7 +1268,7 @@ export default function WebullTrading({ isLightMode = false }) {
     setEventMessage('');
     try {
       const response = await axios.get('/api/webull/events/markets', {
-        params: { category, query: query.trim(), duration, limit: query.trim() || duration ? 50 : 10 },
+        params: { category, query: query.trim(), duration, limit: query.trim() || duration ? 20 : 10 },
         withCredentials: true,
         signal,
       });
