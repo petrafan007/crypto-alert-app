@@ -1,5 +1,13 @@
 /* Trading Center Styles */
 
+.webull-trading-page {
+  width: 100%;
+  max-width: 1500px;
+  min-width: 0;
+  margin: 0 auto;
+  padding: 20px;
+}
+
 .trading-container {
   max-width: 1400px;
   margin: 0 auto;
@@ -2794,12 +2802,32 @@ body.light-mode .event-payout-summary {
 body.light-mode .event-payout-summary strong { color: #166534; }
 
 @media (max-width: 760px) {
-  .trading-page {
-    padding: 8px;
+  .main-content:has(> .webull-trading-page) {
+    padding-inline: 8px !important;
   }
 
-  .trading-content {
-    padding: 10px;
+  .webull-trading-page {
+    padding: 0;
+  }
+
+  .webull-trading-page .webull-trading-tabs {
+    gap: 4px;
+    margin-bottom: 12px;
+    padding: 4px;
+    scroll-snap-type: x proximity;
+    scrollbar-width: thin;
+  }
+
+  .webull-trading-page .webull-trading-tabs .tab-button {
+    flex: 0 0 auto;
+    min-width: max-content;
+    padding: 9px 12px;
+    scroll-snap-align: start;
+  }
+
+  .webull-trading-page > .trading-content {
+    padding: 0;
+    background: transparent;
   }
 
   #webull-order-ticket-section {

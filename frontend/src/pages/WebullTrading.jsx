@@ -2734,7 +2734,7 @@ export default function WebullTrading({ isLightMode = false }) {
   };
 
   return (
-    <div className="trading-page" style={{ padding: '20px', maxWidth: '1500px', margin: '0 auto' }}>
+    <div className="trading-page webull-trading-page">
       <div className="trading-header" style={{ marginBottom: '18px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
         <div>
           <h1 style={{ fontSize: '2rem', margin: 0, display: 'flex', alignItems: 'center', gap: '10px' }}>

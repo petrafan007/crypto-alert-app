@@ -127,6 +127,11 @@ The application utilizes a **unified PostgreSQL database**.
 
 Historical changelog entries retain the product name used when they were originally released. The application domain, repository slug, deployment folders, database, and service identifiers intentionally remain unchanged by the v2.45.0 brand update.
 
+## v2.73.10 (September 2026)
+
+- **Full-Width Mobile Webull Trading**:
+  - Removes the desktop-only outer padding from narrow screens, reclaims the generic page gutter, and lets the Webull tab row scroll horizontally instead of compressing every tab and the order ticket.
+
 ## v2.73.9 (September 2026)
 
 - **Usable Mobile Event Ticket**:
