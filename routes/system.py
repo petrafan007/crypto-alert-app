@@ -53,6 +53,7 @@ from services.webull_service import (
     normalize_webull_environment,
     parse_webull_expiry,
     get_webull_event_categories,
+    get_webull_event_duration_options,
     get_webull_event_bars,
     get_webull_event_market,
     get_webull_event_markets,
@@ -2729,6 +2730,29 @@ def api_webull_event_categories():
         return jsonify({'success': False, 'categories': [], 'message': str(exc)}), 502
 
 
+@system_bp.route('/api/webull/events/durations', methods=['GET'])
+@login_required
+def api_webull_event_durations():
+    """Return provider-backed Event durations without discovering markets."""
+    try:
+        category_id = request.args.get('category_id') or request.args.get('category')
+        if not str(category_id or '').strip():
+            return jsonify({'success': False, 'duration_options': [], 'message': 'Choose an Event Contract category first.'}), 400
+        setting = UserSetting.query.filter_by(user_id=current_user.id).first()
+        credential, environment = _webull_event_connection(setting)
+        duration_options = get_webull_event_duration_options(
+            credential.webull_app_key,
+            credential.webull_app_secret,
+            environment,
+            credential.webull_access_token,
+            category_id=category_id,
+        )
+        return jsonify({'success': True, 'duration_options': duration_options, 'source': 'webull'})
+    except WebullConnectionError as exc:
+        logger.error('Error fetching Webull event durations: %s', exc)
+        return jsonify({'success': False, 'duration_options': [], 'message': str(exc)}), 502
+
+
 @system_bp.route('/api/webull/events/markets', methods=['GET'])
 @login_required
 def api_webull_event_markets():
@@ -2738,10 +2762,25 @@ def api_webull_event_markets():
         symbol = str(request.args.get('symbol') or '').strip().upper()
         query = request.args.get('query') or request.args.get('q')
         duration = request.args.get('duration') or request.args.get('frequency')
+        search_requested = request.args.get('search') == '1'
         try:
             limit = max(1, min(int(request.args.get('limit') or 10), 50))
         except (TypeError, ValueError):
             return jsonify({'success': False, 'markets': [], 'message': 'Limit must be a whole number from 1 to 50.'}), 400
+        if not symbol and (not search_requested or not str(query or '').strip()):
+            return jsonify({
+                'success': True,
+                'markets': [],
+                'total_matches': 0,
+                'catalog_matches': 0,
+                'verified_matches': 0,
+                'has_more': False,
+                'partial': False,
+                'loading': False,
+                'message': '',
+                'status': 'idle',
+                'source': 'webull',
+            })
         setting = UserSetting.query.filter_by(user_id=current_user.id).first()
         credential, environment = _webull_event_connection(setting)
         if symbol:

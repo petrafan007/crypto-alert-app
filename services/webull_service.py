@@ -1319,6 +1319,17 @@ def get_webull_event_series(
     return [dict(item) for item in series]
 
 
+def get_webull_event_duration_options(
+    app_key, app_secret, environment='production', access_token=None, *, category_id, force=False,
+):
+    """Return provider-backed duration filters without loading Event markets or quotes."""
+    series = get_webull_event_series(
+        app_key, app_secret, environment, access_token,
+        category_id=category_id, force=force,
+    )
+    return _event_duration_options(series)
+
+
 def _cached_webull_event_series_markets(principal, series_symbol, *, force=False):
     with _WEBULL_EVENT_CACHE_LOCK:
         cached = _WEBULL_EVENT_SERIES_MARKET_CACHE.get((*principal, series_symbol))
@@ -2017,7 +2028,7 @@ def get_webull_event_markets(
         message = 'Webull returned no live quotes for the available Event Contracts. Try again shortly.'
     elif catalog.get('loading'):
         snapshot_status = 'loading'
-        message = 'Loading additional Webull contracts; verified results will update automatically.'
+        message = 'Showing verified live contracts from the current bounded Webull quote scan. Refine the search or try again shortly.'
     elif has_more:
         snapshot_status = 'partial'
         message = 'Showing verified live contracts from a bounded Webull quote scan. Refine the search or try again shortly.'

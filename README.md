@@ -127,6 +127,13 @@ The application utilizes a **unified PostgreSQL database**.
 
 Historical changelog entries retain the product name used when they were originally released. The application domain, repository slug, deployment folders, database, and service identifiers intentionally remain unchanged by the v2.45.0 brand update.
 
+## v2.73.11 (September 2026)
+
+- **Explicit Event Contract Search**:
+  - Category and Duration selections now load only lightweight provider metadata; they never scan Event Markets or request live contract quotes.
+  - Enter a title or symbol and use the new Search button to start one targeted lookup. Draft edits cancel an outstanding lookup, and no automatic catalog polling can cycle through unrelated contracts.
+  - Adds a provider-backed duration endpoint and rejects unarmed Event Market discovery requests while preserving exact-symbol quote access for selected or owned contracts.
+
 ## v2.73.10 (September 2026)
 
 - **Full-Width Mobile Webull Trading**:

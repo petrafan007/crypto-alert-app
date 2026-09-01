@@ -3,6 +3,9 @@ from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
+from flask import Flask
+from flask_login import LoginManager
+
 from services.webull_service import (
     _normalise_option_snapshot_record,
     WebullConnectionError,
@@ -28,6 +31,7 @@ from services.webull_service import (
     clear_webull_order_cache,
     clear_webull_event_cache,
     get_webull_event_categories,
+    get_webull_event_duration_options,
     get_webull_event_bars,
     get_webull_event_catalog,
     get_webull_event_market,
@@ -35,7 +39,7 @@ from services.webull_service import (
     _normalise_event_market,
     validate_webull_event_order_market,
 )
-from routes.system import _require_webull_instrument_account_match, _webull_account_response
+from routes.system import _require_webull_instrument_account_match, _webull_account_response, system_bp
 from services.webull_paper_trading_service import _utc_iso
 
 
@@ -613,18 +617,30 @@ class WebullServiceTests(unittest.TestCase):
 
         with patch('services.webull_service._webull_request', side_effect=provider) as request_mock, \
              patch('services.webull_service.WEBULL_EVENT_DISCOVERY_MIN_INTERVAL_SECONDS', 0):
-            result = get_webull_event_markets(
-                'app-key', 'app-secret', access_token='token', category_id='CRYPTO', progressive=True,
+            duration_options = get_webull_event_duration_options(
+                'app-key', 'app-secret', access_token='token', category_id='CRYPTO',
             )
 
-        self.assertEqual(result['markets'], [])
-        self.assertFalse(result['loading'])
         self.assertEqual(
-            [item['value'] for item in result['duration_options']],
+            [item['value'] for item in duration_options],
             ['INTRADAY', 'FIFTEEN_MINUTES', 'DAILY'],
         )
         market_calls = [call for call in request_mock.call_args_list if call.args[4].endswith('/markets/list')]
         self.assertEqual(market_calls, [])
+
+    def test_event_market_route_requires_explicit_search_intent(self):
+        app = Flask(__name__)
+        app.config.update(SECRET_KEY='event-route-test', LOGIN_DISABLED=True, TESTING=True)
+        LoginManager(app)
+        app.register_blueprint(system_bp)
+
+        with patch('routes.system._webull_event_connection') as connection_mock:
+            response = app.test_client().get('/api/webull/events/markets?category=CRYPTO&duration=INTRADAY')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.get_json()['status'], 'idle')
+        self.assertEqual(response.get_json()['markets'], [])
+        connection_mock.assert_not_called()
 
     def test_event_targeted_search_loads_only_matching_series_and_reuses_cache(self):
         def provider(*args, **kwargs):

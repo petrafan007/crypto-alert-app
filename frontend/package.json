@@ -1,6 +1,6 @@
 {
   "name": "crypto-securities-dashboard-frontend",
-  "version": "2.73.10",
+  "version": "2.73.11",
   "private": true,
   "dependencies": {
     "@emotion/react": "^11.11.1",
@@ -32,7 +32,6 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "test:event-catalog": "node --test src/utils/eventCatalogPolling.test.mjs",
     "preview": "vite preview"
   }
 }

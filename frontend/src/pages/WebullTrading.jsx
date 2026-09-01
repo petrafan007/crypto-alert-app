@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState, useRef } from 'react';
 import axios from 'axios';
 import CryptoIcon, { WebullLogo } from '../components/CryptoIcon';
-import { FaToggleOn, FaToggleOff } from 'react-icons/fa';
+import { FaSearch, FaToggleOn, FaToggleOff } from 'react-icons/fa';
 import WebullTradingViewChart, { DEFAULT_STOCKS } from '../components/WebullTradingViewChart';
 import WebullTradeTimelineChart from '../components/WebullTradeTimelineChart';
 import TwoFactorModal from '../components/TwoFactorModal';
@@ -14,7 +14,6 @@ import WebullPositions from '../components/WebullPositions';
 import EventPositionModal from '../components/EventPositionModal';
 import { differenceInEasternCalendarDays, formatEasternDate, formatEasternDateTime, formatEasternTime } from '../utils/dateTime';
 import { optionStrategyDefinition } from '../utils/optionStrategies';
-import { EVENT_SEARCH_DEBOUNCE_MS, createEventCatalogPoller } from '../utils/eventCatalogPolling.mjs';
 import {
   formatComboRole,
   formatOrderSide,
@@ -447,13 +446,16 @@ export default function WebullTrading({ isLightMode = false }) {
   const [eventDuration, setEventDuration] = useState('');
   const [eventDurationOptions, setEventDurationOptions] = useState([]);
   const [eventMarketMenuOpen, setEventMarketMenuOpen] = useState(false);
+  const [eventSearchSubmitted, setEventSearchSubmitted] = useState(false);
   const [eventTotalMatches, setEventTotalMatches] = useState(0);
   const [eventHasMore, setEventHasMore] = useState(false);
   const [eventLoading, setEventLoading] = useState(false);
-  const [eventCatalogLoading, setEventCatalogLoading] = useState(false);
+  const [eventMetadataLoading, setEventMetadataLoading] = useState(false);
   const [eventMessage, setEventMessage] = useState('');
   const [eventQuoteMessage, setEventQuoteMessage] = useState('');
   const eventMarketRequestRef = useRef(0);
+  const eventMarketAbortControllerRef = useRef(null);
+  const eventMetadataRequestRef = useRef(0);
   const eventMarketSelectorRef = useRef(null);
   const eventAutoPriceRef = useRef(true);
   const [eventPositionHolding, setEventPositionHolding] = useState(null);
@@ -1260,19 +1262,22 @@ export default function WebullTrading({ isLightMode = false }) {
     category = selectedEventCategory,
     query = eventMarketQuery,
     duration = eventDuration,
-    signal,
   } = {}) => {
-    if (!category) return;
+    const cleanQuery = query.trim();
+    if (!category || !cleanQuery) return { loading: false, status: 'idle' };
+    eventMarketAbortControllerRef.current?.abort();
+    const controller = new AbortController();
+    eventMarketAbortControllerRef.current = controller;
     const requestId = ++eventMarketRequestRef.current;
     setEventLoading(true);
     setEventMessage('');
     try {
       const response = await axios.get('/api/webull/events/markets', {
-        params: { category, query: query.trim(), duration, limit: query.trim() || duration ? 20 : 10 },
+        params: { category, query: cleanQuery, duration, limit: 20, search: 1 },
         withCredentials: true,
-        signal,
+        signal: controller.signal,
       });
-      if (requestId !== eventMarketRequestRef.current || signal?.aborted) return { aborted: true };
+      if (requestId !== eventMarketRequestRef.current || controller.signal.aborted) return { aborted: true };
       const mkts = response.data?.markets || [];
       const durationOptions = response.data?.duration_options || [];
       setEventMarkets((current) => (mkts.length || !response.data?.loading ? mkts : current));
@@ -1281,24 +1286,23 @@ export default function WebullTrading({ isLightMode = false }) {
       ));
       setEventTotalMatches(Number(response.data?.total_matches || mkts.length));
       setEventHasMore(Boolean(response.data?.has_more));
-      setEventCatalogLoading(Boolean(response.data?.loading));
       setEventMessage(response.data?.message || '');
       return { loading: Boolean(response.data?.loading), status: response.data?.status };
     } catch (err) {
-      if (requestId !== eventMarketRequestRef.current || signal?.aborted || axios.isCancel(err)) return { aborted: true };
+      if (requestId !== eventMarketRequestRef.current || controller.signal.aborted || axios.isCancel(err)) return { aborted: true };
       setEventMarkets([]);
       setEventTotalMatches(0);
       setEventHasMore(false);
-      setEventCatalogLoading(false);
       setEventMessage(err.response?.data?.message || 'Unable to load Webull Event Contract markets.');
       return { loading: false, status: 'error' };
     } finally {
+      if (eventMarketAbortControllerRef.current === controller) eventMarketAbortControllerRef.current = null;
       if (requestId === eventMarketRequestRef.current) setEventLoading(false);
     }
   };
 
-  const loadEventCategoriesAndMarkets = async () => {
-    setEventLoading(true);
+  const loadEventCategories = async () => {
+    setEventMetadataLoading(true);
     setEventMessage('');
     try {
       const response = await axios.get('/api/webull/events/categories', { withCredentials: true });
@@ -1313,11 +1317,33 @@ export default function WebullTrading({ isLightMode = false }) {
       setEventMarkets([]);
       setEventTotalMatches(0);
       setEventHasMore(false);
-      setEventCatalogLoading(true);
+      setEventSearchSubmitted(false);
+      setEventMarketMenuOpen(false);
     } catch (err) {
       setEventMessage(err.response?.data?.message || err.message || 'Unable to load Webull Event Contract categories.');
     } finally {
-      setEventLoading(false);
+      setEventMetadataLoading(false);
+    }
+  };
+
+  const loadEventDurationOptions = async (category) => {
+    if (!category) return;
+    const requestId = ++eventMetadataRequestRef.current;
+    setEventMetadataLoading(true);
+    setEventMessage('');
+    try {
+      const response = await axios.get('/api/webull/events/durations', {
+        params: { category },
+        withCredentials: true,
+      });
+      if (requestId !== eventMetadataRequestRef.current) return;
+      setEventDurationOptions(response.data?.duration_options || []);
+    } catch (err) {
+      if (requestId !== eventMetadataRequestRef.current) return;
+      setEventDurationOptions([]);
+      setEventMessage(err.response?.data?.message || 'Unable to load Webull Event Contract durations.');
+    } finally {
+      if (requestId === eventMetadataRequestRef.current) setEventMetadataLoading(false);
     }
   };
 
@@ -1325,6 +1351,9 @@ export default function WebullTrading({ isLightMode = false }) {
     // Invalidate any slower response from the previous category before the
     // next request begins, and clear every selection-dependent ticket value.
     eventMarketRequestRef.current += 1;
+    eventMarketAbortControllerRef.current?.abort();
+    eventMarketAbortControllerRef.current = null;
+    eventMetadataRequestRef.current += 1;
     setSelectedEventCategory(categoryCode);
     setEventMarketQuery('');
     setEventDuration('');
@@ -1333,13 +1362,60 @@ export default function WebullTrading({ isLightMode = false }) {
     setEventTotalMatches(0);
     setEventHasMore(false);
     setEventMessage('');
-    setEventLoading(true);
-    setEventCatalogLoading(true);
+    setEventMetadataLoading(true);
+    setEventSearchSubmitted(false);
     setSelectedEventMarket(null);
     assetSymbolMemoryRef.current.EVENT = '';
     setSelectedSymbol('');
-    setEventMarketMenuOpen(true);
+    setEventMarketMenuOpen(false);
     setOrderForm((prev) => ({ ...prev, price: '', quantity: '', quoteQuantity: '' }));
+  };
+
+  const handleEventDurationChange = (duration) => {
+    eventMarketRequestRef.current += 1;
+    eventMarketAbortControllerRef.current?.abort();
+    eventMarketAbortControllerRef.current = null;
+    setEventDuration(duration);
+    setEventMarkets([]);
+    setEventTotalMatches(0);
+    setEventHasMore(false);
+    setEventMessage('');
+    setEventLoading(false);
+    setEventSearchSubmitted(false);
+    setEventMarketMenuOpen(false);
+    setSelectedEventMarket(null);
+    assetSymbolMemoryRef.current.EVENT = '';
+    setSelectedSymbol('');
+    setOrderForm((prev) => ({ ...prev, price: '', quantity: '', quoteQuantity: '' }));
+  };
+
+  const handleEventMarketQueryChange = (query) => {
+    eventMarketRequestRef.current += 1;
+    eventMarketAbortControllerRef.current?.abort();
+    eventMarketAbortControllerRef.current = null;
+    setEventMarketQuery(query);
+    setEventMarkets([]);
+    setEventTotalMatches(0);
+    setEventHasMore(false);
+    setEventMessage('');
+    setEventLoading(false);
+    setEventSearchSubmitted(false);
+    setEventMarketMenuOpen(false);
+  };
+
+  const submitEventMarketSearch = () => {
+    const query = eventMarketQuery.trim();
+    setEventMarketMenuOpen(true);
+    if (!query) {
+      setEventSearchSubmitted(false);
+      setEventMarkets([]);
+      setEventTotalMatches(0);
+      setEventHasMore(false);
+      setEventMessage('');
+      return;
+    }
+    setEventSearchSubmitted(true);
+    loadEventMarkets({ query });
   };
 
   const chooseEventOutcome = (outcome) => {
@@ -1357,32 +1433,18 @@ export default function WebullTrading({ isLightMode = false }) {
   };
 
   useEffect(() => {
-    if (selectedInstrumentType === 'EVENT' && !eventCategories.length && !eventLoading) {
-      loadEventCategoriesAndMarkets();
+    if (selectedInstrumentType === 'EVENT' && !eventCategories.length && !eventMetadataLoading) {
+      loadEventCategories();
     }
   }, [selectedInstrumentType]);
 
   useEffect(() => {
     if (selectedInstrumentType !== 'EVENT' || !selectedEventCategory) return undefined;
-    const poller = createEventCatalogPoller(
-      ({ category, query, duration }, { signal }) => loadEventMarkets({ category, query, duration, signal }),
-      {
-        onExhausted: () => {
-          setEventCatalogLoading(false);
-          setEventMessage('Webull is still preparing this catalog. Try again shortly.');
-        },
-        onError: () => {
-          setEventCatalogLoading(false);
-          setEventMessage('Unable to refresh the Webull Event Contract catalog. Try again shortly.');
-        },
-      },
-    );
-    poller.start(
-      { category: selectedEventCategory, query: eventMarketQuery, duration: eventDuration },
-      eventMarketQuery.trim() || eventDuration ? EVENT_SEARCH_DEBOUNCE_MS : 0,
-    );
-    return () => poller.stop();
-  }, [selectedInstrumentType, selectedEventCategory, eventMarketQuery, eventDuration]);
+    loadEventDurationOptions(selectedEventCategory);
+    return () => {
+      eventMetadataRequestRef.current += 1;
+    };
+  }, [selectedInstrumentType, selectedEventCategory]);
 
   useEffect(() => {
     if (selectedInstrumentType !== 'EVENT' || !selectedEventMarket?.symbol) return undefined;
@@ -3077,7 +3139,7 @@ export default function WebullTrading({ isLightMode = false }) {
                             value={selectedEventCategory}
                             onChange={(e) => handleEventCategoryChange(e.target.value)}
                             className="order-styled-input"
-                            disabled={eventLoading && !eventCategories.length}
+                            disabled={eventMetadataLoading && !eventCategories.length}
                           >
                             {eventCategories.map((cat) => (
                               <option key={cat.category_id || cat.category_code} value={cat.category_code || cat.category_id}>
@@ -3091,10 +3153,7 @@ export default function WebullTrading({ isLightMode = false }) {
                           <label className="order-field-label">Duration / Frequency</label>
                           <select
                             value={eventDuration}
-                            onChange={(event) => {
-                              setEventDuration(event.target.value);
-                              setEventMarketMenuOpen(true);
-                            }}
+                            onChange={(event) => handleEventDurationChange(event.target.value)}
                             className="order-styled-input"
                           >
                             <option value="">All durations</option>
@@ -3111,11 +3170,13 @@ export default function WebullTrading({ isLightMode = false }) {
                               id="event-market-search"
                               type="search"
                               value={eventMarketQuery}
-                              onChange={(event) => {
-                                setEventMarketQuery(event.target.value);
-                                setEventMarketMenuOpen(true);
+                              onChange={(event) => handleEventMarketQueryChange(event.target.value)}
+                              onKeyDown={(event) => {
+                                if (event.key === 'Enter') {
+                                  event.preventDefault();
+                                  submitEventMarketSearch();
+                                }
                               }}
-                              onFocus={() => setEventMarketMenuOpen(true)}
                               placeholder="Search every contract by title or symbol"
                               className="order-styled-input event-market-search-input"
                               autoComplete="off"
@@ -3126,30 +3187,34 @@ export default function WebullTrading({ isLightMode = false }) {
                             <button
                               type="button"
                               className="event-market-menu-toggle"
-                              onClick={() => setEventMarketMenuOpen((open) => !open)}
-                              aria-label="Show Event Contract markets"
+                              onClick={submitEventMarketSearch}
+                              aria-label="Search Event Contract markets"
+                              title="Search Event Contract markets"
                             >
-                              ▾
+                              <FaSearch aria-hidden="true" />
                             </button>
                           </div>
                           {eventMarketMenuOpen && (
                             <div className="event-market-results" id="event-market-results" role="listbox">
                               <div className="event-market-results-heading">
-                                <span>{eventMarketQuery.trim()
+                                <span>{eventSearchSubmitted
                                   ? `${eventTotalMatches}${eventHasMore ? '+' : ''} verified live contracts`
-                                  : 'Top verified trending contracts'}</span>
-                                {(eventLoading || eventCatalogLoading) && (
-                                  <span>{eventLoading ? 'Refreshing…' : 'Loading catalog…'}</span>
+                                  : 'Search Webull Event Contracts'}</span>
+                                {eventLoading && (
+                                  <span>Searching…</span>
                                 )}
                               </div>
-                              {!eventLoading && !eventMarkets.length && (
+                              {!eventSearchSubmitted && !eventLoading && (
                                 <div className="event-market-empty">
-                                  {eventMessage || (eventCatalogLoading
-                                    ? 'Checking available Webull contracts…'
-                                    : 'No available Webull contracts match this category and search.')}
+                                  Enter a contract title or symbol, then select Search.
                                 </div>
                               )}
-                              {eventMarkets.map((market) => (
+                              {eventSearchSubmitted && !eventLoading && !eventMarkets.length && (
+                                <div className="event-market-empty">
+                                  {eventMessage || 'No verified live contracts match this search.'}
+                                </div>
+                              )}
+                              {eventSearchSubmitted && eventMarkets.map((market) => (
                                 <button
                                   key={market.symbol}
                                   type="button"
@@ -3175,7 +3240,7 @@ export default function WebullTrading({ isLightMode = false }) {
                         </div>
                       </div>
 
-                      {eventMessage && (
+                      {eventSearchSubmitted && eventMessage && (
                         <p className="event-catalog-status" role="status">⚠️ {eventMessage}</p>
                       )}
 
