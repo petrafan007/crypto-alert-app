@@ -1,5 +1,5 @@
 
-from datetime import timedelta, datetime
+from datetime import timedelta, datetime, timezone
 import requests
 import threading
 from flask import send_file, request, jsonify, render_template, current_app, redirect, url_for
@@ -53,6 +53,7 @@ from services.webull_service import (
     normalize_webull_environment,
     parse_webull_expiry,
     get_webull_event_categories,
+    get_webull_event_bars,
     get_webull_event_market,
     get_webull_event_markets,
     validate_webull_event_order_market,
@@ -2761,6 +2762,73 @@ def api_webull_event_markets():
     except WebullConnectionError as exc:
         logger.error('Error fetching Webull event markets: %s', exc)
         return jsonify({'success': False, 'markets': [], 'message': str(exc)}), 502
+
+
+@system_bp.route('/api/webull/events/position', methods=['GET'])
+@login_required
+def api_webull_event_position():
+    """Return exact contract facts and chart data for an owned Event position."""
+    try:
+        symbol = str(request.args.get('symbol') or '').strip().upper()
+        outcome = str(request.args.get('event_outcome') or '').strip().lower()
+        account_id = str(request.args.get('account_id') or '').strip()
+        timespan = str(request.args.get('timespan') or 'M1').strip().upper()
+        try:
+            count = max(1, min(int(request.args.get('count') or 200), 1200))
+        except (TypeError, ValueError):
+            return jsonify({'success': False, 'message': 'Chart count must be a whole number from 1 to 1200.'}), 400
+        if not symbol:
+            return jsonify({'success': False, 'message': 'Choose an Event Contract position first.'}), 400
+        if outcome not in {'yes', 'no'}:
+            return jsonify({'success': False, 'message': 'The Event Contract position must identify a Yes or No outcome.'}), 400
+
+        setting = UserSetting.query.filter_by(user_id=current_user.id).first()
+        credential, environment = _webull_event_connection(setting)
+        market = get_webull_event_market(
+            credential.webull_app_key,
+            credential.webull_app_secret,
+            environment,
+            credential.webull_access_token,
+            symbol=symbol,
+            force=False,
+        )
+        chart_message = ''
+        try:
+            bars = get_webull_event_bars(
+                credential.webull_app_key,
+                credential.webull_app_secret,
+                environment,
+                credential.webull_access_token,
+                symbol=symbol,
+                timespan=timespan,
+                count=count,
+            )
+        except WebullConnectionError as exc:
+            logger.warning('Webull Event position chart unavailable for %s: %s', symbol, exc)
+            bars = []
+            chart_message = 'Webull did not return chart history for this contract.'
+
+        available_quantity = None
+        if account_id and request.args.get('test_mode') != '1':
+            available_quantity = _live_webull_event_owned_contracts(
+                credential,
+                environment,
+                account_id,
+                symbol=symbol,
+                event_outcome=outcome,
+            )
+        return jsonify({
+            'success': True,
+            'market': market,
+            'bars': bars,
+            'available_quantity': available_quantity,
+            'server_time': datetime.now(timezone.utc).isoformat(),
+            'chart_message': chart_message,
+            'source': 'webull',
+        })
+    except WebullConnectionError as exc:
+        logger.error('Error fetching Webull Event position details: %s', exc)
+        return jsonify({'success': False, 'message': str(exc)}), 502
 
 
 @system_bp.route('/api/webull/orders/cancel', methods=['POST'])

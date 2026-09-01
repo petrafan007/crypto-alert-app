@@ -11,6 +11,7 @@ import WebullAIDashboard from '../components/WebullAIDashboard';
 import WebullOptionChain from '../components/WebullOptionChain';
 import OptionsPayoffChart from '../components/OptionsPayoffChart';
 import WebullPositions from '../components/WebullPositions';
+import EventPositionModal from '../components/EventPositionModal';
 import { differenceInEasternCalendarDays, formatEasternDate, formatEasternDateTime, formatEasternTime } from '../utils/dateTime';
 import { optionStrategyDefinition } from '../utils/optionStrategies';
 import {
@@ -385,6 +386,8 @@ export default function WebullTrading({ isLightMode = false }) {
   const eventMarketRequestRef = useRef(0);
   const eventMarketSelectorRef = useRef(null);
   const eventAutoPriceRef = useRef(true);
+  const [eventPositionHolding, setEventPositionHolding] = useState(null);
+  const [pendingEventPositionOrder, setPendingEventPositionOrder] = useState(null);
 
   // Helper to detect cash-based Webull accounts (Individual Cash, Roth IRA, Rollover IRA)
   const isCashBasedAccount = (account) => {
@@ -1278,10 +1281,12 @@ export default function WebullTrading({ isLightMode = false }) {
 
   useEffect(() => {
     if (selectedInstrumentType !== 'EVENT' || !selectedEventCategory || !eventCatalogLoading) return undefined;
-    const interval = window.setInterval(() => {
+    // Progressive catalog loading gets one delayed follow-up instead of a
+    // five-second full-search loop that can outrun Webull's event-data limits.
+    const timer = window.setTimeout(() => {
       loadEventMarkets({ category: selectedEventCategory, query: eventMarketQuery });
-    }, 5000);
-    return () => window.clearInterval(interval);
+    }, 15000);
+    return () => window.clearTimeout(timer);
   }, [selectedInstrumentType, selectedEventCategory, eventMarketQuery, eventCatalogLoading]);
 
   useEffect(() => {
@@ -1748,6 +1753,39 @@ export default function WebullTrading({ isLightMode = false }) {
     currency: 'USD',
   });
 
+  useEffect(() => {
+    if (!pendingEventPositionOrder) return;
+    const ready = (
+      selectedInstrumentType === 'EVENT'
+      && String(selectedAccountId || '') === pendingEventPositionOrder.accountId
+      && String(selectedSymbol || '') === pendingEventPositionOrder.symbol
+      && orderForm.side === pendingEventPositionOrder.side
+      && String(orderForm.eventOutcome || '').toLowerCase() === pendingEventPositionOrder.outcome
+      && String(orderForm.quantity) === pendingEventPositionOrder.quantity
+      && String(orderForm.price) === pendingEventPositionOrder.price
+      && selectedEventMarket?.symbol === pendingEventPositionOrder.symbol
+    );
+    if (!ready) return;
+    setPendingEventPositionOrder(null);
+    if (require2fa && !isTestMode) {
+      setTwoFactorModal({ isVisible: true, orderData: webullTwoFactorOrderDetails() });
+    } else {
+      setShowConfirmModal(true);
+    }
+  }, [
+    pendingEventPositionOrder,
+    selectedInstrumentType,
+    selectedAccountId,
+    selectedSymbol,
+    selectedEventMarket?.symbol,
+    orderForm.side,
+    orderForm.eventOutcome,
+    orderForm.quantity,
+    orderForm.price,
+    require2fa,
+    isTestMode,
+  ]);
+
   const rejectOrder = (message) => {
     setOrderValidationError(message);
     setOrderFeedback({ type: 'error', message });
@@ -2156,6 +2194,53 @@ export default function WebullTrading({ isLightMode = false }) {
     } finally {
       setCancellingOrderId(null);
     }
+  };
+
+  const handleOpenEventPosition = (holding) => {
+    setEventPositionHolding(holding || null);
+  };
+
+  const handleReviewEventPositionOrder = ({ holding, market, side, outcome, quantity, price }) => {
+    const accountId = String(holding?.account_id || selectedAccountId || '');
+    const symbol = String(market?.symbol || holding?.underlying_symbol || holding?.symbol || '')
+      .replace(/\s+(YES|NO)$/i, '')
+      .trim()
+      .toUpperCase();
+    if (!accountId || !symbol || !market?.symbol) {
+      setOrderFeedback({ type: 'error', message: 'Unable to prepare this Event Contract order.' });
+      return;
+    }
+    setActiveTab('order');
+    setSelectedAccountId(accountId);
+    setSelectedInstrumentType('EVENT');
+    setSelectedSecurityType('EVENT');
+    setSelectedEventMarket(market);
+    setSelectedEventCategory(market.category_code || market.category_id || selectedEventCategory);
+    setSelectedSymbol(symbol);
+    assetSymbolMemoryRef.current.EVENT = symbol;
+    setOrderValidationError('');
+    setOrderFeedback({ type: '', message: '' });
+    setOrderForm((previous) => ({
+      ...previous,
+      side,
+      type: 'LIMIT',
+      quantity: String(quantity),
+      quoteQuantity: (Number(quantity) * Number(price)).toFixed(2),
+      price: String(price),
+      stopPrice: '',
+      timeInForce: 'DAY',
+      entrustType: 'QTY',
+      eventOutcome: String(outcome).toLowerCase(),
+    }));
+    setEventPositionHolding(null);
+    setPendingEventPositionOrder({
+      accountId,
+      symbol,
+      side,
+      outcome: String(outcome).toLowerCase(),
+      quantity: String(quantity),
+      price: String(price),
+    });
   };
 
   const handleSelectHolding = (holding) => {
@@ -4095,7 +4180,13 @@ export default function WebullTrading({ isLightMode = false }) {
                 )}
 
                 {/* Holdings Table Below */}
-                <WebullHoldings holdings={modeHoldings} instrumentType={selectedInstrumentType} onSelectHolding={handleSelectHolding} isTestMode={isTestMode} />
+                <WebullHoldings
+                  holdings={modeHoldings}
+                  instrumentType={selectedInstrumentType}
+                  onSelectHolding={handleSelectHolding}
+                  onOpenEventPosition={handleOpenEventPosition}
+                  isTestMode={isTestMode}
+                />
               </div>
             )}
 
@@ -4362,6 +4453,14 @@ export default function WebullTrading({ isLightMode = false }) {
           </>
         )}
       </div>
+      <EventPositionModal
+        isOpen={Boolean(eventPositionHolding)}
+        holding={eventPositionHolding}
+        isTestMode={isTestMode}
+        isLightMode={isLightMode}
+        onClose={() => setEventPositionHolding(null)}
+        onReviewOrder={handleReviewEventPositionOrder}
+      />
       <TwoFactorModal
         isVisible={twoFactorModal.isVisible}
         onClose={() => setTwoFactorModal({ isVisible: false, orderData: null })}
@@ -4538,7 +4637,14 @@ function WebullSignalTable({ signals }) {
   );
 }
 
-function WebullHoldings({ holdings, instrumentType = 'EQUITY', compact = false, onSelectHolding, isTestMode = false }) {
+function WebullHoldings({
+  holdings,
+  instrumentType = 'EQUITY',
+  compact = false,
+  onSelectHolding,
+  onOpenEventPosition,
+  isTestMode = false,
+}) {
   const scopedHoldings = holdings.filter((holding) => (
     isSecurityHolding(holding)
     && normalizedWebullInstrumentType(holding.instrument_type) === instrumentType
@@ -4593,11 +4699,17 @@ function WebullHoldings({ holdings, instrumentType = 'EQUITY', compact = false, 
       }}
       onClick={(event) => {
         event.stopPropagation();
-        onSelectHolding?.(holding);
+        if (instrumentType === 'EVENT') {
+          onOpenEventPosition?.(holding);
+        } else {
+          onSelectHolding?.(holding);
+        }
       }}
-      title={`Load ${option.isOption ? `${option.symbol} ${option.expiration} $${option.strike} ${option.optionType}` : option.symbol} into trade ticket`}
+      title={instrumentType === 'EVENT'
+        ? `Open the current ${String(option.symbol).replace(/\s+(YES|NO)$/i, '')} position`
+        : `Load ${option.isOption ? `${option.symbol} ${option.expiration} $${option.strike} ${option.optionType}` : option.symbol} into trade ticket`}
     >
-      Trade
+      {instrumentType === 'EVENT' ? 'Open Position' : 'Trade'}
     </button>
   );
 

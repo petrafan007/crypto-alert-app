@@ -21,18 +21,21 @@ _WEBULL_OPEN_ORDERS_CACHE = {}    # (app_key, environment, token fingerprint, ac
 _WEBULL_ORDER_HISTORY_CACHE = {}  # (app_key, environment, token fingerprint, account_id) -> (timestamp, records)
 _WEBULL_EVENT_CATALOG_CACHE = {}  # (...principal, category code) -> (timestamp, catalog)
 _WEBULL_EVENT_SNAPSHOT_CACHE = {}  # (...principal, symbol) -> (timestamp, snapshot)
+_WEBULL_EVENT_BARS_CACHE = {}  # (...principal, symbol, interval, count) -> (timestamp, bars)
 _WEBULL_EVENT_CATEGORY_CACHE = {}  # (...principal) -> (timestamp, categories)
 _WEBULL_EVENT_MARKET_RESULT_CACHE = {}  # (...principal, category, query, limit) -> (timestamp, response)
 _WEBULL_ORDER_LOCK = threading.Lock()
 _WEBULL_EVENT_CACHE_LOCK = threading.Lock()
 _WEBULL_EVENT_DISCOVERY_LOCK = threading.Lock()
 _WEBULL_EVENT_RATE_LOCK = threading.Lock()
+_WEBULL_EVENT_SNAPSHOT_FETCH_LOCK = threading.Lock()
 _WEBULL_LAST_ORDER_REQUEST_TIME = 0.0
 _WEBULL_LAST_EVENT_DISCOVERY_REQUEST_TIME = 0.0
 
 WEBULL_EVENT_CATALOG_TTL_SECONDS = 1800
 WEBULL_EVENT_PARTIAL_CATALOG_TTL_SECONDS = 60
 WEBULL_EVENT_SNAPSHOT_TTL_SECONDS = 5
+WEBULL_EVENT_BARS_TTL_SECONDS = 30
 WEBULL_EVENT_CATEGORY_TTL_SECONDS = 1800
 WEBULL_EVENT_MARKET_RESULT_TTL_SECONDS = 30
 WEBULL_EVENT_MAX_ORDER_QUANTITY = 50000
@@ -80,6 +83,7 @@ def clear_webull_event_cache():
     with _WEBULL_EVENT_CACHE_LOCK:
         _WEBULL_EVENT_CATALOG_CACHE.clear()
         _WEBULL_EVENT_SNAPSHOT_CACHE.clear()
+        _WEBULL_EVENT_BARS_CACHE.clear()
         _WEBULL_EVENT_CATEGORY_CACHE.clear()
         _WEBULL_EVENT_MARKET_RESULT_CACHE.clear()
 
@@ -932,11 +936,58 @@ def _event_bool(value):
 def _event_time_sort_value(value):
     numeric = _event_number(value)
     if numeric is not None:
-        return numeric
+        return numeric / 1000 if numeric > 100000000000 else numeric
     try:
         return datetime.fromisoformat(str(value or '').replace('Z', '+00:00')).timestamp()
     except (TypeError, ValueError):
         return 0.0
+
+
+def _event_first_value(raw, *keys):
+    """Return the first provider value that is present without inventing data."""
+    for key in keys:
+        value = raw.get(key)
+        if value not in (None, ''):
+            return value
+    return None
+
+
+def _event_market_is_discoverable(market):
+    """Only markets open for new positions belong in discovery/search results."""
+    now = time.time()
+    open_time = _event_time_sort_value(market.get('open_date'))
+    cutoff_time = _event_time_sort_value(
+        market.get('last_trading_date') or market.get('expected_exp_date') or market.get('latest_exp_date')
+    )
+    return (
+        str(market.get('status') or '').strip().upper() in {'', 'LISTING'}
+        and str(market.get('tradable_status') or '').strip().upper() == 'OC'
+        and (not open_time or open_time <= now)
+        and (not cutoff_time or cutoff_time > now)
+    )
+
+
+def _event_snapshot_has_actionable_quote(snapshot):
+    """Return whether a snapshot offers at least one positive Yes/No quote."""
+    if not isinstance(snapshot, dict):
+        return False
+    return any(
+        value is not None and 0 < float(value) <= WEBULL_EVENT_SETTLEMENT_PAYOUT
+        for value in (
+            snapshot.get('yes_bid'), snapshot.get('yes_ask'),
+            snapshot.get('no_bid'), snapshot.get('no_ask'),
+        )
+    )
+
+
+def _event_market_static_sort_key(market):
+    """Prefer contracts with the nearest future cutoff before live enrichment."""
+    cutoff = _event_time_sort_value(
+        market.get('last_trading_date') or market.get('expected_exp_date') or market.get('latest_exp_date')
+    )
+    now = time.time()
+    future_cutoff = cutoff if cutoff >= now else float('inf')
+    return (future_cutoff, str(market.get('name') or ''), str(market.get('symbol') or ''))
 
 
 def _event_discovery_request(*args, **kwargs):
@@ -1098,10 +1149,21 @@ def _normalise_event_market(raw, series_categories):
         'status': str(raw.get('status') or '').upper(),
         'tradable_status': str(raw.get('tradable_status') or '').upper(),
         'can_close_early': _event_bool(raw.get('can_close_early')),
-        'last_trading_date': raw.get('last_trading_date'),
-        'expected_exp_date': raw.get('expected_exp_date'),
-        'latest_exp_date': raw.get('latest_exp_date'),
-        'payout_date': raw.get('payout_date'),
+        'open_date': _event_first_value(raw, 'open_date', 'open_time', 'start_date', 'start_time'),
+        'last_trading_date': _event_first_value(
+            raw, 'last_trading_date', 'stop_trading_time', 'close_date', 'close_time',
+        ),
+        'expected_exp_date': _event_first_value(raw, 'expected_exp_date', 'expected_expiration_date'),
+        'latest_exp_date': _event_first_value(raw, 'latest_exp_date', 'latest_expiration_date'),
+        'payout_date': _event_first_value(raw, 'payout_date', 'settlement_date', 'settlement_time'),
+        'description': _event_first_value(raw, 'description', 'market_description', 'subtitle'),
+        'settlement_source': _event_first_value(
+            raw, 'settlement_source', 'determination_source', 'result_source', 'source',
+        ),
+        'provider_rules': _event_first_value(raw, 'rules', 'market_rules', 'rule_text'),
+        'underlying_symbol': _event_first_value(raw, 'underlying_symbol', 'reference_symbol'),
+        'underlying_name': _event_first_value(raw, 'underlying_name', 'reference_name'),
+        'target_value': _event_number(_event_first_value(raw, 'target_value', 'target_price', 'strike_price')),
         'fractionable': _event_bool(raw.get('fractionable')),
         'price_ranges': price_ranges,
         'trading_hours': WEBULL_EVENT_TRADING_HOURS.get(
@@ -1243,16 +1305,16 @@ def get_webull_event_catalog(
         def store_catalog(catalog):
             with _WEBULL_EVENT_CACHE_LOCK:
                 _WEBULL_EVENT_CATALOG_CACHE[cache_key] = (time.time(), catalog)
-                # Progressive discovery changes the searchable and rankable
-                # universe, so cached query results must not hide new rows.
-                _WEBULL_EVENT_MARKET_RESULT_CACHE.clear()
 
         remaining_series = []
         for index, item in enumerate(series):
             load_series_markets(item, warnings)
             if progressive and index + 1 >= WEBULL_EVENT_INITIAL_SERIES_LIMIT:
                 initial_catalog = build_catalog(loading=index + 1 < len(series))
-                if (len(initial_catalog['markets']) >= WEBULL_EVENT_INITIAL_MARKET_TARGET
+                actionable_count = sum(
+                    1 for market in initial_catalog['markets'] if _event_market_is_discoverable(market)
+                )
+                if (actionable_count >= WEBULL_EVENT_INITIAL_MARKET_TARGET
                         or index + 1 >= min(len(series), WEBULL_EVENT_INITIAL_SERIES_LIMIT * 2)):
                     remaining_series = series[index + 1:]
                     break
@@ -1331,24 +1393,115 @@ def get_webull_event_snapshots(
             else:
                 missing.append(symbol)
 
-    for start in range(0, len(missing), 100):
-        batch = missing[start:start + 100]
-        payload = _response_payload(
-            _webull_request(
-                app_key, app_secret, environment, 'GET',
-                '/market-data/event-contracts/snapshots/list',
-                query_params={'symbols': ','.join(batch), 'category': 'US_EVENT'},
-                access_token=access_token,
-            ),
-            'event market snapshot request',
-        )
-        for raw in _webull_records(payload):
-            snapshot = _normalise_event_snapshot(raw)
-            if snapshot:
-                snapshots[snapshot['symbol']] = snapshot
-                with _WEBULL_EVENT_CACHE_LOCK:
-                    _WEBULL_EVENT_SNAPSHOT_CACHE[(*principal, snapshot['symbol'])] = (now, snapshot)
+    if not missing:
+        return snapshots
+
+    # A category search, the selected-market poller, and the position modal can
+    # request the same symbol at nearly the same moment. Serialize only the
+    # provider fetch and recheck the cache after waiting so those callers share
+    # one Webull request instead of creating a snapshot burst.
+    with _WEBULL_EVENT_SNAPSHOT_FETCH_LOCK:
+        fetch_time = time.time()
+        still_missing = []
+        with _WEBULL_EVENT_CACHE_LOCK:
+            for symbol in missing:
+                cached = _WEBULL_EVENT_SNAPSHOT_CACHE.get((*principal, symbol))
+                if cached and not force and fetch_time - cached[0] < WEBULL_EVENT_SNAPSHOT_TTL_SECONDS:
+                    snapshots[symbol] = dict(cached[1])
+                else:
+                    still_missing.append(symbol)
+
+        for start in range(0, len(still_missing), 100):
+            batch = still_missing[start:start + 100]
+            payload = _response_payload(
+                _webull_request(
+                    app_key, app_secret, environment, 'GET',
+                    '/market-data/event-contracts/snapshots/list',
+                    query_params={'symbols': ','.join(batch), 'category': 'US_EVENT'},
+                    access_token=access_token,
+                ),
+                'event market snapshot request',
+            )
+            for raw in _webull_records(payload):
+                snapshot = _normalise_event_snapshot(raw)
+                if snapshot:
+                    snapshots[snapshot['symbol']] = snapshot
+                    with _WEBULL_EVENT_CACHE_LOCK:
+                        _WEBULL_EVENT_SNAPSHOT_CACHE[(*principal, snapshot['symbol'])] = (fetch_time, snapshot)
     return snapshots
+
+
+def _normalise_event_bar(raw):
+    if not isinstance(raw, dict):
+        return None
+    timestamp = _webull_bar_timestamp(
+        raw.get('time') or raw.get('timestamp') or raw.get('bar_time') or raw.get('trade_time') or raw.get('t')
+    )
+    close = _event_number(_event_first_value(raw, 'close', 'c', 'last_price', 'price'))
+    if not timestamp or close is None or close < 0 or close > WEBULL_EVENT_SETTLEMENT_PAYOUT:
+        return None
+    result = {'time': timestamp, 'close': close}
+    for target, aliases in {
+        'open': ('open', 'o'), 'high': ('high', 'h'), 'low': ('low', 'l'), 'volume': ('volume', 'v'),
+    }.items():
+        value = _event_number(_event_first_value(raw, *aliases))
+        result[target] = close if value is None else value
+    return result
+
+
+def get_webull_event_bars(
+    app_key, app_secret, environment='production', access_token=None, *,
+    symbol, timespan='M1', count=200, force=False,
+):
+    """Return cached provider OHLCV bars for one exact Event Contract market."""
+    clean_symbol = str(symbol or '').strip().upper()
+    clean_timespan = str(timespan or 'M1').strip().upper()
+    if not clean_symbol:
+        raise WebullConnectionError('Choose an Event Contract before loading its chart.')
+    if clean_timespan not in {'M1', 'M5', 'M15', 'M30', 'H1', 'D'}:
+        raise WebullConnectionError('Choose a supported Event Contract chart interval.')
+    try:
+        safe_count = max(1, min(int(count or 200), 1200))
+    except (TypeError, ValueError):
+        safe_count = 200
+    principal = _webull_event_principal(app_key, environment, access_token)
+    cache_key = (*principal, clean_symbol, clean_timespan, safe_count)
+    now = time.time()
+    with _WEBULL_EVENT_CACHE_LOCK:
+        cached = _WEBULL_EVENT_BARS_CACHE.get(cache_key)
+        if cached and not force and now - cached[0] < WEBULL_EVENT_BARS_TTL_SECONDS:
+            return [dict(item) for item in cached[1]]
+
+    payload = _response_payload(
+        _webull_request(
+            app_key, app_secret, environment, 'GET',
+            '/market-data/event-contracts/bars/list',
+            query_params={
+                'symbol': clean_symbol,
+                'timespan': clean_timespan,
+                'category': 'US_EVENT',
+                'count': safe_count,
+                'real_time_required': 'false',
+            },
+            access_token=access_token,
+        ),
+        'event market bars request',
+    )
+    records = payload.get('data', payload) if isinstance(payload, dict) else payload
+    if isinstance(records, dict):
+        records = (
+            records.get(clean_symbol) or records.get(clean_symbol.lower())
+            or records.get('bars') or records.get('items') or records.get('list') or []
+        )
+    bars_by_time = {}
+    for raw in records if isinstance(records, list) else []:
+        bar = _normalise_event_bar(raw)
+        if bar:
+            bars_by_time[bar['time']] = bar
+    bars = [bars_by_time[timestamp] for timestamp in sorted(bars_by_time)]
+    with _WEBULL_EVENT_CACHE_LOCK:
+        _WEBULL_EVENT_BARS_CACHE[cache_key] = (now, bars)
+    return [dict(item) for item in bars]
 
 
 def _event_market_rules(market):
@@ -1369,22 +1522,26 @@ def get_webull_event_markets(
     app_key, app_secret, environment='production', access_token=None, *,
     category_id=None, symbol=None, query=None, limit=10, force=False, progressive=False,
 ):
-    """Search the complete catalog and rank unfiltered results by live activity."""
+    """Search open, actionable markets and enrich only a bounded candidate set."""
     clean_category = str(category_id or '').strip().upper()
     clean_symbol = str(symbol or '').strip().upper()
     clean_query = str(query or '').strip().casefold()
     result_limit = max(1, min(int(limit or 10), 50))
     principal = _webull_event_principal(app_key, environment, access_token)
-    result_cache_key = (*principal, clean_category, clean_symbol, clean_query, result_limit)
+    catalog = get_webull_event_catalog(
+        app_key, app_secret, environment, access_token,
+        category_id=clean_category or None, force=force, progressive=progressive,
+    )
+    # The catalog timestamp is its generation. Progressive warmup can replace
+    # that generation without globally invalidating unrelated users' searches.
+    result_cache_key = (
+        *principal, clean_category, clean_symbol, clean_query, result_limit, catalog.get('as_of'),
+    )
     if not force:
         with _WEBULL_EVENT_CACHE_LOCK:
             cached_result = _WEBULL_EVENT_MARKET_RESULT_CACHE.get(result_cache_key)
             if cached_result and time.time() - cached_result[0] < WEBULL_EVENT_MARKET_RESULT_TTL_SECONDS:
                 return json.loads(json.dumps(cached_result[1]))
-    catalog = get_webull_event_catalog(
-        app_key, app_secret, environment, access_token,
-        category_id=clean_category or None, force=force, progressive=progressive,
-    )
     category_by_id = {
         str(item.get('category_id') or '').upper(): str(item.get('category_code') or '').upper()
         for item in catalog['categories']
@@ -1396,6 +1553,11 @@ def get_webull_event_markets(
         markets = [item for item in markets if item.get('category_code') == clean_category]
     if clean_symbol:
         markets = [item for item in markets if item.get('symbol') == clean_symbol]
+    else:
+        # Discovery is for opening a new position. CO markets remain available
+        # through exact-symbol lookups for an owned position, while NT/future
+        # markets never inflate search counts or expose disabled Yes/No rows.
+        markets = [item for item in markets if _event_market_is_discoverable(item)]
     if clean_query:
         fields = (
             'symbol', 'name', 'event_symbol', 'event_name', 'series_symbol',
@@ -1421,22 +1583,49 @@ def get_webull_event_markets(
             _WEBULL_EVENT_MARKET_RESULT_CACHE[result_cache_key] = (time.time(), result)
         return result
 
+    total_matches = len(markets)
+    if clean_query:
+        def static_relevance(item):
+            symbol_value = str(item.get('symbol') or '').casefold()
+            name_value = str(item.get('name') or '').casefold()
+            exact = 0 if clean_query in {symbol_value, name_value} else 1
+            prefix = 0 if symbol_value.startswith(clean_query) or name_value.startswith(clean_query) else 1
+            return (exact, prefix, *_event_market_static_sort_key(item))
+        markets.sort(key=static_relevance)
+    else:
+        markets.sort(key=_event_market_static_sort_key)
+
+    # Webull accepts at most 100 Event Contract symbols per snapshot request.
+    # Enriching a bounded, already-filtered group prevents a 700+ result search
+    # from making eight serialized provider calls before the browser sees ten.
+    candidate_limit = min(len(markets), max(result_limit * 2, 20), 100)
+    candidates = markets[:candidate_limit]
     partial = bool(catalog.get('partial'))
+    snapshot_lookup_succeeded = True
     try:
         snapshots = get_webull_event_snapshots(
             app_key, app_secret, environment, access_token,
-            symbols=[item['symbol'] for item in markets],
+            symbols=[item['symbol'] for item in candidates],
         )
     except WebullConnectionError as exc:
         logger.warning('Webull Event snapshot enrichment unavailable: %s', exc)
         snapshots = {}
         partial = True
+        snapshot_lookup_succeeded = False
     enriched = []
-    for market in markets:
+    for market in candidates:
         value = dict(market)
-        value.update(snapshots.get(market['symbol']) or {})
+        snapshot = snapshots.get(market['symbol'])
+        # Exact-symbol access must keep an owned CO/NT contract inspectable.
+        # Discovery rows with a successful but empty/zero snapshot are not
+        # immediately actionable and should not appear as disabled duplicates.
+        if not clean_symbol and snapshot_lookup_succeeded and not _event_snapshot_has_actionable_quote(snapshot):
+            continue
+        value.update(snapshot or {})
         value['rules'] = _event_market_rules(value)
         enriched.append(value)
+    if snapshot_lookup_succeeded and total_matches <= candidate_limit:
+        total_matches = len(enriched)
 
     if clean_query:
         def relevance(item):
@@ -1457,7 +1646,7 @@ def get_webull_event_markets(
         )
     result = {
         'markets': enriched[:result_limit],
-        'total_matches': len(enriched),
+        'total_matches': total_matches,
         'catalog_as_of': catalog['as_of'],
         'partial': partial,
         'loading': bool(catalog.get('loading')),
@@ -1485,19 +1674,16 @@ def get_webull_event_market(app_key, app_secret, environment='production', acces
             cached_market = next((item for item in cached[1]['markets'] if item.get('symbol') == clean_symbol), None)
             if cached_market:
                 break
-    if force:
-        if not cached_market:
-            all_catalog = get_webull_event_catalog(
-                app_key, app_secret, environment, access_token, force=False,
-            )
-            cached_market = next((item for item in all_catalog['markets'] if item.get('symbol') == clean_symbol), None)
-        if not cached_market or not cached_market.get('series_symbol'):
-            raise WebullConnectionError('Webull did not return that Event Contract market.')
+    if force or not cached_market:
+        # Event symbols carry their series prefix before the first dash. Query
+        # that one series directly so opening an owned position never requires
+        # traversing every category and every unrelated contract first.
+        series_symbol = str((cached_market or {}).get('series_symbol') or clean_symbol.split('-', 1)[0]).upper()
         raw_markets = _event_paginated_records(
             app_key, app_secret, environment, access_token,
             '/trading/instruments/event-contracts/markets/list',
             params={
-                'series_symbol': cached_market['series_symbol'],
+                'series_symbol': series_symbol,
                 'symbols': clean_symbol,
                 'page_size': 500,
             },
@@ -1506,20 +1692,28 @@ def get_webull_event_market(app_key, app_secret, environment='production', acces
             id_field='instrument_id', page_size=500,
         )
         market = next((
-            _normalise_event_market(raw, {cached_market['series_symbol']: cached_market.get('category_code')}) for raw in raw_markets
+            _normalise_event_market(
+                raw,
+                {series_symbol: (cached_market or {}).get('category_code')},
+            ) for raw in raw_markets
             if str(raw.get('symbol') or '').strip().upper() == clean_symbol
         ), None)
         if not market:
-            raise WebullConnectionError('Webull did not return that Event Contract market.')
-        snapshot = get_webull_event_snapshots(
-            app_key, app_secret, environment, access_token,
-            symbols=[clean_symbol], force=True,
-        ).get(clean_symbol)
-        if snapshot:
-            market.update(snapshot)
-        market['trading_hours'] = cached_market.get('trading_hours') or market.get('trading_hours')
-        market['rules'] = _event_market_rules(market)
-        return market
+            if force:
+                raise WebullConnectionError('Webull did not return that Event Contract market.')
+        else:
+            if cached_market:
+                # Retain category and explanatory metadata if the exact lookup
+                # returns only the compact provider instrument representation.
+                market = {**cached_market, **{key: value for key, value in market.items() if value not in (None, '')}}
+            snapshot = get_webull_event_snapshots(
+                app_key, app_secret, environment, access_token,
+                symbols=[clean_symbol], force=force,
+            ).get(clean_symbol)
+            if snapshot:
+                market.update(snapshot)
+            market['rules'] = _event_market_rules(market)
+            return market
     if cached_market:
         market = dict(cached_market)
         snapshot = get_webull_event_snapshots(

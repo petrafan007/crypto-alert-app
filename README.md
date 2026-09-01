@@ -127,6 +127,18 @@ The application utilizes a **unified PostgreSQL database**.
 
 Historical changelog entries retain the product name used when they were originally released. The application domain, repository slug, deployment folders, database, and service identifiers intentionally remain unchanged by the v2.45.0 brand update.
 
+## v2.73.0 (September 2026)
+
+- **Actionable Event Contract Discovery**:
+  - Limited category and title/symbol searches to contracts Webull currently marks open for new positions, removing future, non-tradable, closing-only, and empty-quote rows from the new-position selector.
+  - Filtered and ranked a bounded candidate set before requesting live snapshots, coalesced concurrent quote fetches, replaced five-second catalog-search polling with one delayed follow-up, and stopped clearing every cached search during progressive catalog loading.
+  - Preserved exact-symbol access to owned closing-only and non-tradable contracts, so an existing position remains inspectable even after it disappears from new-position discovery.
+- **Event Contract Position Workspace**:
+  - Replaced the Event Contract positions-table Trade action with Open Position.
+  - Added a responsive, theme-aware position modal with a millisecond countdown to the provider cutoff, exact contract condition, Yes/No quotes and sizes, position economics, P&L at the executable bid, contract timeline, provider status, trading hours, settlement facts, and Webull OHLCV price history.
+  - Added Buy Yes, Buy No, and Close Position controls that observe Webull's open/closing-only status, exact held outcome, available quantity, fractional rules, price ranges, and tick sizes before continuing through the existing confirmation and 2FA safeguards.
+  - Added a dedicated exact-position API response with server-synchronized timing, provider chart bars, and freshly verified available-to-close quantity without requiring a full Event Contract catalog traversal.
+
 ## v2.72.2 (August 2026)
 
 - **Dark Thesis Matrix Correction**:
