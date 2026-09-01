@@ -1,0 +1,324 @@
+.webull-positions {
+  color: var(--text-primary);
+}
+
+.webull-positions-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+
+.webull-positions-header h2,
+.webull-positions-header p {
+  margin: 0;
+}
+
+.webull-positions-header p {
+  margin-top: 4px;
+  color: var(--text-tertiary);
+  font-size: 13px;
+}
+
+.webull-positions-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.webull-positions-actions button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 7px 11px;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.webull-positions-actions button:hover,
+.webull-positions-actions button.active {
+  border-color: var(--accent-primary);
+  color: var(--accent-primary);
+}
+
+.webull-positions-table-wrap {
+  width: 100%;
+  max-height: 68vh;
+  overflow: auto;
+  border-top: 1px solid var(--table-border, var(--border-color));
+  border-bottom: 1px solid var(--table-border, var(--border-color));
+}
+
+.webull-positions-table {
+  width: max-content;
+  min-width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.webull-positions-table th,
+.webull-positions-table td {
+  min-width: 138px;
+  padding: 15px 14px;
+  border-bottom: 1px solid var(--table-border, var(--border-color));
+  color: var(--text-primary);
+  text-align: right;
+  white-space: nowrap;
+}
+
+.webull-positions-table th {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  background: var(--table-header-bg);
+}
+
+.webull-positions-table th button {
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 800;
+  text-align: right;
+  cursor: pointer;
+}
+
+.webull-positions-table th:first-child,
+.webull-positions-table td:first-child {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  min-width: 210px;
+  background: var(--table-row-bg);
+  text-align: left;
+}
+
+.webull-positions-table th:first-child {
+  z-index: 4;
+  background: var(--table-header-bg);
+}
+
+.webull-positions-table th:first-child button {
+  text-align: left;
+}
+
+.webull-positions-table tbody tr:hover td {
+  background: var(--table-row-hover);
+}
+
+.webull-positions-table .position-symbol {
+  font-weight: 800;
+}
+
+.webull-positions-table .position-gain {
+  color: var(--accent-success);
+  font-weight: 700;
+}
+
+.webull-positions-table .position-loss {
+  color: var(--accent-danger);
+  font-weight: 700;
+}
+
+.positions-panel-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1300;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: var(--modal-overlay, rgba(0, 0, 0, 0.68));
+}
+
+.positions-filter-panel,
+.positions-columns-panel {
+  width: min(680px, 100%);
+  max-height: calc(100vh - 40px);
+  overflow: hidden;
+  border: 1px solid var(--modal-border, var(--border-color));
+  border-radius: 8px;
+  background: var(--modal-bg, var(--card-bg));
+  color: var(--text-primary);
+  box-shadow: var(--shadow-lg);
+}
+
+.positions-panel-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 18px 20px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.positions-panel-title h3,
+.positions-panel-title p {
+  margin: 0;
+}
+
+.positions-panel-title p {
+  margin-top: 3px;
+  color: var(--text-tertiary);
+  font-size: 12px;
+}
+
+.positions-panel-title button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border: 0;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.positions-filter-group {
+  padding: 20px;
+}
+
+.positions-filter-group + .positions-filter-group {
+  padding-top: 0;
+}
+
+.positions-filter-group h4 {
+  margin: 0 0 12px;
+}
+
+.positions-filter-options {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.positions-filter-options button {
+  padding: 10px 16px;
+  border: 1px solid var(--border-color);
+  border-radius: 20px;
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.positions-filter-options button.active {
+  border-color: var(--text-primary);
+  background: var(--text-primary);
+  color: var(--bg-primary);
+}
+
+.positions-panel-footer {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 20px;
+  border-top: 1px solid var(--border-color);
+}
+
+.positions-panel-footer button {
+  padding: 9px 16px;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-primary);
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.positions-panel-footer button.primary {
+  border-color: var(--button-bg);
+  background: var(--button-bg);
+  color: var(--button-text);
+}
+
+.positions-columns-overlay {
+  align-items: stretch;
+  justify-content: flex-end;
+  padding: 14px;
+}
+
+.positions-columns-panel {
+  display: flex;
+  flex-direction: column;
+  width: min(440px, 100%);
+  max-height: none;
+}
+
+.positions-column-list {
+  min-height: 0;
+  overflow-y: auto;
+  padding: 8px;
+}
+
+.positions-column-option {
+  display: grid;
+  grid-template-columns: 28px 1fr 32px;
+  align-items: center;
+  gap: 8px;
+  min-height: 50px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  color: var(--text-primary);
+  cursor: grab;
+}
+
+.positions-column-option:hover {
+  background: var(--table-row-hover);
+}
+
+.positions-drag-handle {
+  color: var(--text-tertiary);
+}
+
+.positions-column-option input {
+  width: 20px;
+  height: 20px;
+  accent-color: var(--accent-primary);
+  cursor: pointer;
+}
+
+@media (max-width: 700px) {
+  .webull-positions-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .webull-positions-actions {
+    width: 100%;
+  }
+
+  .webull-positions-actions button {
+    flex: 1 1 auto;
+    justify-content: center;
+  }
+
+  .positions-panel-overlay {
+    align-items: stretch;
+    padding: 10px;
+  }
+
+  .positions-filter-panel {
+    max-height: none;
+    overflow-y: auto;
+  }
+
+  .positions-columns-overlay {
+    padding: 0;
+  }
+
+  .positions-columns-panel {
+    width: 100%;
+    border-radius: 0;
+  }
+}

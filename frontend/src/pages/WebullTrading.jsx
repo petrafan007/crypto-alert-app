@@ -10,6 +10,7 @@ import PercentPriceModal from '../components/PercentPriceModal';
 import WebullAIDashboard from '../components/WebullAIDashboard';
 import WebullOptionChain from '../components/WebullOptionChain';
 import OptionsPayoffChart from '../components/OptionsPayoffChart';
+import WebullPositions from '../components/WebullPositions';
 import { differenceInEasternCalendarDays, formatEasternDate, formatEasternDateTime, formatEasternTime } from '../utils/dateTime';
 import { optionStrategyDefinition } from '../utils/optionStrategies';
 import {
@@ -2655,6 +2656,10 @@ export default function WebullTrading({ isLightMode = false }) {
         <button className={`tab-button ${activeTab === 'history' ? 'active' : ''}`} onClick={() => setActiveTab('history')}>
           📜 <span className="tab-text">Order History</span>
         </button>
+        <button className={`tab-button ${activeTab === 'positions' ? 'active' : ''}`} onClick={() => setActiveTab('positions')}>
+          <span className="tab-text">Positions</span>
+          {modeHoldings.length > 0 && <span className="tab-badge">{modeHoldings.length}</span>}
+        </button>
         <button className={`tab-button ${activeTab === 'trade_chart' ? 'active' : ''}`} onClick={() => setActiveTab('trade_chart')}>
           📈 <span className="tab-text">Trade Chart</span>
         </button>
@@ -4309,6 +4314,11 @@ export default function WebullTrading({ isLightMode = false }) {
                   </>
                 )}
               </section>
+            )}
+
+            {/* POSITIONS TAB */}
+            {activeTab === 'positions' && (
+              <WebullPositions positions={modeHoldings} isTestMode={isTestMode} />
             )}
 
             {/* TRADE CHART TAB */}

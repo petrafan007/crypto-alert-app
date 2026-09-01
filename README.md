@@ -127,6 +127,15 @@ The application utilizes a **unified PostgreSQL database**.
 
 Historical changelog entries retain the product name used when they were originally released. The application domain, repository slug, deployment folders, database, and service identifiers intentionally remain unchanged by the v2.45.0 brand update.
 
+## v2.71.0 (August 2026)
+
+- **Webull Positions Workspace**:
+  - Added a dedicated Positions tab between Order History and Trade Chart for completed holdings, while Open Orders remains scoped to pending and working orders.
+  - Added the Robinhood-style default columns Symbol, Quantity, Market value, Mark, Average price, Last, 1D open P&L, 1D open P&L %, Open P&L, and Open P&L %, with directional gain/loss treatment.
+  - Added filters for Equities, Options, Crypto, Futures, and option days to expiration at 1, 7, 10, or 30 days.
+  - Added persistent column visibility and drag ordering for bid/ask data, option Greeks, implied and historical volatility, contract identity, underlying data, expiration details, and settlement metadata. Metrics unavailable in a stored Webull snapshot remain visibly unavailable rather than being inferred.
+  - Supports both imported live holdings and simulated Test Mode positions without changing the existing order-entry or open-order workflows.
+
 ## v2.70.0 (August 2026)
 
 - **In-App Options Thesis Viewer**:
