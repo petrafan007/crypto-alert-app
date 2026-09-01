@@ -61,6 +61,28 @@ class OptionsThesisServiceTests(unittest.TestCase):
         self.assertIn("Option Price Matrix", formula)
         self.assertEqual(float(cached_value), 269.5)
 
+    def test_quantity_scales_expiration_pnl(self):
+        workbook_stream = generate_thesis_excel(
+            underlying_symbol="AAPL",
+            baseline_price=245.00,
+            strike_price=245.00,
+            entry_premium=0.08,
+            multiplier=100,
+            quantity=2,
+            iv=0.1501,
+            risk_free_rate=0.0379,
+            expiration_date=datetime.date(2026, 9, 25),
+            starting_dte=0,
+            option_type="PUT",
+        )
+        with zipfile.ZipFile(workbook_stream) as archive:
+            formula, cached_value = _formula_and_cached_value(
+                archive, "xl/worksheets/sheet3.xml", "C24"
+            )
+
+        self.assertIn("'Assumptions'!$B$8", formula)
+        self.assertEqual(float(cached_value), 4884.0)
+
 
 if __name__ == "__main__":
     unittest.main()

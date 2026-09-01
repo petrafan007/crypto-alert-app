@@ -127,6 +127,14 @@ The application utilizes a **unified PostgreSQL database**.
 
 Historical changelog entries retain the product name used when they were originally released. The application domain, repository slug, deployment folders, database, and service identifiers intentionally remain unchanged by the v2.45.0 brand update.
 
+## v2.68.1 (August 2026)
+
+- **Webull-Style Payoff Contract Selection**:
+  - Dragging the payoff-chart hexagon now selects the nearest listed strike for the active expiration and option type, then updates the shared option-chain selection and order ticket with the selected contract's quote and details.
+  - The payoff curve, risk figures, order ticket, and thesis export stay synchronized with the selected contract instead of treating the hexagon as a chart-only marker.
+- **Position-Sized Excel Thesis**:
+  - Excel exports now include the selected contract count and apply it to total premium at risk and every P&L matrix value.
+
 ## v2.68.0 (August 2026)
 
 - **Webull Option Contract Selection**:

@@ -791,6 +791,7 @@ def export_options_thesis():
         strike_price = float(data.get("strike_price", 0))
         entry_premium = float(data.get("entry_premium", 0))
         multiplier = int(data.get("multiplier", 100))
+        quantity = int(data.get("quantity", 1))
         iv = float(data.get("iv", 0))
         risk_free_rate = float(data.get("risk_free_rate", 0))
         expiration_date_str = data.get("expiration_date", "")
@@ -816,7 +817,8 @@ def export_options_thesis():
             risk_free_rate=risk_free_rate,
             expiration_date=expiration_date,
             starting_dte=starting_dte,
-            option_type=option_type
+            option_type=option_type,
+            quantity=quantity,
         )
 
         safe_symbol = "".join(character for character in underlying_symbol if character.isalnum() or character in ".-") or "OPTION"

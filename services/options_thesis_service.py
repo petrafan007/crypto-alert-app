@@ -61,6 +61,7 @@ def generate_thesis_excel(
     expiration_date: datetime.date,
     starting_dte: int,
     option_type: str = "PUT",
+    quantity: int = 1,
 ) -> BytesIO:
     """Generate an auditable option thesis workbook with visible cached results.
 
@@ -73,8 +74,8 @@ def generate_thesis_excel(
         raise ValueError("option_type must be CALL or PUT")
     if baseline_price <= 0 or strike_price <= 0:
         raise ValueError("baseline_price and strike_price must be positive")
-    if entry_premium < 0 or multiplier <= 0 or starting_dte < 0:
-        raise ValueError("entry_premium, multiplier, or starting_dte is invalid")
+    if entry_premium < 0 or multiplier <= 0 or starting_dte < 0 or quantity <= 0:
+        raise ValueError("entry_premium, multiplier, quantity, or starting_dte is invalid")
 
     output = BytesIO()
     workbook = xlsxwriter.Workbook(output, {
@@ -141,6 +142,7 @@ def generate_thesis_excel(
         ("Strike", strike_price, "$/share", f"Selected {option_type} strike", input_currency_format),
         ("Entry premium", entry_premium, "$/share", "Limit entry price", input_currency_format),
         ("Contract multiplier", multiplier, "shares/contract", "Standard multiplier", input_format),
+        ("Contracts", quantity, "contracts", "Selected position size", input_format),
         ("Implied volatility", iv, "%", "IV calibrated to current mark", input_percent_format),
         ("Risk-free rate", risk_free_rate, "%", "Short-term risk-free rate", input_percent_format),
         ("Expiration date", expiry_datetime, "date", "Contract expiration", input_date_format),
@@ -157,12 +159,12 @@ def generate_thesis_excel(
         assumptions.write(row, 2, units, text_format)
         assumptions.write(row, 3, note, note_format)
 
-    total_premium = entry_premium * multiplier
+    total_premium = entry_premium * multiplier * quantity
     breakeven = strike_price - entry_premium if option_type == "PUT" else strike_price + entry_premium
     breakeven_pct = (1 - breakeven / baseline_price) if option_type == "PUT" else (breakeven / baseline_price - 1)
     assumptions.merge_range("A13:D13", "Key outputs", section_format)
     assumptions.write("A14", "Total premium at risk", text_format)
-    assumptions.write_formula("B14", "=B6*B7", currency_format, total_premium)
+    assumptions.write_formula("B14", "=B6*B7*B8", currency_format, total_premium)
     assumptions.write("A15", "Expiration breakeven", text_format)
     assumptions.write_formula("B15", "=B5-B6" if option_type == "PUT" else "=B5+B6", currency_format, breakeven)
     assumptions.write("A16", "Breakeven % from baseline", text_format)
@@ -201,8 +203,8 @@ def generate_thesis_excel(
             strike_ref = "'Assumptions'!$B$5"
             time_ref = f"({excel_column}$2/365)"
             safe_time_ref = f"MAX({time_ref},0.00001)"
-            rate_ref = "'Assumptions'!$B$9"
-            volatility_ref = "MAX('Assumptions'!$B$8,0.000000001)"
+            rate_ref = "'Assumptions'!$B$10"
+            volatility_ref = "MAX('Assumptions'!$B$9,0.000000001)"
             d1 = (
                 f"((LN({underlying_ref}/{strike_ref})+({rate_ref}+0.5*{volatility_ref}^2)*{safe_time_ref})"
                 f"/({volatility_ref}*SQRT({safe_time_ref})))"
@@ -253,11 +255,11 @@ def generate_thesis_excel(
         for column, _ in enumerate(date_columns, start=2):
             excel_column = xl_col_to_name(column)
             option_price_value = cached_option_prices[(row, column)]
-            pnl_value = (option_price_value - entry_premium) * multiplier
+            pnl_value = (option_price_value - entry_premium) * multiplier * quantity
             cached_pnl[(row, column)] = pnl_value
             formula = (
                 f"=('Option Price Matrix'!{excel_column}{excel_row}-'Assumptions'!$B$6)"
-                "*'Assumptions'!$B$7"
+                "*'Assumptions'!$B$7*'Assumptions'!$B$8"
             )
             pnl_sheet.write_formula(row, column, formula, currency_format, pnl_value)
     pnl_sheet.conditional_format(3, 2, 3 + len(pct_steps) - 1, 2 + len(date_columns) - 1, {

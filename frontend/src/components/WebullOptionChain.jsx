@@ -84,6 +84,8 @@ export default function WebullOptionChain({
   onSymbolChange,
   onStrategyChange,
   onUnderlyingPriceChange,
+  chartStrikeRequest,
+  onChartStrikeRequestHandled,
   isLightMode = false,
 }) {
   const [symbol, setSymbol] = useState(defaultSymbol || 'AAPL');
@@ -459,6 +461,32 @@ export default function WebullOptionChain({
       underlyingPrice,
     });
   };
+
+  useEffect(() => {
+    if (!chartStrikeRequest) return;
+    if (loading || isStale || !chainData || chainData.underlying_symbol !== symbol || chainData.selected_expiration !== selectedExp) {
+      return;
+    }
+
+    const requestedStrike = Number(chartStrikeRequest.strike);
+    const requestedOptionType = String(selectedContract?.optionType || 'CALL').toUpperCase();
+    const candidateRows = (chainData.chain || []).filter((row) => (
+      Number.isFinite(Number(row?.strike)) && row?.[requestedOptionType.toLowerCase()]
+    ));
+    if (!(requestedStrike > 0) || !candidateRows.length) {
+      onChartStrikeRequestHandled?.(chartStrikeRequest.id);
+      return;
+    }
+
+    const closestRow = candidateRows.reduce((closest, row) => (
+      Math.abs(Number(row.strike) - requestedStrike) < Math.abs(Number(closest.strike) - requestedStrike)
+        ? row
+        : closest
+    ));
+    const priceField = /^SELL/.test(String(selectedContract?.side || 'BUY')) ? 'bid' : 'ask';
+    handleContractClick(closestRow, requestedOptionType, priceField);
+    onChartStrikeRequestHandled?.(chartStrikeRequest.id);
+  }, [chartStrikeRequest, chainData, isStale, loading, onChartStrikeRequestHandled, selectedContract?.optionType, selectedContract?.side, selectedExp, symbol]);
 
   const strategyMetricsFor = (row, optionType) => buildStrategyMetrics({
     strategy,

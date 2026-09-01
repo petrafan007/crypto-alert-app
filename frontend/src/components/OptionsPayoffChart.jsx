@@ -61,12 +61,14 @@ export default function OptionsPayoffChart({
   startingDTE = 18,
   optionType = 'PUT',
   action = 'BUY',
+  onStrikeSelect,
 }) {
   const [daysElapsed, setDaysElapsed] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
   const [simulatedPrice, setSimulatedPrice] = useState(strikePrice);
   const [rangePercent, setRangePercent] = useState(10);
   const chartRef = useRef(null);
+  const simulatedPriceRef = useRef(strikePrice);
 
   const chartCenterPrice = safePrice(strikePrice, safePrice(baselinePrice, 1));
   const baseline = safePrice(baselinePrice, chartCenterPrice);
@@ -74,6 +76,7 @@ export default function OptionsPayoffChart({
   const currentDTE = Math.max(0, startingDTE - daysElapsed);
 
   useEffect(() => {
+    simulatedPriceRef.current = strikePrice;
     setSimulatedPrice(strikePrice);
   }, [strikePrice]);
 
@@ -175,8 +178,21 @@ export default function OptionsPayoffChart({
     const rect = chart.canvas.getBoundingClientRect();
     const priceAtPointer = chart.scales.x.getValueForPixel(event.clientX - rect.left);
     if (Number.isFinite(priceAtPointer)) {
-      setSimulatedPrice(Math.max(minP, Math.min(maxP, Math.round(priceAtPointer * 100) / 100)));
+      const nextPrice = Math.max(minP, Math.min(maxP, Math.round(priceAtPointer * 100) / 100));
+      simulatedPriceRef.current = nextPrice;
+      setSimulatedPrice(nextPrice);
     }
+  };
+
+  const handleHexPointerDown = (event) => {
+    event.preventDefault();
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+    setIsDragging(true);
+  };
+
+  const handlePointerUp = () => {
+    if (isDragging) onStrikeSelect?.(simulatedPriceRef.current);
+    setIsDragging(false);
   };
 
   const changeZoom = (direction) => {
@@ -240,11 +256,10 @@ export default function OptionsPayoffChart({
 
       <div
         className="chart-wrapper"
-        style={{ position: 'relative', cursor: isDragging ? 'grabbing' : 'grab' }}
-        onPointerDown={() => setIsDragging(true)}
-        onPointerUp={() => setIsDragging(false)}
+        style={{ position: 'relative', cursor: isDragging ? 'grabbing' : 'default' }}
         onPointerMove={handlePointerMove}
-        onPointerLeave={() => setIsDragging(false)}
+        onPointerUp={handlePointerUp}
+        onPointerCancel={handlePointerUp}
       >
         <Line
           ref={chartRef}
@@ -300,8 +315,9 @@ export default function OptionsPayoffChart({
           border: '2px solid #2dd4bf',
           boxShadow: '0 4px 6px rgba(0,0,0,0.3)',
           zIndex: 10,
-          pointerEvents: 'none',
-        }}>
+          cursor: isDragging ? 'grabbing' : 'grab',
+          touchAction: 'none',
+        }} onPointerDown={handleHexPointerDown}>
           <div>{action === 'BUY' ? 'Buy' : 'Sell'} {safeQuantity.toLocaleString()}</div>
           <div style={{ margin: '4px 0' }}>${Number(simulatedPrice).toFixed(2)}</div>
           <div style={{

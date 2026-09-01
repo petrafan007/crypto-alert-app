@@ -361,6 +361,7 @@ export default function WebullTrading({ isLightMode = false }) {
   const [futuresMessage, setFuturesMessage] = useState('');
   const [livePrice, setLivePrice] = useState(0);
   const [optionUnderlyingPrice, setOptionUnderlyingPrice] = useState(0);
+  const [chartStrikeRequest, setChartStrikeRequest] = useState(null);
 
   // Event Contracts State (Binary Outcome Contracts)
   const [eventCategories, setEventCategories] = useState([]);
@@ -2457,6 +2458,15 @@ export default function WebullTrading({ isLightMode = false }) {
     setOrderValidationError('');
   };
 
+  const handlePayoffChartStrikeSelect = (strike) => {
+    const requestedStrike = Number(strike);
+    if (!(requestedStrike > 0)) return;
+    setChartStrikeRequest((previous) => ({
+      id: (previous?.id || 0) + 1,
+      strike: requestedStrike,
+    }));
+  };
+
   const handleTicketSideChange = (nextSide) => {
     const eventSuggestedPrice = selectedInstrumentType === 'EVENT'
       ? eventQuoteFor(selectedEventMarket, orderForm.eventOutcome, nextSide)
@@ -3077,6 +3087,12 @@ export default function WebullTrading({ isLightMode = false }) {
                       }}
                       onSelectOptionContract={handleSelectOptionContract}
                       onUnderlyingPriceChange={setOptionUnderlyingPrice}
+                      chartStrikeRequest={chartStrikeRequest}
+                      onChartStrikeRequestHandled={(requestId) => {
+                        setChartStrikeRequest((previous) => (
+                          previous?.id === requestId ? null : previous
+                        ));
+                      }}
                       onSymbolChange={(newSym) => {
                         setOptionUnderlyingPrice(0);
                         setSelectedSymbol(newSym);
@@ -3869,6 +3885,7 @@ export default function WebullTrading({ isLightMode = false }) {
                         startingDTE={differenceInEasternCalendarDays(orderForm.optionExpiration)}
                         optionType={orderForm.optionType}
                         action={orderForm.side}
+                        onStrikeSelect={handlePayoffChartStrikeSelect}
                       />
                     </div>
                   )}
