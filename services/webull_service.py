@@ -956,6 +956,42 @@ def _event_time_sort_value(value, *, end_of_day=False):
         return 0.0
 
 
+_EVENT_SYMBOL_MONTHS = {
+    'JAN': 1, 'FEB': 2, 'MAR': 3, 'APR': 4, 'MAY': 5, 'JUN': 6,
+    'JUL': 7, 'AUG': 8, 'SEP': 9, 'OCT': 10, 'NOV': 11, 'DEC': 12,
+}
+
+
+def _event_symbol_cutoff(value):
+    """Parse Webull's explicit YYMMMDDHHMM Event symbol cutoff in Eastern time."""
+    match = re.search(
+        r'-(\d{2})(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)(\d{2})(\d{2})(\d{2})(?:-|$)',
+        str(value or '').strip().upper(),
+    )
+    if not match:
+        return 0.0
+    try:
+        return datetime(
+            2000 + int(match.group(1)),
+            _EVENT_SYMBOL_MONTHS[match.group(2)],
+            int(match.group(3)),
+            int(match.group(4)),
+            int(match.group(5)),
+            tzinfo=ZoneInfo('America/New_York'),
+        ).timestamp()
+    except (KeyError, ValueError):
+        return 0.0
+
+
+def _event_market_cutoff_value(market):
+    raw_cutoff = market.get('last_trading_date') or market.get('expected_exp_date') or market.get('latest_exp_date')
+    if re.fullmatch(r'\d{4}-\d{2}-\d{2}', str(raw_cutoff or '').strip()):
+        symbol_cutoff = _event_symbol_cutoff(market.get('symbol'))
+        if symbol_cutoff:
+            return symbol_cutoff
+    return _event_time_sort_value(raw_cutoff, end_of_day=True)
+
+
 def _event_first_value(raw, *keys):
     """Return the first provider value that is present without inventing data."""
     for key in keys:
@@ -1075,10 +1111,7 @@ def _event_market_is_discoverable(market):
     """Only markets open for new positions belong in discovery/search results."""
     now = time.time()
     open_time = _event_time_sort_value(market.get('open_date'))
-    cutoff_time = _event_time_sort_value(
-        market.get('last_trading_date') or market.get('expected_exp_date') or market.get('latest_exp_date'),
-        end_of_day=True,
-    )
+    cutoff_time = _event_market_cutoff_value(market)
     return (
         str(market.get('status') or '').strip().upper() in {'', 'LISTING'}
         and str(market.get('tradable_status') or '').strip().upper() == 'OC'
@@ -1102,10 +1135,7 @@ def _event_snapshot_has_actionable_quote(snapshot):
 
 def _event_market_static_sort_key(market):
     """Prefer contracts with the nearest future cutoff before live enrichment."""
-    cutoff = _event_time_sort_value(
-        market.get('last_trading_date') or market.get('expected_exp_date') or market.get('latest_exp_date'),
-        end_of_day=True,
-    )
+    cutoff = _event_market_cutoff_value(market)
     now = time.time()
     future_cutoff = cutoff if cutoff >= now else float('inf')
     return (future_cutoff, str(market.get('name') or ''), str(market.get('symbol') or ''))

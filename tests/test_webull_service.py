@@ -240,6 +240,40 @@ class WebullServiceTests(unittest.TestCase):
 
         self.assertEqual([item['symbol'] for item in result['markets']], ['KXBTC15M-CURRENT'])
 
+    def test_event_discovery_uses_intraday_symbol_cutoff_when_provider_date_is_date_only(self):
+        catalog = {
+            'categories': [{'category_id': 'CRYPTO', 'category_code': 'CRYPTO', 'name': 'Crypto'}],
+            'markets': [
+                {
+                    'symbol': 'KXBTC15M-26SEP010900-00', 'name': 'BTC price up in next 15 mins?',
+                    'series_symbol': 'KXBTC15M', 'category_code': 'CRYPTO', 'status': 'LISTING',
+                    'tradable_status': 'OC', 'last_trading_date': '2026-09-01', 'price_ranges': [],
+                },
+                {
+                    'symbol': 'KXBTC15M-26SEP010915-15', 'name': 'BTC price up in next 15 mins?',
+                    'series_symbol': 'KXBTC15M', 'category_code': 'CRYPTO', 'status': 'LISTING',
+                    'tradable_status': 'OC', 'last_trading_date': '2026-09-01', 'price_ranges': [],
+                },
+            ],
+            'as_of': '2026-09-01T13:08:00+00:00', 'partial': False, 'loading': False, 'warnings': [],
+        }
+        now = datetime(2026, 9, 1, 13, 8, tzinfo=timezone.utc).timestamp()
+
+        with patch('services.webull_service.time.time', return_value=now), \
+             patch('services.webull_service._targeted_webull_event_catalog', return_value=(catalog, [])), \
+             patch('services.webull_service.get_webull_event_snapshots', return_value={
+                 'KXBTC15M-26SEP010915-15': {
+                     'symbol': 'KXBTC15M-26SEP010915-15', 'yes_ask': 0.17, 'no_ask': 0.84,
+                 },
+             }) as snapshot_mock:
+            result = get_webull_event_markets(
+                'a', 's', category_id='CRYPTO', query='btc', limit=1, progressive=True,
+            )
+
+        self.assertEqual(snapshot_mock.call_count, 1)
+        self.assertEqual(snapshot_mock.call_args.kwargs['symbols'], ['KXBTC15M-26SEP010915-15'])
+        self.assertEqual([item['symbol'] for item in result['markets']], ['KXBTC15M-26SEP010915-15'])
+
     def test_event_discovery_excludes_future_and_liquidate_only_markets_before_snapshots(self):
         now = datetime.now(timezone.utc).timestamp()
         catalog = {

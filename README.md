@@ -127,6 +127,11 @@ The application utilizes a **unified PostgreSQL database**.
 
 Historical changelog entries retain the product name used when they were originally released. The application domain, repository slug, deployment folders, database, and service identifiers intentionally remain unchanged by the v2.45.0 brand update.
 
+## v2.73.7 (September 2026)
+
+- **Current Intraday Contract Prioritization**:
+  - Uses the precise Eastern cutoff encoded in Webull intraday symbols when the provider returns only a date-level cutoff. Expired same-day intervals no longer consume live snapshot requests ahead of the current contract; unrecognized symbols keep the conservative end-of-day fallback.
+
 ## v2.73.6 (September 2026)
 
 - **Faster Verified Event Search Results**:
