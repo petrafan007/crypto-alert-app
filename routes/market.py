@@ -682,44 +682,16 @@ def api_auto_alert():
 @market_bp.route('/api/market-data/<symbol>')
 @login_required
 def api_market_data(symbol):
-    """Get market data for a specific symbol from Binance"""
+    """Get a read-only current crypto price from the public Binance.US ticker."""
     try:
-        # Get Binance credentials for the user
-        creds = Credential.query.filter_by(user_id=current_user.id).first()
-        
-        if not creds:
-            return jsonify({'error': 'Binance API credentials not configured'}), 401
-        
-        api_key = decrypt_secret(creds.api_key)
-        api_secret = decrypt_secret(creds.api_secret)
-        if not api_key or not api_secret:
-            return jsonify({'error': 'Binance API credentials not configured'}), 401
-        
-        # Initialize Binance client
-        from binance.client import Client
-        client = Client(
-            api_key=api_key,
-            api_secret=api_secret,
-            tld='us'  # Use Binance.US
-        )
-        
-        # Get 24hr ticker data
-        ticker_symbol = f"{symbol}USDT" if not symbol.endswith('USDT') else symbol
-        ticker = client.get_24hr_ticker(symbol=ticker_symbol)
-        
-        market_data = {
-            'price': float(ticker['lastPrice']),
-            'change_24h': float(ticker['priceChangePercent']),
-            'high_24h': float(ticker['highPrice']),
-            'low_24h': float(ticker['lowPrice']),
-            'volume_24h': float(ticker['volume'])
-        }
-        
-        return jsonify(market_data)
-        
-    except Exception as e:
-        logger.error(f"Error fetching market data for {symbol}: {e}")
-        return jsonify({'error': 'Failed to fetch market data'}), 500
+        clean_symbol = str(symbol or '').upper().replace('USDT', '').replace('USD', '')
+        price = fetch_crypto_price(clean_symbol)
+        if price is None:
+            return jsonify({'error': f'No public Binance.US price is available for {clean_symbol}.'}), 502
+        return jsonify({'price': float(price), 'symbol': clean_symbol, 'source': 'binance_us'})
+    except Exception as exc:
+        logger.error('Public crypto market-data lookup failed for %s: %s', symbol, exc)
+        return jsonify({'error': 'Failed to fetch public crypto market data.'}), 502
 
 
 @market_bp.route('/api/widgets/fear-greed', methods=['GET'])

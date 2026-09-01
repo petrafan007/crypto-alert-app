@@ -127,11 +127,16 @@ The application utilizes a **unified PostgreSQL database**.
 
 Historical changelog entries retain the product name used when they were originally released. The application domain, repository slug, deployment folders, database, and service identifiers intentionally remain unchanged by the v2.45.0 brand update.
 
+## v2.74.3 (September 2026)
+
+- **Working Live Crypto Event Quote**:
+  - Crypto Event Contracts now use the credential-free public Binance.US ticker for their associated underlying when Webull rejects the account's Crypto snapshot request. The displayed asset price refreshes every five seconds alongside the Event Contract Yes/No quotes.
+  - Financials Event Contracts continue to use the Webull snapshot source. The Webull contract reference remains only an unavailable-quote fallback, not a value presented as a live underlying price.
+
 ## v2.74.2 (September 2026)
 
-- **Live Event Underlying Quote Fix**:
+- **Crypto Event Underlying Resolution**:
   - Crypto Event Contracts such as Webull's `KXBTC15M` series now resolve their associated asset symbol from provider series/title metadata when the response omits `underlying_symbol`.
-  - The `REAL-TIME PRICE` card therefore requests and refreshes the actual associated USD market snapshot on the same five-second cadence as Event Contract Yes/No quotes, rather than remaining on a static contract reference price.
 
 ## v2.74.1 (September 2026)
 

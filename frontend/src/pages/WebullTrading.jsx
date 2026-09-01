@@ -1581,11 +1581,17 @@ export default function WebullTrading({ isLightMode = false }) {
     let cancelled = false;
     const refreshUnderlyingPrice = async () => {
       try {
-        const response = await axios.get('/api/webull/market-snapshot', {
-          params: eventUnderlyingQuote,
-          withCredentials: true,
-        });
-        const price = Number(response.data?.snapshot?.price);
+        const response = eventUnderlyingQuote.instrumentType === 'CRYPTO'
+          ? await axios.get(`/api/market-data/${eventUnderlyingQuote.symbol.replace(/USD$/, '')}`, {
+            withCredentials: true,
+          })
+          : await axios.get('/api/webull/market-snapshot', {
+            params: eventUnderlyingQuote,
+            withCredentials: true,
+          });
+        const price = Number(eventUnderlyingQuote.instrumentType === 'CRYPTO'
+          ? response.data?.price
+          : response.data?.snapshot?.price);
         if (!cancelled && price > 0) setEventUnderlyingPrice(price);
       } catch {
         if (!cancelled) setEventUnderlyingPrice(0);
