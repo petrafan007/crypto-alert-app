@@ -290,6 +290,19 @@
   color: var(--accent-danger) !important;
 }
 
+.thesis-reference-level {
+  display: block;
+  width: fit-content;
+  margin: 3px auto 0;
+  padding: 1px 5px;
+  border: 1px solid currentColor;
+  border-radius: 4px;
+  color: var(--accent-warning);
+  font-size: 9px;
+  font-weight: 800;
+  line-height: 1.3;
+}
+
 .thesis-underlying-price {
   font-weight: 800;
 }
@@ -417,6 +430,32 @@ body.dark-mode .thesis-matrix .thesis-profit-cell {
 body.dark-mode .thesis-matrix .thesis-loss-cell {
   background: rgba(239, 68, 68, 0.13) !important;
   color: #f87171 !important;
+}
+
+body.dark-mode .trading-page-container .options-thesis-modal .thesis-matrix {
+  background: #182126 !important;
+}
+
+body.dark-mode .trading-page-container .options-thesis-modal .thesis-matrix tbody td,
+body.dark-mode .trading-page-container .options-thesis-modal .thesis-matrix tbody tr:nth-child(even) td,
+body.dark-mode .trading-page-container .options-thesis-modal .thesis-matrix tbody tr:nth-child(odd) td {
+  background: #182126 !important;
+  color: #f8fafc !important;
+}
+
+body.dark-mode .trading-page-container .options-thesis-modal .thesis-matrix tbody td.thesis-profit-cell {
+  background: #17352b !important;
+  color: #4ade80 !important;
+}
+
+body.dark-mode .trading-page-container .options-thesis-modal .thesis-matrix tbody td.thesis-loss-cell {
+  background: #3a2328 !important;
+  color: #f87171 !important;
+}
+
+body.dark-mode .trading-page-container .options-thesis-modal .thesis-matrix tbody td.thesis-underlying-price {
+  background: #202c32 !important;
+  color: #f8fafc !important;
 }
 
 body.light-mode .options-thesis-panel,

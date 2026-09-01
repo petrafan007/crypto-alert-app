@@ -127,6 +127,17 @@ The application utilizes a **unified PostgreSQL database**.
 
 Historical changelog entries retain the product name used when they were originally released. The application domain, repository slug, deployment folders, database, and service identifiers intentionally remain unchanged by the v2.45.0 brand update.
 
+## v2.72.1 (August 2026)
+
+- **Fact-Based Option Thesis Modeling**:
+  - Kept the thesis centered on current underlying spot while automatically expanding symmetric tails in 5% steps until the selected strike and expiration breakeven are covered. The central ±10% region retains 1% detail, and exact strike and breakeven rows are included and labeled.
+  - Replaced the fixed 15.01% volatility assumption with the selected contract's normalized Webull IV. When provider IV is unavailable, IV is derived only from a valid current market mark; the thesis reports unavailable when neither source is valid.
+  - Replaced European Black-Scholes valuation with a shared American Cox-Ross-Rubinstein binomial model that evaluates early exercise. The UI, API, and Excel export now use the same canonical values, with position-side-aware P&L and explicit model assumptions.
+- **Payoff and Matrix Accuracy**:
+  - Auto-fitted the spot-centered payoff range to the same strike and breakeven coverage, placed the draggable strike marker from Chart.js scale coordinates, and added current-spot and breakeven reference lines.
+  - Added visible model, IV-source, and range disclosures, corrected maximum-loss magnitude formatting, and labeled exact strike and breakeven matrix rows.
+  - Replaced translucent dark-mode matrix fills with opaque component-scoped neutral, profit, and loss surfaces that cannot be overridden by global trading-table row styles.
+
 ## v2.72.0 (August 2026)
 
 - **Webull Position Consistency**:

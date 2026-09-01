@@ -455,6 +455,7 @@ export default function WebullOptionChain({
       openInterest: contract.open_interest,
       volume: contract.volume,
       impliedVolatility: contract.implied_volatility,
+      marketPrice: contract.mid || contract.last || targetPrice,
       optionStrategy: strategy,
       strategyWidth,
       strategyLegs,

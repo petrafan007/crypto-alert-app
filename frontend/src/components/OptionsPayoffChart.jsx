@@ -13,30 +13,42 @@ import { Line } from 'react-chartjs-2';
 import FileDownloadOutlinedIcon from '@mui/icons-material/FileDownloadOutlined';
 import VisibilityOutlinedIcon from '@mui/icons-material/VisibilityOutlined';
 import OptionsThesisModal from './OptionsThesisModal';
+import {
+  adaptiveScenarioRangePercent,
+  americanOptionPrice,
+  deriveImpliedVolatility,
+} from '../utils/optionPricing';
 import './OptionsPayoffChart.css';
 
 ChartJS.register(LinearScale, PointElement, LineElement, Title, Tooltip, Legend, Filler);
 
-const ZOOM_RANGES = [5, 10, 15, 25, 50, 75, 100];
+const ZOOM_RANGES = [5, 10, 15, 20, 25, 30, 40, 50, 75, 100];
 
-// Normal distribution CDF approximation for JS (Black-Scholes)
-function normsdist(x) {
-  const b1 = 0.319381530;
-  const b2 = -0.356563782;
-  const b3 = 1.781477937;
-  const b4 = -1.821255978;
-  const b5 = 1.330274429;
-  const p = 0.2316419;
-  const c = 0.39894228;
-
-  if (x >= 0.0) {
-    const t = 1.0 / (1.0 + p * x);
-    return (1.0 - c * Math.exp(-x * x / 2.0) * t * (t * (t * (t * (t * b5 + b4) + b3) + b2) + b1));
-  }
-
-  const t = 1.0 / (1.0 - p * x);
-  return (c * Math.exp(-x * x / 2.0) * t * (t * (t * (t * (t * b5 + b4) + b3) + b2) + b1));
-}
+const payoffReferencePlugin = {
+  id: 'payoffReferenceLevels',
+  afterDatasetsDraw(chart, _args, options) {
+    const xScale = chart.scales?.x;
+    const { chartArea, ctx } = chart;
+    if (!xScale || !chartArea || !Array.isArray(options?.levels)) return;
+    ctx.save();
+    ctx.font = '600 11px sans-serif';
+    ctx.textAlign = 'center';
+    options.levels.forEach(({ label, value, color, dash = [] }, index) => {
+      const x = xScale.getPixelForValue(value);
+      if (x < chartArea.left || x > chartArea.right) return;
+      ctx.beginPath();
+      ctx.setLineDash(dash);
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 1;
+      ctx.moveTo(x, chartArea.top);
+      ctx.lineTo(x, chartArea.bottom);
+      ctx.stroke();
+      ctx.fillStyle = color;
+      ctx.fillText(`${label} $${Number(value).toFixed(2)}`, x, chartArea.top + 13 + index * 13);
+    });
+    ctx.restore();
+  },
+};
 
 function safePrice(value, fallback = 0) {
   const parsed = Number(value);
@@ -56,6 +68,7 @@ export default function OptionsPayoffChart({
   baselinePrice,
   strikePrice,
   entryPremium,
+  marketPremium = 0,
   multiplier = 100,
   quantity = 1,
   iv = 0.15,
@@ -75,6 +88,7 @@ export default function OptionsPayoffChart({
   const [thesis, setThesis] = useState(null);
   const [thesisLoading, setThesisLoading] = useState(false);
   const [thesisError, setThesisError] = useState('');
+  const [hexLeft, setHexLeft] = useState(null);
   const chartRef = useRef(null);
   const simulatedPriceRef = useRef(strikePrice);
 
@@ -83,6 +97,22 @@ export default function OptionsPayoffChart({
   const chartCenterPrice = baseline;
   const safeQuantity = Math.max(0, Number(quantity) || 0);
   const currentDTE = Math.max(0, startingDTE - daysElapsed);
+  const isSellAction = String(action || '').toUpperCase().startsWith('SELL');
+  const automaticRangePercent = adaptiveScenarioRangePercent(
+    baseline,
+    selectedStrike,
+    Number(entryPremium) || 0,
+    optionType,
+  );
+  const providedIv = Number(iv) > 0 ? Number(iv) : null;
+  const resolvedIv = useMemo(() => providedIv || deriveImpliedVolatility({
+    marketPremium,
+    underlyingPrice: baseline,
+    strikePrice: selectedStrike,
+    dte: startingDTE,
+    riskFreeRate,
+    optionType,
+  }), [providedIv, marketPremium, baseline, selectedStrike, startingDTE, riskFreeRate, optionType]);
 
   useEffect(() => {
     simulatedPriceRef.current = strikePrice;
@@ -94,49 +124,35 @@ export default function OptionsPayoffChart({
   }, [startingDTE, strikePrice]);
 
   useEffect(() => {
-    setRangePercent(10);
-  }, [strikePrice]);
+    setRangePercent(automaticRangePercent);
+  }, [automaticRangePercent, strikePrice]);
 
-  // Use exact one-cent price points around the current underlying price. Integer
-  // cents prevent floating-point drift and duplicate axis labels.
   const xPoints = useMemo(() => {
     const range = chartCenterPrice * (rangePercent / 100);
     const minCents = Math.max(1, Math.round((chartCenterPrice - range) * 100));
     const maxCents = Math.max(minCents + 1, Math.round((chartCenterPrice + range) * 100));
-    return Array.from({ length: maxCents - minCents + 1 }, (_, index) => (minCents + index) / 100);
+    const pointCount = Math.min(401, maxCents - minCents + 1);
+    return Array.from({ length: pointCount }, (_, index) => (
+      Math.round(minCents + ((maxCents - minCents) * index) / (pointCount - 1)) / 100
+    ));
   }, [chartCenterPrice, rangePercent]);
-
-  const calculateOptionPrice = (S, K, T, r, v, type) => {
-    if (T <= 0) {
-      return type === 'CALL' ? Math.max(S - K, 0) : Math.max(K - S, 0);
-    }
-    const TYears = T / 365.0;
-    const safeVolatility = Math.max(Number(v) || 0, 0.000000001);
-    const d1 = (Math.log(S / K) + (r + 0.5 * safeVolatility * safeVolatility) * TYears)
-      / (safeVolatility * Math.sqrt(TYears));
-    const d2 = d1 - safeVolatility * Math.sqrt(TYears);
-
-    if (type === 'CALL') {
-      return S * normsdist(d1) - K * Math.exp(-r * TYears) * normsdist(d2);
-    }
-    return K * Math.exp(-r * TYears) * normsdist(-d2) - S * normsdist(-d1);
-  };
 
   const chartData = useMemo(() => ({
     datasets: [
       {
         label: 'P&L',
         data: xPoints.map((underlyingPrice) => {
-          const currentOptPrice = calculateOptionPrice(
+          const currentOptPrice = americanOptionPrice({
             underlyingPrice,
-            selectedStrike,
-            currentDTE,
+            strikePrice: selectedStrike,
+            dte: currentDTE,
             riskFreeRate,
-            iv,
+            iv: resolvedIv,
             optionType,
-          );
+          });
+          if (currentOptPrice == null) return { x: underlyingPrice, y: null };
           let pnl = (currentOptPrice - entryPremium) * multiplier * safeQuantity;
-          if (action === 'SELL') pnl = -pnl;
+          if (isSellAction) pnl = -pnl;
           return { x: underlyingPrice, y: pnl };
         }),
         parsing: false,
@@ -155,30 +171,46 @@ export default function OptionsPayoffChart({
         tension: 0.1,
       },
     ],
-  }), [xPoints, selectedStrike, entryPremium, multiplier, safeQuantity, iv, riskFreeRate, currentDTE, optionType, action]);
+  }), [xPoints, selectedStrike, entryPremium, multiplier, safeQuantity, resolvedIv, riskFreeRate, currentDTE, optionType, isSellAction]);
 
   let maxProfit = 0;
   let maxLoss = 0;
-  if (action === 'BUY') {
+  if (!isSellAction) {
     if (optionType === 'CALL') {
       maxProfit = 'Unlimited';
-      maxLoss = -entryPremium * multiplier * safeQuantity;
+      maxLoss = entryPremium * multiplier * safeQuantity;
     } else {
       maxProfit = (selectedStrike - entryPremium) * multiplier * safeQuantity;
-      maxLoss = -entryPremium * multiplier * safeQuantity;
+      maxLoss = entryPremium * multiplier * safeQuantity;
     }
   } else if (optionType === 'CALL') {
     maxProfit = entryPremium * multiplier * safeQuantity;
     maxLoss = 'Unlimited';
   } else {
     maxProfit = entryPremium * multiplier * safeQuantity;
-    maxLoss = -(selectedStrike - entryPremium) * multiplier * safeQuantity;
+    maxLoss = (selectedStrike - entryPremium) * multiplier * safeQuantity;
   }
 
   const minP = xPoints[0];
   const maxP = xPoints[xPoints.length - 1];
-  let hexLeftPercent = ((simulatedPrice - minP) / (maxP - minP)) * 100;
-  hexLeftPercent = Math.max(5, Math.min(95, hexLeftPercent));
+  const breakeven = optionType === 'CALL'
+    ? selectedStrike + Number(entryPremium || 0)
+    : selectedStrike - Number(entryPremium || 0);
+
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(() => {
+      const chart = chartRef.current;
+      const xScale = chart?.scales?.x;
+      if (!xScale || !chart.chartArea) return;
+      const markerHalfWidth = 35;
+      const pixel = xScale.getPixelForValue(simulatedPrice);
+      setHexLeft(Math.max(
+        chart.chartArea.left + markerHalfWidth,
+        Math.min(chart.chartArea.right - markerHalfWidth, pixel),
+      ));
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [simulatedPrice, minP, maxP, isLightMode]);
 
   const handlePointerMove = (event) => {
     if (!isDragging) return;
@@ -205,9 +237,10 @@ export default function OptionsPayoffChart({
   };
 
   const changeZoom = (direction) => {
-    const currentIndex = ZOOM_RANGES.indexOf(rangePercent);
-    const nextIndex = Math.max(0, Math.min(ZOOM_RANGES.length - 1, currentIndex + direction));
-    setRangePercent(ZOOM_RANGES[nextIndex]);
+    const ranges = [...new Set([...ZOOM_RANGES, automaticRangePercent])].sort((left, right) => left - right);
+    const currentIndex = ranges.indexOf(rangePercent);
+    const nextIndex = Math.max(0, Math.min(ranges.length - 1, currentIndex + direction));
+    setRangePercent(ranges[nextIndex]);
   };
 
   const buildThesisPayload = () => ({
@@ -216,11 +249,14 @@ export default function OptionsPayoffChart({
     strike_price: strikePrice,
     entry_premium: entryPremium,
     multiplier,
-    iv,
+    iv: providedIv || 0,
+    market_premium: marketPremium,
+    dividend_yield: 0,
     risk_free_rate: riskFreeRate,
     expiration_date: expirationDate,
     starting_dte: startingDTE,
     option_type: optionType,
+    action,
     quantity: safeQuantity,
   });
 
@@ -282,15 +318,21 @@ export default function OptionsPayoffChart({
             <span>±{rangePercent}%</span>
             <button type="button" onClick={() => changeZoom(1)} disabled={rangePercent === ZOOM_RANGES[ZOOM_RANGES.length - 1]} title="Zoom out">−</button>
           </div>
-          <button type="button" onClick={handleExport} className="btn btn-sm btn-primary payoff-thesis-action">
+          <button type="button" onClick={handleExport} disabled={!resolvedIv} className="btn btn-sm btn-primary payoff-thesis-action">
             <FileDownloadOutlinedIcon fontSize="small" />
             Export Thesis to Excel
           </button>
-          <button type="button" onClick={handleViewThesis} className="btn btn-sm btn-secondary payoff-thesis-action">
+          <button type="button" onClick={handleViewThesis} disabled={!resolvedIv} className="btn btn-sm btn-secondary payoff-thesis-action">
             <VisibilityOutlinedIcon fontSize="small" />
             View Thesis
           </button>
         </div>
+      </div>
+
+      <div className={`payoff-model-status ${resolvedIv ? '' : 'unavailable'}`}>
+        {resolvedIv
+          ? `American CRR · IV ${(resolvedIv * 100).toFixed(2)}% (${providedIv ? 'Webull' : 'market-derived'}) · spot range ±${rangePercent}%`
+          : 'Option valuation unavailable: Webull IV and a valid market mark are both unavailable.'}
       </div>
 
       <div
@@ -303,6 +345,7 @@ export default function OptionsPayoffChart({
         <Line
           ref={chartRef}
           data={chartData}
+          plugins={[payoffReferencePlugin]}
           options={{
             responsive: true,
             maintainAspectRatio: false,
@@ -330,6 +373,12 @@ export default function OptionsPayoffChart({
               },
             },
             plugins: {
+              payoffReferenceLevels: {
+                levels: [
+                  { label: 'Spot', value: baseline, color: isLightMode ? '#2563eb' : '#60a5fa' },
+                  { label: 'Breakeven', value: breakeven, color: isLightMode ? '#b45309' : '#fbbf24', dash: [5, 4] },
+                ],
+              },
               legend: { labels: { color: isLightMode ? '#334155' : '#e2e8f0' } },
               tooltip: {
                 callbacks: {
@@ -344,7 +393,7 @@ export default function OptionsPayoffChart({
         <div style={{
           position: 'absolute',
           top: '35%',
-          left: `${hexLeftPercent}%`,
+          left: hexLeft == null ? '50%' : `${hexLeft}px`,
           transform: 'translate(-50%, -50%)',
           display: 'flex',
           flexDirection: 'column',
@@ -363,7 +412,7 @@ export default function OptionsPayoffChart({
           cursor: isDragging ? 'grabbing' : 'grab',
           touchAction: 'none',
         }} onPointerDown={handleHexPointerDown}>
-          <div>{action === 'BUY' ? 'Buy' : 'Sell'} {safeQuantity.toLocaleString()}</div>
+          <div>{isSellAction ? 'Sell' : 'Buy'} {safeQuantity.toLocaleString()}</div>
           <div style={{ margin: '4px 0' }}>${Number(simulatedPrice).toFixed(2)}</div>
           <div style={{
             backgroundColor: '#14b8a6',

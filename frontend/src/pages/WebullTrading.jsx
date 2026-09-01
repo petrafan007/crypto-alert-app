@@ -444,6 +444,8 @@ export default function WebullTrading({ isLightMode = false }) {
     optionType: 'CALL',
     optionStrike: '',
     optionExpiration: '',
+    optionIv: '',
+    optionMarketPrice: '',
     optionStrategy: 'SINGLE',
     optionStrategyWidth: 'auto',
     optionStrategyLegs: [],
@@ -2197,6 +2199,10 @@ export default function WebullTrading({ isLightMode = false }) {
         optionType: optType,
         optionStrike: optStrike,
         optionExpiration: optExp,
+        optionIv: holding.implied_volatility != null && Number(holding.implied_volatility) > 0
+          ? String(Number(holding.implied_volatility) / 100)
+          : '',
+        optionMarketPrice: formattedPx,
         price: formattedPx,
         quantity: formattedQty,
         quoteQuantity: optionOrderValueText(formattedQty, formattedPx),
@@ -2456,6 +2462,12 @@ export default function WebullTrading({ isLightMode = false }) {
         optionType: contractData.optionType || 'CALL',
         optionStrike: String(contractData.strike || ''),
         optionExpiration: contractData.expiration || '',
+        optionIv: Number(contractData.impliedVolatility) > 0
+          ? String(Number(contractData.impliedVolatility) / 100)
+          : '',
+        optionMarketPrice: Number(contractData.marketPrice) > 0
+          ? String(contractData.marketPrice)
+          : '',
         optionStrategy: contractData.optionStrategy || 'SINGLE',
         optionStrategyWidth: contractData.strategyWidth || 'auto',
         optionStrategyLegs: contractData.strategyLegs || [],
@@ -3076,6 +3088,11 @@ export default function WebullTrading({ isLightMode = false }) {
                       }}
                       onSymbolChange={(newSym) => {
                         setOptionUnderlyingPrice(0);
+                        setOrderForm((previous) => ({
+                          ...previous,
+                          optionIv: '',
+                          optionMarketPrice: '',
+                        }));
                         setSelectedSymbol(newSym);
                       }}
                       onStrategyChange={({ strategy, width }) => {
@@ -3086,6 +3103,8 @@ export default function WebullTrading({ isLightMode = false }) {
                           optionStrategyLegs: [],
                           optionStrike: '',
                           optionExpiration: '',
+                          optionIv: '',
+                          optionMarketPrice: '',
                           price: '',
                         }));
                       }}
@@ -3860,7 +3879,8 @@ export default function WebullTrading({ isLightMode = false }) {
                         entryPremium={Number(orderForm.price || 0)}
                         multiplier={100}
                         quantity={Number(orderForm.quantity || 0)}
-                        iv={0.1501}
+                        iv={Number(orderForm.optionIv || 0)}
+                        marketPremium={Number(orderForm.optionMarketPrice || 0)}
                         riskFreeRate={0.0379}
                         expirationDate={orderForm.optionExpiration}
                         startingDTE={differenceInEasternCalendarDays(orderForm.optionExpiration)}

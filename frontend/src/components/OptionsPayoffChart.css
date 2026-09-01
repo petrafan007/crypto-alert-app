@@ -19,11 +19,24 @@
   align-items: center;
   gap: 8px;
 }
+.payoff-model-status {
+  margin: 4px 0 10px;
+  color: var(--text-tertiary, #94a3b8);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.payoff-model-status.unavailable {
+  color: var(--accent-danger, #f87171);
+}
 .payoff-thesis-action {
   display: inline-flex;
   align-items: center;
   gap: 6px;
   white-space: nowrap;
+}
+.payoff-thesis-action:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
 }
 .payoff-zoom-controls {
   border: 1px solid var(--border-color, rgba(148, 163, 184, 0.35));

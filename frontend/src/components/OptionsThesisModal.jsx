@@ -34,6 +34,7 @@ function formatValue(item) {
   if (item.format === 'currency') return formatCurrency(item.value);
   if (item.format === 'percent') return formatPercent(item.value);
   if (item.format === 'date') return formatDate(item.value);
+  if (item.format === 'text') return String(item.value || 'Unavailable');
   return new Intl.NumberFormat('en-US').format(Number(item.value) || 0);
 }
 
@@ -69,7 +70,10 @@ function MatrixTable({ thesis, mode }) {
           {thesis.rows.map((row) => (
             <tr key={row.percent_change} className={row.percent_change === 0 ? 'thesis-baseline-row' : ''}>
               <th scope="row" className={row.percent_change > 0 ? 'thesis-positive-move' : row.percent_change < 0 ? 'thesis-negative-move' : ''}>
-                {formatPercent(row.percent_change)}
+                <span>{formatPercent(row.percent_change)}</span>
+                {row.reference_levels?.map((label) => (
+                  <small className="thesis-reference-level" key={label}>{label}</small>
+                ))}
               </th>
               <td className="thesis-underlying-price">{formatCurrency(row.underlying_price)}</td>
               {thesis.columns.map((column, index) => {
@@ -158,6 +162,7 @@ export default function OptionsThesisModal({ isOpen, onClose, thesis, loading, e
               <span>{formatCurrency(thesis.assumptions[1].value)} strike</span>
               <span>{thesis.rows.length} scenarios</span>
               <span>{thesis.columns.length} valuation dates</span>
+              <span>±{formatPercent(thesis.scenario_range_percent)} spot range</span>
             </div>
             <div className="options-thesis-tabs" role="tablist" aria-label="Thesis views">
               {TABS.map((tab) => (

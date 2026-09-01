@@ -802,10 +802,13 @@ def _options_thesis_parameters(data):
         "multiplier": int(data.get("multiplier", 100)),
         "quantity": int(data.get("quantity", 1)),
         "iv": float(data.get("iv", 0)),
+        "market_premium": float(data.get("market_premium", 0)),
+        "dividend_yield": float(data.get("dividend_yield", 0)),
         "risk_free_rate": float(data.get("risk_free_rate", 0)),
         "expiration_date": expiration_date,
         "starting_dte": starting_dte,
         "option_type": str(data.get("option_type", "PUT")).upper(),
+        "action": str(data.get("action", "BUY")).upper(),
     }
 
 
