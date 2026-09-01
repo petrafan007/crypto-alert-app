@@ -12,6 +12,7 @@ import ApiKeyRequiredModal from '../components/ApiKeyRequiredModal';
 import SearchablePairSelect from '../components/SearchablePairSelect';
 import CryptoIcon, { BinanceLogo } from '../components/CryptoIcon';
 import AIDashboard from './AIDashboard';
+import Staking from './Staking';
 import './Trading.css';
 import { useLocation, useNavigate } from 'react-router-dom';
 
@@ -111,9 +112,12 @@ const Trading = ({ isLightMode = false }) => {
   const [portfolio, setPortfolio] = useState([]);
   const [testOrders, setTestOrders] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [activeTab, setActiveTab] = useState(() => (
-    new URLSearchParams(location.search).get('tab') === 'ai-analysis' ? 'ai_analysis' : 'order'
-  ));
+  const [activeTab, setActiveTab] = useState(() => {
+    const tab = new URLSearchParams(location.search).get('tab');
+    if (tab === 'ai-analysis') return 'ai_analysis';
+    if (tab === 'staking') return 'staking';
+    return 'order';
+  });
   const [showCanceledOrders, setShowCanceledOrders] = useState(false);
   const [historySymbolFilter, setHistorySymbolFilter] = useState('ALL');
   const [historyPage, setHistoryPage] = useState(1);
@@ -1880,6 +1884,13 @@ const Trading = ({ isLightMode = false }) => {
           )}
         </button>
         <button
+          className={`tab-button ${activeTab === 'staking' ? 'active' : ''}`}
+          onClick={() => setActiveTab('staking')}
+        >
+          <span className="tab-icon">💰</span>
+          <span className="tab-text">Staking</span>
+        </button>
+        <button
           className={`tab-button ${activeTab === 'history' ? 'active' : ''}`}
           onClick={() => setActiveTab('history')}
         >
@@ -2328,6 +2339,8 @@ const Trading = ({ isLightMode = false }) => {
             isLightMode={isLightMode}
           />
         )}
+
+        {activeTab === 'staking' && <Staking isLightMode={isLightMode} />}
 
         {activeTab === 'ai_analysis' && <AIDashboard />}
 

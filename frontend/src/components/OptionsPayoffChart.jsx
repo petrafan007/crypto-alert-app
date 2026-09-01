@@ -64,24 +64,17 @@ export default function OptionsPayoffChart({
 }) {
   const [daysElapsed, setDaysElapsed] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
-  const [simulatedStrike, setSimulatedStrike] = useState(strikePrice);
-  const [rangePercent, setRangePercent] = useState(50);
+  const [simulatedPrice, setSimulatedPrice] = useState(strikePrice);
+  const [rangePercent, setRangePercent] = useState(10);
   const chartRef = useRef(null);
 
-  const centerPrice = safePrice(baselinePrice, safePrice(strikePrice, 1));
+  const chartCenterPrice = safePrice(strikePrice, safePrice(baselinePrice, 1));
+  const baseline = safePrice(baselinePrice, chartCenterPrice);
   const safeQuantity = Math.max(0, Number(quantity) || 0);
   const currentDTE = Math.max(0, startingDTE - daysElapsed);
 
-  const requiredRangePercent = useMemo(() => {
-    const strike = safePrice(strikePrice, centerPrice);
-    const premium = Math.max(0, Number(entryPremium) || 0);
-    const breakeven = String(optionType).toUpperCase() === 'CALL' ? strike + premium : strike - premium;
-    const farthest = Math.max(Math.abs(strike - centerPrice), Math.abs(breakeven - centerPrice));
-    return Math.min(100, Math.max(50, Math.ceil((farthest / centerPrice) * 100 + 5)));
-  }, [centerPrice, strikePrice, entryPremium, optionType]);
-
   useEffect(() => {
-    setSimulatedStrike(strikePrice);
+    setSimulatedPrice(strikePrice);
   }, [strikePrice]);
 
   useEffect(() => {
@@ -89,17 +82,17 @@ export default function OptionsPayoffChart({
   }, [startingDTE, strikePrice]);
 
   useEffect(() => {
-    setRangePercent(ZOOM_RANGES.find((range) => range >= requiredRangePercent) || 100);
-  }, [centerPrice, strikePrice, entryPremium, optionType, requiredRangePercent]);
+    setRangePercent(10);
+  }, [strikePrice]);
 
-  // Use exact one-cent price points around the underlying stock price. Integer
+  // Use exact one-cent price points around the selected strike price. Integer
   // cents prevent floating-point drift and duplicate axis labels.
   const xPoints = useMemo(() => {
-    const range = centerPrice * (rangePercent / 100);
-    const minCents = Math.max(1, Math.floor((centerPrice - range) * 100));
-    const maxCents = Math.max(minCents + 1, Math.ceil((centerPrice + range) * 100));
+    const range = chartCenterPrice * (rangePercent / 100);
+    const minCents = Math.max(1, Math.floor((chartCenterPrice - range) * 100));
+    const maxCents = Math.max(minCents + 1, Math.ceil((chartCenterPrice + range) * 100));
     return Array.from({ length: maxCents - minCents + 1 }, (_, index) => (minCents + index) / 100);
-  }, [centerPrice, rangePercent]);
+  }, [chartCenterPrice, rangePercent]);
 
   const calculateOptionPrice = (S, K, T, r, v, type) => {
     if (T <= 0) {
@@ -124,7 +117,7 @@ export default function OptionsPayoffChart({
         data: xPoints.map((underlyingPrice) => {
           const currentOptPrice = calculateOptionPrice(
             underlyingPrice,
-            simulatedStrike,
+            chartCenterPrice,
             currentDTE,
             riskFreeRate,
             iv,
@@ -150,7 +143,7 @@ export default function OptionsPayoffChart({
         tension: 0.1,
       },
     ],
-  }), [xPoints, simulatedStrike, entryPremium, multiplier, safeQuantity, iv, riskFreeRate, currentDTE, optionType, action]);
+  }), [xPoints, chartCenterPrice, entryPremium, multiplier, safeQuantity, iv, riskFreeRate, currentDTE, optionType, action]);
 
   let maxProfit = 0;
   let maxLoss = 0;
@@ -159,7 +152,7 @@ export default function OptionsPayoffChart({
       maxProfit = 'Unlimited';
       maxLoss = -entryPremium * multiplier * safeQuantity;
     } else {
-      maxProfit = (simulatedStrike - entryPremium) * multiplier * safeQuantity;
+      maxProfit = (chartCenterPrice - entryPremium) * multiplier * safeQuantity;
       maxLoss = -entryPremium * multiplier * safeQuantity;
     }
   } else if (optionType === 'CALL') {
@@ -167,12 +160,12 @@ export default function OptionsPayoffChart({
     maxLoss = 'Unlimited';
   } else {
     maxProfit = entryPremium * multiplier * safeQuantity;
-    maxLoss = -(simulatedStrike - entryPremium) * multiplier * safeQuantity;
+    maxLoss = -(chartCenterPrice - entryPremium) * multiplier * safeQuantity;
   }
 
   const minP = xPoints[0];
   const maxP = xPoints[xPoints.length - 1];
-  let hexLeftPercent = ((simulatedStrike - minP) / (maxP - minP)) * 100;
+  let hexLeftPercent = ((simulatedPrice - minP) / (maxP - minP)) * 100;
   hexLeftPercent = Math.max(5, Math.min(95, hexLeftPercent));
 
   const handlePointerMove = (event) => {
@@ -182,7 +175,7 @@ export default function OptionsPayoffChart({
     const rect = chart.canvas.getBoundingClientRect();
     const priceAtPointer = chart.scales.x.getValueForPixel(event.clientX - rect.left);
     if (Number.isFinite(priceAtPointer)) {
-      setSimulatedStrike(Math.max(minP, Math.min(maxP, Math.round(priceAtPointer * 100) / 100)));
+      setSimulatedPrice(Math.max(minP, Math.min(maxP, Math.round(priceAtPointer * 100) / 100)));
     }
   };
 
@@ -199,7 +192,7 @@ export default function OptionsPayoffChart({
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('token')}` },
         body: JSON.stringify({
           underlying_symbol: underlyingSymbol,
-          baseline_price: centerPrice,
+          baseline_price: baseline,
           strike_price: strikePrice,
           entry_premium: entryPremium,
           multiplier,
@@ -310,7 +303,7 @@ export default function OptionsPayoffChart({
           pointerEvents: 'none',
         }}>
           <div>{action === 'BUY' ? 'Buy' : 'Sell'} {safeQuantity.toLocaleString()}</div>
-          <div style={{ margin: '4px 0' }}>${Number(simulatedStrike).toFixed(2)}</div>
+          <div style={{ margin: '4px 0' }}>${Number(simulatedPrice).toFixed(2)}</div>
           <div style={{
             backgroundColor: '#14b8a6',
             borderRadius: '10px',

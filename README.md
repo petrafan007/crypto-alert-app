@@ -127,6 +127,20 @@ The application utilizes a **unified PostgreSQL database**.
 
 Historical changelog entries retain the product name used when they were originally released. The application domain, repository slug, deployment folders, database, and service identifiers intentionally remain unchanged by the v2.45.0 brand update.
 
+## v2.68.0 (August 2026)
+
+- **Webull Option Contract Selection**:
+  - Made option type, strike price, and expiration read-only after a contract is selected from the options chain so the order ticket always reflects the selected contract.
+- **Binance.US Staking Navigation**:
+  - Moved Staking into the Binance.US Trading tabs immediately after Open Orders.
+  - Updated dashboard staking actions and the staking summary widget to open the new tab, preserving the selected eligible coin when applicable.
+- **Take-Profit Limit Percentage Calculation**:
+  - Corrected sell take-profit limit calculations so the execution limit is buffered above the stop trigger, matching the exchange validation rule.
+- **Option Payoff Chart Range**:
+  - Defaulted the chart to a strike-centered range of 10% below through 10% above the selected strike while retaining zoom controls for wider or narrower views.
+- **Navigation Layout**:
+  - Swapped the signed-in user display and Logout positions.
+
 ## v2.67.7 (August 2026)
 
 - **Persistent Webull Holding Visibility & USD Cash Row Hiding**:

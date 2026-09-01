@@ -3252,8 +3252,7 @@ function Dashboard({ isLightMode }) {
 
   // Stake coin function - navigate to Staking page with pre-selected coin
   const handleStakeClick = (coin) => {
-    // Navigate to Staking page with coin symbol in URL
-    navigate(`/staking?coin=${coin.symbol}`);
+    navigate(`/trading/binance?tab=staking&coin=${encodeURIComponent(coin.symbol)}`);
   };
 
   const handleStakeSubmit = async () => {

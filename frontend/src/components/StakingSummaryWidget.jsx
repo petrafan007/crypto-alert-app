@@ -84,7 +84,7 @@ export default function StakingSummaryWidget() {
   };
 
   const handleCardClick = () => {
-    navigate('/staking');
+    navigate('/trading/binance?tab=staking');
   };
 
   if (loading) {

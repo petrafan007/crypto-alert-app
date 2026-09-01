@@ -3126,34 +3126,18 @@ export default function WebullTrading({ isLightMode = false }) {
                         </p>
                       )}
                       <p style={{ margin: '0 0 12px', fontSize: '12px', color: '#c4b5fd', lineHeight: 1.45 }}>
-                        Contract selection stays available at all times. Buy is enabled only when available USD covers one contract; Sell is enabled only for the exact owned call or put in this Webull account.
+                        These values reflect the contract selected above. Buy is enabled only when available USD covers one contract; Sell is enabled only for the exact owned call or put in this Webull account.
                       </p>
                       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '12px' }}>
                         <div>
                           <label className="order-field-label">Option Type</label>
-                          <div style={{ display: 'flex', gap: '4px' }}>
-                            <button
-                              type="button"
-                              onClick={() => setOrderForm((prev) => ({ ...prev, optionType: 'CALL', price: '', stopPrice: '', quoteQuantity: '0.00' }))}
-                              style={{
-                                flex: 1, padding: '7px', borderRadius: '6px', border: 'none',
-                                background: orderForm.optionType === 'CALL' ? '#22c55e' : 'rgba(255,255,255,0.08)',
-                                color: '#fff', fontWeight: 700, fontSize: '12px', cursor: 'pointer'
-                              }}
-                            >
-                              CALL
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => setOrderForm((prev) => ({ ...prev, optionType: 'PUT', price: '', stopPrice: '', quoteQuantity: '0.00' }))}
-                              style={{
-                                flex: 1, padding: '7px', borderRadius: '6px', border: 'none',
-                                background: orderForm.optionType === 'PUT' ? '#ef4444' : 'rgba(255,255,255,0.08)',
-                                color: '#fff', fontWeight: 700, fontSize: '12px', cursor: 'pointer'
-                              }}
-                            >
-                              PUT
-                            </button>
+                          <div
+                            className="order-styled-input"
+                            role="status"
+                            aria-label="Selected option type"
+                            style={{ fontWeight: 700, color: '#fff' }}
+                          >
+                            {orderForm.optionType || '—'}
                           </div>
                         </div>
                         <div>
@@ -3162,8 +3146,8 @@ export default function WebullTrading({ isLightMode = false }) {
                             type="text"
                             inputMode="decimal"
                             value={orderForm.optionStrike}
-                            onChange={(e) => setOrderForm((prev) => ({ ...prev, optionStrike: e.target.value.replace(/[^0-9.]/g, ''), price: '', stopPrice: '', quoteQuantity: '0.00' }))}
-                            placeholder="e.g. 230.00"
+                            readOnly
+                            aria-readonly="true"
                             className="order-styled-input"
                           />
                         </div>
@@ -3172,7 +3156,8 @@ export default function WebullTrading({ isLightMode = false }) {
                           <input
                             type="date"
                             value={orderForm.optionExpiration}
-                            onChange={(e) => setOrderForm((prev) => ({ ...prev, optionExpiration: e.target.value, price: '', stopPrice: '', quoteQuantity: '0.00' }))}
+                            readOnly
+                            aria-readonly="true"
                             className="order-styled-input"
                           />
                         </div>

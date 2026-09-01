@@ -162,7 +162,7 @@ export default function PercentPriceModal({
       if (side === 'SELL') {
         const diff = anchorPrice * (P / 100);
         const stop = anchorPrice + diff;
-        const limit = stop - (diff * (P / 100)); // buffer is P% of the profit delta (diff), subtracted from the stop trigger
+        const limit = stop + (diff * (P / 100)); // buffer is P% of the profit delta (diff), added above the stop trigger
 
         stopPrice = formatCalculatedPrice(stop);
         price = formatCalculatedPrice(limit);

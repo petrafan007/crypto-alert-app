@@ -222,9 +222,6 @@ export default function App() {
               <Link to="/orders" className="nav-link">
                 📋 Orders
               </Link>
-              <Link to="/staking" className="nav-link">
-                💰 Staking
-              </Link>
               <Link to="/settings" className="nav-link">
                 ⚙️ Settings
               </Link>
@@ -253,13 +250,6 @@ export default function App() {
                 </span>
               </button>
 
-              <button
-                onClick={handleLogout}
-                className="nav-link"
-              >
-                Logout
-              </button>
-
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginLeft: '12px', padding: '6px 16px 6px 6px', backgroundColor: 'rgba(30, 35, 45, 0.6)', borderRadius: '30px', border: '1px solid rgba(255,255,255,0.1)', flexShrink: 0 }}>
                 <div style={{
                   width: '32px',
@@ -281,6 +271,13 @@ export default function App() {
                   Signed in as <strong style={{ color: 'white', fontWeight: 'bold' }}>{user.username}</strong>
                 </span>
               </div>
+
+              <button
+                onClick={handleLogout}
+                className="nav-link"
+              >
+                Logout
+              </button>
             </div>
           )}
           <div className="brand-logo" aria-label="Crypto & Securities Dashboard">

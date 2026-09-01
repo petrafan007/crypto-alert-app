@@ -191,12 +191,18 @@ VibecodeInstructions.md
 github_instructions.md
 route_checklist.md
 crypto_desktop_app/
-tests/
-!tests/
-tests/*
-!tests/test_sentiment_outcome_service.py
-!tests/test_onboarding.py
 migrations/
+
+# Temporary patch scripts, AI context bundles, and data models
+patch_*.py
+*-context.md
+repopack*
+delete_*.sql
+*.xlsx
+*.xls
+options.md
+optionschart.jpg
+test-results/
 
 # Exclude sensitive files explicitly
 jcavallarojr_access_token.json*
