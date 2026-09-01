@@ -1858,7 +1858,7 @@ def place_test_order():
                 return jsonify({'success': False, 'error': '2FA verification invalid or expired', 'requires_2fa': True}), 403
             
             # Check if token is not older than 2 minutes
-            if (datetime.utcnow().timestamp() - token_data['timestamp']) > 120:
+            if (time.time() - token_data['timestamp']) > 120:
                 session.pop(f'2fa_verified_{twofa_token}', None)
                 return jsonify({'success': False, 'error': '2FA verification expired. Please verify again.', 'requires_2fa': True}), 403
             
@@ -2811,7 +2811,7 @@ def verify_2fa_code():
         token = secrets.token_urlsafe(32)
         session[f'2fa_verified_{token}'] = {
             'user_id': current_user.id,
-            'timestamp': datetime.utcnow().timestamp()
+            'timestamp': time.time()
         }
         
         return jsonify({
@@ -3133,7 +3133,7 @@ def place_real_order():
                 return jsonify({'success': False, 'error': '2FA verification invalid or expired', 'requires_2fa': True}), 403
             
             # Check if token is not older than 2 minutes
-            if (datetime.utcnow().timestamp() - token_data['timestamp']) > 120:
+            if (time.time() - token_data['timestamp']) > 120:
                 session.pop(f'2fa_verified_{twofa_token}', None)
                 return jsonify({'success': False, 'error': '2FA verification expired. Please verify again.', 'requires_2fa': True}), 403
             
@@ -5578,7 +5578,7 @@ def api_stake_asset():
             # Check if token is still valid (2 minutes)
             from datetime import datetime
             token_timestamp = token_data.get('timestamp', 0)
-            if datetime.utcnow().timestamp() - token_timestamp > 120:
+            if time.time() - token_timestamp > 120:
                 session.pop(f'2fa_verified_{twofa_token}', None)
                 return jsonify({"error": "2FA token expired. Please verify again."}), 403
             
@@ -5748,7 +5748,7 @@ def api_unstake_asset():
             # Check if token is still valid (2 minutes)
             from datetime import datetime
             token_timestamp = token_data.get('timestamp', 0)
-            if datetime.utcnow().timestamp() - token_timestamp > 120:
+            if time.time() - token_timestamp > 120:
                 session.pop(f'2fa_verified_{twofa_token}', None)
                 return jsonify({"error": "2FA token expired. Please verify again."}), 403
             
@@ -5911,7 +5911,7 @@ def api_dust_convert():
             token_data = session.get(f"2fa_verified_{twofa_token}")
             if not token_data or token_data.get("user_id") != current_user.id:
                 return jsonify({"error": "Invalid or expired 2FA token", "requires_2fa": True}), 403
-            if datetime.utcnow().timestamp() - token_data.get("timestamp", 0) > 120:
+            if time.time() - token_data.get("timestamp", 0) > 120:
                 session.pop(f"2fa_verified_{twofa_token}", None)
                 return jsonify({"error": "2FA token expired. Please verify again.", "requires_2fa": True}), 403
             session.pop(f"2fa_verified_{twofa_token}", None)

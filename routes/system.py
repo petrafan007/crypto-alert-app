@@ -2,7 +2,8 @@
 from datetime import timedelta, datetime, timezone
 import requests
 import threading
-from flask import send_file, request, jsonify, render_template, current_app, redirect, url_for
+import time
+from flask import send_file, request, jsonify, render_template, current_app, redirect, url_for, session
 from flask_login import current_user, login_required, login_user, logout_user
 from models import Coin, WatchlistCoin, Notification, PriceHistory
 from credentials import Credential, User, UserSetting
@@ -2640,7 +2641,7 @@ def api_webull_place_order():
             if twofa_token:
                 token_data = session.get(f'2fa_verified_{twofa_token}')
                 if token_data and token_data.get('user_id') == current_user.id:
-                    if datetime.utcnow().timestamp() - token_data.get('timestamp', 0) <= 120:
+                    if time.time() - token_data.get('timestamp', 0) <= 120:
                         verified = True
                         session.pop(f'2fa_verified_{twofa_token}', None)
             if not verified and twofa_code:

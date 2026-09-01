@@ -2906,22 +2906,6 @@ export default function WebullTrading({ isLightMode = false }) {
       )}
 
       {error && <div className="modern-real-warning" style={{ marginBottom: '16px' }}>⚠️ {error}</div>}
-      {orderFeedback.message && (
-        <div
-          className={orderFeedback.type === 'error' ? 'modern-real-warning' : 'modern-real-success'}
-          style={{
-            marginBottom: '16px',
-            padding: '12px 16px',
-            borderRadius: '8px',
-            background: orderFeedback.type === 'error' ? 'rgba(239, 68, 68, 0.15)' : 'rgba(16, 185, 129, 0.15)',
-            color: orderFeedback.type === 'error' ? '#ef4444' : '#10b981',
-            border: `1px solid ${orderFeedback.type === 'error' ? 'rgba(239, 68, 68, 0.3)' : 'rgba(16, 185, 129, 0.3)'}`,
-          }}
-        >
-          {orderFeedback.type === 'error' ? '⚠️' : '✅'} {orderFeedback.message}
-        </div>
-      )}
-
       {/* Navigation Tabs */}
       <div className="trading-tabs webull-trading-tabs">
         <button className={`tab-button ${activeTab === 'order' && selectedInstrumentType === 'EQUITY' ? 'active' : ''}`} onClick={() => handleAssetTabChange('EQUITY')} disabled={assetClassDisabled('EQUITY')} title={assetClassDisabled('EQUITY') ? 'Stocks and ETFs are unavailable in a Crypto Webull account.' : 'Trade stocks and ETFs'}>
@@ -4220,6 +4204,23 @@ export default function WebullTrading({ isLightMode = false }) {
                       )}
                     </button>
                   </div>
+                  {orderFeedback.message && (
+                    <div
+                      role="alert"
+                      aria-live="assertive"
+                      className={orderFeedback.type === 'error' ? 'modern-real-warning' : 'modern-real-success'}
+                      style={{
+                        marginTop: '12px',
+                        padding: '12px 16px',
+                        borderRadius: '8px',
+                        background: orderFeedback.type === 'error' ? 'rgba(239, 68, 68, 0.15)' : 'rgba(16, 185, 129, 0.15)',
+                        color: orderFeedback.type === 'error' ? '#ef4444' : '#10b981',
+                        border: `1px solid ${orderFeedback.type === 'error' ? 'rgba(239, 68, 68, 0.3)' : 'rgba(16, 185, 129, 0.3)'}`,
+                      }}
+                    >
+                      {orderFeedback.type === 'error' ? '⚠️' : '✅'} {orderFeedback.message}
+                    </div>
+                  )}
 
                   {/* Row 6: Warning in Real / Test Trading Mode */}
                   {isTestMode ? (

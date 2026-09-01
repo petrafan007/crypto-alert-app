@@ -127,6 +127,13 @@ The application utilizes a **unified PostgreSQL database**.
 
 Historical changelog entries retain the product name used when they were originally released. The application domain, repository slug, deployment folders, database, and service identifiers intentionally remain unchanged by the v2.45.0 brand update.
 
+## v2.73.14 (September 2026)
+
+- **Reliable Webull 2FA Order Submission**:
+  - Fixes live Webull orders failing immediately after successful two-factor verification because the order route did not import Flask's session store.
+  - Uses Unix timestamps consistently when issuing and consuming the two-minute 2FA token across all trading order routes.
+  - Keeps submission errors directly beside the order action after the 2FA modal closes, so a rejected request cannot be missed.
+
 ## v2.73.13 (September 2026)
 
 - **15-Minute Provider Symbol Compatibility**:
