@@ -127,6 +127,12 @@ The application utilizes a **unified PostgreSQL database**.
 
 Historical changelog entries retain the product name used when they were originally released. The application domain, repository slug, deployment folders, database, and service identifiers intentionally remain unchanged by the v2.45.0 brand update.
 
+## v2.74.6 (September 2026)
+
+- **Immediate Event Price Change History**:
+  - Event Contract price cards now load real one-minute history as soon as an underlying is selected, so the 1-minute, 5-minute, and 15-minute movement indicators do not wait for a browser-session warm-up.
+  - Crypto history uses public Binance.US minute bars. Financials history uses authenticated Webull minute bars. History windows are cached per underlying for 30 seconds to avoid unnecessary provider requests while current prices continue to refresh with the Event bid-and-ask cycle.
+
 ## v2.74.5 (September 2026)
 
 - **Event Contract Quick Topics**:

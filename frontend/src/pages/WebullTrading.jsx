@@ -71,6 +71,22 @@ const eventPriceChangesFor = (history, currentPrice, timestamp) => EVENT_PRICE_C
   return { ...interval, percent: ((currentPrice - baseline.price) / baseline.price) * 100 };
 });
 
+const mergeEventPriceHistory = (history, samples, timestamp = Date.now()) => {
+  const cutoff = timestamp - EVENT_PRICE_HISTORY_RETENTION_MS;
+  const pointsByTimestamp = new Map(
+    history.filter((sample) => sample.timestamp > cutoff && sample.price > 0)
+      .map((sample) => [sample.timestamp, sample]),
+  );
+  samples.forEach((sample) => {
+    const pointTimestamp = Number(sample?.timestamp);
+    const pointPrice = Number(sample?.price);
+    if (Number.isFinite(pointTimestamp) && pointTimestamp > 0 && Number.isFinite(pointPrice) && pointPrice > 0) {
+      pointsByTimestamp.set(pointTimestamp, { timestamp: pointTimestamp, price: pointPrice });
+    }
+  });
+  return [...pointsByTimestamp.values()].sort((first, second) => first.timestamp - second.timestamp);
+};
+
 const eventPriceRangeLabel = (ranges = []) => ranges.length
   ? ranges.map((range) => `${eventCents(range.start)} to ${eventCents(range.end)}, in ${eventCents(range.step)} increments`).join('; ')
   : 'Unavailable';
@@ -552,6 +568,7 @@ export default function WebullTrading({ isLightMode = false }) {
   const [eventQuoteMessage, setEventQuoteMessage] = useState('');
   const [eventUnderlyingPrice, setEventUnderlyingPrice] = useState(0);
   const [eventUnderlyingPriceHistory, setEventUnderlyingPriceHistory] = useState([]);
+  const [eventUnderlyingHistorySource, setEventUnderlyingHistorySource] = useState('');
   const eventMarketRequestRef = useRef(0);
   const eventMarketAbortControllerRef = useRef(null);
   const eventMetadataRequestRef = useRef(0);
@@ -1368,6 +1385,7 @@ export default function WebullTrading({ isLightMode = false }) {
     setSelectedEventMarket(market);
     setEventUnderlyingPrice(0);
     setEventUnderlyingPriceHistory([]);
+    setEventUnderlyingHistorySource('');
     assetSymbolMemoryRef.current.EVENT = market.symbol;
     setSelectedSymbol(market.symbol);
     setEventMarketMenuOpen(false);
@@ -1579,6 +1597,40 @@ export default function WebullTrading({ isLightMode = false }) {
   }, [selectedInstrumentType, selectedEventCategory]);
 
   useEffect(() => {
+    if (selectedInstrumentType !== 'EVENT' || !eventUnderlyingQuote) {
+      setEventUnderlyingPriceHistory([]);
+      setEventUnderlyingHistorySource('');
+      return undefined;
+    }
+    let cancelled = false;
+    const loadUnderlyingHistory = async () => {
+      try {
+        const response = await axios.get('/api/webull/events/underlying-history', {
+          params: {
+            symbol: eventUnderlyingQuote.symbol,
+            instrument_type: eventUnderlyingQuote.instrumentType,
+          },
+          withCredentials: true,
+        });
+        const points = (response.data?.points || []).map((point) => ({
+          timestamp: Number(point.timestamp) * 1000,
+          price: Number(point.price),
+        }));
+        if (!cancelled && points.length) {
+          setEventUnderlyingPriceHistory((history) => mergeEventPriceHistory(history, points));
+          setEventUnderlyingHistorySource(response.data?.source || '');
+        }
+      } catch {
+        if (!cancelled) setEventUnderlyingHistorySource('');
+      }
+    };
+    loadUnderlyingHistory();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedInstrumentType, eventUnderlyingQuote]);
+
+  useEffect(() => {
     if (selectedInstrumentType !== 'EVENT' || !selectedEventMarket?.symbol) return undefined;
     let cancelled = false;
     const refreshUnderlyingPrice = async () => {
@@ -1602,10 +1654,7 @@ export default function WebullTrading({ isLightMode = false }) {
         if (cancelled || price <= 0) return;
         const timestamp = Date.now();
         setEventUnderlyingPrice(price);
-        setEventUnderlyingPriceHistory((history) => [
-          ...history.filter((sample) => sample.timestamp > timestamp - EVENT_PRICE_HISTORY_RETENTION_MS),
-          { price, timestamp },
-        ]);
+        setEventUnderlyingPriceHistory((history) => mergeEventPriceHistory(history, [{ price, timestamp }], timestamp));
       } catch {
         if (!cancelled) setEventUnderlyingPrice(0);
       }
@@ -3224,7 +3273,7 @@ export default function WebullTrading({ isLightMode = false }) {
                               <span
                                 key={change.label}
                                 className={`event-price-change ${isUp ? 'up' : isDown ? 'down' : 'flat'}`}
-                                title={change.percent == null ? `${change.label} price history is still collecting` : `${change.label} underlying price change`}
+                                title={change.percent == null ? `${change.label} price history is unavailable` : `${change.label} underlying price change from ${eventUnderlyingHistorySource || 'live market'} data`}
                               >
                                 <strong>{change.label}</strong>
                                 {isUp && <FaArrowUp aria-hidden="true" />}

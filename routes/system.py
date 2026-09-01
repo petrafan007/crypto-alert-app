@@ -65,6 +65,63 @@ from services.webull_service import (
 from services.webull_import_service import import_webull_portfolio_snapshot
 from services.webull_option_service import option_contract_label, resolve_option_contract
 
+_EVENT_UNDERLYING_HISTORY_CACHE = {}
+_EVENT_UNDERLYING_HISTORY_CACHE_TTL_SECONDS = 30
+
+
+def _event_underlying_history_points(raw_bars):
+    points_by_time = {}
+    for raw_bar in raw_bars or []:
+        try:
+            timestamp = int(float(raw_bar.get('time')))
+            price = float(raw_bar.get('close'))
+        except (AttributeError, TypeError, ValueError):
+            continue
+        if timestamp > 0 and price > 0:
+            points_by_time[timestamp] = {'timestamp': timestamp, 'price': price}
+    return [points_by_time[timestamp] for timestamp in sorted(points_by_time)]
+
+
+def _get_public_crypto_minute_history(symbol):
+    clean_symbol = ''.join(char for char in str(symbol or '').upper() if char.isalnum())
+    base_symbol = clean_symbol[:-3] if clean_symbol.endswith('USD') else clean_symbol
+    if not base_symbol:
+        raise WebullConnectionError('Choose a crypto symbol before loading Event price history.')
+    from binance.client import Client
+
+    client = Client(tld='us')
+    for pair in (f'{base_symbol}USDT', f'{base_symbol}USD'):
+        try:
+            bars = client.get_klines(symbol=pair, interval='1m', limit=16)
+            points = [
+                {'timestamp': int(bar[0]) // 1000, 'price': float(bar[4])}
+                for bar in bars or []
+                if len(bar) > 4 and float(bar[4]) > 0
+            ]
+            if len(points) >= 16:
+                return points, 'binance_us'
+        except Exception:
+            continue
+    raise WebullConnectionError(f'No public one-minute history is available for {base_symbol}.')
+
+
+def _get_event_underlying_history(credential, environment, symbol, instrument_type):
+    clean_type = str(instrument_type or '').strip().upper()
+    clean_symbol = ''.join(char for char in str(symbol or '').upper() if char.isalnum())
+    if clean_type == 'CRYPTO':
+        return _get_public_crypto_minute_history(clean_symbol)
+    if clean_type not in {'EQUITY', 'STOCK', 'ETF'}:
+        raise WebullConnectionError('This Event Contract underlying does not support one-minute history.')
+    bars = get_webull_market_bars(
+        credential.webull_app_key, credential.webull_app_secret, environment,
+        credential.webull_access_token, symbol=clean_symbol,
+        instrument_type='EQUITY', interval='M1', limit=20,
+    )
+    points = _event_underlying_history_points(bars)
+    if len(points) < 16:
+        raise WebullConnectionError(f'Webull returned insufficient one-minute history for {clean_symbol}.')
+    return points, 'webull'
+
 
 def _webull_holding_for_current_user(holding_id):
     """Resolve a dashboard ``webull-<id>`` reference without trusting its owner."""
@@ -3112,6 +3169,42 @@ def api_webull_market_snapshot():
     except Exception as exc:
         logger.error('Webull market snapshot lookup failed: %s', exc, exc_info=True)
         return jsonify({'success': False, 'message': 'Unable to load the Webull market quote.'}), 500
+
+
+@system_bp.route('/api/webull/events/underlying-history', methods=['GET'])
+@login_required
+def api_webull_event_underlying_history():
+    """Return a compact, cached one-minute price window for an Event underlying."""
+    try:
+        symbol = str(request.args.get('symbol') or '').strip().upper()
+        instrument_type = str(request.args.get('instrument_type') or '').strip().upper()
+        if not symbol or instrument_type not in {'CRYPTO', 'EQUITY', 'STOCK', 'ETF'}:
+            return jsonify({'success': False, 'message': 'Choose a supported Event Contract underlying.'}), 400
+
+        credential = Credential.query.filter_by(user_id=current_user.id).first()
+        setting = UserSetting.query.filter_by(user_id=current_user.id).first()
+        environment = normalize_webull_environment(getattr(setting, 'webull_environment', None) or 'production')
+        if instrument_type != 'CRYPTO' and (
+            not credential or credential.webull_token_status != 'NORMAL'
+            or credential.webull_token_environment != environment or not credential.webull_access_token
+        ):
+            return jsonify({'success': False, 'message': 'Verify your Webull connection before loading Event price history.'}), 400
+
+        cache_key = (current_user.id, instrument_type, symbol, environment)
+        now = time.time()
+        cached = _EVENT_UNDERLYING_HISTORY_CACHE.get(cache_key)
+        if cached and now - cached['updated_at'] < _EVENT_UNDERLYING_HISTORY_CACHE_TTL_SECONDS:
+            return jsonify({'success': True, 'symbol': symbol, 'source': cached['source'], 'points': cached['points'], 'cached': True})
+
+        points, source = _get_event_underlying_history(credential, environment, symbol, instrument_type)
+        _EVENT_UNDERLYING_HISTORY_CACHE[cache_key] = {'updated_at': now, 'source': source, 'points': points}
+        return jsonify({'success': True, 'symbol': symbol, 'source': source, 'points': points, 'cached': False})
+    except WebullConnectionError as exc:
+        logger.warning('Event underlying history lookup failed: %s', exc)
+        return jsonify({'success': False, 'message': str(exc)}), 400
+    except Exception as exc:
+        logger.error('Event underlying history lookup failed: %s', exc, exc_info=True)
+        return jsonify({'success': False, 'message': 'Unable to load Event Contract price history.'}), 500
 
 
 @system_bp.route('/api/webull/futures/catalog', methods=['GET'])
