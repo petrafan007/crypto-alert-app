@@ -3,7 +3,7 @@ import re
 import unittest
 import zipfile
 
-from services.options_thesis_service import generate_thesis_excel
+from services.options_thesis_service import build_options_thesis_data, generate_thesis_excel
 
 
 def _formula_and_cached_value(archive, worksheet_path, address):
@@ -109,6 +109,27 @@ class OptionsThesisServiceTests(unittest.TestCase):
         self.assertEqual(float(price_value), 285.17)
         self.assertIn("'Assumptions'!$B$8", pnl_formula)
         self.assertAlmostEqual(float(pnl_value), 3456.0, places=2)
+
+    def test_canonical_thesis_data_matches_workbook_scenario_conventions(self):
+        thesis = build_options_thesis_data(
+            underlying_symbol="AAPL",
+            baseline_price=316.85,
+            strike_price=302.50,
+            entry_premium=0.05,
+            multiplier=100,
+            quantity=2,
+            iv=0.1501,
+            risk_free_rate=0.0379,
+            expiration_date=datetime.date(2026, 9, 2),
+            starting_dte=0,
+            option_type="PUT",
+        )
+
+        expiration_row = thesis["rows"][-1]
+        self.assertEqual(thesis["columns"], [{"dte": 0, "date": "2026-09-02"}])
+        self.assertEqual(expiration_row["percent_change"], -0.1)
+        self.assertEqual(expiration_row["underlying_price"], 285.17)
+        self.assertAlmostEqual(expiration_row["pnl"][0], 3456.0, places=2)
 
 
 if __name__ == "__main__":

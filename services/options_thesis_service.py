@@ -50,6 +50,86 @@ def _pnl_display(value: float) -> str:
     return "$0"
 
 
+def build_options_thesis_data(
+    underlying_symbol: str,
+    baseline_price: float,
+    strike_price: float,
+    entry_premium: float,
+    multiplier: int,
+    iv: float,
+    risk_free_rate: float,
+    expiration_date: datetime.date,
+    starting_dte: int,
+    option_type: str = "PUT",
+    quantity: int = 1,
+) -> dict:
+    """Build the canonical option-thesis values used by UI and Excel exports."""
+    option_type = str(option_type or "PUT").upper()
+    if option_type not in {"CALL", "PUT"}:
+        raise ValueError("option_type must be CALL or PUT")
+    if baseline_price <= 0 or strike_price <= 0:
+        raise ValueError("baseline_price and strike_price must be positive")
+    if entry_premium < 0 or multiplier <= 0 or starting_dte < 0 or quantity <= 0:
+        raise ValueError("entry_premium, multiplier, quantity, or starting_dte is invalid")
+
+    normalized_symbol = str(underlying_symbol or "OPTION").upper().strip()
+    date_columns = [
+        {
+            "dte": dte,
+            "date": (expiration_date - datetime.timedelta(days=dte)).isoformat(),
+        }
+        for dte in range(starting_dte, -1, -1)
+    ]
+    rows = []
+    for percent_change in (value / 100.0 for value in range(10, -11, -1)):
+        underlying_price = round(baseline_price * (1 + percent_change), 2)
+        option_prices = [
+            _option_price(
+                underlying_price,
+                strike_price,
+                column["dte"],
+                risk_free_rate,
+                iv,
+                option_type,
+            )
+            for column in date_columns
+        ]
+        rows.append({
+            "percent_change": percent_change,
+            "underlying_price": underlying_price,
+            "option_prices": option_prices,
+            "pnl": [
+                (option_price - entry_premium) * multiplier * quantity
+                for option_price in option_prices
+            ],
+        })
+
+    breakeven = strike_price - entry_premium if option_type == "PUT" else strike_price + entry_premium
+    breakeven_pct = (1 - breakeven / baseline_price) if option_type == "PUT" else (breakeven / baseline_price - 1)
+    return {
+        "underlying_symbol": normalized_symbol,
+        "option_type": option_type,
+        "assumptions": [
+            {"label": f"Baseline {normalized_symbol} price", "value": baseline_price, "format": "currency", "units": "$/share", "note": "Current underlying price"},
+            {"label": "Strike", "value": strike_price, "format": "currency", "units": "$/share", "note": f"Selected {option_type} strike"},
+            {"label": "Entry premium", "value": entry_premium, "format": "currency", "units": "$/share", "note": "Limit entry price"},
+            {"label": "Contract multiplier", "value": multiplier, "format": "number", "units": "shares/contract", "note": "Standard multiplier"},
+            {"label": "Contracts", "value": quantity, "format": "number", "units": "contracts", "note": "Selected position size"},
+            {"label": "Implied volatility", "value": iv, "format": "percent", "units": "%", "note": "IV calibrated to current mark"},
+            {"label": "Risk-free rate", "value": risk_free_rate, "format": "percent", "units": "%", "note": "Short-term risk-free rate"},
+            {"label": "Expiration date", "value": expiration_date.isoformat(), "format": "date", "units": "date", "note": "Contract expiration"},
+            {"label": "Starting DTE", "value": starting_dte, "format": "number", "units": "calendar days", "note": "Days to expiration"},
+        ],
+        "key_outputs": [
+            {"label": "Total premium at risk", "value": entry_premium * multiplier * quantity, "format": "currency"},
+            {"label": "Expiration breakeven", "value": breakeven, "format": "currency"},
+            {"label": "Breakeven % from baseline", "value": breakeven_pct, "format": "percent"},
+        ],
+        "columns": date_columns,
+        "rows": rows,
+    }
+
+
 def generate_thesis_excel(
     underlying_symbol: str,
     baseline_price: float,
@@ -69,13 +149,21 @@ def generate_thesis_excel(
     View. Each derived cell therefore contains both a valid Excel formula and its
     calculated value so all matrices are populated immediately on open.
     """
-    option_type = str(option_type or "PUT").upper()
-    if option_type not in {"CALL", "PUT"}:
-        raise ValueError("option_type must be CALL or PUT")
-    if baseline_price <= 0 or strike_price <= 0:
-        raise ValueError("baseline_price and strike_price must be positive")
-    if entry_premium < 0 or multiplier <= 0 or starting_dte < 0 or quantity <= 0:
-        raise ValueError("entry_premium, multiplier, quantity, or starting_dte is invalid")
+    thesis_data = build_options_thesis_data(
+        underlying_symbol=underlying_symbol,
+        baseline_price=baseline_price,
+        strike_price=strike_price,
+        entry_premium=entry_premium,
+        multiplier=multiplier,
+        iv=iv,
+        risk_free_rate=risk_free_rate,
+        expiration_date=expiration_date,
+        starting_dte=starting_dte,
+        option_type=option_type,
+        quantity=quantity,
+    )
+    underlying_symbol = thesis_data["underlying_symbol"]
+    option_type = thesis_data["option_type"]
 
     output = BytesIO()
     workbook = xlsxwriter.Workbook(output, {
@@ -159,9 +247,9 @@ def generate_thesis_excel(
         assumptions.write(row, 2, units, text_format)
         assumptions.write(row, 3, note, note_format)
 
-    total_premium = entry_premium * multiplier * quantity
-    breakeven = strike_price - entry_premium if option_type == "PUT" else strike_price + entry_premium
-    breakeven_pct = (1 - breakeven / baseline_price) if option_type == "PUT" else (breakeven / baseline_price - 1)
+    total_premium = thesis_data["key_outputs"][0]["value"]
+    breakeven = thesis_data["key_outputs"][1]["value"]
+    breakeven_pct = thesis_data["key_outputs"][2]["value"]
     assumptions.merge_range("A13:D13", "Key outputs", section_format)
     assumptions.write("A14", "Total premium at risk", text_format)
     assumptions.write_formula("B14", "=B6*B7*B8", currency_format, total_premium)
@@ -172,10 +260,11 @@ def generate_thesis_excel(
     assumptions.freeze_panes(3, 0)
 
     date_columns = [
-        (dte, expiration_date - datetime.timedelta(days=dte))
-        for dte in range(starting_dte, -1, -1)
+        (column["dte"], datetime.date.fromisoformat(column["date"]))
+        for column in thesis_data["columns"]
     ]
-    pct_steps = [value / 100.0 for value in range(10, -11, -1)]
+    scenario_rows = thesis_data["rows"]
+    pct_steps = [scenario["percent_change"] for scenario in scenario_rows]
 
     # 2. Option Price Matrix
     price_sheet = workbook.add_worksheet("Option Price Matrix")
@@ -194,7 +283,8 @@ def generate_thesis_excel(
     cached_option_prices = {}
     for row, pct in enumerate(pct_steps, start=3):
         excel_row = row + 1
-        scenario_price = round(baseline_price * (1 + pct), 2)
+        scenario = scenario_rows[row - 3]
+        scenario_price = scenario["underlying_price"]
         price_sheet.write_number(row, 0, pct, percent_format)
         price_sheet.write_formula(row, 1, f"=ROUND('Assumptions'!$B$4*(1+A{excel_row}),2)", currency_format, scenario_price)
         for column, (dte, _) in enumerate(date_columns, start=2):
@@ -223,14 +313,7 @@ def generate_thesis_excel(
                 )
                 intrinsic = f"MAX({strike_ref}-{underlying_ref},0)"
             formula = f"=IF({excel_column}$2=0,{intrinsic},{calculation})"
-            cached_value = _option_price(
-                scenario_price,
-                strike_price,
-                dte,
-                risk_free_rate,
-                iv,
-                option_type,
-            )
+            cached_value = scenario["option_prices"][column - 2]
             cached_option_prices[(row, column)] = cached_value
             price_sheet.write_formula(row, column, formula, currency_format, cached_value)
     price_sheet.freeze_panes(3, 2)
@@ -249,13 +332,14 @@ def generate_thesis_excel(
     cached_pnl = {}
     for row, pct in enumerate(pct_steps, start=3):
         excel_row = row + 1
-        scenario_price = round(baseline_price * (1 + pct), 2)
+        scenario = scenario_rows[row - 3]
+        scenario_price = scenario["underlying_price"]
         pnl_sheet.write_number(row, 0, pct, percent_format)
         pnl_sheet.write_formula(row, 1, f"='Option Price Matrix'!B{excel_row}", currency_format, scenario_price)
         for column, _ in enumerate(date_columns, start=2):
             excel_column = xl_col_to_name(column)
             option_price_value = cached_option_prices[(row, column)]
-            pnl_value = (option_price_value - entry_premium) * multiplier * quantity
+            pnl_value = scenario["pnl"][column - 2]
             cached_pnl[(row, column)] = pnl_value
             formula = (
                 f"=('Option Price Matrix'!{excel_column}{excel_row}-'Assumptions'!$B$6)"
@@ -285,7 +369,8 @@ def generate_thesis_excel(
 
     for row, pct in enumerate(pct_steps, start=3):
         excel_row = row + 1
-        scenario_price = round(baseline_price * (1 + pct), 2)
+        scenario = scenario_rows[row - 3]
+        scenario_price = scenario["underlying_price"]
         combined_sheet.write_number(row, 0, pct, percent_format)
         combined_sheet.write_formula(row, 1, f"='Option Price Matrix'!B{excel_row}", currency_format, scenario_price)
         for column, _ in enumerate(date_columns, start=2):

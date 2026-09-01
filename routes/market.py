@@ -781,48 +781,62 @@ def api_cbbi_data():
         }
         return jsonify(mock_data)
 
+def _options_thesis_parameters(data):
+    baseline_price = float(data.get("baseline_price", 0))
+    strike_price = float(data.get("strike_price", 0))
+    starting_dte = int(data.get("starting_dte", 0))
+    expiration_date_str = data.get("expiration_date", "")
+    if not expiration_date_str:
+        expiration_date = datetime_module.date.today() + datetime_module.timedelta(days=starting_dte)
+    else:
+        try:
+            expiration_date = datetime_module.datetime.strptime(expiration_date_str, "%Y-%m-%d").date()
+        except ValueError:
+            expiration_date = datetime_module.date.today() + datetime_module.timedelta(days=starting_dte)
+
+    return {
+        "underlying_symbol": str(data.get("underlying_symbol", "SPY")).upper().strip(),
+        "baseline_price": baseline_price,
+        "strike_price": strike_price,
+        "entry_premium": float(data.get("entry_premium", 0)),
+        "multiplier": int(data.get("multiplier", 100)),
+        "quantity": int(data.get("quantity", 1)),
+        "iv": float(data.get("iv", 0)),
+        "risk_free_rate": float(data.get("risk_free_rate", 0)),
+        "expiration_date": expiration_date,
+        "starting_dte": starting_dte,
+        "option_type": str(data.get("option_type", "PUT")).upper(),
+    }
+
+
+@market_bp.route("/api/options/thesis", methods=["POST"])
+@login_required
+def get_options_thesis():
+    try:
+        from services.options_thesis_service import build_options_thesis_data
+        thesis_data = build_options_thesis_data(
+            **_options_thesis_parameters(request.get_json(silent=True) or {})
+        )
+        return jsonify({"success": True, "thesis": thesis_data})
+    except Exception as e:
+        logger.error(f"Error building options thesis: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
 @market_bp.route("/api/options/thesis/export", methods=["POST"])
 @login_required
 def export_options_thesis():
     try:
-        data = request.get_json(silent=True) or {}
-        underlying_symbol = str(data.get("underlying_symbol", "SPY")).upper().strip()
-        baseline_price = float(data.get("baseline_price", 0))
-        strike_price = float(data.get("strike_price", 0))
-        entry_premium = float(data.get("entry_premium", 0))
-        multiplier = int(data.get("multiplier", 100))
-        quantity = int(data.get("quantity", 1))
-        iv = float(data.get("iv", 0))
-        risk_free_rate = float(data.get("risk_free_rate", 0))
-        expiration_date_str = data.get("expiration_date", "")
-        starting_dte = int(data.get("starting_dte", 0))
-        option_type = str(data.get("option_type", "PUT")).upper()
-
-        if not expiration_date_str:
-            expiration_date = datetime_module.date.today() + datetime_module.timedelta(days=starting_dte)
-        else:
-            try:
-                expiration_date = datetime_module.datetime.strptime(expiration_date_str, "%Y-%m-%d").date()
-            except ValueError:
-                expiration_date = datetime_module.date.today() + datetime_module.timedelta(days=starting_dte)
-
         from services.options_thesis_service import generate_thesis_excel
-        workbook_stream = generate_thesis_excel(
-            underlying_symbol=underlying_symbol,
-            baseline_price=baseline_price,
-            strike_price=strike_price,
-            entry_premium=entry_premium,
-            multiplier=multiplier,
-            iv=iv,
-            risk_free_rate=risk_free_rate,
-            expiration_date=expiration_date,
-            starting_dte=starting_dte,
-            option_type=option_type,
-            quantity=quantity,
-        )
+        parameters = _options_thesis_parameters(request.get_json(silent=True) or {})
+        workbook_stream = generate_thesis_excel(**parameters)
 
-        safe_symbol = "".join(character for character in underlying_symbol if character.isalnum() or character in ".-") or "OPTION"
-        strike_token = f"{strike_price:.8f}".rstrip("0").rstrip(".")
+        safe_symbol = "".join(
+            character for character in parameters["underlying_symbol"]
+            if character.isalnum() or character in ".-"
+        ) or "OPTION"
+        strike_token = f"{parameters['strike_price']:.8f}".rstrip("0").rstrip(".")
+        option_type = parameters["option_type"]
         filename = f"{option_type}_{strike_token}_{safe_symbol}_Payout_Model.xlsx"
 
         return send_file(

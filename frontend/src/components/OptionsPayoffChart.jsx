@@ -10,6 +10,9 @@ import {
   Filler,
 } from 'chart.js';
 import { Line } from 'react-chartjs-2';
+import FileDownloadOutlinedIcon from '@mui/icons-material/FileDownloadOutlined';
+import VisibilityOutlinedIcon from '@mui/icons-material/VisibilityOutlined';
+import OptionsThesisModal from './OptionsThesisModal';
 import './OptionsPayoffChart.css';
 
 ChartJS.register(LinearScale, PointElement, LineElement, Title, Tooltip, Legend, Filler);
@@ -67,6 +70,10 @@ export default function OptionsPayoffChart({
   const [isDragging, setIsDragging] = useState(false);
   const [simulatedPrice, setSimulatedPrice] = useState(strikePrice);
   const [rangePercent, setRangePercent] = useState(10);
+  const [isThesisOpen, setIsThesisOpen] = useState(false);
+  const [thesis, setThesis] = useState(null);
+  const [thesisLoading, setThesisLoading] = useState(false);
+  const [thesisError, setThesisError] = useState('');
   const chartRef = useRef(null);
   const simulatedPriceRef = useRef(strikePrice);
 
@@ -202,24 +209,26 @@ export default function OptionsPayoffChart({
     setRangePercent(ZOOM_RANGES[nextIndex]);
   };
 
+  const buildThesisPayload = () => ({
+    underlying_symbol: underlyingSymbol,
+    baseline_price: baseline,
+    strike_price: strikePrice,
+    entry_premium: entryPremium,
+    multiplier,
+    iv,
+    risk_free_rate: riskFreeRate,
+    expiration_date: expirationDate,
+    starting_dte: startingDTE,
+    option_type: optionType,
+    quantity: safeQuantity,
+  });
+
   const handleExport = async () => {
     try {
       const response = await fetch('/api/options/thesis/export', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('token')}` },
-        body: JSON.stringify({
-          underlying_symbol: underlyingSymbol,
-          baseline_price: baseline,
-          strike_price: strikePrice,
-          entry_premium: entryPremium,
-          multiplier,
-          iv,
-          risk_free_rate: riskFreeRate,
-          expiration_date: expirationDate,
-          starting_dte: startingDTE,
-          option_type: optionType,
-          quantity: safeQuantity,
-        }),
+        body: JSON.stringify(buildThesisPayload()),
       });
       if (!response.ok) throw new Error('Export failed');
       const blob = await response.blob();
@@ -240,6 +249,27 @@ export default function OptionsPayoffChart({
     }
   };
 
+  const handleViewThesis = async () => {
+    setIsThesisOpen(true);
+    setThesisLoading(true);
+    setThesisError('');
+    try {
+      const response = await fetch('/api/options/thesis', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('token')}` },
+        body: JSON.stringify(buildThesisPayload()),
+      });
+      const payload = await response.json();
+      if (!response.ok || !payload.success) throw new Error(payload.error || 'Unable to build thesis');
+      setThesis(payload.thesis);
+    } catch (error) {
+      console.error(error);
+      setThesisError('Unable to load the thesis. Please try again.');
+    } finally {
+      setThesisLoading(false);
+    }
+  };
+
   return (
     <div className="options-payoff-container">
       <div className="payoff-header">
@@ -251,7 +281,14 @@ export default function OptionsPayoffChart({
             <span>±{rangePercent}%</span>
             <button type="button" onClick={() => changeZoom(1)} disabled={rangePercent === ZOOM_RANGES[ZOOM_RANGES.length - 1]} title="Zoom out">−</button>
           </div>
-          <button type="button" onClick={handleExport} className="btn btn-sm btn-primary">Export Excel Thesis</button>
+          <button type="button" onClick={handleExport} className="btn btn-sm btn-primary payoff-thesis-action">
+            <FileDownloadOutlinedIcon fontSize="small" />
+            Export Thesis to Excel
+          </button>
+          <button type="button" onClick={handleViewThesis} className="btn btn-sm btn-secondary payoff-thesis-action">
+            <VisibilityOutlinedIcon fontSize="small" />
+            View Thesis
+          </button>
         </div>
       </div>
 
@@ -347,6 +384,14 @@ export default function OptionsPayoffChart({
           <span>Exp (0 DTE)</span>
         </div>
       </div>
+      <OptionsThesisModal
+        isOpen={isThesisOpen}
+        onClose={() => setIsThesisOpen(false)}
+        thesis={thesis}
+        loading={thesisLoading}
+        error={thesisError}
+        onRetry={handleViewThesis}
+      />
     </div>
   );
 }

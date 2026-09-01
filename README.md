@@ -127,6 +127,14 @@ The application utilizes a **unified PostgreSQL database**.
 
 Historical changelog entries retain the product name used when they were originally released. The application domain, repository slug, deployment folders, database, and service identifiers intentionally remain unchanged by the v2.45.0 brand update.
 
+## v2.70.0 (August 2026)
+
+- **In-App Options Thesis Viewer**:
+  - Added a View Thesis command beside Export Thesis to Excel on the options payoff chart.
+  - Opens a responsive, theme-aware modal with Assumptions, Option Price Matrix, P&L Matrix, and Combined View tabs instead of requiring a spreadsheet download for review.
+  - Uses the same server-side canonical scenario data as the Excel export, including position quantity, cent-rounded underlying scenarios, DTE date columns, Black-Scholes option values, and P&L calculations.
+  - Includes horizontal matrix scrolling, a highlighted baseline scenario, gain/loss states, and close controls for the backdrop, Escape key, and close button.
+
 ## v2.69.0 (August 2026)
 
 - **Direct Webull Asset Navigation**:
