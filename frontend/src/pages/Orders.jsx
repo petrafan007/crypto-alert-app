@@ -108,7 +108,10 @@ const renderMarkdown = (markdown) => {
 };
 
 const PAGE_SIZES = [20, 50, 100, 200];
-const OPEN_STATUSES = new Set(['ACTIVE', 'OPEN', 'NEW', 'WORKING', 'PENDING', 'PARTIALLY_FILLED', 'PARTIALLY FILLED']);
+const OPEN_STATUSES = new Set([
+  'ACTIVE', 'OPEN', 'NEW', 'WORKING', 'PENDING', 'SUBMITTED',
+  'PARTIAL_FILLED', 'PARTIALLY_FILLED', 'PARTIALLY FILLED',
+]);
 const isWebull = (order) => String(order?.source || order?.origin || '').toLowerCase() === 'webull';
 const amount = (value, digits = 6) => Number.isFinite(Number(value)) ? Number(value).toLocaleString(undefined, { maximumFractionDigits: digits }) : '—';
 const timestamp = (value) => formatEasternDateTimeValue(value);

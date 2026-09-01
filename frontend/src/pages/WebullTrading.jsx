@@ -23,7 +23,10 @@ import {
 } from '../utils/orderDisplay';
 import './Trading.css';
 
-const OPEN_STATUSES = new Set(['OPEN', 'NEW', 'WORKING', 'PENDING', 'PARTIALLY_FILLED', 'PARTIALLY FILLED']);
+const OPEN_STATUSES = new Set([
+  'OPEN', 'NEW', 'WORKING', 'PENDING', 'SUBMITTED',
+  'PARTIAL_FILLED', 'PARTIALLY_FILLED', 'PARTIALLY FILLED',
+]);
 const PAGE_SIZES = [20, 50, 100, 200];
 const orderTypeLabel = (value) => formatOrderType(value, 'Order');
 const orderIsPaper = (order) => Boolean(
@@ -305,7 +308,9 @@ const eventContractOrderDetails = (order = {}) => {
   const symbolOutcome = rawSymbol.match(/\s+(YES|NO)$/i)?.[1] || '';
   const outcome = String(order.event_outcome || symbolOutcome || '').trim().toUpperCase();
   return {
-    isEvent: ['EVENT', 'EVENT_CONTRACT', 'EVENT_CONTRACTS'].includes(instrumentType) || ['YES', 'NO'].includes(outcome),
+    isEvent: ['EVENT', 'EVENT_CONTRACT', 'EVENT_CONTRACTS'].includes(instrumentType)
+      || ['YES', 'NO'].includes(outcome)
+      || /^KX[A-Z0-9-]+$/.test(rawSymbol),
     symbol: rawSymbol.replace(/\s+(YES|NO)$/i, ''),
     outcome,
   };
@@ -490,11 +495,24 @@ const isIndividualCashAccount = (acc) => {
   return identity.includes('individual') && identity.includes('cash');
 };
 
+const isEventAccount = (acc) => {
+  if (!acc) return false;
+  return [
+    acc.account_class,
+    acc.account_type,
+    acc.account_label,
+    acc.account_name,
+  ].filter(Boolean).join(' ').toLowerCase().includes('event');
+};
+
 const preferredEquityAccount = (accounts) => (
   accounts.find(isIndividualCashAccount)
+  || accounts.find((account) => !isCryptoAccount(account) && !isEventAccount(account))
   || accounts.find((account) => !isCryptoAccount(account))
   || null
 );
+
+const preferredEventAccount = (accounts) => accounts.find(isEventAccount) || null;
 
 const holdingMatchesSymbol = (holding, symbol) => {
   const holdingSymbol = String(holding?.symbol || '').toUpperCase();
@@ -1075,6 +1093,10 @@ export default function WebullTrading({ isLightMode = false }) {
         activeAcc = preferredEquityAccount(filteredAccounts);
       }
 
+      if (!activeAcc && requestedInstrumentType === 'EVENT') {
+        activeAcc = preferredEventAccount(filteredAccounts);
+      }
+
       if (!activeAcc && urlSymbol) {
         // Priority 2: find the account that holds this symbol directly
         const matchedHoldingByAcc = importedHoldings.find((h) => h.symbol === urlSymbol && h.account_id);
@@ -1283,6 +1305,10 @@ export default function WebullTrading({ isLightMode = false }) {
   const handleAssetClassChange = (nextType) => {
     if (assetClassDisabled(nextType)) return;
     userChangedSessionRef.current = false;
+    if (!isTestMode && nextType === 'EVENT') {
+      const eventAccount = preferredEventAccount(accounts);
+      if (eventAccount) setSelectedAccountId(eventAccount.account_id);
+    }
     assetSymbolMemoryRef.current[selectedInstrumentType] = selectedSymbol;
     const equityHolding = modeHoldings.find((holding) => String(holding.account_id || '') === String(selectedAccountId)
       && !/crypto|coin|token/i.test(holding.instrument_type || '')

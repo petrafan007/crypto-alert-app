@@ -127,6 +127,13 @@ The application utilizes a **unified PostgreSQL database**.
 
 Historical changelog entries retain the product name used when they were originally released. The application domain, repository slug, deployment folders, database, and service identifiers intentionally remain unchanged by the v2.45.0 brand update.
 
+## v2.75.1 (September 2026)
+
+- **Event Order Visibility Hardening**:
+  - The Event Contracts workspace now automatically selects an enabled dedicated Event account when Webull provides one, instead of continuing to query an unrelated cash or crypto account.
+  - Webull's documented `SUBMITTED` and `PARTIAL_FILLED` statuses are now retained as open orders in the Event Contracts, Webull Open Orders, and consolidated Open Orders views. Provider Event symbols are also recognized when an otherwise valid response omits Event metadata.
+  - Webull OpenAPI can omit unchanged mobile-app Event orders from both its account-wide open-order and historical-order HTTP feeds. The dashboard cannot display an order until Webull returns it; when it does, the selected Event account is refreshed every 15 seconds.
+
 ## v2.75.0 (September 2026)
 
 - **Event Contract Open-Order Management**:
