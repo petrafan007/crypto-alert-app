@@ -127,6 +127,12 @@ The application utilizes a **unified PostgreSQL database**.
 
 Historical changelog entries retain the product name used when they were originally released. The application domain, repository slug, deployment folders, database, and service identifiers intentionally remain unchanged by the v2.45.0 brand update.
 
+## v2.73.16 (September 2026)
+
+- **Webull Provider Failure Visibility**:
+  - Adds a route-level regression ensuring a provider-side Option order rejection is returned to the trading ticket as its exact actionable error, rather than becoming a generic server failure.
+  - The verified 2FA token is consumed after the submission attempt, preventing unsafe automatic retries for potentially ambiguous live orders.
+
 ## v2.73.15 (September 2026)
 
 - **Webull Order 2FA Regression Coverage**:

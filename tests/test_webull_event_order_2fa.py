@@ -97,6 +97,34 @@ class WebullOrderTwoFactorTests(unittest.TestCase):
         self.assertEqual(place_order.call_args.kwargs['option_strike'], 745)
         self.assertEqual(place_order.call_args.kwargs['option_expiration'], '2026-09-25')
 
+    def test_option_provider_rejection_is_visible_after_verified_token(self):
+        order = {
+            'account_id': 'account-1', 'symbol': 'SPY', 'instrument_type': 'OPTION',
+            'side': 'BUY', 'order_type': 'LIMIT', 'quantity': 1, 'limit_price': 4.20,
+            'time_in_force': 'DAY', 'option_type': 'PUT', 'option_strike': 745,
+            'option_expiration': '2026-09-25', 'option_underlying_symbol': 'SPY',
+            'option_strategy': 'SINGLE', 'twofa_token': 'rejected-option-token',
+        }
+        with self.app.test_request_context('/api/webull/orders/place', method='POST', json=order):
+            session['2fa_verified_rejected-option-token'] = {'user_id': 1, 'timestamp': time.time()}
+            with patch.object(system, 'current_user', SimpleNamespace(id=1)), \
+                 patch.object(system.UserSetting, 'query', _Query(self.setting)), \
+                 patch.object(system.Credential, 'query', _Query(self.credential)), \
+                 patch('trading_models.TradingSettings.query', _Query(self.trading_settings)), \
+                 patch.object(system, '_require_webull_account_access', return_value='account-1'), \
+                 patch.object(system, '_require_webull_instrument_account_match', return_value='OPTION'), \
+                 patch.object(system, '_live_webull_option_order_capability', return_value=(1_000, 0)), \
+                 patch.object(system, 'place_webull_order', side_effect=system.WebullConnectionError('Provider rejected this order.')) as place_order:
+                response, status_code = system.api_webull_place_order.__wrapped__()
+
+            self.assertEqual(status_code, 400)
+            self.assertEqual(response.get_json(), {
+                'success': False,
+                'message': 'Provider rejected this order.',
+            })
+            self.assertEqual(place_order.call_count, 1)
+            self.assertNotIn('2fa_verified_rejected-option-token', session)
+
     def test_verified_token_futures_order_reaches_webull_submission(self):
         order = {
             'account_id': 'account-1', 'symbol': 'ESZ5', 'instrument_type': 'FUTURES',
