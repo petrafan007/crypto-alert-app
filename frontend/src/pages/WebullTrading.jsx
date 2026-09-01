@@ -860,6 +860,7 @@ export default function WebullTrading({ isLightMode = false }) {
   // History & Signal State
   const [historyPage, setHistoryPage] = useState(1);
   const [historyPageSize, setHistoryPageSize] = useState(50);
+  const [historyTotal, setHistoryTotal] = useState(0);
   const [signals, setSignals] = useState([]);
   const [signalSettings, setSignalSettings] = useState({
     webull_ai_scheduling_enabled: false,
@@ -890,11 +891,18 @@ export default function WebullTrading({ isLightMode = false }) {
     const accId = targetAccId || selectedAccountId;
     setHistoryLoading(true);
     try {
+      const params = new URLSearchParams({
+        account_scope: 'webull',
+        page: String(historyPage),
+        page_size: String(historyPageSize),
+      });
+      if (accId) params.set('account_id', accId);
       const resp = await axios.get(
-        `/api/trading/real-orders?account_scope=webull&history_source=live&limit=100${accId ? `&account_id=${accId}` : ''}`,
+        `/api/trading/real-orders?${params.toString()}`,
         { withCredentials: true }
       );
       setHistory((resp.data?.orders || []).map(normalizeOrder));
+      setHistoryTotal(Number(resp.data?.total ?? 0));
     } catch (error) {
       setError(error.response?.data?.message || 'Unable to load Webull order history.');
     } finally {
@@ -1205,12 +1213,12 @@ export default function WebullTrading({ isLightMode = false }) {
 
   useEffect(() => { load(); }, []);
 
-  // Fetch history when history or chart tab is activated
+  // History is database-backed and refreshed when the visible page changes.
   useEffect(() => {
-    if (['history', 'trade_chart'].includes(activeTab) && !history.length && !historyLoading) {
+    if (['history', 'trade_chart'].includes(activeTab)) {
       loadHistory(undefined, isTestMode);
     }
-  }, [activeTab, isTestMode]);
+  }, [activeTab, isTestMode, historyPage, historyPageSize, selectedAccountId]);
 
   // Refetch open orders when account changes
   useEffect(() => {
@@ -3014,8 +3022,8 @@ export default function WebullTrading({ isLightMode = false }) {
     };
   }, [activeTab, displayOpenOrders]);
   const sortedHistory = useMemo(() => [...modeHistory].sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || ''))), [modeHistory]);
-  const historyPages = Math.max(1, Math.ceil(sortedHistory.length / historyPageSize));
-  const paginatedHistory = useMemo(() => sortedHistory.slice((historyPage - 1) * historyPageSize, historyPage * historyPageSize), [sortedHistory, historyPage, historyPageSize]);
+  const historyPages = Math.max(1, Math.ceil(historyTotal / historyPageSize));
+  const paginatedHistory = sortedHistory;
   useEffect(() => { if (historyPage > historyPages) setHistoryPage(historyPages); }, [historyPage, historyPages]);
   const analyzableHoldings = useMemo(() => modeHoldings.filter((holding) => ['CRYPTO', 'STOCK', 'EQUITY', 'ETF', 'OPTION', 'FUTURES'].includes(String(holding.instrument_type || '').toUpperCase())), [modeHoldings]);
   const availableStockSymbols = useMemo(() => {
@@ -5028,7 +5036,7 @@ export default function WebullTrading({ isLightMode = false }) {
                 ) : (
                   <>
                     <WebullOrderTable orders={paginatedHistory} emptyText="No Webull order history is available yet." />
-                    <Pagination page={historyPage} setPage={setHistoryPage} pageSize={historyPageSize} setPageSize={setHistoryPageSize} total={sortedHistory.length} />
+                    <Pagination page={historyPage} setPage={setHistoryPage} pageSize={historyPageSize} setPageSize={setHistoryPageSize} total={historyTotal} />
                   </>
                 )}
               </section>

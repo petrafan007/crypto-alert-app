@@ -2222,21 +2222,10 @@ def api_webull_portfolio_sync():
             account_ids=allowed_account_ids or None,
         )
         result = import_webull_portfolio_snapshot(current_user.id, preview)
-        imported_orders = 0
-        history_warning = None
-        try:
-            historical_orders = get_webull_order_history(
-                credential.webull_app_key, credential.webull_app_secret,
-                environment, credential.webull_access_token,
-            )
-            imported_orders = import_webull_orders(current_user.id, historical_orders)
-        except WebullConnectionError as exc:
-            history_warning = str(exc)
-            logger.warning('Webull portfolio snapshot saved but order history refresh failed: %s', exc)
         return jsonify({
-            'success': True, 'accounts': result['accounts'], 'positions': result['positions'], 'orders': imported_orders,
-            'history_warning': history_warning,
-            'message': f"Imported {result['positions']} Webull position(s) and {imported_orders} order(s) from {result['accounts']} account(s). Webull rows are read-only.",
+            'success': True, 'accounts': result['accounts'], 'positions': result['positions'], 'orders': 0,
+            'history_warning': None,
+            'message': f"Imported {result['positions']} Webull position(s) from {result['accounts']} account(s). Order history refreshes in the background.",
         })
     except WebullConnectionError as exc:
         db.session.rollback()

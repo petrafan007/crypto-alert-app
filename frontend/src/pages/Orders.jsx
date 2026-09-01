@@ -261,6 +261,7 @@ export default function Orders() {
   const [cancelModal, setCancelModal] = useState({ isVisible: false, order: null, error: '', loading: false });
   const [historyPage, setHistoryPage] = useState(1);
   const [historyPageSize, setHistoryPageSize] = useState(50);
+  const [historyTotal, setHistoryTotal] = useState(0);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [webullOpenLoading, setWebullOpenLoading] = useState(false);
   const [webullOpenProgress, setWebullOpenProgress] = useState({ complete: 0, total: 0 });
@@ -349,20 +350,16 @@ export default function Orders() {
   const loadHistory = async () => {
     setHistoryLoading(true);
     try {
-      const historyResponse = await axios.get('/api/trading/real-orders?limit=100&history_source=live', { withCredentials: true });
+      const historyResponse = await axios.get(
+        `/api/trading/real-orders?page=${historyPage}&page_size=${historyPageSize}`,
+        { withCredentials: true },
+      );
       const allHistory = (historyResponse.data?.orders || []).map((order) => {
         const source = String(order?.source || '').toLowerCase();
         return normalize(order, ['auto_buy', 'auto_sell'].includes(source) ? source : (isWebull(order) ? 'webull' : 'binance'));
       });
       setHistory(allHistory);
-      const binanceFromHistory = allHistory.filter((order) => !isWebull(order) && OPEN_STATUSES.has(String(order.status).toUpperCase()));
-      if (binanceFromHistory.length) {
-        setOpenOrders((prev) => {
-          const map = new Map();
-          [...prev, ...binanceFromHistory].forEach((o) => map.set(`${o.source}-${o.id}`, o));
-          return [...map.values()];
-        });
-      }
+      setHistoryTotal(Number(historyResponse.data?.total ?? allHistory.length));
     } catch (error) {
       setNotice(error.response?.data?.message || 'Unable to load order history.');
     } finally {
@@ -488,8 +485,8 @@ export default function Orders() {
     .filter(matchesFilters)
     .sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || ''))), [activeOpenOrders, filters, webullAccounts]);
   const sortedHistory = useMemo(() => history.filter(matchesFilters).sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || ''))), [history, filters, webullAccounts]);
-  const historyPages = Math.max(1, Math.ceil(sortedHistory.length / historyPageSize));
-  const paginatedHistory = useMemo(() => sortedHistory.slice((historyPage - 1) * historyPageSize, historyPage * historyPageSize), [sortedHistory, historyPage, historyPageSize]);
+  const historyPages = Math.max(1, Math.ceil(historyTotal / historyPageSize));
+  const paginatedHistory = sortedHistory;
   useEffect(() => { if (historyPage > historyPages) setHistoryPage(historyPages); }, [historyPage, historyPages]);
   useEffect(() => { setHistoryPage(1); }, [filters]);
 
@@ -503,10 +500,13 @@ export default function Orders() {
       url.searchParams.set('tab', tab);
       window.history.replaceState({}, '', url);
     } catch {}
-    if (tab === 'history' && !history.length && !historyLoading) loadHistory();
     if (tab === 'market_analysis' && !marketAnalysisData) loadLatestWorkflowData('market-analysis');
     if (tab === 'portfolio_review' && !portfolioReviewData) loadLatestWorkflowData('portfolio-review');
   };
+
+  useEffect(() => {
+    if (activeTab === 'history') loadHistory();
+  }, [activeTab, historyPage, historyPageSize]);
 
   const openCancelModalForOrder = (order) => {
     const account = webullAccounts.find((candidate) => String(candidate.account_id) === webullAccountId(order));
@@ -639,7 +639,7 @@ export default function Orders() {
               <>
                 <h2>All Order History</h2>
                 <OrderTable orders={paginatedHistory} webullAccounts={webullAccounts} />
-                <Pagination page={historyPage} setPage={setHistoryPage} pageSize={historyPageSize} setPageSize={setHistoryPageSize} total={sortedHistory.length} />
+                <Pagination page={historyPage} setPage={setHistoryPage} pageSize={historyPageSize} setPageSize={setHistoryPageSize} total={historyTotal} />
               </>
             )}
           </section>

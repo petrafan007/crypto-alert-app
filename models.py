@@ -156,6 +156,56 @@ class WebullOrder(db.Model):
     )
 
 
+class BinanceOrder(db.Model):
+    """A complete per-user Binance.US order ledger, including external orders."""
+    __tablename__ = 'binance_orders'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, nullable=False)
+    provider_order_id = db.Column(db.String(120), nullable=False)
+    client_order_id = db.Column(db.String(120), nullable=True)
+    symbol = db.Column(db.String(40), nullable=False)
+    side = db.Column(db.String(20), nullable=True)
+    order_type = db.Column(db.String(30), nullable=True)
+    quantity = db.Column(db.Float, default=0.0)
+    filled_quantity = db.Column(db.Float, default=0.0)
+    price = db.Column(db.Float, nullable=True)
+    filled_price = db.Column(db.Float, nullable=True)
+    commission = db.Column(db.Float, nullable=True)
+    commission_asset = db.Column(db.String(20), nullable=True)
+    status = db.Column(db.String(40), nullable=True)
+    created_at = db.Column(db.DateTime, nullable=True)
+    updated_at = db.Column(db.DateTime, nullable=True)
+    synced_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+    __table_args__ = (
+        db.UniqueConstraint('user_id', 'provider_order_id', name='uq_binance_order_user_provider_order'),
+        db.Index('ix_binance_order_user_created', 'user_id', 'created_at'),
+        db.Index('ix_binance_order_user_symbol_updated', 'user_id', 'symbol', 'updated_at'),
+    )
+
+
+class OrderHistorySyncState(db.Model):
+    """Durable provider watermark for asynchronous order-history imports."""
+    __tablename__ = 'order_history_sync_state'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, nullable=False)
+    provider = db.Column(db.String(20), nullable=False)
+    account_id = db.Column(db.String(80), nullable=False, default='')
+    symbol = db.Column(db.String(40), nullable=False, default='')
+    last_successful_at = db.Column(db.DateTime, nullable=True)
+    last_provider_updated_at = db.Column(db.DateTime, nullable=True)
+    last_provider_order_id = db.Column(db.String(120), nullable=True)
+    initial_backfill_complete = db.Column(db.Boolean, default=False, nullable=False)
+    last_error = db.Column(db.Text, nullable=True)
+
+    __table_args__ = (
+        db.UniqueConstraint('user_id', 'provider', 'account_id', 'symbol', name='uq_order_history_sync_state_scope'),
+        db.Index('ix_order_history_sync_state_provider', 'provider', 'last_successful_at'),
+    )
+
+
 class WebullWatchlistItem(db.Model):
     """A user-managed Webull instrument watchlist with broker identity preserved."""
     __tablename__ = 'webull_watchlist_items'

@@ -42,8 +42,8 @@ from services.staking_service import (
     binance_us_api_call
 )
 from services.credential_service import get_user_credentials
-from services.webull_service import WebullConnectionError, get_webull_order_history, normalize_webull_environment
-from services.webull_import_service import get_webull_order_rows, get_webull_total_value, import_webull_orders
+from services.webull_import_service import get_webull_order_rows, get_webull_total_value
+from services.order_history_sync_service import get_binance_order_rows
 from services.notification_service import notify_order_fill, create_system_notification, send_telegram_message
 from services.common import _coerce_float, format_price, format_quantity
 from credential_security import decrypt_secret
@@ -2220,42 +2220,31 @@ def get_real_orders_only():
                 return jsonify({
                     'success': True,
                     'orders': [],
+                    'page': 1,
+                    'page_size': 50,
+                    'total': 0,
                     'history_source': 'paper-isolated',
                 })
-        unlimited = False
+        page_param = request.args.get('page', '1')
+        page_size_param = request.args.get('page_size', request.args.get('limit', '50'))
         try:
-            if isinstance(limit_param, str) and limit_param.lower() in ('all', '*', 'infinite'):
-                unlimited = True
-                limit = 50
-            else:
-                limit_value = int(limit_param)
-                if limit_value <= 0:
-                    unlimited = True
-                    limit = 50
-                else:
-                    limit = limit_value
+            page = max(1, int(page_param))
         except (TypeError, ValueError):
-            limit = 50
+            page = 1
+        try:
+            page_size = int(page_size_param)
+            if page_size <= 0:
+                page_size = 50
+        except (TypeError, ValueError):
+            page_size = 50
+        page_size = min(page_size, 100)
         symbol = request.args.get('symbol')
         symbol_filter = symbol.upper() if symbol else None
-        # The Combined Orders view uses the persisted ledger so entering its
-        # history tab is immediate. Other consumers can explicitly retain the
-        # existing live exchange-history behavior.
-        #
-        # Guard: when account_scope=webull and no explicit history_source is
-        # provided, default to 'database'. Webull-scoped history already only
-        # returns Webull rows from the DB; hitting the live Webull API adds an
-        # unnecessary 2.05 s rate-limit delay per account for no extra data.
-        # Callers that genuinely need a live refresh can pass history_source=live.
-        explicit_history_source = request.args.get('history_source')
-        if account_scope == 'webull' and not explicit_history_source:
-            history_source = 'database'
-        else:
-            history_source = str(explicit_history_source or 'live').strip().lower()
-        database_only = history_source == 'database'
+        # History navigation is always database-first. Provider reconciliation
+        # runs asynchronously and must never delay this user-facing response.
+        history_source = 'database'
 
         combined_orders = {}
-        symbols_to_check = set()
         activity_records = []
 
         def normalize_timestamp(value):
@@ -2293,13 +2282,12 @@ def get_real_orders_only():
             )
 
         # Include locally stored real orders (placed via the app)
-        query = RealOrder.query.filter_by(user_id=current_user.id)
-        if symbol_filter:
-            query = query.filter_by(symbol=symbol_filter)
-        query = query.order_by(RealOrder.created_at.desc())
-        if not unlimited:
-            query = query.limit(limit)
-        stored_orders = query.all()
+        stored_orders = []
+        if account_scope != 'webull':
+            query = RealOrder.query.filter_by(user_id=current_user.id)
+            if symbol_filter:
+                query = query.filter_by(symbol=symbol_filter)
+            stored_orders = query.order_by(RealOrder.created_at.desc()).all()
 
         for order in stored_orders:
             key = f"binance-{order.symbol}-{order.binance_order_id}" if order.binance_order_id else f"real-{order.id}"
@@ -2331,37 +2319,28 @@ def get_real_orders_only():
             }
             add_order(key, order_dict)
 
+        if account_scope != 'webull':
+            for order in get_binance_order_rows(current_user.id):
+                add_order(f"binance-{order['symbol']}-{order['id']}", order)
+
         if account_scope != 'binance':
             persisted_webull_orders = get_webull_order_rows(
                 current_user.id,
                 account_id=request.args.get('account_id'),
-                limit=limit if not unlimited else 500,
             )
             for order in persisted_webull_orders:
                 add_order(f"webull-{order['webull_account_id']}-{order['id']}", order)
 
-        if symbol_filter:
-            symbols_to_check.add(symbol_filter)
-        else:
-            symbols_to_check.update({o.symbol for o in stored_orders if o.symbol})
-            try:
-                user_coins = Coin.query.filter_by(user_id=current_user.id).all()
-                for coin in user_coins:
-                    sym = (coin.symbol or '').upper()
-                    if sym and sym not in ['USD', 'USDT']:
-                        symbols_to_check.add(f"{sym}USDT")
-                        symbols_to_check.add(f"{sym}USD")
-            except Exception as coin_err:
-                logger.warning(f"Failed to gather portfolio symbols for order history: {coin_err}")
-
-        activity_rows = db.session.execute(
-            text('''SELECT id, date, type, asset, amount, fee, status, exchange, description, details, txid, price_sold_at, avg_entry, proceeds
+        activity_rows = []
+        if account_scope != 'webull':
+            activity_rows = db.session.execute(
+                text('''SELECT id, date, type, asset, amount, fee, status, exchange, description, details, txid, price_sold_at, avg_entry, proceeds
                FROM all_activities
                WHERE user_id = :uid
                  AND ((LOWER(COALESCE(exchange, '')) = 'binance' AND status IN ('FILLED', 'completed'))
                       OR txid LIKE 'auto_sell_%' OR txid LIKE 'auto_buy_%')'''),
-            {"uid": current_user.id}
-        ).mappings().all()
+                {"uid": current_user.id}
+            ).mappings().all()
 
         activity_records = []
         for row in activity_rows:
@@ -2377,171 +2356,9 @@ def get_real_orders_only():
                         details_json = None
             if details_json:
                 activity['__details_json__'] = details_json
-                product_id = details_json.get('product_id')
-                if product_id:
-                    symbols_to_check.add(product_id.replace('-', '').upper())
                 activity_records.append(activity)
             else:
                 activity_records.append(activity)
-
-        cleaned_symbols = {s for s in symbols_to_check if s}
-
-        # Live callers retain the legacy exchange-history lookup.  Combined
-        # Orders passes history_source=database and skips every network read.
-        try:
-            creds = Credential.query.filter_by(user_id=current_user.id).first() if not database_only else None
-
-            if creds:
-                trading_api_key = creds.trading_api_key
-                trading_api_secret = creds.trading_api_secret
-                portfolio_api_key = creds.api_key
-                portfolio_api_secret = creds.api_secret
-
-                api_key = trading_api_key or portfolio_api_key
-                api_secret = trading_api_secret or portfolio_api_secret
-
-                if api_key and api_secret:
-                    from binance.client import Client
-                    client = Client(api_key=api_key, api_secret=api_secret, testnet=False, tld='us')
-
-                    for trading_symbol in cleaned_symbols:
-                        try:
-                            if unlimited:
-                                fetched_orders = []
-                                next_start = None
-                                while True:
-                                    params = {'symbol': trading_symbol, 'limit': 500}
-                                    if next_start:
-                                        params['startTime'] = next_start
-                                    batch = client.get_all_orders(**params)
-                                    if not batch:
-                                        break
-                                    fetched_orders.extend(batch)
-                                    if len(batch) < 500:
-                                        break
-                                    last_time = batch[-1].get('time') or batch[-1].get('updateTime')
-                                    if not last_time:
-                                        break
-                                    next_start = last_time + 1
-                                    time.sleep(0.2)
-                            else:
-                                fetched_orders = client.get_all_orders(symbol=trading_symbol, limit=min(limit, 500))
-
-                            for o in fetched_orders:
-                                order_id = o.get('orderId')
-                                key = f"binance-{trading_symbol}-{order_id}"
-
-                                created_at = o.get('time') or o.get('updateTime')
-                                if created_at:
-                                    created_at_iso = datetime.fromtimestamp(created_at / 1000, tz=timezone.utc).isoformat()
-                                else:
-                                    created_at_iso = None
-
-                                orig_qty = float(o.get('origQty') or 0.0)
-                                executed_qty = float(o.get('executedQty') or 0.0)
-                                price = float(o.get('price') or 0.0)
-                                cumulative_quote = float(o.get('cummulativeQuoteQty') or 0.0)
-
-                                filled_price = 0.0
-                                if executed_qty > 0:
-                                    if cumulative_quote > 0:
-                                        filled_price = cumulative_quote / executed_qty
-                                    else:
-                                        filled_price = price
-                                elif price > 0:
-                                    filled_price = price
-
-                                payload = {
-                                    'id': order_id or key,
-                                    'symbol': trading_symbol,
-                                    'side': o.get('side'),
-                                    'order_type': o.get('type'),
-                                    'quantity': orig_qty,
-                                    'price': price,
-                                    'filled_quantity': executed_qty,
-                                    'filled_price': filled_price,
-                                    'status': o.get('status'),
-                                    'created_at': created_at_iso,
-                                    'updated_at': datetime.fromtimestamp(o['updateTime'] / 1000, tz=timezone.utc).isoformat() if o.get('updateTime') else created_at_iso,
-                                    'source': 'binance'
-                                }
-
-                                add_order(key, payload)
-
-                        except Exception as binance_err:
-                            logger.warning(f"Failed to fetch Binance orders for {trading_symbol}: {binance_err}")
-                            continue
-                else:
-                    logger.warning("Binance credentials found but incomplete for order history fetch")
-            elif not database_only:
-                logger.warning("No Binance credentials found for real order history")
-        except Exception as cred_err:
-            logger.warning(f"Could not fetch Binance order history: {cred_err}")
-
-        # Merge read-only Webull historical orders. They use their own unique
-        # source keys and may represent equities, options, futures, or crypto;
-        # none are treated as Binance tradable symbols.
-        if account_scope != 'binance' and not database_only:
-            try:
-                webull_credential = Credential.query.filter_by(user_id=current_user.id).first()
-                webull_setting = UserSetting.query.filter_by(user_id=current_user.id).first()
-                webull_environment = normalize_webull_environment(
-                    getattr(webull_setting, 'webull_environment', None) or 'production'
-                )
-                if (
-                    webull_credential and webull_credential.webull_token_status == 'NORMAL'
-                    and webull_credential.webull_token_environment == webull_environment
-                    and webull_credential.webull_access_token
-                ):
-                    target_acc = request.args.get('account_id')
-                    webull_orders = get_webull_order_history(
-                        webull_credential.webull_app_key, webull_credential.webull_app_secret,
-                        webull_environment, webull_credential.webull_access_token, page_size=100,
-                        account_id=target_acc,
-                    )
-                    import_webull_orders(current_user.id, webull_orders)
-                    for order in webull_orders:
-                        order_id = order.get('order_id') or order.get('orderId') or order.get('client_order_id') or order.get('clientOrderId')
-                        symbol = str(order.get('symbol') or order.get('ticker') or 'UNKNOWN').upper()
-                        account_id = str(order.get('_webull_account_id') or '')
-                        quantity = order.get('total_quantity', order.get('quantity', order.get('order_quantity', 0)))
-                        filled_quantity = order.get('filled_quantity', order.get('executed_quantity', order.get('filled_qty', 0)))
-                        price = order.get('limit_price', order.get('price', order.get('order_price', 0)))
-                        filled_price = order.get('average_filled_price', order.get('avg_fill_price', order.get('filled_price', price)))
-                        def float_or_zero(value):
-                            try:
-                                return float(value or 0)
-                            except (TypeError, ValueError):
-                                return 0.0
-                        payload = {
-                            'id': order_id or f'webull-{account_id}-{symbol}', 'symbol': symbol,
-                            'side': order.get('side') or 'UNKNOWN',
-                            'order_type': order.get('order_type') or order.get('type') or 'UNKNOWN',
-                            'quantity': float_or_zero(quantity), 'price': float_or_zero(price),
-                            'filled_quantity': float_or_zero(filled_quantity), 'filled_price': float_or_zero(filled_price),
-                            'status': order.get('status') or order.get('order_status') or 'UNKNOWN',
-                            'created_at': normalize_timestamp(
-                                order.get('created_at') or order.get('create_time') or order.get('placed_time')
-                                or order.get('place_time') or order.get('submitted_time') or order.get('filled_time_at')
-                            ),
-                            'updated_at': normalize_timestamp(
-                                order.get('updated_at') or order.get('update_time') or order.get('filled_time')
-                                or order.get('filled_time_at') or order.get('last_updated_time')
-                            ),
-                            'source': 'webull', 'origin': 'webull', 'origin_label': 'Webull',
-                            'instrument_type': order.get('instrument_type'),
-                            # The combined Orders client already receives this
-                            # identifier for Webull open orders.  Keep the same
-                            # account scope on historical rows so account
-                            # filtering cannot mix orders from another account.
-                            'webull_account_id': account_id,
-                            'webull_account_type': order.get('_webull_account_type'),
-                        }
-                        add_order(f"webull-{account_id}-{payload['id']}", payload)
-            except WebullConnectionError as webull_err:
-                logger.warning(f"Could not fetch Webull order history: {webull_err}")
-            except Exception as webull_err:
-                logger.warning(f"Unexpected Webull order-history error: {webull_err}")
 
         # Merge persisted Binance.US and app-automation fills.  The activity
         # ledger is intentionally sufficient for the database-only Combined
@@ -2644,12 +2461,17 @@ def get_real_orders_only():
         if symbol_filter:
             order_list = [o for o in order_list if (o.get('symbol') or '').upper() == symbol_filter]
         order_list.sort(key=lambda o: o.get('created_at') or '', reverse=True)
-        limited_orders = order_list if unlimited else order_list[:limit]
+        total = len(order_list)
+        start = (page - 1) * page_size
+        limited_orders = order_list[start:start + page_size]
 
         return jsonify({
             'success': True,
             'orders': limited_orders,
-            'history_source': 'database' if database_only else 'live',
+            'page': page,
+            'page_size': page_size,
+            'total': total,
+            'history_source': history_source,
         })
 
     except Exception as e:

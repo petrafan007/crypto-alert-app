@@ -122,7 +122,6 @@ function Dashboard({ isLightMode }) {
   const MINIMUM_PORTFOLIO_AMOUNT = 0.0001;
   const { isLoggingOut, user } = useAuth();
   const navigate = useNavigate();
-  const webullPortfolioRefreshRef = useRef({ inFlight: false, lastStartedAt: 0 });
   const [totalValue, setTotalValue] = useState(null);
   const [accountTotals, setAccountTotals] = useState({ all: 0, binance: 0, webull: 0 });
   const [accountScope, setAccountScope] = useState(() => localStorage.getItem('dashboard_account_scope') || 'all');
@@ -1631,36 +1630,6 @@ function Dashboard({ isLightMode }) {
   useEffect(() => {
     let refreshInterval;
 
-    const refreshStoredWebullPortfolio = async () => {
-      const refreshState = webullPortfolioRefreshRef.current;
-      const now = Date.now();
-      if (refreshState.inFlight || now - refreshState.lastStartedAt < 45000) return;
-      refreshState.inFlight = true;
-      refreshState.lastStartedAt = now;
-      try {
-        const syncResponse = await axios.post('/api/webull/portfolio-sync', {}, { withCredentials: true });
-        if (!syncResponse.data?.success) return;
-        const [portfolioResponse, totalResponse, summaryResponse] = await Promise.all([
-          axios.get('/api/coin-data', { withCredentials: true }),
-          axios.get(`/api/true-portfolio-value?ts=${Date.now()}`, { withCredentials: true }),
-          axios.get('/api/account-summary', { withCredentials: true }),
-        ]);
-        const refreshedWebullRows = (portfolioResponse.data?.portfolio || []).filter(
-          (item) => item.is_external === true || item.source === 'webull',
-        );
-        setPortfolio((previous) => [
-          ...previous.filter((item) => !(item.is_external === true || item.source === 'webull')),
-          ...refreshedWebullRows,
-        ]);
-        setTotalValue(totalResponse.data?.total_value || 0);
-        setAccountTotals(summaryResponse.data?.totals || { all: 0, binance: 0, webull: 0 });
-      } catch (error) {
-        console.warn('Webull portfolio refresh failed:', error);
-      } finally {
-        refreshState.inFlight = false;
-      }
-    };
-
     async function fetchData(isInitialLoad = true) {
       try {
         // Don't make any API calls if we're logging out
@@ -1710,7 +1679,6 @@ function Dashboard({ isLightMode }) {
           if (isInitialLoad) {
             setLoading(false);
           }
-          void refreshStoredWebullPortfolio();
         } catch (error) {
           console.error('Error fetching portfolio:', error);
           // Check if it's an authentication error (302 redirect or 401)

@@ -122,6 +122,7 @@ const Trading = ({ isLightMode = false }) => {
   const [historySymbolFilter, setHistorySymbolFilter] = useState('ALL');
   const [historyPage, setHistoryPage] = useState(1);
   const [historyPageSize, setHistoryPageSize] = useState(50);
+  const [historyTotal, setHistoryTotal] = useState(0);
 
   // Modal state for feedback
   const [feedbackModal, setFeedbackModal] = useState({
@@ -740,7 +741,6 @@ const Trading = ({ isLightMode = false }) => {
     loadTradingPairs();
     loadTradingSettings();
     loadOrderTypes(orderForm.symbol);
-    loadOrders();
     loadOpenOrders();
     loadLivePortfolio();
     if (settings.test_mode_enabled) {
@@ -823,12 +823,13 @@ const Trading = ({ isLightMode = false }) => {
   ]);
 
   useEffect(() => {
-    if (activeTab === 'history' || activeTab === 'open_orders') {
-      loadOpenOrders();
+    if (activeTab === 'history') {
       loadOrders();
+    } else if (activeTab === 'open_orders') {
+      loadOpenOrders();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeTab]);
+  }, [activeTab, historyPage, historyPageSize, historySymbolFilter]);
 
   // Preserve a bookmarked legacy AI Analysis link while keeping the analysis
   // workspace inside the Binance.US trading experience.
@@ -926,12 +927,19 @@ const Trading = ({ isLightMode = false }) => {
   const loadOrders = async () => {
     setOrdersLoading(true);
     try {
-      const response = await axios.get('/api/trading/real-orders?limit=all', { withCredentials: true });
+      const params = new URLSearchParams({
+        account_scope: 'binance',
+        page: String(historyPage),
+        page_size: String(historyPageSize),
+      });
+      if (historySymbolFilter !== 'ALL') params.set('symbol', historySymbolFilter);
+      const response = await axios.get(`/api/trading/real-orders?${params.toString()}`, { withCredentials: true });
       if (response.data.success) {
         const normalized = (response.data.orders || []).map(normalizeOrderRecord);
         // This page is the Binance.US workspace. Webull history belongs to its
         // dedicated workspace and the combined Orders destination.
         setOrders(normalized.filter((order) => String(order.source || '').toLowerCase() !== 'webull'));
+        setHistoryTotal(Number(response.data.total ?? normalized.length));
       }
     } catch (error) {
       console.error('Failed to load orders:', error);
@@ -1725,7 +1733,7 @@ const Trading = ({ isLightMode = false }) => {
     setHistoryPage(1);
   }, [historySymbolFilter, showCanceledOrders]);
 
-  const totalHistoryPages = Math.max(1, Math.ceil(filteredOrders.length / historyPageSize));
+  const totalHistoryPages = Math.max(1, Math.ceil(historyTotal / historyPageSize));
 
   useEffect(() => {
     if (historyPage > totalHistoryPages) {
@@ -1733,10 +1741,7 @@ const Trading = ({ isLightMode = false }) => {
     }
   }, [historyPage, totalHistoryPages]);
 
-  const paginatedOrders = useMemo(() => {
-    const startIndex = (historyPage - 1) * historyPageSize;
-    return filteredOrders.slice(startIndex, startIndex + historyPageSize);
-  }, [filteredOrders, historyPage, historyPageSize]);
+  const paginatedOrders = filteredOrders;
 
   return (
     <div className="trading-container" style={{ minHeight: '100vh', padding: '20px', color: 'white' }}>
@@ -2474,7 +2479,7 @@ const Trading = ({ isLightMode = false }) => {
                 {filteredOrders.length > 0 && (
                   <div className="order-history-pagination">
                     <div className="order-history-pagination-info">
-                      Showing {(historyPage - 1) * historyPageSize + 1}–{Math.min(historyPage * historyPageSize, filteredOrders.length)} of {filteredOrders.length} orders
+                      Showing {filteredOrders.length ? (historyPage - 1) * historyPageSize + 1 : 0}–{Math.min(historyPage * historyPageSize, historyTotal)} of {historyTotal} orders
                     </div>
                     {totalHistoryPages > 1 && (
                       <div className="order-history-pagination-controls">

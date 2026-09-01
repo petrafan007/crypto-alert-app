@@ -127,6 +127,14 @@ The application utilizes a **unified PostgreSQL database**.
 
 Historical changelog entries retain the product name used when they were originally released. The application domain, repository slug, deployment folders, database, and service identifiers intentionally remain unchanged by the v2.45.0 brand update.
 
+## v2.75.4 (September 2026)
+
+### Database-first Order History and Background Reconciliation
+- Order History in the Binance.US Trading, Webull Trading, and consolidated Orders workspaces now reads a paginated, durable local ledger instead of waiting on exchange history requests during navigation.
+- Binance.US orders created outside the dashboard, including mobile orders, are persisted in a per-user provider ledger. Initial symbol backfills are followed by incremental overlap-window synchronization that updates changing order states safely.
+- Webull history and active orders are reconciled per enabled account by a rate-limited background job, preserving Event Contract lifecycle visibility without holding a history page open for provider calls.
+- The Dashboard no longer starts a full Webull portfolio and order reconciliation after its initial data load, avoiding the former long-running client-triggered refresh and associated contention.
+
 ## v2.75.3 (September 2026)
 
 - **Reliable Webull Reconciliation**:

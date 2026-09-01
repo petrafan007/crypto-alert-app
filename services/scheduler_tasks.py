@@ -20,6 +20,7 @@ from services.portfolio_service import (
 from services.credential_service import get_user_credentials
 from services.price_history_service import record_price_history_snapshot
 from trading_models import RealOrder
+from services.order_history_sync_service import sync_order_history_for_all_users
 
 # Persistent alert states store
 _alert_state_lock = threading.Lock()
@@ -238,6 +239,21 @@ def real_order_status_loop(app):
 
             iteration()
             time.sleep(15)
+
+
+def order_history_sync_loop(app):
+    """Persist provider order updates outside history-page requests."""
+    logger.info("Starting background order-history sync job")
+    with app.app_context():
+        while True:
+            @safe_background_iteration
+            def iteration():
+                results = sync_order_history_for_all_users()
+                if results:
+                    logger.info("Completed background order-history sync for %s user(s)", len(results))
+
+            iteration()
+            time.sleep(300)
 
 def portfolio_alert_loop(app):
     logger.info("=== portfolio_alert_loop STARTED ===")
@@ -1280,6 +1296,9 @@ def start_background_jobs(app=None):
     order_status_thread = threading.Thread(target=real_order_status_loop, args=(app,), daemon=True)
     order_status_thread.start()
 
+    order_history_thread = threading.Thread(target=order_history_sync_loop, args=(app,), daemon=True)
+    order_history_thread.start()
+
     # 2. Portfolio Price Alert Loop
     portfolio_thread = threading.Thread(target=portfolio_alert_loop, args=(app,), daemon=True)
     portfolio_thread.start()
@@ -1311,6 +1330,7 @@ def start_background_jobs(app=None):
         "options_thesis": t_opt,
         "sync": sync_thread,
         "order_status": order_status_thread,
+        "order_history": order_history_thread,
         "portfolio": portfolio_thread,
         "watchlist": watchlist_thread,
         "volatility": volatility_thread,

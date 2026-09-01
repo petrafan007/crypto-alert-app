@@ -87,12 +87,15 @@ def import_webull_orders(user_id, orders):
     return imported
 
 
-def get_webull_order_rows(user_id, *, account_id=None, limit=100):
+def get_webull_order_rows(user_id, *, account_id=None, limit=None):
     """Return persisted Webull orders in the same canonical shape as live history."""
     query = WebullOrder.query.filter_by(user_id=user_id)
     if account_id:
         query = query.filter_by(account_id=str(account_id))
-    records = query.order_by(WebullOrder.created_at.desc(), WebullOrder.id.desc()).limit(max(1, min(int(limit or 100), 500))).all()
+    query = query.order_by(WebullOrder.created_at.desc(), WebullOrder.id.desc())
+    if limit is not None:
+        query = query.limit(max(1, min(int(limit), 500)))
+    records = query.all()
     account_types = {
         snapshot.account_id: snapshot.account_type
         for snapshot in WebullAccountSnapshot.query.filter_by(user_id=user_id).all()
