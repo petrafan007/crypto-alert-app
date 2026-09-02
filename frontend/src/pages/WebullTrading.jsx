@@ -888,7 +888,6 @@ export default function WebullTrading({ isLightMode = false }) {
       }
       return;
     }
-    const accId = targetAccId || selectedAccountId;
     setHistoryLoading(true);
     try {
       const params = new URLSearchParams({
@@ -896,7 +895,6 @@ export default function WebullTrading({ isLightMode = false }) {
         page: String(historyPage),
         page_size: String(historyPageSize),
       });
-      if (accId) params.set('account_id', accId);
       const resp = await axios.get(
         `/api/trading/real-orders?${params.toString()}`,
         { withCredentials: true }

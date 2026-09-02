@@ -127,6 +127,11 @@ The application utilizes a **unified PostgreSQL database**.
 
 Historical changelog entries retain the product name used when they were originally released. The application domain, repository slug, deployment folders, database, and service identifiers intentionally remain unchanged by the v2.45.0 brand update.
 
+## v2.75.5 (September 2026)
+
+### Webull Multi-Account History Visibility
+- Webull Order History now includes durable orders from every enabled Webull account, including Event Contracts held in Events Cash, regardless of which account is selected for the active trade ticket.
+
 ## v2.75.4 (September 2026)
 
 ### Database-first Order History and Background Reconciliation
