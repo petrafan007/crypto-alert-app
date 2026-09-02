@@ -934,6 +934,17 @@ export default function WebullTrading({ isLightMode = false }) {
     }
   };
 
+  const refreshLiveWebullHoldings = async () => {
+    try {
+      const response = await axios.get('/api/coin-data-live', { withCredentials: true });
+      setHoldings((response.data?.portfolio || []).filter(
+        (item) => item?.is_external || item?.source === 'webull'
+      ));
+    } catch (error) {
+      console.warn('Unable to refresh Webull positions after order update:', error);
+    }
+  };
+
   const loadPaperTradingData = async () => {
     try {
       const [sumRes, posRes, ordRes] = await Promise.all([
@@ -1227,7 +1238,10 @@ export default function WebullTrading({ isLightMode = false }) {
 
   useEffect(() => {
     if (selectedInstrumentType !== 'EVENT' || !selectedAccountId) return undefined;
-    const refresh = () => loadOpenOrders(selectedAccountId, isTestMode);
+    const refresh = async () => {
+      await loadOpenOrders(selectedAccountId, isTestMode);
+      if (!isTestMode) await refreshLiveWebullHoldings();
+    };
     refresh();
     const timer = window.setInterval(refresh, 15000);
     return () => window.clearInterval(timer);
@@ -2561,7 +2575,10 @@ export default function WebullTrading({ isLightMode = false }) {
         if (isTestMode) {
           loadPaperTradingData();
         } else {
-          loadOpenOrders(selectedAccountId);
+          await Promise.all([
+            loadOpenOrders(selectedAccountId),
+            refreshLiveWebullHoldings(),
+          ]);
         }
         loadHistory(selectedAccountId);
       } else {
@@ -4780,10 +4797,19 @@ export default function WebullTrading({ isLightMode = false }) {
                 )}
 
                 {selectedInstrumentType === 'EVENT' ? (
-                  <EventContractOpenOrders
-                    orders={eventOpenOrders}
-                    onManageOrder={handleManageEventOrder}
-                  />
+                  <>
+                    <EventContractOpenOrders
+                      orders={eventOpenOrders}
+                      onManageOrder={handleManageEventOrder}
+                    />
+                    <WebullHoldings
+                      holdings={modeHoldings}
+                      instrumentType="EVENT"
+                      onSelectHolding={handleSelectHolding}
+                      onOpenEventPosition={handleOpenEventPosition}
+                      isTestMode={isTestMode}
+                    />
+                  </>
                 ) : (
                   <WebullHoldings
                     holdings={modeHoldings}

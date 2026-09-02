@@ -127,6 +127,13 @@ The application utilizes a **unified PostgreSQL database**.
 
 Historical changelog entries retain the product name used when they were originally released. The application domain, repository slug, deployment folders, database, and service identifiers intentionally remain unchanged by the v2.45.0 brand update.
 
+## v2.75.7 (September 2026)
+
+### Event Contract Lifecycle and Countdown Repair
+- Event Contract workspaces now retain a managed Event position row after a pending limit order fills, with an Open Position action for subsequent close or trade decisions.
+- Event polling refreshes both the active-order and imported-position views so filled contracts do not require a browser reload to become manageable.
+- Event modals now use the intraday cutoff decoded from the contract symbol when available, preventing a stale provider cutoff date from forcing a live contract countdown to zero.
+
 ## v2.75.6 (September 2026)
 
 ### Consolidated Open-Order Column Alignment

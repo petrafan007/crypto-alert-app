@@ -221,7 +221,12 @@ export default function EventPositionModal({
     };
   }, [isOpen, symbol, market?.symbol, outcome, side]);
 
-  const cutoff = providerTime(market?.last_trading_date || market?.expected_exp_date || market?.latest_exp_date);
+  const cutoff = providerTime(
+    market?.contract_period_end
+    || market?.last_trading_date
+    || market?.expected_exp_date
+    || market?.latest_exp_date
+  );
   const providerStatus = String(market?.tradable_status || '').toUpperCase();
   const effectiveStatus = cutoffExpired ? 'NT' : providerStatus;
   const statusLabel = effectiveStatus === 'OC'
@@ -396,7 +401,7 @@ export default function EventPositionModal({
               <div className="event-position-timeline">
                 <h3>Timeline and contract facts</h3>
                 <div><span>Opens</span><strong>{market.open_date ? formatEasternDateTime(market.open_date) : 'Not provided'}</strong></div>
-                <div><span>Trading cutoff</span><strong>{market.last_trading_date ? formatEasternDateTime(market.last_trading_date) : 'Not provided'}</strong></div>
+                <div><span>Trading cutoff</span><strong>{cutoff ? formatEasternDateTime(cutoff.toISOString()) : 'Not provided'}</strong></div>
                 <div><span>Expected determination</span><strong>{market.expected_exp_date ? formatEasternDateTime(market.expected_exp_date) : 'Not provided'}</strong></div>
                 <div><span>Expected payout</span><strong>{market.payout_date ? formatEasternDateTime(market.payout_date) : 'Not provided'}</strong></div>
                 <div><span>Trading hours</span><strong>{rules.trading_hours || market.trading_hours || 'Provider status is authoritative'}</strong></div>
