@@ -1290,7 +1290,7 @@ def start_background_jobs(app=None):
 
     # Event Contract strategy worker is persisted and paper/signal-only.
     # It remains idle unless the user explicitly starts a paper configuration.
-    from services.event_algo import event_algo_worker_loop
+    from event_algo import event_algo_worker_loop
     event_algo_thread = threading.Thread(target=event_algo_worker_loop, args=(app,), daemon=True, name="event-strategy-paper")
     event_algo_thread.start()
     
