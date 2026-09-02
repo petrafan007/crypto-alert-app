@@ -127,6 +127,14 @@ The application utilizes a **unified PostgreSQL database**.
 
 Historical changelog entries retain the product name used when they were originally released. The application domain, repository slug, deployment folders, database, and service identifiers intentionally remain unchanged by the v2.45.0 brand update.
 
+## v2.76.1 (September 2026)
+
+### Frontend Dependency Security Remediation
+- Updated production Axios, follow-redirects, form-data, and YAML dependency paths to patched versions.
+- Upgraded React Router to the patched v7.18.3 release to remove the remaining React Router open-redirect and SSR hydration advisories.
+- Refreshed the frontend lockfile and verified the production dependency audit is clean.
+- Removed the obsolete exchange-aware navigation checklist from the repository.
+
 ## v2.76.0 (September 2026)
 
 ### Orders and Provider-Specific Tax Reports
