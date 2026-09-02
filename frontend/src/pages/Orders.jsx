@@ -208,6 +208,9 @@ function OrderTable({ orders, open, onCancelOrder, cancellingId, webullAccounts 
                 </td>
                 <td>{order.status}</td>
                 {open && (
+                  <td>—</td>
+                )}
+                {open && (
                   <td>
                     <button
                       type="button"

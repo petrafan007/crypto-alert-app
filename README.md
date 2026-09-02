@@ -127,6 +127,11 @@ The application utilizes a **unified PostgreSQL database**.
 
 Historical changelog entries retain the product name used when they were originally released. The application domain, repository slug, deployment folders, database, and service identifiers intentionally remain unchanged by the v2.45.0 brand update.
 
+## v2.75.6 (September 2026)
+
+### Consolidated Open-Order Column Alignment
+- Corrected the consolidated Orders table so its Cancel controls render under the Actions header rather than the estimated P&L column.
+
 ## v2.75.5 (September 2026)
 
 ### Webull Multi-Account History Visibility
