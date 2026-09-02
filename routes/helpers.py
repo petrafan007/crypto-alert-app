@@ -790,7 +790,7 @@ def get_user_latest_news_cache(user_id):
     }
     """
     try:
-        from models import AIConversation
+        from models import AIConversation, Coin
         rows = AIConversation.query.filter(
             AIConversation.user_id == user_id,
             AIConversation.prompt_type == 'coin_analysis',
@@ -798,15 +798,26 @@ def get_user_latest_news_cache(user_id):
         ).order_by(AIConversation.id.desc()).all()
 
         cache = {}
+        coin_ids = {row.coin_id for row in rows if row.coin_id is not None}
+        coins_by_id = {}
+        if coin_ids:
+            coins_by_id = {
+                coin.id: coin.symbol
+                for coin in Coin.query.filter(
+                    Coin.user_id == user_id,
+                    Coin.id.in_(coin_ids),
+                ).all()
+            }
         for row in rows:
             entry = {
                 'text': row.body or '',
                 'created_at': format_iso_utc(row.created_at)
             }
-            if row.coin_id and row.coin_id not in cache:
+            if row.coin_id is not None and row.coin_id not in cache:
                 cache[row.coin_id] = entry
-            if row.symbol:
-                sym = str(row.symbol).strip().upper()
+            symbol = coins_by_id.get(row.coin_id)
+            if symbol:
+                sym = str(symbol).strip().upper()
                 if sym and sym not in cache:
                     cache[sym] = entry
         return cache

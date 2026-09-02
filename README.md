@@ -127,6 +127,13 @@ The application utilizes a **unified PostgreSQL database**.
 
 Historical changelog entries retain the product name used when they were originally released. The application domain, repository slug, deployment folders, database, and service identifiers intentionally remain unchanged by the v2.45.0 brand update.
 
+## v2.76.2 (September 2026)
+
+### Binance Order-History Symbol Filtering
+- Order-history synchronization now filters requested pairs against live Binance.US exchange metadata before making provider calls.
+- Delisted, nonexistent, and non-spot pairs are skipped while durable local history remains available for previously stored orders.
+- Added regression coverage for tradable, delisted, and spot-disabled symbol selection.
+
 ## v2.76.1 (September 2026)
 
 ### Frontend Dependency Security Remediation

@@ -18,6 +18,7 @@ from services.webull_service import (
     get_webull_open_orders,
     normalize_webull_environment,
 )
+from services.binance_service import get_cached_exchange_info
 
 
 BINANCE_ORDER_HISTORY_OVERLAP = timedelta(minutes=5)
@@ -180,7 +181,7 @@ def get_binance_order_rows(user_id, *, limit=None):
     } for record in records]
 
 
-def _binance_symbols(user_id):
+def _binance_symbols(user_id, exchange_info=None):
     symbols = {
         str(order.symbol or '').upper()
         for order in RealOrder.query.filter_by(user_id=user_id).all()
@@ -196,7 +197,25 @@ def _binance_symbols(user_id):
         if asset and asset not in {'USD', 'USDT'}:
             symbols.add(f'{asset}USD')
             symbols.add(f'{asset}USDT')
-    return sorted(symbol for symbol in symbols if symbol)
+    symbols = {symbol for symbol in symbols if symbol}
+    if exchange_info is None:
+        return sorted(symbols)
+
+    valid_symbols = {
+        str(entry.get('symbol') or '').upper()
+        for entry in exchange_info.get('symbols', [])
+        if isinstance(entry, dict)
+        and str(entry.get('status') or '').upper() == 'TRADING'
+        and entry.get('isSpotTradingAllowed', True)
+    }
+    skipped_symbols = sorted(symbols - valid_symbols)
+    if skipped_symbols:
+        logger.info(
+            'Skipping %d Binance order-history symbols not currently tradable: %s',
+            len(skipped_symbols),
+            ', '.join(skipped_symbols),
+        )
+    return sorted(symbols & valid_symbols)
 
 
 def sync_binance_order_history_for_user(user_id, credential=None):
@@ -208,9 +227,13 @@ def sync_binance_order_history_for_user(user_id, credential=None):
         return {'symbols': 0, 'orders': 0, 'skipped': 'Binance.US is not connected.'}
 
     client = Client(api_key=api_key, api_secret=api_secret, testnet=False, tld='us', requests_params={'timeout': 30})
+    exchange_info = get_cached_exchange_info(client)
+    if not exchange_info or not isinstance(exchange_info.get('symbols'), list):
+        logger.warning('Skipping Binance order-history sync: live exchange metadata is unavailable.')
+        return {'symbols': 0, 'orders': 0, 'skipped': 'Binance exchange metadata is unavailable.'}
     imported_total = 0
     synced_symbols = 0
-    for symbol in _binance_symbols(user_id):
+    for symbol in _binance_symbols(user_id, exchange_info):
         state = _sync_state(user_id, 'binance', symbol=symbol)
         try:
             if state.initial_backfill_complete:
