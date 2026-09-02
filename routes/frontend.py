@@ -50,6 +50,18 @@ def tax_report_page():
     """Serve the tax report page"""
     return serve_react_app()
 
+@frontend_bp.route("/tax-report-binance")
+@login_required
+def tax_report_binance_page():
+    """Serve the Binance.US tax report page"""
+    return serve_react_app()
+
+@frontend_bp.route("/tax-report-webull")
+@login_required
+def tax_report_webull_page():
+    """Serve the Webull tax report page"""
+    return serve_react_app()
+
 @frontend_bp.route("/help")
 @login_required
 def help_page():

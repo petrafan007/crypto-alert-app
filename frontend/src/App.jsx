@@ -12,7 +12,8 @@ import Orders from './pages/Orders';
 import Settings from './pages/Settings';
 import AICopilotSidebar from './components/AICopilotSidebar';
 import Staking from './pages/Staking';
-import TaxReport from './pages/TaxReport';
+import TaxReportBinance from './pages/TaxReportBinance';
+import TaxReportWebull from './pages/TaxReportWebull';
 import Help from './pages/Help';
 import PrivacyPolicy from './pages/PrivacyPolicy';
 import TermsOfService from './pages/TermsOfService';
@@ -62,6 +63,8 @@ export default function App() {
   const [selectAllHidden, setSelectAllHidden] = useState(false);
   const [showTradingMenu, setShowTradingMenu] = useState(false);
   const tradingMenuRef = useRef(null);
+  const [showTaxMenu, setShowTaxMenu] = useState(false);
+  const taxMenuRef = useRef(null);
   const [isLightMode, setIsLightMode] = useState(() => {
     const stored = localStorage.getItem('theme');
     return stored ? stored === 'light' : false;
@@ -100,14 +103,20 @@ export default function App() {
   // Keep the exchange menu open while moving from its trigger into the
   // popover. Dismiss only from an intentional outside click or Escape.
   useEffect(() => {
-    if (!showTradingMenu) return undefined;
+    if (!showTradingMenu && !showTaxMenu) return undefined;
     const dismiss = (event) => {
-      if (tradingMenuRef.current && !tradingMenuRef.current.contains(event.target)) {
+      const insideTrading = tradingMenuRef.current?.contains(event.target);
+      const insideTax = taxMenuRef.current?.contains(event.target);
+      if (!insideTrading && !insideTax) {
         setShowTradingMenu(false);
+        setShowTaxMenu(false);
       }
     };
     const dismissOnEscape = (event) => {
-      if (event.key === 'Escape') setShowTradingMenu(false);
+      if (event.key === 'Escape') {
+        setShowTradingMenu(false);
+        setShowTaxMenu(false);
+      }
     };
     document.addEventListener('mousedown', dismiss);
     document.addEventListener('keydown', dismissOnEscape);
@@ -115,7 +124,7 @@ export default function App() {
       document.removeEventListener('mousedown', dismiss);
       document.removeEventListener('keydown', dismissOnEscape);
     };
-  }, [showTradingMenu]);
+  }, [showTradingMenu, showTaxMenu]);
 
 
 
@@ -226,9 +235,23 @@ export default function App() {
                 ⚙️ Settings
               </Link>
 
-              <Link to="/tax-report" className="nav-link">
-                📄 Tax Report
-              </Link>
+              <div ref={taxMenuRef} className="nav-menu">
+                <button
+                  type="button"
+                  className="nav-link"
+                  aria-haspopup="menu"
+                  aria-expanded={showTaxMenu}
+                  onClick={() => setShowTaxMenu((shown) => !shown)}
+                >
+                  📄 Tax Report ▾
+                </button>
+                {showTaxMenu && (
+                  <div className="nav-menu-popover" role="menu">
+                    <Link to="/tax-report-binance" role="menuitem" onClick={() => setShowTaxMenu(false)}>Binance.US</Link>
+                    <Link to="/tax-report-webull" role="menuitem" onClick={() => setShowTaxMenu(false)}>Webull</Link>
+                  </div>
+                )}
+              </div>
 
               <button
                 onClick={handleUnhideCoins}
@@ -357,7 +380,17 @@ export default function App() {
 
             <Route path="/tax-report" element={
               <ProtectedRoute isLightMode={isLightMode}>
-                <TaxReport />
+                <TaxReportBinance />
+              </ProtectedRoute>
+            } />
+            <Route path="/tax-report-binance" element={
+              <ProtectedRoute isLightMode={isLightMode}>
+                <TaxReportBinance />
+              </ProtectedRoute>
+            } />
+            <Route path="/tax-report-webull" element={
+              <ProtectedRoute isLightMode={isLightMode}>
+                <TaxReportWebull />
               </ProtectedRoute>
             } />
             <Route path="/help" element={

@@ -97,6 +97,12 @@ def import_binance_orders(user_id, orders):
         record.price = _number(order.get('price'), None)
         cumulative_quote = _number(order.get('cummulativeQuoteQty', order.get('cumulativeQuoteQty')), 0.0)
         record.filled_price = cumulative_quote / record.filled_quantity if record.filled_quantity and cumulative_quote > 0 else record.price
+        commission = order.get('commission', order.get('fee'))
+        if commission not in (None, ''):
+            record.commission = _number(commission, None)
+        commission_asset = order.get('commissionAsset', order.get('commission_asset', order.get('fee_asset')))
+        if commission_asset not in (None, ''):
+            record.commission_asset = str(commission_asset).upper()
         record.status = str(order.get('status') or '').upper() or None
         record.created_at = _provider_datetime(order.get('time') or order.get('transactTime')) or record.created_at
         record.updated_at = _provider_datetime(order.get('updateTime') or order.get('time')) or record.updated_at
@@ -112,6 +118,36 @@ def import_binance_orders(user_id, orders):
         imported += 1
     db.session.commit()
     return imported, latest_updated_at, latest_order_id
+
+
+def _binance_trade_fees(client, symbol, start_at=None):
+    """Aggregate Binance trade commissions by order for durable history rows."""
+    params = {'symbol': symbol, 'limit': 1000}
+    if start_at:
+        params['startTime'] = int((start_at - BINANCE_ORDER_HISTORY_OVERLAP).replace(tzinfo=timezone.utc).timestamp() * 1000)
+    try:
+        trades = client.get_my_trades(**params) or []
+    except Exception as exc:
+        logger.warning('Binance trade-fee lookup failed for %s: %s', symbol, exc)
+        return {}
+
+    fees = {}
+    for trade in trades:
+        if not isinstance(trade, dict):
+            continue
+        order_id = str(trade.get('orderId') or trade.get('order_id') or '').strip()
+        if not order_id:
+            continue
+        try:
+            commission = float(trade.get('commission') or trade.get('fee') or 0.0)
+        except (TypeError, ValueError):
+            commission = 0.0
+        asset = str(trade.get('commissionAsset') or trade.get('commission_asset') or trade.get('fee_asset') or '').upper()
+        current = fees.setdefault(order_id, {'commission': 0.0, 'asset': asset})
+        current['commission'] += commission
+        if not current['asset'] and asset:
+            current['asset'] = asset
+    return fees
 
 
 def get_binance_order_rows(user_id, *, limit=None):
@@ -207,6 +243,17 @@ def sync_binance_order_history_for_user(user_id, credential=None):
                     time.sleep(0.1)
 
             flattened = [order for batch in batches for order in batch]
+            trade_fees = _binance_trade_fees(
+                client,
+                symbol,
+                state.last_provider_updated_at if state.initial_backfill_complete else None,
+            )
+            for order in flattened:
+                order_id = str(order.get('orderId') or order.get('order_id') or '').strip()
+                fee = trade_fees.get(order_id)
+                if fee:
+                    order['commission'] = fee['commission']
+                    order['commissionAsset'] = fee['asset']
             imported, latest_updated_at, latest_order_id = import_binance_orders(user_id, flattened)
             state.last_successful_at = datetime.utcnow()
             state.last_provider_updated_at = latest_updated_at or state.last_provider_updated_at

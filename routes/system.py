@@ -5,7 +5,7 @@ import threading
 import time
 from flask import send_file, request, jsonify, render_template, current_app, redirect, url_for, session
 from flask_login import current_user, login_required, login_user, logout_user
-from models import Coin, WatchlistCoin, Notification, PriceHistory
+from models import Coin, WatchlistCoin, Notification, PriceHistory, WebullHolding
 from credentials import Credential, User, UserSetting
 from core.extensions import db
 from log import logger
@@ -2280,6 +2280,64 @@ def api_webull_open_orders():
             account_id=account_id,
         )
         import_webull_orders(current_user.id, orders)
+        holdings = WebullHolding.query.filter_by(user_id=current_user.id).all()
+        holding_prices = {
+            (str(holding.account_id), str(holding.symbol or '').upper()): {
+                'current': float(holding.last_price or 0.0),
+            }
+            for holding in holdings
+            if holding.symbol
+        }
+        for order in orders:
+            if not isinstance(order, dict):
+                continue
+            symbol = str(order.get('symbol') or order.get('ticker') or '').upper()
+            account_key = str(order.get('_webull_account_id') or account_id or '')
+            current_price = holding_prices.get((account_key, symbol), {}).get('current', 0.0)
+            if current_price <= 0:
+                current_price = next(
+                    (
+                        value for (holding_account, holding_symbol), value in holding_prices.items()
+                        if holding_symbol == symbol
+                    ),
+                    {},
+                ).get('current', 0.0)
+            price = next(
+                (
+                    order.get(key)
+                    for key in ('price', 'limit_price', 'order_price', 'limitPrice', 'orderPrice', 'stop_price', 'stopPrice')
+                    if order.get(key) not in (None, '', 0, '0', 0.0, '0.0')
+                ),
+                None,
+            )
+            if price in (None, '') and current_price > 0:
+                price = current_price
+            if price not in (None, ''):
+                try:
+                    order['price'] = float(price)
+                    order['execution_price'] = float(price)
+                except (TypeError, ValueError):
+                    pass
+            quantity = next(
+                (
+                    order.get(key)
+                    for key in ('quantity', 'total_quantity', 'order_quantity', 'order_qty', 'orderQty', 'qty')
+                    if order.get(key) not in (None, '')
+                ),
+                0,
+            )
+            try:
+                quantity_value = float(quantity or 0.0)
+                execution_price = float(order.get('execution_price') or 0.0)
+            except (TypeError, ValueError):
+                quantity_value = 0.0
+                execution_price = 0.0
+            if current_price > 0 and execution_price > 0 and quantity_value > 0:
+                side = str(order.get('side') or '').upper()
+                if side == 'BUY':
+                    order['estimated_pnl'] = (current_price - execution_price) * quantity_value
+                elif side == 'SELL':
+                    order['estimated_pnl'] = (execution_price - current_price) * quantity_value
         if not account_id:
             allowed_ids = _webull_allowed_account_ids(setting)
             orders = [

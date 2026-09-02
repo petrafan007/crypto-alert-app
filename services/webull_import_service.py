@@ -74,10 +74,24 @@ def import_webull_orders(user_id, orders):
         record.event_outcome = str(_first_value(order, 'event_outcome', 'eventOutcome', 'outcome') or '').strip().upper() or None
         record.side = str(_first_value(order, 'side') or '').strip().upper() or None
         record.order_type = str(_first_value(order, 'order_type', 'orderType', 'type') or '').strip().upper() or None
-        record.quantity = _number(_first_value(order, 'total_quantity', 'quantity', 'order_quantity'), 0.0)
-        record.filled_quantity = _number(_first_value(order, 'filled_quantity', 'executed_quantity', 'filled_qty'), 0.0)
-        record.price = _number(_first_value(order, 'limit_price', 'price', 'order_price'), None)
-        record.filled_price = _number(_first_value(order, 'average_filled_price', 'avg_fill_price', 'filled_price'), record.price)
+        quantity = _first_value(order, 'total_quantity', 'quantity', 'order_quantity', 'order_qty', 'qty')
+        if quantity is not None:
+            record.quantity = _number(quantity, 0.0)
+        filled_quantity = _first_value(order, 'filled_quantity', 'executed_quantity', 'filled_qty', 'filled_size', 'filledSize')
+        if filled_quantity is not None:
+            record.filled_quantity = _number(filled_quantity, 0.0)
+        price = _first_value(order, 'limit_price', 'price', 'order_price', 'limitPrice', 'orderPrice')
+        if price is not None:
+            record.price = _number(price, None)
+        filled_price = _first_value(order, 'average_filled_price', 'avg_fill_price', 'avg_price', 'average_price', 'filled_price')
+        if filled_price is not None:
+            record.filled_price = _number(filled_price, record.price)
+        fee = _first_value(order, 'fee', 'commission', 'fee_amount', 'total_fee', 'commission_amount')
+        if fee is not None:
+            record.fee = _number(fee, None)
+        fee_asset = _first_value(order, 'fee_asset', 'commission_asset', 'fee_currency', 'commission_currency')
+        if fee_asset is not None:
+            record.fee_asset = str(fee_asset).strip().upper() or None
         record.status = str(_first_value(order, 'status', 'order_status') or '').strip().upper() or None
         record.created_at = _webull_order_datetime(_first_value(order, 'created_at', 'create_time', 'placed_time', 'place_time', 'submitted_time', 'filled_time_at')) or record.created_at
         record.updated_at = _webull_order_datetime(_first_value(order, 'updated_at', 'update_time', 'filled_time', 'filled_time_at', 'last_updated_time')) or record.updated_at
@@ -109,6 +123,8 @@ def get_webull_order_rows(user_id, *, account_id=None, limit=None):
         'price': record.price or 0.0,
         'filled_quantity': record.filled_quantity or 0.0,
         'filled_price': record.filled_price or record.price or 0.0,
+        'fee': record.fee,
+        'fee_asset': record.fee_asset,
         'status': record.status or 'UNKNOWN',
         'created_at': record.created_at.isoformat() if record.created_at else None,
         'updated_at': record.updated_at.isoformat() if record.updated_at else None,

@@ -3,12 +3,14 @@ import axios from 'axios';
 import CryptoIcon from '../components/CryptoIcon';
 import { formatEasternDate } from '../utils/dateTime';
 
-export default function TaxReport({ isLightMode }) {
+export default function TaxReport({ isLightMode, source = 'binance' }) {
+  const isWebullReport = source === 'webull';
+  const exchangeLabel = isWebullReport ? 'Webull' : 'Binance.US';
   const [taxData, setTaxData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [selectedAsset, setSelectedAsset] = useState('all');
-  const [selectedYear, setSelectedYear] = useState('all');
+  const [selectedYear, setSelectedYear] = useState(() => String(new Date().getFullYear()));
   const [sortConfig, setSortConfig] = useState({ key: 'date', direction: 'desc' });
   const [filters, setFilters] = useState({
     type: [],
@@ -32,7 +34,7 @@ export default function TaxReport({ isLightMode }) {
     status: 'completed',
     details: '',
     avg_entry: '',
-    exchange: 'manual'
+    exchange: source === 'webull' ? 'webull' : 'manual'
   });
   const [manualInvestmentInput, setManualInvestmentInput] = useState('0.00');
   const [manualInvestmentSaving, setManualInvestmentSaving] = useState(false);
@@ -46,7 +48,7 @@ export default function TaxReport({ isLightMode }) {
   const fetchTaxReport = async () => {
     try {
       setLoading(true);
-      const response = await axios.get('/api/tax-report', { withCredentials: true });
+      const response = await axios.get('/api/tax-report', { params: { source }, withCredentials: true });
       setTaxData(response.data);
       const manualAmount = parseFloat(response.data?.summary?.manual_invested_amount ?? 0) || 0;
       setManualInvestmentInput(manualAmount.toFixed(2));
@@ -65,15 +67,18 @@ export default function TaxReport({ isLightMode }) {
       setLoading(true);
       setError(null);
       
-      // Sync logs from exchange to pull latest transactions
-      await axios.post('/api/logs/sync', {}, { withCredentials: true });
+      // Binance activity can be synchronized on demand. Webull order history is
+      // reconciled in the background and this report reads its durable ledger.
+      if (!isWebullReport) {
+        await axios.post('/api/logs/sync', {}, { withCredentials: true });
+      }
       
       // Then fetch the updated tax report
-      const response = await axios.get('/api/tax-report', { withCredentials: true });
+      const response = await axios.get('/api/tax-report', { params: { source }, withCredentials: true });
       setTaxData(response.data);
     } catch (err) {
       console.error('Error syncing and refreshing tax report:', err);
-      setError('Failed to sync logs or load tax report');
+      setError(isWebullReport ? 'Failed to load Webull tax report' : 'Failed to sync logs or load tax report');
     } finally {
       setLoading(false);
     }
@@ -170,7 +175,7 @@ export default function TaxReport({ isLightMode }) {
 
   const openContributionModal = async () => {
     try {
-      const response = await axios.get('/api/tax/manual-investment', { withCredentials: true });
+      const response = await axios.get('/api/tax/manual-investment', { params: { source }, withCredentials: true });
       const amount = parseFloat(response.data?.amount ?? manualInvestmentInput) || 0;
       setManualInvestmentInput(amount.toFixed(2));
     } catch (err) {
@@ -212,7 +217,7 @@ export default function TaxReport({ isLightMode }) {
       status: 'completed',
       details: '',
       avg_entry: '',
-      exchange: 'manual'
+      exchange: source === 'webull' ? 'webull' : 'manual'
     });
   };
 
@@ -249,7 +254,7 @@ export default function TaxReport({ isLightMode }) {
 
     try {
       setManualInvestmentSaving(true);
-      await axios.post('/api/tax/manual-investment', { amount }, { withCredentials: true });
+      await axios.post('/api/tax/manual-investment', { amount, source }, { withCredentials: true });
       await fetchTaxReport();
       setManualInvestmentFeedback({ type: 'success', message: 'Saved!' });
       setShowContributionModal(false);
@@ -396,11 +401,8 @@ export default function TaxReport({ isLightMode }) {
     filteredTransactions.forEach(tx => {
       const gl = parseFloat(tx.gain_loss) || 0;
       realizedGainLoss += gl;
-      if (tx.gain_loss_type === 'short_term' || (!tx.gain_loss_type && gl !== 0)) {
-        shortTermGains += gl;
-      } else if (tx.gain_loss_type === 'long_term') {
-        longTermGains += gl;
-      }
+      shortTermGains += parseFloat(tx.short_term_gain_loss) || 0;
+      longTermGains += parseFloat(tx.long_term_gain_loss) || 0;
       totalProceeds += parseFloat(tx.proceeds) || 0;
       totalCostBasis += parseFloat(tx.cost_basis) || 0;
       totalFees += parseFloat(tx.fee) || 0;
@@ -419,8 +421,9 @@ export default function TaxReport({ isLightMode }) {
 
   const getYears = () => {
     if (!taxData) return [];
-    const years = [...new Set(taxData.transactions.map(tx => tx.date.substring(0, 4)))];
-    return years.sort();
+    const years = [...new Set(taxData.transactions.map(tx => (tx.date || '').substring(0, 4)).filter(Boolean))];
+    years.push(String(new Date().getFullYear()));
+    return [...new Set(years)].sort();
   };
 
   const getAssets = () => {
@@ -466,7 +469,7 @@ export default function TaxReport({ isLightMode }) {
     <div className="main-container tax-report-container">
       <div className="table-container">
         <div className="table-header">
-          <h2 className="table-title">Tax Report</h2>
+          <h2 className="table-title">{exchangeLabel} Tax Report</h2>
           <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
             <select
               value={selectedAsset}
@@ -483,7 +486,7 @@ export default function TaxReport({ isLightMode }) {
               onChange={(e) => setSelectedYear(e.target.value)}
               className="tax-report-selector"
             >
-              <option value="all">All Years</option>
+                <option value="all">All Years</option>
               {getYears().map(year => (
                 <option key={year} value={year}>{year}</option>
               ))}
@@ -865,10 +868,10 @@ export default function TaxReport({ isLightMode }) {
                                    borderRadius: '4px',
                                    fontSize: '11px',
                                    fontWeight: 'bold',
-                                   background: tx[columnKey] === 'short_term' ? 'rgba(72, 187, 120, 0.2)' : 'rgba(245, 101, 101, 0.2)',
-                                   color: tx[columnKey] === 'short_term' ? '#48bb78' : '#f56565'
+                                   background: tx[columnKey] === 'long_term' ? 'rgba(79, 209, 197, 0.2)' : tx[columnKey] === 'mixed' ? 'rgba(246, 173, 85, 0.2)' : 'rgba(72, 187, 120, 0.2)',
+                                   color: tx[columnKey] === 'long_term' ? '#4fd1c5' : tx[columnKey] === 'mixed' ? '#f6ad55' : '#48bb78'
                                  }}>
-                                   {tx[columnKey] === 'short_term' ? 'ST Gain' : 'Loss'}
+                                   {tx[columnKey] === 'short_term' ? 'Short-Term' : tx[columnKey] === 'long_term' ? 'Long-Term' : tx[columnKey] === 'mixed' ? 'Mixed' : 'Unclassified'}
                                  </span>
                                ) : '—'
                              ) :

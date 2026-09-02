@@ -404,6 +404,7 @@ class UserSetting(db.Model):
     ai_max_tokens = db.Column(db.Integer, default=4000)
     ai_web_search_enabled = db.Column(db.Boolean, default=True)
     tax_manual_invested_updated = db.Column(db.String)
+    tax_webull_manual_invested_updated = db.Column(db.String)
     tax_cost_basis_method = db.Column(db.String, default='fifo')
     credentials_encryption_key_configured = db.Column(db.Boolean, default=False)
     has_seen_onboarding = db.Column(db.Boolean, default=False)

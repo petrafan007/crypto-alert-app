@@ -127,6 +127,14 @@ The application utilizes a **unified PostgreSQL database**.
 
 Historical changelog entries retain the product name used when they were originally released. The application domain, repository slug, deployment folders, database, and service identifiers intentionally remain unchanged by the v2.45.0 brand update.
 
+## v2.76.0 (September 2026)
+
+### Orders and Provider-Specific Tax Reports
+- Consolidated Open Orders now separates Eastern Date and Time columns, centers Account values, removes the redundant Status filter, shows actionable order or trigger prices instead of `Market`, and displays available quantities, fills, fees, and estimated mark-to-market P&L.
+- Order History now preserves and displays Binance.US trade commissions and Webull provider fees when supplied by the durable order ledgers.
+- Split Tax Report into dedicated Binance.US and Webull pages with matching filters, transaction tools, exports, contribution tracking, and Current Year defaults.
+- Tax gain/loss classification now uses dated FIFO acquisition lots, including separate Short-Term and Long-Term totals and mixed-lot sale allocation at the 365-day boundary.
+
 ## v2.75.7 (September 2026)
 
 ### Event Contract Lifecycle and Countdown Repair

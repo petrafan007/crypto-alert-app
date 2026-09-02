@@ -8,7 +8,7 @@ import re
 import traceback
 from flask import Blueprint, send_file, request, jsonify, render_template, current_app, redirect, url_for, session, make_response
 from flask_login import current_user, login_required, login_user, logout_user
-from models import Coin, WatchlistCoin, Notification, PriceHistory, WebullWatchlistItem
+from models import Coin, WatchlistCoin, Notification, PriceHistory, WebullWatchlistItem, WebullOrder, WebullHolding
 from credentials import Credential, User, UserSetting
 from core.extensions import db
 from log import logger
@@ -2303,7 +2303,7 @@ def get_real_orders_only():
                 'order_type': order.type,
                 'quantity': float(order.quantity or 0.0),
                 'price': float(order.price or 0.0),
-                'filled_quantity': float(order.executed_qty or order.quantity or 0.0),
+                'filled_quantity': float(order.executed_qty or 0.0),
                 'filled_price': float(order.avg_fill_price or order.price or 0.0),
                 'fee': float(order.commission or 0.0),
                 'fee_asset': order.commission_asset,
@@ -3771,6 +3771,13 @@ def get_open_orders():
                     open_orders = []
 
         formatted_open_orders = []
+        portfolio_prices = {
+            str(coin.symbol or '').upper(): {
+                'current': float(coin.current or 0.0),
+            }
+            for coin in Coin.query.filter_by(user_id=current_user.id).all()
+            if coin.symbol
+        }
         for ord in open_orders:
             o_dict = ord if isinstance(ord, dict) else (ord.to_dict() if hasattr(ord, 'to_dict') else {})
             o_copy = dict(o_dict)
@@ -3783,6 +3790,45 @@ def get_open_orders():
                     o_copy['created_at'] = datetime.fromtimestamp(o_copy['time'] / 1000, tz=timezone.utc).isoformat()
                 except Exception:
                     pass
+            symbol = str(o_copy.get('symbol') or '').upper()
+            base_asset = symbol[:-4] if symbol.endswith('USDT') else symbol[:-3] if symbol.endswith('USD') else symbol
+            price = next(
+                (
+                    o_copy.get(key)
+                    for key in ('price', 'limit_price', 'order_price', 'limitPrice', 'orderPrice', 'stop_price', 'stopPrice')
+                    if o_copy.get(key) not in (None, '', 0, '0', 0.0, '0.0')
+                ),
+                None,
+            )
+            market_price = portfolio_prices.get(base_asset, {}).get('current', 0.0)
+            if price in (None, '', 0, '0', 0.0, '0.0') and market_price > 0:
+                price = market_price
+            if price not in (None, ''):
+                try:
+                    o_copy['price'] = float(price)
+                    o_copy['execution_price'] = float(price)
+                except (TypeError, ValueError):
+                    pass
+            quantity = next(
+                (
+                    o_copy.get(key)
+                    for key in ('quantity', 'origQty', 'order_quantity', 'order_qty', 'orderQty', 'qty')
+                    if o_copy.get(key) not in (None, '')
+                ),
+                0,
+            )
+            try:
+                quantity_value = float(quantity or 0.0)
+                execution_price = float(o_copy.get('execution_price') or 0.0)
+            except (TypeError, ValueError):
+                quantity_value = 0.0
+                execution_price = 0.0
+            if market_price > 0 and execution_price > 0 and quantity_value > 0:
+                side = str(o_copy.get('side') or '').upper()
+                if side == 'BUY':
+                    o_copy['estimated_pnl'] = (market_price - execution_price) * quantity_value
+                elif side == 'SELL':
+                    o_copy['estimated_pnl'] = (execution_price - market_price) * quantity_value
             formatted_open_orders.append(o_copy)
 
         # Collect active in-app Auto-Buy and Auto-Sell triggers
@@ -4527,24 +4573,295 @@ def unhide_all():
 @login_required
 def api_tax_manual_investment():
     try:
+        source = request.args.get('source', 'binance').lower()
+        if source not in {'binance', 'webull'}:
+            source = 'binance'
         if request.method == 'GET':
-            amount = get_manual_tax_investment(current_user.id)
+            amount = get_manual_tax_investment(current_user.id, source)
             return jsonify({
                 'success': True,
-                'amount': amount
+                'amount': amount,
+                'source': source,
             })
 
         data = request.get_json(force=True, silent=True) or {}
         amount = _coerce_float(data.get('amount'), 0.0) or 0.0
-        updated_amount, updated_at = set_manual_tax_investment(current_user.id, amount)
+        source = str(data.get('source') or source).lower()
+        if source not in {'binance', 'webull'}:
+            source = 'binance'
+        saved = set_manual_tax_investment(current_user.id, amount, source)
+        if saved is False:
+            return jsonify({'success': False, 'error': 'Failed to update manual investment amount'}), 500
+        updated_amount, updated_at = saved
         return jsonify({
             'success': True,
             'amount': updated_amount,
-            'updated_at': updated_at
+            'updated_at': updated_at,
+            'source': source,
         })
     except Exception as e:
         logger.error(f"Manual tax investment update failed: {e}", exc_info=True)
         return jsonify({'success': False, 'error': 'Failed to update manual investment amount'}), 500
+
+
+def _tax_datetime(value):
+    if value in (None, ''):
+        return None
+    if isinstance(value, datetime):
+        parsed = value
+    else:
+        try:
+            parsed = datetime.fromisoformat(str(value).replace('Z', '+00:00'))
+        except (TypeError, ValueError):
+            try:
+                parsed = datetime.strptime(str(value), '%Y-%m-%d %H:%M:%S')
+            except (TypeError, ValueError):
+                return None
+    if parsed.tzinfo:
+        return parsed.astimezone(timezone.utc).replace(tzinfo=None)
+    return parsed
+
+
+def _build_tax_transactions(raw_transactions):
+    """Build tax rows and term-specific FIFO results from dated transactions."""
+    from collections import defaultdict, deque
+
+    acquisition_types = {'BUY', 'TRANSFER', 'RECEIVE', 'GIFT', 'BONUS'}
+    lots_by_asset = defaultdict(deque)
+    tax_rows = []
+
+    ordered = sorted(
+        raw_transactions,
+        key=lambda tx: (_tax_datetime(tx.get('date')) or datetime.min, int(tx.get('id') or 0)),
+    )
+    for tx in ordered:
+        tx_type = str(tx.get('type') or '').upper()
+        asset = str(tx.get('asset') or '').upper()
+        quantity = abs(float(tx.get('amount') or 0.0))
+        fee = abs(float(tx.get('fee') or 0.0))
+        price = float(tx.get('price_sold_at') or tx.get('avg_entry') or 0.0)
+        stored_cost = float(tx.get('cost_basis') or 0.0)
+        stored_proceeds = float(tx.get('proceeds') or 0.0)
+        tx_date = _tax_datetime(tx.get('date'))
+        row = {
+            'id': tx.get('id'),
+            'date': _format_activity_date(tx.get('date')),
+            'type': tx_type,
+            'asset': asset,
+            'amount': float(tx.get('amount') or 0.0),
+            'proceeds': stored_proceeds,
+            'fee': fee,
+            'txid': tx.get('txid'),
+            'cost_basis': stored_cost,
+            'gain_loss': None,
+            'gain_loss_type': None,
+            'price_sold_at': tx.get('price_sold_at'),
+            'exchange': tx.get('exchange') or 'binance',
+            'holding_days': None,
+            'acquisition_date': None,
+            'short_term_gain_loss': None,
+            'long_term_gain_loss': None,
+            'unclassified_gain_loss': None,
+        }
+
+        if tx_type in acquisition_types and quantity > 0:
+            if stored_cost <= 0:
+                stored_cost = stored_proceeds + fee if stored_proceeds > 0 else price * quantity + fee
+            lots_by_asset[asset].append({
+                'amount': quantity,
+                'cost': stored_cost,
+                'date': tx_date,
+            })
+            row['cost_basis'] = stored_cost
+            tax_rows.append(row)
+            continue
+
+        if tx_type != 'SELL' or quantity <= 0:
+            tax_rows.append(row)
+            continue
+
+        proceeds = stored_proceeds if stored_proceeds > 0 else max(price * quantity - fee, 0.0)
+        row['proceeds'] = proceeds
+        remaining = quantity
+        cost_total = 0.0
+        short_gain = 0.0
+        long_gain = 0.0
+        unclassified_gain = 0.0
+        terms = set()
+        acquisition_dates = []
+        lots = lots_by_asset[asset]
+        proceeds_per_unit = proceeds / quantity if quantity else 0.0
+
+        while remaining > 1e-12 and lots:
+            lot = lots[0]
+            slice_amount = min(remaining, lot['amount'])
+            cost_slice = slice_amount * (lot['cost'] / lot['amount']) if lot['amount'] else 0.0
+            cost_total += cost_slice
+            slice_gain = slice_amount * proceeds_per_unit - cost_slice
+            acquisition_date = lot.get('date')
+            if acquisition_date and tx_date:
+                holding_days = max(0, (tx_date - acquisition_date).days)
+                term = 'long_term' if holding_days >= 365 else 'short_term'
+                terms.add(term)
+                acquisition_dates.append((acquisition_date, holding_days))
+                if term == 'long_term':
+                    long_gain += slice_gain
+                else:
+                    short_gain += slice_gain
+            else:
+                terms.add('unclassified')
+                unclassified_gain += slice_gain
+            lot['amount'] -= slice_amount
+            lot['cost'] -= cost_slice
+            remaining -= slice_amount
+            if lot['amount'] <= 1e-12:
+                lots.popleft()
+
+        if remaining > 1e-12:
+            fallback_cost = max(stored_cost - cost_total, 0.0)
+            cost_total += fallback_cost
+            fallback_gain = remaining * proceeds_per_unit - fallback_cost
+            unclassified_gain += fallback_gain
+            terms.add('unclassified')
+
+        gain_loss = proceeds - cost_total
+        if not terms and tx.get('gain_loss') is not None:
+            gain_loss = float(tx.get('gain_loss') or 0.0)
+        row.update({
+            'cost_basis': cost_total,
+            'gain_loss': gain_loss,
+            'short_term_gain_loss': short_gain,
+            'long_term_gain_loss': long_gain,
+            'unclassified_gain_loss': unclassified_gain,
+            'gain_loss_type': 'mixed' if len(terms) > 1 else next(iter(terms), None),
+        })
+        if acquisition_dates:
+            oldest_date, oldest_days = min(acquisition_dates, key=lambda item: item[0])
+            row['acquisition_date'] = oldest_date.isoformat()
+            row['holding_days'] = oldest_days if len(acquisition_dates) == 1 else None
+        tax_rows.append(row)
+
+    fifo_lots = {
+        asset: [
+            {'amount': lot['amount'], 'cost': lot['cost'], 'acquisition_date': lot['date'].isoformat() if lot.get('date') else None}
+            for lot in lots if lot['amount'] > 1e-12
+        ]
+        for asset, lots in lots_by_asset.items()
+        if any(lot['amount'] > 1e-12 for lot in lots)
+    }
+    return tax_rows, fifo_lots
+
+
+def _build_webull_tax_report(user_id):
+    """Create a tax report from filled live Webull orders and holdings."""
+    raw_transactions = []
+    for order in WebullOrder.query.filter_by(user_id=user_id).all():
+        status = str(order.status or '').upper()
+        filled_quantity = float(order.filled_quantity or 0.0)
+        filled_price = float(order.filled_price or order.price or 0.0)
+        if filled_quantity <= 0 or filled_price <= 0 or status in {'CANCELED', 'CANCELLED', 'REJECTED', 'WORKING', 'OPEN'}:
+            continue
+        side = str(order.side or '').upper()
+        tx_type = 'SELL' if side.startswith('SELL') else 'BUY'
+        fee = abs(float(order.fee or 0.0))
+        gross_value = filled_quantity * filled_price
+        raw_transactions.append({
+            'id': order.id,
+            'date': order.updated_at or order.created_at,
+            'type': tx_type,
+            'asset': order.symbol,
+            'amount': -filled_quantity if tx_type == 'SELL' else filled_quantity,
+            'proceeds': gross_value - fee if tx_type == 'SELL' else 0.0,
+            'cost_basis': gross_value + fee if tx_type == 'BUY' else 0.0,
+            'gain_loss': None,
+            'fee': fee,
+            'txid': f'webull_{order.account_id}_{order.provider_order_id}',
+            'price_sold_at': filled_price,
+            'exchange': 'webull',
+        })
+
+    from trading_models import AllActivity
+    manual_webull_activities = AllActivity.query.filter_by(user_id=user_id).all()
+    raw_transactions.extend({
+        'id': activity.id,
+        'date': activity.date,
+        'type': activity.type,
+        'asset': activity.asset,
+        'amount': activity.amount,
+        'proceeds': activity.proceeds,
+        'cost_basis': activity.cost_basis,
+        'gain_loss': activity.gain_loss,
+        'fee': activity.fee,
+        'txid': activity.txid,
+        'price_sold_at': activity.price_sold_at,
+        'exchange': 'webull',
+    } for activity in manual_webull_activities if str(activity.exchange or '').lower() == 'webull')
+
+    tax_data, fifo_lots = _build_tax_transactions(raw_transactions)
+    holdings_map = {}
+    holdings = WebullHolding.query.filter_by(user_id=user_id, hidden=False).all()
+    for holding in holdings:
+        amount = float(holding.quantity or 0.0)
+        if amount <= 0:
+            continue
+        asset = str(holding.symbol or '').upper()
+        price = float(holding.last_price or 0.0)
+        current_value = float(holding.current_value or (amount * price))
+        entry = holdings_map.setdefault(asset, {'amount': 0.0, 'cost_basis': 0.0, 'current_value': 0.0, 'current_price': price, 'source': 'webull'})
+        entry['amount'] += amount
+        entry['cost_basis'] += amount * float(holding.cost_price or 0.0)
+        entry['current_value'] += current_value
+        if entry['amount'] > 0:
+            entry['current_price'] = entry['current_value'] / entry['amount'] if entry['current_value'] else price
+    for entry in holdings_map.values():
+        entry['avg_price_per_unit'] = entry['cost_basis'] / entry['amount'] if entry['amount'] else 0.0
+
+    realized_gain = sum(float(tx.get('gain_loss') or 0.0) for tx in tax_data if tx.get('type') == 'SELL')
+    total_fees = sum(float(tx.get('fee') or 0.0) for tx in tax_data)
+    total_buy_cost = sum(float(tx.get('cost_basis') or 0.0) for tx in tax_data if tx.get('type') == 'BUY')
+    total_sell_proceeds = sum(float(tx.get('proceeds') or 0.0) for tx in tax_data if tx.get('type') == 'SELL')
+    holdings_value = sum(entry['current_value'] for entry in holdings_map.values())
+    holdings_cost = sum(entry['cost_basis'] for entry in holdings_map.values())
+    unrealized_gain = holdings_value - holdings_cost
+    manual_invested = get_manual_tax_investment(user_id, 'webull')
+    return {
+        'transactions': tax_data,
+        'summary': {
+            'total_transactions': len(tax_data),
+            'valid_transactions': len([tx for tx in tax_data if tx.get('gain_loss') is not None]),
+            'total_buys': len([tx for tx in tax_data if tx.get('type') == 'BUY']),
+            'total_sells': len([tx for tx in tax_data if tx.get('type') == 'SELL']),
+            'valid_sells': len([tx for tx in tax_data if tx.get('type') == 'SELL' and tx.get('gain_loss') is not None]),
+            'excluded_sells': len([tx for tx in tax_data if tx.get('type') == 'SELL' and tx.get('gain_loss') is None]),
+            'total_gifts': 0,
+            'total_gain_loss': realized_gain + unrealized_gain,
+            'realized_gain': realized_gain,
+            'unrealized_gain': unrealized_gain,
+            'manual_invested_amount': manual_invested,
+            'manual_invested_updated_at': None,
+            'tracked_cost_basis': holdings_cost,
+            'current_holdings_value': holdings_value,
+            'current_holdings_cost_basis': holdings_cost,
+            'portfolio_holdings_value': holdings_value,
+            'staking_active_value': 0.0,
+            'staking_pending_value': 0.0,
+            'staking_total_value': 0.0,
+            'total_fees_paid': total_fees,
+            'total_buy_volume': total_buy_cost,
+            'total_sell_proceeds': total_sell_proceeds,
+            'short_term_gain_loss': sum(float(tx.get('short_term_gain_loss') or 0.0) for tx in tax_data),
+            'long_term_gain_loss': sum(float(tx.get('long_term_gain_loss') or 0.0) for tx in tax_data),
+            'assets_traded': sorted({tx.get('asset') for tx in tax_data if tx.get('asset')}),
+            'assets_with_current_holdings': len(holdings_map),
+            'date_range': {
+                'start': min((tx.get('date') for tx in tax_data if tx.get('date')), default=None),
+                'end': max((tx.get('date') for tx in tax_data if tx.get('date')), default=None),
+            },
+        },
+        'current_holdings': holdings_map,
+        'fifo_lots': fifo_lots,
+        'source': 'webull',
+    }
 
 @portfolio_bp.route('/api/tax-report')
 @login_required
@@ -4553,6 +4870,11 @@ def api_tax_report():
     try:
         from trading_models import AllActivity
         from models import Coin
+        source = str(request.args.get('source') or 'binance').lower()
+        if source not in {'binance', 'webull'}:
+            return jsonify({'error': 'Unsupported tax report source'}), 400
+        if source == 'webull':
+            return jsonify(_build_webull_tax_report(current_user.id))
         # Use actual Binance balances from coins table, not calculated transaction totals
         # sync_coins_from_transactions() overwrites correct balances with wrong calculated amounts
         
@@ -4561,6 +4883,10 @@ def api_tax_report():
             AllActivity.user_id == current_user.id,
             AllActivity.status.in_(['FILLED', 'completed'])
         ).order_by(AllActivity.date.asc()).all()
+        activities = [
+            activity for activity in activities
+            if str(activity.exchange or '').lower() != 'webull'
+        ]
         
         # Convert to list of dictionaries
         transactions = []
@@ -4583,38 +4909,7 @@ def api_tax_report():
             }
             transactions.append(tx_dict)
         
-        # Calculate tax information for each transaction for table display
-        tax_data = []
-        for tx in transactions:
-            asset = tx['asset']
-            tx_type = tx['type']
-            amount = float(tx['amount'] or 0)
-            proceeds = float(tx['proceeds'] or 0)
-            fee = float(tx['fee'] or 0)
-            date = tx['date']
-            
-            cost_basis_val = float(tx['cost_basis'] or 0)
-            gain_loss_val = float(tx['gain_loss']) if tx['gain_loss'] is not None else None
-            if gain_loss_val is None and tx_type == 'SELL' and (proceeds > 0 or cost_basis_val > 0):
-                gain_loss_val = (proceeds - fee) - cost_basis_val if proceeds > 0 else -cost_basis_val
-
-            tax_info = {
-                'id': tx['id'],
-                'date': _format_activity_date(tx['date']),
-                'type': tx_type,
-                'asset': asset,
-                'amount': amount,
-                'proceeds': proceeds,
-                'fee': fee,
-                'txid': tx['txid'],
-                'cost_basis': cost_basis_val,
-                'gain_loss': gain_loss_val,
-                'gain_loss_type': 'short_term' if (gain_loss_val is not None and gain_loss_val >= 0) else ('loss' if (gain_loss_val is not None and gain_loss_val < 0) else None),
-                'price_sold_at': tx.get('price_sold_at'),  # USDT price at sale/purchase
-                'exchange': tx.get('exchange', 'coinbase')  # Exchange source
-            }
-            
-            tax_data.append(tax_info)
+        tax_data, fifo_lots = _build_tax_transactions(transactions)
         
         # Get actual current holdings from the coins table (which reflects real balances)
         current_coins = Coin.query.filter_by(user_id=current_user.id, hidden=False).all()
@@ -4655,7 +4950,6 @@ def api_tax_report():
         combined_holdings_value = portfolio_holdings_value + total_staking_value
 
         manual_invested = get_manual_tax_investment(current_user.id)
-        user_setting_for_tax = UserSetting.query.filter_by(user_id=current_user.id).first()
         manual_updated_at = None  # This field is deprecated in new schema
 
         # Calculate summary statistics for the table/meta data
@@ -4688,6 +4982,8 @@ def api_tax_report():
             'total_fees_paid': performance['total_fees_paid'],
             'total_buy_volume': performance['total_buy_cost'],
             'total_sell_proceeds': performance['total_sell_proceeds'],
+            'short_term_gain_loss': sum(float(t.get('short_term_gain_loss') or 0.0) for t in tax_data),
+            'long_term_gain_loss': sum(float(t.get('long_term_gain_loss') or 0.0) for t in tax_data),
             'assets_traded': list(set(t['asset'] for t in tax_data)),
             'assets_with_current_holdings': len(current_holdings),
             'date_range': {
@@ -4700,7 +4996,8 @@ def api_tax_report():
             'transactions': tax_data,
             'summary': summary,
             'current_holdings': current_holdings,
-            'fifo_lots': performance['fifo_lots']
+            'fifo_lots': fifo_lots,
+            'source': 'binance',
         })
         
     except Exception as e:
@@ -6050,11 +6347,34 @@ def set_watchlist_favorite():
 @login_required
 def export_tax_report_csv():
     try:
-        from trading_models import AllActivity
         import io
         import csv
-        
-        activities = AllActivity.query.filter_by(user_id=current_user.id).order_by(AllActivity.date.desc()).all()
+        source = str(request.args.get('source') or 'binance').lower()
+        if source not in {'binance', 'webull'}:
+            return jsonify({'error': 'Unsupported tax report source'}), 400
+        if source == 'webull':
+            transactions = _build_webull_tax_report(current_user.id)['transactions']
+        else:
+            from trading_models import AllActivity
+            activities = AllActivity.query.filter_by(user_id=current_user.id).order_by(AllActivity.date.desc()).all()
+            transactions, _ = _build_tax_transactions([
+                {
+                    'id': activity.id,
+                    'date': activity.date,
+                    'type': activity.type,
+                    'asset': activity.asset,
+                    'amount': activity.amount,
+                    'proceeds': activity.proceeds,
+                    'cost_basis': activity.cost_basis,
+                    'gain_loss': activity.gain_loss,
+                    'fee': activity.fee,
+                    'txid': activity.txid,
+                    'price_sold_at': activity.price_sold_at,
+                    'exchange': activity.exchange or 'binance',
+                }
+                for activity in activities
+                if str(activity.exchange or '').lower() != 'webull'
+            ])
         
         output = io.StringIO()
         writer = csv.writer(output)
@@ -6062,20 +6382,20 @@ def export_tax_report_csv():
         # Headers
         writer.writerow(['Date', 'Type', 'Asset', 'Amount', 'Price Traded At', 'Proceeds', 'Fee', 'Cost Basis', 'Gain/Loss', 'Description', 'Exchange', 'TxID'])
         
-        for act in activities:
+        for act in transactions:
             writer.writerow([
-                act.date,
-                act.type,
-                act.asset,
-                act.amount,
-                act.price_sold_at or '',
-                act.proceeds or 0,
-                act.fee or 0,
-                act.cost_basis or 0,
-                act.gain_loss or 0,
-                act.description or '',
-                act.exchange or '',
-                act.txid or ''
+                act.get('date'),
+                act.get('type'),
+                act.get('asset'),
+                act.get('amount'),
+                act.get('price_sold_at') or '',
+                act.get('proceeds') or 0,
+                act.get('fee') or 0,
+                act.get('cost_basis') or 0,
+                act.get('gain_loss') or 0,
+                '',
+                act.get('exchange') or '',
+                act.get('txid') or ''
             ])
             
         output.seek(0)
@@ -6083,7 +6403,7 @@ def export_tax_report_csv():
             io.BytesIO(output.getvalue().encode('utf-8')),
             mimetype='text/csv',
             as_attachment=True,
-            download_name=f"crypto_tax_report_{datetime.now().strftime('%Y%m%d')}.csv"
+            download_name=f"{source}_tax_report_{datetime.now().strftime('%Y%m%d')}.csv"
         )
     except Exception as e:
         logger.error(f"Error exporting tax report: {e}")

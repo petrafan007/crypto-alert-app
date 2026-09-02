@@ -690,9 +690,10 @@ export default function Help({ isLightMode }) {
             {/* Tax Report */}
             <Section id="tax-report" icon={<FaFileInvoiceDollar />} title="Tax Report">
                 <p style={{ marginBottom: '16px' }}>
-                    Generate capital gains/losses summaries for your crypto activity.
+                    Generate separate capital gains/losses reports for Binance.US and Webull activity.
                 </p>
                 <ul style={{ paddingLeft: '20px', marginBottom: '16px', lineHeight: '1.9' }}>
+                    <li><strong>Provider-specific reports</strong> — use Tax Report → Binance.US or Tax Report → Webull to keep exchange activity separate</li>
                     <li><strong>Cost basis method</strong> — choose FIFO, LIFO, or HIFO in Settings → Tax Configuration</li>
                     <li><strong>Tax-year filtering</strong> — generate annual reports scoped to a specific tax year (e.g. 2026, 2025, 2024...) or all time</li>
                     <li><strong>Short-Term vs. Long-Term Capital Gains</strong> — automatically calculates holding periods and breaks down short-term vs. long-term gains</li>

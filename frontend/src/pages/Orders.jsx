@@ -1,7 +1,11 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
 import CancelOrderModal from '../components/CancelOrderModal';
-import { formatEasternDateTime as formatEasternDateTimeValue } from '../utils/dateTime';
+import {
+  formatEasternDate,
+  formatEasternDateTime as formatEasternDateTimeValue,
+  formatEasternTime as formatEasternTimeValue,
+} from '../utils/dateTime';
 import './Trading.css';
 import './AIDashboard.css';
 
@@ -113,11 +117,53 @@ const OPEN_STATUSES = new Set([
   'PARTIAL_FILLED', 'PARTIALLY_FILLED', 'PARTIALLY FILLED',
 ]);
 const isWebull = (order) => String(order?.source || order?.origin || '').toLowerCase() === 'webull';
-const amount = (value, digits = 6) => Number.isFinite(Number(value)) ? Number(value).toLocaleString(undefined, { maximumFractionDigits: digits }) : '—';
-const timestamp = (value) => formatEasternDateTimeValue(value);
+const amount = (value, digits = 6, fallback = '—') => Number.isFinite(Number(value)) ? Number(value).toLocaleString(undefined, { maximumFractionDigits: digits }) : fallback;
+const firstValue = (...values) => values.find((value) => value !== undefined && value !== null && value !== '');
+const positiveValue = (...values) => values.find((value) => Number.isFinite(Number(value)) && Number(value) > 0);
+const formatOrderDate = (value) => formatEasternDate(value);
+const formatOrderTime = (value) => formatEasternTimeValue(value);
 const normalize = (order, source) => {
   const automationOrigin = String(order?.origin || order?.trigger_type || '').toLowerCase();
   const origin = ['auto_buy', 'auto_sell'].includes(automationOrigin) ? automationOrigin : order?.origin;
+  const quantity = firstValue(
+    order.quantity,
+    order.total_quantity,
+    order.order_quantity,
+    order.origQty,
+    order.order_qty,
+    order.orderQty,
+    order.qty,
+    order.total_qty,
+  );
+  const filledQuantity = firstValue(
+    order.filled_quantity,
+    order.executed_quantity,
+    order.filled_qty,
+    order.executedQty,
+    order.filledQty,
+    order.filled_size,
+    order.filledSize,
+  );
+  const filledPrice = positiveValue(
+    order.filled_price,
+    order.average_filled_price,
+    order.avg_fill_price,
+    order.avg_price,
+    order.average_price,
+    order.executed_price,
+  );
+  const orderPrice = positiveValue(
+    order.price,
+    order.limit_price,
+    order.order_price,
+    order.limitPrice,
+    order.orderPrice,
+    order.stop_price,
+    order.stopPrice,
+    filledPrice,
+    order.last_price,
+    order.current_price,
+  );
   return {
   ...order,
   source,
@@ -126,11 +172,13 @@ const normalize = (order, source) => {
   symbol: String(order.symbol || order.ticker || '—').toUpperCase(),
   side: order.side || '—',
   order_type: order.order_type || order.type || '—',
-  quantity: order.quantity ?? order.total_quantity ?? order.order_quantity,
-  filled_quantity: order.filled_quantity ?? order.executed_quantity ?? order.filled_qty,
-  price: order.price ?? order.limit_price ?? order.order_price,
-  fee: order.fee ?? order.commission ?? 0,
+  quantity,
+  filled_quantity: filledQuantity,
+  filled_price: filledPrice,
+  price: orderPrice,
+  fee: firstValue(order.fee, order.commission, order.fee_amount, order.total_fee, order.commission_amount),
   fee_asset: order.fee_asset || order.commission_asset || '',
+  estimated_pnl: firstValue(order.estimated_pnl, order.estimated_profit_loss, order.pnl, order.profit_loss),
   status: order.status || order.order_status || '—',
   created_at: order.created_at || order.create_time || order.placed_time || order.place_time || order.filled_time_at || order.time,
   };
@@ -181,7 +229,7 @@ function OrderTable({ orders, open, onCancelOrder, cancellingId, webullAccounts 
         <table>
           <thead>
             <tr>
-              <th>Date / Time</th><th className="combined-order-account-heading">Account</th><th>Symbol</th><th>Side</th><th>Type</th><th>Quantity</th><th>Price</th><th>Filled</th><th>Fee</th><th>Status</th>
+              <th>Date</th><th>Time</th><th className="combined-order-account-heading">Account</th><th>Symbol</th><th>Side</th><th>Type</th><th>Quantity</th><th>Price</th><th>Filled</th><th>Fee</th><th>Status</th>
               {open && <th>Est. P&L (if filled)</th>}
               {open && <th>Actions</th>}
             </tr>
@@ -189,26 +237,31 @@ function OrderTable({ orders, open, onCancelOrder, cancellingId, webullAccounts 
           <tbody>
             {orders.map((order) => (
               <tr key={`${order.source}-${order.id}`}>
-                <td>{timestamp(order.created_at)}</td>
+                <td>{formatOrderDate(order.created_at)}</td>
+                <td>{formatOrderTime(order.created_at)}</td>
                 <td className="combined-order-account-cell"><AccountCell order={order} webullAccounts={webullAccounts} /></td>
                 <td>{order.symbol}</td>
                 <td>{displaySide(order.side)}</td>
                 <td>{displayType(order.order_type)}</td>
-                <td>{amount(order.quantity)}</td>
-                <td>{Number(order.price) > 0 ? `$${amount(order.price, 4)}` : 'Market'}</td>
-                <td>{amount(order.filled_quantity)}</td>
+                <td>{amount(order.quantity, 6, '0')}</td>
+                <td>{Number(order.price) > 0 ? `$${amount(order.price, 4)}` : '—'}</td>
+                <td>{amount(order.filled_quantity, 6, '0')}</td>
                 <td>
                   {(() => {
-                    const feeVal = Number(order.fee || 0);
+                    const feeVal = Number(order.fee);
                     const asset = order.fee_asset || '';
-                    if (feeVal <= 0) return '—';
+                    if (!Number.isFinite(feeVal) || feeVal <= 0) return '$0.00';
                     if (!asset || asset === 'USD' || asset === 'USDT') return `$${amount(feeVal, 4)}`;
                     return `${amount(feeVal, 8)} ${asset}`;
                   })()}
                 </td>
                 <td>{order.status}</td>
                 {open && (
-                  <td>—</td>
+                  <td>
+                    {Number.isFinite(Number(order.estimated_pnl))
+                      ? `${Number(order.estimated_pnl) >= 0 ? '+' : ''}$${amount(Math.abs(Number(order.estimated_pnl)), 2)}`
+                      : '—'}
+                  </td>
                 )}
                 {open && (
                   <td>
@@ -270,7 +323,7 @@ export default function Orders() {
   const [webullOpenProgress, setWebullOpenProgress] = useState({ complete: 0, total: 0 });
   const [webullAccounts, setWebullAccounts] = useState([]);
   const [filters, setFilters] = useState({
-    source: 'all', account: 'all', symbol: '', product: 'all', status: 'all', timeRange: 'all',
+    source: 'all', account: 'all', symbol: '', product: 'all', timeRange: 'all',
   });
   const openOrdersRequestId = useRef(0);
 
@@ -468,15 +521,12 @@ export default function Orders() {
     fetchWorkflowPrompt('portfolio-review');
   }, []);
   const activeOpenOrders = useMemo(() => openOrders.filter((order) => OPEN_STATUSES.has(String(order.status).toUpperCase()) || !order.status || order.status === '—'), [openOrders]);
-  const filterableOrders = useMemo(() => [...activeOpenOrders, ...history], [activeOpenOrders, history]);
-  const statusOptions = useMemo(() => [...new Set(filterableOrders.map((order) => String(order.status || 'Unknown').toUpperCase()))].sort(), [filterableOrders]);
   const matchesFilters = (order) => {
     if (filters.source !== 'all' && orderSource(order) !== filters.source) return false;
     if (filters.account === 'binance' && isWebull(order)) return false;
     if (filters.account !== 'all' && filters.account !== 'binance' && webullAccountId(order) !== filters.account) return false;
     if (filters.symbol && !String(order.symbol || '').toUpperCase().includes(filters.symbol.trim().toUpperCase())) return false;
     if (filters.product !== 'all' && instrumentCategory(order) !== filters.product) return false;
-    if (filters.status !== 'all' && String(order.status || 'Unknown').toUpperCase() !== filters.status) return false;
     if (filters.timeRange !== 'all') {
       const createdAt = new Date(order.created_at);
       const days = Number(filters.timeRange);
@@ -494,7 +544,7 @@ export default function Orders() {
   useEffect(() => { setHistoryPage(1); }, [filters]);
 
   const setFilter = (name, value) => setFilters((current) => ({ ...current, [name]: value }));
-  const resetFilters = () => setFilters({ source: 'all', account: 'all', symbol: '', product: 'all', status: 'all', timeRange: 'all' });
+  const resetFilters = () => setFilters({ source: 'all', account: 'all', symbol: '', product: 'all', timeRange: 'all' });
 
   const selectTab = (tab) => {
     setActiveTab(tab);
@@ -624,7 +674,6 @@ export default function Orders() {
               <label>Account<select value={filters.account} onChange={(event) => setFilter('account', event.target.value)}><option value="all">All accounts</option><option value="binance">Binance.US</option>{webullAccounts.map((account) => <option key={account.account_id} value={account.account_id}>{accountLabel(account)}</option>)}</select></label>
               <label>Symbol<input type="search" value={filters.symbol} onChange={(event) => setFilter('symbol', event.target.value)} placeholder="BTC, TSLA…" /></label>
               <label>Product<select value={filters.product} onChange={(event) => setFilter('product', event.target.value)}><option value="all">All products</option><option value="crypto">Crypto</option><option value="equity">Stock / ETF</option><option value="option">Options</option><option value="future">Futures</option><option value="automation">Automation</option><option value="other">Other</option></select></label>
-              <label>Status<select value={filters.status} onChange={(event) => setFilter('status', event.target.value)}><option value="all">All statuses</option>{statusOptions.map((status) => <option key={status} value={status}>{displayType(status)}</option>)}</select></label>
               <label>Time range<select value={filters.timeRange} onChange={(event) => setFilter('timeRange', event.target.value)}><option value="all">All time</option><option value="1">Past 24 hours</option><option value="7">Past 7 days</option><option value="30">Past 30 days</option><option value="90">Past 90 days</option></select></label>
               <button type="button" className="btn btn-secondary combined-order-filter-reset" onClick={resetFilters}>Reset filters</button>
             </div>

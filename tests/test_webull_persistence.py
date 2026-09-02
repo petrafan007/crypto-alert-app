@@ -1,4 +1,5 @@
 import unittest
+from datetime import datetime
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -7,14 +8,14 @@ from flask import Flask
 from core.extensions import db
 from credentials import User
 from models import BinanceOrder, OrderHistorySyncState, WebullAccountSnapshot, WebullHolding, WebullOrder, WebullWatchlistItem
-from trading_models import PortfolioValueHistory
+from trading_models import AllActivity, PortfolioValueHistory
 from services.webull_import_service import (
     get_webull_order_rows,
     import_webull_orders,
     import_webull_portfolio_snapshot,
 )
 from services.order_history_sync_service import get_binance_order_rows, import_binance_orders
-from routes.portfolio import get_real_orders_only
+from routes.portfolio import _build_webull_tax_report, get_real_orders_only
 
 
 class WebullPersistenceTests(unittest.TestCase):
@@ -38,7 +39,7 @@ class WebullPersistenceTests(unittest.TestCase):
         cls.context.pop()
 
     def setUp(self):
-        for model in (BinanceOrder, OrderHistorySyncState, WebullOrder, WebullHolding, WebullAccountSnapshot, WebullWatchlistItem):
+        for model in (AllActivity, BinanceOrder, OrderHistorySyncState, WebullOrder, WebullHolding, WebullAccountSnapshot, WebullWatchlistItem):
             db.session.query(model).delete()
         db.session.commit()
 
@@ -56,6 +57,8 @@ class WebullPersistenceTests(unittest.TestCase):
             'filled_quantity': '23',
             'limit_price': '0.59',
             'average_filled_price': '0.60',
+            'fee': '0.12',
+            'fee_asset': 'USD',
             'status': 'FILLED',
             'create_time': '2026-09-01T23:06:55.642Z',
             'filled_time_at': '2026-09-01T23:06:55.708Z',
@@ -68,6 +71,8 @@ class WebullPersistenceTests(unittest.TestCase):
         self.assertEqual(rows[0]['status'], 'FILLED')
         self.assertEqual(rows[0]['filled_quantity'], 23.0)
         self.assertEqual(rows[0]['filled_price'], 0.60)
+        self.assertEqual(rows[0]['fee'], 0.12)
+        self.assertEqual(rows[0]['fee_asset'], 'USD')
         self.assertEqual(rows[0]['event_outcome'], 'YES')
 
         import_webull_orders(7, [{
@@ -79,6 +84,7 @@ class WebullPersistenceTests(unittest.TestCase):
             'status': 'FILLED',
         }])
         self.assertEqual(WebullOrder.query.filter_by(user_id=7).count(), 1)
+        self.assertEqual(get_webull_order_rows(7)[0]['fee'], 0.12)
 
     def test_binance_external_order_import_is_durable_and_idempotent(self):
         imported, latest_updated_at, latest_order_id = import_binance_orders(7, [{
@@ -111,6 +117,8 @@ class WebullPersistenceTests(unittest.TestCase):
             'status': 'FILLED',
             'time': 1780000000000,
             'updateTime': 1780000002000,
+            'commission': '0.25',
+            'commissionAsset': 'USD',
         }])
 
         self.assertEqual(imported, 1)
@@ -120,6 +128,7 @@ class WebullPersistenceTests(unittest.TestCase):
         self.assertEqual(rows[0]['status'], 'FILLED')
         self.assertEqual(rows[0]['filled_quantity'], 0.01)
         self.assertEqual(rows[0]['filled_price'], 59950.0)
+        self.assertEqual(rows[0]['fee'], 0.25)
 
     def test_webull_history_page_uses_only_the_local_webull_ledger(self):
         import_webull_orders(7, [{
@@ -145,6 +154,47 @@ class WebullPersistenceTests(unittest.TestCase):
         self.assertEqual(payload['history_source'], 'database')
         self.assertEqual(payload['total'], 1)
         self.assertEqual(payload['orders'][0]['source'], 'webull')
+
+    def test_webull_tax_report_uses_filled_orders_and_current_holdings(self):
+        db.session.add(WebullOrder(
+            user_id=8,
+            account_id='cash-account',
+            provider_order_id='filled-aapl',
+            symbol='AAPL',
+            instrument_type='EQUITY',
+            side='BUY',
+            order_type='LIMIT',
+            quantity=2.0,
+            filled_quantity=2.0,
+            price=100.0,
+            filled_price=100.0,
+            fee=0.25,
+            fee_asset='USD',
+            status='FILLED',
+            created_at=datetime(2026, 8, 1, 14, 0),
+            updated_at=datetime(2026, 8, 1, 14, 1),
+        ))
+        db.session.add(WebullHolding(
+            user_id=8,
+            account_id='cash-account',
+            symbol='AAPL',
+            instrument_type='EQUITY',
+            quantity=2.0,
+            cost_price=100.125,
+            last_price=110.0,
+            current_value=220.0,
+            hidden=False,
+        ))
+        db.session.commit()
+
+        report = _build_webull_tax_report(8)
+
+        self.assertEqual(report['source'], 'webull')
+        self.assertEqual(report['summary']['total_transactions'], 1)
+        self.assertEqual(report['summary']['total_fees_paid'], 0.25)
+        self.assertEqual(report['summary']['current_holdings_value'], 220.0)
+        self.assertEqual(report['transactions'][0]['asset'], 'AAPL')
+        self.assertEqual(report['transactions'][0]['cost_basis'], 200.25)
 
     def test_snapshot_refresh_replaces_stale_cash_and_preserves_event_metadata(self):
         preview = [{

@@ -145,6 +145,8 @@ class WebullOrder(db.Model):
     filled_quantity = db.Column(db.Float, default=0.0)
     price = db.Column(db.Float, nullable=True)
     filled_price = db.Column(db.Float, nullable=True)
+    fee = db.Column(db.Float, nullable=True)
+    fee_asset = db.Column(db.String(20), nullable=True)
     status = db.Column(db.String(40), nullable=True)
     created_at = db.Column(db.DateTime, nullable=True)
     updated_at = db.Column(db.DateTime, nullable=True)

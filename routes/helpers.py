@@ -201,19 +201,21 @@ def get_user_from_bearer():
         logger.error(f"JWT decode error: {e}")
         return None
 
-def get_manual_tax_investment(user_id):
+def get_manual_tax_investment(user_id, source='binance'):
     try:
         setting = UserSetting.query.filter_by(user_id=user_id).first()
-        if not setting or not setting.tax_manual_invested_updated:
+        field = 'tax_webull_manual_invested_updated' if str(source).lower() == 'webull' else 'tax_manual_invested_updated'
+        value = getattr(setting, field, None) if setting else None
+        if not value:
             return 0.0
-        return float(setting.tax_manual_invested_updated)
+        return float(value)
     except (ValueError, TypeError):
         return 0.0
     except Exception as e:
         logger.error(f"Failed to fetch manual tax investment for user {user_id}: {e}")
         return 0.0
 
-def set_manual_tax_investment(user_id, amount):
+def set_manual_tax_investment(user_id, amount, source='binance'):
     try:
         amount_value = float(amount or 0.0)
     except (TypeError, ValueError):
@@ -225,9 +227,10 @@ def set_manual_tax_investment(user_id, amount):
             setting = UserSetting(user_id=user_id)
             db.session.add(setting)
         
-        setting.tax_manual_invested_updated = amount_value
+        field = 'tax_webull_manual_invested_updated' if str(source).lower() == 'webull' else 'tax_manual_invested_updated'
+        setattr(setting, field, amount_value)
         db.session.commit()
-        return True
+        return amount_value, datetime.utcnow().isoformat()
     except Exception as e:
         logger.error(f"Failed to set manual tax investment for user {user_id}: {e}")
         db.session.rollback()
