@@ -1,0 +1,47 @@
+# Webull Event Contract Strategy Engine
+
+The v2.77 foundation is intentionally paper-only and signal-only. It records
+the market evidence needed to decide whether an Event Contract strategy has a
+repeatable edge before any automatic execution is considered.
+
+## Safety boundary
+
+- The engine hard-codes `PAPER` mode and cannot switch to live execution.
+- `signals_only` is forced on by configuration normalization.
+- The scanner never calls the live Webull order endpoint or the ordinary order
+  placement flow.
+- Starting the worker requires Webull paper/test mode to be enabled in CSD.
+- A persisted kill switch disables new strategy entries and survives restarts.
+
+## Current workflow
+
+1. Configure BTC/ETH and the event durations to study.
+2. Run a one-shot scan or start the persisted background paper worker.
+3. Fetch the current Webull catalog and verified quotes through the existing
+   Event Contract service.
+4. Store normalized market snapshots with provider and receive timestamps.
+5. Evaluate each contract using explicit quote, freshness, liquidity, time,
+   edge, and confidence gates.
+6. Persist a decision trace. Until a calibrated probability model is available,
+   the decision is `NO_TRADE` with `MODEL_UNAVAILABLE` rather than an invented
+   probability.
+
+## HTTP API
+
+- `GET/PUT /api/webull/event-algo/config`
+- `GET /api/webull/event-algo/status`
+- `POST /api/webull/event-algo/start`
+- `POST /api/webull/event-algo/stop`
+- `POST /api/webull/event-algo/kill-switch`
+- `POST /api/webull/event-algo/scan`
+- `GET /api/webull/event-algo/decisions`
+- `GET /api/webull/event-algo/opportunities`
+
+## Evidence gate before execution
+
+The next phase should add resolved-outcome labeling, a calibrated empirical or
+logistic probability model, a production-shared paper fill simulator, and
+walk-forward/backtest tooling. Automatic paper orders should remain disabled
+until the model has enough forward observations to evaluate net expectancy,
+profit factor, calibration, drawdown, fill quality, and stability across
+15-minute and hourly contracts. A positive return alone is not sufficient.

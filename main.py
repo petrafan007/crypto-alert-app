@@ -22,6 +22,7 @@ from routes.system import system_bp
 from routes.ai import ai_bp
 from routes.market import market_bp
 from routes.frontend import frontend_bp
+from routes.event_algo import event_algo_bp
 
 # Import User for login manager
 from credentials import User
@@ -74,6 +75,7 @@ app.register_blueprint(system_bp)
 app.register_blueprint(ai_bp)
 app.register_blueprint(market_bp)
 app.register_blueprint(frontend_bp)
+app.register_blueprint(event_algo_bp)
 
 @app.teardown_appcontext
 def shutdown_session(exception=None):

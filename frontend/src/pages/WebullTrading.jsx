@@ -12,6 +12,7 @@ import WebullOptionChain from '../components/WebullOptionChain';
 import OptionsPayoffChart from '../components/OptionsPayoffChart';
 import WebullPositions from '../components/WebullPositions';
 import EventPositionModal from '../components/EventPositionModal';
+import EventStrategyPanel from '../components/EventStrategyPanel';
 import { differenceInEasternCalendarDays, formatEasternDate, formatEasternDateTime, formatEasternTime } from '../utils/dateTime';
 import { optionStrategyDefinition } from '../utils/optionStrategies';
 import {
@@ -3513,6 +3514,11 @@ export default function WebullTrading({ isLightMode = false }) {
                       )}
                       {futuresMessage && <p className="option-ticket-status" role="status">⚠️ {futuresMessage}</p>}
                     </div>
+                  )}
+
+                  {/* Paper-only Event Contract strategy research */}
+                  {selectedInstrumentType === 'EVENT' && (
+                    <EventStrategyPanel isPaperMode={isTestMode} />
                   )}
 
                   {/* Webull Event Contract Setup (When EVENT selected) */}

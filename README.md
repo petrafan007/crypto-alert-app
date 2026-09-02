@@ -127,6 +127,14 @@ The application utilizes a **unified PostgreSQL database**.
 
 Historical changelog entries retain the product name used when they were originally released. The application domain, repository slug, deployment folders, database, and service identifiers intentionally remain unchanged by the v2.45.0 brand update.
 
+## v2.77.0 (September 2026)
+
+### Webull Event Contract Strategy Research Foundation
+- Added a dedicated paper-only Event Contract strategy ledger for market snapshots, runs, decision traces, strategy orders, positions, and performance aggregates.
+- Added configurable BTC/ETH and duration scanning with explicit quote, freshness, liquidity, time-to-expiration, edge, confidence, and kill-switch gates.
+- Added persisted paper configuration, background worker controls, scan/status/decision APIs, and an Event Contracts strategy panel.
+- Forced signal-only behavior in this release: no live or simulated order is submitted until a calibrated model and forward-paper evidence gate are implemented.
+
 ## v2.76.2 (September 2026)
 
 ### Binance Order-History Symbol Filtering
