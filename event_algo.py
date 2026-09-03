@@ -923,13 +923,21 @@ def normalize_config_payload(payload, *, user_id):
         str(item).strip().upper() for item in (symbols or [])
         if str(item).strip() and len(str(item).strip()) <= 20
     ))[:10] or result["symbols"]
+    # Treat an explicitly supplied duration list as authoritative.  The
+    # previous ``... or result["durations"]`` fallback silently replaced an
+    # intentional checkbox selection of an empty list with the defaults, and
+    # made the Settings controls appear not to save.  Omitted durations still
+    # receive the safe defaults; supplied values are persisted exactly after
+    # allow-listing and de-duplication.
+    durations_provided = "durations" in payload
     durations = payload.get("durations", result["durations"])
     if isinstance(durations, str):
         durations = [item.strip().upper() for item in durations.split(",")]
-    result["durations"] = list(dict.fromkeys(
+    normalized_durations = list(dict.fromkeys(
         str(item).strip().upper() for item in (durations or [])
         if str(item).strip().upper() in ALLOWED_DURATIONS
-    ))[:8] or result["durations"]
+    ))[:8]
+    result["durations"] = normalized_durations if durations_provided else result["durations"]
     result["enabled"] = bool(payload.get("enabled", False))
     result["kill_switch"] = bool(payload.get("kill_switch", False))
     risk = dict(DEFAULT_RISK_CONFIG)

@@ -1,4 +1,5 @@
 import unittest
+import json
 from datetime import datetime, timedelta
 from types import SimpleNamespace
 
@@ -7,6 +8,7 @@ from event_algo import (
     evaluate_market,
     is_event_strategy_admin,
     normalize_config_payload,
+    update_config,
     parse_event_model_batch_response,
     parse_event_model_response,
     summarize_ai_scan_status,
@@ -36,6 +38,19 @@ class EventAlgoTests(unittest.TestCase):
         self.assertEqual(config['mode'], 'PAPER')
         self.assertTrue(config['signal_config']['signals_only'])
         self.assertEqual(config['symbols'], ['BTC', 'ETH'])
+        self.assertEqual(config['durations'], ['HOURLY'])
+
+    def test_explicit_duration_selection_is_preserved_including_empty(self):
+        selected = normalize_config_payload({'durations': ['DAILY']}, user_id=7)
+        self.assertEqual(selected['durations'], ['DAILY'])
+
+        cleared = normalize_config_payload({'durations': []}, user_id=7)
+        self.assertEqual(cleared['durations'], [])
+
+    def test_update_config_persists_selected_duration(self):
+        config = SimpleNamespace(user_id=7)
+        update_config(config, {'durations': ['MONTHLY']})
+        self.assertEqual(json.loads(config.durations), ['MONTHLY'])
 
     def test_event_strategy_admin_is_stable_username_only(self):
         self.assertTrue(is_event_strategy_admin(SimpleNamespace(username='jcavallarojr')))

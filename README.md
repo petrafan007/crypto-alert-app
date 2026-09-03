@@ -169,6 +169,13 @@ Historical changelog entries retain the product name used when they were origina
 - Kept Ollama administrator-only while allowing the administrator to select discovered local or signed-in Ollama cloud models for any fallback tier, including Quartan.
 - Improved Ollama chat handling for cloud-backed thinking models by sending a supported reasoning level, accepting documented content-part and thinking response shapes, and providing actionable sign-in guidance for unauthorized cloud access.
 
+## v2.82.1 (September 2026)
+
+### Event Strategy Duration Settings Persistence
+- Fixed Event Contract Strategy Engine duration checkboxes so the latest selection is captured immediately when saving, including a single selected duration.
+- Preserved explicitly saved duration lists on the server instead of silently replacing an intentional selection with the default durations.
+- Added regression coverage for single-duration and cleared-duration configuration payloads.
+
 ## v2.78.0 (September 2026)
 
 ### Event Contract Research Evidence and Paper Simulation

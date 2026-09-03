@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import axios from 'axios';
 import { useAuth } from '../components/AuthContext';
@@ -31,6 +31,11 @@ const holdThresholdErrors = settings => {
 };
 
 const formatThreshold = value => Number(value).toFixed(2);
+
+const EVENT_STRATEGY_DURATIONS = [
+  'FIFTEEN_MINUTES', 'HOURLY', 'DAILY', 'WEEKLY',
+  'MONTHLY', 'ANNUAL', 'ONE_OFF', 'CUSTOM',
+];
 
 const getDefaultModel = (provider, options) => {
   if (!options || !provider) return '';
@@ -208,6 +213,10 @@ export default function Settings({ isLightMode }) {
   const [eventStrategyBusy, setEventStrategyBusy] = useState(false);
   const [eventStrategyMessage, setEventStrategyMessage] = useState('');
   const [showEventStrategyLogs, setShowEventStrategyLogs] = useState(false);
+  // Keep the duration draft in a ref as well as React state. This makes a
+  // checkbox change available to Save immediately, even when the user clicks
+  // Save before React has committed the next render.
+  const eventStrategyDurationsRef = useRef(null);
 
   // 2FA State
   const [twoFactorEnabled, setTwoFactorEnabled] = useState(false);
@@ -298,7 +307,10 @@ export default function Settings({ isLightMode }) {
     try {
       const response = await axios.get('/api/webull/event-algo/status', { withCredentials: true });
       if (response.data?.success) {
-        setEventStrategyConfig(response.data.config || null);
+        const nextConfig = response.data.config || null;
+        const nextDurations = Array.isArray(nextConfig?.durations) ? [...nextConfig.durations] : [];
+        eventStrategyDurationsRef.current = nextConfig ? nextDurations : null;
+        setEventStrategyConfig(nextConfig ? { ...nextConfig, durations: nextDurations } : null);
         setEventStrategyHealth(response.data.health || null);
       }
     } catch (error) {
@@ -317,21 +329,36 @@ export default function Settings({ isLightMode }) {
     }));
   };
 
+  const updateEventStrategyDuration = (duration, checked) => {
+    const current = Array.isArray(eventStrategyDurationsRef.current)
+      ? eventStrategyDurationsRef.current
+      : (Array.isArray(eventStrategyConfig?.durations) ? eventStrategyConfig.durations : []);
+    const next = checked
+      ? [...new Set([...current, duration])]
+      : current.filter((item) => item !== duration);
+    eventStrategyDurationsRef.current = next;
+    setEventStrategyConfig((prev) => ({ ...prev, durations: next }));
+  };
+
   const saveEventStrategy = async () => {
     if (!eventStrategyConfig) return;
     setEventStrategyBusy(true);
     setEventStrategyMessage('');
     try {
+      const durations = eventStrategyDurationsRef.current ?? eventStrategyConfig.durations ?? [];
       const response = await axios.put('/api/webull/event-algo/config', {
         name: eventStrategyConfig.name,
         enabled: !!eventStrategyConfig.enabled,
         symbols: eventStrategyConfig.symbols,
-        durations: eventStrategyConfig.durations,
+        durations,
         risk_config: eventStrategyConfig.risk_config,
         signal_config: eventStrategyConfig.signal_config,
         kill_switch: !!eventStrategyConfig.kill_switch,
       }, { withCredentials: true });
-      setEventStrategyConfig(response.data.config);
+      const savedConfig = response.data.config || {};
+      const savedDurations = Array.isArray(savedConfig.durations) ? [...savedConfig.durations] : [];
+      eventStrategyDurationsRef.current = savedDurations;
+      setEventStrategyConfig({ ...savedConfig, durations: savedDurations });
       setEventStrategyMessage('Event Contract Strategy Engine settings saved.');
       await loadEventStrategy();
     } catch (error) {
@@ -3792,9 +3819,9 @@ export default function Settings({ isLightMode }) {
                     <div className="settings-form-group">
                       <label>Durations</label>
                       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                        {['FIFTEEN_MINUTES', 'HOURLY', 'DAILY', 'WEEKLY', 'MONTHLY', 'ANNUAL', 'ONE_OFF', 'CUSTOM'].map((duration) => (
+                        {EVENT_STRATEGY_DURATIONS.map((duration) => (
                           <label key={duration} style={{ display: 'flex', gap: 5, alignItems: 'center', fontSize: 13 }}>
-                            <input type="checkbox" checked={(eventStrategyConfig.durations || []).includes(duration)} onChange={(e) => setEventStrategyConfig((prev) => ({ ...prev, durations: e.target.checked ? [...new Set([...(prev.durations || []), duration])] : (prev.durations || []).filter((item) => item !== duration) }))} />
+                            <input type="checkbox" checked={(eventStrategyConfig.durations || []).includes(duration)} onChange={(e) => updateEventStrategyDuration(duration, e.target.checked)} />
                             {duration.replace('_', ' ').toLowerCase()}
                           </label>
                         ))}
