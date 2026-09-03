@@ -67,6 +67,8 @@ def init_db(app=None):
             ("credentials", "inception_key_quartan", "VARCHAR"),
             ("webull_holdings", "webull_position_id", "VARCHAR(100)"),
             ("webull_holdings", "instrument_id", "VARCHAR(100)"),
+            ("webull_holdings", "display_name", "VARCHAR(200)"),
+            ("webull_holdings", "is_etf", "BOOLEAN DEFAULT FALSE"),
             ("webull_holdings", "underlying_symbol", "VARCHAR(40)"),
             ("webull_holdings", "option_expiration", "VARCHAR(20)"),
             ("webull_holdings", "option_strike", "FLOAT"),

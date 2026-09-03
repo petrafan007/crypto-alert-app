@@ -24,6 +24,28 @@ def _first_value(payload, *keys):
     return None
 
 
+def _webull_position_is_etf(position, symbol, instrument_type):
+    for key in ('is_etf', 'isEtf', 'etf'):
+        value = position.get(key) if isinstance(position, dict) else None
+        if isinstance(value, bool):
+            return value
+        if str(value or '').strip().lower() in {'true', 'yes', 'etf'}:
+            return True
+    metadata = ' '.join(
+        str(position.get(key) or '')
+        for key in (
+            'instrument_type', 'instrumentType', 'asset_type', 'assetType',
+            'security_type', 'securityType', 'product_type', 'productType',
+            'security_sub_type', 'securitySubType', 'instrument_category',
+            'instrumentCategory', 'name', 'security_name', 'securityName',
+            'display_name', 'displayName', 'asset_name', 'assetName',
+        )
+    ).upper()
+    if 'ETF' in metadata or 'EXCHANGE TRADED FUND' in metadata:
+        return True
+    return str(symbol or '').upper() == 'ETH' and str(instrument_type or '').upper() == 'EQUITY'
+
+
 def _webull_order_datetime(value):
     if value in (None, ''):
         return None
@@ -214,6 +236,14 @@ def import_webull_portfolio_snapshot(user_id, preview):
                     holding.auto_hidden = False
                     holding.force_visible = True
             holding.quantity = new_qty
+            display_name = _first_value(
+                position,
+                'display_name', 'displayName', 'security_name', 'securityName',
+                'asset_name', 'assetName', 'name', 'description',
+            )
+            if display_name is not None:
+                holding.display_name = str(display_name).strip() or None
+            holding.is_etf = _webull_position_is_etf(position, symbol, instrument_type) or bool(holding.is_etf)
             holding.last_price = _number(position.get('last_price'), None)
             holding.cost_price = _number(position.get('cost_price'), None)
             # Webull may omit a position market value; calculate only when both fields exist.
@@ -291,6 +321,8 @@ def _webull_account_pill_label(account_class, account_label):
     lbl = str(account_label or '').lower()
     if cls == 'CRYPTO' or 'crypto' in lbl:
         return 'Crypto'
+    if 'traditional' in lbl or 'TRADITIONAL' in cls:
+        return 'Traditional IRA'
     if 'rollover' in lbl or 'ROLLOVER' in cls:
         return 'Rollover IRA'
     if 'roth' in lbl or 'ROTH' in cls:
@@ -304,6 +336,10 @@ def get_webull_portfolio_rows(user_id):
     # Build a fast lookup from local account metadata.  Raw account numbers
     # stay server-only; dashboard rows need only a stable masked display value.
     account_meta = {}  # keyed by account_id
+    snapshots = {
+        str(snapshot.account_id): snapshot
+        for snapshot in WebullAccountSnapshot.query.filter_by(user_id=user_id).all()
+    }
     try:
         from credentials import UserSetting  # local import to avoid circular deps
         setting = UserSetting.query.filter_by(user_id=user_id).first()
@@ -312,6 +348,13 @@ def get_webull_portfolio_rows(user_id):
         for acc in stored_accounts:
             acc_id = str(acc.get('account_id') or '')
             if acc_id:
+                snapshot = snapshots.get(acc_id)
+                account_label = (
+                    acc.get('account_label')
+                    or acc.get('account_name')
+                    or getattr(snapshot, 'account_name', None)
+                    or getattr(snapshot, 'account_type', None)
+                )
                 account_meta[acc_id] = {
                     'account_id_masked': (
                         str(acc.get('account_id_masked') or '')
@@ -319,11 +362,17 @@ def get_webull_portfolio_rows(user_id):
                     ),
                     'webull_account_type': _webull_account_pill_label(
                         acc.get('account_class', ''),
-                        acc.get('account_label') or acc.get('account_name', ''),
+                        account_label,
                     ),
                 }
     except Exception:
         pass  # Non-fatal: pill simply won't appear if metadata is unavailable
+    for account_id, snapshot in snapshots.items():
+        if account_id not in account_meta:
+            account_meta[account_id] = {
+                'account_id_masked': f'••••{account_id[-4:]}',
+                'webull_account_type': _webull_account_pill_label('', snapshot.account_name or snapshot.account_type),
+            }
     rows = []
     for holding in WebullHolding.query.filter_by(user_id=user_id).order_by(WebullHolding.symbol.asc()).all():
         if getattr(holding, 'hidden', False) and not getattr(holding, 'force_visible', False):
@@ -341,8 +390,11 @@ def get_webull_portfolio_rows(user_id):
             instrument_type=str(holding.instrument_type or '').upper(),
         ).order_by(ExternalSentimentSignal.created_at.desc()).first()
         meta = account_meta.get(str(holding.account_id) if holding.account_id else '', {})
+        is_etf = bool(holding.is_etf) or _webull_position_is_etf({}, holding.symbol, holding.instrument_type)
+        display_symbol = f'{holding.symbol} ETF' if is_etf else holding.symbol
         rows.append({
-            'id': f'webull-{holding.id}', 'symbol': holding.symbol, 'amount': amount,
+            'id': f'webull-{holding.id}', 'symbol': holding.symbol, 'display_symbol': display_symbol,
+            'display_name': holding.display_name, 'is_etf': is_etf, 'amount': amount,
             'current_price': current, 'current_value': value, 'avg_entry': cost,
             'cost_basis': (cost * amount) if cost is not None else None,
             'pct_change': pct, 'webull_unrealized_pnl': pnl,

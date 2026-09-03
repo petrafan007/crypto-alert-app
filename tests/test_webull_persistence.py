@@ -10,6 +10,7 @@ from credentials import User
 from models import BinanceOrder, OrderHistorySyncState, WebullAccountSnapshot, WebullHolding, WebullOrder, WebullWatchlistItem
 from trading_models import AllActivity, PortfolioValueHistory
 from services.webull_import_service import (
+    get_webull_portfolio_rows,
     get_webull_order_rows,
     import_webull_orders,
     import_webull_portfolio_snapshot,
@@ -234,6 +235,39 @@ class WebullPersistenceTests(unittest.TestCase):
         self.assertEqual(snapshot.total_net_liquidation_value, 172.76)
         self.assertEqual(cash.current_value, 13.94)
         self.assertEqual(WebullHolding.query.filter_by(user_id=7, instrument_type='EVENT').count(), 0)
+
+    def test_webull_etf_display_label_and_traditional_ira_account_label(self):
+        preview = [{
+            'account_id': 'traditional-ira',
+            'account_class': 'TRADITIONAL_IRA',
+            'account_name': 'Traditional IRA',
+            'account_type': 'CASH',
+            'balance': {'total_cash_balance': '0'},
+            'positions': [{
+                'symbol': 'ETH',
+                'instrument_type': 'EQUITY',
+                'quantity': '9',
+                'cost_price': '22.84',
+                'last_price': '23.44',
+            }, {
+                'symbol': 'IBIT',
+                'instrument_type': 'EQUITY',
+                'security_type': 'ETF',
+                'quantity': '1',
+                'cost_price': '50',
+                'last_price': '55',
+            }],
+        }]
+        import_webull_portfolio_snapshot(7, preview)
+
+        rows = {row['symbol']: row for row in get_webull_portfolio_rows(7)}
+
+        self.assertEqual(rows['ETH']['symbol'], 'ETH')
+        self.assertEqual(rows['ETH']['display_symbol'], 'ETH ETF')
+        self.assertTrue(rows['ETH']['is_etf'])
+        self.assertEqual(rows['ETH']['webull_account_type'], 'Traditional IRA')
+        self.assertEqual(rows['IBIT']['display_symbol'], 'IBIT ETF')
+        self.assertTrue(rows['IBIT']['is_etf'])
 
     def test_webull_watchlist_keeps_broker_contract_identity_per_user(self):
         item = WebullWatchlistItem(

@@ -4661,7 +4661,7 @@ function Dashboard({ isLightMode }) {
                                 >
                                   <div className="coin-symbol-container" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', justifyContent: 'center' }}>
                                     <CryptoIcon symbol={coin.symbol} size={20} />
-                                    <span>{coin.symbol}</span>
+                                    <span>{coin.display_symbol || coin.symbol}</span>
                                     <span
                                       title={isExternal ? 'Webull' : 'Binance'}
                                       aria-label={isExternal ? 'Webull' : 'Binance'}

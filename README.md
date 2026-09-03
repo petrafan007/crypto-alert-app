@@ -136,6 +136,15 @@ Historical changelog entries retain the product name used when they were origina
 - Added an event-contract-specific analysis prompt that includes the exact question, underlying, duration, cutoff, quotes, liquidity, and timing context.
 - Kept quote-less, stale, and closed markets from making unnecessary AI calls, and kept all decisions signal-only with no broker order endpoint access.
 
+## v2.82.3 (September 2026)
+
+### Webull ETF and Traditional IRA Identity Display
+- Webull ETF holdings now display as `SYMBOL ETF`, including the affected Grayscale Ethereum ETF as `ETH ETF`, while raw provider symbols remain unchanged for quotes, orders, and history.
+- ETF labels use explicit provider security metadata for all classified ETFs and a narrow compatibility fallback for the current `ETH`/`EQUITY` provider record.
+- Traditional IRA Webull holdings now show `Traditional IRA` instead of the generic `Cash` account pill, using stored account classifications and account snapshots as fallbacks.
+- Added regression coverage for ETF display identity and Traditional IRA account labeling.
+
+## v2.82.2 (September 2026)
 ## v2.79.1 (September 2026)
 
 ### Event Contract Engine Operations and AI Cadence

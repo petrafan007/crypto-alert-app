@@ -87,6 +87,8 @@ class WebullHolding(db.Model):
     account_id = db.Column(db.String(80), nullable=False)
     symbol = db.Column(db.String(40), nullable=False)
     instrument_type = db.Column(db.String(60), nullable=True)
+    display_name = db.Column(db.String(200), nullable=True)
+    is_etf = db.Column(db.Boolean, default=False, nullable=False)
     # Contract identity is required for options.  It is stored independently
     # from the display symbol so an option can never be confused with its
     # underlying equity or another strike/expiration.
