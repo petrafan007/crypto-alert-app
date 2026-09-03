@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import axios from 'axios';
 import CryptoIcon from '../components/CryptoIcon';
 import { formatEasternDate } from '../utils/dateTime';
+import { getAssetDisplaySymbol } from '../utils/assetDisplay';
 
 export default function TaxReport({ isLightMode, source = 'binance' }) {
   const isWebullReport = source === 'webull';
@@ -143,14 +144,14 @@ export default function TaxReport({ isLightMode, source = 'binance' }) {
 
   const getDistinctValues = (key) => {
     if (!taxData) return [];
-    const values = [...new Set(taxData.transactions.map(tx => tx[key]).filter(Boolean))];
+    const values = [...new Set(taxData.transactions.map(tx => key === 'asset' ? getAssetDisplaySymbol(tx) : tx[key]).filter(Boolean))];
     return values.sort();
   };
 
   const applyFilters = (data) => {
     return data.filter(tx => {
       if (filters.type.length > 0 && !filters.type.includes(tx.type)) return false;
-      if (filters.asset.length > 0 && !filters.asset.includes(tx.asset)) return false;
+      if (filters.asset.length > 0 && !filters.asset.includes(getAssetDisplaySymbol(tx))) return false;
       if (filters.amount.length > 0 && !filters.amount.includes(tx.amount)) return false;
       return true;
     });
@@ -337,7 +338,7 @@ export default function TaxReport({ isLightMode, source = 'binance' }) {
       ...applyFilters(sortData(filteredTransactions, sortConfig.key)).map(tx => [
         `"${tx.date}"`,
         `"${tx.type}"`,
-        `"${tx.asset}"`,
+        `"${getAssetDisplaySymbol(tx)}"`,
         tx.amount,
         tx.price_sold_at || '',
         tx.proceeds,
@@ -368,7 +369,7 @@ export default function TaxReport({ isLightMode, source = 'binance' }) {
     let filtered = taxData.transactions;
     
     if (selectedAsset !== 'all') {
-      filtered = filtered.filter(tx => tx.asset === selectedAsset);
+      filtered = filtered.filter(tx => getAssetDisplaySymbol(tx) === selectedAsset);
     }
     
     if (selectedYear !== 'all') {
@@ -382,7 +383,7 @@ export default function TaxReport({ isLightMode, source = 'binance' }) {
     if (!taxData?.transactions) return [];
     let filtered = taxData.transactions;
     if (selectedAsset !== 'all') {
-      filtered = filtered.filter(tx => tx.asset === selectedAsset);
+      filtered = filtered.filter(tx => getAssetDisplaySymbol(tx) === selectedAsset);
     }
     if (selectedYear !== 'all') {
       filtered = filtered.filter(tx => (tx.date || '').startsWith(selectedYear));
@@ -428,7 +429,7 @@ export default function TaxReport({ isLightMode, source = 'binance' }) {
 
   const getAssets = () => {
     if (!taxData) return [];
-    return taxData.summary.assets_traded.sort();
+    return [...new Set((taxData.transactions || []).map((tx) => getAssetDisplaySymbol(tx)).filter(Boolean))].sort();
   };
 
   if (loading) {
@@ -878,7 +879,7 @@ export default function TaxReport({ isLightMode, source = 'binance' }) {
                               columnKey === 'asset' ? (
                                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', justifyContent: 'center' }}>
                                   <CryptoIcon symbol={tx[columnKey]} size={18} />
-                                  <span>{tx[columnKey] || '—'}</span>
+                                  <span>{getAssetDisplaySymbol(tx)}</span>
                                 </span>
                               ) :
                              tx[columnKey] || '—'}

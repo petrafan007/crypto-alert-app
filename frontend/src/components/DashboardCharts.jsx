@@ -13,6 +13,7 @@ import {
   Filler,
 } from 'chart.js';
 import 'chartjs-adapter-date-fns';
+import { getAssetDisplaySymbol, getAssetIdentity, isCashOrStableAsset } from '../utils/assetDisplay';
 
 ChartJS.register(
   ArcElement,
@@ -32,24 +33,51 @@ export function PortfolioPie({ portfolio, isLightMode, totalValue: authoritative
     '#ef4444', '#f97316', '#eab308', '#84cc16', '#06b6d4', '#6366f1', '#d946ef'
   ];
 
-  // Only show coins with value > 0
-  const filtered = useMemo(() => (portfolio || []).filter(c => c.current_value > 0), [portfolio]);
+  // Keep the allocation chart investable and instrument-aware.  Webull can
+  // return multiple rows for the same ticker (for example Binance ETH and an
+  // ETH ETF); aggregate only rows with the same provider/instrument identity.
+  const filtered = useMemo(() => {
+    const groups = new Map();
+    (portfolio || [])
+      .filter((asset) => Number(asset?.current_value) > 0 && !isCashOrStableAsset(asset))
+      .forEach((asset) => {
+        const key = getAssetIdentity(asset);
+        const currentValue = Number(asset.current_value) || 0;
+        const amount = Number(asset.amount) || 0;
+        const existing = groups.get(key);
+        if (!existing) {
+          groups.set(key, {
+            ...asset,
+            amount,
+            current_value: currentValue,
+            cost_basis: Number(asset.cost_basis) || 0,
+            display_symbol: getAssetDisplaySymbol(asset),
+            asset_key: key,
+          });
+          return;
+        }
+        existing.amount += amount;
+        existing.current_value += currentValue;
+        existing.cost_basis += Number(asset.cost_basis) || 0;
+        if (existing.amount > 0 && Number(asset.avg_entry) > 0) {
+          existing.avg_entry = existing.cost_basis / existing.amount;
+        }
+      });
+    return [...groups.values()];
+  }, [portfolio]);
 
-  // Prefer the same authoritative total shown in the "Total Portfolio Value" widget
-  // (includes staking and sub-$1 dust) rather than re-summing just the rendered slices.
+  // The center total matches the rendered investable slices. Cash and stable
+  // balances are intentionally omitted from this allocation view.
   const totalValue = useMemo(() => {
-    if (authoritativeTotalValue !== null && authoritativeTotalValue !== undefined) {
-      return Number(authoritativeTotalValue) || 0;
-    }
     return filtered.reduce((sum, c) => sum + Number(c.current_value || 0), 0);
-  }, [authoritativeTotalValue, filtered]);
+  }, [filtered]);
 
   const formattedTotal = useMemo(() => (
     totalValue.toLocaleString('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 2 })
   ), [totalValue]);
 
   const portfolioPnl = useMemo(() => {
-    const basisTracked = (portfolio || []).filter(coin => (
+    const basisTracked = filtered.filter(coin => (
       Number(coin?.amount) > 0 && Number(coin?.avg_entry) > 0 &&
       Number.isFinite(Number(coin?.current_price ?? coin?.price))
     ));
@@ -60,10 +88,10 @@ export function PortfolioPie({ portfolio, isLightMode, totalValue: authoritative
     if (!(costBasis > 0)) return null;
     const value = currentValue - costBasis;
     return { value, percent: (value / costBasis) * 100 };
-  }, [portfolio]);
+  }, [filtered]);
 
   const data = useMemo(() => ({
-    labels: filtered.map(c => c.symbol),
+    labels: filtered.map(c => getAssetDisplaySymbol(c)),
     datasets: [
       {
         data: filtered.map(c => c.current_value),
@@ -81,8 +109,8 @@ export function PortfolioPie({ portfolio, isLightMode, totalValue: authoritative
     cutout: '65%',
     onClick: (_event, elements) => {
       const sliceIndex = elements?.[0]?.index;
-      const symbol = filtered[sliceIndex]?.symbol;
-      if (symbol && onCoinClick) onCoinClick(symbol);
+      const asset = filtered[sliceIndex];
+      if (asset && onCoinClick) onCoinClick(asset);
     },
     plugins: {
       legend: {
@@ -157,10 +185,10 @@ export function PortfolioPie({ portfolio, isLightMode, totalValue: authoritative
         }}
       >
         {filtered.map((c, i) => (
-          <div key={c.symbol} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px' }}>
+          <div key={c.asset_key || getAssetIdentity(c)} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px' }}>
             <span style={{ width: '9px', height: '9px', borderRadius: '50%', flexShrink: 0, background: neonPalette[i % neonPalette.length] }} />
             <span style={{ color: isLightMode ? '#475569' : '#e2e8f0', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-              {c.symbol}
+              {getAssetDisplaySymbol(c)}
             </span>
           </div>
         ))}

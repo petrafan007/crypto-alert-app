@@ -32,6 +32,7 @@ from services.helpers import format_date_only as _format_date_only
 from services.credential_service import get_user_credentials, is_encryption_available, is_persisted_key_available, persist_encryption_key, EncryptionKeyError
 from services.binance_service import sync_portfolio_from_binance
 from services.portfolio_service import record_true_portfolio_value
+from services.asset_identity import display_symbol, is_etf_asset
 from services.analysis_service import get_user_ai_settings
 from event_algo import is_event_strategy_admin
 from services.notification_service import save_notification_record
@@ -2376,6 +2377,26 @@ def api_webull_open_orders():
                 order for order in orders
                 if str(order.get('_webull_account_id') or '') in allowed_ids
             ]
+        holding_lookup = {}
+        for holding in WebullHolding.query.filter_by(user_id=current_user.id).all():
+            holding_lookup.setdefault(
+                (str(holding.account_id), str(holding.symbol or '').upper()),
+                holding,
+            )
+        for order in orders:
+            if not isinstance(order, dict):
+                continue
+            symbol = str(order.get('symbol') or order.get('ticker') or '').upper()
+            account_key = str(order.get('_webull_account_id') or account_id or '')
+            holding = holding_lookup.get((account_key, symbol)) or holding_lookup.get(('', symbol))
+            metadata = {
+                **order,
+                'symbol': symbol,
+                'is_etf': order.get('is_etf', getattr(holding, 'is_etf', False)),
+                'display_name': order.get('display_name') or getattr(holding, 'display_name', None),
+            }
+            order['display_symbol'] = display_symbol(metadata)
+            order['is_etf'] = is_etf_asset(metadata)
         return jsonify({'success': True, 'orders': orders})
     except WebullConnectionError as exc:
         logger.warning('Webull open-order lookup failed: %s', exc)

@@ -43,6 +43,7 @@ from services.staking_service import (
 )
 from services.credential_service import get_user_credentials
 from services.webull_import_service import get_webull_order_rows, get_webull_total_value
+from services.asset_identity import display_symbol, is_etf_asset
 from services.order_history_sync_service import get_binance_order_rows
 from services.notification_service import notify_order_fill, create_system_notification, send_telegram_message
 from services.common import _coerce_float, format_price, format_quantity
@@ -4639,6 +4640,7 @@ def _build_tax_transactions(raw_transactions):
     for tx in ordered:
         tx_type = str(tx.get('type') or '').upper()
         asset = str(tx.get('asset') or '').upper()
+        lot_asset = str(tx.get('_asset_key') or asset).upper()
         quantity = abs(float(tx.get('amount') or 0.0))
         fee = abs(float(tx.get('fee') or 0.0))
         price = float(tx.get('price_sold_at') or tx.get('avg_entry') or 0.0)
@@ -4650,6 +4652,10 @@ def _build_tax_transactions(raw_transactions):
             'date': _format_activity_date(tx.get('date')),
             'type': tx_type,
             'asset': asset,
+            'display_symbol': tx.get('display_symbol') or display_symbol(tx),
+            'is_etf': is_etf_asset(tx),
+            'instrument_type': tx.get('instrument_type'),
+            'instrument_id': tx.get('instrument_id'),
             'amount': float(tx.get('amount') or 0.0),
             'proceeds': stored_proceeds,
             'fee': fee,
@@ -4669,7 +4675,7 @@ def _build_tax_transactions(raw_transactions):
         if tx_type in acquisition_types and quantity > 0:
             if stored_cost <= 0:
                 stored_cost = stored_proceeds + fee if stored_proceeds > 0 else price * quantity + fee
-            lots_by_asset[asset].append({
+            lots_by_asset[lot_asset].append({
                 'amount': quantity,
                 'cost': stored_cost,
                 'date': tx_date,
@@ -4691,7 +4697,7 @@ def _build_tax_transactions(raw_transactions):
         unclassified_gain = 0.0
         terms = set()
         acquisition_dates = []
-        lots = lots_by_asset[asset]
+        lots = lots_by_asset[lot_asset]
         proceeds_per_unit = proceeds / quantity if quantity else 0.0
 
         while remaining > 1e-12 and lots:
@@ -4757,6 +4763,17 @@ def _build_tax_transactions(raw_transactions):
 def _build_webull_tax_report(user_id):
     """Create a tax report from filled live Webull orders and holdings."""
     raw_transactions = []
+    holdings = WebullHolding.query.filter_by(user_id=user_id).all()
+    holding_by_instrument = {
+        (str(holding.account_id), str(holding.instrument_id).upper()): holding
+        for holding in holdings if holding.instrument_id
+    }
+    holding_by_symbol = {}
+    for holding in holdings:
+        holding_by_symbol.setdefault(
+            (str(holding.account_id), str(holding.symbol or '').upper(), str(holding.instrument_type or '').upper()),
+            holding,
+        )
     for order in WebullOrder.query.filter_by(user_id=user_id).all():
         status = str(order.status or '').upper()
         filled_quantity = float(order.filled_quantity or 0.0)
@@ -4765,6 +4782,19 @@ def _build_webull_tax_report(user_id):
             continue
         side = str(order.side or '').upper()
         tx_type = 'SELL' if side.startswith('SELL') else 'BUY'
+        holding = holding_by_instrument.get((str(order.account_id), str(getattr(order, 'instrument_id', '') or '').upper())) \
+            if getattr(order, 'instrument_id', None) else None
+        holding = holding or holding_by_symbol.get(
+            (str(order.account_id), str(order.symbol or '').upper(), str(order.instrument_type or '').upper())
+        )
+        instrument = {
+            'symbol': order.symbol,
+            'instrument_type': order.instrument_type,
+            'is_etf': bool(getattr(order, 'is_etf', False)) or bool(getattr(holding, 'is_etf', False)),
+            'display_name': getattr(holding, 'display_name', None),
+            'instrument_id': getattr(holding, 'instrument_id', None),
+            'source': 'webull',
+        }
         fee = abs(float(order.fee or 0.0))
         gross_value = filled_quantity * filled_price
         raw_transactions.append({
@@ -4772,6 +4802,11 @@ def _build_webull_tax_report(user_id):
             'date': order.updated_at or order.created_at,
             'type': tx_type,
             'asset': order.symbol,
+            'display_symbol': display_symbol(instrument),
+            'is_etf': is_etf_asset(instrument),
+            'instrument_type': order.instrument_type,
+            'instrument_id': instrument.get('instrument_id'),
+            '_asset_key': f"webull:{instrument.get('instrument_id') or order.symbol}:{'ETF' if is_etf_asset(instrument) else order.instrument_type or 'ASSET'}",
             'amount': -filled_quantity if tx_type == 'SELL' else filled_quantity,
             'proceeds': gross_value - fee if tx_type == 'SELL' else 0.0,
             'cost_basis': gross_value + fee if tx_type == 'BUY' else 0.0,
@@ -4789,6 +4824,7 @@ def _build_webull_tax_report(user_id):
         'date': activity.date,
         'type': activity.type,
         'asset': activity.asset,
+        'display_symbol': display_symbol({'symbol': activity.asset, 'source': 'webull'}),
         'amount': activity.amount,
         'proceeds': activity.proceeds,
         'cost_basis': activity.cost_basis,
@@ -4801,15 +4837,25 @@ def _build_webull_tax_report(user_id):
 
     tax_data, fifo_lots = _build_tax_transactions(raw_transactions)
     holdings_map = {}
-    holdings = WebullHolding.query.filter_by(user_id=user_id, hidden=False).all()
+    holdings = [holding for holding in holdings if not getattr(holding, 'hidden', False)]
     for holding in holdings:
         amount = float(holding.quantity or 0.0)
         if amount <= 0:
             continue
-        asset = str(holding.symbol or '').upper()
+        asset = display_symbol({
+            'symbol': holding.symbol,
+            'instrument_type': holding.instrument_type,
+            'is_etf': bool(holding.is_etf),
+            'display_name': holding.display_name,
+        })
         price = float(holding.last_price or 0.0)
         current_value = float(holding.current_value or (amount * price))
-        entry = holdings_map.setdefault(asset, {'amount': 0.0, 'cost_basis': 0.0, 'current_value': 0.0, 'current_price': price, 'source': 'webull'})
+        entry = holdings_map.setdefault(asset, {
+            'amount': 0.0, 'cost_basis': 0.0, 'current_value': 0.0,
+            'current_price': price, 'source': 'webull', 'display_symbol': asset,
+            'symbol': str(holding.symbol or '').upper(), 'is_etf': bool(holding.is_etf),
+            'instrument_type': holding.instrument_type,
+        })
         entry['amount'] += amount
         entry['cost_basis'] += amount * float(holding.cost_price or 0.0)
         entry['current_value'] += current_value

@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 
 from core.extensions import db
 from models import ExternalSentimentSignal, WebullAccountSnapshot, WebullHolding, WebullOrder
+from services.asset_identity import display_symbol, is_etf_asset
 
 
 def _number(value, default=0.0):
@@ -136,9 +137,52 @@ def get_webull_order_rows(user_id, *, account_id=None, limit=None):
         snapshot.account_id: snapshot.account_type
         for snapshot in WebullAccountSnapshot.query.filter_by(user_id=user_id).all()
     }
-    return [{
+    # Orders do not always repeat the provider's ETF flag.  Reconcile the
+    # durable order with the matching holding so every Webull view can display
+    # an ETF label without guessing from the ticker itself.
+    holding_by_id = {}
+    holding_by_symbol_type = {}
+    holding_by_symbol = {}
+    for holding in WebullHolding.query.filter_by(user_id=user_id).all():
+        metadata = {
+            'symbol': holding.symbol,
+            'instrument_type': holding.instrument_type,
+            'is_etf': bool(holding.is_etf),
+            'display_name': holding.display_name,
+            'instrument_id': holding.instrument_id,
+        }
+        if holding.instrument_id:
+            holding_by_id[(str(holding.account_id), str(holding.instrument_id).upper())] = metadata
+        symbol = str(holding.symbol or '').upper()
+        instrument_type = str(holding.instrument_type or '').upper()
+        holding_by_symbol_type[(str(holding.account_id), symbol, instrument_type)] = metadata
+        holding_by_symbol.setdefault((str(holding.account_id), symbol), metadata)
+
+    def holding_metadata(record):
+        account = str(record.account_id)
+        instrument_id = str(getattr(record, 'instrument_id', '') or '').upper()
+        instrument_type = str(record.instrument_type or '').upper()
+        return (holding_by_id.get((account, instrument_id)) if instrument_id else None) \
+            or holding_by_symbol_type.get((account, str(record.symbol or '').upper(), instrument_type)) \
+            or holding_by_symbol.get((account, str(record.symbol or '').upper())) \
+            or {}
+
+    rows = []
+    for record in records:
+        holding = holding_metadata(record)
+        asset = {
+            'symbol': record.symbol,
+            'instrument_type': record.instrument_type,
+            'is_etf': holding.get('is_etf', False),
+            'display_name': holding.get('display_name'),
+            'instrument_id': holding.get('instrument_id'),
+        }
+        rows.append({
         'id': record.provider_order_id,
         'symbol': record.symbol,
+        'display_symbol': display_symbol(asset),
+        'is_etf': is_etf_asset(asset),
+        'display_name': holding.get('display_name'),
         'side': record.side or 'UNKNOWN',
         'order_type': record.order_type or 'UNKNOWN',
         'quantity': record.quantity or 0.0,
@@ -155,7 +199,8 @@ def get_webull_order_rows(user_id, *, account_id=None, limit=None):
         'event_outcome': record.event_outcome,
         'webull_account_id': record.account_id,
         'webull_account_type': account_types.get(record.account_id),
-    } for record in records]
+        })
+    return rows
 
 
 def _normalise_option_metadata(position):

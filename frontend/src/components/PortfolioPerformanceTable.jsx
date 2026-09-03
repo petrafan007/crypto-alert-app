@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 import CryptoIcon from './CryptoIcon';
+import { getAssetDisplaySymbol, getAssetIdentity } from '../utils/assetDisplay';
 
 const WINDOW_KEYS = [
   { label: '7D', key: 'change_7d' },
@@ -137,12 +138,12 @@ const PortfolioPerformanceTable = ({ hiddenCoins = [], excludeSymbols = null, on
               </tr>
             ) : (
               visibleData.map((item) => (
-                <tr key={item.symbol}>
+                <tr key={item.asset_key || getAssetIdentity(item)}>
                   <td className="performance-symbol">
                     <button
                       type="button"
-                      onClick={() => onCoinClick?.(item.symbol)}
-                      title={`Open ${item.symbol} in Trading`}
+                      onClick={() => onCoinClick?.(item)}
+                      title={`Open ${getAssetDisplaySymbol(item)} in Trading`}
                       style={{
                         display: 'inline-flex', alignItems: 'center', gap: '8px', padding: 0,
                         border: 'none', background: 'none', color: 'inherit', cursor: 'pointer',
@@ -150,7 +151,7 @@ const PortfolioPerformanceTable = ({ hiddenCoins = [], excludeSymbols = null, on
                       }}
                     >
                       <CryptoIcon symbol={item.symbol} size={18} />
-                      <span style={{ fontWeight: '600' }}>{item.symbol}</span>
+                      <span style={{ fontWeight: '600' }}>{getAssetDisplaySymbol(item)}</span>
                     </button>
                   </td>
                   {WINDOW_KEYS.map((w) => (

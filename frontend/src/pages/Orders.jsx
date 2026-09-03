@@ -8,6 +8,7 @@ import {
 } from '../utils/dateTime';
 import './Trading.css';
 import './AIDashboard.css';
+import { getAssetDisplaySymbol, getAssetIdentity } from '../utils/assetDisplay';
 
 const formatEasternTime = (isoString) => {
   return isoString ? formatEasternDateTimeValue(isoString) : 'Not available';
@@ -170,6 +171,8 @@ const normalize = (order, source) => {
   origin,
   id: order.id || order.order_id || order.orderId || `${source}-${order.symbol || order.ticker || 'unknown'}-${order.created_at || order.create_time || order.filled_time_at || ''}`,
   symbol: String(order.symbol || order.ticker || '—').toUpperCase(),
+  display_symbol: getAssetDisplaySymbol(order),
+  asset_key: getAssetIdentity(order),
   side: order.side || '—',
   order_type: order.order_type || order.type || '—',
   quantity,
@@ -240,7 +243,7 @@ function OrderTable({ orders, open, onCancelOrder, cancellingId, webullAccounts 
                 <td>{formatOrderDate(order.created_at)}</td>
                 <td>{formatOrderTime(order.created_at)}</td>
                 <td className="combined-order-account-cell"><AccountCell order={order} webullAccounts={webullAccounts} /></td>
-                <td>{order.symbol}</td>
+                <td>{order.display_symbol || getAssetDisplaySymbol(order)}</td>
                 <td>{displaySide(order.side)}</td>
                 <td>{displayType(order.order_type)}</td>
                 <td>{amount(order.quantity, 6, '0')}</td>

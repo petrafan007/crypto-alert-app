@@ -16,6 +16,7 @@ from services.price_history_service import (
     is_qualifying_portfolio_coin,
     record_price_history_snapshot,
 )
+from services.asset_identity import display_symbol, is_cash_or_stable_asset, is_etf_asset
 
 from flask import Blueprint
 market_bp = Blueprint('market', __name__)
@@ -532,7 +533,7 @@ def api_coin_performance():
         include_binance = account_scope in ('', 'all', 'binance')
         include_webull = account_scope in ('', 'all', 'webull')
 
-        seen_symbols = set()
+        seen_assets = set()
         qualifying = []
 
         if include_binance:
@@ -544,18 +545,24 @@ def api_coin_performance():
                     continue
                 sym = (coin.symbol or "").strip().upper()
                 price = getattr(coin, 'current', getattr(coin, 'current_price', 0.0)) or 0.0
-                if sym and sym not in seen_symbols and sym not in STABLE_COINS and not getattr(coin, 'hidden', False):
-                    seen_symbols.add(sym)
-                    qualifying.append((sym, float(price), 'binance', 'CRYPTO'))
+                asset = {'symbol': sym, 'source': 'binance', 'instrument_type': 'CRYPTO'}
+                key = ('binance', sym, 'CRYPTO')
+                if sym and key not in seen_assets and sym not in STABLE_COINS and not getattr(coin, 'hidden', False):
+                    seen_assets.add(key)
+                    qualifying.append((asset, float(price)))
 
             for wl in watchlist_coins:
                 if getattr(wl, 'is_external', False) or getattr(wl, 'source', None) == 'webull':
                     continue
                 sym = (wl.symbol or "").strip().upper()
                 price = getattr(wl, 'current_price', getattr(wl, 'current', 0.0)) or 0.0
-                if sym and sym not in seen_symbols and sym not in STABLE_COINS and not getattr(wl, 'hidden', False):
-                    seen_symbols.add(sym)
-                    qualifying.append((sym, float(price), 'watchlist', 'CRYPTO'))
+                # A watchlist row is the same Binance instrument identity as a
+                # portfolio row; do not create a second performance row for it.
+                asset = {'symbol': sym, 'source': 'binance', 'instrument_type': 'CRYPTO'}
+                key = ('binance', sym, 'CRYPTO')
+                if sym and key not in seen_assets and sym not in STABLE_COINS and not getattr(wl, 'hidden', False):
+                    seen_assets.add(key)
+                    qualifying.append((asset, float(price)))
 
         if include_webull:
             webull_holdings = WebullHolding.query.filter_by(user_id=current_user.id).all()
@@ -563,18 +570,36 @@ def api_coin_performance():
                 sym = (holding.symbol or "").strip().upper()
                 price = holding.last_price or holding.cost_price or 0.0
                 itype = (holding.instrument_type or "EQUITY").upper()
-                if sym and sym not in seen_symbols and price > 0:
-                    seen_symbols.add(sym)
-                    qualifying.append((sym, float(price), 'webull', itype))
+                asset = {
+                    'symbol': sym,
+                    'source': 'webull',
+                    'instrument_type': itype,
+                    'is_etf': bool(getattr(holding, 'is_etf', False)),
+                    'display_name': getattr(holding, 'display_name', None),
+                    'instrument_id': getattr(holding, 'instrument_id', None),
+                }
+                if (sym and (not getattr(holding, 'hidden', False) or getattr(holding, 'force_visible', False))
+                        and (not getattr(holding, 'auto_hidden', False) or getattr(holding, 'force_visible', False))
+                        and not is_cash_or_stable_asset(asset) and price > 0):
+                    key = ('webull', str(getattr(holding, 'instrument_id', '') or sym).upper(),
+                           'ETF' if is_etf_asset(asset) else itype)
+                    if key not in seen_assets:
+                        seen_assets.add(key)
+                        qualifying.append((asset, float(price)))
 
-        qualifying.sort(key=lambda item: item[0])
+        qualifying.sort(key=lambda item: display_symbol(item[0]))
         results = [
             {
-                **get_symbol_performance(sym, curr, is_traditional=(itype != 'CRYPTO' or src == 'webull')),
-                "source": src,
-                "instrument_type": itype,
+                **get_symbol_performance(asset['symbol'], curr, is_traditional=(asset['instrument_type'] != 'CRYPTO' or asset['source'] == 'webull')),
+                "source": asset['source'],
+                "instrument_type": asset['instrument_type'],
+                "is_etf": is_etf_asset(asset),
+                "display_symbol": display_symbol(asset),
+                "display_name": asset.get('display_name'),
+                "instrument_id": asset.get('instrument_id'),
+                "asset_key": f"{asset['source']}:{asset['instrument_id'] or asset['symbol']}:{'ETF' if is_etf_asset(asset) else asset['instrument_type']}",
             }
-            for sym, curr, src, itype in qualifying
+            for asset, curr in qualifying
         ]
 
         return jsonify({

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import CryptoIcon from './CryptoIcon';
+import { getAssetDisplaySymbol } from '../utils/assetDisplay';
 
 export const parseOrderData = (order) => {
   const isBuy = (order.side || '').toUpperCase() === 'BUY';
@@ -70,6 +71,7 @@ export const parseOrderData = (order) => {
     isBuy,
     baseSymbol,
     symbol: rawSymbol || baseSymbol,
+    displaySymbol: getAssetDisplaySymbol(order),
     qty,
     qtyStr,
     price,
@@ -282,7 +284,7 @@ const RecentTradesWidget = ({ isLightMode, config, onEdit, onCoinClick, accountS
                   >
                     <CryptoIcon symbol={parsed.baseSymbol} size={16} />
                     <span style={{ fontWeight: '600', color: 'var(--text-primary, #fff)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {parsed.symbol}
+                      {parsed.displaySymbol || parsed.symbol}
                     </span>
                     {parsed.source === 'webull' && <span style={{ color: '#60a5fa', fontSize: '9px', fontWeight: '700' }}>WEBULL</span>}
                   </div>

@@ -21,6 +21,7 @@ import {
   formatOrderType,
   formatTimeInForce,
 } from '../utils/orderDisplay';
+import { getAssetDisplaySymbol, getAssetIdentity } from '../utils/assetDisplay';
 import './Trading.css';
 
 const OPEN_STATUSES = new Set([
@@ -291,6 +292,8 @@ const normalizeOrder = (order) => ({
   ...order,
   id: order.id || order.order_id || order.orderId || `${order.symbol}-${order.created_at || order.create_time || ''}`,
   symbol: String(order.symbol || order.ticker || '—').toUpperCase(),
+  display_symbol: getAssetDisplaySymbol(order),
+  asset_key: getAssetIdentity(order),
   instrument_type: order.instrument_type || order.instrumentType || order.security_type || order.securityType || order.asset_type || order.assetType || '',
   event_outcome: order.event_outcome || order.eventOutcome || order.outcome || '',
   side: order.side || '—',
@@ -367,7 +370,7 @@ function WebullOrderTable({ orders, emptyText, onCancelOrder, cancellingId, opti
               return <tr key={order.id}>
                 <td>{formatEasternDate(order.created_at)}</td>
                 <td>{formatEasternTime(order.created_at)}</td>
-                <td style={{ textAlign: 'center' }}>{option.symbol}</td>
+                <td style={{ textAlign: 'center' }}>{option.isOption ? option.symbol : (order.display_symbol || getAssetDisplaySymbol(order))}</td>
                 {showOptionColumns && <>
                   <td>{option.isOption ? option.expiration || '—' : '—'}</td>
                   <td>{option.isOption ? option.strikeLabel : '—'}</td>
@@ -5386,11 +5389,11 @@ function WebullHoldings({
                   title={onSelectHolding ? `Click to load ${option.isOption ? `${option.symbol} ${option.expiration} $${option.strike} ${option.optionType}` : option.symbol} into the order terminal` : undefined}
                 >
                   {['EQUITY', 'CRYPTO'].includes(instrumentType) && <>
-                    <td style={{ textAlign: 'center' }}><CryptoIcon symbol={option.symbol} size={22} /> <strong>{option.symbol}</strong>{(holding.is_paper || isTestMode) && <small className="badge" style={{ marginLeft: 6 }}>PAPER</small>}</td>
+                    <td style={{ textAlign: 'center' }}><CryptoIcon symbol={option.symbol} size={22} /> <strong>{option.isOption ? option.symbol : getAssetDisplaySymbol(holding)}</strong>{(holding.is_paper || isTestMode) && <small className="badge" style={{ marginLeft: 6 }}>PAPER</small>}</td>
                     <td>{number(quantity, 6)}</td><td>{priceCell(average)}</td><td>{priceCell(last)}</td><td>{priceCell(marketValue, 2)}</td>{pnlCell(holding)}{pnlPercentCell(holding)}<td style={{ textAlign: 'center' }}>{tradeButton(holding, option)}</td>
                   </>}
                   {instrumentType === 'OPTION' && <>
-                    <td><strong>{option.symbol}</strong>{!holding.instrument_id && !holding.is_paper && <small style={{ display: 'block', color: '#fbbf24' }}>Contract resolution needed</small>}</td>
+                    <td><strong>{option.isOption ? option.symbol : getAssetDisplaySymbol(holding)}</strong>{!holding.instrument_id && !holding.is_paper && <small style={{ display: 'block', color: '#fbbf24' }}>Contract resolution needed</small>}</td>
                     <td>{option.expiration || '—'}</td><td>{option.strikeLabel}</td><td>{option.optionType || '—'}</td><td>{side}</td><td>{number(quantity, 4)}</td><td>{priceCell(average)}</td><td>{priceCell(last)}</td><td>{priceCell(marketValue, 2)}</td>{pnlCell(holding)}<td style={{ textAlign: 'center' }}>{tradeButton(holding, option)}</td>
                   </>}
                   {instrumentType === 'FUTURES' && <>

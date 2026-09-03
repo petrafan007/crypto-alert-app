@@ -127,6 +127,14 @@ The application utilizes a **unified PostgreSQL database**.
 
 Historical changelog entries retain the product name used when they were originally released. The application domain, repository slug, deployment folders, database, and service identifiers intentionally remain unchanged by the v2.45.0 brand update.
 
+## v2.83.5 (September 2026)
+
+### Consistent ETF-Aware Asset Labels
+- Added a shared provider- and instrument-aware identity layer so the same ticker can be shown distinctly when it represents an ETF, such as `ETH ETF`, without changing the raw symbol used for quotes or trading.
+- Applied ETF-aware labels across dashboard allocations, Asset Performance, recent trades, Webull positions/open orders/order history, consolidated Orders, and Tax Report views.
+- Consolidated duplicate allocation slices by provider/instrument identity and excluded cash/stablecoin balances from the investable allocation chart.
+- Enriched persisted and live Webull order/tax rows with ETF metadata where the provider exposes a matching holding, while leaving event contracts, options, and ordinary crypto symbols unchanged.
+
 ## v2.79.0 (September 2026)
 
 ### Event Contract AI Fallback Integration
