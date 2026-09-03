@@ -1,6 +1,6 @@
 # Webull Event Contract Strategy Engine
 
-The v2.77 foundation is intentionally paper-only and signal-only. It records
+The v2.78 foundation is intentionally paper-only and signal-only. It records
 the market evidence needed to decide whether an Event Contract strategy has a
 repeatable edge before any automatic execution is considered.
 
@@ -22,9 +22,14 @@ repeatable edge before any automatic execution is considered.
 4. Store normalized market snapshots with provider and receive timestamps.
 5. Evaluate each contract using explicit quote, freshness, liquidity, time,
    edge, and confidence gates.
-6. Persist a decision trace. Until a calibrated probability model is available,
+6. Persist a decision trace with a human-readable question, underlying,
+   duration, condition, and cutoff. Until a calibrated probability model is available,
    the decision is `NO_TRADE` with `MODEL_UNAVAILABLE` rather than an invented
    probability.
+7. Resolve expired contracts only from explicit Webull settlement fields. If
+   Webull has not published a result, the record remains `PENDING`.
+8. Optionally create hypothetical fills for eligible signals and review their
+   settled paper performance. This never calls an order-placement endpoint.
 
 ## HTTP API
 
@@ -36,12 +41,15 @@ repeatable edge before any automatic execution is considered.
 - `POST /api/webull/event-algo/scan`
 - `GET /api/webull/event-algo/decisions`
 - `GET /api/webull/event-algo/opportunities`
+- `POST /api/webull/event-algo/resolve`
+- `POST /api/webull/event-algo/simulate`
+- `GET /api/webull/event-algo/performance`
 
 ## Evidence gate before execution
 
-The next phase should add resolved-outcome labeling, a calibrated empirical or
-logistic probability model, a production-shared paper fill simulator, and
-walk-forward/backtest tooling. Automatic paper orders should remain disabled
-until the model has enough forward observations to evaluate net expectancy,
-profit factor, calibration, drawdown, fill quality, and stability across
-15-minute and hourly contracts. A positive return alone is not sufficient.
+The next phase should add a calibrated empirical or logistic probability model
+and walk-forward/backtest tooling. Automatic paper orders should remain
+disabled until the model has enough forward observations to evaluate net
+expectancy, profit factor, calibration, drawdown, fill quality, and stability
+across 15-minute and hourly contracts. A positive return alone is not
+sufficient.

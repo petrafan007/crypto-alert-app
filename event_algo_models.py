@@ -55,6 +55,7 @@ class EventStrategyRun(db.Model):
     error_count = db.Column(db.Integer, default=0, nullable=False)
     paper_equity = db.Column(db.Float, nullable=True)
     error_message = db.Column(db.Text, nullable=True)
+    diagnostics_json = db.Column(db.Text, default="[]", nullable=False)
 
     __table_args__ = (
         db.Index("ix_event_strategy_run_user_started", "user_id", "started_at"),
@@ -154,6 +155,8 @@ class EventStrategyOrder(db.Model):
     filled_quantity = db.Column(db.Float, default=0.0, nullable=False)
     filled_price = db.Column(db.Float, nullable=True)
     fee = db.Column(db.Float, default=0.0, nullable=False)
+    realized_pnl = db.Column(db.Float, default=0.0, nullable=False)
+    settled_at = db.Column(db.DateTime, nullable=True)
     submitted_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
     rejection_code = db.Column(db.String(80), nullable=True)
@@ -217,4 +220,39 @@ class EventStrategyPerformance(db.Model):
     __table_args__ = (
         db.Index("ix_event_performance_user_period", "user_id", "period_start", "period_end"),
         db.Index("ix_event_performance_config_mode", "config_id", "mode"),
+    )
+
+
+class EventContractOutcome(db.Model):
+    """Provider-confirmed settlement for a Webull Event Contract.
+
+    Outcomes are deliberately separate from snapshots and decisions: a quote
+    can be stale or disappear, while a settlement is immutable evidence.  The
+    engine never infers YES/NO from a price; unresolved contracts remain
+    PENDING until Webull supplies an explicit result.
+    """
+
+    __tablename__ = "event_contract_outcomes"
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, nullable=False, index=True)
+    config_id = db.Column(db.Integer, nullable=True, index=True)
+    contract_symbol = db.Column(db.String(160), nullable=False, index=True)
+    snapshot_id = db.Column(db.Integer, nullable=True, index=True)
+    decision_id = db.Column(db.Integer, nullable=True, index=True)
+    outcome = db.Column(db.String(8), nullable=True)
+    settlement_status = db.Column(db.String(20), default="PENDING", nullable=False)
+    provider_timestamp = db.Column(db.DateTime, nullable=True)
+    observed_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    cutoff_at = db.Column(db.DateTime, nullable=True)
+    settlement_at = db.Column(db.DateTime, nullable=True)
+    settlement_price = db.Column(db.Float, nullable=True)
+    resolved_source = db.Column(db.String(40), nullable=True)
+    raw_json = db.Column(db.Text, default="{}", nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    __table_args__ = (
+        db.Index("ix_event_outcome_user_status", "user_id", "settlement_status"),
+        db.Index("ix_event_outcome_contract_cutoff", "contract_symbol", "cutoff_at"),
     )

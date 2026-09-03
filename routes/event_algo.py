@@ -10,8 +10,11 @@ from credentials import UserSetting
 from event_algo import (
     PAPER_MODE,
     config_to_dict,
+    event_strategy_performance,
     get_or_create_config,
+    resolve_event_outcomes,
     run_event_strategy_scan,
+    simulate_paper_fills,
     update_config,
 )
 from event_algo_models import EventStrategyDecision, EventStrategyRun
@@ -28,6 +31,10 @@ def _paper_mode_enabled():
 def _run_dict(run):
     if not run:
         return None
+    try:
+        diagnostics = json.loads(run.diagnostics_json or "[]")
+    except (TypeError, ValueError):
+        diagnostics = []
     return {
         "id": run.id,
         "status": run.status,
@@ -42,6 +49,7 @@ def _run_dict(run):
         "error_count": run.error_count,
         "paper_equity": run.paper_equity,
         "error_message": run.error_message,
+        "diagnostics": diagnostics,
     }
 
 
@@ -75,6 +83,7 @@ def _decision_dict(decision):
         "eligible": bool(decision.eligible),
         "model_version": decision.model_version,
         "features": features,
+        "contract_details": features.get("contract_details") if isinstance(features, dict) else None,
         "mode": PAPER_MODE,
     }
 
@@ -201,3 +210,44 @@ def event_algo_opportunities():
         .all()
     )
     return jsonify({"success": True, "mode": PAPER_MODE, "opportunities": [_decision_dict(row) for row in rows]})
+
+
+@event_algo_bp.route("/api/webull/event-algo/resolve", methods=["POST"])
+@login_required
+def event_algo_resolve():
+    if not _paper_mode_enabled():
+        return jsonify({"success": False, "message": "Enable Webull paper/test mode before resolving outcomes."}), 400
+    payload = request.get_json(silent=True) or {}
+    try:
+        limit = max(1, min(int(payload.get("limit") or 25), 100))
+    except (TypeError, ValueError):
+        limit = 25
+    try:
+        result = resolve_event_outcomes(current_user.id, limit=limit, force=bool(payload.get("refresh")))
+    except Exception as exc:
+        return jsonify({"success": False, "message": str(exc)}), 400
+    return jsonify(result)
+
+
+@event_algo_bp.route("/api/webull/event-algo/simulate", methods=["POST"])
+@login_required
+def event_algo_simulate():
+    if not _paper_mode_enabled():
+        return jsonify({"success": False, "message": "Enable Webull paper/test mode before simulating fills."}), 400
+    payload = request.get_json(silent=True) or {}
+    result = simulate_paper_fills(
+        current_user.id,
+        decision_ids=payload.get("decision_ids"),
+        limit=payload.get("limit", 25),
+    )
+    return jsonify(result), (200 if result.get("success") else 400)
+
+
+@event_algo_bp.route("/api/webull/event-algo/performance", methods=["GET"])
+@login_required
+def event_algo_performance():
+    try:
+        limit = max(1, min(int(request.args.get("limit") or 500), 2000))
+    except (TypeError, ValueError):
+        limit = 500
+    return jsonify({"success": True, **event_strategy_performance(current_user.id, limit=limit)})

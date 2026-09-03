@@ -6,7 +6,7 @@ def init_db(app=None):
     """Initialize the database with all models"""
     # Import models here to avoid circular imports
     from models import Coin, WatchlistCoin, Notification, AIPrompt, DefaultAIPrompt, StakedCoin, StakingReward, AIConversation, AICache, AIAnalysisSchedule, PriceHistory, WebullAccountSnapshot, WebullHolding, WebullOrder, BinanceOrder, OrderHistorySyncState, WebullWatchlistItem, ExternalSentimentSignal, WebullTestAccount, WebullTestPosition, WebullTestOrder
-    from event_algo_models import EventStrategyConfig, EventStrategyRun, EventMarketSnapshot, EventStrategyDecision, EventStrategyOrder, EventStrategyPosition, EventStrategyPerformance
+    from event_algo_models import EventStrategyConfig, EventStrategyRun, EventMarketSnapshot, EventStrategyDecision, EventStrategyOrder, EventStrategyPosition, EventStrategyPerformance, EventContractOutcome
     from credentials import User, Credential, UserSetting, DesktopToken, OnboardingDefaultProfile
     from trading_models import TestOrder, RealOrder, TestPortfolio, TradingSettings, AllActivity, PortfolioValueHistory, StakingOrder
     
@@ -150,6 +150,9 @@ def init_db(app=None):
             ("watchlist", "asset_type", "VARCHAR(20) DEFAULT 'crypto'"),
             ("webull_test_positions", "underlying_symbol", "VARCHAR(40)"),
             ("webull_test_positions", "event_outcome", "VARCHAR(10)"),
+            ("event_strategy_runs", "diagnostics_json", "TEXT DEFAULT '[]'"),
+            ("event_strategy_orders", "realized_pnl", "FLOAT DEFAULT 0.0"),
+            ("event_strategy_orders", "settled_at", "TIMESTAMP"),
         ]
         for table, col, col_type in columns_to_ensure:
             try:

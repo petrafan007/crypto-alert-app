@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import math
+import re
 import threading
 import time
 from datetime import datetime, timezone
@@ -19,15 +20,17 @@ from log import logger
 from core.extensions import db
 from credentials import Credential, UserSetting
 from event_algo_models import (
+    EventContractOutcome,
     EventMarketSnapshot,
     EventStrategyConfig,
     EventStrategyDecision,
+    EventStrategyOrder,
     EventStrategyRun,
 )
 
 
 PAPER_MODE = "PAPER"
-ENGINE_VERSION = "1.0.0"
+ENGINE_VERSION = "1.1.0"
 MODEL_VERSION = "empirical-v1"
 DEFAULT_RISK_CONFIG = {
     "max_dollars_per_trade": 10.0,
@@ -144,6 +147,67 @@ def _market_provider_timestamp(market):
     return None
 
 
+_DURATION_LABELS = {
+    "FIFTEEN_MINUTES": "15-minute",
+    "15M": "15-minute",
+    "HOURLY": "hourly",
+    "1H": "hourly",
+    "DAILY": "daily",
+    "1D": "daily",
+    "WEEKLY": "weekly",
+    "MONTHLY": "monthly",
+    "ANNUAL": "annual",
+    "ONE_OFF": "one-off",
+    "CUSTOM": "custom",
+}
+
+
+def _market_iso(value):
+    parsed = _utc_naive(value)
+    return parsed.replace(tzinfo=timezone.utc).isoformat().replace("+00:00", "Z") if parsed else None
+
+
+def _market_duration_label(market):
+    minutes = _number(market.get("contract_period_minutes"))
+    if minutes is not None and minutes > 0:
+        if minutes <= 15:
+            return "15-minute"
+        if minutes <= 60:
+            return "hourly"
+        if minutes <= 1440:
+            return "daily"
+        if minutes <= 10080:
+            return "weekly"
+    frequency = str(market.get("series_frequency") or market.get("duration") or "").strip().upper()
+    if frequency in _DURATION_LABELS:
+        return _DURATION_LABELS[frequency]
+    match = re.search(r"(?:^|[^0-9])(?:KX)?[A-Z]+(15M|1H|1D)(?:[^A-Z0-9]|$)", str(market.get("symbol") or "").upper())
+    return _DURATION_LABELS.get(match.group(1), "Unknown duration") if match else "Unknown duration"
+
+
+def contract_details(market):
+    """Return provider-backed, human-readable details without inventing facts."""
+    market = market if isinstance(market, dict) else {}
+    text_keys = ("question", "contract_question", "description", "event_name", "series_name", "name", "display_condition", "yes_condition")
+    question = next((str(market.get(key)).strip() for key in text_keys if market.get(key) not in (None, "") and str(market.get(key)).strip()), None)
+    cutoff = _market_cutoff(market)
+    details = {
+        "contract_symbol": str(market.get("symbol") or "").upper() or None,
+        "underlying_symbol": str(market.get("underlying_symbol") or "").upper() or None,
+        "duration_label": _market_duration_label(market),
+        "question": question or str(market.get("symbol") or "").upper() or "Unknown Event Contract",
+        "condition": str(market.get("display_condition") or market.get("yes_condition") or "").strip() or None,
+        "category": str(market.get("category_code") or "").strip() or None,
+        "series_symbol": str(market.get("series_symbol") or "").upper() or None,
+        "open_at": _market_iso(market.get("contract_period_start") or market.get("open_date")),
+        "cutoff_at": _market_iso(cutoff),
+        "payout_at": _market_iso(market.get("payout_date")),
+        "reference_price": _number(market.get("reference_price")),
+        "target_value": _number(market.get("target_value")),
+    }
+    return details
+
+
 def _market_features(market, now=None):
     now = now or datetime.utcnow()
     yes_bid = _number(market.get("yes_bid"))
@@ -165,6 +229,7 @@ def _market_features(market, now=None):
         "distance_to_reference": round(underlying - reference, 8) if underlying is not None and reference is not None else None,
         "volume": _number(market.get("volume"), 0.0),
         "open_interest": _number(market.get("open_interest"), 0.0),
+        "contract_details": contract_details(market),
     }
 
 
@@ -251,6 +316,8 @@ def config_to_dict(config):
 def get_or_create_config(user_id):
     config = EventStrategyConfig.query.filter_by(user_id=user_id).order_by(EventStrategyConfig.id.asc()).first()
     if config:
+        if config.strategy_version != ENGINE_VERSION:
+            config.strategy_version = ENGINE_VERSION
         return config
     defaults = default_config_for_user(user_id)
     config = EventStrategyConfig(
@@ -399,6 +466,251 @@ def evaluate_market(market, config, *, now=None):
     }
 
 
+_SETTLED_OUTCOME_KEYS = (
+    "settled_outcome", "winning_outcome", "resolved_outcome", "outcome", "result", "settlement_result",
+)
+
+
+def extract_settled_outcome(market):
+    """Read an explicit provider settlement; never infer it from quotes."""
+    if not isinstance(market, dict):
+        return None
+    candidates = []
+    for key in _SETTLED_OUTCOME_KEYS:
+        if key in market:
+            candidates.append(market.get(key))
+    for key in ("settlement", "resolution", "result_data"):
+        value = market.get(key)
+        if isinstance(value, dict):
+            candidates.extend(value.get(item) for item in _SETTLED_OUTCOME_KEYS if item in value)
+    for value in candidates:
+        text = str(value or "").strip().upper()
+        if text in {"YES", "NO"}:
+            return text
+    return None
+
+
+def _latest_decision_for_snapshot(snapshot):
+    if not snapshot:
+        return None
+    return (
+        EventStrategyDecision.query
+        .filter_by(snapshot_id=snapshot.id)
+        .order_by(EventStrategyDecision.created_at.desc())
+        .first()
+    )
+
+
+def _settle_simulated_orders(user_id, contract_symbol, outcome, settled_at):
+    orders = (
+        EventStrategyOrder.query
+        .filter(
+            EventStrategyOrder.user_id == user_id,
+            EventStrategyOrder.contract_symbol == contract_symbol,
+            EventStrategyOrder.status.in_(["SIMULATED_FILLED", "SIMULATED_PENDING"]),
+        )
+        .all()
+    )
+    for order in orders:
+        entry = _number(order.filled_price if order.filled_price is not None else order.limit_price, 0.0) or 0.0
+        quantity = _number(order.filled_quantity, 0.0) or 0.0
+        fee = _number(order.fee, 0.0) or 0.0
+        payout = quantity if str(order.outcome or "").upper() == outcome else 0.0
+        order.realized_pnl = round(payout - (quantity * entry) - fee, 8)
+        order.status = "SIMULATED_SETTLED"
+        order.settled_at = settled_at
+        order.updated_at = settled_at
+    return len(orders)
+
+
+def resolve_event_outcomes(user_id, *, config=None, limit=25, force=False):
+    """Resolve expired contracts from Webull's explicit settlement fields."""
+    config = config or get_or_create_config(user_id)
+    if config.mode != PAPER_MODE or config.kill_switch:
+        return {"success": False, "message": "Outcome resolution is available only in paper mode."}
+    credential, environment = _webull_connection_for_user(user_id)
+    from services.webull_service import get_webull_event_market
+
+    now = datetime.utcnow()
+    snapshots = (
+        EventMarketSnapshot.query
+        .filter(EventMarketSnapshot.user_id == user_id, EventMarketSnapshot.cutoff_at.isnot(None), EventMarketSnapshot.cutoff_at <= now)
+        .order_by(EventMarketSnapshot.cutoff_at.asc())
+        .limit(max(1, min(int(limit or 25), 100)))
+        .all()
+    )
+    resolved = []
+    pending = []
+    seen = set()
+    for snapshot in snapshots:
+        symbol = str(snapshot.contract_symbol or "").upper()
+        if not symbol or (symbol, snapshot.cutoff_at) in seen:
+            continue
+        seen.add((symbol, snapshot.cutoff_at))
+        existing = EventContractOutcome.query.filter_by(
+            user_id=user_id, contract_symbol=symbol, cutoff_at=snapshot.cutoff_at,
+        ).order_by(EventContractOutcome.id.desc()).first()
+        if existing and existing.settlement_status == "RESOLVED":
+            continue
+        raw = {}
+        explicit = None
+        error_message = None
+        try:
+            raw = get_webull_event_market(
+                credential.webull_app_key,
+                credential.webull_app_secret,
+                environment,
+                credential.webull_access_token,
+                symbol=symbol,
+                force=force,
+            ) or {}
+            explicit = extract_settled_outcome(raw)
+        except Exception as exc:
+            error_message = str(exc)
+            raw = {"error": error_message}
+        observed = now
+        decision = _latest_decision_for_snapshot(snapshot)
+        if not existing:
+            existing = EventContractOutcome(
+                user_id=user_id,
+                config_id=config.id,
+                contract_symbol=symbol,
+                snapshot_id=snapshot.id,
+                decision_id=decision.id if decision else None,
+                cutoff_at=snapshot.cutoff_at,
+            )
+            db.session.add(existing)
+        existing.observed_at = observed
+        existing.provider_timestamp = _market_provider_timestamp(raw) or snapshot.provider_timestamp
+        existing.raw_json = _json_dump(raw)
+        existing.resolved_source = "WEBULL_EVENT_MARKET" if not error_message else "WEBULL_LOOKUP_ERROR"
+        if explicit:
+            existing.outcome = explicit
+            existing.settlement_status = "RESOLVED"
+            existing.settlement_at = _utc_naive(raw.get("payout_date")) or observed
+            existing.settlement_price = _number(raw.get("settlement_price"))
+            _settle_simulated_orders(user_id, symbol, explicit, existing.settlement_at)
+            resolved.append({"contract_symbol": symbol, "outcome": explicit, "status": "RESOLVED"})
+        else:
+            existing.settlement_status = "PENDING"
+            pending.append({"contract_symbol": symbol, "status": "PENDING", "message": error_message or "Webull has not supplied a settlement result yet."})
+    db.session.commit()
+    return {"success": True, "resolved": resolved, "pending": pending, "resolved_count": len(resolved), "pending_count": len(pending)}
+
+
+def simulate_paper_fills(user_id, *, config=None, decision_ids=None, limit=25):
+    """Create hypothetical fills for eligible signals without a broker call."""
+    config = config or get_or_create_config(user_id)
+    if config.mode != PAPER_MODE or config.kill_switch:
+        return {"success": False, "message": "Paper-fill simulation is available only while the paper engine is enabled."}
+    query = EventStrategyDecision.query.filter_by(user_id=user_id, eligible=True).order_by(EventStrategyDecision.created_at.desc())
+    if decision_ids:
+        try:
+            ids = [int(value) for value in decision_ids]
+        except (TypeError, ValueError):
+            ids = []
+        if ids:
+            query = query.filter(EventStrategyDecision.id.in_(ids))
+    decisions = query.limit(max(1, min(int(limit or 25), 100))).all()
+    fee = _number(_json_load(config.signal_config, dict(DEFAULT_SIGNAL_CONFIG)).get("fee_per_contract"), 0.02) or 0.02
+    created = []
+    for decision in decisions:
+        duplicate = EventStrategyOrder.query.filter_by(user_id=user_id, decision_id=decision.id).first()
+        if duplicate:
+            continue
+        price = _number(decision.executable_price)
+        outcome = str(decision.outcome or "").upper()
+        if price is None or outcome not in {"YES", "NO"}:
+            continue
+        order = EventStrategyOrder(
+            user_id=user_id,
+            config_id=config.id,
+            decision_id=decision.id,
+            mode=PAPER_MODE,
+            broker="WEBULL",
+            client_order_id=f"paper-{uuid4().hex}",
+            contract_symbol=decision.contract_symbol,
+            outcome=outcome,
+            side="BUY",
+            quantity=1.0,
+            limit_price=price,
+            status="SIMULATED_FILLED",
+            filled_quantity=1.0,
+            filled_price=price,
+            fee=fee,
+        )
+        db.session.add(order)
+        created.append(order)
+    db.session.commit()
+    return {
+        "success": True,
+        "mode": PAPER_MODE,
+        "simulated_count": len(created),
+        "message": "No eligible signals are available to simulate." if not created else "Eligible signals simulated in paper mode.",
+        "orders": [{"id": order.id, "contract_symbol": order.contract_symbol, "outcome": order.outcome, "price": order.filled_price, "status": order.status} for order in created],
+    }
+
+
+def event_strategy_performance(user_id, *, config=None, limit=500):
+    """Aggregate settled hypothetical fills; unresolved contracts are excluded."""
+    orders = (
+        EventStrategyOrder.query.filter_by(user_id=user_id, mode=PAPER_MODE)
+        .order_by(EventStrategyOrder.submitted_at.asc()).limit(max(1, min(int(limit or 500), 2000))).all()
+    )
+    outcomes = {}
+    for row in EventContractOutcome.query.filter_by(user_id=user_id, settlement_status="RESOLVED").order_by(EventContractOutcome.observed_at.desc()).all():
+        outcomes.setdefault(row.contract_symbol, row.outcome)
+    decision_ids = [row.decision_id for row in orders if row.decision_id]
+    decision_map = {row.id: row for row in EventStrategyDecision.query.filter(EventStrategyDecision.id.in_(decision_ids)).all()} if decision_ids else {}
+    settled = []
+    pending = 0
+    for order in orders:
+        result = outcomes.get(order.contract_symbol)
+        if result not in {"YES", "NO"}:
+            pending += 1
+            continue
+        won = str(order.outcome or "").upper() == result
+        entry = _number(order.filled_price if order.filled_price is not None else order.limit_price, 0.0) or 0.0
+        quantity = _number(order.filled_quantity, 0.0) or 0.0
+        fee = _number(order.fee, 0.0) or 0.0
+        pnl = _number(order.realized_pnl)
+        if pnl is None:
+            pnl = (quantity if won else 0.0) - quantity * entry - fee
+        details = _json_load(decision_map.get(order.decision_id).feature_json if decision_map.get(order.decision_id) else "{}", {})
+        label = ((details.get("contract_details") or {}).get("duration_label") or "Unknown duration") if isinstance(details, dict) else "Unknown duration"
+        settled.append({"order": order, "won": won, "pnl": float(pnl), "fee": fee, "duration": label})
+    pnls = [item["pnl"] for item in settled]
+    gross_profit = sum(item for item in pnls if item > 0)
+    gross_loss = sum(item for item in pnls if item < 0)
+    running = peak = drawdown = 0.0
+    for value in pnls:
+        running += value
+        peak = max(peak, running)
+        drawdown = max(drawdown, peak - running)
+    by_duration = {}
+    for item in settled:
+        bucket = by_duration.setdefault(item["duration"], {"duration": item["duration"], "trades": 0, "wins": 0, "net_pnl": 0.0})
+        bucket["trades"] += 1
+        bucket["wins"] += int(item["won"])
+        bucket["net_pnl"] += item["pnl"]
+    return {
+        "mode": PAPER_MODE,
+        "trades": len(settled),
+        "pending": pending,
+        "wins": sum(int(item["won"]) for item in settled),
+        "losses": sum(int(not item["won"]) for item in settled),
+        "gross_profit": round(gross_profit, 8),
+        "gross_loss": round(gross_loss, 8),
+        "fees": round(sum(item["fee"] for item in settled), 8),
+        "net_pnl": round(sum(pnls), 8),
+        "max_drawdown": round(drawdown, 8),
+        "profit_factor": round(gross_profit / abs(gross_loss), 6) if gross_loss else None,
+        "expectancy": round(sum(pnls) / len(pnls), 8) if pnls else None,
+        "by_duration": [{**bucket, "net_pnl": round(bucket["net_pnl"], 8)} for bucket in by_duration.values()],
+        "generated_at": datetime.utcnow().replace(tzinfo=timezone.utc).isoformat().replace("+00:00", "Z"),
+    }
+
+
 def _snapshot_model(user_id, config_id, run_id, market, features, received_at):
     return EventMarketSnapshot(
         user_id=user_id,
@@ -498,8 +810,10 @@ def run_event_strategy_scan(user_id, *, config=None, force=False, worker_id="man
         durations = _json_load(config.durations, ["FIFTEEN_MINUTES", "HOURLY"])
         markets = {}
         warnings = []
+        scan_diagnostics = []
         for symbol in symbols[:10]:
             for duration in durations[:8]:
+                diagnostic = {"symbol": symbol, "duration": duration, "status": "STARTING", "catalog_matches": 0, "verified_matches": 0, "scanned": 0, "warnings": []}
                 try:
                     result = get_webull_event_markets(
                         credential.webull_app_key,
@@ -514,12 +828,22 @@ def run_event_strategy_scan(user_id, *, config=None, force=False, worker_id="man
                         progressive=True,
                     )
                     warnings.extend(result.get("warnings") or [])
+                    diagnostic.update({
+                        "status": result.get("status") or ("PARTIAL" if result.get("partial") else "OK"),
+                        "catalog_matches": result.get("catalog_matches", result.get("total_matches", 0)) or 0,
+                        "verified_matches": result.get("verified_matches", len(result.get("markets") or [])) or 0,
+                        "scanned": len(result.get("markets") or []),
+                        "loading": bool(result.get("loading")),
+                    })
+                    diagnostic["warnings"] = list(dict.fromkeys(str(item) for item in (result.get("warnings") or [])))
                     for market in result.get("markets") or []:
                         if market.get("symbol"):
                             markets[str(market["symbol"]).upper()] = market
                 except Exception as exc:
                     warnings.append(f"{symbol}/{duration}: {exc}")
+                    diagnostic.update({"status": "ERROR", "error": str(exc), "warnings": [str(exc)]})
                     run.error_count += 1
+                scan_diagnostics.append(diagnostic)
         now = datetime.utcnow()
         decisions = []
         for market in markets.values():
@@ -541,6 +865,7 @@ def run_event_strategy_scan(user_id, *, config=None, force=False, worker_id="man
         run.finished_at = datetime.utcnow()
         run.heartbeat_at = run.finished_at
         run.error_message = "\n".join(dict.fromkeys(str(item) for item in warnings))[:4000] if warnings else None
+        run.diagnostics_json = _json_dump(scan_diagnostics)
         config.last_run_at = run.finished_at
         config.worker_status = "RUNNING" if config.enabled else "STOPPED"
         db.session.commit()
@@ -554,6 +879,7 @@ def run_event_strategy_scan(user_id, *, config=None, force=False, worker_id="man
             "no_trade_count": run.no_trade_count,
             "error_count": run.error_count,
             "warnings": list(dict.fromkeys(warnings)),
+            "diagnostics": scan_diagnostics,
             "decisions": decisions,
         }
     except Exception as exc:
