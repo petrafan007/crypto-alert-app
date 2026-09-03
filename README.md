@@ -144,6 +144,15 @@ Historical changelog entries retain the product name used when they were origina
 - Added durable AI evaluation state with retry backoff, failure telemetry, provider provenance, and strict batch response parsing. The engine can evaluate several contracts per provider request without inventing missing probabilities.
 - Added a watchdog supervisor that detects stale heartbeats, restarts paper scans, records structured errors, and emits rate-limited toast notifications. Copilot receives the same secret-free health summary so operational questions are answerable from the UI.
 
+## v2.80.0 (September 2026)
+
+### Administrator-only Event Contract Strategy Engine
+- Restricted the Event Contract Strategy Engine to the permanent `jcavallarojr` administrator account.
+- Removed the engine tab for every other user and redirect direct navigation attempts back to general Settings.
+- Added backend authorization to every engine endpoint, including configuration, scans, decisions, performance, logs, and kill-switch controls.
+- Prevented the background supervisor from running engine configurations belonging to any other account.
+- Removed engine health telemetry from non-administrator Copilot context.
+
 ## v2.78.0 (September 2026)
 
 ### Event Contract Research Evidence and Paper Simulation

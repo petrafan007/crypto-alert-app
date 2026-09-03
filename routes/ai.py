@@ -36,7 +36,7 @@ from services.ai_service import (
     call_ai_with_web_search, web_search, run_sentiment_analysis_for_user,
     run_watchlist_sentiment_analysis_for_user, log_ai_conversation
 )
-from event_algo import event_strategy_health_summary
+from event_algo import event_strategy_health_summary, is_event_strategy_admin
 
 # Local helpers previously in main
 import threading
@@ -2324,15 +2324,23 @@ def process_ai_conversation(user_id, message, conversation_id=None):
 
     symbol_context_text = "\n".join(symbol_details) if symbol_details else ""
 
-    # Keep the Copilot aware of paper-worker health without exposing API keys
-    # or credentials.  This lets it answer operational questions from the
-    # same durable telemetry shown in Settings.
-    try:
-        event_strategy_health = event_strategy_health_summary(user_id)
-        event_strategy_health_text = json.dumps(event_strategy_health, sort_keys=True, default=str)
-    except Exception as health_error:
-        logger.warning("Unable to load Event Contract strategy health for Copilot: %s", health_error)
-        event_strategy_health_text = json.dumps({"worker_status": "UNKNOWN", "error": str(health_error)[:300]})
+    # Keep the Copilot aware of paper-worker health for the administrator only.
+    # Other users must not receive engine telemetry through an indirect context
+    # channel, even though the engine endpoints and Settings tab are hidden.
+    event_strategy_health_text = ""
+    if is_event_strategy_admin(current_user):
+        try:
+            event_strategy_health = event_strategy_health_summary(user_id)
+            event_strategy_health_text = json.dumps(event_strategy_health, sort_keys=True, default=str)
+        except Exception as health_error:
+            logger.warning("Unable to load Event Contract strategy health for Copilot: %s", health_error)
+            event_strategy_health_text = json.dumps({"worker_status": "UNKNOWN", "error": str(health_error)[:300]})
+
+    event_strategy_context = (
+        f"=== EVENT CONTRACT STRATEGY ENGINE HEALTH (PAPER / SIGNAL-ONLY) ===\n"
+        f"{event_strategy_health_text}\n\n"
+        if event_strategy_health_text else ""
+    )
 
     # Build complete context payload for AI
     context_payload = (
@@ -2347,8 +2355,7 @@ def process_ai_conversation(user_id, message, conversation_id=None):
         f"{watchlist_text}\n\n"
         f"=== RECENT COMPLETED TRANSACTIONS & TRADE AUDIT LEDGER ===\n"
         f"{activity_text}\n\n"
-        f"=== EVENT CONTRACT STRATEGY ENGINE HEALTH (PAPER / SIGNAL-ONLY) ===\n"
-        f"{event_strategy_health_text}\n\n"
+        f"{event_strategy_context}"
         f"=== ACTIVE AI COPILOT SIDEBAR STREAM & CHAT HISTORY (Oldest to Newest) ===\n"
         f"{sidebar_feed_text}"
     )

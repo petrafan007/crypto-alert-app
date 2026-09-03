@@ -52,6 +52,16 @@ rate-limited toast, and lets the supervisor reacquire the scan on its next
 iteration. The application service remains managed by systemd with
 `Restart=always`, so a process crash is also restarted automatically.
 
+## Administrator access
+
+The engine is permanently restricted to the `jcavallarojr` administrator
+identity. Settings hides the engine tab for every other user and redirects a
+direct tab URL back to general Settings. Every engine API endpoint enforces the
+same check, including configuration, scans, decisions, performance, logs,
+simulation, resolution, and kill-switch actions. The background supervisor
+also ignores engine configurations that do not belong to that administrator,
+and non-administrator Copilot sessions receive no engine health telemetry.
+
 ## HTTP API
 
 - `GET/PUT /api/webull/event-algo/config`

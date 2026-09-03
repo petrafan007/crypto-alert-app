@@ -1,6 +1,7 @@
 """HTTP API for the paper-only Webull Event Contract strategy engine."""
 
 import json
+from functools import wraps
 
 from flask import Blueprint, jsonify, request
 from flask_login import current_user, login_required
@@ -13,6 +14,7 @@ from event_algo import (
     event_strategy_performance,
     event_strategy_health_summary,
     event_strategy_logs,
+    is_event_strategy_admin,
     _record_engine_log,
     get_or_create_config,
     resolve_event_outcomes,
@@ -24,6 +26,20 @@ from event_algo_models import EventStrategyDecision, EventStrategyRun
 
 
 event_algo_bp = Blueprint("event_algo", __name__)
+
+
+def event_strategy_admin_required(view):
+    """Restrict every strategy-engine API to the permanent administrator."""
+    @wraps(view)
+    @login_required
+    def wrapped(*args, **kwargs):
+        if not is_event_strategy_admin(current_user):
+            return jsonify({
+                "success": False,
+                "message": "The Event Contract Strategy Engine is restricted to the administrator.",
+            }), 403
+        return view(*args, **kwargs)
+    return wrapped
 
 
 def _paper_mode_enabled():
@@ -92,7 +108,7 @@ def _decision_dict(decision):
 
 
 @event_algo_bp.route("/api/webull/event-algo/config", methods=["GET", "PUT"])
-@login_required
+@event_strategy_admin_required
 def event_algo_config():
     config = get_or_create_config(current_user.id)
     if request.method == "PUT":
@@ -110,7 +126,7 @@ def event_algo_config():
 
 
 @event_algo_bp.route("/api/webull/event-algo/status", methods=["GET"])
-@login_required
+@event_strategy_admin_required
 def event_algo_status():
     config = get_or_create_config(current_user.id)
     last_run = EventStrategyRun.query.filter_by(user_id=current_user.id).order_by(EventStrategyRun.started_at.desc()).first()
@@ -127,7 +143,7 @@ def event_algo_status():
 
 
 @event_algo_bp.route("/api/webull/event-algo/logs", methods=["GET"])
-@login_required
+@event_strategy_admin_required
 def event_algo_logs():
     try:
         limit = max(1, min(int(request.args.get("limit") or 200), 500))
@@ -143,7 +159,7 @@ def event_algo_logs():
 
 
 @event_algo_bp.route("/api/webull/event-algo/start", methods=["POST"])
-@login_required
+@event_strategy_admin_required
 def event_algo_start():
     if not _paper_mode_enabled():
         return jsonify({
@@ -161,7 +177,7 @@ def event_algo_start():
 
 
 @event_algo_bp.route("/api/webull/event-algo/stop", methods=["POST"])
-@login_required
+@event_strategy_admin_required
 def event_algo_stop():
     config = get_or_create_config(current_user.id)
     config.enabled = False
@@ -172,7 +188,7 @@ def event_algo_stop():
 
 
 @event_algo_bp.route("/api/webull/event-algo/kill-switch", methods=["POST"])
-@login_required
+@event_strategy_admin_required
 def event_algo_kill_switch():
     config = get_or_create_config(current_user.id)
     config.enabled = False
@@ -189,7 +205,7 @@ def event_algo_kill_switch():
 
 
 @event_algo_bp.route("/api/webull/event-algo/scan", methods=["POST"])
-@login_required
+@event_strategy_admin_required
 def event_algo_scan():
     if not _paper_mode_enabled():
         return jsonify({
@@ -208,7 +224,7 @@ def event_algo_scan():
 
 
 @event_algo_bp.route("/api/webull/event-algo/decisions", methods=["GET"])
-@login_required
+@event_strategy_admin_required
 def event_algo_decisions():
     try:
         limit = max(1, min(int(request.args.get("limit") or 50), 200))
@@ -222,7 +238,7 @@ def event_algo_decisions():
 
 
 @event_algo_bp.route("/api/webull/event-algo/opportunities", methods=["GET"])
-@login_required
+@event_strategy_admin_required
 def event_algo_opportunities():
     try:
         limit = max(1, min(int(request.args.get("limit") or 25), 100))
@@ -239,7 +255,7 @@ def event_algo_opportunities():
 
 
 @event_algo_bp.route("/api/webull/event-algo/resolve", methods=["POST"])
-@login_required
+@event_strategy_admin_required
 def event_algo_resolve():
     if not _paper_mode_enabled():
         return jsonify({"success": False, "message": "Enable Webull paper/test mode before resolving outcomes."}), 400
@@ -256,7 +272,7 @@ def event_algo_resolve():
 
 
 @event_algo_bp.route("/api/webull/event-algo/simulate", methods=["POST"])
-@login_required
+@event_strategy_admin_required
 def event_algo_simulate():
     if not _paper_mode_enabled():
         return jsonify({"success": False, "message": "Enable Webull paper/test mode before simulating fills."}), 400
@@ -270,7 +286,7 @@ def event_algo_simulate():
 
 
 @event_algo_bp.route("/api/webull/event-algo/performance", methods=["GET"])
-@login_required
+@event_strategy_admin_required
 def event_algo_performance():
     try:
         limit = max(1, min(int(request.args.get("limit") or 500), 2000))

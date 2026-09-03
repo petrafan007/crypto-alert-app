@@ -5,6 +5,7 @@ from types import SimpleNamespace
 from event_algo import (
     _ai_cooldown_seconds,
     evaluate_market,
+    is_event_strategy_admin,
     normalize_config_payload,
     parse_event_model_batch_response,
     parse_event_model_response,
@@ -34,6 +35,12 @@ class EventAlgoTests(unittest.TestCase):
         self.assertEqual(config['mode'], 'PAPER')
         self.assertTrue(config['signal_config']['signals_only'])
         self.assertEqual(config['symbols'], ['BTC', 'ETH'])
+
+    def test_event_strategy_admin_is_stable_username_only(self):
+        self.assertTrue(is_event_strategy_admin(SimpleNamespace(username='jcavallarojr')))
+        self.assertTrue(is_event_strategy_admin('JCAVALLARojr'))
+        self.assertFalse(is_event_strategy_admin(SimpleNamespace(username='another-user')))
+        self.assertFalse(is_event_strategy_admin(SimpleNamespace(username='jcavallarojr-admin')))
 
     def test_missing_probability_is_explicit_no_trade(self):
         decision = evaluate_market({

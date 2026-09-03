@@ -35,6 +35,20 @@ from event_algo_models import (
 PAPER_MODE = "PAPER"
 ENGINE_VERSION = "1.2.0"
 MODEL_VERSION = "ai-fallback-v1"
+# The strategy engine is an administrator-only research surface.  Keep the
+# identity tied to the stable username rather than a database id so an account
+# restore or migration cannot accidentally transfer ownership to another user.
+EVENT_STRATEGY_ADMIN_USERNAME = "jcavallarojr"
+
+
+def is_event_strategy_admin(user_or_username):
+    """Return True only for the permanent strategy-engine administrator."""
+    if user_or_username is None:
+        return False
+    username = getattr(user_or_username, "username", user_or_username)
+    return str(username or "").strip().casefold() == EVENT_STRATEGY_ADMIN_USERNAME.casefold()
+
+
 DEFAULT_RISK_CONFIG = {
     "max_dollars_per_trade": 10.0,
     "max_open_dollars": 30.0,
@@ -1747,6 +1761,12 @@ def event_algo_worker_loop(app):
                 for config_id in config_ids:
                     config = EventStrategyConfig.query.get(config_id)
                     if not config or not config.enabled or config.mode != PAPER_MODE or config.kill_switch:
+                        continue
+                    # Do not run legacy or tampered configs belonging to any
+                    # other account.  The engine is permanently owned by the
+                    # administrator, even when a config row survives a user
+                    # migration or restore.
+                    if not is_event_strategy_admin(db.session.get(User, config.user_id)):
                         continue
                     signal = _json_load(config.signal_config, dict(DEFAULT_SIGNAL_CONFIG))
                     interval = max(30, int(_number(signal.get("scan_interval_seconds"), 60)))

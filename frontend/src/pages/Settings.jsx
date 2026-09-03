@@ -217,10 +217,15 @@ export default function Settings({ isLightMode }) {
     { id: 'system', label: 'Notifications & System', icon: '⚙️' },
     { id: 'event-strategy', label: 'Event Contract Strategy Engine', icon: '📊' },
   ];
+  const isEventStrategyAdmin = String(user?.username || '').trim().toLowerCase() === 'jcavallarojr';
+  const visibleSettingsTabs = isEventStrategyAdmin
+    ? SETTINGS_TABS
+    : SETTINGS_TABS.filter((tab) => tab.id !== 'event-strategy');
 
   const [activeTab, setActiveTab] = useState(() => {
     const tabParam = searchParams.get('tab');
-    const validTabs = ['apis', 'ai-providers', 'ai-prompts', 'sentiment-strategy', 'web-search', 'security-2fa', 'system', 'event-strategy'];
+    const validTabs = ['apis', 'ai-providers', 'ai-prompts', 'sentiment-strategy', 'web-search', 'security-2fa', 'system'];
+    if (isEventStrategyAdmin) validTabs.push('event-strategy');
     if (tabParam && validTabs.includes(tabParam)) return tabParam;
     const sectionParam = searchParams.get('section');
     if (sectionParam === '2fa') return 'security-2fa';
@@ -229,6 +234,7 @@ export default function Settings({ isLightMode }) {
   });
 
   const handleTabChange = (tabId) => {
+    if (tabId === 'event-strategy' && !isEventStrategyAdmin) return;
     setActiveTab(tabId);
     setSearchParams((prev) => {
       const next = new URLSearchParams(prev);
@@ -244,11 +250,23 @@ export default function Settings({ isLightMode }) {
 
   useEffect(() => {
     const tabParam = searchParams.get('tab');
-    const validTabs = ['apis', 'ai-providers', 'ai-prompts', 'sentiment-strategy', 'web-search', 'security-2fa', 'system', 'event-strategy'];
+    const validTabs = ['apis', 'ai-providers', 'ai-prompts', 'sentiment-strategy', 'web-search', 'security-2fa', 'system'];
+    if (isEventStrategyAdmin) validTabs.push('event-strategy');
     if (tabParam && validTabs.includes(tabParam)) {
       setActiveTab(tabParam);
     }
-  }, [searchParams]);
+  }, [searchParams, isEventStrategyAdmin]);
+
+  useEffect(() => {
+    if (user && !isEventStrategyAdmin && activeTab === 'event-strategy') {
+      setActiveTab('apis');
+      setSearchParams((prev) => {
+        const next = new URLSearchParams(prev);
+        next.set('tab', 'apis');
+        return next;
+      }, { replace: true });
+    }
+  }, [user, isEventStrategyAdmin, activeTab, setSearchParams]);
 
   // Auto-resize textarea function
   const autoResizeTextarea = (textarea) => {
@@ -276,8 +294,8 @@ export default function Settings({ isLightMode }) {
   };
 
   useEffect(() => {
-    if (activeTab === 'event-strategy') loadEventStrategy();
-  }, [activeTab]);
+    if (activeTab === 'event-strategy' && isEventStrategyAdmin) loadEventStrategy();
+  }, [activeTab, isEventStrategyAdmin]);
 
   const updateEventStrategySignal = (key, value) => {
     setEventStrategyConfig((prev) => ({
@@ -1504,7 +1522,7 @@ export default function Settings({ isLightMode }) {
 
       {/* Settings Navigation Tabs */}
       <div className="settings-tabs-nav">
-        {SETTINGS_TABS.map((tab) => (
+        {visibleSettingsTabs.map((tab) => (
           <button
             key={tab.id}
             type="button"
@@ -3489,7 +3507,7 @@ export default function Settings({ isLightMode }) {
       )}
 
       {/* Event Contract Strategy Engine Tab */}
-      {activeTab === 'event-strategy' && (
+      {activeTab === 'event-strategy' && isEventStrategyAdmin && (
         <div className="settings-grid" style={{ marginTop: '24px' }}>
           <div className="settings-page-section" style={{ gridColumn: '1 / -1' }}>
             <h3>📊 Event Contract Strategy Engine</h3>
