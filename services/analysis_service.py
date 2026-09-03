@@ -5,6 +5,7 @@ from log import logger
 from core.extensions import db
 from models import AICache, AIPrompt, AIAnalysisSchedule, AIConversation
 from credentials import UserSetting
+from event_algo import is_event_strategy_admin
 
 def get_ai_cache(user_id, cache_key, cache_type):
     """Get cached AI analysis result"""
@@ -339,10 +340,18 @@ def get_user_ai_settings(username: str) -> dict:
                 settings['browser_notifications_enabled'] = bool(b_enabled)
                 settings['toast_notifications_enabled'] = bool(b_enabled)
 
-        provider = settings.get('ai_provider', 'openai')
+        provider = str(settings.get('ai_provider', 'openai') or 'openai').strip().lower()
+        settings['ai_provider'] = provider
         model = settings.get('ai_model')
 
+        for provider_field in ('ai_provider_fallback', 'ai_provider_secondary', 'ai_provider_tertiary'):
+            current_provider = settings.get(provider_field)
+            settings[provider_field] = str(current_provider or '').strip().lower()
+
+        ollama_allowed = bool(user_obj and is_event_strategy_admin(user_obj))
         valid_providers = {'openai', 'zai', 'perplexity', 'gemini', 'inception'}
+        if ollama_allowed:
+            valid_providers.add('ollama')
         if provider not in valid_providers:
             provider = 'openai'
             settings['ai_provider'] = provider
@@ -386,8 +395,27 @@ def get_user_ai_settings(username: str) -> dict:
         elif provider == 'inception':
             if model not in inception_models:
                 settings['ai_model'] = default_models['inception']
+        elif provider == 'ollama':
+            # Ollama models are discovered from the administrator's local
+            # service. Do not replace a selected local model with a cloud
+            # default or require an API key.
+            settings['ai_model'] = str(model or '').strip()
         else:
             settings['ai_model'] = default_models['openai']
+
+        # A saved value or forged request must never make Ollama available to
+        # another account. Empty secondary/tertiary tiers remain unconfigured.
+        if not ollama_allowed:
+            for provider_field, model_field, default_value in (
+                ('ai_provider_secondary', 'ai_model_secondary', ''),
+                ('ai_provider_tertiary', 'ai_model_tertiary', ''),
+            ):
+                if str(settings.get(provider_field) or '').strip().lower() == 'ollama':
+                    settings[provider_field] = ''
+                    settings[model_field] = default_value
+            if str(settings.get('ai_provider') or '').strip().lower() == 'ollama':
+                settings['ai_provider'] = 'openai'
+                settings['ai_model'] = default_models['openai']
 
         def _fix_time(s: str, default: str) -> str:
             try:

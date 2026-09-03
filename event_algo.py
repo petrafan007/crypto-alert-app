@@ -49,6 +49,56 @@ def is_event_strategy_admin(user_or_username):
     return str(username or "").strip().casefold() == EVENT_STRATEGY_ADMIN_USERNAME.casefold()
 
 
+def summarize_ai_scan_status(markets):
+    """Classify why a scan has no successful AI result.
+
+    A scheduled skip, stale evaluation, disabled integration, or missing live
+    quote is expected paper-engine behavior and must not be presented as a
+    provider outage. Only an actual provider/error response should raise the
+    unavailable alert.
+    """
+    if not markets:
+        return None
+    entries = []
+    for market in markets.values() if isinstance(markets, dict) else markets:
+        metadata = market.get("_model_metadata") or {}
+        entries.append((
+            str(metadata.get("status") or "unavailable").strip().lower(),
+            str(metadata.get("error") or "").strip(),
+        ))
+    if any(status in {"success", "cached"} for status, _error in entries):
+        return None
+
+    provider_failures = [error for status, error in entries if status in {"error", "invalid"}]
+    if provider_failures:
+        details = "; ".join(dict.fromkeys(provider_failures))[:500]
+        return {
+            "event_type": "AI_UNAVAILABLE",
+            "level": "WARNING",
+            "notify": True,
+            "message": (
+                "AI evaluation failed for this scan"
+                f" ({details}). Paper decisions remain no-trade until a provider succeeds or a valid cache is available."
+            ),
+        }
+
+    statuses = {status for status, _error in entries}
+    reasons = [error for _status, error in entries if error]
+    detail = "; ".join(dict.fromkeys(reasons))[:500]
+    if statuses and statuses <= {"stale"}:
+        message = "AI evaluation is scheduled for a later cadence; paper snapshots continue and the next eligible scan will retry."
+    elif detail:
+        message = f"AI evaluation was deferred for this scan ({detail}); paper snapshots continue and the next eligible scan will retry."
+    else:
+        message = "AI evaluation was not attempted for this scan; paper snapshots continue and the next eligible scan will retry."
+    return {
+        "event_type": "AI_EVALUATION_DEFERRED",
+        "level": "INFO",
+        "notify": False,
+        "message": message,
+    }
+
+
 DEFAULT_RISK_CONFIG = {
     "max_dollars_per_trade": 10.0,
     "max_open_dollars": 30.0,
@@ -1721,11 +1771,16 @@ def run_event_strategy_scan(user_id, *, config=None, force=False, worker_id="man
             metadata={"status": run.status, "warnings": list(dict.fromkeys(warnings)), "diagnostics": scan_diagnostics},
             notify=bool(warnings),
         )
-        if markets and not any((market.get("_model_metadata") or {}).get("status") in {"success", "cached"} for market in markets.values()):
+        ai_scan_status = summarize_ai_scan_status(markets)
+        if ai_scan_status:
             _record_engine_log(
-                user_id, "AI_UNAVAILABLE",
-                "No successful AI evaluation was available for this scan; all decisions remain no-trade until a provider succeeds or a valid cache is available.",
-                level="WARNING", config_id=config.id, run_id=run.id, notify=True,
+                user_id,
+                ai_scan_status["event_type"],
+                ai_scan_status["message"],
+                level=ai_scan_status["level"],
+                config_id=config.id,
+                run_id=run.id,
+                notify=ai_scan_status["notify"],
             )
         db.session.commit()
         return {

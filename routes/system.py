@@ -33,6 +33,7 @@ from services.credential_service import get_user_credentials, is_encryption_avai
 from services.binance_service import sync_portfolio_from_binance
 from services.portfolio_service import record_true_portfolio_value
 from services.analysis_service import get_user_ai_settings
+from event_algo import is_event_strategy_admin
 from services.notification_service import save_notification_record
 from services.webull_service import (
     WebullConnectionError,
@@ -1400,6 +1401,18 @@ def api_settings():
         
         if request.method == "POST":
             data = request.get_json() or {}
+            ollama_fields = (
+                'ai_provider',
+                'ai_provider_fallback',
+                'ai_provider_secondary',
+                'ai_provider_tertiary',
+            )
+            if any(str(data.get(field) or '').strip().lower() == 'ollama' for field in ollama_fields):
+                if not is_event_strategy_admin(current_user):
+                    return jsonify({
+                        "success": False,
+                        "message": "Ollama is available only to the administrator account.",
+                    }), 403
             existing_webull_environment = getattr(
                 UserSetting.query.filter_by(user_id=current_user.id).first(),
                 'webull_environment', None,

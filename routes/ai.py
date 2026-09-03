@@ -34,7 +34,8 @@ from services.webull_signal_service import create_webull_signal
 from services.portfolio_service import get_comprehensive_crypto_data_for_user
 from services.ai_service import (
     call_ai_with_web_search, web_search, run_sentiment_analysis_for_user,
-    run_watchlist_sentiment_analysis_for_user, log_ai_conversation
+    run_watchlist_sentiment_analysis_for_user, log_ai_conversation,
+    get_ollama_models, call_ollama_chat, is_ollama_admin
 )
 from event_algo import event_strategy_health_summary, is_event_strategy_admin
 
@@ -360,10 +361,33 @@ def test_ai_connection_generic():
         from flask import request
         import requests
         payload = request.get_json(silent=True) or {}
-        provider = payload.get('provider')
+        provider = str(payload.get('provider') or '').strip().lower()
         api_key = payload.get('api_key')
         model = payload.get('model')
         tier = payload.get('tier') or ('secondary' if payload.get('is_fallback') else 'primary')
+
+        if not provider:
+            return jsonify(success=False, message='AI provider is required'), 400
+
+        # Ollama is a local administrator-only integration and deliberately
+        # has no API key. The test performs a real, minimal generation request
+        # against the selected installed model.
+        if provider == 'ollama':
+            if not is_ollama_admin(current_user):
+                return jsonify(success=False, message='Ollama is available only to the administrator account.'), 403
+            try:
+                test_model = str(model or '').strip()
+                if not test_model:
+                    return jsonify(success=False, message='Choose an installed Ollama model first.'), 400
+                call_ollama_chat(
+                    test_model,
+                    [{"role": "user", "content": "Reply with exactly OK."}],
+                    max_tokens=8,
+                    timeout=30,
+                )
+                return jsonify(success=True, message=f'Ollama connection OK ({test_model})')
+            except Exception as exc:
+                return jsonify(success=False, message=f'Ollama error: {exc}'), 400
 
         if not api_key or api_key == '********':
             # Check saved credential if api_key not provided in request body
@@ -705,6 +729,19 @@ def api_ai_settings():
             data = request.get_json()
             if not data:
                 return jsonify({"error": "No data provided"}), 400
+
+            ollama_fields = (
+                'ai_provider',
+                'ai_provider_fallback',
+                'ai_provider_secondary',
+                'ai_provider_tertiary',
+            )
+            if any(str(data.get(field) or '').strip().lower() == 'ollama' for field in ollama_fields):
+                if not is_ollama_admin(current_user):
+                    return jsonify({
+                        "success": False,
+                        "message": "Ollama is available only to the administrator account.",
+                    }), 403
             
             # Update AI settings in database
             user_obj = User.query.filter_by(username=username).first()
@@ -927,13 +964,36 @@ def get_ai_models():
     def get_model_options(models):
         return sorted([{'value': m, 'label': model_labels.get(m, m)} for m in models], key=lambda x: x['label'])
 
-    return jsonify({
+    response = {
         'openai': get_model_options(openai_models),
         'zai': get_model_options(zai_models),
         'perplexity': get_model_options(perplexity_models),
         'gemini': get_model_options(gemini_models),
         'inception': get_model_options(inception_models),
-    })
+    }
+
+    # Never disclose the local model inventory to non-administrators. For the
+    # administrator, discover the current Ollama catalog on every settings
+    # load/provider refresh so newly installed models are immediately usable.
+    if is_ollama_admin(current_user):
+        try:
+            ollama_models = get_ollama_models()
+            response['ollama'] = [
+                {'value': model, 'label': model}
+                for model in ollama_models
+            ]
+            response['ollama_status'] = {
+                'available': True,
+                'message': f'{len(ollama_models)} local model(s) available.'
+            }
+        except Exception as exc:
+            logger.info('Ollama model discovery unavailable: %s', exc)
+            response['ollama'] = []
+            response['ollama_status'] = {
+                'available': False,
+                'message': 'Ollama is not reachable. Start Ollama to load local models.'
+            }
+    return jsonify(response)
 
 
 @ai_bp.route("/api/test-binance-connection", methods=["GET", "POST"])

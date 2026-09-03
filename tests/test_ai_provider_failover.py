@@ -1,7 +1,11 @@
 import unittest
+from unittest.mock import patch
 
 from services.ai_service import (
     INCEPTION_CHAT_COMPLETIONS_URL,
+    call_ollama_chat,
+    get_ollama_models,
+    is_ollama_admin,
     _notify_ai_attempt,
     build_configured_ai_tiers,
 )
@@ -72,6 +76,35 @@ class AIProviderFailoverTests(unittest.TestCase):
             INCEPTION_CHAT_COMPLETIONS_URL,
             'https://api.inceptionlabs.ai/v1/chat/completions',
         )
+
+    def test_ollama_is_restricted_to_the_permanent_administrator(self):
+        self.assertTrue(is_ollama_admin('jcavallarojr'))
+        self.assertFalse(is_ollama_admin('another-user'))
+
+    def test_ollama_models_are_discovered_and_deduplicated(self):
+        response = type('Response', (), {
+            'status_code': 200,
+            'json': lambda self: {'models': [
+                {'name': 'llama3.2:latest'},
+                {'name': 'qwen2.5:latest'},
+                {'name': 'llama3.2:latest'},
+            ]},
+        })()
+        with patch('services.ai_service.requests.get', return_value=response) as request:
+            self.assertEqual(get_ollama_models(), ['llama3.2:latest', 'qwen2.5:latest'])
+            request.assert_called_once()
+
+    def test_ollama_chat_requires_nonempty_response(self):
+        response = type('Response', (), {
+            'status_code': 200,
+            'text': '',
+            'json': lambda self: {'message': {'content': 'OK'}},
+        })()
+        with patch('services.ai_service.requests.post', return_value=response):
+            self.assertEqual(
+                call_ollama_chat('llama3.2:latest', [{'role': 'user', 'content': 'ping'}]),
+                'OK',
+            )
 
 
 if __name__ == '__main__':

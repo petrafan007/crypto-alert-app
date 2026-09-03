@@ -25,6 +25,7 @@ from services.onboarding_service import (
     exchange_requirement_met,
     seed_new_user_defaults,
 )
+from services.ai_service import is_ollama_admin
 import json
 import re
 
@@ -386,7 +387,7 @@ def onboarding_status():
         ai_tiers[tier] = {
             'provider': provider or '',
             'model': getattr(setting, model_field, None) or '',
-            'configured': bool(provider and encrypted_key),
+            'configured': bool(provider and (encrypted_key or (str(provider).lower() == 'ollama' and is_ollama_admin(current_user)))),
         }
     return jsonify({
         'success': True,

@@ -9,6 +9,7 @@ from event_algo import (
     normalize_config_payload,
     parse_event_model_batch_response,
     parse_event_model_response,
+    summarize_ai_scan_status,
 )
 
 
@@ -137,6 +138,32 @@ class EventAlgoTests(unittest.TestCase):
         }, self.config())
         self.assertIn('AI_PROVIDER_ERROR', decision['reason_codes'])
         self.assertNotIn('MODEL_UNAVAILABLE', decision['reason_codes'])
+
+    def test_scheduled_ai_skip_is_not_reported_as_provider_outage(self):
+        status = summarize_ai_scan_status({
+            'KXBTC15M-TEST': {
+                '_model_metadata': {
+                    'status': 'skipped',
+                    'error': 'AI batch interval has not elapsed',
+                },
+            },
+        })
+        self.assertEqual(status['event_type'], 'AI_EVALUATION_DEFERRED')
+        self.assertFalse(status['notify'])
+        self.assertIn('deferred', status['message'])
+
+    def test_actual_ai_failure_remains_visible_as_provider_outage(self):
+        status = summarize_ai_scan_status({
+            'KXBTC15M-ERROR': {
+                '_model_metadata': {
+                    'status': 'error',
+                    'error': 'Tertiary provider timed out',
+                },
+            },
+        })
+        self.assertEqual(status['event_type'], 'AI_UNAVAILABLE')
+        self.assertTrue(status['notify'])
+        self.assertIn('Tertiary provider timed out', status['message'])
 
 
 if __name__ == '__main__':

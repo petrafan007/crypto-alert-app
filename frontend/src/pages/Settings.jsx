@@ -59,6 +59,7 @@ export default function Settings({ isLightMode }) {
     perplexity: [],
     gemini: [],
     inception: [],
+    ollama: [],
   });
   const [settings, setSettings] = useState({
     api_key: '',
@@ -370,7 +371,7 @@ export default function Settings({ isLightMode }) {
       console.log('Fetching settings...');
 
       // Fetch AI models first
-      let currentModelOptions = { openai: [], zai: [], perplexity: [], gemini: [], inception: [] };
+      let currentModelOptions = { openai: [], zai: [], perplexity: [], gemini: [], inception: [], ollama: [] };
       try {
         const modelsResponse = await axios.get('/api/ai/models', { withCredentials: true });
         if (modelsResponse.data) {
@@ -441,11 +442,48 @@ export default function Settings({ isLightMode }) {
     }
   };
 
+  // Ollama is a local administrator-only provider. Refresh its model catalog
+  // whenever it is selected so newly installed models appear without a full
+  // page reload. The server enforces the same administrator restriction.
+  useEffect(() => {
+    if (!isEventStrategyAdmin) return undefined;
+    const selectedProviders = [
+      settings.ai_provider,
+      settings.ai_provider_secondary || settings.ai_provider_fallback,
+      settings.ai_provider_tertiary,
+    ];
+    if (!selectedProviders.includes('ollama')) return undefined;
+
+    let active = true;
+    axios.get('/api/ai/models', { withCredentials: true })
+      .then((response) => {
+        if (!active || !response.data) return;
+        const nextOptions = response.data;
+        setModelOptions(nextOptions);
+        const ollamaModels = Array.isArray(nextOptions.ollama) ? nextOptions.ollama : [];
+        if (ollamaModels.length) {
+          setSettings((prev) => {
+            const next = { ...prev };
+            const firstModel = ollamaModels[0]?.value || ollamaModels[0];
+            if (prev.ai_provider === 'ollama' && !prev.ai_model) next.ai_model = firstModel;
+            if ((prev.ai_provider_secondary || prev.ai_provider_fallback) === 'ollama' && !(prev.ai_model_secondary || prev.ai_model_fallback)) {
+              next.ai_model_secondary = firstModel;
+              next.ai_model_fallback = firstModel;
+            }
+            if (prev.ai_provider_tertiary === 'ollama' && !prev.ai_model_tertiary) next.ai_model_tertiary = firstModel;
+            return next;
+          });
+        }
+      })
+      .catch((error) => console.error('Failed to refresh Ollama models:', error));
+    return () => { active = false; };
+  }, [isEventStrategyAdmin, settings.ai_provider, settings.ai_provider_secondary, settings.ai_provider_fallback, settings.ai_provider_tertiary]);
+
   const handleInputChange = (field, value) => {
     console.log(`Updating ${field} to: ${value}`);
     setSettings((prev) => {
       if (field === 'ai_provider') {
-        const sanitizedModel = sanitizeModel(value, prev.ai_model, modelOptions);
+        const sanitizedModel = sanitizeModel(value, value === 'ollama' ? '' : prev.ai_model, modelOptions);
         return {
           ...prev,
           ai_provider: value,
@@ -462,7 +500,7 @@ export default function Settings({ isLightMode }) {
       }
 
       if (field === 'ai_provider_fallback' || field === 'ai_provider_secondary') {
-        const sanitizedModel = value ? sanitizeModel(value, prev.ai_model_secondary || prev.ai_model_fallback, modelOptions) : '';
+        const sanitizedModel = value ? sanitizeModel(value, value === 'ollama' ? '' : (prev.ai_model_secondary || prev.ai_model_fallback), modelOptions) : '';
         return {
           ...prev,
           ai_provider_fallback: value,
@@ -483,7 +521,7 @@ export default function Settings({ isLightMode }) {
       }
 
       if (field === 'ai_provider_tertiary') {
-        const sanitizedModel = value ? sanitizeModel(value, prev.ai_model_tertiary, modelOptions) : '';
+        const sanitizedModel = value ? sanitizeModel(value, value === 'ollama' ? '' : prev.ai_model_tertiary, modelOptions) : '';
         return {
           ...prev,
           ai_provider_tertiary: value,
@@ -2038,6 +2076,7 @@ export default function Settings({ isLightMode }) {
               <option value="perplexity">Perplexity</option>
               <option value="gemini">Gemini</option>
               <option value="inception">Inception Labs</option>
+              {isEventStrategyAdmin && <option value="ollama">Ollama (local)</option>}
             </select>
             <div className="settings-form-help">
               Choose your primary AI provider for analysis and recommendations
@@ -2158,6 +2197,12 @@ export default function Settings({ isLightMode }) {
             </div>
           )}
 
+          {settings.ai_provider === 'ollama' && isEventStrategyAdmin && (
+            <div className="settings-form-help" style={{ marginTop: '8px' }}>
+              Ollama runs on this server. No API key is required; models are loaded from the local Ollama service.
+            </div>
+          )}
+
           {/* Test Primary AI Integration button */}
           <div className="settings-form-group" style={{ marginTop: '8px' }}>
             <button
@@ -2191,6 +2236,7 @@ export default function Settings({ isLightMode }) {
               <option value="perplexity">Perplexity</option>
               <option value="gemini">Gemini</option>
               <option value="inception">Inception Labs</option>
+              {isEventStrategyAdmin && <option value="ollama">Ollama (local)</option>}
             </select>
             <div className="settings-form-help">
               Choose your secondary AI provider for automatic failover
@@ -2311,6 +2357,12 @@ export default function Settings({ isLightMode }) {
             </div>
           )}
 
+          {(settings.ai_provider_secondary === 'ollama' || settings.ai_provider_fallback === 'ollama') && isEventStrategyAdmin && (
+            <div className="settings-form-help" style={{ marginTop: '8px' }}>
+              Ollama runs on this server. No API key is required; models are loaded from the local Ollama service.
+            </div>
+          )}
+
           {/* Test Secondary AI Connection button */}
           <div className="settings-form-group" style={{ marginTop: '8px' }}>
             <button
@@ -2344,6 +2396,7 @@ export default function Settings({ isLightMode }) {
               <option value="perplexity">Perplexity</option>
               <option value="gemini">Gemini</option>
               <option value="inception">Inception Labs</option>
+              {isEventStrategyAdmin && <option value="ollama">Ollama (local)</option>}
             </select>
             <div className="settings-form-help">
               Choose your tertiary AI provider for secondary failover
@@ -2461,6 +2514,12 @@ export default function Settings({ isLightMode }) {
               <div className="settings-form-help">
                 Used as tertiary fallback for AI-powered trading analysis
               </div>
+            </div>
+          )}
+
+          {settings.ai_provider_tertiary === 'ollama' && isEventStrategyAdmin && (
+            <div className="settings-form-help" style={{ marginTop: '8px' }}>
+              Ollama runs on this server. No API key is required; models are loaded from the local Ollama service.
             </div>
           )}
 

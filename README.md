@@ -29,7 +29,7 @@
   - **Granular Price & Volatility Alerts**: Automated 24/7 background monitors with instant multi-channel push alerts via Telegram and desktop notifications.
 
 - **🤖 AI Market Copilot & Automated Sentiment Analysis**
-  - **Multi-Provider AI Intelligence**: Seamless integration with **OpenAI (GPT-4o, o1, o3-mini)**, **Google Gemini**, **Z.AI**, and **Perplexity**.
+  - **Multi-Provider AI Intelligence**: Seamless integration with **OpenAI (GPT-4o, o1, o3-mini)**, **Google Gemini**, **Z.AI**, **Perplexity**, and administrator-only local **Ollama** models.
   - **Live Web-Grounded Analysis**: Automated sentiment analysis and market outlook generation powered by real-time web search (Brave Search / DuckDuckGo).
   - **Interactive AI Copilot Sidebar**: Context-aware crypto strategist that analyzes your active portfolio holdings, pending orders, and recent market movements to deliver tailored trading intelligence.
   - **Historical Prediction Ledger**: Transparent performance tracking that evaluates and scores AI recommendation accuracy over time.
@@ -152,6 +152,14 @@ Historical changelog entries retain the product name used when they were origina
 - Added backend authorization to every engine endpoint, including configuration, scans, decisions, performance, logs, and kill-switch controls.
 - Prevented the background supervisor from running engine configurations belonging to any other account.
 - Removed engine health telemetry from non-administrator Copilot context.
+
+## v2.81.0 (September 2026)
+
+### Administrator-only Ollama Integration and Accurate AI Status
+- Added administrator-only Ollama support to the AI provider chain, including local model discovery from the application host and a real generation-based connection test with no API key requirement.
+- Added Ollama to primary, secondary, and tertiary AI settings for the permanent `jcavallarojr` administrator; the provider and local model inventory remain hidden and rejected server-side for every other account.
+- Added local Ollama calls to the existing primary → secondary → tertiary failover workflow while preserving provider provenance and error handling.
+- Corrected Event Contract Strategy Engine scan logging so scheduled, stale, disabled, or quote-gated evaluations are reported as deferred rather than falsely reported as an AI provider outage; genuine provider and response failures remain visible and alertable.
 
 ## v2.78.0 (September 2026)
 

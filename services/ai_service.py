@@ -74,9 +74,68 @@ WEBULL_EVENT_CONTRACT_BATCH_RESEARCH_PROMPT = (
 # Keep the production request path aligned with the connection test endpoint.
 # `api.inceptionai.com` is not a valid TLS endpoint for the Inception Labs API.
 INCEPTION_CHAT_COMPLETIONS_URL = "https://api.inceptionlabs.ai/v1/chat/completions"
+OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434").rstrip("/")
+OLLAMA_ADMIN_USERNAME = "jcavallarojr"
 
 _running_sentiment_users = set()
 _running_sentiment_lock = threading.Lock()
+
+
+def is_ollama_admin(user_or_username):
+    """Return True only for the permanent administrator allowed to use Ollama."""
+    if user_or_username is None:
+        return False
+    username = getattr(user_or_username, "username", user_or_username)
+    return str(username or "").strip().casefold() == OLLAMA_ADMIN_USERNAME.casefold()
+
+
+def get_ollama_models(timeout=5):
+    """Discover models installed in the local Ollama service.
+
+    Ollama is intentionally queried from the application host, never from the
+    browser, so the local service and its model inventory are not exposed to
+    ordinary users.
+    """
+    response = requests.get(f"{OLLAMA_BASE_URL}/api/tags", timeout=timeout)
+    if response.status_code != 200:
+        raise RuntimeError(f"Ollama returned HTTP {response.status_code}")
+    payload = response.json()
+    models = []
+    seen = set()
+    for item in payload.get("models") or []:
+        name = str((item or {}).get("name") or "").strip()
+        if name and name not in seen:
+            seen.add(name)
+            models.append(name)
+    return sorted(models, key=str.casefold)
+
+
+def call_ollama_chat(model, messages, max_tokens=600, timeout=30):
+    """Call a local Ollama chat model and return its assistant text."""
+    model_name = str(model or "").strip()
+    if not model_name:
+        raise ValueError("Ollama model is required")
+    response = requests.post(
+        f"{OLLAMA_BASE_URL}/api/chat",
+        json={
+            "model": model_name,
+            "messages": messages,
+            "stream": False,
+            "options": {
+                "temperature": 0.2,
+                "num_predict": max(1, int(max_tokens or 600)),
+            },
+        },
+        timeout=timeout,
+    )
+    if response.status_code != 200:
+        detail = response.text[:500] if response.text else "no response body"
+        raise RuntimeError(f"Ollama error (HTTP {response.status_code}): {detail}")
+    payload = response.json()
+    content = ((payload.get("message") or {}).get("content") or "").strip()
+    if not content:
+        raise RuntimeError("Ollama returned an empty response")
+    return content
 
 
 def build_configured_ai_tiers(user_ai_settings):
@@ -382,6 +441,9 @@ def call_ai_with_web_search(
 
         current_tier_name, provider, configured_model, ai_reasoning_level = tier_configs[tier_index]
 
+        if provider == "ollama" and not is_ollama_admin(username):
+            raise PermissionError("Ollama is restricted to the administrator account")
+
         model = configured_model or model or 'gpt-5'
 
         if tier_index > 0:
@@ -580,6 +642,9 @@ def call_ai_with_web_search(
                         last_err = str(req_ex)
 
                 raise Exception(f"Gemini API error: {last_err}")
+
+            elif provider == 'ollama':
+                return call_ollama_chat(model, p_messages, max_tokens=p_max_tokens, timeout=45)
             
             else:
                 raise ValueError(f"Unsupported AI provider: {provider}")
