@@ -908,6 +908,8 @@ def api_pending_orders():
                     'order_id': order.get('orderId'),
                     'symbol': symbol,
                     'asset': asset,
+                    'provider': 'binance',
+                    'source': 'binance',
                     'side': side,
                     'type': order_type,
                     'price': price,

@@ -257,6 +257,13 @@ class WebullPersistenceTests(unittest.TestCase):
                 'cost_price': '50',
                 'last_price': '55',
             }],
+        }, {
+            'account_id': 'individual-cash',
+            'account_class': 'INDIVIDUAL_CASH',
+            'account_name': 'Individual Cash',
+            'account_type': 'CASH',
+            'balance': {'total_cash_balance': '0.24'},
+            'positions': [],
         }]
         import_webull_portfolio_snapshot(7, preview)
 
@@ -268,6 +275,7 @@ class WebullPersistenceTests(unittest.TestCase):
         self.assertEqual(rows['ETH']['webull_account_type'], 'Traditional IRA')
         self.assertEqual(rows['IBIT']['display_symbol'], 'IBIT ETF')
         self.assertTrue(rows['IBIT']['is_etf'])
+        self.assertEqual(rows['USD']['webull_account_type'], 'Individual Cash')
 
     def test_webull_watchlist_keeps_broker_contract_identity_per_user(self):
         item = WebullWatchlistItem(

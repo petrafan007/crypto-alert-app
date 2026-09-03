@@ -1455,17 +1455,38 @@ function Dashboard({ isLightMode }) {
     navigateToTrading(cleanBase, 'BUY', quote);
   };
 
-  // Get pending orders for a specific coin
-  const getPendingOrdersForCoin = (symbol) => {
-    if (!pendingOrders || !Array.isArray(pendingOrders)) return [];
-    const sym = (symbol || '').toUpperCase();
-    return pendingOrders.filter(order => (order.asset || '').toUpperCase() === sym || (order.symbol || '').startsWith(sym));
+  const pendingOrderProvider = (asset) => (
+    asset && (asset.is_external === true || asset.source === 'webull') ? 'webull' : 'binance'
+  );
+
+  const orderProvider = (order) => {
+    const provider = String(order?.provider || order?.source || order?.exchange || 'binance').toLowerCase();
+    return provider === 'webull' ? 'webull' : 'binance';
+  };
+
+  // Pending orders must stay scoped to the provider that owns the portfolio row.
+  // A Binance ETH order cannot highlight a separate Webull ETH ETF holding.
+  const getPendingOrdersForCoin = (asset, orders = pendingOrders) => {
+    if (!Array.isArray(orders)) return [];
+    const symbol = typeof asset === 'object' ? asset?.symbol : asset;
+    const sym = String(symbol || '').toUpperCase().trim();
+    if (!sym) return [];
+    const provider = pendingOrderProvider(asset);
+    return orders.filter(order => {
+      if (orderProvider(order) !== provider) return false;
+      const orderAsset = String(order?.asset || '').toUpperCase().trim();
+      const orderSymbol = String(order?.symbol || '').toUpperCase().trim();
+      return orderAsset === sym
+        || orderSymbol === sym
+        || orderSymbol.startsWith(`${sym}USD`)
+        || orderSymbol.startsWith(`${sym}USDT`);
+    });
   };
 
   const getAllPendingItemsForCoin = (coin) => {
     if (!coin || !coin.symbol) return [];
     const sym = (coin.symbol || '').toUpperCase();
-    const exchangeOrders = getPendingOrdersForCoin(sym);
+    const exchangeOrders = getPendingOrdersForCoin(coin);
     const items = [...exchangeOrders];
     const curPrice = Number(coin.current_price || coin.current || 0);
 
@@ -1604,7 +1625,7 @@ function Dashboard({ isLightMode }) {
       return;
     }
 
-    const orders = getPendingOrdersForCoin(coin.symbol);
+    const orders = getPendingOrdersForCoin(coin);
     const hasTriggers = coin.auto_buy_enabled || coin.auto_sell_enabled;
 
     if (orders.length > 0 || hasTriggers) {
@@ -1648,17 +1669,11 @@ function Dashboard({ isLightMode }) {
         try {
           const portfolioResponse = await axios.get('/api/coin-data');
           // Also fetch open orders to flag rows
-          let pendingSymbols = new Set();
           let pendingOrdersData = [];
           try {
             const ordersRes = await axios.get('/api/pending-orders', { withCredentials: true });
             pendingOrdersData = ordersRes.data.pending_orders || [];
             setPendingOrders(pendingOrdersData);
-            pendingOrdersData.forEach(order => {
-              if (order.asset) {
-                pendingSymbols.add(order.asset.toUpperCase());
-              }
-            });
           } catch (e) {
             console.error('Error fetching pending orders:', e);
             // ignore if not authed yet; we still render portfolio
@@ -1669,7 +1684,7 @@ function Dashboard({ isLightMode }) {
 
           const withFlags = rawPortfolio.map((c) => ({
             ...c,
-            hasPendingOrder: pendingSymbols.has((c.symbol || '').toUpperCase()),
+            hasPendingOrder: getPendingOrdersForCoin(c, pendingOrdersData).length > 0,
             pendingPlaceholder: false
           }));
 
@@ -1773,16 +1788,11 @@ function Dashboard({ isLightMode }) {
             setAccountTotals(accountSummaryResponse.value.data?.totals || { all: 0, binance: 0, webull: 0 });
           }
 
-          // Build pending symbols set from orders
-          let pendingSymbolsLive = new Set();
+              // Refresh pending orders; row matching below remains provider-aware.
+          // Refresh pending orders; row matching below remains provider-aware.
           if (ordersResponse.status === 'fulfilled' && ordersResponse.value?.data?.pending_orders) {
             const refreshedPendingOrders = ordersResponse.value.data.pending_orders || [];
             setPendingOrders(refreshedPendingOrders);
-            refreshedPendingOrders.forEach(order => {
-              if (order.asset) {
-                pendingSymbolsLive.add(order.asset.toUpperCase());
-              }
-            });
           }
 
           // Handle live portfolio data (update with fresh prices) – merge into existing state
@@ -1791,10 +1801,11 @@ function Dashboard({ isLightMode }) {
             const incomingMap = new Map();
             const portfolioRowKey = (item) => `${item?.source === 'webull' || item?.is_external ? 'webull' : 'binance'}:${item?.id || (item?.symbol || '').toUpperCase()}`;
             incoming.forEach(c => {
-              const sym = (c.symbol || '').toUpperCase();
               incomingMap.set(portfolioRowKey(c), {
                 ...c,
-                hasPendingOrder: pendingSymbolsLive.has(sym),
+                hasPendingOrder: getPendingOrdersForCoin(c, ordersResponse.status === 'fulfilled'
+                  ? ordersResponse.value.data.pending_orders || []
+                  : []).length > 0,
                 pendingPlaceholder: false
               });
             });
@@ -2526,19 +2537,20 @@ function Dashboard({ isLightMode }) {
           const baseSymbol = (symbol || '').replace(/USDT$/i, '').replace(/USD$/i, '').toUpperCase();
           setPendingOrders(prev => prev.filter(o => (o.order_id || o.orderId || o.id) !== orderId));
           setPortfolio(prev => {
-            const remaining = getPendingOrdersForCoin(symbol).filter(o => (o.order_id || o.orderId || o.id) !== orderId);
+            const remainingOrders = pendingOrders.filter(o => (o.order_id || o.orderId || o.id) !== orderId);
             return prev
               .map(c => {
                 const cSym = (c.symbol || '').toUpperCase();
-                if (cSym === symbol || cSym === baseSymbol) {
-                  return { ...c, hasPendingOrder: remaining.length > 0 };
+                const isBinanceAsset = pendingOrderProvider(c) === 'binance';
+                if (isBinanceAsset && (cSym === symbol || cSym === baseSymbol)) {
+                  return { ...c, hasPendingOrder: getPendingOrdersForCoin(c, remainingOrders).length > 0 };
                 }
                 return c;
               })
               .filter(c => {
                 const cSym = (c.symbol || '').toUpperCase();
-                const isTarget = cSym === symbol || cSym === baseSymbol;
-                if (isTarget && remaining.length === 0 && Number(c.amount || 0) <= 0.00000001) {
+                const isTarget = pendingOrderProvider(c) === 'binance' && (cSym === symbol || cSym === baseSymbol);
+                if (isTarget && getPendingOrdersForCoin(c, remainingOrders).length === 0 && Number(c.amount || 0) <= 0.00000001) {
                   return false;
                 }
                 return true;
@@ -4033,7 +4045,7 @@ function Dashboard({ isLightMode }) {
         </td>
       );
     }
-    const hasPendingOrder = !!coin.hasPendingOrder || getPendingOrdersForCoin(coin.symbol).length > 0;
+    const hasPendingOrder = getPendingOrdersForCoin(coin).length > 0;
     if (coin.sentiment_tracking_enabled === false) {
       return (
         <td
@@ -4619,7 +4631,7 @@ function Dashboard({ isLightMode }) {
                       (k) => portfolioVisibleCols.includes(k) && PORTFOLIO_COLUMN_DEFINITIONS[k]
                     );
 
-                    const hasExchangeOrder = !!coin.hasPendingOrder || getPendingOrdersForCoin(coin.symbol).length > 0;
+                    const hasExchangeOrder = getPendingOrdersForCoin(coin).length > 0;
                     const isAutoBuy = !!coin.auto_buy_enabled;
                     const isAutoSell = !!coin.auto_sell_enabled;
 
@@ -5155,7 +5167,7 @@ function Dashboard({ isLightMode }) {
                       (k) => watchlistVisibleCols.includes(k) && WATCHLIST_COLUMN_DEFINITIONS[k]
                     );
 
-                    const hasExchangeOrder = getPendingOrdersForCoin(item.symbol).length > 0;
+                    const hasExchangeOrder = getPendingOrdersForCoin(item).length > 0;
                     const isAutoBuy = !!item.auto_buy_enabled;
                     const isAutoSell = !!item.auto_sell_enabled;
 

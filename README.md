@@ -136,9 +136,11 @@ Historical changelog entries retain the product name used when they were origina
 - Added an event-contract-specific analysis prompt that includes the exact question, underlying, duration, cutoff, quotes, liquidity, and timing context.
 - Kept quote-less, stale, and closed markets from making unnecessary AI calls, and kept all decisions signal-only with no broker order endpoint access.
 
-## v2.82.3 (September 2026)
+## v2.83.4 (September 2026)
 
-### Webull ETF and Traditional IRA Identity Display
+### Provider-Scoped Webull Identity and Pending Order Highlights
+- Dashboard pending-order highlights, sentiment emphasis, tooltips, and cancellation state now match the specific asset provider before matching symbols.
+- Binance ETH stop-loss orders can no longer highlight a separate Webull ETH ETF holding; Binance pending orders are explicitly tagged as Binance-owned.
 - Webull ETF holdings now display as `SYMBOL ETF`, including the affected Grayscale Ethereum ETF as `ETH ETF`, while raw provider symbols remain unchanged for quotes, orders, and history.
 - ETF labels use explicit provider security metadata for all classified ETFs and a narrow compatibility fallback for the current `ETH`/`EQUITY` provider record.
 - Traditional IRA Webull holdings now show `Traditional IRA` instead of the generic `Cash` account pill, using stored account classifications and account snapshots as fallbacks.

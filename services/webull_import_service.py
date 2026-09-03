@@ -316,19 +316,9 @@ def import_webull_portfolio_snapshot(user_id, preview):
 
 
 def _webull_account_pill_label(account_class, account_label):
-    """Map Webull account class / label to the short pill text shown in the UI."""
-    cls = str(account_class or '').upper()
-    lbl = str(account_label or '').lower()
-    if cls == 'CRYPTO' or 'crypto' in lbl:
-        return 'Crypto'
-    if 'traditional' in lbl or 'TRADITIONAL' in cls:
-        return 'Traditional IRA'
-    if 'rollover' in lbl or 'ROLLOVER' in cls:
-        return 'Rollover IRA'
-    if 'roth' in lbl or 'ROTH' in cls:
-        return 'Roth IRA'
-    # Individual Cash / Cash / Traditional fall through as 'Cash'
-    return 'Cash'
+    """Return the exact account name displayed by Connected Webull Accounts."""
+    label = str(account_label or '').strip()
+    return label or 'Webull Account'
 
 
 def get_webull_portfolio_rows(user_id):
@@ -371,7 +361,7 @@ def get_webull_portfolio_rows(user_id):
         if account_id not in account_meta:
             account_meta[account_id] = {
                 'account_id_masked': f'••••{account_id[-4:]}',
-                'webull_account_type': _webull_account_pill_label('', snapshot.account_name or snapshot.account_type),
+                'webull_account_type': _webull_account_pill_label('', snapshot.account_name),
             }
     rows = []
     for holding in WebullHolding.query.filter_by(user_id=user_id).order_by(WebullHolding.symbol.asc()).all():
