@@ -41,9 +41,19 @@ def is_etf_asset(asset):
     if any(token in instrument_type for token in ('OPTION', 'FUTURE', 'EVENT', 'CONTRACT')):
         return False
     metadata = _metadata(asset)
-    return 'EXCHANGE TRADED FUND' in metadata or any(
+    if 'EXCHANGE TRADED FUND' in metadata or any(
         token in metadata.split() for token in ('ETF',)
-    )
+    ):
+        return True
+
+    # Webull currently reports its Ethereum ETF as an EQUITY row with ticker
+    # ETH and no ETF flag. Keep this provider-specific normalization shared so
+    # every surface labels the persisted position consistently.
+    source = str(asset.get('source') or asset.get('origin') or asset.get('provider') or asset.get('exchange') or '').strip().lower()
+    symbol = str(asset.get('symbol') or asset.get('ticker') or asset.get('asset') or '').strip().upper()
+    if source == 'webull' and symbol == 'ETH' and any(token in instrument_type.split() for token in ('EQUITY', 'STOCK', 'ETF')):
+        return True
+    return False
 
 
 def is_cash_or_stable_asset(asset):

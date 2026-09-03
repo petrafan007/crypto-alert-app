@@ -27,6 +27,7 @@ import CryptoIcon, { WebullLogo } from '../components/CryptoIcon';
 import TableColumnModal from '../components/TableColumnModal';
 import CancelOrderConfirmModal from '../components/CancelOrderConfirmModal';
 import WatchlistSymbolPicker from '../components/WatchlistSymbolPicker';
+import { getAssetDisplaySymbol, getAssetIdentity, isCashOrStableAsset } from '../utils/assetDisplay';
 
 const TREND_RANGES = [
   { key: '1H', label: '1H' },
@@ -5904,10 +5905,10 @@ function Dashboard({ isLightMode }) {
                   className="btn btn-secondary"
                   style={{ padding: '6px 10px', fontSize: '12px', whiteSpace: 'nowrap' }}
                   onClick={() => {
-                    const isExcludedStable = (sym) => ['USD', 'USDT'].includes(String(sym || '').toUpperCase());
+                    const isExcludedStable = (sym) => ['USD', 'USDT', 'USDC', 'BUSD', 'DAI', 'TUSD', 'USDP', 'EURC', 'PYUSD'].includes(String(sym || '').toUpperCase());
                     const allSyms = Array.from(new Set([
-                      ...(portfolio || []).filter(c => c.symbol && !isExcludedStable(c.symbol)).map(c => c.symbol.toUpperCase()),
-                      ...(watchlist || []).filter(w => w.symbol && !isExcludedStable(w.symbol)).map(w => w.symbol.toUpperCase())
+                      ...(portfolio || []).filter(c => c.symbol && !isCashOrStableAsset(c) && !isExcludedStable(c.symbol)).map(c => getAssetDisplaySymbol(c)),
+                      ...(watchlist || []).filter(w => w.symbol && !isCashOrStableAsset(w) && !isExcludedStable(w.symbol)).map(w => getAssetDisplaySymbol(w))
                     ])).filter(Boolean);
                     setPerformanceCoinDraft(allSyms);
                   }}
@@ -5931,39 +5932,43 @@ function Dashboard({ isLightMode }) {
                 {(() => {
                   const combined = [];
                   const seen = new Set();
-                  const isExcludedStable = (sym) => ['USD', 'USDT'].includes(String(sym || '').toUpperCase());
+                  const isExcludedStable = (sym) => ['USD', 'USDT', 'USDC', 'BUSD', 'DAI', 'TUSD', 'USDP', 'EURC', 'PYUSD'].includes(String(sym || '').toUpperCase());
 
-                  (portfolio || []).filter(c => c.symbol && !isExcludedStable(c.symbol)).forEach(c => {
+                  (portfolio || []).filter(c => c.symbol && !isCashOrStableAsset(c) && !isExcludedStable(c.symbol)).forEach(c => {
                     const sym = c.symbol.toUpperCase();
-                    if (!seen.has(sym)) {
-                      seen.add(sym);
+                    const label = getAssetDisplaySymbol(c);
+                    if (!seen.has(label)) {
+                      seen.add(label);
                       const isStock = isTraditionalAsset(c) || c.is_external === true || c.source === 'webull';
                       combined.push({
                         symbol: sym,
+                        label,
                         source: isStock ? 'Webull' : 'Portfolio',
                         isStock
                       });
                     }
                   });
 
-                  (watchlist || []).filter(w => w.symbol && !isExcludedStable(w.symbol)).forEach(w => {
+                  (watchlist || []).filter(w => w.symbol && !isCashOrStableAsset(w) && !isExcludedStable(w.symbol)).forEach(w => {
                     const sym = w.symbol.toUpperCase();
-                    if (!seen.has(sym)) {
-                      seen.add(sym);
+                    const label = getAssetDisplaySymbol(w);
+                    if (!seen.has(label)) {
+                      seen.add(label);
                       const isStock = isTraditionalAsset(w) || w.is_external === true || w.source === 'webull';
                       combined.push({
                         symbol: sym,
+                        label,
                         source: isStock ? 'Webull Watchlist' : 'Watchlist',
                         isStock
                       });
                     }
                   });
 
-                  combined.sort((a, b) => a.symbol.localeCompare(b.symbol));
+                  combined.sort((a, b) => a.label.localeCompare(b.label));
 
                   const filtered = combined.filter(c =>
                     !performanceCoinSearch.trim() ||
-                    c.symbol.toLowerCase().includes(performanceCoinSearch.toLowerCase().trim())
+                    c.label.toLowerCase().includes(performanceCoinSearch.toLowerCase().trim())
                   );
 
                   if (filtered.length === 0) {
@@ -5974,11 +5979,11 @@ function Dashboard({ isLightMode }) {
                     );
                   }
 
-                  return filtered.map(({ symbol, source, isStock }) => {
-                    const isVisible = !performanceCoinDraft.includes(symbol);
+                  return filtered.map(({ symbol, label, source, isStock }) => {
+                    const isVisible = !performanceCoinDraft.includes(symbol) && !performanceCoinDraft.includes(label);
                     return (
                       <label
-                        key={symbol}
+                        key={label}
                         style={{
                           display: 'flex',
                           alignItems: 'center',
@@ -5996,16 +6001,16 @@ function Dashboard({ isLightMode }) {
                             checked={isVisible}
                             onChange={(e) => {
                               if (e.target.checked) {
-                                setPerformanceCoinDraft(prev => prev.filter(s => s !== symbol));
+                                setPerformanceCoinDraft(prev => prev.filter(s => s !== symbol && s !== label));
                               } else {
-                                setPerformanceCoinDraft(prev => [...prev, symbol]);
+                                setPerformanceCoinDraft(prev => [...prev, label]);
                               }
                             }}
                             style={{ cursor: 'pointer', width: '16px', height: '16px' }}
                           />
                           <CryptoIcon symbol={symbol} size={20} />
                           <span style={{ fontWeight: '600', fontSize: '14px', color: 'var(--text-primary, #fff)' }}>
-                            {symbol}
+                            {label}
                           </span>
                         </div>
                         <span style={{

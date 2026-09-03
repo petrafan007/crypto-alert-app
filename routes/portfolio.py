@@ -4842,18 +4842,21 @@ def _build_webull_tax_report(user_id):
         amount = float(holding.quantity or 0.0)
         if amount <= 0:
             continue
-        asset = display_symbol({
+        holding_asset = {
             'symbol': holding.symbol,
+            'source': 'webull',
             'instrument_type': holding.instrument_type,
             'is_etf': bool(holding.is_etf),
             'display_name': holding.display_name,
-        })
+        }
+        asset = display_symbol(holding_asset)
+        holding_is_etf = is_etf_asset(holding_asset)
         price = float(holding.last_price or 0.0)
         current_value = float(holding.current_value or (amount * price))
         entry = holdings_map.setdefault(asset, {
             'amount': 0.0, 'cost_basis': 0.0, 'current_value': 0.0,
             'current_price': price, 'source': 'webull', 'display_symbol': asset,
-            'symbol': str(holding.symbol or '').upper(), 'is_etf': bool(holding.is_etf),
+            'symbol': str(holding.symbol or '').upper(), 'is_etf': holding_is_etf,
             'instrument_type': holding.instrument_type,
         })
         entry['amount'] += amount

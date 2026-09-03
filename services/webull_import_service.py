@@ -172,6 +172,7 @@ def get_webull_order_rows(user_id, *, account_id=None, limit=None):
         holding = holding_metadata(record)
         asset = {
             'symbol': record.symbol,
+            'source': 'webull',
             'instrument_type': record.instrument_type,
             'is_etf': holding.get('is_etf', False),
             'display_name': holding.get('display_name'),
@@ -426,9 +427,15 @@ def get_webull_portfolio_rows(user_id):
         ).order_by(ExternalSentimentSignal.created_at.desc()).first()
         meta = account_meta.get(str(holding.account_id) if holding.account_id else '', {})
         is_etf = bool(holding.is_etf) or _webull_position_is_etf({}, holding.symbol, holding.instrument_type)
-        display_symbol = f'{holding.symbol} ETF' if is_etf else holding.symbol
+        display_symbol_value = display_symbol({
+            'symbol': holding.symbol,
+            'source': 'webull',
+            'instrument_type': holding.instrument_type,
+            'is_etf': is_etf,
+            'display_name': holding.display_name,
+        })
         rows.append({
-            'id': f'webull-{holding.id}', 'symbol': holding.symbol, 'display_symbol': display_symbol,
+            'id': f'webull-{holding.id}', 'symbol': holding.symbol, 'display_symbol': display_symbol_value,
             'display_name': holding.display_name, 'is_etf': is_etf, 'amount': amount,
             'current_price': current, 'current_value': value, 'avg_entry': cost,
             'cost_basis': (cost * amount) if cost is not None else None,

@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 import CryptoIcon from './CryptoIcon';
-import { getAssetDisplaySymbol, getAssetIdentity } from '../utils/assetDisplay';
+import { getAssetDisplaySymbol, getAssetIdentity, isCashOrStableAsset } from '../utils/assetDisplay';
 
 const WINDOW_KEYS = [
   { label: '7D', key: 'change_7d' },
@@ -73,7 +73,10 @@ const PortfolioPerformanceTable = ({ hiddenCoins = [], excludeSymbols = null, on
   };
 
   const visibleData = performanceData.filter(
-    (item) => !hiddenCoins.includes(item.symbol) && (!excludeSymbols || !excludeSymbols.has(item.symbol?.toUpperCase()))
+    (item) => !isCashOrStableAsset(item)
+      && !hiddenCoins.includes(item.symbol)
+      && !hiddenCoins.includes(getAssetDisplaySymbol(item))
+      && (!excludeSymbols || !excludeSymbols.has(item.symbol?.toUpperCase()))
   );
 
   return (

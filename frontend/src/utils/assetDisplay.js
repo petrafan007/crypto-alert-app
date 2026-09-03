@@ -33,8 +33,15 @@ export const isEtfAsset = (asset = {}) => {
     'assetClass', 'display_name', 'displayName', 'security_name', 'securityName',
     'asset_name', 'assetName', 'name',
   ]).toUpperCase();
-  return /(?:^|[\s_\-/])ETF(?:$|[\s_\-/])/.test(metadata)
-    || metadata.includes('EXCHANGE TRADED FUND');
+  if (/(?:^|[\s_\-/])ETF(?:$|[\s_\-/])/.test(metadata)
+    || metadata.includes('EXCHANGE TRADED FUND')) return true;
+
+  // Webull currently reports its Ethereum ETF as an EQUITY row with ticker
+  // ETH and no ETF flag. Apply the same provider-specific normalization used
+  // by the backend for legacy/API responses.
+  const source = String(asset.source || asset.origin || asset.provider || asset.exchange || '').trim().toLowerCase();
+  const symbol = String(asset.symbol || asset.ticker || asset.asset || '').trim().toUpperCase();
+  return source === 'webull' && symbol === 'ETH' && /(?:^|[\s_\-/])(EQUITY|STOCK|ETF)(?:$|[\s_\-/])/.test(instrumentType);
 };
 
 export const isCashOrStableAsset = (assetOrSymbol = {}) => {

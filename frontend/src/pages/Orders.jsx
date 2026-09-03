@@ -165,14 +165,13 @@ const normalize = (order, source) => {
     order.last_price,
     order.current_price,
   );
+  const canonicalOrder = { ...order, source, origin };
   return {
-  ...order,
-  source,
-  origin,
+  ...canonicalOrder,
   id: order.id || order.order_id || order.orderId || `${source}-${order.symbol || order.ticker || 'unknown'}-${order.created_at || order.create_time || order.filled_time_at || ''}`,
   symbol: String(order.symbol || order.ticker || '—').toUpperCase(),
-  display_symbol: getAssetDisplaySymbol(order),
-  asset_key: getAssetIdentity(order),
+  display_symbol: getAssetDisplaySymbol(canonicalOrder),
+  asset_key: getAssetIdentity(canonicalOrder),
   side: order.side || '—',
   order_type: order.order_type || order.type || '—',
   quantity,

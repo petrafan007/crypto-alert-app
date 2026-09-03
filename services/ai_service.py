@@ -657,7 +657,7 @@ def call_ai_with_web_search(
                 }
 
                 gen_config = {"maxOutputTokens": p_max_tokens}
-                if any(m in (model or '').lower() for m in ['thinking', '2.5', '3.7']):
+                if any(m in (model or '').lower() for m in ['thinking', '2.5', '3.7', '3.8']):
                     budget = 1024 if ai_reasoning_level == 'low' else (4096 if ai_reasoning_level == 'high' else 2048)
                     gen_config["thinkingConfig"] = {"thinkingBudget": budget}
                 req_json["generationConfig"] = gen_config

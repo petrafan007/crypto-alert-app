@@ -373,7 +373,7 @@ def get_user_ai_settings(username: str) -> dict:
             'sonar-pro', 'sonar', 'sonar-reasoning',
         }
         gemini_models = {
-            'gemini-3.5-flash', 'gemini-3.6-flash', 'gemini-3.7-flash',
+            'gemini-3.5-flash', 'gemini-3.6-flash', 'gemini-3.7-flash', 'gemini-3.8-flash',
         }
         inception_models = {
             'mercury-2', 'mercury'

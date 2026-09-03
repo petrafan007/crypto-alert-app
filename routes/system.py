@@ -2392,6 +2392,8 @@ def api_webull_open_orders():
             metadata = {
                 **order,
                 'symbol': symbol,
+                'source': 'webull',
+                'instrument_type': order.get('instrument_type') or getattr(holding, 'instrument_type', None),
                 'is_etf': order.get('is_etf', getattr(holding, 'is_etf', False)),
                 'display_name': order.get('display_name') or getattr(holding, 'display_name', None),
             }
