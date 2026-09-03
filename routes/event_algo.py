@@ -7,7 +7,6 @@ from flask import Blueprint, jsonify, request
 from flask_login import current_user, login_required
 
 from core.extensions import db
-from credentials import UserSetting
 from event_algo import (
     PAPER_MODE,
     config_to_dict,
@@ -43,8 +42,13 @@ def event_strategy_admin_required(view):
 
 
 def _paper_mode_enabled():
-    setting = UserSetting.query.filter_by(user_id=current_user.id).first()
-    return bool(getattr(setting, "webull_test_mode_enabled", False))
+    """The strategy engine is permanently paper-only.
+
+    This is deliberately independent of the user's Webull trading-mode
+    toggle.  The toggle controls broker order routing elsewhere in the app;
+    this engine only records paper snapshots, decisions, and simulations.
+    """
+    return True
 
 
 def _run_dict(run):
@@ -112,11 +116,6 @@ def _decision_dict(decision):
 def event_algo_config():
     config = get_or_create_config(current_user.id)
     if request.method == "PUT":
-        if not _paper_mode_enabled():
-            return jsonify({
-                "success": False,
-                "message": "Enable Webull paper/test mode before configuring the Event Contract engine.",
-            }), 400
         update_config(config, request.get_json(silent=True) or {})
         _record_engine_log(current_user.id, "CONFIG_UPDATED", "Event Contract Strategy Engine settings updated from Settings.", config_id=config.id)
         db.session.commit()
@@ -161,11 +160,6 @@ def event_algo_logs():
 @event_algo_bp.route("/api/webull/event-algo/start", methods=["POST"])
 @event_strategy_admin_required
 def event_algo_start():
-    if not _paper_mode_enabled():
-        return jsonify({
-            "success": False,
-            "message": "The Event Contract strategy engine is paper-only. Enable Webull paper/test mode first.",
-        }), 400
     config = get_or_create_config(current_user.id)
     config.enabled = True
     config.kill_switch = False
@@ -207,11 +201,6 @@ def event_algo_kill_switch():
 @event_algo_bp.route("/api/webull/event-algo/scan", methods=["POST"])
 @event_strategy_admin_required
 def event_algo_scan():
-    if not _paper_mode_enabled():
-        return jsonify({
-            "success": False,
-            "message": "The Event Contract engine will not scan or trade while Webull paper/test mode is disabled.",
-        }), 400
     config = get_or_create_config(current_user.id)
     payload = request.get_json(silent=True) or {}
     result = run_event_strategy_scan(
@@ -257,8 +246,6 @@ def event_algo_opportunities():
 @event_algo_bp.route("/api/webull/event-algo/resolve", methods=["POST"])
 @event_strategy_admin_required
 def event_algo_resolve():
-    if not _paper_mode_enabled():
-        return jsonify({"success": False, "message": "Enable Webull paper/test mode before resolving outcomes."}), 400
     payload = request.get_json(silent=True) or {}
     try:
         limit = max(1, min(int(payload.get("limit") or 25), 100))
@@ -274,8 +261,6 @@ def event_algo_resolve():
 @event_algo_bp.route("/api/webull/event-algo/simulate", methods=["POST"])
 @event_strategy_admin_required
 def event_algo_simulate():
-    if not _paper_mode_enabled():
-        return jsonify({"success": False, "message": "Enable Webull paper/test mode before simulating fills."}), 400
     payload = request.get_json(silent=True) or {}
     result = simulate_paper_fills(
         current_user.id,

@@ -13,6 +13,7 @@ from event_algo import (
     parse_event_model_response,
     summarize_ai_scan_status,
 )
+from routes.event_algo import _paper_mode_enabled
 
 
 class EventAlgoTests(unittest.TestCase):
@@ -51,6 +52,9 @@ class EventAlgoTests(unittest.TestCase):
         config = SimpleNamespace(user_id=7)
         update_config(config, {'durations': ['MONTHLY']})
         self.assertEqual(json.loads(config.durations), ['MONTHLY'])
+
+    def test_strategy_paper_mode_is_independent_of_webull_trading_mode(self):
+        self.assertTrue(_paper_mode_enabled())
 
     def test_event_strategy_admin_is_stable_username_only(self):
         self.assertTrue(is_event_strategy_admin(SimpleNamespace(username='jcavallarojr')))

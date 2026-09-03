@@ -176,6 +176,13 @@ Historical changelog entries retain the product name used when they were origina
 - Preserved explicitly saved duration lists on the server instead of silently replacing an intentional selection with the default durations.
 - Added regression coverage for single-duration and cleared-duration configuration payloads.
 
+## v2.82.2 (September 2026)
+
+### Independent Paper Strategy Engine Mode
+- The Event Contract Strategy Engine now enables and runs in paper/signal-only mode automatically, regardless of the user's Webull live/test trading toggle.
+- Removed the paper-mode gate from engine configuration, scans, outcome resolution, and paper-fill simulation so normal Webull trading can remain enabled while background research continues safely.
+- Kept the backend paper-only enforcement in place; the engine cannot submit, cancel, or modify broker orders.
+
 ## v2.78.0 (September 2026)
 
 ### Event Contract Research Evidence and Paper Simulation
