@@ -99,7 +99,7 @@ export default function EventStrategyPanel({ isPaperMode }) {
       </div>
 
       {!isPaperMode && <div className="event-strategy-warning" role="alert">Enable Webull paper/test mode before starting the strategy engine.</div>}
-      <div className="event-strategy-safety-note">v2.78 records quotes, human-readable contract details, decisions, outcomes, and hypothetical fills only. It cannot submit, cancel, or modify a live order.</div>
+      <div className="event-strategy-safety-note">v2.79 records quotes, human-readable contract details, AI provider attempts, decisions, outcomes, and hypothetical fills only. It cannot submit, cancel, or modify a live order.</div>
 
       <div className="event-strategy-stat-grid">
         <div><span>Worker</span><strong>{running ? (config.worker_status || 'RUNNING') : (config?.worker_status || 'STOPPED')}</strong></div>
@@ -138,11 +138,16 @@ export default function EventStrategyPanel({ isPaperMode }) {
         <div className="event-strategy-decisions-heading"><strong>Recent decision trace</strong><span>{decisions.length} recorded</span></div>
         {!decisions.length ? <p>No paper decisions recorded yet. Scan the configured markets to begin collecting evidence.</p> : decisions.slice(0, 5).map((decision) => {
           const detail = decision.contract_details || decision.features?.contract_details || {};
+          const model = decision.features?.model || {};
+          const modelLabel = model.status === 'success'
+            ? `Model ${model.tier || 'provider'} · ${model.provider || 'unknown'}${model.model ? ` / ${model.model}` : ''}`
+            : (model.error ? `Model ${model.status || 'unavailable'} · ${model.error}` : 'Model unavailable');
           return (
             <div className="event-strategy-decision" key={decision.id}>
               <div className="event-strategy-decision-title"><strong>{detail.question || decision.contract_symbol}</strong><span className={decision.eligible ? 'qualified' : 'no-trade'}>{decision.action}</span></div>
               <span>{detail.underlying_symbol || 'Underlying unavailable'} · {detail.duration_label || 'Unknown duration'} · Edge {formatPercent(decision.net_edge)} · Confidence {formatPercent(decision.confidence)}</span>
               <small>{detail.condition || 'Condition unavailable'}{detail.cutoff_at ? ` · Cutoff ${formatDate(detail.cutoff_at)}` : ''}</small>
+              <small>{modelLabel}{model.rationale ? ` · ${model.rationale}` : ''}</small>
               <small>{decision.contract_symbol} · {(decision.reason_codes || []).join(', ') || 'Qualified paper signal'}</small>
             </div>
           );
@@ -153,7 +158,7 @@ export default function EventStrategyPanel({ isPaperMode }) {
         <div className="event-strategy-decisions-heading"><strong>Last scan diagnostics</strong><span>{lastRun?.error_count || 0} errors</span></div>
         {!diagnostics.length ? <p>No scan diagnostics yet.</p> : diagnostics.map((item) => (
           <div className="event-strategy-diagnostic" key={`${item.symbol}-${item.duration}`}>
-            <strong>{item.symbol} · {item.duration}</strong><span>{item.status}</span><small>{item.scanned || 0} verified of {item.catalog_matches || 0} catalog matches{item.loading ? ' · provider still loading' : ''}{item.error ? ` · ${item.error}` : ''}</small>
+            <strong>{item.symbol} · {item.duration}</strong><span>{item.status}</span><small>{item.scanned || 0} verified of {item.catalog_matches || 0} catalog matches{item.loading ? ' · provider still loading' : ''}{item.error ? ` · ${item.error}` : ''}{item.model ? ` · AI ${item.model.successful || 0}/${item.model.attempted || 0} successful` : ''}{item.model?.providers?.length ? ` (${item.model.providers.join(', ')})` : ''}</small>
           </div>
         ))}
       </div>

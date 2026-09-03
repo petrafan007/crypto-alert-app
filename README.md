@@ -127,6 +127,15 @@ The application utilizes a **unified PostgreSQL database**.
 
 Historical changelog entries retain the product name used when they were originally released. The application domain, repository slug, deployment folders, database, and service identifiers intentionally remain unchanged by the v2.45.0 brand update.
 
+## v2.79.0 (September 2026)
+
+### Event Contract AI Fallback Integration
+- Connected the paper-only Event Contract strategy scanner to the configured Primary → Secondary → Tertiary AI provider chain.
+- Added a strict probability/confidence response contract with validation for percentages, malformed JSON, missing values, and provider failures.
+- Added per-decision model provenance, failover attempts, bounded rationale, and provider status to the persisted evidence trace and scan diagnostics.
+- Added an event-contract-specific analysis prompt that includes the exact question, underlying, duration, cutoff, quotes, liquidity, and timing context.
+- Kept quote-less, stale, and closed markets from making unnecessary AI calls, and kept all decisions signal-only with no broker order endpoint access.
+
 ## v2.78.0 (September 2026)
 
 ### Event Contract Research Evidence and Paper Simulation
