@@ -49,7 +49,7 @@ PROMPT_DEFAULT_FIELDS = (
 ONBOARDING_PAGES = {
     'security-choice', 'security-setup', 'exchanges', 'binance', 'webull',
     'webull-accounts', 'ai-choice', 'ai-primary', 'ai-secondary',
-    'ai-tertiary', 'search-news', 'telegram', 'review',
+    'ai-tertiary', 'ai-quartan', 'search-news', 'telegram', 'review',
 }
 
 

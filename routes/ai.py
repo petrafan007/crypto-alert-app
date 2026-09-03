@@ -356,7 +356,7 @@ def test_inception_connection():
 @ai_bp.route('/api/test-ai-connection-generic', methods=['POST'])
 @login_required
 def test_ai_connection_generic():
-    """Generic endpoint to test ANY AI provider with a specific key (useful for primary, secondary, or tertiary testing)"""
+    """Generic endpoint to test any AI provider and configured fallback tier."""
     try:
         from flask import request
         import requests
@@ -364,7 +364,7 @@ def test_ai_connection_generic():
         provider = str(payload.get('provider') or '').strip().lower()
         api_key = payload.get('api_key')
         model = payload.get('model')
-        tier = payload.get('tier') or ('secondary' if payload.get('is_fallback') else 'primary')
+        tier = str(payload.get('tier') or ('secondary' if payload.get('is_fallback') else 'primary')).strip().lower()
 
         if not provider:
             return jsonify(success=False, message='AI provider is required'), 400
@@ -382,8 +382,9 @@ def test_ai_connection_generic():
                 call_ollama_chat(
                     test_model,
                     [{"role": "user", "content": "Reply with exactly OK."}],
-                    max_tokens=8,
+                    max_tokens=64,
                     timeout=30,
+                    reasoning_level=payload.get('reasoning_level') or 'medium',
                 )
                 return jsonify(success=True, message=f'Ollama connection OK ({test_model})')
             except Exception as exc:
@@ -395,7 +396,14 @@ def test_ai_connection_generic():
             from routes.helpers import decrypt_secret
             cred = Credential.query.filter_by(user_id=current_user.id).first()
             if cred:
-                if tier == 'tertiary':
+                if tier == 'quartan':
+                    api_key = (
+                        decrypt_secret(getattr(cred, f'_{provider}_key_quartan', None)) or
+                        decrypt_secret(getattr(cred, f'_{provider}_key_tertiary', None)) or
+                        decrypt_secret(getattr(cred, f'_{provider}_key_fallback', None)) or
+                        decrypt_secret(getattr(cred, f'_{provider}_key', None))
+                    )
+                elif tier == 'tertiary':
                     api_key = (
                         decrypt_secret(getattr(cred, f'_{provider}_key_tertiary', None)) or 
                         decrypt_secret(getattr(cred, f'_{provider}_key_fallback', None)) or 
@@ -735,6 +743,7 @@ def api_ai_settings():
                 'ai_provider_fallback',
                 'ai_provider_secondary',
                 'ai_provider_tertiary',
+                'ai_provider_quartan',
             )
             if any(str(data.get(field) or '').strip().lower() == 'ollama' for field in ollama_fields):
                 if not is_ollama_admin(current_user):
@@ -790,6 +799,18 @@ def api_ai_settings():
                 cred.gemini_key_tertiary = data.pop('gemini_key_tertiary')
             if 'inception_key_tertiary' in data:
                 cred.inception_key_tertiary = data.pop('inception_key_tertiary')
+
+            # Quartan (fourth fallback) Keys
+            if 'openai_key_quartan' in data:
+                cred.openai_key_quartan = data.pop('openai_key_quartan')
+            if 'zai_key_quartan' in data:
+                cred.zai_key_quartan = data.pop('zai_key_quartan')
+            if 'perplexity_key_quartan' in data:
+                cred.perplexity_key_quartan = data.pop('perplexity_key_quartan')
+            if 'gemini_key_quartan' in data:
+                cred.gemini_key_quartan = data.pop('gemini_key_quartan')
+            if 'inception_key_quartan' in data:
+                cred.inception_key_quartan = data.pop('inception_key_quartan')
 
             # Update each setting
             # Update UserSetting columns
@@ -849,6 +870,7 @@ def api_ai_settings():
                 'ai_provider_fallback', 'ai_model_fallback', 'ai_reasoning_level_fallback',
                 'ai_provider_secondary', 'ai_model_secondary', 'ai_reasoning_level_secondary',
                 'ai_provider_tertiary', 'ai_model_tertiary', 'ai_reasoning_level_tertiary',
+                'ai_provider_quartan', 'ai_model_quartan', 'ai_reasoning_level_quartan',
                 'ai_risk_tolerance', 'ai_confidence_threshold', 'ai_notifications_enabled',
                 'ai_analysis_frequency', 'ai_cache_duration_hours', 'ai_analysis_window_start',
                 'ai_analysis_window_end', 'ai_max_tokens', 'ai_web_search_enabled',

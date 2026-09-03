@@ -379,7 +379,7 @@ def onboarding_status():
     except (TypeError, ValueError):
         enabled_account_ids = []
     ai_tiers = {}
-    for tier, suffix in (('primary', ''), ('secondary', '_fallback'), ('tertiary', '_tertiary')):
+    for tier, suffix in (('primary', ''), ('secondary', '_fallback'), ('tertiary', '_tertiary'), ('quartan', '_quartan')):
         provider_field = 'ai_provider' if tier == 'primary' else f'ai_provider_{tier}'
         model_field = 'ai_model' if tier == 'primary' else f'ai_model_{tier}'
         provider = getattr(setting, provider_field, None)

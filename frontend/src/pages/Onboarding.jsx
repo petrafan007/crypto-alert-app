@@ -10,13 +10,13 @@ const RAIL_STEPS = ['Account', 'Security', 'Exchanges', 'AI & data', 'Notificati
 const PAGE_STEP = {
   'security-choice': 1, 'security-setup': 1, exchanges: 2, binance: 2,
   webull: 2, 'webull-accounts': 2, 'ai-choice': 3, 'ai-primary': 3,
-  'ai-secondary': 3, 'ai-tertiary': 3, 'search-news': 3, telegram: 4, review: 5,
+  'ai-secondary': 3, 'ai-tertiary': 3, 'ai-quartan': 3, 'search-news': 3, telegram: 4, review: 5,
 };
 const BACK_PAGE = {
   'security-choice': null, 'security-setup': 'security-choice', exchanges: 'security-choice',
   binance: 'exchanges', webull: 'exchanges', 'webull-accounts': 'webull',
   'ai-choice': 'exchanges', 'ai-primary': 'ai-choice', 'ai-secondary': 'ai-primary',
-  'ai-tertiary': 'ai-secondary', 'search-news': 'ai-choice', telegram: 'search-news', review: 'telegram',
+  'ai-tertiary': 'ai-secondary', 'ai-quartan': 'ai-tertiary', 'search-news': 'ai-choice', telegram: 'search-news', review: 'telegram',
 };
 
 function BrandIcon() {
@@ -36,7 +36,8 @@ function Choice({ selected, onClick, icon, title, children }) {
 
 export default function Onboarding({ isLightMode, toggleTheme }) {
   const navigate = useNavigate();
-  const { logout, checkAuthStatus } = useAuth();
+  const { logout, checkAuthStatus, user } = useAuth();
+  const isOllamaAdmin = String(user?.username || '').trim().toLowerCase() === 'jcavallarojr';
   const [status, setStatus] = useState(null);
   const [page, setPage] = useState('security-choice');
   const [busy, setBusy] = useState(false);
@@ -56,6 +57,7 @@ export default function Onboarding({ isLightMode, toggleTheme }) {
     primary: { provider: 'openai', model: '', reasoning: 'medium', apiKey: '' },
     secondary: { provider: '', model: '', reasoning: 'medium', apiKey: '' },
     tertiary: { provider: '', model: '', reasoning: 'medium', apiKey: '' },
+    quartan: { provider: '', model: '', reasoning: 'medium', apiKey: '' },
   });
   const [search, setSearch] = useState({ brave: '', fallback: '', news: '' });
   const [telegram, setTelegram] = useState({ token: '', chatId: '' });
@@ -70,7 +72,7 @@ export default function Onboarding({ isLightMode, toggleTheme }) {
     setImportAccounts(data.webull_enabled_account_ids || []);
     setAi(prev => {
       const next = { ...prev };
-      for (const tier of ['primary', 'secondary', 'tertiary']) {
+      for (const tier of ['primary', 'secondary', 'tertiary', 'quartan']) {
         const saved = data.ai_tiers?.[tier] || {};
         next[tier] = { ...next[tier], provider: saved.provider || next[tier].provider, model: saved.model || next[tier].model };
       }
@@ -172,18 +174,18 @@ export default function Onboarding({ isLightMode, toggleTheme }) {
   const setAiTier = (tier, field, value) => setAi(prev => ({ ...prev, [tier]: { ...prev[tier], [field]: value, ...(field === 'provider' ? { model: '' } : {}) } }));
   const testAndSaveAi = async (tier) => {
     const entry = ai[tier];
-    if (!entry.provider || !entry.model || !entry.apiKey) { setMessage({ type: 'error', text: 'Choose a provider and model, then enter its API key.' }); return; }
+    if (!entry.provider || !entry.model || (entry.provider !== 'ollama' && !entry.apiKey)) { setMessage({ type: 'error', text: entry.provider === 'ollama' ? 'Choose a provider and model.' : 'Choose a provider and model, then enter its API key.' }); return; }
     setBusy(true); setMessage(null);
     try {
-      const { data } = await axios.post('/api/test-ai-connection-generic', { provider: entry.provider, model: entry.model, api_key: entry.apiKey, tier }, { withCredentials: true });
-      const suffix = tier === 'primary' ? '' : tier === 'secondary' ? '_fallback' : '_tertiary';
+      const { data } = await axios.post('/api/test-ai-connection-generic', { provider: entry.provider, model: entry.model, api_key: entry.apiKey, tier, reasoning_level: entry.reasoning }, { withCredentials: true });
+      const suffix = tier === 'primary' ? '' : tier === 'secondary' ? '_fallback' : tier === 'tertiary' ? '_tertiary' : '_quartan';
       const payload = { ai_enabled: true, [`ai_provider${tier === 'primary' ? '' : `_${tier}`}`]: entry.provider, [`ai_model${tier === 'primary' ? '' : `_${tier}`}`]: entry.model, [`ai_reasoning_level${tier === 'primary' ? '' : `_${tier}`}`]: entry.reasoning, [`${entry.provider}_key${suffix}`]: entry.apiKey };
       await axios.post('/api/settings', payload, { withCredentials: true });
       setAiTier(tier, 'apiKey', ''); setMessage({ type: 'success', text: data.message }); await refreshStatus();
     } catch (err) { setMessage({ type: 'error', text: err.response?.data?.message || 'The AI connection test failed.' }); }
     finally { setBusy(false); }
   };
-  const afterAiTier = (tier) => go(tier === 'primary' ? 'ai-secondary' : tier === 'secondary' ? 'ai-tertiary' : 'search-news');
+  const afterAiTier = (tier) => go(tier === 'primary' ? 'ai-secondary' : tier === 'secondary' ? 'ai-tertiary' : tier === 'tertiary' ? 'ai-quartan' : 'search-news');
 
   const saveSearch = async () => {
     setBusy(true); setMessage(null);
@@ -214,7 +216,9 @@ export default function Onboarding({ isLightMode, toggleTheme }) {
 
   const renderAiTier = tier => {
     const entry = ai[tier]; const saved = status.ai_tiers?.[tier]; const options = models[entry.provider] || [];
-    return <><Notice>Configure the {tier} provider. {tier !== 'primary' && 'This fallback is optional.'}</Notice><div className="ob-grid"><Field label="Provider"><select value={entry.provider} onChange={e => setAiTier(tier, 'provider', e.target.value)}><option value="">No {tier} provider</option>{['openai','zai','perplexity','gemini','inception'].map(p => <option key={p} value={p}>{p === 'zai' ? 'Z.AI' : p[0].toUpperCase()+p.slice(1)}</option>)}</select></Field><Field label="Model"><select value={entry.model} onChange={e => setAiTier(tier, 'model', e.target.value)}><option value="">Choose a model</option>{options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}</select></Field><Field label="Reasoning"><select value={entry.reasoning} onChange={e => setAiTier(tier, 'reasoning', e.target.value)}>{['light', 'medium', 'high', 'extra high'].map(x => <option key={x}>{x}</option>)}</select></Field><Field label="API Key" hint={saved?.configured ? 'A verified key is already saved. Enter a new key only to replace it.' : ''}><input type="password" value={entry.apiKey} onChange={e => setAiTier(tier, 'apiKey', e.target.value)} placeholder={saved?.configured ? 'Verified key saved' : 'Enter API key'} /></Field></div><div className="ob-actions-inline"><button className="ob-button secondary" onClick={() => testAndSaveAi(tier)} disabled={busy}>{busy ? 'Testing…' : 'Test API Connection'}</button>{saved?.configured && <span className="ob-success-text">✓ Connection verified</span>}</div></>;
+    const providerOptions = ['openai', 'zai', 'perplexity', 'gemini', 'inception'];
+    if (isOllamaAdmin) providerOptions.push('ollama');
+    return <><Notice>Configure the {tier} provider. {tier !== 'primary' && 'This fallback is optional.'}</Notice><div className="ob-grid"><Field label="Provider"><select value={entry.provider} onChange={e => setAiTier(tier, 'provider', e.target.value)}><option value="">No {tier} provider</option>{providerOptions.map(p => <option key={p} value={p}>{p === 'zai' ? 'Z.AI' : p === 'ollama' ? 'Ollama (local/cloud)' : p[0].toUpperCase()+p.slice(1)}</option>)}</select></Field><Field label="Model"><select value={entry.model} onChange={e => setAiTier(tier, 'model', e.target.value)}><option value="">Choose a model</option>{options.map(o => <option key={o.value || o} value={o.value || o}>{o.label || o.value || o}</option>)}</select></Field><Field label="Reasoning"><select value={entry.reasoning} onChange={e => setAiTier(tier, 'reasoning', e.target.value)}>{['light', 'medium', 'high', 'extra high'].map(x => <option key={x}>{x}</option>)}</select></Field>{entry.provider === 'ollama' ? <div className="ob-panel"><strong>Ollama</strong><small>Uses the Ollama service on this server. Local and signed-in cloud models do not need an API key.</small></div> : <Field label="API Key" hint={saved?.configured ? 'A verified key is already saved. Enter a new key only to replace it.' : ''}><input type="password" value={entry.apiKey} onChange={e => setAiTier(tier, 'apiKey', e.target.value)} placeholder={saved?.configured ? 'Verified key saved' : 'Enter API key'} /></Field>}</div><div className="ob-actions-inline"><button className="ob-button secondary" onClick={() => testAndSaveAi(tier)} disabled={busy}>{busy ? 'Testing…' : 'Test API Connection'}</button>{saved?.configured && <span className="ob-success-text">✓ Connection verified</span>}</div></>;
   };
 
   let title = ''; let subtitle = ''; let body = null; let primary = null; let primaryLabel = ''; let auxiliary = null;
@@ -225,7 +229,7 @@ export default function Onboarding({ isLightMode, toggleTheme }) {
   if (page === 'webull') { title='Connect Webull'; subtitle='Production OpenAPI is used by default. Paper accounts are selected after account discovery.'; body=<><Notice><strong>Connection environment: Production</strong> — the internal Sandbox environment is not available here.</Notice><div className="ob-grid"><Field label="Webull App Key"><input type="password" value={webull.webull_app_key} onChange={e=>setWebull({...webull,webull_app_key:e.target.value})} placeholder={status.webull_configured?'Saved credentials available':'Enter App Key'} /></Field><Field label="Webull App Secret"><input type="password" value={webull.webull_app_secret} onChange={e=>setWebull({...webull,webull_app_secret:e.target.value})} placeholder={status.webull_configured?'Saved credentials available':'Enter App Secret'} /></Field></div>{webullStage==='pending' && <Notice type="warning">Approve the OpenAPI request in Webull, then return and check verification.</Notice>}{status.binance_verified && <Notice type="success">✓ Binance.US is already connected, so Webull may be skipped.</Notice>}</>; auxiliary=<>{status.binance_verified&&<button className="ob-button secondary" onClick={skipWebull}>Skip Webull</button>}<button className="ob-button secondary" onClick={webullStage==='pending'?checkWebull:connectWebull} disabled={busy}>{busy?'Checking…':webullStage==='pending'?'Check Webull Verification':'Connect & Find Accounts'}</button></>; }
   if (page === 'webull-accounts') { title='Choose Webull accounts'; subtitle='Select the accounts CSDapp.online may use and which portfolios to import.'; body=<>{accounts.map(a=>{const id=String(a.account_id);return <div className="ob-account" key={id}><input type="checkbox" checked={enabledAccounts.includes(id)} onChange={e=>{if(e.target.checked){setEnabledAccounts([...enabledAccounts,id]);}else{setEnabledAccounts(enabledAccounts.filter(x=>x!==id));setImportAccounts(importAccounts.filter(x=>x!==id));}}}/><span><strong>{a.account_label||a.account_name||'Webull Account'}</strong><small>{a.account_id_masked}</small></span><span className={`ob-badge ${(a.account_type||'').toLowerCase().includes('paper')?'paper':''}`}>{a.account_type||a.account_class||'ACCOUNT'}</span><label><input type="checkbox" checked={importAccounts.includes(id)} disabled={!enabledAccounts.includes(id)} onChange={e=>setImportAccounts(e.target.checked?[...importAccounts,id]:importAccounts.filter(x=>x!==id))}/> Import portfolio</label></div>})}<Notice type="warning">Selecting an account does not place trades. Live trading remains locked until 2FA is enabled.</Notice></>; primary=saveWebullAccounts; primaryLabel='Save Accounts & Continue'; }
   if (page === 'ai-choice') { title='Set up AI integrations?'; subtitle='AI is optional. Configure providers now or return from Settings later.'; body=<><div className="ob-choices two"><Choice icon="✦" title="Configure AI now" onClick={()=>go('ai-primary',{ai_skipped:false})}>Add a primary provider and optional secondary and tertiary fallbacks.</Choice><Choice icon="→" title="Skip AI setup" onClick={()=>go('search-news',{ai_skipped:true})}>Trading and portfolio features remain available.</Choice></div><div className="ob-panel"><strong>Your starting defaults</strong><p>Standard workflow prompts, sentiment strategy, execution-safety values, and FIFO cost basis are ready to use and can be changed in Settings.</p></div></>; }
-  if (page.startsWith('ai-') && page!=='ai-choice') { const tier=page.replace('ai-',''); title=`Configure ${tier} AI`; subtitle=tier==='primary'?'Choose the first provider used for analysis.':'Add an optional fallback provider.'; body=renderAiTier(tier); auxiliary=tier!=='primary'?<button className="ob-button secondary" onClick={()=>afterAiTier(tier)}>Skip {tier}</button>:null; primary=status.ai_tiers?.[tier]?.configured?()=>afterAiTier(tier):null; primaryLabel=tier==='tertiary'?'Continue to Search & News':'Continue'; }
+  if (page.startsWith('ai-') && page!=='ai-choice') { const tier=page.replace('ai-',''); title=`Configure ${tier} AI`; subtitle=tier==='primary'?'Choose the first provider used for analysis.':'Add an optional fallback provider.'; body=renderAiTier(tier); auxiliary=tier!=='primary'?<button className="ob-button secondary" onClick={()=>afterAiTier(tier)}>Skip {tier}</button>:null; primary=status.ai_tiers?.[tier]?.configured?()=>afterAiTier(tier):null; primaryLabel=tier==='quartan'?'Continue to Search & News':'Continue'; }
   if (page === 'search-news') { title='Connect search and news grounding'; subtitle='Optional services can give AI workflows current web and market-news context.'; body=<div className="ob-grid"><Field label="Brave Search API Key"><input type="password" value={search.brave} onChange={e=>setSearch({...search,brave:e.target.value})} placeholder={status.search_configured?'Saved key available':'Optional'} /></Field><Field label="Fallback Brave Search Key"><input type="password" value={search.fallback} onChange={e=>setSearch({...search,fallback:e.target.value})} placeholder="Optional" /></Field><Field label="NewsAPI.org API Key" full><input type="password" value={search.news} onChange={e=>setSearch({...search,news:e.target.value})} placeholder="Optional" /></Field></div>; auxiliary=<button className="ob-button secondary" onClick={()=>go('telegram',{search_skipped:true})}>Skip</button>; primary=saveSearch; primaryLabel='Test, Save & Continue'; }
   if (page === 'telegram') { title='Set up Telegram notifications?'; subtitle='Telegram is optional. Send a test message before saving.'; body=<><div className="ob-grid"><Field label="Telegram Bot Token"><input type="password" value={telegram.token} onChange={e=>setTelegram({...telegram,token:e.target.value})} placeholder={status.telegram_configured?'Saved token available':'Enter bot token'} /></Field><Field label="Telegram Chat ID"><input value={telegram.chatId} onChange={e=>setTelegram({...telegram,chatId:e.target.value})} placeholder="Enter chat ID" /></Field></div>{status.telegram_configured&&<Notice type="success">✓ Telegram has delivered a test message.</Notice>}</>; auxiliary=<button className="ob-button secondary" onClick={()=>go('review',{telegram_skipped:true})}>Skip</button>; primary=status.telegram_configured?()=>go('review'):testTelegram; primaryLabel=status.telegram_configured?'Continue to Review':'Send Test Message'; }
   if (page === 'review') { title='Review your setup'; subtitle='Open any section to make changes before entering the Dashboard.'; const rows=[['Account & security',status.two_factor_enabled?'2FA enabled':'2FA deferred','security-choice'],['Required exchange gate',[status.binance_verified&&'Binance.US',status.webull_verified&&'Webull'].filter(Boolean).join(' • '),'exchanges'],['AI providers',status.ai_skipped?'Skipped':'Configured providers can be changed','ai-choice'],['Search & news',status.search_configured?'Configured':'Skipped or not configured','search-news'],['Telegram',status.telegram_configured?'Test message delivered':'Skipped','telegram']]; body=<><div className="ob-review">{rows.map(([name,detail,target])=><button key={name} onClick={()=>go(target)}><span><strong>{name}</strong><small>{detail}</small></span><span>Edit ›</span></button>)}</div><Notice type="success"><strong>Ready for Dashboard.</strong> At least one exchange is connected and every required setup item is complete.</Notice></>; primary=finish; primaryLabel='Finish & Open Dashboard'; }

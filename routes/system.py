@@ -1406,6 +1406,7 @@ def api_settings():
                 'ai_provider_fallback',
                 'ai_provider_secondary',
                 'ai_provider_tertiary',
+                'ai_provider_quartan',
             )
             if any(str(data.get(field) or '').strip().lower() == 'ollama' for field in ollama_fields):
                 if not is_event_strategy_admin(current_user):
@@ -1491,6 +1492,7 @@ def api_settings():
                 'ai_provider_fallback', 'ai_model_fallback', 'ai_reasoning_level_fallback',
                 'ai_provider_secondary', 'ai_model_secondary', 'ai_reasoning_level_secondary',
                 'ai_provider_tertiary', 'ai_model_tertiary', 'ai_reasoning_level_tertiary',
+                'ai_provider_quartan', 'ai_model_quartan', 'ai_reasoning_level_quartan',
                 'ai_reasoning_level',
                 'browser_notifications_enabled', 'toast_notifications_enabled'
             ]
@@ -1614,6 +1616,18 @@ def api_settings():
                 if 'inception_key_tertiary' in data:
                     cred.inception_key_tertiary = data['inception_key_tertiary']
 
+                # Quartan (fourth fallback) Keys
+                if 'openai_key_quartan' in data:
+                    cred.openai_key_quartan = data['openai_key_quartan']
+                if 'zai_key_quartan' in data:
+                    cred.zai_key_quartan = data['zai_key_quartan']
+                if 'perplexity_key_quartan' in data:
+                    cred.perplexity_key_quartan = data['perplexity_key_quartan']
+                if 'gemini_key_quartan' in data:
+                    cred.gemini_key_quartan = data['gemini_key_quartan']
+                if 'inception_key_quartan' in data:
+                    cred.inception_key_quartan = data['inception_key_quartan']
+
                 if 'ai_provider' in data:
                     cred.ai_provider = data['ai_provider']
                 if 'brave_search_api_key' in data:
@@ -1721,6 +1735,11 @@ def api_settings():
             "perplexity_key_tertiary": getattr(cred, 'perplexity_key_tertiary', None),
             "gemini_key_tertiary": getattr(cred, 'gemini_key_tertiary', None),
             "inception_key_tertiary": getattr(cred, 'inception_key_tertiary', None),
+            "openai_key_quartan": getattr(cred, 'openai_key_quartan', None),
+            "zai_key_quartan": getattr(cred, 'zai_key_quartan', None),
+            "perplexity_key_quartan": getattr(cred, 'perplexity_key_quartan', None),
+            "gemini_key_quartan": getattr(cred, 'gemini_key_quartan', None),
+            "inception_key_quartan": getattr(cred, 'inception_key_quartan', None),
             # ai_provider is already in ai_settings, but ensure sync? 
             # ai_settings takes precedence as it handles defaults and user_settings overlay
             "telegram_token": cred.telegram_token,

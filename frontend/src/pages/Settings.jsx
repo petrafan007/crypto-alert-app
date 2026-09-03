@@ -101,6 +101,16 @@ export default function Settings({ isLightMode }) {
     gemini_key_tertiary: '',
     inception_key_tertiary: '',
 
+    // Quartan AI Integration (fourth fallback)
+    ai_provider_quartan: '',
+    ai_model_quartan: '',
+    ai_reasoning_level_quartan: 'medium',
+    openai_key_quartan: '',
+    zai_key_quartan: '',
+    perplexity_key_quartan: '',
+    gemini_key_quartan: '',
+    inception_key_quartan: '',
+
     telegram_token: '',
     telegram_chat_id: '',
     news_api: '',
@@ -177,6 +187,8 @@ export default function Settings({ isLightMode }) {
   const [fallbackTestResult, setFallbackTestResult] = useState(null);
   const [testingTertiaryAi, setTestingTertiaryAi] = useState(false);
   const [tertiaryAiTestResult, setTertiaryAiTestResult] = useState(null);
+  const [testingQuartanAi, setTestingQuartanAi] = useState(false);
+  const [quartanAiTestResult, setQuartanAiTestResult] = useState(null);
   const [syncing, setSyncing] = useState(false);
   const [encryptionStatus, setEncryptionStatus] = useState({ configured: false, persisted: false });
   const [encryptionKeyDirty, setEncryptionKeyDirty] = useState(false);
@@ -416,6 +428,10 @@ export default function Settings({ isLightMode }) {
         let tertiaryModel = mergedSettings.ai_model_tertiary;
         const sanitizedTertiaryModel = tertiaryProvider ? sanitizeModel(tertiaryProvider, tertiaryModel, currentModelOptions) : (tertiaryModel || '');
 
+        const quartanProvider = mergedSettings.ai_provider_quartan || prev.ai_provider_quartan || '';
+        let quartanModel = mergedSettings.ai_model_quartan;
+        const sanitizedQuartanModel = quartanProvider ? sanitizeModel(quartanProvider, quartanModel, currentModelOptions) : (quartanModel || '');
+
         return {
           ...prev,
           ...mergedSettings,
@@ -429,7 +445,10 @@ export default function Settings({ isLightMode }) {
           ai_reasoning_level_secondary: mergedSettings.ai_reasoning_level_secondary || mergedSettings.ai_reasoning_level_fallback || prev.ai_reasoning_level_fallback || 'medium',
           ai_provider_tertiary: tertiaryProvider,
           ai_model_tertiary: sanitizedTertiaryModel,
-          ai_reasoning_level_tertiary: mergedSettings.ai_reasoning_level_tertiary || prev.ai_reasoning_level_tertiary || 'medium'
+          ai_reasoning_level_tertiary: mergedSettings.ai_reasoning_level_tertiary || prev.ai_reasoning_level_tertiary || 'medium',
+          ai_provider_quartan: quartanProvider,
+          ai_model_quartan: sanitizedQuartanModel,
+          ai_reasoning_level_quartan: mergedSettings.ai_reasoning_level_quartan || prev.ai_reasoning_level_quartan || 'medium'
         };
       });
     } catch (error) {
@@ -451,6 +470,7 @@ export default function Settings({ isLightMode }) {
       settings.ai_provider,
       settings.ai_provider_secondary || settings.ai_provider_fallback,
       settings.ai_provider_tertiary,
+      settings.ai_provider_quartan,
     ];
     if (!selectedProviders.includes('ollama')) return undefined;
 
@@ -471,13 +491,14 @@ export default function Settings({ isLightMode }) {
               next.ai_model_fallback = firstModel;
             }
             if (prev.ai_provider_tertiary === 'ollama' && !prev.ai_model_tertiary) next.ai_model_tertiary = firstModel;
+            if (prev.ai_provider_quartan === 'ollama' && !prev.ai_model_quartan) next.ai_model_quartan = firstModel;
             return next;
           });
         }
       })
       .catch((error) => console.error('Failed to refresh Ollama models:', error));
     return () => { active = false; };
-  }, [isEventStrategyAdmin, settings.ai_provider, settings.ai_provider_secondary, settings.ai_provider_fallback, settings.ai_provider_tertiary]);
+  }, [isEventStrategyAdmin, settings.ai_provider, settings.ai_provider_secondary, settings.ai_provider_fallback, settings.ai_provider_tertiary, settings.ai_provider_quartan]);
 
   const handleInputChange = (field, value) => {
     console.log(`Updating ${field} to: ${value}`);
@@ -537,6 +558,23 @@ export default function Settings({ isLightMode }) {
         };
       }
 
+      if (field === 'ai_provider_quartan') {
+        const sanitizedModel = value ? sanitizeModel(value, value === 'ollama' ? '' : prev.ai_model_quartan, modelOptions) : '';
+        return {
+          ...prev,
+          ai_provider_quartan: value,
+          ai_model_quartan: sanitizedModel,
+        };
+      }
+
+      if (field === 'ai_model_quartan') {
+        const sanitizedModel = prev.ai_provider_quartan ? sanitizeModel(prev.ai_provider_quartan, value, modelOptions) : value;
+        return {
+          ...prev,
+          ai_model_quartan: sanitizedModel,
+        };
+      }
+
       if (field === 'credentials_encryption_key') {
         setEncryptionKeyDirty(true);
       }
@@ -581,6 +619,16 @@ export default function Settings({ isLightMode }) {
           case 'inception':
             if (!settings.inception_key) errors.push("Inception Labs API Key is required.");
             break;
+        }
+      }
+
+      // Quartan is optional, but once selected it must have a supported model
+      // and a key for cloud providers. Ollama is local and requires no key.
+      if (settings.ai_provider_quartan) {
+        if (!settings.ai_model_quartan) errors.push("Quartan AI Model is required when a provider is selected.");
+        if (settings.ai_provider_quartan !== 'ollama') {
+          const quartanKey = settings[`${settings.ai_provider_quartan}_key_quartan`];
+          if (!quartanKey) errors.push("Quartan AI API Key is required for the selected provider.");
         }
       }
 
@@ -928,6 +976,7 @@ export default function Settings({ isLightMode }) {
         api_key: apiKey,
         model: settings.ai_model,
         tier: 'primary',
+        reasoning_level: settings.ai_reasoning_level,
         is_fallback: false
       }, { withCredentials: true });
 
@@ -1016,6 +1065,7 @@ export default function Settings({ isLightMode }) {
         api_key: apiKey,
         model: settings.ai_model_secondary || settings.ai_model_fallback,
         tier: 'secondary',
+        reasoning_level: settings.ai_reasoning_level_secondary || settings.ai_reasoning_level_fallback,
         is_fallback: true
       }, { withCredentials: true });
 
@@ -1054,7 +1104,8 @@ export default function Settings({ isLightMode }) {
         provider: provider,
         api_key: apiKey,
         model: settings.ai_model_tertiary,
-        tier: 'tertiary'
+        tier: 'tertiary',
+        reasoning_level: settings.ai_reasoning_level_tertiary
       }, { withCredentials: true });
 
       setTertiaryAiTestResult({
@@ -1069,6 +1120,44 @@ export default function Settings({ isLightMode }) {
       });
     } finally {
       setTestingTertiaryAi(false);
+    }
+  };
+
+  // Test the fourth (quartan) AI fallback connection.
+  const testQuartanAiConnection = async () => {
+    setTestingQuartanAi(true);
+    setQuartanAiTestResult(null);
+
+    const provider = settings.ai_provider_quartan;
+    let apiKey = '';
+    if (provider === 'openai') apiKey = settings.openai_key_quartan;
+    else if (provider === 'zai') apiKey = settings.zai_key_quartan;
+    else if (provider === 'perplexity') apiKey = settings.perplexity_key_quartan;
+    else if (provider === 'gemini') apiKey = settings.gemini_key_quartan;
+    else if (provider === 'inception') apiKey = settings.inception_key_quartan;
+
+    try {
+      const response = await axios.post('/api/test-ai-connection-generic', {
+        provider,
+        api_key: apiKey,
+        model: settings.ai_model_quartan,
+        tier: 'quartan',
+        reasoning_level: settings.ai_reasoning_level_quartan,
+        is_fallback: true
+      }, { withCredentials: true });
+
+      setQuartanAiTestResult({
+        success: response.data.success,
+        message: response.data.message || (response.data.success ? 'Quartan connection successful!' : 'Connection failed')
+      });
+    } catch (error) {
+      console.error('Error testing quartan connection:', error);
+      setQuartanAiTestResult({
+        success: false,
+        message: error.response?.data?.message || error.message || 'Failed to test quartan connection'
+      });
+    } finally {
+      setTestingQuartanAi(false);
     }
   };
 
@@ -2535,6 +2624,97 @@ export default function Settings({ isLightMode }) {
             {tertiaryAiTestResult && (
               <div className={`settings-status ${tertiaryAiTestResult.success ? 'success' : 'error'}`} style={{ marginTop: '8px' }}>
                 {tertiaryAiTestResult.message}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Row 4: Quartan AI Integration */}
+        <div className="settings-page-section">
+          <h3>Quartan AI Integration (Fourth Fallback)</h3>
+
+          <div className="settings-form-group">
+            <label>AI Provider</label>
+            <select
+              value={settings.ai_provider_quartan || ''}
+              onChange={(e) => handleInputChange('ai_provider_quartan', e.target.value)}
+            >
+              <option value="">-- Select Quartan Provider --</option>
+              <option value="openai">OpenAI</option>
+              <option value="zai">Z.AI</option>
+              <option value="perplexity">Perplexity</option>
+              <option value="gemini">Gemini</option>
+              <option value="inception">Inception Labs</option>
+              {isEventStrategyAdmin && <option value="ollama">Ollama (local/cloud)</option>}
+            </select>
+            <div className="settings-form-help">
+              Used as the final fallback after primary, secondary, and tertiary providers.
+            </div>
+          </div>
+
+          <div className="settings-form-group">
+            <label>AI Model</label>
+            <select
+              value={settings.ai_model_quartan || ''}
+              onChange={(e) => handleInputChange('ai_model_quartan', e.target.value)}
+              disabled={!settings.ai_provider_quartan}
+            >
+              <option value="">-- Select a model --</option>
+              {(modelOptions[settings.ai_provider_quartan] || []).map((option) => (
+                <option key={option.value || option} value={option.value || option}>{option.label || option.value || option}</option>
+              ))}
+            </select>
+            <div className="settings-form-help">
+              Select an AI model supported by the chosen quartan provider.
+            </div>
+          </div>
+
+          {['gemini', 'openai'].includes(settings.ai_provider_quartan) && (
+            <div className="settings-form-group">
+              <label>Reasoning</label>
+              <select
+                value={settings.ai_reasoning_level_quartan || 'medium'}
+                onChange={(e) => handleInputChange('ai_reasoning_level_quartan', e.target.value)}
+              >
+                <option value="light">Light</option>
+                <option value="medium">Medium</option>
+                <option value="high">High</option>
+                <option value="extra high">Extra High</option>
+              </select>
+              <div className="settings-form-help">Configure reasoning effort for supported models.</div>
+            </div>
+          )}
+
+          {settings.ai_provider_quartan && settings.ai_provider_quartan !== 'ollama' && (
+            <div className="settings-form-group">
+              <label>{settings.ai_provider_quartan === 'zai' ? 'Z.AI' : settings.ai_provider_quartan[0].toUpperCase() + settings.ai_provider_quartan.slice(1)} API Key</label>
+              <input
+                type="password"
+                value={settings[`${settings.ai_provider_quartan}_key_quartan`] || ''}
+                onChange={(e) => handleInputChange(`${settings.ai_provider_quartan}_key_quartan`, e.target.value)}
+                placeholder="Enter API Key"
+              />
+              <div className="settings-form-help">Used only when all earlier AI providers are unavailable.</div>
+            </div>
+          )}
+
+          {settings.ai_provider_quartan === 'ollama' && isEventStrategyAdmin && (
+            <div className="settings-form-help" style={{ marginTop: '8px' }}>
+              Ollama runs through the Ollama service on this server. Local and signed-in cloud models are supported; no API key is required here.
+            </div>
+          )}
+
+          <div className="settings-form-group" style={{ marginTop: '8px' }}>
+            <button
+              onClick={testQuartanAiConnection}
+              disabled={!settings.ai_provider_quartan || !settings.ai_model_quartan || testingQuartanAi}
+              style={{ marginTop: '10px', padding: '8px 16px', backgroundColor: (!settings.ai_provider_quartan || !settings.ai_model_quartan || testingQuartanAi) ? '#6c757d' : '#f0b90b', color: 'black', border: 'none', borderRadius: '4px', cursor: (!settings.ai_provider_quartan || !settings.ai_model_quartan || testingQuartanAi) ? 'not-allowed' : 'pointer', fontSize: '14px', width: '100%', fontWeight: 'bold', transition: 'all 0.2s' }}
+            >
+              {testingQuartanAi ? 'Testing Connection...' : 'Test API Connection'}
+            </button>
+            {quartanAiTestResult && (
+              <div className={`settings-status ${quartanAiTestResult.success ? 'success' : 'error'}`} style={{ marginTop: '8px' }}>
+                {quartanAiTestResult.message}
               </div>
             )}
           </div>

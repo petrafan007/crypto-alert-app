@@ -94,6 +94,13 @@ class Credential(db.Model):
     _gemini_key_tertiary = db.Column("gemini_key_tertiary", db.String)
     _inception_key_tertiary = db.Column("inception_key_tertiary", db.String)
 
+    # Quartan (fourth fallback) AI Keys
+    _openai_key_quartan = db.Column("openai_key_quartan", db.String)
+    _zai_key_quartan = db.Column("zai_key_quartan", db.String)
+    _perplexity_key_quartan = db.Column("perplexity_key_quartan", db.String)
+    _gemini_key_quartan = db.Column("gemini_key_quartan", db.String)
+    _inception_key_quartan = db.Column("inception_key_quartan", db.String)
+
     
     # OAuth (Legacy/Unused fields removed)
     secret_key = db.Column(db.Text, nullable=True) # Flask SECRET_KEY override
@@ -326,6 +333,47 @@ class Credential(db.Model):
     def inception_key_tertiary(self, value):
         self._inception_key_tertiary = normalize_secret_for_storage(value)
 
+    # Quartan (fourth fallback) Keys
+    @property
+    def openai_key_quartan(self):
+        return decrypt_secret(self._openai_key_quartan)
+
+    @openai_key_quartan.setter
+    def openai_key_quartan(self, value):
+        self._openai_key_quartan = normalize_secret_for_storage(value)
+
+    @property
+    def zai_key_quartan(self):
+        return decrypt_secret(self._zai_key_quartan)
+
+    @zai_key_quartan.setter
+    def zai_key_quartan(self, value):
+        self._zai_key_quartan = normalize_secret_for_storage(value)
+
+    @property
+    def perplexity_key_quartan(self):
+        return decrypt_secret(self._perplexity_key_quartan)
+
+    @perplexity_key_quartan.setter
+    def perplexity_key_quartan(self, value):
+        self._perplexity_key_quartan = normalize_secret_for_storage(value)
+
+    @property
+    def gemini_key_quartan(self):
+        return decrypt_secret(self._gemini_key_quartan)
+
+    @gemini_key_quartan.setter
+    def gemini_key_quartan(self, value):
+        self._gemini_key_quartan = normalize_secret_for_storage(value)
+
+    @property
+    def inception_key_quartan(self):
+        return decrypt_secret(self._inception_key_quartan)
+
+    @inception_key_quartan.setter
+    def inception_key_quartan(self, value):
+        self._inception_key_quartan = normalize_secret_for_storage(value)
+
 
     @property
     def telegram_token(self):
@@ -393,6 +441,11 @@ class UserSetting(db.Model):
     ai_provider_tertiary = db.Column(db.String)
     ai_model_tertiary = db.Column(db.String)
     ai_reasoning_level_tertiary = db.Column(db.String, default='medium')
+
+    # Quartan (fourth fallback) AI Tier
+    ai_provider_quartan = db.Column(db.String)
+    ai_model_quartan = db.Column(db.String)
+    ai_reasoning_level_quartan = db.Column(db.String, default='medium')
 
     ai_risk_tolerance = db.Column(db.String, default='medium')
     ai_confidence_threshold = db.Column(db.Float, default=0.7)

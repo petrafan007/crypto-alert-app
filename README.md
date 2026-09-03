@@ -161,6 +161,14 @@ Historical changelog entries retain the product name used when they were origina
 - Added local Ollama calls to the existing primary → secondary → tertiary failover workflow while preserving provider provenance and error handling.
 - Corrected Event Contract Strategy Engine scan logging so scheduled, stale, disabled, or quote-gated evaluations are reported as deferred rather than falsely reported as an AI provider outage; genuine provider and response failures remain visible and alertable.
 
+## v2.82.0 (September 2026)
+
+### Quartan AI Fallback and Ollama Cloud Compatibility
+- Added an optional Quartan AI Integration as the fourth and final provider in the configured failover chain, with independent provider, model, reasoning, and encrypted API-key settings.
+- Added Quartan connection testing, onboarding support, status reporting, and server-side persistence alongside the existing primary, secondary, and tertiary integrations.
+- Kept Ollama administrator-only while allowing the administrator to select discovered local or signed-in Ollama cloud models for any fallback tier, including Quartan.
+- Improved Ollama chat handling for cloud-backed thinking models by sending a supported reasoning level, accepting documented content-part and thinking response shapes, and providing actionable sign-in guidance for unauthorized cloud access.
+
 ## v2.78.0 (September 2026)
 
 ### Event Contract Research Evidence and Paper Simulation

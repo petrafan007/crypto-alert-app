@@ -77,6 +77,23 @@ class AIProviderFailoverTests(unittest.TestCase):
             'https://api.inceptionlabs.ai/v1/chat/completions',
         )
 
+    def test_quartan_is_the_fourth_explicit_fallback(self):
+        settings = {
+            'ai_provider': 'openai',
+            'ai_model': 'gpt-5',
+            'ai_provider_secondary': 'zai',
+            'ai_model_secondary': 'glm-4.5-flash',
+            'ai_provider_tertiary': 'inception',
+            'ai_model_tertiary': 'mercury-2',
+            'ai_provider_quartan': 'ollama',
+            'ai_model_quartan': 'gpt-oss:120b-cloud',
+            'ai_reasoning_level_quartan': 'high',
+        }
+        self.assertEqual(
+            build_configured_ai_tiers(settings)[-1],
+            ('quartan', 'ollama', 'gpt-oss:120b-cloud', 'high'),
+        )
+
     def test_ollama_is_restricted_to_the_permanent_administrator(self):
         self.assertTrue(is_ollama_admin('jcavallarojr'))
         self.assertFalse(is_ollama_admin('another-user'))
@@ -105,6 +122,25 @@ class AIProviderFailoverTests(unittest.TestCase):
                 call_ollama_chat('llama3.2:latest', [{'role': 'user', 'content': 'ping'}]),
                 'OK',
             )
+
+    def test_ollama_chat_accepts_thinking_response_for_cloud_probe(self):
+        response = type('Response', (), {
+            'status_code': 200,
+            'text': '',
+            'json': lambda self: {'message': {'content': '', 'thinking': 'OK'}},
+        })()
+        with patch('services.ai_service.requests.post', return_value=response) as request:
+            self.assertEqual(
+                call_ollama_chat(
+                    'gpt-oss:120b-cloud',
+                    [{'role': 'user', 'content': 'Reply with exactly OK.'}],
+                    reasoning_level='high',
+                ),
+                'OK',
+            )
+            payload = request.call_args.kwargs['json']
+            self.assertEqual(payload['think'], 'high')
+            self.assertFalse(payload['stream'])
 
 
 if __name__ == '__main__':

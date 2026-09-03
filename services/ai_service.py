@@ -110,29 +110,70 @@ def get_ollama_models(timeout=5):
     return sorted(models, key=str.casefold)
 
 
-def call_ollama_chat(model, messages, max_tokens=600, timeout=30):
-    """Call a local Ollama chat model and return its assistant text."""
+def call_ollama_chat(model, messages, max_tokens=600, timeout=30, reasoning_level=None):
+    """Call a local Ollama chat model and return its assistant text.
+
+    Ollama cloud-backed models such as GPT-OSS can emit a separate thinking
+    field and require a supported ``think`` value.  Requesting that value and
+    accepting the documented response shapes keeps both local and cloud-backed
+    models usable through the same local Ollama service.
+    """
     model_name = str(model or "").strip()
     if not model_name:
         raise ValueError("Ollama model is required")
+    normalized_reasoning = str(reasoning_level or "medium").strip().lower()
+    think_level = {
+        "light": "low",
+        "low": "low",
+        "medium": "medium",
+        "high": "high",
+        "extra high": "high",
+    }.get(normalized_reasoning, "medium")
+    request_payload = {
+        "model": model_name,
+        "messages": messages,
+        "stream": False,
+        "think": think_level,
+        "options": {
+            "temperature": 0.2,
+            "num_predict": max(1, int(max_tokens or 600)),
+        },
+    }
     response = requests.post(
         f"{OLLAMA_BASE_URL}/api/chat",
-        json={
-            "model": model_name,
-            "messages": messages,
-            "stream": False,
-            "options": {
-                "temperature": 0.2,
-                "num_predict": max(1, int(max_tokens or 600)),
-            },
-        },
+        json=request_payload,
         timeout=timeout,
     )
+    # Older/local models may not recognize the thinking parameter. Retry the
+    # same request without it so adding cloud-model support never regresses
+    # ordinary Ollama models.
+    if response.status_code == 400 and "think" in request_payload:
+        request_payload.pop("think", None)
+        response = requests.post(
+            f"{OLLAMA_BASE_URL}/api/chat",
+            json=request_payload,
+            timeout=timeout,
+        )
     if response.status_code != 200:
         detail = response.text[:500] if response.text else "no response body"
+        if response.status_code in {401, 403} and model_name.lower().endswith("-cloud"):
+            detail = "Ollama cloud model access requires the Ollama service on this server to be signed in (run `ollama signin`)."
         raise RuntimeError(f"Ollama error (HTTP {response.status_code}): {detail}")
     payload = response.json()
-    content = ((payload.get("message") or {}).get("content") or "").strip()
+    message = payload.get("message") or {}
+    content = message.get("content") or payload.get("response") or ""
+    if isinstance(content, list):
+        content = "".join(
+            str(part.get("text") or part.get("content") or "")
+            if isinstance(part, dict) else str(part or "")
+            for part in content
+        )
+    content = str(content).strip()
+    # Some compatible cloud responses may contain only a thinking field for a
+    # short probe. Treat that as a non-empty response so connection tests do
+    # not fail spuriously, while normal generations still prefer final text.
+    if not content:
+        content = str(message.get("thinking") or payload.get("thinking") or "").strip()
     if not content:
         raise RuntimeError("Ollama returned an empty response")
     return content
@@ -168,6 +209,12 @@ def build_configured_ai_tiers(user_ai_settings):
             settings.get("ai_provider_tertiary"),
             settings.get("ai_model_tertiary"),
             settings.get("ai_reasoning_level_tertiary") or "medium",
+        ),
+        (
+            "quartan",
+            settings.get("ai_provider_quartan"),
+            settings.get("ai_model_quartan"),
+            settings.get("ai_reasoning_level_quartan") or "medium",
         ),
     )
 
@@ -459,6 +506,8 @@ def call_ai_with_web_search(
         )
 
         def _pick_key(p):
+            if current_tier_name == 'quartan':
+                return getattr(cred, f"{p}_key_quartan", None) or getattr(cred, f"{p}_key_tertiary", None) or getattr(cred, f"{p}_key_fallback", None) or getattr(cred, f"{p}_key", None)
             if current_tier_name == 'tertiary':
                 return getattr(cred, f"{p}_key_tertiary", None) or getattr(cred, f"{p}_key_fallback", None) or getattr(cred, f"{p}_key", None)
             elif current_tier_name == 'secondary':
@@ -644,7 +693,13 @@ def call_ai_with_web_search(
                 raise Exception(f"Gemini API error: {last_err}")
 
             elif provider == 'ollama':
-                return call_ollama_chat(model, p_messages, max_tokens=p_max_tokens, timeout=45)
+                return call_ollama_chat(
+                    model,
+                    p_messages,
+                    max_tokens=p_max_tokens,
+                    timeout=45,
+                    reasoning_level=ai_reasoning_level,
+                )
             
             else:
                 raise ValueError(f"Unsupported AI provider: {provider}")

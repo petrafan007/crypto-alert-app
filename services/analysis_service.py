@@ -95,6 +95,9 @@ def get_user_ai_settings(username: str) -> dict:
             'ai_provider_tertiary': '',
             'ai_model_tertiary': '',
             'ai_reasoning_level_tertiary': 'medium',
+            'ai_provider_quartan': '',
+            'ai_model_quartan': '',
+            'ai_reasoning_level_quartan': 'medium',
             'ai_cache_duration_hours': 1,
             'ai_confidence_threshold': 70,
             'ai_risk_tolerance': 'moderate',
@@ -261,6 +264,9 @@ def get_user_ai_settings(username: str) -> dict:
                 settings['ai_provider_tertiary'] = getattr(user_setting, 'ai_provider_tertiary', '')
                 settings['ai_model_tertiary'] = getattr(user_setting, 'ai_model_tertiary', '')
                 settings['ai_reasoning_level_tertiary'] = getattr(user_setting, 'ai_reasoning_level_tertiary', 'medium') or 'medium'
+                settings['ai_provider_quartan'] = getattr(user_setting, 'ai_provider_quartan', '')
+                settings['ai_model_quartan'] = getattr(user_setting, 'ai_model_quartan', '')
+                settings['ai_reasoning_level_quartan'] = getattr(user_setting, 'ai_reasoning_level_quartan', 'medium') or 'medium'
 
                 settings['ai_risk_tolerance'] = user_setting.ai_risk_tolerance
                 settings['ai_confidence_threshold'] = user_setting.ai_confidence_threshold
@@ -344,7 +350,7 @@ def get_user_ai_settings(username: str) -> dict:
         settings['ai_provider'] = provider
         model = settings.get('ai_model')
 
-        for provider_field in ('ai_provider_fallback', 'ai_provider_secondary', 'ai_provider_tertiary'):
+        for provider_field in ('ai_provider_fallback', 'ai_provider_secondary', 'ai_provider_tertiary', 'ai_provider_quartan'):
             current_provider = settings.get(provider_field)
             settings[provider_field] = str(current_provider or '').strip().lower()
 
@@ -404,11 +410,12 @@ def get_user_ai_settings(username: str) -> dict:
             settings['ai_model'] = default_models['openai']
 
         # A saved value or forged request must never make Ollama available to
-        # another account. Empty secondary/tertiary tiers remain unconfigured.
+        # another account. Empty fallback tiers remain unconfigured.
         if not ollama_allowed:
             for provider_field, model_field, default_value in (
                 ('ai_provider_secondary', 'ai_model_secondary', ''),
                 ('ai_provider_tertiary', 'ai_model_tertiary', ''),
+                ('ai_provider_quartan', 'ai_model_quartan', ''),
             ):
                 if str(settings.get(provider_field) or '').strip().lower() == 'ollama':
                     settings[provider_field] = ''

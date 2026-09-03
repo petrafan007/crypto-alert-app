@@ -22,7 +22,8 @@ repeatable edge before any automatic execution is considered.
 4. Store normalized market snapshots with provider and receive timestamps.
 5. Evaluate each contract using explicit quote, freshness, liquidity, time,
    edge, and confidence gates.
-6. Ask the configured AI cascade (primary, then secondary, then tertiary) for
+6. Ask the configured AI cascade (primary, then secondary, tertiary, then
+   quartan) for
    a strict YES probability and confidence estimate. Each attempt, selected
    tier/model, response status, and bounded rationale are stored with the
    decision; missing or malformed responses are rejected rather than treated as
