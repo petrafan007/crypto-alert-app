@@ -11,6 +11,9 @@ from event_algo import (
     PAPER_MODE,
     config_to_dict,
     event_strategy_performance,
+    event_strategy_health_summary,
+    event_strategy_logs,
+    _record_engine_log,
     get_or_create_config,
     resolve_event_outcomes,
     run_event_strategy_scan,
@@ -99,6 +102,7 @@ def event_algo_config():
                 "message": "Enable Webull paper/test mode before configuring the Event Contract engine.",
             }), 400
         update_config(config, request.get_json(silent=True) or {})
+        _record_engine_log(current_user.id, "CONFIG_UPDATED", "Event Contract Strategy Engine settings updated from Settings.", config_id=config.id)
         db.session.commit()
     else:
         db.session.commit()
@@ -110,13 +114,32 @@ def event_algo_config():
 def event_algo_status():
     config = get_or_create_config(current_user.id)
     last_run = EventStrategyRun.query.filter_by(user_id=current_user.id).order_by(EventStrategyRun.started_at.desc()).first()
+    health = event_strategy_health_summary(current_user.id)
+    db.session.commit()
     return jsonify({
         "success": True,
         "mode": PAPER_MODE,
         "paper_mode_enabled": _paper_mode_enabled(),
         "config": config_to_dict(config),
         "last_run": _run_dict(last_run),
+        "health": health,
     })
+
+
+@event_algo_bp.route("/api/webull/event-algo/logs", methods=["GET"])
+@login_required
+def event_algo_logs():
+    try:
+        limit = max(1, min(int(request.args.get("limit") or 200), 500))
+    except (TypeError, ValueError):
+        limit = 200
+    rows = event_strategy_logs(
+        current_user.id,
+        limit=limit,
+        level=request.args.get("level"),
+        event_type=request.args.get("event_type"),
+    )
+    return jsonify({"success": True, "mode": PAPER_MODE, "logs": rows})
 
 
 @event_algo_bp.route("/api/webull/event-algo/start", methods=["POST"])
@@ -132,6 +155,7 @@ def event_algo_start():
     config.kill_switch = False
     config.mode = PAPER_MODE
     config.worker_status = "RUNNING"
+    _record_engine_log(current_user.id, "ENGINE_STARTED", "Event Contract Strategy Engine started in paper/signal-only mode.", config_id=config.id)
     db.session.commit()
     return jsonify({"success": True, "mode": PAPER_MODE, "config": config_to_dict(config)})
 
@@ -142,6 +166,7 @@ def event_algo_stop():
     config = get_or_create_config(current_user.id)
     config.enabled = False
     config.worker_status = "STOPPED"
+    _record_engine_log(current_user.id, "ENGINE_STOPPED", "Event Contract Strategy Engine stopped by the user.", config_id=config.id)
     db.session.commit()
     return jsonify({"success": True, "mode": PAPER_MODE, "config": config_to_dict(config)})
 
@@ -153,6 +178,7 @@ def event_algo_kill_switch():
     config.enabled = False
     config.kill_switch = True
     config.worker_status = "KILLED"
+    _record_engine_log(current_user.id, "KILL_SWITCH_ENABLED", "Event Contract Strategy Engine kill switch enabled; no strategy entries can be created.", level="WARNING", config_id=config.id, notify=True)
     db.session.commit()
     return jsonify({
         "success": True,

@@ -36,10 +36,27 @@ repeatable edge before any automatic execution is considered.
 9. Optionally create hypothetical fills for eligible signals and review their
    settled paper performance. This never calls an order-placement endpoint.
 
+## Cadence, cache, and reliability controls
+
+The Settings → Event Contract Strategy Engine tab exposes independent controls
+for snapshot collection, worker scans, AI batch spacing, batch size, hourly AI
+budget, prediction-cache TTL, search/context refresh, retry backoff, and a
+separate cooldown for each configured contract duration. Snapshots continue to
+be collected even when AI calls are throttled. A successful prediction is reused
+only while its material-market fingerprint and cache TTL remain valid; failed
+providers are retried with exponential backoff and never become a trade signal.
+
+The persisted supervisor watches each paper worker heartbeat. A stale heartbeat
+marks the worker degraded, writes an `EventStrategyLog` record, emits a
+rate-limited toast, and lets the supervisor reacquire the scan on its next
+iteration. The application service remains managed by systemd with
+`Restart=always`, so a process crash is also restarted automatically.
+
 ## HTTP API
 
 - `GET/PUT /api/webull/event-algo/config`
 - `GET /api/webull/event-algo/status`
+- `GET /api/webull/event-algo/logs`
 - `POST /api/webull/event-algo/start`
 - `POST /api/webull/event-algo/stop`
 - `POST /api/webull/event-algo/kill-switch`

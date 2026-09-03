@@ -3088,6 +3088,25 @@ body.theme-transition * {
   gap: 12px;
 }
 
+.settings-save-button,
+.settings-action-button,
+.settings-danger-button {
+  border: 1px solid rgba(79, 209, 197, 0.45);
+  border-radius: 6px;
+  padding: 9px 13px;
+  color: #e6fffb;
+  background: #285e61;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.settings-save-button:hover,
+.settings-action-button:hover { background: #319795; }
+.settings-danger-button { border-color: rgba(245, 101, 101, 0.55); background: #742a2a; }
+.settings-save-button:disabled,
+.settings-action-button:disabled,
+.settings-danger-button:disabled { opacity: 0.55; cursor: not-allowed; }
+
 .settings-checkbox-group {
   display: flex;
   align-items: center;

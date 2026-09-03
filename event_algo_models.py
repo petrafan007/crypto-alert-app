@@ -63,6 +63,66 @@ class EventStrategyRun(db.Model):
     )
 
 
+class EventStrategyLog(db.Model):
+    """Operational, user-visible health log for the paper strategy worker."""
+
+    __tablename__ = "event_strategy_logs"
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, nullable=False, index=True)
+    config_id = db.Column(db.Integer, nullable=True, index=True)
+    run_id = db.Column(db.Integer, nullable=True, index=True)
+    level = db.Column(db.String(16), default="INFO", nullable=False)
+    event_type = db.Column(db.String(60), nullable=False)
+    message = db.Column(db.Text, nullable=False)
+    symbol = db.Column(db.String(40), nullable=True)
+    duration = db.Column(db.String(40), nullable=True)
+    metadata_json = db.Column(db.Text, default="{}", nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+    __table_args__ = (
+        db.Index("ix_event_strategy_log_user_created", "user_id", "created_at"),
+        db.Index("ix_event_strategy_log_user_level", "user_id", "level"),
+    )
+
+
+class EventStrategyAIEvaluation(db.Model):
+    """Persistent cache/retry state for duration-aware AI evaluations."""
+
+    __tablename__ = "event_strategy_ai_evaluations"
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, nullable=False, index=True)
+    config_id = db.Column(db.Integer, nullable=False, index=True)
+    contract_symbol = db.Column(db.String(160), nullable=False)
+    underlying_symbol = db.Column(db.String(40), nullable=True)
+    duration = db.Column(db.String(40), nullable=True)
+    status = db.Column(db.String(24), default="PENDING", nullable=False)
+    probability_yes = db.Column(db.Float, nullable=True)
+    confidence = db.Column(db.Float, nullable=True)
+    rationale = db.Column(db.Text, nullable=True)
+    provider = db.Column(db.String(40), nullable=True)
+    model = db.Column(db.String(120), nullable=True)
+    tier = db.Column(db.String(20), nullable=True)
+    attempts = db.Column(db.Integer, default=0, nullable=False)
+    consecutive_failures = db.Column(db.Integer, default=0, nullable=False)
+    last_error = db.Column(db.Text, nullable=True)
+    last_market_fingerprint = db.Column(db.String(128), nullable=True)
+    last_attempt_at = db.Column(db.DateTime, nullable=True)
+    last_success_at = db.Column(db.DateTime, nullable=True)
+    next_retry_at = db.Column(db.DateTime, nullable=True)
+    next_evaluation_at = db.Column(db.DateTime, nullable=True)
+    metadata_json = db.Column(db.Text, default="{}", nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    __table_args__ = (
+        db.UniqueConstraint("user_id", "config_id", "contract_symbol", name="uq_event_strategy_ai_eval_contract"),
+        db.Index("ix_event_strategy_ai_eval_due", "user_id", "next_evaluation_at"),
+        db.Index("ix_event_strategy_ai_eval_status", "user_id", "status"),
+    )
+
+
 class EventMarketSnapshot(db.Model):
     __tablename__ = "event_market_snapshots"
 

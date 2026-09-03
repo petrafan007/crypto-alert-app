@@ -136,6 +136,14 @@ Historical changelog entries retain the product name used when they were origina
 - Added an event-contract-specific analysis prompt that includes the exact question, underlying, duration, cutoff, quotes, liquidity, and timing context.
 - Kept quote-less, stale, and closed markets from making unnecessary AI calls, and kept all decisions signal-only with no broker order endpoint access.
 
+## v2.79.1 (September 2026)
+
+### Event Contract Engine Operations and AI Cadence
+- Moved Event Contract Strategy Engine controls into Settings with paper-only start/stop, scan, kill-switch, health, and a structured log viewer; Event Contracts no longer renders a duplicate strategy control panel.
+- Added configurable snapshot, scan, AI batch, batch-size, hourly-budget, cache, retry, search-context, and per-duration AI cooldown frequencies. Snapshot collection is independent from AI calls, and successful predictions are reused only while their fingerprinted cache is fresh.
+- Added durable AI evaluation state with retry backoff, failure telemetry, provider provenance, and strict batch response parsing. The engine can evaluate several contracts per provider request without inventing missing probabilities.
+- Added a watchdog supervisor that detects stale heartbeats, restarts paper scans, records structured errors, and emits rate-limited toast notifications. Copilot receives the same secret-free health summary so operational questions are answerable from the UI.
+
 ## v2.78.0 (September 2026)
 
 ### Event Contract Research Evidence and Paper Simulation

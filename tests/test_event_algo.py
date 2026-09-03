@@ -2,7 +2,13 @@ import unittest
 from datetime import datetime, timedelta
 from types import SimpleNamespace
 
-from event_algo import evaluate_market, normalize_config_payload, parse_event_model_response
+from event_algo import (
+    _ai_cooldown_seconds,
+    evaluate_market,
+    normalize_config_payload,
+    parse_event_model_batch_response,
+    parse_event_model_response,
+)
 
 
 class EventAlgoTests(unittest.TestCase):
@@ -74,6 +80,39 @@ class EventAlgoTests(unittest.TestCase):
         self.assertIsNone(parse_event_model_response('{"probability_yes": 0.7}'))
         self.assertIsNone(parse_event_model_response('{"probability_yes": 1.5, "confidence": 0.8}'))
         self.assertIsNone(parse_event_model_response('not json'))
+
+    def test_batch_response_is_strict_and_symbol_keyed(self):
+        parsed = parse_event_model_batch_response(
+            '{"predictions":[{"contract_symbol":"kxbtc-1","probability_yes":0.72,"confidence":0.8},'
+            '{"contract_symbol":"KXETH-2","probability_no":0.25,"confidence":75}]}'
+        )
+        self.assertEqual(parsed['KXBTC-1']['probability_yes'], 0.72)
+        self.assertEqual(parsed['KXETH-2']['probability_yes'], 0.75)
+        self.assertNotIn('UNKNOWN', parsed)
+
+    def test_frequency_settings_are_bounded_and_duration_aware(self):
+        config = normalize_config_payload({
+            'signal_config': {
+                'snapshot_interval_seconds': 1,
+                'ai_batch_interval_seconds': 999999,
+                'ai_batch_size': 999,
+                'max_ai_calls_per_hour': 0,
+                'ai_cache_ttl_seconds': 2,
+                'ai_context_refresh_hours': 999,
+                'ai_retry_backoff_seconds': 1,
+                'ai_cooldown_by_duration': {'FIFTEEN_MINUTES': 31, 'HOURLY': 7200},
+            },
+        }, user_id=7)
+        signal = config['signal_config']
+        self.assertEqual(signal['snapshot_interval_seconds'], 30)
+        self.assertEqual(signal['ai_batch_interval_seconds'], 86400)
+        self.assertEqual(signal['ai_batch_size'], 20)
+        self.assertEqual(signal['max_ai_calls_per_hour'], 1)
+        self.assertEqual(signal['ai_cache_ttl_seconds'], 30)
+        self.assertEqual(signal['ai_context_refresh_hours'], 168)
+        self.assertEqual(signal['ai_retry_backoff_seconds'], 30)
+        self.assertEqual(_ai_cooldown_seconds(signal, 'FIFTEEN_MINUTES'), 31)
+        self.assertEqual(_ai_cooldown_seconds(signal, 'HOURLY'), 7200)
 
     def test_provider_error_is_visible_in_decision_reasons(self):
         now = datetime.utcnow()
