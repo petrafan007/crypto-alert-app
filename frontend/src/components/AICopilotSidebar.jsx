@@ -63,7 +63,9 @@ export default function AICopilotSidebar() {
   const [searchTerm, setSearchTerm] = useState('');
   const [activeSearchTerm, setActiveSearchTerm] = useState('');
   const [conversationId, setConversationId] = useState(null);
-  const messagesEndRef = useRef(null);
+  const [sessions, setSessions] = useState([]);
+  const [isCreatingSession, setIsCreatingSession] = useState(false);
+  const [includeAllSessions, setIncludeAllSessions] = useState(false);
   const floatingWindowRef = useRef(null);
   const floatingDragRef = useRef(null);
   const floatingResizeRef = useRef(null);
@@ -77,13 +79,11 @@ export default function AICopilotSidebar() {
   const [offset, setOffset] = useState(0);
   const [totalCount, setTotalCount] = useState(0);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
-  const [showAutomation, setShowAutomation] = useState(() => {
-    const saved = localStorage.getItem('ai_copilot_show_automation');
-    return saved !== null ? JSON.parse(saved) : true;
-  });
   const [searchHits, setSearchHits] = useState([]);
   const [currentHitIndex, setCurrentHitIndex] = useState(-1);
   const messageRefs = useRef(new Map());
+  const conversationRefs = useRef(new Map());
+  const activeSessionIdRef = useRef(null);
   const previousActiveHit = useRef(null);
   const limit = 20;
 
@@ -104,6 +104,19 @@ export default function AICopilotSidebar() {
     } else {
       messageRefs.current.delete(id);
     }
+  };
+
+  const registerConversationRef = (id, node) => {
+    if (node) {
+      conversationRefs.current.set(id, node);
+    } else {
+      conversationRefs.current.delete(id);
+    }
+  };
+
+  const scrollToResponseStart = (questionId) => {
+    const question = conversationRefs.current.get(questionId);
+    question?.scrollIntoView({ behavior: 'auto', block: 'start' });
   };
 
   const clearHighlights = () => {
@@ -167,26 +180,30 @@ export default function AICopilotSidebar() {
     })();
   }, []);
 
-  // Check AI status and fetch conversations when sidebar opens
   useEffect(() => {
-    if (isOpen) {
+    activeSessionIdRef.current = conversationId;
+  }, [conversationId]);
+
+  // Load the user's saved chat sessions when either Copilot presentation opens.
+  useEffect(() => {
+    if (isOpen || isFloating) {
       checkAiStatus();
-      fetchConversations(false, true); // Initial fetch when sidebar opens
-      // Force scroll to bottom on open to show newest messages
-      setTimeout(scrollToBottom, 100);
-      setTimeout(scrollToBottom, 500); // Redundant safety for slow renders
+      fetchSessions();
     }
-  }, [isOpen]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, isFloating]);
 
   useEffect(() => {
     setOffset(0);
     setHasMore(true);
-    if (isOpen) {
+    if ((isOpen || isFloating) && conversationId) {
       fetchConversations(false, true);
+    } else if (isOpen || isFloating) {
+      setConversations([]);
+      setTotalCount(0);
     }
-    localStorage.setItem('ai_copilot_show_automation', JSON.stringify(showAutomation));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showAutomation]);
+  }, [conversationId, isOpen, isFloating]);
 
   // Background refresh DISABLED as per user request (only refresh on open)
   useEffect(() => {
@@ -249,26 +266,10 @@ export default function AICopilotSidebar() {
     return () => clearInterval(iv);
   }, [isLoading]);
 
-  // Scroll to bottom when new messages arrive (only if not loading history)
-  useEffect(() => {
-    // Only scroll to bottom if we're not loading more history
-    if (isLoadingMore) return;
-
-    const conversationsContainer = document.querySelector('.conversations-list');
-    if (conversationsContainer) {
-      scrollToBottom();
-    }
-  }, [conversations]); // Note: isLoadingMore ref dependency handled by return guard
-
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'auto' }); // Instant scroll, no smooth animation
-  };
-
   const openFloatingWindow = () => {
     setIsOpen(false);
     setIsFloating(true);
     setIsMinimized(false);
-    window.setTimeout(scrollToBottom, 100);
   };
 
   const closeFloatingWindow = () => {
@@ -305,7 +306,6 @@ export default function AICopilotSidebar() {
     setIsMinimized(false);
     setIsOpen(false);
     setIsFloating(true);
-    window.setTimeout(scrollToBottom, 100);
   };
 
   const handleFloatingDragStart = (event) => {
@@ -401,9 +401,61 @@ export default function AICopilotSidebar() {
     setIsMaximized((maximized) => !maximized);
   };
 
-  const fetchConversations = async (loadMore = false, force = false) => {
+  const fetchSessions = async () => {
     try {
       if (isLoggingOut || window.globalIsLoggingOut) return;
+      const response = await axios.get('/api/ai/copilot-sessions', { withCredentials: true });
+      const loadedSessions = response.data?.sessions || [];
+      setSessions(loadedSessions);
+      setConversationId((currentSessionId) => (
+        currentSessionId && loadedSessions.some((session) => session.id === currentSessionId)
+          ? currentSessionId
+          : (loadedSessions[0]?.id || null)
+      ));
+    } catch (error) {
+      console.error('Error fetching Copilot sessions:', error);
+    }
+  };
+
+  const createSession = async () => {
+    setIsCreatingSession(true);
+    try {
+      const response = await axios.post('/api/ai/copilot-sessions', {}, { withCredentials: true });
+      const newSession = response.data?.session;
+      if (!newSession?.id) throw new Error('The new Copilot session was not created.');
+      setSessions((previous) => [newSession, ...previous.filter((session) => session.id !== newSession.id)]);
+      setConversationId(newSession.id);
+      setConversations([]);
+      setSelectedMessages(new Set());
+      setOffset(0);
+      setTotalCount(0);
+      setHasMore(false);
+      return newSession.id;
+    } catch (error) {
+      console.error('Error creating Copilot session:', error);
+      return null;
+    } finally {
+      setIsCreatingSession(false);
+    }
+  };
+
+  const handleNewChat = () => {
+    if (!isCreatingSession && !isLoading) createSession();
+  };
+
+  const handleSessionChange = (event) => {
+    const nextSessionId = event.target.value || null;
+    setConversationId(nextSessionId);
+    setConversations([]);
+    setSelectedMessages(new Set());
+    setOffset(0);
+    setTotalCount(0);
+    setHasMore(true);
+  };
+
+  const fetchConversations = async (loadMore = false, force = false, requestedSessionId = conversationId) => {
+    try {
+      if (isLoggingOut || window.globalIsLoggingOut || !requestedSessionId) return;
 
       if (loadMore) {
         setIsLoadingMore(true);
@@ -415,9 +467,8 @@ export default function AICopilotSidebar() {
       params.append('limit', limit.toString());
       params.append('offset', currentOffset.toString());
       params.append('include_hidden', 'false');
-      if (!showAutomation) {
-        params.append('prompt_type', 'manual');
-      }
+      params.append('prompt_type', 'manual');
+      params.append('session_id', requestedSessionId);
 
       const response = await axios.get(`/api/ai/conversations?${params}`, {
         withCredentials: true
@@ -426,8 +477,7 @@ export default function AICopilotSidebar() {
       const fetched = response.data.conversations || [];
       const total = response.data.total || 0;
       const hasMoreData = response.data.has_more || false;
-      const signatureKey = (entry) => `${entry.sender}|${(entry.body || '').trim()}`;
-      const serverSignatures = new Set(fetched.map(signatureKey));
+      if (activeSessionIdRef.current !== requestedSessionId) return;
 
       setTotalCount(total);
       setHasMore(hasMoreData);
@@ -640,6 +690,11 @@ export default function AICopilotSidebar() {
     }
 
     setIsLoading(true);
+    const activeConversationId = conversationId || await createSession();
+    if (!activeConversationId) {
+      setIsLoading(false);
+      return;
+    }
 
     const easternNow = new Date();
 
@@ -671,7 +726,7 @@ export default function AICopilotSidebar() {
       prompt_type: 'manual',
       sender: 'user',
       body: message.trim(),
-      conversation_id: conversationId,
+      conversation_id: activeConversationId,
       optimistic: true
     };
 
@@ -686,19 +741,20 @@ export default function AICopilotSidebar() {
       sender: 'ai',
       body: '',
       thinking: true,
-      conversation_id: conversationId,
+      conversation_id: activeConversationId,
       optimistic: true
     };
 
     // Append to end of conversation list (Oldest -> Newest order)
     setConversations(prev => [...prev, userMessage, placeholderMessage]);
     setMessage('');
-    setTimeout(scrollToBottom, 50);
+    window.setTimeout(() => scrollToResponseStart(userMessage.id), 0);
 
     try {
       const response = await axios.post('/api/ai/conversation', {
         message: userMessage.body,
-        conversation_id: conversationId
+        conversation_id: activeConversationId,
+        include_all_sessions: includeAllSessions,
       }, {
         withCredentials: true,
         timeout: 120000
@@ -706,6 +762,16 @@ export default function AICopilotSidebar() {
 
       const newConversationId = response.data?.conversation_id;
       const aiResponseText = response.data?.response || 'No response generated.';
+      const updatedSession = response.data?.session;
+
+      if (updatedSession?.id) {
+        setSessions((previous) => [
+          updatedSession,
+          ...previous.filter((session) => session.id !== updatedSession.id),
+        ]);
+      }
+
+      if (activeSessionIdRef.current !== activeConversationId) return;
 
       // Replace placeholder with actual AI response and attach conversation id
       setConversations(prev => prev.map((m) => {
@@ -731,15 +797,16 @@ export default function AICopilotSidebar() {
         return m;
       }));
       setConversationId(newConversationId);
-      setTimeout(scrollToBottom, 50);
+      window.setTimeout(() => scrollToResponseStart(userMessage.id), 0);
     } catch (error) {
       console.error('Error sending message:', error);
       const errorMsg = error.response?.data?.response || error.response?.data?.error || (error.code === 'ECONNABORTED' ? 'Request timed out. Please try again.' : 'Error: Failed to get AI response. Please try again.');
+      if (activeSessionIdRef.current !== activeConversationId) return;
       // Show error in placeholder
       setConversations(prev => prev.map(m =>
         m.id === placeholderId ? { ...m, body: errorMsg, thinking: false, optimistic: false } : m
       ));
-      setTimeout(scrollToBottom, 50);
+      window.setTimeout(() => scrollToResponseStart(userMessage.id), 0);
     } finally {
       setIsLoading(false);
     }
@@ -912,10 +979,33 @@ export default function AICopilotSidebar() {
           </div>
         )}
         <div className="header-controls">
+          <div className="copilot-session-controls">
+            <button
+              type="button"
+              className="new-copilot-chat-btn"
+              onClick={handleNewChat}
+              disabled={isCreatingSession || isLoading}
+            >
+              {isCreatingSession ? 'Creating…' : '+ New Chat'}
+            </button>
+            <select
+              value={conversationId || ''}
+              onChange={handleSessionChange}
+              disabled={isCreatingSession || isLoading}
+              aria-label="Choose a saved Copilot chat session"
+            >
+              <option value="">Choose a chat session</option>
+              {sessions.map((session) => (
+                <option key={session.id} value={session.id}>
+                  {session.title || 'Untitled chat'}{session.message_count ? ` (${session.message_count})` : ''}
+                </option>
+              ))}
+            </select>
+          </div>
           <div className="checkbox-row" style={{ display: 'flex', gap: '15px' }}>
-            <label className="auto-refresh-toggle">
-              <input type="checkbox" checked={showAutomation} onChange={(e) => setShowAutomation(e.target.checked)} />
-              <span>Show workflows</span>
+            <label className="auto-refresh-toggle" title="Explicitly search your other saved Copilot chats for related history">
+              <input type="checkbox" checked={includeAllSessions} onChange={(e) => setIncludeAllSessions(e.target.checked)} />
+              <span>Reference past chats</span>
             </label>
             <label className="select-all-toggle">
               <input type="checkbox" checked={selectAll} onChange={toggleSelectAll} />
@@ -981,7 +1071,11 @@ export default function AICopilotSidebar() {
           )}
 
           {conversations.map((conv) => (
-            <div key={conv.id} className={`conversation-message ${conv.sender}`}>
+            <div
+              key={conv.id}
+              ref={(node) => registerConversationRef(conv.id, node)}
+              className={`conversation-message ${conv.sender}`}
+            >
               <div className="message-header">
                 <div className="message-meta">
                   <input type="checkbox" checked={selectedMessages.has(conv.id)} onChange={() => toggleSelectMessage(conv.id)} className="message-checkbox" />
@@ -1015,7 +1109,9 @@ export default function AICopilotSidebar() {
               </div>
             </div>
           ))}
-          <div ref={messagesEndRef} />
+          {!conversationId && !conversations.length && (
+            <div className="copilot-empty-session">Start a new chat to ask the Copilot a question.</div>
+          )}
         </div>
       </div>
 

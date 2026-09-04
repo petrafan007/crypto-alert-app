@@ -6,11 +6,13 @@
 
 **Last Updated**: September 2026
 
-## v2.84.0 (September 2026)
+## v2.86.0 (September 2026)
 
-- Added a dedicated Protective Stop (PS) calculator for sell Stop Loss, Stop Loss Limit, and OCO orders.
-- Protective floors can be anchored to average entry or the current market price, with validation that the floor remains below the live market for a sell stop.
-- Stop-limit and OCO protective calculations now include a 1% execution cushion below the trigger while preserving the OCO take-profit leg.
+- Added persistent, user-scoped Copilot chat sessions with database-backed IDs, a **New Chat** action, and a titled-session selector for reopening and continuing prior conversations.
+- The first AI reply supplies a concise session title. Existing manual Copilot history is safely retained in a labeled legacy session during upgrade rather than being discarded or mixed into future chats.
+- New chats are isolated by default. **Reference past chats** explicitly searches only the current user's other saved sessions; historical chat content cannot silently cross into a new session or override the current account snapshot.
+- Copilot now labels the freshly read portfolio, cash/stablecoin balances, orders, and watchlist as authoritative. Time-sensitive crypto and security answers use fresh web-search context, and stale chat content is forbidden from being presented as a current holding or balance.
+- Long completed responses now position the view at the user question and start of the new reply, instead of forcing the sidebar or floating chat to the bottom of the response.
 
 ## 🚀 Key Features & Capabilities
 
@@ -133,21 +135,15 @@ The application utilizes a **unified PostgreSQL database**.
 
 Historical changelog entries retain the product name used when they were originally released. The application domain, repository slug, deployment folders, database, and service identifiers intentionally remain unchanged by the v2.45.0 brand update.
 
-## v2.83.5 (September 2026)
+## v2.86.0 (September 2026)
 
-### Consistent ETF-Aware Asset Labels
-- Added a shared provider- and instrument-aware identity layer so the same ticker can be shown distinctly when it represents an ETF, such as `ETH ETF`, without changing the raw symbol used for quotes or trading.
-- Applied ETF-aware labels across dashboard allocations, Asset Performance, recent trades, Webull positions/open orders/order history, consolidated Orders, and Tax Report views.
-- Consolidated duplicate allocation slices by provider/instrument identity and excluded cash/stablecoin balances from the investable allocation chart.
-- Enriched persisted and live Webull order/tax rows with ETF metadata where the provider exposes a matching holding, while leaving event contracts, options, and ordinary crypto symbols unchanged.
+### AI Copilot Saved Sessions & Live-Context Guardrails
+- Added persistent, user-scoped Copilot chat sessions with database-backed IDs, a **New Chat** action, and a titled-session selector for reopening and continuing prior conversations.
+- The first AI reply supplies a concise session title. Existing manual Copilot history is safely retained in a labeled legacy session during upgrade rather than being discarded or mixed into future chats.
+- New chats are isolated by default. **Reference past chats** explicitly searches only the current user's other saved sessions; historical chat content cannot silently cross into a new session or override the current account snapshot.
+- Copilot now labels the freshly read portfolio, cash/stablecoin balances, orders, and watchlist as authoritative. Time-sensitive crypto and security answers use fresh web-search context, and stale chat content is forbidden from being presented as a current holding or balance.
+- Long completed responses now position the view at the user question and start of the new reply, instead of forcing the sidebar or floating chat to the bottom of the response.
 
-## v2.79.0 (September 2026)
-
-### Event Contract AI Fallback Integration
-- Connected the paper-only Event Contract strategy scanner to the configured Primary → Secondary → Tertiary AI provider chain.
-- Added a strict probability/confidence response contract with validation for percentages, malformed JSON, missing values, and provider failures.
-- Added per-decision model provenance, failover attempts, bounded rationale, and provider status to the persisted evidence trace and scan diagnostics.
-- Added an event-contract-specific analysis prompt that includes the exact question, underlying, duration, cutoff, quotes, liquidity, and timing context.
 ## v2.85.1 (September 2026)
 
 ### Staking Balance Resilience & Database Query Optimization
@@ -163,6 +159,32 @@ Historical changelog entries retain the product name used when they were origina
 - **Paper Signal Eligibility & Performance Tracking**: Fixed decision evaluation so that qualified paper signals with positive edge and confidence are recognized with `eligible: True`, enabling automated simulated paper fill tracking and performance metrics aggregation.
 - **Settlement Terminal Price Support**: Enhanced settlement detection to parse Webull's terminal delisting and settlement price conventions (`0.999` / `1.0` for YES, `0.001` / `0.0` for NO) in addition to explicit textual outcome tags.
 
+## v2.84.0 (September 2026)
+
+### Dedicated Protective Stop Calculator
+- Added a dedicated Protective Stop (PS) calculator for sell Stop Loss, Stop Loss Limit, and OCO orders.
+- Protective floors can be anchored to average entry or the current market price, with validation that the floor remains below the live market for a sell stop.
+- Stop-limit and OCO protective calculations now include a 1% execution cushion below the trigger while preserving the OCO take-profit leg.
+
+## v2.83.7 (September 2026)
+
+### Asset Performance Response Consistency
+- Fixed asset performance response formatting to ensure reliable calculation of percentage changes and direction indicators.
+
+## v2.83.6 (September 2026)
+
+### Cash Balance Filtering and Webull ETF Identity Refinements
+- Refined cash balance filtering to cleanly exclude fiat and stablecoin positions from the investable asset allocation chart.
+- Improved Webull ETF classification and identity matching across portfolio performance and orders views.
+
+## v2.83.5 (September 2026)
+
+### Consistent ETF-Aware Asset Labels
+- Added a shared provider- and instrument-aware identity layer so the same ticker can be shown distinctly when it represents an ETF, such as `ETH ETF`, without changing the raw symbol used for quotes or trading.
+- Applied ETF-aware labels across dashboard allocations, Asset Performance, recent trades, Webull positions/open orders/order history, consolidated Orders, and Tax Report views.
+- Consolidated duplicate allocation slices by provider/instrument identity and excluded cash/stablecoin balances from the investable allocation chart.
+- Enriched persisted and live Webull order/tax rows with ETF metadata where the provider exposes a matching holding, while leaving event contracts, options, and ordinary crypto symbols unchanged.
+
 ## v2.83.4 (September 2026)
 
 ### Provider-Scoped Webull Identity and Pending Order Highlights
@@ -173,14 +195,43 @@ Historical changelog entries retain the product name used when they were origina
 - Traditional IRA Webull holdings now show `Traditional IRA` instead of the generic `Cash` account pill, using stored account classifications and account snapshots as fallbacks.
 - Added regression coverage for ETF display identity and Traditional IRA account labeling.
 
-## v2.82.2 (September 2026)
-## v2.79.1 (September 2026)
+## v2.82.3 (September 2026)
 
-### Event Contract Engine Operations and AI Cadence
-- Moved Event Contract Strategy Engine controls into Settings with paper-only start/stop, scan, kill-switch, health, and a structured log viewer; Event Contracts no longer renders a duplicate strategy control panel.
-- Added configurable snapshot, scan, AI batch, batch-size, hourly-budget, cache, retry, search-context, and per-duration AI cooldown frequencies. Snapshot collection is independent from AI calls, and successful predictions are reused only while their fingerprinted cache is fresh.
-- Added durable AI evaluation state with retry backoff, failure telemetry, provider provenance, and strict batch response parsing. The engine can evaluate several contracts per provider request without inventing missing probabilities.
-- Added a watchdog supervisor that detects stale heartbeats, restarts paper scans, records structured errors, and emits rate-limited toast notifications. Copilot receives the same secret-free health summary so operational questions are answerable from the UI.
+### Webull ETF and Traditional IRA Identity Display
+- Webull ETF holdings now display as `SYMBOL ETF`, including the affected Grayscale Ethereum ETF as `ETH ETF`, while raw provider symbols remain unchanged for quotes, orders, and history.
+- ETF labels use explicit provider security metadata for all classified ETFs and a narrow compatibility fallback for the current `ETH`/`EQUITY` provider record.
+- Traditional IRA Webull holdings now show `Traditional IRA` instead of the generic `Cash` account pill, using stored account classifications and account snapshots as fallbacks.
+- Added regression coverage for ETF display identity and Traditional IRA account labeling.
+
+## v2.82.2 (September 2026)
+
+### Independent Paper Strategy Engine Mode
+- The Event Contract Strategy Engine now enables and runs in paper/signal-only mode automatically, regardless of the user's Webull live/test trading toggle.
+- Removed the paper-mode gate from engine configuration, scans, outcome resolution, and paper-fill simulation so normal Webull trading can remain enabled while background research continues safely.
+- Kept the backend paper-only enforcement in place; the engine cannot submit, cancel, or modify broker orders.
+
+## v2.82.1 (September 2026)
+
+### Event Strategy Duration Settings Persistence
+- Fixed Event Contract Strategy Engine duration checkboxes so the latest selection is captured immediately when saving, including a single selected duration.
+- Preserved explicitly saved duration lists on the server instead of silently replacing an intentional selection with the default durations.
+- Added regression coverage for single-duration and cleared-duration configuration payloads.
+
+## v2.82.0 (September 2026)
+
+### Quartan AI Fallback and Ollama Cloud Compatibility
+- Added an optional Quartan AI Integration as the fourth and final provider in the configured failover chain, with independent provider, model, reasoning, and encrypted API-key settings.
+- Added Quartan connection testing, onboarding support, status reporting, and server-side persistence alongside the existing primary, secondary, and tertiary integrations.
+- Kept Ollama administrator-only while allowing the administrator to select discovered local or signed-in Ollama cloud models for any fallback tier, including Quartan.
+- Improved Ollama chat handling for cloud-backed thinking models by sending a supported reasoning level, accepting documented content-part and thinking response shapes, and providing actionable sign-in guidance for unauthorized cloud access.
+
+## v2.81.0 (September 2026)
+
+### Administrator-only Ollama Integration and Accurate AI Status
+- Added administrator-only Ollama support to the AI provider chain, including local model discovery from the application host and a real generation-based connection test with no API key requirement.
+- Added Ollama to primary, secondary, and tertiary AI settings for the permanent `jcavallarojr` administrator; the provider and local model inventory remain hidden and rejected server-side for every other account.
+- Added local Ollama calls to the existing primary → secondary → tertiary failover workflow while preserving provider provenance and error handling.
+- Corrected Event Contract Strategy Engine scan logging so scheduled, stale, disabled, or quote-gated evaluations are reported as deferred rather than falsely reported as an AI provider outage; genuine provider and response failures remain visible and alertable.
 
 ## v2.80.0 (September 2026)
 
@@ -191,35 +242,22 @@ Historical changelog entries retain the product name used when they were origina
 - Prevented the background supervisor from running engine configurations belonging to any other account.
 - Removed engine health telemetry from non-administrator Copilot context.
 
-## v2.81.0 (September 2026)
+## v2.79.1 (September 2026)
 
-### Administrator-only Ollama Integration and Accurate AI Status
-- Added administrator-only Ollama support to the AI provider chain, including local model discovery from the application host and a real generation-based connection test with no API key requirement.
-- Added Ollama to primary, secondary, and tertiary AI settings for the permanent `jcavallarojr` administrator; the provider and local model inventory remain hidden and rejected server-side for every other account.
-- Added local Ollama calls to the existing primary → secondary → tertiary failover workflow while preserving provider provenance and error handling.
-- Corrected Event Contract Strategy Engine scan logging so scheduled, stale, disabled, or quote-gated evaluations are reported as deferred rather than falsely reported as an AI provider outage; genuine provider and response failures remain visible and alertable.
+### Event Contract Engine Operations and AI Cadence
+- Moved Event Contract Strategy Engine controls into Settings with paper-only start/stop, scan, kill-switch, health, and a structured log viewer; Event Contracts no longer renders a duplicate strategy control panel.
+- Added configurable snapshot, scan, AI batch, batch-size, hourly-budget, cache, retry, search-context, and per-duration AI cooldown frequencies. Snapshot collection is independent from AI calls, and successful predictions are reused only while their fingerprinted cache is fresh.
+- Added durable AI evaluation state with retry backoff, failure telemetry, provider provenance, and strict batch response parsing. The engine can evaluate several contracts per provider request without inventing missing probabilities.
+- Added a watchdog supervisor that detects stale heartbeats, restarts paper scans, records structured errors, and emits rate-limited toast notifications. Copilot receives the same secret-free health summary so operational questions are answerable from the UI.
 
-## v2.82.0 (September 2026)
+## v2.79.0 (September 2026)
 
-### Quartan AI Fallback and Ollama Cloud Compatibility
-- Added an optional Quartan AI Integration as the fourth and final provider in the configured failover chain, with independent provider, model, reasoning, and encrypted API-key settings.
-- Added Quartan connection testing, onboarding support, status reporting, and server-side persistence alongside the existing primary, secondary, and tertiary integrations.
-- Kept Ollama administrator-only while allowing the administrator to select discovered local or signed-in Ollama cloud models for any fallback tier, including Quartan.
-- Improved Ollama chat handling for cloud-backed thinking models by sending a supported reasoning level, accepting documented content-part and thinking response shapes, and providing actionable sign-in guidance for unauthorized cloud access.
-
-## v2.82.1 (September 2026)
-
-### Event Strategy Duration Settings Persistence
-- Fixed Event Contract Strategy Engine duration checkboxes so the latest selection is captured immediately when saving, including a single selected duration.
-- Preserved explicitly saved duration lists on the server instead of silently replacing an intentional selection with the default durations.
-- Added regression coverage for single-duration and cleared-duration configuration payloads.
-
-## v2.82.2 (September 2026)
-
-### Independent Paper Strategy Engine Mode
-- The Event Contract Strategy Engine now enables and runs in paper/signal-only mode automatically, regardless of the user's Webull live/test trading toggle.
-- Removed the paper-mode gate from engine configuration, scans, outcome resolution, and paper-fill simulation so normal Webull trading can remain enabled while background research continues safely.
-- Kept the backend paper-only enforcement in place; the engine cannot submit, cancel, or modify broker orders.
+### Event Contract AI Fallback Integration
+- Connected the paper-only Event Contract strategy scanner to the configured Primary → Secondary → Tertiary AI provider chain.
+- Added a strict probability/confidence response contract with validation for percentages, malformed JSON, missing values, and provider failures.
+- Added per-decision model provenance, failover attempts, bounded rationale, and provider status to the persisted evidence trace and scan diagnostics.
+- Added an event-contract-specific analysis prompt that includes the exact question, underlying, duration, cutoff, quotes, liquidity, and timing context.
+- Kept quote-less, stale, and closed markets from making unnecessary AI calls, and kept all decisions signal-only with no broker order endpoint access.
 
 ## v2.78.0 (September 2026)
 

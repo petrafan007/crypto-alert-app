@@ -145,6 +145,44 @@
   align-items: flex-end;
 }
 
+.copilot-session-controls {
+  width: 100%;
+  display: flex;
+  gap: 8px;
+}
+
+.new-copilot-chat-btn {
+  flex: 0 0 auto;
+  border: 1px solid #4fd1c5;
+  background: #164e63;
+  color: #dffdfa;
+  border-radius: 6px;
+  padding: 7px 9px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.new-copilot-chat-btn:hover:not(:disabled) {
+  background: #0f766e;
+}
+
+.new-copilot-chat-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.copilot-session-controls select {
+  min-width: 0;
+  flex: 1;
+  border: 1px solid #475569;
+  border-radius: 6px;
+  background: #1a1f23;
+  color: #e2e8f0;
+  padding: 7px 8px;
+  font-size: 12px;
+}
+
 .auto-refresh-toggle,
 .select-all-toggle {
   display: flex;
@@ -288,6 +326,14 @@
   padding: 16px 20px;
   display: flex;
   flex-direction: column;
+}
+
+.copilot-empty-session {
+  margin: auto 0;
+  color: #94a3b8;
+  text-align: center;
+  font-size: 14px;
+  line-height: 1.5;
 }
 
 .conversations-list::-webkit-scrollbar,

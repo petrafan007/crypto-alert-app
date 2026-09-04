@@ -1,12 +1,14 @@
 
 from datetime import timedelta, datetime, timezone
+import re
+import uuid
 import requests
 import threading
 import json
 import time
 from flask import Blueprint, send_file, request, jsonify, render_template, current_app, redirect, url_for
 from flask_login import current_user, login_required, login_user, logout_user
-from models import Coin, WatchlistCoin, Notification, PriceHistory, AIPrompt, AIConversation, WebullHolding
+from models import Coin, WatchlistCoin, Notification, PriceHistory, AIPrompt, AICopilotSession, AIConversation, WebullHolding
 from credentials import Credential, User, UserSetting
 from core.extensions import db
 from log import logger
@@ -1960,7 +1962,96 @@ def api_ai_recommendation_score(symbol):
 
 
 
-def get_ai_conversations(user_id, limit=20, offset=0, search_term=None, include_hidden=False, filter_sentiment=True, prompt_type_filter=None):
+def _serialize_copilot_session(session, message_count=0):
+    return {
+        'id': session.id,
+        'title': session.title,
+        'created_at': format_iso_utc(session.created_at) if session.created_at else None,
+        'updated_at': format_iso_utc(session.updated_at) if session.updated_at else None,
+        'message_count': message_count,
+    }
+
+
+def _get_owned_copilot_session(user_id, session_id):
+    if not session_id:
+        return None
+    return AICopilotSession.query.filter_by(
+        id=str(session_id),
+        user_id=user_id,
+    ).first()
+
+
+def _create_copilot_session(user_id):
+    session = AICopilotSession(
+        id=uuid.uuid4().hex,
+        user_id=user_id,
+        title='New chat',
+    )
+    db.session.add(session)
+    db.session.commit()
+    return session
+
+
+def _fallback_copilot_session_title(message):
+    """Human-readable fallback if a provider omits the requested AI title."""
+    words = re.findall(r"[A-Za-z0-9$#.+-]+", message or '')[:8]
+    title = ' '.join(words).strip()
+    if not title:
+        return 'New chat'
+    return title[:120].rstrip(' .,:;')
+
+
+def _extract_copilot_session_title(response_text):
+    """Remove the first-response title envelope before the user sees the reply."""
+    text = str(response_text or '')
+    match = re.match(
+        r'^\s*(?:\*\*)?SESSION_TITLE(?:\*\*)?\s*:\s*(.+?)\s*(?:\r?\n)+',
+        text,
+        flags=re.IGNORECASE,
+    )
+    if not match:
+        return None, text
+
+    title = re.sub(r'[`*_#\[\]]', '', match.group(1)).strip(' .,:;-')
+    title = ' '.join(title.split())[:120]
+    return title or None, text[match.end():].lstrip()
+
+
+def _build_copilot_history_context(user_id, session_id, message, include_all_sessions=False):
+    """Build bounded, user-only history.  Current database state is supplied separately."""
+    query = AIConversation.query.filter(
+        AIConversation.user_id == user_id,
+        AIConversation.prompt_type == 'manual',
+        db.or_(AIConversation.is_hidden == 0, AIConversation.is_hidden.is_(None)),
+    )
+    if include_all_sessions:
+        query = query.filter(AIConversation.conversation_id != session_id)
+        words = [word for word in re.findall(r'[A-Za-z0-9]{3,}', message or '')[:8]]
+        if words:
+            query = query.filter(db.or_(*[AIConversation.body.ilike(f'%{word}%') for word in words]))
+        records = query.order_by(AIConversation.id.desc()).limit(24).all()
+        records.reverse()
+        label = 'EXPLICITLY REQUESTED PAST COPILOT HISTORY (user-owned sessions only)'
+    else:
+        query = query.filter(AIConversation.conversation_id == session_id)
+        records = query.order_by(AIConversation.id.desc()).limit(30).all()
+        records.reverse()
+        label = 'CURRENT ISOLATED COPILOT SESSION'
+
+    lines = []
+    for record in records:
+        body = (record.body or '').strip()
+        if not body:
+            continue
+        role = 'User' if (record.sender or '').lower() == 'user' else 'AI Copilot'
+        snippet_limit = 1500 if role == 'AI Copilot' else 1000
+        snippet = body[:snippet_limit] + ('...' if len(body) > snippet_limit else '')
+        lines.append(f'{role}: {snippet}')
+
+    return label, '\n\n'.join(lines) if lines else 'No earlier messages in this scope.'
+
+
+def get_ai_conversations(user_id, limit=20, offset=0, search_term=None, include_hidden=False, filter_sentiment=True, prompt_type_filter=None, conversation_id=None):
     """Retrieve filtered and paginated AI conversations for user using SQLAlchemy ORM"""
     from models import AIConversation
     query = AIConversation.query.filter(AIConversation.user_id == user_id)
@@ -1972,6 +2063,12 @@ def get_ai_conversations(user_id, limit=20, offset=0, search_term=None, include_
     
     if prompt_type_filter:
         query = query.filter(AIConversation.prompt_type == prompt_type_filter)
+
+    if conversation_id:
+        query = query.filter(
+            AIConversation.prompt_type == 'manual',
+            AIConversation.conversation_id == conversation_id,
+        )
         
     if filter_sentiment and not (prompt_type_filter == 'sentiment_analysis'):
         query = query.filter(AIConversation.prompt_type != 'sentiment_analysis')
@@ -2002,7 +2099,7 @@ def get_ai_conversations(user_id, limit=20, offset=0, search_term=None, include_
     return result
 
 
-def get_ai_conversations_count(user_id, search_term=None, include_hidden=False, filter_sentiment=True, prompt_type_filter=None):
+def get_ai_conversations_count(user_id, search_term=None, include_hidden=False, filter_sentiment=True, prompt_type_filter=None, conversation_id=None):
     """Get total count of filtered AI conversations for user"""
     from models import AIConversation
     query = AIConversation.query.filter(AIConversation.user_id == user_id)
@@ -2013,6 +2110,12 @@ def get_ai_conversations_count(user_id, search_term=None, include_hidden=False, 
     
     if prompt_type_filter:
         query = query.filter(AIConversation.prompt_type == prompt_type_filter)
+
+    if conversation_id:
+        query = query.filter(
+            AIConversation.prompt_type == 'manual',
+            AIConversation.conversation_id == conversation_id,
+        )
         
     if filter_sentiment and not (prompt_type_filter == 'sentiment_analysis'):
         query = query.filter(AIConversation.prompt_type != 'sentiment_analysis')
@@ -2038,6 +2141,10 @@ def api_ai_conversations():
         include_hidden = request.args.get('include_hidden', 'false').lower() == 'true'
         filter_sentiment = request.args.get('filter_sentiment', 'true').lower() != 'false'
         prompt_type_filter = request.args.get('prompt_type')
+        conversation_id = (request.args.get('session_id') or '').strip() or None
+
+        if conversation_id and not _get_owned_copilot_session(current_user.id, conversation_id):
+            return jsonify({'error': 'Copilot session not found'}), 404
         
         conversations = get_ai_conversations(
             current_user.id, 
@@ -2046,7 +2153,8 @@ def api_ai_conversations():
             search_term, 
             include_hidden,
             filter_sentiment,
-            prompt_type_filter
+            prompt_type_filter,
+            conversation_id,
         )
         
         total_count = get_ai_conversations_count(
@@ -2054,7 +2162,8 @@ def api_ai_conversations():
             search_term, 
             include_hidden,
             filter_sentiment,
-            prompt_type_filter
+            prompt_type_filter,
+            conversation_id,
         )
         
         return jsonify({
@@ -2074,8 +2183,43 @@ def api_ai_conversations():
         })
 
 
-def process_ai_conversation(user_id, message, conversation_id=None):
-    """Process user message and generate AI response for Copilot sidebar with rich workflow context"""
+@ai_bp.route('/api/ai/copilot-sessions', methods=['GET', 'POST'])
+@login_required
+def api_ai_copilot_sessions():
+    """Create and list the current user's isolated Copilot chat sessions."""
+    try:
+        if request.method == 'POST':
+            session = _create_copilot_session(current_user.id)
+            return jsonify({'session': _serialize_copilot_session(session)}), 201
+
+        sessions = AICopilotSession.query.filter_by(user_id=current_user.id).order_by(
+            AICopilotSession.updated_at.desc(),
+            AICopilotSession.created_at.desc(),
+        ).all()
+        counts = {
+            row[0]: row[1]
+            for row in db.session.query(
+                AIConversation.conversation_id,
+                db.func.count(AIConversation.id),
+            ).filter(
+                AIConversation.user_id == current_user.id,
+                AIConversation.prompt_type == 'manual',
+            ).group_by(AIConversation.conversation_id).all()
+        }
+        return jsonify({
+            'sessions': [
+                _serialize_copilot_session(session, counts.get(session.id, 0))
+                for session in sessions
+            ],
+        })
+    except Exception as exc:
+        db.session.rollback()
+        logger.error('Unable to manage Copilot sessions: %s', exc, exc_info=True)
+        return jsonify({'error': 'Unable to load Copilot sessions'}), 500
+
+
+def process_ai_conversation(user_id, message, conversation_id=None, include_all_sessions=False):
+    """Respond using one isolated Copilot session plus a fresh user-only account snapshot."""
     from models import Coin, WatchlistCoin, AIConversation
     from credentials import User
     from core.extensions import db
@@ -2083,15 +2227,32 @@ def process_ai_conversation(user_id, message, conversation_id=None):
     
     user = User.query.get(user_id)
     username = user.username if user else 'jcavallarojr'
+
+    session = _get_owned_copilot_session(user_id, conversation_id)
+    if conversation_id and not session:
+        raise ValueError('Copilot session not found')
+    if not session:
+        session = _create_copilot_session(user_id)
+    conversation_id = session.id
+    is_first_message = not AIConversation.query.filter_by(
+        user_id=user_id,
+        prompt_type='manual',
+        conversation_id=conversation_id,
+    ).first()
     
     # Log user message immediately so conversation history is never lost
     try:
-        log_ai_conversation(user_id, "manual", "user", message)
+        log_ai_conversation(
+            user_id, "manual", "user", message,
+            conversation_id=conversation_id,
+        )
     except Exception as log_err:
         logger.error(f"Error logging initial Copilot user message: {log_err}")
     
     # 1. Gather live portfolio context (Binance.US Crypto + Cash + Webull Holdings)
-    coins = Coin.query.filter_by(user_id=user_id, hidden=False).all()
+    # Read all rows immediately for this user.  Visibility preferences must
+    # never cause a current balance to be replaced by a historical chat claim.
+    coins = Coin.query.filter_by(user_id=user_id).all()
     crypto_lines = []
     total_crypto_value = 0.0
     for c in coins:
@@ -2099,6 +2260,8 @@ def process_ai_conversation(user_id, message, conversation_id=None):
             continue
         price = float(getattr(c, 'current_price', None) or getattr(c, 'current', None) or getattr(c, 'initial_price', 0) or 0)
         amt = float(c.amount or 0)
+        if amt <= 0.00000001:
+            continue
         val = amt * price
         total_crypto_value += val
         avg_entry = float(c.avg_entry or 0)
@@ -2117,6 +2280,8 @@ def process_ai_conversation(user_id, message, conversation_id=None):
     for c in coins:
         if is_stablecoin(c.symbol):
             amt = float(c.amount or 0)
+            if amt <= 0.00000001:
+                continue
             price = float(getattr(c, 'current_price', None) or 1.0)
             val = amt * price
             total_cash_value += val
@@ -2259,52 +2424,21 @@ def process_ai_conversation(user_id, message, conversation_id=None):
         logger.warning(f"Error loading completed activities for Copilot: {act_err}")
     activity_text = "\n".join(activity_lines) if activity_lines else "No recent completed transactions recorded."
 
-    # 5. Gather active AI Copilot Sidebar Feed Stream (chronological context)
-    sidebar_feed_lines = []
-    sidebar_records = []
-    try:
-        sidebar_records = AIConversation.query.filter(
-            AIConversation.user_id == user_id,
-            db.or_(AIConversation.is_hidden == 0, AIConversation.is_hidden.is_(None)),
-            ~AIConversation.prompt_type.endswith('_workflow')
-        ).order_by(AIConversation.id.desc()).limit(20).all()
-        sidebar_records.reverse()  # Oldest -> Newest chronological order
-        
-        for rec in sidebar_records:
-            ptype = rec.prompt_type
-            sender = (rec.sender or '').lower()
-            body = (rec.body or '').strip()
-            time_str = rec.time or (rec.created_at.strftime('%Y-%m-%d %H:%M') if rec.created_at else '')
-            
-            # Determine coin symbol if associated with a coin
-            coin_sym = ""
-            if rec.coin_id:
-                matched_coin = next((c for c in coins if c.id == rec.coin_id), None)
-                if not matched_coin:
-                    matched_coin = next((w for w in wl_coins if w.id == rec.coin_id), None)
-                if matched_coin:
-                    coin_sym = f" [{matched_coin.symbol}]"
-
-            if ptype in ['sentiment_analysis', 'watchlist_sentiment_analysis']:
-                prefix = "Portfolio Sentiment" if ptype == 'sentiment_analysis' else "Watchlist Sentiment"
-                sidebar_feed_lines.append(f"[{time_str}] {prefix}{coin_sym}:\n{body}")
-            elif ptype == 'market_analysis':
-                snippet = body[:1200] + ("..." if len(body) > 1200 else "")
-                sidebar_feed_lines.append(f"[{time_str}] Workflow - Market Analysis:\n{snippet}")
-            elif ptype == 'portfolio_review':
-                snippet = body[:1200] + ("..." if len(body) > 1200 else "")
-                sidebar_feed_lines.append(f"[{time_str}] Workflow - Portfolio Review:\n{snippet}")
-            elif sender == 'user':
-                sidebar_feed_lines.append(f"[{time_str}] User: {body}")
-            elif sender == 'ai':
-                snippet = body[:1500] + ("..." if len(body) > 1500 else "")
-                sidebar_feed_lines.append(f"[{time_str}] AI Copilot: {snippet}")
-            else:
-                snippet = body[:500]
-                sidebar_feed_lines.append(f"[{time_str}] {ptype.title()}{coin_sym}: {snippet}")
-    except Exception as side_err:
-        logger.warning(f"Error loading sidebar feed for Copilot: {side_err}")
-    sidebar_feed_text = "\n\n".join(sidebar_feed_lines) if sidebar_feed_lines else "No recent sidebar activity."
+    # 5. Conversational context is session-scoped by default.  Historical
+    # sessions are queried only when the user explicitly asks for them; they
+    # cannot override the fresh account snapshot above.
+    history_label, sidebar_feed_text = _build_copilot_history_context(
+        user_id,
+        conversation_id,
+        message,
+        include_all_sessions=include_all_sessions,
+    )
+    session_records = AIConversation.query.filter(
+        AIConversation.user_id == user_id,
+        AIConversation.prompt_type == 'manual',
+        AIConversation.conversation_id == conversation_id,
+    ).order_by(AIConversation.id.desc()).limit(30).all()
+    session_records.reverse()
 
     # 6. Intelligent Symbol & Intent Resolution
     upper_msg = message.upper()
@@ -2362,8 +2496,8 @@ def process_ai_conversation(user_id, message, conversation_id=None):
                 target_symbol = active_real[0].symbol.replace('USDT', '').replace('USD', '')
 
         # Check recent conversation history if still not resolved
-        if not target_symbol and sidebar_records:
-            for prev in reversed(sidebar_records):
+        if not target_symbol and session_records:
+            for prev in reversed(session_records):
                 prev_text = f"{prev.body or ''}".upper()
                 prev_words = set(re.findall(r'[A-Za-z0-9]+', prev_text))
                 for pw in prev_words:
@@ -2428,6 +2562,10 @@ def process_ai_conversation(user_id, message, conversation_id=None):
     # Build complete context payload for AI
     context_payload = (
         f"USER QUESTION / PROMPT:\n{message}\n\n"
+        f"=== LIVE USER DATABASE SNAPSHOT (GENERATED FOR THIS RESPONSE) ===\n"
+        "The portfolio, cash/stablecoin balances, pending orders, watchlist, and execution data below were read for this user immediately before this response. "
+        "Treat this section as the sole authority for any claim about current ownership, balances, orders, or watchlist membership. "
+        "Never treat an earlier Copilot message, completed trade, or prior-session discussion as current account state.\n\n"
         f"=== FOCUSED SYMBOL COMPLETE CONTEXT ({target_symbol}) ===\n"
         f"{symbol_context_text or f'General multi-asset inquiry (Focus: {target_symbol})'}\n\n"
         f"=== USER ACTIVE PENDING & OPEN ORDERS (Binance.US + Webull) ===\n"
@@ -2439,8 +2577,15 @@ def process_ai_conversation(user_id, message, conversation_id=None):
         f"=== RECENT COMPLETED TRANSACTIONS & TRADE AUDIT LEDGER ===\n"
         f"{activity_text}\n\n"
         f"{event_strategy_context}"
-        f"=== ACTIVE AI COPILOT SIDEBAR STREAM & CHAT HISTORY (Oldest to Newest) ===\n"
-        f"{sidebar_feed_text}"
+        f"=== {history_label} (Oldest to Newest) ===\n"
+        f"{sidebar_feed_text}\n\n"
+        + (
+            "=== NEW SESSION TITLE REQUIREMENT ===\n"
+            "This is the first reply in a new Copilot session. Start the reply with exactly one line in this format: "
+            "SESSION_TITLE: a concise 3-8 word title. Then provide a blank line and the normal answer. "
+            "Do not mention this title instruction in the answer.\n"
+            if is_first_message else ""
+        )
     )
 
     copilot_messages = [
@@ -2463,6 +2608,12 @@ def process_ai_conversation(user_id, message, conversation_id=None):
             ai_content = response.text
         else:
             ai_content = str(response)
+
+        generated_title, ai_content = _extract_copilot_session_title(ai_content)
+        if is_first_message:
+            session.title = generated_title or _fallback_copilot_session_title(message)
+        session.updated_at = datetime.utcnow()
+        db.session.commit()
         
         resp_tier = getattr(response, 'tier', 'primary')
         resp_provider = getattr(response, 'provider', None)
@@ -2481,14 +2632,25 @@ def process_ai_conversation(user_id, message, conversation_id=None):
             f"• **Current Portfolio Holdings**: {holdings_text}\n\n"
             f"*(Note: Live crypto telemetry supplied directly because upstream AI provider returned a temporary rate limit or overload: {ai_err})*"
         )
+        if is_first_message:
+            session.title = _fallback_copilot_session_title(message)
+        session.updated_at = datetime.utcnow()
+        db.session.commit()
 
     # Log AI response in database
     try:
-        log_ai_conversation(user_id, "manual", "ai", ai_content, symbol=target_symbol, provider=resp_provider, model=resp_model, tier=resp_tier)
+        log_ai_conversation(
+            user_id, "manual", "ai", ai_content,
+            conversation_id=conversation_id,
+            symbol=target_symbol,
+            provider=resp_provider,
+            model=resp_model,
+            tier=resp_tier,
+        )
     except Exception as log_err:
         logger.error(f"Error logging Copilot AI response: {log_err}")
     
-    return ai_content, conversation_id, resp_tier, resp_provider, resp_model
+    return ai_content, conversation_id, resp_tier, resp_provider, resp_model, _serialize_copilot_session(session)
 
 
 @ai_bp.route('/api/ai/conversation', methods=['POST'])
@@ -2501,26 +2663,41 @@ def api_ai_conversation():
         data = request.get_json() or {}
         message = data.get('message', '').strip()
         conversation_id = data.get('conversation_id', None)
+        include_all_sessions = data.get('include_all_sessions', False) is True
         
         if not message:
             return jsonify({'error': 'Message is required'}), 400
         
         # Process the conversation
-        ai_response, conversation_id, resp_tier, resp_provider, resp_model = process_ai_conversation(current_user.id, message, conversation_id)
+        ai_response, conversation_id, resp_tier, resp_provider, resp_model, session = process_ai_conversation(
+            current_user.id,
+            message,
+            conversation_id,
+            include_all_sessions=include_all_sessions,
+        )
         
         return jsonify({
             'response': ai_response,
             'conversation_id': conversation_id,
             'tier': resp_tier,
             'provider': resp_provider,
-            'model': resp_model
+            'model': resp_model,
+            'session': session,
         })
-        
+    except ValueError as exc:
+        return jsonify({'error': str(exc)}), 404
     except Exception as e:
         logger.error(f"Error processing AI conversation: {e}", exc_info=True)
         err_msg = f"I'm sorry, I was unable to connect to the AI model right now ({str(e)}). Please verify your AI API key in Settings or try again shortly."
         try:
-            log_ai_conversation(current_user.id, "manual", "ai", err_msg)
+            if conversation_id and _get_owned_copilot_session(current_user.id, conversation_id):
+                log_ai_conversation(
+                    current_user.id,
+                    "manual",
+                    "ai",
+                    err_msg,
+                    conversation_id=conversation_id,
+                )
         except Exception:
             pass
         return jsonify({

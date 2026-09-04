@@ -5,7 +5,7 @@ from core.extensions import db
 def init_db(app=None):
     """Initialize the database with all models"""
     # Import models here to avoid circular imports
-    from models import Coin, WatchlistCoin, Notification, AIPrompt, DefaultAIPrompt, StakedCoin, StakingReward, AIConversation, AICache, AIAnalysisSchedule, PriceHistory, WebullAccountSnapshot, WebullHolding, WebullOrder, BinanceOrder, OrderHistorySyncState, WebullWatchlistItem, ExternalSentimentSignal, WebullTestAccount, WebullTestPosition, WebullTestOrder
+    from models import Coin, WatchlistCoin, Notification, AIPrompt, DefaultAIPrompt, StakedCoin, StakingReward, AICopilotSession, AIConversation, AICache, AIAnalysisSchedule, PriceHistory, WebullAccountSnapshot, WebullHolding, WebullOrder, BinanceOrder, OrderHistorySyncState, WebullWatchlistItem, ExternalSentimentSignal, WebullTestAccount, WebullTestPosition, WebullTestOrder
     from event_algo_models import EventStrategyConfig, EventStrategyRun, EventStrategyLog, EventStrategyAIEvaluation, EventMarketSnapshot, EventStrategyDecision, EventStrategyOrder, EventStrategyPosition, EventStrategyPerformance, EventContractOutcome
     from credentials import User, Credential, UserSetting, DesktopToken, OnboardingDefaultProfile
     from trading_models import TestOrder, RealOrder, TestPortfolio, TradingSettings, AllActivity, PortfolioValueHistory, StakingOrder
@@ -171,6 +171,50 @@ def init_db(app=None):
             except Exception as ex:
                 print(f"Migration note for {table}.{col}: {ex}")
 
+        # Sessions make manual Copilot chats explicit and isolated.  Preserve
+        # existing history by grouping unassigned legacy manual messages into
+        # one read-only-in-spirit session per user rather than discarding or
+        # silently mixing that history into future chats.
+        try:
+            AICopilotSession.__table__.create(db.engine, checkfirst=True)
+            legacy_user_rows = db.session.execute(db.text(
+                "SELECT DISTINCT user_id FROM ai_conversations "
+                "WHERE prompt_type = 'manual' AND conversation_id IS NULL"
+            )).fetchall()
+            for row in legacy_user_rows:
+                user_id = int(row[0])
+                legacy_session_id = f"legacy-copilot-{user_id}"
+                session = db.session.get(AICopilotSession, legacy_session_id)
+                if not session:
+                    session = AICopilotSession(
+                        id=legacy_session_id,
+                        user_id=user_id,
+                        title="Earlier Copilot history",
+                    )
+                    db.session.add(session)
+                db.session.execute(db.text(
+                    "UPDATE ai_conversations SET conversation_id = :session_id "
+                    "WHERE user_id = :user_id AND prompt_type = 'manual' "
+                    "AND conversation_id IS NULL"
+                ), {'session_id': legacy_session_id, 'user_id': user_id})
+
+            imported_session_rows = db.session.execute(db.text(
+                "SELECT DISTINCT user_id, conversation_id FROM ai_conversations "
+                "WHERE prompt_type = 'manual' AND conversation_id IS NOT NULL"
+            )).fetchall()
+            for row in imported_session_rows:
+                user_id, session_id = int(row[0]), str(row[1])
+                if not db.session.get(AICopilotSession, session_id):
+                    db.session.add(AICopilotSession(
+                        id=session_id,
+                        user_id=user_id,
+                        title="Earlier Copilot history",
+                    ))
+            db.session.commit()
+        except Exception as ex:
+            db.session.rollback()
+            print(f"Migration note for Copilot sessions: {ex}")
+
         try:
             with db.engine.begin() as conn:
                 conn.execute(db.text(
@@ -329,15 +373,16 @@ def init_db(app=None):
         default_copilot_pre = (
             "You are the search intelligence module for the AI Copilot in Crypto & Securities Dashboard as of {datetime}. "
             "You assist an active multi-asset trader and portfolio manager who has real-time access to their live portfolio holdings, watchlist assets, pending orders, execution logs, and sentiment ratings across both Binance.US (cryptocurrency) and Webull (cryptocurrency, equities, ETFs, options). "
-            "Analyze the user's inquiry, conversation context, and market themes to generate 1 to 3 targeted, highly effective search queries for real-time market data, breaking news, corporate earnings, regulatory developments, technical momentum, or protocol updates needed to provide a thorough, accurate answer."
+            "Analyze the user's inquiry and selected isolated chat session to generate 1 to 3 targeted, highly effective searches for current market data, breaking news, earnings, regulatory developments, technical momentum, or protocol updates. Treat any separately supplied live account snapshot as authoritative over historical chat text."
         )
         default_copilot_post = (
             "You are the AI Copilot for Crypto & Securities Dashboard, an expert cross-asset portfolio strategist and multi-market analyst. "
-            "You have direct access to the user's live portfolio, watchlist, pending orders, execution history, recent sentiment ratings & reasons, market analysis workflows, and recent sidebar conversation history across both Binance.US and Webull as of {datetime}.\n\n"
+            "You have direct access to the user's live portfolio, watchlist, pending orders, execution history, recent sentiment ratings & reasons, and the selected isolated Copilot session across Binance.US and Webull as of {datetime}. Earlier sessions are historical reference only when explicitly supplied.\n\n"
             "When answering the user:\n"
             "- Provide actionable, data-backed guidance considering technical momentum, sentiment ratings, risk/reward, and current portfolio exposure across both digital assets and traditional securities.\n"
             "- When referencing sentiment signals (e.g. 'Consider Selling', 'Consider Buying', 'Hold'), explain the underlying market drivers, catalysts, and whether contrarian opportunities or caution are warranted.\n"
             "- Directly address proposed trades, limit/stop orders, entry/exit price targets, and market trends with clear reasoning for both crypto and equities.\n"
+            "- For every crypto or security question, use fresh web-search results for time-sensitive claims. For an owned or watched asset, verify ownership, balances, orders, and watchlist status against the live database snapshot in this request; never substitute old chat context.\n"
             "- CRITICAL EXCHANGE ARCHITECTURE RULE (OCO ORDERS): On Binance and Binance.US, an OCO (One-Cancels-the-Other) order is natively created and managed by the exchange matching engine as an Order List (orderListId) containing two linked legs: a STOP_LOSS_LIMIT leg and a LIMIT_MAKER leg. When the user's data shows an active OCO order bracket with an OrderListId or paired limit/stop-loss legs, this IS a confirmed, native, fully linked exchange OCO order. The exchange automatically cancels the opposing leg if either executes or triggers. NEVER tell the user their OCO orders are 'separate independent orders', 'unlinked', or that 'Binance.US does not support an OCO wrapper'. NEVER instruct the user to 'link them into an OCO order'—they are ALREADY natively linked on the exchange. Analyze them directly as a unified OCO trading strategy.\n"
             "- Maintain a concise, structured, and professional tone with bullet points where appropriate."
         )

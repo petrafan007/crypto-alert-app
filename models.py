@@ -561,6 +561,21 @@ class DefaultAIPrompt(db.Model):
     watchlist_sentiment_prompt_post = db.Column(db.Text)
     copilot_chat_post = db.Column(db.Text)
 
+class AICopilotSession(db.Model):
+    """A user-owned, isolated AI Copilot chat session."""
+    __tablename__ = "ai_copilot_sessions"
+
+    id = db.Column(db.String(100), primary_key=True)
+    user_id = db.Column(db.Integer, nullable=False, index=True)
+    title = db.Column(db.String(200), nullable=False, default="New chat")
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    __table_args__ = (
+        db.Index('ix_ai_copilot_sessions_user_updated', 'user_id', 'updated_at'),
+    )
+
+
 class AIConversation(db.Model):
     __tablename__ = "ai_conversations"
     id = db.Column(db.Integer, primary_key=True)
@@ -570,6 +585,8 @@ class AIConversation(db.Model):
     prompt_type = db.Column(db.String(100), nullable=False)
     sender = db.Column(db.String(50), nullable=False)
     body = db.Column(db.Text, nullable=False)
+    # For manual Copilot messages this is the AICopilotSession.id.  The field
+    # remains generic for compatibility with existing workflow conversations.
     conversation_id = db.Column(db.String(100))
     created_at = db.Column(db.DateTime, default=lambda: datetime.now())
     is_hidden = db.Column(db.Integer, default=0)

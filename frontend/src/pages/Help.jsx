@@ -681,8 +681,11 @@ export default function Help({ isLightMode }) {
                     The AI Copilot is a context-aware chat assistant available from a sidebar on most pages.
                 </p>
                 <ul style={{ paddingLeft: '20px', marginBottom: '16px', lineHeight: '1.9' }}>
-                    <li>Automatically injects your active portfolio holdings, pending orders, and recent sentiment signals into its context, so answers are tailored to your actual account</li>
-                    <li>Full conversation history is saved; you can archive or delete individual messages instantly</li>
+                    <li><strong>Saved chat sessions</strong> — select any titled chat from the session menu to read it or continue it, or choose <strong>New Chat</strong> to start an isolated session. The first AI reply creates a concise session title.</li>
+                    <li>By default, only the selected session supplies conversational context. Turn on <strong>Reference past chats</strong> only when you want the Copilot to look across your other saved sessions; no other user's chats are ever included.</li>
+                    <li>Every reply reads your current portfolio, watchlist, pending orders, and execution data for your user account. Time-sensitive crypto and security questions use fresh market-search context; old chat text is never treated as a current balance or position.</li>
+                    <li>Completed replies open at their beginning directly below your question, rather than jumping to the bottom of a long response.</li>
+                    <li>Messages remain saved within their session; you can archive or delete individual messages instantly.</li>
                     <li>Ask it things like "Should I be worried about my SOL position?" or "What's driving the market today?"</li>
                 </ul>
             </Section>

@@ -818,6 +818,11 @@ def call_ai_with_web_search(
 
         if prompt_type in ['copilot', 'manual']:
             stage3_system += (
+                "\n\nREAL-TIME COPILOT DATA INTEGRITY RULES:\n"
+                "- Treat the LIVE USER DATABASE SNAPSHOT in the current request as authoritative for the current user's holdings, cash/stablecoin balances, open orders, and watchlist. Never use a prior chat message, a completed transaction, or remembered context as current account state.\n"
+                "- The supplied conversation history is isolated to the selected Copilot session unless the request explicitly labels past-session history. Past-session material is historical reference only and can never override the live snapshot.\n"
+                "- For every crypto or security question, use the current web-search results supplied with this request for time-sensitive market claims. For an owned or watched asset, reconcile the answer against its current live database record before describing ownership, price, balance, or status.\n"
+                "- If current external market data is unavailable, say so plainly; do not fill gaps with stale chat content or unsupported current-market claims.\n"
                 "\n\nCRITICAL EXCHANGE ARCHITECTURE RULE (OCO ORDERS):\n"
                 "- On Binance and Binance.US, an OCO (One-Cancels-the-Other) order is natively created and managed by the exchange matching engine as an Order List (orderListId) containing two linked legs: a STOP_LOSS_LIMIT leg and a LIMIT_MAKER leg.\n"
                 "- When the user's data shows an active OCO order bracket with an OrderListId or paired limit/stop-loss legs, this IS a confirmed, native, fully linked exchange OCO order. The exchange automatically cancels the opposing leg if either executes or triggers.\n"
@@ -945,8 +950,8 @@ def record_sentiment_history(user_id, symbol, sentiment, sentiment_reason, price
         db.session.rollback()
 
 
-def log_ai_conversation(user_id, prompt_type, sender, body, symbol=None, coin_id=None, provider=None, model=None, tier=None):
-    """Helper to log conversation to ai_conversations table."""
+def log_ai_conversation(user_id, prompt_type, sender, body, conversation_id=None, symbol=None, coin_id=None, provider=None, model=None, tier=None):
+    """Persist an AI message, optionally attaching it to a chat/workflow ID."""
     try:
         now = datetime.utcnow()
         conv = AIConversation(
@@ -956,6 +961,7 @@ def log_ai_conversation(user_id, prompt_type, sender, body, symbol=None, coin_id
             body=body,
             date=now.date(),
             time=now.strftime("%H:%M:%S"),
+            conversation_id=conversation_id,
             coin_id=coin_id,
             created_at=now,
             provider=provider,
