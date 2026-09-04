@@ -6,6 +6,17 @@
 
 **Last Updated**: September 2026
 
+## v2.87.3 (September 2026)
+
+- **Binance.US Staking Balance Reconciliation & Phantom Staking Elimination**:
+  - Implemented authoritative upstream reconciliation for Binance.US staking balances: When the upstream staking API returns zero active balances, stale local database records are automatically transitioned to `unstaked` with zero balance rather than erroneously persisting as active phantom holdings.
+  - Eliminated phantom portfolio valuation discrepancies between Portfolio table totals and the asset allocation chart.
+- **AI Sentiment Refresh Isolation**:
+  - Scoped manual sentiment refreshes, polling cycles, and visual checking states by provider identity and asset holding ID.
+  - Prevents cross-triggering between crypto spot assets and brokerage positions sharing the same underlying ticker (e.g., Binance Ethereum vs Webull Ethereum ETF).
+- **Portfolio & Watchlist Symbol Column Alignment**:
+  - Left-aligned the Symbol column headers and cell containers across both Portfolio and Watchlist tables for improved readability, asset badge alignment, and layout consistency.
+
 ## v2.87.2 (September 2026)
 
 - **AI Provider Failover & Ollama Admin Scope Resolution**:

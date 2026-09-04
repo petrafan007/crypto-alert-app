@@ -3609,6 +3609,28 @@ body.light-mode *[style*="color:'#666'"] {
   display: inline-block;
 }
 
+.table-container.portfolio-table thead th.symbol-header,
+.table-container.watchlist-table thead th.symbol-header {
+  text-align: left !important;
+  padding-left: 16px !important;
+}
+
+.table-container.portfolio-table thead th.symbol-header .header-label,
+.table-container.watchlist-table thead th.symbol-header .header-label {
+  justify-content: flex-start !important;
+}
+
+.table-container.portfolio-table tbody td.symbol-cell,
+.table-container.watchlist-table tbody td.symbol-cell {
+  text-align: left !important;
+  padding-left: 16px !important;
+}
+
+.table-container.portfolio-table tbody td.symbol-cell .coin-symbol-container,
+.table-container.watchlist-table tbody td.symbol-cell .coin-symbol-container {
+  justify-content: flex-start !important;
+}
+
 /* Dark mode overrides */
 body.dark-mode .table-container tr.pending-order,
 body.dark-mode .table-container tbody tr.pending-order,

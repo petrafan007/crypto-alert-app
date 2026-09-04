@@ -893,6 +893,14 @@ body.light-mode .action-icon-btn.note-btn:hover {
   text-align: center !important;
 }
 
+.table-container.portfolio-table thead th.symbol-header,
+.table-container.watchlist-table thead th.symbol-header,
+.table-container.portfolio-table tbody td.symbol-cell,
+.table-container.watchlist-table tbody td.symbol-cell {
+  text-align: left !important;
+  padding-left: 16px !important;
+}
+
 /* Modernized Light Mode Table Container & Styling */
 .light-mode .table-container.portfolio-table,
 .light-mode .table-container.watchlist-table {

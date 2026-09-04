@@ -614,6 +614,7 @@ def force_sentiment_analysis():
         req_data = request.get_json(silent=True) or {}
         target = req_data.get('target', 'all')
         symbol = req_data.get('symbol', None)
+        source = str(req_data.get('source') or '').strip().lower()
         
         # Run in a separate thread so valid response returns immediately
         def run_async():
@@ -622,15 +623,27 @@ def force_sentiment_analysis():
                     db.session.rollback()
                 except Exception:
                     pass
-                if target in ['all', 'portfolio']:
-                    run_sentiment_analysis_for_user(user_id, username, force=True, symbol=symbol)
+                if source == 'webull':
                     try:
                         from services.webull_signal_service import run_scheduled_webull_signals
                         run_scheduled_webull_signals(force=True, symbol=symbol)
                     except Exception as e:
                         logger.error(f"Error in force webull sentiment analysis: {e}")
-                if target in ['all', 'watchlist']:
-                    run_watchlist_sentiment_analysis_for_user(user_id, username, force=True, symbol=symbol)
+                elif source in ['binance', 'crypto']:
+                    if target in ['all', 'portfolio']:
+                        run_sentiment_analysis_for_user(user_id, username, force=True, symbol=symbol)
+                    if target in ['all', 'watchlist']:
+                        run_watchlist_sentiment_analysis_for_user(user_id, username, force=True, symbol=symbol)
+                else:
+                    if target in ['all', 'portfolio']:
+                        run_sentiment_analysis_for_user(user_id, username, force=True, symbol=symbol)
+                        try:
+                            from services.webull_signal_service import run_scheduled_webull_signals
+                            run_scheduled_webull_signals(force=True, symbol=symbol)
+                        except Exception as e:
+                            logger.error(f"Error in force webull sentiment analysis: {e}")
+                    if target in ['all', 'watchlist']:
+                        run_watchlist_sentiment_analysis_for_user(user_id, username, force=True, symbol=symbol)
         
         thread = threading.Thread(target=run_async)
         thread.start()

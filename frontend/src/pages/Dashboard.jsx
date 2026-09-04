@@ -3903,25 +3903,41 @@ function Dashboard({ isLightMode }) {
     return tier.charAt(0).toUpperCase() + tier.slice(1).toLowerCase();
   };
 
-  const handleSingleSentimentRefresh = async (target, isWatchlist, e) => {
+  const getItemIdentityKey = (item, isWatchlist = false) => {
+    if (!item) return '';
+    const isWebull = item.source === 'webull' || item.is_external || item.provider === 'webull';
+    const prefix = isWebull ? 'webull' : (isWatchlist ? 'watchlist' : 'binance');
+    const idPart = item.id != null ? String(item.id) : (item.symbol || '').toUpperCase().trim();
+    return `${prefix}:${idPart}`;
+  };
+
+  const handleSingleSentimentRefresh = async (target, isWatchlist = false, e) => {
     if (e) {
       e.stopPropagation();
     }
-    const externalHolding = target && typeof target === 'object' && (target.source === 'webull' || target.is_external) ? target : null;
+    const externalHolding = target && typeof target === 'object' && (target.source === 'webull' || target.is_external || target.provider === 'webull') ? target : null;
     const symbol = externalHolding ? externalHolding.symbol : (typeof target === 'object' ? target?.symbol : target);
     if (!symbol) return;
     const cleanSymbol = String(symbol).toUpperCase().trim();
     if (['USD', 'USDT', 'USDC', 'BUSD', 'DAI', 'TUSD', 'USDP'].includes(cleanSymbol)) return;
     
+    const itemKey = typeof target === 'object' ? getItemIdentityKey(target, isWatchlist) : `${isWatchlist ? 'watchlist' : 'binance'}:${cleanSymbol}`;
+
     // Find initial timestamp so we know when a fresh analysis has landed
     const currentCoin = isWatchlist
       ? watchlist.find(x => (x.symbol || '').toUpperCase() === cleanSymbol)
-      : portfolio.find(x => (x.symbol || '').toUpperCase() === cleanSymbol);
+      : portfolio.find(x => {
+          if (externalHolding) {
+            return (x.id && externalHolding.id && x.id === externalHolding.id) || ((x.source === 'webull' || x.is_external) && (x.symbol || '').toUpperCase() === cleanSymbol);
+          }
+          return !(x.source === 'webull' || x.is_external) && (x.symbol || '').toUpperCase() === cleanSymbol;
+        });
     const initialLastUpdated = currentCoin?.sentiment_last_updated || null;
 
-    setRefreshingSentiment(prev => ({ ...prev, [cleanSymbol]: true }));
+    setRefreshingSentiment(prev => ({ ...prev, [itemKey]: true }));
 
     if (externalHolding) {
+      setPortfolio(prev => prev.map(coin => (coin.id === externalHolding.id || ((coin.source === 'webull' || coin.is_external) && (coin.symbol || '').toUpperCase() === cleanSymbol)) ? { ...coin, sentiment: 'Checking now...' } : coin));
       try {
         const response = await axios.post('/api/webull/ai-analysis', {
           holding_id: externalHolding.id,
@@ -3948,7 +3964,7 @@ function Dashboard({ isLightMode }) {
       } finally {
         setRefreshingSentiment(prev => {
           const next = { ...prev };
-          delete next[cleanSymbol];
+          delete next[itemKey];
           return next;
         });
       }
@@ -3959,13 +3975,20 @@ function Dashboard({ isLightMode }) {
     if (isWatchlist) {
       setWatchlist(prev => prev.map(item => (item.symbol || '').toUpperCase() === cleanSymbol ? { ...item, sentiment: 'Checking now...' } : item));
     } else {
-      setPortfolio(prev => prev.map(coin => (coin.symbol || '').toUpperCase() === cleanSymbol ? { ...coin, sentiment: 'Checking now...' } : coin));
+      setPortfolio(prev => prev.map(c => {
+        const isExt = c.source === 'webull' || c.is_external;
+        if (!isExt && (c.symbol || '').toUpperCase() === cleanSymbol) {
+          return { ...c, sentiment: 'Checking now...' };
+        }
+        return c;
+      }));
     }
 
     try {
       await axios.post('/api/force-sentiment-analysis', {
         symbol: cleanSymbol,
-        target: isWatchlist ? 'watchlist' : 'portfolio'
+        target: isWatchlist ? 'watchlist' : 'portfolio',
+        source: isWatchlist ? 'watchlist' : 'binance'
       }, { withCredentials: true });
 
       // Poll until the result updates with a newer sentiment_last_updated or moves past "Checking now..."
@@ -3989,7 +4012,7 @@ function Dashboard({ isLightMode }) {
                   clearInterval(pollInterval);
                   setRefreshingSentiment(prev => {
                     const next = { ...prev };
-                    delete next[cleanSymbol];
+                    delete next[itemKey];
                     return next;
                   });
                 }
@@ -3998,19 +4021,25 @@ function Dashboard({ isLightMode }) {
           } else {
             const res = await axios.get('/api/coin-data-live');
             if (res.data?.portfolio) {
-              const found = res.data.portfolio.find(x => (x.symbol || '').toUpperCase() === cleanSymbol);
+              const found = res.data.portfolio.find(x => !(x.source === 'webull' || x.is_external) && (x.symbol || '').toUpperCase() === cleanSymbol);
               if (found) {
                 const isFinished = (found.sentiment_last_updated && found.sentiment_last_updated !== initialLastUpdated && found.sentiment !== 'Checking now...')
                   || (attempts > 6 && found.sentiment !== 'Checking now...' && found.sentiment !== 'Hold');
 
                 if (found.sentiment === 'Checking now...' || !isFinished) {
-                  setPortfolio(res.data.portfolio.map(c => (c.symbol || '').toUpperCase() === cleanSymbol ? { ...c, sentiment: 'Checking now...' } : c));
+                  setPortfolio(res.data.portfolio.map(c => {
+                    const isExt = c.source === 'webull' || c.is_external;
+                    if (!isExt && (c.symbol || '').toUpperCase() === cleanSymbol) {
+                      return { ...c, sentiment: 'Checking now...' };
+                    }
+                    return c;
+                  }));
                 } else {
                   setPortfolio(res.data.portfolio);
                   clearInterval(pollInterval);
                   setRefreshingSentiment(prev => {
                     const next = { ...prev };
-                    delete next[cleanSymbol];
+                    delete next[itemKey];
                     return next;
                   });
                 }
@@ -4025,7 +4054,7 @@ function Dashboard({ isLightMode }) {
           clearInterval(pollInterval);
           setRefreshingSentiment(prev => {
             const next = { ...prev };
-            delete next[cleanSymbol];
+            delete next[itemKey];
             return next;
           });
           // Final fetch
@@ -4041,7 +4070,7 @@ function Dashboard({ isLightMode }) {
       console.error('Failed to trigger single sentiment refresh:', err);
       setRefreshingSentiment(prev => {
         const next = { ...prev };
-        delete next[cleanSymbol];
+        delete next[itemKey];
         return next;
       });
     }
@@ -4093,8 +4122,9 @@ function Dashboard({ isLightMode }) {
         </td>
       );
     }
+    const itemKey = getItemIdentityKey(coin, isWatchlist);
     const rawSentiment = coin.sentiment || (isWatchlist ? 'Watch' : 'Hold');
-    const isChecking = rawSentiment === 'Checking now...' || !!refreshingSentiment[coin.symbol];
+    const isChecking = rawSentiment === 'Checking now...' || !!refreshingSentiment[itemKey];
     const sentiment = isChecking ? 'Checking now...' : rawSentiment;
     const rawReason = coin.sentiment_reason || '';
     const cleanReason = (rawReason && !['recommendation', 'sentiment', 'action', 'signal', 'suggestion', 'item 1', 'item 2', 'hold', 'buy', 'sell', 'none', 'null'].includes(rawReason.toLowerCase().trim()))
@@ -4584,7 +4614,7 @@ function Dashboard({ isLightMode }) {
                         <th
                           key={colKey}
                           onClick={isSortable ? () => handleSort(colKey) : undefined}
-                          className={`portfolio-header ${isSortable ? 'sortable' : ''} ${dragOverColKey === colKey ? 'drag-over-target' : ''} ${colKey === 'actions' && !isMobile && portfolioActionsCollapsed ? 'actions-header--collapsed' : ''}`}
+                          className={`portfolio-header ${colKey === 'symbol' ? 'symbol-header' : ''} ${isSortable ? 'sortable' : ''} ${dragOverColKey === colKey ? 'drag-over-target' : ''} ${colKey === 'actions' && !isMobile && portfolioActionsCollapsed ? 'actions-header--collapsed' : ''}`}
                           draggable={isDraggable && !isResizing}
                           onDragStart={(e) => handleColDragStart('portfolio', colKey, e)}
                           onDragOver={(e) => handleColDragOver('portfolio', colKey, e)}
@@ -4596,11 +4626,20 @@ function Dashboard({ isLightMode }) {
                             maxWidth: `${width}px`,
                             boxSizing: 'border-box',
                             cursor: isDraggable ? 'grab' : isSortable ? 'pointer' : 'default',
-                            position: 'relative'
+                            position: 'relative',
+                            ...(colKey === 'symbol' ? { textAlign: 'left', paddingLeft: '16px' } : {})
                           }}
                           title={isDraggable ? 'Click to sort (if sortable) or drag to reorder column' : undefined}
                         >
-                          <div className="table-header-cell-content" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          <div
+                            className="table-header-cell-content"
+                            style={{
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              whiteSpace: 'nowrap',
+                              ...(colKey === 'symbol' ? { display: 'flex', justifyContent: 'flex-start', alignItems: 'center' } : {})
+                            }}
+                          >
                             {isSortable ? renderHeaderLabel(colKey, colDef.label) : colDef.label}
                           </div>
                           <div
@@ -4681,10 +4720,10 @@ function Dashboard({ isLightMode }) {
                                   onMouseEnter={(e) => handleSymbolHover(coin.symbol, e)}
                                   onMouseLeave={handleSymbolLeave}
                                   onClick={() => handleCoinClick(coin)}
-                                  style={{ cursor: 'pointer', textAlign: 'center' }}
+                                  style={{ cursor: 'pointer', textAlign: 'left', paddingLeft: '16px' }}
                                   title={isExternal ? `Hover for 7-day chart, click to open on Webull Trading` : 'Hover for 7-day chart, click to open its local Trading pair'}
                                 >
-                                  <div className="coin-symbol-container" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', justifyContent: 'center' }}>
+                                  <div className="coin-symbol-container" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', justifyContent: 'flex-start' }}>
                                     <CryptoIcon symbol={coin.symbol} size={20} />
                                     <span>{coin.display_symbol || coin.symbol}</span>
                                     <span
@@ -5153,7 +5192,7 @@ function Dashboard({ isLightMode }) {
                         <th
                           key={colKey}
                           onClick={isSortable ? () => handleSort(colKey) : undefined}
-                          className={`watchlist-header ${isSortable ? 'sortable' : ''} ${dragOverColKey === colKey ? 'drag-over-target' : ''} ${colKey === 'actions' && !isMobile && watchlistActionsCollapsed ? 'actions-header--collapsed' : ''}`}
+                          className={`watchlist-header ${colKey === 'symbol' ? 'symbol-header' : ''} ${isSortable ? 'sortable' : ''} ${dragOverColKey === colKey ? 'drag-over-target' : ''} ${colKey === 'actions' && !isMobile && watchlistActionsCollapsed ? 'actions-header--collapsed' : ''}`}
                           draggable={isDraggable && !isResizing}
                           onDragStart={(e) => handleColDragStart('watchlist', colKey, e)}
                           onDragOver={(e) => handleColDragOver('watchlist', colKey, e)}
@@ -5165,11 +5204,20 @@ function Dashboard({ isLightMode }) {
                             maxWidth: `${width}px`,
                             boxSizing: 'border-box',
                             cursor: isDraggable ? 'grab' : isSortable ? 'pointer' : 'default',
-                            position: 'relative'
+                            position: 'relative',
+                            ...(colKey === 'symbol' ? { textAlign: 'left', paddingLeft: '16px' } : {})
                           }}
                           title={isDraggable ? 'Click to sort (if sortable) or drag to reorder column' : undefined}
                         >
-                          <div className="table-header-cell-content" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          <div
+                            className="table-header-cell-content"
+                            style={{
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              whiteSpace: 'nowrap',
+                              ...(colKey === 'symbol' ? { display: 'flex', justifyContent: 'flex-start', alignItems: 'center' } : {})
+                            }}
+                          >
                             {isSortable ? renderHeaderLabel(colKey, colDef.label) : colDef.label}
                           </div>
                           <div
@@ -5231,13 +5279,13 @@ function Dashboard({ isLightMode }) {
                                 <td
                                   key="symbol"
                                   className="symbol-cell"
-                                  style={{ textAlign: 'center', cursor: 'pointer' }}
+                                  style={{ textAlign: 'left', cursor: 'pointer', paddingLeft: '16px' }}
                                   onMouseEnter={(e) => handleSymbolHover(item.symbol, e)}
                                   onMouseLeave={handleSymbolLeave}
                                   onClick={() => handleCoinClick(item)}
                                   title={isTraditionalAsset(item) ? "Hover for 7-day chart, click to open on Webull Trading" : "Hover for 7-day chart, click to open its local Trading pair"}
                                 >
-                                  <div className="coin-symbol-container" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', justifyContent: 'center' }}>
+                                  <div className="coin-symbol-container" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', justifyContent: 'flex-start' }}>
                                     <CryptoIcon symbol={item.symbol} size={20} />
                                     <span>{item.symbol}</span>
                                     <span

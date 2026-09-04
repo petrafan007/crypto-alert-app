@@ -155,20 +155,31 @@ def calculate_staking_value_for_user(cred, user_id=None):
     if target_user_id is not None:
         try:
             staked_records = StakedCoin.query.filter_by(user_id=target_user_id).all()
+            dirty = False
             for record in staked_records:
                 asset = (record.symbol or '').upper()
                 amount = float(record.amount or 0.0)
                 status = (record.status or 'active').lower()
                 
-                if active_api_ok and status == 'active' and asset in found_symbols:
+                # If the live Binance staking API responded successfully, it is authoritative
+                if active_api_ok:
+                    if status == 'active' and asset not in found_symbols:
+                        record.status = 'unstaked'
+                        dirty = True
                     continue
                 
-                if not asset or amount <= 0:
+                if status != 'active' or not asset or amount <= 0:
                     continue
                 
                 price = fetch_binance_price(asset) or _fallback_price(asset)
                 if price:
                     active_value += amount * price
+            if dirty:
+                try:
+                    db.session.commit()
+                except Exception as commit_err:
+                    db.session.rollback()
+                    logger.error(f"Error committing unstaked coin updates: {commit_err}")
         except Exception as local_err:
             logger.error(f"Local staking fallback lookup failed: {local_err}")
 
