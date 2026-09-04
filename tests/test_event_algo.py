@@ -362,11 +362,11 @@ class EventAlgoTests(unittest.TestCase):
         self.assertNotIn('{ "audit_timestamp"', parsed['content_markdown'])
         self.assertIn('## Event Strategy Engine Operational AI Audit Report', parsed['content_markdown'])
         self.assertIn('Detected Operational Issues & Bottlenecks', parsed['content_markdown'])
-        self.assertIn('Ai Budget Exhausted', parsed['content_markdown'])
+        self.assertIn('AI Budget Exhausted', parsed['content_markdown'])
         self.assertIn('(Count: 10)', parsed['content_markdown'])
         self.assertIn('Telemetry & Execution Summary', parsed['content_markdown'])
         self.assertIn('Actionable Recommendations & Tuning', parsed['content_markdown'])
-        self.assertIn('1. **Increase Ai Budget**: Raise hourly AI evaluation quota.', parsed['content_markdown'])
+        self.assertIn('1. **Increase AI Budget**: Raise hourly AI evaluation quota.', parsed['content_markdown'])
         self.assertIn('Run a focused error audit on frequent exceptions.', parsed['content_markdown'])
 
     def test_report_to_dict_defensive_json_conversion(self):
@@ -400,6 +400,68 @@ class EventAlgoTests(unittest.TestCase):
         self.assertFalse(d['content_markdown'].strip().startswith('{'))
         self.assertIn('## Event Strategy Engine Operational AI Audit Report', d['content_markdown'])
         self.assertIn('Maintain Cadence', d['content_markdown'])
+
+    def test_skipped_contract_reasons(self):
+        # When an evaluation is skipped due to budget, it produces AI_BUDGET_EXHAUSTED instead of MODEL_UNAVAILABLE
+        decision_budget = evaluate_market({
+            'symbol': 'KXBTC15M-TEST',
+            'tradable_status': 'OC',
+            'yes_bid': 0.40,
+            'yes_ask': 0.42,
+            'no_bid': 0.58,
+            'no_ask': 0.60,
+            'volume': 10,
+            '_model_metadata': {'status': 'skipped', 'error': 'AI hourly budget exhausted'},
+        }, self.config())
+        self.assertEqual(decision_budget['action'], 'NO_TRADE')
+        self.assertIn('AI_BUDGET_EXHAUSTED', decision_budget['reason_codes'])
+        self.assertNotIn('MODEL_UNAVAILABLE', decision_budget['reason_codes'])
+        self.assertNotIn('CONFIDENCE_TOO_LOW', decision_budget['reason_codes'])
+
+        # When skipped due to batch interval
+        decision_interval = evaluate_market({
+            'symbol': 'KXBTC15M-TEST',
+            'tradable_status': 'OC',
+            'yes_bid': 0.40,
+            'yes_ask': 0.42,
+            'no_bid': 0.58,
+            'no_ask': 0.60,
+            'volume': 10,
+            '_model_metadata': {'status': 'skipped', 'error': 'AI batch interval has not elapsed'},
+        }, self.config())
+        self.assertIn('AI_EVALUATION_DEFERRED', decision_interval['reason_codes'])
+        self.assertNotIn('CONFIDENCE_TOO_LOW', decision_interval['reason_codes'])
+
+    def test_batch_response_parsing_symbol_dict(self):
+        # Test symbol-keyed dictionary parsing from model
+        text = json.dumps({
+            "KXBTC15M-TEST-1": {
+                "probability_yes": 0.65,
+                "confidence": 0.85,
+                "rationale": "Bullish momentum in BTC underlying"
+            },
+            "KXETH15M-TEST-2": {
+                "probability_yes": 0.40,
+                "confidence": 0.70,
+                "rationale": "Bearish trend in ETH"
+            }
+        })
+        parsed = parse_event_model_batch_response(text)
+        self.assertEqual(len(parsed), 2)
+        self.assertIn("KXBTC15M-TEST-1", parsed)
+        self.assertEqual(parsed["KXBTC15M-TEST-1"]["probability_yes"], 0.65)
+        self.assertEqual(parsed["KXBTC15M-TEST-1"]["confidence"], 0.85)
+
+    def test_format_action_title(self):
+        from event_algo import _format_action_title
+        self.assertEqual(_format_action_title("Higherrorrate"), "High Error Rate")
+        self.assertEqual(_format_action_title("Increaseai Budget"), "Increase AI Budget")
+        self.assertEqual(_format_action_title("Investigatemodeldeployment"), "Investigate Model Deployment")
+        self.assertEqual(_format_action_title("Adjustconfidencethreshold"), "Adjust Confidence Threshold")
+        self.assertEqual(_format_action_title("Reviewerrorlogs"), "Review Error Logs")
+        self.assertEqual(_format_action_title("Liquidity Filtertuning"), "Liquidity Filter Tuning")
+        self.assertEqual(_format_action_title("Monitorheartbeat"), "Monitor Heartbeat")
+        self.assertEqual(_format_action_title("Noeligibledtrades"), "No Eligible Trades")
 
 
 if __name__ == '__main__':

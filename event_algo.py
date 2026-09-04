@@ -37,7 +37,7 @@ from event_algo_models import (
 
 
 PAPER_MODE = "PAPER"
-ENGINE_VERSION = "2.85.1"
+ENGINE_VERSION = "2.87.6"
 MODEL_VERSION = "ai-fallback-v1"
 _EVENT_SYMBOL_MONTHS = {
     "JAN": 1, "FEB": 2, "MAR": 3, "APR": 4, "MAY": 5, "JUN": 6,
@@ -167,21 +167,21 @@ DEFAULT_RISK_CONFIG = {
     "max_drawdown": 35.0,
     "max_contracts_per_trade": 50,
     "max_spread": 0.15,
-    "min_volume": 1,
+    "min_volume": 0.0,
     "min_time_remaining_seconds": 60,
     "max_time_remaining_seconds": 86400,
 }
 DEFAULT_SIGNAL_CONFIG = {
-    "min_net_edge": 0.03,
-    "min_confidence": 0.55,
-    "fee_per_contract": 0.02,
+    "min_net_edge": 0.015,
+    "min_confidence": 0.50,
+    "fee_per_contract": 0.015,
     "uncertainty_buffer": 0.01,
     "scan_interval_seconds": 60,
     # Snapshot collection is deliberately independent from AI utilization.
     "snapshot_interval_seconds": 60,
-    "ai_batch_interval_seconds": 300,
-    "ai_batch_size": 5,
-    "max_ai_calls_per_hour": 12,
+    "ai_batch_interval_seconds": 120,
+    "ai_batch_size": 10,
+    "max_ai_calls_per_hour": 60,
     "ai_cache_ttl_seconds": 300,
     "ai_context_refresh_hours": 6,
     "ai_retry_backoff_seconds": 60,
@@ -205,6 +205,8 @@ NO_TRADE_REASONS = {
     "MODEL_UNAVAILABLE",
     "AI_PROVIDER_ERROR",
     "AI_RESPONSE_INVALID",
+    "AI_BUDGET_EXHAUSTED",
+    "AI_EVALUATION_DEFERRED",
     "MARKET_NOT_OPEN",
     "MARKET_STATUS_UNKNOWN",
     "CONTRACT_EXPIRED",
@@ -314,19 +316,40 @@ def _extract_json_value(text):
 def parse_event_model_batch_response(text):
     """Parse a strict batch response, returning symbol-keyed validated predictions."""
     payload = _extract_json_value(text)
-    rows = payload.get("predictions") if isinstance(payload, dict) else payload
-    if not isinstance(rows, list):
+    if not payload:
         return {}
     parsed = {}
-    for row in rows:
-        if not isinstance(row, dict):
-            continue
-        symbol = str(row.get("contract_symbol") or row.get("symbol") or "").strip().upper()
-        if not symbol:
-            continue
-        item = parse_event_model_response(json.dumps(row))
-        if item:
-            parsed[symbol] = item
+    rows = None
+    if isinstance(payload, dict):
+        # Case 1: Wrapped list under common keys
+        for key in ("predictions", "results", "contracts", "data", "items", "evaluations"):
+            if isinstance(payload.get(key), list):
+                rows = payload[key]
+                break
+        # Case 2: Dict keyed directly by contract symbol (e.g. {"KXBTC15M-...": {...}})
+        if rows is None:
+            for k, v in payload.items():
+                if isinstance(v, dict):
+                    sym = str(v.get("contract_symbol") or v.get("symbol") or k).strip().upper()
+                    if sym:
+                        item = parse_event_model_response(json.dumps(v))
+                        if item:
+                            parsed[sym] = item
+            if parsed:
+                return parsed
+    elif isinstance(payload, list):
+        rows = payload
+
+    if isinstance(rows, list):
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            symbol = str(row.get("contract_symbol") or row.get("symbol") or "").strip().upper()
+            if not symbol:
+                continue
+            item = parse_event_model_response(json.dumps(row))
+            if item:
+                parsed[symbol] = item
     return parsed
 
 
@@ -1192,6 +1215,25 @@ DEFAULT_AUDIT_SYSTEM_PROMPT = (
 )
 
 
+def _format_action_title(raw_action):
+    """Clean up squashed words, camelCase, snake_case, and acronyms into executive Title Case."""
+    if not raw_action:
+        return "Actionable Item"
+    text = str(raw_action).strip()
+    text = text.replace("_", " ").replace("-", " ")
+    text = re.sub(r"([a-z0-9])([A-Z])", r"\1 \2", text)
+    text = re.sub(r"(?i)\b(increase|adjust|investigate|review|monitor|liquidity|high|no)(ai|model|confidence|threshold|error|heartbeat|filter|rate|eligible|trades)", r"\1 \2", text)
+    text = re.sub(r"(?i)(model)(deployment)", r"\1 \2", text)
+    text = re.sub(r"(?i)(confidence)(threshold)", r"\1 \2", text)
+    text = re.sub(r"(?i)(filter)(tuning)", r"\1 \2", text)
+    text = re.sub(r"(?i)(error)(logs|rate)", r"\1 \2", text)
+    text = re.sub(r"(?i)(eligible|eligibled)(trades)", r"\1 \2", text)
+    text = re.sub(r"(?i)\beligibled\b", "eligible", text)
+    words = [w.capitalize() for w in text.split() if w]
+    words = ["AI" if w.upper() == "AI" else ("BTC" if w.upper() == "BTC" else ("ETH" if w.upper() == "ETH" else w)) for w in words]
+    return " ".join(words)
+
+
 def _format_audit_dict_to_markdown(parsed_dict):
     """Convert structured audit dictionary into executive-grade, human-readable Markdown."""
     if not isinstance(parsed_dict, dict):
@@ -1218,7 +1260,17 @@ def _format_audit_dict_to_markdown(parsed_dict):
         f"Audit completed: {len(issues)} operational issue(s) analyzed, {len(recs)} recommendation(s) generated."
         if issues else "AI operational audit completed successfully."
     ))[:255]
-    summary = str(parsed_dict.get("summary") or "")
+
+    summary = parsed_dict.get("summary")
+    summary_str = ""
+    if isinstance(summary, str):
+        trimmed = summary.strip()
+        if trimmed.startswith(("{", "[")) or "durations_monitored" in trimmed or "worker_status" in trimmed or "scans_per_hour" in trimmed:
+            summary_str = "Autonomous evaluation of worker performance, operational logs, quote data utility, and calibrated decisions."
+        else:
+            summary_str = trimmed
+    elif isinstance(summary, dict):
+        summary_str = "Autonomous evaluation of worker performance, operational logs, quote data utility, and calibrated decisions."
 
     lines = [
         "## Event Strategy Engine Operational AI Audit Report",
@@ -1227,8 +1279,8 @@ def _format_audit_dict_to_markdown(parsed_dict):
         f"**Executive Verdict:** {headline}  ",
     ]
 
-    if summary and summary != headline:
-        lines.extend(["", f"> {summary}", ""])
+    if summary_str and summary_str != headline:
+        lines.extend(["", f"> {summary_str}", ""])
     else:
         lines.append("")
 
@@ -1239,7 +1291,7 @@ def _format_audit_dict_to_markdown(parsed_dict):
         for issue in issues:
             if isinstance(issue, dict):
                 raw_type = str(issue.get("type") or issue.get("name") or issue.get("issue") or "Notice")
-                itype = raw_type.replace("_", " ").title()
+                itype = _format_action_title(raw_type)
                 icount = issue.get("count")
                 count_str = f" **(Count: {icount})**" if icount is not None else ""
                 desc = str(issue.get("description") or issue.get("details") or issue.get("message") or "").strip()
@@ -1266,7 +1318,12 @@ def _format_audit_dict_to_markdown(parsed_dict):
         lines.append(f"- **Scans Analyzed:** `{ms.get('scans_count', 0):,}` ({ms.get('scanned_contracts', 0):,} contracts evaluated)")
         lines.append(f"- **Decisions Recorded:** `{ms.get('decisions_count', 0):,}` ({ms.get('eligible_count', 0):,} qualified trades, `{ms.get('no_trade_count', 0):,}` held)")
         total_logs = ms.get("total_logs", ms.get("error_count", 0) + ms.get("warning_count", 0) + ms.get("info_count", 0))
-        lines.append(f"- **Operational Logs:** `{total_logs:,}` total (`{ms.get('error_count', 0):,}` errors, `{ms.get('warning_count', 0):,}` warnings, `{ms.get('info_count', 0):,}` info)")
+        err_c = ms.get("log_error_count", ms.get("error_count", 0))
+        scan_err_c = ms.get("scan_error_count", 0)
+        err_detail = f"`{err_c:,}` errors"
+        if scan_err_c:
+            err_detail += f", `{scan_err_c:,}` scan exceptions"
+        lines.append(f"- **Operational Logs:** `{total_logs:,}` total ({err_detail}, `{ms.get('warning_count', 0):,}` warnings, `{ms.get('info_count', 0):,}` info)")
 
         top_reasons = ms.get("top_reason_codes")
         if isinstance(top_reasons, dict) and top_reasons:
@@ -1283,7 +1340,7 @@ def _format_audit_dict_to_markdown(parsed_dict):
         for idx, rec in enumerate(recs, 1):
             if isinstance(rec, dict):
                 raw_action = str(rec.get("action") or rec.get("title") or rec.get("recommendation") or f"Recommendation {idx}")
-                action_title = raw_action.replace("_", " ").title()
+                action_title = _format_action_title(raw_action)
                 details = str(rec.get("details") or rec.get("description") or rec.get("text") or rec.get("summary") or "").strip()
                 if details:
                     lines.append(f"{idx}. **{action_title}**: {details}")
@@ -1328,6 +1385,28 @@ def report_to_dict(report):
         except Exception:
             pass
 
+    # Clean legacy reports where content has stringified telemetry in blockquotes
+    if "> {'worker_status':" in content or "> {'durations_monitored':" in content or "> {'scans_per_hour':" in content:
+        content = re.sub(
+            r"> \{['\"].*?\}\n+",
+            "> Autonomous evaluation of worker performance, operational logs, quote data utility, and calibrated decisions.\n\n",
+            content,
+            flags=re.DOTALL,
+        )
+
+    # Format any squashed titles in legacy report markdown
+    def _clean_title_match(m):
+        prefix = m.group(1)
+        title = m.group(2)
+        suffix = m.group(3)
+        return f"{prefix}{_format_action_title(title)}{suffix}"
+
+    content = re.sub(r"([0-9]+\.\s+\*\*|-\s+\*\*)([A-Za-z0-9_\s]+)(\*\*:?)", _clean_title_match, content)
+
+    summary_val = str(report.summary or "")
+    if summary_val.startswith(("{", "[")) or "durations_monitored" in summary_val or "worker_status" in summary_val or "scans_per_hour" in summary_val:
+        summary_val = "Autonomous evaluation of worker performance, operational logs, quote data utility, and calibrated decisions."
+
     return {
         "id": report.id,
         "user_id": report.user_id,
@@ -1337,7 +1416,7 @@ def report_to_dict(report):
         "period_end": report.period_end.isoformat() if report.period_end else None,
         "status": report.status,
         "headline": report.headline,
-        "summary": report.summary,
+        "summary": summary_val,
         "content_markdown": content,
         "metrics": metrics,
         "model": report.model,
@@ -1656,8 +1735,9 @@ def gather_event_strategy_audit_data(user_id, config=None, hours=6):
             })
 
     scans_count = len(runs)
-    scanned_contracts = sum(r.scanned_count or 0 for r in runs)
-    error_count = level_counts.get("ERROR", 0) + level_counts.get("CRITICAL", 0) + sum(r.error_count or 0 for r in runs)
+    log_error_count = level_counts.get("ERROR", 0) + level_counts.get("CRITICAL", 0)
+    scan_error_count = sum(r.error_count or 0 for r in runs)
+    total_error_count = log_error_count + scan_error_count
     warning_count = level_counts.get("WARNING", 0)
 
     last_run = runs[0] if runs else None
@@ -1671,7 +1751,9 @@ def gather_event_strategy_audit_data(user_id, config=None, hours=6):
         "total_logs": len(logs),
         "info_count": level_counts.get("INFO", 0),
         "warning_count": warning_count,
-        "error_count": error_count,
+        "error_count": total_error_count,
+        "log_error_count": log_error_count,
+        "scan_error_count": scan_error_count,
         "decisions_count": len(decisions),
         "eligible_count": eligible_count,
         "no_trade_count": no_trade_count,
@@ -1737,9 +1819,9 @@ def generate_event_strategy_report(user_id, config=None, hours=None, force=False
                     "Return your assessment strictly as a JSON object with keys:\n"
                     "- 'status' ('HEALTHY', 'ATTENTION_REQUIRED', 'DEGRADED', or 'ERROR')\n"
                     "- 'headline' (1-sentence executive verdict)\n"
-                    "- 'summary' (1-paragraph executive summary)\n"
-                    "- 'issues' (list of detected operational issues, each with 'type', 'count', and 'description')\n"
-                    "- 'recommendations' (list of tuning recommendations, each with 'action' and 'details')\n"
+                    "- 'summary' (1-paragraph executive summary in clean natural language prose, DO NOT output raw data objects, python dicts, or code)\n"
+                    "- 'issues' (list of detected operational issues, each with 'type' [human Title Case], 'count', and 'description')\n"
+                    "- 'recommendations' (list of tuning recommendations, each with 'action' [concise human Title Case] and 'details')\n"
                     "- 'next_steps' (list of operational next steps)\n"
                     "- 'content_markdown' (detailed human-readable Markdown report with sections:\n"
                     "  ### 1. Worker Execution & Cadence\n"
@@ -1747,7 +1829,7 @@ def generate_event_strategy_report(user_id, config=None, hours=None, force=False
                     "  ### 3. AI Strategy & Decision Evaluation\n"
                     "  ### 4. Incident & Error Log Analysis\n"
                     "  ### 5. Audit Conclusion & Recommendations)\n"
-                    "Never output raw brackets or unformatted text."
+                    "Never output raw brackets, python dictionaries, or unformatted text."
                 )
 
                 messages = [
@@ -1944,7 +2026,9 @@ def evaluate_market(market, config, *, now=None):
     if spreads and min(spreads) > max_spread:
         reasons.append("SPREAD_TOO_WIDE")
     volume = float(features.get("volume") or 0.0)
-    if volume < float(risk.get("min_volume", 1)):
+    open_interest = float(features.get("open_interest") or 0.0)
+    min_volume = float(risk.get("min_volume", 0.0))
+    if min_volume > 0 and volume < min_volume and open_interest < 1:
         reasons.append("INSUFFICIENT_LIQUIDITY")
 
     # No probability is invented from the market price.  A prediction must be
@@ -1956,16 +2040,22 @@ def evaluate_market(market, config, *, now=None):
     model_metadata = market.get("_model_metadata") or {}
     if probability_yes is None:
         model_status = str(model_metadata.get("status") or "").lower()
+        model_err = str(model_metadata.get("error") or "").lower()
         if model_status == "error":
             reasons.append("AI_PROVIDER_ERROR")
         elif model_status == "invalid":
             reasons.append("AI_RESPONSE_INVALID")
+        elif model_status == "skipped" or "budget" in model_err:
+            if "budget" in model_err:
+                reasons.append("AI_BUDGET_EXHAUSTED")
+            else:
+                reasons.append("AI_EVALUATION_DEFERRED")
         else:
             reasons.append("MODEL_UNAVAILABLE")
     probability_no = round(1.0 - probability_yes, 6) if probability_yes is not None else None
 
-    fee = float(signal.get("fee_per_contract", 0.02))
-    uncertainty = float(signal.get("uncertainty_buffer", 0.01))
+    fee = float(signal.get("fee_per_contract", DEFAULT_SIGNAL_CONFIG["fee_per_contract"]))
+    uncertainty = float(signal.get("uncertainty_buffer", DEFAULT_SIGNAL_CONFIG["uncertainty_buffer"]))
     candidates = []
     if probability_yes is not None and yes_ask is not None:
         gross = probability_yes - yes_ask
@@ -1977,9 +2067,11 @@ def evaluate_market(market, config, *, now=None):
         candidates.append((gross - fee - spread_cost - uncertainty, "NO", no_ask, gross))
     best = max(candidates, default=(None, None, None, None), key=lambda item: item[0] if item[0] is not None else -math.inf)
     net_edge, outcome, executable_price, gross_edge = best
-    if net_edge is not None and net_edge < float(signal.get("min_net_edge", 0.03)):
+    min_net_edge = float(signal.get("min_net_edge", DEFAULT_SIGNAL_CONFIG["min_net_edge"]))
+    if net_edge is not None and net_edge < min_net_edge:
         reasons.append("EDGE_TOO_SMALL_AFTER_FEES")
-    if confidence is None or confidence < float(signal.get("min_confidence", 0.55)):
+    min_confidence = float(signal.get("min_confidence", DEFAULT_SIGNAL_CONFIG["min_confidence"]))
+    if confidence is not None and confidence < min_confidence:
         reasons.append("CONFIDENCE_TOO_LOW")
 
     # v2.77 is intentionally signals-only.  The future paper execution
@@ -2502,7 +2594,7 @@ def run_event_strategy_scan(user_id, *, config=None, force=False, worker_id="man
                 )
             else:
                 batch_results = {}
-                batch_size = max(1, min(20, int(_number(signal.get("ai_batch_size"), 5))))
+                batch_size = max(1, min(20, int(_number(signal.get("ai_batch_size"), DEFAULT_SIGNAL_CONFIG["ai_batch_size"]))))
                 for offset in range(0, len(due_markets), batch_size):
                     batch = [item[0] for item in due_markets[offset:offset + batch_size]]
                     batch_results.update(_predict_event_markets_batch(
@@ -2545,8 +2637,6 @@ def run_event_strategy_scan(user_id, *, config=None, force=False, worker_id="man
                     label = f"{tier or 'provider'}:{provider}"
                     if label not in model_summary["providers"]:
                         model_summary["providers"].append(label)
-                if status in {"error", "invalid"}:
-                    run.error_count += 1
             features = _market_features(market, now)
             snapshot_interval = max(30, int(_number(signal.get("snapshot_interval_seconds"), 60)))
             latest_snapshot = None
@@ -2709,6 +2799,15 @@ def event_algo_worker_loop(app):
                     ).order_by(EventStrategyRun.started_at.desc()).first()
                     heartbeat = last_run.heartbeat_at if last_run else None
                     heartbeat_age = (now_dt - heartbeat).total_seconds() if heartbeat else None
+                    stall_alert_threshold = 120
+                    if heartbeat_age is not None and heartbeat_age > stall_alert_threshold:
+                        _record_engine_log(
+                            config.user_id, "WORKER_HEARTBEAT_STALLED",
+                            f"Event Contract strategy worker heartbeat age ({int(heartbeat_age)}s) exceeded {stall_alert_threshold}s warning threshold.",
+                            level="WARNING", config_id=config.id, run_id=last_run.id if last_run else None,
+                            metadata={"heartbeat_age_seconds": heartbeat_age, "threshold_seconds": stall_alert_threshold},
+                            notify=True, alert_key=f"heartbeat_stall:{config.id}",
+                        )
                     stale_threshold = max(180, interval * 3)
                     if heartbeat_age is not None and heartbeat_age > stale_threshold:
                         config.worker_status = "STALE"

@@ -6,6 +6,20 @@
 
 **Last Updated**: September 2026
 
+## v2.87.6 (September 2026)
+
+- **Event Strategy Engine AI Audit Tuning & Operational Hardening**:
+  - Addressed all 6 actionable recommendations from the Autonomous AI Audit Report to optimize performance, eliminate budget exhaustion, and ensure accurate decision metrics:
+    1. **Increased AI Evaluation Budget & Throughput**: Raised the default hourly AI evaluation quota (`max_ai_calls_per_hour`) from 12 to 60 calls/hour, increased batch size (`ai_batch_size`) from 5 to 10 contracts per call, reduced batch interval from 300s to 120s, and automatically migrated active database engine configurations to the higher quota.
+    2. **Model Availability & Skipped Contract Disambiguation**: Fixed false `MODEL_UNAVAILABLE` tags on contracts that were deferred or skipped due to hourly budget or batch cooldowns; now accurately categorized as `AI_BUDGET_EXHAUSTED` or `AI_EVALUATION_DEFERRED`. Hardened batch parsing to support symbol-keyed dictionary outputs, direct lists, and nested envelope payloads.
+    3. **Calibrated Confidence & Edge Thresholds**: Lowered default `min_confidence` from 0.55 to 0.50 and recalibrated `min_net_edge` to 0.015 ($0.015 / 1.5 cents) with contract fees at 0.015. Fixed bug where `CONFIDENCE_TOO_LOW` was added to contracts when no model evaluation had run (`confidence is None`).
+    4. **Eliminated Per-Contract Error Inflation**: Stopped individual contract model failures from inflating `run.error_count` per contract, separating scan-level exceptions from contract evaluation statuses and preventing artificial 208-error spikes in audit reports.
+    5. **Widened Liquidity Evaluation Criteria**: Updated `DEFAULT_RISK_CONFIG` to default `min_volume` to `0.0`, ensuring newly listed 15-minute and hourly BTC/ETH contracts with active executable two-sided quotes and open interest are not rejected prematurely with `INSUFFICIENT_LIQUIDITY`.
+    6. **Worker Heartbeat Stall Warning Alert**: Added proactive 120-second heartbeat stall monitoring in the supervisor loop (`WORKER_HEARTBEAT_STALLED` with user toast/push notification) before the 180s stale recovery kicks in.
+- **AI Audit Report Presentation Polish**:
+  - Sanitized the executive summary blockquote in the report modal, eliminating raw stringified Python telemetry dictionaries and replacing them with clean natural language prose across both fresh and historical reports.
+  - Implemented human-readable Title Case formatting for detected issues and recommendation titles (e.g. `Increase AI Budget`, `Investigate Model Deployment`, `Adjust Confidence Threshold`, `Review Error Logs`, `Liquidity Filter Tuning`, `Monitor Heartbeat`, `High Error Rate`, `No Eligible Trades`).
+
 ## v2.87.5 (September 2026)
 
 - **Event Contracts Strategy Engine AI Audit Formatting Overhaul**:

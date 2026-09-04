@@ -472,6 +472,46 @@ def init_db(app=None):
             print(f"Error seeding default prompts: {seed_err}")
             db.session.rollback()
 
+        try:
+            # v2.87.6: Tune Event Strategy Engine active configs based on AI audit recommendations
+            import json
+            for cfg in EventStrategyConfig.query.all():
+                modified = False
+                sig = json.loads(cfg.signal_config or "{}")
+                if sig.get("max_ai_calls_per_hour", 12) <= 12:
+                    sig["max_ai_calls_per_hour"] = 60
+                    modified = True
+                if sig.get("ai_batch_size", 5) <= 5:
+                    sig["ai_batch_size"] = 10
+                    modified = True
+                if sig.get("ai_batch_interval_seconds", 300) >= 300:
+                    sig["ai_batch_interval_seconds"] = 120
+                    modified = True
+                if sig.get("min_net_edge", 0.03) >= 0.03:
+                    sig["min_net_edge"] = 0.015
+                    modified = True
+                if sig.get("fee_per_contract", 0.02) >= 0.02:
+                    sig["fee_per_contract"] = 0.015
+                    modified = True
+                if sig.get("min_confidence", 0.55) > 0.50:
+                    sig["min_confidence"] = 0.50
+                    modified = True
+                if modified:
+                    cfg.signal_config = json.dumps(sig)
+
+                risk = json.loads(cfg.risk_config or "{}")
+                if risk.get("min_volume", 1.0) >= 1.0:
+                    risk["min_volume"] = 0.0
+                    cfg.risk_config = json.dumps(risk)
+                    modified = True
+
+                if modified:
+                    db.session.add(cfg)
+            db.session.commit()
+        except Exception as tuning_err:
+            db.session.rollback()
+            print(f"Migration note for event strategy config tuning: {tuning_err}")
+
     if ctx:
         with ctx:
             run_migrations()
