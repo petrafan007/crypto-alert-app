@@ -6,6 +6,13 @@
 
 **Last Updated**: September 2026
 
+## v2.87.2 (September 2026)
+
+- **AI Provider Failover & Ollama Admin Scope Resolution**:
+  - Fixed an `UnboundLocalError` (`cannot access local variable 'user_obj' where it is not associated with a value`) in `call_ai_with_web_search` occurring during Ollama authorization checks when `user_id` was explicitly supplied by sentiment analysis and automated workers.
+  - Ensured `user_obj`, `user_id`, and `username` are safely initialized, bidirectionally resolved, and always bound prior to evaluating tier permissions.
+  - Extended `is_ollama_admin` and `is_event_strategy_admin` to accept direct integer user IDs in addition to User model objects and username strings for robust permission checking across background jobs.
+
 ## v2.87.1 (September 2026)
 
 - **Open-Source Embedded Futures Chart**:

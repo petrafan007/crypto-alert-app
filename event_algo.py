@@ -72,6 +72,19 @@ def is_event_strategy_admin(user_or_username):
     """Return True only for authorized strategy-engine administrators."""
     if user_or_username is None:
         return False
+    if isinstance(user_or_username, int):
+        if user_or_username == 1:
+            return True
+        try:
+            from flask import has_app_context
+            if has_app_context():
+                from credentials import User
+                user_record = User.query.get(user_or_username)
+                if user_record and (user_record.is_admin or user_record.id == 1):
+                    return True
+        except Exception as err:
+            logger.warning(f"Error verifying admin status for Event Strategy user ID {user_or_username}: {err}")
+        return False
     if hasattr(user_or_username, "is_admin"):
         return bool(user_or_username.is_admin)
     if hasattr(user_or_username, "id") and user_or_username.id == 1:

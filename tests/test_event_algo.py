@@ -62,6 +62,8 @@ class EventAlgoTests(unittest.TestCase):
         with patch.dict(os.environ, {'EVENT_STRATEGY_ADMIN_USERNAME': 'admin'}):
             self.assertTrue(is_event_strategy_admin(SimpleNamespace(username='admin')))
             self.assertTrue(is_event_strategy_admin('ADMIN'))
+            self.assertTrue(is_event_strategy_admin(1))
+            self.assertFalse(is_event_strategy_admin(2))
             self.assertTrue(is_event_strategy_admin(SimpleNamespace(id=1, username='other')))
             self.assertFalse(is_event_strategy_admin(SimpleNamespace(id=2, username='another-user')))
 

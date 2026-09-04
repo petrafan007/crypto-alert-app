@@ -100,7 +100,35 @@ class AIProviderFailoverTests(unittest.TestCase):
         with patch.dict(os.environ, {'OLLAMA_ADMIN_USERNAME': 'admin'}):
             self.assertTrue(is_ollama_admin('admin'))
             self.assertTrue(is_ollama_admin(SimpleNamespace(id=1, username='other')))
+            self.assertTrue(is_ollama_admin(1))
+            self.assertFalse(is_ollama_admin(2))
             self.assertFalse(is_ollama_admin(SimpleNamespace(id=2, username='another-user')))
+
+    @patch('services.ai_service.web_search', return_value=('Search context', 'Brave Search'))
+    @patch('services.ai_service.call_ollama_chat', return_value='{"sentiment": "BULLISH", "confidence": 0.8}')
+    @patch('services.ai_service.get_user_credentials', return_value=SimpleNamespace())
+    @patch('services.ai_service.get_user_ai_settings')
+    @patch('services.ai_service.User')
+    def test_call_ai_with_web_search_with_user_id_does_not_raise_unbound_user_obj(
+        self, mock_user, mock_get_settings, mock_get_cred, mock_ollama_chat, mock_search
+    ):
+        from services.ai_service import call_ai_with_web_search
+        mock_user_obj = SimpleNamespace(id=1, username='admin', is_admin=True)
+        mock_user.query.get.return_value = mock_user_obj
+        mock_get_settings.return_value = {
+            'ai_provider': 'ollama',
+            'ai_model': 'llama3.2:latest',
+            'ai_reasoning_level': 'medium',
+            'ai_max_tokens': 1000,
+        }
+        with patch('services.ai_service.get_user_ai_prompts', return_value=SimpleNamespace(coin_analysis_pre=None)):
+            response, _ = call_ai_with_web_search(
+                username='admin',
+                messages=[{'role': 'user', 'content': 'Analyze BTC'}],
+                user_id=1,
+                prompt_type='coin_analysis',
+            )
+            self.assertIsNotNone(response)
 
     def test_ollama_models_are_discovered_and_deduplicated(self):
         response = type('Response', (), {

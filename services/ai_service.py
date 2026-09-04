@@ -85,6 +85,19 @@ def is_ollama_admin(user_or_username):
     """Return True only for authorized administrators allowed to use Ollama."""
     if user_or_username is None:
         return False
+    if isinstance(user_or_username, int):
+        if user_or_username == 1:
+            return True
+        try:
+            from flask import has_app_context
+            if has_app_context():
+                from credentials import User
+                user_record = User.query.get(user_or_username)
+                if user_record and (user_record.is_admin or user_record.id == 1):
+                    return True
+        except Exception as err:
+            logger.warning(f"Error verifying admin status for Ollama user ID {user_or_username}: {err}")
+        return False
     if hasattr(user_or_username, "is_admin"):
         return bool(user_or_username.is_admin)
     if hasattr(user_or_username, "id") and user_or_username.id == 1:
@@ -482,9 +495,28 @@ def call_ai_with_web_search(
     if failover_history is None:
         failover_history = []
     try:
-        if not user_id:
-            user_obj = User.query.filter_by(username=username).first()
-            user_id = user_obj.id if user_obj else session.get('_user_id')
+        user_obj = None
+        if user_id:
+            try:
+                user_obj = User.query.get(user_id)
+            except Exception:
+                user_obj = None
+        if not user_obj and username:
+            try:
+                user_obj = User.query.filter_by(username=username).first()
+            except Exception:
+                user_obj = None
+
+        if user_obj:
+            if not user_id:
+                user_id = user_obj.id
+            if not username:
+                username = user_obj.username
+        elif not user_id:
+            try:
+                user_id = session.get('_user_id')
+            except Exception:
+                user_id = None
         
         user_ai_settings = get_user_ai_settings(username)
         max_tokens = user_ai_settings.get('ai_max_tokens', 2000)
@@ -506,7 +538,7 @@ def call_ai_with_web_search(
 
         current_tier_name, provider, configured_model, ai_reasoning_level = tier_configs[tier_index]
 
-        if provider == "ollama" and not is_ollama_admin(user_obj or username):
+        if provider == "ollama" and not is_ollama_admin(user_obj or username or user_id):
             raise PermissionError("Ollama is restricted to the administrator account")
 
         model = configured_model or model or 'gpt-5'
