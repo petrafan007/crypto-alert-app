@@ -16,6 +16,7 @@ import threading
 import time
 from datetime import datetime, timedelta, timezone
 from uuid import uuid4
+from zoneinfo import ZoneInfo
 
 from log import logger
 from core.extensions import db
@@ -33,12 +34,38 @@ from event_algo_models import (
 
 
 PAPER_MODE = "PAPER"
-ENGINE_VERSION = "1.2.0"
+ENGINE_VERSION = "2.85.0"
 MODEL_VERSION = "ai-fallback-v1"
+_EVENT_SYMBOL_MONTHS = {
+    "JAN": 1, "FEB": 2, "MAR": 3, "APR": 4, "MAY": 5, "JUN": 6,
+    "JUL": 7, "AUG": 8, "SEP": 9, "OCT": 10, "NOV": 11, "DEC": 12,
+}
 # The strategy engine is an administrator-only research surface.  Keep the
 # identity tied to the stable username rather than a database id so an account
 # restore or migration cannot accidentally transfer ownership to another user.
 EVENT_STRATEGY_ADMIN_USERNAME = "jcavallarojr"
+
+
+def _get_crypto_spot_price(symbol):
+    """Fetch the latest spot price for crypto underlying."""
+    clean = str(symbol or "").upper().strip()
+    if not clean:
+        return None
+    try:
+        from services.webull_streaming_service import get_latest_streaming_price
+        px = get_latest_streaming_price(clean)
+        if px and px > 0:
+            return float(px)
+    except Exception:
+        pass
+    try:
+        from models import PriceHistory
+        row = PriceHistory.query.filter_by(symbol=clean).order_by(PriceHistory.timestamp.desc()).first()
+        if row and row.price and row.price > 0:
+            return float(row.price)
+    except Exception:
+        pass
+    return None
 
 
 def is_event_strategy_admin(user_or_username):
@@ -788,12 +815,46 @@ def _utc_naive(value):
     return parsed.astimezone(timezone.utc).replace(tzinfo=None)
 
 
+def _cutoff_from_symbol(symbol):
+    """Extract explicit Eastern cutoff from Webull event contract symbol and convert to UTC naive."""
+    match = re.search(
+        r"-(\d{2})(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)(\d{2})(\d{2})(?:(\d{2}))?(?:-|$)",
+        str(symbol or "").strip().upper(),
+    )
+    if not match:
+        return None
+    try:
+        year = 2000 + int(match.group(1))
+        month = _EVENT_SYMBOL_MONTHS.get(match.group(2))
+        day = int(match.group(3))
+        hour = int(match.group(4))
+        minute = int(match.group(5) or 0)
+        dt = datetime(year, month, day, hour, minute, tzinfo=ZoneInfo("America/New_York"))
+        return dt.astimezone(timezone.utc).replace(tzinfo=None)
+    except Exception:
+        return None
+
+
 def _market_cutoff(market):
+    symbol_cutoff = _cutoff_from_symbol(market.get("symbol"))
+    if symbol_cutoff:
+        return symbol_cutoff
     for key in (
         "contract_period_end", "cutoff_at", "cutoff_time", "last_trading_date",
         "expected_exp_date", "latest_exp_date", "expiration", "expiration_time",
     ):
-        value = _utc_naive(market.get(key))
+        raw = market.get(key)
+        if not raw:
+            continue
+        # Date-only strings like 2026-09-03 represent trading day end (23:59:59 Eastern)
+        if re.fullmatch(r"\d{4}-\d{2}-\d{2}", str(raw).strip()):
+            try:
+                parsed_d = datetime.fromisoformat(str(raw).strip())
+                dt = parsed_d.replace(hour=23, minute=59, second=59, tzinfo=ZoneInfo("America/New_York"))
+                return dt.astimezone(timezone.utc).replace(tzinfo=None)
+            except Exception:
+                pass
+        value = _utc_naive(raw)
         if value:
             return value
     return None
@@ -1215,11 +1276,11 @@ def evaluate_market(market, config, *, now=None):
 
     # v2.77 is intentionally signals-only.  The future paper execution
     # adapter will consume qualified decisions after the evidence gate; this
-    # scanner never calls place_webull_order or any live endpoint.
-    if not reasons and signal.get("signals_only", True):
+    qualified = not reasons
+    if qualified and signal.get("signals_only", True):
         reasons.append("PAPER_SIGNALS_ONLY")
     unique_reasons = list(dict.fromkeys(reasons))
-    eligible = not unique_reasons
+    eligible = qualified
     score = 0.0
     if net_edge is not None:
         score += max(0.0, min(50.0, net_edge * 100))
@@ -1255,7 +1316,7 @@ _SETTLED_OUTCOME_KEYS = (
 
 
 def extract_settled_outcome(market):
-    """Read an explicit provider settlement; never infer it from quotes."""
+    """Read an explicit provider settlement or terminal payout; never infer it from live unexpired quotes."""
     if not isinstance(market, dict):
         return None
     candidates = []
@@ -1270,6 +1331,23 @@ def extract_settled_outcome(market):
         text = str(value or "").strip().upper()
         if text in {"YES", "NO"}:
             return text
+
+    # When the market is expired / delisting / settled (NT status):
+    status = str(market.get("status") or "").strip().upper()
+    tradable = str(market.get("tradable_status") or "").strip().upper()
+    if status in {"DELISTING", "SETTLED", "CLOSED", "EXPIRED"} or tradable == "NT":
+        settle_px = _number(market.get("settlement_price"))
+        if settle_px is not None:
+            if settle_px >= 0.95:
+                return "YES"
+            if settle_px <= 0.05:
+                return "NO"
+        last_px = _number(market.get("last_price"))
+        if last_px is not None:
+            if last_px >= 0.95:
+                return "YES"
+            if last_px <= 0.05:
+                return "NO"
     return None
 
 
@@ -1315,10 +1393,20 @@ def resolve_event_outcomes(user_id, *, config=None, limit=25, force=False):
     from services.webull_service import get_webull_event_market
 
     now = datetime.utcnow()
+    resolved_subquery = (
+        db.session.query(EventContractOutcome.contract_symbol)
+        .filter(EventContractOutcome.user_id == user_id, EventContractOutcome.settlement_status == "RESOLVED")
+        .subquery()
+    )
     snapshots = (
         EventMarketSnapshot.query
-        .filter(EventMarketSnapshot.user_id == user_id, EventMarketSnapshot.cutoff_at.isnot(None), EventMarketSnapshot.cutoff_at <= now)
-        .order_by(EventMarketSnapshot.cutoff_at.asc())
+        .filter(
+            EventMarketSnapshot.user_id == user_id,
+            EventMarketSnapshot.cutoff_at.isnot(None),
+            EventMarketSnapshot.cutoff_at <= now,
+            ~EventMarketSnapshot.contract_symbol.in_(resolved_subquery),
+        )
+        .order_by(EventMarketSnapshot.cutoff_at.desc())
         .limit(max(1, min(int(limit or 25), 100)))
         .all()
     )
@@ -1334,6 +1422,8 @@ def resolve_event_outcomes(user_id, *, config=None, limit=25, force=False):
             user_id=user_id, contract_symbol=symbol, cutoff_at=snapshot.cutoff_at,
         ).order_by(EventContractOutcome.id.desc()).first()
         if existing and existing.settlement_status == "RESOLVED":
+            continue
+        if existing and existing.settlement_status == "PENDING" and existing.observed_at and (now - existing.observed_at).total_seconds() < 180 and not force:
             continue
         raw = {}
         explicit = None
@@ -1371,7 +1461,8 @@ def resolve_event_outcomes(user_id, *, config=None, limit=25, force=False):
             existing.outcome = explicit
             existing.settlement_status = "RESOLVED"
             existing.settlement_at = _utc_naive(raw.get("payout_date")) or observed
-            existing.settlement_price = _number(raw.get("settlement_price"))
+            settle_px = _number(raw.get("settlement_price"))
+            existing.settlement_price = settle_px if settle_px is not None else _number(raw.get("last_price"))
             _settle_simulated_orders(user_id, symbol, explicit, existing.settlement_at)
             resolved.append({"contract_symbol": symbol, "outcome": explicit, "status": "RESOLVED"})
         else:
@@ -1633,6 +1724,13 @@ def run_event_strategy_scan(user_id, *, config=None, force=False, worker_id="man
                     for market in result.get("markets") or []:
                         if market.get("symbol"):
                             contract_symbol = str(market["symbol"]).upper()
+                            ctx_sym = symbol.upper()
+                            if not market.get("underlying_symbol"):
+                                market["underlying_symbol"] = ctx_sym
+                            if not market.get("underlying_price"):
+                                spot_px = _get_crypto_spot_price(ctx_sym)
+                                if spot_px:
+                                    market["underlying_price"] = spot_px
                             markets[contract_symbol] = market
                             market_context[contract_symbol] = (symbol, duration)
                 except Exception as exc:
@@ -1763,6 +1861,12 @@ def run_event_strategy_scan(user_id, *, config=None, force=False, worker_id="man
             run.scanned_count += 1
             if decision["eligible"]:
                 run.qualified_count += 1
+                # Automatically record hypothetical fill for qualified paper signals
+                if decision.get("outcome") in {"YES", "NO"} and decision.get("executable_price"):
+                    try:
+                        simulate_paper_fills(user_id, config=config, decision_ids=[record.id], limit=1)
+                    except Exception as sim_exc:
+                        logger.warning("Paper fill auto-simulation failed for decision %s: %s", record.id, sim_exc)
             else:
                 run.no_trade_count += 1
         run.status = "COMPLETED" if not warnings else "DEGRADED"
@@ -1815,8 +1919,9 @@ def run_event_strategy_scan(user_id, *, config=None, force=False, worker_id="man
 
 
 def event_algo_worker_loop(app):
-    """Persisted paper-only supervisor with stale-run recovery and alerts."""
+    """Persisted paper-only supervisor with stale-run recovery, outcome resolution, and alerts."""
     logger.info("Event Contract strategy worker started in paper/signal-only mode.")
+    last_resolve_by_user = {}
     with app.app_context():
         while True:
             try:
@@ -1831,6 +1936,25 @@ def event_algo_worker_loop(app):
                     # migration or restore.
                     if not is_event_strategy_admin(db.session.get(User, config.user_id)):
                         continue
+
+                    # Periodic automatic outcome resolution for expired contracts
+                    last_resolve = last_resolve_by_user.get(config.user_id, 0)
+                    if time.time() - last_resolve > 180:
+                        last_resolve_by_user[config.user_id] = time.time()
+                        try:
+                            outcome_res = resolve_event_outcomes(config.user_id, config=config, limit=25)
+                            if outcome_res.get("resolved_count", 0) > 0:
+                                logger.info("Event strategy auto-resolved %s expired contracts for user %s", outcome_res["resolved_count"], config.user_id)
+                                _record_engine_log(
+                                    config.user_id, "OUTCOMES_RESOLVED",
+                                    f"Resolved {outcome_res['resolved_count']} expired contract settlements automatically.",
+                                    level="INFO", config_id=config.id,
+                                )
+                                db.session.commit()
+                        except Exception as resolve_err:
+                            logger.warning("Periodic event outcome resolution failed for user %s: %s", config.user_id, resolve_err)
+                            db.session.rollback()
+
                     signal = _json_load(config.signal_config, dict(DEFAULT_SIGNAL_CONFIG))
                     interval = max(30, int(_number(signal.get("scan_interval_seconds"), 60)))
                     now_dt = datetime.utcnow()

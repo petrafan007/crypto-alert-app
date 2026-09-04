@@ -91,9 +91,44 @@ class EventAlgoTests(unittest.TestCase):
             'model_probability_yes': 0.70,
             'model_confidence': 0.90,
         }, self.config())
-        self.assertEqual(decision['action'], 'NO_TRADE')
+        self.assertEqual(decision['action'], 'BUY_YES')
+        self.assertTrue(decision['eligible'])
         self.assertIn('PAPER_SIGNALS_ONLY', decision['reason_codes'])
         self.assertFalse(decision['execution_allowed'])
+
+    def test_market_cutoff_parsing(self):
+        from event_algo import _market_cutoff
+        # 15M symbol: 26SEP032245 -> 22:45 Eastern -> 02:45 UTC next day
+        cutoff_15m = _market_cutoff({'symbol': 'KXBTC15M-26SEP032245-45'})
+        self.assertIsNotNone(cutoff_15m)
+        self.assertEqual(cutoff_15m.year, 2026)
+        self.assertEqual(cutoff_15m.month, 9)
+        self.assertEqual(cutoff_15m.day, 4)
+        self.assertEqual(cutoff_15m.hour, 2)
+        self.assertEqual(cutoff_15m.minute, 45)
+
+        # Daily symbol: 26SEP0323 -> 23:00 Eastern -> 03:00 UTC next day
+        cutoff_d = _market_cutoff({'symbol': 'KXBTCD-26SEP0323-T68899.99'})
+        self.assertIsNotNone(cutoff_d)
+        self.assertEqual(cutoff_d.year, 2026)
+        self.assertEqual(cutoff_d.month, 9)
+        self.assertEqual(cutoff_d.day, 4)
+        self.assertEqual(cutoff_d.hour, 3)
+        self.assertEqual(cutoff_d.minute, 0)
+
+        # Date-only fallback should not be midnight at start of day
+        cutoff_date = _market_cutoff({'expected_exp_date': '2026-09-03'})
+        self.assertIsNotNone(cutoff_date)
+        self.assertNotEqual(cutoff_date.hour, 0)
+
+    def test_extract_settled_outcome_terminal_prices(self):
+        from event_algo import extract_settled_outcome
+        self.assertEqual(extract_settled_outcome({'status': 'DELISTING', 'tradable_status': 'NT', 'last_price': 0.999}), 'YES')
+        self.assertEqual(extract_settled_outcome({'status': 'DELISTING', 'tradable_status': 'NT', 'last_price': 0.001}), 'NO')
+        self.assertEqual(extract_settled_outcome({'status': 'SETTLED', 'settlement_price': 1.0}), 'YES')
+        self.assertEqual(extract_settled_outcome({'status': 'SETTLED', 'settlement_price': 0.0}), 'NO')
+        self.assertEqual(extract_settled_outcome({'settled_outcome': 'YES'}), 'YES')
+        self.assertIsNone(extract_settled_outcome({'status': 'LISTING', 'tradable_status': 'OC', 'last_price': 0.55}))
 
     def test_event_model_response_parses_json_and_percentages(self):
         parsed = parse_event_model_response(

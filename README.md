@@ -149,6 +149,14 @@ Historical changelog entries retain the product name used when they were origina
 - Added per-decision model provenance, failover attempts, bounded rationale, and provider status to the persisted evidence trace and scan diagnostics.
 - Added an event-contract-specific analysis prompt that includes the exact question, underlying, duration, cutoff, quotes, liquidity, and timing context.
 - Kept quote-less, stale, and closed markets from making unnecessary AI calls, and kept all decisions signal-only with no broker order endpoint access.
+## v2.85.0 (September 2026)
+
+### Event Contracts Strategy Engine 24/7 Autonomous Outcome Resolution & Pattern Discovery
+- **Automated 24/7 Outcome Resolution**: Added periodic background outcome resolution in the paper strategy worker loop. Expired contracts automatically have their settlements resolved and recorded in `event_contract_outcomes` without requiring manual UI trigger clicks.
+- **Accurate Expiration & Daily Cutoff Parsing**: Updated cutoff calculation to parse exact Eastern expiration dates and times from contract symbols (`KXBTC15M`, `KXBTCD`, `KXETH15M`), and resolved trading date strings (`YYYY-MM-DD`) to the end of the trading day rather than midnight at the start of the day. This eliminates false `CONTRACT_EXPIRED` rejections for active daily contracts.
+- **Live Spot Price & Underlying Context**: Enriched market snapshots and AI evaluation prompts with live crypto spot prices and distance-to-reference from the platform's streaming cache and price history database.
+- **Paper Signal Eligibility & Performance Tracking**: Fixed decision evaluation so that qualified paper signals with positive edge and confidence are recognized with `eligible: True`, enabling automated simulated paper fill tracking and performance metrics aggregation.
+- **Settlement Terminal Price Support**: Enhanced settlement detection to parse Webull's terminal delisting and settlement price conventions (`0.999` / `1.0` for YES, `0.001` / `0.0` for NO) in addition to explicit textual outcome tags.
 
 ## v2.83.4 (September 2026)
 

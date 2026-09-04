@@ -99,7 +99,7 @@ export default function EventStrategyPanel({ isPaperMode }) {
       </div>
 
       {!isPaperMode && <div className="event-strategy-warning" role="alert">Enable Webull paper/test mode before starting the strategy engine.</div>}
-      <div className="event-strategy-safety-note">v2.79 records quotes, human-readable contract details, AI provider attempts, decisions, outcomes, and hypothetical fills only. It cannot submit, cancel, or modify a live order.</div>
+      <div className="event-strategy-safety-note">v2.85 records quotes, spot reference prices, AI provider attempts, decisions, outcomes, and hypothetical fills. It cannot submit, cancel, or modify a live order.</div>
 
       <div className="event-strategy-stat-grid">
         <div><span>Worker</span><strong>{running ? (config.worker_status || 'RUNNING') : (config?.worker_status || 'STOPPED')}</strong></div>
