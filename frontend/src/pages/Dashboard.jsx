@@ -1381,19 +1381,31 @@ function Dashboard({ isLightMode }) {
   // Hover popup functions
   const handleSymbolHover = (symbol, event) => {
     if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current);
-    const rect = event.currentTarget.getBoundingClientRect();
-    
-    // Prevent cutting off on edges
-    let xPos = rect.left + rect.width / 2 - 150;
-    if (xPos < 10) xPos = 10;
-    if (xPos + 350 > window.innerWidth) xPos = window.innerWidth - 350;
-    
+    const cell = event.currentTarget;
+    const rect = cell.getBoundingClientRect();
+
+    // Position directly to the right of column 1, starting at the 2nd column border
+    let xPos = rect.right;
+    const popupWidth = 360;
+    const popupHeight = 260;
+
+    // Boundary protection for narrow viewports
+    if (xPos + popupWidth > window.innerWidth - 10) {
+      xPos = Math.max(10, window.innerWidth - popupWidth - 10);
+    }
+
+    // Centered vertically relative to the hovered coin row
+    const rowCenterY = rect.top + rect.height / 2;
+    let yPos = rowCenterY - popupHeight / 2;
+    // Boundary protection for top/bottom of viewport
+    yPos = Math.max(10, Math.min(window.innerHeight - popupHeight - 15, yPos));
+
     setHoverPopup({
       isVisible: true,
       symbol: symbol,
       position: {
         x: xPos,
-        y: Math.max(10, rect.top - 260) // Position above symbol securely
+        y: yPos
       }
     });
   };
@@ -4689,6 +4701,28 @@ function Dashboard({ isLightMode }) {
                                     >
                                       {isCryptoAsset ? <FaBitcoin /> : <FaDollarSign />}
                                     </span>
+                                    {!isExternal && isCryptoAsset && coin.symbol !== 'USD' && (
+                                      <span
+                                        className="webull-account-pill binance-crypto-pill"
+                                        title="Binance Crypto asset"
+                                        style={{
+                                          display: 'inline-flex',
+                                          alignItems: 'center',
+                                          padding: '2px 8px',
+                                          borderRadius: '9999px',
+                                          fontSize: '0.72rem',
+                                          fontWeight: 600,
+                                          letterSpacing: '0.02em',
+                                          whiteSpace: 'nowrap',
+                                          background: isLightMode ? '#000000' : '#2563eb',
+                                          color: isLightMode ? '#facc15' : '#ffffff',
+                                          border: isLightMode ? '1px solid #1f2937' : '1px solid #3b82f6',
+                                          marginLeft: '2px',
+                                        }}
+                                      >
+                                        Crypto
+                                      </span>
+                                    )}
                                     {isExternal && coin.webull_account_type && (
                                       <span
                                         className="webull-account-pill"

@@ -6,6 +6,14 @@
 
 **Last Updated**: September 2026
 
+## v2.86.2 (September 2026)
+
+- Renamed and enhanced "Unhide Assets" management across all portfolio asset classes (Binance and Webull, including crypto, cash, equities, and ETFs).
+- Added explicit ETF badge in Unhide Assets view to distinguish fund holdings from spot cryptocurrency.
+- Added structured 3-column layout in Unhide Assets modal with source badges and account classification pills (Crypto, Traditional IRA, Individual Cash).
+- Added blue "Crypto" pill for Binance cryptocurrency holdings in the main Portfolio table to provide consistent visual parity with Webull account pills.
+- Repositioned the 7-day performance hover chart in Portfolio and Watchlist tables to start at the second column boundary and center vertically relative to the hovered asset row.
+
 ## v2.86.1 (September 2026)
 
 - Hardened application session security with cryptographically generated random secret tokens.

@@ -128,15 +128,15 @@ export default function App() {
 
 
 
-  // Unhide Coins functionality
+  // Unhide Assets functionality
   const handleUnhideCoins = async () => {
     try {
       const response = await axios.get('/api/hidden-coins', { withCredentials: true });
       setHiddenCoins((response.data || []).filter(coin => coin?.id && String(coin.symbol || '').trim()));
       setShowUnhideModal(true);
     } catch (err) {
-      console.error('Failed to fetch hidden coins:', err);
-      setMessage('Failed to load hidden coins');
+      console.error('Failed to fetch hidden assets:', err);
+      setMessage('Failed to load hidden assets');
       setMessageType('error');
     }
   };
@@ -161,7 +161,7 @@ export default function App() {
 
   const handleUnhideSelected = async () => {
     if (selectedHiddenCoins.length === 0) {
-      setMessage('Please select coins to unhide');
+      setMessage('Please select assets to unhide');
       setMessageType('error');
       return;
     }
@@ -172,7 +172,7 @@ export default function App() {
       }, { withCredentials: true });
 
       if (response.data.success) {
-        setMessage('Coins unhidden successfully!');
+        setMessage('Assets unhidden successfully!');
         setMessageType('success');
         setShowUnhideModal(false);
         setSelectedHiddenCoins([]);
@@ -180,12 +180,12 @@ export default function App() {
         // Refresh the page to show updated data
         window.location.reload();
       } else {
-        setMessage(response.data.error || 'Failed to unhide coins');
+        setMessage(response.data.error || 'Failed to unhide assets');
         setMessageType('error');
       }
     } catch (err) {
-      console.error('Unhide coins error:', err);
-      setMessage('Failed to unhide coins');
+      console.error('Unhide assets error:', err);
+      setMessage('Failed to unhide assets');
       setMessageType('error');
     }
   };
@@ -257,7 +257,7 @@ export default function App() {
                 onClick={handleUnhideCoins}
                 className="nav-link"
               >
-                🚫 Unhide Coins
+                🚫 Unhide Assets
               </button>
 
               <Link to="/help" className="nav-link">
@@ -407,12 +407,12 @@ export default function App() {
         </React.Suspense>
       </div>
 
-      {/* Unhide Coins Modal */}
+      {/* Unhide Assets Modal */}
       {showUnhideModal && (
         <div className="modal-overlay">
-          <div className="modal-content">
+          <div className="modal-content" style={{ maxWidth: '520px' }}>
             <div className="modal-header">
-              <h3>Unhide Coins</h3>
+              <h3>Unhide Assets</h3>
               <button
                 onClick={() => setShowUnhideModal(false)}
                 className="modal-close"
@@ -423,7 +423,7 @@ export default function App() {
 
             <div className="modal-body">
               {hiddenCoins.length === 0 ? (
-                <p className="no-data">No hidden coins found.</p>
+                <p className="no-data">No hidden assets found.</p>
               ) : (
                 <>
                   <div className="select-all-container">
@@ -439,29 +439,90 @@ export default function App() {
 
                   <div className="hidden-coins-list">
                     {hiddenCoins.map(coin => (
-                      <div key={coin.id} className="hidden-coin-item" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <div
+                        key={coin.id}
+                        className="hidden-coin-item"
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '12px',
+                          padding: '8px 12px',
+                          borderBottom: '1px solid rgba(255, 255, 255, 0.07)'
+                        }}
+                      >
+                        {/* Checkbox */}
                         <input
                           type="checkbox"
                           checked={selectedHiddenCoins.includes(coin.id)}
                           onChange={() => handleSelectHiddenCoin(coin.id)}
                         />
-                        <span className="coin-symbol" style={{ fontWeight: '600' }}>{coin.symbol}</span>
-                        {coin.source_label && (
+
+                        {/* Column 1: Asset Symbol & ETF Identity */}
+                        <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', minWidth: '80px' }}>
+                          <span className="coin-symbol" style={{ fontWeight: '700', fontSize: '0.95rem' }}>
+                            {coin.symbol}
+                          </span>
+                          {coin.is_etf && (
+                            <span
+                              className="etf-badge"
+                              title="Exchange Traded Fund (ETF)"
+                              style={{
+                                fontSize: '0.68rem',
+                                padding: '1px 5px',
+                                borderRadius: '4px',
+                                background: 'rgba(56, 189, 248, 0.22)',
+                                color: '#38bdf8',
+                                fontWeight: '700',
+                                border: '1px solid rgba(56, 189, 248, 0.4)',
+                                letterSpacing: '0.04em'
+                              }}
+                            >
+                              ETF
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Column 2: Exchange / Source Badge */}
+                        <div style={{ display: 'inline-flex', alignItems: 'center' }}>
+                          {coin.source_label && (
+                            <span
+                              className="coin-source-badge"
+                              style={{
+                                fontSize: '0.75rem',
+                                padding: '2px 8px',
+                                borderRadius: '4px',
+                                background: coin.source === 'webull' ? 'rgba(56, 189, 248, 0.18)' : 'rgba(234, 179, 8, 0.18)',
+                                color: coin.source === 'webull' ? '#38bdf8' : '#eab308',
+                                fontWeight: '600'
+                              }}
+                            >
+                              {coin.source_label}
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Column 3: Asset / Account Type Blue Pill */}
+                        <div style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center' }}>
                           <span
-                            className="coin-source-badge"
+                            className="webull-account-pill"
+                            title={coin.source === 'binance' ? 'Binance Cryptocurrency' : `Webull ${coin.webull_account_type || 'Account'}`}
                             style={{
-                              fontSize: '0.75rem',
-                              padding: '2px 6px',
-                              borderRadius: '4px',
-                              background: coin.source === 'webull' ? 'rgba(56, 189, 248, 0.18)' : 'rgba(234, 179, 8, 0.18)',
-                              color: coin.source === 'webull' ? '#38bdf8' : '#eab308',
-                              fontWeight: '600'
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              padding: '2px 8px',
+                              borderRadius: '9999px',
+                              fontSize: '0.72rem',
+                              fontWeight: 600,
+                              letterSpacing: '0.02em',
+                              whiteSpace: 'nowrap',
+                              background: isLightMode ? '#000000' : '#2563eb',
+                              color: isLightMode ? '#facc15' : '#ffffff',
+                              border: isLightMode ? '1px solid #1f2937' : '1px solid #3b82f6',
                             }}
                           >
-                            {coin.source_label}
+                            {coin.source === 'binance' ? 'Crypto' : (coin.webull_account_type || (coin.instrument_type === 'CASH' ? 'USD Cash' : 'Webull'))}
                           </span>
-                        )}
-                        <span className="coin-name" style={{ marginLeft: 'auto', opacity: 0.75, fontSize: '0.85rem' }}>{coin.name || ''}</span>
+                        </div>
                       </div>
                     ))}
                   </div>

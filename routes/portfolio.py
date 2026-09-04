@@ -5710,10 +5710,41 @@ def api_hidden_coins():
             d = coin_to_dict(c)
             d['source'] = 'binance'
             d['source_label'] = 'Binance.US'
+            d['asset_type'] = 'crypto'
+            d['is_crypto'] = True
+            d['is_etf'] = False
             result.append(d)
 
         # 2. Webull hidden holdings
-        from models import WebullHolding
+        from models import WebullHolding, WebullAccountSnapshot
+        from services.webull_import_service import _webull_account_pill_label
+        account_meta = {}
+        try:
+            snapshots = {
+                str(s.account_id): s
+                for s in WebullAccountSnapshot.query.filter_by(user_id=current_user.id).all()
+            }
+            from credentials import UserSetting
+            setting = UserSetting.query.filter_by(user_id=current_user.id).first()
+            raw = getattr(setting, 'webull_connected_accounts', '[]') or '[]'
+            stored_accounts = json.loads(raw) if isinstance(raw, str) else (raw or [])
+            for acc in stored_accounts:
+                acc_id = str(acc.get('account_id') or '')
+                if acc_id:
+                    snap = snapshots.get(acc_id)
+                    lbl = (
+                        acc.get('account_label')
+                        or acc.get('account_name')
+                        or getattr(snap, 'account_name', None)
+                        or getattr(snap, 'account_type', None)
+                    )
+                    account_meta[acc_id] = _webull_account_pill_label(acc.get('account_class', ''), lbl)
+            for acc_id, snap in snapshots.items():
+                if acc_id not in account_meta:
+                    account_meta[acc_id] = _webull_account_pill_label('', snap.account_name)
+        except Exception as meta_err:
+            logger.debug(f"Could not load webull account metadata for hidden assets: {meta_err}")
+
         wb_holdings = [h for h in WebullHolding.query.filter_by(user_id=current_user.id, hidden=True).all()
                        if str(getattr(h, 'symbol', '') or '').strip()]
         for wh in wb_holdings:
@@ -5722,6 +5753,7 @@ def api_hidden_coins():
             price = 1.0 if is_cash else float(wh.last_price or wh.cost_price or 1.0)
             value = float(wh.current_value or (amount * price))
             type_label = 'USD Cash' if is_cash else (wh.instrument_type or 'Security')
+            acc_type = account_meta.get(str(wh.account_id or '')) or ('USD Cash' if is_cash else 'Webull Account')
             result.append({
                 'id': f'webull-{wh.id}',
                 'coin_id': f'webull-{wh.id}',
@@ -5735,7 +5767,11 @@ def api_hidden_coins():
                 'source': 'webull',
                 'source_label': 'Webull',
                 'instrument_type': wh.instrument_type or 'Security',
-                'is_external': True
+                'is_external': True,
+                'is_etf': bool(getattr(wh, 'is_etf', False)),
+                'webull_account_type': acc_type,
+                'asset_type': 'traditional',
+                'is_crypto': False
             })
 
         logger.debug(f"/api/hidden-coins result: {result}")

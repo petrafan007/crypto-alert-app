@@ -206,7 +206,7 @@ const PriceHistoryPopup = ({ symbol, isVisible, position, onClose, onMouseEnter,
         borderRadius: '8px',
         padding: '16px',
         boxShadow: '0 8px 32px rgba(0, 0, 0, 0.3)',
-        minWidth: '300px',
+        width: '360px',
         maxWidth: '400px',
         pointerEvents: 'auto',
       }}
