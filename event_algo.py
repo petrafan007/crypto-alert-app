@@ -1214,20 +1214,94 @@ def _parse_audit_report_json(raw_text):
     if cleaned.startswith("```"):
         cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned)
         cleaned = re.sub(r"\s*```$", "", cleaned)
+    parsed_dict = None
     try:
         data = json.loads(cleaned)
-        if isinstance(data, dict) and "content_markdown" in data:
-            return data
+        if isinstance(data, dict):
+            parsed_dict = data
     except Exception:
         pass
-    match = re.search(r"\{[\s\S]*\}", raw_text)
-    if match:
-        try:
-            data = json.loads(match.group(0))
-            if isinstance(data, dict) and "content_markdown" in data:
-                return data
-        except Exception:
-            pass
+    if not parsed_dict:
+        match = re.search(r"\{[\s\S]*\}", raw_text)
+        if match:
+            try:
+                data = json.loads(match.group(0))
+                if isinstance(data, dict):
+                    parsed_dict = data
+            except Exception:
+                pass
+
+    if parsed_dict:
+        if "content_markdown" in parsed_dict and isinstance(parsed_dict["content_markdown"], str):
+            return parsed_dict
+        # The AI returned structured audit JSON without an explicit content_markdown key
+        status_val = str(parsed_dict.get("overall_status") or parsed_dict.get("status") or "HEALTHY").upper()
+        if status_val in {"WARN", "WARNING"}:
+            status_val = "ATTENTION_REQUIRED"
+        elif status_val not in {"HEALTHY", "ATTENTION_REQUIRED", "DEGRADED", "ERROR"}:
+            status_val = "HEALTHY"
+
+        issues = parsed_dict.get("issues") if isinstance(parsed_dict.get("issues"), list) else []
+        recs = parsed_dict.get("recommendations") if isinstance(parsed_dict.get("recommendations"), list) else []
+        headline = str(parsed_dict.get("headline") or (
+            f"Audit completed: {len(issues)} operational issue(s) analyzed, {len(recs)} recommendation(s) generated."
+            if issues else "AI operational audit completed successfully."
+        ))[:255]
+        summary = str(parsed_dict.get("summary") or parsed_dict.get("next_steps") or "AI operational review of worker execution, logs, and telemetry completed.")
+
+        lines = [
+            "## Event Strategy Engine 6-Hour AI Audit Report",
+            "",
+            f"**Audit Status:** `{status_val}`  ",
+            f"**Executive Verdict:** {headline}  ",
+            "",
+            "---",
+        ]
+
+        if issues:
+            lines.append("\n### Detected Operational Issues & Bottlenecks\n")
+            for issue in issues:
+                if isinstance(issue, dict):
+                    itype = issue.get("type", "Notice")
+                    icount = issue.get("count")
+                    count_str = f" (count: `{icount}`)" if icount is not None else ""
+                    lines.append(f"- **{itype}**{count_str}: {issue.get('description', '')}")
+                else:
+                    lines.append(f"- {issue}")
+
+        ms = parsed_dict.get("metrics_summary")
+        if isinstance(ms, dict):
+            lines.append("\n### Telemetry & Execution Summary\n")
+            lines.append(f"- **Scans Analyzed:** `{ms.get('scans_count', 0)}` ({ms.get('scanned_contracts', 0)} contracts evaluated)")
+            lines.append(f"- **Decisions Recorded:** `{ms.get('decisions_count', 0)}` ({ms.get('eligible_count', 0)} eligible, `{ms.get('no_trade_count', 0)}` hold)")
+            lines.append(f"- **Log Breakdown:** `{ms.get('error_count', 0)}` errors, `{ms.get('warning_count', 0)}` warnings, `{ms.get('info_count', 0)}` info")
+            top_reasons = ms.get("top_reason_codes")
+            if isinstance(top_reasons, dict):
+                lines.append(f"- **Top Decision Hold Reasons:** {', '.join(f'`{k}` ({v})' for k, v in top_reasons.items())}")
+            ai_evals = ms.get("ai_evaluations")
+            if isinstance(ai_evals, dict):
+                lines.append(f"- **AI Predictions:** {', '.join(f'{k}: `{v}`' for k, v in ai_evals.items())}")
+
+        if recs:
+            lines.append("\n### Actionable Recommendations & Tuning\n")
+            for idx, rec in enumerate(recs, 1):
+                if isinstance(rec, dict):
+                    action_title = rec.get("action", f"Recommendation {idx}").replace("_", " ")
+                    details = rec.get("details", "")
+                    lines.append(f"{idx}. **{action_title}**: {details}")
+                else:
+                    lines.append(f"{idx}. {rec}")
+
+        if parsed_dict.get("next_steps"):
+            lines.append(f"\n### Next Steps\n{parsed_dict.get('next_steps')}")
+
+        return {
+            "status": status_val,
+            "headline": headline,
+            "summary": summary,
+            "content_markdown": "\n".join(lines),
+        }
+
     if len(cleaned) > 100:
         return {
             "status": "HEALTHY",
