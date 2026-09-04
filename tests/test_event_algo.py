@@ -516,6 +516,94 @@ class EventAlgoTests(unittest.TestCase):
         self.assertEqual(parsed2["primary"]["reasoning_level"], "high")
         self.assertEqual(parsed2["primary"]["api_key"], parsed["primary"]["api_key"])
 
+    @patch("event_algo.EventStrategyRun")
+    @patch("event_algo.EventStrategyLog")
+    @patch("event_algo.EventStrategyDecision")
+    @patch("event_algo.EventStrategyAIEvaluation")
+    def test_gather_event_strategy_audit_data_scanned_contracts(
+        self, mock_ai_eval, mock_decision, mock_log, mock_run
+    ):
+        from event_algo import gather_event_strategy_audit_data
+
+        mock_run.user_id.__eq__.return_value = True
+        mock_run.started_at.__ge__.return_value = True
+        mock_log.user_id.__eq__.return_value = True
+        mock_log.created_at.__ge__.return_value = True
+        mock_decision.user_id.__eq__.return_value = True
+        mock_decision.created_at.__ge__.return_value = True
+
+        run1 = SimpleNamespace(
+            scanned_count=15,
+            error_count=0,
+            heartbeat_at=datetime.utcnow(),
+            started_at=datetime.utcnow(),
+        )
+        run2 = SimpleNamespace(
+            scanned_count=25,
+            error_count=1,
+            heartbeat_at=datetime.utcnow() - timedelta(minutes=1),
+            started_at=datetime.utcnow() - timedelta(minutes=1),
+        )
+        mock_run.query.filter.return_value.order_by.return_value.all.return_value = [run1, run2]
+
+        log1 = SimpleNamespace(
+            level="INFO",
+            event_type="SCAN",
+            message="Scan complete",
+            symbol="BTC",
+            duration="FIFTEEN_MINUTES",
+            created_at=datetime.utcnow(),
+        )
+        log2 = SimpleNamespace(
+            level="WARNING",
+            event_type="RATE_LIMIT",
+            message="Rate limit approaching",
+            symbol="ETH",
+            duration="HOURLY",
+            created_at=datetime.utcnow(),
+        )
+        mock_log.query.filter.return_value.order_by.return_value.limit.return_value.all.return_value = [log1, log2]
+
+        dec1 = SimpleNamespace(
+            eligible=True,
+            action="BUY",
+            contract_symbol="KXBTC15M-TEST-1",
+            probability_yes=0.65,
+            fair_value_yes=0.62,
+            net_edge=0.03,
+            confidence=0.85,
+            reason_codes='["HIGH_EDGE"]',
+            created_at=datetime.utcnow(),
+        )
+        mock_decision.query.filter.return_value.order_by.return_value.limit.return_value.all.return_value = [dec1]
+
+        eval1 = SimpleNamespace(status="SUCCESS")
+        mock_ai_eval.query.filter_by.return_value.all.return_value = [eval1]
+
+        config = SimpleNamespace(
+            id=1,
+            user_id=1,
+            enabled=True,
+            worker_status="RUNNING",
+            kill_switch=False,
+            symbols='["BTC", "ETH"]',
+            durations='["FIFTEEN_MINUTES"]',
+        )
+
+        audit_data = gather_event_strategy_audit_data(user_id=1, config=config, hours=6)
+
+        self.assertIsNotNone(audit_data)
+        metrics = audit_data["metrics"]
+        self.assertEqual(metrics["scans_count"], 2)
+        self.assertEqual(metrics["scanned_contracts"], 40)
+        self.assertEqual(metrics["eligible_count"], 1)
+        self.assertEqual(metrics["no_trade_count"], 0)
+        self.assertEqual(metrics["warning_count"], 1)
+        self.assertEqual(metrics["scan_error_count"], 1)
+        self.assertEqual(metrics["log_error_count"], 0)
+        self.assertEqual(metrics["error_count"], 1)
+        self.assertEqual(metrics["ai_evaluations"], {"SUCCESS": 1})
+
 
 if __name__ == '__main__':
     unittest.main()

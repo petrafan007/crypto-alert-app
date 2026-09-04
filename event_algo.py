@@ -37,7 +37,7 @@ from event_algo_models import (
 
 
 PAPER_MODE = "PAPER"
-ENGINE_VERSION = "2.87.7"
+ENGINE_VERSION = "2.87.8"
 MODEL_VERSION = "ai-fallback-v1"
 _EVENT_SYMBOL_MONTHS = {
     "JAN": 1, "FEB": 2, "MAR": 3, "APR": 4, "MAY": 5, "JUN": 6,
@@ -1834,6 +1834,7 @@ def gather_event_strategy_audit_data(user_id, config=None, hours=6):
             })
 
     scans_count = len(runs)
+    scanned_contracts = sum(r.scanned_count or 0 for r in runs)
     log_error_count = level_counts.get("ERROR", 0) + level_counts.get("CRITICAL", 0)
     scan_error_count = sum(r.error_count or 0 for r in runs)
     total_error_count = log_error_count + scan_error_count

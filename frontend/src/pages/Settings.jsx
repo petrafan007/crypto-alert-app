@@ -348,6 +348,8 @@ export default function Settings({ isLightMode }) {
   const [showEventStrategyReport, setShowEventStrategyReport] = useState(false);
   const [eventStrategyReportLoading, setEventStrategyReportLoading] = useState(false);
   const [eventStrategyReportGenerating, setEventStrategyReportGenerating] = useState(false);
+  const [eventStrategyReportError, setEventStrategyReportError] = useState('');
+  const [eventStrategyReportMessage, setEventStrategyReportMessage] = useState('');
   const [showEventStrategyAIModal, setShowEventStrategyAIModal] = useState(false);
   const [eventStrategyAIConfig, setEventStrategyAIConfig] = useState({
     audit_hours: 6,
@@ -546,6 +548,8 @@ export default function Settings({ isLightMode }) {
 
   const loadEventStrategyReport = async (reportId = null) => {
     setEventStrategyReportLoading(true);
+    setEventStrategyReportError('');
+    setEventStrategyReportMessage('');
     try {
       const url = reportId ? `/api/webull/event-algo/report?id=${reportId}` : '/api/webull/event-algo/report';
       const response = await axios.get(url, { withCredentials: true });
@@ -553,9 +557,15 @@ export default function Settings({ isLightMode }) {
         setEventStrategyReport(response.data.report || null);
         setEventStrategyReportHistory(response.data.history || []);
         setShowEventStrategyReport(true);
+      } else {
+        const errMsg = response.data?.message || 'Unable to load strategy engine report.';
+        setEventStrategyReportError(errMsg);
+        setEventStrategyMessage(errMsg);
       }
     } catch (error) {
-      setEventStrategyMessage(error.response?.data?.message || 'Unable to load strategy engine report.');
+      const errMsg = error.response?.data?.message || error.message || 'Unable to load strategy engine report.';
+      setEventStrategyReportError(errMsg);
+      setEventStrategyMessage(errMsg);
     } finally {
       setEventStrategyReportLoading(false);
     }
@@ -563,15 +573,24 @@ export default function Settings({ isLightMode }) {
 
   const generateEventStrategyReportNow = async () => {
     setEventStrategyReportGenerating(true);
+    setEventStrategyReportError('');
+    setEventStrategyReportMessage('');
     try {
       const response = await axios.post('/api/webull/event-algo/report/generate', { hours: 6 }, { withCredentials: true });
       if (response.data?.success) {
         setEventStrategyReport(response.data.report || null);
         setEventStrategyReportHistory(response.data.history || []);
+        setEventStrategyReportMessage('AI audit report generated successfully.');
         setEventStrategyMessage('AI audit report generated successfully.');
+      } else {
+        const errMsg = response.data?.message || 'Unable to generate AI audit report.';
+        setEventStrategyReportError(errMsg);
+        setEventStrategyMessage(errMsg);
       }
     } catch (error) {
-      setEventStrategyMessage(error.response?.data?.message || 'Unable to generate AI audit report.');
+      const errMsg = error.response?.data?.message || error.message || 'Unable to generate AI audit report.';
+      setEventStrategyReportError(errMsg);
+      setEventStrategyMessage(errMsg);
     } finally {
       setEventStrategyReportGenerating(false);
     }
@@ -3959,29 +3978,6 @@ export default function Settings({ isLightMode }) {
                 </div>
               </div>
             </div>
-
-            {/* Event Contracts Strategy Engine AI Audit & Integrations Consolidated Card */}
-            <div style={{ background: isLightMode ? '#f8fafc' : '#1a1f23', padding: 18, borderRadius: 8, border: '1px solid rgba(56, 189, 248, 0.3)', marginTop: 16, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 16 }}>
-              <div>
-                <h5 style={{ color: '#38bdf8', margin: '0 0 6px 0', fontSize: '14px', display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <span>📊</span> Event Strategy Engine AI Audit & Model Tiers
-                </h5>
-                <p style={{ color: isLightMode ? '#64748b' : '#94a3b8', fontSize: '12px', margin: 0, lineHeight: 1.45 }}>
-                  The Auditor System Prompt, Audit Interval Hours, and dedicated 3-Tier AI Integration cascade (Primary, Secondary, Tertiary) are consolidated inside the Event Contract Strategy Engine AI Configuration modal.
-                </p>
-              </div>
-              <button
-                type="button"
-                className="settings-action-button"
-                onClick={() => {
-                  setActiveTab('event-strategy');
-                  openEventStrategyAIModal();
-                }}
-                style={{ whiteSpace: 'nowrap', padding: '8px 16px', fontSize: '13px', display: 'flex', alignItems: 'center', gap: 6 }}
-              >
-                <span>🤖</span> Configure AI & Audit
-              </button>
-            </div>
           </div>
         </div>
       )}
@@ -4332,12 +4328,85 @@ export default function Settings({ isLightMode }) {
                   className="settings-action-button"
                   disabled={eventStrategyReportGenerating}
                   onClick={generateEventStrategyReportNow}
-                  style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.85rem', padding: '6px 14px' }}
+                  style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.85rem', padding: '6px 14px', cursor: eventStrategyReportGenerating ? 'not-allowed' : 'pointer', opacity: eventStrategyReportGenerating ? 0.7 : 1 }}
                 >
                   {eventStrategyReportGenerating ? '⚡ Analyzing worker & logs…' : '⚡ Generate Fresh Report Now'}
                 </button>
               </div>
             </div>
+
+            {/* Modal Alerts & Progress Banner */}
+            {eventStrategyReportGenerating && (
+              <div style={{
+                margin: '12px 24px 0',
+                padding: '12px 16px',
+                borderRadius: 8,
+                background: 'rgba(56, 189, 248, 0.12)',
+                border: '1px solid #38bdf8',
+                color: isLightMode ? '#0284c7' : '#38bdf8',
+                fontSize: '0.88rem',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 10,
+              }}>
+                <span style={{ fontSize: '1.1rem' }}>⚡</span>
+                <span>Auditing strategy telemetry, market quotes, worker cadence, and error logs... Please wait.</span>
+              </div>
+            )}
+            {eventStrategyReportError && (
+              <div style={{
+                margin: '12px 24px 0',
+                padding: '10px 14px',
+                borderRadius: 8,
+                background: 'rgba(239, 68, 68, 0.15)',
+                border: '1px solid #ef4444',
+                color: isLightMode ? '#dc2626' : '#f87171',
+                fontSize: '0.88rem',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: 8,
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span>⚠️</span>
+                  <span>{eventStrategyReportError}</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setEventStrategyReportError('')}
+                  style={{ background: 'none', border: 'none', color: 'inherit', cursor: 'pointer', fontSize: '1rem', padding: '0 4px' }}
+                >
+                  ✕
+                </button>
+              </div>
+            )}
+            {eventStrategyReportMessage && (
+              <div style={{
+                margin: '12px 24px 0',
+                padding: '10px 14px',
+                borderRadius: 8,
+                background: 'rgba(34, 197, 94, 0.15)',
+                border: '1px solid #22c55e',
+                color: isLightMode ? '#16a34a' : '#4ade80',
+                fontSize: '0.88rem',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: 8,
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span>✓</span>
+                  <span>{eventStrategyReportMessage}</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setEventStrategyReportMessage('')}
+                  style={{ background: 'none', border: 'none', color: 'inherit', cursor: 'pointer', fontSize: '1rem', padding: '0 4px' }}
+                >
+                  ✕
+                </button>
+              </div>
+            )}
 
             {/* Scrollable Report Body */}
             <div style={{ overflow: 'auto', padding: '20px 24px', flex: 1 }}>
@@ -4356,6 +4425,7 @@ export default function Settings({ isLightMode }) {
                     className="settings-save-button"
                     disabled={eventStrategyReportGenerating}
                     onClick={generateEventStrategyReportNow}
+                    style={{ cursor: eventStrategyReportGenerating ? 'not-allowed' : 'pointer', opacity: eventStrategyReportGenerating ? 0.7 : 1 }}
                   >
                     {eventStrategyReportGenerating ? '⚡ Analyzing worker & logs…' : '⚡ Generate Initial Report Now'}
                   </button>

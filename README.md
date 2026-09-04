@@ -6,6 +6,17 @@
 
 **Last Updated**: September 2026
 
+## v2.87.8 (September 2026)
+
+- **Event Strategy Engine AI Audit Generation Bugfix & Modal Diagnostics**:
+  - **Fixed Undefined Variable Bug**: Resolved a `NameError: name 'scanned_contracts' is not defined` exception in `gather_event_strategy_audit_data` that caused `POST /api/webull/event-algo/report/generate` to fail with HTTP 500 when users clicked "Generate Fresh Report Now".
+  - **In-Modal Feedback & Error Handling**: Added dedicated status banners inside the AI Audit Report modal (`View Report`) providing real-time progress (`Auditing strategy telemetry, market quotes, worker cadence, and error logs...`), inline error alerts with dismiss controls, and success notifications so report generation status is always immediately clear.
+  - **Hardened API Error Responses**: Wrapped `event_algo_report_generate` in defensive try-except blocks that return structured JSON error payloads instead of unhandled 500 exceptions.
+- **Consolidated Navigation & Clutter Elimination**:
+  - Removed the redundant AI Configuration shortcut card from the bottom of Settings -> *AI Workflow Prompts*. Settings for the Event Strategy Engine AI tiers and audit cadence are now exclusively accessed via the dedicated `🤖 AI Configuration` button inside the Event Contract Strategy Engine card.
+- **Unit Test Coverage**:
+  - Added unit test `test_gather_event_strategy_audit_data_scanned_contracts` validating contract aggregation, scan metrics, and error boundary counting.
+
 ## v2.87.7 (September 2026)
 
 - **Event Strategy Engine Segregated 3-Tier AI Integration & Configuration Modal**:

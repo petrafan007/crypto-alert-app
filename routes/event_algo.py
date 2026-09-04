@@ -1,10 +1,13 @@
 """HTTP API for the paper-only Webull Event Contract strategy engine."""
 
 import json
+import logging
 from functools import wraps
 
 from flask import Blueprint, jsonify, request
 from flask_login import current_user, login_required
+
+logger = logging.getLogger(__name__)
 
 from core.extensions import db
 from event_algo import (
@@ -490,11 +493,18 @@ def event_algo_report_generate():
     except (TypeError, ValueError):
         hours = default_hours
     config = get_or_create_config(current_user.id)
-    report = generate_event_strategy_report(current_user.id, config=config, hours=hours, force=True)
-    history = list_event_strategy_reports(current_user.id, limit=20)
-    return jsonify({
-        "success": True,
-        "mode": PAPER_MODE,
-        "report": report_to_dict(report),
-        "history": [report_to_dict(r) for r in history],
-    })
+    try:
+        report = generate_event_strategy_report(current_user.id, config=config, hours=hours, force=True)
+        history = list_event_strategy_reports(current_user.id, limit=20)
+        return jsonify({
+            "success": True,
+            "mode": PAPER_MODE,
+            "report": report_to_dict(report),
+            "history": [report_to_dict(r) for r in history],
+        })
+    except Exception as exc:
+        logger.exception("Failed to generate event strategy audit report: %s", exc)
+        return jsonify({
+            "success": False,
+            "message": f"Unable to generate AI audit report: {exc}",
+        }), 500
