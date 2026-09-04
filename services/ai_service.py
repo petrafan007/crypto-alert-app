@@ -485,6 +485,8 @@ def call_ai_with_web_search(
     forecast_horizon_hours=None,
     attempt_observer=None,
     failover_history=None,
+    custom_tier_configs=None,
+    custom_api_keys=None,
 ):
     """
     AGENTIC AI WORKFLOW - 3-STAGE PROCESS WITH 3-TIER CASCADE FAILOVER:
@@ -527,7 +529,10 @@ def call_ai_with_web_search(
         
         # Fail over only through the tiers the user explicitly configured.
         # Provider keys outside this chain are never used implicitly.
-        tier_configs = build_configured_ai_tiers(user_ai_settings)
+        if custom_tier_configs:
+            tier_configs = list(custom_tier_configs)
+        else:
+            tier_configs = build_configured_ai_tiers(user_ai_settings)
 
         # Handle backward-compatible is_fallback_attempt flag
         if is_fallback_attempt and tier_index == 0:
@@ -556,9 +561,16 @@ def call_ai_with_web_search(
         )
 
         def _pick_key(p):
+            if custom_api_keys and isinstance(custom_api_keys, dict):
+                if (current_tier_name, p) in custom_api_keys:
+                    return custom_api_keys[(current_tier_name, p)]
+                if current_tier_name in custom_api_keys:
+                    return custom_api_keys[current_tier_name]
+                if p in custom_api_keys:
+                    return custom_api_keys[p]
             if current_tier_name == 'quartan':
                 return getattr(cred, f"{p}_key_quartan", None) or getattr(cred, f"{p}_key_tertiary", None) or getattr(cred, f"{p}_key_fallback", None) or getattr(cred, f"{p}_key", None)
-            if current_tier_name == 'tertiary':
+            elif current_tier_name == 'tertiary':
                 return getattr(cred, f"{p}_key_tertiary", None) or getattr(cred, f"{p}_key_fallback", None) or getattr(cred, f"{p}_key", None)
             elif current_tier_name == 'secondary':
                 return getattr(cred, f"{p}_key_fallback", None) or getattr(cred, f"{p}_key", None)
@@ -966,6 +978,8 @@ def call_ai_with_web_search(
                     forecast_horizon_hours=forecast_horizon_hours,
                     attempt_observer=attempt_observer,
                     failover_history=failover_history,
+                    custom_tier_configs=custom_tier_configs,
+                    custom_api_keys=custom_api_keys,
                 )
         raise
 

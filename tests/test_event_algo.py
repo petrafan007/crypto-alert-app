@@ -463,6 +463,59 @@ class EventAlgoTests(unittest.TestCase):
         self.assertEqual(_format_action_title("Monitorheartbeat"), "Monitor Heartbeat")
         self.assertEqual(_format_action_title("Noeligibledtrades"), "No Eligible Trades")
 
+    def test_default_event_ai_config_cascade(self):
+        from event_algo import (
+            DEFAULT_EVENT_AI_CONFIG,
+            get_event_strategy_ai_tiers_and_keys,
+            sanitize_event_ai_config,
+        )
+        # Default cascade: primary=gemini (3.8-flash), secondary=ollama (gpt-oss:120b-cloud), tertiary=ollama (qwen2.5:14b)
+        self.assertEqual(DEFAULT_EVENT_AI_CONFIG["primary"]["provider"], "gemini")
+        self.assertEqual(DEFAULT_EVENT_AI_CONFIG["primary"]["model"], "gemini-3.8-flash")
+        self.assertEqual(DEFAULT_EVENT_AI_CONFIG["secondary"]["provider"], "ollama")
+        self.assertEqual(DEFAULT_EVENT_AI_CONFIG["secondary"]["model"], "gpt-oss:120b-cloud")
+        self.assertEqual(DEFAULT_EVENT_AI_CONFIG["tertiary"]["provider"], "ollama")
+        self.assertEqual(DEFAULT_EVENT_AI_CONFIG["tertiary"]["model"], "qwen2.5:14b")
+
+        sanitized = sanitize_event_ai_config({})
+        self.assertEqual(sanitized["primary"]["model"], "gemini-3.8-flash")
+        self.assertEqual(sanitized["secondary"]["model"], "gpt-oss:120b-cloud")
+        self.assertEqual(sanitized["tertiary"]["model"], "qwen2.5:14b")
+        self.assertFalse(sanitized["primary"]["has_key"])
+
+    def test_update_config_persists_ai_config(self):
+        from event_algo import update_config, sanitize_event_ai_config
+        config = SimpleNamespace(user_id=1, ai_config="{}")
+        update_config(config, {
+            "ai_config": {
+                "primary": {"provider": "gemini", "model": "gemini-3.8-flash", "reasoning_level": "medium", "api_key": "test-gemini-key"},
+                "secondary": {"provider": "ollama", "model": "gpt-oss:120b-cloud", "reasoning_level": "medium", "api_key": ""},
+                "tertiary": {"provider": "ollama", "model": "qwen2.5:14b", "reasoning_level": "medium", "api_key": ""},
+            }
+        })
+        parsed = json.loads(config.ai_config)
+        self.assertEqual(parsed["primary"]["provider"], "gemini")
+        self.assertEqual(parsed["primary"]["model"], "gemini-3.8-flash")
+        self.assertEqual(parsed["secondary"]["model"], "gpt-oss:120b-cloud")
+        self.assertEqual(parsed["tertiary"]["model"], "qwen2.5:14b")
+        self.assertTrue(parsed["primary"]["api_key"])
+
+        sanitized = sanitize_event_ai_config(config.ai_config)
+        self.assertTrue(sanitized["primary"]["has_key"])
+        self.assertEqual(sanitized["primary"]["api_key"], "********")
+
+        # Second update preserving masked key
+        update_config(config, {
+            "ai_config": {
+                "primary": {"provider": "gemini", "model": "gemini-3.8-flash", "reasoning_level": "high", "api_key": "********"},
+                "secondary": {"provider": "ollama", "model": "gpt-oss:120b-cloud", "reasoning_level": "medium", "api_key": ""},
+                "tertiary": {"provider": "ollama", "model": "qwen2.5:14b", "reasoning_level": "medium", "api_key": ""},
+            }
+        })
+        parsed2 = json.loads(config.ai_config)
+        self.assertEqual(parsed2["primary"]["reasoning_level"], "high")
+        self.assertEqual(parsed2["primary"]["api_key"], parsed["primary"]["api_key"])
+
 
 if __name__ == '__main__':
     unittest.main()

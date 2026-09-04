@@ -37,7 +37,7 @@ from event_algo_models import (
 
 
 PAPER_MODE = "PAPER"
-ENGINE_VERSION = "2.87.6"
+ENGINE_VERSION = "2.87.7"
 MODEL_VERSION = "ai-fallback-v1"
 _EVENT_SYMBOL_MONTHS = {
     "JAN": 1, "FEB": 2, "MAR": 3, "APR": 4, "MAY": 5, "JUN": 6,
@@ -197,6 +197,93 @@ DEFAULT_SIGNAL_CONFIG = {
     },
     "signals_only": True,
 }
+DEFAULT_EVENT_AI_CONFIG = {
+    "primary": {
+        "provider": "gemini",
+        "model": "gemini-3.8-flash",
+        "reasoning_level": "medium",
+        "api_key": None,
+    },
+    "secondary": {
+        "provider": "ollama",
+        "model": "gpt-oss:120b-cloud",
+        "reasoning_level": "medium",
+        "api_key": None,
+    },
+    "tertiary": {
+        "provider": "ollama",
+        "model": "qwen2.5:14b",
+        "reasoning_level": "medium",
+        "api_key": None,
+    },
+}
+
+
+def sanitize_event_ai_config(raw_config):
+    """Return event AI config with masked api keys and has_key flags."""
+    raw = _json_load(raw_config, {}) if not isinstance(raw_config, dict) else raw_config
+    sanitized = {}
+    for tier_key in ("primary", "secondary", "tertiary"):
+        tier_data = raw.get(tier_key) if isinstance(raw.get(tier_key), dict) else {}
+        default_tier = DEFAULT_EVENT_AI_CONFIG.get(tier_key, {})
+        has_key = bool(tier_data.get("api_key"))
+        sanitized[tier_key] = {
+            "provider": str(tier_data.get("provider") or default_tier.get("provider") or "").strip().lower(),
+            "model": str(tier_data.get("model") or default_tier.get("model") or "").strip(),
+            "reasoning_level": str(tier_data.get("reasoning_level") or default_tier.get("reasoning_level") or "medium").strip().lower(),
+            "has_key": has_key,
+            "api_key": "********" if has_key else "",
+        }
+    return sanitized
+
+
+def get_event_strategy_ai_tiers_and_keys(config, user_id=None):
+    """Resolve custom tier configs and decrypted custom keys for the Event Strategy Engine."""
+    from credential_security import decrypt_secret
+    from credentials import Credential
+
+    raw_ai_config = _json_load(getattr(config, "ai_config", "{}"), {})
+    if not isinstance(raw_ai_config, dict) or not raw_ai_config:
+        raw_ai_config = DEFAULT_EVENT_AI_CONFIG
+
+    user_cred = None
+    if user_id:
+        try:
+            user_cred = Credential.query.filter_by(user_id=user_id).first()
+        except Exception:
+            user_cred = None
+
+    tier_configs = []
+    custom_api_keys = {}
+
+    for tier_name in ("primary", "secondary", "tertiary"):
+        tier_data = raw_ai_config.get(tier_name)
+        if not tier_data or not isinstance(tier_data, dict):
+            tier_data = DEFAULT_EVENT_AI_CONFIG.get(tier_name, {})
+
+        provider = str(tier_data.get("provider") or "").strip().lower()
+        model = str(tier_data.get("model") or "").strip()
+        reasoning = str(tier_data.get("reasoning_level") or "medium").strip().lower()
+        stored_key = tier_data.get("api_key")
+
+        if provider:
+            tier_configs.append((tier_name, provider, model, reasoning))
+            decrypted_key = None
+            if stored_key:
+                decrypted_key = decrypt_secret(stored_key)
+            # If no dedicated key set for this tier, fall back to user's global credential for this provider
+            if not decrypted_key and user_cred and provider != "ollama":
+                decrypted_key = (
+                    decrypt_secret(getattr(user_cred, f"_{provider}_key", None)) or
+                    decrypt_secret(getattr(user_cred, f"{provider}_key", None))
+                )
+            if decrypted_key:
+                custom_api_keys[tier_name] = decrypted_key
+                custom_api_keys[(tier_name, provider)] = decrypted_key
+
+    return tier_configs, custom_api_keys
+
+
 ALLOWED_DURATIONS = {
     "FIFTEEN_MINUTES", "HOURLY", "DAILY", "WEEKLY", "MONTHLY", "ANNUAL", "ONE_OFF", "CUSTOM",
 }
@@ -519,6 +606,7 @@ def _predict_event_market(user_id, market):
             },
         ]
         from services.ai_service import call_ai_with_web_search
+        custom_tier_configs, custom_api_keys = get_event_strategy_ai_tiers_and_keys(config, user_id)
 
         response, _ = call_ai_with_web_search(
             username=user.username,
@@ -530,6 +618,8 @@ def _predict_event_market(user_id, market):
             include_db_context=False,
             use_cache=False,
             search_lookback_hours=1,
+            custom_tier_configs=custom_tier_configs,
+            custom_api_keys=custom_api_keys,
         )
         content = getattr(response, "text", None) or ""
         parsed = parse_event_model_response(content)
@@ -638,7 +728,7 @@ def _response_text(response):
     return str(content or "")
 
 
-def _predict_event_markets_batch(user_id, markets, *, context_refresh_hours=1):
+def _predict_event_markets_batch(user_id, markets, *, context_refresh_hours=1, config=None):
     """Evaluate a bounded batch through the configured AI cascade."""
     markets = [market for market in (markets or []) if isinstance(market, dict)]
     if not markets:
@@ -698,6 +788,9 @@ def _predict_event_markets_batch(user_id, markets, *, context_refresh_hours=1):
             },
         ]
         from services.ai_service import call_ai_with_web_search
+        if config is None:
+            config = get_or_create_config(user_id)
+        custom_tier_configs, custom_api_keys = get_event_strategy_ai_tiers_and_keys(config, user_id)
         _record_ai_batch_call(user_id)
         response, _ = call_ai_with_web_search(
             username=user.username,
@@ -709,6 +802,8 @@ def _predict_event_markets_batch(user_id, markets, *, context_refresh_hours=1):
             include_db_context=False,
             use_cache=False,
             search_lookback_hours=max(1, min(168, int(_number(context_refresh_hours, 1) or 1))),
+            custom_tier_configs=custom_tier_configs,
+            custom_api_keys=custom_api_keys,
         )
         content = _response_text(response)
         parsed = parse_event_model_batch_response(content)
@@ -1023,6 +1118,7 @@ def default_config_for_user(user_id):
         "durations": ["FIFTEEN_MINUTES", "HOURLY"],
         "risk_config": dict(DEFAULT_RISK_CONFIG),
         "signal_config": dict(DEFAULT_SIGNAL_CONFIG),
+        "ai_config": json.loads(json.dumps(DEFAULT_EVENT_AI_CONFIG)),
         "kill_switch": False,
     }
 
@@ -1094,6 +1190,8 @@ def normalize_config_payload(payload, *, user_id):
     signal["signals_only"] = True
     result["risk_config"] = risk
     result["signal_config"] = signal
+    if "ai_config" in payload and isinstance(payload["ai_config"], dict):
+        result["ai_config"] = payload["ai_config"]
     result["enabled"] = bool(result["enabled"] and not result["kill_switch"])
     return result
 
@@ -1112,6 +1210,7 @@ def config_to_dict(config):
         "durations": _json_load(config.durations, []),
         "risk_config": _json_load(config.risk_config, {}),
         "signal_config": _json_load(config.signal_config, {}),
+        "ai_config": sanitize_event_ai_config(getattr(config, "ai_config", "{}")),
         "kill_switch": bool(config.kill_switch),
         "last_run_at": config.last_run_at.isoformat() if config.last_run_at else None,
         "updated_at": config.updated_at.isoformat() if config.updated_at else None,
@@ -1847,6 +1946,7 @@ def generate_event_strategy_report(user_id, config=None, hours=None, force=False
                     },
                 ]
 
+                custom_tier_configs, custom_api_keys = get_event_strategy_ai_tiers_and_keys(config, user_id)
                 response, _ = call_ai_with_web_search(
                     username=username,
                     user_id=user_id,
@@ -1857,6 +1957,8 @@ def generate_event_strategy_report(user_id, config=None, hours=None, force=False
                     include_db_context=False,
                     use_cache=False,
                     search_lookback_hours=max(1, min(168, hours)),
+                    custom_tier_configs=custom_tier_configs,
+                    custom_api_keys=custom_api_keys,
                 )
                 raw_text = getattr(response, "text", None) or ""
                 parsed = _parse_audit_report_json(raw_text)
@@ -1943,8 +2045,9 @@ def get_or_create_config(user_id):
         normalized_signal = normalize_config_payload({
             "signal_config": _json_load(config.signal_config, {}),
         }, user_id=user_id)["signal_config"]
-        if _json_dump(normalized_signal) != (config.signal_config or ""):
-            config.signal_config = _json_dump(normalized_signal)
+        # Ensure ai_config is seeded if empty
+        if not getattr(config, "ai_config", None) or str(config.ai_config).strip() in ("{}", ""):
+            config.ai_config = _json_dump(DEFAULT_EVENT_AI_CONFIG)
         return config
     defaults = default_config_for_user(user_id)
     config = EventStrategyConfig(
@@ -1959,6 +2062,7 @@ def get_or_create_config(user_id):
         durations=_json_dump(defaults["durations"]),
         risk_config=_json_dump(defaults["risk_config"]),
         signal_config=_json_dump(defaults["signal_config"]),
+        ai_config=_json_dump(defaults.get("ai_config") or DEFAULT_EVENT_AI_CONFIG),
         kill_switch=False,
     )
     db.session.add(config)
@@ -1978,6 +2082,28 @@ def update_config(config, payload):
     config.durations = _json_dump(normalized["durations"])
     config.risk_config = _json_dump(normalized["risk_config"])
     config.signal_config = _json_dump(normalized["signal_config"])
+    if "ai_config" in payload and isinstance(payload["ai_config"], dict):
+        existing_ai = _json_load(config.ai_config, {})
+        new_ai = payload["ai_config"]
+        from credential_security import encrypt_secret
+        merged_ai = {}
+        for tier in ("primary", "secondary", "tertiary"):
+            new_tier = new_ai.get(tier) or {}
+            old_tier = existing_ai.get(tier) or {}
+            raw_key = new_tier.get("api_key")
+            if raw_key == "********":
+                stored_key = old_tier.get("api_key")
+            elif raw_key and str(raw_key).strip():
+                stored_key = encrypt_secret(str(raw_key).strip())
+            else:
+                stored_key = None
+            merged_ai[tier] = {
+                "provider": str(new_tier.get("provider") or "").strip().lower(),
+                "model": str(new_tier.get("model") or "").strip(),
+                "reasoning_level": str(new_tier.get("reasoning_level") or "medium").strip().lower(),
+                "api_key": stored_key,
+            }
+        config.ai_config = _json_dump(merged_ai)
     config.kill_switch = normalized["kill_switch"]
     if config.kill_switch:
         config.enabled = False
@@ -2601,6 +2727,7 @@ def run_event_strategy_scan(user_id, *, config=None, force=False, worker_id="man
                         user_id,
                         batch,
                         context_refresh_hours=signal.get("ai_context_refresh_hours", DEFAULT_SIGNAL_CONFIG["ai_context_refresh_hours"]),
+                        config=config,
                     ))
             for market, duration in due_markets:
                 symbol = str(market.get("symbol") or "").upper()

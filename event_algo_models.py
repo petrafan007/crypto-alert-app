@@ -26,6 +26,7 @@ class EventStrategyConfig(db.Model):
     durations = db.Column(db.Text, default="[\"FIFTEEN_MINUTES\", \"HOURLY\"]", nullable=False)
     risk_config = db.Column(db.Text, default="{}", nullable=False)
     signal_config = db.Column(db.Text, default="{}", nullable=False)
+    ai_config = db.Column(db.Text, default="{}", nullable=False)
     kill_switch = db.Column(db.Boolean, default=False, nullable=False)
     last_run_at = db.Column(db.DateTime, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)

@@ -348,6 +348,21 @@ export default function Settings({ isLightMode }) {
   const [showEventStrategyReport, setShowEventStrategyReport] = useState(false);
   const [eventStrategyReportLoading, setEventStrategyReportLoading] = useState(false);
   const [eventStrategyReportGenerating, setEventStrategyReportGenerating] = useState(false);
+  const [showEventStrategyAIModal, setShowEventStrategyAIModal] = useState(false);
+  const [eventStrategyAIConfig, setEventStrategyAIConfig] = useState({
+    audit_hours: 6,
+    audit_prompt: '',
+    ai_config: {
+      primary: { provider: 'gemini', model: 'gemini-3.8-flash', reasoning_level: 'medium', api_key: '', has_key: false },
+      secondary: { provider: 'ollama', model: 'gpt-oss:120b-cloud', reasoning_level: 'medium', api_key: '', has_key: false },
+      tertiary: { provider: 'ollama', model: 'qwen2.5:14b', reasoning_level: 'medium', api_key: '', has_key: false },
+    }
+  });
+  const [eventStrategyAILoading, setEventStrategyAILoading] = useState(false);
+  const [eventStrategyAISaving, setEventStrategyAISaving] = useState(false);
+  const [eventStrategyAITesting, setEventStrategyAITesting] = useState({ primary: false, secondary: false, tertiary: false });
+  const [eventStrategyAITestResults, setEventStrategyAITestResults] = useState({ primary: null, secondary: null, tertiary: null });
+  const [showEventStrategyApiKey, setShowEventStrategyApiKey] = useState({ primary: false, secondary: false, tertiary: false });
   // Keep the duration draft in a ref as well as React state. This makes a
   // checkbox change available to Save immediately, even when the user clicks
   // Save before React has committed the next render.
@@ -560,6 +575,129 @@ export default function Settings({ isLightMode }) {
     } finally {
       setEventStrategyReportGenerating(false);
     }
+  };
+
+  const DEFAULT_EVENT_AUDIT_PROMPT =
+    'You are a principal quantitative trading auditor and AI reliability engineer. ' +
+    'Your task is to analyze telemetry, execution logs, and decision traces from an autonomous ' +
+    'paper-trading strategy worker operating on Webull Event Contracts over an observation window. ' +
+    'Evaluate whether the worker is performing properly, whether the collected market data is useful and complete, ' +
+    'whether any scans or quotes were missed, what errors or warnings occurred, and how decisions were formed. ' +
+    'Cite specific timestamps, contract symbols, reason codes, and log messages as concrete evidence. ' +
+    'Format your evaluation as a structured audit with executive verdict, detected operational issues, ' +
+    'telemetry summary, actionable tuning recommendations, and next steps.';
+
+  const loadEventStrategyAIConfig = async () => {
+    setEventStrategyAILoading(true);
+    try {
+      const response = await axios.get('/api/webull/event-algo/ai-config', { withCredentials: true });
+      if (response.data?.success) {
+        setEventStrategyAIConfig({
+          audit_hours: response.data.audit_hours ?? 6,
+          audit_prompt: response.data.audit_prompt || '',
+          ai_config: response.data.ai_config || {
+            primary: { provider: 'gemini', model: 'gemini-3.8-flash', reasoning_level: 'medium', api_key: '', has_key: false },
+            secondary: { provider: 'ollama', model: 'gpt-oss:120b-cloud', reasoning_level: 'medium', api_key: '', has_key: false },
+            tertiary: { provider: 'ollama', model: 'qwen2.5:14b', reasoning_level: 'medium', api_key: '', has_key: false },
+          },
+        });
+      }
+    } catch (err) {
+      console.error('Failed to load Event Strategy AI configuration:', err);
+    } finally {
+      setEventStrategyAILoading(false);
+    }
+  };
+
+  const openEventStrategyAIModal = () => {
+    setShowEventStrategyAIModal(true);
+    setEventStrategyAITestResults({ primary: null, secondary: null, tertiary: null });
+    loadEventStrategyAIConfig();
+  };
+
+  const saveEventStrategyAIConfig = async () => {
+    setEventStrategyAISaving(true);
+    try {
+      const response = await axios.post('/api/webull/event-algo/ai-config', eventStrategyAIConfig, { withCredentials: true });
+      if (response.data?.success) {
+        setEventStrategyMessage('Event Strategy AI configuration saved successfully.');
+        setSettings((prev) => ({
+          ...prev,
+          event_strategy_audit_hours: response.data.audit_hours,
+          event_strategy_audit_prompt: response.data.audit_prompt,
+        }));
+        setEventStrategyAIConfig((prev) => ({
+          ...prev,
+          audit_hours: response.data.audit_hours,
+          audit_prompt: response.data.audit_prompt,
+          ai_config: response.data.ai_config,
+        }));
+        setShowEventStrategyAIModal(false);
+      }
+    } catch (err) {
+      console.error('Failed to save Event Strategy AI config:', err);
+      alert(err.response?.data?.message || 'Failed to save AI configuration.');
+    } finally {
+      setEventStrategyAISaving(false);
+    }
+  };
+
+  const testEventStrategyAITier = async (tierKey) => {
+    setEventStrategyAITesting((prev) => ({ ...prev, [tierKey]: true }));
+    setEventStrategyAITestResults((prev) => ({ ...prev, [tierKey]: null }));
+    const tierData = eventStrategyAIConfig?.ai_config?.[tierKey] || {};
+    try {
+      const res = await axios.post('/api/webull/event-algo/ai-test', {
+        tier: tierKey,
+        provider: tierData.provider,
+        model: tierData.model,
+        reasoning_level: tierData.reasoning_level,
+        api_key: tierData.api_key,
+      }, { withCredentials: true });
+      setEventStrategyAITestResults((prev) => ({
+        ...prev,
+        [tierKey]: {
+          success: Boolean(res.data?.success),
+          message: res.data?.message || 'Connection successful!',
+        }
+      }));
+    } catch (err) {
+      setEventStrategyAITestResults((prev) => ({
+        ...prev,
+        [tierKey]: {
+          success: false,
+          message: err.response?.data?.message || err.message || 'Connection test failed',
+        }
+      }));
+    } finally {
+      setEventStrategyAITesting((prev) => ({ ...prev, [tierKey]: false }));
+    }
+  };
+
+  const updateEventStrategyAITierField = (tierKey, field, value) => {
+    setEventStrategyAIConfig((prev) => {
+      const currentTier = prev?.ai_config?.[tierKey] || {};
+      const updatedTier = { ...currentTier, [field]: value };
+      if (field === 'provider') {
+        const availableModels = modelOptions[value] || [];
+        if (availableModels.length > 0) {
+          updatedTier.model = availableModels[0].value;
+        } else if (value === 'gemini') {
+          updatedTier.model = 'gemini-3.8-flash';
+        } else if (value === 'ollama') {
+          updatedTier.model = tierKey === 'tertiary' ? 'qwen2.5:14b' : 'gpt-oss:120b-cloud';
+        } else if (value === 'openai') {
+          updatedTier.model = 'gpt-5.4-mini';
+        }
+      }
+      return {
+        ...prev,
+        ai_config: {
+          ...(prev?.ai_config || {}),
+          [tierKey]: updatedTier,
+        },
+      };
+    });
   };
 
   // Auto-resize all textareas when settings change
@@ -3822,70 +3960,27 @@ export default function Settings({ isLightMode }) {
               </div>
             </div>
 
-            {/* Event Contracts Strategy Engine AI Audit Prompt & Hours */}
-            <div style={{ background: '#1a1f23', padding: 16, borderRadius: 8, border: '1px solid #444', marginTop: 16 }}>
-              <h5 style={{ color: '#4fd1c5', marginBottom: 12, fontSize: '14px' }}>Event Contracts Strategy Engine AI Audit</h5>
-              <p style={{ color: '#a0a6b8', fontSize: '12px', marginBottom: 16, lineHeight: '1.4' }}>
-                Configure the autonomous evaluation cadence and auditor prompt used by the AI to evaluate worker execution cadence, quote data utility, decision rationale, error logs, and operational bottlenecks.
-              </p>
-              <div style={{ display: 'grid', gridTemplateColumns: '220px 1fr', gap: 16, alignItems: 'start' }}>
-                <div>
-                  <label style={{ display: 'block', marginBottom: 8, color: '#fff', fontSize: '12px', fontWeight: 600 }}>
-                    Audit Interval (Hours)
-                  </label>
-                  <input
-                    type="number"
-                    min="1"
-                    max="72"
-                    step="1"
-                    value={settings.event_strategy_audit_hours || 6}
-                    onChange={(e) => handleInputChange('event_strategy_audit_hours', parseInt(e.target.value) || 6)}
-                    style={{
-                      width: '100%',
-                      padding: '8px 12px',
-                      borderRadius: 6,
-                      background: '#232b31',
-                      color: '#fff',
-                      border: '1px solid #555',
-                      boxSizing: 'border-box',
-                      fontSize: '13px'
-                    }}
-                  />
-                  <span style={{ fontSize: '11px', color: '#94a3b8', marginTop: 6, display: 'block', lineHeight: '1.4' }}>
-                    Cadence for autonomous operational evaluations (Default: 6 hours, e.g. 4, 6, 8, 12, 24).
-                  </span>
-                </div>
-                <div>
-                  <label style={{ display: 'block', marginBottom: 8, color: '#fff', fontSize: '12px', fontWeight: 600 }}>
-                    Auditor System Prompt
-                  </label>
-                  <textarea
-                    value={settings.event_strategy_audit_prompt || ''}
-                    onChange={(e) => {
-                      handleInputChange('event_strategy_audit_prompt', e.target.value);
-                      autoResizeTextarea(e.target);
-                    }}
-                    onInput={(e) => autoResizeTextarea(e.target)}
-                    placeholder="e.g. You are a principal quantitative trading auditor and AI reliability engineer..."
-                    style={{
-                      width: '100%',
-                      padding: '8px 12px',
-                      borderRadius: 6,
-                      background: '#232b31',
-                      color: '#fff',
-                      border: '1px solid #555',
-                      boxSizing: 'border-box',
-                      resize: 'vertical',
-                      fontSize: '12px',
-                      minHeight: '88px',
-                      lineHeight: '1.5'
-                    }}
-                  />
-                  <span style={{ fontSize: '11px', color: '#94a3b8', marginTop: 4, display: 'block' }}>
-                    Guides the AI model's analytical persona, issue severity classification, telemetry inspection, and actionable tuning recommendations.
-                  </span>
-                </div>
+            {/* Event Contracts Strategy Engine AI Audit & Integrations Consolidated Card */}
+            <div style={{ background: isLightMode ? '#f8fafc' : '#1a1f23', padding: 18, borderRadius: 8, border: '1px solid rgba(56, 189, 248, 0.3)', marginTop: 16, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 16 }}>
+              <div>
+                <h5 style={{ color: '#38bdf8', margin: '0 0 6px 0', fontSize: '14px', display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span>📊</span> Event Strategy Engine AI Audit & Model Tiers
+                </h5>
+                <p style={{ color: isLightMode ? '#64748b' : '#94a3b8', fontSize: '12px', margin: 0, lineHeight: 1.45 }}>
+                  The Auditor System Prompt, Audit Interval Hours, and dedicated 3-Tier AI Integration cascade (Primary, Secondary, Tertiary) are consolidated inside the Event Contract Strategy Engine AI Configuration modal.
+                </p>
               </div>
+              <button
+                type="button"
+                className="settings-action-button"
+                onClick={() => {
+                  setActiveTab('event-strategy');
+                  openEventStrategyAIModal();
+                }}
+                style={{ whiteSpace: 'nowrap', padding: '8px 16px', fontSize: '13px', display: 'flex', alignItems: 'center', gap: 6 }}
+              >
+                <span>🤖</span> Configure AI & Audit
+              </button>
             </div>
           </div>
         </div>
@@ -4096,6 +4191,7 @@ export default function Settings({ isLightMode }) {
                   <button type="button" className="settings-action-button" disabled={eventStrategyBusy} onClick={() => eventStrategyAction('scan')}>🔎 Scan now</button>
                   <button type="button" className="settings-action-button" disabled={eventStrategyBusy} onClick={loadEventStrategyLogs}>📜 View logs</button>
                   <button type="button" className="settings-action-button" disabled={eventStrategyBusy || eventStrategyReportLoading} onClick={() => loadEventStrategyReport()}>📊 View Report</button>
+                  <button type="button" className="settings-action-button" disabled={eventStrategyBusy} onClick={openEventStrategyAIModal}>🤖 AI Configuration</button>
                   <button type="button" className="settings-danger-button" disabled={eventStrategyBusy || eventStrategyConfig.kill_switch} onClick={() => eventStrategyAction('kill-switch')}>⛔ Kill switch</button>
                 </div>
 
@@ -4321,6 +4417,477 @@ export default function Settings({ isLightMode }) {
                   </div>
                 </div>
               )}
+            </div>
+          </div>
+        </div>,
+        document.body,
+      )}
+
+      {/* Event Strategy AI Configuration Modal */}
+      {showEventStrategyAIModal && createPortal(
+        <div role="dialog" aria-modal="true" style={{ position: 'fixed', inset: 0, zIndex: 10000, background: 'rgba(0,0,0,0.78)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20, backdropFilter: 'blur(4px)' }}>
+          <div style={{ width: 'min(1060px, 96vw)', maxHeight: '90vh', overflow: 'hidden', borderRadius: 14, background: isLightMode ? '#ffffff' : '#0f172a', color: isLightMode ? '#1a202c' : '#e2e8f0', border: '1px solid #38bdf8', display: 'flex', flexDirection: 'column', boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.7)' }}>
+            {/* Modal Header */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 24px', borderBottom: '1px solid rgba(148,163,184,0.2)', background: isLightMode ? '#f8fafc' : 'rgba(255,255,255,0.02)' }}>
+              <div>
+                <h3 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: 10, fontSize: '1.25rem', color: isLightMode ? '#0f172a' : '#f8fafc' }}>
+                  <span>🤖</span> Event Contract Strategy Engine AI Configuration
+                </h3>
+                <div style={{ fontSize: '0.82rem', color: isLightMode ? '#64748b' : '#94a3b8', marginTop: 4 }}>
+                  Dedicated 3-tier AI integration cascade, isolated API credentials, and autonomous operational audit controls.
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowEventStrategyAIModal(false)}
+                aria-label="Close AI configuration"
+                style={{ background: 'none', border: 'none', color: isLightMode ? '#64748b' : '#94a3b8', fontSize: 22, cursor: 'pointer', padding: '4px 8px', borderRadius: 6 }}
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div style={{ overflowY: 'auto', padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: 22 }}>
+              {eventStrategyAILoading ? (
+                <div style={{ textAlign: 'center', padding: '40px 0', color: isLightMode ? '#64748b' : '#94a3b8' }}>
+                  Loading AI configuration...
+                </div>
+              ) : (
+                <>
+                  {/* TOP SECTION: Autonomous Operational Audit Controls */}
+                  <div style={{
+                    padding: 18,
+                    borderRadius: 10,
+                    background: isLightMode ? '#f8fafc' : 'rgba(15, 23, 42, 0.65)',
+                    border: '1px solid rgba(56, 189, 248, 0.25)',
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <span style={{ fontSize: '1.2rem' }}>📊</span>
+                        <h4 style={{ margin: 0, fontSize: '1rem', color: isLightMode ? '#0f172a' : '#38bdf8' }}>
+                          Autonomous Operational Audit Controls
+                        </h4>
+                      </div>
+                      <span style={{
+                        fontSize: '0.75rem',
+                        fontWeight: 600,
+                        padding: '2px 8px',
+                        borderRadius: 12,
+                        background: 'rgba(56, 189, 248, 0.15)',
+                        border: '1px solid #38bdf8',
+                        color: '#38bdf8'
+                      }}>
+                        Autonomous Auditing
+                      </span>
+                    </div>
+                    <p style={{ fontSize: '0.82rem', color: isLightMode ? '#475569' : '#94a3b8', margin: '0 0 16px 0', lineHeight: 1.45 }}>
+                      Governs the autonomous evaluation cadence and system prompt used by the AI auditor to inspect worker cadence, quote data utility, decision calibration, error logs, and operational tuning recommendations.
+                    </p>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 16, alignItems: 'start' }}>
+                      <div style={{ maxWidth: 280 }}>
+                        <label style={{ display: 'block', marginBottom: 8, fontSize: '12px', fontWeight: 600, color: isLightMode ? '#334155' : '#e2e8f0' }}>
+                          Audit Interval (Hours)
+                        </label>
+                        <input
+                          type="number"
+                          min="1"
+                          max="72"
+                          step="1"
+                          value={eventStrategyAIConfig.audit_hours || 6}
+                          onChange={(e) => setEventStrategyAIConfig((prev) => ({
+                            ...prev,
+                            audit_hours: parseInt(e.target.value) || 6,
+                          }))}
+                          style={{
+                            width: '100%',
+                            padding: '8px 12px',
+                            borderRadius: 6,
+                            background: isLightMode ? '#ffffff' : '#1e293b',
+                            color: isLightMode ? '#0f172a' : '#ffffff',
+                            border: '1px solid rgba(148,163,184,0.3)',
+                            boxSizing: 'border-box',
+                            fontSize: '13px'
+                          }}
+                        />
+                        <span style={{ fontSize: '11px', color: isLightMode ? '#64748b' : '#94a3b8', marginTop: 6, display: 'block', lineHeight: 1.4 }}>
+                          Cadence for autonomous evaluations (Default: 6 hours, e.g. 4, 6, 8, 12, 24).
+                        </span>
+                      </div>
+
+                      <div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                          <label style={{ fontSize: '12px', fontWeight: 600, color: isLightMode ? '#334155' : '#e2e8f0' }}>
+                            Auditor System Prompt
+                          </label>
+                          <button
+                            type="button"
+                            onClick={() => setEventStrategyAIConfig((prev) => ({
+                              ...prev,
+                              audit_prompt: DEFAULT_EVENT_AUDIT_PROMPT,
+                            }))}
+                            style={{
+                              background: 'none',
+                              border: 'none',
+                              color: '#38bdf8',
+                              fontSize: '11px',
+                              cursor: 'pointer',
+                              padding: 0,
+                              textDecoration: 'underline'
+                            }}
+                          >
+                            ↺ Reset to Default
+                          </button>
+                        </div>
+                        <textarea
+                          value={eventStrategyAIConfig.audit_prompt || ''}
+                          onChange={(e) => {
+                            setEventStrategyAIConfig((prev) => ({
+                              ...prev,
+                              audit_prompt: e.target.value,
+                            }));
+                            autoResizeTextarea(e.target);
+                          }}
+                          onInput={(e) => autoResizeTextarea(e.target)}
+                          placeholder="e.g. You are a principal quantitative trading auditor and AI reliability engineer..."
+                          style={{
+                            width: '100%',
+                            padding: '8px 12px',
+                            borderRadius: 6,
+                            background: isLightMode ? '#ffffff' : '#1e293b',
+                            color: isLightMode ? '#0f172a' : '#ffffff',
+                            border: '1px solid rgba(148,163,184,0.3)',
+                            boxSizing: 'border-box',
+                            resize: 'vertical',
+                            fontSize: '12px',
+                            minHeight: '84px',
+                            lineHeight: 1.45
+                          }}
+                        />
+                        <span style={{ fontSize: '11px', color: isLightMode ? '#64748b' : '#94a3b8', marginTop: 4, display: 'block' }}>
+                          Guides the AI model's analytical persona, issue severity classification, telemetry inspection, and actionable tuning recommendations.
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* BOTTOM SECTION: Segregated 3-Tier AI Integration */}
+                  <div>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, flexWrap: 'wrap', gap: 8 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <span style={{ fontSize: '1.2rem' }}>🧠</span>
+                        <h4 style={{ margin: 0, fontSize: '1rem', color: isLightMode ? '#0f172a' : '#f8fafc' }}>
+                          Segregated 3-Tier AI Integration
+                        </h4>
+                      </div>
+                      <span style={{
+                        fontSize: '0.75rem',
+                        fontWeight: 600,
+                        padding: '2px 8px',
+                        borderRadius: 12,
+                        background: 'rgba(34, 197, 94, 0.15)',
+                        border: '1px solid #22c55e',
+                        color: '#4ade80'
+                      }}>
+                        Dedicated Engine Cascade
+                      </span>
+                    </div>
+
+                    <div style={{
+                      padding: '10px 14px',
+                      borderRadius: 8,
+                      background: isLightMode ? '#eff6ff' : 'rgba(59, 130, 246, 0.1)',
+                      border: '1px solid rgba(59, 130, 246, 0.25)',
+                      fontSize: '0.8rem',
+                      color: isLightMode ? '#1e40af' : '#93c5fd',
+                      marginBottom: 16,
+                      lineHeight: 1.45
+                    }}>
+                      🛡️ <strong>Complete Isolation:</strong> This 3-tier cascade and its dedicated API keys are used exclusively by the Event Contract Strategy Engine (market probability estimations, batched scanning, and autonomous audits). Global Copilot, Portfolio Review, and Watchlist Sentiment remain completely separate and unaffected.
+                    </div>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(310px, 1fr))', gap: 16 }}>
+                      {/* Tier Renderer Helper */}
+                      {[
+                        { key: 'primary', label: 'Primary AI Integration', badge: 'Tier 1' },
+                        { key: 'secondary', label: 'Secondary AI Integration', badge: 'Tier 2 (Failover)' },
+                        { key: 'tertiary', label: 'Tertiary AI Integration', badge: 'Tier 3 (Failover)' },
+                      ].map(({ key: tierKey, label: tierLabel, badge: tierBadge }) => {
+                        const tier = eventStrategyAIConfig?.ai_config?.[tierKey] || {};
+                        const provider = tier.provider || (tierKey === 'primary' ? 'gemini' : 'ollama');
+                        const model = tier.model || '';
+                        const reasoningLevel = tier.reasoning_level || 'medium';
+                        const isOllama = provider === 'ollama';
+                        const isTesting = Boolean(eventStrategyAITesting[tierKey]);
+                        const testResult = eventStrategyAITestResults[tierKey];
+                        const showKey = Boolean(showEventStrategyApiKey[tierKey]);
+
+                        return (
+                          <div
+                            key={tierKey}
+                            style={{
+                              padding: 16,
+                              borderRadius: 10,
+                              background: isLightMode ? '#f8fafc' : 'rgba(15, 23, 42, 0.65)',
+                              border: '1px solid rgba(148, 163, 184, 0.2)',
+                              display: 'flex',
+                              flexDirection: 'column',
+                              gap: 12,
+                            }}
+                          >
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                              <h5 style={{ margin: 0, fontSize: '0.92rem', color: isLightMode ? '#1e293b' : '#f1f5f9', fontWeight: 600 }}>
+                                {tierLabel}
+                              </h5>
+                              <span style={{
+                                fontSize: '0.7rem',
+                                fontWeight: 700,
+                                padding: '1px 6px',
+                                borderRadius: 10,
+                                background: isLightMode ? '#e2e8f0' : 'rgba(255,255,255,0.08)',
+                                color: isLightMode ? '#475569' : '#94a3b8',
+                              }}>
+                                {tierBadge}
+                              </span>
+                            </div>
+
+                            {/* Provider Select */}
+                            <div>
+                              <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: isLightMode ? '#475569' : '#94a3b8', marginBottom: 4 }}>
+                                AI Provider
+                              </label>
+                              <select
+                                value={provider}
+                                onChange={(e) => updateEventStrategyAITierField(tierKey, 'provider', e.target.value)}
+                                style={{
+                                  width: '100%',
+                                  padding: '7px 10px',
+                                  borderRadius: 6,
+                                  background: isLightMode ? '#ffffff' : '#1e293b',
+                                  color: isLightMode ? '#0f172a' : '#ffffff',
+                                  border: '1px solid rgba(148,163,184,0.3)',
+                                  fontSize: '12px'
+                                }}
+                              >
+                                <option value="gemini">Gemini</option>
+                                <option value="openai">OpenAI</option>
+                                <option value="zai">Z.AI</option>
+                                <option value="perplexity">Perplexity</option>
+                                <option value="inception">Inception Labs</option>
+                                {isEventStrategyAdmin && <option value="ollama">Ollama (local)</option>}
+                              </select>
+                            </div>
+
+                            {/* Model Select */}
+                            <div>
+                              <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: isLightMode ? '#475569' : '#94a3b8', marginBottom: 4 }}>
+                                Model
+                              </label>
+                              <select
+                                value={model}
+                                onChange={(e) => updateEventStrategyAITierField(tierKey, 'model', e.target.value)}
+                                style={{
+                                  width: '100%',
+                                  padding: '7px 10px',
+                                  borderRadius: 6,
+                                  background: isLightMode ? '#ffffff' : '#1e293b',
+                                  color: isLightMode ? '#0f172a' : '#ffffff',
+                                  border: '1px solid rgba(148,163,184,0.3)',
+                                  fontSize: '12px'
+                                }}
+                              >
+                                {(modelOptions[provider] || []).length > 0 ? (
+                                  (modelOptions[provider] || []).map((opt) => (
+                                    <option key={opt.value} value={opt.value}>{opt.label}</option>
+                                  ))
+                                ) : (
+                                  <>
+                                    {provider === 'gemini' && <option value="gemini-3.8-flash">Gemini 3.8 Flash</option>}
+                                    {provider === 'gemini' && <option value="gemini-3.7-flash">Gemini 3.7 Flash</option>}
+                                    {provider === 'ollama' && <option value="gpt-oss:120b-cloud">gpt-oss:120b-cloud</option>}
+                                    {provider === 'ollama' && <option value="qwen2.5:14b">qwen2.5:14b</option>}
+                                    {provider === 'openai' && <option value="gpt-5.4-mini">5.4 mini</option>}
+                                    {provider === 'openai' && <option value="gpt-5.4">5.4</option>}
+                                    {provider === 'zai' && <option value="glm-4.5-flash">GLM-4.5 Flash</option>}
+                                    {provider === 'perplexity' && <option value="sonar">Sonar</option>}
+                                    {provider === 'inception' && <option value="mercury-2">Mercury 2</option>}
+                                  </>
+                                )}
+                              </select>
+                            </div>
+
+                            {/* Reasoning Level (Gemini & OpenAI) */}
+                            {['gemini', 'openai'].includes(provider) && (
+                              <div>
+                                <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: isLightMode ? '#475569' : '#94a3b8', marginBottom: 4 }}>
+                                  Reasoning Effort
+                                </label>
+                                <select
+                                  value={reasoningLevel}
+                                  onChange={(e) => updateEventStrategyAITierField(tierKey, 'reasoning_level', e.target.value)}
+                                  style={{
+                                    width: '100%',
+                                    padding: '7px 10px',
+                                    borderRadius: 6,
+                                    background: isLightMode ? '#ffffff' : '#1e293b',
+                                    color: isLightMode ? '#0f172a' : '#ffffff',
+                                    border: '1px solid rgba(148,163,184,0.3)',
+                                    fontSize: '12px'
+                                  }}
+                                >
+                                  <option value="light">Light</option>
+                                  <option value="medium">Medium</option>
+                                  <option value="high">High</option>
+                                  <option value="extra high">Extra High</option>
+                                </select>
+                              </div>
+                            )}
+
+                            {/* API Key Input */}
+                            {!isOllama ? (
+                              <div>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                                  <label style={{ fontSize: '11px', fontWeight: 600, color: isLightMode ? '#475569' : '#94a3b8' }}>
+                                    Dedicated API Key
+                                  </label>
+                                  {tier.has_key && (
+                                    <span style={{ fontSize: '10px', color: '#4ade80', fontWeight: 600 }}>
+                                      ✓ Key Configured
+                                    </span>
+                                  )}
+                                </div>
+                                <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                                  <input
+                                    type={showKey ? 'text' : 'password'}
+                                    value={tier.api_key || ''}
+                                    onChange={(e) => updateEventStrategyAITierField(tierKey, 'api_key', e.target.value)}
+                                    placeholder={tier.has_key ? '•••••••••••• (Saved)' : `Enter dedicated ${provider.toUpperCase()} API key`}
+                                    style={{
+                                      width: '100%',
+                                      padding: '7px 32px 7px 10px',
+                                      borderRadius: 6,
+                                      background: isLightMode ? '#ffffff' : '#1e293b',
+                                      color: isLightMode ? '#0f172a' : '#ffffff',
+                                      border: '1px solid rgba(148,163,184,0.3)',
+                                      fontSize: '12px',
+                                      boxSizing: 'border-box'
+                                    }}
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={() => setShowEventStrategyApiKey((prev) => ({ ...prev, [tierKey]: !prev[tierKey] }))}
+                                    style={{
+                                      position: 'absolute',
+                                      right: 8,
+                                      background: 'none',
+                                      border: 'none',
+                                      color: isLightMode ? '#64748b' : '#94a3b8',
+                                      cursor: 'pointer',
+                                      padding: 0,
+                                      fontSize: '14px'
+                                    }}
+                                  >
+                                    {showKey ? '🙈' : '👁️'}
+                                  </button>
+                                </div>
+                                <span style={{ fontSize: '10px', color: isLightMode ? '#64748b' : '#94a3b8', marginTop: 4, display: 'block' }}>
+                                  Dedicated to this tier. Blank falls back to your global project key.
+                                </span>
+                              </div>
+                            ) : (
+                              <div style={{
+                                padding: '8px 10px',
+                                borderRadius: 6,
+                                background: isLightMode ? '#f1f5f9' : 'rgba(255,255,255,0.04)',
+                                border: '1px dashed rgba(148,163,184,0.25)',
+                                fontSize: '11px',
+                                color: isLightMode ? '#64748b' : '#94a3b8',
+                                lineHeight: 1.4
+                              }}>
+                                🖥️ Ollama runs locally on this system. Models execute directly without requiring an API key.
+                              </div>
+                            )}
+
+                            {/* Test API Connection button */}
+                            <div style={{ marginTop: 'auto', paddingTop: 8 }}>
+                              <button
+                                type="button"
+                                onClick={() => testEventStrategyAITier(tierKey)}
+                                disabled={isTesting || !provider}
+                                style={{
+                                  width: '100%',
+                                  padding: '6px 12px',
+                                  fontSize: '11px',
+                                  fontWeight: 600,
+                                  borderRadius: 6,
+                                  border: '1px solid rgba(56, 189, 248, 0.4)',
+                                  background: isTesting ? 'rgba(56, 189, 248, 0.1)' : 'rgba(56, 189, 248, 0.15)',
+                                  color: '#38bdf8',
+                                  cursor: isTesting ? 'not-allowed' : 'pointer',
+                                  transition: 'all 0.15s ease'
+                                }}
+                              >
+                                {isTesting ? 'Testing Connection...' : '⚡ Test API Connection'}
+                              </button>
+                              {testResult && (
+                                <div style={{
+                                  marginTop: 6,
+                                  padding: '5px 8px',
+                                  borderRadius: 5,
+                                  fontSize: '11px',
+                                  lineHeight: 1.3,
+                                  background: testResult.success ? 'rgba(34, 197, 94, 0.15)' : 'rgba(239, 68, 68, 0.15)',
+                                  border: `1px solid ${testResult.success ? '#22c55e' : '#ef4444'}`,
+                                  color: testResult.success ? '#4ade80' : '#f87171',
+                                }}>
+                                  {testResult.message}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            <div style={{
+              display: 'flex',
+              justifyContent: 'flex-end',
+              alignItems: 'center',
+              gap: 12,
+              padding: '14px 24px',
+              borderTop: '1px solid rgba(148,163,184,0.2)',
+              background: isLightMode ? '#f8fafc' : 'rgba(255,255,255,0.02)'
+            }}>
+              <button
+                type="button"
+                onClick={() => setShowEventStrategyAIModal(false)}
+                style={{
+                  padding: '8px 16px',
+                  borderRadius: 6,
+                  border: '1px solid rgba(148,163,184,0.3)',
+                  background: 'transparent',
+                  color: isLightMode ? '#475569' : '#cbd5e1',
+                  fontSize: '13px',
+                  cursor: 'pointer'
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="settings-save-button"
+                disabled={eventStrategyAISaving}
+                onClick={saveEventStrategyAIConfig}
+                style={{ padding: '8px 20px', fontSize: '13px', fontWeight: 600 }}
+              >
+                {eventStrategyAISaving ? 'Saving...' : '💾 Save AI Configuration'}
+              </button>
             </div>
           </div>
         </div>,

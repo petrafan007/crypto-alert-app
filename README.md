@@ -6,6 +6,17 @@
 
 **Last Updated**: September 2026
 
+## v2.87.7 (September 2026)
+
+- **Event Strategy Engine Segregated 3-Tier AI Integration & Configuration Modal**:
+  - Added a dedicated `🤖 AI Configuration` button to the Event Contract Strategy Engine action bar in Settings.
+  - Implemented an interactive AI configuration modal with glassmorphic aesthetics:
+    - **Consolidated AI Audit Controls (Top Section)**: Unified the operational audit cadence controls (`Audit Interval (Hours)` from 1 to 72 hours) and the custom `Auditor System Prompt` textarea with a 1-click `↺ Reset to Default` button. Replaced redundant input cards in Settings -> AI Workflow Prompts with a clean direct link card.
+    - **Segregated 3-Tier AI Integration (Bottom Section)**: Implemented complete engine-level AI isolation with a 3-tier cascade (Primary, Secondary, Tertiary). Each tier supports provider selection (`gemini`, `openai`, `zai`, `perplexity`, `inception`, `ollama`), provider-filtered model options, reasoning effort levels (`light`, `medium`, `high`, `extra high`), dedicated per-tier encrypted API keys (with show/hide eye toggle and saved indicators), and instant `⚡ Test API Connection` verification.
+  - **Local Model Library Expansion**: Downloaded and registered the recommended `qwen2.5:14b` model (9.0 GB) in local Ollama to serve as a fast, high-accuracy CPU reasoning tier without schema drift or `<think>` token bloat.
+  - **Default Resilient Cascade**: Configured default tiers to Primary: `gemini` / `gemini-3.8-flash` (using dedicated project credentials), Secondary: `ollama` / `gpt-oss:120b-cloud`, and Tertiary: `ollama` / `qwen2.5:14b`.
+  - **Complete Architectural Isolation**: Dedicated keys and tiers are passed exclusively to strategy evaluations, batched contract predictions, and autonomous audit reports. Global AI settings and credentials for Copilot, Portfolio Review, and Watchlist Sentiment remain 100% segregated and unaffected.
+
 ## v2.87.6 (September 2026)
 
 - **Event Strategy Engine AI Audit Tuning & Operational Hardening**:

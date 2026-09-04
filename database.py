@@ -167,6 +167,7 @@ def init_db(app=None):
             ("event_strategy_runs", "diagnostics_json", "TEXT DEFAULT '[]'"),
             ("event_strategy_orders", "realized_pnl", "FLOAT DEFAULT 0.0"),
             ("event_strategy_orders", "settled_at", "TIMESTAMP"),
+            ("event_strategy_configs", "ai_config", "TEXT DEFAULT '{}'"),
         ]
         for table, col, col_type in columns_to_ensure:
             try:

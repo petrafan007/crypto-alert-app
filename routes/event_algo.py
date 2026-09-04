@@ -24,8 +24,13 @@ from event_algo import (
     run_event_strategy_scan,
     simulate_paper_fills,
     update_config,
+    DEFAULT_AUDIT_SYSTEM_PROMPT,
+    DEFAULT_EVENT_AI_CONFIG,
+    sanitize_event_ai_config,
+    _json_load,
+    _json_dump,
 )
-from credentials import UserSetting
+from credentials import Credential, UserSetting
 from event_algo_models import EventStrategyDecision, EventStrategyRun
 
 
@@ -127,6 +132,168 @@ def event_algo_config():
     else:
         db.session.commit()
     return jsonify({"success": True, "config": config_to_dict(config)})
+
+
+@event_algo_bp.route("/api/webull/event-algo/ai-config", methods=["GET", "POST"])
+@event_strategy_admin_required
+def event_algo_ai_config():
+    config = get_or_create_config(current_user.id)
+    user_setting = UserSetting.query.filter_by(user_id=current_user.id).first()
+
+    if request.method == "POST":
+        payload = request.get_json(silent=True) or {}
+        # 1. Update Audit Settings
+        if "audit_hours" in payload and user_setting:
+            try:
+                user_setting.event_strategy_audit_hours = max(1, min(72, int(payload["audit_hours"])))
+            except (TypeError, ValueError):
+                pass
+        if "audit_prompt" in payload and user_setting:
+            user_setting.event_strategy_audit_prompt = str(payload["audit_prompt"] or "").strip()
+
+        # 2. Update AI Config (Primary, Secondary, Tertiary)
+        if "ai_config" in payload and isinstance(payload["ai_config"], dict):
+            existing_ai = _json_load(config.ai_config, {})
+            new_ai = payload["ai_config"]
+            from credential_security import encrypt_secret
+            merged_ai = {}
+            for tier in ("primary", "secondary", "tertiary"):
+                new_tier = new_ai.get(tier) or {}
+                old_tier = existing_ai.get(tier) or {}
+                raw_key = new_tier.get("api_key")
+                if raw_key == "********":
+                    stored_key = old_tier.get("api_key")
+                elif raw_key and str(raw_key).strip():
+                    stored_key = encrypt_secret(str(raw_key).strip())
+                else:
+                    stored_key = None
+                merged_ai[tier] = {
+                    "provider": str(new_tier.get("provider") or "").strip().lower(),
+                    "model": str(new_tier.get("model") or "").strip(),
+                    "reasoning_level": str(new_tier.get("reasoning_level") or "medium").strip().lower(),
+                    "api_key": stored_key,
+                }
+            config.ai_config = _json_dump(merged_ai)
+
+        _record_engine_log(
+            current_user.id,
+            "AI_CONFIG_UPDATED",
+            "Event Strategy Engine AI configuration and audit controls updated.",
+            config_id=config.id,
+        )
+        db.session.commit()
+
+    audit_hours = getattr(user_setting, "event_strategy_audit_hours", 6) if user_setting else 6
+    audit_prompt = getattr(user_setting, "event_strategy_audit_prompt", None) if user_setting else None
+    if not audit_prompt:
+        audit_prompt = DEFAULT_AUDIT_SYSTEM_PROMPT
+
+    return jsonify({
+        "success": True,
+        "audit_hours": audit_hours,
+        "audit_prompt": audit_prompt,
+        "ai_config": sanitize_event_ai_config(getattr(config, "ai_config", "{}")),
+    })
+
+
+@event_algo_bp.route("/api/webull/event-algo/ai-test", methods=["POST"])
+@event_strategy_admin_required
+def event_algo_ai_test():
+    payload = request.get_json(silent=True) or {}
+    provider = str(payload.get("provider") or "").strip().lower()
+    model = str(payload.get("model") or "").strip()
+    tier = str(payload.get("tier") or "primary").strip().lower()
+    reasoning_level = str(payload.get("reasoning_level") or "medium").strip().lower()
+    api_key = payload.get("api_key")
+
+    if not provider:
+        return jsonify({"success": False, "message": "AI provider is required"}), 400
+
+    # If api_key is masked or omitted, check saved event config or global credentials
+    if not api_key or api_key == "********":
+        config = get_or_create_config(current_user.id)
+        raw_ai = _json_load(config.ai_config, {})
+        tier_data = raw_ai.get(tier) or {}
+        from credential_security import decrypt_secret
+        if tier_data.get("api_key"):
+            api_key = decrypt_secret(tier_data["api_key"])
+        if not api_key:
+            cred = Credential.query.filter_by(user_id=current_user.id).first()
+            if cred and provider != "ollama":
+                api_key = (
+                    decrypt_secret(getattr(cred, f"_{provider}_key", None)) or
+                    decrypt_secret(getattr(cred, f"{provider}_key", None))
+                )
+
+    import requests
+    if provider == "ollama":
+        if not is_event_strategy_admin(current_user):
+            return jsonify({"success": False, "message": "Ollama is restricted to the administrator account."}), 403
+        try:
+            from services.ai_service import call_ollama_chat
+            test_model = model or "gpt-oss:120b-cloud"
+            call_ollama_chat(
+                test_model,
+                [{"role": "user", "content": "Reply with exactly OK."}],
+                max_tokens=32,
+                timeout=30,
+                reasoning_level=reasoning_level,
+            )
+            return jsonify({"success": True, "message": f"Ollama connection OK ({test_model})"})
+        except Exception as exc:
+            return jsonify({"success": False, "message": f"Ollama error: {exc}"}), 400
+
+    if not api_key:
+        return jsonify({"success": False, "message": f"API key is required for {provider.upper()}"}), 400
+
+    try:
+        if provider == "gemini":
+            test_model = model or "gemini-3.8-flash"
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{test_model}:generateContent?key={api_key}"
+            r = requests.post(url, headers={"Content-Type": "application/json"}, json={"contents": [{"parts": [{"text": "ping"}]}]}, timeout=20)
+            if r.status_code == 200:
+                return jsonify({"success": True, "message": f"Gemini connection OK ({test_model})"})
+            return jsonify({"success": False, "message": f"Gemini error: {r.text[:300]}"}), 400
+        elif provider == "openai":
+            import openai
+            client = openai.OpenAI(api_key=api_key)
+            test_model = model or "gpt-5.4-mini"
+            client.chat.completions.create(model=test_model, messages=[{"role": "user", "content": "ping"}], max_completion_tokens=5)
+            return jsonify({"success": True, "message": f"OpenAI connection OK ({test_model})"})
+        elif provider == "zai":
+            from zai_client import ZAIClient
+            client = ZAIClient(api_key)
+            test_model = model or "glm-4.5-flash"
+            resp = client.chat_completion(messages=[{"role": "user", "content": "ping"}], model=test_model, max_tokens=5)
+            if resp.get("success"):
+                return jsonify({"success": True, "message": f"Z.AI connection OK ({test_model})"})
+            return jsonify({"success": False, "message": f"Z.AI error: {resp.get('error')}"}), 400
+        elif provider == "perplexity":
+            test_model = model or "sonar"
+            r = requests.post(
+                "https://api.perplexity.ai/chat/completions",
+                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                json={"model": test_model, "messages": [{"role": "user", "content": "ping"}], "max_tokens": 5},
+                timeout=20,
+            )
+            if r.status_code == 200:
+                return jsonify({"success": True, "message": f"Perplexity connection OK ({test_model})"})
+            return jsonify({"success": False, "message": f"Perplexity error: {r.text[:300]}"}), 400
+        elif provider == "inception":
+            test_model = model or "mercury-2"
+            r = requests.post(
+                "https://api.inceptionlabs.ai/v1/chat/completions",
+                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                json={"model": test_model, "messages": [{"role": "user", "content": "ping"}], "max_tokens": 5},
+                timeout=20,
+            )
+            if r.status_code == 200:
+                return jsonify({"success": True, "message": f"Inception Labs connection OK ({test_model})"})
+            return jsonify({"success": False, "message": f"Inception Labs error: {r.text[:300]}"}), 400
+        else:
+            return jsonify({"success": False, "message": f"Unsupported provider: {provider}"}), 400
+    except Exception as exc:
+        return jsonify({"success": False, "message": f"{provider.capitalize()} error: {exc}"}), 400
 
 
 @event_algo_bp.route("/api/webull/event-algo/status", methods=["GET"])
