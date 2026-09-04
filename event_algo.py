@@ -19,6 +19,7 @@ from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 from log import logger
+from sqlalchemy import select
 from core.extensions import db
 from credentials import Credential, User, UserSetting
 from event_algo_models import (
@@ -34,7 +35,7 @@ from event_algo_models import (
 
 
 PAPER_MODE = "PAPER"
-ENGINE_VERSION = "2.85.0"
+ENGINE_VERSION = "2.85.1"
 MODEL_VERSION = "ai-fallback-v1"
 _EVENT_SYMBOL_MONTHS = {
     "JAN": 1, "FEB": 2, "MAR": 3, "APR": 4, "MAY": 5, "JUN": 6,
@@ -1393,10 +1394,12 @@ def resolve_event_outcomes(user_id, *, config=None, limit=25, force=False):
     from services.webull_service import get_webull_event_market
 
     now = datetime.utcnow()
-    resolved_subquery = (
-        db.session.query(EventContractOutcome.contract_symbol)
-        .filter(EventContractOutcome.user_id == user_id, EventContractOutcome.settlement_status == "RESOLVED")
-        .subquery()
+    resolved_symbols = (
+        select(EventContractOutcome.contract_symbol)
+        .where(
+            EventContractOutcome.user_id == user_id,
+            EventContractOutcome.settlement_status == "RESOLVED",
+        )
     )
     snapshots = (
         EventMarketSnapshot.query
@@ -1404,7 +1407,7 @@ def resolve_event_outcomes(user_id, *, config=None, limit=25, force=False):
             EventMarketSnapshot.user_id == user_id,
             EventMarketSnapshot.cutoff_at.isnot(None),
             EventMarketSnapshot.cutoff_at <= now,
-            ~EventMarketSnapshot.contract_symbol.in_(resolved_subquery),
+            ~EventMarketSnapshot.contract_symbol.in_(resolved_symbols),
         )
         .order_by(EventMarketSnapshot.cutoff_at.desc())
         .limit(max(1, min(int(limit or 25), 100)))

@@ -148,7 +148,12 @@ Historical changelog entries retain the product name used when they were origina
 - Added a strict probability/confidence response contract with validation for percentages, malformed JSON, missing values, and provider failures.
 - Added per-decision model provenance, failover attempts, bounded rationale, and provider status to the persisted evidence trace and scan diagnostics.
 - Added an event-contract-specific analysis prompt that includes the exact question, underlying, duration, cutoff, quotes, liquidity, and timing context.
-- Kept quote-less, stale, and closed markets from making unnecessary AI calls, and kept all decisions signal-only with no broker order endpoint access.
+## v2.85.1 (September 2026)
+
+### Staking Balance Resilience & Database Query Optimization
+- **Binance.US Staking Credential Guard**: Added proactive key presence validation in `calculate_staking_value_for_user` to prevent repeated `Missing API keys for Binance.US call` error logging for users without configured Binance keys or when trading Webull-only accounts.
+- **SQLAlchemy Subquery Modernization**: Replaced `.subquery()` in `event_algo.py` outcome resolution queries with explicit `select()` statements, eliminating SQLAlchemy `SAWarning` coercion notices.
+
 ## v2.85.0 (September 2026)
 
 ### Event Contracts Strategy Engine 24/7 Autonomous Outcome Resolution & Pattern Discovery

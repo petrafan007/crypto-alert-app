@@ -65,6 +65,9 @@ def binance_us_api_call(cred, endpoint, method='GET', params_dict=None, use_trad
         elif method == 'POST':
             return requests.post(url, headers=headers, timeout=20)
         
+    except ValueError as e:
+        logger.debug(f"Binance.US API call skipped: {e}")
+        raise
     except Exception as e:
         logger.error(f"Binance.US API call failed: {e}")
         raise
@@ -76,6 +79,10 @@ def calculate_staking_value_for_user(cred, user_id=None):
 
     if not cred:
         return active_value, pending_value
+
+    api_key = getattr(cred, 'api_key', None) or getattr(cred, 'trading_api_key', None)
+    api_secret = getattr(cred, 'api_secret', None) or getattr(cred, 'trading_api_secret', None)
+    has_binance_keys = bool(api_key and api_secret)
 
     target_user_id = user_id or getattr(current_user, 'id', None)
 
@@ -95,53 +102,55 @@ def calculate_staking_value_for_user(cred, user_id=None):
 
     found_symbols = set()
     active_api_ok = False
-    try:
-        balance_response = binance_us_api_call(
-            cred, '/sapi/v1/staking/stakingBalance', method='GET', use_trading_keys=True
-        )
-        if balance_response.status_code == 200:
-            active_api_ok = True
-            balance_payload = balance_response.json()
-            staking_items = balance_payload.get('data', [])
-            for staked in staking_items:
-                asset = str(staked.get('asset', '')).upper()
-                amount = _coerce_float(staked.get('stakingAmount'), 0.0)
-                if amount == 0.0:
-                    amount = _coerce_float(staked.get('amount'), 0.0)
-                
-                if not asset or amount <= 0:
-                    continue
-                
-                found_symbols.add(asset)
-                price = fetch_binance_price(asset) or _fallback_price(asset)
-                if price:
-                    active_value += amount * price
-    except Exception as staking_err:
-        logger.error(f"Error calculating staking active value: {staking_err}")
+    if has_binance_keys:
+        try:
+            balance_response = binance_us_api_call(
+                cred, '/sapi/v1/staking/stakingBalance', method='GET', use_trading_keys=True
+            )
+            if balance_response.status_code == 200:
+                active_api_ok = True
+                balance_payload = balance_response.json()
+                staking_items = balance_payload.get('data', [])
+                for staked in staking_items:
+                    asset = str(staked.get('asset', '')).upper()
+                    amount = _coerce_float(staked.get('stakingAmount'), 0.0)
+                    if amount == 0.0:
+                        amount = _coerce_float(staked.get('amount'), 0.0)
+
+                    if not asset or amount <= 0:
+                        continue
+
+                    found_symbols.add(asset)
+                    price = fetch_binance_price(asset) or _fallback_price(asset)
+                    if price:
+                        active_value += amount * price
+        except Exception as staking_err:
+            logger.error(f"Error calculating staking active value: {staking_err}")
 
     pending_api_ok = False
-    try:
-        history_response = binance_us_api_call(
-            cred, '/sapi/v1/staking/history', method='GET', params_dict={'limit': 200}, use_trading_keys=True
-        )
-        if history_response.status_code == 200:
-            pending_api_ok = True
-            history_payload = history_response.json()
-            history_entries = history_payload.get('data', []) if isinstance(history_payload, dict) else history_payload
+    if has_binance_keys:
+        try:
+            history_response = binance_us_api_call(
+                cred, '/sapi/v1/staking/history', method='GET', params_dict={'limit': 200}, use_trading_keys=True
+            )
+            if history_response.status_code == 200:
+                pending_api_ok = True
+                history_payload = history_response.json()
+                history_entries = history_payload.get('data', []) if isinstance(history_payload, dict) else history_payload
 
-            for entry in history_entries:
-                status_raw = str(entry.get('status', '')).upper()
-                if status_raw in {'SUCCESS', 'COMPLETED', 'FAILED', 'CANCELLED', 'CANCELED'}:
-                    continue
-                asset = str(entry.get('asset', '')).upper()
-                amount = _coerce_float(entry.get('amount'), 0.0) or 0.0
-                if not asset or amount <= 0:
-                    continue
-                price = fetch_binance_price(asset) or _fallback_price(asset)
-                if price:
-                    pending_value += amount * price
-    except Exception as pending_err:
-        logger.error(f"Error calculating pending staking value: {pending_err}")
+                for entry in history_entries:
+                    status_raw = str(entry.get('status', '')).upper()
+                    if status_raw in {'SUCCESS', 'COMPLETED', 'FAILED', 'CANCELLED', 'CANCELED'}:
+                        continue
+                    asset = str(entry.get('asset', '')).upper()
+                    amount = _coerce_float(entry.get('amount'), 0.0) or 0.0
+                    if not asset or amount <= 0:
+                        continue
+                    price = fetch_binance_price(asset) or _fallback_price(asset)
+                    if price:
+                        pending_value += amount * price
+        except Exception as pending_err:
+            logger.error(f"Error calculating pending staking value: {pending_err}")
 
     if target_user_id is not None:
         try:
