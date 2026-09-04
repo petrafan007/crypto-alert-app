@@ -6,6 +6,12 @@
 
 **Last Updated**: September 2026
 
+## v2.84.0 (September 2026)
+
+- Added a dedicated Protective Stop (PS) calculator for sell Stop Loss, Stop Loss Limit, and OCO orders.
+- Protective floors can be anchored to average entry or the current market price, with validation that the floor remains below the live market for a sell stop.
+- Stop-limit and OCO protective calculations now include a 1% execution cushion below the trigger while preserving the OCO take-profit leg.
+
 ## 🚀 Key Features & Capabilities
 
 - **📊 Real-Time Portfolio & Watchlist Tracking**

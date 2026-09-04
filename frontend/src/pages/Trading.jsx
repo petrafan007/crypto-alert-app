@@ -353,10 +353,11 @@ const Trading = ({ isLightMode = false }) => {
 
     const stopPriceCell = (key, helpText) => {
       const showPercentBtn = ['STOP_LOSS_LIMIT', 'TAKE_PROFIT_LIMIT', 'OCO', 'STOP_LOSS', 'TAKE_PROFIT'].includes(orderForm.type);
+      const showProtectiveBtn = orderForm.side === 'SELL' && ['STOP_LOSS', 'STOP_LOSS_LIMIT', 'OCO'].includes(orderForm.type);
       return (
         <div className="order-input-group" key={`stop-${key}`}>
           <label className="order-field-label" htmlFor="stopPrice">Stop Price ({quoteAsset})</label>
-          <div className="order-input-wrapper">
+          <div className={`order-input-wrapper ${showProtectiveBtn ? 'has-protective-btn' : ''}`}>
             <input
               id="stopPrice"
               type="number"
@@ -371,11 +372,21 @@ const Trading = ({ isLightMode = false }) => {
             {showPercentBtn && (
               <button
                 type="button"
-                className="input-percent-btn"
+                className={`input-percent-btn ${showProtectiveBtn ? 'with-protective' : ''}`}
                 onClick={() => handleOpenPercentModal('stopPrice')}
                 title="Calculate stop & limit prices from percentage"
               >
                 %
+              </button>
+            )}
+            {showProtectiveBtn && (
+              <button
+                type="button"
+                className="input-protective-btn"
+                onClick={() => handleOpenProtectiveStopModal('stopPrice')}
+                title="Set a protective profit floor for this sell order"
+              >
+                PS
               </button>
             )}
           </div>
@@ -549,13 +560,23 @@ const Trading = ({ isLightMode = false }) => {
   const [livePortfolio, setLivePortfolio] = useState([]);
   const [percentModal, setPercentModal] = useState({
     isOpen: false,
-    targetField: 'stopPrice'
+    targetField: 'stopPrice',
+    mode: 'percentage'
   });
 
   const handleOpenPercentModal = (targetField = 'stopPrice') => {
     setPercentModal({
       isOpen: true,
-      targetField
+      targetField,
+      mode: 'percentage'
+    });
+  };
+
+  const handleOpenProtectiveStopModal = (targetField = 'stopPrice') => {
+    setPercentModal({
+      isOpen: true,
+      targetField,
+      mode: 'protective'
     });
   };
 
@@ -1862,6 +1883,7 @@ const Trading = ({ isLightMode = false }) => {
         orderType={orderForm.type}
         side={orderForm.side}
         targetField={percentModal.targetField}
+        mode={percentModal.mode}
         symbol={orderForm.symbol}
         baseAsset={baseAsset}
         quoteAsset={quoteAsset}

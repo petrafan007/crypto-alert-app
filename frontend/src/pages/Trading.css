@@ -872,6 +872,39 @@ body.light-mode .equity-order-mode-tabs button.active,
   color: #0f172a;
 }
 
+/* Protective Stop is intentionally distinct from the ordinary percentage
+   calculator and sits beside it when both actions are available. */
+.input-percent-btn.with-protective {
+  right: 44px;
+}
+
+.input-protective-btn {
+  position: absolute;
+  right: 8px;
+  padding: 4px 8px;
+  font-size: 0.75rem;
+  font-weight: 800;
+  border-radius: 6px;
+  border: 1px solid #34d399;
+  background: rgba(52, 211, 153, 0.14);
+  color: #34d399;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+
+.input-protective-btn:hover {
+  background: #34d399;
+  color: #06281d;
+}
+
+.order-input-wrapper.has-protective-btn .order-styled-input {
+  padding-right: 104px;
+}
+
 /* Time in Force Selector */
 .modern-tif-selector {
   display: grid;

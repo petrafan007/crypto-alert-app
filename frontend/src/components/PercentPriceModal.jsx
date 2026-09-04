@@ -33,8 +33,11 @@ export default function PercentPriceModal({
   baseAsset = '',
   quoteAsset = 'USDT',
   currentPrice = 0,
-  avgEntry = null
+  avgEntry = null,
+  mode = 'percentage'
 }) {
+  const isProtectiveStop = mode === 'protective';
+  const protectiveOrderTypes = ['STOP_LOSS', 'STOP_LOSS_LIMIT', 'OCO'];
   const hasAvgEntry = avgEntry !== null && avgEntry !== undefined && Number(avgEntry) > 0;
   const numAvgEntry = hasAvgEntry ? Number(avgEntry) : null;
   const numCurrentPrice = Number(currentPrice) > 0 ? Number(currentPrice) : 0;
@@ -112,7 +115,7 @@ export default function PercentPriceModal({
       };
     }
 
-    if (P <= 0 && orderType !== 'OCO') {
+    if (P <= 0 && (orderType !== 'OCO' || isProtectiveStop)) {
       return {
         price: '',
         stopPrice: '',
@@ -120,6 +123,42 @@ export default function PercentPriceModal({
         warning: 'Please enter a percentage greater than 0.',
         isValid: false
       };
+    }
+
+    if (isProtectiveStop) {
+      if (side !== 'SELL' || !protectiveOrderTypes.includes(orderType)) {
+        return {
+          price: '',
+          stopPrice: '',
+          stopLimitPrice: '',
+          warning: 'Protective Stop is available only for sell Stop Loss, Stop Loss Limit, and OCO orders.',
+          isValid: false
+        };
+      }
+
+      // A profit floor anchored to average entry sits above entry. When the
+      // user deliberately anchors to the live market instead, the protective
+      // floor must sit below that market price so it can trigger on a decline.
+      const floor = anchorTab === 'current_price'
+        ? anchorPrice * (1 - P / 100)
+        : anchorPrice * (1 + P / 100);
+      stopPrice = formatCalculatedPrice(floor);
+
+      // Stop-limit orders need room for a fast move through the trigger. Keep
+      // a small, predictable 1% execution cushion below the protective stop.
+      const limit = floor * 0.99;
+      if (orderType === 'STOP_LOSS_LIMIT') {
+        price = formatCalculatedPrice(limit);
+      } else if (orderType === 'OCO') {
+        stopLimitPrice = formatCalculatedPrice(limit);
+      }
+
+      if (numCurrentPrice > 0 && floor >= numCurrentPrice) {
+        isValid = false;
+        warning = `Protective floor ($${stopPrice}) must be below the current market price ($${formatCalculatedPrice(numCurrentPrice)}).`;
+      }
+
+      return { price, stopPrice, stopLimitPrice, warning, isValid };
     }
 
     // 1. STOP LOSS LIMIT
@@ -281,7 +320,9 @@ export default function PercentPriceModal({
     orderType,
     side,
     numCurrentPrice,
-    numAvgEntry
+    numAvgEntry,
+    isProtectiveStop,
+    protectiveOrderTypes
   ]);
 
   if (!isOpen) return null;
@@ -318,8 +359,8 @@ export default function PercentPriceModal({
         <div className="percent-modal-header">
           <div className="percent-modal-title-area">
             <h3 className="percent-modal-title">
-              <span className="percent-modal-icon">%</span>
-              Price Calculator
+              <span className="percent-modal-icon">{isProtectiveStop ? 'PS' : '%'}</span>
+              {isProtectiveStop ? 'Protective Stop Calculator' : 'Price Calculator'}
             </h3>
             <span className={`percent-modal-badge ${side.toLowerCase()}`}>
               {formatOrderSide(side)} · {formatOrderType(orderType)}
@@ -393,7 +434,7 @@ export default function PercentPriceModal({
 
         {/* Modal Body: Input & Presets */}
         <div className="percent-modal-body">
-          {orderType === 'OCO' && (
+          {!isProtectiveStop && orderType === 'OCO' && (
             <div className="oco-symmetric-toggle">
               <label className="checkbox-label">
                 <input
@@ -406,7 +447,7 @@ export default function PercentPriceModal({
             </div>
           )}
 
-          {orderType === 'OCO' && !isSymmetricOco ? (
+          {!isProtectiveStop && orderType === 'OCO' && !isSymmetricOco ? (
             <div className="oco-asymmetric-inputs">
               <div className="percent-input-wrapper">
                 <label className="percent-label">
@@ -444,11 +485,12 @@ export default function PercentPriceModal({
           ) : (
             <div className="percent-input-wrapper">
               <label className="percent-label">
-                {orderType === 'STOP_LOSS_LIMIT' && (side === 'SELL' ? 'Stop Loss Drop (%)' : 'Breakout Surge (%)')}
-                {orderType === 'TAKE_PROFIT_LIMIT' && (side === 'SELL' ? 'Take Profit Target (%)' : 'Pullback Buy (%)')}
-                {(orderType === 'LIMIT' || orderType === 'LIMIT_MAKER') && (side === 'SELL' ? 'Profit Target (%)' : 'Dip Buy Discount (%)')}
-                {orderType === 'OCO' && 'Symmetric Swing (± %)'}
-                {!['STOP_LOSS_LIMIT', 'TAKE_PROFIT_LIMIT', 'LIMIT', 'LIMIT_MAKER', 'OCO'].includes(orderType) && 'Percentage (%)'}
+                {isProtectiveStop && (anchorTab === 'avg_entry' ? 'Protective Floor (% above Average Entry)' : 'Protective Floor (% below Current Price)')}
+                {!isProtectiveStop && orderType === 'STOP_LOSS_LIMIT' && (side === 'SELL' ? 'Stop Loss Drop (%)' : 'Breakout Surge (%)')}
+                {!isProtectiveStop && orderType === 'TAKE_PROFIT_LIMIT' && (side === 'SELL' ? 'Take Profit Target (%)' : 'Pullback Buy (%)')}
+                {!isProtectiveStop && (orderType === 'LIMIT' || orderType === 'LIMIT_MAKER') && (side === 'SELL' ? 'Profit Target (%)' : 'Dip Buy Discount (%)')}
+                {!isProtectiveStop && orderType === 'OCO' && 'Symmetric Swing (± %)'}
+                {!isProtectiveStop && !['STOP_LOSS_LIMIT', 'TAKE_PROFIT_LIMIT', 'LIMIT', 'LIMIT_MAKER', 'OCO'].includes(orderType) && 'Percentage (%)'}
               </label>
               <div className="input-group-styled">
                 <input
@@ -488,7 +530,7 @@ export default function PercentPriceModal({
                 <div className="preview-card">
                   <span className="preview-card-label">Stop Price</span>
                   <span className="preview-card-val">${calculatedResult.stopPrice}</span>
-                  <span className="preview-card-sub">Trigger</span>
+                  <span className="preview-card-sub">{isProtectiveStop ? 'Protective trigger' : 'Trigger'}</span>
                 </div>
               )}
               {calculatedResult.price && (
@@ -496,7 +538,7 @@ export default function PercentPriceModal({
                   <span className="preview-card-label">Limit Price</span>
                   <span className="preview-card-val">${calculatedResult.price}</span>
                   <span className="preview-card-sub">
-                    {orderType === 'STOP_LOSS_LIMIT' || orderType === 'TAKE_PROFIT_LIMIT' ? `Execution (with ${percentValue}% buffer)` : 'Execution'}
+                    {isProtectiveStop ? 'Execution (1% cushion)' : orderType === 'STOP_LOSS_LIMIT' || orderType === 'TAKE_PROFIT_LIMIT' ? `Execution (with ${percentValue}% buffer)` : 'Execution'}
                   </span>
                 </div>
               )}
