@@ -597,7 +597,11 @@ def api_coin_performance():
                 "display_symbol": display_symbol(asset),
                 "display_name": asset.get('display_name'),
                 "instrument_id": asset.get('instrument_id'),
-                "asset_key": f"{asset['source']}:{asset['instrument_id'] or asset['symbol']}:{'ETF' if is_etf_asset(asset) else asset['instrument_type']}",
+                # Binance portfolio/watchlist assets do not carry an
+                # instrument_id; Webull rows may.  Use the ticker as the
+                # stable fallback so one incomplete asset cannot turn the
+                # entire performance response into a 500.
+                "asset_key": f"{asset['source']}:{asset.get('instrument_id') or asset['symbol']}:{'ETF' if is_etf_asset(asset) else asset['instrument_type']}",
             }
             for asset, curr in qualifying
         ]
