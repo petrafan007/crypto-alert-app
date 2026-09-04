@@ -13,6 +13,10 @@ from event_algo import (
     event_strategy_performance,
     event_strategy_health_summary,
     event_strategy_logs,
+    generate_event_strategy_report,
+    get_latest_event_strategy_report,
+    list_event_strategy_reports,
+    report_to_dict,
     is_event_strategy_admin,
     _record_engine_log,
     get_or_create_config,
@@ -278,3 +282,49 @@ def event_algo_performance():
     except (TypeError, ValueError):
         limit = 500
     return jsonify({"success": True, **event_strategy_performance(current_user.id, limit=limit)})
+
+
+@event_algo_bp.route("/api/webull/event-algo/report", methods=["GET"])
+@event_strategy_admin_required
+def event_algo_report():
+    report_id = request.args.get("id")
+    report = get_latest_event_strategy_report(current_user.id, report_id=report_id)
+    history = list_event_strategy_reports(current_user.id, limit=20)
+    return jsonify({
+        "success": True,
+        "mode": PAPER_MODE,
+        "report": report_to_dict(report),
+        "history": [report_to_dict(r) for r in history],
+    })
+
+
+@event_algo_bp.route("/api/webull/event-algo/report/<int:report_id>", methods=["GET"])
+@event_strategy_admin_required
+def event_algo_report_detail(report_id):
+    report = get_latest_event_strategy_report(current_user.id, report_id=report_id)
+    if not report:
+        return jsonify({"success": False, "message": "Report not found."}), 404
+    return jsonify({
+        "success": True,
+        "mode": PAPER_MODE,
+        "report": report_to_dict(report),
+    })
+
+
+@event_algo_bp.route("/api/webull/event-algo/report/generate", methods=["POST"])
+@event_strategy_admin_required
+def event_algo_report_generate():
+    payload = request.get_json(silent=True) or {}
+    try:
+        hours = max(1, min(int(payload.get("hours") or 6), 72))
+    except (TypeError, ValueError):
+        hours = 6
+    config = get_or_create_config(current_user.id)
+    report = generate_event_strategy_report(current_user.id, config=config, hours=hours, force=True)
+    history = list_event_strategy_reports(current_user.id, limit=20)
+    return jsonify({
+        "success": True,
+        "mode": PAPER_MODE,
+        "report": report_to_dict(report),
+        "history": [report_to_dict(r) for r in history],
+    })

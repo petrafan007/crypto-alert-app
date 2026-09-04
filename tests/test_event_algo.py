@@ -7,12 +7,15 @@ from types import SimpleNamespace
 
 from event_algo import (
     _ai_cooldown_seconds,
+    _generate_heuristic_report,
+    _parse_audit_report_json,
     evaluate_market,
     is_event_strategy_admin,
     normalize_config_payload,
     update_config,
     parse_event_model_batch_response,
     parse_event_model_response,
+    report_to_dict,
     summarize_ai_scan_status,
 )
 from routes.event_algo import _paper_mode_enabled
@@ -223,6 +226,90 @@ class EventAlgoTests(unittest.TestCase):
         self.assertEqual(status['event_type'], 'AI_UNAVAILABLE')
         self.assertTrue(status['notify'])
         self.assertIn('Tertiary provider timed out', status['message'])
+
+    def test_parse_audit_report_json_clean_and_fenced(self):
+        clean_json = '{"status": "HEALTHY", "headline": "All systems nominal", "summary": "Running smoothly.", "content_markdown": "### 1. Worker Execution"}'
+        parsed = _parse_audit_report_json(clean_json)
+        self.assertIsNotNone(parsed)
+        self.assertEqual(parsed['status'], 'HEALTHY')
+        self.assertEqual(parsed['headline'], 'All systems nominal')
+
+        fenced_json = '```json\n{"status": "ATTENTION_REQUIRED", "headline": "Warnings found", "summary": "Minor issues.", "content_markdown": "### Report"}\n```'
+        parsed_fenced = _parse_audit_report_json(fenced_json)
+        self.assertIsNotNone(parsed_fenced)
+        self.assertEqual(parsed_fenced['status'], 'ATTENTION_REQUIRED')
+
+    def test_parse_audit_report_json_fallback_markdown(self):
+        raw_markdown = "### Event Strategy Engine Audit\n\nThe worker has performed 120 scans across BTC and ETH markets with zero quote drops. Decisions remain disciplined."
+        parsed = _parse_audit_report_json(raw_markdown)
+        self.assertIsNotNone(parsed)
+        self.assertEqual(parsed['status'], 'HEALTHY')
+        self.assertIn('120 scans', parsed['content_markdown'])
+
+    def test_generate_heuristic_report_healthy_vs_attention(self):
+        healthy_data = {
+            'period_start_iso': '2026-09-04T12:00:00Z',
+            'period_end_iso': '2026-09-04T18:00:00Z',
+            'worker_status': 'RUNNING',
+            'symbols': ['BTC', 'ETH'],
+            'durations': ['FIFTEEN_MINUTES', 'HOURLY'],
+            'metrics': {
+                'scans_count': 360,
+                'scanned_contracts': 720,
+                'total_logs': 400,
+                'info_count': 400,
+                'warning_count': 0,
+                'error_count': 0,
+                'decisions_count': 720,
+                'eligible_count': 12,
+                'no_trade_count': 708,
+                'top_reason_codes': {'NO_EDGE': 600, 'CONFIDENCE_TOO_LOW': 108},
+                'ai_evaluations': {'SUCCESS': 24, 'SKIPPED': 696},
+            },
+            'recent_errors': [],
+            'decision_examples': [{
+                'contract_symbol': 'KXBTC15M-TEST',
+                'action': 'NO_TRADE',
+                'probability_yes': 0.52,
+                'net_edge': 0.01,
+                'confidence': 0.55,
+                'reason_codes': ['NO_EDGE'],
+            }],
+        }
+        report_healthy = _generate_heuristic_report(healthy_data)
+        self.assertEqual(report_healthy['status'], 'HEALTHY')
+        self.assertIn('360 scans', report_healthy['content_markdown'])
+        self.assertIn('KXBTC15M-TEST', report_healthy['content_markdown'])
+
+        degraded_data = dict(healthy_data)
+        degraded_data['metrics'] = dict(healthy_data['metrics'], error_count=5)
+        degraded_data['recent_errors'] = [{'created_at': '2026-09-04T15:00:00Z', 'level': 'ERROR', 'event_type': 'SCAN_ERROR', 'message': 'API rate limit exceeded'}]
+        report_degraded = _generate_heuristic_report(degraded_data)
+        self.assertEqual(report_degraded['status'], 'DEGRADED')
+        self.assertIn('API rate limit exceeded', report_degraded['content_markdown'])
+
+    def test_report_to_dict_serialization(self):
+        report_obj = SimpleNamespace(
+            id=101,
+            user_id=1,
+            config_id=5,
+            created_at=datetime(2026, 9, 4, 18, 0, 0),
+            period_start=datetime(2026, 9, 4, 12, 0, 0),
+            period_end=datetime(2026, 9, 4, 18, 0, 0),
+            status='HEALTHY',
+            headline='All operational tests passed',
+            summary='Audit passed with high confidence.',
+            content_markdown='### Full Audit',
+            metrics_json='{"scans_count": 360, "error_count": 0}',
+            model='gpt-4o',
+            provider='openai',
+            tier='primary',
+        )
+        d = report_to_dict(report_obj)
+        self.assertEqual(d['id'], 101)
+        self.assertEqual(d['status'], 'HEALTHY')
+        self.assertEqual(d['metrics']['scans_count'], 360)
+        self.assertEqual(d['model'], 'gpt-4o')
 
 
 if __name__ == '__main__':

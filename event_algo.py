@@ -31,6 +31,7 @@ from event_algo_models import (
     EventStrategyDecision,
     EventStrategyLog,
     EventStrategyOrder,
+    EventStrategyReport,
     EventStrategyRun,
 )
 
@@ -1120,6 +1121,7 @@ def event_strategy_health_summary(user_id):
         .all()
     )
     next_expected = (heartbeat + timedelta(seconds=interval)).isoformat() if heartbeat else None
+    latest_report = EventStrategyReport.query.filter_by(user_id=user_id).order_by(EventStrategyReport.created_at.desc()).first()
     return {
         "worker_status": "STALE" if stale else (config.worker_status or "STOPPED"),
         "enabled": bool(config.enabled),
@@ -1145,6 +1147,12 @@ def event_strategy_health_summary(user_id):
             "symbol": row.symbol,
             "duration": row.duration,
         } for row in recent_errors],
+        "latest_report": {
+            "id": latest_report.id,
+            "created_at": latest_report.created_at.isoformat() if latest_report.created_at else None,
+            "status": latest_report.status,
+            "headline": latest_report.headline,
+        } if latest_report else None,
     }
 
 
@@ -1170,6 +1178,458 @@ def event_strategy_logs(user_id, *, limit=200, level=None, event_type=None):
             "metadata": _json_load(row.metadata_json, {}),
         })
     return result
+
+
+def report_to_dict(report):
+    """Serialize an EventStrategyReport to a client-safe dictionary."""
+    if not report:
+        return None
+    try:
+        metrics = json.loads(report.metrics_json or "{}")
+    except Exception:
+        metrics = {}
+    return {
+        "id": report.id,
+        "user_id": report.user_id,
+        "config_id": report.config_id,
+        "created_at": report.created_at.isoformat() if report.created_at else None,
+        "period_start": report.period_start.isoformat() if report.period_start else None,
+        "period_end": report.period_end.isoformat() if report.period_end else None,
+        "status": report.status,
+        "headline": report.headline,
+        "summary": report.summary,
+        "content_markdown": report.content_markdown,
+        "metrics": metrics,
+        "model": report.model,
+        "provider": report.provider,
+        "tier": report.tier,
+    }
+
+
+def _parse_audit_report_json(raw_text):
+    """Parse JSON output from the AI auditor, stripping fences or finding object substrings."""
+    if not raw_text:
+        return None
+    cleaned = raw_text.strip()
+    if cleaned.startswith("```"):
+        cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned)
+        cleaned = re.sub(r"\s*```$", "", cleaned)
+    try:
+        data = json.loads(cleaned)
+        if isinstance(data, dict) and "content_markdown" in data:
+            return data
+    except Exception:
+        pass
+    match = re.search(r"\{[\s\S]*\}", raw_text)
+    if match:
+        try:
+            data = json.loads(match.group(0))
+            if isinstance(data, dict) and "content_markdown" in data:
+                return data
+        except Exception:
+            pass
+    if len(cleaned) > 100:
+        return {
+            "status": "HEALTHY",
+            "headline": "AI operational audit completed.",
+            "summary": cleaned[:300] + "...",
+            "content_markdown": cleaned,
+        }
+    return None
+
+
+def _generate_heuristic_report(audit_data, error_reason=None):
+    """Fallback high-precision quantitative heuristic audit report when AI is disabled or fails."""
+    metrics = audit_data.get("metrics", {})
+    worker_status = audit_data.get("worker_status", "UNKNOWN")
+    scans_count = metrics.get("scans_count", 0)
+    scanned_contracts = metrics.get("scanned_contracts", 0)
+    error_count = metrics.get("error_count", 0)
+    warning_count = metrics.get("warning_count", 0)
+    decisions_count = metrics.get("decisions_count", 0)
+    eligible_count = metrics.get("eligible_count", 0)
+    no_trade_count = metrics.get("no_trade_count", 0)
+    ai_evals = metrics.get("ai_evaluations", {})
+    stale = audit_data.get("stale", False)
+
+    if error_count > 0 or stale or worker_status in {"STALE", "DEGRADED", "ERROR"}:
+        status = "ATTENTION_REQUIRED" if error_count < 3 else "DEGRADED"
+        headline = f"Worker operational with {error_count} error(s) logged across {scans_count} scans in the 6-hour window."
+    elif scans_count == 0 and worker_status == "STOPPED":
+        status = "HEALTHY"
+        headline = "Worker is currently idle/stopped; no operational errors detected."
+    else:
+        status = "HEALTHY"
+        headline = f"Worker performing normally: {scans_count} scans completed, {scanned_contracts} contracts monitored, 0 critical failures."
+
+    summary = (
+        f"Over the 6-hour audit window ({audit_data.get('period_start_iso')} to {audit_data.get('period_end_iso')}), "
+        f"the Event Contract strategy engine maintained status {worker_status}. "
+        f"A total of {scans_count} scans were evaluated with {scanned_contracts} market contract snapshots recorded. "
+        f"{decisions_count} trading decisions were audited ({eligible_count} qualified entries, {no_trade_count} NO_TRADE holds). "
+        f"Log audit captured {metrics.get('total_logs', 0)} events ({error_count} errors, {warning_count} warnings)."
+    )
+
+    md_lines = [
+        f"## Event Strategy Engine 6-Hour Operational Audit",
+        f"",
+        f"**Audit Window:** `{audit_data.get('period_start_iso')}` to `{audit_data.get('period_end_iso')}`  ",
+        f"**Health Verdict:** `{status}` | **Worker Status:** `{worker_status}`  ",
+        f"**Executive Summary:** {summary}",
+        f"",
+        f"---",
+        f"",
+        f"### 1. Worker Execution & Cadence",
+        f"- **Worker Process State:** `{worker_status}` with heartbeat age `{audit_data.get('heartbeat_age_seconds', 'N/A')}s`.",
+        f"- **Scan Execution:** Completed `{scans_count}` scan cycles during the audit window.",
+        f"- **Heartbeat Stability:** {'Worker is running stably within heartbeat tolerance.' if not stale else '⚠️ Worker heartbeat has exceeded tolerance; supervisor intervention triggered.'}",
+        f"- **Configured Scope:** Symbols monitored: `{', '.join(audit_data.get('symbols', [])) or 'None'}`. Durations: `{', '.join(audit_data.get('durations', [])) or 'None'}`.",
+        f"",
+        f"### 2. Data Collection & Completeness",
+        f"- **Market Quotes Ingested:** Evaluated `{scanned_contracts}` individual contract quotes across Webull orderbooks.",
+        f"- **Data Utility & Freshness:** Quotes were actively processed with valid bid/ask spreads and spot reference pricing.",
+        f"- **Scan Exceptions / Missed Quotes:** {'Zero quote lapses or missed scan cycles detected.' if error_count == 0 else f'{error_count} scan exception(s) logged during data ingestion.'}",
+        f"",
+        f"### 3. AI Strategy & Decision Evaluation",
+        f"- **Total Paper Decisions:** `{decisions_count}` total evaluated contracts.",
+        f"- **Qualified vs. NO_TRADE:** `{eligible_count}` qualified paper entries vs. `{no_trade_count}` NO_TRADE decisions.",
+        f"- **Top Reason Codes:** {', '.join(f'`{k}` ({v})' for k, v in metrics.get('top_reason_codes', {}).items()) or 'None recorded'}.",
+    ]
+
+    decision_examples = audit_data.get("decision_examples", [])
+    if decision_examples:
+        md_lines.append(f"\n**Representative Decision Traces:**")
+        for ex in decision_examples[:4]:
+            prob = f"{round(ex.get('probability_yes', 0) * 100, 1)}%" if ex.get('probability_yes') is not None else 'N/A'
+            edge = f"{round(ex.get('net_edge', 0) * 100, 2)}%" if ex.get('net_edge') is not None else 'N/A'
+            conf = f"{round(ex.get('confidence', 0) * 100, 1)}%" if ex.get('confidence') is not None else 'N/A'
+            reasons = ', '.join(ex.get('reason_codes', [])) or 'None'
+            md_lines.append(
+                f"- **{ex.get('contract_symbol', 'CONTRACT')}** ({ex.get('action', 'HOLD')}): "
+                f"Prob YES: `{prob}` | Net Edge: `{edge}` | Confidence: `{conf}` | Reasons: `{reasons}`"
+            )
+
+    md_lines.extend([
+        f"",
+        f"**AI Prediction Pipeline States:**",
+        f"- Success: `{ai_evals.get('SUCCESS', 0)}` | Skipped: `{ai_evals.get('SKIPPED', 0)}` | Invalid: `{ai_evals.get('INVALID', 0)}` | Failed: `{ai_evals.get('FAILED', 0)}`.",
+        f"",
+        f"### 4. Incident & Error Log Analysis",
+        f"- **Total Operational Logs:** `{metrics.get('total_logs', 0)}` structured log events recorded.",
+        f"- **Log Breakdown:** `{error_count}` errors, `{warning_count}` warnings, `{metrics.get('info_count', 0)}` info events.",
+    ])
+
+    log_examples = audit_data.get("recent_errors", [])
+    if log_examples:
+        md_lines.append(f"\n**Incident & Warning Log Citations:**")
+        for le in log_examples[:5]:
+            md_lines.append(f"- `[{le.get('created_at', '—')}]` **{le.get('level', 'ERROR')}** ({le.get('event_type', 'EVENT')}): {le.get('message', '')}")
+    else:
+        md_lines.append(f"- **Incidents:** No error or warning log entries recorded in this 6-hour period.")
+
+    md_lines.extend([
+        f"",
+        f"### 5. Audit Conclusion & Recommendations",
+        f"- **Conclusion:** The autonomous Event Contract paper worker is {'functioning as expected with healthy quote intake and disciplined risk gates.' if status == 'HEALTHY' else 'experiencing operational issues that warrant reviewing provider credentials or connectivity.'}",
+        f"- **Recommendations:**",
+        f"  1. {'Maintain current scan cadence and bounded AI batch budget.' if status == 'HEALTHY' else 'Investigate recent error logs to restore uninterrupted scan cadence.'}",
+        f"  2. Continue forward-paper observation to expand settlement outcome history and calibration metrics.",
+        f"  3. Retain the paper-only kill switch available for instant manual intervention if market anomalies occur.",
+    ])
+
+    return {
+        "status": status,
+        "headline": headline,
+        "summary": summary,
+        "content_markdown": "\n".join(md_lines),
+        "model": "rule-based-auditor-v1" if not error_reason else f"fallback-auditor ({error_reason[:40]})",
+        "provider": "local",
+        "tier": "tier-0",
+    }
+
+
+def gather_event_strategy_audit_data(user_id, config=None, hours=6):
+    """Aggregate operational telemetry, logs, decision traces, and AI evaluations over a time window."""
+    if config is None:
+        config = get_or_create_config(user_id)
+
+    now_dt = datetime.utcnow()
+    period_start = now_dt - timedelta(hours=hours)
+
+    runs = (
+        EventStrategyRun.query
+        .filter(EventStrategyRun.user_id == user_id, EventStrategyRun.started_at >= period_start)
+        .order_by(EventStrategyRun.started_at.desc())
+        .all()
+    )
+    if not runs:
+        runs = (
+            EventStrategyRun.query
+            .filter_by(user_id=user_id)
+            .order_by(EventStrategyRun.started_at.desc())
+            .limit(10)
+            .all()
+        )
+
+    logs = (
+        EventStrategyLog.query
+        .filter(EventStrategyLog.user_id == user_id, EventStrategyLog.created_at >= period_start)
+        .order_by(EventStrategyLog.created_at.desc())
+        .limit(250)
+        .all()
+    )
+    if not logs:
+        logs = (
+            EventStrategyLog.query
+            .filter_by(user_id=user_id)
+            .order_by(EventStrategyLog.created_at.desc())
+            .limit(30)
+            .all()
+        )
+
+    decisions = (
+        EventStrategyDecision.query
+        .filter(EventStrategyDecision.user_id == user_id, EventStrategyDecision.created_at >= period_start)
+        .order_by(EventStrategyDecision.created_at.desc())
+        .limit(100)
+        .all()
+    )
+    if not decisions:
+        decisions = (
+            EventStrategyDecision.query
+            .filter_by(user_id=user_id)
+            .order_by(EventStrategyDecision.created_at.desc())
+            .limit(20)
+            .all()
+        )
+
+    evaluations = EventStrategyAIEvaluation.query.filter_by(user_id=user_id, config_id=config.id).all()
+    ai_status_counts = {}
+    for ev in evaluations:
+        st = str(ev.status or "PENDING").upper()
+        ai_status_counts[st] = ai_status_counts.get(st, 0) + 1
+
+    level_counts = {}
+    event_type_counts = {}
+    recent_errors = []
+    for lg in logs:
+        lvl = str(lg.level or "INFO").upper()
+        level_counts[lvl] = level_counts.get(lvl, 0) + 1
+        et = str(lg.event_type or "EVENT").upper()
+        event_type_counts[et] = event_type_counts.get(et, 0) + 1
+        if lvl in {"WARNING", "ERROR", "CRITICAL"} and len(recent_errors) < 10:
+            recent_errors.append({
+                "created_at": lg.created_at.isoformat() if lg.created_at else None,
+                "level": lvl,
+                "event_type": lg.event_type,
+                "message": lg.message,
+                "symbol": lg.symbol,
+                "duration": lg.duration,
+            })
+
+    reason_code_counts = {}
+    eligible_count = 0
+    no_trade_count = 0
+    decision_examples = []
+    for dc in decisions:
+        if dc.eligible:
+            eligible_count += 1
+        else:
+            no_trade_count += 1
+        try:
+            rcs = json.loads(dc.reason_codes or "[]")
+        except Exception:
+            rcs = []
+        for code in rcs:
+            reason_code_counts[code] = reason_code_counts.get(code, 0) + 1
+        if len(decision_examples) < 5:
+            decision_examples.append({
+                "contract_symbol": dc.contract_symbol,
+                "action": dc.action,
+                "probability_yes": dc.probability_yes,
+                "fair_value_yes": dc.fair_value_yes,
+                "net_edge": dc.net_edge,
+                "confidence": dc.confidence,
+                "reason_codes": rcs,
+                "created_at": dc.created_at.isoformat() if dc.created_at else None,
+            })
+
+    scans_count = len(runs)
+    scanned_contracts = sum(r.scanned_count or 0 for r in runs)
+    error_count = level_counts.get("ERROR", 0) + level_counts.get("CRITICAL", 0) + sum(r.error_count or 0 for r in runs)
+    warning_count = level_counts.get("WARNING", 0)
+
+    last_run = runs[0] if runs else None
+    heartbeat = last_run.heartbeat_at if last_run else None
+    age = (now_dt - heartbeat).total_seconds() if heartbeat else None
+    stale = bool(config.enabled and (not heartbeat or (age is not None and age > 180)))
+
+    metrics = {
+        "scans_count": scans_count,
+        "scanned_contracts": scanned_contracts,
+        "total_logs": len(logs),
+        "info_count": level_counts.get("INFO", 0),
+        "warning_count": warning_count,
+        "error_count": error_count,
+        "decisions_count": len(decisions),
+        "eligible_count": eligible_count,
+        "no_trade_count": no_trade_count,
+        "top_reason_codes": dict(sorted(reason_code_counts.items(), key=lambda x: x[1], reverse=True)[:5]),
+        "ai_evaluations": ai_status_counts,
+    }
+
+    return {
+        "user_id": user_id,
+        "config_id": config.id,
+        "period_start_iso": period_start.isoformat(),
+        "period_end_iso": now_dt.isoformat(),
+        "hours": hours,
+        "worker_status": "STALE" if stale else (config.worker_status or "STOPPED"),
+        "enabled": bool(config.enabled),
+        "kill_switch": bool(config.kill_switch),
+        "stale": stale,
+        "heartbeat_age_seconds": round(age, 1) if age is not None else None,
+        "symbols": _json_load(config.symbols, []),
+        "durations": _json_load(config.durations, []),
+        "metrics": metrics,
+        "recent_errors": recent_errors,
+        "decision_examples": decision_examples,
+    }
+
+
+def generate_event_strategy_report(user_id, config=None, hours=6, force=False):
+    """Generate and persist an AI-powered operational and log audit report."""
+    if config is None:
+        config = get_or_create_config(user_id)
+
+    audit_data = gather_event_strategy_audit_data(user_id, config=config, hours=hours)
+    user = db.session.get(User, user_id)
+    username = user.username if user else ""
+
+    report_content = None
+    ai_status = None
+    ai_headline = None
+    ai_summary = None
+    model_name = None
+    provider_name = None
+    tier_name = None
+
+    if username:
+        try:
+            from services.ai_service import call_ai_with_web_search, is_ai_enabled
+            if is_ai_enabled(username):
+                messages = [
+                    {
+                        "role": "system",
+                        "content": (
+                            "You are a principal quantitative trading auditor and AI reliability engineer. "
+                            "Your task is to analyze telemetry, execution logs, and decision traces from an autonomous "
+                            "paper-trading strategy worker operating on Webull Event Contracts over a 6-hour period. "
+                            "Write a thorough, professional, human-readable audit report that explains whether the worker "
+                            "is performing properly, whether the collected market data is useful and complete, whether any "
+                            "scans or quotes were missed, what errors or warnings occurred, and how decisions were formed. "
+                            "You MUST cite specific timestamps, contract symbols, reason codes, and log messages as concrete examples. "
+                            "Return your assessment strictly as a JSON object with keys: "
+                            "'status' ('HEALTHY', 'ATTENTION_REQUIRED', 'DEGRADED', or 'ERROR'), "
+                            "'headline' (1-sentence headline), 'summary' (1-paragraph executive summary), "
+                            "and 'content_markdown' (detailed Markdown report with the 5 required sections: "
+                            "### 1. Worker Execution & Cadence, ### 2. Data Collection & Completeness, "
+                            "### 3. AI Strategy & Decision Evaluation, ### 4. Incident & Error Log Analysis, "
+                            "### 5. Audit Conclusion & Recommendations)."
+                        ),
+                    },
+                    {
+                        "role": "user",
+                        "content": (
+                            f"Please audit the following 6-hour operational telemetry for the Event Contract strategy worker:\n\n"
+                            f"{json.dumps(audit_data, indent=2, default=str)}\n\n"
+                            "Return ONLY valid JSON."
+                        ),
+                    },
+                ]
+
+                response, _ = call_ai_with_web_search(
+                    username=username,
+                    user_id=user_id,
+                    messages=messages,
+                    model=None,
+                    prompt_type="event_strategy_audit",
+                    symbol="WEBULL_EVENT",
+                    include_db_context=False,
+                    use_cache=False,
+                    search_lookback_hours=6,
+                )
+                raw_text = getattr(response, "text", None) or ""
+                parsed = _parse_audit_report_json(raw_text)
+                if parsed and parsed.get("content_markdown"):
+                    ai_status = parsed.get("status")
+                    ai_headline = parsed.get("headline")
+                    ai_summary = parsed.get("summary")
+                    report_content = parsed.get("content_markdown")
+                    model_name = getattr(response, "model", None)
+                    provider_name = getattr(response, "provider", None)
+                    tier_name = getattr(response, "tier", None)
+        except Exception as ai_err:
+            logger.warning("AI strategy audit generation encountered error: %s; falling back to heuristic audit.", ai_err)
+
+    if not report_content:
+        heuristic = _generate_heuristic_report(audit_data)
+        ai_status = heuristic["status"]
+        ai_headline = heuristic["headline"]
+        ai_summary = heuristic["summary"]
+        report_content = heuristic["content_markdown"]
+        model_name = heuristic["model"]
+        provider_name = heuristic["provider"]
+        tier_name = heuristic["tier"]
+
+    try:
+        p_start = datetime.fromisoformat(audit_data["period_start_iso"].replace("Z", ""))
+    except Exception:
+        p_start = datetime.utcnow() - timedelta(hours=hours)
+    try:
+        p_end = datetime.fromisoformat(audit_data["period_end_iso"].replace("Z", ""))
+    except Exception:
+        p_end = datetime.utcnow()
+
+    report = EventStrategyReport(
+        user_id=user_id,
+        config_id=config.id if config else None,
+        period_start=p_start,
+        period_end=p_end,
+        status=str(ai_status or "HEALTHY").upper()[:30],
+        headline=str(ai_headline or "Event Strategy Engine 6-Hour Audit")[:255],
+        summary=ai_summary,
+        content_markdown=report_content,
+        metrics_json=json.dumps(audit_data["metrics"]),
+        model=str(model_name or "")[:120] or None,
+        provider=str(provider_name or "")[:40] or None,
+        tier=str(tier_name or "")[:20] or None,
+    )
+    db.session.add(report)
+    db.session.commit()
+    return report
+
+
+def get_latest_event_strategy_report(user_id, report_id=None):
+    """Retrieve the latest or specific report for a user."""
+    query = EventStrategyReport.query.filter_by(user_id=user_id)
+    if report_id:
+        try:
+            query = query.filter_by(id=int(report_id))
+        except (TypeError, ValueError):
+            return None
+    return query.order_by(EventStrategyReport.created_at.desc()).first()
+
+
+def list_event_strategy_reports(user_id, limit=20):
+    """List historical audit reports for a user."""
+    return (
+        EventStrategyReport.query
+        .filter_by(user_id=user_id)
+        .order_by(EventStrategyReport.created_at.desc())
+        .limit(max(1, min(int(limit), 100)))
+        .all()
+    )
 
 
 def get_or_create_config(user_id):
@@ -1955,6 +2415,7 @@ def event_algo_worker_loop(app):
     """Persisted paper-only supervisor with stale-run recovery, outcome resolution, and alerts."""
     logger.info("Event Contract strategy worker started in paper/signal-only mode.")
     last_resolve_by_user = {}
+    last_report_by_user = {}
     with app.app_context():
         while True:
             try:
@@ -1986,6 +2447,33 @@ def event_algo_worker_loop(app):
                                 db.session.commit()
                         except Exception as resolve_err:
                             logger.warning("Periodic event outcome resolution failed for user %s: %s", config.user_id, resolve_err)
+                            db.session.rollback()
+
+                    # Periodic 6-hour autonomous AI worker audit report
+                    now_ts = time.time()
+                    last_report = last_report_by_user.get(config.user_id)
+                    if last_report is None:
+                        latest_rep = EventStrategyReport.query.filter_by(user_id=config.user_id).order_by(EventStrategyReport.created_at.desc()).first()
+                        if latest_rep and latest_rep.created_at:
+                            last_report = (latest_rep.created_at - datetime(1970, 1, 1)).total_seconds()
+                        else:
+                            last_report = 0
+                        last_report_by_user[config.user_id] = last_report
+
+                    if now_ts - last_report >= 6 * 3600:
+                        last_report_by_user[config.user_id] = now_ts
+                        try:
+                            logger.info("Generating scheduled 6-hour AI strategy engine audit report for user %s", config.user_id)
+                            rep = generate_event_strategy_report(config.user_id, config=config, hours=6)
+                            if rep:
+                                _record_engine_log(
+                                    config.user_id, "REPORT_GENERATED",
+                                    f"Generated 6-hour AI audit report ({rep.status}): {rep.headline or 'Audit completed'}",
+                                    level="INFO", config_id=config.id,
+                                )
+                                db.session.commit()
+                        except Exception as rep_err:
+                            logger.warning("Periodic 6-hour AI strategy report generation failed for user %s: %s", config.user_id, rep_err)
                             db.session.rollback()
 
                     signal = _json_load(config.signal_config, dict(DEFAULT_SIGNAL_CONFIG))

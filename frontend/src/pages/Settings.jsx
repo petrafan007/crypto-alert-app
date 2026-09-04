@@ -4,6 +4,9 @@ import axios from 'axios';
 import { useAuth } from '../components/AuthContext';
 import { FaToggleOn, FaToggleOff, FaInfoCircle } from 'react-icons/fa';
 import { useSearchParams } from 'react-router-dom';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import { formatEasternDateTime } from '../utils/dateTime';
 
 const SENTIMENT_VARIABLES = [
   { label: 'Buy Immediately', code: 'BI', kind: 'directional', direction: 'up', correctKey: 'sentiment_buy_immediately_correct_pct', wrongKey: 'sentiment_buy_immediately_wrong_pct' },
@@ -213,6 +216,11 @@ export default function Settings({ isLightMode }) {
   const [eventStrategyBusy, setEventStrategyBusy] = useState(false);
   const [eventStrategyMessage, setEventStrategyMessage] = useState('');
   const [showEventStrategyLogs, setShowEventStrategyLogs] = useState(false);
+  const [eventStrategyReport, setEventStrategyReport] = useState(null);
+  const [eventStrategyReportHistory, setEventStrategyReportHistory] = useState([]);
+  const [showEventStrategyReport, setShowEventStrategyReport] = useState(false);
+  const [eventStrategyReportLoading, setEventStrategyReportLoading] = useState(false);
+  const [eventStrategyReportGenerating, setEventStrategyReportGenerating] = useState(false);
   // Keep the duration draft in a ref as well as React state. This makes a
   // checkbox change available to Save immediately, even when the user clicks
   // Save before React has committed the next render.
@@ -391,6 +399,39 @@ export default function Settings({ isLightMode }) {
       setShowEventStrategyLogs(true);
     } catch (error) {
       setEventStrategyMessage(error.response?.data?.message || 'Unable to load engine logs.');
+    }
+  };
+
+  const loadEventStrategyReport = async (reportId = null) => {
+    setEventStrategyReportLoading(true);
+    try {
+      const url = reportId ? `/api/webull/event-algo/report?id=${reportId}` : '/api/webull/event-algo/report';
+      const response = await axios.get(url, { withCredentials: true });
+      if (response.data?.success) {
+        setEventStrategyReport(response.data.report || null);
+        setEventStrategyReportHistory(response.data.history || []);
+        setShowEventStrategyReport(true);
+      }
+    } catch (error) {
+      setEventStrategyMessage(error.response?.data?.message || 'Unable to load strategy engine report.');
+    } finally {
+      setEventStrategyReportLoading(false);
+    }
+  };
+
+  const generateEventStrategyReportNow = async () => {
+    setEventStrategyReportGenerating(true);
+    try {
+      const response = await axios.post('/api/webull/event-algo/report/generate', { hours: 6 }, { withCredentials: true });
+      if (response.data?.success) {
+        setEventStrategyReport(response.data.report || null);
+        setEventStrategyReportHistory(response.data.history || []);
+        setEventStrategyMessage('AI audit report generated successfully.');
+      }
+    } catch (error) {
+      setEventStrategyMessage(error.response?.data?.message || 'Unable to generate AI audit report.');
+    } finally {
+      setEventStrategyReportGenerating(false);
     }
   };
 
@@ -3796,15 +3837,61 @@ export default function Settings({ isLightMode }) {
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12, marginBottom: 18 }}>
                   {[
                     ['worker_status', 'Worker', eventStrategyHealth?.worker_status || eventStrategyConfig.worker_status],
-                    ['last_run', 'Last scan', eventStrategyHealth?.last_run || '—'],
-                    ['heartbeat_at', 'Last heartbeat', eventStrategyHealth?.heartbeat_at || '—'],
-                    ['next_expected_scan', 'Next expected scan', eventStrategyHealth?.next_expected_scan || '—'],
+                    ['last_run', 'Last scan', eventStrategyHealth?.last_run ? formatEasternDateTime(eventStrategyHealth.last_run) : '—'],
+                    ['heartbeat_at', 'Last heartbeat', eventStrategyHealth?.heartbeat_at ? formatEasternDateTime(eventStrategyHealth.heartbeat_at) : '—'],
+                    ['next_expected_scan', 'Next expected scan', eventStrategyHealth?.next_expected_scan ? formatEasternDateTime(eventStrategyHealth.next_expected_scan) : '—'],
                     ['ai_batch_calls_last_hour', 'AI batches (last hour)', `${eventStrategyHealth?.ai_batch_calls_last_hour ?? 0} / ${eventStrategyHealth?.ai_batch_budget_per_hour ?? 12}`],
-                    ['ai_evaluations', 'AI evaluation states', JSON.stringify(eventStrategyHealth?.ai_evaluations || {})],
-                  ].map(([, label, value]) => (
+                    ['ai_evaluations', 'AI evaluation states', (() => {
+                      const evals = eventStrategyHealth?.ai_evaluations;
+                      if (!evals || typeof evals !== 'object' || Object.keys(evals).length === 0) {
+                        return <span style={{ color: isLightMode ? '#718096' : '#94a3b8', fontStyle: 'italic', fontWeight: 400, fontSize: '0.85rem' }}>No evaluations yet</span>;
+                      }
+                      const badgeMap = {
+                        SUCCESS: { bg: isLightMode ? '#dcfce7' : 'rgba(34, 197, 94, 0.18)', border: '#22c55e', text: isLightMode ? '#15803d' : '#4ade80', label: 'Success' },
+                        SKIPPED: { bg: isLightMode ? '#fef3c7' : 'rgba(234, 179, 8, 0.18)', border: '#eab308', text: isLightMode ? '#b45309' : '#fde047', label: 'Skipped' },
+                        INVALID: { bg: isLightMode ? '#fee2e2' : 'rgba(239, 68, 68, 0.18)', border: '#ef4444', text: isLightMode ? '#b91c1c' : '#f87171', label: 'Invalid' },
+                        FAILED: { bg: isLightMode ? '#fee2e2' : 'rgba(239, 68, 68, 0.18)', border: '#ef4444', text: isLightMode ? '#b91c1c' : '#f87171', label: 'Failed' },
+                        PENDING: { bg: isLightMode ? '#e0f2fe' : 'rgba(56, 189, 248, 0.18)', border: '#38bdf8', text: isLightMode ? '#0369a1' : '#7dd3fc', label: 'Pending' },
+                      };
+                      return (
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 4 }}>
+                          {Object.entries(evals).map(([k, count]) => {
+                            const conf = badgeMap[k.toUpperCase()] || {
+                              bg: isLightMode ? '#f1f5f9' : 'rgba(148, 163, 184, 0.18)',
+                              border: '#94a3b8',
+                              text: isLightMode ? '#475569' : '#cbd5e1',
+                              label: k.charAt(0) + k.slice(1).toLowerCase(),
+                            };
+                            return (
+                              <span
+                                key={k}
+                                style={{
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: 4,
+                                  padding: '2px 8px',
+                                  borderRadius: 6,
+                                  fontSize: '0.8rem',
+                                  fontWeight: 600,
+                                  background: conf.bg,
+                                  border: `1px solid ${conf.border}`,
+                                  color: conf.text,
+                                }}
+                              >
+                                <span>{conf.label}:</span>
+                                <span>{count}</span>
+                              </span>
+                            );
+                          })}
+                        </div>
+                      );
+                    })()],
+                  ].map(([cardKey, label, value]) => (
                     <div key={label} style={{ padding: '12px 14px', borderRadius: 8, background: isLightMode ? '#edf2f7' : 'rgba(255,255,255,0.05)', border: '1px solid rgba(148,163,184,0.2)' }}>
                       <div style={{ fontSize: 12, color: isLightMode ? '#718096' : '#94a3b8' }}>{label}</div>
-                      <div style={{ marginTop: 4, fontWeight: 600, wordBreak: 'break-word' }}>{String(value || '—')}</div>
+                      <div style={{ marginTop: 4, fontWeight: 600, wordBreak: 'break-word' }}>
+                        {cardKey === 'ai_evaluations' ? value : String(value || '—')}
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -3815,6 +3902,7 @@ export default function Settings({ isLightMode }) {
                   <button type="button" className="settings-action-button" disabled={eventStrategyBusy || !eventStrategyConfig.enabled} onClick={() => eventStrategyAction('stop')}>⏸ Stop</button>
                   <button type="button" className="settings-action-button" disabled={eventStrategyBusy} onClick={() => eventStrategyAction('scan')}>🔎 Scan now</button>
                   <button type="button" className="settings-action-button" disabled={eventStrategyBusy} onClick={loadEventStrategyLogs}>📜 View logs</button>
+                  <button type="button" className="settings-action-button" disabled={eventStrategyBusy || eventStrategyReportLoading} onClick={() => loadEventStrategyReport()}>📊 View Report</button>
                   <button type="button" className="settings-danger-button" disabled={eventStrategyBusy || eventStrategyConfig.kill_switch} onClick={() => eventStrategyAction('kill-switch')}>⛔ Kill switch</button>
                 </div>
 
@@ -3882,11 +3970,157 @@ export default function Settings({ isLightMode }) {
               {eventStrategyLogs.length === 0 ? <p>No engine log entries yet.</p> : eventStrategyLogs.map((entry) => (
                 <div key={entry.id} style={{ padding: '10px 0', borderBottom: '1px solid rgba(148,163,184,0.18)' }}>
                   <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', fontSize: 12, color: isLightMode ? '#718096' : '#94a3b8' }}>
-                    <span>{entry.created_at || '—'}</span><span>{entry.level}</span><span>{entry.event_type}</span>{entry.symbol && <span>{entry.symbol}</span>}{entry.duration && <span>{entry.duration}</span>}
+                    <span>{entry.created_at ? formatEasternDateTime(entry.created_at) : '—'}</span><span>{entry.level}</span><span>{entry.event_type}</span>{entry.symbol && <span>{entry.symbol}</span>}{entry.duration && <span>{entry.duration}</span>}
                   </div>
                   <div style={{ marginTop: 4 }}>{entry.message}</div>
                 </div>
               ))}
+            </div>
+          </div>
+        </div>,
+        document.body,
+      )}
+
+      {showEventStrategyReport && createPortal(
+        <div role="dialog" aria-modal="true" style={{ position: 'fixed', inset: 0, zIndex: 10000, background: 'rgba(0,0,0,0.75)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+          <div style={{ width: 'min(1060px, 96vw)', maxHeight: '90vh', overflow: 'hidden', borderRadius: 14, background: isLightMode ? '#fff' : '#0f172a', color: isLightMode ? '#1a202c' : '#e2e8f0', border: '1px solid #38bdf8', display: 'flex', flexDirection: 'column', boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)' }}>
+            {/* Modal Header */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 24px', borderBottom: '1px solid rgba(148,163,184,0.2)' }}>
+              <div>
+                <h3 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: 10, fontSize: '1.25rem' }}>
+                  <span>📊 Event Strategy Engine AI Audit Report</span>
+                  {eventStrategyReport?.status && (
+                    <span style={{
+                      fontSize: '0.75rem',
+                      fontWeight: 700,
+                      padding: '3px 10px',
+                      borderRadius: 12,
+                      background: eventStrategyReport.status === 'HEALTHY' ? 'rgba(34, 197, 94, 0.18)' : (eventStrategyReport.status === 'DEGRADED' || eventStrategyReport.status === 'ERROR' ? 'rgba(239, 68, 68, 0.18)' : 'rgba(234, 179, 8, 0.18)'),
+                      border: `1px solid ${eventStrategyReport.status === 'HEALTHY' ? '#22c55e' : (eventStrategyReport.status === 'DEGRADED' || eventStrategyReport.status === 'ERROR' ? '#ef4444' : '#eab308')}`,
+                      color: eventStrategyReport.status === 'HEALTHY' ? '#4ade80' : (eventStrategyReport.status === 'DEGRADED' || eventStrategyReport.status === 'ERROR' ? '#f87171' : '#fde047'),
+                    }}>
+                      {eventStrategyReport.status}
+                    </span>
+                  )}
+                </h3>
+                <div style={{ fontSize: '0.82rem', color: isLightMode ? '#64748b' : '#94a3b8', marginTop: 4 }}>
+                  Autonomous 6-hour evaluation of worker performance, operational logs, quote data utility, and calibrated decisions.
+                </div>
+              </div>
+              <button type="button" onClick={() => setShowEventStrategyReport(false)} aria-label="Close report" style={{ background: 'none', border: 'none', color: isLightMode ? '#64748b' : '#94a3b8', fontSize: 20, cursor: 'pointer', padding: 4 }}>✕</button>
+            </div>
+
+            {/* Sub-bar with Report Selector & Generate Now */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12, padding: '12px 24px', background: isLightMode ? '#f8fafc' : 'rgba(255,255,255,0.02)', borderBottom: '1px solid rgba(148,163,184,0.15)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <span style={{ fontSize: '0.85rem', fontWeight: 600, color: isLightMode ? '#475569' : '#cbd5e1' }}>Report History:</span>
+                {eventStrategyReportHistory.length > 0 ? (
+                  <select
+                    value={eventStrategyReport?.id || ''}
+                    onChange={(e) => loadEventStrategyReport(e.target.value)}
+                    style={{
+                      padding: '5px 10px',
+                      borderRadius: 6,
+                      fontSize: '0.82rem',
+                      background: isLightMode ? '#fff' : '#1e293b',
+                      color: isLightMode ? '#1e293b' : '#f1f5f9',
+                      border: '1px solid rgba(148,163,184,0.3)',
+                    }}
+                  >
+                    {eventStrategyReportHistory.map((rep) => (
+                      <option key={rep.id} value={rep.id}>
+                        {formatEasternDateTime(rep.created_at)} ({rep.status || 'Report'})
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <span style={{ fontSize: '0.82rem', color: isLightMode ? '#64748b' : '#94a3b8' }}>No saved reports yet</span>
+                )}
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <button
+                  type="button"
+                  className="settings-action-button"
+                  disabled={eventStrategyReportGenerating}
+                  onClick={generateEventStrategyReportNow}
+                  style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.85rem', padding: '6px 14px' }}
+                >
+                  {eventStrategyReportGenerating ? '⚡ Analyzing worker & logs…' : '⚡ Generate Fresh Report Now'}
+                </button>
+              </div>
+            </div>
+
+            {/* Scrollable Report Body */}
+            <div style={{ overflow: 'auto', padding: '20px 24px', flex: 1 }}>
+              {eventStrategyReportLoading ? (
+                <div style={{ padding: '40px 0', textAlign: 'center', color: isLightMode ? '#64748b' : '#94a3b8' }}>
+                  Loading strategy engine report…
+                </div>
+              ) : !eventStrategyReport ? (
+                <div style={{ padding: '40px 0', textAlign: 'center' }}>
+                  <p style={{ fontSize: '1.05rem', color: isLightMode ? '#475569' : '#cbd5e1' }}>No audit report has been generated yet.</p>
+                  <p style={{ fontSize: '0.88rem', color: isLightMode ? '#64748b' : '#94a3b8', maxWidth: 500, margin: '0 auto 20px' }}>
+                    The report runs automatically every 6 hours while the engine is active. You can generate an immediate evaluation right now to inspect current worker operations and logs.
+                  </p>
+                  <button
+                    type="button"
+                    className="settings-save-button"
+                    disabled={eventStrategyReportGenerating}
+                    onClick={generateEventStrategyReportNow}
+                  >
+                    {eventStrategyReportGenerating ? '⚡ Analyzing worker & logs…' : '⚡ Generate Initial Report Now'}
+                  </button>
+                </div>
+              ) : (
+                <div>
+                  {/* Top metrics ribbon */}
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 12, marginBottom: 20 }}>
+                    <div style={{ padding: '10px 14px', borderRadius: 8, background: isLightMode ? '#f1f5f9' : 'rgba(255,255,255,0.04)', border: '1px solid rgba(148,163,184,0.18)' }}>
+                      <div style={{ fontSize: 11, color: isLightMode ? '#64748b' : '#94a3b8' }}>Report Created</div>
+                      <div style={{ fontWeight: 600, fontSize: '0.88rem', marginTop: 3 }}>{formatEasternDateTime(eventStrategyReport.created_at)}</div>
+                    </div>
+                    <div style={{ padding: '10px 14px', borderRadius: 8, background: isLightMode ? '#f1f5f9' : 'rgba(255,255,255,0.04)', border: '1px solid rgba(148,163,184,0.18)' }}>
+                      <div style={{ fontSize: 11, color: isLightMode ? '#64748b' : '#94a3b8' }}>Audit Window</div>
+                      <div style={{ fontWeight: 600, fontSize: '0.88rem', marginTop: 3 }}>6 Hours</div>
+                    </div>
+                    <div style={{ padding: '10px 14px', borderRadius: 8, background: isLightMode ? '#f1f5f9' : 'rgba(255,255,255,0.04)', border: '1px solid rgba(148,163,184,0.18)' }}>
+                      <div style={{ fontSize: 11, color: isLightMode ? '#64748b' : '#94a3b8' }}>Scans Analyzed</div>
+                      <div style={{ fontWeight: 600, fontSize: '0.88rem', marginTop: 3 }}>{eventStrategyReport.metrics?.scans_count ?? 0} scans ({eventStrategyReport.metrics?.scanned_contracts ?? 0} contracts)</div>
+                    </div>
+                    <div style={{ padding: '10px 14px', borderRadius: 8, background: isLightMode ? '#f1f5f9' : 'rgba(255,255,255,0.04)', border: '1px solid rgba(148,163,184,0.18)' }}>
+                      <div style={{ fontSize: 11, color: isLightMode ? '#64748b' : '#94a3b8' }}>Decisions &amp; Holds</div>
+                      <div style={{ fontWeight: 600, fontSize: '0.88rem', marginTop: 3 }}>{eventStrategyReport.metrics?.eligible_count ?? 0} qualified / {eventStrategyReport.metrics?.no_trade_count ?? 0} hold</div>
+                    </div>
+                    <div style={{ padding: '10px 14px', borderRadius: 8, background: isLightMode ? '#f1f5f9' : 'rgba(255,255,255,0.04)', border: '1px solid rgba(148,163,184,0.18)' }}>
+                      <div style={{ fontSize: 11, color: isLightMode ? '#64748b' : '#94a3b8' }}>Auditor Model</div>
+                      <div style={{ fontWeight: 600, fontSize: '0.88rem', marginTop: 3 }}>{eventStrategyReport.model || eventStrategyReport.provider || 'AI Evaluator'}</div>
+                    </div>
+                  </div>
+
+                  {/* Headline Callout */}
+                  {eventStrategyReport.headline && (
+                    <div style={{
+                      padding: '12px 16px',
+                      borderRadius: 8,
+                      marginBottom: 20,
+                      background: isLightMode ? '#f0fdf4' : 'rgba(34, 197, 94, 0.08)',
+                      border: '1px solid rgba(34, 197, 94, 0.25)',
+                      fontWeight: 600,
+                      fontSize: '0.95rem',
+                      color: isLightMode ? '#166534' : '#86efac',
+                    }}>
+                      💡 {eventStrategyReport.headline}
+                    </div>
+                  )}
+
+                  {/* Markdown Report Content */}
+                  <div className="event-strategy-report-markdown" style={{ lineHeight: 1.65, fontSize: '0.92rem' }}>
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                      {eventStrategyReport.content_markdown || eventStrategyReport.summary || 'No detailed content.'}
+                    </ReactMarkdown>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </div>,

@@ -6,6 +6,16 @@
 
 **Last Updated**: September 2026
 
+## v2.87.4 (September 2026)
+
+- **Event Contracts Strategy Engine Human-Readable Telemetry**:
+  - Replaced raw ISO microsecond timestamps for `Last scan`, `Last heartbeat`, `Next expected scan`, and operational engine logs with clean Eastern Time formatting with second-level precision.
+  - Replaced raw bracketed JSON string representations of `AI evaluation states` with styled, color-coded status badges (`Success`, `Skipped`, `Invalid`, `Failed`, `Pending`).
+- **Autonomous 6-Hour AI Audit Report & 'View Report' Feature**:
+  - Added a dedicated `View Report` button in the Event Contract Strategy Engine opening an interactive audit modal.
+  - Implemented an autonomous 6-hour background AI evaluation pipeline that audits worker cadence, market data intake completeness, quote utility, and incident error logs.
+  - Provides step-by-step reasoning with concrete examples of evaluated contracts, decisions, and log citations, backed by an instant on-demand report generator and historical report selector.
+
 ## v2.87.3 (September 2026)
 
 - **Binance.US Staking Balance Reconciliation & Phantom Staking Elimination**:

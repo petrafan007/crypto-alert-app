@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
+import { formatEasternDateTime } from '../utils/dateTime';
 import './EventStrategyPanel.css';
 
 const DURATIONS = [
@@ -10,7 +11,7 @@ const DURATIONS = [
 
 const formatPercent = (value) => Number.isFinite(Number(value)) ? `${(Number(value) * 100).toFixed(1)}%` : '—';
 const formatMoney = (value) => Number.isFinite(Number(value)) ? `$${Number(value).toFixed(2)}` : '—';
-const formatDate = (value) => value ? new Date(value).toLocaleString() : '—';
+const formatDate = (value) => value ? formatEasternDateTime(value) : '—';
 
 export default function EventStrategyPanel({ isPaperMode }) {
   const [status, setStatus] = useState(null);

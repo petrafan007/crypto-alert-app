@@ -316,3 +316,29 @@ class EventContractOutcome(db.Model):
         db.Index("ix_event_outcome_user_status", "user_id", "settlement_status"),
         db.Index("ix_event_outcome_contract_cutoff", "contract_symbol", "cutoff_at"),
     )
+
+
+class EventStrategyReport(db.Model):
+    """Periodic and on-demand AI audit report evaluating worker operations and telemetry."""
+
+    __tablename__ = "event_strategy_reports"
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, nullable=False, index=True)
+    config_id = db.Column(db.Integer, nullable=True, index=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False, index=True)
+    period_start = db.Column(db.DateTime, nullable=False)
+    period_end = db.Column(db.DateTime, nullable=False)
+    status = db.Column(db.String(30), default="HEALTHY", nullable=False)
+    headline = db.Column(db.String(255), nullable=True)
+    summary = db.Column(db.Text, nullable=True)
+    content_markdown = db.Column(db.Text, nullable=False)
+    metrics_json = db.Column(db.Text, default="{}", nullable=False)
+    model = db.Column(db.String(120), nullable=True)
+    provider = db.Column(db.String(40), nullable=True)
+    tier = db.Column(db.String(20), nullable=True)
+
+    __table_args__ = (
+        db.Index("ix_event_strategy_report_user_created", "user_id", "created_at"),
+        db.Index("ix_event_strategy_report_config_created", "config_id", "created_at"),
+    )
