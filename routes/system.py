@@ -379,8 +379,51 @@ def _webull_account_is_crypto(setting, account_id):
     return False
 
 
+def _webull_account_is_event(setting, account_id):
+    """Classify whether a connected account is an Event Contracts account (EVENTS_CASH)."""
+    clean_account_id = str(account_id or '').strip()
+    for account in _webull_cached_accounts(setting):
+        if not isinstance(account, dict) or str(account.get('account_id') or '').strip() != clean_account_id:
+            continue
+        identity = ' '.join(str(account.get(key) or '') for key in (
+            'account_class', 'account_type', 'account_sub_type', 'account_label', 'account_name',
+        )).lower()
+        return 'event' in identity
+    return False
+
+
+def _webull_account_is_futures(setting, account_id):
+    """Classify whether a connected account is a Futures margin account."""
+    clean_account_id = str(account_id or '').strip()
+    for account in _webull_cached_accounts(setting):
+        if not isinstance(account, dict) or str(account.get('account_id') or '').strip() != clean_account_id:
+            continue
+        identity = ' '.join(str(account.get(key) or '') for key in (
+            'account_class', 'account_type', 'account_sub_type', 'account_label', 'account_name',
+        )).lower()
+        return 'futures' in identity
+    return False
+
+
+def _webull_find_account_by_type(setting, target_type):
+    """Find a connected account matching the target asset class."""
+    clean_target = str(target_type or '').strip().lower()
+    for account in _webull_cached_accounts(setting):
+        if not isinstance(account, dict):
+            continue
+        acc_id = str(account.get('account_id') or '').strip()
+        if not acc_id:
+            continue
+        identity = ' '.join(str(account.get(key) or '') for key in (
+            'account_class', 'account_type', 'account_sub_type', 'account_label', 'account_name',
+        )).lower()
+        if clean_target in identity:
+            return acc_id
+    return None
+
+
 def _require_webull_instrument_account_match(setting, account_id, instrument_type):
-    """Keep crypto-only and non-crypto Webull accounts in their own asset lanes."""
+    """Keep crypto, event, futures, and equity Webull accounts in their proper asset lanes."""
     clean_type = str(instrument_type or 'EQUITY').strip().upper()
     if clean_type in {'COIN', 'TOKEN'}:
         clean_type = 'CRYPTO'
@@ -388,11 +431,39 @@ def _require_webull_instrument_account_match(setting, account_id, instrument_typ
         clean_type = 'FUTURES'
     if clean_type in {'EVENT', 'EVENTS', 'EVENT_CONTRACT', 'EVENT_CONTRACTS'}:
         clean_type = 'EVENT'
+
     is_crypto_account = _webull_account_is_crypto(setting, account_id)
+    is_event_account = _webull_account_is_event(setting, account_id)
+    is_futures_account = _webull_account_is_futures(setting, account_id)
+
+    if clean_type == 'EVENT':
+        if is_crypto_account:
+            raise WebullConnectionError('This is a Crypto Webull account. Choose the Crypto asset class to place an order from it.')
+        has_event_account = bool(_webull_find_account_by_type(setting, 'event'))
+        if has_event_account and not is_event_account:
+            raise WebullConnectionError('Event contract orders require an Events Webull account (Events Cash).')
+        return clean_type
+
+    if clean_type == 'FUTURES':
+        if is_crypto_account:
+            raise WebullConnectionError('This is a Crypto Webull account. Choose the Crypto asset class to place an order from it.')
+        has_futures_account = bool(_webull_find_account_by_type(setting, 'futures'))
+        if has_futures_account and not is_futures_account:
+            raise WebullConnectionError('Futures orders require a Futures Webull account.')
+        return clean_type
+
+    if clean_type == 'CRYPTO':
+        if not is_crypto_account:
+            raise WebullConnectionError('Crypto orders require a Crypto Webull account. Choose a Crypto account to continue.')
+        return clean_type
+
     if is_crypto_account and clean_type != 'CRYPTO':
         raise WebullConnectionError('This is a Crypto Webull account. Choose the Crypto asset class to place an order from it.')
-    if not is_crypto_account and clean_type == 'CRYPTO':
-        raise WebullConnectionError('Crypto orders require a Crypto Webull account. Choose a Crypto account to continue.')
+    if is_event_account and clean_type != 'EVENT':
+        raise WebullConnectionError('This is an Events Webull account. Choose the Event Contracts asset class to place an order from it.')
+    if is_futures_account and clean_type != 'FUTURES':
+        raise WebullConnectionError('This is a Futures Webull account. Choose the Futures asset class to place an order from it.')
+
     return clean_type
 
 
@@ -2590,6 +2661,24 @@ def api_webull_place_order():
         bracket_stop_loss_limit_price = data.get('bracket_stop_loss_limit_price')
         event_outcome = data.get('event_outcome')
 
+        # Auto-resolve specialized accounts if instrument requires it and account_id is not already specialized
+        clean_inst = str(instrument_type or '').strip().upper()
+        if clean_inst in {'EVENT', 'EVENTS', 'EVENT_CONTRACT', 'EVENT_CONTRACTS'}:
+            if not _webull_account_is_event(setting, account_id):
+                event_acc_id = _webull_find_account_by_type(setting, 'event')
+                if event_acc_id:
+                    account_id = event_acc_id
+        elif clean_inst in {'FUTURE', 'FUTURES'}:
+            if not _webull_account_is_futures(setting, account_id):
+                futures_acc_id = _webull_find_account_by_type(setting, 'futures')
+                if futures_acc_id:
+                    account_id = futures_acc_id
+        elif clean_inst in {'CRYPTO', 'COIN', 'TOKEN'}:
+            if not _webull_account_is_crypto(setting, account_id):
+                crypto_acc_id = _webull_find_account_by_type(setting, 'crypto')
+                if crypto_acc_id:
+                    account_id = crypto_acc_id
+
         try:
             account_id = _require_webull_account_access(setting, account_id)
             instrument_type = _require_webull_instrument_account_match(setting, account_id, instrument_type)
@@ -3262,6 +3351,68 @@ def api_webull_market_bars():
     except Exception as exc:
         logger.error('Webull market-data lookup failed: %s', exc, exc_info=True)
         return jsonify({'success': False, 'bars': [], 'message': 'Unable to load Webull market data.'}), 500
+
+
+@system_bp.route('/api/webull/futures/bars', methods=['GET'])
+@login_required
+def api_webull_futures_bars():
+    """Return historical candlestick bars for a futures product or contract using Webull or continuous yfinance."""
+    try:
+        raw_symbol = str(request.args.get('symbol') or 'MES').strip().upper()
+        clean_symbol = ''.join(c for c in raw_symbol if c.isalnum())
+        interval = str(request.args.get('interval') or '1d').strip().lower()
+        limit = min(max(int(request.args.get('limit') or 120), 10), 500)
+
+        wb_interval_map = {
+            '1m': 'M1', '5m': 'M5', '15m': 'M15', '30m': 'M30',
+            '1h': 'H1', '60m': 'H1', '1d': 'D', 'd': 'D',
+        }
+        wb_interval = wb_interval_map.get(interval, 'D')
+
+        setting = UserSetting.query.filter_by(user_id=current_user.id).first()
+        credential = Credential.query.filter_by(user_id=current_user.id).first()
+        environment = normalize_webull_environment(getattr(setting, 'webull_environment', None) or 'production')
+
+        bars = []
+        source = 'webull'
+        if (
+            credential and credential.webull_token_status == 'NORMAL'
+            and credential.webull_token_environment == environment and credential.webull_access_token
+        ):
+            try:
+                bars = get_webull_market_bars(
+                    credential.webull_app_key, credential.webull_app_secret, environment,
+                    credential.webull_access_token,
+                    symbol=clean_symbol,
+                    instrument_type='FUTURES',
+                    interval=wb_interval,
+                    limit=limit,
+                )
+            except Exception as wb_err:
+                logger.debug("Webull futures bars lookup exception: %s", wb_err)
+
+        if not bars:
+            source = 'yfinance'
+            from routes.portfolio import _fetch_yfinance_klines
+            product_code = clean_symbol
+            for p in FALLBACK_US_FUTURES_PRODUCTS:
+                if clean_symbol.startswith(p['product_code']):
+                    product_code = p['product_code']
+                    break
+            lookup_sym = f"{product_code}=F"
+            yf_interval = '1d' if interval in {'1d', 'd'} else ('1h' if interval in {'1h', '60m'} else ('15m' if interval in {'15m'} else ('5m' if interval in {'5m'} else '1m')))
+            bars = _fetch_yfinance_klines(lookup_sym, interval=yf_interval, limit=limit) or []
+
+        return jsonify({
+            'success': True,
+            'symbol': clean_symbol,
+            'interval': interval,
+            'source': source,
+            'bars': bars,
+        })
+    except Exception as exc:
+        logger.error("Error in api_webull_futures_bars: %s", exc, exc_info=True)
+        return jsonify({'success': False, 'bars': [], 'message': str(exc)}), 500
 
 
 @system_bp.route('/api/webull/market-snapshot', methods=['GET'])

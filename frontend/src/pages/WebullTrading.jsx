@@ -3,6 +3,7 @@ import axios from 'axios';
 import CryptoIcon, { WebullLogo } from '../components/CryptoIcon';
 import { FaArrowDown, FaArrowUp, FaSearch, FaToggleOn, FaToggleOff } from 'react-icons/fa';
 import WebullTradingViewChart, { DEFAULT_STOCKS } from '../components/WebullTradingViewChart';
+import WebullFuturesLightweightChart from '../components/WebullFuturesLightweightChart';
 import WebullFuturesDiscoverySuite, { WebullFuturesSpecStrip } from '../components/WebullFuturesDiscoverySuite';
 import WebullTradeTimelineChart from '../components/WebullTradeTimelineChart';
 import TwoFactorModal from '../components/TwoFactorModal';
@@ -509,14 +510,26 @@ const isEventAccount = (acc) => {
   ].filter(Boolean).join(' ').toLowerCase().includes('event');
 };
 
+const isFuturesAccount = (acc) => {
+  if (!acc) return false;
+  return [
+    acc.account_class,
+    acc.account_type,
+    acc.account_label,
+    acc.account_name,
+  ].filter(Boolean).join(' ').toLowerCase().includes('futures');
+};
+
 const preferredEquityAccount = (accounts) => (
   accounts.find(isIndividualCashAccount)
+  || accounts.find((account) => !isCryptoAccount(account) && !isEventAccount(account) && !isFuturesAccount(account))
   || accounts.find((account) => !isCryptoAccount(account) && !isEventAccount(account))
   || accounts.find((account) => !isCryptoAccount(account))
   || null
 );
 
 const preferredEventAccount = (accounts) => accounts.find(isEventAccount) || null;
+const preferredFuturesAccount = (accounts) => accounts.find(isFuturesAccount) || null;
 
 const holdingMatchesSymbol = (holding, symbol) => {
   const holdingSymbol = String(holding?.symbol || '').toUpperCase();
@@ -1117,6 +1130,10 @@ export default function WebullTrading({ isLightMode = false }) {
         activeAcc = preferredEventAccount(filteredAccounts);
       }
 
+      if (!activeAcc && requestedInstrumentType === 'FUTURES') {
+        activeAcc = preferredFuturesAccount(filteredAccounts);
+      }
+
       if (!activeAcc && urlSymbol) {
         // Priority 2: find the account that holds this symbol directly
         const matchedHoldingByAcc = importedHoldings.find((h) => h.symbol === urlSymbol && h.account_id);
@@ -1302,8 +1319,21 @@ export default function WebullTrading({ isLightMode = false }) {
         },
       ];
     }
-    return accounts;
-  }, [isTestMode, accounts]);
+    if (selectedInstrumentType === 'EVENT') {
+      const eventAccs = accounts.filter(isEventAccount);
+      return eventAccs.length > 0 ? eventAccs : accounts;
+    }
+    if (selectedInstrumentType === 'FUTURES') {
+      const futuresAccs = accounts.filter(isFuturesAccount);
+      return futuresAccs.length > 0 ? futuresAccs : accounts;
+    }
+    if (selectedInstrumentType === 'CRYPTO') {
+      const cryptoAccs = accounts.filter(isCryptoAccount);
+      return cryptoAccs.length > 0 ? cryptoAccs : accounts;
+    }
+    const brokerAccs = accounts.filter((a) => !isCryptoAccount(a) && !isEventAccount(a) && !isFuturesAccount(a));
+    return brokerAccs.length > 0 ? brokerAccs : accounts;
+  }, [isTestMode, accounts, selectedInstrumentType]);
 
   const resetFuturesSelection = () => {
     setFuturesContracts([]);
@@ -1339,9 +1369,23 @@ export default function WebullTrading({ isLightMode = false }) {
   const handleAssetClassChange = (nextType) => {
     if (assetClassDisabled(nextType)) return;
     userChangedSessionRef.current = false;
-    if (!isTestMode && nextType === 'EVENT') {
-      const eventAccount = preferredEventAccount(accounts);
-      if (eventAccount) setSelectedAccountId(eventAccount.account_id);
+    if (!isTestMode) {
+      if (nextType === 'EVENT') {
+        const eventAccount = preferredEventAccount(accounts);
+        if (eventAccount) setSelectedAccountId(eventAccount.account_id);
+      } else if (nextType === 'FUTURES') {
+        const futuresAccount = preferredFuturesAccount(accounts);
+        if (futuresAccount) setSelectedAccountId(futuresAccount.account_id);
+      } else if (nextType === 'CRYPTO') {
+        const cryptoAccount = accounts.find(isCryptoAccount);
+        if (cryptoAccount) setSelectedAccountId(cryptoAccount.account_id);
+      } else if (nextType === 'EQUITY' || nextType === 'OPTION') {
+        const currAcc = accounts.find((a) => a.account_id === selectedAccountId);
+        if (!currAcc || isCryptoAccount(currAcc) || isEventAccount(currAcc) || isFuturesAccount(currAcc)) {
+          const eqAcc = preferredEquityAccount(accounts);
+          if (eqAcc) setSelectedAccountId(eqAcc.account_id);
+        }
+      }
     }
     assetSymbolMemoryRef.current[selectedInstrumentType] = selectedSymbol;
     const equityHolding = modeHoldings.find((holding) => String(holding.account_id || '') === String(selectedAccountId)
@@ -2013,6 +2057,24 @@ export default function WebullTrading({ isLightMode = false }) {
       return;
     }
     userChangedSessionRef.current = false;
+    if (!isTestMode) {
+      if (nextType === 'EVENT') {
+        const eventAccount = preferredEventAccount(accounts);
+        if (eventAccount) setSelectedAccountId(eventAccount.account_id);
+      } else if (nextType === 'FUTURES') {
+        const futuresAccount = preferredFuturesAccount(accounts);
+        if (futuresAccount) setSelectedAccountId(futuresAccount.account_id);
+      } else if (nextType === 'CRYPTO') {
+        const cryptoAccount = accounts.find(isCryptoAccount);
+        if (cryptoAccount) setSelectedAccountId(cryptoAccount.account_id);
+      } else if (nextType === 'EQUITY') {
+        const currAcc = accounts.find((a) => a.account_id === selectedAccountId);
+        if (!currAcc || isCryptoAccount(currAcc) || isEventAccount(currAcc) || isFuturesAccount(currAcc)) {
+          const eqAcc = preferredEquityAccount(accounts);
+          if (eqAcc) setSelectedAccountId(eqAcc.account_id);
+        }
+      }
+    }
     setSelectedSymbol(nextSymbol);
     setSelectedInstrumentType(nextType);
     setSelectedSecurityType(nextType === 'EQUITY' ? (securityType === 'ETF' ? 'ETF' : 'EQUITY') : nextType);
@@ -2578,9 +2640,19 @@ export default function WebullTrading({ isLightMode = false }) {
     setOrderSubmitting(true);
     try {
       const isCashAmountMode = selectedInstrumentType === 'EQUITY' && orderForm.entrustType === 'AMOUNT';
+      let effectiveAccountId = selectedAccountId;
+      if (!isTestMode) {
+        if (selectedInstrumentType === 'EVENT') {
+          const eventAccount = preferredEventAccount(accounts);
+          if (eventAccount) effectiveAccountId = eventAccount.account_id;
+        } else if (selectedInstrumentType === 'FUTURES') {
+          const futuresAccount = preferredFuturesAccount(accounts);
+          if (futuresAccount) effectiveAccountId = futuresAccount.account_id;
+        }
+      }
       const payload = {
         test_mode: isTestMode,
-        account_id: selectedAccountId,
+        account_id: effectiveAccountId,
         symbol: selectedSymbol.trim().toUpperCase(),
         instrument_type: selectedInstrumentType === 'EQUITY' ? selectedSecurityType : selectedInstrumentType,
         option_type: selectedInstrumentType === 'OPTION' ? orderForm.optionType : undefined,
@@ -3401,23 +3473,39 @@ export default function WebullTrading({ isLightMode = false }) {
                   />
                 )}
 
-                {/* 2. Full-Width TradingView Advanced Chart with Webull Account & Instrument Selector */}
-                <WebullTradingViewChart
-                  symbol={selectedSymbol}
-                  instrumentType={selectedInstrumentType}
-                  onInstrumentChange={handleInstrumentChange}
-                  accounts={displayAccounts}
-                  selectedAccountId={isTestMode ? 'TEST_PAPER_ACCOUNT' : selectedAccountId}
-                  onAccountChange={handleAccountChange}
-                  defaultAccountId={defaultAccountId}
-                  onSetDefaultAccount={saveDefaultAccount}
-                  savingDefaultAccount={savingDefaultAccount}
-                  allowDefaultAccount={!isTestMode}
-                  holdings={modeHoldings}
-                  optionUnderlyingInstruments={availableTraditional}
-                  isLightMode={isLightMode}
-                  accountOnly={selectedInstrumentType === 'EVENT'}
-                />
+                {/* 2. Full-Width Chart: Native Open-Source Lightweight Chart for FUTURES, TradingView Widget for Stocks/Crypto/Options */}
+                {selectedInstrumentType === 'FUTURES' ? (
+                  <WebullFuturesLightweightChart
+                    symbol={selectedSymbol || selectedFuturesProduct?.product_code || 'MES'}
+                    product={selectedFuturesProduct}
+                    contract={selectedFuturesContract}
+                    accounts={displayAccounts}
+                    selectedAccountId={isTestMode ? 'TEST_PAPER_ACCOUNT' : selectedAccountId}
+                    onAccountChange={handleAccountChange}
+                    defaultAccountId={defaultAccountId}
+                    onSetDefaultAccount={saveDefaultAccount}
+                    savingDefaultAccount={savingDefaultAccount}
+                    allowDefaultAccount={!isTestMode}
+                    isLightMode={isLightMode}
+                  />
+                ) : (
+                  <WebullTradingViewChart
+                    symbol={selectedSymbol}
+                    instrumentType={selectedInstrumentType}
+                    onInstrumentChange={handleInstrumentChange}
+                    accounts={displayAccounts}
+                    selectedAccountId={isTestMode ? 'TEST_PAPER_ACCOUNT' : selectedAccountId}
+                    onAccountChange={handleAccountChange}
+                    defaultAccountId={defaultAccountId}
+                    onSetDefaultAccount={saveDefaultAccount}
+                    savingDefaultAccount={savingDefaultAccount}
+                    allowDefaultAccount={!isTestMode}
+                    holdings={modeHoldings}
+                    optionUnderlyingInstruments={availableTraditional}
+                    isLightMode={isLightMode}
+                    accountOnly={selectedInstrumentType === 'EVENT'}
+                  />
+                )}
 
                 {/* 3. CONTRACT SPECIFICATIONS & MARGIN STRIP (Positioned beneath live chart for FUTURES) */}
                 {selectedInstrumentType === 'FUTURES' && (

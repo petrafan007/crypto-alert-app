@@ -6,6 +6,18 @@
 
 **Last Updated**: September 2026
 
+## v2.87.1 (September 2026)
+
+- **Open-Source Embedded Futures Chart**:
+  - Replaced the embedded TradingView widget on the Futures tab with an open-source, HTML5 Canvas-based chart using `lightweight-charts` backed by real-time continuous futures market data.
+  - Displays interactive OHLCV candlesticks, volume histogram, live price header with change and percentage metrics, session high/low ranges, hover OHLCV readouts, timeframe selectors (`1m`, `5m`, `15m`, `1h`, `1D`), and auto-fit zoom controls with zero external exchange license restrictions.
+- **Webull Event Contract Account Isolation & Auto-Binding**:
+  - Added automatic detection, account routing, and preflight binding for Webull `EVENTS_CASH` accounts, resolving HTTP 417 `OPENAPI_EVENT_CONTRACT_CAN_NOT_TRADING_FOR_ACCOUNT_BIZ` rejections when placing Event Contract orders.
+  - Strictly segregated instrument account lanes across the frontend trading terminal and backend API for Event Contracts (`EVENTS_CASH`), Futures (`FUTURES`), Crypto (`CRYPTO`), and Equities/Options (`INDIVIDUAL_CASH`).
+- **AI Strategy Engine 4-Tier Fallback Resilience & Local Ollama Execution**:
+  - Resolved administrator identity verification in background worker tasks to ensure authorized system administrators can reliably run local Ollama models.
+  - Enhanced the 4-tier AI failover chain (Primary → Secondary → Tertiary → Quartan) with robust error classification and graceful failover when upstream cloud API providers encounter rate limits or temporary outages.
+
 ## v2.87.0 (September 2026)
 
 - **Comprehensive Webull Futures Suite Overhaul**:

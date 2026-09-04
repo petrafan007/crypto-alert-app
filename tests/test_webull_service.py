@@ -1640,3 +1640,35 @@ class AccountScopeAndFilteringTests(unittest.TestCase):
                 orders2 = get_webull_open_orders('app-key', 'app-secret', 'production', 'token', account_id='acc-targeted')
                 self.assertEqual(len(orders2), 1)
                 self.assertEqual(req_mock.call_count, 1)  # Still 1 because cached!
+
+    def test_event_and_futures_account_isolation(self):
+        from routes.system import (
+            _require_webull_instrument_account_match,
+            _webull_account_is_event,
+            _webull_account_is_futures,
+            _webull_find_account_by_type,
+        )
+        setting = SimpleNamespace(webull_connected_accounts=[
+            {'account_id': 'event-acct', 'account_class': 'EVENTS_CASH', 'account_label': 'Events Cash'},
+            {'account_id': 'futures-acct', 'account_class': 'FUTURES', 'account_label': 'Futures'},
+            {'account_id': 'cash-acct', 'account_class': 'INDIVIDUAL_CASH', 'account_label': 'Individual Cash'},
+            {'account_id': 'crypto-acct', 'account_class': 'CRYPTO', 'account_label': 'Crypto'},
+        ])
+
+        self.assertTrue(_webull_account_is_event(setting, 'event-acct'))
+        self.assertFalse(_webull_account_is_event(setting, 'cash-acct'))
+        self.assertTrue(_webull_account_is_futures(setting, 'futures-acct'))
+        self.assertFalse(_webull_account_is_futures(setting, 'cash-acct'))
+
+        self.assertEqual(_webull_find_account_by_type(setting, 'event'), 'event-acct')
+        self.assertEqual(_webull_find_account_by_type(setting, 'futures'), 'futures-acct')
+
+        # Matching lanes
+        self.assertEqual(_require_webull_instrument_account_match(setting, 'event-acct', 'EVENT'), 'EVENT')
+        self.assertEqual(_require_webull_instrument_account_match(setting, 'futures-acct', 'FUTURES'), 'FUTURES')
+
+        # Rejecting mismatched lanes when dedicated account exists
+        with self.assertRaisesRegex(WebullConnectionError, 'Events Webull account'):
+            _require_webull_instrument_account_match(setting, 'cash-acct', 'EVENT')
+        with self.assertRaisesRegex(WebullConnectionError, 'Futures Webull account'):
+            _require_webull_instrument_account_match(setting, 'cash-acct', 'FUTURES')

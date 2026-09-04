@@ -77,9 +77,20 @@ def is_event_strategy_admin(user_or_username):
     if hasattr(user_or_username, "id") and user_or_username.id == 1:
         return True
     username = getattr(user_or_username, "username", user_or_username)
+    clean_username = str(username or "").strip()
     admin_uname = (os.getenv("EVENT_STRATEGY_ADMIN_USERNAME") or os.getenv("ADMIN_USERNAME") or "").strip().casefold()
-    if admin_uname:
-        return str(username or "").strip().casefold() == admin_uname
+    if admin_uname and clean_username.casefold() == admin_uname:
+        return True
+    if clean_username:
+        try:
+            from flask import has_app_context
+            if has_app_context():
+                from credentials import User
+                user_record = User.query.filter_by(username=clean_username).first()
+                if user_record and (user_record.is_admin or user_record.id == 1):
+                    return True
+        except Exception as err:
+            logger.warning(f"Error verifying admin status for Event Strategy user {clean_username}: {err}")
     return False
 
 

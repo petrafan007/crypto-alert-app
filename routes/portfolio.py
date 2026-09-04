@@ -1478,8 +1478,12 @@ def _fetch_yfinance_klines(symbol, interval='1h', limit=1000):
             '1d': '1d', '3d': '1d', '1w': '1wk', '1M': '1mo',
         }
         yf_interval = yf_interval_map.get(interval, '1d')
-        period_map = {'1m': '7d', '5m': '60d', '15m': '60d', '30m': '60d', '1h': '730d'}
-        period = period_map.get(yf_interval, '2y')
+        if limit and limit <= 150:
+            period_map = {'1m': '5d', '5m': '7d', '15m': '14d', '30m': '30d', '1h': '30d'}
+            period = period_map.get(yf_interval, '1y')
+        else:
+            period_map = {'1m': '7d', '5m': '60d', '15m': '60d', '30m': '60d', '1h': '90d'}
+            period = period_map.get(yf_interval, '2y')
         ticker = yf.Ticker(clean_sym)
         df = ticker.history(period=period, interval=yf_interval)
         if df is None or df.empty:
