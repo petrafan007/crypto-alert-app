@@ -1180,6 +1180,134 @@ def event_strategy_logs(user_id, *, limit=200, level=None, event_type=None):
     return result
 
 
+DEFAULT_AUDIT_SYSTEM_PROMPT = (
+    "You are a principal quantitative trading auditor and AI reliability engineer. "
+    "Your task is to analyze telemetry, execution logs, and decision traces from an autonomous "
+    "paper-trading strategy worker operating on Webull Event Contracts over an observation window. "
+    "Evaluate whether the worker is performing properly, whether the collected market data is useful and complete, "
+    "whether any scans or quotes were missed, what errors or warnings occurred, and how decisions were formed. "
+    "Cite specific timestamps, contract symbols, reason codes, and log messages as concrete evidence. "
+    "Format your evaluation as a structured audit with executive verdict, detected operational issues, "
+    "telemetry summary, actionable tuning recommendations, and next steps."
+)
+
+
+def _format_audit_dict_to_markdown(parsed_dict):
+    """Convert structured audit dictionary into executive-grade, human-readable Markdown."""
+    if not isinstance(parsed_dict, dict):
+        return str(parsed_dict or "")
+
+    status_val = str(parsed_dict.get("overall_status") or parsed_dict.get("status") or "HEALTHY").upper()
+    if status_val in {"WARN", "WARNING"}:
+        status_val = "ATTENTION_REQUIRED"
+    elif status_val in {"CRITICAL", "FATAL"}:
+        status_val = "ERROR"
+    elif status_val not in {"HEALTHY", "ATTENTION_REQUIRED", "DEGRADED", "ERROR"}:
+        status_val = "HEALTHY"
+
+    issues = parsed_dict.get("issues") if isinstance(parsed_dict.get("issues"), list) else []
+    raw_recs = parsed_dict.get("recommendations")
+    if isinstance(raw_recs, dict):
+        recs = [{"action": k, "details": v} for k, v in raw_recs.items()]
+    elif isinstance(raw_recs, list):
+        recs = raw_recs
+    else:
+        recs = []
+
+    headline = str(parsed_dict.get("headline") or (
+        f"Audit completed: {len(issues)} operational issue(s) analyzed, {len(recs)} recommendation(s) generated."
+        if issues else "AI operational audit completed successfully."
+    ))[:255]
+    summary = str(parsed_dict.get("summary") or "")
+
+    lines = [
+        "## Event Strategy Engine Operational AI Audit Report",
+        "",
+        f"**Audit Status:** `{status_val}`  ",
+        f"**Executive Verdict:** {headline}  ",
+    ]
+
+    if summary and summary != headline:
+        lines.extend(["", f"> {summary}", ""])
+    else:
+        lines.append("")
+
+    lines.append("---")
+
+    if issues:
+        lines.append("\n### 🚨 Detected Operational Issues & Bottlenecks\n")
+        for issue in issues:
+            if isinstance(issue, dict):
+                raw_type = str(issue.get("type") or issue.get("name") or issue.get("issue") or "Notice")
+                itype = raw_type.replace("_", " ").title()
+                icount = issue.get("count")
+                count_str = f" **(Count: {icount})**" if icount is not None else ""
+                desc = str(issue.get("description") or issue.get("details") or issue.get("message") or "").strip()
+                if desc:
+                    lines.append(f"- **{itype}**{count_str}: {desc}")
+                else:
+                    lines.append(f"- **{itype}**{count_str}")
+            elif isinstance(issue, str):
+                lines.append(f"- {issue}")
+            else:
+                lines.append(f"- {str(issue)}")
+    else:
+        lines.append("\n### 🚨 Operational Status\n- **No operational anomalies detected.** Cadence, quote utility, and decision logging are functioning normally.")
+
+    ms = parsed_dict.get("metrics_summary")
+    if isinstance(ms, dict):
+        lines.append("\n### 📊 Telemetry & Execution Summary\n")
+        hb = ms.get("heartbeat_age_seconds")
+        if hb is not None:
+            try:
+                lines.append(f"- **Worker Heartbeat Age:** `{round(float(hb), 1)}s`")
+            except (TypeError, ValueError):
+                lines.append(f"- **Worker Heartbeat Age:** `{hb}`")
+        lines.append(f"- **Scans Analyzed:** `{ms.get('scans_count', 0):,}` ({ms.get('scanned_contracts', 0):,} contracts evaluated)")
+        lines.append(f"- **Decisions Recorded:** `{ms.get('decisions_count', 0):,}` ({ms.get('eligible_count', 0):,} qualified trades, `{ms.get('no_trade_count', 0):,}` held)")
+        total_logs = ms.get("total_logs", ms.get("error_count", 0) + ms.get("warning_count", 0) + ms.get("info_count", 0))
+        lines.append(f"- **Operational Logs:** `{total_logs:,}` total (`{ms.get('error_count', 0):,}` errors, `{ms.get('warning_count', 0):,}` warnings, `{ms.get('info_count', 0):,}` info)")
+
+        top_reasons = ms.get("top_reason_codes")
+        if isinstance(top_reasons, dict) and top_reasons:
+            reasons_str = ", ".join(f"`{k.replace('_', ' ')}` ({v})" for k, v in top_reasons.items())
+            lines.append(f"- **Top Decision Hold Reasons:** {reasons_str}")
+
+        ai_evals = ms.get("ai_evaluations")
+        if isinstance(ai_evals, dict) and ai_evals:
+            evals_str = ", ".join(f"**{k}**: `{v}`" for k, v in ai_evals.items())
+            lines.append(f"- **AI Model Predictions:** {evals_str}")
+
+    if recs:
+        lines.append("\n### 💡 Actionable Recommendations & Tuning\n")
+        for idx, rec in enumerate(recs, 1):
+            if isinstance(rec, dict):
+                raw_action = str(rec.get("action") or rec.get("title") or rec.get("recommendation") or f"Recommendation {idx}")
+                action_title = raw_action.replace("_", " ").title()
+                details = str(rec.get("details") or rec.get("description") or rec.get("text") or rec.get("summary") or "").strip()
+                if details:
+                    lines.append(f"{idx}. **{action_title}**: {details}")
+                else:
+                    lines.append(f"{idx}. **{action_title}**")
+            elif isinstance(rec, str):
+                lines.append(f"{idx}. {rec}")
+            else:
+                lines.append(f"{idx}. {str(rec)}")
+
+    next_steps = parsed_dict.get("next_steps")
+    if next_steps:
+        lines.append("\n### 🎯 Next Steps\n")
+        if isinstance(next_steps, list):
+            for step in next_steps:
+                lines.append(f"- {step}")
+        elif isinstance(next_steps, str):
+            lines.append(next_steps)
+        else:
+            lines.append(str(next_steps))
+
+    return "\n".join(lines)
+
+
 def report_to_dict(report):
     """Serialize an EventStrategyReport to a client-safe dictionary."""
     if not report:
@@ -1188,6 +1316,18 @@ def report_to_dict(report):
         metrics = json.loads(report.metrics_json or "{}")
     except Exception:
         metrics = {}
+
+    content = report.content_markdown or ""
+    # Defensive guard: if stored report contains raw JSON, convert it into clean Markdown!
+    trimmed = content.strip()
+    if trimmed.startswith("{") and trimmed.endswith("}"):
+        try:
+            parsed = json.loads(trimmed)
+            if isinstance(parsed, dict):
+                content = _format_audit_dict_to_markdown(parsed)
+        except Exception:
+            pass
+
     return {
         "id": report.id,
         "user_id": report.user_id,
@@ -1198,7 +1338,7 @@ def report_to_dict(report):
         "status": report.status,
         "headline": report.headline,
         "summary": report.summary,
-        "content_markdown": report.content_markdown,
+        "content_markdown": content,
         "metrics": metrics,
         "model": report.model,
         "provider": report.provider,
@@ -1207,13 +1347,15 @@ def report_to_dict(report):
 
 
 def _parse_audit_report_json(raw_text):
-    """Parse JSON output from the AI auditor, stripping fences or finding object substrings."""
+    """Parse JSON or text output from the AI auditor, converting into clean Markdown."""
     if not raw_text:
         return None
     cleaned = raw_text.strip()
     if cleaned.startswith("```"):
         cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned)
         cleaned = re.sub(r"\s*```$", "", cleaned)
+        cleaned = cleaned.strip()
+
     parsed_dict = None
     try:
         data = json.loads(cleaned)
@@ -1232,77 +1374,62 @@ def _parse_audit_report_json(raw_text):
                 pass
 
     if parsed_dict:
-        if "content_markdown" in parsed_dict and isinstance(parsed_dict["content_markdown"], str):
-            return parsed_dict
-        # The AI returned structured audit JSON without an explicit content_markdown key
+        md = parsed_dict.get("content_markdown")
+        if isinstance(md, str) and md.strip():
+            md_trimmed = md.strip()
+            # If the model put raw JSON inside content_markdown:
+            if md_trimmed.startswith("{") and md_trimmed.endswith("}"):
+                try:
+                    inner_json = json.loads(md_trimmed)
+                    if isinstance(inner_json, dict):
+                        return {
+                            "status": parsed_dict.get("status") or inner_json.get("overall_status") or "HEALTHY",
+                            "headline": parsed_dict.get("headline") or inner_json.get("headline") or "AI operational audit completed.",
+                            "summary": parsed_dict.get("summary") or inner_json.get("summary") or "",
+                            "content_markdown": _format_audit_dict_to_markdown(inner_json),
+                        }
+                except Exception:
+                    pass
+            # If it's valid markdown without raw JSON
+            if not md_trimmed.startswith("{"):
+                status_val = str(parsed_dict.get("overall_status") or parsed_dict.get("status") or "HEALTHY").upper()
+                if status_val in {"WARN", "WARNING"}:
+                    status_val = "ATTENTION_REQUIRED"
+                elif status_val in {"CRITICAL", "FATAL"}:
+                    status_val = "ERROR"
+                elif status_val not in {"HEALTHY", "ATTENTION_REQUIRED", "DEGRADED", "ERROR"}:
+                    status_val = "HEALTHY"
+                return {
+                    "status": status_val,
+                    "headline": str(parsed_dict.get("headline") or "AI operational audit completed.")[:255],
+                    "summary": str(parsed_dict.get("summary") or "")[:500],
+                    "content_markdown": md_trimmed,
+                }
+
+        # Otherwise format the structured dictionary directly
         status_val = str(parsed_dict.get("overall_status") or parsed_dict.get("status") or "HEALTHY").upper()
         if status_val in {"WARN", "WARNING"}:
             status_val = "ATTENTION_REQUIRED"
+        elif status_val in {"CRITICAL", "FATAL"}:
+            status_val = "ERROR"
         elif status_val not in {"HEALTHY", "ATTENTION_REQUIRED", "DEGRADED", "ERROR"}:
             status_val = "HEALTHY"
 
-        issues = parsed_dict.get("issues") if isinstance(parsed_dict.get("issues"), list) else []
-        recs = parsed_dict.get("recommendations") if isinstance(parsed_dict.get("recommendations"), list) else []
         headline = str(parsed_dict.get("headline") or (
-            f"Audit completed: {len(issues)} operational issue(s) analyzed, {len(recs)} recommendation(s) generated."
-            if issues else "AI operational audit completed successfully."
+            f"Audit completed: {len(parsed_dict.get('issues', []))} operational issue(s) analyzed."
+            if parsed_dict.get("issues") else "AI operational audit completed successfully."
         ))[:255]
-        summary = str(parsed_dict.get("summary") or parsed_dict.get("next_steps") or "AI operational review of worker execution, logs, and telemetry completed.")
-
-        lines = [
-            "## Event Strategy Engine 6-Hour AI Audit Report",
-            "",
-            f"**Audit Status:** `{status_val}`  ",
-            f"**Executive Verdict:** {headline}  ",
-            "",
-            "---",
-        ]
-
-        if issues:
-            lines.append("\n### Detected Operational Issues & Bottlenecks\n")
-            for issue in issues:
-                if isinstance(issue, dict):
-                    itype = issue.get("type", "Notice")
-                    icount = issue.get("count")
-                    count_str = f" (count: `{icount}`)" if icount is not None else ""
-                    lines.append(f"- **{itype}**{count_str}: {issue.get('description', '')}")
-                else:
-                    lines.append(f"- {issue}")
-
-        ms = parsed_dict.get("metrics_summary")
-        if isinstance(ms, dict):
-            lines.append("\n### Telemetry & Execution Summary\n")
-            lines.append(f"- **Scans Analyzed:** `{ms.get('scans_count', 0)}` ({ms.get('scanned_contracts', 0)} contracts evaluated)")
-            lines.append(f"- **Decisions Recorded:** `{ms.get('decisions_count', 0)}` ({ms.get('eligible_count', 0)} eligible, `{ms.get('no_trade_count', 0)}` hold)")
-            lines.append(f"- **Log Breakdown:** `{ms.get('error_count', 0)}` errors, `{ms.get('warning_count', 0)}` warnings, `{ms.get('info_count', 0)}` info")
-            top_reasons = ms.get("top_reason_codes")
-            if isinstance(top_reasons, dict):
-                lines.append(f"- **Top Decision Hold Reasons:** {', '.join(f'`{k}` ({v})' for k, v in top_reasons.items())}")
-            ai_evals = ms.get("ai_evaluations")
-            if isinstance(ai_evals, dict):
-                lines.append(f"- **AI Predictions:** {', '.join(f'{k}: `{v}`' for k, v in ai_evals.items())}")
-
-        if recs:
-            lines.append("\n### Actionable Recommendations & Tuning\n")
-            for idx, rec in enumerate(recs, 1):
-                if isinstance(rec, dict):
-                    action_title = rec.get("action", f"Recommendation {idx}").replace("_", " ")
-                    details = rec.get("details", "")
-                    lines.append(f"{idx}. **{action_title}**: {details}")
-                else:
-                    lines.append(f"{idx}. {rec}")
-
-        if parsed_dict.get("next_steps"):
-            lines.append(f"\n### Next Steps\n{parsed_dict.get('next_steps')}")
+        summary = str(parsed_dict.get("summary") or "")[:500]
 
         return {
             "status": status_val,
             "headline": headline,
             "summary": summary,
-            "content_markdown": "\n".join(lines),
+            "content_markdown": _format_audit_dict_to_markdown(parsed_dict),
         }
 
-    if len(cleaned) > 100:
+    # If it is clean markdown text (contains markdown headers or multi-line text) and is NOT JSON
+    if not cleaned.startswith("{") and ("#" in cleaned or len(cleaned.splitlines()) > 3):
         return {
             "status": "HEALTHY",
             "headline": "AI operational audit completed.",
@@ -1571,10 +1698,17 @@ def gather_event_strategy_audit_data(user_id, config=None, hours=6):
     }
 
 
-def generate_event_strategy_report(user_id, config=None, hours=6, force=False):
+def generate_event_strategy_report(user_id, config=None, hours=None, force=False):
     """Generate and persist an AI-powered operational and log audit report."""
     if config is None:
         config = get_or_create_config(user_id)
+
+    user_setting = UserSetting.query.filter_by(user_id=user_id).first()
+    if hours is None:
+        try:
+            hours = max(1, min(72, int(getattr(user_setting, "event_strategy_audit_hours", 6) or 6)))
+        except (TypeError, ValueError):
+            hours = 6
 
     audit_data = gather_event_strategy_audit_data(user_id, config=config, hours=hours)
     user = db.session.get(User, user_id)
@@ -1592,30 +1726,39 @@ def generate_event_strategy_report(user_id, config=None, hours=6, force=False):
         try:
             from services.ai_service import call_ai_with_web_search, is_ai_enabled
             if is_ai_enabled(username):
+                user_audit_prompt = getattr(user_setting, "event_strategy_audit_prompt", None) if user_setting else None
+                if not user_audit_prompt:
+                    user_audit_prompt = DEFAULT_AUDIT_SYSTEM_PROMPT
+
+                system_prompt = (
+                    f"{user_audit_prompt}\n\n"
+                    f"Audit observation window: {hours} hours.\n"
+                    "You MUST evaluate whether the worker is performing properly, quote completeness, errors, and decision rationale.\n"
+                    "Return your assessment strictly as a JSON object with keys:\n"
+                    "- 'status' ('HEALTHY', 'ATTENTION_REQUIRED', 'DEGRADED', or 'ERROR')\n"
+                    "- 'headline' (1-sentence executive verdict)\n"
+                    "- 'summary' (1-paragraph executive summary)\n"
+                    "- 'issues' (list of detected operational issues, each with 'type', 'count', and 'description')\n"
+                    "- 'recommendations' (list of tuning recommendations, each with 'action' and 'details')\n"
+                    "- 'next_steps' (list of operational next steps)\n"
+                    "- 'content_markdown' (detailed human-readable Markdown report with sections:\n"
+                    "  ### 1. Worker Execution & Cadence\n"
+                    "  ### 2. Data Collection & Completeness\n"
+                    "  ### 3. AI Strategy & Decision Evaluation\n"
+                    "  ### 4. Incident & Error Log Analysis\n"
+                    "  ### 5. Audit Conclusion & Recommendations)\n"
+                    "Never output raw brackets or unformatted text."
+                )
+
                 messages = [
                     {
                         "role": "system",
-                        "content": (
-                            "You are a principal quantitative trading auditor and AI reliability engineer. "
-                            "Your task is to analyze telemetry, execution logs, and decision traces from an autonomous "
-                            "paper-trading strategy worker operating on Webull Event Contracts over a 6-hour period. "
-                            "Write a thorough, professional, human-readable audit report that explains whether the worker "
-                            "is performing properly, whether the collected market data is useful and complete, whether any "
-                            "scans or quotes were missed, what errors or warnings occurred, and how decisions were formed. "
-                            "You MUST cite specific timestamps, contract symbols, reason codes, and log messages as concrete examples. "
-                            "Return your assessment strictly as a JSON object with keys: "
-                            "'status' ('HEALTHY', 'ATTENTION_REQUIRED', 'DEGRADED', or 'ERROR'), "
-                            "'headline' (1-sentence headline), 'summary' (1-paragraph executive summary), "
-                            "and 'content_markdown' (detailed Markdown report with the 5 required sections: "
-                            "### 1. Worker Execution & Cadence, ### 2. Data Collection & Completeness, "
-                            "### 3. AI Strategy & Decision Evaluation, ### 4. Incident & Error Log Analysis, "
-                            "### 5. Audit Conclusion & Recommendations)."
-                        ),
+                        "content": system_prompt,
                     },
                     {
                         "role": "user",
                         "content": (
-                            f"Please audit the following 6-hour operational telemetry for the Event Contract strategy worker:\n\n"
+                            f"Please audit the following {hours}-hour operational telemetry for the Event Contract strategy worker:\n\n"
                             f"{json.dumps(audit_data, indent=2, default=str)}\n\n"
                             "Return ONLY valid JSON."
                         ),
@@ -1631,7 +1774,7 @@ def generate_event_strategy_report(user_id, config=None, hours=6, force=False):
                     symbol="WEBULL_EVENT",
                     include_db_context=False,
                     use_cache=False,
-                    search_lookback_hours=6,
+                    search_lookback_hours=max(1, min(168, hours)),
                 )
                 raw_text = getattr(response, "text", None) or ""
                 parsed = _parse_audit_report_json(raw_text)
@@ -2523,7 +2666,7 @@ def event_algo_worker_loop(app):
                             logger.warning("Periodic event outcome resolution failed for user %s: %s", config.user_id, resolve_err)
                             db.session.rollback()
 
-                    # Periodic 6-hour autonomous AI worker audit report
+                    # Periodic autonomous AI worker audit report (user-configurable cadence)
                     now_ts = time.time()
                     last_report = last_report_by_user.get(config.user_id)
                     if last_report is None:
@@ -2534,20 +2677,28 @@ def event_algo_worker_loop(app):
                             last_report = 0
                         last_report_by_user[config.user_id] = last_report
 
-                    if now_ts - last_report >= 6 * 3600:
+                    user_setting = UserSetting.query.filter_by(user_id=config.user_id).first()
+                    audit_hours = 6
+                    if user_setting and getattr(user_setting, "event_strategy_audit_hours", None):
+                        try:
+                            audit_hours = max(1, min(72, int(user_setting.event_strategy_audit_hours)))
+                        except (TypeError, ValueError):
+                            audit_hours = 6
+
+                    if now_ts - last_report >= audit_hours * 3600:
                         last_report_by_user[config.user_id] = now_ts
                         try:
-                            logger.info("Generating scheduled 6-hour AI strategy engine audit report for user %s", config.user_id)
-                            rep = generate_event_strategy_report(config.user_id, config=config, hours=6)
+                            logger.info("Generating scheduled %d-hour AI strategy engine audit report for user %s", audit_hours, config.user_id)
+                            rep = generate_event_strategy_report(config.user_id, config=config, hours=audit_hours)
                             if rep:
                                 _record_engine_log(
                                     config.user_id, "REPORT_GENERATED",
-                                    f"Generated 6-hour AI audit report ({rep.status}): {rep.headline or 'Audit completed'}",
+                                    f"Generated {audit_hours}-hour AI audit report ({rep.status}): {rep.headline or 'Audit completed'}",
                                     level="INFO", config_id=config.id,
                                 )
                                 db.session.commit()
                         except Exception as rep_err:
-                            logger.warning("Periodic 6-hour AI strategy report generation failed for user %s: %s", config.user_id, rep_err)
+                            logger.warning("Periodic %d-hour AI strategy report generation failed for user %s: %s", audit_hours, config.user_id, rep_err)
                             db.session.rollback()
 
                     signal = _json_load(config.signal_config, dict(DEFAULT_SIGNAL_CONFIG))

@@ -137,6 +137,17 @@ def get_user_ai_settings(username: str) -> dict:
                 "- CRITICAL EXCHANGE ARCHITECTURE RULE (OCO ORDERS): On Binance and Binance.US, an OCO (One-Cancels-the-Other) order is natively created and managed by the exchange matching engine as an Order List (orderListId) containing two linked legs: a STOP_LOSS_LIMIT leg and a LIMIT_MAKER leg. When the user's data shows an active OCO order bracket with an OrderListId or paired limit/stop-loss legs, this IS a confirmed, native, fully linked exchange OCO order. The exchange automatically cancels the opposing leg if either executes or triggers. NEVER tell the user their OCO orders are 'separate independent orders', 'unlinked', or that 'Binance.US does not support an OCO wrapper'. NEVER instruct the user to 'link them into an OCO order'—they are ALREADY natively linked on the exchange. Analyze them directly as a unified OCO trading strategy.\n"
                 "- Maintain a concise, structured, and professional tone with bullet points where appropriate."
             ),
+            'event_strategy_audit_hours': 6,
+            'event_strategy_audit_prompt': (
+                "You are a principal quantitative trading auditor and AI reliability engineer. "
+                "Your task is to analyze telemetry, execution logs, and decision traces from an autonomous "
+                "paper-trading strategy worker operating on Webull Event Contracts over an observation window. "
+                "Evaluate whether the worker is performing properly, whether the collected market data is useful and complete, "
+                "whether any scans or quotes were missed, what errors or warnings occurred, and how decisions were formed. "
+                "Cite specific timestamps, contract symbols, reason codes, and log messages as concrete evidence. "
+                "Format your evaluation as a structured audit with executive verdict, detected operational issues, "
+                "telemetry summary, actionable tuning recommendations, and next steps."
+            ),
             'portfolio_schedule_start_time': '08:00',
             'watchlist_schedule_start_time': '08:00',
             'sentiment_analysis_frequency_hours': 24,
@@ -286,6 +297,10 @@ def get_user_ai_settings(username: str) -> dict:
                     settings['copilot_chat_pre'] = user_setting.copilot_chat_pre
                 if hasattr(user_setting, 'copilot_chat_post') and user_setting.copilot_chat_post:
                     settings['copilot_chat_post'] = user_setting.copilot_chat_post
+                if hasattr(user_setting, 'event_strategy_audit_hours') and user_setting.event_strategy_audit_hours:
+                    settings['event_strategy_audit_hours'] = user_setting.event_strategy_audit_hours
+                if hasattr(user_setting, 'event_strategy_audit_prompt') and user_setting.event_strategy_audit_prompt:
+                    settings['event_strategy_audit_prompt'] = user_setting.event_strategy_audit_prompt
 
                 if hasattr(user_setting, 'sentiment_analysis_frequency_hours'):
                     settings['sentiment_analysis_frequency_hours'] = user_setting.sentiment_analysis_frequency_hours or 24
@@ -460,11 +475,14 @@ def get_user_ai_settings(username: str) -> dict:
                     'watchlist_sentiment_prompt_post': getattr(ai_prompts_obj, 'watchlist_sentiment_prompt_post', settings['ai_prompts']['watchlist_sentiment_prompt_post']),
                 }
             
-            if not settings.get('copilot_chat_pre'):
+            if not settings.get('copilot_chat_pre') or not settings.get('event_strategy_audit_prompt'):
                 def_prompts = DefaultAIPrompt.query.first()
                 if def_prompts:
-                    settings['copilot_chat_pre'] = def_prompts.copilot_chat_pre
-                    settings['copilot_chat_post'] = def_prompts.copilot_chat_post
+                    if not settings.get('copilot_chat_pre'):
+                        settings['copilot_chat_pre'] = def_prompts.copilot_chat_pre
+                        settings['copilot_chat_post'] = def_prompts.copilot_chat_post
+                    if not settings.get('event_strategy_audit_prompt') and getattr(def_prompts, 'event_strategy_audit_prompt', None):
+                        settings['event_strategy_audit_prompt'] = def_prompts.event_strategy_audit_prompt
 
         return settings
     except Exception as e:

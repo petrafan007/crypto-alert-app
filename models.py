@@ -536,6 +536,7 @@ class AIPrompt(db.Model):
     sentiment_prompt_post = db.Column(db.Text)  # Portfolio Sentiment analysis post-search prompt
     watchlist_sentiment_prompt_post = db.Column(db.Text)  # Watchlist Sentiment analysis post-search prompt
     copilot_chat_post = db.Column(db.Text)  # AI Copilot post-search prompt
+    event_strategy_audit_prompt = db.Column(db.Text)  # Event Strategy Engine 6-hour audit prompt
 
 class DefaultAIPrompt(db.Model):
     __tablename__ = "default_ai_prompts"
@@ -560,6 +561,7 @@ class DefaultAIPrompt(db.Model):
     sentiment_prompt_post = db.Column(db.Text)
     watchlist_sentiment_prompt_post = db.Column(db.Text)
     copilot_chat_post = db.Column(db.Text)
+    event_strategy_audit_prompt = db.Column(db.Text)
 
 class AICopilotSession(db.Model):
     """A user-owned, isolated AI Copilot chat session."""

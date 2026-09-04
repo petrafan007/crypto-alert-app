@@ -6,6 +6,20 @@
 
 **Last Updated**: September 2026
 
+## v2.87.5 (September 2026)
+
+- **Event Contracts Strategy Engine AI Audit Formatting Overhaul**:
+  - Eliminated raw JSON string and dictionary outputs from the AI Audit Report modal.
+  - Implemented an executive-grade Markdown parser and formatter that transforms structured audit telemetry into cleanly structured Markdown with verdict callouts, operational issue badges with count indicators, telemetry execution metrics, numbered recommendations with clean titles and details (eliminating trailing colons on blank details), and bulleted next steps (eliminating raw Python list string brackets).
+  - Added defensive multi-layer serialization guards across the backend serialization pipeline (`report_to_dict`) and frontend rendering logic (`formatReportMarkdown`), ensuring raw JSON curly braces or brackets can never visually render even on legacy records.
+  - Added rich typography and container styling for `.event-strategy-report-markdown` across both dark and light modes with styled headings, code badges, callout blockquotes, and clean borders.
+  - Implemented dynamic alert-colored headline callouts (emerald green for `HEALTHY`, amber for `ATTENTION_REQUIRED`, orange for `DEGRADED`, crimson for `ERROR`) and dynamically calculated audit window durations.
+- **User-Configurable AI Audit Prompts & Cadence**:
+  - Added the **Event Contracts Strategy Engine AI Audit** configuration card to Settings -> AI Workflow Prompts directly underneath the AI Copilot System Prompt.
+  - Added an interactive integer input box allowing users to configure the audit evaluation cadence in **Hours** (1 to 72 hours, defaulting to 6 hours).
+  - Added a dedicated **Auditor System Prompt** textarea providing complete user control over the AI model's analytical persona, evaluation depth, severity thresholds, and recommendation formatting.
+  - Integrated custom audit intervals and user system prompts into the background worker scheduler and manual on-demand report generation endpoints.
+
 ## v2.87.4 (September 2026)
 
 - **Event Contracts Strategy Engine Human-Readable Telemetry**:

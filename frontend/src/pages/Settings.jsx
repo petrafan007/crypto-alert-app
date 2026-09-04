@@ -58,6 +58,131 @@ const sanitizeModel = (provider, model, options) => {
   return (model && validValues.includes(model)) ? model : getDefaultModel(provider, options);
 };
 
+const getHeadlineCalloutStyle = (status, isLight) => {
+  const norm = String(status || '').toUpperCase();
+  if (norm === 'ATTENTION_REQUIRED' || norm === 'WARN' || norm === 'WARNING') {
+    return {
+      bg: isLight ? '#fffbeb' : 'rgba(245, 158, 11, 0.1)',
+      border: '1px solid rgba(245, 158, 11, 0.35)',
+      color: isLight ? '#92400e' : '#fcd34d',
+      icon: '⚠️'
+    };
+  }
+  if (norm === 'DEGRADED') {
+    return {
+      bg: isLight ? '#fff7ed' : 'rgba(249, 115, 22, 0.1)',
+      border: '1px solid rgba(249, 115, 22, 0.35)',
+      color: isLight ? '#9a3412' : '#fdba74',
+      icon: '⚡'
+    };
+  }
+  if (norm === 'ERROR' || norm === 'CRITICAL') {
+    return {
+      bg: isLight ? '#fef2f2' : 'rgba(239, 68, 68, 0.1)',
+      border: '1px solid rgba(239, 68, 68, 0.35)',
+      color: isLight ? '#991b1b' : '#fca5a5',
+      icon: '🚨'
+    };
+  }
+  return {
+    bg: isLight ? '#f0fdf4' : 'rgba(34, 197, 94, 0.08)',
+    border: '1px solid rgba(34, 197, 94, 0.25)',
+    color: isLight ? '#166534' : '#86efac',
+    icon: '💡'
+  };
+};
+
+const getAuditWindowHours = (report, fallbackHours) => {
+  if (report?.period_start && report?.period_end) {
+    try {
+      const diffHours = Math.round((new Date(report.period_end) - new Date(report.period_start)) / 3600000);
+      if (diffHours > 0) return `${diffHours} Hours`;
+    } catch {
+      // fallback
+    }
+  }
+  return `${fallbackHours || 6} Hours`;
+};
+
+const formatReportMarkdown = (rawContent, summary) => {
+  const content = String(rawContent || summary || 'No detailed content available.').trim();
+  if (content.startsWith('{') && content.endsWith('}')) {
+    try {
+      const data = JSON.parse(content);
+      if (data && typeof data === 'object') {
+        if (data.content_markdown && typeof data.content_markdown === 'string' && !data.content_markdown.trim().startsWith('{')) {
+          return data.content_markdown;
+        }
+        const statusVal = String(data.overall_status || data.status || 'HEALTHY').toUpperCase();
+        const headline = data.headline || (data.issues?.length ? `Audit completed: ${data.issues.length} operational issue(s) analyzed.` : 'AI operational audit completed.');
+        const lines = [
+          '## Event Strategy Engine Operational AI Audit Report',
+          '',
+          `**Audit Status:** \`${statusVal}\`  `,
+          `**Executive Verdict:** ${headline}  `,
+          '',
+          '---',
+        ];
+        if (Array.isArray(data.issues) && data.issues.length > 0) {
+          lines.push('\n### 🚨 Detected Operational Issues & Bottlenecks\n');
+          data.issues.forEach((iss) => {
+            if (iss && typeof iss === 'object') {
+              const itype = (iss.type || iss.name || 'Operational Notice').replace(/_/g, ' ');
+              const countStr = iss.count !== undefined ? ` **(Count: ${iss.count})**` : '';
+              const desc = iss.description || iss.details || iss.message || '';
+              lines.push(`- **${itype}**${countStr}: ${desc}`);
+            } else {
+              lines.push(`- ${iss}`);
+            }
+          });
+        }
+        if (data.metrics_summary && typeof data.metrics_summary === 'object') {
+          const ms = data.metrics_summary;
+          lines.push('\n### 📊 Telemetry & Execution Summary\n');
+          if (ms.heartbeat_age_seconds !== undefined) {
+            lines.push(`- **Worker Heartbeat Age:** \`${Number(ms.heartbeat_age_seconds).toFixed(1)}s\``);
+          }
+          lines.push(`- **Scans Analyzed:** \`${ms.scans_count ?? 0}\` (${ms.scanned_contracts ?? 0} contracts evaluated)`);
+          lines.push(`- **Decisions Recorded:** \`${ms.decisions_count ?? 0}\` (${ms.eligible_count ?? 0} qualified trades, \`${ms.no_trade_count ?? 0}\` held)`);
+          lines.push(`- **Operational Logs:** \`${ms.total_logs ?? ((ms.error_count ?? 0) + (ms.warning_count ?? 0) + (ms.info_count ?? 0))}\` total (\`${ms.error_count ?? 0}\` errors, \`${ms.warning_count ?? 0}\` warnings, \`${ms.info_count ?? 0}\` info)`);
+          if (ms.top_reason_codes && typeof ms.top_reason_codes === 'object') {
+            const reasons = Object.entries(ms.top_reason_codes).map(([k, v]) => `\`${k.replace(/_/g, ' ')}\` (${v})`).join(', ');
+            if (reasons) lines.push(`- **Top Decision Hold Reasons:** ${reasons}`);
+          }
+          if (ms.ai_evaluations && typeof ms.ai_evaluations === 'object') {
+            const evals = Object.entries(ms.ai_evaluations).map(([k, v]) => `**${k}**: \`${v}\``).join(', ');
+            if (evals) lines.push(`- **AI Model Predictions:** ${evals}`);
+          }
+        }
+        if (Array.isArray(data.recommendations) && data.recommendations.length > 0) {
+          lines.push('\n### 💡 Actionable Recommendations & Tuning\n');
+          data.recommendations.forEach((rec, idx) => {
+            if (rec && typeof rec === 'object') {
+              const actionTitle = (rec.action || rec.title || `Recommendation ${idx + 1}`).replace(/_/g, ' ');
+              const details = rec.details || rec.description || rec.text || '';
+              lines.push(`${idx + 1}. **${actionTitle}**${details ? `: ${details}` : ''}`);
+            } else {
+              lines.push(`${idx + 1}. ${rec}`);
+            }
+          });
+        }
+        if (data.next_steps) {
+          lines.push('\n### 🎯 Next Steps\n');
+          if (Array.isArray(data.next_steps)) {
+            data.next_steps.forEach((s) => lines.push(`- ${s}`));
+          } else {
+            lines.push(String(data.next_steps));
+          }
+        }
+        return lines.join('\n');
+      }
+    } catch {
+      // ignore
+    }
+  }
+  return content;
+};
+
 export default function Settings({ isLightMode }) {
   // Pull user so we can gate admin-only sections without runtime errors
   const { user, isLoggingOut } = useAuth();
@@ -167,7 +292,9 @@ export default function Settings({ isLightMode }) {
       watchlist_sentiment_prompt_post: ''
     },
     copilot_chat_pre: '',
-    copilot_chat_post: ''
+    copilot_chat_post: '',
+    event_strategy_audit_hours: 6,
+    event_strategy_audit_prompt: ''
   });
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -3694,6 +3821,72 @@ export default function Settings({ isLightMode }) {
                 </div>
               </div>
             </div>
+
+            {/* Event Contracts Strategy Engine AI Audit Prompt & Hours */}
+            <div style={{ background: '#1a1f23', padding: 16, borderRadius: 8, border: '1px solid #444', marginTop: 16 }}>
+              <h5 style={{ color: '#4fd1c5', marginBottom: 12, fontSize: '14px' }}>Event Contracts Strategy Engine AI Audit</h5>
+              <p style={{ color: '#a0a6b8', fontSize: '12px', marginBottom: 16, lineHeight: '1.4' }}>
+                Configure the autonomous evaluation cadence and auditor prompt used by the AI to evaluate worker execution cadence, quote data utility, decision rationale, error logs, and operational bottlenecks.
+              </p>
+              <div style={{ display: 'grid', gridTemplateColumns: '220px 1fr', gap: 16, alignItems: 'start' }}>
+                <div>
+                  <label style={{ display: 'block', marginBottom: 8, color: '#fff', fontSize: '12px', fontWeight: 600 }}>
+                    Audit Interval (Hours)
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    max="72"
+                    step="1"
+                    value={settings.event_strategy_audit_hours || 6}
+                    onChange={(e) => handleInputChange('event_strategy_audit_hours', parseInt(e.target.value) || 6)}
+                    style={{
+                      width: '100%',
+                      padding: '8px 12px',
+                      borderRadius: 6,
+                      background: '#232b31',
+                      color: '#fff',
+                      border: '1px solid #555',
+                      boxSizing: 'border-box',
+                      fontSize: '13px'
+                    }}
+                  />
+                  <span style={{ fontSize: '11px', color: '#94a3b8', marginTop: 6, display: 'block', lineHeight: '1.4' }}>
+                    Cadence for autonomous operational evaluations (Default: 6 hours, e.g. 4, 6, 8, 12, 24).
+                  </span>
+                </div>
+                <div>
+                  <label style={{ display: 'block', marginBottom: 8, color: '#fff', fontSize: '12px', fontWeight: 600 }}>
+                    Auditor System Prompt
+                  </label>
+                  <textarea
+                    value={settings.event_strategy_audit_prompt || ''}
+                    onChange={(e) => {
+                      handleInputChange('event_strategy_audit_prompt', e.target.value);
+                      autoResizeTextarea(e.target);
+                    }}
+                    onInput={(e) => autoResizeTextarea(e.target)}
+                    placeholder="e.g. You are a principal quantitative trading auditor and AI reliability engineer..."
+                    style={{
+                      width: '100%',
+                      padding: '8px 12px',
+                      borderRadius: 6,
+                      background: '#232b31',
+                      color: '#fff',
+                      border: '1px solid #555',
+                      boxSizing: 'border-box',
+                      resize: 'vertical',
+                      fontSize: '12px',
+                      minHeight: '88px',
+                      lineHeight: '1.5'
+                    }}
+                  />
+                  <span style={{ fontSize: '11px', color: '#94a3b8', marginTop: 4, display: 'block' }}>
+                    Guides the AI model's analytical persona, issue severity classification, telemetry inspection, and actionable tuning recommendations.
+                  </span>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       )}
@@ -4081,7 +4274,7 @@ export default function Settings({ isLightMode }) {
                     </div>
                     <div style={{ padding: '10px 14px', borderRadius: 8, background: isLightMode ? '#f1f5f9' : 'rgba(255,255,255,0.04)', border: '1px solid rgba(148,163,184,0.18)' }}>
                       <div style={{ fontSize: 11, color: isLightMode ? '#64748b' : '#94a3b8' }}>Audit Window</div>
-                      <div style={{ fontWeight: 600, fontSize: '0.88rem', marginTop: 3 }}>6 Hours</div>
+                      <div style={{ fontWeight: 600, fontSize: '0.88rem', marginTop: 3 }}>{getAuditWindowHours(eventStrategyReport, settings.event_strategy_audit_hours)}</div>
                     </div>
                     <div style={{ padding: '10px 14px', borderRadius: 8, background: isLightMode ? '#f1f5f9' : 'rgba(255,255,255,0.04)', border: '1px solid rgba(148,163,184,0.18)' }}>
                       <div style={{ fontSize: 11, color: isLightMode ? '#64748b' : '#94a3b8' }}>Scans Analyzed</div>
@@ -4097,26 +4290,33 @@ export default function Settings({ isLightMode }) {
                     </div>
                   </div>
 
-                  {/* Headline Callout */}
-                  {eventStrategyReport.headline && (
-                    <div style={{
-                      padding: '12px 16px',
-                      borderRadius: 8,
-                      marginBottom: 20,
-                      background: isLightMode ? '#f0fdf4' : 'rgba(34, 197, 94, 0.08)',
-                      border: '1px solid rgba(34, 197, 94, 0.25)',
-                      fontWeight: 600,
-                      fontSize: '0.95rem',
-                      color: isLightMode ? '#166534' : '#86efac',
-                    }}>
-                      💡 {eventStrategyReport.headline}
-                    </div>
-                  )}
+                  {/* Headline Callout with dynamic alert coloring */}
+                  {eventStrategyReport.headline && (() => {
+                    const style = getHeadlineCalloutStyle(eventStrategyReport.status, isLightMode);
+                    return (
+                      <div style={{
+                        padding: '12px 16px',
+                        borderRadius: 8,
+                        marginBottom: 20,
+                        background: style.bg,
+                        border: style.border,
+                        fontWeight: 600,
+                        fontSize: '0.95rem',
+                        color: style.color,
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 8,
+                      }}>
+                        <span>{style.icon}</span>
+                        <span>{eventStrategyReport.headline}</span>
+                      </div>
+                    );
+                  })()}
 
-                  {/* Markdown Report Content */}
+                  {/* Markdown Report Content - defensively parsed so raw JSON never displays */}
                   <div className="event-strategy-report-markdown" style={{ lineHeight: 1.65, fontSize: '0.92rem' }}>
                     <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                      {eventStrategyReport.content_markdown || eventStrategyReport.summary || 'No detailed content.'}
+                      {formatReportMarkdown(eventStrategyReport.content_markdown, eventStrategyReport.summary)}
                     </ReactMarkdown>
                   </div>
                 </div>

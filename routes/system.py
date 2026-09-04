@@ -1558,6 +1558,7 @@ def api_settings():
                 'ai_cache_duration_hours', 'ai_analysis_window_start', 'ai_analysis_window_end',
                 'ai_max_tokens', 'ai_web_search_enabled', 'tax_manual_invested_updated', 
                 'tax_cost_basis_method', 'copilot_chat_pre', 'copilot_chat_post',
+                'event_strategy_audit_hours', 'event_strategy_audit_prompt',
                 'sentiment_analysis_frequency_hours', 'watchlist_sentiment_analysis_frequency_hours',
                 'sentiment_history_lookback_hours', 'watchlist_sentiment_history_lookback_hours',
                 'sentiment_forecast_horizon_hours', 'watchlist_sentiment_forecast_horizon_hours',
@@ -1586,7 +1587,8 @@ def api_settings():
                         'portfolio_review_pre', 'portfolio_review_post',
                         'coin_analysis_pre', 'coin_analysis_post',
                         'sentiment_prompt_pre', 'sentiment_prompt_post',
-                        'watchlist_sentiment_prompt_pre', 'watchlist_sentiment_prompt_post'
+                        'watchlist_sentiment_prompt_pre', 'watchlist_sentiment_prompt_post',
+                        'event_strategy_audit_prompt'
                     ]
                     for field in prompt_fields:
                         if field in value:
@@ -1598,11 +1600,13 @@ def api_settings():
                     if key in ['ai_enabled', 'ai_notifications_enabled', 'ai_web_search_enabled', 'browser_notifications_enabled', 'toast_notifications_enabled']:
                          target_key = 'browser_notifications_enabled' if key == 'toast_notifications_enabled' else key
                          setattr(user_setting, target_key, bool(value))
-                    elif key in ['ai_cache_duration_hours', 'ai_max_tokens', 'sentiment_analysis_frequency_hours', 'watchlist_sentiment_analysis_frequency_hours', 'sentiment_history_lookback_hours', 'watchlist_sentiment_history_lookback_hours', 'sentiment_forecast_horizon_hours', 'watchlist_sentiment_forecast_horizon_hours', 'volatility_hours', 'automated_trigger_confirmation_minutes']:
+                    elif key in ['ai_cache_duration_hours', 'ai_max_tokens', 'sentiment_analysis_frequency_hours', 'watchlist_sentiment_analysis_frequency_hours', 'sentiment_history_lookback_hours', 'watchlist_sentiment_history_lookback_hours', 'sentiment_forecast_horizon_hours', 'watchlist_sentiment_forecast_horizon_hours', 'volatility_hours', 'automated_trigger_confirmation_minutes', 'event_strategy_audit_hours']:
                         try:
                             parsed_value = int(value)
                             if key == 'volatility_hours' and parsed_value < 1:
                                 raise ValueError('Volatility Hours must be at least 1')
+                            if key == 'event_strategy_audit_hours':
+                                parsed_value = max(1, min(72, parsed_value))
                             setattr(user_setting, key, parsed_value)
                         except:
                             pass

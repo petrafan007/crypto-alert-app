@@ -105,10 +105,12 @@ def init_db(app=None):
             ("ai_prompts", "watchlist_sentiment_prompt_post", "TEXT"),
             ("ai_prompts", "copilot_chat_pre", "TEXT"),
             ("ai_prompts", "copilot_chat_post", "TEXT"),
+            ("ai_prompts", "event_strategy_audit_prompt", "TEXT"),
             ("default_ai_prompts", "watchlist_sentiment_prompt_pre", "TEXT"),
             ("default_ai_prompts", "watchlist_sentiment_prompt_post", "TEXT"),
             ("default_ai_prompts", "copilot_chat_pre", "TEXT"),
             ("default_ai_prompts", "copilot_chat_post", "TEXT"),
+            ("default_ai_prompts", "event_strategy_audit_prompt", "TEXT"),
             ("coins", "auto_sell_enabled", "BOOLEAN DEFAULT FALSE"),
             ("coins", "auto_sell_volatility_pct", "FLOAT"),
             ("coins", "auto_sell_quote_currency", "VARCHAR(10) DEFAULT 'USDT'"),
@@ -150,6 +152,8 @@ def init_db(app=None):
             ("user_settings", "sentiment_sell_immediately_correct_pct", "FLOAT DEFAULT 5.0"),
             ("user_settings", "sentiment_sell_immediately_wrong_pct", "FLOAT DEFAULT 5.0"),
             ("user_settings", "sentiment_chart_default_range", "VARCHAR(10) DEFAULT '3d'"),
+            ("user_settings", "event_strategy_audit_hours", "INTEGER DEFAULT 6"),
+            ("user_settings", "event_strategy_audit_prompt", "TEXT"),
             ("user_settings", "max_slippage_pct", "FLOAT DEFAULT 2.0"),
             ("coins", "sentiment_tracking_enabled", "BOOLEAN DEFAULT TRUE"),
             ("watchlist", "sentiment_tracking_enabled", "BOOLEAN DEFAULT TRUE"),
@@ -386,6 +390,16 @@ def init_db(app=None):
             "- CRITICAL EXCHANGE ARCHITECTURE RULE (OCO ORDERS): On Binance and Binance.US, an OCO (One-Cancels-the-Other) order is natively created and managed by the exchange matching engine as an Order List (orderListId) containing two linked legs: a STOP_LOSS_LIMIT leg and a LIMIT_MAKER leg. When the user's data shows an active OCO order bracket with an OrderListId or paired limit/stop-loss legs, this IS a confirmed, native, fully linked exchange OCO order. The exchange automatically cancels the opposing leg if either executes or triggers. NEVER tell the user their OCO orders are 'separate independent orders', 'unlinked', or that 'Binance.US does not support an OCO wrapper'. NEVER instruct the user to 'link them into an OCO order'—they are ALREADY natively linked on the exchange. Analyze them directly as a unified OCO trading strategy.\n"
             "- Maintain a concise, structured, and professional tone with bullet points where appropriate."
         )
+        default_event_audit_prompt = (
+            "You are a principal quantitative trading auditor and AI reliability engineer. "
+            "Your task is to analyze telemetry, execution logs, and decision traces from an autonomous "
+            "paper-trading strategy worker operating on Webull Event Contracts over an observation window. "
+            "Evaluate whether the worker is performing properly, whether the collected market data is useful and complete, "
+            "whether any scans or quotes were missed, what errors or warnings occurred, and how decisions were formed. "
+            "Cite specific timestamps, contract symbols, reason codes, and log messages as concrete evidence. "
+            "Format your evaluation as a structured audit with executive verdict, detected operational issues, "
+            "telemetry summary, actionable tuning recommendations, and next steps."
+        )
         try:
             def_prompt = DefaultAIPrompt.query.first()
             if not def_prompt:
@@ -404,6 +418,7 @@ def init_db(app=None):
                 'watchlist_sentiment_prompt_post': default_wl_post,
                 'copilot_chat_pre': default_copilot_pre,
                 'copilot_chat_post': default_copilot_post,
+                'event_strategy_audit_prompt': default_event_audit_prompt,
             }.items():
                 if getattr(def_prompt, field, None) is None:
                     setattr(def_prompt, field, value)
@@ -424,6 +439,7 @@ def init_db(app=None):
                     'watchlist_sentiment_prompt_post': default_wl_post,
                     'copilot_chat_pre': default_copilot_pre,
                     'copilot_chat_post': default_copilot_post,
+                    'event_strategy_audit_prompt': default_event_audit_prompt,
                 }.items():
                     if getattr(up, field, None) is None:
                         setattr(up, field, value)
@@ -435,6 +451,10 @@ def init_db(app=None):
                     us.copilot_chat_pre = default_copilot_pre
                 if getattr(us, 'copilot_chat_post', None) is None:
                     us.copilot_chat_post = default_copilot_post
+                if getattr(us, 'event_strategy_audit_hours', None) is None:
+                    us.event_strategy_audit_hours = 6
+                if getattr(us, 'event_strategy_audit_prompt', None) is None:
+                    us.event_strategy_audit_prompt = default_event_audit_prompt
             db.session.commit()
 
             # Keep persisted AI Copilot defaults aligned with the active product brand.

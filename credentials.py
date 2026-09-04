@@ -485,6 +485,8 @@ class UserSetting(db.Model):
     browser_notifications_enabled = db.Column(db.Boolean, default=True)
     copilot_chat_pre = db.Column(db.Text)
     copilot_chat_post = db.Column(db.Text)
+    event_strategy_audit_hours = db.Column(db.Integer, default=6)
+    event_strategy_audit_prompt = db.Column(db.Text)
     sentiment_analysis_frequency_hours = db.Column(db.Integer, default=24)
     watchlist_sentiment_analysis_frequency_hours = db.Column(db.Integer, default=24)
     sentiment_history_lookback_hours = db.Column(db.Integer, default=12)

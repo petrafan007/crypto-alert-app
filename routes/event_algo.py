@@ -25,6 +25,7 @@ from event_algo import (
     simulate_paper_fills,
     update_config,
 )
+from credentials import UserSetting
 from event_algo_models import EventStrategyDecision, EventStrategyRun
 
 
@@ -315,10 +316,12 @@ def event_algo_report_detail(report_id):
 @event_strategy_admin_required
 def event_algo_report_generate():
     payload = request.get_json(silent=True) or {}
+    user_setting = UserSetting.query.filter_by(user_id=current_user.id).first()
+    default_hours = getattr(user_setting, "event_strategy_audit_hours", 6) or 6
     try:
-        hours = max(1, min(int(payload.get("hours") or 6), 72))
+        hours = max(1, min(int(payload.get("hours") or default_hours), 72))
     except (TypeError, ValueError):
-        hours = 6
+        hours = default_hours
     config = get_or_create_config(current_user.id)
     report = generate_event_strategy_report(current_user.id, config=config, hours=hours, force=True)
     history = list_event_strategy_reports(current_user.id, limit=20)

@@ -4734,3 +4734,158 @@ body.light-mode .cancel-context-header {
 body.light-mode .cancel-item-title {
   color: #0f172a;
 }
+
+/* Event Strategy Engine AI Audit Report Modal Styling */
+.event-strategy-report-markdown {
+  line-height: 1.7;
+  font-size: 0.93rem;
+  color: var(--text-primary, #e2e8f0);
+}
+
+.event-strategy-report-markdown h1,
+.event-strategy-report-markdown h2 {
+  font-size: 1.25rem;
+  font-weight: 700;
+  margin-top: 18px;
+  margin-bottom: 10px;
+  color: var(--text-primary, #f8fafc);
+  padding-bottom: 6px;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.2);
+}
+
+.event-strategy-report-markdown h3 {
+  font-size: 1.05rem;
+  font-weight: 600;
+  margin-top: 20px;
+  margin-bottom: 8px;
+  color: #38bdf8;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.event-strategy-report-markdown h4 {
+  font-size: 0.95rem;
+  font-weight: 600;
+  margin-top: 14px;
+  margin-bottom: 6px;
+  color: var(--text-primary, #e2e8f0);
+}
+
+.event-strategy-report-markdown p {
+  margin-top: 6px;
+  margin-bottom: 10px;
+  color: var(--text-secondary, #cbd5e1);
+}
+
+.event-strategy-report-markdown ul,
+.event-strategy-report-markdown ol {
+  margin-top: 6px;
+  margin-bottom: 14px;
+  padding-left: 22px;
+}
+
+.event-strategy-report-markdown li {
+  margin-bottom: 6px;
+  color: var(--text-secondary, #cbd5e1);
+}
+
+.event-strategy-report-markdown strong {
+  color: var(--text-primary, #f8fafc);
+}
+
+.event-strategy-report-markdown code {
+  font-family: 'JetBrains Mono', 'Fira Code', 'Roboto Mono', monospace;
+  font-size: 0.85em;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgba(148, 163, 184, 0.14);
+  color: #38bdf8;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+}
+
+.event-strategy-report-markdown blockquote {
+  margin: 12px 0;
+  padding: 10px 16px;
+  background: rgba(56, 189, 248, 0.08);
+  border-left: 4px solid #38bdf8;
+  border-radius: 0 6px 6px 0;
+  color: var(--text-primary, #e2e8f0);
+  font-style: italic;
+}
+
+.event-strategy-report-markdown hr {
+  margin: 18px 0;
+  border: 0;
+  border-top: 1px solid rgba(148, 163, 184, 0.2);
+}
+
+.event-strategy-report-markdown table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 14px 0;
+  font-size: 0.88rem;
+}
+
+.event-strategy-report-markdown th,
+.event-strategy-report-markdown td {
+  padding: 8px 12px;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  text-align: left;
+}
+
+.event-strategy-report-markdown th {
+  background: rgba(148, 163, 184, 0.1);
+  font-weight: 600;
+  color: var(--text-primary, #f8fafc);
+}
+
+/* Light mode overrides */
+body.light-mode .event-strategy-report-markdown {
+  color: #1e293b;
+}
+
+body.light-mode .event-strategy-report-markdown h1,
+body.light-mode .event-strategy-report-markdown h2 {
+  color: #0f172a;
+  border-bottom-color: rgba(100, 116, 139, 0.2);
+}
+
+body.light-mode .event-strategy-report-markdown h3 {
+  color: #0284c7;
+}
+
+body.light-mode .event-strategy-report-markdown h4 {
+  color: #1e293b;
+}
+
+body.light-mode .event-strategy-report-markdown p,
+body.light-mode .event-strategy-report-markdown li {
+  color: #334155;
+}
+
+body.light-mode .event-strategy-report-markdown strong {
+  color: #0f172a;
+}
+
+body.light-mode .event-strategy-report-markdown code {
+  background: #f1f5f9;
+  color: #0369a1;
+  border-color: #cbd5e1;
+}
+
+body.light-mode .event-strategy-report-markdown blockquote {
+  background: #f0f9ff;
+  border-left-color: #0284c7;
+  color: #0369a1;
+}
+
+body.light-mode .event-strategy-report-markdown th {
+  background: #f8fafc;
+  color: #0f172a;
+}
+
+body.light-mode .event-strategy-report-markdown th,
+body.light-mode .event-strategy-report-markdown td {
+  border-color: #e2e8f0;
+}

@@ -311,6 +311,96 @@ class EventAlgoTests(unittest.TestCase):
         self.assertEqual(d['metrics']['scans_count'], 360)
         self.assertEqual(d['model'], 'gpt-4o')
 
+    def test_parse_audit_report_json_with_raw_ai_structure(self):
+        raw_ai_payload = json.dumps({
+            "audit_timestamp": "2026-09-04T22:00:00Z",
+            "overall_status": "WARN",
+            "issues": [
+                {
+                    "type": "AI_BUDGET_EXHAUSTED",
+                    "count": 10,
+                    "description": "Hourly AI evaluation budget reached repeatedly."
+                },
+                {
+                    "type": "HIGH_ERROR_RATE",
+                    "count": 208,
+                    "description": "Error logs exceed info logs."
+                }
+            ],
+            "metrics_summary": {
+                "heartbeat_age_seconds": 46.1,
+                "scans_count": 304,
+                "scanned_contracts": 5706,
+                "total_logs": 250,
+                "info_count": 218,
+                "warning_count": 32,
+                "error_count": 208,
+                "decisions_count": 100,
+                "eligible_count": 0,
+                "no_trade_count": 100,
+                "top_reason_codes": {"MODEL_UNAVAILABLE": 80, "CONFIDENCE_TOO_LOW": 80},
+                "ai_evaluations": {"SUCCESS": 85, "SKIPPED": 375}
+            },
+            "recommendations": [
+                {
+                    "action": "Increase_AI_Budget",
+                    "details": "Raise hourly AI evaluation quota."
+                },
+                {
+                    "action": "Review_Error_Logs",
+                    "details": "Inspect the 208 error entries."
+                }
+            ],
+            "next_steps": [
+                "Run a focused error audit on frequent exceptions.",
+                "Temporarily increase AI budget by 25%."
+            ]
+        })
+        parsed = _parse_audit_report_json(raw_ai_payload)
+        self.assertIsNotNone(parsed)
+        self.assertEqual(parsed['status'], 'ATTENTION_REQUIRED')
+        self.assertNotIn('{ "audit_timestamp"', parsed['content_markdown'])
+        self.assertIn('## Event Strategy Engine Operational AI Audit Report', parsed['content_markdown'])
+        self.assertIn('Detected Operational Issues & Bottlenecks', parsed['content_markdown'])
+        self.assertIn('Ai Budget Exhausted', parsed['content_markdown'])
+        self.assertIn('(Count: 10)', parsed['content_markdown'])
+        self.assertIn('Telemetry & Execution Summary', parsed['content_markdown'])
+        self.assertIn('Actionable Recommendations & Tuning', parsed['content_markdown'])
+        self.assertIn('1. **Increase Ai Budget**: Raise hourly AI evaluation quota.', parsed['content_markdown'])
+        self.assertIn('Run a focused error audit on frequent exceptions.', parsed['content_markdown'])
+
+    def test_report_to_dict_defensive_json_conversion(self):
+        # Even if a legacy database row stored raw JSON in content_markdown, report_to_dict must convert it
+        raw_json = json.dumps({
+            "overall_status": "HEALTHY",
+            "headline": "Telemetry verified clean.",
+            "issues": [],
+            "metrics_summary": {"scans_count": 100, "scanned_contracts": 200, "decisions_count": 100, "eligible_count": 5, "no_trade_count": 95, "error_count": 0, "warning_count": 0, "info_count": 100},
+            "recommendations": [{"action": "Maintain_Cadence", "details": "Keep current 60-second polling interval."}],
+            "next_steps": "Continue 24-hour observation."
+        })
+        legacy_report = SimpleNamespace(
+            id=102,
+            user_id=1,
+            config_id=5,
+            created_at=datetime(2026, 9, 4, 18, 0, 0),
+            period_start=datetime(2026, 9, 4, 12, 0, 0),
+            period_end=datetime(2026, 9, 4, 18, 0, 0),
+            status='HEALTHY',
+            headline='AI operational audit completed.',
+            summary='',
+            content_markdown=raw_json, # Raw JSON in DB!
+            metrics_json='{}',
+            model='gpt-oss:120b-cloud',
+            provider='deepseek',
+            tier='primary',
+        )
+        d = report_to_dict(legacy_report)
+        self.assertEqual(d['id'], 102)
+        self.assertFalse(d['content_markdown'].strip().startswith('{'))
+        self.assertIn('## Event Strategy Engine Operational AI Audit Report', d['content_markdown'])
+        self.assertIn('Maintain Cadence', d['content_markdown'])
+
 
 if __name__ == '__main__':
     unittest.main()
