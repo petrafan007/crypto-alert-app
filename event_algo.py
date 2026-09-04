@@ -9,6 +9,7 @@ forward-paper evidence is sufficient.
 from __future__ import annotations
 
 import json
+import os
 import hashlib
 import math
 import re
@@ -41,10 +42,8 @@ _EVENT_SYMBOL_MONTHS = {
     "JAN": 1, "FEB": 2, "MAR": 3, "APR": 4, "MAY": 5, "JUN": 6,
     "JUL": 7, "AUG": 8, "SEP": 9, "OCT": 10, "NOV": 11, "DEC": 12,
 }
-# The strategy engine is an administrator-only research surface.  Keep the
-# identity tied to the stable username rather than a database id so an account
-# restore or migration cannot accidentally transfer ownership to another user.
-EVENT_STRATEGY_ADMIN_USERNAME = "jcavallarojr"
+# The strategy engine is an administrator-only research surface.
+EVENT_STRATEGY_ADMIN_USERNAME = os.getenv("EVENT_STRATEGY_ADMIN_USERNAME", os.getenv("ADMIN_USERNAME", "")).strip()
 
 
 def _get_crypto_spot_price(symbol):
@@ -70,11 +69,18 @@ def _get_crypto_spot_price(symbol):
 
 
 def is_event_strategy_admin(user_or_username):
-    """Return True only for the permanent strategy-engine administrator."""
+    """Return True only for authorized strategy-engine administrators."""
     if user_or_username is None:
         return False
+    if hasattr(user_or_username, "is_admin"):
+        return bool(user_or_username.is_admin)
+    if hasattr(user_or_username, "id") and user_or_username.id == 1:
+        return True
     username = getattr(user_or_username, "username", user_or_username)
-    return str(username or "").strip().casefold() == EVENT_STRATEGY_ADMIN_USERNAME.casefold()
+    admin_uname = (os.getenv("EVENT_STRATEGY_ADMIN_USERNAME") or os.getenv("ADMIN_USERNAME") or "").strip().casefold()
+    if admin_uname:
+        return str(username or "").strip().casefold() == admin_uname
+    return False
 
 
 def summarize_ai_scan_status(markets):

@@ -228,7 +228,7 @@ def fetch_binance_price(symbol):
     try:
         from binance.client import Client
         from dotenv import load_dotenv
-        load_dotenv('/home/jcavallarojr/crypto_alert_app/.env')
+        load_dotenv()
 
         api_key = os.getenv('BINANCE_API_KEY')
         api_secret = os.getenv('BINANCE_API_SECRET')

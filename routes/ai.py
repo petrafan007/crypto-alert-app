@@ -2226,7 +2226,7 @@ def process_ai_conversation(user_id, message, conversation_id=None, include_all_
     import re
     
     user = User.query.get(user_id)
-    username = user.username if user else 'jcavallarojr'
+    username = user.username if user else 'admin'
 
     session = _get_owned_copilot_session(user_id, conversation_id)
     if conversation_id and not session:

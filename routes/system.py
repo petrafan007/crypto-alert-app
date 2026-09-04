@@ -811,7 +811,8 @@ def download_desktop_update():
     
     try:
         # Path to the latest desktop app executable
-        update_file_path = "/home/jcavallarojr/crypto_alert_app/desktop_app/dist/CryptoDesktopApp.exe"
+        root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        update_file_path = os.getenv('DESKTOP_APP_EXE_PATH', os.path.join(root_dir, 'desktop_app', 'dist', 'CryptoDesktopApp.exe'))
         
         if not os.path.exists(update_file_path):
             return jsonify({"error": "Update file not found"}), 404
@@ -1046,10 +1047,13 @@ def logs_html():
 @system_bp.route('/api/system/upgrade', methods=['POST'])
 @login_required
 def api_system_upgrade():
-    """Trigger the upgrade script for the latest eligible GitHub release."""
     try:
         import subprocess
-        # Check if user is admin (optional, assuming current_user is validated)
+        # Restrict upgrade actions strictly to authorized administrators
+        if not getattr(current_user, 'is_admin', False):
+            logger.warning(f"Unauthorized upgrade trigger attempted by user: {getattr(current_user, 'username', 'unknown')}")
+            return jsonify({"success": False, "error": "Unauthorized. Administrator privileges required."}), 403
+
         root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         script_path = os.path.join(root_dir, 'upgrade.sh')
         
@@ -4332,8 +4336,7 @@ def send_support_message():
         if topic not in valid_topics:
             return jsonify({"error": "Invalid topic selected"}), 400
         
-        # Build email
-        support_email = "petrafan007@gmail.com"
+        support_email = os.getenv('SUPPORT_EMAIL', 'support@csdapp.online')
         
         msg = MIMEMultipart()
         msg['From'] = email
@@ -4369,27 +4372,36 @@ Message:
             part.add_header('Content-Disposition', f'attachment; filename="{attachment.filename}"')
             msg.attach(part)
         
-        # Send email using localhost SMTP (assuming local mail server)
-        # For Gmail, you would need app passwords and SSL
+        # Send email using configured MTA (msmtp relay, sendmail, or local SMTP)
         try:
-            # Try sendmail first (local)
             import subprocess
             email_content = msg.as_string()
-            process = subprocess.Popen(
-                ['/usr/sbin/sendmail', '-t', '-oi'],
-                stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE
-            )
-            stdout, stderr = process.communicate(email_content.encode())
-            
-            if process.returncode != 0:
-                logger.error(f"Sendmail failed: {stderr.decode()}")
-                # Fallback to direct SMTP if available
-                raise Exception("Sendmail failed, trying SMTP")
+            msmtp_bin = '/usr/bin/msmtp'
+            if os.path.exists(msmtp_bin):
+                process = subprocess.Popen(
+                    [msmtp_bin, '-t'],
+                    stdin=subprocess.PIPE,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE
+                )
+                stdout, stderr = process.communicate(email_content.encode())
+                if process.returncode != 0:
+                    logger.error(f"msmtp failed: {stderr.decode(errors='ignore')}")
+                    raise Exception("msmtp failed, trying sendmail/SMTP")
+            else:
+                process = subprocess.Popen(
+                    ['/usr/sbin/sendmail', '-t', '-oi'],
+                    stdin=subprocess.PIPE,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE
+                )
+                stdout, stderr = process.communicate(email_content.encode())
+                if process.returncode != 0:
+                    logger.error(f"Sendmail failed: {stderr.decode(errors='ignore')}")
+                    raise Exception("Sendmail failed, trying SMTP")
                 
         except Exception as sendmail_err:
-            logger.warning(f"Sendmail not available: {sendmail_err}")
+            logger.warning(f"Local MTA not available: {sendmail_err}")
             # Try localhost SMTP
             try:
                 with smtplib.SMTP('localhost', 25) as server:

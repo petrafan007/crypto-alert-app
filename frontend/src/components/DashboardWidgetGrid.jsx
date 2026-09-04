@@ -225,7 +225,7 @@ const loadPersistedLayouts = (uname) => {
       }
     }
     // Fallback to legacy/general persistent storage only for primary user or un-scoped
-    if (uname === 'jcavallarojr' || !uname) {
+    if (!uname) {
       for (const key of LEGACY_STORAGE_KEYS) {
         const legacySaved = localStorage.getItem(key);
         if (legacySaved !== null) {
@@ -254,7 +254,7 @@ const loadPersistedHiddenWidgets = (uname) => {
       }
     }
     // Fallback to legacy/general persistent storage only for primary user or un-scoped
-    if (uname === 'jcavallarojr' || !uname) {
+    if (!uname) {
       for (const key of LEGACY_HIDDEN_KEYS) {
         const legacySaved = localStorage.getItem(key);
         if (legacySaved !== null) {
@@ -324,7 +324,7 @@ const DashboardWidgetGrid = ({
       try {
         localStorage.setItem(storageKey, JSON.stringify(layouts));
         localStorage.setItem(hiddenKey, JSON.stringify(hiddenWidgetIds));
-        if (!username || username === 'jcavallarojr') {
+        if (!username) {
           localStorage.setItem(STORAGE_KEY, JSON.stringify(layouts));
           localStorage.setItem(HIDDEN_STORAGE_KEY, JSON.stringify(hiddenWidgetIds));
         }
@@ -353,7 +353,7 @@ const DashboardWidgetGrid = ({
     try {
       localStorage.setItem(storageKey, JSON.stringify(layouts));
       localStorage.setItem(hiddenKey, JSON.stringify(hiddenWidgetIds));
-      if (!username || username === 'jcavallarojr') {
+      if (!username) {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(layouts));
         localStorage.setItem(HIDDEN_STORAGE_KEY, JSON.stringify(hiddenWidgetIds));
       }
@@ -406,7 +406,7 @@ const DashboardWidgetGrid = ({
     try {
       localStorage.setItem(storageKey, JSON.stringify(DEFAULT_LAYOUTS));
       localStorage.setItem(hiddenKey, JSON.stringify(DEFAULT_HIDDEN_WIDGET_IDS));
-      if (!username || username === 'jcavallarojr') {
+      if (!username) {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(DEFAULT_LAYOUTS));
         localStorage.setItem(HIDDEN_STORAGE_KEY, JSON.stringify(DEFAULT_HIDDEN_WIDGET_IDS));
       }

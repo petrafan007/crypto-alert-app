@@ -75,18 +75,25 @@ WEBULL_EVENT_CONTRACT_BATCH_RESEARCH_PROMPT = (
 # `api.inceptionai.com` is not a valid TLS endpoint for the Inception Labs API.
 INCEPTION_CHAT_COMPLETIONS_URL = "https://api.inceptionlabs.ai/v1/chat/completions"
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434").rstrip("/")
-OLLAMA_ADMIN_USERNAME = "jcavallarojr"
+OLLAMA_ADMIN_USERNAME = os.getenv("OLLAMA_ADMIN_USERNAME", os.getenv("ADMIN_USERNAME", "")).strip()
 
 _running_sentiment_users = set()
 _running_sentiment_lock = threading.Lock()
 
 
 def is_ollama_admin(user_or_username):
-    """Return True only for the permanent administrator allowed to use Ollama."""
+    """Return True only for authorized administrators allowed to use Ollama."""
     if user_or_username is None:
         return False
+    if hasattr(user_or_username, "is_admin"):
+        return bool(user_or_username.is_admin)
+    if hasattr(user_or_username, "id") and user_or_username.id == 1:
+        return True
     username = getattr(user_or_username, "username", user_or_username)
-    return str(username or "").strip().casefold() == OLLAMA_ADMIN_USERNAME.casefold()
+    admin_uname = (os.getenv("OLLAMA_ADMIN_USERNAME") or os.getenv("ADMIN_USERNAME") or "").strip().casefold()
+    if admin_uname:
+        return str(username or "").strip().casefold() == admin_uname
+    return False
 
 
 def get_ollama_models(timeout=5):

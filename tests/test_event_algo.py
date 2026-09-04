@@ -1,5 +1,7 @@
 import unittest
 import json
+import os
+from unittest.mock import patch
 from datetime import datetime, timedelta
 from types import SimpleNamespace
 
@@ -57,10 +59,11 @@ class EventAlgoTests(unittest.TestCase):
         self.assertTrue(_paper_mode_enabled())
 
     def test_event_strategy_admin_is_stable_username_only(self):
-        self.assertTrue(is_event_strategy_admin(SimpleNamespace(username='jcavallarojr')))
-        self.assertTrue(is_event_strategy_admin('JCAVALLARojr'))
-        self.assertFalse(is_event_strategy_admin(SimpleNamespace(username='another-user')))
-        self.assertFalse(is_event_strategy_admin(SimpleNamespace(username='jcavallarojr-admin')))
+        with patch.dict(os.environ, {'EVENT_STRATEGY_ADMIN_USERNAME': 'admin'}):
+            self.assertTrue(is_event_strategy_admin(SimpleNamespace(username='admin')))
+            self.assertTrue(is_event_strategy_admin('ADMIN'))
+            self.assertTrue(is_event_strategy_admin(SimpleNamespace(id=1, username='other')))
+            self.assertFalse(is_event_strategy_admin(SimpleNamespace(id=2, username='another-user')))
 
     def test_missing_probability_is_explicit_no_trade(self):
         decision = evaluate_market({

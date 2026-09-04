@@ -22,6 +22,14 @@ class User(UserMixin, db.Model):
 
     def check_password(self, password):
         return check_password_hash(self.pwd_hash, password)
+
+    @property
+    def is_admin(self):
+        import os
+        configured_admin = os.getenv('ADMIN_USERNAME', '').strip().lower()
+        if configured_admin and self.username and self.username.strip().lower() == configured_admin:
+            return True
+        return self.id == 1
     
 def reset_user_password(username, new_password):
     """Reset the password for a user to a new password (hashes it)."""

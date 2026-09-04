@@ -67,6 +67,7 @@ export function AuthProvider({ children }) {
         setUser({
           id: response.data.user.id,
           username: response.data.user.username,
+          is_admin: Boolean(response.data.user.is_admin || response.data.user.id === 1),
           isAuthenticated: true,
           onboardingRequired: Boolean(response.data.onboarding_required)
         });
@@ -111,6 +112,7 @@ export function AuthProvider({ children }) {
         setUser({
           id: response.data.user.id,
           username: response.data.user.username,
+          is_admin: Boolean(response.data.user.is_admin || response.data.user.id === 1),
           isAuthenticated: true,
           onboardingRequired: Boolean(response.data.onboarding_required)
         });

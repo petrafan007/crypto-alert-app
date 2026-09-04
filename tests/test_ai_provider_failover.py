@@ -1,4 +1,6 @@
+import os
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from services.ai_service import (
@@ -95,8 +97,10 @@ class AIProviderFailoverTests(unittest.TestCase):
         )
 
     def test_ollama_is_restricted_to_the_permanent_administrator(self):
-        self.assertTrue(is_ollama_admin('jcavallarojr'))
-        self.assertFalse(is_ollama_admin('another-user'))
+        with patch.dict(os.environ, {'OLLAMA_ADMIN_USERNAME': 'admin'}):
+            self.assertTrue(is_ollama_admin('admin'))
+            self.assertTrue(is_ollama_admin(SimpleNamespace(id=1, username='other')))
+            self.assertFalse(is_ollama_admin(SimpleNamespace(id=2, username='another-user')))
 
     def test_ollama_models_are_discovered_and_deduplicated(self):
         response = type('Response', (), {

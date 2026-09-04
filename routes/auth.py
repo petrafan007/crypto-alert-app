@@ -1,4 +1,5 @@
 
+import os
 from datetime import timedelta, datetime
 import requests
 import threading
@@ -31,6 +32,91 @@ import re
 
 # Create Blueprint
 auth_bp = Blueprint('auth', __name__)
+
+DISPOSABLE_EMAIL_DOMAINS = {
+    # Burner domain observed in malicious registration attempt
+    "dd2car.com",
+    # Known disposable, throwaway, and temporary email domains
+    "mailinator.com",
+    "guerrillamail.com",
+    "guerrillamail.net",
+    "guerrillamail.org",
+    "guerrillamailblock.com",
+    "sharklasers.com",
+    "grr.la",
+    "pokemail.net",
+    "spam4.me",
+    "tempmail.com",
+    "temp-mail.org",
+    "temp-mail.io",
+    "10minutemail.com",
+    "10minutemail.net",
+    "throwawaymail.com",
+    "yopmail.com",
+    "yopmail.net",
+    "cool.fr.nf",
+    "jetable.fr.nf",
+    "dispostable.com",
+    "fakeinbox.com",
+    "trashmail.com",
+    "trashmail.net",
+    "trashmail.me",
+    "generator.email",
+    "mohmal.com",
+    "nada.ltd",
+    "getnada.com",
+    "inboxbear.com",
+    "burnermail.io",
+    "crazymailing.com",
+    "dropmail.me",
+    "tempail.com",
+    "mytemp.email",
+    "disposablemail.com",
+    "emailondeck.com",
+    "fakemailgenerator.com",
+    "mytempemail.com",
+    "getairmail.com",
+    "incognitomail.com",
+    "maildrop.cc",
+    "mailnesia.com",
+    "mintemail.com",
+    "trashmail.org",
+    "temporarymail.com",
+    "throwaway.email",
+    "tmpmail.net",
+    "tmpmail.org",
+    "zillamail.com",
+    "byom.de",
+    "dayrep.com",
+    "teleworm.us",
+    "armyspy.com",
+    "cuvox.de",
+    "fleckens.hu",
+    "gustr.com",
+    "jourrapide.com",
+    "rhyta.com",
+    "superrito.com",
+}
+
+
+def is_disposable_email(email: str) -> bool:
+    """Return True if the email domain matches known disposable/burner providers."""
+    if not email or '@' not in email:
+        return False
+    domain = email.split('@')[-1].strip().lower()
+    # Check custom blocked domains from environment (comma-delimited)
+    extra_blocked = os.getenv('BLOCKED_EMAIL_DOMAINS', '')
+    if extra_blocked:
+        extra_set = {d.strip().lower() for d in extra_blocked.split(',') if d.strip()}
+        if domain in extra_set:
+            return True
+    return domain in DISPOSABLE_EMAIL_DOMAINS
+
+
+def is_registration_enabled() -> bool:
+    """Check whether public registration is currently enabled."""
+    val = os.getenv('REGISTRATION_ENABLED', 'true').strip().lower()
+    return val in ('true', '1', 'yes', 'on', 'enabled')
 
 
 def _onboarding_setting(user_id=None):
@@ -143,7 +229,11 @@ def api_session():
     setting = _onboarding_setting()
     return jsonify({
         'success': True,
-        'user': {'id': current_user.id, 'username': current_user.username},
+        'user': {
+            'id': current_user.id,
+            'username': current_user.username,
+            'is_admin': bool(getattr(current_user, 'is_admin', False))
+        },
         'onboarding_required': bool(setting.onboarding_required and not setting.onboarding_completed),
     })
 
@@ -166,24 +256,36 @@ def api_logout():
 @auth_bp.route('/register', methods=['GET', 'POST'])
 def register():
     if request.method == 'POST':
+        if not is_registration_enabled():
+            return jsonify({"error": "Account registration is currently closed by the administrator."}), 403
+
         if request.is_json:
-            data = request.get_json()
+            data = request.get_json() or {}
             username = (data.get('username') or '').strip()
             password = data.get('password')
             email = (data.get('email') or '').strip().lower()
             accepted_terms = bool(data.get('accepted_terms'))
+            access_code = (data.get('access_code') or '').strip()
         else:
-            username = request.form.get('username')
+            username = (request.form.get('username') or '').strip()
             password = request.form.get('password')
             email = (request.form.get('email') or '').strip().lower()
             accepted_terms = request.form.get('accepted_terms') in ('true', '1', 'yes', 'on')
-        
+            access_code = (request.form.get('access_code') or '').strip()
+
+        required_access_code = os.getenv('REGISTRATION_ACCESS_CODE', '').strip()
+        if required_access_code and access_code != required_access_code:
+            return jsonify({"error": "A valid registration access code is required."}), 403
+
         if not username or not password or not email:
             return jsonify({"error": "Username, email, and password are required."}), 400
         if not 3 <= len(username) <= 80:
             return jsonify({"error": "Username must be between 3 and 80 characters."}), 400
         if not re.match(r'^[^@\s]+@[^@\s]+\.[^@\s]+$', email):
             return jsonify({"error": "Enter a valid email address."}), 400
+        if is_disposable_email(email):
+            logger.warning(f"Registration rejected for disposable email domain: {email} (username: {username})")
+            return jsonify({"error": "Disposable or temporary email domains are not allowed. Please use a permanent email address."}), 400
         if not _valid_password(password):
             return jsonify({"error": "Password must be at least 12 characters and include uppercase, lowercase, number, and special characters."}), 400
         if not accepted_terms:
@@ -218,7 +320,7 @@ def register():
             db.session.add(new_settings)
             seed_new_user_defaults(new_user.id, new_settings)
             db.session.commit()
-            
+
             # Log in the new user immediately
             session.permanent = True
             login_user(new_user, remember=True)

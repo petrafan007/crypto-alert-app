@@ -6,13 +6,12 @@
 
 **Last Updated**: September 2026
 
-## v2.86.0 (September 2026)
+## v2.86.1 (September 2026)
 
-- Added persistent, user-scoped Copilot chat sessions with database-backed IDs, a **New Chat** action, and a titled-session selector for reopening and continuing prior conversations.
-- The first AI reply supplies a concise session title. Existing manual Copilot history is safely retained in a labeled legacy session during upgrade rather than being discarded or mixed into future chats.
-- New chats are isolated by default. **Reference past chats** explicitly searches only the current user's other saved sessions; historical chat content cannot silently cross into a new session or override the current account snapshot.
-- Copilot now labels the freshly read portfolio, cash/stablecoin balances, orders, and watchlist as authoritative. Time-sensitive crypto and security answers use fresh web-search context, and stale chat content is forbidden from being presented as a current holding or balance.
-- Long completed responses now position the view at the user question and start of the new reply, instead of forcing the sidebar or floating chat to the bottom of the response.
+- Hardened application session security with cryptographically generated random secret tokens.
+- Restricted system maintenance and upgrade execution strictly to authorized administrators.
+- Added disposable and temporary email domain validation to prevent throwaway address registrations.
+- Added configurable registration access gate controls.
 
 ## 🚀 Key Features & Capabilities
 
@@ -135,6 +134,14 @@ The application utilizes a **unified PostgreSQL database**.
 
 Historical changelog entries retain the product name used when they were originally released. The application domain, repository slug, deployment folders, database, and service identifiers intentionally remain unchanged by the v2.45.0 brand update.
 
+## v2.86.1 (September 2026)
+
+### Application Security Hardening & Registration Controls
+- **Cryptographic Session Hardening**: Established high-entropy 256-bit secret key generation across server environments to protect session integrity and cookies.
+- **System Maintenance & Upgrade Guard**: Added strict administrator authorization checks to backend upgrade endpoints and restricted maintenance controls in Settings to authorized administrators.
+- **Registration Sanitization & Burner Domain Filtering**: Added input filtering on user registration to automatically reject disposable, temporary, and burner email services.
+- **Configurable Registration Gate**: Added environment controls for restricting public registration or requiring access verification.
+
 ## v2.86.0 (September 2026)
 
 ### AI Copilot Saved Sessions & Live-Context Guardrails
@@ -229,14 +236,14 @@ Historical changelog entries retain the product name used when they were origina
 
 ### Administrator-only Ollama Integration and Accurate AI Status
 - Added administrator-only Ollama support to the AI provider chain, including local model discovery from the application host and a real generation-based connection test with no API key requirement.
-- Added Ollama to primary, secondary, and tertiary AI settings for the permanent `jcavallarojr` administrator; the provider and local model inventory remain hidden and rejected server-side for every other account.
+- Added Ollama to primary, secondary, and tertiary AI settings for the permanent administrator; the provider and local model inventory remain hidden and rejected server-side for every other account.
 - Added local Ollama calls to the existing primary → secondary → tertiary failover workflow while preserving provider provenance and error handling.
 - Corrected Event Contract Strategy Engine scan logging so scheduled, stale, disabled, or quote-gated evaluations are reported as deferred rather than falsely reported as an AI provider outage; genuine provider and response failures remain visible and alertable.
 
 ## v2.80.0 (September 2026)
 
 ### Administrator-only Event Contract Strategy Engine
-- Restricted the Event Contract Strategy Engine to the permanent `jcavallarojr` administrator account.
+- Restricted the Event Contract Strategy Engine to the permanent administrator account.
 - Removed the engine tab for every other user and redirect direct navigation attempts back to general Settings.
 - Added backend authorization to every engine endpoint, including configuration, scans, decisions, performance, logs, and kill-switch controls.
 - Prevented the background supervisor from running engine configurations belonging to any other account.

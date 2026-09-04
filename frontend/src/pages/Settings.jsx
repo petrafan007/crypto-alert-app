@@ -239,7 +239,8 @@ export default function Settings({ isLightMode }) {
     { id: 'system', label: 'Notifications & System', icon: '⚙️' },
     { id: 'event-strategy', label: 'Event Contract Strategy Engine', icon: '📊' },
   ];
-  const isEventStrategyAdmin = String(user?.username || '').trim().toLowerCase() === 'jcavallarojr';
+  const isEventStrategyAdmin = Boolean(user?.is_admin || user?.id === 1);
+  const isSystemAdmin = Boolean(user?.is_admin || user?.id === 1);
   const visibleSettingsTabs = isEventStrategyAdmin
     ? SETTINGS_TABS
     : SETTINGS_TABS.filter((tab) => tab.id !== 'event-strategy');
@@ -1240,17 +1241,19 @@ export default function Settings({ isLightMode }) {
   };
 
   const handleOpenUpgradeModal = () => {
+    if (!isSystemAdmin) return;
     setShowUpgradeModal(true);
     fetchLatestVersion(includeBeta);
   };
 
   useEffect(() => {
-    if (showUpgradeModal) {
+    if (showUpgradeModal && isSystemAdmin) {
       fetchLatestVersion(includeBeta);
     }
-  }, [includeBeta, showUpgradeModal]);
+  }, [includeBeta, showUpgradeModal, isSystemAdmin]);
 
   const confirmUpgrade = async () => {
+    if (!isSystemAdmin) return;
     setShowUpgradeModal(false);
     setUpgrading(true);
     setMessage('Upgrade initiated. Please wait, the page will automatically refresh when complete...');
@@ -1430,7 +1433,7 @@ export default function Settings({ isLightMode }) {
 
   return (
     <div className="settings-page-container">
-      {showUpgradeModal && createPortal(
+      {showUpgradeModal && isSystemAdmin && createPortal(
         <div style={{
           position: 'fixed',
           top: 0,
@@ -1620,33 +1623,38 @@ export default function Settings({ isLightMode }) {
             Reset Password
           </button>
 
+          {isSystemAdmin && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+              <button
+                onClick={handleOpenUpgradeModal}
+                disabled={upgrading}
+                style={{
+                  padding: '12px 24px',
+                  borderRadius: 6,
+                  border: '1px solid #ecc94b',
+                  background: 'transparent',
+                  color: '#ecc94b',
+                  fontSize: '16px',
+                  cursor: upgrading ? 'not-allowed' : 'pointer',
+                  transition: 'all 0.2s'
+                }}
+              >
+                {upgrading ? 'Upgrading...' : 'Upgrade App'}
+              </button>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', color: isLightMode ? '#2d3748' : '#e2e8f0', userSelect: 'none', margin: 0 }}>
+                <input
+                  type="checkbox"
+                  checked={includeBeta}
+                  onChange={(e) => setIncludeBeta(e.target.checked)}
+                  style={{ position: 'absolute', opacity: 0, pointerEvents: 'none' }}
+                />
+                {includeBeta ? <FaToggleOn size={30} color="#4fd1c5" /> : <FaToggleOff size={30} color="#6c757d" />}
+                Include Beta Versions
+              </label>
+            </div>
+          )}
+
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
-            <button
-              onClick={handleOpenUpgradeModal}
-              disabled={upgrading}
-              style={{
-                padding: '12px 24px',
-                borderRadius: 6,
-                border: '1px solid #ecc94b',
-                background: 'transparent',
-                color: '#ecc94b',
-                fontSize: '16px',
-                cursor: upgrading ? 'not-allowed' : 'pointer',
-                transition: 'all 0.2s'
-              }}
-            >
-              {upgrading ? 'Upgrading...' : 'Upgrade App'}
-            </button>
-            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', color: isLightMode ? '#2d3748' : '#e2e8f0', userSelect: 'none', margin: 0 }}>
-              <input
-                type="checkbox"
-                checked={includeBeta}
-                onChange={(e) => setIncludeBeta(e.target.checked)}
-                style={{ position: 'absolute', opacity: 0, pointerEvents: 'none' }}
-              />
-              {includeBeta ? <FaToggleOn size={30} color="#4fd1c5" /> : <FaToggleOff size={30} color="#6c757d" />}
-              Include Beta Versions
-            </label>
             <label
               style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', color: isLightMode ? '#2d3748' : '#e2e8f0', userSelect: 'none', margin: 0 }}
               title="Enable or disable all AI integrations"

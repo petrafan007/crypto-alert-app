@@ -37,7 +37,7 @@ function Choice({ selected, onClick, icon, title, children }) {
 export default function Onboarding({ isLightMode, toggleTheme }) {
   const navigate = useNavigate();
   const { logout, checkAuthStatus, user } = useAuth();
-  const isOllamaAdmin = String(user?.username || '').trim().toLowerCase() === 'jcavallarojr';
+  const isOllamaAdmin = Boolean(user?.is_admin || user?.id === 1);
   const [status, setStatus] = useState(null);
   const [page, setPage] = useState('security-choice');
   const [busy, setBusy] = useState(false);

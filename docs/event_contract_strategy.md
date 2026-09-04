@@ -55,7 +55,7 @@ iteration. The application service remains managed by systemd with
 
 ## Administrator access
 
-The engine is permanently restricted to the `jcavallarojr` administrator
+The engine is permanently restricted to the authorized system administrator
 identity. Settings hides the engine tab for every other user and redirects a
 direct tab URL back to general Settings. Every engine API endpoint enforces the
 same check, including configuration, scans, decisions, performance, logs,
