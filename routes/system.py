@@ -63,6 +63,7 @@ from services.webull_service import (
     get_webull_event_markets,
     validate_webull_event_order_market,
     FALLBACK_US_FUTURES_PRODUCTS,
+    FUTURES_CATEGORIES,
     test_webull_connection,
 )
 from services.webull_import_service import import_webull_orders, import_webull_portfolio_snapshot
@@ -3339,7 +3340,7 @@ def api_webull_futures_catalog():
             not credential or credential.webull_token_status != 'NORMAL'
             or credential.webull_token_environment != environment or not credential.webull_access_token
         ):
-            return jsonify({'success': True, 'classes': [], 'products': FALLBACK_US_FUTURES_PRODUCTS})
+            return jsonify({'success': True, 'classes': [], 'categories': FUTURES_CATEGORIES, 'products': FALLBACK_US_FUTURES_PRODUCTS})
         catalog = get_webull_futures_catalog(
             credential.webull_app_key, credential.webull_app_secret, environment,
             credential.webull_access_token,
@@ -3347,7 +3348,7 @@ def api_webull_futures_catalog():
         return jsonify({'success': True, **catalog})
     except Exception as exc:
         logger.warning('Webull futures catalog lookup notice: %s. Serving standard catalog.', exc)
-        return jsonify({'success': True, 'classes': [], 'products': FALLBACK_US_FUTURES_PRODUCTS})
+        return jsonify({'success': True, 'classes': [], 'categories': FUTURES_CATEGORIES, 'products': FALLBACK_US_FUTURES_PRODUCTS})
 
 
 @system_bp.route('/api/webull/futures/contracts', methods=['GET'])
@@ -3361,14 +3362,14 @@ def api_webull_futures_contracts():
         credential = Credential.query.filter_by(user_id=current_user.id).first()
         setting = UserSetting.query.filter_by(user_id=current_user.id).first()
         environment = normalize_webull_environment(getattr(setting, 'webull_environment', None) or 'production')
-        if (
-            not credential or credential.webull_token_status != 'NORMAL'
-            or credential.webull_token_environment != environment or not credential.webull_access_token
-        ):
-            return jsonify({'success': False, 'contracts': [], 'message': 'Verify your Webull connection before loading futures contracts.'}), 400
+        app_key = credential.webull_app_key if credential else None
+        app_secret = credential.webull_app_secret if credential else None
+        access_token = credential.webull_access_token if (
+            credential and credential.webull_token_status == 'NORMAL'
+            and credential.webull_token_environment != environment
+        ) else (credential.webull_access_token if credential and credential.webull_token_status == 'NORMAL' else None)
         contracts = get_webull_futures_contracts(
-            credential.webull_app_key, credential.webull_app_secret, environment,
-            credential.webull_access_token, symbol=symbol,
+            app_key, app_secret, environment, access_token, symbol=symbol,
         )
         return jsonify({'success': True, 'contracts': contracts})
     except WebullConnectionError as exc:

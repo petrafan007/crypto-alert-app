@@ -124,7 +124,33 @@ export default function WebullTradingViewChart({
   const tvSymbol = useMemo(() => {
     if (accountOnly) return '';
     const clean = String(symbol || '').toUpperCase().trim();
-    if (isFutures && !clean) return '';
+    if (isFutures) {
+      if (!clean) return 'CME_MINI:ES1!';
+      if (clean.includes(':')) return clean;
+      if (clean.startsWith('MES')) return 'CME_MINI:MES1!';
+      if (clean.startsWith('ES')) return 'CME_MINI:ES1!';
+      if (clean.startsWith('MNQ')) return 'CME_MINI:MNQ1!';
+      if (clean.startsWith('NQ')) return 'CME_MINI:NQ1!';
+      if (clean.startsWith('MYM')) return 'CBOT_MINI:MYM1!';
+      if (clean.startsWith('YM')) return 'CBOT_MINI:YM1!';
+      if (clean.startsWith('M2K')) return 'CME_MINI:M2K1!';
+      if (clean.startsWith('RTY')) return 'CME_MINI:RTY1!';
+      if (clean.startsWith('MCL')) return 'NYMEX:MCL1!';
+      if (clean.startsWith('CL')) return 'NYMEX:CL1!';
+      if (clean.startsWith('NG')) return 'NYMEX:NG1!';
+      if (clean.startsWith('MGC')) return 'COMEX:MGC1!';
+      if (clean.startsWith('GC')) return 'COMEX:GC1!';
+      if (clean.startsWith('SIL')) return 'COMEX:SIL1!';
+      if (clean.startsWith('SI')) return 'COMEX:SI1!';
+      if (clean.startsWith('MBT')) return 'CME:MBT1!';
+      if (clean.startsWith('BTC')) return 'CME:BTC1!';
+      if (clean.startsWith('MET')) return 'CME:MET1!';
+      if (clean.startsWith('ETH')) return 'CME:ETH1!';
+      if (clean.startsWith('ZN')) return 'CBOT:ZN1!';
+      if (clean.startsWith('ZB')) return 'CBOT:ZB1!';
+      if (clean.startsWith('ZF')) return 'CBOT:ZF1!';
+      return `CME_MINI:${clean}1!`;
+    }
     const resolved = clean || 'AAPL';
     if (isCrypto) {
       const pair = resolved.endsWith('USD') ? resolved : `${resolved}USD`;
@@ -308,7 +334,7 @@ export default function WebullTradingViewChart({
 
       {!accountOnly && <div className="advanced-chart-widget-shell">
         <div ref={hostRef} className="tradingview-widget-container advanced-chart-widget-host" />
-        {!tvSymbol && <div className="advanced-chart-widget-status">Select an exact Webull futures contract below to load its chart.</div>}
+        {!tvSymbol && <div className="advanced-chart-widget-status">Select a Webull futures contract above to load its chart.</div>}
         {tvSymbol && status === 'loading' && <div className="advanced-chart-widget-status">Loading TradingView Advanced Chart…</div>}
         {status === 'error' && (
           <div className="advanced-chart-widget-status error">
@@ -322,7 +348,7 @@ export default function WebullTradingViewChart({
         {isOption
           ? 'The chart shows the option underlying. The imported holding and its strike, expiration, and call/put terms remain locked into the option ticket below.'
           : isFutures
-            ? 'Choose a Webull futures contract in the ticket below. The selected contract stays locked into the order ticket while TradingView remains available for market research.'
+            ? 'The TradingView chart reflects the continuous contract stream for your selected futures market. Use the discovery suite above to switch contracts or categories.'
           : 'The selector above keeps the order ticket and Webull chart synchronized. TradingView\'s built-in symbol search remains available for independent market research.'}
       </p>}
     </section>

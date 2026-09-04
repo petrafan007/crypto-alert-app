@@ -22,6 +22,7 @@ from services.webull_service import (
     get_webull_futures_catalog,
     get_webull_futures_contracts,
     get_webull_futures_snapshot,
+    generate_standard_futures_contracts,
     get_webull_option_snapshot,
     get_webull_order_history,
     get_webull_open_orders,
@@ -1214,6 +1215,35 @@ class WebullServiceTests(unittest.TestCase):
         self.assertEqual(bars[0]['close'], 4500.25)
         self.assertEqual(request_mock.call_args_list[1].kwargs['query_params'], {'symbols': 'ESZ5'})
         self.assertEqual(request_mock.call_args_list[2].kwargs['query_params']['category'], 'US_FUTURES')
+
+    def test_futures_discovery_engine_and_contract_generation(self):
+        # 1. Standard E-mini contracts
+        es_contracts = generate_standard_futures_contracts('ES')
+        self.assertGreaterEqual(len(es_contracts), 3)
+        front_month = es_contracts[0]
+        self.assertTrue(front_month['is_front_month'])
+        self.assertEqual(front_month['product_code'], 'ES')
+        self.assertIn('ES', front_month['symbol'])
+        self.assertEqual(front_month['contract_multiplier'], 50.0)
+        self.assertEqual(front_month['tick_size'], 0.25)
+        self.assertEqual(front_month['tick_value'], 12.5)
+        self.assertEqual(front_month['category'], 'INDICES')
+        self.assertFalse(front_month['is_micro'])
+
+        # 2. Micro contracts
+        mes_contracts = generate_standard_futures_contracts('MES')
+        self.assertGreaterEqual(len(mes_contracts), 3)
+        mes_front = mes_contracts[0]
+        self.assertTrue(mes_front['is_micro'])
+        self.assertEqual(mes_front['contract_multiplier'], 5.0)
+        self.assertEqual(mes_front['tick_value'], 1.25)
+        self.assertLess(mes_front['day_margin'], front_month['day_margin'])
+
+        # 3. Fallback resolution via get_webull_futures_contracts
+        unauth_contracts = get_webull_futures_contracts(None, None, 'production', None, symbol='NQ')
+        self.assertGreaterEqual(len(unauth_contracts), 1)
+        self.assertEqual(unauth_contracts[0]['product_code'], 'NQ')
+
 
     def test_option_bars_and_snapshot_use_option_endpoints_and_keep_contract_identity(self):
         bars_response = Mock(status_code=200)

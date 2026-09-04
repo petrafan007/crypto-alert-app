@@ -877,31 +877,256 @@ def _get_webull_futures_catalog(app_key, app_secret, environment, access_token, 
 
 
 FALLBACK_US_FUTURES_PRODUCTS = [
-    {'product_code': 'ES', 'symbol': 'ES', 'name': 'E-mini S&P 500 Futures', 'exchange': 'CME'},
-    {'product_code': 'NQ', 'symbol': 'NQ', 'name': 'E-mini Nasdaq-100 Futures', 'exchange': 'CME'},
-    {'product_code': 'YM', 'symbol': 'YM', 'name': 'E-mini Dow Jones Industrial Average Futures', 'exchange': 'CBOT'},
-    {'product_code': 'RTY', 'symbol': 'RTY', 'name': 'E-mini Russell 2000 Index Futures', 'exchange': 'CME'},
-    {'product_code': 'MES', 'symbol': 'MES', 'name': 'Micro E-mini S&P 500 Futures', 'exchange': 'CME'},
-    {'product_code': 'MNQ', 'symbol': 'MNQ', 'name': 'Micro E-mini Nasdaq-100 Futures', 'exchange': 'CME'},
-    {'product_code': 'CL', 'symbol': 'CL', 'name': 'Crude Oil Futures', 'exchange': 'NYMEX'},
-    {'product_code': 'MCL', 'symbol': 'MCL', 'name': 'Micro WTI Crude Oil Futures', 'exchange': 'NYMEX'},
-    {'product_code': 'GC', 'symbol': 'GC', 'name': 'Gold Futures', 'exchange': 'COMEX'},
-    {'product_code': 'MGC', 'symbol': 'MGC', 'name': 'Micro Gold Futures', 'exchange': 'COMEX'},
-    {'product_code': 'SI', 'symbol': 'SI', 'name': 'Silver Futures', 'exchange': 'COMEX'},
-    {'product_code': 'NG', 'symbol': 'NG', 'name': 'Natural Gas Futures', 'exchange': 'NYMEX'},
-    {'product_code': 'ZB', 'symbol': 'ZB', 'name': 'U.S. Treasury Bond Futures', 'exchange': 'CBOT'},
-    {'product_code': 'ZN', 'symbol': 'ZN', 'name': '10-Year U.S. Treasury Note Futures', 'exchange': 'CBOT'},
-    {'product_code': 'BTC', 'symbol': 'BTC', 'name': 'Bitcoin Futures', 'exchange': 'CME'},
-    {'product_code': 'MBT', 'symbol': 'MBT', 'name': 'Micro Bitcoin Futures', 'exchange': 'CME'},
-    {'product_code': 'ETH', 'symbol': 'ETH', 'name': 'Ether Futures', 'exchange': 'CME'},
+    # Equity Indices
+    {
+        'product_code': 'ES', 'symbol': 'ES', 'name': 'E-mini S&P 500 Futures', 'exchange': 'CME',
+        'category': 'INDICES', 'category_label': 'Equity Indices', 'is_micro': False,
+        'contract_multiplier': 50.0, 'tick_size': 0.25, 'tick_value': 12.50,
+        'unit': '$50 × S&P 500 Index', 'tradingview_symbol': 'CME_MINI:ES1!',
+        'cycle': 'QUARTERLY', 'day_margin': 1250.0, 'initial_margin': 12500.0,
+    },
+    {
+        'product_code': 'MES', 'symbol': 'MES', 'name': 'Micro E-mini S&P 500 Futures', 'exchange': 'CME',
+        'category': 'INDICES', 'category_label': 'Equity Indices', 'is_micro': True,
+        'contract_multiplier': 5.0, 'tick_size': 0.25, 'tick_value': 1.25,
+        'unit': '$5 × S&P 500 Index', 'tradingview_symbol': 'CME_MINI:MES1!',
+        'cycle': 'QUARTERLY', 'day_margin': 125.0, 'initial_margin': 1250.0,
+    },
+    {
+        'product_code': 'NQ', 'symbol': 'NQ', 'name': 'E-mini Nasdaq-100 Futures', 'exchange': 'CME',
+        'category': 'INDICES', 'category_label': 'Equity Indices', 'is_micro': False,
+        'contract_multiplier': 20.0, 'tick_size': 0.25, 'tick_value': 5.00,
+        'unit': '$20 × Nasdaq-100 Index', 'tradingview_symbol': 'CME_MINI:NQ1!',
+        'cycle': 'QUARTERLY', 'day_margin': 1800.0, 'initial_margin': 18000.0,
+    },
+    {
+        'product_code': 'MNQ', 'symbol': 'MNQ', 'name': 'Micro E-mini Nasdaq-100 Futures', 'exchange': 'CME',
+        'category': 'INDICES', 'category_label': 'Equity Indices', 'is_micro': True,
+        'contract_multiplier': 2.0, 'tick_size': 0.25, 'tick_value': 0.50,
+        'unit': '$2 × Nasdaq-100 Index', 'tradingview_symbol': 'CME_MINI:MNQ1!',
+        'cycle': 'QUARTERLY', 'day_margin': 180.0, 'initial_margin': 1800.0,
+    },
+    {
+        'product_code': 'YM', 'symbol': 'YM', 'name': 'E-mini Dow Jones Industrial Average Futures', 'exchange': 'CBOT',
+        'category': 'INDICES', 'category_label': 'Equity Indices', 'is_micro': False,
+        'contract_multiplier': 5.0, 'tick_size': 1.0, 'tick_value': 5.00,
+        'unit': '$5 × Dow Jones Index', 'tradingview_symbol': 'CBOT_MINI:YM1!',
+        'cycle': 'QUARTERLY', 'day_margin': 900.0, 'initial_margin': 9000.0,
+    },
+    {
+        'product_code': 'MYM', 'symbol': 'MYM', 'name': 'Micro E-mini Dow Jones Futures', 'exchange': 'CBOT',
+        'category': 'INDICES', 'category_label': 'Equity Indices', 'is_micro': True,
+        'contract_multiplier': 0.5, 'tick_size': 1.0, 'tick_value': 0.50,
+        'unit': '$0.50 × Dow Jones Index', 'tradingview_symbol': 'CBOT_MINI:MYM1!',
+        'cycle': 'QUARTERLY', 'day_margin': 90.0, 'initial_margin': 900.0,
+    },
+    {
+        'product_code': 'RTY', 'symbol': 'RTY', 'name': 'E-mini Russell 2000 Index Futures', 'exchange': 'CME',
+        'category': 'INDICES', 'category_label': 'Equity Indices', 'is_micro': False,
+        'contract_multiplier': 50.0, 'tick_size': 0.10, 'tick_value': 5.00,
+        'unit': '$50 × Russell 2000 Index', 'tradingview_symbol': 'CME_MINI:RTY1!',
+        'cycle': 'QUARTERLY', 'day_margin': 700.0, 'initial_margin': 7000.0,
+    },
+    {
+        'product_code': 'M2K', 'symbol': 'M2K', 'name': 'Micro E-mini Russell 2000 Futures', 'exchange': 'CME',
+        'category': 'INDICES', 'category_label': 'Equity Indices', 'is_micro': True,
+        'contract_multiplier': 5.0, 'tick_size': 0.10, 'tick_value': 0.50,
+        'unit': '$5 × Russell 2000 Index', 'tradingview_symbol': 'CME_MINI:M2K1!',
+        'cycle': 'QUARTERLY', 'day_margin': 70.0, 'initial_margin': 700.0,
+    },
+    # Energy
+    {
+        'product_code': 'CL', 'symbol': 'CL', 'name': 'Crude Oil Futures', 'exchange': 'NYMEX',
+        'category': 'ENERGY', 'category_label': 'Energy', 'is_micro': False,
+        'contract_multiplier': 1000.0, 'tick_size': 0.01, 'tick_value': 10.00,
+        'unit': '1,000 Barrels (42,000 gal)', 'tradingview_symbol': 'NYMEX:CL1!',
+        'cycle': 'MONTHLY', 'day_margin': 750.0, 'initial_margin': 7500.0,
+    },
+    {
+        'product_code': 'MCL', 'symbol': 'MCL', 'name': 'Micro WTI Crude Oil Futures', 'exchange': 'NYMEX',
+        'category': 'ENERGY', 'category_label': 'Energy', 'is_micro': True,
+        'contract_multiplier': 100.0, 'tick_size': 0.01, 'tick_value': 1.00,
+        'unit': '100 Barrels', 'tradingview_symbol': 'NYMEX:MCL1!',
+        'cycle': 'MONTHLY', 'day_margin': 75.0, 'initial_margin': 750.0,
+    },
+    {
+        'product_code': 'NG', 'symbol': 'NG', 'name': 'Natural Gas Futures', 'exchange': 'NYMEX',
+        'category': 'ENERGY', 'category_label': 'Energy', 'is_micro': False,
+        'contract_multiplier': 10000.0, 'tick_size': 0.001, 'tick_value': 10.00,
+        'unit': '10,000 MMBtu', 'tradingview_symbol': 'NYMEX:NG1!',
+        'cycle': 'MONTHLY', 'day_margin': 400.0, 'initial_margin': 4000.0,
+    },
+    # Precious Metals
+    {
+        'product_code': 'GC', 'symbol': 'GC', 'name': 'Gold Futures', 'exchange': 'COMEX',
+        'category': 'METALS', 'category_label': 'Precious Metals', 'is_micro': False,
+        'contract_multiplier': 100.0, 'tick_size': 0.10, 'tick_value': 10.00,
+        'unit': '100 Troy Ounces', 'tradingview_symbol': 'COMEX:GC1!',
+        'cycle': 'MONTHLY', 'day_margin': 1000.0, 'initial_margin': 10000.0,
+    },
+    {
+        'product_code': 'MGC', 'symbol': 'MGC', 'name': 'Micro Gold Futures', 'exchange': 'COMEX',
+        'category': 'METALS', 'category_label': 'Precious Metals', 'is_micro': True,
+        'contract_multiplier': 10.0, 'tick_size': 0.10, 'tick_value': 1.00,
+        'unit': '10 Troy Ounces', 'tradingview_symbol': 'COMEX:MGC1!',
+        'cycle': 'MONTHLY', 'day_margin': 100.0, 'initial_margin': 1000.0,
+    },
+    {
+        'product_code': 'SI', 'symbol': 'SI', 'name': 'Silver Futures', 'exchange': 'COMEX',
+        'category': 'METALS', 'category_label': 'Precious Metals', 'is_micro': False,
+        'contract_multiplier': 5000.0, 'tick_size': 0.005, 'tick_value': 25.00,
+        'unit': '5,000 Troy Ounces', 'tradingview_symbol': 'COMEX:SI1!',
+        'cycle': 'MONTHLY', 'day_margin': 1500.0, 'initial_margin': 15000.0,
+    },
+    # Cryptocurrency
+    {
+        'product_code': 'BTC', 'symbol': 'BTC', 'name': 'Bitcoin Futures', 'exchange': 'CME',
+        'category': 'CRYPTO', 'category_label': 'Cryptocurrency', 'is_micro': False,
+        'contract_multiplier': 5.0, 'tick_size': 5.0, 'tick_value': 25.00,
+        'unit': '5 Bitcoin (BTC)', 'tradingview_symbol': 'CME:BTC1!',
+        'cycle': 'MONTHLY', 'day_margin': 15000.0, 'initial_margin': 60000.0,
+    },
+    {
+        'product_code': 'MBT', 'symbol': 'MBT', 'name': 'Micro Bitcoin Futures', 'exchange': 'CME',
+        'category': 'CRYPTO', 'category_label': 'Cryptocurrency', 'is_micro': True,
+        'contract_multiplier': 0.1, 'tick_size': 5.0, 'tick_value': 0.50,
+        'unit': '0.10 Bitcoin (BTC)', 'tradingview_symbol': 'CME:MBT1!',
+        'cycle': 'MONTHLY', 'day_margin': 300.0, 'initial_margin': 1200.0,
+    },
+    {
+        'product_code': 'ETH', 'symbol': 'ETH', 'name': 'Ether Futures', 'exchange': 'CME',
+        'category': 'CRYPTO', 'category_label': 'Cryptocurrency', 'is_micro': False,
+        'contract_multiplier': 50.0, 'tick_size': 0.50, 'tick_value': 25.00,
+        'unit': '50 Ether (ETH)', 'tradingview_symbol': 'CME:ETH1!',
+        'cycle': 'MONTHLY', 'day_margin': 5000.0, 'initial_margin': 20000.0,
+    },
+    {
+        'product_code': 'MET', 'symbol': 'MET', 'name': 'Micro Ether Futures', 'exchange': 'CME',
+        'category': 'CRYPTO', 'category_label': 'Cryptocurrency', 'is_micro': True,
+        'contract_multiplier': 0.1, 'tick_size': 0.50, 'tick_value': 0.05,
+        'unit': '0.10 Ether (ETH)', 'tradingview_symbol': 'CME:MET1!',
+        'cycle': 'MONTHLY', 'day_margin': 100.0, 'initial_margin': 400.0,
+    },
+    # Treasuries / Rates
+    {
+        'product_code': 'ZN', 'symbol': 'ZN', 'name': '10-Year U.S. Treasury Note Futures', 'exchange': 'CBOT',
+        'category': 'RATES', 'category_label': 'Treasuries & Rates', 'is_micro': False,
+        'contract_multiplier': 1000.0, 'tick_size': 0.015625, 'tick_value': 15.625,
+        'unit': '$100,000 Face Value', 'tradingview_symbol': 'CBOT:ZN1!',
+        'cycle': 'QUARTERLY', 'day_margin': 250.0, 'initial_margin': 2500.0,
+    },
+    {
+        'product_code': 'ZB', 'symbol': 'ZB', 'name': 'U.S. Treasury Bond Futures', 'exchange': 'CBOT',
+        'category': 'RATES', 'category_label': 'Treasuries & Rates', 'is_micro': False,
+        'contract_multiplier': 1000.0, 'tick_size': 0.03125, 'tick_value': 31.25,
+        'unit': '$100,000 Face Value', 'tradingview_symbol': 'CBOT:ZB1!',
+        'cycle': 'QUARTERLY', 'day_margin': 400.0, 'initial_margin': 4000.0,
+    },
 ]
 
-def get_webull_futures_catalog(app_key, app_secret, environment='production', access_token=None):
-    """Load the futures product codes needed to begin a contract lookup.
+FUTURES_CATEGORIES = [
+    {'id': 'ALL', 'name': 'All Futures', 'icon': '🌐'},
+    {'id': 'INDICES', 'name': 'Equity Indices', 'icon': '📈'},
+    {'id': 'ENERGY', 'name': 'Energy', 'icon': '⚡'},
+    {'id': 'METALS', 'name': 'Precious Metals', 'icon': '🪙'},
+    {'id': 'CRYPTO', 'name': 'Cryptocurrency', 'icon': '₿'},
+    {'id': 'RATES', 'name': 'Treasuries & Rates', 'icon': '🏛️'},
+]
 
-    Supplies the mandatory category='US_FUTURES' parameter required by Webull OpenAPI.
-    Provides resilient standard product fallback if the provider endpoint is unavailable.
-    """
+_FUTURES_MONTH_CODES = {
+    1: 'F', 2: 'G', 3: 'H', 4: 'J', 5: 'K', 6: 'M',
+    7: 'N', 8: 'Q', 9: 'U', 10: 'V', 11: 'X', 12: 'Z'
+}
+_FUTURES_CODE_MONTHS = {v: k for k, v in _FUTURES_MONTH_CODES.items()}
+_FUTURES_MONTH_NAMES = {
+    1: 'Jan', 2: 'Feb', 3: 'Mar', 4: 'Apr', 5: 'May', 6: 'Jun',
+    7: 'Jul', 8: 'Aug', 9: 'Sep', 10: 'Oct', 11: 'Nov', 12: 'Dec'
+}
+
+
+def _find_third_friday(year, month):
+    """Return the date of the 3rd Friday of the given year and month."""
+    import calendar
+    cal = calendar.monthcalendar(year, month)
+    fridays = [week[calendar.FRIDAY] for week in cal if week[calendar.FRIDAY] != 0]
+    return datetime(year, month, fridays[2] if len(fridays) >= 3 else fridays[-1], 17, 0, 0, tzinfo=timezone.utc)
+
+
+def generate_standard_futures_contracts(product_code, now=None, count=4):
+    """Generate active and upcoming contract expirations for a futures product."""
+    clean_code = str(product_code or '').strip().upper()
+    product = next((p for p in FALLBACK_US_FUTURES_PRODUCTS if p['product_code'] == clean_code), None)
+    if not product:
+        product = {
+            'product_code': clean_code, 'symbol': clean_code, 'name': f'{clean_code} Futures',
+            'exchange': 'CME', 'category': 'INDICES', 'is_micro': False,
+            'contract_multiplier': 50.0, 'tick_size': 0.25, 'tick_value': 12.50,
+            'tradingview_symbol': f'{clean_code}1!', 'cycle': 'QUARTERLY',
+            'day_margin': 1000.0, 'initial_margin': 10000.0
+        }
+
+    now = now or datetime.now(timezone.utc)
+    current_year = now.year
+    current_month = now.month
+
+    # Determine valid expiration months based on contract cycle
+    is_quarterly = product.get('cycle') == 'QUARTERLY'
+    target_months = [3, 6, 9, 12] if is_quarterly else list(range(1, 13))
+
+    contracts = []
+    y = current_year
+    m_idx = 0
+    candidate_months = []
+    # Build a timeline of upcoming months
+    while len(candidate_months) < 12:
+        for m in target_months:
+            if y > current_year or m >= current_month:
+                candidate_months.append((y, m))
+        y += 1
+
+    for exp_year, exp_month in candidate_months:
+        if len(contracts) >= count:
+            break
+        exp_date = _find_third_friday(exp_year, exp_month)
+        if exp_date < now and len(contracts) == 0:
+            # Already expired, skip to next
+            continue
+
+        month_code = _FUTURES_MONTH_CODES.get(exp_month, 'Z')
+        year_short = str(exp_year)[-1]  # 2026 -> '6'
+        year_two_digit = str(exp_year)[-2:]  # 2026 -> '26'
+        contract_symbol = f"{clean_code}{month_code}{year_two_digit}"
+        days_to_exp = max(0, (exp_date.date() - now.date()).days)
+        month_label = f"{_FUTURES_MONTH_NAMES[exp_month]} {exp_year}"
+
+        contracts.append({
+            'symbol': contract_symbol,
+            'contract_code': f"{clean_code}{month_code}{year_short}",
+            'product_code': clean_code,
+            'name': f"{product['name']} ({month_label})",
+            'exchange': product['exchange'],
+            'category': product.get('category', 'INDICES'),
+            'category_label': product.get('category_label', 'Equity Indices'),
+            'is_micro': product.get('is_micro', False),
+            'expiration_date': exp_date.strftime('%Y-%m-%d'),
+            'month_label': month_label,
+            'days_to_expiration': days_to_exp,
+            'is_front_month': len(contracts) == 0,
+            'contract_multiplier': product.get('contract_multiplier', 50.0),
+            'tick_size': product.get('tick_size', 0.25),
+            'tick_value': product.get('tick_value', 12.50),
+            'unit': product.get('unit', ''),
+            'tradingview_symbol': product.get('tradingview_symbol', f"{clean_code}1!"),
+            'day_margin': product.get('day_margin', 1000.0),
+            'initial_margin': product.get('initial_margin', 10000.0),
+            'currency': 'USD',
+        })
+
+    return contracts
+
+
+def get_webull_futures_catalog(app_key, app_secret, environment='production', access_token=None):
+    """Load the futures product codes needed to begin a contract lookup."""
     products = []
     try:
         products = _get_webull_futures_catalog(
@@ -922,22 +1147,74 @@ def get_webull_futures_catalog(app_key, app_secret, environment='production', ac
         except Exception:
             products = []
 
-    if not products:
-        products = [dict(p) for p in FALLBACK_US_FUTURES_PRODUCTS]
-    return {'classes': [], 'products': products}
+    # Merge live products with rich catalog metadata
+    product_map = {p['product_code']: dict(p) for p in FALLBACK_US_FUTURES_PRODUCTS}
+    for live_p in products:
+        code = str(live_p.get('product_code') or live_p.get('symbol') or '').upper().strip()
+        if code:
+            if code in product_map:
+                product_map[code].update({k: v for k, v in live_p.items() if v not in (None, '')})
+            else:
+                product_map[code] = live_p
+
+    return {
+        'classes': [],
+        'categories': FUTURES_CATEGORIES,
+        'products': list(product_map.values()),
+    }
 
 
 def get_webull_futures_contracts(app_key, app_secret, environment='production', access_token=None, *, symbol):
-    """Resolve an exact futures contract symbol via Webull's trading catalogue."""
+    """Resolve an exact futures contract symbol or product contract chain."""
     clean_symbol = ''.join(char for char in str(symbol or '').upper() if char.isalnum())
     if not clean_symbol:
-        raise WebullConnectionError('Enter a futures contract code, for example ESZ5.')
-    return _get_webull_futures_catalog(
-        app_key, app_secret, environment, access_token,
-        '/trading/instruments/futures/contracts/list',
-        query_params={'symbols': clean_symbol},
-        action='futures contract lookup',
+        raise WebullConnectionError('Enter or choose a futures product, for example ES or NQ.')
+
+    # Check if clean_symbol is a known product code (e.g. 'ES', 'NQ', 'CL')
+    matching_product = next(
+        (p for p in FALLBACK_US_FUTURES_PRODUCTS if p['product_code'] == clean_symbol),
+        None
     )
+
+    contracts = []
+    # If authenticated, attempt provider lookup
+    if access_token:
+        try:
+            contracts = _get_webull_futures_catalog(
+                app_key, app_secret, environment, access_token,
+                '/trading/instruments/futures/contracts/list',
+                query_params={'symbols': clean_symbol},
+                action='futures contract lookup',
+            )
+        except Exception as exc:
+            logger.debug('Provider futures contract lookup skipped or failed: %s', exc)
+            contracts = []
+
+    # If provider returns contracts, enhance each with specs
+    if contracts:
+        enhanced = []
+        for c in contracts:
+            p_code = c.get('product_code') or clean_symbol
+            meta = next((p for p in FALLBACK_US_FUTURES_PRODUCTS if p['product_code'] == p_code), {})
+            enhanced.append({
+                **meta,
+                **c,
+                'is_micro': meta.get('is_micro', False),
+                'category': meta.get('category', 'INDICES'),
+                'tradingview_symbol': meta.get('tradingview_symbol', f"{clean_symbol}1!"),
+            })
+        return enhanced
+
+    # If clean_symbol is a product code or no provider contracts found, generate standard active contracts
+    base_product = matching_product['product_code'] if matching_product else clean_symbol[:2]
+    generated = generate_standard_futures_contracts(matching_product['product_code'] if matching_product else clean_symbol)
+
+    # If the user searched for an exact contract code (e.g. ESU26 or ESZ6)
+    exact_match = [c for c in generated if c['symbol'] == clean_symbol or c.get('contract_code') == clean_symbol]
+    if exact_match:
+        return exact_match
+
+    return generated
 
 
 def _webull_event_principal(app_key, environment, access_token):

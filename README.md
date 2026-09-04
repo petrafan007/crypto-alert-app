@@ -6,6 +6,17 @@
 
 **Last Updated**: September 2026
 
+## v2.87.0 (September 2026)
+
+- **Comprehensive Webull Futures Suite Overhaul**:
+  - **Inverted Workspace Layout**: Positioned the Futures Contract Discovery & Selection Suite prominently at the top of the workspace, followed by the full-width TradingView interactive chart, contract specifications & margin requirements strip, and dedicated futures order ticket below.
+  - **Categorized Contract Discovery Engine**: Replaced raw contract code text entry with an organized product explorer categorizing Equity Indices (`ES`, `NQ`, `YM`, `RTY`), Energy (`CL`, `NG`), Precious Metals (`GC`, `SI`), Cryptocurrency (`BTC`, `ETH`), and Treasuries & Rates (`ZN`, `ZB`).
+  - **Prominent Micro Contract Highlighting**: Added a 1-click Micro filter toggle and glowing badges highlighting micro contracts (`MES`, `MNQ`, `MCL`, `MGC`, `MBT`, `MET`) with 1/10th margin requirements.
+  - **Zero-Blank Front-Month Preselection**: Preselects E-mini S&P 500 (`ES` front-month delivery, e.g. `ESU26`) immediately upon opening the Futures tab so live charts, quotes, and contract specs render instantly with zero dead states.
+  - **Interactive Expiration Chain Picker**: Interactive expiration pills displaying active delivery month symbols, expiration dates, and Days to Expiration (DTE).
+  - **Contract Specifications & Margin Strip**: Dedicated specifications display showing point multiplier, tick size, tick value, estimated day margin, and initial overnight margin.
+  - **Continuous Contract Charting**: Seamless TradingView mapping to continuous CME, NYMEX, COMEX, and CBOT futures streams (`CME_MINI:ES1!`, `CME_MINI:MES1!`, `NYMEX:CL1!`, `COMEX:GC1!`, `CME:BTC1!`).
+
 ## v2.86.2 (September 2026)
 
 - Renamed and enhanced "Unhide Assets" management across all portfolio asset classes (Binance and Webull, including crypto, cash, equities, and ETFs).

@@ -3,6 +3,7 @@ import axios from 'axios';
 import CryptoIcon, { WebullLogo } from '../components/CryptoIcon';
 import { FaArrowDown, FaArrowUp, FaSearch, FaToggleOn, FaToggleOff } from 'react-icons/fa';
 import WebullTradingViewChart, { DEFAULT_STOCKS } from '../components/WebullTradingViewChart';
+import WebullFuturesDiscoverySuite, { WebullFuturesSpecStrip } from '../components/WebullFuturesDiscoverySuite';
 import WebullTradeTimelineChart from '../components/WebullTradeTimelineChart';
 import TwoFactorModal from '../components/TwoFactorModal';
 import CancelOrderModal from '../components/CancelOrderModal';
@@ -625,13 +626,14 @@ export default function WebullTrading({ isLightMode = false }) {
     EQUITY: 'AAPL',
     OPTION: 'AAPL',
     CRYPTO: 'BTCUSD',
-    FUTURES: '',
+    FUTURES: 'ESU26',
     EVENT: '',
   });
   const [selectedOptionHoldingId, setSelectedOptionHoldingId] = useState('');
-  const [futuresCatalog, setFuturesCatalog] = useState({ classes: [], products: [] });
+  const [futuresCatalog, setFuturesCatalog] = useState({ classes: [], categories: [], products: [] });
   const [futuresContracts, setFuturesContracts] = useState([]);
   const [futuresContractInput, setFuturesContractInput] = useState('');
+  const [selectedFuturesProduct, setSelectedFuturesProduct] = useState(null);
   const [selectedFuturesContract, setSelectedFuturesContract] = useState(null);
   const [futuresLoading, setFuturesLoading] = useState(false);
   const [futuresMessage, setFuturesMessage] = useState('');
@@ -1311,16 +1313,27 @@ export default function WebullTrading({ isLightMode = false }) {
   };
 
   const DEFAULT_FUTURES_PRODUCTS = [
-    { product_code: 'ES', symbol: 'ES', name: 'E-mini S&P 500 Futures', exchange: 'CME' },
-    { product_code: 'NQ', symbol: 'NQ', name: 'E-mini Nasdaq-100 Futures', exchange: 'CME' },
-    { product_code: 'YM', symbol: 'YM', name: 'E-mini Dow Jones Futures', exchange: 'CBOT' },
-    { product_code: 'RTY', symbol: 'RTY', name: 'E-mini Russell 2000 Futures', exchange: 'CME' },
-    { product_code: 'MES', symbol: 'MES', name: 'Micro E-mini S&P 500 Futures', exchange: 'CME' },
-    { product_code: 'MNQ', symbol: 'MNQ', name: 'Micro E-mini Nasdaq-100 Futures', exchange: 'CME' },
-    { product_code: 'CL', symbol: 'CL', name: 'Crude Oil Futures', exchange: 'NYMEX' },
-    { product_code: 'GC', symbol: 'GC', name: 'Gold Futures', exchange: 'COMEX' },
-    { product_code: 'SI', symbol: 'SI', name: 'Silver Futures', exchange: 'COMEX' },
-    { product_code: 'BTC', symbol: 'BTC', name: 'Bitcoin Futures', exchange: 'CME' },
+    { product_code: 'ES', symbol: 'ES', name: 'E-mini S&P 500 Futures', exchange: 'CME', category: 'INDICES', is_micro: false, contract_multiplier: 50, tick_size: 0.25, tick_value: 12.50, day_margin: 1250, initial_margin: 12500, tradingview_symbol: 'CME_MINI:ES1!' },
+    { product_code: 'MES', symbol: 'MES', name: 'Micro E-mini S&P 500 Futures', exchange: 'CME', category: 'INDICES', is_micro: true, contract_multiplier: 5, tick_size: 0.25, tick_value: 1.25, day_margin: 125, initial_margin: 1250, tradingview_symbol: 'CME_MINI:MES1!' },
+    { product_code: 'NQ', symbol: 'NQ', name: 'E-mini Nasdaq-100 Futures', exchange: 'CME', category: 'INDICES', is_micro: false, contract_multiplier: 20, tick_size: 0.25, tick_value: 5.00, day_margin: 1850, initial_margin: 18500, tradingview_symbol: 'CME_MINI:NQ1!' },
+    { product_code: 'MNQ', symbol: 'MNQ', name: 'Micro E-mini Nasdaq-100 Futures', exchange: 'CME', category: 'INDICES', is_micro: true, contract_multiplier: 2, tick_size: 0.25, tick_value: 0.50, day_margin: 185, initial_margin: 1850, tradingview_symbol: 'CME_MINI:MNQ1!' },
+    { product_code: 'YM', symbol: 'YM', name: 'E-mini Dow Jones Futures', exchange: 'CBOT', category: 'INDICES', is_micro: false, contract_multiplier: 5, tick_size: 1.0, tick_value: 5.00, day_margin: 950, initial_margin: 9500, tradingview_symbol: 'CBOT_MINI:YM1!' },
+    { product_code: 'MYM', symbol: 'MYM', name: 'Micro E-mini Dow Jones Futures', exchange: 'CBOT', category: 'INDICES', is_micro: true, contract_multiplier: 0.5, tick_size: 1.0, tick_value: 0.50, day_margin: 95, initial_margin: 950, tradingview_symbol: 'CBOT_MINI:MYM1!' },
+    { product_code: 'RTY', symbol: 'RTY', name: 'E-mini Russell 2000 Futures', exchange: 'CME', category: 'INDICES', is_micro: false, contract_multiplier: 50, tick_size: 0.1, tick_value: 5.00, day_margin: 720, initial_margin: 7200, tradingview_symbol: 'CME_MINI:RTY1!' },
+    { product_code: 'M2K', symbol: 'M2K', name: 'Micro E-mini Russell 2000 Futures', exchange: 'CME', category: 'INDICES', is_micro: true, contract_multiplier: 5, tick_size: 0.1, tick_value: 0.50, day_margin: 72, initial_margin: 720, tradingview_symbol: 'CME_MINI:M2K1!' },
+    { product_code: 'CL', symbol: 'CL', name: 'Crude Oil Futures', exchange: 'NYMEX', category: 'ENERGY', is_micro: false, contract_multiplier: 1000, tick_size: 0.01, tick_value: 10.00, day_margin: 680, initial_margin: 6800, tradingview_symbol: 'NYMEX:CL1!' },
+    { product_code: 'MCL', symbol: 'MCL', name: 'Micro WTI Crude Oil Futures', exchange: 'NYMEX', category: 'ENERGY', is_micro: true, contract_multiplier: 100, tick_size: 0.01, tick_value: 1.00, day_margin: 68, initial_margin: 680, tradingview_symbol: 'NYMEX:MCL1!' },
+    { product_code: 'NG', symbol: 'NG', name: 'Natural Gas Futures', exchange: 'NYMEX', category: 'ENERGY', is_micro: false, contract_multiplier: 10000, tick_size: 0.001, tick_value: 10.00, day_margin: 450, initial_margin: 4500, tradingview_symbol: 'NYMEX:NG1!' },
+    { product_code: 'GC', symbol: 'GC', name: 'Gold Futures', exchange: 'COMEX', category: 'METALS', is_micro: false, contract_multiplier: 100, tick_size: 0.10, tick_value: 10.00, day_margin: 1100, initial_margin: 11000, tradingview_symbol: 'COMEX:GC1!' },
+    { product_code: 'MGC', symbol: 'MGC', name: 'Micro Gold Futures', exchange: 'COMEX', category: 'METALS', is_micro: true, contract_multiplier: 10, tick_size: 0.10, tick_value: 1.00, day_margin: 110, initial_margin: 1100, tradingview_symbol: 'COMEX:MGC1!' },
+    { product_code: 'SI', symbol: 'SI', name: 'Silver Futures', exchange: 'COMEX', category: 'METALS', is_micro: false, contract_multiplier: 5000, tick_size: 0.005, tick_value: 25.00, day_margin: 950, initial_margin: 9500, tradingview_symbol: 'COMEX:SI1!' },
+    { product_code: 'SIL', symbol: 'SIL', name: 'Micro Silver Futures', exchange: 'COMEX', category: 'METALS', is_micro: true, contract_multiplier: 1000, tick_size: 0.005, tick_value: 5.00, day_margin: 190, initial_margin: 1900, tradingview_symbol: 'COMEX:SIL1!' },
+    { product_code: 'BTC', symbol: 'BTC', name: 'Bitcoin Futures', exchange: 'CME', category: 'CRYPTO', is_micro: false, contract_multiplier: 5, tick_size: 5.0, tick_value: 25.00, day_margin: 4500, initial_margin: 45000, tradingview_symbol: 'CME:BTC1!' },
+    { product_code: 'MBT', symbol: 'MBT', name: 'Micro Bitcoin Futures', exchange: 'CME', category: 'CRYPTO', is_micro: true, contract_multiplier: 0.1, tick_size: 5.0, tick_value: 0.50, day_margin: 90, initial_margin: 900, tradingview_symbol: 'CME:MBT1!' },
+    { product_code: 'ETH', symbol: 'ETH', name: 'Ether Futures', exchange: 'CME', category: 'CRYPTO', is_micro: false, contract_multiplier: 50, tick_size: 0.5, tick_value: 25.00, day_margin: 1600, initial_margin: 16000, tradingview_symbol: 'CME:ETH1!' },
+    { product_code: 'MET', symbol: 'MET', name: 'Micro Ether Futures', exchange: 'CME', category: 'CRYPTO', is_micro: true, contract_multiplier: 0.1, tick_size: 0.5, tick_value: 0.05, day_margin: 32, initial_margin: 320, tradingview_symbol: 'CME:MET1!' },
+    { product_code: 'ZN', symbol: 'ZN', name: '10-Year T-Note Futures', exchange: 'CBOT', category: 'RATES', is_micro: false, contract_multiplier: 1000, tick_size: 0.015625, tick_value: 15.625, day_margin: 500, initial_margin: 2200, tradingview_symbol: 'CBOT:ZN1!' },
+    { product_code: 'ZB', symbol: 'ZB', name: '30-Year T-Bond Futures', exchange: 'CBOT', category: 'RATES', is_micro: false, contract_multiplier: 1000, tick_size: 0.03125, tick_value: 31.25, day_margin: 1000, initial_margin: 4400, tradingview_symbol: 'CBOT:ZB1!' },
   ];
 
   const handleAssetClassChange = (nextType) => {
@@ -1340,7 +1353,7 @@ export default function WebullTrading({ isLightMode = false }) {
       EQUITY: equityHolding?.symbol || 'AAPL',
       OPTION: assetSymbolMemoryRef.current.EQUITY || equityHolding?.symbol || 'AAPL',
       CRYPTO: cryptoHolding?.symbol || 'BTCUSD',
-      FUTURES: selectedFuturesContract?.symbol || '',
+      FUTURES: selectedFuturesContract?.symbol || 'ESU26',
       EVENT: selectedEventMarket?.symbol || '',
     };
     const nextSymbol = assetSymbolMemoryRef.current[nextType] || defaultSymbols[nextType] || '';
@@ -1395,58 +1408,6 @@ export default function WebullTrading({ isLightMode = false }) {
     return nonNegativeNumber(b.total_cash_balance ?? b.cash_balance ?? b.settled_cash ?? b.cashBalance ?? 0);
   }, [isTestMode, paperSummary, activeAccount]);
 
-  const loadFuturesCatalog = async () => {
-    setFuturesLoading(true);
-    setFuturesMessage('');
-    try {
-      const response = await axios.get('/api/webull/futures/catalog', { withCredentials: true });
-      const products = response.data?.products?.length ? response.data.products : DEFAULT_FUTURES_PRODUCTS;
-      setFuturesCatalog({
-        classes: response.data?.classes || [],
-        products: products,
-      });
-    } catch (requestError) {
-      setFuturesCatalog((prev) => ({
-        classes: prev.classes || [],
-        products: prev.products?.length ? prev.products : DEFAULT_FUTURES_PRODUCTS,
-      }));
-    } finally {
-      setFuturesLoading(false);
-    }
-  };
-
-  const lookupFuturesContracts = async () => {
-    const requestedSymbol = futuresContractInput.trim().toUpperCase();
-    if (!requestedSymbol) {
-      setFuturesMessage('Enter an exact futures contract code, for example ESZ5.');
-      return;
-    }
-    setFuturesLoading(true);
-    setFuturesMessage('');
-    try {
-      const response = await axios.get('/api/webull/futures/contracts', {
-        params: { symbol: requestedSymbol },
-        withCredentials: true,
-      });
-      const contracts = response.data?.contracts || [];
-      setFuturesContracts(contracts);
-      if (!contracts.length) setFuturesMessage(`No tradable Webull futures contract was returned for ${requestedSymbol}.`);
-      if (contracts.length === 1) {
-        const contract = contracts[0];
-        setSelectedFuturesContract(contract);
-        setSelectedSymbol(contract.symbol || requestedSymbol);
-        setLivePrice(0);
-        setOrderForm((prev) => ({ ...prev, type: 'MARKET', quantity: '', quoteQuantity: '', price: '', stopPrice: '', trailingStopStep: '' }));
-      }
-    } catch (requestError) {
-      setFuturesContracts([]);
-      setSelectedFuturesContract(null);
-      setFuturesMessage(requestError.response?.data?.message || 'Unable to look up the Webull futures contract.');
-    } finally {
-      setFuturesLoading(false);
-    }
-  };
-
   const selectFuturesContract = (contract) => {
     const contractSymbol = String(contract?.symbol || '').trim().toUpperCase();
     if (!contractSymbol) return;
@@ -1459,11 +1420,104 @@ export default function WebullTrading({ isLightMode = false }) {
     setOrderForm((prev) => ({ ...prev, type: 'MARKET', quantity: '', quoteQuantity: '', price: '', stopPrice: '', trailingStopStep: '' }));
   };
 
-  useEffect(() => {
-    if (selectedInstrumentType === 'FUTURES' && !activeAccountIsCrypto && !futuresCatalog.products.length && !futuresLoading) {
-      loadFuturesCatalog();
+  const handleSelectFuturesProduct = async (product) => {
+    if (!product) return;
+    setSelectedFuturesProduct(product);
+    const code = product.product_code || product.symbol;
+    setFuturesLoading(true);
+    setFuturesMessage('');
+    try {
+      const response = await axios.get('/api/webull/futures/contracts', {
+        params: { symbol: code },
+        withCredentials: true,
+      });
+      const contracts = response.data?.contracts || [];
+      setFuturesContracts(contracts);
+      if (contracts.length > 0) {
+        selectFuturesContract(contracts[0]);
+      } else {
+        setFuturesMessage(`No active delivery months returned for ${code}.`);
+      }
+    } catch (err) {
+      setFuturesMessage(err.response?.data?.message || `Unable to load contracts for ${code}.`);
+    } finally {
+      setFuturesLoading(false);
     }
-  }, [selectedInstrumentType, activeAccountIsCrypto]);
+  };
+
+  const loadFuturesCatalog = async () => {
+    setFuturesLoading(true);
+    setFuturesMessage('');
+    try {
+      const response = await axios.get('/api/webull/futures/catalog', { withCredentials: true });
+      const products = response.data?.products?.length ? response.data.products : DEFAULT_FUTURES_PRODUCTS;
+      setFuturesCatalog({
+        classes: response.data?.classes || [],
+        categories: response.data?.categories || [],
+        products: products,
+      });
+      if (!selectedFuturesContract) {
+        const defaultProd = products.find((p) => p.product_code === 'ES') || products[0] || DEFAULT_FUTURES_PRODUCTS[0];
+        handleSelectFuturesProduct(defaultProd);
+      }
+    } catch (requestError) {
+      setFuturesCatalog((prev) => ({
+        classes: prev.classes || [],
+        categories: prev.categories || [],
+        products: prev.products?.length ? prev.products : DEFAULT_FUTURES_PRODUCTS,
+      }));
+      if (!selectedFuturesContract) {
+        handleSelectFuturesProduct(DEFAULT_FUTURES_PRODUCTS[0]);
+      }
+    } finally {
+      setFuturesLoading(false);
+    }
+  };
+
+  const lookupFuturesContracts = async (symbolOverride) => {
+    const requestedSymbol = String(symbolOverride || futuresContractInput || '').trim().toUpperCase();
+    if (!requestedSymbol) {
+      setFuturesMessage('Enter an exact futures contract code, for example ESU26 or ES.');
+      return;
+    }
+    setFuturesLoading(true);
+    setFuturesMessage('');
+    try {
+      const response = await axios.get('/api/webull/futures/contracts', {
+        params: { symbol: requestedSymbol },
+        withCredentials: true,
+      });
+      const contracts = response.data?.contracts || [];
+      setFuturesContracts(contracts);
+      if (!contracts.length) {
+        setFuturesMessage(`No tradable Webull futures contract was returned for ${requestedSymbol}.`);
+      } else {
+        const contract = contracts[0];
+        selectFuturesContract(contract);
+        const pCode = contract.product_code || requestedSymbol.replace(/[0-9]/g, '');
+        const matched = (futuresCatalog.products?.length ? futuresCatalog.products : DEFAULT_FUTURES_PRODUCTS)
+          .find((p) => p.product_code === pCode);
+        if (matched) setSelectedFuturesProduct(matched);
+      }
+    } catch (requestError) {
+      setFuturesContracts([]);
+      setSelectedFuturesContract(null);
+      setFuturesMessage(requestError.response?.data?.message || 'Unable to look up the Webull futures contract.');
+    } finally {
+      setFuturesLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (selectedInstrumentType === 'FUTURES') {
+      if (!futuresCatalog.products.length && !futuresLoading) {
+        loadFuturesCatalog();
+      } else if (!selectedFuturesContract) {
+        const prod = selectedFuturesProduct || (futuresCatalog.products.length ? futuresCatalog.products[0] : DEFAULT_FUTURES_PRODUCTS[0]);
+        handleSelectFuturesProduct(prod);
+      }
+    }
+  }, [selectedInstrumentType]);
 
   // Event Contract Helpers
   const eventQuoteFor = (market, outcome = orderForm.eventOutcome, side = orderForm.side) => {
@@ -3327,7 +3381,27 @@ export default function WebullTrading({ isLightMode = false }) {
             {/* ASSET ORDER WORKSPACE */}
             {activeTab === 'order' && !(selectedInstrumentType === 'EQUITY' && equityOrderMode === 'combo') && (
               <div className="order-form-container">
-                {/* 1. Full-Width TradingView Advanced Chart with Webull Account & Instrument Selector */}
+                {/* 1. FUTURES DISCOVERY & SELECTION SUITE (Appears FIRST at the top when FUTURES selected) */}
+                {selectedInstrumentType === 'FUTURES' && (
+                  <WebullFuturesDiscoverySuite
+                    catalog={futuresCatalog}
+                    loading={futuresLoading}
+                    onRefresh={loadFuturesCatalog}
+                    selectedProduct={selectedFuturesProduct}
+                    onSelectProduct={handleSelectFuturesProduct}
+                    contracts={futuresContracts}
+                    selectedContract={selectedFuturesContract}
+                    onSelectContract={selectFuturesContract}
+                    manualInput={futuresContractInput}
+                    onManualInputChange={setFuturesContractInput}
+                    onLookupManual={lookupFuturesContracts}
+                    futuresMessage={futuresMessage}
+                    isLightMode={isLightMode}
+                    isMarginAccount={!isCashBasedAccount(activeAccount)}
+                  />
+                )}
+
+                {/* 2. Full-Width TradingView Advanced Chart with Webull Account & Instrument Selector */}
                 <WebullTradingViewChart
                   symbol={selectedSymbol}
                   instrumentType={selectedInstrumentType}
@@ -3345,7 +3419,15 @@ export default function WebullTrading({ isLightMode = false }) {
                   accountOnly={selectedInstrumentType === 'EVENT'}
                 />
 
-                {/* 2. Order Ticket Container (with scroll ref and highlight pulse) */}
+                {/* 3. CONTRACT SPECIFICATIONS & MARGIN STRIP (Positioned beneath live chart for FUTURES) */}
+                {selectedInstrumentType === 'FUTURES' && (
+                  <WebullFuturesSpecStrip
+                    selectedContract={selectedFuturesContract}
+                    isLightMode={isLightMode}
+                  />
+                )}
+
+                {/* 4. Order Ticket Container (with scroll ref and highlight pulse) */}
                 <div
                   id="webull-order-ticket-section"
                   ref={orderTicketRef}
@@ -3437,84 +3519,16 @@ export default function WebullTrading({ isLightMode = false }) {
 
                 {/* 3. Redesigned Modern Order Panel (matching Binance.US) */}
                 <form onSubmit={handleOrderSubmit} className="trading-order-panel" noValidate>
-                  {selectedInstrumentType === 'FUTURES' && (
-                    <div style={{ background: 'rgba(13, 148, 136, 0.12)', border: '1px solid rgba(45, 212, 191, 0.36)', borderRadius: '8px', padding: '14px', marginBottom: '14px' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', alignItems: 'center', flexWrap: 'wrap', marginBottom: '8px' }}>
-                        <span style={{ fontSize: '13px', fontWeight: 700, color: '#5eead4' }}>🏁 Webull Futures Contract Setup</span>
-                        <button type="button" className="btn btn-sm btn-secondary" onClick={loadFuturesCatalog} disabled={futuresLoading}>
-                          {futuresLoading ? 'Loading…' : 'Refresh products'}
-                        </button>
+                  {/* Selected Futures Contract Summary Indicator */}
+                  {selectedInstrumentType === 'FUTURES' && selectedFuturesContract && (
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'rgba(13, 148, 136, 0.12)', border: '1px solid rgba(45, 212, 191, 0.3)', borderRadius: '8px', padding: '10px 14px', marginBottom: '14px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <span style={{ fontSize: '14px', fontWeight: 800, color: '#2dd4bf' }}>🏁 {selectedFuturesContract.symbol}</span>
+                        <span style={{ fontSize: '12px', color: '#99f6e4' }}>{selectedFuturesContract.name || 'Webull Futures Contract'}</span>
                       </div>
-                      <p style={{ margin: '0 0 12px', color: '#99f6e4', fontSize: '12px', lineHeight: 1.45 }}>
-                        Enter an exact Webull futures contract code (for example, ESZ5), then select the returned contract. Orders use whole contracts only; Webull verifies futures permission and margin before accepting the order.
-                      </p>
-                      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(180px, 1fr) auto', gap: '8px', alignItems: 'end' }}>
-                        <div>
-                          <label className="order-field-label" htmlFor="futuresContract">Futures Contract Code</label>
-                          <input
-                            id="futuresContract"
-                            type="text"
-                            value={futuresContractInput}
-                            onChange={(event) => {
-                              setFuturesContractInput(event.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''));
-                              setSelectedFuturesContract(null);
-                              setFuturesContracts([]);
-                              setFuturesMessage('');
-                            }}
-                            placeholder="e.g. ESZ5"
-                            className="order-styled-input"
-                            autoComplete="off"
-                          />
-                        </div>
-                        <button type="button" className="btn btn-primary" onClick={lookupFuturesContracts} disabled={futuresLoading || !futuresContractInput.trim()}>
-                          Find Contract
-                        </button>
-                      </div>
-                      {futuresCatalog.products.length > 0 && (
-                        <div style={{ marginTop: '10px' }}>
-                          <label className="order-field-label" htmlFor="futuresProduct">Webull Product Codes</label>
-                          <select
-                            id="futuresProduct"
-                            className="order-styled-input"
-                            value=""
-                            onChange={(event) => {
-                              const code = event.target.value;
-                              if (code) setFuturesContractInput(code);
-                            }}
-                          >
-                            <option value="">Choose a product code as a starting point…</option>
-                            {futuresCatalog.products.map((product, index) => {
-                              const code = product.product_code || product.symbol;
-                              return code ? <option key={`${code}-${index}`} value={code}>{code} — {product.name || 'Webull futures product'}</option> : null;
-                            })}
-                          </select>
-                        </div>
-                      )}
-                      {futuresContracts.length > 1 && (
-                        <div style={{ marginTop: '12px', display: 'grid', gap: '6px' }}>
-                          <span className="order-field-label">Matching Webull Contracts</span>
-                          {futuresContracts.map((contract, index) => (
-                            <button
-                              key={`${contract.symbol || contract.product_code}-${index}`}
-                              type="button"
-                              onClick={() => selectFuturesContract(contract)}
-                              style={{ textAlign: 'left', padding: '9px 11px', borderRadius: '6px', border: `1px solid ${selectedFuturesContract?.symbol === contract.symbol ? '#2dd4bf' : 'rgba(94,234,212,.24)'}`, background: selectedFuturesContract?.symbol === contract.symbol ? 'rgba(13,148,136,.25)' : 'rgba(0,0,0,.2)', color: '#e2e8f0', cursor: 'pointer' }}
-                            >
-                              <strong>{contract.symbol || contract.product_code}</strong> · {contract.name || 'Webull futures contract'}{contract.expiration_date ? ` · expires ${contract.expiration_date}` : ''}
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                      {selectedFuturesContract && (
-                        <div style={{ marginTop: '12px', padding: '9px 11px', borderRadius: '6px', background: 'rgba(0,0,0,.24)', color: '#ccfbf1', fontSize: '12px', lineHeight: 1.55 }}>
-                          <strong>{selectedFuturesContract.symbol}</strong> · {selectedFuturesContract.name || 'Selected Webull futures contract'}
-                          {selectedFuturesContract.exchange ? ` · ${selectedFuturesContract.exchange}` : ''}
-                          {selectedFuturesContract.expiration_date ? ` · expires ${selectedFuturesContract.expiration_date}` : ''}
-                          {selectedFuturesContract.contract_multiplier ? ` · multiplier ${selectedFuturesContract.contract_multiplier}` : ''}
-                          {selectedFuturesContract.tick_size ? ` · tick ${selectedFuturesContract.tick_size}` : ''}
-                        </div>
-                      )}
-                      {futuresMessage && <p className="option-ticket-status" role="status">⚠️ {futuresMessage}</p>}
+                      <span style={{ fontSize: '11px', color: '#5eead4', background: 'rgba(20, 184, 166, 0.2)', padding: '3px 8px', borderRadius: '4px', fontWeight: 700 }}>
+                        {selectedFuturesContract.is_micro ? '⚡ MICRO 1/10x' : 'STANDARD'}
+                      </span>
                     </div>
                   )}
 
