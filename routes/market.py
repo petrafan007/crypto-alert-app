@@ -164,11 +164,8 @@ def coingecko_chart(slug):
 def api_coin_data_live():
     """Live data endpoint for background refresh - Binance only"""
     try:
-        logger.error("=== API_COIN_DATA_LIVE CALLED ===")
+        logger.debug("=== API_COIN_DATA_LIVE CALLED ===")
         coins = Coin.query.filter_by(user_id=current_user.id).all()
-        logger.error(f"[LIVE] DB coins: {[c.symbol for c in coins]}")
-        logger.error(f"[LIVE] User ID: {current_user.id}")
-        logger.error(f"[LIVE] Total coins found: {len(coins)}")
 
         portfolio = []
         visibility_changed = False
@@ -188,9 +185,7 @@ def api_coin_data_live():
         for coin in coins:
             try:
                 symbol = (coin.symbol or '').upper()
-                logger.error(f"[LIVE] Processing coin: {symbol}")
                 amount = _to_float(coin.amount)
-                logger.error(f"[LIVE] {symbol} amount: {amount}")
 
                 current_price = coin.current or 0.0
                 if not current_price:
@@ -199,14 +194,12 @@ def api_coin_data_live():
                         coin.current = current_price
                         price_changed = True
                     except Exception as e:
-                        logger.error(f"[LIVE] Failed to fetch price for {symbol}: {e}")
                         try:
                             current_price = float((coin.avg_entry or 0)) if not isinstance(coin.avg_entry, str) else float(coin.avg_entry.replace(',', '').strip())
                         except Exception:
                             current_price = 0.0
 
                 current_value = amount * current_price if current_price else 0.0
-                logger.error(f"[LIVE] {symbol} current_value: {current_value}")
 
                 now_timestamp = int(time.time())
                 if record_price_history_snapshot(symbol, current_price, now_timestamp):
@@ -216,15 +209,12 @@ def api_coin_data_live():
                     visibility_changed = True
 
                 if amount < 0.0001:
-                    logger.error(f"[LIVE] {symbol} skipped: amount below portfolio minimum")
                     continue
 
                 if coin.hidden:
-                    logger.error(f"[LIVE] {symbol} skipped: hidden flag")
                     continue
 
                 if amount <= 0 and not coin.force_visible:
-                    logger.error(f"[LIVE] {symbol} skipped: amount <= 0 and not force_visible")
                     continue
 
                 avg_entry_val = _to_float(coin.avg_entry) if amount > 0.00000001 else 0.0
@@ -246,7 +236,6 @@ def api_coin_data_live():
                 volume_24h = float(ticker_info.get('quoteVolume') or ticker_info.get('volume') or 0.0) if (ticker_info.get('quoteVolume') or ticker_info.get('volume')) else None
                 change_24h = float(ticker_info['priceChangePercent']) if ticker_info.get('priceChangePercent') else None
 
-                logger.error(f"[LIVE] {symbol} included in portfolio response")
                 portfolio.append({
                     "id": coin.id,
                     "symbol": symbol,
@@ -298,7 +287,6 @@ def api_coin_data_live():
                     "cached_news_date": coin_news.get('created_at', None)
                 })
             except Exception as e:
-                logger.error(f"[LIVE] Error processing coin {getattr(coin,'symbol','?')}: {e}", exc_info=True)
                 try:
                     symbol = (coin.symbol or '').upper()
                     amount = _to_float(getattr(coin, 'amount', 0))
@@ -309,7 +297,6 @@ def api_coin_data_live():
                     fallback_news = news_cache.get(cid, {}) if cid else {}
                     if amount < 0.0001:
                         continue
-                    logger.error(f"[LIVE] {symbol} fallback included in portfolio response")
                     portfolio.append({
                         "id": getattr(coin, 'id', None),
                         "symbol": symbol,
@@ -356,7 +343,6 @@ def api_coin_data_live():
                         "cached_news_date": fallback_news.get('created_at', None)
                     })
                 except Exception:
-                    logger.error(f"[LIVE] {symbol} fallback failed, coin skipped")
                     pass
 
         if visibility_changed or price_changed:
@@ -367,7 +353,6 @@ def api_coin_data_live():
         # here made an account-correct position appear as zero shares even
         # though it was present on the Portfolio table.
         portfolio.extend(get_webull_portfolio_rows(current_user.id))
-        logger.error(f"[LIVE] Final portfolio response: {[c['symbol'] for c in portfolio]}")
         return jsonify({"portfolio": portfolio})
 
     except Exception as e:
@@ -380,7 +365,7 @@ def api_coin_data_live():
 @login_required
 def api_coin_data():
     """Get user's cryptocurrency portfolio data with Binance balance sync"""
-    logger.error("=== API_COIN_DATA CALLED ===")
+    logger.debug("=== API_COIN_DATA CALLED ===")
     try:
         coins = Coin.query.filter_by(user_id=current_user.id).all()
         # logger.error(f"[DEBUG] DB coins: {[c.symbol for c in coins]}")

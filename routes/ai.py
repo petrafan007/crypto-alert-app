@@ -2242,7 +2242,7 @@ def process_ai_conversation(user_id, message, conversation_id=None, include_all_
     from core.extensions import db
     import re
     
-    user = User.query.get(user_id)
+    user = db.session.get(User, user_id)
     username = user.username if user else 'admin'
 
     session = _get_owned_copilot_session(user_id, conversation_id)

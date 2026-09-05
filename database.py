@@ -5,6 +5,7 @@ from core.extensions import db
 def init_db(app=None):
     """Initialize the database with all models"""
     # Import models here to avoid circular imports
+    from services.provider_resilience import ProviderState
     from models import Coin, WatchlistCoin, Notification, AIPrompt, DefaultAIPrompt, StakedCoin, StakingReward, AICopilotSession, AIConversation, AICache, AIAnalysisSchedule, PriceHistory, WebullAccountSnapshot, WebullHolding, WebullOrder, BinanceOrder, OrderHistorySyncState, WebullWatchlistItem, ExternalSentimentSignal, WebullTestAccount, WebullTestPosition, WebullTestOrder
     from event_algo_models import EventStrategyConfig, EventStrategyRun, EventStrategyLog, EventStrategyAIEvaluation, EventMarketSnapshot, EventStrategyDecision, EventStrategyOrder, EventStrategyPosition, EventStrategyPerformance, EventContractOutcome, EventStrategyReport
     from portfolio_algo_models import (PortfolioStrategyConfig, PortfolioStrategyAccount,
@@ -28,6 +29,7 @@ def init_db(app=None):
         
         # Ensure recently added columns exist in PostgreSQL
         columns_to_ensure = [
+            ("user_settings", "telegram_notifications_enabled", "BOOLEAN DEFAULT TRUE"),
             ("user_settings", "ai_reasoning_level", "VARCHAR DEFAULT 'medium'"),
             ("user_settings", "ai_reasoning_level_fallback", "VARCHAR DEFAULT 'medium'"),
             ("user_settings", "ai_provider_fallback", "VARCHAR"),

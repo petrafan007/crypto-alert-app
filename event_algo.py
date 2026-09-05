@@ -80,7 +80,7 @@ def is_event_strategy_admin(user_or_username):
             from flask import has_app_context
             if has_app_context():
                 from credentials import User
-                user_record = User.query.get(user_or_username)
+                user_record = db.session.get(User, user_or_username)
                 if user_record and (user_record.is_admin or user_record.id == 1):
                     return True
         except Exception as err:
@@ -2590,12 +2590,21 @@ def _webull_connection_for_user(user_id):
     return credential, environment
 
 
+def quantitative_event_entries_enabled(user_id):
+    from portfolio_algo_models import PortfolioStrategyConfig
+    from services.portfolio_engine import settings_for
+    portfolio = PortfolioStrategyConfig.query.filter_by(user_id=user_id).first()
+    return portfolio is None or settings_for(portfolio)['events']['enabled']
+
+
 def run_event_strategy_scan(user_id, *, config=None, force=False, worker_id="manual"):
     """Scan configured crypto Event Contracts and persist an auditable run."""
     from portfolio_algo_models import PortfolioEngineState
     master_state = db.session.get(PortfolioEngineState, user_id)
     if master_state and master_state.kill_switch:
         return {"success": False, "message": "The master portfolio kill switch is active."}
+    if not quantitative_event_entries_enabled(user_id):
+        return {"success": False, "message": "The Event module is disabled for new entries."}
     with _ACTIVE_SCAN_LOCK:
         if user_id in _ACTIVE_SCAN_USERS:
             return {"success": False, "message": "An Event Contract strategy scan is already running."}
@@ -2864,7 +2873,7 @@ def event_algo_worker_loop(app):
             try:
                 config_ids = [row.id for row in EventStrategyConfig.query.filter_by(enabled=True, mode=PAPER_MODE, kill_switch=False).all()]
                 for config_id in config_ids:
-                    config = EventStrategyConfig.query.get(config_id)
+                    config = db.session.get(EventStrategyConfig, config_id)
                     if not config or not config.enabled or config.mode != PAPER_MODE or config.kill_switch:
                         continue
                     # Do not run legacy or tampered configs belonging to any
@@ -2891,6 +2900,11 @@ def event_algo_worker_loop(app):
                         except Exception as resolve_err:
                             logger.warning("Periodic event outcome resolution failed for user %s: %s", config.user_id, resolve_err)
                             db.session.rollback()
+
+                    if not quantitative_event_entries_enabled(config.user_id):
+                        config.worker_status = "DISABLED"
+                        db.session.commit()
+                        continue
 
                     # Periodic autonomous AI worker audit report (user-configurable cadence)
                     now_ts = time.time()
@@ -2964,7 +2978,7 @@ def event_algo_worker_loop(app):
                         # The scan owns/removes its scoped session in its
                         # finally block, so reload before persisting recovery
                         # state on a failed run.
-                        failed_config = EventStrategyConfig.query.get(config.id)
+                        failed_config = db.session.get(EventStrategyConfig, config.id)
                         if failed_config:
                             failed_config.worker_status = "DEGRADED"
                         _record_engine_log(

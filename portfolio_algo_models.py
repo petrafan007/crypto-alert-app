@@ -36,6 +36,7 @@ DEFAULT_MASTER_CIO_PROMPT = (
 
 DEFAULT_MODULE_SETTINGS = {
     "equities": {
+        "enabled": True,
         "strategy": "Dual-Momentum Rotation & 2-Period RSI",
         "trend_sma_days": 200,
         "rsi_period": 2,
@@ -48,6 +49,7 @@ DEFAULT_MODULE_SETTINGS = {
         ),
     },
     "crypto": {
+        "enabled": True,
         "strategy": "Adaptive Donchian Breakout & ATR Stops",
         "entry_channel_periods": 20,
         "exit_channel_periods": 10,
@@ -59,6 +61,7 @@ DEFAULT_MODULE_SETTINGS = {
         ),
     },
     "options": {
+        "enabled": True,
         "strategy": "Volatility Risk Premium 45-DTE Credit Spreads",
         "min_ivr": 40,
         "target_delta": 18,
@@ -71,7 +74,8 @@ DEFAULT_MODULE_SETTINGS = {
         ),
     },
     "futures": {
-        "strategy": "Opening Range Breakout (ORB) & VWAP Reversion",
+        "enabled": False,
+        "strategy": "Opening Range Breakout (ORB) & VWAP Confirmation",
         "opening_range_minutes": 15,
         "max_intraday_loss": 250.0,
         "target_cagr_range": "15%–22%",
@@ -81,6 +85,7 @@ DEFAULT_MODULE_SETTINGS = {
         ),
     },
     "events": {
+        "enabled": True,
         "strategy": "Binary Probability & Velocity Arbitrage",
         "min_confidence": 0.50,
         "min_net_edge": 0.015,

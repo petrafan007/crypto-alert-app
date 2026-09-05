@@ -102,6 +102,10 @@ def validate_config(payload, cfg):
                     if cast is int and number != int(number):
                         raise ValueError(f'{key} must be an integer.')
                     settings[module][key] = cast(number)
+                elif key == 'enabled':
+                    if type(val) is not bool:
+                        raise ValueError('Module enabled must be a boolean.')
+                    settings[module][key] = val
                 elif key == 'specialist_prompt':
                     if not isinstance(val, str) or len(val) > 12000:
                         raise ValueError('Specialist prompt must be text of at most 12000 characters.')
@@ -222,6 +226,8 @@ def close_lot(acc, lot, price, reason, now):
 
 
 def module_budget(cfg, acc, state, module):
+    if not settings_for(cfg)[module]['enabled']:
+        return 0
     weights = loads(cfg.allocations_json, DEFAULT_ALLOCATIONS)
     reserve = sum(lot.collateral for lot in current_lots(cfg.user_id, state) if lot.module == module)
     # Current equity sets the bucket; available cash still bounds every entry.
@@ -358,9 +364,20 @@ def portfolio_status(user_id):
         actual = capital/acc.total_equity*100 if acc.total_equity>0 else 0
         difference = actual-allocations[module]
         drift.append({'module': module, 'target_pct': allocations[module], 'actual_pct': actual, 'drift_pct': difference,
-                      'signal': 'TRIM' if difference>3 else 'AVAILABLE_CAPACITY' if difference < -3 else 'WITHIN_BAND',
+                      'signal': 'MANAGING_EXISTING' if not settings_for(cfg)[module]['enabled'] and capital else 'RESERVED_CASH' if not settings_for(cfg)[module]['enabled'] else 'TRIM' if difference>3 else 'AVAILABLE_CAPACITY' if difference < -3 else 'WITHIN_BAND',
                       'available_capital': module_budget(cfg, acc, state, module)})
     telemetry = loads(state.telemetry_json, {})
+    module_settings = settings_for(cfg)
+    for module in MODULES:
+        item = telemetry.setdefault(module, {'status': 'IDLE', 'messages': [], 'evaluated': 0, 'entries': 0})
+        item['enabled'] = module_settings[module]['enabled']
+        if not item['enabled']:
+            item['status'] = 'DISABLED'
+            item['evaluated'] = item['entries'] = 0
+        elif item['status'] in ('DISABLED', 'IDLE'):
+            item['status'] = 'AWAITING_SCAN'
+        elif item['status'] == 'SCANNED':
+            item['status'] = 'READY'
     status = cfg.worker_status
     if cfg.enabled and (not state.heartbeat_at or datetime.utcnow()-state.heartbeat_at > timedelta(minutes=10)):
         status = 'STALLED'
@@ -372,6 +389,8 @@ def portfolio_status(user_id):
             'account': {'initial_balance': acc.initial_balance, 'cash_balance': acc.cash_balance, 'total_equity': acc.total_equity,
                         'currency': 'USD', 'realized_pnl': realized, 'unrealized_pnl': sum(p['unrealized_pnl'] for p in positions),
                         'return_pct': (acc.total_equity/acc.initial_balance-1)*100},
+            'module_enabled': {m: module_settings[m]['enabled'] for m in MODULES},
+            'disabled_allocation_pct': sum(allocations[m] for m in MODULES if not module_settings[m]['enabled']),
             'performance': metrics, 'equity_curve': curve[-2000:], 'allocations': allocations, 'rebalance': drift}
 
 
@@ -503,6 +522,15 @@ def mark_event(user_id, details, now):
     return finite(price, 'event bid', 0, 1), None
 
 
+def data_status(message):
+    text = str(message).lower()
+    if 'market_data_not_subscribed' in text:
+        return 'SUBSCRIPTION_REQUIRED'
+    if 'observations' in text or 'iv rank' in text or 'ivr' in text:
+        return 'WARMING_UP'
+    return 'DATA_LIMITED'
+
+
 def run_scan(user_id, force=False, provider=None):
     token = claim(user_id, force)
     if not token:
@@ -510,12 +538,17 @@ def run_scan(user_id, force=False, provider=None):
     report = {m: {'status': 'IDLE', 'messages': [], 'evaluated': 0, 'entries': 0} for m in MODULES}
     try:
         from services.portfolio_strategy_data import PortfolioMarketData
-        data = provider or PortfolioMarketData(user_id)
+        data = provider
         cfg, acc, state = locked(user_id)
         settings = settings_for(cfg)
         watches = loads(cfg.watchlists_json, DEFAULT_QUANT_WATCHLISTS)
         lot_ids = [l.id for l in current_lots(user_id, state)]
         db.session.commit()
+        def market_data():
+            nonlocal data
+            if data is None:
+                data = PortfolioMarketData(user_id)
+            return data
         # Manage existing positions first, including symbols removed from the watchlist.
         for lot_id in lot_ids:
             lot = db.session.get(Lot, lot_id)
@@ -526,6 +559,8 @@ def run_scan(user_id, force=False, provider=None):
                 if module in ('equities', 'options', 'futures') and not in_session(now):
                     continue
                 reason, signal = None, None
+                if module != 'events':
+                    market_data()
                 if module == 'events':
                     price, reason = mark_event(user_id, details, now)
                 elif module == 'options':
@@ -590,6 +625,9 @@ def run_scan(user_id, force=False, provider=None):
                 db.session.rollback()
                 report[module]['messages'].append(f'{symbol}: {str(exc)[:200]}')
         for module in MODULES:
+            if not settings[module]['enabled']:
+                report[module]['status'] = 'DISABLED'
+                continue
             for watch_symbol in watches.get(module, []):
                 now = datetime.utcnow()
                 cfg, acc, state = locked(user_id)
@@ -606,6 +644,7 @@ def run_scan(user_id, force=False, provider=None):
                     if module == 'events':
                         entries = event_inputs(user_id, state, now, [watch_symbol], settings[module])
                     else:
+                        market_data()
                         if module == 'options':
                             price, contracts, rank = data.options(symbol, settings[module], now)
                             spread = select_credit_spread(contracts, price, rank, settings[module], now)
@@ -642,7 +681,7 @@ def run_scan(user_id, force=False, provider=None):
                             report[module]['entries'] += int(opened is not None)
                             balances(acc, state, user_id)
                     report[module]['evaluated'] += 1
-                    report[module]['status'] = 'SCANNED'
+                    report[module]['status'] = 'READY'
                     db.session.commit()
                 except Exception as exc:
                     db.session.rollback()
@@ -650,8 +689,8 @@ def run_scan(user_id, force=False, provider=None):
         cfg, acc, state = locked(user_id)
         if state.lease_token == token:
             for module in MODULES:
-                if report[module]['messages']:
-                    report[module]['status'] = 'DATA_LIMITED'
+                if report[module]['messages'] and settings[module]['enabled']:
+                    report[module]['status'] = data_status(' '.join(report[module]['messages']))
             state.telemetry_json = json.dumps(report)
             snapshot(cfg, acc, state, datetime.utcnow())
             check_circuit(cfg, acc, state)
@@ -748,9 +787,19 @@ def run_audit(user_id, prompt=None, scheduled=False):
         if evidence['generation'] != row.generation:
             raise ValueError('Paper run changed while the audit was being prepared.')
         evidence.pop('equity_curve', None)
-        evidence['correlations'] = measured_correlations(user_id, state.generation)
+        enabled_modules = [m for m, s in settings_for(cfg).items() if s['enabled']]
+        evidence['correlations'] = [pair for pair in measured_correlations(user_id, state.generation)
+                                    if pair['a'] in enabled_modules and pair['b'] in enabled_modules]
+        evidence['enabled_allocations'] = {m: evidence['allocations'][m] for m in enabled_modules}
+        evidence['cash_allocation'] = {
+            'reserved_target_pct': evidence['disabled_allocation_pct'],
+            'actual_cash': evidence['account']['cash_balance'],
+            'actual_cash_pct': (evidence['account']['cash_balance']/evidence['account']['total_equity']*100
+                                if evidence['account']['total_equity'] > 0 else None),
+        }
         evidence['target_annual_return'] = cfg.target_annual_return
-        evidence['specialist_mandates'] = {m: s['specialist_prompt'] for m, s in settings_for(cfg).items()}
+        evidence['specialist_mandates'] = {m: s['specialist_prompt'] for m, s in settings_for(cfg).items() if s['enabled']}
+        evidence['limitations_of_disabled_modules'] = 'Disabled modules cannot open new positions. Their unused allocations remain cash; legacy positions and historical P&L remain included. Do not attribute future returns or diversification to disabled modules.'
         evidence['limitations'] = ['Paper simulation with estimated costs; targets are aspirations.',
                                   'Annualized return requires 30 elapsed days; ratios/correlations require 30 daily samples.',
                                   'No simulated stress test has been performed; no numerical forecast is supplied.']
@@ -764,7 +813,7 @@ def run_audit(user_id, prompt=None, scheduled=False):
             response, _ = call_ai_with_web_search(
                 username=user.username, user_id=user_id,
                 messages=[{'role': 'system', 'content': (prompt or cfg.master_ai_prompt or DEFAULT_MASTER_CIO_PROMPT) +
-                          '\nUse only supplied quantitative evidence for numerical claims. Null means unavailable. Never invent correlations, stress results, probabilities of profit or guaranteed returns. Give advisory observations only; do not claim to execute changes.'},
+                          '\nUse only supplied quantitative evidence for numerical claims. Null means unavailable. Evaluate enabled_allocations and cash_allocation only for prospective diversification and returns. Disabled-module legacy positions and historical P&L remain real exposures, not future strategy contributions. Never invent correlations, stress results, probabilities of profit or guaranteed returns. Give advisory observations only; do not claim to execute changes.'},
                           {'role': 'user', 'content': json.dumps(evidence)}],
                 prompt_type='portfolio_audit', symbol='PORTFOLIO', include_db_context=False)
             content = getattr(response, 'text', None)

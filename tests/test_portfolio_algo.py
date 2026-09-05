@@ -101,6 +101,7 @@ class PortfolioLedgerTests(unittest.TestCase):
     def setUpClass(cls):
         from routes.portfolio_algo import portfolio_algo_bp
         import models  # register notification and user tables before creating the test schema
+        from services.provider_resilience import ProviderState
         cls.app = Flask(__name__)
         cls.app.config.update(SECRET_KEY='test-only', SQLALCHEMY_DATABASE_URI=os.environ['QUANT_TEST_DATABASE_URI'], TESTING=True)
         db.init_app(cls.app)
@@ -124,6 +125,10 @@ class PortfolioLedgerTests(unittest.TestCase):
         type(self).user_counter += 1
         self.user_id = type(self).user_counter
         self.cfg, self.acc, self.state = e.ensure_portfolio(self.user_id)
+        settings = e.settings_for(self.cfg)
+        settings['futures']['enabled'] = True  # Explicit opt-in for legacy futures lifecycle tests.
+        self.cfg.module_settings_json = json.dumps(settings)
+        db.session.commit()
         self.client = self.app.test_client()
         with self.client.session_transaction() as session:
             session['_user_id'] = str(self.user_id)
@@ -136,6 +141,53 @@ class PortfolioLedgerTests(unittest.TestCase):
 
     def entry(self, module='equities', side='LONG', price=100, stop=95, **kwargs):
         return e.enter_lot(self.cfg, self.acc, self.state, module, 'TEST', {'side': side, 'stop': stop, 'enter': True, 'target': .5}, price, datetime.utcnow(), **kwargs)
+
+    def test_disabled_modules_make_no_entry_data_calls_or_fills(self):
+        from unittest.mock import MagicMock
+        settings = e.settings_for(self.cfg)
+        for module in settings:
+            settings[module]['enabled'] = False
+        self.cfg.module_settings_json = json.dumps(settings)
+        db.session.commit()
+        e.control(self.user_id, 'start')
+        data = MagicMock()
+        result = e.run_scan(self.user_id, True, provider=data)
+        self.assertTrue(result['success'])
+        self.assertFalse(data.mock_calls)
+        self.assertEqual(e.current_lots(self.user_id, self.state), [])
+        self.assertEqual({v['status'] for v in result['modules'].values()}, {'DISABLED'})
+        self.assertIsNone(self.entry())
+        status = e.portfolio_status(self.user_id)
+        self.assertEqual(status['disabled_allocation_pct'], 100)
+        self.assertEqual(status['account']['cash_balance'], 50000)
+
+    def test_disabled_module_still_closes_existing_position_at_stop(self):
+        from unittest.mock import MagicMock
+        lot = self.entry(module='crypto', price=100, stop=95)
+        db.session.commit()
+        settings = e.settings_for(self.cfg)
+        for module in settings:
+            settings[module]['enabled'] = False
+        self.cfg.module_settings_json = json.dumps(settings)
+        db.session.commit()
+        data = MagicMock()
+        data.quote.return_value = 90
+        data.bars.side_effect = ValueError('history unavailable')
+        e.control(self.user_id, 'start')
+        result = e.run_scan(self.user_id, True, provider=data)
+        self.assertTrue(result['success'])
+        self.assertIsNotNone(lot.closed_at)
+        self.assertEqual(result['modules']['crypto']['entries'], 0)
+        self.assertEqual(data.quote.call_count, 1)
+
+    def test_module_toggle_api_preserves_weights_and_rejects_strings(self):
+        response = self.client.post('/api/webull/portfolio-algo/config', json={'module_settings': {'futures': {'enabled': False}}})
+        self.assertEqual(response.status_code, 200)
+        cfg = response.json['config']
+        self.assertFalse(cfg['module_settings']['futures']['enabled'])
+        self.assertEqual(cfg['allocations']['futures'], 10)
+        self.assertTrue(cfg['watchlists']['futures'])
+        self.assertEqual(self.client.post('/api/webull/portfolio-algo/config', json={'module_settings': {'crypto': {'enabled': 'false'}}}).status_code, 400)
 
     def test_round_trip_conserves_cash_and_costs(self):
         lot = self.entry()
@@ -415,9 +467,148 @@ class PortfolioLedgerTests(unittest.TestCase):
         e.control(self.user_id, 'start')
         with patch('services.portfolio_strategy_data.PortfolioMarketData', side_effect=RuntimeError('Credentials unavailable')):
             result = e.run_scan(self.user_id, True)
-        self.assertFalse(result['success'])
+        self.assertTrue(result['success'])
+        self.assertEqual(result['modules']['crypto']['status'], 'DATA_LIMITED')
+        self.assertIn('Credentials unavailable', str(result['modules']['crypto']['messages']))
         self.assertIsNone(self.state.lease_token)
         self.assertEqual(self.cfg.worker_status, 'DEGRADED')
+
+
+    def test_disabled_position_keeps_last_mark_when_quote_unavailable(self):
+        from unittest.mock import MagicMock
+        lot = self.entry(module='crypto', price=100, stop=95)
+        pos = db.session.get(e.Position, lot.position_id)
+        old_mark, old_time = pos.market_price, pos.updated_at
+        cfg_before = json.loads(self.cfg.watchlists_json)
+        settings = e.settings_for(self.cfg)
+        for module in settings:
+            settings[module]['enabled'] = False
+        self.cfg.module_settings_json = json.dumps(settings)
+        db.session.commit()
+        data = MagicMock()
+        data.quote.side_effect = ValueError('MARKET_DATA_NOT_SUBSCRIBED')
+        e.control(self.user_id, 'start')
+        result = e.run_scan(self.user_id, True, provider=data)
+        self.assertIsNone(lot.closed_at)
+        self.assertEqual((pos.market_price, pos.updated_at), (old_mark, old_time))
+        self.assertEqual(result['modules']['crypto']['status'], 'DISABLED')
+        self.assertIn('MARKET_DATA_NOT_SUBSCRIBED', str(result['modules']['crypto']['messages']))
+        self.assertEqual(json.loads(self.cfg.watchlists_json), cfg_before)
+        self.assertEqual(e.portfolio_status(self.user_id)['open_positions_count'], 1)
+        data.bars.assert_not_called()
+
+    def test_reenable_preserves_settings_history_and_clears_disabled_status(self):
+        lot = self.entry()
+        e.close_lot(self.acc, lot, 105, 'TEST_EXIT', datetime.utcnow())
+        before = (self.cfg.watchlists_json, self.cfg.allocations_json, self.acc.cash_balance)
+        count = e.Order.query.filter_by(user_id=self.user_id).count()
+        path = '/api/webull/portfolio-algo/config'
+        self.assertEqual(self.client.post(path, json={'module_settings': {'equities': {'enabled': False, 'rsi_period': 3}}}).status_code, 200)
+        self.state.telemetry_json = json.dumps({'equities': {'status': 'DISABLED', 'messages': [], 'evaluated': 0, 'entries': 0}})
+        db.session.commit()
+        self.assertEqual(self.client.post(path, json={'module_settings': {'equities': {'enabled': True}}}).status_code, 200)
+        self.assertEqual((self.cfg.watchlists_json, self.cfg.allocations_json, self.acc.cash_balance), before)
+        self.assertEqual(e.settings_for(self.cfg)['equities']['rsi_period'], 3)
+        self.assertEqual(e.Order.query.filter_by(user_id=self.user_id).count(), count)
+        self.assertEqual(e.portfolio_status(self.user_id)['modules']['equities']['status'], 'AWAITING_SCAN')
+
+    def test_data_access_disabled_modules_never_construct_provider(self):
+        settings = e.settings_for(self.cfg)
+        for module in settings:
+            settings[module]['enabled'] = False
+        self.cfg.module_settings_json = json.dumps(settings)
+        db.session.commit()
+        with patch('services.portfolio_readiness.PortfolioMarketData') as provider:
+            response = self.client.post('/api/webull/portfolio-algo/data-check')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual({r['status'] for r in response.json['modules'].values()}, {'DISABLED'})
+        provider.assert_not_called()
+
+    def test_disabled_event_collector_cannot_start_manual_scan(self):
+        from event_algo import run_event_strategy_scan
+        self.cfg.module_settings_json = json.dumps(e.settings_for(self.cfg) | {'events': {'enabled': False}})
+        db.session.commit()
+        with patch('event_algo._webull_connection_for_user') as connection:
+            result = run_event_strategy_scan(self.user_id, force=True)
+        self.assertFalse(result['success'])
+        self.assertIn('disabled', result['message'])
+        connection.assert_not_called()
+
+    def test_event_only_position_management_does_not_require_market_adapter(self):
+        settings = e.settings_for(self.cfg)
+        for module in settings:
+            settings[module]['enabled'] = False
+        lot = self.entry(module='events', price=.4, stop=None, details={'symbol': 'EVENT'})
+        self.assertIsNotNone(lot)
+        self.cfg.module_settings_json = json.dumps(settings)
+        db.session.commit()
+        e.control(self.user_id, 'start')
+        with patch('services.portfolio_strategy_data.PortfolioMarketData', side_effect=AssertionError('Unneeded provider')), patch.object(e, 'mark_event', return_value=(1, 'SETTLED')):
+            result = e.run_scan(self.user_id, True)
+        self.assertTrue(result['success'])
+        self.assertIsNotNone(lot.closed_at)
+
+    def test_audit_excludes_disabled_correlations_but_keeps_cash_and_exposure(self):
+        settings = e.settings_for(self.cfg)
+        for module in settings:
+            settings[module]['enabled'] = module == 'crypto'
+        self.cfg.module_settings_json = json.dumps(settings)
+        db.session.commit()
+        with patch('services.ai_service.is_ai_enabled', return_value=False):
+            result = e.run_audit(self.user_id)
+        evidence = result['evidence']
+        self.assertEqual(evidence['correlations'], [])
+        self.assertEqual(evidence['enabled_allocations'], {'crypto': 20})
+        self.assertEqual(set(evidence['specialist_mandates']), {'crypto'})
+        self.assertEqual(evidence['cash_allocation']['reserved_target_pct'], 80)
+        self.assertEqual(evidence['cash_allocation']['actual_cash'], 50000)
+
+    def test_readiness_statuses_distinguish_subscription_warmup_and_ready(self):
+        from unittest.mock import MagicMock
+        self.cfg.watchlists_json = json.dumps({m: (['BTC'] if m == 'crypto' else []) for m in e.MODULES})
+        db.session.commit()
+        e.control(self.user_id, 'start')
+        data = MagicMock()
+        for message, status in [('MARKET_DATA_NOT_SUBSCRIBED', 'SUBSCRIPTION_REQUIRED'),
+                                ('Requires seven daily observations', 'WARMING_UP')]:
+            data.quote.side_effect = ValueError(message)
+            self.assertEqual(e.run_scan(self.user_id, True, data)['modules']['crypto']['status'], status)
+        data.quote.side_effect = None
+        data.quote.return_value = 95
+        data.bars.return_value = [{'high': 100, 'low': 90, 'close': 95} for _ in range(25)]
+        data.dominance_ok.return_value = True
+        self.assertEqual(e.run_scan(self.user_id, True, data)['modules']['crypto']['status'], 'READY')
+
+    def test_scheduler_refuses_duplicate_owner_without_starting_jobs(self):
+        from runtime import WORKER_LOCK, run_worker
+        from sqlalchemy import text
+        with db.engine.connect() as connection:
+            connection.execute(text('SELECT pg_advisory_lock(:key)'), {'key': WORKER_LOCK})
+            try:
+                with patch('services.scheduler_tasks.start_background_jobs') as start:
+                    with self.assertRaisesRegex(RuntimeError, 'Another background scheduler'):
+                        run_worker(self.app)
+                start.assert_not_called()
+            finally:
+                connection.execute(text('SELECT pg_advisory_unlock(:key)'), {'key': WORKER_LOCK})
+
+    def test_scheduler_writes_heartbeat_and_releases_ownership(self):
+        from runtime import WORKER_LOCK, run_worker
+        from services import provider_resilience as resilience
+        from unittest.mock import Mock
+        from sqlalchemy import text
+        stop = Mock()
+        stop.is_set.return_value = False
+        stop.wait.return_value = True
+        job = Mock()
+        job.is_alive.return_value = True
+        with patch('services.scheduler_tasks.start_background_jobs', return_value={'test-job': job}):
+            run_worker(self.app, stop)
+        self.assertEqual(resilience.read(resilience.identity('scheduler-heartbeat'))['payload']['threads'],
+                         [{'name': 'test-job', 'alive': True}])
+        with db.engine.connect() as connection:
+            self.assertTrue(connection.execute(text('SELECT pg_try_advisory_lock(:key)'), {'key': WORKER_LOCK}).scalar())
+            connection.execute(text('SELECT pg_advisory_unlock(:key)'), {'key': WORKER_LOCK})
 
 
 if __name__ == '__main__':

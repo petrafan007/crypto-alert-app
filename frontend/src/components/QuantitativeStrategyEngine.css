@@ -862,3 +862,7 @@ body.light-mode .quant-audit-output {
 .quant-module-health details { border: 1px solid rgba(148,163,184,.3); padding: 10px; border-radius: 8px; }
 .quant-module-health summary { cursor: pointer; }
 .quant-risk-notice { padding: 12px; border: 1px solid #f87171; border-radius: 8px; }
+
+.quant-module-toggle { display: flex; align-items: center; gap: 8px; width: 100%; padding: 10px 0; font-size: 0.85rem; }
+
+.quant-bar-slice.slice-disabled { background: #64748b; }

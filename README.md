@@ -6,6 +6,16 @@
 
 **Last Updated**: September 2026
 
+## v2.89.2 (September 2026)
+
+- Added an Enabled toggle for each quantitative module. Disabled modules skip new-entry scans, preserve watchlists/settings/history, and leave unused allocation in cash. Futures default to disabled unless explicitly enabled.
+- Existing positions remain visible and are managed while the paper engine runs. Missing fresh prices preserve the last mark and display a diagnostic; disabling a module never invents a closing price.
+- Added explicit Reallocate controls, readable Disabled / Subscription required / Warming up / Ready states, and a read-only saved-data access check. CIO evidence evaluates enabled allocations and cash without crediting disabled strategies with future diversification or returns.
+- Shared provider cooldowns and short-lived search caching reduce repeated AI/search requests after quota, permission and connectivity failures. Event searches use underlying symbols; unavailable searches contribute zero sources. Settings shows provider retry times.
+- Made Telegram delivery optional with a configuration notice, reduced routine error-level logging, and replaced legacy SQLAlchemy primary-key lookups.
+- Split frontend pages into lazy-loaded bundles and migrated the Vite configuration to ES modules.
+- Added Gunicorn web serving and a separate supervised scheduler with database-enforced singleton ownership and heartbeat health. Installing the release preserves the paper engine's saved Start/Stop state.
+
 ## v2.89.1 (September 2026)
 
 - Corrected Webull crypto snapshots, hourly candle parameters and nested candle responses, plus the stock history endpoint, following read-only checks against the provider.

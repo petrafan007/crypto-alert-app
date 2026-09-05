@@ -361,6 +361,7 @@ def get_user_ai_settings(username: str) -> dict:
                     b_enabled = True
                 settings['browser_notifications_enabled'] = bool(b_enabled)
                 settings['toast_notifications_enabled'] = bool(b_enabled)
+                settings['telegram_notifications_enabled'] = getattr(user_setting, 'telegram_notifications_enabled', True) is not False
 
         provider = str(settings.get('ai_provider', 'openai') or 'openai').strip().lower()
         settings['ai_provider'] = provider

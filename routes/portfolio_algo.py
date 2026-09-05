@@ -78,6 +78,14 @@ def portfolio_algo_status():
     return jsonify(engine.portfolio_status(current_user.id))
 
 
+@portfolio_algo_bp.route('/api/webull/portfolio-algo/data-check', methods=['POST'])
+@portfolio_admin_required
+def portfolio_algo_data_check():
+    from services.portfolio_readiness import check_data_access
+    cfg, _, _ = engine.ensure_portfolio(current_user.id)
+    return jsonify(success=True, modules=check_data_access(cfg))
+
+
 @portfolio_algo_bp.route('/api/webull/portfolio-algo/reset-bankroll', methods=['POST'])
 @portfolio_admin_required
 def portfolio_algo_reset_bankroll():

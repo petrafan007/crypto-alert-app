@@ -482,6 +482,7 @@ class UserSetting(db.Model):
     onboarding_ai_skipped = db.Column(db.Boolean, default=False)
     onboarding_search_skipped = db.Column(db.Boolean, default=False)
     onboarding_telegram_skipped = db.Column(db.Boolean, default=False)
+    telegram_notifications_enabled = db.Column(db.Boolean, default=True)
     browser_notifications_enabled = db.Column(db.Boolean, default=True)
     copilot_chat_pre = db.Column(db.Text)
     copilot_chat_post = db.Column(db.Text)

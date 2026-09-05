@@ -44,11 +44,6 @@ app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
 app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=30)
 
 db.init_app(app)
-from database import init_db
-try:
-    init_db(app)
-except Exception as e:
-    logger.error(f"Error in init_db: {e}")
 
 login_manager.init_app(app)
 login_manager.login_view = "auth.login"
@@ -65,7 +60,7 @@ def load_user(user_id):
     if not user_id:
         return None
     try:
-        return User.query.get(int(user_id))
+        return db.session.get(User, int(user_id))
     except Exception as e:
         logger.error(f"Error loading user {user_id}: {e}")
         return None
@@ -84,6 +79,8 @@ def shutdown_session(exception=None):
     db.session.remove()
 
 if __name__ == '__main__':
+    from database import init_db
+    init_db(app)
     # Start background sync, alert monitoring, and retention loops
     try:
         from services.scheduler_tasks import start_background_jobs

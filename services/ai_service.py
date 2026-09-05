@@ -92,7 +92,7 @@ def is_ollama_admin(user_or_username):
             from flask import has_app_context
             if has_app_context():
                 from credentials import User
-                user_record = User.query.get(user_or_username)
+                user_record = db.session.get(User, user_or_username)
                 if user_record and (user_record.is_admin or user_record.id == 1):
                     return True
         except Exception as err:
@@ -294,7 +294,38 @@ def is_user_analysis_window_active(start_str, end_str):
         logger.error(f"Error checking analysis window: {e}")
         return True
 
+def event_underlyings(context):
+    import re
+    text = str(context).upper()
+    symbols = [s for s in ('BTC', 'ETH', 'SOL', 'INX', 'NDX') if re.search(r'(?:KX)?'+s+r'(?:\b|D|15M|H)', text)]
+    return symbols or ['market']
+
+
+def event_search_queries(context):
+    names = {'INX': 'S&P 500', 'NDX': 'Nasdaq 100'}
+    return [f'{names.get(symbol, symbol)} current price volatility market catalysts today'
+            for symbol in event_underlyings(context)[:2]]
+
+
+def validated_search_queries(text, symbol):
+    import re
+    result = []
+    for line in str(text or '').splitlines():
+        query = re.sub(r'^\s*[-*\d.)]+\s*', '', line).strip(' `"')
+        if (5 <= len(query) <= 160 and len(query.split()) <= 22 and
+                not re.search(r'(?i)we need|the user|generate|queries|as an ai|should|must|```|[{}]', query) and
+                str(symbol).upper() in query.upper()):
+            result.append(query)
+    return result[:2] or [f'{symbol} latest market news today']
+
+
 def web_search(query, max_results=2, username=None, freshness="pd"):
+    from services.provider_resilience import cached_search
+    return cached_search(username, 'web search', (query, max_results, freshness),
+                         lambda: _web_search(query, max_results, username, freshness))
+
+
+def _web_search(query, max_results=2, username=None, freshness="pd"):
     """
     Search the web for real-time crypto info.
     Priority: Brave Search API -> DuckDuckGo HTML -> Binance Price fallback.
@@ -327,7 +358,8 @@ def web_search(query, max_results=2, username=None, freshness="pd"):
                             "safesearch": "moderate",
                             "freshness": freshness or "pd"
                         }
-                        resp = requests.get(brave_url, headers=headers, params=params, timeout=12)
+                        from services.provider_resilience import checked_get
+                        resp = checked_get('Brave Search', username, api_key, brave_url, headers=headers, params=params, timeout=12)
                         if resp.status_code == 200:
                             data = resp.json()
                             results = []
@@ -351,7 +383,8 @@ def web_search(query, max_results=2, username=None, freshness="pd"):
         from bs4 import BeautifulSoup
         search_url = f"https://html.duckduckgo.com/html/?q={quote(query)}"
         headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
-        resp = requests.get(search_url, headers=headers, timeout=6)
+        from services.provider_resilience import checked_get
+        resp = checked_get('DuckDuckGo', username, '', search_url, headers=headers, timeout=6)
         if resp.status_code == 200:
             soup = BeautifulSoup(resp.text, 'html.parser')
             results = []
@@ -371,15 +404,16 @@ def web_search(query, max_results=2, username=None, freshness="pd"):
         logger.warning(f"DuckDuckGo fallback failed: {e}")
 
     # 3. Final default
-    return [{
-        'title': 'Search unavailable',
-        'snippet': 'Real-time web search unavailable. Using AI general knowledge.',
-        'url': '',
-        'source': 'System'
-    }]
+    return []
 
 
 def news_api_search(symbol, username, lookback_hours=24, max_results=4, asset_context='crypto'):
+    from services.provider_resilience import cached_search
+    return cached_search(username, 'NewsAPI', (symbol, lookback_hours, max_results, asset_context),
+        lambda: _news_api_search(symbol, username, lookback_hours, max_results, asset_context))
+
+
+def _news_api_search(symbol, username, lookback_hours=24, max_results=4, asset_context='crypto'):
     """Fetch recent asset-appropriate news from the user's configured NewsAPI integration.
 
     This is deliberately separate from general web search: when a user supplies a
@@ -396,8 +430,9 @@ def news_api_search(symbol, username, lookback_hours=24, max_results=4, asset_co
         hours = max(1, min(int(lookback_hours or 24), 720))
         published_after = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat(timespec='seconds')
         topic = 'cryptocurrency' if str(asset_context).lower() == 'crypto' else 'stock OR equity OR ETF'
-        response = requests.get(
-            'https://newsapi.org/v2/everything',
+        from services.provider_resilience import checked_get
+        response = checked_get(
+            'NewsAPI', username, api_key, 'https://newsapi.org/v2/everything',
             headers={'X-Api-Key': api_key},
             params={
                 'q': f'({str(symbol or "market").upper()} OR {topic})',
@@ -500,7 +535,7 @@ def call_ai_with_web_search(
         user_obj = None
         if user_id:
             try:
-                user_obj = User.query.get(user_id)
+                user_obj = db.session.get(User, user_id)
             except Exception:
                 user_obj = None
         if not user_obj and username:
@@ -633,13 +668,23 @@ def call_ai_with_web_search(
             {"role": "user", "content": f"User query: {original_user_message}\n\nGenerate search queries."}
         ]
 
-        def _execute_ai_call(p_messages, p_max_tokens=600):
+        def _execute_ai_call(p_messages, p_max_tokens=500):
+            from services.provider_resilience import identity, check, block_failure
+            key = identity('ai', username, provider, model, _pick_key(provider) if provider != 'ollama' else '')
+            check(key)
+            try:
+                return _execute_ai_call_impl(p_messages, p_max_tokens)
+            except Exception as exc:
+                block_failure(key, username, provider + ':' + str(model), exc)
+                raise
+
+        def _execute_ai_call_impl(p_messages, p_max_tokens=600):
             if provider == 'openai':
                 key = _pick_key('openai')
                 if not key:
                     raise ValueError("OpenAI API key not configured")
                 from openai import OpenAI
-                client = OpenAI(api_key=key, timeout=25.0)
+                client = OpenAI(api_key=key, timeout=25.0, max_retries=0)
                 is_reasoning_model = any(m in (model or '').lower() for m in ['o1', 'o3', 'gpt-5', 'reasoning'])
                 effective_tokens = max(p_max_tokens, 2500) if is_reasoning_model else p_max_tokens
                 resp = client.chat.completions.create(
@@ -728,7 +773,7 @@ def call_ai_with_web_search(
                     req_json["systemInstruction"] = system_instruction
 
                 last_err = ""
-                for attempt in range(2):
+                for attempt in range(1):
                     try:
                         r = requests.post(url, json=req_json, timeout=18)
                         if r.status_code == 200:
@@ -737,6 +782,8 @@ def call_ai_with_web_search(
                                 return res_json['candidates'][0]['content']['parts'][0]['text']
                             except Exception:
                                 return json.dumps(res_json)
+                        elif r.status_code == 429:
+                            raise requests.HTTPError(f'Gemini HTTP 429: {r.text}', response=r)
                         elif r.status_code == 400 and "thinkingConfig" in gen_config:
                             req_json["generationConfig"] = {"maxOutputTokens": p_max_tokens}
                             r_retry = requests.post(url, json=req_json, timeout=15)
@@ -749,6 +796,8 @@ def call_ai_with_web_search(
                             last_err = r_retry.text
                         else:
                             last_err = r.text
+                    except requests.HTTPError:
+                        raise
                     except Exception as req_ex:
                         last_err = str(req_ex)
 
@@ -774,7 +823,9 @@ def call_ai_with_web_search(
 
         # Stage 1: Queries
         is_equity = _is_equity_asset(symbol_value) or prompt_type == 'webull_equity_analysis'
-        if prompt_type in ['sentiment_analysis', 'watchlist_sentiment_analysis']:
+        if prompt_type in ['webull_event_contract_analysis', 'webull_event_contract_batch_analysis']:
+            search_queries = event_search_queries(original_user_message)
+        elif prompt_type in ['sentiment_analysis', 'watchlist_sentiment_analysis']:
             if is_equity:
                 search_queries = [
                     f"{symbol_value} stock current price latest news past {search_lookback_hours} hours today",
@@ -798,8 +849,11 @@ def call_ai_with_web_search(
         else:
             try:
                 search_queries_text = _execute_ai_call(stage1_messages, p_max_tokens=300)
-                search_queries = [q.strip().strip('-*0123456789. ') for q in (search_queries_text or '').split('\n') if q.strip()][:2]
+                search_queries = validated_search_queries(search_queries_text, symbol_value)
             except Exception as e:
+                from services.provider_resilience import ProviderUnavailable
+                if isinstance(e, ProviderUnavailable) or getattr(e, 'response', None) is not None and getattr(e.response, 'status_code', None) == 429:
+                    raise
                 logger.warning(f"Stage 1 query generation error: {e}. Using fallback query.")
                 fallback_term = "stock" if is_equity else "crypto"
                 search_queries = [f"{symbol_value} {fallback_term} news market analysis today"]
@@ -813,7 +867,11 @@ def call_ai_with_web_search(
         clean_sym = (symbol_value or '').upper()
 
         asset_context = 'equity' if is_equity else 'crypto'
-        for item in news_api_search(clean_sym, username, search_lookback_hours, max_results=4, asset_context=asset_context):
+        news_symbols = event_underlyings(original_user_message) if clean_sym == 'EVENT_BATCH' else [clean_sym]
+        news_items = []
+        for news_symbol in news_symbols[:2]:
+            news_items.extend(news_api_search(news_symbol, username, search_lookback_hours, max_results=4, asset_context='crypto' if news_symbol in ('BTC', 'ETH', 'SOL') else asset_context))
+        for item in news_items:
             src = item.get('source', '')
             if src:
                 search_sources.add(src)
@@ -832,6 +890,8 @@ def call_ai_with_web_search(
                     continue
                 if isinstance(res, list):
                     for item in res:
+                        if not item.get('url') or item.get('source') == 'System':
+                            continue
                         src = item.get('source', 'web')
                         search_sources.add(src)
                         valid_search_results += 1
@@ -922,7 +982,7 @@ def call_ai_with_web_search(
         ), stage3_user_msg
 
     except Exception as e:
-        logger.error(f"Error in call_ai_with_web_search (tier: {current_tier_name if 'current_tier_name' in locals() else tier_index}): {e}")
+        logger.warning("AI provider attempt unavailable (%s): %s", locals().get('current_tier_name', tier_index), type(e).__name__)
         err_str = str(e)
         if '429' in err_str:
             if 'quota' in err_str.lower() or 'exhausted' in err_str.lower():

@@ -1,0 +1,20 @@
+[Unit]
+Description=Crypto Dashboard Web
+After=network.target
+Wants=network.target crypto-dashboard-worker.service
+
+[Service]
+Type=simple
+User=jcavallarojr
+Group=jcavallarojr
+WorkingDirectory=/home/jcavallarojr/crypto_alert_app
+Environment=PATH=/home/jcavallarojr/crypto_alert_app/venv/bin
+ExecStartPre=/home/jcavallarojr/crypto_alert_app/venv/bin/python3 runtime.py init-db
+ExecStart=/home/jcavallarojr/crypto_alert_app/venv/bin/gunicorn --bind 0.0.0.0:5010 --workers 2 --worker-class gthread --threads 4 --timeout 180 --access-logfile - --error-logfile - main:app
+Restart=always
+RestartSec=10
+KillMode=mixed
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target

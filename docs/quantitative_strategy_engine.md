@@ -19,6 +19,18 @@ The review found and corrected these foundation problems in v2.89.0:
 | The frontend discarded status responses, displayed zero equity as the default bankroll, reset specialist prompts to unrelated text, and closed settings modals before save succeeded. | Live telemetry, null-safe balances, server-supplied defaults, and save-result-aware modal handling. |
 | Startup table creation was described as a general schema migration mechanism. | This release deliberately adds new tables; existing v2.88 table definitions need no column alterations. |
 
+## Optional modules (v2.89.2)
+
+Every module has a saved **Enabled for new entries** toggle. Save Module Settings applies it; unsaved changes are drafts. Existing configurations inherit enabled equities, options, crypto and events, and disabled futures when an explicit enabled value is absent. Re-enabling restores the preserved watchlist, strategy parameters, prompts and history.
+
+A disabled module skips entry scans and entry data requests even if its allocation remains nonzero. Disabling Events also gates the existing Event collector's automatic and manual new-entry scans; outcome resolution remains available. Existing positions still require data for marking, stops, strategy exits and allocation trims while the master engine runs. An unavailable quote retains the last actual mark and its timestamp with a diagnostic. Stop and Kill retain their engine-wide freeze semantics.
+
+Weights are retained on disable. Their unused portion stays in cash; this target allocation is separate from actual cash because existing positions and other unfilled allocations affect balances. **Reallocate to enabled modules** creates a draft that distributes 100% among enabled modules proportionally (equally if all enabled weights are zero). Save applies it; existing positions may then be trimmed at fresh prices. No automatic redistribution occurs on toggle.
+
+Module health distinguishes **Disabled**, **Subscription required**, **Warming up**, and **Ready**, with additional Awaiting scan, Market closed, and Data unavailable states. Ready means the last scan successfully evaluated data, not that an entry qualified. **Check saved data access** probes one watchlist symbol per enabled module without starting execution, placing orders or recording warm-up observations; access confirmation does not certify full-watchlist freshness or profitability.
+
+CIO evidence includes enabled allocation weights, reserved cash target and actual cash. Prospective correlations and specialist mandates exclude disabled modules. Historical P&L and remaining positions stay in the total portfolio evidence as actual history and exposure.
+
 ## Implemented execution
 
 `services/portfolio_engine.py` runs a persisted five-minute supervisor. It services each module independently and records symbol-level data failures. Start, Stop, Scan now, Kill switch and Acknowledge pause are available in Settings → Quantitative Strategy Engine. Installing the release does not start the new portfolio worker. Manual scans require a started engine.
@@ -95,6 +107,7 @@ All routes require an authenticated administrator under `/api/webull/portfolio-a
 | `GET /config` | Saved settings, account and canonical defaults. |
 | `POST /config` | Validate and save allocations, watchlists, module parameters, CIO mandate and cadence. |
 | `GET /status` | Worker health, diagnostics, account, positions, curve, metrics and drift. |
+| `POST /data-check` | Read-only access probe for enabled modules using saved settings. |
 | `POST /control` | `action`: `start`, `stop`, `scan`, `kill`, or `acknowledge`. |
 | `POST /reset-bankroll` | Requires `confirm: true`; archives current run and creates the requested $100–$1,000,000 bankroll. |
 | `POST /master-audit` | Runs an on-demand CIO audit, optionally with a draft prompt. |
@@ -106,6 +119,8 @@ All routes require an authenticated administrator under `/api/webull/portfolio-a
 
 The v2.89.1 verification passed 159 tests across the quantitative engine, Event worker, AI failover, Webull data/contracts, market-data routes and manual paper/order capability regressions. Provider regressions include actual nested crypto candle formats, required category/timespan parameters, bounded option pagination and missing futures metadata. Read-only live checks complement these tests; no paper or real orders were submitted during deployment checks.
 
-Deployment creates the new tables on startup, installs the calendar dependency, rebuilds the frontend and restarts the service. It preserves existing paper research and unrelated personal-checkout files. Administrative Start and audit cadence selection are explicit operational controls; deployment does not activate them.
+Deployment initializes the schema once through runtime.py init-db, rebuilds the frontend and restarts the services. deploy/crypto-dashboard.service serves Gunicorn with two threaded web workers. deploy/crypto-dashboard-worker.service runs runtime.py worker, with a dedicated PostgreSQL advisory lock enforcing one scheduler and a heartbeat reporting its supervised jobs. Web requests never start background jobs. Provider cooldowns/search caches are shared through the new provider_request_states table; user_settings.telegram_notifications_enabled is an additive, default-enabled setting. It preserves existing paper research and unrelated personal-checkout files. Administrative Start and audit cadence selection are explicit operational controls; deployment does not activate them.
 
 The remaining operational work is gathering sufficient forward observations and confirming entitled provider data. This release implements the roadmap's paper execution, telemetry, rebalancing, auditing and circuit-breaker controls; it does not establish strategy profitability or live-trading readiness.
+
+The v2.89.2 regression coverage additionally verifies disabled entry/data gates, retained settings/history/marks, re-enable status, Event collector gating, cash-aware audit evidence, explicit allocation rounding, provider cooldown/search behavior, and singleton scheduler ownership. Provider subscriptions, quota allowances and forward-history requirements still apply.

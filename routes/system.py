@@ -1572,7 +1572,7 @@ def api_settings():
                 'ai_provider_tertiary', 'ai_model_tertiary', 'ai_reasoning_level_tertiary',
                 'ai_provider_quartan', 'ai_model_quartan', 'ai_reasoning_level_quartan',
                 'ai_reasoning_level',
-                'browser_notifications_enabled', 'toast_notifications_enabled'
+                'browser_notifications_enabled', 'toast_notifications_enabled', 'telegram_notifications_enabled'
             ]
 
             for key, value in data.items():
@@ -1597,7 +1597,7 @@ def api_settings():
 
                 # Explicit column updates
                 if key in allowed_fields:
-                    if key in ['ai_enabled', 'ai_notifications_enabled', 'ai_web_search_enabled', 'browser_notifications_enabled', 'toast_notifications_enabled']:
+                    if key in ['ai_enabled', 'ai_notifications_enabled', 'ai_web_search_enabled', 'browser_notifications_enabled', 'toast_notifications_enabled', 'telegram_notifications_enabled']:
                          target_key = 'browser_notifications_enabled' if key == 'toast_notifications_enabled' else key
                          setattr(user_setting, target_key, bool(value))
                     elif key in ['ai_cache_duration_hours', 'ai_max_tokens', 'sentiment_analysis_frequency_hours', 'watchlist_sentiment_analysis_frequency_hours', 'sentiment_history_lookback_hours', 'watchlist_sentiment_history_lookback_hours', 'sentiment_forecast_horizon_hours', 'watchlist_sentiment_forecast_horizon_hours', 'volatility_hours', 'automated_trigger_confirmation_minutes', 'event_strategy_audit_hours']:
@@ -1730,7 +1730,7 @@ def api_settings():
                 
                 if should_check_prompts:
                     logger.info("Checking if AI prompts need seeding...")
-                    user_prompts = AIPrompt.query.get(current_user.id)
+                    user_prompts = db.session.get(AIPrompt, current_user.id)
                     defaults = DefaultAIPrompt.query.first()
                     
                     if defaults:
@@ -4805,31 +4805,16 @@ def api_test_db():
 @system_bp.route('/api/debug/background-jobs', methods=['GET'])
 @login_required
 def debug_background_jobs():
-    """Debug endpoint to check and restart background jobs"""
-    try:
-        # Ensure background jobs are running
-        jobs_running = ensure_background_jobs()
-        
-        # Get status of all background threads
-        thread_status = []
-        for i, t in enumerate(background_threads):
-            thread_status.append({
-                'id': i,
-                'name': t.name,
-                'alive': t.is_alive(),
-                'daemon': t.daemon,
-                'ident': t.ident
-            })
-        
-        return jsonify({
-            'success': True,
-            'jobs_running': jobs_running,
-            'threads': thread_status,
-            'thread_count': len(background_threads)
-        })
-    except Exception as e:
-        logger.error(f"Error checking background jobs: {e}")
-        return jsonify({
-            'success': False,
-            'error': str(e)
-        }), 500
+    """Read the separately supervised scheduler; never starts jobs in a web worker."""
+    from services.provider_resilience import read, identity
+    heartbeat = read(identity('scheduler-heartbeat'))
+    threads = heartbeat['payload']['threads'] if heartbeat else []
+    return jsonify(success=True, jobs_running=bool(heartbeat), threads=threads,
+                   thread_count=len(threads), execution='separate scheduler service')
+
+
+@system_bp.route('/api/provider-health', methods=['GET'])
+@login_required
+def provider_health():
+    from services.provider_resilience import health
+    return jsonify(success=True, blocks=health(current_user.username))

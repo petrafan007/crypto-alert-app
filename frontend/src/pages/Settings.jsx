@@ -7,7 +7,8 @@ import { useSearchParams } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { formatEasternDateTime } from '../utils/dateTime';
-import QuantitativeStrategyEngine from '../components/QuantitativeStrategyEngine';
+const QuantitativeStrategyEngine = React.lazy(() => import('../components/QuantitativeStrategyEngine'));
+import ProviderHealth from '../components/ProviderHealth';
 
 const SENTIMENT_VARIABLES = [
   { label: 'Buy Immediately', code: 'BI', kind: 'directional', direction: 'up', correctKey: 'sentiment_buy_immediately_correct_pct', wrongKey: 'sentiment_buy_immediately_wrong_pct' },
@@ -4110,6 +4111,7 @@ export default function Settings({ isLightMode }) {
 
       {/* Quantitative Strategy Engine Tab */}
       {(activeTab === 'quant-strategy' || activeTab === 'event-strategy') && isEventStrategyAdmin && (
+        <React.Suspense fallback={<p>Loading strategy settings…</p>}>
         <QuantitativeStrategyEngine
           isLightMode={isLightMode}
           user={user}
@@ -4129,6 +4131,7 @@ export default function Settings({ isLightMode }) {
           EVENT_STRATEGY_DURATIONS={EVENT_STRATEGY_DURATIONS}
           formatEasternDateTime={formatEasternDateTime}
         />
+        </React.Suspense>
       )}
 
       {showEventStrategyLogs && createPortal(
@@ -4854,6 +4857,7 @@ export default function Settings({ isLightMode }) {
       {/* Notifications & System Tab */}
       {activeTab === 'system' && (
         <>
+          <ProviderHealth />
           {/* Notifications & Tax Configuration - Side by Side */}
           <div className="settings-grid" style={{ marginTop: '24px' }}>
         {/* Notifications */}
@@ -4887,6 +4891,8 @@ export default function Settings({ isLightMode }) {
           </div>
 
           <h4 style={{ color: '#e2e8f0', marginBottom: 12, fontSize: '0.95rem' }}>📱 Telegram Integration</h4>
+          <label><input type="checkbox" checked={settings.telegram_notifications_enabled !== false} onChange={e => handleInputChange('telegram_notifications_enabled', e.target.checked)} /> Enable Telegram delivery</label>
+          {(!settings.telegram_token || !settings.telegram_chat_id) && <p>Telegram is not configured. Add a bot token and chat ID to receive messages. In-app notifications remain available.</p>}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
             <div>
               <label style={{ display: 'block', marginBottom: 8, color: '#fff' }}>

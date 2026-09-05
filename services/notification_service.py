@@ -12,9 +12,14 @@ def send_telegram_message(username, message, admin_notify=True):
     Returns True if the message was sent successfully.
     """
     try:
+        from credentials import User, UserSetting
+        user = User.query.filter_by(username=username).first()
+        setting = UserSetting.query.filter_by(user_id=user.id).first() if user else None
+        if setting and setting.telegram_notifications_enabled is False:
+            return False
         cred = get_user_credentials(username)
         if not cred or not cred.telegram_token or not cred.telegram_chat_id:
-            logger.error(f"[TELEGRAM] Missing Telegram credentials for user: {username}")
+            # Optional channel: the Settings panel reports missing configuration.
             return False
 
         url = f"https://api.telegram.org/bot{cred.telegram_token}/sendMessage"

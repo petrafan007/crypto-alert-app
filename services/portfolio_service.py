@@ -54,7 +54,7 @@ def compute_portfolio_total_value(user_id, username=None, cred=None, include_sta
             if cred is None:
                 resolved_username = username
                 if not resolved_username:
-                    user_obj = User.query.get(user_id)
+                    user_obj = db.session.get(User, user_id)
                     if user_obj:
                         resolved_username = user_obj.username
                 if resolved_username:

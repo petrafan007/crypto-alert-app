@@ -261,15 +261,13 @@ def api_staking_balance():
 @login_required
 def api_true_portfolio_value():
     """Database-only portfolio value for instant loading"""
-    logger.error(f"=== API_TRUE_PORTFOLIO_VALUE CALLED for user {current_user.id} (path: {request.full_path}) ===")
-    logger.error(f"[DEBUG_PV] Headers: {dict(request.headers)}")
+    logger.debug(f"=== API_TRUE_PORTFOLIO_VALUE CALLED for user {current_user.id} (path: {request.full_path}) ===")
     try:
         total_value = compute_portfolio_total_value(
             current_user.id,
             username=getattr(current_user, "username", None)
         )
         result = {"total_value": round(total_value, 2)}
-        logger.error(f"[JSON_DEBUG] Response for user {current_user.id}: {result}")
         return jsonify(result)
     except Exception as e:
         logger.error(f"Database portfolio value error: {str(e)}")
@@ -304,14 +302,13 @@ def api_account_summary():
 @login_required
 def api_true_portfolio_value_live():
     """Live portfolio value for background refresh using Binance data"""
-    logger.error(f"=== API_TRUE_PORTFOLIO_VALUE_LIVE CALLED for user {current_user.id} ===")
+    logger.debug(f"=== API_TRUE_PORTFOLIO_VALUE_LIVE CALLED for user {current_user.id} ===")
     try:
         total_value = compute_portfolio_total_value(
             current_user.id,
             username=getattr(current_user, "username", None)
         )
         result = {"total_value": total_value}
-        logger.error(f"[JSON_DEBUG] Live Response for user {current_user.id}: {result}")
         return jsonify(result)
         
     except Exception as e:
@@ -345,11 +342,11 @@ def check_trade_permission():
     """
     try:
         username = current_user.username
-        logger.error(f"[TRADE_PERMISSION] Check requested for user: {username} (ID: {current_user.id})")
+        logger.debug(f"[TRADE_PERMISSION] Check requested for user: {username} (ID: {current_user.id})")
         cred = get_user_credentials(username)
         
         if not cred or not cred.api_key or not cred.api_secret:
-            logger.error(f"[TRADE_PERMISSION] No API key configured for {username}")
+            logger.debug(f"[TRADE_PERMISSION] No API key configured for {username}")
             return jsonify({
                 "has_api_key": False,
                 "has_permission": False,
@@ -363,7 +360,7 @@ def check_trade_permission():
         try:
             # Verify which API key we're using
             api_key_suffix = cred.api_key[-15:] if len(cred.api_key) > 15 else cred.api_key
-            logger.error(f"[TRADE_PERMISSION] Testing API key permissions for {username} (key ends with: ...{api_key_suffix})")
+            pass
             
             # IMPORTANT: /api/v3/openOrders doesn't respect API key restrictions (Binance bug)
             # Instead, try to place a TEST order which requires actual trading permission
@@ -382,12 +379,12 @@ def check_trade_permission():
                 }
             )
             
-            logger.error(f"[TRADE_PERMISSION] Test order endpoint status: {test_response.status_code}")
-            logger.error(f"[TRADE_PERMISSION] Test order response: {test_response.text[:200]}")
+            logger.debug(f"[TRADE_PERMISSION] Test order endpoint status: {test_response.status_code}")
+            pass
             
             if test_response.status_code == 200:
                 # Successfully accessed trading endpoint - has permission
-                logger.error(f"[TRADE_PERMISSION] ✅ {username} HAS trading permission (test order succeeded)")
+                logger.debug(f"[TRADE_PERMISSION] ✅ {username} HAS trading permission (test order succeeded)")
                 return jsonify({
                     "has_api_key": True,
                     "has_permission": True,
@@ -413,7 +410,7 @@ def check_trade_permission():
                 # Error -1022 is "Signature validation failed" --> PERMISSION UNKNOWN (assume OK)
                 
                 if error_code == -2015:
-                    logger.error(f"[TRADE_PERMISSION] ❌ {username} DOES NOT have trading permission (error -2015)")
+                    logger.debug(f"[TRADE_PERMISSION] ❌ {username} DOES NOT have trading permission (error -2015)")
                     return jsonify({
                         "has_api_key": True,
                         "has_permission": False,

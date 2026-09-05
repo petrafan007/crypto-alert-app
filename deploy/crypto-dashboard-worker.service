@@ -1,0 +1,20 @@
+[Unit]
+Description=Crypto Dashboard Background Scheduler
+After=network.target crypto-dashboard.service
+Requires=crypto-dashboard.service
+PartOf=crypto-dashboard.service
+
+[Service]
+Type=simple
+User=jcavallarojr
+Group=jcavallarojr
+WorkingDirectory=/home/jcavallarojr/crypto_alert_app
+Environment=PATH=/home/jcavallarojr/crypto_alert_app/venv/bin
+ExecStart=/home/jcavallarojr/crypto_alert_app/venv/bin/python3 runtime.py worker
+Restart=always
+RestartSec=10
+KillMode=mixed
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target
