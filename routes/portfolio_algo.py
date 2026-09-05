@@ -40,7 +40,9 @@ def payload():
 
 def config_dict(cfg):
     return {'id': cfg.id, 'name': cfg.name, 'total_bankroll': cfg.total_bankroll,
-            'target_annual_return': cfg.target_annual_return, 'allocations': engine.loads(cfg.allocations_json, DEFAULT_ALLOCATIONS),
+            'target_annual_return': cfg.target_annual_return, 'allocations': engine.allocations_for(cfg),
+            'allocation_weights': engine.loads(cfg.allocations_json, DEFAULT_ALLOCATIONS),
+            'cash_allocation_pct': 0 if any(s['enabled'] for s in engine.settings_for(cfg).values()) else 100,
             'watchlists': engine.loads(cfg.watchlists_json, DEFAULT_QUANT_WATCHLISTS), 'module_settings': engine.settings_for(cfg),
             'master_ai_prompt': cfg.master_ai_prompt or DEFAULT_MASTER_CIO_PROMPT,
             'master_ai_config': engine.loads(cfg.master_ai_config, {'cadence': 'off'}),

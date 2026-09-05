@@ -6,6 +6,13 @@
 
 **Last Updated**: September 2026
 
+## v2.89.4 (September 2026)
+
+- Quantitative strategy allocations now rebalance automatically across enabled modules. Toggles, sliders, dollar amounts and the Capital Distribution Matrix stay synchronized at 100%, replacing the separate Reallocate action.
+- Preserve relative weights when modules are disabled and custom proportions when a slider moves to 100% and back. One enabled module receives 100%; all modules disabled targets 100% cash.
+- Changes remain drafts until Save Module Settings. Backend validation, paper-entry budgets, rebalancing telemetry and CIO audits use the same saved targets; existing positions retain their normal management and fresh-price safeguards.
+- Added allocation coverage for all 32 module combinations, rounding, repeated slider/toggle changes, persistence and ledger behavior. See the [updated requirements and operating guide](docs/quantitative_strategy_engine.md).
+
 ## v2.89.3 (September 2026)
 
 - Corrected a browser regression discovered during v2.89.2 deployment verification. Server-side query strings on fingerprinted assets could load the entry module twice after lazy navigation, producing different authentication contexts and a blank login screen.

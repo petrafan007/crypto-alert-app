@@ -82,7 +82,7 @@ export default function QuantitativeTelemetry({ onAccount }) {
         <td>{p.stop == null ? '—' : money(p.stop)} / {p.target == null ? '—' : money(p.target)}</td><td>{date(p.marked_at)}</td>
       </tr>)}{!status?.positions?.length && <tr><td colSpan="8">No open paper positions in this run.</td></tr>}</tbody></table></div>
     <h4>Capital allocation &amp; rebalancing</h4>
-    <p>Disabled modules reserve unused allocation as cash. Reallocate explicitly to change the weights. Exposure above target by more than 3 percentage points is trimmed on a fresh quote. Underweight capital remains available for qualified entries.</p>
+    <p>Saved targets distribute 100% among enabled modules, or target 100% cash when all are disabled. Disabled modules have a 0% target; existing positions remain visible and managed while the engine runs. Exposure above target by more than 3 percentage points is trimmed on a fresh quote. Underweight capital remains available for qualified entries.</p>
     <div className="quant-table-scroll"><table><thead><tr><th>Module</th><th>Target</th><th>Deployed capital</th><th>Drift</th><th>Available</th><th>Signal</th></tr></thead><tbody>
       {(status?.rebalance || []).map(r => <tr key={r.module}><td>{r.module}</td><td>{metric(r.target_pct, '%')}</td><td>{metric(r.actual_pct, '%')}</td><td>{metric(r.drift_pct, ' pp')}</td><td>{money(r.available_capital)}</td><td>{r.signal.replaceAll('_', ' ')}</td></tr>)}
     </tbody></table></div>

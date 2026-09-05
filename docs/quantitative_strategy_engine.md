@@ -1,6 +1,6 @@
 # Quantitative Strategy Engine
 
-The engine is an administrator-only, multi-asset **paper research system**. The default starting bankroll is $50,000, allocated 35% to equities, 25% to options, 20% to crypto, 10% to micro futures, and 10% to events. The 18.5% annual return setting is a research objective, not a forecast or validated strategy result.
+The engine is an administrator-only, multi-asset **paper research system**. The default starting bankroll is $50,000, with relative allocation weights of 35 for equities, 25 for options, 20 for crypto, 10 for micro futures, and 10 for events. Enabled modules share 100% of the target capital proportionally. Futures is disabled by default, giving initial targets of 38.89%, 27.78%, 22.22%, 0%, and 11.11%, respectively. The 18.5% annual return setting is a research objective, not a forecast or validated strategy result.
 
 ## Review of v2.88.0
 
@@ -19,17 +19,33 @@ The review found and corrected these foundation problems in v2.89.0:
 | The frontend discarded status responses, displayed zero equity as the default bankroll, reset specialist prompts to unrelated text, and closed settings modals before save succeeded. | Live telemetry, null-safe balances, server-supplied defaults, and save-result-aware modal handling. |
 | Startup table creation was described as a general schema migration mechanism. | This release deliberately adds new tables; existing v2.88 table definitions need no column alterations. |
 
-## Optional modules (v2.89.2)
+## Optional modules and dynamic allocations (v2.89.4)
 
 Every module has a saved **Enabled for new entries** toggle. Save Module Settings applies it; unsaved changes are drafts. Existing configurations inherit enabled equities, options, crypto and events, and disabled futures when an explicit enabled value is absent. Re-enabling restores the preserved watchlist, strategy parameters, prompts and history.
 
-A disabled module skips entry scans and entry data requests even if its allocation remains nonzero. Disabling Events also gates the existing Event collector's automatic and manual new-entry scans; outcome resolution remains available. Existing positions still require data for marking, stops, strategy exits and allocation trims while the master engine runs. An unavailable quote retains the last actual mark and its timestamp with a diagnostic. Stop and Kill retain their engine-wide freeze semantics.
+A disabled module has a 0% target and skips entry scans and entry data requests. Disabling Events also gates the existing Event collector's automatic and manual new-entry scans; outcome resolution remains available. Existing positions still require data for marking, stops, strategy exits and allocation trims while the master engine runs. An unavailable quote retains the last actual mark and its timestamp with a diagnostic. Stop and Kill retain their engine-wide freeze semantics.
 
-Weights are retained on disable. Their unused portion stays in cash; this target allocation is separate from actual cash because existing positions and other unfilled allocations affect balances. **Reallocate to enabled modules** creates a draft that distributes 100% among enabled modules proportionally (equally if all enabled weights are zero). Save applies it; existing positions may then be trimmed at fresh prices. No automatic redistribution occurs on toggle.
+### Allocation requirements
+
+- **Toggles rebalance automatically.** Disabling a module distributes its target proportionally among the remaining enabled modules. Its relative weight remains saved, so re-enabling it restores that weight to the calculation. A single enabled module receives 100%; disabling every module targets 100% cash.
+- **Sliders move together.** Moving an enabled slider holds its selected percentage and divides the remainder proportionally among the other enabled modules. Disabled sliders and the sole enabled slider cannot be adjusted. If the other active weights are zero, their remembered proportions are used, with original weights as the fallback. Moving a slider to 100% and back preserves the other modules' custom proportions.
+- **The whole draft updates immediately.** Sliders, percentage labels, dollar amounts and Capital Distribution Matrix segments reflect the same allocations. Targets use two decimal places with largest-remainder rounding to total exactly 100.00%. This replaces the separate Reallocate action from v2.89.2.
+- **Saving applies the configuration together.** Save Module Settings persists relative weights and module preferences alongside the other settings. Reloading discards unsaved drafts and restores the saved configuration. Toggles preserve watchlists, strategy parameters, prompts and history.
+- **Targets remain distinct from holdings.** Saving an allocation does not itself place orders or close positions. The running engine uses saved targets for budgets and normal rebalancing, with existing cash limits and fresh-price safeguards. Actual cash may remain available until a qualified entry or executable exit occurs.
+
+| Enabled modules / action | Target allocations |
+| --- | --- |
+| Equities, options, crypto and events; futures disabled | 38.89% / 27.78% / 22.22% / 11.11% |
+| Equities and options | 58.33% / 41.67% |
+| Move equities to 70% with only equities and options enabled | 70.00% / 30.00% |
+| Equities only | 100.00% equities |
+| No modules enabled | 100.00% cash |
+
+The existing `allocations_json` stores relative weights across all five modules. The API exposes these as `allocation_weights`, and `allocations` contains normalized enabled targets. Positive fallback preferences are preserved in `module_settings_json`; `cash_allocation_pct` is 100 when all modules are disabled and otherwise zero. Existing weights and enabled settings are read without a schema or data migration. When both weights and effective targets are submitted, the backend verifies that they agree before saving.
 
 Module health distinguishes **Disabled**, **Subscription required**, **Warming up**, and **Ready**, with additional Awaiting scan, Market closed, and Data unavailable states. Ready means the last scan successfully evaluated data, not that an entry qualified. **Check saved data access** probes one watchlist symbol per enabled module without starting execution, placing orders or recording warm-up observations; access confirmation does not certify full-watchlist freshness or profitability.
 
-CIO evidence includes enabled allocation weights, reserved cash target and actual cash. Prospective correlations and specialist mandates exclude disabled modules. Historical P&L and remaining positions stay in the total portfolio evidence as actual history and exposure.
+CIO evidence includes recalculated enabled targets, the cash target and actual cash. Prospective correlations and specialist mandates exclude disabled modules. Historical P&L and remaining positions stay in the total portfolio evidence as actual history and exposure.
 
 ## Implemented execution
 
@@ -104,8 +120,8 @@ All routes require an authenticated administrator under `/api/webull/portfolio-a
 
 | Method / path | Behavior |
 | --- | --- |
-| `GET /config` | Saved settings, account and canonical defaults. |
-| `POST /config` | Validate and save allocations, watchlists, module parameters, CIO mandate and cadence. |
+| `GET /config` | Saved relative weights, effective enabled targets, module preferences, account and canonical defaults. |
+| `POST /config` | Atomically validate and save allocation weights/targets, watchlists, module parameters, CIO mandate and cadence. |
 | `GET /status` | Worker health, diagnostics, account, positions, curve, metrics and drift. |
 | `POST /data-check` | Read-only access probe for enabled modules using saved settings. |
 | `POST /control` | `action`: `start`, `stop`, `scan`, `kill`, or `acknowledge`. |
@@ -124,3 +140,5 @@ Deployment initializes the schema once through runtime.py init-db, rebuilds the 
 The remaining operational work is gathering sufficient forward observations and confirming entitled provider data. This release implements the roadmap's paper execution, telemetry, rebalancing, auditing and circuit-breaker controls; it does not establish strategy profitability or live-trading readiness.
 
 The v2.89.2 regression coverage additionally verifies disabled entry/data gates, retained settings/history/marks, re-enable status, Event collector gating, cash-aware audit evidence, explicit allocation rounding, provider cooldown/search behavior, and singleton scheduler ownership. Provider subscriptions, quota allowances and forward-history requirements still apply.
+
+The v2.89.4 allocation tests cover all 32 enabled-module combinations, the approved percentage examples, slider endpoints and remembered proportions, exact totals across repeated toggles/reloads, backend validation, persistence, execution budgets, existing-position management and cash-aware CIO evidence. Browser verification checks the rendered controls, draft isolation and save/reload behavior against an isolated test ledger.

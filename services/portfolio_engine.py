@@ -27,6 +27,8 @@ from services.portfolio_strategy_signals import (
     equity_signal, crypto_signal, futures_signal, select_credit_spread, performance,
 )
 
+from services.portfolio_allocations import normalize_allocations
+
 logger = logging.getLogger(__name__)
 CADENCE = 300
 LIMITS = {
@@ -51,7 +53,14 @@ def settings_for(cfg):
     for module, values in loads(cfg.module_settings_json, {}).items():
         if module in settings and isinstance(values, dict):
             settings[module].update(values)
+    weights = loads(getattr(cfg, 'allocations_json', None), DEFAULT_ALLOCATIONS)
+    for module in MODULES:
+        settings[module].setdefault('allocation_preference', weights.get(module) or DEFAULT_ALLOCATIONS[module])
     return settings
+
+
+def allocations_for(cfg):
+    return normalize_allocations(loads(cfg.allocations_json, DEFAULT_ALLOCATIONS), settings_for(cfg))
 
 
 def validate_config(payload, cfg):
@@ -66,14 +75,6 @@ def validate_config(payload, cfg):
         raise ValueError('Change the bankroll through the confirmed reset control.')
     if 'target_annual_return' in payload:
         result['target_annual_return'] = finite(payload['target_annual_return'], 'target annual return', 10, 35)
-    if 'allocations' in payload:
-        values = payload['allocations']
-        if not isinstance(values, dict) or set(values) != set(MODULES):
-            raise ValueError('Allocations must specify exactly the five asset modules.')
-        weights = {k: round(finite(values[k], k+' weight', 0, 100), 2) for k in MODULES}
-        if abs(sum(weights.values())-100) > 0.001:
-            raise ValueError('Rounded asset allocations must sum exactly to 100%.')
-        result['allocations_json'] = json.dumps(weights)
     if 'watchlists' in payload:
         if not isinstance(payload['watchlists'], dict) or set(payload['watchlists'])-set(MODULES):
             raise ValueError('Unknown watchlist module.')
@@ -93,7 +94,7 @@ def validate_config(payload, cfg):
             raise ValueError('Unknown strategy module.')
         settings = settings_for(cfg)
         for module, values in modules.items():
-            if not isinstance(values, dict) or set(values)-set(DEFAULT_MODULE_SETTINGS[module]):
+            if not isinstance(values, dict) or set(values)-(set(DEFAULT_MODULE_SETTINGS[module]) | {'allocation_preference'}):
                 raise ValueError(f'Unknown {module} strategy parameter.')
             for key, val in values.items():
                 if key in LIMITS[module]:
@@ -102,6 +103,8 @@ def validate_config(payload, cfg):
                     if cast is int and number != int(number):
                         raise ValueError(f'{key} must be an integer.')
                     settings[module][key] = cast(number)
+                elif key == 'allocation_preference':
+                    settings[module][key] = finite(val, module+'.'+key, 0, 100)
                 elif key == 'enabled':
                     if type(val) is not bool:
                         raise ValueError('Module enabled must be a boolean.')
@@ -114,6 +117,22 @@ def validate_config(payload, cfg):
         if settings['crypto']['exit_channel_periods'] >= settings['crypto']['entry_channel_periods']:
             raise ValueError('Crypto exit channel must be shorter than the entry channel.')
         result['module_settings_json'] = json.dumps(settings)
+    if 'allocations' in payload or 'allocation_weights' in payload:
+        values = payload.get('allocation_weights', payload.get('allocations'))
+        if not isinstance(values, dict) or set(values) != set(MODULES):
+            raise ValueError('Allocation weights must specify exactly the five asset modules.')
+        weights = {k: finite(values[k], k+' weight', 0, 100) for k in MODULES}
+        if abs(sum(weights.values())-100) > 0.000001 and sum(weights.values()) != 0:
+            raise ValueError('Relative allocation weights must sum to 100%.')
+        settings = loads(result.get('module_settings_json'), settings_for(cfg))
+        effective = normalize_allocations(weights, settings)
+        if 'allocation_weights' in payload and 'allocations' in payload:
+            supplied = payload['allocations']
+            if not isinstance(supplied, dict) or set(supplied) != set(MODULES):
+                raise ValueError('Allocations must specify exactly the five asset modules.')
+            if any(abs(finite(supplied[k], k+' allocation', 0, 100)-effective[k]) > 0.000001 for k in MODULES):
+                raise ValueError('Allocations must match the enabled modules and relative weights.')
+        result['allocations_json'] = json.dumps(weights)
     if 'master_ai_prompt' in payload:
         prompt = payload['master_ai_prompt']
         if not isinstance(prompt, str) or len(prompt) > 16000:
@@ -228,7 +247,7 @@ def close_lot(acc, lot, price, reason, now):
 def module_budget(cfg, acc, state, module):
     if not settings_for(cfg)[module]['enabled']:
         return 0
-    weights = loads(cfg.allocations_json, DEFAULT_ALLOCATIONS)
+    weights = allocations_for(cfg)
     reserve = sum(lot.collateral for lot in current_lots(cfg.user_id, state) if lot.module == module)
     # Current equity sets the bucket; available cash still bounds every entry.
     return max(0, max(0, acc.total_equity)*weights[module]/100-reserve)
@@ -244,7 +263,7 @@ def enter_lot(cfg, acc, state, module, symbol, signal, price, now, *, multiplier
     price = fill_price(module, price, side)
     budget = min(module_budget(cfg, acc, state, module), acc.cash_balance)
     # Per-position maximum: 20% of a bucket, and 0.5% portfolio stop risk.
-    weight = loads(cfg.allocations_json, DEFAULT_ALLOCATIONS)[module]
+    weight = allocations_for(cfg)[module]
     fraction = 1.0 if module == 'futures' else 0.2
     budget = min(budget, max(0, acc.total_equity)*weight/100*fraction)
     unit = margin if margin is not None else price*multiplier
@@ -357,14 +376,14 @@ def portfolio_status(user_id):
     if len(rows) > 2000:
         rows = daily[-2000:]
     curve = [{'time': row.created_at.isoformat()+'Z', 'equity': row.equity, 'cash': row.cash, 'realized_pnl': row.realized_pnl, 'unrealized_pnl': row.unrealized_pnl} for row in rows]
-    allocations = loads(cfg.allocations_json, DEFAULT_ALLOCATIONS)
+    allocations = allocations_for(cfg)
     drift = []
     for module in MODULES:
         capital = sum(p['collateral']+p['unrealized_pnl'] for p in positions if p['module']==module)
         actual = capital/acc.total_equity*100 if acc.total_equity>0 else 0
         difference = actual-allocations[module]
         drift.append({'module': module, 'target_pct': allocations[module], 'actual_pct': actual, 'drift_pct': difference,
-                      'signal': 'MANAGING_EXISTING' if not settings_for(cfg)[module]['enabled'] and capital else 'RESERVED_CASH' if not settings_for(cfg)[module]['enabled'] else 'TRIM' if difference>3 else 'AVAILABLE_CAPACITY' if difference < -3 else 'WITHIN_BAND',
+                      'signal': 'MANAGING_EXISTING' if not settings_for(cfg)[module]['enabled'] and capital else 'DISABLED' if not settings_for(cfg)[module]['enabled'] else 'TRIM' if difference>3 else 'AVAILABLE_CAPACITY' if difference < -3 else 'WITHIN_BAND',
                       'available_capital': module_budget(cfg, acc, state, module)})
     telemetry = loads(state.telemetry_json, {})
     module_settings = settings_for(cfg)
@@ -390,7 +409,7 @@ def portfolio_status(user_id):
                         'currency': 'USD', 'realized_pnl': realized, 'unrealized_pnl': sum(p['unrealized_pnl'] for p in positions),
                         'return_pct': (acc.total_equity/acc.initial_balance-1)*100},
             'module_enabled': {m: module_settings[m]['enabled'] for m in MODULES},
-            'disabled_allocation_pct': sum(allocations[m] for m in MODULES if not module_settings[m]['enabled']),
+            'cash_allocation_pct': 0 if any(module_settings[m]['enabled'] for m in MODULES) else 100,
             'performance': metrics, 'equity_curve': curve[-2000:], 'allocations': allocations, 'rebalance': drift}
 
 
@@ -613,7 +632,7 @@ def run_scan(user_id, force=False, provider=None):
                     close_lot(acc, lot, price, reason, now)
                 balances(acc, state, user_id)
                 if not check_circuit(cfg, acc, state) and lot.closed_at is None:
-                    weights = loads(cfg.allocations_json, DEFAULT_ALLOCATIONS)
+                    weights = allocations_for(cfg)
                     capital = sum(l.collateral+db.session.get(Position, l.position_id).unrealized_pnl for l in current_lots(user_id, state) if l.module==module)
                     if acc.total_equity>0 and capital/acc.total_equity*100-weights[module]>3:
                         close_lot(acc, lot, price, 'REBALANCE_TRIM', now)
@@ -792,14 +811,14 @@ def run_audit(user_id, prompt=None, scheduled=False):
                                     if pair['a'] in enabled_modules and pair['b'] in enabled_modules]
         evidence['enabled_allocations'] = {m: evidence['allocations'][m] for m in enabled_modules}
         evidence['cash_allocation'] = {
-            'reserved_target_pct': evidence['disabled_allocation_pct'],
+            'target_pct': evidence['cash_allocation_pct'],
             'actual_cash': evidence['account']['cash_balance'],
             'actual_cash_pct': (evidence['account']['cash_balance']/evidence['account']['total_equity']*100
                                 if evidence['account']['total_equity'] > 0 else None),
         }
         evidence['target_annual_return'] = cfg.target_annual_return
         evidence['specialist_mandates'] = {m: s['specialist_prompt'] for m, s in settings_for(cfg).items() if s['enabled']}
-        evidence['limitations_of_disabled_modules'] = 'Disabled modules cannot open new positions. Their unused allocations remain cash; legacy positions and historical P&L remain included. Do not attribute future returns or diversification to disabled modules.'
+        evidence['limitations_of_disabled_modules'] = 'Disabled modules cannot open new positions. Target capital is redistributed among enabled modules, or held as 100% cash when none are enabled. Actual cash can differ from target until qualified entries or fresh-price exits occur; existing positions and historical P&L remain included. Do not attribute future returns or diversification to disabled modules.'
         evidence['limitations'] = ['Paper simulation with estimated costs; targets are aspirations.',
                                   'Annualized return requires 30 elapsed days; ratios/correlations require 30 daily samples.',
                                   'No simulated stress test has been performed; no numerical forecast is supplied.']

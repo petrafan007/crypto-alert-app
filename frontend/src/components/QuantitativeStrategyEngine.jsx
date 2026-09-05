@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import axios from 'axios';
 import ReactMarkdown from 'react-markdown';
 import QuantitativeTelemetry from './QuantitativeTelemetry';
-import { reallocateEnabled } from '../utils/portfolioModules.mjs';
+import { normalizeAllocations, toggleModule, changeAllocation } from '../utils/portfolioModules.mjs';
 import './QuantitativeStrategyEngine.css';
 
 const DEFAULT_ALLOCATIONS = {
@@ -140,13 +140,6 @@ export default function QuantitativeStrategyEngine({
   const [dataChecks, setDataChecks] = useState(null);
   const [checkingData, setCheckingData] = useState(false);
   const enabled = (key) => config?.module_settings?.[key]?.enabled ?? key !== 'futures';
-  const redistribute = () => {
-    try {
-      const next = reallocateEnabled(allocations, config.module_settings);
-      setConfig(prev => ({ ...prev, allocations: next }));
-      setMessage('Allocation draft redistributed across enabled modules. Save to apply. Existing positions may be trimmed after saving.');
-    } catch (err) { setMessage(err.message); }
-  };
   const checkData = async () => {
     setCheckingData(true);
     try {
@@ -203,29 +196,21 @@ export default function QuantitativeStrategyEngine({
   }, []);
 
   // Compute allocation metrics
-  const allocations = useMemo(() => {
-    return config?.allocations || DEFAULT_ALLOCATIONS;
-  }, [config?.allocations]);
-
-  const totalAllocation = useMemo(() => {
-    return Object.values(allocations).reduce((sum, val) => sum + (Number(val) || 0), 0);
-  }, [allocations]);
-
-  const isAllocationValid = Math.abs(totalAllocation - 100.0) < 0.001;
+  const allocations = useMemo(() => normalizeAllocations(
+    config?.allocation_weights || config?.allocations || DEFAULT_ALLOCATIONS,
+    config?.module_settings
+  ), [config?.allocation_weights, config?.allocations, config?.module_settings]);
+  const enabledCount = Object.keys(ASSET_MODULE_DEFS).filter(enabled).length;
+  const cashTarget = enabledCount ? 0 : 100;
+  const totalAllocation = Object.values(allocations).reduce((sum, val) => sum + val, cashTarget);
+  const isAllocationValid = Math.abs(totalAllocation - 100) < 0.001;
 
   const totalBankroll = account?.total_equity ?? config?.total_bankroll ?? 50000.0;
   const targetAnnualReturn = config?.target_annual_return || 18.5;
 
   // Handle allocation slider change
   const handleAllocationChange = (moduleKey, newVal) => {
-    const val = Math.max(0, Math.min(100, parseFloat(newVal) || 0));
-    setConfig((prev) => ({
-      ...prev,
-      allocations: {
-        ...(prev?.allocations || DEFAULT_ALLOCATIONS),
-        [moduleKey]: val,
-      },
-    }));
+    setConfig(prev => changeAllocation(prev, moduleKey, newVal));
   };
 
   // Watchlist manipulation
@@ -260,7 +245,7 @@ export default function QuantitativeStrategyEngine({
     setNewSymbolInputs((prev) => ({ ...prev, [moduleKey]: '' }));
   };
 
-  // Save allocations & watchlists
+  // Save allocation preferences, effective targets, and watchlists
   const handleSavePortfolioConfig = async () => {
     if (!isAllocationValid) {
       setMessage(`Allocations must sum exactly to 100% (currently ${totalAllocation.toFixed(1)}%).`);
@@ -274,7 +259,8 @@ export default function QuantitativeStrategyEngine({
         {
           total_bankroll: config.total_bankroll,
           target_annual_return: config.target_annual_return,
-          allocations: config.allocations,
+          allocations,
+          allocation_weights: config.allocation_weights || config.allocations || DEFAULT_ALLOCATIONS,
           watchlists: config.watchlists,
           module_settings: config.module_settings,
           master_ai_prompt: masterAIPromptDraft,
@@ -437,27 +423,27 @@ export default function QuantitativeStrategyEngine({
               {totalAllocation.toFixed(1)}%
             </div>
             <div className="quant-metric-footer">
-              <span>{Object.keys(ASSET_MODULE_DEFS).filter(enabled).length} modules enabled</span>
-              <span>{isAllocationValid ? 'Allocation total valid' : 'Adjust Sliders to 100%'}</span>
+              <span>{enabledCount} modules enabled</span>
+              <span>{isAllocationValid ? (cashTarget ? '100% cash target' : 'Automatically balanced') : 'Allocation unavailable'}</span>
             </div>
           </div>
         </div>
 
         {/* 5-SLICE COLOR ALLOCATION BAR */}
         <div className="quant-allocation-section">
-          <p>Disabled modules keep their unused allocation in cash. Existing positions continue being managed while the engine runs. Save toggles and allocation changes to apply.</p>
-          <p>Target allocation held for disabled modules (unused portion stays in cash): {Object.keys(ASSET_MODULE_DEFS).filter(key => !enabled(key)).reduce((n, key) => n + Number(allocations[key] || 0), 0).toFixed(2)}%</p>
-          <button type="button" className="btn-quant-save" onClick={redistribute}>Reallocate to enabled modules</button>
+          <p>Enabled modules automatically share 100% of the capital. Toggle a module or move a slider to rebalance the draft; the other enabled allocations adjust proportionally. Save Module Settings applies your changes.</p>
+          <p>These are allocation targets. Actual cash and existing positions change only through the engine's normal entries and exits with valid prices.</p>
           <button type="button" className="btn-quant-save" disabled={checkingData} onClick={checkData}>{checkingData ? 'Checking access…' : 'Check saved data access'}</button>
           {dataChecks && <ul>{Object.entries(dataChecks).map(([key, result]) => <li key={key}><strong>{ASSET_MODULE_DEFS[key].title}: {result.status.replaceAll('_', ' ')}</strong> — {result.message}</li>)}</ul>}
           <div className="quant-allocation-header">
             <span className="quant-allocation-title">Strategic Capital Distribution Matrix</span>
             <span style={{ fontSize: '0.78rem', color: '#94a3b8' }}>
-              Equities: {allocations.equities}% · Options: {allocations.options}% · Crypto: {allocations.crypto}% · Futures: {allocations.futures}% · Events: {allocations.events}%
+              Equities: {allocations.equities}% · Options: {allocations.options}% · Crypto: {allocations.crypto}% · Futures: {allocations.futures}% · Events: {allocations.events}%{cashTarget > 0 ? " · Cash: 100%" : ""}
             </span>
           </div>
 
-          <div className="quant-multi-bar" role="progressbar" aria-valuenow={totalAllocation} aria-valuemin="0" aria-valuemax="100">
+          <div className="quant-multi-bar" role="progressbar" aria-label="Capital distribution target" aria-valuenow={totalAllocation} aria-valuemin="0" aria-valuemax="100">
+            {cashTarget > 0 && <div className="quant-bar-slice slice-disabled" style={{ width: "100%" }}>Cash 100%</div>}
             {Object.keys(ASSET_MODULE_DEFS).map((key) => {
               const def = ASSET_MODULE_DEFS[key];
               const weight = Number(allocations[key]) || 0;
@@ -477,6 +463,7 @@ export default function QuantitativeStrategyEngine({
           </div>
 
           <div className="quant-bar-legend">
+            {cashTarget > 0 && <div className="quant-legend-item"><strong>Cash:</strong> 100% ({formatCurrency(totalBankroll)})</div>}
             {Object.keys(ASSET_MODULE_DEFS).map((key) => {
               const def = ASSET_MODULE_DEFS[key];
               const weight = Number(allocations[key]) || 0;
@@ -549,10 +536,12 @@ export default function QuantitativeStrategyEngine({
 
                 <div className="quant-card-meta">
                   <label className="quant-module-toggle">
-                    <input type="checkbox" checked={enabled(modKey)} onChange={(event) => {
-                      const checked = event.target.checked;
-                      setConfig(prev => ({ ...prev, module_settings: { ...prev.module_settings, [modKey]: { ...prev.module_settings[modKey], enabled: checked } } }));
-                    }} /> {enabled(modKey) ? 'Enabled for new entries' : 'Disabled · unused allocation stays in cash'}
+                    <input type="checkbox" checked={enabled(modKey)} disabled={saving}
+                      aria-label={def.title + ' enabled'}
+                      onChange={(event) => {
+                        const checked = event.target.checked;
+                        setConfig(prev => toggleModule(prev, modKey, checked));
+                      }} /> {enabled(modKey) ? 'Enabled for new entries' : 'Disabled · target 0%'}
                   </label>
                   <span
                     className="quant-alloc-badge"
@@ -577,7 +566,9 @@ export default function QuantitativeStrategyEngine({
                     type="range"
                     min="0"
                     max="100"
-                    step="1"
+                    step="0.01"
+                    disabled={saving || !enabled(modKey) || enabledCount === 1}
+                    aria-label={def.title + ' allocation'}
                     value={weight}
                     onChange={(e) => handleAllocationChange(modKey, e.target.value)}
                     className="quant-slider"

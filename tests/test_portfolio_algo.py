@@ -20,7 +20,7 @@ from services.portfolio_strategy_signals import (
 
 class PortfolioSignalsTests(unittest.TestCase):
     def config(self):
-        return SimpleNamespace(total_bankroll=50000, module_settings_json='{}', watchlists_json=json.dumps(DEFAULT_QUANT_WATCHLISTS))
+        return SimpleNamespace(total_bankroll=50000, module_settings_json='{}', allocations_json=json.dumps(DEFAULT_ALLOCATIONS), watchlists_json=json.dumps(DEFAULT_QUANT_WATCHLISTS))
 
     def test_allocation_rejects_nan_negative_unknown_and_rounding(self):
         for value in (float('nan'), float('inf'), -1, True):
@@ -30,6 +30,29 @@ class PortfolioSignalsTests(unittest.TestCase):
             e.validate_config({'allocations': {**DEFAULT_ALLOCATIONS, 'extra': 0}}, self.config())
         with self.assertRaises(ValueError):
             e.validate_config({'allocations': {m: 20.006 for m in DEFAULT_ALLOCATIONS}}, self.config())
+
+    def test_enabled_targets_cover_every_combination(self):
+        for mask in range(32):
+            cfg = self.config()
+            cfg.module_settings_json = json.dumps({m: {'enabled': bool(mask & (1 << i))} for i, m in enumerate(e.MODULES)})
+            effective = e.allocations_for(cfg)
+            self.assertEqual(round(sum(effective.values()), 2), 100 if mask else 0)
+            for i, module in enumerate(e.MODULES):
+                if not mask & (1 << i):
+                    self.assertEqual(effective[module], 0)
+
+    def test_effective_targets_and_preferences_are_validated_together(self):
+        cfg = self.config()
+        weights = {**DEFAULT_ALLOCATIONS, 'equities': 54, 'options': 36, 'crypto': 0, 'events': 0}
+        payload = {'allocation_weights': weights,
+                   'allocations': {'equities': 60, 'options': 40, 'crypto': 0, 'futures': 0, 'events': 0}}
+        self.assertEqual(json.loads(e.validate_config(payload, cfg)['allocations_json']), weights)
+        for change in ({'allocations': DEFAULT_ALLOCATIONS},
+                       {'allocation_weights': {**weights, 'futures': float('nan')}},
+                       {'module_settings': {'options': {'allocation_preference': -1}}},
+                       {'module_settings': {'options': {'allocation_preference': True}}}):
+            with self.subTest(change=change), self.assertRaises(ValueError):
+                e.validate_config({**payload, **change}, cfg)
 
     def test_settings_merge_and_reject_bad_shapes(self):
         cfg = self.config()
@@ -158,7 +181,7 @@ class PortfolioLedgerTests(unittest.TestCase):
         self.assertEqual({v['status'] for v in result['modules'].values()}, {'DISABLED'})
         self.assertIsNone(self.entry())
         status = e.portfolio_status(self.user_id)
-        self.assertEqual(status['disabled_allocation_pct'], 100)
+        self.assertEqual(status['cash_allocation_pct'], 100)
         self.assertEqual(status['account']['cash_balance'], 50000)
 
     def test_disabled_module_still_closes_existing_position_at_stop(self):
@@ -185,9 +208,64 @@ class PortfolioLedgerTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         cfg = response.json['config']
         self.assertFalse(cfg['module_settings']['futures']['enabled'])
-        self.assertEqual(cfg['allocations']['futures'], 10)
+        self.assertEqual(cfg['allocations'], {'equities': 38.89, 'options': 27.78, 'crypto': 22.22, 'futures': 0, 'events': 11.11})
+        self.assertEqual(cfg['allocation_weights']['futures'], 10)
+        self.assertEqual(self.client.post('/api/webull/portfolio-algo/config', json={'module_settings': {'futures': {'enabled': True}}}).json['config']['allocations'], DEFAULT_ALLOCATIONS)
         self.assertTrue(cfg['watchlists']['futures'])
         self.assertEqual(self.client.post('/api/webull/portfolio-algo/config', json={'module_settings': {'crypto': {'enabled': 'false'}}}).status_code, 400)
+
+    def test_dynamic_targets_save_reload_budget_and_cash_without_fills(self):
+        weights = {'equities': 42, 'options': 18, 'crypto': 20, 'futures': 10, 'events': 10}
+        settings = {m: {'enabled': m in ('equities', 'options'), 'allocation_preference': weights[m]} for m in e.MODULES}
+        payload = {'allocation_weights': weights, 'module_settings': settings,
+                   'allocations': {'equities': 70, 'options': 30, 'crypto': 0, 'futures': 0, 'events': 0}}
+        response = self.client.post('/api/webull/portfolio-algo/config', json=payload)
+        self.assertEqual(response.status_code, 200)
+        db.session.expire_all()
+        cfg = self.client.get('/api/webull/portfolio-algo/config').json['config']
+        self.assertEqual(cfg['allocation_weights'], weights)
+        self.assertEqual(cfg['allocations'], payload['allocations'])
+        self.assertEqual(cfg['module_settings']['options']['allocation_preference'], 18)
+        self.assertEqual(e.module_budget(self.cfg, self.acc, self.state, 'equities'), 35000)
+        self.assertEqual(e.module_budget(self.cfg, self.acc, self.state, 'options'), 15000)
+        self.assertEqual(e.module_budget(self.cfg, self.acc, self.state, 'crypto'), 0)
+        self.assertEqual(self.acc.cash_balance, 50000)
+        self.assertEqual(e.current_lots(self.user_id, self.state), [])
+        self.assertFalse(self.cfg.enabled)
+        settings = {m: {'enabled': False} for m in e.MODULES}
+        response = self.client.post('/api/webull/portfolio-algo/config', json={'module_settings': settings})
+        self.assertEqual(response.json['config']['cash_allocation_pct'], 100)
+        self.assertEqual(sum(response.json['config']['allocations'].values()), 0)
+        cfg = self.client.post('/api/webull/portfolio-algo/config', json={'module_settings': {'equities': {'enabled': True}}}).json['config']
+        self.assertEqual(cfg['allocations']['equities'], 100)
+        self.assertEqual(cfg['allocation_weights'], weights)
+
+    def test_saved_zero_target_keeps_position_until_a_fresh_rebalance_scan(self):
+        from unittest.mock import MagicMock
+        lot = self.entry(module='crypto', price=100, stop=95)
+        db.session.commit()
+        initial_orders = e.Order.query.filter_by(user_id=self.user_id).count()
+        response = self.client.post('/api/webull/portfolio-algo/config', json={
+            'module_settings': {m: {'enabled': False} for m in e.MODULES},
+        })
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json['config']['cash_allocation_pct'], 100)
+        self.assertIsNone(lot.closed_at)
+        self.assertEqual(e.Order.query.filter_by(user_id=self.user_id).count(), initial_orders)
+        self.assertFalse(self.cfg.enabled)
+        data = MagicMock()
+        data.quote.side_effect = ValueError('fresh quote unavailable')
+        e.control(self.user_id, 'start')
+        self.assertTrue(e.run_scan(self.user_id, True, provider=data)['success'])
+        self.assertIsNone(lot.closed_at)
+        data.quote.side_effect = None
+        data.quote.return_value = 100
+        data.bars.side_effect = ValueError('history unavailable')
+        self.assertTrue(e.run_scan(self.user_id, True, provider=data)['success'])
+        self.assertIsNotNone(lot.closed_at)
+        last_order = e.Order.query.filter_by(user_id=self.user_id).order_by(e.Order.id.desc()).first()
+        self.assertEqual(json.loads(last_order.notes)['reason'], 'REBALANCE_TRIM')
+        self.assertEqual(e.portfolio_status(self.user_id)['positions'], [])
 
     def test_round_trip_conserves_cash_and_costs(self):
         lot = self.entry()
@@ -558,9 +636,9 @@ class PortfolioLedgerTests(unittest.TestCase):
             result = e.run_audit(self.user_id)
         evidence = result['evidence']
         self.assertEqual(evidence['correlations'], [])
-        self.assertEqual(evidence['enabled_allocations'], {'crypto': 20})
+        self.assertEqual(evidence['enabled_allocations'], {'crypto': 100})
         self.assertEqual(set(evidence['specialist_mandates']), {'crypto'})
-        self.assertEqual(evidence['cash_allocation']['reserved_target_pct'], 80)
+        self.assertEqual(evidence['cash_allocation']['target_pct'], 0)
         self.assertEqual(evidence['cash_allocation']['actual_cash'], 50000)
 
     def test_readiness_statuses_distinguish_subscription_warmup_and_ready(self):
