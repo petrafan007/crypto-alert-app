@@ -163,3 +163,76 @@ class PortfolioStrategyOrder(db.Model):
     pnl = db.Column(db.Float, default=0.0, nullable=True)
     notes = db.Column(db.Text, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+
+class PortfolioEngineState(db.Model):
+    """Worker ownership and reset generations; existing v2.88 tables stay intact."""
+    __tablename__ = "portfolio_engine_states"
+    user_id = db.Column(db.Integer, primary_key=True)
+    generation = db.Column(db.Integer, default=1, nullable=False)
+    kill_switch = db.Column(db.Boolean, default=False, nullable=False)
+    pause_reason = db.Column(db.Text)
+    lease_token = db.Column(db.String(64))
+    lease_until = db.Column(db.DateTime)
+    heartbeat_at = db.Column(db.DateTime)
+    last_scan_at = db.Column(db.DateTime)
+    last_audit_at = db.Column(db.DateTime)
+    telemetry_json = db.Column(db.Text, default="{}", nullable=False)
+
+
+class PortfolioStrategyLot(db.Model):
+    """Collateral, exits and provenance for a position, including archived runs."""
+    __tablename__ = "portfolio_strategy_lots"
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, nullable=False, index=True)
+    position_id = db.Column(db.Integer, db.ForeignKey("portfolio_strategy_positions.id"), unique=True, nullable=False)
+    generation = db.Column(db.Integer, nullable=False, index=True)
+    module = db.Column(db.String(16), nullable=False)
+    signal_key = db.Column(db.String(240), nullable=False)
+    collateral = db.Column(db.Float, nullable=False)
+    multiplier = db.Column(db.Float, default=1.0, nullable=False)
+    stop_price = db.Column(db.Float)
+    target_price = db.Column(db.Float)
+    entry_fee = db.Column(db.Float, default=0.0, nullable=False)
+    realized_pnl = db.Column(db.Float, default=0.0, nullable=False)
+    details_json = db.Column(db.Text, default="{}", nullable=False)
+    opened_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    closed_at = db.Column(db.DateTime)
+    __table_args__ = (db.UniqueConstraint("user_id", "generation", "signal_key", name="uq_portfolio_lot_signal"),)
+
+
+class PortfolioEquitySnapshot(db.Model):
+    __tablename__ = "portfolio_equity_snapshots"
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, nullable=False, index=True)
+    generation = db.Column(db.Integer, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False, index=True)
+    equity = db.Column(db.Float, nullable=False)
+    cash = db.Column(db.Float, nullable=False)
+    realized_pnl = db.Column(db.Float, nullable=False)
+    unrealized_pnl = db.Column(db.Float, nullable=False)
+    modules_json = db.Column(db.Text, default="{}", nullable=False)
+
+
+class PortfolioAudit(db.Model):
+    __tablename__ = "portfolio_strategy_audits"
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, nullable=False, index=True)
+    generation = db.Column(db.Integer, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    status = db.Column(db.String(24), default="PENDING", nullable=False)
+    content = db.Column(db.Text)
+    evidence_json = db.Column(db.Text, default="{}", nullable=False)
+    provider = db.Column(db.String(80))
+    model = db.Column(db.String(120))
+
+
+class PortfolioMarketObservation(db.Model):
+    """Daily measured IV and Bitcoin dominance; never fabricate a warm-up history."""
+    __tablename__ = "portfolio_market_observations"
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, nullable=False)
+    series = db.Column(db.String(80), nullable=False)
+    day = db.Column(db.Date, nullable=False)
+    value = db.Column(db.Float, nullable=False)
+    __table_args__ = (db.UniqueConstraint("user_id", "series", "day", name="uq_portfolio_observation_day"),)

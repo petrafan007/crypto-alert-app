@@ -766,6 +766,12 @@ def call_ai_with_web_search(
             else:
                 raise ValueError(f"Unsupported AI provider: {provider}")
 
+        if prompt_type == 'portfolio_audit':
+            # Portfolio audits use the isolated ledger's supplied evidence only.
+            # Keep the existing provider cascade and response contract.
+            content = _execute_ai_call(messages, p_max_tokens=1800)
+            return AIResponseWrapper(content, tier=current_tier_name, provider=provider, model=model), ''
+
         # Stage 1: Queries
         is_equity = _is_equity_asset(symbol_value) or prompt_type == 'webull_equity_analysis'
         if prompt_type in ['sentiment_analysis', 'watchlist_sentiment_analysis']:

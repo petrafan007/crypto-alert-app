@@ -848,3 +848,17 @@ body.light-mode .quant-audit-output {
   border-color: #e2e8f0;
   color: #334155;
 }
+
+.quant-performance-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin: 20px 0; }
+.quant-performance-grid > div { padding: 14px; border: 1px solid rgba(148,163,184,.3); border-radius: 10px; }
+.quant-performance-grid small, .quant-performance-grid strong { display: block; }
+.quant-performance-grid strong { margin-top: 8px; }
+.quant-equity-chart { height: 280px; margin: 20px 0; }
+.quant-table-scroll { overflow-x: auto; }
+.quant-telemetry table { width: 100%; border-collapse: collapse; text-align: left; font-size: 13px; }
+.quant-telemetry th, .quant-telemetry td { padding: 12px 8px; border-bottom: 1px solid rgba(148,163,184,.25); }
+.quant-telemetry p { font-size: 13px; line-height: 1.5; }
+.quant-module-health { display: grid; gap: 8px; }
+.quant-module-health details { border: 1px solid rgba(148,163,184,.3); padding: 10px; border-radius: 8px; }
+.quant-module-health summary { cursor: pointer; }
+.quant-risk-notice { padding: 12px; border: 1px solid #f87171; border-radius: 8px; }

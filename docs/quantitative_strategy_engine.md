@@ -1,115 +1,106 @@
-# Webull Multi-Asset Quantitative Strategy Engine
+# Quantitative Strategy Engine
 
-## Overview & Architecture
+The engine is an administrator-only, multi-asset **paper research system**. The default starting bankroll is $50,000, allocated 35% to equities, 25% to options, 20% to crypto, 10% to micro futures, and 10% to events. The 18.5% annual return setting is a research objective, not a forecast or validated strategy result.
 
-The **Webull Multi-Asset Quantitative Strategy Engine** is an enterprise-grade algorithmic research and paper-trading framework designed to manage and evaluate an isolated **$50,000.00 paper bankroll** across 5 distinct asset classes:
+## Review of v2.88.0
 
-1. **Equities & ETFs** (Target: 35% / $17,500.00)
-2. **Options Strategies** (Target: 25% / $12,500.00)
-3. **Cryptocurrency Spot** (Target: 20% / $10,000.00)
-4. **Micro Futures** (Target: 10% / $5,000.00)
-5. **Event Contracts** (Target: 10% / $5,000.00)
+The initial implementation supplied the dashboard, configurable watchlists and allocation cards, four persistence tables, and administrator-only endpoints. It did **not** supply the four new execution workers, portfolio accounting, measured performance, portfolio risk controls, scheduled audits, or rebalancing. The existing Event Contract research worker was a separate subsystem.
 
-The target portfolio mandate is **18.5% Net Annual Return** (with an acceptable boundary of 16.5%–21.0% CAGR) with strict mathematical risk bounds, multi-factor cross-asset diversification, and an isolated paper trading ledger completely decoupled from live execution, manual Webull Test Mode, and Binance paper trading.
+The review found and corrected these foundation problems in v2.89.0:
 
----
+| Finding | Correction |
+| --- | --- |
+| CIO code imported `User` from the wrong module, omitted the default prompt import, called the AI service with unsupported arguments, and expected the wrong response shape. | Uses the existing provider cascade with its actual username/messages signature and response wrapper. |
+| When AI failed, the fallback asserted a 0.32 correlation, an 8.4% stress drawdown, an “optimal” verdict, and an 82% probability of profit without supporting data. | Removed those claims. Failed/unavailable AI is labeled explicitly. Quantitative evidence comes from recorded results; insufficient history produces null metrics. |
+| Allocation/configuration input could accept non-finite numbers, silently clamp invalid values, overwrite unrelated module settings, or enable execution using truthy strings. | Atomic, finite, bounded validation; exact sum of rounded allocation weights; partial settings merge; explicit worker controls. |
+| Bankroll configuration could diverge from account balances. Reset deleted historical positions and orders and had no explicit API confirmation. | Bankroll changes require confirmed reset. Reset archives the old run, cancels its pending exits, stops the engine, and invalidates work already in progress. No historical ledger rows are deleted. |
+| Position records had no implemented stop/target or derivative collateral bookkeeping, despite the original document claiming them. | Added strategy lots with collateral, multipliers, stop/target rules, fees, realized P&L, contract details and reset generation. |
+| Event simulation created repeated one-contract hypothetical fills without a portfolio bankroll limit. | Once a quantitative portfolio exists, fresh eligible Event decisions are consumed by its capital-constrained ledger. Historical Event research orders remain intact. |
+| The frontend discarded status responses, displayed zero equity as the default bankroll, reset specialist prompts to unrelated text, and closed settings modals before save succeeded. | Live telemetry, null-safe balances, server-supplied defaults, and save-result-aware modal handling. |
+| Startup table creation was described as a general schema migration mechanism. | This release deliberately adds new tables; existing v2.88 table definitions need no column alterations. |
 
-## What Has Been Completed So Far (v2.88.0)
+## Implemented execution
 
-### 1. Database & Persistence Layer
-- **`portfolio_algo_models.py`**:
-  - `PortfolioStrategyConfig`: Persists user-defined multi-asset allocations, total bankroll, target annual return, custom watchlist JSON arrays, strategy module configuration JSON, Master CIO prompt, and worker status.
-  - `PortfolioStrategyAccount`: Dedicated paper bankroll account tracking initial balance ($50,000 baseline), cash balance, total equity, and reset timestamps.
-  - `PortfolioStrategyPosition`: Tracks hypothetical positions per asset class, entry price, size, mark price, unrealized P&L, stop loss, and take-profit targets.
-  - `PortfolioStrategyOrder`: Tracks hypothetical orders, execution side, fill prices, and order states.
-- **`database.py`**: Integrated automatic schema migration and table creation for all 4 quantitative models on app startup.
+`services/portfolio_engine.py` runs a persisted five-minute supervisor. It services each module independently and records symbol-level data failures. Start, Stop, Scan now, Kill switch and Acknowledge pause are available in Settings → Quantitative Strategy Engine. Installing the release does not start the new portfolio worker. Manual scans require a started engine.
 
-### 2. Backend REST API
-- **`routes/portfolio_algo.py` & `main.py`**:
-  - `GET /api/webull/portfolio-algo/config`: Retrieves current allocations, watchlists, module parameters, account balances, and default baseline presets.
-  - `POST /api/webull/portfolio-algo/config`: Updates portfolio parameters with strict 100% allocation sum check validation (rejects invalid distributions), watchlist arrays, module settings, and CIO prompts.
-  - `POST /api/webull/portfolio-algo/reset-bankroll`: Resets the isolated paper bankroll back to $50,000.00 (or custom balance) and wipes quantitative test positions/orders without touching live or manual test accounts.
-  - `GET /api/webull/portfolio-algo/status`: Telemetry endpoint reporting worker status, cash, total equity, unrealized P&L, watchlist counts, and open positions.
-  - `POST /api/webull/portfolio-algo/master-audit`: Invokes the Master Chief Investment Officer (CIO) AI audit matrix evaluating cross-asset correlation, risk dispersion, target return feasibility, and strategic rebalancing directives.
-  - Restricted strictly to system administrators via `@portfolio_admin_required`.
+| Module | Entry and exit behavior |
+| --- | --- |
+| Equities & ETFs | US regular trading sessions, including exchange holidays, DST and early closes. Completed daily candles supply the configurable SMA (default 200), Wilder RSI (default 2), positive 63-session momentum and relative strength against SPY. Entry requires an oversold lower-Bollinger-band pullback and a current price above the SMA. Exits use RSI recovery, trend failure or a two-ATR initial stop. The default watchlist includes sector ETFs SMH and XLK for relative-strength comparisons. |
+| Options | Reads the Webull contract catalog and executable two-sided option quotes/Greeks. Chooses the expiration closest to 45 DTE within 20–65 days, then an OTM short leg nearest absolute 0.18 delta and an outward protective leg of the same expiration/type. Enters at short bid minus long ask. Reserves the spread's maximum loss, tracks both legs, records a persistent 50%-credit GTC exit rule, and closes using short ask minus long bid. Also exits at twice entry credit or seven DTE to reduce expiry/assignment exposure. This is a standard 100-share-multiplier spread simulation; no exercise/assignment engine is modeled. |
+| Crypto spot | 24/7, completed hourly 20/10 Donchian channels, a 14-period ATR and a ratcheting 2.5× ATR stop. Current prices are compared with prior completed channels, avoiding use of a forming candle's high as its own breakout threshold. ETH/SOL require measured Bitcoin dominance at or below its previous seven-day average. BTC remains eligible independently of that altcoin filter. |
+| Micro futures | MES, MNQ, MGC and MCL roots resolve to an unexpired contract, with contract multipliers and initial-margin reserves. Requires every completed one-minute candle in the configurable cash-opening range (default 9:30–9:45 ET), positive volume and directional VWAP confirmation. Simulates long/short breakouts; the opposite range edge is the stop. Entries stop 15 minutes before the US cash-session close; exits begin five minutes before it. Risk sizing includes open stop risk and the session's realized losses within a maximum $250 daily risk budget. Gaps, unavailable quotes and sampling delays can produce losses beyond that budget. |
+| Event contracts | Consumes fresh eligible decisions and quotes from the existing enabled Event worker, with the configured series watchlist, at least 50% confidence and 1.5% net edge after the paper fee. Uses one position per contract per run and the portfolio event allocation. Marks at executable bids and settles only from an explicit provider-confirmed YES/NO result. Quotes never imply settlement. Event collection, AI configuration, logs and historical reports remain in the existing gear modal. |
 
-### 3. Frontend Dashboard & UI/UX
-- **Settings Tab Upgrade (`frontend/src/pages/Settings.jsx`)**:
-  - Replaced the administrative tab with **`🏛️ Quantitative Strategy Engine`** (gated strictly to `isEventStrategyAdmin`).
-- **Master Ribbon (`QuantitativeStrategyEngine.jsx` & `QuantitativeStrategyEngine.css`)**:
-  - Glassmorphic header card with Paper Mode and Isolated Ledger safety badges.
-  - **Metrics Row**: Total Paper Bankroll ($50,000.00), Target Net Annual Return (18.5% with interactive 10%–35% slider), and Capital Allocation Sum Check (validates 100% compliance).
-  - **Dynamic 5-Slice Color-Coded Bar**: Color-coded progress bar reflecting the exact distribution of capital across the 5 asset classes (Equities: Blue, Options: Violet, Crypto: Amber, Futures: Emerald, Events: Rose).
-  - **Master Action Buttons**: `[ 🤖 Master Portfolio AI Audit ]`, `🔄 Reset Bankroll`, and `💾 Save Allocations & Watchlists`.
-- **5 Asset Module Cards**:
-  - **Equities & ETFs**: Dual-Momentum Rotation & 2-Period RSI with 200 SMA filter. Watchlist: `SPY`, `QQQ`, `IWM`, `SMH`, `XLK`, `NVDA`, `AAPL`, `MSFT`, `AMZN`, `TSLA`.
-  - **Options Strategies**: Volatility Risk Premium 45-DTE Credit Spreads (IVR ≥ 40, Delta 18, 45 DTE, 50% profit target). Watchlist: `SPY`, `QQQ`, `IWM`, `NVDA`, `TSLA`.
-  - **Cryptocurrency Spot**: Adaptive Donchian Breakout & ATR Stops (20/10 channel breakout with 2.5× ATR trailing stop). Watchlist: `BTC`, `ETH`, `SOL`.
-  - **Micro Futures**: 15-minute Opening Range Breakout (ORB) and VWAP mean reversion with strict $250 max daily loss ceiling. Watchlist: `MES`, `MNQ`, `MGC`, `MCL`.
-  - **Event Contracts**: Binary Probability & Velocity Arbitrage capturing 15-minute and hourly contracts with 1.5% net edge floor. Watchlist: `KXBTC15M`, `KXBTCD`, `KXETH15M`, `KXINXD`.
-  - **Watchlist Chip Management**: Direct on-card interactive chips with removal buttons (`×`) and inline "+ Add ticker" inputs.
-  - **Allocation Weight Sliders**: Sliders on each card allowing real-time capital recalculation.
+The futures implementation uses VWAP as a breakout confirmation filter. It does not add a separate, independently parameterized VWAP mean-reversion strategy. Specialist prompts inform the CIO audit; deterministic strategy rules govern entries and exits.
 
-### 4. Dedicated ⚙️ Gear Modals
-- **Event Contracts Modal**:
-  - Clicking the **⚙️ Gear Icon** on the Event Contracts card opens the complete administrative controls: `Save settings`, `Start`, `Stop`, `Scan now`, `View logs`, `View Report`, `AI Configuration`, and `Kill switch`.
-  - Full telemetry: Worker status, scan cadence, heartbeat, AI evaluation status pills (`SUCCESS`, `SKIPPED`, `INVALID`, etc.).
-  - Research scope, durations checkboxes, collection & AI frequencies, and per-duration AI cooldowns.
-  - Embedded sub-modals for logs, AI reports, and 3-tier cascade configuration. 100% of previous controls preserved.
-- **Equities, Options, Crypto, and Futures Modals**:
-  - Parameter tuning (SMA periods, RSI thresholds, IVR thresholds, delta targets, channel periods, ATR multipliers, ORB window, loss ceilings).
-  - Domain-Specialist AI System Prompts with 1-click reset to default.
+### Data readiness
 
-### 5. Master Portfolio AI Audit & Bankroll Reset
-- **Master Portfolio AI Audit Modal**:
-  - Editable Chief Investment Officer mandate prompt with reset-to-default capability.
-  - Execution button returning structured cross-asset correlation analysis (Pearson r ≈ 0.32), stress drawdown assessment (-8.4% max drawdown budget), and actionable rebalancing recommendations.
-- **Bankroll Reset Modal**:
-  - Modal with safety confirmation to reset the isolated quantitative ledger to $50,000.00 (or custom balance) without affecting manual Webull Test Mode or Binance paper trading.
+- Quotes must carry valid provider timestamps and be no more than two minutes old. Completed intraday/daily bars must also pass freshness and OHLC validation. Data collection that outlives the quote freshness window cannot place a fill.
+- Webull supplies quotes, crypto/futures bars and options data. The existing equity history adapter may use its Yahoo Finance fallback for daily research history; entry/exit prices still require fresh Webull snapshots.
+- Options IV Rank is calculated from **252 daily observed ATM IV values**, using the rolling minimum/maximum. The engine collects and persists those observations as it scans. It does not substitute IV percentile for IV Rank or create a fictitious history. A new installation must accumulate the history before options entries can qualify.
+- The altcoin dominance filter needs seven previous daily CoinGecko global-market observations. Missing or stale observations produce a visible warm-up/data-limited state.
+- Quote permissions, missing Greeks, unavailable histories, insufficient capital/margin, and unqualified signals can result in no trade. The dashboard exposes module diagnostics and entry counts.
+- Open positions continue marking and honoring existing stops when indicator history fails but a fresh executable price remains available. When the price itself is unavailable, the position retains its last mark and a diagnostic explains the limitation.
 
----
+Webull's [market-data permissions](https://developer.webull.com/apis/docs/market-data-api/overview/) require appropriate OpenAPI subscriptions for options and futures. Session scheduling follows [pandas-market-calendars](https://pandas-market-calendars.readthedocs.io/en/latest/usage.html). Micro contract multipliers are essential to P&L calculations; see [CME's micro futures specifications](https://www.cmegroup.com/articles/faqs/micro-e-mini-equity-index-futures-frequently-asked-questions.html).
 
-## What Is Left Remaining
+## Accounting and isolation
 
-The foundation, models, APIs, administrative interface, and Event Contract strategy worker are fully operational. The remaining roadmap focuses on activating automated background execution workers for the other 4 asset modules:
+The original `PortfolioStrategyAccount`, `PortfolioStrategyPosition` and `PortfolioStrategyOrder` remain the quantitative ledger. New tables are:
 
-### 1. Autonomous Strategy Execution Workers
-- **Equities & ETFs Worker**:
-  - Implement a scheduled background worker that triggers during US Regular Trading Hours (RTH: 9:30 AM – 4:00 PM ET).
-  - Ingest daily and intraday candles for the equity watchlist (`SPY`, `QQQ`, `IWM`, `SMH`, `XLK`, `NVDA`, `AAPL`, `MSFT`, `AMZN`, `TSLA`).
-  - Calculate 200-day SMA trend alignment, sector relative strength, and 2-period RSI oversold pullbacks (< 10).
-  - Execute paper entries and exits into `PortfolioStrategyPosition` and `PortfolioStrategyOrder` within the 35% ($17,500) capital bucket.
-- **Options Volatility Worker**:
-  - Ingest Webull options chain data for high-IV symbols (`SPY`, `QQQ`, `IWM`, `NVDA`, `TSLA`).
-  - Identify expiration cycles closest to 45 DTE when symbol IV Rank (IVR) ≥ 40.
-  - Locate 18-delta out-of-the-money credit spreads (bull put or bear call).
-  - Simulate entry credit collection and register automated 50% profit-taking GTC exit rules in `PortfolioStrategyOrder`.
-- **Cryptocurrency Spot Worker**:
-  - 24/7 background worker monitoring `BTC`, `ETH`, and `SOL`.
-  - Calculate 20-period and 10-period Donchian Channels alongside Average True Range (ATR).
-  - Execute simulated breakout entries with dynamic 2.5× ATR trailing stops and Bitcoin dominance regime filtering.
-- **Micro Futures Worker**:
-  - Intraday worker active around the 9:30 AM ET market open.
-  - Calculate the 15-minute Opening Range (High/Low between 9:30 and 9:45 AM ET) on `MES` (Micro S&P) and `MNQ` (Micro Nasdaq).
-  - Generate paper breakout entries with strict VWAP filters and enforce the $250.00 maximum daily loss ceiling.
+- `PortfolioEngineState`: run generation, persistent kill switch, pause reason, heartbeat, scan lease, audit cadence timestamps and module diagnostics.
+- `PortfolioStrategyLot`: position ownership, collateral, multiplier, exits, entry costs, realized P&L and signal identity. A unique user/run/signal constraint prevents repeated fills.
+- `PortfolioEquitySnapshot`: timestamped equity, cash, realized/unrealized P&L and module contributions.
+- `PortfolioAudit`: historical CIO content, provider/model, status and exact measured evidence.
+- `PortfolioMarketObservation`: daily measured IV and Bitcoin dominance.
 
-### 2. Unified Position & Performance Telemetry
-- **Combined Equity Curve**:
-  - Time-series tracking of total portfolio equity, cash, and unrealized/realized P&L across all 5 asset modules.
-  - Performance metrics: Blended Annualized Return, Sharpe Ratio, Sortino Ratio, Win Rate, and Maximum Peak-to-Trough Drawdown.
-- **Positions Overview Table**:
-  - Add a dedicated "Open Positions" sub-panel on the Quantitative Strategy Engine dashboard displaying active simulated positions across Equities, Options, Crypto, Futures, and Event Contracts.
+Cash is reduced by reserved capital and entry fees. Equity equals cash plus reserved capital plus unrealized P&L. Spot positions reserve their purchase value; credit spreads reserve their maximum loss; futures reserve the configured contract metadata's initial margin. Closing releases collateral and books net P&L once. Entry credit for a spread is reflected in its net collateral requirement, rather than being counted twice as free cash.
 
-### 3. Automated Capital Rebalancing Engine
-- **Drift Detection & Rebalancing**:
-  - Compare actual position weights against target allocations (35% / 25% / 20% / 10% / 10%).
-  - If any asset class drifts by more than ±3.0% due to market movements, generate rebalancing signals to trim outperforming classes and reallocate capital to underweight modules.
+Positions are limited to their module's remaining budget and available cash. Standard positions use at most 20% of a bucket and 0.5% of portfolio equity in modeled stop/max-loss risk. Futures may use a full bucket to accommodate indivisible margin requirements, while still obeying portfolio and daily risk sizing. Unused capital stays as cash. Estimated costs are 10 bps per side for equities/crypto, $0.65 per option leg per side, $1.25 per futures contract per side and $0.015 per Event entry/early exit; provider-confirmed Event settlement has no additional simulated exit fee. Equities, crypto and futures include 5 bps adverse fill slippage. These are research assumptions, not a broker fee schedule.
 
-### 4. Scheduled Autonomous Master Portfolio AI Auditing
-- **Automated Cadence**:
-  - Schedule the Master Portfolio AI Audit to run autonomously on a recurring schedule (e.g., daily at market close or weekly).
-  - Maintain a historical audit archive allowing administrators to review past CIO verdicts, correlation trends, and risk warnings over time.
+Execution never calls broker order-submission methods or writes manual Webull/Binance ledgers. The existing Event decision and settlement records are read as research inputs. Existing legacy Event hypothetical orders are neither migrated into bankroll P&L nor counted twice.
 
-### 5. Master Portfolio Circuit Breakers & Kill Switch
-- **Global Portfolio Circuit Breaker**:
-  - If total paper drawdown exceeds 10% of starting bankroll (e.g., portfolio drops below $45,000), trigger an autonomous engine-wide pause, liquidating or freezing simulated positions and notifying the administrator via Telegram/system toast.
+State row locks serialize ledger mutations. Provider requests run outside those locks. Every mutation rechecks a persisted expiring scan token; stop, kill, reset and configuration edits invalidate pending work. A second process cannot claim a live lease. After a crash, the lease expires and a later scan can recover. An unmanaged legacy position blocks Start until a confirmed reset archives it.
+
+## Portfolio risk and rebalancing
+
+A portfolio equity loss of **10% or more of starting bankroll** triggers a persistent engine-wide execution pause, invalidates the scan token, freezes positions and writes a system notification. The master kill switch also blocks new Event research scans. Stop freezes execution; it does not invent liquidation prices. Acknowledgment never restarts the worker, and the drawdown floor cannot be bypassed through Start.
+
+Rebalancing compares deployed capital (collateral plus unrealized P&L) with target portfolio weights. Exposure more than three percentage points above target is trimmed by closing whole positions at fresh executable prices, with the reason stored in orders. Underweight buckets receive available capacity for subsequent qualified entries; the engine does not force purchases merely to eliminate cash. Both target weight and actual deployed weight are visible.
+
+The daily futures loss ceiling and portfolio circuit breaker operate on observed paper marks. They are execution gates, not guarantees of a bounded loss during gaps or data outages.
+
+## Performance and CIO auditing
+
+The dashboard includes the combined equity/cash curve, open positions, costs reflected in P&L, annualized return, Sharpe, Sortino, win rate and maximum drawdown. Historical queries use daily aggregates for long histories and compute maximum drawdown from all recorded marks. Charts use daily points after 2,000 intraday observations.
+
+- Annualized return requires at least 30 elapsed days of the current paper run.
+- Sharpe and Sortino require 30 consecutive-day return observations, annualize at 365 days for the mixed 24/7 portfolio, and assume a zero risk-free rate. Undefined ratios remain unavailable.
+- Win rate uses closed lots after costs. Realized and unrealized P&L are distinct.
+- Cross-module Pearson correlations use at least 30 paired daily P&L changes. Zero-variance or insufficient-history pairs remain unavailable. These describe observed module P&L, not an assumed correlation between asset labels.
+
+CIO audits use the configured existing AI provider cascade and the supplied isolated-ledger evidence. They do not add live account context or web search. Audits are advisory and cannot change allocations or execute orders. Missing AI is reported as unavailable; provider failure is recorded as failed. No deterministic replacement claims to be a successful AI verdict.
+
+Audit cadence is off by default, with daily and weekly options. Daily audits run after the session close; weekly audits run after the first available session close of the week. Failed attempts are archived and do not retry every supervisor tick. The audit worker is separate from execution so a slow AI response does not hold up paper position management. The latest 50 audits, including older paper runs, can be selected in the UI; all remain in persistence.
+
+## API
+
+All routes require an authenticated administrator under `/api/webull/portfolio-algo`:
+
+| Method / path | Behavior |
+| --- | --- |
+| `GET /config` | Saved settings, account and canonical defaults. |
+| `POST /config` | Validate and save allocations, watchlists, module parameters, CIO mandate and cadence. |
+| `GET /status` | Worker health, diagnostics, account, positions, curve, metrics and drift. |
+| `POST /control` | `action`: `start`, `stop`, `scan`, `kill`, or `acknowledge`. |
+| `POST /reset-bankroll` | Requires `confirm: true`; archives current run and creates the requested $100–$1,000,000 bankroll. |
+| `POST /master-audit` | Runs an on-demand CIO audit, optionally with a draft prompt. |
+| `GET /audits` | Latest 50 historical audits with evidence. |
+
+## Verification and operation
+
+`tests/test_portfolio_algo.py` covers strategy math, holidays/early closes, validation, authentication, ledger accounting, fees, derivatives, duplicate prevention, concurrent PostgreSQL worker claims, reset fencing, the circuit breaker, Event settlement, crypto lifecycle/stops during history outages, and the actual AI call contract. Integration tests require an explicitly supplied **isolated PostgreSQL** URI through `QUANT_TEST_DATABASE_URI`. They must never target the personal-instance database.
+
+Deployment creates the new tables on startup, installs the calendar dependency, rebuilds the frontend and restarts the service. It preserves existing paper research and unrelated personal-checkout files. Administrative Start and audit cadence selection are explicit operational controls; deployment does not activate them.
+
+The remaining operational work is gathering sufficient forward observations and confirming entitled provider data. This release implements the roadmap's paper execution, telemetry, rebalancing, auditing and circuit-breaker controls; it does not establish strategy profitability or live-trading readiness.

@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import axios from 'axios';
+import ReactMarkdown from 'react-markdown';
+import QuantitativeTelemetry from './QuantitativeTelemetry';
 import './QuantitativeStrategyEngine.css';
 
 const DEFAULT_ALLOCATIONS = {
@@ -47,7 +49,7 @@ const ASSET_MODULE_DEFS = {
     defaultWeight: 25.0,
     paramLabels: [
       { key: 'min_ivr', label: 'Min IV Rank (IVR)', defaultVal: '≥ 40' },
-      { key: 'target_delta', label: 'Target Short Delta', defaultVal: '18Δ (~82% POP)' },
+      { key: 'target_delta', label: 'Target Short Delta', defaultVal: '18Δ' },
       { key: 'target_dte', label: 'Expiration Horizon', defaultVal: '45 DTE' },
       { key: 'profit_target_pct', label: 'Take Profit Rule', defaultVal: '50% Max Profit' },
     ],
@@ -104,7 +106,7 @@ const ASSET_MODULE_DEFS = {
 
 const formatCurrency = (val) => {
   const num = Number(val);
-  if (!Number.isFinite(num)) return '$50,000.00';
+  if (!Number.isFinite(num)) return 'Unavailable';
   return `$${num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 };
 
@@ -131,6 +133,8 @@ export default function QuantitativeStrategyEngine({
   const [account, setAccount] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [defaults, setDefaults] = useState(null);
+  const [auditHistory, setAuditHistory] = useState([]);
   const [message, setMessage] = useState('');
 
   // Modals state
@@ -163,7 +167,8 @@ export default function QuantitativeStrategyEngine({
       ]);
       if (cfgRes.data?.success) {
         setConfig(cfgRes.data.config);
-        setAccount(cfgRes.data.account);
+        setDefaults(cfgRes.data.defaults);
+        setAccount(statusRes.data?.account || cfgRes.data.account);
         setMasterAIPromptDraft(cfgRes.data.config?.master_ai_prompt || '');
       }
     } catch (err) {
@@ -187,9 +192,9 @@ export default function QuantitativeStrategyEngine({
     return Object.values(allocations).reduce((sum, val) => sum + (Number(val) || 0), 0);
   }, [allocations]);
 
-  const isAllocationValid = Math.abs(totalAllocation - 100.0) <= 0.05;
+  const isAllocationValid = Math.abs(totalAllocation - 100.0) < 0.001;
 
-  const totalBankroll = account?.total_equity || config?.total_bankroll || 50000.0;
+  const totalBankroll = account?.total_equity ?? config?.total_bankroll ?? 50000.0;
   const targetAnnualReturn = config?.target_annual_return || 18.5;
 
   // Handle allocation slider change
@@ -254,12 +259,14 @@ export default function QuantitativeStrategyEngine({
           watchlists: config.watchlists,
           module_settings: config.module_settings,
           master_ai_prompt: masterAIPromptDraft,
+          master_ai_config: { cadence: config?.master_ai_config?.cadence || 'off' },
         },
         { withCredentials: true }
       );
       if (response.data?.success) {
         setMessage('Quantitative Strategy Engine parameters saved successfully.');
         await loadPortfolioData();
+        return true;
       }
     } catch (err) {
       setMessage(err.response?.data?.message || 'Failed to save Quantitative Strategy Engine configuration.');
@@ -274,7 +281,7 @@ export default function QuantitativeStrategyEngine({
     try {
       const response = await axios.post(
         '/api/webull/portfolio-algo/reset-bankroll',
-        { amount: resetBankrollAmount },
+        { amount: resetBankrollAmount, confirm: true },
         { withCredentials: true }
       );
       if (response.data?.success) {
@@ -300,6 +307,8 @@ export default function QuantitativeStrategyEngine({
       );
       if (response.data?.success) {
         setMasterAIAuditResult(response.data.audit);
+        const history = await axios.get('/api/webull/portfolio-algo/audits');
+        setAuditHistory(history.data.audits || []);
       }
     } catch (err) {
       console.error('Master AI Audit failed:', err);
@@ -316,6 +325,8 @@ export default function QuantitativeStrategyEngine({
       </div>
     );
   }
+
+  if (!config) return <p role="alert">{message || 'Portfolio configuration is unavailable.'} <button onClick={loadPortfolioData}>Retry</button></p>;
 
   return (
     <div className="quant-engine-container">
@@ -462,9 +473,12 @@ export default function QuantitativeStrategyEngine({
           <button
             type="button"
             className="btn-quant-ai-audit"
-            onClick={() => {
+            onClick={async () => {
               setShowMasterAIModal(true);
-              if (!masterAIAuditResult) handleRunMasterAIAudit();
+              try {
+                const history = await axios.get('/api/webull/portfolio-algo/audits');
+                setAuditHistory(history.data.audits || []);
+              } catch { setMessage('Could not load the audit archive.'); }
             }}
           >
             <span>🤖</span> Master Portfolio AI Audit
@@ -515,7 +529,7 @@ export default function QuantitativeStrategyEngine({
                   >
                     {weight}% · {formatCurrency(capVal)}
                   </span>
-                  <span className="quant-cagr-badge">{def.targetCagr}</span>
+                  <span className="quant-cagr-badge">Research target: {def.targetCagr}</span>
                 </div>
 
                 <div className="quant-strategy-name">{def.strategy}</div>
@@ -1044,7 +1058,7 @@ export default function QuantitativeStrategyEngine({
                         <input
                           type="number"
                           min="100"
-                          max="1000"
+                          max="250"
                           step="25"
                           value={config?.module_settings?.futures?.max_intraday_loss || 250.0}
                           onChange={(e) => setConfig((prev) => ({
@@ -1070,14 +1084,13 @@ export default function QuantitativeStrategyEngine({
                   <button
                     type="button"
                     onClick={() => {
-                      const defaultPrompt = ASSET_MODULE_DEFS[activeGearModal]?.strategy || '';
-                      setConfig((prev) => ({
+                                            setConfig((prev) => ({
                         ...prev,
                         module_settings: {
                           ...(prev.module_settings || {}),
                           [activeGearModal]: {
                             ...(prev.module_settings?.[activeGearModal] || {}),
-                            specialist_prompt: `You are a quantitative ${activeGearModal} specialist analyzing market microstructure and momentum.`,
+                            specialist_prompt: defaults?.module_settings?.[activeGearModal]?.specialist_prompt || '',
                           },
                         },
                       }));
@@ -1120,9 +1133,9 @@ export default function QuantitativeStrategyEngine({
               <button
                 type="button"
                 className="btn-quant-save"
-                onClick={() => {
-                  handleSavePortfolioConfig();
-                  setActiveGearModal(null);
+                disabled={saving}
+                onClick={async () => {
+                  if (await handleSavePortfolioConfig()) setActiveGearModal(null);
                 }}
               >
                 Save &amp; Close
@@ -1132,6 +1145,8 @@ export default function QuantitativeStrategyEngine({
         </div>,
         document.body
       )}
+
+      <QuantitativeTelemetry onAccount={setAccount} />
 
       {/* 3. MASTER PORTFOLIO AI AUDIT MODAL */}
       {showMasterAIModal && createPortal(
@@ -1201,6 +1216,18 @@ export default function QuantitativeStrategyEngine({
                 </button>
               </div>
 
+              <label className="settings-form-group">Autonomous audit cadence
+                <select value={config?.master_ai_config?.cadence || 'off'} onChange={(e) => setConfig(prev => ({ ...prev, master_ai_config: { cadence: e.target.value } }))}>
+                  <option value="off">Off</option><option value="daily">Daily after US market close</option><option value="weekly">Weekly after the first available market close</option>
+                </select>
+              </label>
+              <button className="btn-quant-save" disabled={saving} onClick={handleSavePortfolioConfig}>Save mandate &amp; cadence</button>
+              <p style={{ fontSize: 12 }}>Specialist prompts inform the CIO review. Strategy entries follow the saved mathematical parameters.</p>
+              <label className="settings-form-group">Audit archive (latest 50)
+                <select value={masterAIAuditResult?.id || ''} onChange={e => setMasterAIAuditResult(auditHistory.find(a => String(a.id) === e.target.value) || null)}>
+                  <option value="">Select an audit</option>{auditHistory.map(a => <option key={a.id} value={a.id}>{new Date(a.timestamp).toLocaleString()} · Run {a.generation} · {a.status}</option>)}
+                </select>
+              </label>
               {/* Audit Result Display */}
               {masterAIAuditLoading ? (
                 <div style={{ padding: '40px 0', textAlign: 'center', color: '#38bdf8' }}>
@@ -1208,7 +1235,9 @@ export default function QuantitativeStrategyEngine({
                 </div>
               ) : masterAIAuditResult ? (
                 <div className="quant-audit-output">
-                  {masterAIAuditResult.content}
+                  <strong>{masterAIAuditResult.status} · {masterAIAuditResult.provider || 'AI unavailable'}</strong>
+                  <ReactMarkdown>{masterAIAuditResult.content || ''}</ReactMarkdown>
+                  <details><summary>Measured evidence</summary><pre style={{ whiteSpace: 'pre-wrap' }}>{JSON.stringify(masterAIAuditResult.evidence, null, 2)}</pre></details>
                 </div>
               ) : null}
             </div>
@@ -1255,7 +1284,7 @@ export default function QuantitativeStrategyEngine({
                   🛡️ Strict Ledger Isolation
                 </strong>
                 <span style={{ fontSize: '0.8rem', color: isLightMode ? '#7f1d1d' : '#fca5a5' }}>
-                  This operation resets <strong>only</strong> the isolated Quantitative Strategy Engine ledger. It will <strong>never</strong> wipe or modify manual Webull Test Mode or Binance paper balances.
+                  This starts a new paper run and stops execution. Previous positions, orders, and audits are archived. Manual Webull Test Mode and Binance accounts remain separate.
                 </span>
               </div>
 

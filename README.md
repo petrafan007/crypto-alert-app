@@ -6,6 +6,15 @@
 
 **Last Updated**: September 2026
 
+## v2.89.0 (September 2026)
+
+- Completed the Quantitative Strategy Engine's isolated paper execution for equities, options credit spreads, crypto breakouts and micro futures, and connected qualified Event signals to the shared capital budget.
+- Added collateral and fee accounting, persistent stop/exit rules, concurrent-worker protection, archived bankroll resets, module diagnostics, open positions, the equity curve and measured performance statistics.
+- Added capital-drift trimming, a persistent 10% portfolio drawdown pause and kill switch, plus manual/daily/weekly CIO audits with a historical evidence archive.
+- Corrected the v2.88.0 AI integration and removed unsupported correlation, stress-drawdown and probability-of-profit claims. Hardened configuration validation and corrected status/default-prompt UI behavior.
+- Workers remain stopped by default. Options IV Rank and altcoin dominance filters require accumulated measured history; missing or stale provider data is reported and cannot create a paper entry. Return targets are research objectives.
+- See the [implementation review and operating guide](docs/quantitative_strategy_engine.md) for data prerequisites, simulated costs, risk limits and verification.
+
 ## v2.88.0 (September 2026)
 
 - **Webull Quantitative Portfolio Infrastructure & Multi-Asset Paper Research Framework**:

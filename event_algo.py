@@ -37,7 +37,7 @@ from event_algo_models import (
 
 
 PAPER_MODE = "PAPER"
-ENGINE_VERSION = "2.88.0"
+ENGINE_VERSION = "2.89.0"
 MODEL_VERSION = "ai-fallback-v1"
 _EVENT_SYMBOL_MONTHS = {
     "JAN": 1, "FEB": 2, "MAR": 3, "APR": 4, "MAY": 5, "JUN": 6,
@@ -2403,6 +2403,10 @@ def resolve_event_outcomes(user_id, *, config=None, limit=25, force=False):
 
 def simulate_paper_fills(user_id, *, config=None, decision_ids=None, limit=25):
     """Create hypothetical fills for eligible signals without a broker call."""
+    from portfolio_algo_models import PortfolioStrategyConfig
+    if PortfolioStrategyConfig.query.filter_by(user_id=user_id).first() is not None:
+        return {"success": True, "simulated_count": 0, "orders": [],
+                "message": "Qualified signals are consumed by the capital-constrained quantitative ledger."}
     config = config or get_or_create_config(user_id)
     if config.mode != PAPER_MODE or config.kill_switch:
         return {"success": False, "message": "Paper-fill simulation is available only while the paper engine is enabled."}
@@ -2588,6 +2592,10 @@ def _webull_connection_for_user(user_id):
 
 def run_event_strategy_scan(user_id, *, config=None, force=False, worker_id="manual"):
     """Scan configured crypto Event Contracts and persist an auditable run."""
+    from portfolio_algo_models import PortfolioEngineState
+    master_state = db.session.get(PortfolioEngineState, user_id)
+    if master_state and master_state.kill_switch:
+        return {"success": False, "message": "The master portfolio kill switch is active."}
     with _ACTIVE_SCAN_LOCK:
         if user_id in _ACTIVE_SCAN_USERS:
             return {"success": False, "message": "An Event Contract strategy scan is already running."}
