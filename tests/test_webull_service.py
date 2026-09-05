@@ -19,6 +19,7 @@ from services.webull_service import (
     get_webull_accounts,
     get_webull_account_list,
     get_webull_market_bars,
+    get_webull_market_snapshot,
     get_webull_futures_catalog,
     get_webull_futures_contracts,
     get_webull_futures_snapshot,
@@ -1160,11 +1161,52 @@ class WebullServiceTests(unittest.TestCase):
             )
 
         self.assertEqual(request_mock.call_args.args[4], '/market-data/crypto/bars/list')
-        self.assertEqual(request_mock.call_args.kwargs['query_params']['interval'], 'H1')
+        self.assertEqual(request_mock.call_args.kwargs['query_params'], {'symbols': 'BTCUSD', 'category': 'US_CRYPTO', 'timespan': 'M60', 'count': 50})
         self.assertEqual(bars, [{
             'time': 1787832000, 'open': 100.0, 'high': 105.0, 'low': 99.0,
             'close': 102.0, 'volume': 12.0,
         }])
+
+    def test_crypto_provider_result_envelope_and_missing_volume(self):
+        response = Mock(status_code=200)
+        response.json.return_value = [
+            {'symbol': 'ETHUSD', 'result': [{'time': 1787832000000, 'open': '1', 'high': '2', 'low': '1', 'close': '2'}]},
+            {'symbol': 'BTCUSD', 'result': [{'time': 1787832000000, 'open': '100', 'high': '105', 'low': '99', 'close': '102'}]},
+        ]
+        with patch('services.webull_service._webull_request', return_value=response):
+            bars = get_webull_market_bars('key', 'secret', symbol='BTC', instrument_type='CRYPTO', interval='H1', strict_ohlc=True)
+        self.assertEqual(len(bars), 1)
+        self.assertEqual(bars[0]['close'], 102)
+        self.assertEqual(bars[0]['volume'], 0)
+
+    def test_strict_research_candles_do_not_synthesize_missing_ohlc(self):
+        response = Mock(status_code=200)
+        response.json.return_value = [{'symbol': 'BTCUSD', 'result': [{'time': 1787832000000, 'close': '102'}]}]
+        with patch('services.webull_service._webull_request', return_value=response):
+            bars = get_webull_market_bars('key', 'secret', symbol='BTC', instrument_type='CRYPTO', interval='H1', strict_ohlc=True)
+        self.assertEqual(bars, [])
+
+    def test_crypto_snapshot_supplies_required_category(self):
+        response = Mock(status_code=200)
+        response.json.return_value = [{'symbol': 'BTCUSD', 'price': '100', 'last_trade_time': 1787832000000}]
+        with patch('services.webull_service._webull_request', return_value=response) as request_mock:
+            get_webull_market_snapshot('key', 'secret', symbol='BTC', instrument_type='CRYPTO')
+        self.assertEqual(request_mock.call_args.kwargs['query_params'], {'symbols': 'BTCUSD', 'category': 'US_CRYPTO'})
+
+    def test_options_catalog_filters_and_cursor_pagination(self):
+        from services.webull_service import get_webull_option_contracts
+        first = Mock(status_code=200)
+        first.json.return_value = {'data': [{'instrument_id': str(i), 'symbol': f'SPY{i}'} for i in range(1000)], 'pagination_key': 'next-page'}
+        last = Mock(status_code=200)
+        last.json.return_value = {'data': [{'instrument_id': '1001', 'symbol': 'SPY1001'}]}
+        with patch('services.webull_service._webull_request', side_effect=[first, last]) as request_mock, patch('services.webull_service.time.sleep'):
+            contracts = get_webull_option_contracts('key', 'secret', underlying_symbol='SPY', root_symbol='SPY', start_date='2026-09-25', end_date='2026-11-09', max_pages=3)
+        self.assertEqual(len(contracts), 1001)
+        params = request_mock.call_args_list[0].kwargs['query_params']
+        self.assertEqual(params['root_symbol'], 'SPY')
+        self.assertEqual(params['start_date'], '2026-09-25')
+        self.assertNotIn('pagination_key', params)
+        self.assertEqual(request_mock.call_args_list[1].kwargs['query_params']['pagination_key'], 'next-page')
 
     def test_market_bars_use_stock_endpoint_and_options_require_a_contract_id(self):
         response = Mock(status_code=200)
@@ -1174,7 +1216,7 @@ class WebullServiceTests(unittest.TestCase):
                 'app-key', 'app-secret', access_token='private-token',
                 symbol='AAPL', instrument_type='ETF', interval='D', limit=20,
             )
-            self.assertEqual(request_mock.call_args.args[4], '/market-data/stocks/bars/get')
+            self.assertEqual(request_mock.call_args.args[4], '/openapi/market-data/stock/bars')
             self.assertEqual(bars[0]['close'], 250.0)
             with self.assertRaisesRegex(WebullConnectionError, 'contract identifier'):
                 get_webull_market_bars(
@@ -1205,7 +1247,7 @@ class WebullServiceTests(unittest.TestCase):
 
         self.assertEqual([call.args[4] for call in request_mock.call_args_list], [
             '/trading/instruments/futures/product-codes/list',
-            '/trading/instruments/futures/contracts/list',
+            '/openapi/instrument/futures/list',
             '/market-data/futures/snapshots/list',
             '/market-data/futures/bars/list',
         ])
@@ -1213,8 +1255,37 @@ class WebullServiceTests(unittest.TestCase):
         self.assertEqual(contracts[0]['symbol'], 'ESZ5')
         self.assertEqual(snapshot['price'], 4500.25)
         self.assertEqual(bars[0]['close'], 4500.25)
-        self.assertEqual(request_mock.call_args_list[1].kwargs['query_params'], {'symbols': 'ESZ5'})
+        self.assertEqual(request_mock.call_args_list[1].kwargs['query_params'], {'category': 'US_FUTURES', 'symbols': 'ESZ5'})
         self.assertEqual(request_mock.call_args_list[2].kwargs['query_params']['category'], 'US_FUTURES')
+
+    def test_strategy_futures_use_provider_contract_dates_and_keep_margin_reserve(self):
+        response = Mock(status_code=200)
+        response.json.return_value = [{'symbol': 'MESU6', 'code': 'MES', 'size': '5',
+                                      'last_trading_date': '2026-09-18', 'min_tick': '0.25'}]
+        with patch('services.webull_service._webull_request', return_value=response) as request_mock:
+            contracts = get_webull_futures_contracts('key', 'secret', access_token='token', symbol='MES', require_provider=True)
+        self.assertEqual(request_mock.call_args.args[4], '/openapi/instrument/futures/by-code')
+        self.assertEqual(request_mock.call_args.kwargs['query_params'], {'category': 'US_FUTURES', 'code': 'MES', 'contract_type': 'MONTHLY'})
+        self.assertEqual(contracts[0]['symbol'], 'MESU6')
+        self.assertEqual(contracts[0]['expiration_date'], '2026-09-18')
+        self.assertEqual(float(contracts[0]['contract_multiplier']), 5)
+        self.assertEqual(contracts[0]['initial_margin'], 1250)
+        with patch('services.webull_service._webull_request', side_effect=WebullConnectionError('outage')):
+            with self.assertRaisesRegex(WebullConnectionError, 'metadata is unavailable'):
+                get_webull_futures_contracts('key', 'secret', access_token='token', symbol='MCL', require_provider=True)
+
+    def test_options_catalog_rejects_repeated_or_incomplete_pagination(self):
+        from services.webull_service import get_webull_option_contracts
+        response = Mock(status_code=200)
+        response.json.return_value = {'data': [{'symbol': 'SPY1'}], 'pagination_key': 'same'}
+        with patch('services.webull_service._webull_request', return_value=response), patch('services.webull_service.time.sleep'):
+            with self.assertRaisesRegex(WebullConnectionError, 'pagination was incomplete'):
+                get_webull_option_contracts('key', 'secret', underlying_symbol='SPY', max_pages=3)
+        response.json.side_effect = [{'data': [{'symbol': 'SPY1'}], 'pagination_key': 'first'},
+                                     {'data': [{'symbol': 'SPY2'}], 'pagination_key': 'second'}]
+        with patch('services.webull_service._webull_request', return_value=response), patch('services.webull_service.time.sleep'):
+            with self.assertRaisesRegex(WebullConnectionError, 'page limit'):
+                get_webull_option_contracts('key', 'secret', underlying_symbol='SPY', max_pages=2)
 
     def test_futures_discovery_engine_and_contract_generation(self):
         # 1. Standard E-mini contracts

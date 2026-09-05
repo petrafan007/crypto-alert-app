@@ -35,11 +35,14 @@ The futures implementation uses VWAP as a breakout confirmation filter. It does 
 
 ### Data readiness
 
+- The v2.89.1 adapter review verified Webull crypto snapshots/completed hourly bars, stock daily history, complete expiry-filtered option catalogs and all four micro futures contract lookups against the provider. It corrected endpoint parameters, nested candle responses and option pagination. Strategy histories reject synthesized OHLC; option spreads exclude FLEX/adjusted contracts; futures execution requires actual provider contract metadata instead of generated expirations.
+- Market-data calls are paced per app key and endpoint across local threads. Futures use provider symbols, multipliers and last trading dates, with catalog initial-margin amounts as paper reserve assumptions when provider margin fields are absent. These reserve amounts are not current broker margin quotes.
 - Quotes must carry valid provider timestamps and be no more than two minutes old. Completed intraday/daily bars must also pass freshness and OHLC validation. Data collection that outlives the quote freshness window cannot place a fill.
 - Webull supplies quotes, crypto/futures bars and options data. The existing equity history adapter may use its Yahoo Finance fallback for daily research history; entry/exit prices still require fresh Webull snapshots.
 - Options IV Rank is calculated from **252 daily observed ATM IV values**, using the rolling minimum/maximum. The engine collects and persists those observations as it scans. It does not substitute IV percentile for IV Rank or create a fictitious history. A new installation must accumulate the history before options entries can qualify.
 - The altcoin dominance filter needs seven previous daily CoinGecko global-market observations. Missing or stale observations produce a visible warm-up/data-limited state.
 - Quote permissions, missing Greeks, unavailable histories, insufficient capital/margin, and unqualified signals can result in no trade. The dashboard exposes module diagnostics and entry counts.
+- During deployment verification, the personal Webull connection returned `MARKET_DATA_NOT_SUBSCRIBED` for both `US_OPTION` and `US_FUTURES` snapshots. Their contract catalogs were accessible, but those modules require quote subscriptions before execution can be verified against live data. No subscriptions were purchased and execution remained stopped.
 - Open positions continue marking and honoring existing stops when indicator history fails but a fresh executable price remains available. When the price itself is unavailable, the position retains its last mark and a diagnostic explains the limitation.
 
 Webull's [market-data permissions](https://developer.webull.com/apis/docs/market-data-api/overview/) require appropriate OpenAPI subscriptions for options and futures. Session scheduling follows [pandas-market-calendars](https://pandas-market-calendars.readthedocs.io/en/latest/usage.html). Micro contract multipliers are essential to P&L calculations; see [CME's micro futures specifications](https://www.cmegroup.com/articles/faqs/micro-e-mini-equity-index-futures-frequently-asked-questions.html).
@@ -100,6 +103,8 @@ All routes require an authenticated administrator under `/api/webull/portfolio-a
 ## Verification and operation
 
 `tests/test_portfolio_algo.py` covers strategy math, holidays/early closes, validation, authentication, ledger accounting, fees, derivatives, duplicate prevention, concurrent PostgreSQL worker claims, reset fencing, the circuit breaker, Event settlement, crypto lifecycle/stops during history outages, and the actual AI call contract. Integration tests require an explicitly supplied **isolated PostgreSQL** URI through `QUANT_TEST_DATABASE_URI`. They must never target the personal-instance database.
+
+The v2.89.1 verification passed 159 tests across the quantitative engine, Event worker, AI failover, Webull data/contracts, market-data routes and manual paper/order capability regressions. Provider regressions include actual nested crypto candle formats, required category/timespan parameters, bounded option pagination and missing futures metadata. Read-only live checks complement these tests; no paper or real orders were submitted during deployment checks.
 
 Deployment creates the new tables on startup, installs the calendar dependency, rebuilds the frontend and restarts the service. It preserves existing paper research and unrelated personal-checkout files. Administrative Start and audit cadence selection are explicit operational controls; deployment does not activate them.
 

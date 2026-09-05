@@ -6,6 +6,14 @@
 
 **Last Updated**: September 2026
 
+## v2.89.1 (September 2026)
+
+- Corrected Webull crypto snapshots, hourly candle parameters and nested candle responses, plus the stock history endpoint, following read-only checks against the provider.
+- Options research now loads the complete filtered expiry window with Webull pagination tokens and excludes FLEX/adjusted contracts from the standard spread model.
+- Futures research resolves actual provider contract symbols, multipliers and last trading dates; missing contract metadata blocks execution. Catalog margin amounts remain paper reserve assumptions when the provider omits margin data.
+- Added shared market-data request pacing, strict strategy OHLC validation and instrument matching. Missing subscriptions remain visible data limitations; they cannot generate substitute fills.
+- Verified 159 engine, ledger, API and provider regression tests. The personal connection supplies crypto/stock history and contract catalogs; options and futures quote access currently require additional Webull market-data subscriptions.
+
 ## v2.89.0 (September 2026)
 
 - Completed the Quantitative Strategy Engine's isolated paper execution for equities, options credit spreads, crypto breakouts and micro futures, and connected qualified Event signals to the shared capital budget.

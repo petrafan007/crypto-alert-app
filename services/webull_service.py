@@ -3,6 +3,7 @@
 import base64
 import hashlib
 import hmac
+import math
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 import json
@@ -26,6 +27,8 @@ _WEBULL_EVENT_CATEGORY_CACHE = {}  # (...principal) -> (timestamp, categories)
 _WEBULL_EVENT_SERIES_CACHE = {}  # (...principal, category) -> (timestamp, series)
 _WEBULL_EVENT_SERIES_MARKET_CACHE = {}  # (...principal, series symbol) -> (timestamp, markets)
 _WEBULL_EVENT_MARKET_RESULT_CACHE = {}  # (...principal, category, query, limit) -> (timestamp, response)
+_WEBULL_MARKET_PACING_LOCK = threading.Lock()
+_WEBULL_MARKET_REQUEST_SLOTS = {}
 _WEBULL_ORDER_LOCK = threading.Lock()
 _WEBULL_EVENT_CACHE_LOCK = threading.Lock()
 _WEBULL_EVENT_DISCOVERY_LOCK = threading.Lock()
@@ -170,12 +173,27 @@ def generate_webull_signature(path, query_params, app_key, app_secret, host, tim
     return base64.b64encode(signature_bytes).decode('utf-8')
 
 
+def _pace_market_request(app_key, path):
+    """Reserve one request/second per app and data endpoint across local threads."""
+    if '/market-data/' not in path:
+        return
+    key = (hashlib.sha256(str(app_key).encode()).hexdigest(), path)
+    with _WEBULL_MARKET_PACING_LOCK:
+        now = time.monotonic()
+        slot = max(now, _WEBULL_MARKET_REQUEST_SLOTS.get(key, 0) + 1.05)
+        _WEBULL_MARKET_REQUEST_SLOTS[key] = slot
+    delay = slot - time.monotonic()
+    if delay > 0:
+        time.sleep(delay)
+
+
 def _webull_request(app_key, app_secret, environment, method, path, *, query_params=None, body=None, access_token=None):
     """Make one signed Webull request without exposing any secret in logs or responses."""
     if not app_key or not app_secret:
         raise WebullConnectionError('Webull App Key and App Secret are required.')
 
     normalized_environment = normalize_webull_environment(environment)
+    _pace_market_request(app_key, path)
     host = WEBULL_ENVIRONMENTS[normalized_environment]
     body_string = json.dumps(body, separators=(',', ':')) if body is not None else None
     timestamp = datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
@@ -499,7 +517,7 @@ def _webull_bar_timestamp(value):
         return None
 
 
-def _normalise_webull_bar(bar):
+def _normalise_webull_bar(bar, *, strict_ohlc=False):
     """Return a lightweight-charts-compatible OHLCV bar or ``None``."""
     if not isinstance(bar, dict):
         return None
@@ -511,7 +529,7 @@ def _normalise_webull_bar(bar):
         close = float(close)
     except (TypeError, ValueError):
         return None
-    if not timestamp or close <= 0:
+    if not timestamp or not math.isfinite(close) or close <= 0:
         return None
     result = {'time': timestamp, 'close': close}
     for target, aliases in {
@@ -519,15 +537,21 @@ def _normalise_webull_bar(bar):
     }.items():
         value = next((bar.get(alias) for alias in aliases if bar.get(alias) is not None), None)
         try:
-            result[target] = float(value) if value is not None else close
+            if strict_ohlc and target != 'volume' and value is None:
+                return None
+            result[target] = float(value) if value is not None else (0 if target == 'volume' else close)
+            if not math.isfinite(result[target]):
+                return None
         except (TypeError, ValueError):
-            result[target] = close
+            if strict_ohlc:
+                return None
+            result[target] = 0 if target == 'volume' else close
     return result
 
 
 def get_webull_market_bars(
     app_key, app_secret, environment='production', access_token=None, *,
-    symbol, instrument_type, interval='D', limit=120, instrument_id=None,
+    symbol, instrument_type, interval='D', limit=120, instrument_id=None, strict_ohlc=False,
 ):
     """Fetch read-only historical bars for a supported Webull instrument.
 
@@ -560,18 +584,15 @@ def get_webull_market_bars(
         '/market-data/crypto/bars/list' if is_crypto else
         '/market-data/options/bars/list' if is_option else
         '/market-data/futures/bars/list' if is_futures else
-        '/market-data/stocks/bars/get'
+        '/openapi/market-data/stock/bars'
     )
-    # ``count`` is the stock-bars API pagination size; ``limit`` is retained
-    # for crypto bars.  Supplying both keeps the normalizer compatible with
-    # approved OpenAPI versions that accept either spelling.
-    params = {'symbol': clean_symbol, 'interval': clean_interval, 'count': safe_limit, 'limit': safe_limit}
+    # The public UI uses H1/H4; the deployed Webull API accepts M60/M240.
+    params = {'timespan': {'H1': 'M60', 'H4': 'M240'}.get(clean_interval, clean_interval), 'count': safe_limit}
+    params['symbols' if is_crypto or is_option or is_futures else 'symbol'] = clean_symbol
+    params['category'] = ('US_CRYPTO' if is_crypto else 'US_OPTION' if is_option else
+                          'US_FUTURES' if is_futures else 'US_ETF' if clean_type == 'ETF' else 'US_STOCK')
     if is_option:
-        # Current OpenAPI deployments use one of these aliases. Sending both
-        # preserves compatibility without ever substituting the underlying.
         params.update({'instrument_id': str(instrument_id), 'contract_id': str(instrument_id)})
-    if is_futures:
-        params['category'] = 'US_FUTURES'
     bars_by_time = {}
     try:
         payload = _response_payload(
@@ -581,10 +602,16 @@ def get_webull_market_bars(
             ),
             'market-data request',
         )
-        for raw_bar in _webull_records(payload):
-            bar = _normalise_webull_bar(raw_bar)
-            if bar:
-                bars_by_time[bar['time']] = bar
+        for record in _webull_records(payload):
+            if not isinstance(record, dict):
+                continue
+            if record.get('symbol') and str(record['symbol']).upper() != clean_symbol:
+                continue
+            raw_bars = record['result'] if isinstance(record.get('result'), list) else [record]
+            for raw_bar in raw_bars:
+                bar = _normalise_webull_bar(raw_bar, strict_ohlc=strict_ohlc)
+                if bar:
+                    bars_by_time[bar['time']] = bar
     except Exception as exc:
         if clean_type in {'STOCK', 'EQUITY', 'ETF'}:
             logger.info('Webull market-data bars request failed for %s (%s): %s; attempting yfinance fallback.', clean_symbol, clean_type, exc)
@@ -603,7 +630,7 @@ def get_webull_market_bars(
             raise
 
     # If bars_by_time is still empty and it's a stock/ETF, try snapshot to provide at least a current bar
-    if not bars_by_time and clean_type in {'STOCK', 'EQUITY', 'ETF'}:
+    if not strict_ohlc and not bars_by_time and clean_type in {'STOCK', 'EQUITY', 'ETF'}:
         try:
             snapshot = get_webull_market_snapshot(
                 app_key, app_secret, environment, access_token,
@@ -641,7 +668,7 @@ def get_webull_market_snapshot(
 
     if clean_type == 'CRYPTO':
         path = '/market-data/crypto/snapshots/list'
-        params = {'symbols': clean_symbol, 'symbol': clean_symbol}
+        params = {'symbols': clean_symbol, 'category': 'US_CRYPTO'}
     elif clean_type == 'FUTURES':
         path = '/market-data/futures/snapshots/list'
         params = {'symbols': clean_symbol, 'category': 'US_FUTURES'}
@@ -748,7 +775,7 @@ def _normalise_option_snapshot_record(raw):
         'iv_percentile': number('iv_percentile', 'ivPercentile'),
         'iv_5_day_change': number('iv_5_day_change', 'iv5DayChange', 'iv_5d_change', 'iv5dChange'),
         'itm_percent': number('itm_probability', 'itmProbability', 'probability_itm', 'probabilityItm'),
-        'as_of': value('timestamp', 'time', 'last_trade_time', 'trade_time'),
+        'as_of': value('quote_time', 'timestamp', 'time', 'last_trade_time', 'trade_time'),
     }
 
 
@@ -815,20 +842,34 @@ def _is_equity_market_open(now=None):
     return 9 * 60 + 30 <= current_minutes <= 16 * 60
 
 
-def get_webull_option_contracts(app_key, app_secret, environment='production', access_token=None, *, underlying_symbol):
+def get_webull_option_contracts(app_key, app_secret, environment='production', access_token=None, *, underlying_symbol, start_date=None, end_date=None, root_symbol=None, max_pages=1):
     """Fetch static contracts for one underlying; no trading endpoint is used."""
     clean_underlying = ''.join(char for char in str(underlying_symbol or '').upper() if char.isalnum())
     if not clean_underlying:
         raise WebullConnectionError('An option underlying symbol is required to resolve a contract.')
-    payload = _response_payload(
-        _webull_request(
-            app_key, app_secret, environment, 'GET', '/trading/instruments/options/contracts/list',
-            query_params={'category': 'US_OPTION', 'underlying_symbols': clean_underlying, 'status': 'LISTING'},
-            access_token=access_token,
-        ),
-        'option-contract lookup',
-    )
-    return _webull_records(payload)
+    params = {'category': 'US_OPTION', 'underlying_symbols': clean_underlying, 'status': 'LISTING'}
+    if start_date or end_date or root_symbol or max_pages > 1:
+        params.update({'page_size': 1000, 'show_deliverables': 'true'})
+    for key, value in [('start_date', start_date), ('end_date', end_date), ('root_symbol', root_symbol)]:
+        if value:
+            params[key] = str(value)
+    records = []
+    seen_cursors = set()
+    for page in range(max(1, min(int(max_pages), 20))):
+        payload = _response_payload(
+            _webull_request(app_key, app_secret, environment, 'GET', '/trading/instruments/options/contracts/list',
+                            query_params=dict(params), access_token=access_token), 'option-contract lookup')
+        batch = _webull_records(payload)
+        records.extend(batch)
+        cursor = payload.get('pagination_key') if isinstance(payload, dict) else None
+        if max_pages == 1 or not cursor:
+            return records
+        if cursor in seen_cursors or not batch:
+            raise WebullConnectionError('Option catalog pagination was incomplete.')
+        seen_cursors.add(cursor)
+        params['pagination_key'] = str(cursor)
+        time.sleep(1.05)
+    raise WebullConnectionError('Option catalog exceeded the bounded page limit; no partial chain will be traded.')
 
 
 def _normalise_futures_catalog_record(record):
@@ -844,7 +885,7 @@ def _normalise_futures_catalog_record(record):
         return None
 
     symbol = str(value('symbol', 'contract_symbol', 'contractSymbol', 'instrument_symbol') or '').strip().upper()
-    product_code = str(value('product_code', 'productCode', 'underlying_code', 'underlyingCode') or '').strip().upper()
+    product_code = str(value('product_code', 'productCode', 'underlying_code', 'underlyingCode', 'code') or '').strip().upper()
     name = str(value('name', 'display_name', 'displayName', 'description', 'product_name', 'productName') or symbol or product_code).strip()
     return {
         'symbol': symbol,
@@ -852,9 +893,9 @@ def _normalise_futures_catalog_record(record):
         'name': name,
         'exchange': value('exchange', 'exchange_code', 'exchangeCode'),
         'currency': value('currency', 'settlement_currency', 'settlementCurrency'),
-        'expiration_date': value('expiration_date', 'expirationDate', 'expire_date', 'expireDate'),
-        'contract_multiplier': value('contract_multiplier', 'contractMultiplier', 'multiplier'),
-        'tick_size': value('tick_size', 'tickSize', 'minimum_tick'),
+        'expiration_date': value('last_trading_date', 'expiration_date', 'expirationDate', 'expire_date', 'expireDate', 'settlement_date'),
+        'contract_multiplier': value('contract_multiplier', 'contractMultiplier', 'multiplier', 'size'),
+        'tick_size': value('tick_size', 'tickSize', 'minimum_tick', 'min_tick'),
         'initial_margin': value('initial_margin', 'initialMargin'),
         'maintenance_margin': value('maintenance_margin', 'maintenanceMargin'),
     }
@@ -1164,7 +1205,7 @@ def get_webull_futures_catalog(app_key, app_secret, environment='production', ac
     }
 
 
-def get_webull_futures_contracts(app_key, app_secret, environment='production', access_token=None, *, symbol):
+def get_webull_futures_contracts(app_key, app_secret, environment='production', access_token=None, *, symbol, require_provider=False):
     """Resolve an exact futures contract symbol or product contract chain."""
     clean_symbol = ''.join(char for char in str(symbol or '').upper() if char.isalnum())
     if not clean_symbol:
@@ -1182,8 +1223,9 @@ def get_webull_futures_contracts(app_key, app_secret, environment='production', 
         try:
             contracts = _get_webull_futures_catalog(
                 app_key, app_secret, environment, access_token,
-                '/trading/instruments/futures/contracts/list',
-                query_params={'symbols': clean_symbol},
+                '/openapi/instrument/futures/by-code' if matching_product else '/openapi/instrument/futures/list',
+                query_params=({'category': 'US_FUTURES', 'code': clean_symbol, 'contract_type': 'MONTHLY'}
+                              if matching_product else {'category': 'US_FUTURES', 'symbols': clean_symbol}),
                 action='futures contract lookup',
             )
         except Exception as exc:
@@ -1198,12 +1240,15 @@ def get_webull_futures_contracts(app_key, app_secret, environment='production', 
             meta = next((p for p in FALLBACK_US_FUTURES_PRODUCTS if p['product_code'] == p_code), {})
             enhanced.append({
                 **meta,
-                **c,
+                **{key: value for key, value in c.items() if value not in (None, '')},
                 'is_micro': meta.get('is_micro', False),
                 'category': meta.get('category', 'INDICES'),
                 'tradingview_symbol': meta.get('tradingview_symbol', f"{clean_symbol}1!"),
             })
         return enhanced
+
+    if require_provider:
+        raise WebullConnectionError('Live futures contract metadata is unavailable; generated expirations cannot be used for strategy execution.')
 
     # If clean_symbol is a product code or no provider contracts found, generate standard active contracts
     base_product = matching_product['product_code'] if matching_product else clean_symbol[:2]

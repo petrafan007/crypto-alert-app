@@ -1,5 +1,4 @@
 """Read-only market data boundary for the isolated quantitative ledger."""
-import json
 from datetime import timedelta
 
 from core.extensions import db
@@ -19,7 +18,7 @@ class PortfolioMarketData:
         from services.webull_service import get_webull_market_bars
         key = (symbol, instrument, interval, limit)
         if key not in self.cache:
-            rows = get_webull_market_bars(*self.connection, symbol=symbol, instrument_type=instrument, interval=interval, limit=limit)
+            rows = get_webull_market_bars(*self.connection, symbol=symbol, instrument_type=instrument, interval=interval, limit=limit, strict_ohlc=True)
             self.cache[key] = completed_bars(rows, now, daily=interval == 'D', seconds=3600 if interval == 'H1' else 60, crypto=instrument == 'CRYPTO')
         bars = self.cache[key]
         if not bars:
@@ -33,6 +32,9 @@ class PortfolioMarketData:
     def quote(self, symbol, instrument, now):
         from services.webull_service import get_webull_market_snapshot
         raw = get_webull_market_snapshot(*self.connection, symbol=symbol, instrument_type=instrument)
+        expected = symbol.upper() + ('USD' if instrument == 'CRYPTO' and not symbol.upper().endswith('USD') else '')
+        if str(raw.get('symbol') or '').upper() != expected:
+            raise ValueError('Provider quote does not match the requested instrument.')
         return fresh_quote(raw, now)
 
     def observe(self, series, value, now):
@@ -66,7 +68,7 @@ class PortfolioMarketData:
 
     def future(self, root, now):
         from services.webull_service import get_webull_futures_contracts
-        contracts = get_webull_futures_contracts(*self.connection, symbol=root)
+        contracts = get_webull_futures_contracts(*self.connection, symbol=root, require_provider=True)
         today = utc(now).astimezone(ET).date().isoformat()
         candidates = [c for c in contracts if str(c.get('expiration_date') or '') > today and c.get('symbol')]
         if not candidates:
@@ -97,10 +99,16 @@ class PortfolioMarketData:
     def options(self, symbol, settings, now):
         from services.webull_service import get_webull_option_contracts
         price = self.quote(symbol, 'EQUITY', now)
-        raw = get_webull_option_contracts(*self.connection, underlying_symbol=symbol)
+        today = utc(now).astimezone(ET).date()
+        raw = get_webull_option_contracts(*self.connection, underlying_symbol=symbol, root_symbol=symbol,
+            start_date=str(today+timedelta(days=20)), end_date=str(today+timedelta(days=65)), max_pages=10)
         contracts = []
         for c in raw:
             try:
+                if c.get('def_type') != 'STANDARD' or finite(c.get('multiplier'), 'option multiplier', 1) != 100:
+                    continue
+                if c.get('root_symbol') != symbol or c.get('underlying_symbol') != symbol:
+                    continue
                 expiration = str(c.get('option_expire_date') or c.get('expiration_date') or c.get('expire_date'))[:10]
                 dte = (utc(expiration).date()-utc(now).astimezone(ET).date()).days
                 kind = str(c.get('option_type') or c.get('put_call') or c.get('call_put') or '').upper()
