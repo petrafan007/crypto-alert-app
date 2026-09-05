@@ -861,7 +861,7 @@ from flask import current_app, Response
 
 
 def serve_react_app():
-    """Serve the built React index with strict cache-busting headers so UI updates ship instantly."""
+    """Serve the current React index without changing fingerprinted module URLs."""
     index_path = Path(current_app.static_folder or '') / 'index.html'
     logger.info(f"Serving React index from {index_path}")
     try:
@@ -874,18 +874,9 @@ def serve_react_app():
         resp.headers['Expires'] = '0'
         return resp
 
-    build_token = str(int(index_path.stat().st_mtime))
-    logger.info(f"Serving React index with cache-bust token {build_token}")
-
-    def _add_version(match):
-        path = match.group(1)
-        quote = match.group(2)
-        if '?v=' in path:
-            return match.group(0)
-        return f'{path}?v={build_token}{quote}'
-
-    # Support /static/, /assets/, and assets/
-    content = re.sub(r'((?:/static/|/assets/|assets/)[^"\']+)(["\'])', _add_version, content)
+    # Vite fingerprints asset filenames. Keep module URLs canonical: adding a
+    # query only to the HTML entry loads it again when a lazy chunk imports it,
+    # creating a second React root and a different authentication context.
     resp = Response(content, mimetype='text/html')
     resp.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate, max-age=0'
     resp.headers['Pragma'] = 'no-cache'

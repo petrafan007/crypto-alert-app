@@ -6,6 +6,12 @@
 
 **Last Updated**: September 2026
 
+## v2.89.3 (September 2026)
+
+- Corrected a browser regression discovered during v2.89.2 deployment verification. Server-side query strings on fingerprinted assets could load the entry module twice after lazy navigation, producing different authentication contexts and a blank login screen.
+- Preserve canonical Vite asset URLs while retaining no-cache/no-store HTML headers. Includes all v2.89.2 optional-module and runtime improvements.
+- Added a regression for canonical module URLs and verified the rendered login page after deployment.
+
 ## v2.89.2 (September 2026)
 
 - Added an Enabled toggle for each quantitative module. Disabled modules skip new-entry scans, preserve watchlists/settings/history, and leave unused allocation in cash. Futures default to disabled unless explicitly enabled.
