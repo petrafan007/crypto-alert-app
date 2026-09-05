@@ -6,6 +6,16 @@
 
 **Last Updated**: September 2026
 
+## v2.88.0 (September 2026)
+
+- **Webull Quantitative Portfolio Infrastructure & Multi-Asset Paper Research Framework**:
+  - **Unified Multi-Asset Quantitative Strategy Engine**: Replaced the administrative Event Strategy panel with a comprehensive Multi-Asset Quantitative Strategy Engine dashboard covering 5 asset classes (Equities & ETFs, Options Strategies, Cryptocurrency Spot, Micro Futures, and Event Contracts).
+  - **Dedicated Paper Trading Ledger**: Built an isolated paper account system (`PortfolioStrategyAccount`, `PortfolioStrategyPosition`, `PortfolioStrategyOrder`) operating independently from manual Webull Test Mode and Binance paper trading, initializing with a $50,000.00 research bankroll and 1-click reset controls.
+  - **Dynamic Capital Allocation Matrix**: Introduced interactive asset allocation sliders with sum validation (100% check), visual multi-slice distribution bar, and custom watchlist chip managers for all 5 asset modules.
+  - **Master Chief Investment Officer (CIO) AI Audit**: Integrated a master portfolio review matrix evaluating multi-asset correlation, risk dispersion, target return feasibility, and strategic rebalancing directives.
+  - **Modular Settings & Specialist Configuration**: Added dedicated configuration modals to each asset card with domain-specialist prompts, custom execution parameters, and 100% preservation of all existing Event Contract Strategy controls, telemetry, logs, and report views.
+  - **Database Migration & Backend API**: Added `portfolio_strategy_configs`, `portfolio_strategy_accounts`, `portfolio_strategy_positions`, and `portfolio_strategy_orders` persistence models and REST endpoints (`/api/webull/portfolio-algo/config`, `/reset-bankroll`, `/status`, `/master-audit`) gated strictly to authorized administrators.
+
 ## v2.87.8 (September 2026)
 
 - **Event Strategy Engine AI Audit Generation Bugfix & Modal Diagnostics**:

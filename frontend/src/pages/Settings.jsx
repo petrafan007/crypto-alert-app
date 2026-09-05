@@ -7,6 +7,7 @@ import { useSearchParams } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { formatEasternDateTime } from '../utils/dateTime';
+import QuantitativeStrategyEngine from '../components/QuantitativeStrategyEngine';
 
 const SENTIMENT_VARIABLES = [
   { label: 'Buy Immediately', code: 'BI', kind: 'directional', direction: 'up', correctKey: 'sentiment_buy_immediately_correct_pct', wrongKey: 'sentiment_buy_immediately_wrong_pct' },
@@ -389,19 +390,21 @@ export default function Settings({ isLightMode }) {
     { id: 'web-search', label: 'Web Search & News', icon: '🔍' },
     { id: 'security-2fa', label: 'Security & 2FA', icon: '🔐' },
     { id: 'system', label: 'Notifications & System', icon: '⚙️' },
-    { id: 'event-strategy', label: 'Event Contract Strategy Engine', icon: '📊' },
+    { id: 'quant-strategy', label: 'Quantitative Strategy Engine', icon: '🏛️' },
   ];
   const isEventStrategyAdmin = Boolean(user?.is_admin || user?.id === 1);
   const isSystemAdmin = Boolean(user?.is_admin || user?.id === 1);
   const visibleSettingsTabs = isEventStrategyAdmin
     ? SETTINGS_TABS
-    : SETTINGS_TABS.filter((tab) => tab.id !== 'event-strategy');
+    : SETTINGS_TABS.filter((tab) => tab.id !== 'quant-strategy' && tab.id !== 'event-strategy');
 
   const [activeTab, setActiveTab] = useState(() => {
     const tabParam = searchParams.get('tab');
     const validTabs = ['apis', 'ai-providers', 'ai-prompts', 'sentiment-strategy', 'web-search', 'security-2fa', 'system'];
-    if (isEventStrategyAdmin) validTabs.push('event-strategy');
-    if (tabParam && validTabs.includes(tabParam)) return tabParam;
+    if (isEventStrategyAdmin) validTabs.push('quant-strategy', 'event-strategy');
+    if (tabParam && validTabs.includes(tabParam)) {
+      return tabParam === 'event-strategy' ? 'quant-strategy' : tabParam;
+    }
     const sectionParam = searchParams.get('section');
     if (sectionParam === '2fa') return 'security-2fa';
     if (sectionParam === 'ai-settings' || sectionParam === 'ai-prompts') return 'ai-prompts';
@@ -409,7 +412,7 @@ export default function Settings({ isLightMode }) {
   });
 
   const handleTabChange = (tabId) => {
-    if (tabId === 'event-strategy' && !isEventStrategyAdmin) return;
+    if ((tabId === 'quant-strategy' || tabId === 'event-strategy') && !isEventStrategyAdmin) return;
     setActiveTab(tabId);
     setSearchParams((prev) => {
       const next = new URLSearchParams(prev);
@@ -426,14 +429,14 @@ export default function Settings({ isLightMode }) {
   useEffect(() => {
     const tabParam = searchParams.get('tab');
     const validTabs = ['apis', 'ai-providers', 'ai-prompts', 'sentiment-strategy', 'web-search', 'security-2fa', 'system'];
-    if (isEventStrategyAdmin) validTabs.push('event-strategy');
+    if (isEventStrategyAdmin) validTabs.push('quant-strategy', 'event-strategy');
     if (tabParam && validTabs.includes(tabParam)) {
-      setActiveTab(tabParam);
+      setActiveTab(tabParam === 'event-strategy' ? 'quant-strategy' : tabParam);
     }
   }, [searchParams, isEventStrategyAdmin]);
 
   useEffect(() => {
-    if (user && !isEventStrategyAdmin && activeTab === 'event-strategy') {
+    if (user && !isEventStrategyAdmin && (activeTab === 'quant-strategy' || activeTab === 'event-strategy')) {
       setActiveTab('apis');
       setSearchParams((prev) => {
         const next = new URLSearchParams(prev);
@@ -472,7 +475,7 @@ export default function Settings({ isLightMode }) {
   };
 
   useEffect(() => {
-    if (activeTab === 'event-strategy' && isEventStrategyAdmin) loadEventStrategy();
+    if ((activeTab === 'quant-strategy' || activeTab === 'event-strategy') && isEventStrategyAdmin) loadEventStrategy();
   }, [activeTab, isEventStrategyAdmin]);
 
   const updateEventStrategySignal = (key, value) => {
@@ -4105,143 +4108,27 @@ export default function Settings({ isLightMode }) {
       </section>
       )}
 
-      {/* Event Contract Strategy Engine Tab */}
-      {activeTab === 'event-strategy' && isEventStrategyAdmin && (
-        <div className="settings-grid" style={{ marginTop: '24px' }}>
-          <div className="settings-page-section" style={{ gridColumn: '1 / -1' }}>
-            <h3>📊 Event Contract Strategy Engine</h3>
-            <p style={{ color: isLightMode ? '#4a5568' : '#a0aec0' }}>
-              Paper-only research and signal generation for Webull Event Contracts. Market snapshots continue on their own cadence; AI is called in bounded batches and never places an order.
-            </p>
-            {eventStrategyMessage && <div className="settings-message" style={{ marginBottom: 16 }}>{eventStrategyMessage}</div>}
-            {!eventStrategyConfig ? (
-              <p>Loading engine settings…</p>
-            ) : (
-              <>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12, marginBottom: 18 }}>
-                  {[
-                    ['worker_status', 'Worker', eventStrategyHealth?.worker_status || eventStrategyConfig.worker_status],
-                    ['last_run', 'Last scan', eventStrategyHealth?.last_run ? formatEasternDateTime(eventStrategyHealth.last_run) : '—'],
-                    ['heartbeat_at', 'Last heartbeat', eventStrategyHealth?.heartbeat_at ? formatEasternDateTime(eventStrategyHealth.heartbeat_at) : '—'],
-                    ['next_expected_scan', 'Next expected scan', eventStrategyHealth?.next_expected_scan ? formatEasternDateTime(eventStrategyHealth.next_expected_scan) : '—'],
-                    ['ai_batch_calls_last_hour', 'AI batches (last hour)', `${eventStrategyHealth?.ai_batch_calls_last_hour ?? 0} / ${eventStrategyHealth?.ai_batch_budget_per_hour ?? 12}`],
-                    ['ai_evaluations', 'AI evaluation states', (() => {
-                      const evals = eventStrategyHealth?.ai_evaluations;
-                      if (!evals || typeof evals !== 'object' || Object.keys(evals).length === 0) {
-                        return <span style={{ color: isLightMode ? '#718096' : '#94a3b8', fontStyle: 'italic', fontWeight: 400, fontSize: '0.85rem' }}>No evaluations yet</span>;
-                      }
-                      const badgeMap = {
-                        SUCCESS: { bg: isLightMode ? '#dcfce7' : 'rgba(34, 197, 94, 0.18)', border: '#22c55e', text: isLightMode ? '#15803d' : '#4ade80', label: 'Success' },
-                        SKIPPED: { bg: isLightMode ? '#fef3c7' : 'rgba(234, 179, 8, 0.18)', border: '#eab308', text: isLightMode ? '#b45309' : '#fde047', label: 'Skipped' },
-                        INVALID: { bg: isLightMode ? '#fee2e2' : 'rgba(239, 68, 68, 0.18)', border: '#ef4444', text: isLightMode ? '#b91c1c' : '#f87171', label: 'Invalid' },
-                        FAILED: { bg: isLightMode ? '#fee2e2' : 'rgba(239, 68, 68, 0.18)', border: '#ef4444', text: isLightMode ? '#b91c1c' : '#f87171', label: 'Failed' },
-                        PENDING: { bg: isLightMode ? '#e0f2fe' : 'rgba(56, 189, 248, 0.18)', border: '#38bdf8', text: isLightMode ? '#0369a1' : '#7dd3fc', label: 'Pending' },
-                      };
-                      return (
-                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 4 }}>
-                          {Object.entries(evals).map(([k, count]) => {
-                            const conf = badgeMap[k.toUpperCase()] || {
-                              bg: isLightMode ? '#f1f5f9' : 'rgba(148, 163, 184, 0.18)',
-                              border: '#94a3b8',
-                              text: isLightMode ? '#475569' : '#cbd5e1',
-                              label: k.charAt(0) + k.slice(1).toLowerCase(),
-                            };
-                            return (
-                              <span
-                                key={k}
-                                style={{
-                                  display: 'inline-flex',
-                                  alignItems: 'center',
-                                  gap: 4,
-                                  padding: '2px 8px',
-                                  borderRadius: 6,
-                                  fontSize: '0.8rem',
-                                  fontWeight: 600,
-                                  background: conf.bg,
-                                  border: `1px solid ${conf.border}`,
-                                  color: conf.text,
-                                }}
-                              >
-                                <span>{conf.label}:</span>
-                                <span>{count}</span>
-                              </span>
-                            );
-                          })}
-                        </div>
-                      );
-                    })()],
-                  ].map(([cardKey, label, value]) => (
-                    <div key={label} style={{ padding: '12px 14px', borderRadius: 8, background: isLightMode ? '#edf2f7' : 'rgba(255,255,255,0.05)', border: '1px solid rgba(148,163,184,0.2)' }}>
-                      <div style={{ fontSize: 12, color: isLightMode ? '#718096' : '#94a3b8' }}>{label}</div>
-                      <div style={{ marginTop: 4, fontWeight: 600, wordBreak: 'break-word' }}>
-                        {cardKey === 'ai_evaluations' ? value : String(value || '—')}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginBottom: 18 }}>
-                  <button type="button" className="settings-save-button" disabled={eventStrategyBusy} onClick={saveEventStrategy}>💾 Save settings</button>
-                  <button type="button" className="settings-action-button" disabled={eventStrategyBusy || eventStrategyConfig.enabled} onClick={() => eventStrategyAction('start')}>▶ Start</button>
-                  <button type="button" className="settings-action-button" disabled={eventStrategyBusy || !eventStrategyConfig.enabled} onClick={() => eventStrategyAction('stop')}>⏸ Stop</button>
-                  <button type="button" className="settings-action-button" disabled={eventStrategyBusy} onClick={() => eventStrategyAction('scan')}>🔎 Scan now</button>
-                  <button type="button" className="settings-action-button" disabled={eventStrategyBusy} onClick={loadEventStrategyLogs}>📜 View logs</button>
-                  <button type="button" className="settings-action-button" disabled={eventStrategyBusy || eventStrategyReportLoading} onClick={() => loadEventStrategyReport()}>📊 View Report</button>
-                  <button type="button" className="settings-action-button" disabled={eventStrategyBusy} onClick={openEventStrategyAIModal}>🤖 AI Configuration</button>
-                  <button type="button" className="settings-danger-button" disabled={eventStrategyBusy || eventStrategyConfig.kill_switch} onClick={() => eventStrategyAction('kill-switch')}>⛔ Kill switch</button>
-                </div>
-
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 16 }}>
-                  <div>
-                    <h4>Research scope</h4>
-                    <label className="settings-form-group">Symbols (comma separated)
-                      <input value={(eventStrategyConfig.symbols || []).join(', ')} onChange={(e) => setEventStrategyConfig((prev) => ({ ...prev, symbols: e.target.value.split(',').map((item) => item.trim().toUpperCase()).filter(Boolean) }))} />
-                    </label>
-                    <div className="settings-form-group">
-                      <label>Durations</label>
-                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                        {EVENT_STRATEGY_DURATIONS.map((duration) => (
-                          <label key={duration} style={{ display: 'flex', gap: 5, alignItems: 'center', fontSize: 13 }}>
-                            <input type="checkbox" checked={(eventStrategyConfig.durations || []).includes(duration)} onChange={(e) => updateEventStrategyDuration(duration, e.target.checked)} />
-                            {duration.replace('_', ' ').toLowerCase()}
-                          </label>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                  <div>
-                    <h4>Collection and AI frequency</h4>
-                    {[
-                      ['snapshot_interval_seconds', 'Snapshot collection interval (seconds)'],
-                      ['scan_interval_seconds', 'Worker scan interval (seconds)'],
-                      ['ai_batch_interval_seconds', 'Minimum interval between AI batches (seconds)'],
-                      ['ai_batch_size', 'Contracts per AI batch'],
-                      ['max_ai_calls_per_hour', 'Maximum AI batches per hour'],
-                      ['ai_cache_ttl_seconds', 'Prediction cache TTL (seconds)'],
-                      ['ai_context_refresh_hours', 'Web/search context refresh (hours)'],
-                      ['ai_retry_backoff_seconds', 'Initial AI retry backoff (seconds)'],
-                    ].map(([key, label]) => (
-                      <label key={key} className="settings-form-group" style={{ display: 'block' }}>{label}
-                        <input type="number" min="1" value={eventStrategyConfig.signal_config?.[key] ?? ''} onChange={(e) => updateEventStrategySignal(key, e.target.value)} />
-                      </label>
-                    ))}
-                  </div>
-                  <div>
-                    <h4>AI cooldown by contract duration</h4>
-                    {['FIFTEEN_MINUTES', 'HOURLY', 'DAILY', 'WEEKLY', 'MONTHLY', 'ANNUAL', 'ONE_OFF', 'CUSTOM'].map((duration) => (
-                      <label key={duration} className="settings-form-group" style={{ display: 'block' }}>{duration.replace('_', ' ').toLowerCase()} cooldown (seconds)
-                        <input type="number" min="30" value={eventStrategyConfig.signal_config?.ai_cooldown_by_duration?.[duration] ?? ''} onChange={(e) => setEventStrategyConfig((prev) => ({ ...prev, signal_config: { ...(prev.signal_config || {}), ai_cooldown_by_duration: { ...(prev.signal_config?.ai_cooldown_by_duration || {}), [duration]: e.target.value } } }))} />
-                      </label>
-                    ))}
-                  </div>
-                </div>
-                <p style={{ color: isLightMode ? '#718096' : '#94a3b8', fontSize: 13, marginTop: 16 }}>
-                  A cached prediction is used only while it is fresh and tied to the same contract snapshot. Provider failures are retried with backoff, surfaced in logs/toasts, and remain no-trade decisions.
-                </p>
-              </>
-            )}
-          </div>
-        </div>
+      {/* Quantitative Strategy Engine Tab */}
+      {(activeTab === 'quant-strategy' || activeTab === 'event-strategy') && isEventStrategyAdmin && (
+        <QuantitativeStrategyEngine
+          isLightMode={isLightMode}
+          user={user}
+          eventStrategyConfig={eventStrategyConfig}
+          setEventStrategyConfig={setEventStrategyConfig}
+          eventStrategyHealth={eventStrategyHealth}
+          eventStrategyBusy={eventStrategyBusy}
+          eventStrategyMessage={eventStrategyMessage}
+          setEventStrategyMessage={setEventStrategyMessage}
+          saveEventStrategy={saveEventStrategy}
+          eventStrategyAction={eventStrategyAction}
+          loadEventStrategyLogs={loadEventStrategyLogs}
+          loadEventStrategyReport={loadEventStrategyReport}
+          openEventStrategyAIModal={openEventStrategyAIModal}
+          updateEventStrategySignal={updateEventStrategySignal}
+          updateEventStrategyDuration={updateEventStrategyDuration}
+          EVENT_STRATEGY_DURATIONS={EVENT_STRATEGY_DURATIONS}
+          formatEasternDateTime={formatEasternDateTime}
+        />
       )}
 
       {showEventStrategyLogs && createPortal(

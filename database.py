@@ -7,6 +7,7 @@ def init_db(app=None):
     # Import models here to avoid circular imports
     from models import Coin, WatchlistCoin, Notification, AIPrompt, DefaultAIPrompt, StakedCoin, StakingReward, AICopilotSession, AIConversation, AICache, AIAnalysisSchedule, PriceHistory, WebullAccountSnapshot, WebullHolding, WebullOrder, BinanceOrder, OrderHistorySyncState, WebullWatchlistItem, ExternalSentimentSignal, WebullTestAccount, WebullTestPosition, WebullTestOrder
     from event_algo_models import EventStrategyConfig, EventStrategyRun, EventStrategyLog, EventStrategyAIEvaluation, EventMarketSnapshot, EventStrategyDecision, EventStrategyOrder, EventStrategyPosition, EventStrategyPerformance, EventContractOutcome, EventStrategyReport
+    from portfolio_algo_models import PortfolioStrategyConfig, PortfolioStrategyAccount, PortfolioStrategyPosition, PortfolioStrategyOrder
     from credentials import User, Credential, UserSetting, DesktopToken, OnboardingDefaultProfile
     from trading_models import TestOrder, RealOrder, TestPortfolio, TradingSettings, AllActivity, PortfolioValueHistory, StakingOrder
     
@@ -16,6 +17,10 @@ def init_db(app=None):
     def run_migrations():
         try:
             db.create_all()
+            PortfolioStrategyConfig.__table__.create(db.engine, checkfirst=True)
+            PortfolioStrategyAccount.__table__.create(db.engine, checkfirst=True)
+            PortfolioStrategyPosition.__table__.create(db.engine, checkfirst=True)
+            PortfolioStrategyOrder.__table__.create(db.engine, checkfirst=True)
         except Exception as e:
             print(f"db.create_all error: {e}")
         
