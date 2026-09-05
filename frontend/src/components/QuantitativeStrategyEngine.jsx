@@ -161,6 +161,25 @@ export default function QuantitativeStrategyEngine({
   const [masterAIAuditResult, setMasterAIAuditResult] = useState(null);
   const [masterAIPromptDraft, setMasterAIPromptDraft] = useState('');
 
+  // Engine Execution State
+  const [engineStatus, setEngineStatus] = useState(null);
+  const [engineBusy, setEngineBusy] = useState(false);
+  const [engineError, setEngineError] = useState('');
+  const [refetchSignal, setRefetchSignal] = useState(0);
+
+  const handleEngineControl = async (action) => {
+    setEngineBusy(true);
+    setEngineError('');
+    try {
+      await axios.post('/api/webull/portfolio-algo/control', { action }, { withCredentials: true });
+      setRefetchSignal(s => s + 1);
+    } catch (err) {
+      setEngineError(err.response?.data?.message || 'Worker control failed.');
+    } finally {
+      setEngineBusy(false);
+    }
+  };
+
   // Watchlist new symbol input state per module
   const [newSymbolInputs, setNewSymbolInputs] = useState({
     equities: '',
@@ -354,6 +373,21 @@ export default function QuantitativeStrategyEngine({
             <span className="quant-badge-isolated">Isolated Paper Ledger</span>
           </div>
         </div>
+        
+        <div className="quant-ribbon-actions" style={{ padding: '0 20px 16px 20px', borderBottom: '1px solid rgba(148, 163, 184, 0.1)', marginBottom: '16px' }}>
+          <strong role="status">{engineStatus?.worker_status || 'Loading…'}</strong>
+          <button className="btn-quant-save" disabled={engineBusy || !engineStatus || engineStatus.enabled || engineStatus.kill_switch} onClick={() => handleEngineControl('start')}>Start paper engine</button>
+          <button className="btn-quant-save" disabled={engineBusy || !engineStatus?.enabled} onClick={() => handleEngineControl('stop')}>Stop &amp; freeze</button>
+          <button className="btn-quant-save" disabled={engineBusy || !engineStatus?.enabled} onClick={() => handleEngineControl('scan')}>Scan now</button>
+          <button className="btn-quant-reset-bankroll" disabled={engineBusy || !engineStatus} onClick={() => handleEngineControl('kill')}>Kill switch</button>
+          {engineStatus?.kill_switch && <button className="btn-quant-save" disabled={engineBusy} onClick={() => handleEngineControl('acknowledge')}>Acknowledge pause</button>}
+        </div>
+
+        {engineError && (
+          <div className="settings-message" style={{ marginBottom: 16, background: 'rgba(239, 68, 68, 0.15)', borderColor: '#ef4444' }}>
+            {engineError}
+          </div>
+        )}
 
         {message && (
           <div
@@ -536,7 +570,7 @@ export default function QuantitativeStrategyEngine({
 
                 <div className="quant-card-meta">
                   <label className="quant-module-toggle">
-                    <input type="checkbox" checked={enabled(modKey)} disabled={saving}
+                    <input type="checkbox" checked={enabled(modKey)} disabled={saving || engineStatus?.enabled}
                       aria-label={def.title + ' enabled'}
                       onChange={(event) => {
                         const checked = event.target.checked;
@@ -727,16 +761,11 @@ export default function QuantitativeStrategyEngine({
                 ))}
               </div>
 
-              {/* Action Buttons */}
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginBottom: 18 }}>
                 <button type="button" className="settings-save-button" disabled={eventStrategyBusy} onClick={saveEventStrategy}>💾 Save settings</button>
-                <button type="button" className="settings-action-button" disabled={eventStrategyBusy || eventStrategyConfig?.enabled} onClick={() => eventStrategyAction('start')}>▶ Start</button>
-                <button type="button" className="settings-action-button" disabled={eventStrategyBusy || !eventStrategyConfig?.enabled} onClick={() => eventStrategyAction('stop')}>⏸ Stop</button>
-                <button type="button" className="settings-action-button" disabled={eventStrategyBusy} onClick={() => eventStrategyAction('scan')}>🔎 Scan now</button>
                 <button type="button" className="settings-action-button" disabled={eventStrategyBusy} onClick={loadEventStrategyLogs}>📜 View logs</button>
                 <button type="button" className="settings-action-button" disabled={eventStrategyBusy} onClick={() => loadEventStrategyReport()}>📊 View Report</button>
                 <button type="button" className="settings-action-button" disabled={eventStrategyBusy} onClick={openEventStrategyAIModal}>🤖 AI Configuration</button>
-                <button type="button" className="settings-danger-button" disabled={eventStrategyBusy || eventStrategyConfig?.kill_switch} onClick={() => eventStrategyAction('kill-switch')}>⛔ Kill switch</button>
               </div>
 
               {/* Strategy Parameters Form */}
@@ -1168,7 +1197,7 @@ export default function QuantitativeStrategyEngine({
         document.body
       )}
 
-      <QuantitativeTelemetry onAccount={setAccount} />
+      <QuantitativeTelemetry onAccount={setAccount} onStatus={setEngineStatus} refetchSignal={refetchSignal} />
 
       {/* 3. MASTER PORTFOLIO AI AUDIT MODAL */}
       {showMasterAIModal && createPortal(

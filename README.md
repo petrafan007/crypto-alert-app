@@ -6,6 +6,12 @@
 
 **Last Updated**: September 2026
 
+## v2.89.5 (September 2026)
+
+- Unified quantitative strategy execution controls. The main Start, Stop, Scan Now, and Kill Switch controls have been moved to the top of the Quantitative Strategy Engine dashboard to govern all modules, including Event Contracts, synchronously.
+- Standalone execution buttons have been removed from the Event Contracts modal; the worker now strictly follows the master engine state.
+- Module toggles ("Enabled for new entries") are dynamically locked when the engine is active, enforcing that modules can only be configured while the engine is fully stopped.
+
 ## v2.89.4 (September 2026)
 
 - Quantitative strategy allocations now rebalance automatically across enabled modules. Toggles, sliders, dollar amounts and the Capital Distribution Matrix stay synchronized at 100%, replacing the separate Reallocate action.

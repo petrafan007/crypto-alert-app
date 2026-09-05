@@ -9,15 +9,15 @@ const money = (n) => Number(n ?? 0).toLocaleString('en-US', { style: 'currency',
 const metric = (n, suffix = '') => n == null ? 'Awaiting history' : `${Number(n).toFixed(2)}${suffix}`;
 const date = (s) => s ? new Date(s).toLocaleString('en-US', { timeZone: 'America/New_York' }) + ' ET' : 'Not yet';
 
-export default function QuantitativeTelemetry({ onAccount }) {
+export default function QuantitativeTelemetry({ onAccount, onStatus, refetchSignal }) {
   const [status, setStatus] = useState(null);
   const [error, setError] = useState('');
-  const [busy, setBusy] = useState(false);
   const load = async (signal) => {
     try {
       const { data } = await axios.get('/api/webull/portfolio-algo/status', { signal });
       setStatus(data);
       onAccount(data.account);
+      if (onStatus) onStatus(data);
       setError('');
     } catch (err) {
       if (!axios.isCancel(err)) setError(err.response?.data?.message || 'Telemetry could not be refreshed.');
@@ -28,28 +28,11 @@ export default function QuantitativeTelemetry({ onAccount }) {
     load(controller.signal);
     const timer = setInterval(() => load(controller.signal), 15000);
     return () => { clearInterval(timer); controller.abort(); };
-  }, [onAccount]);
-  const control = async (action) => {
-    setBusy(true);
-    try {
-      await axios.post('/api/webull/portfolio-algo/control', { action });
-      await load();
-    } catch (err) {
-      setError(err.response?.data?.message || 'Worker control failed.');
-    } finally { setBusy(false); }
-  };
+  }, [onAccount, refetchSignal]);
   const curve = status?.equity_curve || [];
   const performance = status?.performance || {};
   return <section className="quant-master-ribbon quant-telemetry" aria-label="Paper execution and performance">
     <h3>Paper execution &amp; performance</h3>
-    <div className="quant-ribbon-actions">
-      <strong role="status">{status?.worker_status || 'Loading…'}</strong>
-      <button className="btn-quant-save" disabled={busy || !status || status.enabled || status.kill_switch} onClick={() => control('start')}>Start paper engine</button>
-      <button className="btn-quant-save" disabled={busy || !status?.enabled} onClick={() => control('stop')}>Stop &amp; freeze</button>
-      <button className="btn-quant-save" disabled={busy || !status?.enabled} onClick={() => control('scan')}>Scan now</button>
-      <button className="btn-quant-reset-bankroll" disabled={busy || !status} onClick={() => control('kill')}>Kill switch</button>
-      {status?.kill_switch && <button className="btn-quant-save" disabled={busy} onClick={() => control('acknowledge')}>Acknowledge pause</button>}
-    </div>
     <p>Saved settings govern execution. Five-minute scans · Heartbeat: {date(status?.heartbeat_at)} · Paper run {status?.generation || '—'}</p>
     {error && <p role="alert">{error}</p>}
     {status?.pause_reason && <p className="quant-risk-notice" role="alert">{status.pause_reason}</p>}

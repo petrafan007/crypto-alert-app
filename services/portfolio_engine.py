@@ -443,8 +443,10 @@ def reset_bankroll(user_id, amount):
 
 
 def control(user_id, action):
+    from event_algo import get_or_create_config
     ensure_portfolio(user_id)
     cfg, acc, state = locked(user_id)
+    event_cfg = get_or_create_config(user_id)
     if action == 'start':
         if state.kill_switch:
             raise ValueError('Acknowledge the circuit breaker before starting.')
@@ -457,20 +459,30 @@ def control(user_id, action):
             raise ValueError('Unmanaged legacy positions exist. Archive this run with the reset control before starting.')
         cfg.enabled = True
         cfg.worker_status = 'STARTING'
+        event_cfg.enabled = True
+        event_cfg.kill_switch = False
+        event_cfg.worker_status = 'RUNNING'
         if not Snapshot.query.filter_by(user_id=user_id, generation=state.generation).first():
             snapshot(cfg, acc, state, datetime.utcnow())
     elif action == 'stop':
         cfg.enabled = False
         cfg.worker_status = 'PAUSED' if state.kill_switch else 'STOPPED'
+        event_cfg.enabled = False
+        event_cfg.worker_status = 'STOPPED'
         state.lease_token = state.lease_until = None
     elif action == 'kill':
         trigger_pause(cfg, state, 'Administrator activated the portfolio kill switch. Positions frozen.')
+        event_cfg.enabled = False
+        event_cfg.kill_switch = True
+        event_cfg.worker_status = 'KILLED'
     elif action == 'acknowledge':
         if acc.total_equity <= acc.initial_balance*0.9:
             raise ValueError('The portfolio remains below its drawdown floor; acknowledge after a confirmed bankroll reset.')
         state.kill_switch = False
         state.pause_reason = None
         cfg.worker_status = 'STOPPED'
+        event_cfg.kill_switch = False
+        event_cfg.worker_status = 'STOPPED'
     else:
         raise ValueError('Unknown worker action.')
     db.session.commit()

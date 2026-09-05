@@ -22,8 +22,10 @@ def check_data_access(cfg, provider=None):
         if module == 'events':
             from event_algo import EventStrategyConfig
             row = EventStrategyConfig.query.filter_by(user_id=cfg.user_id).first()
-            report[module] = {'status': 'READY' if row and row.enabled and not row.kill_switch else 'DISABLED',
-                              'message': 'Event collection must be enabled in its existing controls; fresh eligible decisions are checked during scans.'}
+            if row and row.enabled and not row.kill_switch:
+                report[module] = {'status': 'RUNNING', 'message': 'Engine is running; fresh eligible decisions are checked during scans.'}
+            else:
+                report[module] = {'status': 'DISABLED', 'message': 'Event collection must be enabled in the master controls.'}
             continue
         symbol, now = symbols[0], datetime.utcnow()
         try:
