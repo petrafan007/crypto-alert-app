@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
+import { useAuth } from '../components/AuthContext';
 import {
     FaKey, FaRobot, FaBell, FaShieldAlt, FaChartLine,
     FaCoins, FaFileInvoiceDollar, FaHome, FaCog,
@@ -79,6 +80,8 @@ const TOC_GROUPS = [
 ];
 
 export default function Help({ isLightMode }) {
+    const { user } = useAuth();
+    const isAdmin = Boolean(user?.is_admin || user?.id === 1);
     const textColor = isLightMode ? '#212529' : '#e0e0e0';
     const bgColor = isLightMode ? '#f8f9fa' : '#16213e';
     const cardBg = isLightMode ? '#ffffff' : '#1a1a2e';
@@ -771,6 +774,58 @@ export default function Help({ isLightMode }) {
                     current market price). If your order is rejected, adjust the price closer to the live market price.
                 </p>
             </Section>
+
+            {/* Admin-only: Quantitative Strategy Engine link */}
+            {isAdmin && (
+                <div style={{
+                    backgroundColor: isLightMode ? '#eaf3ff' : '#0d1f3c',
+                    border: `1px solid ${isLightMode ? '#90c4ff' : '#2a4a7f'}`,
+                    borderRadius: '12px',
+                    padding: '20px 24px',
+                    marginBottom: '20px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: '16px'
+                }}>
+                    <div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
+                            <span style={{ fontSize: '18px' }}>📊</span>
+                            <strong style={{ color: accentColor, fontSize: '1rem' }}>Quantitative Strategy Engine</strong>
+                            <span style={{
+                                backgroundColor: isLightMode ? '#ffc107' : '#856404',
+                                color: isLightMode ? '#212529' : '#ffc107',
+                                fontSize: '10px',
+                                fontWeight: 'bold',
+                                padding: '2px 6px',
+                                borderRadius: '4px',
+                                textTransform: 'uppercase',
+                                letterSpacing: '0.5px'
+                            }}>Admin</span>
+                        </div>
+                        <p style={{ color: textColor, margin: 0, fontSize: '14px', opacity: 0.8 }}>
+                            Technical documentation covering the engine's data pipeline, module algorithm mechanics,
+                            3-Tier AI integration, and administrative safeguards.
+                        </p>
+                    </div>
+                    <Link
+                        to="/help/quant-strategy-engine"
+                        style={{
+                            backgroundColor: accentColor,
+                            color: '#fff',
+                            padding: '8px 18px',
+                            borderRadius: '8px',
+                            textDecoration: 'none',
+                            fontWeight: 'bold',
+                            fontSize: '14px',
+                            whiteSpace: 'nowrap',
+                            flexShrink: 0
+                        }}
+                    >
+                        View Docs →
+                    </Link>
+                </div>
+            )}
 
             <div style={{ textAlign: 'center', padding: '20px', color: textColor, opacity: 0.6 }}>
                 <p>Need more help? Visit the <Link to="/support" style={{ color: accentColor }}>Support</Link> page or check the GitHub repository.</p>

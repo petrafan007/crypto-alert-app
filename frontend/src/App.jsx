@@ -15,6 +15,7 @@ const Staking = React.lazy(() => import('./pages/Staking'));
 const TaxReportBinance = React.lazy(() => import('./pages/TaxReportBinance'));
 const TaxReportWebull = React.lazy(() => import('./pages/TaxReportWebull'));
 const Help = React.lazy(() => import('./pages/Help'));
+const QuantitativeStrategyEngineDoc = React.lazy(() => import('./pages/QuantitativeStrategyEngineDoc'));
 const PrivacyPolicy = React.lazy(() => import('./pages/PrivacyPolicy'));
 const TermsOfService = React.lazy(() => import('./pages/TermsOfService'));
 const AcceptableUse = React.lazy(() => import('./pages/AcceptableUse'));
@@ -396,6 +397,12 @@ export default function App() {
             <Route path="/help" element={
               <ProtectedRoute isLightMode={isLightMode}>
                 <Help isLightMode={isLightMode} />
+              </ProtectedRoute>
+            }
+            />
+            <Route path="/help/quant-strategy-engine" element={
+              <ProtectedRoute isLightMode={isLightMode}>
+                <QuantitativeStrategyEngineDoc isLightMode={isLightMode} />
               </ProtectedRoute>
             } />
             <Route path="/privacy" element={<PrivacyPolicy isLightMode={isLightMode} />} />
