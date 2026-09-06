@@ -6,6 +6,12 @@
 
 **Last Updated**: September 2026
 
+## v2.92.5 (September 2026)
+
+- **Quantitative Strategy Engine Pre-Launch QA Certification:** Performed a comprehensive top-to-bottom quality assurance audit across all 6 core subsystems of the Quantitative Strategy Engine, verifying database state generation, sub-account balance isolation ($33,360 Cash, $11,095 Crypto, $5,545 Events, $0 Futures), background worker supervisor threads, market data pipelines, and multi-tier AI failover.
+- **AI Audit Log Evidence Collector Fix:** Resolved a missing `PortfolioEngineLog` import in `services/portfolio_engine.py` that would cause autonomous and manual Master CIO portfolio audits to fail with a `NameError`.
+- **Test Suite Architecture Harmonization:** Synchronized circuit-breaker assertions in `tests/test_portfolio_algo.py` to reflect the persistent 24/7 `MONITORING_ONLY` shadow viability tracking architecture.
+
 ## v2.92.4 (September 2026)
 
 - **Instant Real Order Confirmation (Asynchronous Ledger Recalculation):** Dispatched post-trade historical cost basis and tax/activity ledger recalculation (`recalculate_asset_activity`) into a background daemon thread with its own application context. Real order confirmations on Binance.US now return almost instantaneously (~1–2 seconds) rather than blocking the web response for 15–20+ seconds while recalculating historical transactions.

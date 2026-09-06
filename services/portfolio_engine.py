@@ -8,7 +8,6 @@ import json
 import logging
 import math
 import re
-import time
 from datetime import datetime, timedelta
 from uuid import uuid4
 
@@ -21,7 +20,7 @@ from portfolio_algo_models import (
     PortfolioStrategyPosition as Position, PortfolioStrategyOrder as Order,
     PortfolioEngineState as State, PortfolioStrategyLot as Lot,
     PortfolioEquitySnapshot as Snapshot, PortfolioAudit as Audit,
-    _record_portfolio_log,
+    PortfolioEngineLog, _record_portfolio_log,
 )
 from services.portfolio_strategy_signals import (
     MODULES, TYPES, ET, finite, utc, in_session, session_bounds,
@@ -580,7 +579,6 @@ def wipe_and_reset_portfolio(user_id, amount):
     Position.query.filter_by(user_id=user_id).delete(synchronize_session=False)
     Snapshot.query.filter_by(user_id=user_id).delete(synchronize_session=False)
     Audit.query.filter_by(user_id=user_id).delete(synchronize_session=False)
-    from portfolio_algo_models import PortfolioEngineLog
     PortfolioEngineLog.query.filter_by(user_id=user_id).delete(synchronize_session=False)
 
     # 2. Reset engine state to generation 1

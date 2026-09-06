@@ -416,7 +416,7 @@ class PortfolioLedgerTests(unittest.TestCase):
         self.assertTrue(e.check_circuit(self.cfg, self.acc, self.state))
         db.session.commit()
         self.assertTrue(self.state.kill_switch)
-        self.assertFalse(self.cfg.enabled)
+        self.assertEqual(self.cfg.worker_status, 'MONITORING_ONLY')
         self.assertEqual(Notification.query.filter_by(user_id=self.user_id, category='portfolio_strategy').count(), 1)
         e.check_circuit(self.cfg, self.acc, self.state)
         db.session.commit()
