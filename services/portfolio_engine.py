@@ -21,6 +21,7 @@ from portfolio_algo_models import (
     PortfolioStrategyPosition as Position, PortfolioStrategyOrder as Order,
     PortfolioEngineState as State, PortfolioStrategyLot as Lot,
     PortfolioEquitySnapshot as Snapshot, PortfolioAudit as Audit,
+    PortfolioEngineLog,
 )
 from services.portfolio_strategy_signals import (
     MODULES, TYPES, ET, finite, utc, in_session, session_bounds,
@@ -580,6 +581,10 @@ def run_scan(user_id, force=False, provider=None):
             if data is None:
                 data = PortfolioMarketData(user_id)
             return data
+        
+        from portfolio_algo_models import PortfolioEngineLog
+        PortfolioEngineLog.log(user_id, 'INFO', 'SCAN_START', 'Starting quantitative portfolio scan.')
+
         # Manage existing positions first, including symbols removed from the watchlist.
         for lot_id in lot_ids:
             lot = db.session.get(Lot, lot_id)
@@ -641,6 +646,8 @@ def run_scan(user_id, force=False, provider=None):
                     if daily+floating <= -settings[module]['max_intraday_loss']:
                         reason = 'DAILY_LOSS_LIMIT'
                 if reason:
+                    from portfolio_algo_models import PortfolioEngineLog
+                    PortfolioEngineLog.log(user_id, 'INFO', 'POSITION_CLOSED', f"Closing {module} lot {lot_id} ({symbol}) at {price:.4f}. Reason: {reason}")
                     close_lot(acc, lot, price, reason, now)
                 balances(acc, state, user_id)
                 if not check_circuit(cfg, acc, state) and lot.closed_at is None:
@@ -708,6 +715,8 @@ def run_scan(user_id, force=False, provider=None):
                         break
                     for entry_symbol, price, signal, details, key in entries:
                         if signal['enter']:
+                            from portfolio_algo_models import PortfolioEngineLog
+                            PortfolioEngineLog.log(user_id, 'INFO', 'POSITION_OPENED', f"Opening {module} position ({entry_symbol}) at {price:.4f}. Signal: {signal.get('reason', 'Unknown')}")
                             opened = enter_lot(cfg, acc, state, module, entry_symbol, signal, price, now, multiplier=multiplier, margin=margin, details=details, key=key)
                             report[module]['entries'] += int(opened is not None)
                             balances(acc, state, user_id)
@@ -719,6 +728,8 @@ def run_scan(user_id, force=False, provider=None):
                     report[module]['messages'].append(f'{watch_symbol}: {str(exc)[:200]}')
         cfg, acc, state = locked(user_id)
         if state.lease_token == token:
+            from portfolio_algo_models import PortfolioEngineLog
+            PortfolioEngineLog.log(user_id, 'INFO', 'SCAN_COMPLETE', 'Quantitative portfolio scan completed.')
             for module in MODULES:
                 if report[module]['messages'] and settings[module]['enabled']:
                     report[module]['status'] = data_status(' '.join(report[module]['messages']))
@@ -780,16 +791,11 @@ def audit_dict(row):
 
 
 def audit_due(cfg, state, now):
-    cadence = loads(cfg.master_ai_config, {}).get('cadence', 'off')
-    if cadence == 'off':
-        return False
-    day = utc(now).astimezone(ET).date()
-    bounds = session_bounds(day)
-    if not bounds or utc(now) < bounds[1]:
-        return False
+    from credentials import UserSetting
+    setting = UserSetting.query.filter_by(user_id=cfg.user_id).first()
+    hours = setting.event_strategy_audit_hours if setting and setting.event_strategy_audit_hours else 6
     if state.last_audit_at:
-        previous = utc(state.last_audit_at).astimezone(ET).date()
-        if previous == day or (cadence == 'weekly' and previous.isocalendar()[:2] == day.isocalendar()[:2]):
+        if (utc(now) - utc(state.last_audit_at)).total_seconds() < hours * 3600:
             return False
     return True
 
@@ -839,10 +845,22 @@ def run_audit(user_id, prompt=None, scheduled=False):
         from services.ai_service import call_ai_with_web_search, is_ai_enabled
         user = db.session.get(User, user_id)
         if user and is_ai_enabled(user.username):
+            from portfolio_algo_models import PortfolioEngineLog
             master_config = json.loads(cfg.master_ai_config) if cfg.master_ai_config else {}
+            
+            def get_ai_kwargs(tier_num=1):
+                tiers = ['primary', 'secondary', 'tertiary']
+                if tier_num <= len(tiers) and tiers[tier_num-1] in master_config:
+                    cfg_tier = master_config[tiers[tier_num-1]]
+                    if cfg_tier.get('provider') and cfg_tier.get('model'):
+                        return {'provider_override': cfg_tier['provider'], 'model_override': cfg_tier['model']}
+                return {}
+            
+            PortfolioEngineLog.log(user_id, 'INFO', 'AUDIT_START', 'Starting autonomous portfolio audit cascade.')
             # Sequential Module Audits
             module_responses = {}
             for module in enabled_modules:
+                PortfolioEngineLog.log(user_id, 'INFO', 'AUDIT_MODULE', f'Running localized AI auditor for module: {module}')
                 mod_settings = settings_for(cfg)[module]
                 module_prompt = mod_settings.get('auditor_prompt', f'Audit the {module} portfolio.')
                 module_evidence = {
@@ -852,21 +870,37 @@ def run_audit(user_id, prompt=None, scheduled=False):
                     'positions': [p for p in evidence['positions'] if p['instrument_type'].lower() == module or (module == 'equities' and p['instrument_type'] == 'EQUITY') or (module == 'events' and p['instrument_type'] == 'EVENT') or (module == 'options' and p['instrument_type'] == 'OPTION')],
                     'correlations': [c for c in evidence['correlations'] if c['a'] == module or c['b'] == module]
                 }
-                mod_resp, _ = call_ai_with_web_search(
-                    username=user.username, user_id=user_id,
-                    messages=[{'role': 'system', 'content': module_prompt + '\nReturn ONLY valid JSON format.'},
-                              {'role': 'user', 'content': json.dumps(module_evidence)}],
-                    prompt_type='portfolio_module_audit', symbol=module.upper(), include_db_context=False)
-                module_responses[module] = getattr(mod_resp, 'text', None)
+                
+                # Attempt with up to 3 tiers of failover
+                for tier in range(1, 4):
+                    kwargs = get_ai_kwargs(tier)
+                    mod_resp, _ = call_ai_with_web_search(
+                        username=user.username, user_id=user_id,
+                        messages=[{'role': 'system', 'content': module_prompt + '\nReturn ONLY valid JSON format.'},
+                                  {'role': 'user', 'content': json.dumps(module_evidence)}],
+                        prompt_type='portfolio_module_audit', symbol=module.upper(), include_db_context=False,
+                        **kwargs)
+                    if getattr(mod_resp, 'text', None):
+                        module_responses[module] = getattr(mod_resp, 'text', None)
+                        break
+                else:
+                    module_responses[module] = None
             
+            PortfolioEngineLog.log(user_id, 'INFO', 'AUDIT_MASTER', 'Synthesizing module insights via Master CIO.')
             # Master Audit
             evidence['module_audits'] = module_responses
-            response, _ = call_ai_with_web_search(
-                username=user.username, user_id=user_id,
-                messages=[{'role': 'system', 'content': (prompt or cfg.master_ai_prompt or DEFAULT_MASTER_CIO_PROMPT) +
-                          '\nUse only supplied quantitative evidence for numerical claims. Null means unavailable. Evaluate enabled_allocations and cash_allocation only for prospective diversification and returns. Disabled-module legacy positions and historical P&L remain real exposures, not future strategy contributions. Never invent correlations, stress results, probabilities of profit or guaranteed returns. Give advisory observations only; do not claim to execute changes.'},
-                          {'role': 'user', 'content': json.dumps(evidence)}],
-                prompt_type='portfolio_audit', symbol='PORTFOLIO', include_db_context=False)
+            for tier in range(1, 4):
+                kwargs = get_ai_kwargs(tier)
+                response, _ = call_ai_with_web_search(
+                    username=user.username, user_id=user_id,
+                    messages=[{'role': 'system', 'content': (prompt or cfg.master_ai_prompt or DEFAULT_MASTER_CIO_PROMPT) +
+                              '\nUse only supplied quantitative evidence for numerical claims. Null means unavailable. Evaluate enabled_allocations and cash_allocation only for prospective diversification and returns. Disabled-module legacy positions and historical P&L remain real exposures, not future strategy contributions. Never invent correlations, stress results, probabilities of profit or guaranteed returns. Give advisory observations only; do not claim to execute changes.'},
+                              {'role': 'user', 'content': json.dumps(evidence)}],
+                    prompt_type='portfolio_audit', symbol='PORTFOLIO', include_db_context=False,
+                    **kwargs)
+                if getattr(response, 'text', None):
+                    PortfolioEngineLog.log(user_id, 'INFO', 'AUDIT_COMPLETE', 'Master CIO audit successfully completed.')
+                    break
             content = getattr(response, 'text', None)
             provider, model = getattr(response, 'provider', None), getattr(response, 'model', None)
             if content:
