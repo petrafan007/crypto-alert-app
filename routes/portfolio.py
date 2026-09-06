@@ -3262,15 +3262,23 @@ def place_real_order():
                 trigger_portfolio_snapshot(current_user.id, current_user.username)
                 success_payload['order'] = real_order.to_dict()
 
-                try:
-                    recalculate_asset_activity(
-                        user_id=current_user.id,
-                        asset=symbol.replace('USDT', '').replace('USD', ''),
-                        price_provider=lambda sym: fetch_binance_price(sym),
-                        logger=logger
-                    )
-                except Exception as recalc_err:
-                    logger.warning(f"Failed to recalculate activity after real order for {symbol}: {recalc_err}")
+                user_id_val = current_user.id
+                asset_clean = symbol.replace('USDT', '').replace('USD', '')
+                app_obj = current_app._get_current_object()
+
+                def _async_recalculate():
+                    with app_obj.app_context():
+                        try:
+                            recalculate_asset_activity(
+                                user_id=user_id_val,
+                                asset=asset_clean,
+                                price_provider=lambda sym: fetch_binance_price(sym),
+                                logger=logger
+                            )
+                        except Exception as recalc_err:
+                            logger.warning(f"Failed to recalculate activity after real order for {symbol}: {recalc_err}")
+
+                threading.Thread(target=_async_recalculate, daemon=True).start()
 
                 logger.info(f"REAL ORDER PLACED for user {current_user.id}: {symbol} {side} {formatted_quantity} @ {avg_fill_price} - Order ID: {binance_order_id}")
             except Exception as post_err:

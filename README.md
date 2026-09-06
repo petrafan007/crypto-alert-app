@@ -6,6 +6,10 @@
 
 **Last Updated**: September 2026
 
+## v2.92.4 (September 2026)
+
+- **Instant Real Order Confirmation (Asynchronous Ledger Recalculation):** Dispatched post-trade historical cost basis and tax/activity ledger recalculation (`recalculate_asset_activity`) into a background daemon thread with its own application context. Real order confirmations on Binance.US now return almost instantaneously (~1–2 seconds) rather than blocking the web response for 15–20+ seconds while recalculating historical transactions.
+
 ## v2.92.3 (September 2026)
 
 - **Dashboard Allocations Donut Panel — Complete Portfolio Asset Coverage:** Fixed an issue where USDT, stablecoins, and cash balances were filtered out of the Dashboard Allocations donut chart and legend due to an aggressive non-investable filter (`isCashOrStableAsset`). Now all portfolio holdings with positive balance/value (including USDT and cash) are fully represented in the donut slices, legend, and center total.
