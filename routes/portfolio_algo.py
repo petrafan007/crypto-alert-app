@@ -133,3 +133,158 @@ def portfolio_algo_master_audit():
 def portfolio_algo_audits():
     rows = engine.Audit.query.filter_by(user_id=current_user.id).order_by(engine.Audit.id.desc()).limit(50).all()
     return jsonify(success=True, audits=[engine.audit_dict(row) for row in rows])
+
+
+@portfolio_algo_bp.route('/api/webull/portfolio-algo/ai-config', methods=['GET', 'POST'])
+@portfolio_admin_required
+def portfolio_algo_ai_config():
+    from event_algo_models import UserSetting
+    import json
+    cfg, acc, state = engine.ensure_portfolio(current_user.id)
+    user_setting = UserSetting.query.filter_by(user_id=current_user.id).first()
+
+    if request.method == "POST":
+        payload = request.get_json(silent=True) or {}
+        if "audit_hours" in payload and user_setting:
+            try:
+                user_setting.event_strategy_audit_hours = max(1, min(72, int(payload["audit_hours"])))
+            except (TypeError, ValueError):
+                pass
+
+        if "ai_config" in payload and isinstance(payload["ai_config"], dict):
+            try:
+                existing_ai = json.loads(cfg.master_ai_config) if cfg.master_ai_config else {}
+            except json.JSONDecodeError:
+                existing_ai = {}
+            new_ai = payload["ai_config"]
+            from credential_security import encrypt_secret
+            merged_ai = existing_ai.copy()
+            for tier in ("primary", "secondary", "tertiary"):
+                new_tier = new_ai.get(tier) or {}
+                old_tier = existing_ai.get(tier) or {}
+                raw_key = new_tier.get("api_key")
+                if raw_key == "********":
+                    stored_key = old_tier.get("api_key")
+                elif raw_key and str(raw_key).strip():
+                    stored_key = encrypt_secret(str(raw_key).strip())
+                else:
+                    stored_key = None
+                merged_ai[tier] = {
+                    "provider": str(new_tier.get("provider") or "").strip().lower(),
+                    "model": str(new_tier.get("model") or "").strip(),
+                    "reasoning_level": str(new_tier.get("reasoning_level") or "medium").strip().lower(),
+                    "api_key": stored_key,
+                }
+            cfg.master_ai_config = json.dumps(merged_ai)
+
+        from portfolio_algo_models import _record_portfolio_log
+        _record_portfolio_log(
+            current_user.id,
+            "AI_CONFIG_UPDATED",
+            "Master AI configuration and audit controls updated."
+        )
+        db.session.commit()
+
+    audit_hours = getattr(user_setting, "event_strategy_audit_hours", 6) if user_setting else 6
+    
+    from routes.event_algo import sanitize_event_ai_config
+    return jsonify({
+        "success": True,
+        "audit_hours": audit_hours,
+        "ai_config": sanitize_event_ai_config(cfg.master_ai_config or "{}"),
+    })
+
+
+@portfolio_algo_bp.route('/api/webull/portfolio-algo/ai-test', methods=['POST'])
+@portfolio_admin_required
+def portfolio_algo_ai_test():
+    payload = request.get_json(silent=True) or {}
+    provider = str(payload.get("provider") or "").strip().lower()
+    model = str(payload.get("model") or "").strip()
+    tier = str(payload.get("tier") or "primary").strip().lower()
+    reasoning_level = str(payload.get("reasoning_level") or "medium").strip().lower()
+    api_key = payload.get("api_key")
+
+    if not provider:
+        return jsonify({"success": False, "message": "AI provider is required"}), 400
+
+    if not api_key or api_key == "********":
+        cfg, acc, state = engine.ensure_portfolio(current_user.id)
+        import json
+        try:
+            raw_ai = json.loads(cfg.master_ai_config) if cfg.master_ai_config else {}
+        except json.JSONDecodeError:
+            raw_ai = {}
+        tier_data = raw_ai.get(tier) or {}
+        from credential_security import decrypt_secret
+        if tier_data.get("api_key"):
+            api_key = decrypt_secret(tier_data["api_key"])
+        if not api_key:
+            from event_algo_models import Credential
+            cred = Credential.query.filter_by(user_id=current_user.id).first()
+            if cred and provider != "ollama":
+                api_key = (
+                    decrypt_secret(getattr(cred, f"_{provider}_key", None)) or
+                    decrypt_secret(getattr(cred, f"{provider}_key", None))
+                )
+
+    import requests
+    if provider == "ollama":
+        try:
+            from services.ai_service import call_ollama_chat
+            test_model = model or "gpt-oss:120b-cloud"
+            call_ollama_chat(
+                test_model,
+                [{"role": "user", "content": "Reply with exactly OK."}],
+                max_tokens=32,
+                timeout=30,
+                reasoning_level=reasoning_level,
+            )
+            return jsonify({"success": True, "message": f"Ollama connection OK ({test_model})"})
+        except Exception as exc:
+            return jsonify({"success": False, "message": f"Ollama error: {exc}"}), 400
+
+    if not api_key:
+        return jsonify({"success": False, "message": f"API key is required for {provider.upper()}"}), 400
+
+    from routes.event_algo import test_provider_api
+    return test_provider_api(provider, api_key, model, reasoning_level)
+
+
+@portfolio_algo_bp.route('/api/webull/portfolio-algo/logs', methods=['GET'])
+@portfolio_admin_required
+def portfolio_algo_logs():
+    try:
+        limit = max(1, min(int(request.args.get("limit") or 200), 500))
+    except (TypeError, ValueError):
+        limit = 200
+    
+    from portfolio_algo_models import PortfolioEngineLog
+    query = PortfolioEngineLog.query.filter_by(user_id=current_user.id)
+    level = request.args.get("level")
+    event_type = request.args.get("event_type")
+    
+    if level and level != "ALL":
+        query = query.filter_by(level=level)
+    if event_type:
+        query = query.filter(PortfolioEngineLog.event_type.ilike(f"%{event_type}%"))
+    
+    rows = query.order_by(PortfolioEngineLog.id.desc()).limit(limit).all()
+    
+    data = []
+    for r in rows:
+        import json
+        try:
+            details = json.loads(r.details_json) if r.details_json else {}
+        except json.JSONDecodeError:
+            details = {}
+        data.append({
+            "id": r.id,
+            "created_at": r.created_at.isoformat() + "Z",
+            "level": r.level,
+            "event_type": r.event_type,
+            "message": r.message,
+            "details": details
+        })
+    
+    return jsonify({"success": True, "logs": data})

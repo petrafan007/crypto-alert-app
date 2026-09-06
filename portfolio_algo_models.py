@@ -43,7 +43,7 @@ DEFAULT_MODULE_SETTINGS = {
         "rsi_entry_threshold": 10,
         "bollinger_std": 2.0,
         "target_cagr_range": "12%–16%",
-        "specialist_prompt": (
+        "auditor_prompt": (
             "You are a quantitative equities specialist. Evaluate 200-day SMA trend alignment, sector momentum "
             "divergence (SMH, XLK, SPY), and short-term 2-day RSI oversold pullbacks across US equities and ETFs."
         ),
@@ -55,7 +55,7 @@ DEFAULT_MODULE_SETTINGS = {
         "exit_channel_periods": 10,
         "atr_stop_multiplier": 2.5,
         "target_cagr_range": "20%–35%",
-        "specialist_prompt": (
+        "auditor_prompt": (
             "You are a quantitative crypto assets specialist. Evaluate Donchian channel breakouts, Bitcoin dominance "
             "trends, on-chain volume surges, and ATR trailing stop discipline for BTC, ETH, and SOL."
         ),
@@ -68,7 +68,7 @@ DEFAULT_MODULE_SETTINGS = {
         "target_dte": 45,
         "profit_target_pct": 50,
         "target_cagr_range": "18%–24%",
-        "specialist_prompt": (
+        "auditor_prompt": (
             "You are a quantitative options volatility specialist. Analyze Implied Volatility Rank (IVR), Greeks "
             "(Delta, Gamma, Theta decay, Vega), and volatility skew for 45-DTE out-of-the-money credit spreads."
         ),
@@ -79,7 +79,7 @@ DEFAULT_MODULE_SETTINGS = {
         "opening_range_minutes": 15,
         "max_intraday_loss": 250.0,
         "target_cagr_range": "15%–22%",
-        "specialist_prompt": (
+        "auditor_prompt": (
             "You are a quantitative futures intraday specialist. Evaluate the 15-minute Opening Range Breakout (ORB), "
             "institutional volume at cash open (9:30 AM ET), and Volume-Weighted Average Price (VWAP) distance on MES and MNQ."
         ),
@@ -90,7 +90,7 @@ DEFAULT_MODULE_SETTINGS = {
         "min_confidence": 0.50,
         "min_net_edge": 0.015,
         "target_cagr_range": "20%–30%",
-        "specialist_prompt": (
+        "auditor_prompt": (
             "You are a quantitative binary event derivatives specialist. Audit 15-minute and hourly BTC/ETH event contracts, "
             "order book probability mispricings, and underlying spot velocity to capture risk-adjusted net edge."
         ),
@@ -241,3 +241,26 @@ class PortfolioMarketObservation(db.Model):
     day = db.Column(db.Date, nullable=False)
     value = db.Column(db.Float, nullable=False)
     __table_args__ = (db.UniqueConstraint("user_id", "series", "day", name="uq_portfolio_observation_day"),)
+
+
+class PortfolioEngineLog(db.Model):
+    __tablename__ = "portfolio_engine_logs"
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, nullable=False, index=True)
+    level = db.Column(db.String(24), default="INFO", nullable=False)
+    event_type = db.Column(db.String(64), nullable=False)
+    message = db.Column(db.Text, nullable=False)
+    details_json = db.Column(db.Text, default="{}", nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False, index=True)
+
+
+def _record_portfolio_log(user_id, event_type, message, level="INFO", **kwargs):
+    import traceback
+    try:
+        from database import db
+        details = json.dumps(kwargs)
+        row = PortfolioEngineLog(user_id=user_id, level=level, event_type=event_type, message=message, details_json=details)
+        db.session.add(row)
+    except Exception as exc:
+        print(f"Failed to record portfolio log: {exc}\n{traceback.format_exc()}")
+

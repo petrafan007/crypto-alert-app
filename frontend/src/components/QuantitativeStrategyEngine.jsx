@@ -122,9 +122,9 @@ export default function QuantitativeStrategyEngine({
   setEventStrategyMessage,
   saveEventStrategy,
   eventStrategyAction,
-  loadEventStrategyLogs,
-  loadEventStrategyReport,
-  openEventStrategyAIModal,
+  openMasterAIModal,
+  loadSystemLogs,
+  loadMasterReport,
   updateEventStrategySignal,
   updateEventStrategyDuration,
   EVENT_STRATEGY_DURATIONS,
@@ -379,6 +379,9 @@ export default function QuantitativeStrategyEngine({
           <button className="btn-quant-save" disabled={engineBusy || !engineStatus || engineStatus.enabled || engineStatus.kill_switch} onClick={() => handleEngineControl('start')}>Start paper engine</button>
           <button className="btn-quant-save" disabled={engineBusy || !engineStatus?.enabled} onClick={() => handleEngineControl('stop')}>Stop &amp; freeze</button>
           <button className="btn-quant-save" disabled={engineBusy || !engineStatus?.enabled} onClick={() => handleEngineControl('scan')}>Scan now</button>
+          <button className="btn-quant-save" disabled={engineBusy} onClick={loadSystemLogs}>📜 View logs</button>
+          <button className="btn-quant-save" disabled={engineBusy} onClick={() => loadMasterReport()}>📊 View report</button>
+          <button className="btn-quant-save" disabled={engineBusy} onClick={openMasterAIModal}>🤖 AI Configuration</button>
           <button className="btn-quant-reset-bankroll" disabled={engineBusy || !engineStatus} onClick={() => handleEngineControl('kill')}>Kill switch</button>
           {engineStatus?.kill_switch && <button className="btn-quant-save" disabled={engineBusy} onClick={() => handleEngineControl('acknowledge')}>Acknowledge pause</button>}
         </div>
@@ -763,9 +766,6 @@ export default function QuantitativeStrategyEngine({
 
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginBottom: 18 }}>
                 <button type="button" className="settings-save-button" disabled={eventStrategyBusy} onClick={saveEventStrategy}>💾 Save settings</button>
-                <button type="button" className="settings-action-button" disabled={eventStrategyBusy} onClick={loadEventStrategyLogs}>📜 View logs</button>
-                <button type="button" className="settings-action-button" disabled={eventStrategyBusy} onClick={() => loadEventStrategyReport()}>📊 View Report</button>
-                <button type="button" className="settings-action-button" disabled={eventStrategyBusy} onClick={openEventStrategyAIModal}>🤖 AI Configuration</button>
               </div>
 
               {/* Strategy Parameters Form */}
@@ -1141,7 +1141,7 @@ export default function QuantitativeStrategyEngine({
                           ...(prev.module_settings || {}),
                           [activeGearModal]: {
                             ...(prev.module_settings?.[activeGearModal] || {}),
-                            specialist_prompt: defaults?.module_settings?.[activeGearModal]?.specialist_prompt || '',
+                            auditor_prompt: defaults?.module_settings?.[activeGearModal]?.auditor_prompt || '',
                           },
                         },
                       }));
@@ -1153,14 +1153,14 @@ export default function QuantitativeStrategyEngine({
                 </div>
                 <textarea
                   rows="4"
-                  value={config?.module_settings?.[activeGearModal]?.specialist_prompt || ''}
+                  value={config?.module_settings?.[activeGearModal]?.auditor_prompt || ''}
                   onChange={(e) => setConfig((prev) => ({
                     ...prev,
                     module_settings: {
                       ...(prev.module_settings || {}),
                       [activeGearModal]: {
                         ...(prev.module_settings?.[activeGearModal] || {}),
-                        specialist_prompt: e.target.value,
+                        auditor_prompt: e.target.value,
                       },
                     },
                   }))}

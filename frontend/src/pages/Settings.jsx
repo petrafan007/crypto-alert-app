@@ -555,11 +555,13 @@ export default function Settings({ isLightMode }) {
     setEventStrategyReportError('');
     setEventStrategyReportMessage('');
     try {
-      const url = reportId ? `/api/webull/event-algo/report?id=${reportId}` : '/api/webull/event-algo/report';
+      const url = '/api/webull/portfolio-algo/audits';
       const response = await axios.get(url, { withCredentials: true });
       if (response.data?.success) {
-        setEventStrategyReport(response.data.report || null);
-        setEventStrategyReportHistory(response.data.history || []);
+        // Set the most recent audit as the current report, and all others as history
+        const audits = response.data.audits || [];
+        setEventStrategyReport(audits.length > 0 ? audits[0] : null);
+        setEventStrategyReportHistory(audits);
         setShowEventStrategyReport(true);
       } else {
         const errMsg = response.data?.message || 'Unable to load strategy engine report.';
@@ -580,12 +582,13 @@ export default function Settings({ isLightMode }) {
     setEventStrategyReportError('');
     setEventStrategyReportMessage('');
     try {
-      const response = await axios.post('/api/webull/event-algo/report/generate', { hours: 6 }, { withCredentials: true });
+      const response = await axios.post('/api/webull/portfolio-algo/master-audit', {}, { withCredentials: true });
       if (response.data?.success) {
-        setEventStrategyReport(response.data.report || null);
-        setEventStrategyReportHistory(response.data.history || []);
-        setEventStrategyReportMessage('AI audit report generated successfully.');
-        setEventStrategyMessage('AI audit report generated successfully.');
+        setEventStrategyReport(response.data.audit || null);
+        // Refresh history
+        loadEventStrategyReport();
+        setEventStrategyReportMessage('Master AI audit report generated successfully.');
+        setEventStrategyMessage('Master AI audit report generated successfully.');
       } else {
         const errMsg = response.data?.message || 'Unable to generate AI audit report.';
         setEventStrategyReportError(errMsg);
@@ -613,7 +616,7 @@ export default function Settings({ isLightMode }) {
   const loadEventStrategyAIConfig = async () => {
     setEventStrategyAILoading(true);
     try {
-      const response = await axios.get('/api/webull/event-algo/ai-config', { withCredentials: true });
+      const response = await axios.get('/api/webull/portfolio-algo/ai-config', { withCredentials: true });
       if (response.data?.success) {
         setEventStrategyAIConfig({
           audit_hours: response.data.audit_hours ?? 6,
@@ -641,7 +644,7 @@ export default function Settings({ isLightMode }) {
   const saveEventStrategyAIConfig = async () => {
     setEventStrategyAISaving(true);
     try {
-      const response = await axios.post('/api/webull/event-algo/ai-config', eventStrategyAIConfig, { withCredentials: true });
+      const response = await axios.post('/api/webull/portfolio-algo/ai-config', eventStrategyAIConfig, { withCredentials: true });
       if (response.data?.success) {
         setEventStrategyMessage('Event Strategy AI configuration saved successfully.');
         setSettings((prev) => ({
@@ -670,7 +673,7 @@ export default function Settings({ isLightMode }) {
     setEventStrategyAITestResults((prev) => ({ ...prev, [tierKey]: null }));
     const tierData = eventStrategyAIConfig?.ai_config?.[tierKey] || {};
     try {
-      const res = await axios.post('/api/webull/event-algo/ai-test', {
+      const res = await axios.post('/api/webull/portfolio-algo/ai-test', {
         tier: tierKey,
         provider: tierData.provider,
         model: tierData.model,
@@ -4123,9 +4126,9 @@ export default function Settings({ isLightMode }) {
           setEventStrategyMessage={setEventStrategyMessage}
           saveEventStrategy={saveEventStrategy}
           eventStrategyAction={eventStrategyAction}
-          loadEventStrategyLogs={loadEventStrategyLogs}
-          loadEventStrategyReport={loadEventStrategyReport}
-          openEventStrategyAIModal={openEventStrategyAIModal}
+          loadSystemLogs={loadEventStrategyLogs}
+          loadMasterReport={loadEventStrategyReport}
+          openMasterAIModal={openEventStrategyAIModal}
           updateEventStrategySignal={updateEventStrategySignal}
           updateEventStrategyDuration={updateEventStrategyDuration}
           EVENT_STRATEGY_DURATIONS={EVENT_STRATEGY_DURATIONS}
@@ -4383,7 +4386,7 @@ export default function Settings({ isLightMode }) {
         document.body,
       )}
 
-      {/* Event Strategy AI Configuration Modal */}
+      {/* Master Quantitative Strategy Engine AI Configuration Modal */}
       {showEventStrategyAIModal && createPortal(
         <div role="dialog" aria-modal="true" style={{ position: 'fixed', inset: 0, zIndex: 10000, background: 'rgba(0,0,0,0.78)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20, backdropFilter: 'blur(4px)' }}>
           <div style={{ width: 'min(1060px, 96vw)', maxHeight: '90vh', overflow: 'hidden', borderRadius: 14, background: isLightMode ? '#ffffff' : '#0f172a', color: isLightMode ? '#1a202c' : '#e2e8f0', border: '1px solid #38bdf8', display: 'flex', flexDirection: 'column', boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.7)' }}>
@@ -4391,7 +4394,7 @@ export default function Settings({ isLightMode }) {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 24px', borderBottom: '1px solid rgba(148,163,184,0.2)', background: isLightMode ? '#f8fafc' : 'rgba(255,255,255,0.02)' }}>
               <div>
                 <h3 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: 10, fontSize: '1.25rem', color: isLightMode ? '#0f172a' : '#f8fafc' }}>
-                  <span>🤖</span> Event Contract Strategy Engine AI Configuration
+                  <span>🤖</span> Master Quantitative Strategy Engine AI Configuration
                 </h3>
                 <div style={{ fontSize: '0.82rem', color: isLightMode ? '#64748b' : '#94a3b8', marginTop: 4 }}>
                   Dedicated 3-tier AI integration cascade, isolated API credentials, and autonomous operational audit controls.

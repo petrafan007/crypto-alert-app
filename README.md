@@ -6,6 +6,13 @@
 
 **Last Updated**: September 2026
 
+## v2.90.0 (September 2026)
+
+- Completed Global Master AI Architecture refactor for the Quantitative Strategy Engine.
+- Centralized "View logs", "View report", and "AI configuration" buttons into the master engine ribbon, governing the entire system.
+- Refactored AI audit logic to sequentially query enabled modules with an `auditor_prompt` before aggregating into a holistic master report.
+- Removed duplicated AI configurations and isolated endpoints from the Event Contracts module.
+
 ## v2.89.5 (September 2026)
 
 - Unified quantitative strategy execution controls. The main Start, Stop, Scan Now, and Kill Switch controls have been moved to the top of the Quantitative Strategy Engine dashboard to govern all modules, including Event Contracts, synchronously.

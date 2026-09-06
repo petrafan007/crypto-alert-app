@@ -109,9 +109,9 @@ def validate_config(payload, cfg):
                     if type(val) is not bool:
                         raise ValueError('Module enabled must be a boolean.')
                     settings[module][key] = val
-                elif key == 'specialist_prompt':
+                elif key == 'auditor_prompt':
                     if not isinstance(val, str) or len(val) > 12000:
-                        raise ValueError('Specialist prompt must be text of at most 12000 characters.')
+                        raise ValueError('Auditor prompt must be text of at most 12000 characters.')
                     settings[module][key] = val.strip()
                 # Descriptive strategy names/return aspirations are not executable settings.
         if settings['crypto']['exit_channel_periods'] >= settings['crypto']['entry_channel_periods']:
@@ -829,8 +829,6 @@ def run_audit(user_id, prompt=None, scheduled=False):
                                 if evidence['account']['total_equity'] > 0 else None),
         }
         evidence['target_annual_return'] = cfg.target_annual_return
-        evidence['specialist_mandates'] = {m: s['specialist_prompt'] for m, s in settings_for(cfg).items() if s['enabled']}
-        evidence['limitations_of_disabled_modules'] = 'Disabled modules cannot open new positions. Target capital is redistributed among enabled modules, or held as 100% cash when none are enabled. Actual cash can differ from target until qualified entries or fresh-price exits occur; existing positions and historical P&L remain included. Do not attribute future returns or diversification to disabled modules.'
         evidence['limitations'] = ['Paper simulation with estimated costs; targets are aspirations.',
                                   'Annualized return requires 30 elapsed days; ratios/correlations require 30 daily samples.',
                                   'No simulated stress test has been performed; no numerical forecast is supplied.']
@@ -841,6 +839,28 @@ def run_audit(user_id, prompt=None, scheduled=False):
         from services.ai_service import call_ai_with_web_search, is_ai_enabled
         user = db.session.get(User, user_id)
         if user and is_ai_enabled(user.username):
+            master_config = json.loads(cfg.master_ai_config) if cfg.master_ai_config else {}
+            # Sequential Module Audits
+            module_responses = {}
+            for module in enabled_modules:
+                mod_settings = settings_for(cfg)[module]
+                module_prompt = mod_settings.get('auditor_prompt', f'Audit the {module} portfolio.')
+                module_evidence = {
+                    'module': module,
+                    'allocation': evidence['allocations'][module],
+                    'metrics': evidence['modules'][module],
+                    'positions': [p for p in evidence['positions'] if p['instrument_type'].lower() == module or (module == 'equities' and p['instrument_type'] == 'EQUITY') or (module == 'events' and p['instrument_type'] == 'EVENT') or (module == 'options' and p['instrument_type'] == 'OPTION')],
+                    'correlations': [c for c in evidence['correlations'] if c['a'] == module or c['b'] == module]
+                }
+                mod_resp, _ = call_ai_with_web_search(
+                    username=user.username, user_id=user_id,
+                    messages=[{'role': 'system', 'content': module_prompt + '\nReturn ONLY valid JSON format.'},
+                              {'role': 'user', 'content': json.dumps(module_evidence)}],
+                    prompt_type='portfolio_module_audit', symbol=module.upper(), include_db_context=False)
+                module_responses[module] = getattr(mod_resp, 'text', None)
+            
+            # Master Audit
+            evidence['module_audits'] = module_responses
             response, _ = call_ai_with_web_search(
                 username=user.username, user_id=user_id,
                 messages=[{'role': 'system', 'content': (prompt or cfg.master_ai_prompt or DEFAULT_MASTER_CIO_PROMPT) +
