@@ -138,7 +138,7 @@ def portfolio_algo_audits():
 @portfolio_algo_bp.route('/api/webull/portfolio-algo/ai-config', methods=['GET', 'POST'])
 @portfolio_admin_required
 def portfolio_algo_ai_config():
-    from event_algo_models import UserSetting
+    from credentials import UserSetting
     import json
     cfg, acc, state = engine.ensure_portfolio(current_user.id)
     user_setting = UserSetting.query.filter_by(user_id=current_user.id).first()
