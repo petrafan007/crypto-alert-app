@@ -894,7 +894,9 @@ def run_scan(user_id, force=False, provider=None):
             _record_portfolio_log(user_id, 'SCAN_COMPLETE', 'Quantitative portfolio scan completed.')
             for module in MODULES:
                 if report[module]['messages'] and settings[module]['enabled']:
-                    report[module]['status'] = data_status(' '.join(report[module]['messages']))
+                    err_msgs = [m for m in report[module]['messages'] if 'execution held' not in m]
+                    if err_msgs:
+                        report[module]['status'] = data_status(' '.join(err_msgs))
             state.telemetry_json = json.dumps(report)
             snapshot(cfg, acc, state, datetime.utcnow())
             check_circuit(cfg, acc, state)
@@ -903,7 +905,12 @@ def run_scan(user_id, force=False, provider=None):
             if state.kill_switch:
                 cfg.worker_status = 'MONITORING_ONLY'
             else:
-                cfg.worker_status = 'DEGRADED' if any(r['messages'] for r in report.values()) else 'RUNNING'
+                degraded = any(
+                    report[m]['status'] in ('DATA_LIMITED', 'SUBSCRIPTION_REQUIRED')
+                    for m in MODULES
+                    if settings[m]['enabled']
+                )
+                cfg.worker_status = 'DEGRADED' if degraded else 'RUNNING'
             db.session.commit()
         else:
             db.session.rollback()

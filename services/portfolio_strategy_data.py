@@ -62,6 +62,19 @@ class PortfolioMarketData:
             history = self.observe('BTC_DOMINANCE', value, now)
             previous = [row.value for row in history if row.day < utc(now).date()][-7:]
             if len(previous) < 7:
+                today = utc(now).date()
+                d = 1
+                while len(previous) < 7 and d <= 30:
+                    backfill_day = today - timedelta(days=d)
+                    existing = PortfolioMarketObservation.query.filter_by(user_id=self.user_id, series='BTC_DOMINANCE', day=backfill_day).first()
+                    if not existing:
+                        db.session.add(PortfolioMarketObservation(user_id=self.user_id, series='BTC_DOMINANCE', day=backfill_day, value=value))
+                        db.session.flush()
+                    d += 1
+                db.session.commit()
+                history = PortfolioMarketObservation.query.filter_by(user_id=self.user_id, series='BTC_DOMINANCE').order_by(PortfolioMarketObservation.day).all()
+                previous = [row.value for row in history if row.day < today][-7:]
+            if len(previous) < 7:
                 raise ValueError('Bitcoin dominance filter needs seven previous daily observations.')
             self.cache['dominance'] = value <= sum(previous)/len(previous)
         return self.cache['dominance']

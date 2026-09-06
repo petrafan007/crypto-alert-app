@@ -6,6 +6,12 @@
 
 **Last Updated**: September 2026
 
+## v2.92.6 (September 2026)
+
+- **Quantitative Worker Status Resilience & Degraded Trigger Resolution:** Resolved an overly aggressive degraded trigger in `services/portfolio_engine.py` where any telemetry message (such as informational notices or strategy warm-up messages) falsely degraded the entire running paper engine. Worker status now strictly reflects active operational health and only transitions to `DEGRADED` if enabled strategy modules encounter unresolved provider/subscription errors or data limitations (`DATA_LIMITED` / `SUBSCRIPTION_REQUIRED`).
+- **Bitcoin Dominance Cold-Start Baseline Bootstrap:** Fixed a cold-start issue in `services/portfolio_strategy_data.py` where evaluating altcoin crypto strategies (ETH, SOL) required seven prior daily Bitcoin dominance observations in `portfolio_market_observations`. When starting a new paper engine or prior to seven elapsed calendar days, the engine now automatically bootstraps baseline daily observations using the live CoinGecko global market observation to ensure immediate clean evaluation without throwing `ValueError`.
+- **Warming-Up & Execution-Held Telemetry Isolation:** Strategy modules undergoing historical warm-up remain in `RUNNING` status with clear module-level health badges, and viable setup notifications held under 24/7 monitoring mode no longer trigger false positive data degradation warnings.
+
 ## v2.92.5 (September 2026)
 
 - **Quantitative Strategy Engine Pre-Launch QA Certification:** Performed a comprehensive top-to-bottom quality assurance audit across all 6 core subsystems of the Quantitative Strategy Engine, verifying database state generation, sub-account balance isolation ($33,360 Cash, $11,095 Crypto, $5,545 Events, $0 Futures), background worker supervisor threads, market data pipelines, and multi-tier AI failover.

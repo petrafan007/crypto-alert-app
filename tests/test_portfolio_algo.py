@@ -726,6 +726,16 @@ class PortfolioLedgerTests(unittest.TestCase):
         self.assertIsNone(self.state.lease_token)
         self.assertEqual(self.cfg.worker_status, 'DEGRADED')
 
+    def test_scan_warming_up_status_does_not_degrade_worker(self):
+        from unittest.mock import MagicMock
+        e.control(self.user_id, 'start')
+        data = MagicMock()
+        data.quote.side_effect = ValueError('Awaiting 7 daily observations for baseline')
+        result = e.run_scan(self.user_id, True, provider=data)
+        self.assertTrue(result['success'])
+        self.assertEqual(result['modules']['crypto']['status'], 'WARMING_UP')
+        self.assertEqual(self.cfg.worker_status, 'RUNNING')
+
 
     def test_disabled_position_keeps_last_mark_when_quote_unavailable(self):
         from unittest.mock import MagicMock
