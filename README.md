@@ -6,6 +6,13 @@
 
 **Last Updated**: September 2026
 
+## v2.92.1 (September 2026)
+
+- **Multi-Account Segregation & Dynamic Enabled Allocations:** Replicated Webull's real-world non-IRA sub-account structure (Individual Cash for Equities, ETFs & Options; Crypto Account for Spot; Events Cash Account for Event Contracts; Futures Account for Micro Futures). Capital dynamically distributes across segregated accounts based on enabled module weights ($33,360.00 Individual Cash, $11,095.00 Crypto, $5,545.00 Events Cash, $0.00 Futures for the baseline $50,000.00 bankroll).
+- **Strict Watchlist Monitoring & Telemetry Ingestion:** Verified and enforced that scanning workers and algorithmic strategies monitor ONLY explicitly configured module watchlist tickers (`SPY, QQQ, IWM, SMH, XLK, NVDA, AAPL, MSFT, AMZN, TSLA` for equities; `SPY, QQQ, IWM, NVDA, TSLA` for options; `BTC, ETH, SOL` for crypto; `KXBTC15M, KXBTCD, KXETH15M, KXINXD` for events; futures disabled) with zero arbitrary market entry scanning. Watchlists and live scan observations are fed directly into Specialist and Master CIO audit evidence.
+- **Interactive Reset Paper Engine Modal with ZIP Backup:** Added an interactive "🔄 Reset Paper Engine" modal featuring irreversible wipe confirmation, two-decimal starting bankroll input, and one-click ZIP archive backup download (`orders.json`, `positions.json`, `lots.json`, `snapshots.json`, `audits.json`, `logs.json`, `config.json`). Completely purges historical paper records while cleanly preserving user configuration, watchlists, allocation weights, and custom AI prompts.
+- **Pinned Header Mode Switcher & Relocated Deposit Button:** Pinned the 3-Way Mode Switcher permanently top-right with `flex-shrink: 0` to prevent wrapping, and relocated the "💰 Deposit Fake Money" action button directly into the active Test Mode banner alongside the paper cash readout.
+
 ## v2.92.0 (September 2026)
 
 - Master Quantitative AI Audit reports now open Section 1 (`## 1. Executive Summary`) with a concise 1–2 paragraph narrative TL;DR explaining portfolio state, engine performance, module limitations or errors, and concrete strategy suggestions before the KPI table.

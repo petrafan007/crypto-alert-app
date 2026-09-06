@@ -1,16 +1,35 @@
-"""Administrator-only quantitative research API; all execution is isolated paper."""
-from functools import wraps
+import io
+import json
 import threading
+import zipfile
+from datetime import datetime
+from functools import wraps
 
-from flask import Blueprint, current_app, jsonify, request
+from flask import Blueprint, current_app, jsonify, request, send_file
 from flask_login import current_user, login_required
 
 from core.extensions import db
 from event_algo import is_event_strategy_admin
-from portfolio_algo_models import DEFAULT_ALLOCATIONS, DEFAULT_MASTER_CIO_PROMPT, DEFAULT_MODULE_SETTINGS, DEFAULT_QUANT_WATCHLISTS
+from portfolio_algo_models import (
+    DEFAULT_ALLOCATIONS, DEFAULT_MASTER_CIO_PROMPT, DEFAULT_MODULE_SETTINGS, DEFAULT_QUANT_WATCHLISTS,
+    PortfolioStrategyOrder, PortfolioStrategyPosition, PortfolioStrategyLot,
+    PortfolioEquitySnapshot, PortfolioAudit, PortfolioEngineLog
+)
 from services import portfolio_engine as engine
 
 portfolio_algo_bp = Blueprint('portfolio_algo', __name__)
+
+
+def _quant_account_mapping(instrument_type, module_name=None):
+    mod = str(module_name or '').upper()
+    inst = str(instrument_type or '').upper()
+    if mod == 'CRYPTO' or inst == 'CRYPTO':
+        return 'QUANT_ACC_CRYPTO', 'Crypto'
+    if mod in ('EVENTS', 'EVENT') or inst == 'EVENT':
+        return 'QUANT_ACC_EVENTS', 'Events Cash'
+    if mod in ('FUTURES', 'FUTURE') or inst == 'FUTURES':
+        return 'QUANT_ACC_FUTURES', 'Futures'
+    return 'QUANT_ACC_INDIVIDUAL_CASH', 'Individual Cash'
 
 
 def portfolio_admin_required(view):
@@ -89,13 +108,105 @@ def portfolio_algo_data_check():
 
 
 @portfolio_algo_bp.route('/api/webull/portfolio-algo/reset-bankroll', methods=['POST'])
+@portfolio_algo_bp.route('/api/portfolio-algo/reset-bankroll', methods=['POST'])
 @portfolio_admin_required
 def portfolio_algo_reset_bankroll():
     data = payload()
     if data.get('confirm') is not True:
         raise ValueError('Explicit bankroll reset confirmation is required.')
-    result = engine.reset_bankroll(current_user.id, data.get('amount', 50000))
+    amount = float(data.get('amount', 50000))
+    if data.get('wipe_history') is True:
+        result = engine.wipe_and_reset_portfolio(current_user.id, amount)
+        return jsonify(
+            success=True,
+            message=f'Paper engine cleanly reset with ${amount:,.2f} bankroll. All previous trade data, logs, and reports purged.',
+            account=result
+        )
+    result = engine.reset_bankroll(current_user.id, amount)
     return jsonify(success=True, message='New paper bankroll created. Previous run archived; engine stopped.', account=result)
+
+
+@portfolio_algo_bp.route('/api/webull/portfolio-algo/export-archive', methods=['GET'])
+@portfolio_algo_bp.route('/api/portfolio-algo/export-archive', methods=['GET'])
+@portfolio_admin_required
+def portfolio_algo_export_archive():
+    """Bundle all past quantitative orders, positions, snapshots, audits, and logs into a downloadable ZIP archive."""
+    user_id = current_user.id
+    cfg, acc, state = engine.ensure_portfolio(user_id)
+
+    orders = PortfolioStrategyOrder.query.filter_by(user_id=user_id).order_by(PortfolioStrategyOrder.created_at.asc()).all()
+    orders_data = [{
+        'id': o.id, 'symbol': o.symbol, 'module_name': o.module_name, 'instrument_type': o.instrument_type,
+        'side': o.side, 'order_type': o.order_type, 'quantity': o.quantity, 'price': o.price,
+        'status': o.status, 'pnl': o.pnl, 'notes': o.notes,
+        'created_at': o.created_at.isoformat() if o.created_at else None,
+    } for o in orders]
+
+    positions = PortfolioStrategyPosition.query.filter_by(user_id=user_id).all()
+    pos_data = [{
+        'id': p.id, 'symbol': p.symbol, 'instrument_type': p.instrument_type, 'side': p.side,
+        'quantity': p.quantity, 'average_cost': p.average_cost, 'market_price': p.market_price,
+        'market_value': p.market_value, 'unrealized_pnl': p.unrealized_pnl,
+        'updated_at': p.updated_at.isoformat() if p.updated_at else None,
+    } for p in positions]
+
+    lots = PortfolioStrategyLot.query.filter_by(user_id=user_id).all()
+    lots_data = [{
+        'id': l.id, 'position_id': l.position_id, 'generation': l.generation, 'module': l.module,
+        'signal_key': l.signal_key, 'collateral': l.collateral, 'multiplier': l.multiplier,
+        'stop_price': l.stop_price, 'target_price': l.target_price, 'entry_fee': l.entry_fee,
+        'realized_pnl': l.realized_pnl, 'details': l.details_json,
+        'opened_at': l.opened_at.isoformat() if l.opened_at else None,
+        'closed_at': l.closed_at.isoformat() if l.closed_at else None,
+    } for l in lots]
+
+    snapshots = PortfolioEquitySnapshot.query.filter_by(user_id=user_id).order_by(PortfolioEquitySnapshot.created_at.asc()).all()
+    snaps_data = [{
+        'id': s.id, 'generation': s.generation, 'equity': s.equity, 'cash': s.cash,
+        'realized_pnl': s.realized_pnl, 'unrealized_pnl': s.unrealized_pnl,
+        'modules': s.modules_json, 'created_at': s.created_at.isoformat() if s.created_at else None,
+    } for s in snapshots]
+
+    audits = PortfolioAudit.query.filter_by(user_id=user_id).order_by(PortfolioAudit.created_at.asc()).all()
+    audits_data = [{
+        'id': a.id, 'generation': a.generation, 'status': a.status, 'provider': a.provider,
+        'model': a.model, 'content': a.content, 'evidence': a.evidence_json,
+        'created_at': a.created_at.isoformat() if a.created_at else None,
+    } for a in audits]
+
+    logs = PortfolioEngineLog.query.filter_by(user_id=user_id).order_by(PortfolioEngineLog.created_at.asc()).all()
+    logs_data = [{
+        'id': lg.id, 'level': lg.level, 'event_type': lg.event_type, 'message': lg.message,
+        'details': lg.details_json, 'created_at': lg.created_at.isoformat() if lg.created_at else None,
+    } for lg in logs]
+
+    config_data = {
+        'total_bankroll': cfg.total_bankroll,
+        'target_annual_return': cfg.target_annual_return,
+        'allocations': json.loads(cfg.allocations_json) if cfg.allocations_json else {},
+        'watchlists': json.loads(cfg.watchlists_json) if cfg.watchlists_json else {},
+        'module_settings': json.loads(cfg.module_settings_json) if cfg.module_settings_json else {},
+        'mode': cfg.mode, 'enabled': cfg.enabled,
+        'account': {
+            'initial_balance': acc.initial_balance, 'cash_balance': acc.cash_balance,
+            'total_equity': acc.total_equity, 'reset_at': acc.reset_at.isoformat() if acc.reset_at else None,
+        }
+    }
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr('orders.json', json.dumps(orders_data, indent=2))
+        zf.writestr('positions.json', json.dumps(pos_data, indent=2))
+        zf.writestr('lots.json', json.dumps(lots_data, indent=2))
+        zf.writestr('snapshots.json', json.dumps(snaps_data, indent=2))
+        zf.writestr('audits.json', json.dumps(audits_data, indent=2))
+        zf.writestr('logs.json', json.dumps(logs_data, indent=2))
+        zf.writestr('config.json', json.dumps(config_data, indent=2))
+
+    buf.seek(0)
+    ts = datetime.utcnow().strftime('%Y%m%d_%H%M%S')
+    filename = f'quant_portfolio_backup_{ts}.zip'
+    return send_file(buf, mimetype='application/zip', as_attachment=True, download_name=filename)
 
 
 @portfolio_algo_bp.route('/api/webull/portfolio-algo/control', methods=['POST'])
@@ -324,6 +435,7 @@ def portfolio_algo_orders():
                 notes_dict = json.loads(r.notes)
             except Exception:
                 notes_dict = {'raw': r.notes}
+        acct_id, acct_name = _quant_account_mapping(r.instrument_type, r.module_name)
         orders.append({
             'id': f'QUANT_{r.id}',
             'order_id': f'QUANT_{r.id}',
@@ -341,7 +453,8 @@ def portfolio_algo_orders():
             'details': notes_dict,
             'is_paper': True,
             'is_quant': True,
-            'account_id': 'QUANT_PAPER_ACCOUNT',
+            'account_id': acct_id,
+            'account_name': acct_name,
             'created_at': r.created_at.isoformat() + 'Z' if r.created_at else None,
         })
     return jsonify(success=True, orders=orders, total=len(orders))
@@ -353,6 +466,7 @@ def portfolio_algo_positions():
     status = engine.portfolio_status(current_user.id)
     positions = []
     for p in status.get('positions', []):
+        acct_id, acct_name = _quant_account_mapping(p.get('instrument_type'), p.get('module'))
         positions.append({
             'id': f"QUANT_POS_{p['id']}",
             'symbol': p['symbol'],
@@ -370,7 +484,8 @@ def portfolio_algo_positions():
             'details': p.get('details', {}),
             'is_paper': True,
             'is_quant': True,
-            'account_id': 'QUANT_PAPER_ACCOUNT',
+            'account_id': acct_id,
+            'account_name': acct_name,
             'source': 'webull_quant',
             'updated_at': p.get('marked_at'),
         })
@@ -384,8 +499,8 @@ def portfolio_algo_account_summary():
     acc = status.get('account', {})
     perf = status.get('performance', {})
     summary = {
-        'account_id': 'QUANT_PAPER_ACCOUNT',
-        'account_name': 'Quantitative Strategy Engine (Isolated Paper)',
+        'account_id': 'QUANT_ACC_INDIVIDUAL_CASH',
+        'account_name': 'Quantitative Strategy Engine Portfolio',
         'cash_balance': acc.get('cash_balance', 50000.0),
         'net_liquidation': acc.get('total_equity', 50000.0),
         'total_equity': acc.get('total_equity', 50000.0),
@@ -397,6 +512,7 @@ def portfolio_algo_account_summary():
         'win_rate_pct': perf.get('win_rate_pct'),
         'open_positions_count': status.get('open_positions_count', 0),
         'worker_status': status.get('worker_status', 'STOPPED'),
+        'accounts': status.get('sub_accounts', []),
         'is_paper': True,
         'is_quant': True,
     }

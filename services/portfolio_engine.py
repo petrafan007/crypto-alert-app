@@ -374,6 +374,104 @@ def observed_drawdown(user_id, generation):
     return float(maximum or 0)*100
 
 
+def compute_sub_accounts(user_id, cfg, acc, state, positions, lots):
+    """Compute segregated real-world non-IRA sub-accounts matching Webull architecture.
+
+    Splits total baseline across:
+      1. Individual Cash (Equities & Options)
+      2. Crypto (Spot)
+      3. Events Cash (Event Contracts)
+      4. Futures (Micro Futures)
+    """
+    # Honor active enabled allocation weights dynamically (0% to disabled modules)
+    normalized_weights = allocations_for(cfg)
+
+    account_defs = [
+        {
+            'account_id': 'QUANT_ACC_INDIVIDUAL_CASH',
+            'account_id_masked': '••••CASH',
+            'account_name': 'Individual Cash',
+            'account_label': 'Individual Cash (Equities & Options)',
+            'account_type': 'CASH',
+            'account_class': 'CASH',
+            'modules': ['equities', 'options'],
+            'instruments': ['EQUITY', 'OPTION'],
+        },
+        {
+            'account_id': 'QUANT_ACC_CRYPTO',
+            'account_id_masked': '••••CRYP',
+            'account_name': 'Crypto',
+            'account_label': 'Crypto (Spot)',
+            'account_type': 'CASH',
+            'account_class': 'CRYPTO',
+            'modules': ['crypto'],
+            'instruments': ['CRYPTO'],
+        },
+        {
+            'account_id': 'QUANT_ACC_EVENTS',
+            'account_id_masked': '••••EVNT',
+            'account_name': 'Events Cash',
+            'account_label': 'Events Cash (Event Contracts)',
+            'account_type': 'CASH',
+            'account_class': 'EVENT',
+            'modules': ['events'],
+            'instruments': ['EVENT'],
+        },
+        {
+            'account_id': 'QUANT_ACC_FUTURES',
+            'account_id_masked': '••••FUTR',
+            'account_name': 'Futures',
+            'account_label': 'Futures (Micro Futures)',
+            'account_type': 'FUTURES',
+            'account_class': 'FUTURES',
+            'modules': ['futures'],
+            'instruments': ['FUTURES'],
+        },
+    ]
+
+    closed_lots = [l for l in lots if l.closed_at]
+    open_lots = [l for l in lots if not l.closed_at]
+
+    sub_accounts = []
+    for ad in account_defs:
+        w = sum(normalized_weights.get(m, 0.0) for m in ad['modules'])
+        init_bal = round(acc.initial_balance * (w / 100.0), 2)
+        acct_closed_lots = [l for l in closed_lots if l.module in ad['modules']]
+        acct_open_lots = [l for l in open_lots if l.module in ad['modules']]
+        acct_realized = sum(l.realized_pnl for l in acct_closed_lots)
+        acct_collateral = sum(l.collateral for l in acct_open_lots)
+        acct_positions = [p for p in positions if p.get('module') in ad['modules']]
+        acct_unrealized = sum(p.get('unrealized_pnl', 0.0) for p in acct_positions)
+        acct_market_val = sum(p.get('market_value', p.get('collateral', 0.0)) for p in acct_positions)
+        acct_cash = max(0.0, round(init_bal + acct_realized - acct_collateral, 2))
+        acct_equity = round(acct_cash + acct_collateral + acct_unrealized, 2)
+        sub_accounts.append({
+            'account_id': ad['account_id'],
+            'account_id_masked': ad['account_id_masked'],
+            'account_name': ad['account_name'],
+            'account_label': ad['account_label'],
+            'account_type': ad['account_type'],
+            'account_class': ad['account_class'],
+            'allocation_pct': round(w, 4),
+            'initial_balance': init_bal,
+            'cash_balance': acct_cash,
+            'total_cash_balance': acct_cash,
+            'settled_cash': acct_cash,
+            'buying_power': acct_cash,
+            'total_equity': acct_equity,
+            'net_liquidation': acct_equity,
+            'total_market_value': acct_market_val,
+            'unrealized_profit_loss': acct_unrealized,
+            'unrealized_profit_loss_rate': (acct_unrealized / init_bal * 100.0) if init_bal > 0 else 0.0,
+            'realized_pnl': acct_realized,
+            'modules': ad['modules'],
+            'instruments': ad['instruments'],
+            'is_paper': True,
+            'is_quant': True,
+        })
+    return sub_accounts
+
+
 def portfolio_status(user_id):
     cfg, acc, state = ensure_portfolio(user_id)
     lots = current_lots(user_id, state, False)
@@ -425,6 +523,7 @@ def portfolio_status(user_id):
         if not since or datetime.utcnow()-since > timedelta(minutes=10):
             status = 'STALLED'
     realized = sum(l.realized_pnl for l in lots if l.closed_at)
+    sub_accounts = compute_sub_accounts(user_id, cfg, acc, state, positions, lots)
     return {'success': True, 'mode': 'PAPER', 'worker_status': status, 'enabled': cfg.enabled,
             'kill_switch': state.kill_switch, 'pause_reason': state.pause_reason,
             'heartbeat_at': state.heartbeat_at.isoformat()+'Z' if state.heartbeat_at else None,
@@ -434,6 +533,7 @@ def portfolio_status(user_id):
             'account': {'initial_balance': acc.initial_balance, 'cash_balance': acc.cash_balance, 'total_equity': acc.total_equity,
                         'currency': 'USD', 'realized_pnl': realized, 'unrealized_pnl': sum(p['unrealized_pnl'] for p in positions),
                         'return_pct': (acc.total_equity/acc.initial_balance-1)*100},
+            'sub_accounts': sub_accounts,
             'module_enabled': {m: module_settings[m]['enabled'] for m in MODULES},
             'cash_allocation_pct': 0 if any(module_settings[m]['enabled'] for m in MODULES) else 100,
             'performance': metrics, 'equity_curve': curve[-2000:], 'allocations': allocations, 'rebalance': drift}
@@ -464,6 +564,44 @@ def reset_bankroll(user_id, amount):
     acc.initial_balance = acc.cash_balance = acc.total_equity = amount
     acc.reset_at = datetime.utcnow()
     snapshot(cfg, acc, state, acc.reset_at)
+    db.session.commit()
+    return {'initial_balance': amount, 'cash_balance': amount, 'total_equity': amount, 'reset_at': acc.reset_at.isoformat()+'Z'}
+
+
+def wipe_and_reset_portfolio(user_id, amount):
+    """Permanently delete all historical paper data, orders, positions, snapshots, logs and reset bankroll."""
+    amount = finite(amount, 'bankroll', 100, 1000000)
+    ensure_portfolio(user_id)
+    cfg, acc, state = locked(user_id)
+
+    # 1. Permanently delete all quant trading history, orders, lots, positions, snapshots, audits, logs
+    Order.query.filter_by(user_id=user_id).delete(synchronize_session=False)
+    Lot.query.filter_by(user_id=user_id).delete(synchronize_session=False)
+    Position.query.filter_by(user_id=user_id).delete(synchronize_session=False)
+    Snapshot.query.filter_by(user_id=user_id).delete(synchronize_session=False)
+    Audit.query.filter_by(user_id=user_id).delete(synchronize_session=False)
+    from portfolio_algo_models import PortfolioEngineLog
+    PortfolioEngineLog.query.filter_by(user_id=user_id).delete(synchronize_session=False)
+
+    # 2. Reset engine state to generation 1
+    state.generation = 1
+    state.kill_switch = False
+    state.pause_reason = None
+    state.lease_token = None
+    state.lease_until = None
+    state.telemetry_json = '{}'
+    state.last_scan_at = state.heartbeat_at = state.last_audit_at = None
+
+    # 3. Reset config & account balances
+    cfg.enabled = False
+    cfg.worker_status = 'STOPPED'
+    cfg.total_bankroll = amount
+    acc.initial_balance = acc.cash_balance = acc.total_equity = amount
+    acc.reset_at = datetime.utcnow()
+
+    # 4. Take clean baseline snapshot
+    snapshot(cfg, acc, state, acc.reset_at)
+    _record_portfolio_log(user_id, 'ENGINE_WIPED_RESET', f'Quantitative strategy engine cleanly reset with ${amount:,.2f} bankroll. All previous trade data and reports wiped.')
     db.session.commit()
     return {'initial_balance': amount, 'cash_balance': amount, 'total_equity': amount, 'reset_at': acc.reset_at.isoformat()+'Z'}
 
@@ -887,6 +1025,8 @@ def run_audit(user_id, prompt=None, scheduled=False, audit_id=None):
             raise ValueError('Paper run changed while the audit was being prepared.')
         evidence.pop('equity_curve', None)
         enabled_modules = [m for m, s in settings_for(cfg).items() if s['enabled']]
+        watches = loads(cfg.watchlists_json, DEFAULT_QUANT_WATCHLISTS)
+        evidence['watchlists'] = watches
         evidence['specialist_mandates'] = {m: settings_for(cfg)[m]['auditor_prompt'] for m in enabled_modules}
         evidence['correlations'] = [pair for pair in measured_correlations(user_id, state.generation)
                                     if pair['a'] in enabled_modules and pair['b'] in enabled_modules]
@@ -917,10 +1057,23 @@ def run_audit(user_id, prompt=None, scheduled=False, audit_id=None):
             db.session.commit()
             for module in enabled_modules:
                 _record_portfolio_log(user_id, 'AUDIT_MODULE', f'Running AI auditor for module: {module}')
+                module_watches = watches.get(module, [])
+                recent_obs = []
+                for sym in module_watches:
+                    sym_log = PortfolioEngineLog.query.filter_by(user_id=user_id).filter(
+                        PortfolioEngineLog.message.ilike(f'%{sym}%')
+                    ).order_by(PortfolioEngineLog.created_at.desc()).first()
+                    obs_item = {'symbol': sym}
+                    if sym_log:
+                        obs_item['latest_event'] = sym_log.event_type
+                        obs_item['latest_note'] = sym_log.message[:180]
+                    recent_obs.append(obs_item)
                 module_evidence = {
                     'module': module,
                     'allocation': evidence['allocations'][module],
                     'metrics': evidence['modules'][module],
+                    'watchlist': module_watches,
+                    'watchlist_monitoring': recent_obs,
                     'positions': [p for p in evidence['positions'] if p['module'] == module],
                     'correlations': [c for c in evidence['correlations'] if c['a'] == module or c['b'] == module],
                 }

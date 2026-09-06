@@ -475,8 +475,88 @@ def get_webull_test_account_summary(user_id: int) -> Dict[str, Any]:
     )
     buying_power = max(0.0, available_cash - (short_market_value * 1.5))
 
+    try:
+        from portfolio_algo_models import PortfolioStrategyConfig, DEFAULT_ALLOCATIONS
+        from services.portfolio_engine import allocations_for
+        cfg = PortfolioStrategyConfig.query.filter_by(user_id=user_id).first()
+        weights = allocations_for(cfg) if cfg else DEFAULT_ALLOCATIONS
+    except Exception:
+        weights = {'equities': 38.98, 'options': 27.74, 'crypto': 22.19, 'events': 11.09, 'futures': 0.0}
+
+    eq_opt_w = weights.get('equities', 0.0) + weights.get('options', 0.0)
+    crypto_w = weights.get('crypto', 0.0)
+    events_w = weights.get('events', 0.0)
+    futures_w = weights.get('futures', 0.0)
+
+    sub_accounts = [
+        {
+            'account_id': 'TEST_ACC_INDIVIDUAL_CASH',
+            'account_id_masked': '••••CASH',
+            'account_name': 'Individual Cash',
+            'account_label': 'Individual Cash (Equities & Options)',
+            'account_type': 'CASH',
+            'account_class': 'CASH',
+            'allocation_pct': round(eq_opt_w, 4),
+            'cash_balance': round(cash * (eq_opt_w / 100.0), 2),
+            'total_cash_balance': round(cash * (eq_opt_w / 100.0), 2),
+            'settled_cash': round(cash * (eq_opt_w / 100.0), 2),
+            'buying_power': round(buying_power * (eq_opt_w / 100.0), 2),
+            'net_liquidation': round(net_liquidation * (eq_opt_w / 100.0), 2),
+            'total_equity': round(net_liquidation * (eq_opt_w / 100.0), 2),
+            'is_paper': True,
+        },
+        {
+            'account_id': 'TEST_ACC_CRYPTO',
+            'account_id_masked': '••••CRYP',
+            'account_name': 'Crypto',
+            'account_label': 'Crypto (Spot)',
+            'account_type': 'CASH',
+            'account_class': 'CRYPTO',
+            'allocation_pct': round(crypto_w, 4),
+            'cash_balance': round(cash * (crypto_w / 100.0), 2),
+            'total_cash_balance': round(cash * (crypto_w / 100.0), 2),
+            'settled_cash': round(cash * (crypto_w / 100.0), 2),
+            'buying_power': round(buying_power * (crypto_w / 100.0), 2),
+            'net_liquidation': round(net_liquidation * (crypto_w / 100.0), 2),
+            'total_equity': round(net_liquidation * (crypto_w / 100.0), 2),
+            'is_paper': True,
+        },
+        {
+            'account_id': 'TEST_ACC_EVENTS',
+            'account_id_masked': '••••EVNT',
+            'account_name': 'Events Cash',
+            'account_label': 'Events Cash (Event Contracts)',
+            'account_type': 'CASH',
+            'account_class': 'EVENT',
+            'allocation_pct': round(events_w, 4),
+            'cash_balance': round(cash * (events_w / 100.0), 2),
+            'total_cash_balance': round(cash * (events_w / 100.0), 2),
+            'settled_cash': round(cash * (events_w / 100.0), 2),
+            'buying_power': round(buying_power * (events_w / 100.0), 2),
+            'net_liquidation': round(net_liquidation * (events_w / 100.0), 2),
+            'total_equity': round(net_liquidation * (events_w / 100.0), 2),
+            'is_paper': True,
+        },
+        {
+            'account_id': 'TEST_ACC_FUTURES',
+            'account_id_masked': '••••FUTR',
+            'account_name': 'Futures',
+            'account_label': 'Futures (Micro Futures)',
+            'account_type': 'FUTURES',
+            'account_class': 'FUTURES',
+            'allocation_pct': round(futures_w, 4),
+            'cash_balance': round(cash * (futures_w / 100.0), 2),
+            'total_cash_balance': round(cash * (futures_w / 100.0), 2),
+            'settled_cash': round(cash * (futures_w / 100.0), 2),
+            'buying_power': round(buying_power * (futures_w / 100.0), 2),
+            'net_liquidation': round(net_liquidation * (futures_w / 100.0), 2),
+            'total_equity': round(net_liquidation * (futures_w / 100.0), 2),
+            'is_paper': True,
+        },
+    ]
+
     return {
-        'account_id': 'TEST_PAPER_ACCOUNT',
+        'account_id': 'TEST_ACC_INDIVIDUAL_CASH',
         'account_name': 'Webull Paper Account',
         'account_type': 'CASH',
         'is_paper': True,
@@ -492,7 +572,19 @@ def get_webull_test_account_summary(user_id: int) -> Dict[str, Any]:
         'unrealized_profit_loss': round(total_unrealized_pnl, 2),
         'unrealized_profit_loss_rate': round((total_unrealized_pnl / total_cost_basis * 100) if total_cost_basis > 0 else 0.0, 2),
         'positions_count': len(positions),
+        'accounts': sub_accounts,
     }
+
+
+def _test_account_mapping(instrument_type):
+    inst = str(instrument_type or '').upper()
+    if inst == 'CRYPTO':
+        return 'TEST_ACC_CRYPTO', 'Crypto'
+    if inst == 'EVENT':
+        return 'TEST_ACC_EVENTS', 'Events Cash'
+    if inst == 'FUTURES':
+        return 'TEST_ACC_FUTURES', 'Futures'
+    return 'TEST_ACC_INDIVIDUAL_CASH', 'Individual Cash'
 
 
 def get_webull_test_positions(user_id: int) -> List[Dict[str, Any]]:
@@ -521,10 +613,11 @@ def get_webull_test_positions(user_id: int) -> List[Dict[str, Any]]:
             if is_short else _available_long_quantity(user_id, pos.symbol, pos.instrument_type)
         )
 
+        acct_id, acct_name = _test_account_mapping(pos.instrument_type)
         rows.append({
             'id': f"paper_pos_{pos.id}",
-            'account_id': 'TEST_PAPER_ACCOUNT',
-            'account_name': 'Webull Paper Account',
+            'account_id': acct_id,
+            'account_name': acct_name,
             'symbol': pos.symbol,
             'underlying_symbol': pos.underlying_symbol or pos.symbol,
             'instrument_type': pos.instrument_type,
@@ -566,10 +659,12 @@ def get_webull_test_orders(user_id: int) -> List[Dict[str, Any]]:
         filled_quantity = o.filled_quantity
         if filled_quantity is None:
             filled_quantity = o.quantity if str(status).upper() == 'FILLED' else 0.0
+        acct_id, acct_name = _test_account_mapping(o.instrument_type)
         rows.append({
             'order_id': o.order_id,
             'id': o.order_id,
-            'account_id': 'TEST_PAPER_ACCOUNT',
+            'account_id': acct_id,
+            'account_name': acct_name,
             'symbol': o.symbol,
             'instrument_type': o.instrument_type,
             'side': o.side,
