@@ -29,3 +29,48 @@ th {
 .fa-spin {
   animation: spin 1s linear infinite !important;
 }
+
+/* Universal Thin Theme-Aware Scrollbars */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #475569 transparent;
+}
+
+body.light-mode * {
+  scrollbar-width: thin;
+  scrollbar-color: #94a3b8 rgba(0, 0, 0, 0.04);
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #475569;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #64748b;
+}
+
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+body.light-mode ::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.04);
+}
+
+body.light-mode ::-webkit-scrollbar-thumb {
+  background: #94a3b8;
+}
+
+body.light-mode ::-webkit-scrollbar-thumb:hover {
+  background: #64748b;
+}

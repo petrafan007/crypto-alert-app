@@ -2,7 +2,7 @@
 
 The engine is an administrator-only, multi-asset **paper research system**. The default starting bankroll is $50,000, with relative allocation weights of 35 for equities, 25 for options, 20 for crypto, 10 for micro futures, and 10 for events. Enabled modules share 100% of the target capital proportionally. Futures is disabled by default, giving initial targets of 38.89%, 27.78%, 22.22%, 0%, and 11.11%, respectively. The 18.5% annual return setting is a research objective, not a forecast or validated strategy result.
 
-## Portfolio reports and startup status (v2.91.3)
+## Portfolio reports and startup status (v2.92.0)
 
 **View report** opens the portfolio audit archive. Select a historical report to read its original text, creation time, model, paper equity, open-position count, module assessments, and saved evidence. Older failed reports retain their actual failure reason; missing historical metrics show a dash rather than an invented zero.
 

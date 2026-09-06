@@ -4460,27 +4460,57 @@ body.light-mode .table-container.watchlist-table td {
     row-gap: 4px;
   }
 }
-/* Custom Scrollbar for Panels like Recent Orders */
+/* Universal Thin Theme-Aware Scrollbars */
+html, body, *, *::before, *::after {
+  scrollbar-width: thin;
+  scrollbar-color: #475569 transparent;
+}
+
+body.light-mode,
+body.light-mode *,
+body.light-mode *::before,
+body.light-mode *::after {
+  scrollbar-width: thin;
+  scrollbar-color: #94a3b8 rgba(0, 0, 0, 0.04);
+}
+
+::-webkit-scrollbar,
 .custom-scrollbar::-webkit-scrollbar {
   width: 6px;
+  height: 6px;
 }
+
+::-webkit-scrollbar-track,
 .custom-scrollbar::-webkit-scrollbar-track {
   background: transparent;
 }
+
+::-webkit-scrollbar-thumb,
 .custom-scrollbar::-webkit-scrollbar-thumb {
   background: #475569;
   border-radius: 4px;
 }
+
+::-webkit-scrollbar-thumb:hover,
 .custom-scrollbar::-webkit-scrollbar-thumb:hover {
   background: #64748b;
 }
 
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+body.light-mode ::-webkit-scrollbar-track,
 body.light-mode .custom-scrollbar::-webkit-scrollbar-track {
   background: rgba(0, 0, 0, 0.04);
 }
+
+body.light-mode ::-webkit-scrollbar-thumb,
 body.light-mode .custom-scrollbar::-webkit-scrollbar-thumb {
   background: #94a3b8;
 }
+
+body.light-mode ::-webkit-scrollbar-thumb:hover,
 body.light-mode .custom-scrollbar::-webkit-scrollbar-thumb:hover {
   background: #64748b;
 }
@@ -4823,21 +4853,38 @@ body.light-mode .cancel-item-title {
 .event-strategy-report-markdown table {
   width: 100%;
   border-collapse: collapse;
-  margin: 14px 0;
+  margin: 16px 0;
   font-size: 0.88rem;
+  background: rgba(15, 23, 42, 0.6);
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid rgba(148, 163, 184, 0.25);
 }
 
 .event-strategy-report-markdown th,
 .event-strategy-report-markdown td {
-  padding: 8px 12px;
+  padding: 10px 14px;
   border: 1px solid rgba(148, 163, 184, 0.2);
   text-align: left;
 }
 
 .event-strategy-report-markdown th {
-  background: rgba(148, 163, 184, 0.1);
-  font-weight: 600;
-  color: var(--text-primary, #f8fafc);
+  background: rgba(30, 41, 59, 0.95) !important;
+  font-weight: 700 !important;
+  color: #38bdf8 !important; /* High-contrast vivid cyan for dark mode */
+  border-bottom: 2px solid rgba(56, 189, 248, 0.5) !important;
+  text-transform: uppercase;
+  font-size: 0.8rem !important;
+  letter-spacing: 0.04em;
+}
+
+.event-strategy-report-markdown td {
+  color: #f1f5f9 !important;
+  background: rgba(15, 23, 42, 0.4);
+}
+
+.event-strategy-report-markdown tbody tr:hover td {
+  background: rgba(56, 189, 248, 0.08);
 }
 
 /* Light mode overrides */
@@ -4880,12 +4927,24 @@ body.light-mode .event-strategy-report-markdown blockquote {
   color: #0369a1;
 }
 
-body.light-mode .event-strategy-report-markdown th {
-  background: #f8fafc;
-  color: #0f172a;
+body.light-mode .event-strategy-report-markdown table {
+  background: #ffffff;
+  border-color: #cbd5e1;
 }
 
-body.light-mode .event-strategy-report-markdown th,
+body.light-mode .event-strategy-report-markdown th {
+  background: #f1f5f9 !important;
+  color: #0f172a !important; /* High contrast dark slate for light mode */
+  border: 1px solid #cbd5e1 !important;
+  border-bottom: 2px solid #94a3b8 !important;
+}
+
 body.light-mode .event-strategy-report-markdown td {
-  border-color: #e2e8f0;
+  color: #1e293b !important;
+  background: #ffffff;
+  border: 1px solid #e2e8f0 !important;
+}
+
+body.light-mode .event-strategy-report-markdown tbody tr:hover td {
+  background: #f8fafc;
 }

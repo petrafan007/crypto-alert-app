@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState, useRef } from 'react';
 import axios from 'axios';
+import { useAuth } from '../components/AuthContext';
 import CryptoIcon, { WebullLogo } from '../components/CryptoIcon';
 import { FaArrowDown, FaArrowUp, FaSearch, FaToggleOn, FaToggleOff } from 'react-icons/fa';
 import WebullTradingViewChart, { DEFAULT_STOCKS } from '../components/WebullTradingViewChart';
@@ -599,6 +600,8 @@ const holdingMatchesOptionContract = (holding, { accountId, underlyingSymbol, op
 };
 
 export default function WebullTrading({ isLightMode = false }) {
+  const { user } = useAuth();
+  const isAdmin = Boolean(user?.is_admin || user?.id === 1);
   const [activeTab, setActiveTab] = useState('order');
   const [equityOrderMode, setEquityOrderMode] = useState('single');
   const [holdings, setHoldings] = useState([]);
@@ -614,12 +617,17 @@ export default function WebullTrading({ isLightMode = false }) {
   const [cancellingOrderId, setCancellingOrderId] = useState(null);
   const [cancelModal, setCancelModal] = useState({ isVisible: false, order: null, error: '', loading: false });
 
-  // Webull Test Mode (Paper Trading) state
-  const [isTestMode, setIsTestMode] = useState(false);
-  const modeHoldings = useMemo(
-    () => holdings.filter((holding) => orderIsPaper(holding) === isTestMode),
-    [holdings, isTestMode]
-  );
+  // Webull Trading Mode (Real, Paper Test, Quantitative Algo) state
+  const [tradingMode, setTradingMode] = useState('REAL'); // 'REAL' | 'TEST' | 'QUANT'
+  const isTestMode = tradingMode === 'TEST';
+  const isQuantMode = tradingMode === 'QUANT';
+  const setIsTestMode = (val) => setTradingMode(val ? 'TEST' : 'REAL');
+
+  const modeHoldings = useMemo(() => {
+    if (isQuantMode) return holdings;
+    return holdings.filter((holding) => orderIsPaper(holding) === isTestMode);
+  }, [holdings, isTestMode, isQuantMode]);
+
   const securityPositionCount = useMemo(
     () => modeHoldings.filter(isSecurityHolding).length,
     [modeHoldings]
@@ -894,6 +902,19 @@ export default function WebullTrading({ isLightMode = false }) {
   const [historyLoading, setHistoryLoading] = useState(false);
 
   const loadHistory = async (targetAccId, paperMode = isTestMode) => {
+    if (isQuantMode) {
+      setHistoryLoading(true);
+      try {
+        const resp = await axios.get('/api/webull/portfolio-algo/orders', { withCredentials: true });
+        setHistory((resp.data?.orders || []).map(normalizeOrder));
+        setHistoryTotal(Number(resp.data?.orders?.length || 0));
+      } catch (e) {
+        // non-blocking
+      } finally {
+        setHistoryLoading(false);
+      }
+      return;
+    }
     if (paperMode) {
       setHistoryLoading(true);
       try {
@@ -927,6 +948,16 @@ export default function WebullTrading({ isLightMode = false }) {
   };
 
   const loadOpenOrders = async (targetAccId, paperMode = isTestMode) => {
+    if (isQuantMode) {
+      try {
+        const res = await axios.get('/api/webull/portfolio-algo/orders?status=open', { withCredentials: true });
+        const working = (res.data?.orders || []).map(normalizeOrder);
+        setOpenOrders(working);
+      } catch (e) {
+        // non-blocking
+      }
+      return;
+    }
     if (paperMode) {
       try {
         const res = await axios.get('/api/webull/test/orders', { withCredentials: true });
@@ -986,26 +1017,68 @@ export default function WebullTrading({ isLightMode = false }) {
     }
   };
 
-  const handleToggleTestMode = async (enabled) => {
+  const loadQuantTradingData = async () => {
     try {
-      await axios.post('/api/webull/test/toggle', { enabled }, { withCredentials: true });
-      setIsTestMode(enabled);
-      setHoldings([]);
-      setHistory([]);
-      setOpenOrders([]);
-      if (enabled) {
+      const [sumRes, posRes, ordRes] = await Promise.all([
+        axios.get('/api/webull/portfolio-algo/account-summary', { withCredentials: true }),
+        axios.get('/api/webull/portfolio-algo/positions', { withCredentials: true }),
+        axios.get('/api/webull/portfolio-algo/orders', { withCredentials: true }),
+      ]);
+      if (sumRes.data?.success) {
+        setPaperSummary(sumRes.data.summary);
+      }
+      if (posRes.data?.success) {
+        setHoldings(posRes.data.positions || []);
+      }
+      if (ordRes.data?.success) {
+        setHistory((ordRes.data.orders || []).map(normalizeOrder));
+        const working = (ordRes.data.orders || []).filter((o) => OPEN_STATUSES.has(String(o.status || '').toUpperCase()) || o.status === 'Working' || o.status === 'Open').map(normalizeOrder);
+        setOpenOrders(working);
+      }
+    } catch (e) {
+      console.error('Failed to load quantitative strategy trading data:', e);
+    }
+  };
+
+  const handleSwitchMode = async (mode) => {
+    if (mode === tradingMode) return;
+    try {
+      if (mode === 'QUANT') {
+        if (!isAdmin) return;
+        setTradingMode('QUANT');
+        setHoldings([]);
+        setHistory([]);
+        setOpenOrders([]);
+        setSelectedAccountId('QUANT_STRATEGY_PORTFOLIO');
+        await loadQuantTradingData();
+        setOrderFeedback({ type: 'success', message: 'Switched to Quantitative Strategy Engine Mode (Multi-Asset Algo).' });
+      } else if (mode === 'TEST') {
+        await axios.post('/api/webull/test/toggle', { enabled: true }, { withCredentials: true });
+        setTradingMode('TEST');
+        setHoldings([]);
+        setHistory([]);
+        setOpenOrders([]);
         setSelectedAccountId('TEST_PAPER_ACCOUNT');
         await loadPaperTradingData();
-        setOrderFeedback({ type: 'success', message: 'Switched to Webull Test Mode (Paper Trading with live real pricing).' });
+        setOrderFeedback({ type: 'success', message: 'Switched to Webull Test Mode (Paper Trading with live quotes).' });
       } else {
+        await axios.post('/api/webull/test/toggle', { enabled: false }, { withCredentials: true });
+        setTradingMode('REAL');
+        setHoldings([]);
+        setHistory([]);
+        setOpenOrders([]);
         setPaperSummary(null);
         await load(false);
         setOrderFeedback({ type: 'success', message: 'Switched to Webull Live Trading Mode.' });
       }
     } catch (err) {
-      console.error('Failed to toggle test mode:', err);
-      setOrderFeedback({ type: 'error', message: 'Failed to update test mode setting.' });
+      console.error('Failed to switch trading mode:', err);
+      setOrderFeedback({ type: 'error', message: 'Failed to switch trading mode.' });
     }
+  };
+
+  const handleToggleTestMode = async (enabled) => {
+    await handleSwitchMode(enabled ? 'TEST' : 'REAL');
   };
 
   const handleDepositFakeMoney = async () => {
@@ -1058,7 +1131,7 @@ export default function WebullTrading({ isLightMode = false }) {
       const testModeActive = forcedTestMode == null
         ? Boolean(testStatusRes?.data?.enabled)
         : Boolean(forcedTestMode);
-      setIsTestMode(testModeActive);
+      setTradingMode((prev) => (prev === 'QUANT' ? 'QUANT' : (testModeActive ? 'TEST' : 'REAL')));
       if (tradingSettingsRes.data?.settings?.require_2fa) {
         setRequire2fa(true);
       }
@@ -1249,28 +1322,60 @@ export default function WebullTrading({ isLightMode = false }) {
     if (['history', 'trade_chart'].includes(activeTab)) {
       loadHistory(undefined, isTestMode);
     }
-  }, [activeTab, isTestMode, historyPage, historyPageSize, selectedAccountId]);
+  }, [activeTab, isTestMode, isQuantMode, historyPage, historyPageSize, selectedAccountId]);
 
   // Refetch open orders when account changes
   useEffect(() => {
     if (selectedAccountId) {
       loadOpenOrders(selectedAccountId, isTestMode);
     }
-  }, [selectedAccountId, isTestMode]);
+  }, [selectedAccountId, isTestMode, isQuantMode]);
 
   useEffect(() => {
     if (selectedInstrumentType !== 'EVENT' || !selectedAccountId) return undefined;
     const refresh = async () => {
       await loadOpenOrders(selectedAccountId, isTestMode);
-      if (!isTestMode) await refreshLiveWebullHoldings();
+      if (!isTestMode && !isQuantMode) await refreshLiveWebullHoldings();
     };
     refresh();
     const timer = window.setInterval(refresh, 15000);
     return () => window.clearInterval(timer);
-  }, [selectedInstrumentType, selectedAccountId, isTestMode]);
+  }, [selectedInstrumentType, selectedAccountId, isTestMode, isQuantMode]);
+
+  useEffect(() => {
+    if (!isQuantMode) return undefined;
+    loadQuantTradingData();
+    const timer = window.setInterval(loadQuantTradingData, 15000);
+    return () => window.clearInterval(timer);
+  }, [isQuantMode]);
 
   // Sync active account and cash balance
   const activeAccount = useMemo(() => {
+    if (isQuantMode) {
+      return {
+        account_id: 'QUANT_STRATEGY_PORTFOLIO',
+        account_id_masked: '••••ALGO',
+        account_label: 'Quantitative Strategy Engine Portfolio',
+        account_name: 'Quantitative Strategy Engine Portfolio',
+        account_type: 'MULTI_ASSET_QUANT',
+        account_class: 'ALGORITHMIC_STRATEGY',
+        is_paper: true,
+        is_quant: true,
+        balance: {
+          total_cash_balance: paperSummary?.total_cash ?? 0,
+          cash_balance: paperSummary?.total_cash ?? 0,
+          settled_cash: paperSummary?.total_cash ?? 0,
+          net_liquidation: paperSummary?.total_equity ?? 0,
+          buying_power: paperSummary?.total_cash ?? 0,
+        },
+        net_liquidation: paperSummary?.total_equity ?? 0,
+        buying_power: paperSummary?.total_cash ?? 0,
+        cash_balance: paperSummary?.total_cash ?? 0,
+        total_market_value: Math.max(0, (paperSummary?.total_equity ?? 0) - (paperSummary?.total_cash ?? 0)),
+        unrealized_profit_loss: paperSummary?.unrealized_pnl ?? 0,
+        unrealized_profit_loss_rate: paperSummary?.initial_balance ? ((paperSummary?.unrealized_pnl ?? 0) / paperSummary.initial_balance) * 100 : 0,
+      };
+    }
     if (isTestMode) {
       return {
         account_id: 'TEST_PAPER_ACCOUNT',
@@ -1296,16 +1401,30 @@ export default function WebullTrading({ isLightMode = false }) {
       };
     }
     return accounts.find((a) => a.account_id === selectedAccountId) || accounts[0];
-  }, [isTestMode, paperSummary, accounts, selectedAccountId]);
+  }, [isTestMode, isQuantMode, paperSummary, accounts, selectedAccountId]);
 
   const activeAccountIsCrypto = isCryptoAccount(activeAccount);
   const assetClassDisabled = (assetClass) => {
-    if (isTestMode) return false;
+    if (isTestMode || isQuantMode) return false;
     if (!activeAccount) return false;
     return activeAccountIsCrypto ? assetClass !== 'CRYPTO' : assetClass === 'CRYPTO';
   };
 
   const displayAccounts = useMemo(() => {
+    if (isQuantMode) {
+      return [
+        {
+          account_id: 'QUANT_STRATEGY_PORTFOLIO',
+          account_id_masked: '••••ALGO',
+          account_label: 'Quantitative Strategy Engine Portfolio',
+          account_name: 'Quantitative Strategy Engine Portfolio',
+          account_type: 'MULTI_ASSET_QUANT',
+          account_class: 'ALGORITHMIC_STRATEGY',
+          is_paper: true,
+          is_quant: true,
+        },
+      ];
+    }
     if (isTestMode) {
       return [
         {
@@ -1333,7 +1452,7 @@ export default function WebullTrading({ isLightMode = false }) {
     }
     const brokerAccs = accounts.filter((a) => !isCryptoAccount(a) && !isEventAccount(a) && !isFuturesAccount(a));
     return brokerAccs.length > 0 ? brokerAccs : accounts;
-  }, [isTestMode, accounts, selectedInstrumentType]);
+  }, [isTestMode, isQuantMode, accounts, selectedInstrumentType]);
 
   const resetFuturesSelection = () => {
     setFuturesContracts([]);
@@ -1444,13 +1563,16 @@ export default function WebullTrading({ isLightMode = false }) {
     }
   }, [selectedInstrumentType, activeAccount]);
   const cashBalance = useMemo(() => {
+    if (isQuantMode) {
+      return Number(paperSummary?.total_cash ?? paperSummary?.buying_power ?? 0);
+    }
     if (isTestMode) {
       return Number(paperSummary?.buying_power ?? paperSummary?.available_cash ?? paperSummary?.cash_balance ?? 0);
     }
     if (!activeAccount?.balance) return 0;
     const b = activeAccount.balance;
     return nonNegativeNumber(b.total_cash_balance ?? b.cash_balance ?? b.settled_cash ?? b.cashBalance ?? 0);
-  }, [isTestMode, paperSummary, activeAccount]);
+  }, [isTestMode, isQuantMode, paperSummary, activeAccount]);
 
   const selectFuturesContract = (contract) => {
     const contractSymbol = String(contract?.symbol || '').trim().toUpperCase();
@@ -2134,7 +2256,7 @@ export default function WebullTrading({ isLightMode = false }) {
 
   const saveDefaultAccount = async (accountId = selectedAccountId) => {
     const cleanAccountId = String(accountId || '');
-    if (!cleanAccountId || savingDefaultAccount || isTestMode) return;
+    if (!cleanAccountId || savingDefaultAccount || isTestMode || isQuantMode) return;
     setSavingDefaultAccount(true);
     try {
       const response = await axios.put('/api/webull/default-account', { account_id: cleanAccountId }, { withCredentials: true });
@@ -2148,8 +2270,8 @@ export default function WebullTrading({ isLightMode = false }) {
   };
 
   useEffect(() => {
-    if (isTestMode && activeTab === 'ai_analysis') setActiveTab('order');
-  }, [activeTab, isTestMode]);
+    if ((isTestMode || isQuantMode) && activeTab === 'ai_analysis') setActiveTab('order');
+  }, [activeTab, isTestMode, isQuantMode]);
 
   // Dual Input Quantity / Value calculations
   const effectivePrice = useMemo(() => {
@@ -2328,7 +2450,7 @@ export default function WebullTrading({ isLightMode = false }) {
   );
   const eventCurrentSideEnabled = orderForm.side === 'SELL' ? eventSellEnabled : eventBuyEnabled;
   const eventOrderControlsDisabled = selectedInstrumentType === 'EVENT' && !eventCurrentSideEnabled;
-  const ticketOrderControlsDisabled = optionOrderControlsDisabled || futuresOrderControlsDisabled || eventOrderControlsDisabled;
+  const ticketOrderControlsDisabled = optionOrderControlsDisabled || futuresOrderControlsDisabled || eventOrderControlsDisabled || isQuantMode;
   const futuresExecutionMessage = selectedInstrumentType === 'FUTURES' && !futuresContractSelected
     ? 'Load and select an exact Webull futures contract before placing an order. Futures margin and trading eligibility are verified by Webull.'
     : '';
@@ -2446,6 +2568,13 @@ export default function WebullTrading({ isLightMode = false }) {
   // Pre-trade submit handler
   const handleOrderSubmit = (e) => {
     e.preventDefault();
+    if (isQuantMode) {
+      setOrderFeedback({
+        type: 'error',
+        message: 'Manual order placement is disabled in Quantitative Strategy Mode. Trades are executed autonomously by the engine.'
+      });
+      return;
+    }
     setOrderFeedback({ type: '', message: '' });
     setOrderValidationError('');
     if (!selectedAccountId) {
@@ -2834,6 +2963,11 @@ export default function WebullTrading({ isLightMode = false }) {
   const handleCancelOpenOrder = async (twoFactorCode) => {
     const order = cancelModal.order;
     if (!order) return;
+    if (isQuantMode) {
+      setOrderFeedback({ type: 'error', message: 'Order management is handled autonomously by the Quantitative Strategy Engine in Quant Mode.' });
+      setCancelModal({ isVisible: false, order: null, error: '', loading: false });
+      return;
+    }
     setCancelModal((current) => ({ ...current, loading: true, error: '' }));
     setCancellingOrderId(order.id);
     try {
@@ -3060,14 +3194,14 @@ export default function WebullTrading({ isLightMode = false }) {
     }, 60);
   };
 
-  const modeOpenOrders = useMemo(
-    () => openOrders.filter((order) => orderIsPaper(order) === isTestMode),
-    [openOrders, isTestMode]
-  );
-  const modeHistory = useMemo(
-    () => history.filter((order) => orderIsPaper(order) === isTestMode),
-    [history, isTestMode]
-  );
+  const modeOpenOrders = useMemo(() => {
+    if (isQuantMode) return openOrders;
+    return openOrders.filter((order) => orderIsPaper(order) === isTestMode);
+  }, [openOrders, isTestMode, isQuantMode]);
+  const modeHistory = useMemo(() => {
+    if (isQuantMode) return history;
+    return history.filter((order) => orderIsPaper(order) === isTestMode);
+  }, [history, isTestMode, isQuantMode]);
   const displayOpenOrders = useMemo(() => modeOpenOrders.filter((order) => OPEN_STATUSES.has(String(order.status).toUpperCase()) || !order.status), [modeOpenOrders]);
   const eventOpenOrders = useMemo(
     () => displayOpenOrders.filter((order) => eventContractOrderDetails(order).isEvent),
@@ -3080,7 +3214,7 @@ export default function WebullTrading({ isLightMode = false }) {
     refresh();
     const timer = window.setInterval(refresh, 30000);
     return () => window.clearInterval(timer);
-  }, [activeTab, selectedAccountId, isTestMode]);
+  }, [activeTab, selectedAccountId, isTestMode, isQuantMode]);
 
   useEffect(() => {
     if (activeTab !== 'open_orders') return undefined;
@@ -3318,12 +3452,14 @@ export default function WebullTrading({ isLightMode = false }) {
             <WebullLogo size={32} /> Webull Trading
           </h1>
           <p style={{ margin: '6px 0 0', color: '#94a3b8' }}>
-            {isTestMode
+            {isQuantMode
+              ? 'Quantitative Strategy Engine Mode — Multi-asset autonomous algorithmic execution & live portfolio monitoring.'
+              : isTestMode
               ? 'Webull Paper Trading Mode — practice trading across all assets with simulated funds & real-time live quotes.'
               : 'Execute orders, manage open positions, and review signals via Webull OpenAPI.'}
           </p>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '16px', flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
           {isTestMode && (
             <button
               type="button"
@@ -3346,29 +3482,92 @@ export default function WebullTrading({ isLightMode = false }) {
               💰 Deposit Fake Money
             </button>
           )}
-          <label
+
+          {/* 3-Way Mode Switcher */}
+          <div
+            className="webull-trading-mode-selector"
             style={{
-              display: 'flex',
+              display: 'inline-flex',
               alignItems: 'center',
-              gap: '8px',
-              cursor: 'pointer',
-              color: isLightMode ? '#2d3748' : '#e2e8f0',
-              userSelect: 'none',
-              margin: 0,
-              fontSize: '0.95rem',
-              fontWeight: 600
+              background: isLightMode ? '#f1f5f9' : '#0f172a',
+              border: isLightMode ? '1px solid #cbd5e1' : '1px solid #334155',
+              borderRadius: '10px',
+              padding: '3px',
+              gap: '4px',
+              boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
             }}
-            title="Toggle Webull Test Mode (Paper Trading with live quotes)"
+            role="group"
+            aria-label="Trading Mode Selector"
           >
-            <input
-              type="checkbox"
-              checked={isTestMode}
-              onChange={(e) => handleToggleTestMode(e.target.checked)}
-              style={{ position: 'absolute', opacity: 0, pointerEvents: 'none' }}
-            />
-            {isTestMode ? <FaToggleOn size={30} color="#4fd1c5" /> : <FaToggleOff size={30} color="#6c757d" />}
-            Test Mode
-          </label>
+            <button
+              type="button"
+              onClick={() => handleSwitchMode('REAL')}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
+                padding: '7px 14px',
+                borderRadius: '8px',
+                border: 'none',
+                cursor: 'pointer',
+                fontSize: '0.85rem',
+                fontWeight: tradingMode === 'REAL' ? 700 : 500,
+                background: tradingMode === 'REAL' ? 'linear-gradient(135deg, #2563eb, #1d4ed8)' : 'transparent',
+                color: tradingMode === 'REAL' ? '#ffffff' : (isLightMode ? '#64748b' : '#94a3b8'),
+                boxShadow: tradingMode === 'REAL' ? '0 2px 8px rgba(37, 99, 235, 0.4)' : 'none',
+                transition: 'all 0.2s ease',
+              }}
+            >
+              ⚡ Real Trading Mode
+            </button>
+
+            <button
+              type="button"
+              onClick={() => handleSwitchMode('TEST')}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
+                padding: '7px 14px',
+                borderRadius: '8px',
+                border: 'none',
+                cursor: 'pointer',
+                fontSize: '0.85rem',
+                fontWeight: tradingMode === 'TEST' ? 700 : 500,
+                background: tradingMode === 'TEST' ? 'linear-gradient(135deg, #0d9488, #0f766e)' : 'transparent',
+                color: tradingMode === 'TEST' ? '#ffffff' : (isLightMode ? '#64748b' : '#94a3b8'),
+                boxShadow: tradingMode === 'TEST' ? '0 2px 8px rgba(13, 148, 136, 0.4)' : 'none',
+                transition: 'all 0.2s ease',
+              }}
+            >
+              🧪 Test Mode
+            </button>
+
+            {isAdmin && (
+              <button
+                type="button"
+                onClick={() => handleSwitchMode('QUANT')}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  padding: '7px 14px',
+                  borderRadius: '8px',
+                  border: 'none',
+                  cursor: 'pointer',
+                  fontSize: '0.85rem',
+                  fontWeight: tradingMode === 'QUANT' ? 700 : 500,
+                  background: tradingMode === 'QUANT' ? 'linear-gradient(135deg, #8b5cf6, #6366f1)' : 'transparent',
+                  color: tradingMode === 'QUANT' ? '#ffffff' : (isLightMode ? '#64748b' : '#94a3b8'),
+                  boxShadow: tradingMode === 'QUANT' ? '0 2px 8px rgba(139, 92, 246, 0.4)' : 'none',
+                  transition: 'all 0.2s ease',
+                }}
+                title="Administrator Only: View Quantitative Strategy Engine orders, positions, and live automated signals"
+              >
+                🤖 Quantitative Strategy Mode
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
@@ -3391,6 +3590,54 @@ export default function WebullTrading({ isLightMode = false }) {
             <span>
               TEST MODE ACTIVE — Simulated Webull Paper Account (${number(cashBalance)} USD available cash). Trades fill against real live market quotes with zero financial risk.
             </span>
+          </div>
+        </div>
+      )}
+
+      {isQuantMode && (
+        <div
+          style={{
+            marginBottom: '16px',
+            padding: '14px 20px',
+            borderRadius: '10px',
+            background: 'linear-gradient(135deg, rgba(139, 92, 246, 0.15) 0%, rgba(99, 102, 241, 0.12) 100%)',
+            border: '1px solid rgba(139, 92, 246, 0.4)',
+            color: '#c084fc',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            flexWrap: 'wrap',
+            gap: '12px'
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <span style={{ fontSize: '1.4rem' }}>🤖</span>
+            <div>
+              <div style={{ fontWeight: 700, fontSize: '1rem', color: isLightMode ? '#6d28d9' : '#e879f9' }}>
+                QUANTITATIVE STRATEGY MODE ACTIVE (ADMIN)
+              </div>
+              <div style={{ fontSize: '0.88rem', color: isLightMode ? '#334155' : '#cbd5e1' }}>
+                Multi-asset algorithmic portfolio engine is actively managing positions across Equities, Crypto, Options, Futures, and Event Contracts.
+              </div>
+            </div>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '16px', fontSize: '0.9rem', flexWrap: 'wrap' }}>
+            <div>
+              <span style={{ color: '#94a3b8', marginRight: '6px' }}>Engine Cash:</span>
+              <strong style={{ color: isLightMode ? '#0f172a' : '#f8fafc' }}>${number(cashBalance)} USD</strong>
+            </div>
+            <div>
+              <span style={{ color: '#94a3b8', marginRight: '6px' }}>Total Equity:</span>
+              <strong style={{ color: isLightMode ? '#0f172a' : '#f8fafc' }}>${number(paperSummary?.total_equity ?? cashBalance)} USD</strong>
+            </div>
+            {paperSummary?.drawdown_pct != null && (
+              <div>
+                <span style={{ color: '#94a3b8', marginRight: '6px' }}>Drawdown:</span>
+                <strong style={{ color: Number(paperSummary.drawdown_pct) > 5 ? '#f87171' : '#4ade80' }}>
+                  {Number(paperSummary.drawdown_pct).toFixed(2)}%
+                </strong>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -3427,7 +3674,7 @@ export default function WebullTrading({ isLightMode = false }) {
         <button className={`tab-button ${activeTab === 'trade_chart' ? 'active' : ''}`} onClick={() => setActiveTab('trade_chart')}>
           📈 <span className="tab-text">Trade Chart</span>
         </button>
-        {!isTestMode && (
+        {!isTestMode && !isQuantMode && (
           <button className={`tab-button ${activeTab === 'ai_analysis' ? 'active' : ''}`} onClick={() => setActiveTab('ai_analysis')}>
             🤖 <span className="tab-text">AI Analysis</span>
           </button>
@@ -3480,12 +3727,12 @@ export default function WebullTrading({ isLightMode = false }) {
                     product={selectedFuturesProduct}
                     contract={selectedFuturesContract}
                     accounts={displayAccounts}
-                    selectedAccountId={isTestMode ? 'TEST_PAPER_ACCOUNT' : selectedAccountId}
+                    selectedAccountId={isTestMode ? 'TEST_PAPER_ACCOUNT' : (isQuantMode ? 'QUANT_STRATEGY_PORTFOLIO' : selectedAccountId)}
                     onAccountChange={handleAccountChange}
                     defaultAccountId={defaultAccountId}
                     onSetDefaultAccount={saveDefaultAccount}
                     savingDefaultAccount={savingDefaultAccount}
-                    allowDefaultAccount={!isTestMode}
+                    allowDefaultAccount={!isTestMode && !isQuantMode}
                     isLightMode={isLightMode}
                   />
                 ) : (
@@ -3494,12 +3741,12 @@ export default function WebullTrading({ isLightMode = false }) {
                     instrumentType={selectedInstrumentType}
                     onInstrumentChange={handleInstrumentChange}
                     accounts={displayAccounts}
-                    selectedAccountId={isTestMode ? 'TEST_PAPER_ACCOUNT' : selectedAccountId}
+                    selectedAccountId={isTestMode ? 'TEST_PAPER_ACCOUNT' : (isQuantMode ? 'QUANT_STRATEGY_PORTFOLIO' : selectedAccountId)}
                     onAccountChange={handleAccountChange}
                     defaultAccountId={defaultAccountId}
                     onSetDefaultAccount={saveDefaultAccount}
                     savingDefaultAccount={savingDefaultAccount}
-                    allowDefaultAccount={!isTestMode}
+                    allowDefaultAccount={!isTestMode && !isQuantMode}
                     holdings={modeHoldings}
                     optionUnderlyingInstruments={availableTraditional}
                     isLightMode={isLightMode}
@@ -4687,10 +4934,12 @@ export default function WebullTrading({ isLightMode = false }) {
                     <button
                       type="submit"
                       className={`modern-submit-button ${orderForm.side.toLowerCase()}`}
-                      disabled={orderSubmitting || ticketOrderControlsDisabled || assetClassDisabled(selectedInstrumentType)}
+                      disabled={orderSubmitting || ticketOrderControlsDisabled || assetClassDisabled(selectedInstrumentType) || isQuantMode}
                     >
                       {orderSubmitting ? (
                         <span>⏳ Processing Order...</span>
+                      ) : isQuantMode ? (
+                        <span>🤖 Quantitative Strategy Mode Active (Autonomous Trading)</span>
                       ) : isTestMode ? (
                         <span>
                           🧪 Place Simulated {orderTypeLabel(orderForm.type)} {orderForm.side === 'BUY' ? (selectedInstrumentType === 'EVENT' ? 'Buy to Open' : 'Buy') : orderForm.side === 'BUY_TO_CLOSE' ? 'Cover' : orderForm.side === 'SHORT' ? 'Short' : (selectedInstrumentType === 'EVENT' ? 'Sell to Close' : 'Sell')} Order (Paper)
@@ -4720,8 +4969,12 @@ export default function WebullTrading({ isLightMode = false }) {
                     </div>
                   )}
 
-                  {/* Row 6: Warning in Real / Test Trading Mode */}
-                  {isTestMode ? (
+                  {/* Row 6: Warning in Real / Test / Quant Trading Mode */}
+                  {isQuantMode ? (
+                    <div className="modern-real-warning" style={{ marginTop: '12px', background: 'rgba(139, 92, 246, 0.15)', borderColor: 'rgba(139, 92, 246, 0.4)', color: '#c084fc' }}>
+                      🤖 <strong>QUANTITATIVE STRATEGY MODE ACTIVE:</strong> The autonomous multi-asset algorithmic engine is managing orders and positions (${number(cashBalance)} USD cash / ${number(paperSummary?.total_equity ?? cashBalance)} equity). Manual order entry is locked to prevent interfering with model strategies.
+                    </div>
+                  ) : isTestMode ? (
                     <div className="modern-real-warning" style={{ marginTop: '12px', background: 'rgba(79, 209, 197, 0.15)', borderColor: 'rgba(79, 209, 197, 0.35)', color: '#4fd1c5' }}>
                       🧪 <strong>TEST MODE ACTIVE:</strong> You are paper trading with simulated cash (${number(cashBalance)} USD available). Option fills obey regular U.S. options market hours, and no real orders are sent to Webull.
                     </div>
@@ -5173,18 +5426,18 @@ export default function WebullTrading({ isLightMode = false }) {
 
             {/* POSITIONS TAB */}
             {activeTab === 'positions' && (
-              <WebullPositions positions={modeHoldings} isTestMode={isTestMode} />
+              <WebullPositions positions={modeHoldings} isTestMode={isTestMode || isQuantMode} />
             )}
 
             {/* TRADE CHART TAB */}
             {activeTab === 'trade_chart' && (
               <section className="order-history-container">
-                <WebullTradeTimelineChart holdings={modeHoldings} orders={modeHistory} isLightMode={isLightMode} isTestMode={isTestMode} />
+                <WebullTradeTimelineChart holdings={modeHoldings} orders={modeHistory} isLightMode={isLightMode} isTestMode={isTestMode || isQuantMode} />
               </section>
             )}
 
             {/* AI ANALYSIS TAB */}
-            {!isTestMode && activeTab === 'ai_analysis' && (
+            {!isTestMode && !isQuantMode && activeTab === 'ai_analysis' && (
               <WebullAIDashboard isLightMode={isLightMode} />
             )}
           </>

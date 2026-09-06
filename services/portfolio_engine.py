@@ -279,6 +279,12 @@ def enter_lot(cfg, acc, state, module, symbol, signal, price, now, *, multiplier
     weight = allocations_for(cfg)[module]
     fraction = 1.0 if module == 'futures' else 0.2
     budget = min(budget, max(0, acc.total_equity)*weight/100*fraction)
+    if module == 'events':
+        # Disciplined risk limits for binary event contracts:
+        # Cap concurrent open event lots to 3, and restrict risk to $50 max per trade
+        if sum(1 for l in current_lots(cfg.user_id, state) if l.module == 'events') >= 3:
+            return None
+        budget = min(budget, 50.0)
     unit = margin if margin is not None else price*multiplier
     if unit <= 0 or budget <= 0:
         return None
@@ -293,6 +299,8 @@ def enter_lot(cfg, acc, state, module, symbol, signal, price, now, *, multiplier
         day_pnl = sum(l.realized_pnl for l in current_lots(cfg.user_id, state, False) if l.module=='futures' and l.closed_at and utc(l.closed_at)>=day_start)
         open_risk = sum(abs(db.session.get(Position, l.position_id).average_cost-(l.stop_price or 0))*db.session.get(Position, l.position_id).quantity*l.multiplier + 2*l.entry_fee for l in current_lots(cfg.user_id, state) if l.module=='futures')
         quantity = min(quantity, max(0, ceiling+min(day_pnl, 0)-open_risk)/(risk+2*costs(module, price, 1)))
+    if module == 'events':
+        quantity = min(quantity, 50.0)
     quantity = math.floor(quantity) if module != 'crypto' else math.floor(quantity*1e6)/1e6
     if quantity <= 0:
         return None
@@ -321,7 +329,7 @@ def check_circuit(cfg, acc, state):
     if acc.total_equity <= acc.initial_balance*0.9:
         if not state.kill_switch:
             snapshot(cfg, acc, state, datetime.utcnow())
-        trigger_pause(cfg, state, 'Portfolio drawdown reached 10% of starting bankroll. Positions frozen for review.')
+        trigger_pause(cfg, state, 'Portfolio drawdown reached 10% of starting bankroll. New entries paused for review; continuous 24/7 market monitoring and viability tracking active.')
         return True
     return state.kill_switch
 
@@ -332,8 +340,8 @@ def trigger_pause(cfg, state, reason):
     state.pause_reason = reason
     state.lease_token = None
     state.lease_until = None
-    cfg.enabled = False
-    cfg.worker_status = 'PAUSED'
+    # Maintain cfg.enabled so 24/7 market data gathering and shadow viability tracking continue
+    cfg.worker_status = 'MONITORING_ONLY'
     if newly:
         # Persist a system notification in the same transaction, with no external send.
         from models import Notification
@@ -484,23 +492,25 @@ def control(user_id, action):
             snapshot(cfg, acc, state, datetime.utcnow())
     elif action == 'stop':
         cfg.enabled = False
-        cfg.worker_status = 'PAUSED' if state.kill_switch else 'STOPPED'
+        cfg.worker_status = 'STOPPED'
         event_cfg.enabled = False
         event_cfg.worker_status = 'STOPPED'
         state.lease_token = state.lease_until = None
     elif action == 'kill':
-        trigger_pause(cfg, state, 'Administrator activated the portfolio kill switch. Positions frozen.')
+        trigger_pause(cfg, state, 'Administrator activated the portfolio kill switch. New entries paused; 24/7 monitoring active.')
         event_cfg.enabled = False
         event_cfg.kill_switch = True
         event_cfg.worker_status = 'KILLED'
     elif action == 'acknowledge':
-        if acc.total_equity <= acc.initial_balance*0.9:
-            raise ValueError('The portfolio remains below its drawdown floor; acknowledge after a confirmed bankroll reset.')
-        state.kill_switch = False
         state.pause_reason = None
-        cfg.worker_status = 'STOPPED'
-        event_cfg.kill_switch = False
-        event_cfg.worker_status = 'STOPPED'
+        if acc.total_equity <= acc.initial_balance*0.9:
+            cfg.worker_status = 'MONITORING_ONLY'
+            event_cfg.worker_status = 'MONITORING_ONLY'
+        else:
+            state.kill_switch = False
+            cfg.worker_status = 'RUNNING' if cfg.enabled else 'STOPPED'
+            event_cfg.kill_switch = False
+            event_cfg.worker_status = 'RUNNING' if event_cfg.enabled else 'STOPPED'
     else:
         raise ValueError('Unknown worker action.')
     db.session.commit()
@@ -509,7 +519,7 @@ def control(user_id, action):
 def claim(user_id, force=False):
     cfg, acc, state = locked(user_id)
     now = datetime.utcnow()
-    if not cfg.enabled or cfg.mode != 'PAPER' or state.kill_switch:
+    if not (cfg.enabled or state.kill_switch) or cfg.mode != 'PAPER':
         db.session.rollback()
         return None
     if state.lease_until and state.lease_until > now:
@@ -521,19 +531,19 @@ def claim(user_id, force=False):
     token = uuid4().hex
     state.lease_token, state.lease_until = token, now+timedelta(minutes=5)
     state.heartbeat_at = now
-    cfg.worker_status = 'RUNNING'
+    cfg.worker_status = 'MONITORING_ONLY' if state.kill_switch else 'RUNNING'
     db.session.commit()
     return token
 
 
 def owns(cfg, state, token):
-    return cfg.enabled and cfg.mode == 'PAPER' and not state.kill_switch and state.lease_token == token and state.lease_until and state.lease_until > datetime.utcnow()
+    return (cfg.enabled or state.kill_switch) and cfg.mode == 'PAPER' and state.lease_token == token and state.lease_until and state.lease_until > datetime.utcnow()
 
 
 def event_inputs(user_id, state, now, watchlist, settings):
     from event_algo_models import EventStrategyDecision as Decision, EventMarketSnapshot as Market, EventStrategyConfig
     event_cfg = EventStrategyConfig.query.filter_by(user_id=user_id).first()
-    if not event_cfg or event_cfg.kill_switch or not event_cfg.enabled:
+    if not event_cfg or not event_cfg.enabled:
         return []
     rows = Decision.query.filter_by(user_id=user_id, config_id=event_cfg.id, eligible=True).filter(
         Decision.created_at >= now-timedelta(seconds=120)).order_by(Decision.created_at.desc()).limit(50).all()
@@ -725,15 +735,18 @@ def run_scan(user_id, force=False, provider=None):
                         db.session.rollback()
                         return {'success': False, 'message': 'Engine stopped or ownership changed.'}
                     balances(acc, state, user_id)
-                    if check_circuit(cfg, acc, state):
-                        db.session.commit()
-                        break
+                    is_held = check_circuit(cfg, acc, state) or not cfg.enabled or state.kill_switch
                     for entry_symbol, price, signal, details, key in entries:
-                        if signal['enter']:
-                            _record_portfolio_log(user_id, 'POSITION_OPENED', f"Opening {module} position ({entry_symbol}) at {price:.4f}. Signal: {signal.get('reason', 'Unknown')}")
-                            opened = enter_lot(cfg, acc, state, module, entry_symbol, signal, price, now, multiplier=multiplier, margin=margin, details=details, key=key)
-                            report[module]['entries'] += int(opened is not None)
-                            balances(acc, state, user_id)
+                        if signal and signal.get('enter'):
+                            if is_held:
+                                _record_portfolio_log(user_id, 'TRADE_VIABLE_HELD',
+                                                      f"Qualified {module} setup detected on {entry_symbol} at {price:.4f} (viable signal; execution held in 24/7 monitoring mode). Reason: {signal.get('reason', 'Qualified')}")
+                                report[module]['messages'].append(f"{entry_symbol}: Viable entry signal detected ({signal.get('reason', 'Qualified')}); execution held.")
+                            else:
+                                _record_portfolio_log(user_id, 'POSITION_OPENED', f"Opening {module} position ({entry_symbol}) at {price:.4f}. Signal: {signal.get('reason', 'Unknown')}")
+                                opened = enter_lot(cfg, acc, state, module, entry_symbol, signal, price, now, multiplier=multiplier, margin=margin, details=details, key=key)
+                                report[module]['entries'] += int(opened is not None)
+                                balances(acc, state, user_id)
                     report[module]['evaluated'] += 1
                     report[module]['status'] = 'READY'
                     db.session.commit()
@@ -751,7 +764,9 @@ def run_scan(user_id, force=False, provider=None):
             check_circuit(cfg, acc, state)
             state.last_scan_at = state.heartbeat_at = datetime.utcnow()
             state.lease_token = state.lease_until = None
-            if not state.kill_switch:
+            if state.kill_switch:
+                cfg.worker_status = 'MONITORING_ONLY'
+            else:
                 cfg.worker_status = 'DEGRADED' if any(r['messages'] for r in report.values()) else 'RUNNING'
             db.session.commit()
         else:
@@ -935,6 +950,7 @@ def run_audit(user_id, prompt=None, scheduled=False, audit_id=None):
             response, _ = call_ai_with_web_search(
                 username=user.username, user_id=user_id,
                 messages=[{'role': 'system', 'content': (prompt or cfg.master_ai_prompt or DEFAULT_MASTER_CIO_PROMPT) +
+                          '\nSTRUCTURE REQUIREMENT: Section 1 (Executive Summary) MUST open with a 1-to-2 paragraph narrative TL;DR directly explaining: (1) what the user is reviewing and current portfolio status, (2) how the strategy engine is performing, (3) any errors, warnings, or module limitations encountered, and (4) concrete suggestions to improve the quantitative strategy engine. Do not start directly with a table; provide this executive summary text first.'
                           '\nUse only supplied quantitative evidence for numerical claims. Null means unavailable. Evaluate enabled_allocations and cash_allocation only for prospective diversification and returns. Disabled-module legacy positions and historical P&L remain real exposures, not future strategy contributions. Never invent correlations, stress results, probabilities of profit or guaranteed returns. Explain module_audit_errors and missing evidence explicitly. Give advisory observations only; do not claim to execute changes. Return a readable Markdown report.'},
                           {'role': 'user', 'content': json.dumps(evidence)}],
                 prompt_type='portfolio_audit', symbol='PORTFOLIO', include_db_context=False,
@@ -975,7 +991,8 @@ def portfolio_worker_loop(app, stop_event=None):
             try:
                 from credentials import User
                 from event_algo import is_event_strategy_admin
-                users = [c.user_id for c in Config.query.filter_by(enabled=True, mode='PAPER').all()]
+                users = [c.user_id for c in Config.query.filter_by(mode='PAPER').all()
+                         if c.enabled or (db.session.get(State, c.user_id) and db.session.get(State, c.user_id).kill_switch)]
                 for user_id in users:
                     user = db.session.get(User, user_id)
                     if user and is_event_strategy_admin(user):

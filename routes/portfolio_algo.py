@@ -304,3 +304,100 @@ def portfolio_algo_logs():
         })
     
     return jsonify({"success": True, "logs": data})
+
+
+@portfolio_algo_bp.route('/api/webull/portfolio-algo/orders', methods=['GET'])
+@portfolio_admin_required
+def portfolio_algo_orders():
+    from portfolio_algo_models import PortfolioStrategyOrder
+    import json
+    status_filter = str(request.args.get('status') or '').lower()
+    query = PortfolioStrategyOrder.query.filter_by(user_id=current_user.id)
+    if status_filter == 'open':
+        query = query.filter(PortfolioStrategyOrder.status.in_(['OPEN', 'WORKING', 'PENDING', 'NEW', 'SUBMITTED']))
+    rows = query.order_by(PortfolioStrategyOrder.created_at.desc()).limit(500).all()
+    orders = []
+    for r in rows:
+        notes_dict = {}
+        if r.notes:
+            try:
+                notes_dict = json.loads(r.notes)
+            except Exception:
+                notes_dict = {'raw': r.notes}
+        orders.append({
+            'id': f'QUANT_{r.id}',
+            'order_id': f'QUANT_{r.id}',
+            'symbol': r.symbol,
+            'instrument_type': r.instrument_type,
+            'module_name': r.module_name,
+            'side': r.side,
+            'order_type': r.order_type,
+            'quantity': r.quantity,
+            'filled_quantity': r.quantity if r.status == 'FILLED' else 0,
+            'price': r.price,
+            'status': r.status,
+            'pnl': r.pnl,
+            'notes': r.notes,
+            'details': notes_dict,
+            'is_paper': True,
+            'is_quant': True,
+            'account_id': 'QUANT_PAPER_ACCOUNT',
+            'created_at': r.created_at.isoformat() + 'Z' if r.created_at else None,
+        })
+    return jsonify(success=True, orders=orders, total=len(orders))
+
+
+@portfolio_algo_bp.route('/api/webull/portfolio-algo/positions', methods=['GET'])
+@portfolio_admin_required
+def portfolio_algo_positions():
+    status = engine.portfolio_status(current_user.id)
+    positions = []
+    for p in status.get('positions', []):
+        positions.append({
+            'id': f"QUANT_POS_{p['id']}",
+            'symbol': p['symbol'],
+            'instrument_type': p.get('instrument_type', 'EQUITY'),
+            'module': p.get('module'),
+            'side': p.get('side', 'LONG'),
+            'quantity': p.get('quantity', 0),
+            'cost_price': p.get('average_cost', 0),
+            'last_price': p.get('mark', 0),
+            'market_value': (p.get('mark', 0) * p.get('quantity', 0)) or p.get('collateral', 0),
+            'unrealized_profit_loss': p.get('unrealized_pnl', 0),
+            'collateral': p.get('collateral', 0),
+            'stop_price': p.get('stop'),
+            'target_price': p.get('target'),
+            'details': p.get('details', {}),
+            'is_paper': True,
+            'is_quant': True,
+            'account_id': 'QUANT_PAPER_ACCOUNT',
+            'source': 'webull_quant',
+            'updated_at': p.get('marked_at'),
+        })
+    return jsonify(success=True, positions=positions, total=len(positions))
+
+
+@portfolio_algo_bp.route('/api/webull/portfolio-algo/account-summary', methods=['GET'])
+@portfolio_admin_required
+def portfolio_algo_account_summary():
+    status = engine.portfolio_status(current_user.id)
+    acc = status.get('account', {})
+    perf = status.get('performance', {})
+    summary = {
+        'account_id': 'QUANT_PAPER_ACCOUNT',
+        'account_name': 'Quantitative Strategy Engine (Isolated Paper)',
+        'cash_balance': acc.get('cash_balance', 50000.0),
+        'net_liquidation': acc.get('total_equity', 50000.0),
+        'total_equity': acc.get('total_equity', 50000.0),
+        'initial_balance': acc.get('initial_balance', 50000.0),
+        'unrealized_pnl': acc.get('unrealized_pnl', 0.0),
+        'realized_pnl': acc.get('realized_pnl', 0.0),
+        'return_pct': acc.get('return_pct', 0.0),
+        'max_drawdown_pct': perf.get('max_drawdown_pct', 0.0),
+        'win_rate_pct': perf.get('win_rate_pct'),
+        'open_positions_count': status.get('open_positions_count', 0),
+        'worker_status': status.get('worker_status', 'STOPPED'),
+        'is_paper': True,
+        'is_quant': True,
+    }
+    return jsonify(success=True, summary=summary)

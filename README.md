@@ -6,6 +6,15 @@
 
 **Last Updated**: September 2026
 
+## v2.92.0 (September 2026)
+
+- Master Quantitative AI Audit reports now open Section 1 (`## 1. Executive Summary`) with a concise 1–2 paragraph narrative TL;DR explaining portfolio state, engine performance, module limitations or errors, and concrete strategy suggestions before the KPI table.
+- Continuous 24/7 market monitoring and opportunity logging: pausing or hitting the 10% drawdown safeguard transitions the engine into a non-halting `MONITORING_ONLY` mode that evaluates setups and logs viable held trades without opening risk lots.
+- Strengthened event contract position and risk sizing: capped concurrent event positions at 3 lots, max dollar risk per event lot at $50, and max contract volume per lot at 50 units to prevent outsized losses.
+- Webull Trading 3-Way Mode Switcher: replaced the binary Test Mode toggle with a segmented 3-way switcher (`Real Trading Mode`, `Test Mode`, and administrator-only `Quantitative Strategy Mode`). In Quant Mode, admins can inspect live algo orders, order history, and active positions with manual order entry safely locked.
+- Resolved dark-mode table header contrast in the audit report modal with vivid cyan `#38bdf8` styling and explicit slate backgrounds.
+- Universal thin (6px) theme-aware scrollbars implemented site-wide for all panels, modals, drawers, and document viewports.
+
 ## v2.91.3 (September 2026)
 
 - Fixed portfolio AI audits crashing when open positions exist. Module assessments now receive the matching positions and use the supported AI cascade, including configured models, reasoning levels, and dedicated keys.
