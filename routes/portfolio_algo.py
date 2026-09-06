@@ -322,6 +322,115 @@ def portfolio_algo_ai_config():
     })
 
 
+def test_provider_api(provider: str, api_key: str, model: str = None, reasoning_level: str = None):
+    """Test connection to an AI provider with the supplied API key and model."""
+    provider = str(provider or "").strip().lower()
+    import requests
+
+    if provider == "ollama":
+        try:
+            from services.ai_service import call_ollama_chat
+            test_model = model or "gpt-oss:120b-cloud"
+            call_ollama_chat(
+                test_model,
+                [{"role": "user", "content": "Reply with exactly OK."}],
+                max_tokens=32,
+                timeout=30,
+                reasoning_level=reasoning_level or "medium",
+            )
+            return jsonify({"success": True, "message": f"Ollama connection OK ({test_model})"})
+        except Exception as exc:
+            return jsonify({"success": False, "message": f"Ollama error: {exc}"}), 400
+
+    if not api_key:
+        return jsonify({"success": False, "message": f"API key is required for {provider.upper()}"}), 400
+
+    if provider == "gemini":
+        try:
+            test_model = model or "gemini-2.5-flash"
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{test_model}:generateContent?key={api_key}"
+            r = requests.post(
+                url,
+                headers={"Content-Type": "application/json"},
+                json={"contents": [{"parts": [{"text": "ping"}]}]},
+                timeout=20
+            )
+            if r.status_code == 200:
+                return jsonify({"success": True, "message": f"Gemini connection OK ({test_model})"})
+            try:
+                err_data = r.json()
+                err_msg = err_data.get("error", {}).get("message") or r.text
+            except Exception:
+                err_msg = r.text
+            return jsonify({"success": False, "message": f"Gemini error ({r.status_code}): {err_msg}"}), 400
+        except Exception as e:
+            return jsonify({"success": False, "message": f"Gemini error: {e}"}), 400
+
+    elif provider == "openai":
+        try:
+            from openai import OpenAI
+            client = OpenAI(api_key=api_key, timeout=15.0)
+            test_model = model or "gpt-5.4-mini"
+            resp = client.chat.completions.create(
+                model=test_model,
+                messages=[{"role": "user", "content": "ping"}],
+                max_completion_tokens=5
+            )
+            return jsonify({"success": True, "message": f"OpenAI connection OK ({test_model})"})
+        except Exception as e:
+            return jsonify({"success": False, "message": f"OpenAI error: {e}"}), 400
+
+    elif provider == "zai":
+        try:
+            from zai_client import ZAIClient
+            client = ZAIClient(api_key)
+            test_model = model or "glm-4.5-flash"
+            resp = client.chat_completion(
+                messages=[{"role": "user", "content": "ping"}],
+                model=test_model,
+                max_tokens=5
+            )
+            if resp.get("success"):
+                return jsonify({"success": True, "message": f"Z.AI connection OK ({test_model})"})
+            else:
+                return jsonify({"success": False, "message": f"Z.AI error: {resp.get('error')}"}), 400
+        except Exception as e:
+            return jsonify({"success": False, "message": f"Z.AI error: {e}"}), 400
+
+    elif provider == "perplexity":
+        try:
+            test_model = model or "sonar"
+            r = requests.post(
+                "https://api.perplexity.ai/chat/completions",
+                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                json={"model": test_model, "messages": [{"role": "user", "content": "ping"}], "max_tokens": 5},
+                timeout=20
+            )
+            if r.status_code == 200:
+                return jsonify({"success": True, "message": f"Perplexity connection OK ({test_model})"})
+            return jsonify({"success": False, "message": f"Perplexity error ({r.status_code}): {r.text}"}), 400
+        except Exception as e:
+            return jsonify({"success": False, "message": f"Perplexity error: {e}"}), 400
+
+    elif provider == "inception":
+        try:
+            test_model = model or "mercury-2"
+            r = requests.post(
+                "https://api.inceptionlabs.ai/v1/chat/completions",
+                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                json={"model": test_model, "messages": [{"role": "user", "content": "ping"}], "max_tokens": 5},
+                timeout=20
+            )
+            if r.status_code == 200:
+                return jsonify({"success": True, "message": f"Inception Labs connection OK ({test_model})"})
+            return jsonify({"success": False, "message": f"Inception Labs error ({r.status_code}): {r.text}"}), 400
+        except Exception as e:
+            return jsonify({"success": False, "message": f"Inception Labs error: {e}"}), 400
+
+    else:
+        return jsonify({"success": False, "message": f"Unsupported provider: {provider}"}), 400
+
+
 @portfolio_algo_bp.route('/api/webull/portfolio-algo/ai-test', methods=['POST'])
 @portfolio_admin_required
 def portfolio_algo_ai_test():
@@ -347,7 +456,7 @@ def portfolio_algo_ai_test():
         if tier_data.get("api_key"):
             api_key = decrypt_secret(tier_data["api_key"])
         if not api_key:
-            from event_algo_models import Credential
+            from credentials import Credential
             cred = Credential.query.filter_by(user_id=current_user.id).first()
             if cred and provider != "ollama":
                 api_key = (
@@ -355,26 +464,6 @@ def portfolio_algo_ai_test():
                     decrypt_secret(getattr(cred, f"{provider}_key", None))
                 )
 
-    import requests
-    if provider == "ollama":
-        try:
-            from services.ai_service import call_ollama_chat
-            test_model = model or "gpt-oss:120b-cloud"
-            call_ollama_chat(
-                test_model,
-                [{"role": "user", "content": "Reply with exactly OK."}],
-                max_tokens=32,
-                timeout=30,
-                reasoning_level=reasoning_level,
-            )
-            return jsonify({"success": True, "message": f"Ollama connection OK ({test_model})"})
-        except Exception as exc:
-            return jsonify({"success": False, "message": f"Ollama error: {exc}"}), 400
-
-    if not api_key:
-        return jsonify({"success": False, "message": f"API key is required for {provider.upper()}"}), 400
-
-    from routes.event_algo import test_provider_api
     return test_provider_api(provider, api_key, model, reasoning_level)
 
 

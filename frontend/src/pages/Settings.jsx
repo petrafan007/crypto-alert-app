@@ -4520,7 +4520,7 @@ export default function Settings({ isLightMode }) {
                       marginBottom: 16,
                       lineHeight: 1.45
                     }}>
-                      🛡️ <strong>Complete Isolation:</strong> This 3-tier cascade and its dedicated API keys are used exclusively by the Event Contract Strategy Engine (market probability estimations, batched scanning, and autonomous audits). Global Copilot, Portfolio Review, and Watchlist Sentiment remain completely separate and unaffected.
+                      🛡️ <strong>Complete Isolation:</strong> This 3-tier cascade and its dedicated API keys are used exclusively by the Quantitative Strategy Engine (autonomous multi-asset portfolio evaluations, cross-asset correlation analysis, and rebalancing audits). Global Copilot, Portfolio Review, and Watchlist Sentiment remain completely separate and unaffected.
                     </div>
 
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(310px, 1fr))', gap: 16 }}>
@@ -4619,8 +4619,9 @@ export default function Settings({ isLightMode }) {
                                   ))
                                 ) : (
                                   <>
-                                    {provider === 'gemini' && <option value="gemini-3.8-flash">Gemini 3.8 Flash</option>}
+                                    {provider === 'gemini' && <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>}
                                     {provider === 'gemini' && <option value="gemini-3.7-flash">Gemini 3.7 Flash</option>}
+                                    {provider === 'gemini' && <option value="gemini-3.8-flash">Gemini 3.8 Flash</option>}
                                     {provider === 'ollama' && <option value="gpt-oss:120b-cloud">gpt-oss:120b-cloud</option>}
                                     {provider === 'ollama' && <option value="qwen2.5:14b">qwen2.5:14b</option>}
                                     {provider === 'openai' && <option value="gpt-5.4-mini">5.4 mini</option>}

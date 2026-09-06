@@ -6,6 +6,12 @@
 
 **Last Updated**: September 2026
 
+## v2.92.2 (September 2026)
+
+- **Master AI Test Connection Endpoint Fix:** Resolved an unhandled `ImportError` on `POST /api/webull/portfolio-algo/ai-test` where `test_provider_api` was incorrectly imported from `routes.event_algo`, which caused the connection test modal to display `"Portfolio operation failed. Check the application log."`. Implemented a robust, native multi-provider API connection test handler supporting Gemini, OpenAI, Z.AI, Perplexity, Inception Labs, and Ollama.
+- **Gemini 2.5 Flash Support:** Added `gemini-2.5-flash` to the available model list, model labels, and validation whitelists across both Master Engine AI Configuration and user settings as a high-throughput, quota-stable alternative alongside `gemini-3.7-flash` and `gemini-3.8-flash`.
+- **Accurate Quantitative Engine Modal Copy:** Corrected the isolation banner text in the Master Quantitative Strategy Engine AI Configuration modal to accurately reflect the Quantitative Strategy Engine's multi-asset portfolio evaluations, cross-asset correlation analysis, and autonomous audits.
+
 ## v2.92.1 (September 2026)
 
 - **Multi-Account Segregation & Dynamic Enabled Allocations:** Replicated Webull's real-world non-IRA sub-account structure (Individual Cash for Equities, ETFs & Options; Crypto Account for Spot; Events Cash Account for Event Contracts; Futures Account for Micro Futures). Capital dynamically distributes across segregated accounts based on enabled module weights ($33,360.00 Individual Cash, $11,095.00 Crypto, $5,545.00 Events Cash, $0.00 Futures for the baseline $50,000.00 bankroll).

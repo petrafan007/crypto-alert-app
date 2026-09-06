@@ -970,7 +970,7 @@ def get_ai_models():
         'sonar-pro', 'sonar', 'sonar-reasoning',
     }
     gemini_models = {
-        'gemini-3.5-flash', 'gemini-3.6-flash', 'gemini-3.7-flash', 'gemini-3.8-flash',
+        'gemini-2.5-flash', 'gemini-3.5-flash', 'gemini-3.6-flash', 'gemini-3.7-flash', 'gemini-3.8-flash',
     }
     inception_models = {
         'mercury-2', 'mercury',
@@ -995,6 +995,7 @@ def get_ai_models():
         'sonar-pro': 'Sonar Pro',
         'sonar': 'Sonar',
         'sonar-reasoning': 'Sonar Reasoning',
+        'gemini-2.5-flash': 'Gemini 2.5 Flash',
         'gemini-3.5-flash': 'Gemini 3.5 Flash',
         'gemini-3.6-flash': 'Gemini 3.6 Flash',
         'gemini-3.7-flash': 'Gemini 3.7 Flash',

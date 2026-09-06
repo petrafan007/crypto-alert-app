@@ -277,4 +277,6 @@ def event_algo_performance():
     return jsonify({"success": True, **event_strategy_performance(current_user.id, limit=limit)})
 
 
-
+def test_provider_api(*args, **kwargs):
+    from routes.portfolio_algo import test_provider_api as _tpa
+    return _tpa(*args, **kwargs)
