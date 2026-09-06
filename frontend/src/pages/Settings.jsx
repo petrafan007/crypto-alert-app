@@ -9,6 +9,7 @@ import remarkGfm from 'remark-gfm';
 import { formatEasternDateTime } from '../utils/dateTime';
 const QuantitativeStrategyEngine = React.lazy(() => import('../components/QuantitativeStrategyEngine'));
 import ProviderHealth from '../components/ProviderHealth';
+import { normalizePortfolioAudit, selectPortfolioAudit, auditOutcomeMessage } from '../utils/portfolioAudit.mjs';
 
 const SENTIMENT_VARIABLES = [
   { label: 'Buy Immediately', code: 'BI', kind: 'directional', direction: 'up', correctKey: 'sentiment_buy_immediately_correct_pct', wrongKey: 'sentiment_buy_immediately_wrong_pct' },
@@ -92,97 +93,6 @@ const getHeadlineCalloutStyle = (status, isLight) => {
     color: isLight ? '#166534' : '#86efac',
     icon: '💡'
   };
-};
-
-const getAuditWindowHours = (report, fallbackHours) => {
-  if (report?.period_start && report?.period_end) {
-    try {
-      const diffHours = Math.round((new Date(report.period_end) - new Date(report.period_start)) / 3600000);
-      if (diffHours > 0) return `${diffHours} Hours`;
-    } catch {
-      // fallback
-    }
-  }
-  return `${fallbackHours || 6} Hours`;
-};
-
-const formatReportMarkdown = (rawContent, summary) => {
-  const content = String(rawContent || summary || 'No detailed content available.').trim();
-  if (content.startsWith('{') && content.endsWith('}')) {
-    try {
-      const data = JSON.parse(content);
-      if (data && typeof data === 'object') {
-        if (data.content_markdown && typeof data.content_markdown === 'string' && !data.content_markdown.trim().startsWith('{')) {
-          return data.content_markdown;
-        }
-        const statusVal = String(data.overall_status || data.status || 'HEALTHY').toUpperCase();
-        const headline = data.headline || (data.issues?.length ? `Audit completed: ${data.issues.length} operational issue(s) analyzed.` : 'AI operational audit completed.');
-        const lines = [
-          '## Event Strategy Engine Operational AI Audit Report',
-          '',
-          `**Audit Status:** \`${statusVal}\`  `,
-          `**Executive Verdict:** ${headline}  `,
-          '',
-          '---',
-        ];
-        if (Array.isArray(data.issues) && data.issues.length > 0) {
-          lines.push('\n### 🚨 Detected Operational Issues & Bottlenecks\n');
-          data.issues.forEach((iss) => {
-            if (iss && typeof iss === 'object') {
-              const itype = (iss.type || iss.name || 'Operational Notice').replace(/_/g, ' ');
-              const countStr = iss.count !== undefined ? ` **(Count: ${iss.count})**` : '';
-              const desc = iss.description || iss.details || iss.message || '';
-              lines.push(`- **${itype}**${countStr}: ${desc}`);
-            } else {
-              lines.push(`- ${iss}`);
-            }
-          });
-        }
-        if (data.metrics_summary && typeof data.metrics_summary === 'object') {
-          const ms = data.metrics_summary;
-          lines.push('\n### 📊 Telemetry & Execution Summary\n');
-          if (ms.heartbeat_age_seconds !== undefined) {
-            lines.push(`- **Worker Heartbeat Age:** \`${Number(ms.heartbeat_age_seconds).toFixed(1)}s\``);
-          }
-          lines.push(`- **Scans Analyzed:** \`${ms.scans_count ?? 0}\` (${ms.scanned_contracts ?? 0} contracts evaluated)`);
-          lines.push(`- **Decisions Recorded:** \`${ms.decisions_count ?? 0}\` (${ms.eligible_count ?? 0} qualified trades, \`${ms.no_trade_count ?? 0}\` held)`);
-          lines.push(`- **Operational Logs:** \`${ms.total_logs ?? ((ms.error_count ?? 0) + (ms.warning_count ?? 0) + (ms.info_count ?? 0))}\` total (\`${ms.error_count ?? 0}\` errors, \`${ms.warning_count ?? 0}\` warnings, \`${ms.info_count ?? 0}\` info)`);
-          if (ms.top_reason_codes && typeof ms.top_reason_codes === 'object') {
-            const reasons = Object.entries(ms.top_reason_codes).map(([k, v]) => `\`${k.replace(/_/g, ' ')}\` (${v})`).join(', ');
-            if (reasons) lines.push(`- **Top Decision Hold Reasons:** ${reasons}`);
-          }
-          if (ms.ai_evaluations && typeof ms.ai_evaluations === 'object') {
-            const evals = Object.entries(ms.ai_evaluations).map(([k, v]) => `**${k}**: \`${v}\``).join(', ');
-            if (evals) lines.push(`- **AI Model Predictions:** ${evals}`);
-          }
-        }
-        if (Array.isArray(data.recommendations) && data.recommendations.length > 0) {
-          lines.push('\n### 💡 Actionable Recommendations & Tuning\n');
-          data.recommendations.forEach((rec, idx) => {
-            if (rec && typeof rec === 'object') {
-              const actionTitle = (rec.action || rec.title || `Recommendation ${idx + 1}`).replace(/_/g, ' ');
-              const details = rec.details || rec.description || rec.text || '';
-              lines.push(`${idx + 1}. **${actionTitle}**${details ? `: ${details}` : ''}`);
-            } else {
-              lines.push(`${idx + 1}. ${rec}`);
-            }
-          });
-        }
-        if (data.next_steps) {
-          lines.push('\n### 🎯 Next Steps\n');
-          if (Array.isArray(data.next_steps)) {
-            data.next_steps.forEach((s) => lines.push(`- ${s}`));
-          } else {
-            lines.push(String(data.next_steps));
-          }
-        }
-        return lines.join('\n');
-      }
-    } catch {
-      // ignore
-    }
-  }
-  return content;
 };
 
 export default function Settings({ isLightMode }) {
@@ -559,8 +469,8 @@ export default function Settings({ isLightMode }) {
       const response = await axios.get(url, { withCredentials: true });
       if (response.data?.success) {
         // Set the most recent audit as the current report, and all others as history
-        const audits = response.data.audits || [];
-        setEventStrategyReport(audits.length > 0 ? audits[0] : null);
+        const audits = (response.data.audits || []).map(normalizePortfolioAudit);
+        setEventStrategyReport(selectPortfolioAudit(audits, reportId));
         setEventStrategyReportHistory(audits);
         setShowEventStrategyReport(true);
       } else {
@@ -584,11 +494,14 @@ export default function Settings({ isLightMode }) {
     try {
       const response = await axios.post('/api/webull/portfolio-algo/master-audit', {}, { withCredentials: true });
       if (response.data?.success) {
-        setEventStrategyReport(response.data.audit || null);
-        // Refresh history
-        loadEventStrategyReport();
-        setEventStrategyReportMessage('Master AI audit report generated successfully.');
-        setEventStrategyMessage('Master AI audit report generated successfully.');
+        const audit = normalizePortfolioAudit(response.data.audit || {});
+        setEventStrategyReport(audit);
+        setEventStrategyReportHistory(previous => [audit, ...previous.filter(item => item.id !== audit.id)]);
+        if (['SUCCESS', 'PENDING'].includes(audit.status)) {
+          setEventStrategyReportMessage(auditOutcomeMessage(audit));
+        } else {
+          setEventStrategyReportError(auditOutcomeMessage(audit));
+        }
       } else {
         const errMsg = response.data?.message || 'Unable to generate AI audit report.';
         setEventStrategyReportError(errMsg);
@@ -602,6 +515,32 @@ export default function Settings({ isLightMode }) {
       setEventStrategyReportGenerating(false);
     }
   };
+
+  const portfolioAuditPending = eventStrategyReportHistory.some(report => report.status === 'PENDING');
+  useEffect(() => {
+    if (!showEventStrategyReport || !portfolioAuditPending) return undefined;
+    let cancelled = false;
+    let timer;
+    const refresh = async () => {
+      try {
+        const response = await axios.get('/api/webull/portfolio-algo/audits', { withCredentials: true });
+        if (cancelled) return;
+        const audits = (response.data.audits || []).map(normalizePortfolioAudit);
+        setEventStrategyReportHistory(audits);
+        setEventStrategyReport(previous => selectPortfolioAudit(audits, previous?.id));
+        if (!audits.some(report => report.status === 'PENDING')) {
+          const latest = audits[0];
+          setEventStrategyReportMessage(latest?.status === 'SUCCESS' ? auditOutcomeMessage(latest) : '');
+          setEventStrategyReportError(latest?.status !== 'SUCCESS' ? auditOutcomeMessage(latest) : '');
+        }
+      } catch (error) {
+        if (!cancelled) setEventStrategyReportError('Unable to refresh report progress. The saved audit continues; reopen report history to check it.');
+      }
+      if (!cancelled) timer = setTimeout(refresh, 3000);
+    };
+    timer = setTimeout(refresh, 1500);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [showEventStrategyReport, portfolioAuditPending]);
 
   const DEFAULT_MASTER_CIO_PROMPT =
     "You are the Quantitative Chief Investment Officer (CIO) and Portfolio Risk Auditor for an autonomous multi-asset trading engine. Your mandate is to evaluate the blended portfolio ($50,000 baseline) across 5 asset classes (Equities & ETFs, Options Strategies, Cryptocurrency Spot, Micro Futures, and Event Contracts). Audit portfolio progress toward the net annual target (16.5%–21.0% CAGR), detect cross-asset correlation spikes, identify whether any asset allocation has drifted beyond target risk weights, and issue strategic capital rebalancing directives.";
@@ -4169,23 +4108,23 @@ export default function Settings({ isLightMode }) {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 24px', borderBottom: '1px solid rgba(148,163,184,0.2)' }}>
               <div>
                 <h3 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: 10, fontSize: '1.25rem' }}>
-                  <span>📊 Event Strategy Engine AI Audit Report</span>
+                  <span>📊 Quantitative Portfolio AI Audit Report</span>
                   {eventStrategyReport?.status && (
                     <span style={{
                       fontSize: '0.75rem',
                       fontWeight: 700,
                       padding: '3px 10px',
                       borderRadius: 12,
-                      background: eventStrategyReport.status === 'HEALTHY' ? 'rgba(34, 197, 94, 0.18)' : (eventStrategyReport.status === 'DEGRADED' || eventStrategyReport.status === 'ERROR' ? 'rgba(239, 68, 68, 0.18)' : 'rgba(234, 179, 8, 0.18)'),
-                      border: `1px solid ${eventStrategyReport.status === 'HEALTHY' ? '#22c55e' : (eventStrategyReport.status === 'DEGRADED' || eventStrategyReport.status === 'ERROR' ? '#ef4444' : '#eab308')}`,
-                      color: eventStrategyReport.status === 'HEALTHY' ? '#4ade80' : (eventStrategyReport.status === 'DEGRADED' || eventStrategyReport.status === 'ERROR' ? '#f87171' : '#fde047'),
+                      background: eventStrategyReport.status === 'SUCCESS' ? 'rgba(34, 197, 94, 0.18)' : (eventStrategyReport.status === 'DEGRADED' || eventStrategyReport.status === 'FAILED' ? 'rgba(239, 68, 68, 0.18)' : 'rgba(234, 179, 8, 0.18)'),
+                      border: `1px solid ${eventStrategyReport.status === 'SUCCESS' ? '#22c55e' : (eventStrategyReport.status === 'DEGRADED' || eventStrategyReport.status === 'FAILED' ? '#ef4444' : '#eab308')}`,
+                      color: eventStrategyReport.status === 'SUCCESS' ? '#4ade80' : (eventStrategyReport.status === 'DEGRADED' || eventStrategyReport.status === 'FAILED' ? '#f87171' : '#fde047'),
                     }}>
                       {eventStrategyReport.status}
                     </span>
                   )}
                 </h3>
                 <div style={{ fontSize: '0.82rem', color: isLightMode ? '#64748b' : '#94a3b8', marginTop: 4 }}>
-                  Autonomous 6-hour evaluation of worker performance, operational logs, quote data utility, and calibrated decisions.
+                  Portfolio and enabled-module assessments. Scheduled every {settings.event_strategy_audit_hours || 6} hours; execution state is reported separately.
                 </div>
               </div>
               <button type="button" onClick={() => setShowEventStrategyReport(false)} aria-label="Close report" style={{ background: 'none', border: 'none', color: isLightMode ? '#64748b' : '#94a3b8', fontSize: 20, cursor: 'pointer', padding: 4 }}>✕</button>
@@ -4222,17 +4161,17 @@ export default function Settings({ isLightMode }) {
                 <button
                   type="button"
                   className="settings-action-button"
-                  disabled={eventStrategyReportGenerating}
+                  disabled={(eventStrategyReportGenerating || portfolioAuditPending)}
                   onClick={generateEventStrategyReportNow}
-                  style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.85rem', padding: '6px 14px', cursor: eventStrategyReportGenerating ? 'not-allowed' : 'pointer', opacity: eventStrategyReportGenerating ? 0.7 : 1 }}
+                  style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.85rem', padding: '6px 14px', cursor: (eventStrategyReportGenerating || portfolioAuditPending) ? 'not-allowed' : 'pointer', opacity: (eventStrategyReportGenerating || portfolioAuditPending) ? 0.7 : 1 }}
                 >
-                  {eventStrategyReportGenerating ? '⚡ Analyzing worker & logs…' : '⚡ Generate Fresh Report Now'}
+                  {(eventStrategyReportGenerating || portfolioAuditPending) ? '⚡ Analyzing worker & logs…' : '⚡ Generate Fresh Report Now'}
                 </button>
               </div>
             </div>
 
             {/* Modal Alerts & Progress Banner */}
-            {eventStrategyReportGenerating && (
+            {(eventStrategyReportGenerating || portfolioAuditPending) && (
               <div style={{
                 margin: '12px 24px 0',
                 padding: '12px 16px',
@@ -4314,16 +4253,16 @@ export default function Settings({ isLightMode }) {
                 <div style={{ padding: '40px 0', textAlign: 'center' }}>
                   <p style={{ fontSize: '1.05rem', color: isLightMode ? '#475569' : '#cbd5e1' }}>No audit report has been generated yet.</p>
                   <p style={{ fontSize: '0.88rem', color: isLightMode ? '#64748b' : '#94a3b8', maxWidth: 500, margin: '0 auto 20px' }}>
-                    The report runs automatically every 6 hours while the engine is active. You can generate an immediate evaluation right now to inspect current worker operations and logs.
+                    Reports run on the configured audit schedule, including while paper execution is stopped or paused. You can generate an immediate evaluation right now to inspect current worker operations and logs.
                   </p>
                   <button
                     type="button"
                     className="settings-save-button"
-                    disabled={eventStrategyReportGenerating}
+                    disabled={(eventStrategyReportGenerating || portfolioAuditPending)}
                     onClick={generateEventStrategyReportNow}
-                    style={{ cursor: eventStrategyReportGenerating ? 'not-allowed' : 'pointer', opacity: eventStrategyReportGenerating ? 0.7 : 1 }}
+                    style={{ cursor: (eventStrategyReportGenerating || portfolioAuditPending) ? 'not-allowed' : 'pointer', opacity: (eventStrategyReportGenerating || portfolioAuditPending) ? 0.7 : 1 }}
                   >
-                    {eventStrategyReportGenerating ? '⚡ Analyzing worker & logs…' : '⚡ Generate Initial Report Now'}
+                    {(eventStrategyReportGenerating || portfolioAuditPending) ? '⚡ Analyzing worker & logs…' : '⚡ Generate Initial Report Now'}
                   </button>
                 </div>
               ) : (
@@ -4335,20 +4274,20 @@ export default function Settings({ isLightMode }) {
                       <div style={{ fontWeight: 600, fontSize: '0.88rem', marginTop: 3 }}>{formatEasternDateTime(eventStrategyReport.created_at)}</div>
                     </div>
                     <div style={{ padding: '10px 14px', borderRadius: 8, background: isLightMode ? '#f1f5f9' : 'rgba(255,255,255,0.04)', border: '1px solid rgba(148,163,184,0.18)' }}>
-                      <div style={{ fontSize: 11, color: isLightMode ? '#64748b' : '#94a3b8' }}>Audit Window</div>
-                      <div style={{ fontWeight: 600, fontSize: '0.88rem', marginTop: 3 }}>{getAuditWindowHours(eventStrategyReport, settings.event_strategy_audit_hours)}</div>
+                      <div style={{ fontSize: 11, color: isLightMode ? '#64748b' : '#94a3b8' }}>Paper Run</div>
+                      <div style={{ fontWeight: 600, fontSize: '0.88rem', marginTop: 3 }}>{eventStrategyReport.generation == null ? '—' : `#${eventStrategyReport.generation}`}</div>
                     </div>
                     <div style={{ padding: '10px 14px', borderRadius: 8, background: isLightMode ? '#f1f5f9' : 'rgba(255,255,255,0.04)', border: '1px solid rgba(148,163,184,0.18)' }}>
-                      <div style={{ fontSize: 11, color: isLightMode ? '#64748b' : '#94a3b8' }}>Scans Analyzed</div>
-                      <div style={{ fontWeight: 600, fontSize: '0.88rem', marginTop: 3 }}>{eventStrategyReport.metrics?.scans_count ?? 0} scans ({eventStrategyReport.metrics?.scanned_contracts ?? 0} contracts)</div>
+                      <div style={{ fontSize: 11, color: isLightMode ? '#64748b' : '#94a3b8' }}>Paper Equity</div>
+                      <div style={{ fontWeight: 600, fontSize: '0.88rem', marginTop: 3 }}>{eventStrategyReport.evidence?.account?.total_equity == null ? '—' : new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(eventStrategyReport.evidence.account.total_equity)}</div>
                     </div>
                     <div style={{ padding: '10px 14px', borderRadius: 8, background: isLightMode ? '#f1f5f9' : 'rgba(255,255,255,0.04)', border: '1px solid rgba(148,163,184,0.18)' }}>
-                      <div style={{ fontSize: 11, color: isLightMode ? '#64748b' : '#94a3b8' }}>Decisions &amp; Holds</div>
-                      <div style={{ fontWeight: 600, fontSize: '0.88rem', marginTop: 3 }}>{eventStrategyReport.metrics?.eligible_count ?? 0} qualified / {eventStrategyReport.metrics?.no_trade_count ?? 0} hold</div>
+                      <div style={{ fontSize: 11, color: isLightMode ? '#64748b' : '#94a3b8' }}>Open Positions</div>
+                      <div style={{ fontWeight: 600, fontSize: '0.88rem', marginTop: 3 }}>{eventStrategyReport.evidence?.open_positions_count ?? '—'}</div>
                     </div>
                     <div style={{ padding: '10px 14px', borderRadius: 8, background: isLightMode ? '#f1f5f9' : 'rgba(255,255,255,0.04)', border: '1px solid rgba(148,163,184,0.18)' }}>
                       <div style={{ fontSize: 11, color: isLightMode ? '#64748b' : '#94a3b8' }}>Auditor Model</div>
-                      <div style={{ fontWeight: 600, fontSize: '0.88rem', marginTop: 3 }}>{eventStrategyReport.model || eventStrategyReport.provider || 'AI Evaluator'}</div>
+                      <div style={{ fontWeight: 600, fontSize: '0.88rem', marginTop: 3 }}>{eventStrategyReport.model || eventStrategyReport.provider || 'Unavailable'}</div>
                     </div>
                   </div>
 
@@ -4375,12 +4314,23 @@ export default function Settings({ isLightMode }) {
                     );
                   })()}
 
+                  {eventStrategyReport.evidence?.pause_reason && <p role="status"><strong>Paper execution paused:</strong> {eventStrategyReport.evidence.pause_reason}</p>}
                   {/* Markdown Report Content - defensively parsed so raw JSON never displays */}
                   <div className="event-strategy-report-markdown" style={{ lineHeight: 1.65, fontSize: '0.92rem' }}>
                     <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                      {formatReportMarkdown(eventStrategyReport.content_markdown, eventStrategyReport.summary)}
+                      {eventStrategyReport.content_markdown}
                     </ReactMarkdown>
                   </div>
+                  {Object.entries(eventStrategyReport.evidence?.module_audits || {}).map(([module, content]) => (
+                    <details key={module} style={{ marginTop: 16 }}>
+                      <summary>{module.toUpperCase()} assessment{eventStrategyReport.evidence?.module_audit_errors?.[module] ? ' — unavailable' : ''}</summary>
+                      <ReactMarkdown remarkPlugins={[remarkGfm]}>{content || eventStrategyReport.evidence?.module_audit_errors?.[module] || 'No module assessment was returned.'}</ReactMarkdown>
+                    </details>
+                  ))}
+                  {Object.keys(eventStrategyReport.evidence || {}).length > 0 && <details style={{ marginTop: 16 }}>
+                    <summary>Saved portfolio evidence</summary>
+                    <pre style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{JSON.stringify(eventStrategyReport.evidence, null, 2)}</pre>
+                  </details>}
                 </div>
               )}
             </div>

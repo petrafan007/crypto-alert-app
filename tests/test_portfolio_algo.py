@@ -599,7 +599,7 @@ class PortfolioLedgerTests(unittest.TestCase):
         db.session.add(user)
         db.session.commit()
         response = SimpleNamespace(text='Measured results need a longer observation window.', provider='test', model='test-model')
-        with patch('services.ai_service.is_ai_enabled', return_value=True), patch('services.ai_service.call_ai_with_web_search', return_value=(response, '')) as call:
+        with patch('services.ai_service.is_ai_enabled', return_value=True), patch('services.ai_service.call_ai_with_web_search', autospec=True, return_value=(response, '')) as call:
             result = e.run_audit(self.user_id)
         self.assertEqual(result['status'], 'SUCCESS')
         self.assertEqual(result['provider'], 'test')
@@ -610,6 +610,111 @@ class PortfolioLedgerTests(unittest.TestCase):
         from portfolio_algo_models import PortfolioEngineLog
         log_types = {row.event_type for row in PortfolioEngineLog.query.filter_by(user_id=self.user_id).all()}
         self.assertTrue({'AUDIT_START', 'AUDIT_MODULE', 'AUDIT_MASTER', 'AUDIT_COMPLETE'} <= log_types)
+
+    def audit_user(self):
+        from credentials import User
+        db.session.add(User(id=self.user_id, username=f'audit-{self.user_id}', pwd_hash='test'))
+        db.session.commit()
+
+    def test_audit_with_positions_in_every_module_and_dedicated_ai_tiers(self):
+        self.audit_user()
+        for module in e.MODULES:
+            lot = self.entry(module=module, price=.5 if module == 'events' else 100,
+                             margin=100 if module in ('options', 'futures') else None,
+                             details={'width': 2} if module == 'options' else {})
+            self.assertIsNotNone(lot)
+        self.cfg.master_ai_config = json.dumps({
+            'primary': {'provider': 'ollama', 'model': 'local-auditor', 'reasoning_level': 'high'},
+            'secondary': {'provider': 'inception', 'model': 'mercury-2', 'api_key': 'encrypted-test'},
+        })
+        db.session.commit()
+        response = SimpleNamespace(text='Saved evidence reviewed.', provider='test', model='test-model')
+        with patch('credential_security.decrypt_secret', return_value='dedicated-test-key'), \
+             patch('services.ai_service.is_ai_enabled', return_value=True), \
+             patch('services.ai_service.call_ai_with_web_search', autospec=True, return_value=(response, '')) as call:
+            result = e.run_audit(self.user_id)
+        self.assertEqual(result['status'], 'SUCCESS', result['content'])
+        self.assertEqual(call.call_count, 6)
+        for request in call.call_args_list[:-1]:
+            payload = json.loads(request.kwargs['messages'][1]['content'])
+            self.assertEqual(len(payload['positions']), 1)
+            self.assertEqual(payload['positions'][0]['module'], payload['module'])
+            self.assertEqual(request.kwargs['custom_tier_configs'][0], ('primary', 'ollama', 'local-auditor', 'high'))
+            self.assertEqual(request.kwargs['custom_api_keys'][('secondary', 'inception')], 'dedicated-test-key')
+        self.assertNotIn('dedicated-test-key', json.dumps(result))
+        self.assertEqual(result['evidence']['open_positions_count'], 5)
+
+    def test_module_failure_produces_partial_report_with_saved_diagnostics(self):
+        self.audit_user()
+        response = SimpleNamespace(text='Portfolio assessment with a missing module.', provider='test', model='test')
+        def answer(**kwargs):
+            if kwargs['symbol'] == 'CRYPTO':
+                raise RuntimeError('Provider quota exhausted')
+            return response, ''
+        with patch('services.ai_service.is_ai_enabled', return_value=True), \
+             patch('services.ai_service.call_ai_with_web_search', autospec=True, side_effect=answer):
+            result = e.run_audit(self.user_id)
+        self.assertEqual(result['status'], 'PARTIAL')
+        self.assertIn('quota exhausted', result['evidence']['module_audit_errors']['crypto'])
+        self.assertIsNone(result['evidence']['module_audits']['crypto'])
+        self.assertTrue(result['evidence']['module_audits']['events'])
+
+    def test_master_failure_preserves_evidence_and_completed_module_reports(self):
+        self.audit_user()
+        self.entry()
+        db.session.commit()
+        response = SimpleNamespace(text='Module assessment', provider='test', model='test')
+        def answer(**kwargs):
+            if kwargs['prompt_type'] == 'portfolio_audit':
+                raise RuntimeError('All configured providers unavailable')
+            return response, ''
+        with patch('services.ai_service.is_ai_enabled', return_value=True), \
+             patch('services.ai_service.call_ai_with_web_search', autospec=True, side_effect=answer):
+            result = e.run_audit(self.user_id)
+        self.assertEqual(result['status'], 'FAILED')
+        self.assertEqual(result['evidence']['open_positions_count'], 1)
+        self.assertEqual(len(result['evidence']['module_audits']), 5)
+        self.assertIn('All configured providers unavailable', result['content'])
+        archived = self.client.get('/api/webull/portfolio-algo/audits').json['audits'][0]
+        self.assertEqual(archived['content'], result['content'])
+        self.assertTrue(archived['timestamp'])
+
+    def test_empty_master_response_is_not_a_success(self):
+        self.audit_user()
+        response = SimpleNamespace(text='   ', provider='test', model='test')
+        with patch('services.ai_service.is_ai_enabled', return_value=True), \
+             patch('services.ai_service.call_ai_with_web_search', autospec=True, return_value=(response, '')):
+            result = e.run_audit(self.user_id)
+        self.assertEqual(result['status'], 'FAILED')
+        self.assertIn('empty portfolio report', result['content'])
+
+    def test_manual_audit_queues_once_and_survives_separate_history_requests(self):
+        path = '/api/webull/portfolio-algo/master-audit'
+        with patch('routes.portfolio_algo.threading.Thread') as thread:
+            response = self.client.post(path, json={})
+            self.assertEqual(response.status_code, 202, response.json)
+            self.assertEqual(response.json['audit']['status'], 'PENDING')
+            self.assertEqual(self.client.post(path, json={}).status_code, 400)
+            self.assertEqual(thread.call_count, 1)
+            thread.return_value.start.assert_called_once()
+        pending = self.client.get('/api/webull/portfolio-algo/audits').json['audits'][0]
+        self.assertEqual(pending['id'], response.json['audit']['id'])
+        with patch('services.ai_service.is_ai_enabled', return_value=False):
+            thread.call_args.kwargs['target']()
+        completed = self.client.get('/api/webull/portfolio-algo/audits').json['audits'][0]
+        self.assertEqual(completed['status'], 'UNAVAILABLE')
+        self.assertTrue(completed['content'])
+
+    def test_start_has_grace_period_but_missing_worker_eventually_stalls(self):
+        self.state.heartbeat_at = datetime.utcnow() - timedelta(days=1)
+        db.session.commit()
+        e.control(self.user_id, 'start')
+        self.assertEqual(e.portfolio_status(self.user_id)['worker_status'], 'STARTING')
+        self.cfg.updated_at = datetime.utcnow() - timedelta(minutes=11)
+        db.session.commit()
+        self.assertEqual(e.portfolio_status(self.user_id)['worker_status'], 'STALLED')
+        self.assertTrue(e.claim(self.user_id, force=True))
+        self.assertEqual(e.portfolio_status(self.user_id)['worker_status'], 'RUNNING')
 
     def test_scan_provider_failure_is_visible_and_lease_released(self):
         e.control(self.user_id, 'start')

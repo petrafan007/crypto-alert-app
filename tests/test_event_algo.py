@@ -22,6 +22,17 @@ from routes.event_algo import _paper_mode_enabled
 
 
 class EventAlgoTests(unittest.TestCase):
+    def test_restart_heartbeat_excludes_time_spent_stopped(self):
+        from event_algo import event_worker_heartbeat
+        now = datetime.utcnow()
+        config = SimpleNamespace(enabled=True, worker_status='STARTING', updated_at=now)
+        previous = SimpleNamespace(heartbeat_at=now-timedelta(hours=3))
+        self.assertEqual(event_worker_heartbeat(config, previous, now), (None, 0, False))
+        self.assertTrue(event_worker_heartbeat(config, previous, now+timedelta(minutes=4))[2])
+        config.worker_status = 'RUNNING'
+        current = SimpleNamespace(heartbeat_at=now)
+        self.assertFalse(event_worker_heartbeat(config, current, now)[2])
+
     @staticmethod
     def config(**overrides):
         values = {

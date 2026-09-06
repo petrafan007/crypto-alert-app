@@ -390,9 +390,9 @@ export default function QuantitativeStrategyEngine({
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12, padding: '0 20px', marginBottom: 16 }}>
           {[
             ['worker_status', 'Worker', engineStatus?.worker_status || 'STOPPED'],
-            ['last_run', 'Last scan', eventStrategyHealth?.last_run ? formatEasternDateTime(eventStrategyHealth.last_run) : '—'],
-            ['heartbeat_at', 'Last heartbeat', eventStrategyHealth?.heartbeat_at ? formatEasternDateTime(eventStrategyHealth.heartbeat_at) : '—'],
-            ['next_expected_scan', 'Next expected scan', eventStrategyHealth?.next_expected_scan ? formatEasternDateTime(eventStrategyHealth.next_expected_scan) : '—'],
+            ['last_run', 'Last portfolio scan', engineStatus?.last_scan_at ? formatEasternDateTime(engineStatus.last_scan_at) : '—'],
+            ['heartbeat_at', 'Portfolio heartbeat', engineStatus?.heartbeat_at ? formatEasternDateTime(engineStatus.heartbeat_at) : '—'],
+            ['next_expected_scan', 'Portfolio scan cadence', engineStatus?.enabled ? `Every ${(engineStatus.scan_interval_seconds || 300) / 60} minutes` : 'Stopped / paused'],
             ['ai_batch_calls_last_hour', 'AI batches (last hour)', `${eventStrategyHealth?.ai_batch_calls_last_hour ?? 0} / ${eventStrategyHealth?.ai_batch_budget_per_hour ?? 12}`],
             ['ai_evaluations', 'AI evaluation states', (() => {
               const evals = eventStrategyHealth?.ai_evaluations;

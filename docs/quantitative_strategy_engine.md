@@ -2,6 +2,16 @@
 
 The engine is an administrator-only, multi-asset **paper research system**. The default starting bankroll is $50,000, with relative allocation weights of 35 for equities, 25 for options, 20 for crypto, 10 for micro futures, and 10 for events. Enabled modules share 100% of the target capital proportionally. Futures is disabled by default, giving initial targets of 38.89%, 27.78%, 22.22%, 0%, and 11.11%, respectively. The 18.5% annual return setting is a research objective, not a forecast or validated strategy result.
 
+## Portfolio reports and startup status (v2.91.3)
+
+**View report** opens the portfolio audit archive. Select a historical report to read its original text, creation time, model, paper equity, open-position count, module assessments, and saved evidence. Older failed reports retain their actual failure reason; missing historical metrics show a dash rather than an invented zero.
+
+**Generate Fresh Report Now** queues one background audit and returns immediately. The open report window refreshes progress automatically; closing it does not cancel generation. Audits follow the configured cadence even when paper execution is stopped or paused. Success means report generation succeeded, not that the trading strategy is healthy. Partial means the CIO report completed with unavailable module assessments; Failed and Unavailable show diagnostics and any preserved evidence.
+
+Each module receives its own open positions. Dedicated master AI tiers use their configured providers, models, reasoning levels, and keys through the existing failover service. Existing portfolios without dedicated tiers retain their configured global cascade. A provider limitation cannot manufacture a successful or empty report.
+
+Start displays Starting while the worker waits for its first claim. Stopped time is excluded from Event-worker stall detection, while a worker that never starts still becomes stale after the grace period. The master grid shows portfolio scan and heartbeat timestamps separately from Event AI statistics. The 10% drawdown pause remains a separate execution safeguard; generating reports cannot clear it.
+
 ## Review of v2.88.0
 
 The initial implementation supplied the dashboard, configurable watchlists and allocation cards, four persistence tables, and administrator-only endpoints. It did **not** supply the four new execution workers, portfolio accounting, measured performance, portfolio risk controls, scheduled audits, or rebalancing. The existing Event Contract research worker was a separate subsystem.

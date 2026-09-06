@@ -125,7 +125,17 @@ def portfolio_algo_master_audit():
     prompt = payload().get('prompt')
     if prompt is not None and (not isinstance(prompt, str) or len(prompt)>16000):
         raise ValueError('CIO prompt must be text of at most 16000 characters.')
-    return jsonify(success=True, audit=engine.run_audit(current_user.id, prompt=prompt))
+    app, user_id = current_app._get_current_object(), current_user.id
+    audit_id = engine.reserve_audit(user_id)
+    audit = engine.audit_dict(db.session.get(engine.Audit, audit_id))
+    def work():
+        with app.app_context():
+            try:
+                engine.run_audit(user_id, prompt=prompt, audit_id=audit_id)
+            finally:
+                db.session.remove()
+    threading.Thread(target=work, daemon=True, name=f'quant-audit-{audit_id}').start()
+    return jsonify(success=True, audit=audit, message='Audit queued. Progress is saved in report history.'), 202
 
 
 @portfolio_algo_bp.route('/api/webull/portfolio-algo/audits', methods=['GET'])

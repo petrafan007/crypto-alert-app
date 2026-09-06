@@ -1217,6 +1217,18 @@ def config_to_dict(config):
     }
 
 
+def event_worker_heartbeat(config, last_run, now, threshold=180):
+    """Do not count time spent stopped as a stalled worker after a fresh Start."""
+    heartbeat = last_run.heartbeat_at if last_run else None
+    if config.worker_status == 'STARTING':
+        started = config.updated_at
+        if started and (heartbeat is None or heartbeat < started):
+            age = max(0, (now - started).total_seconds())
+            return None, age, bool(config.enabled and age > threshold)
+    age = (now - heartbeat).total_seconds() if heartbeat else None
+    return heartbeat, age, bool(config.enabled and (age is None or age > threshold))
+
+
 def event_strategy_health_summary(user_id):
     """Return concise, secret-free health telemetry for Settings and Copilot."""
     config = get_or_create_config(user_id)
@@ -1224,10 +1236,8 @@ def event_strategy_health_summary(user_id):
     signal = _json_load(config.signal_config, json.loads(json.dumps(DEFAULT_SIGNAL_CONFIG)))
     interval = max(30, int(_number(signal.get("scan_interval_seconds"), 60)))
     now = datetime.utcnow()
-    heartbeat = last_run.heartbeat_at if last_run else None
-    age = (now - heartbeat).total_seconds() if heartbeat else None
     stale_threshold = max(180, interval * 3)
-    stale = bool(config.enabled and (not heartbeat or age > stale_threshold))
+    heartbeat, age, stale = event_worker_heartbeat(config, last_run, now, stale_threshold)
     evaluations = EventStrategyAIEvaluation.query.filter_by(user_id=user_id, config_id=config.id).all()
     status_counts = {}
     for row in evaluations:
@@ -1841,9 +1851,7 @@ def gather_event_strategy_audit_data(user_id, config=None, hours=6):
     warning_count = level_counts.get("WARNING", 0)
 
     last_run = runs[0] if runs else None
-    heartbeat = last_run.heartbeat_at if last_run else None
-    age = (now_dt - heartbeat).total_seconds() if heartbeat else None
-    stale = bool(config.enabled and (not heartbeat or (age is not None and age > 180)))
+    heartbeat, age, stale = event_worker_heartbeat(config, last_run, now_dt)
 
     metrics = {
         "scans_count": scans_count,
@@ -2947,8 +2955,7 @@ def event_algo_worker_loop(app):
                     last_run = EventStrategyRun.query.filter_by(
                         user_id=config.user_id, config_id=config.id,
                     ).order_by(EventStrategyRun.started_at.desc()).first()
-                    heartbeat = last_run.heartbeat_at if last_run else None
-                    heartbeat_age = (now_dt - heartbeat).total_seconds() if heartbeat else None
+                    heartbeat, heartbeat_age, _ = event_worker_heartbeat(config, last_run, now_dt)
                     stall_alert_threshold = 120
                     if heartbeat_age is not None and heartbeat_age > stall_alert_threshold:
                         _record_engine_log(
@@ -2969,7 +2976,7 @@ def event_algo_worker_loop(app):
                             notify=True, alert_key=f"stale:{config.id}",
                         )
                         db.session.commit()
-                    if config.last_run_at and (now_dt - config.last_run_at).total_seconds() < interval and heartbeat_age is not None and heartbeat_age <= stale_threshold:
+                    if config.worker_status != 'STARTING' and config.last_run_at and (now_dt - config.last_run_at).total_seconds() < interval and heartbeat_age is not None and heartbeat_age <= stale_threshold:
                         continue
                     if config.user_id in _ACTIVE_SCAN_USERS:
                         continue

@@ -161,7 +161,7 @@ def event_algo_start():
     config.enabled = True
     config.kill_switch = False
     config.mode = PAPER_MODE
-    config.worker_status = "RUNNING"
+    config.worker_status = "STARTING"
     _record_engine_log(current_user.id, "ENGINE_STARTED", "Event Contract Strategy Engine started in paper/signal-only mode.", config_id=config.id)
     db.session.commit()
     return jsonify({"success": True, "mode": PAPER_MODE, "config": config_to_dict(config)})

@@ -6,6 +6,14 @@
 
 **Last Updated**: September 2026
 
+## v2.91.3 (September 2026)
+
+- Fixed portfolio AI audits crashing when open positions exist. Module assessments now receive the matching positions and use the supported AI cascade, including configured models, reasoning levels, and dedicated keys.
+- Fixed report history selection, missing report text and timestamps, and misleading Event-only metrics in the portfolio report viewer. Existing successful reports and historical failure explanations are readable without regenerating them.
+- Manual reports now queue in the background and update automatically. Failed or empty responses cannot be labeled successful; incomplete module reviews are marked Partial, and completed assessments and portfolio evidence remain available after failures.
+- Fixed premature Stalled warnings after Start and aligned the master status grid with portfolio scan timing. The drawdown pause remains enforced and is shown in saved report evidence.
+- Verified open-position audits across all five modules, configured AI arguments, partial/failure preservation, queued report generation, history rendering, and startup grace periods.
+
 ## v2.91.2 (September 2026)
 
 - Fixed Start Paper Engine rejecting saved module settings with “Unknown equities strategy parameter.” Older `specialist_prompt` fields now load as `auditor_prompt` across all five modules, preserving custom prompts; an explicitly saved current prompt takes precedence.

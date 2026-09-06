@@ -374,7 +374,7 @@ def portfolio_status(user_id):
         if lot.closed_at:
             continue
         p = db.session.get(Position, lot.position_id)
-        positions.append({'id': p.id, 'module': lot.module, 'symbol': p.symbol, 'side': p.side, 'quantity': p.quantity,
+        positions.append({'id': p.id, 'module': lot.module, 'instrument_type': p.instrument_type, 'symbol': p.symbol, 'side': p.side, 'quantity': p.quantity,
             'average_cost': p.average_cost, 'mark': p.market_price, 'unrealized_pnl': p.unrealized_pnl,
             'collateral': lot.collateral, 'stop': lot.stop_price, 'target': lot.target_price,
             'marked_at': p.updated_at.isoformat()+'Z', 'details': loads(lot.details_json, {})})
@@ -411,12 +411,17 @@ def portfolio_status(user_id):
         elif item['status'] == 'SCANNED':
             item['status'] = 'READY'
     status = cfg.worker_status
-    if cfg.enabled and (not state.heartbeat_at or datetime.utcnow()-state.heartbeat_at > timedelta(minutes=10)):
-        status = 'STALLED'
+    if cfg.enabled:
+        # Starting is not a worker heartbeat: allow the supervisor time to claim work.
+        since = cfg.updated_at if status == 'STARTING' else state.heartbeat_at
+        if not since or datetime.utcnow()-since > timedelta(minutes=10):
+            status = 'STALLED'
     realized = sum(l.realized_pnl for l in lots if l.closed_at)
     return {'success': True, 'mode': 'PAPER', 'worker_status': status, 'enabled': cfg.enabled,
             'kill_switch': state.kill_switch, 'pause_reason': state.pause_reason,
             'heartbeat_at': state.heartbeat_at.isoformat()+'Z' if state.heartbeat_at else None,
+            'last_scan_at': state.last_scan_at.isoformat()+'Z' if state.last_scan_at else None,
+            'scan_interval_seconds': CADENCE,
             'generation': state.generation, 'modules': telemetry, 'positions': positions, 'open_positions_count': len(positions),
             'account': {'initial_balance': acc.initial_balance, 'cash_balance': acc.cash_balance, 'total_equity': acc.total_equity,
                         'currency': 'USD', 'realized_pnl': realized, 'unrealized_pnl': sum(p['unrealized_pnl'] for p in positions),
@@ -474,7 +479,7 @@ def control(user_id, action):
         cfg.worker_status = 'STARTING'
         event_cfg.enabled = True
         event_cfg.kill_switch = False
-        event_cfg.worker_status = 'RUNNING'
+        event_cfg.worker_status = 'STARTING'
         if not Snapshot.query.filter_by(user_id=user_id, generation=state.generation).first():
             snapshot(cfg, acc, state, datetime.utcnow())
     elif action == 'stop':
@@ -808,7 +813,8 @@ def audit_due(cfg, state, now):
     return True
 
 
-def run_audit(user_id, prompt=None, scheduled=False):
+def reserve_audit(user_id, scheduled=False):
+    """Reserve one audit under the engine lock before dispatching provider work."""
     ensure_portfolio(user_id)
     cfg, acc, state = locked(user_id)
     now = datetime.utcnow()
@@ -822,11 +828,44 @@ def run_audit(user_id, prompt=None, scheduled=False):
     for stale in Audit.query.filter_by(user_id=user_id, status='PENDING').all():
         stale.status = 'FAILED'
         stale.content = 'Audit interrupted or timed out; no verdict available.'
-    row = Audit(user_id=user_id, generation=state.generation, created_at=now)
+    row = Audit(user_id=user_id, generation=state.generation, created_at=now,
+                content='Audit queued. Collecting portfolio evidence and module assessments.')
     state.last_audit_at = now
     db.session.add(row)
     db.session.commit()
-    audit_id = row.id
+    return row.id
+
+
+def audit_ai_kwargs(cfg):
+    """Use the AI service's supported cascade, including dedicated keys/reasoning."""
+    from credential_security import decrypt_secret
+    config = loads(cfg.master_ai_config, {})
+    tiers, keys = [], {}
+    for name in ('primary', 'secondary', 'tertiary'):
+        tier = config.get(name)
+        if not isinstance(tier, dict) or not tier.get('provider'):
+            continue
+        provider = str(tier['provider']).strip().lower()
+        tiers.append((name, provider, str(tier.get('model') or '').strip(),
+                      str(tier.get('reasoning_level') or 'medium').strip().lower()))
+        if tier.get('api_key'):
+            keys[(name, provider)] = decrypt_secret(tier['api_key'])
+    # Legacy portfolios with no dedicated tiers keep their configured global cascade.
+    return {'custom_tier_configs': tiers, 'custom_api_keys': keys} if tiers else {}
+
+
+def run_audit(user_id, prompt=None, scheduled=False, audit_id=None):
+    if audit_id is None:
+        audit_id = reserve_audit(user_id, scheduled)
+    if audit_id is None:
+        return None
+    row = db.session.get(Audit, audit_id)
+    if row is None or row.user_id != user_id:
+        raise ValueError('Audit not found.')
+    if row.status != 'PENDING':
+        return audit_dict(row)
+    cfg, _, state = ensure_portfolio(user_id)
+    evidence = {}
     try:
         evidence = portfolio_status(user_id)
         if evidence['generation'] != row.generation:
@@ -854,64 +893,59 @@ def run_audit(user_id, prompt=None, scheduled=False):
         from services.ai_service import call_ai_with_web_search, is_ai_enabled
         user = db.session.get(User, user_id)
         if user and is_ai_enabled(user.username):
-            master_config = json.loads(cfg.master_ai_config) if cfg.master_ai_config else {}
-            
-            def get_ai_kwargs(tier_num=1):
-                tiers = ['primary', 'secondary', 'tertiary']
-                if tier_num <= len(tiers) and tiers[tier_num-1] in master_config:
-                    cfg_tier = master_config[tiers[tier_num-1]]
-                    if cfg_tier.get('provider') and cfg_tier.get('model'):
-                        return {'provider_override': cfg_tier['provider'], 'model_override': cfg_tier['model']}
-                return {}
-            
+            ai_kwargs = audit_ai_kwargs(cfg)
             _record_portfolio_log(user_id, 'AUDIT_START', 'Starting autonomous portfolio audit cascade.')
-            # Sequential Module Audits
-            module_responses = {}
+            module_responses, module_errors = {}, {}
+            evidence['module_audits'] = module_responses
+            evidence['module_audit_errors'] = module_errors
+            row.evidence_json = json.dumps(evidence)
+            db.session.commit()
             for module in enabled_modules:
-                _record_portfolio_log(user_id, 'AUDIT_MODULE', f'Running localized AI auditor for module: {module}')
-                module_prompt = evidence['specialist_mandates'][module]
+                _record_portfolio_log(user_id, 'AUDIT_MODULE', f'Running AI auditor for module: {module}')
                 module_evidence = {
                     'module': module,
                     'allocation': evidence['allocations'][module],
                     'metrics': evidence['modules'][module],
-                    'positions': [p for p in evidence['positions'] if p['instrument_type'].lower() == module or (module == 'equities' and p['instrument_type'] == 'EQUITY') or (module == 'events' and p['instrument_type'] == 'EVENT') or (module == 'options' and p['instrument_type'] == 'OPTION')],
-                    'correlations': [c for c in evidence['correlations'] if c['a'] == module or c['b'] == module]
+                    'positions': [p for p in evidence['positions'] if p['module'] == module],
+                    'correlations': [c for c in evidence['correlations'] if c['a'] == module or c['b'] == module],
                 }
-                
-                # Attempt with up to 3 tiers of failover
-                for tier in range(1, 4):
-                    kwargs = get_ai_kwargs(tier)
-                    mod_resp, _ = call_ai_with_web_search(
+                try:
+                    response, _ = call_ai_with_web_search(
                         username=user.username, user_id=user_id,
-                        messages=[{'role': 'system', 'content': module_prompt + '\nReturn ONLY valid JSON format.'},
+                        messages=[{'role': 'system', 'content': evidence['specialist_mandates'][module] +
+                                   '\nGive a concise Markdown assessment grounded in the supplied evidence. Missing data is a limitation; never invent results.'},
                                   {'role': 'user', 'content': json.dumps(module_evidence)}],
                         prompt_type='portfolio_module_audit', symbol=module.upper(), include_db_context=False,
-                        **kwargs)
-                    if getattr(mod_resp, 'text', None):
-                        module_responses[module] = getattr(mod_resp, 'text', None)
-                        break
-                else:
+                        **ai_kwargs)
+                    text = str(getattr(response, 'text', '') or '').strip()
+                    if not text:
+                        raise ValueError('AI provider returned an empty module assessment.')
+                    module_responses[module] = text
+                except Exception as exc:
+                    db.session.rollback()
                     module_responses[module] = None
-            
+                    module_errors[module] = str(exc)[:300]
+                    _record_portfolio_log(user_id, 'AUDIT_MODULE_FAILED',
+                                          f'{module} assessment unavailable: {module_errors[module]}', level='WARNING')
+                row = db.session.get(Audit, audit_id)
+                row.evidence_json = json.dumps(evidence)
+                db.session.commit()
+
             _record_portfolio_log(user_id, 'AUDIT_MASTER', 'Synthesizing module insights via Master CIO.')
-            # Master Audit
-            evidence['module_audits'] = module_responses
-            for tier in range(1, 4):
-                kwargs = get_ai_kwargs(tier)
-                response, _ = call_ai_with_web_search(
-                    username=user.username, user_id=user_id,
-                    messages=[{'role': 'system', 'content': (prompt or cfg.master_ai_prompt or DEFAULT_MASTER_CIO_PROMPT) +
-                              '\nUse only supplied quantitative evidence for numerical claims. Null means unavailable. Evaluate enabled_allocations and cash_allocation only for prospective diversification and returns. Disabled-module legacy positions and historical P&L remain real exposures, not future strategy contributions. Never invent correlations, stress results, probabilities of profit or guaranteed returns. Give advisory observations only; do not claim to execute changes.'},
-                              {'role': 'user', 'content': json.dumps(evidence)}],
-                    prompt_type='portfolio_audit', symbol='PORTFOLIO', include_db_context=False,
-                    **kwargs)
-                if getattr(response, 'text', None):
-                    _record_portfolio_log(user_id, 'AUDIT_COMPLETE', 'Master CIO audit successfully completed.')
-                    break
-            content = getattr(response, 'text', None)
+            response, _ = call_ai_with_web_search(
+                username=user.username, user_id=user_id,
+                messages=[{'role': 'system', 'content': (prompt or cfg.master_ai_prompt or DEFAULT_MASTER_CIO_PROMPT) +
+                          '\nUse only supplied quantitative evidence for numerical claims. Null means unavailable. Evaluate enabled_allocations and cash_allocation only for prospective diversification and returns. Disabled-module legacy positions and historical P&L remain real exposures, not future strategy contributions. Never invent correlations, stress results, probabilities of profit or guaranteed returns. Explain module_audit_errors and missing evidence explicitly. Give advisory observations only; do not claim to execute changes. Return a readable Markdown report.'},
+                          {'role': 'user', 'content': json.dumps(evidence)}],
+                prompt_type='portfolio_audit', symbol='PORTFOLIO', include_db_context=False,
+                **ai_kwargs)
+            content = str(getattr(response, 'text', '') or '').strip()
+            if not content:
+                raise ValueError('AI provider returned an empty portfolio report.')
             provider, model = getattr(response, 'provider', None), getattr(response, 'model', None)
-            if content:
-                status = 'SUCCESS'
+            status = 'PARTIAL' if module_errors else 'SUCCESS'
+            _record_portfolio_log(user_id, 'AUDIT_COMPLETE',
+                                  'Portfolio audit completed with module limitations.' if module_errors else 'Master CIO audit successfully completed.')
         if not content:
             content = ('AI audit unavailable. Measured portfolio equity: '
                        f"${evidence['account']['total_equity']:,.2f}. Observed maximum drawdown: "
@@ -925,7 +959,10 @@ def run_audit(user_id, prompt=None, scheduled=False):
         db.session.rollback()
         row = db.session.get(Audit, audit_id)
         row.status = 'FAILED'
-        row.content = f'AI audit failed: {str(exc)[:300]}. No quantitative verdict was generated.'
+        row.content = f'AI audit failed: {str(exc)[:300]}. No quantitative verdict was generated. Preserved evidence and completed module assessments are available below.'
+        evidence['audit_error'] = str(exc)[:300]
+        row.evidence_json = json.dumps(evidence)
+        _record_portfolio_log(user_id, 'AUDIT_FAILED', f'Portfolio audit {audit_id} failed: {str(exc)[:300]}', level='ERROR')
         db.session.commit()
     return audit_dict(row)
 
