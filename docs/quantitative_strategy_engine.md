@@ -21,6 +21,8 @@ The review found and corrected these foundation problems in v2.89.0:
 
 ## Optional modules and dynamic allocations (v2.89.4)
 
+As of v2.91.2, module prompts saved under the older `specialist_prompt` name are automatically read as `auditor_prompt`. This preserves custom prompts and allows Start Paper Engine to validate existing configurations. If both names exist, the current `auditor_prompt` value wins, including an explicitly empty value. Saving settings writes the current name; no bankroll reset or database migration is needed.
+
 Every module has a saved **Enabled for new entries** toggle. Save Module Settings applies it; unsaved changes are drafts. Existing configurations inherit enabled equities, options, crypto and events, and disabled futures when an explicit enabled value is absent. Re-enabling restores the preserved watchlist, strategy parameters, prompts and history.
 
 A disabled module has a 0% target and skips entry scans and entry data requests. Disabling Events also gates the existing Event collector's automatic and manual new-entry scans; outcome resolution remains available. Existing positions still require data for marking, stops, strategy exits and allocation trims while the master engine runs. An unavailable quote retains the last actual mark and its timestamp with a diagnostic. Stop and Kill retain their engine-wide freeze semantics.

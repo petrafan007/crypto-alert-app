@@ -21,7 +21,7 @@ from portfolio_algo_models import (
     PortfolioStrategyPosition as Position, PortfolioStrategyOrder as Order,
     PortfolioEngineState as State, PortfolioStrategyLot as Lot,
     PortfolioEquitySnapshot as Snapshot, PortfolioAudit as Audit,
-    PortfolioEngineLog,
+    _record_portfolio_log,
 )
 from services.portfolio_strategy_signals import (
     MODULES, TYPES, ET, finite, utc, in_session, session_bounds,
@@ -49,11 +49,19 @@ def loads(value, default):
         return copy.deepcopy(default)
 
 
+def normalize_module_settings(values):
+    """Accept the former prompt name while keeping the current field authoritative."""
+    values = copy.deepcopy(values)
+    if 'specialist_prompt' in values:
+        values.setdefault('auditor_prompt', values.pop('specialist_prompt'))
+    return values
+
+
 def settings_for(cfg):
     settings = copy.deepcopy(DEFAULT_MODULE_SETTINGS)
     for module, values in loads(cfg.module_settings_json, {}).items():
         if module in settings and isinstance(values, dict):
-            settings[module].update(values)
+            settings[module].update(normalize_module_settings(values))
     weights = loads(getattr(cfg, 'allocations_json', None), DEFAULT_ALLOCATIONS)
     for module in MODULES:
         settings[module].setdefault('allocation_preference', weights.get(module) or DEFAULT_ALLOCATIONS[module])
@@ -95,8 +103,12 @@ def validate_config(payload, cfg):
             raise ValueError('Unknown strategy module.')
         settings = settings_for(cfg)
         for module, values in modules.items():
-            if not isinstance(values, dict) or set(values)-(set(DEFAULT_MODULE_SETTINGS[module]) | {'allocation_preference'}):
-                raise ValueError(f'Unknown {module} strategy parameter.')
+            if not isinstance(values, dict):
+                raise ValueError(f'{module} strategy settings must be a JSON object.')
+            values = normalize_module_settings(values)
+            unknown = set(values)-(set(DEFAULT_MODULE_SETTINGS[module]) | {'allocation_preference'})
+            if unknown:
+                raise ValueError(f'Unknown {module} strategy parameter: {", ".join(sorted(unknown))}.')
             for key, val in values.items():
                 if key in LIMITS[module]:
                     low, high, cast = LIMITS[module][key]
@@ -582,8 +594,7 @@ def run_scan(user_id, force=False, provider=None):
                 data = PortfolioMarketData(user_id)
             return data
         
-        from portfolio_algo_models import PortfolioEngineLog
-        PortfolioEngineLog.log(user_id, 'INFO', 'SCAN_START', 'Starting quantitative portfolio scan.')
+        _record_portfolio_log(user_id, 'SCAN_START', 'Starting quantitative portfolio scan.')
 
         # Manage existing positions first, including symbols removed from the watchlist.
         for lot_id in lot_ids:
@@ -646,8 +657,7 @@ def run_scan(user_id, force=False, provider=None):
                     if daily+floating <= -settings[module]['max_intraday_loss']:
                         reason = 'DAILY_LOSS_LIMIT'
                 if reason:
-                    from portfolio_algo_models import PortfolioEngineLog
-                    PortfolioEngineLog.log(user_id, 'INFO', 'POSITION_CLOSED', f"Closing {module} lot {lot_id} ({symbol}) at {price:.4f}. Reason: {reason}")
+                    _record_portfolio_log(user_id, 'POSITION_CLOSED', f"Closing {module} lot {lot_id} ({symbol}) at {price:.4f}. Reason: {reason}")
                     close_lot(acc, lot, price, reason, now)
                 balances(acc, state, user_id)
                 if not check_circuit(cfg, acc, state) and lot.closed_at is None:
@@ -715,8 +725,7 @@ def run_scan(user_id, force=False, provider=None):
                         break
                     for entry_symbol, price, signal, details, key in entries:
                         if signal['enter']:
-                            from portfolio_algo_models import PortfolioEngineLog
-                            PortfolioEngineLog.log(user_id, 'INFO', 'POSITION_OPENED', f"Opening {module} position ({entry_symbol}) at {price:.4f}. Signal: {signal.get('reason', 'Unknown')}")
+                            _record_portfolio_log(user_id, 'POSITION_OPENED', f"Opening {module} position ({entry_symbol}) at {price:.4f}. Signal: {signal.get('reason', 'Unknown')}")
                             opened = enter_lot(cfg, acc, state, module, entry_symbol, signal, price, now, multiplier=multiplier, margin=margin, details=details, key=key)
                             report[module]['entries'] += int(opened is not None)
                             balances(acc, state, user_id)
@@ -728,8 +737,7 @@ def run_scan(user_id, force=False, provider=None):
                     report[module]['messages'].append(f'{watch_symbol}: {str(exc)[:200]}')
         cfg, acc, state = locked(user_id)
         if state.lease_token == token:
-            from portfolio_algo_models import PortfolioEngineLog
-            PortfolioEngineLog.log(user_id, 'INFO', 'SCAN_COMPLETE', 'Quantitative portfolio scan completed.')
+            _record_portfolio_log(user_id, 'SCAN_COMPLETE', 'Quantitative portfolio scan completed.')
             for module in MODULES:
                 if report[module]['messages'] and settings[module]['enabled']:
                     report[module]['status'] = data_status(' '.join(report[module]['messages']))
@@ -825,6 +833,7 @@ def run_audit(user_id, prompt=None, scheduled=False):
             raise ValueError('Paper run changed while the audit was being prepared.')
         evidence.pop('equity_curve', None)
         enabled_modules = [m for m, s in settings_for(cfg).items() if s['enabled']]
+        evidence['specialist_mandates'] = {m: settings_for(cfg)[m]['auditor_prompt'] for m in enabled_modules}
         evidence['correlations'] = [pair for pair in measured_correlations(user_id, state.generation)
                                     if pair['a'] in enabled_modules and pair['b'] in enabled_modules]
         evidence['enabled_allocations'] = {m: evidence['allocations'][m] for m in enabled_modules}
@@ -845,7 +854,6 @@ def run_audit(user_id, prompt=None, scheduled=False):
         from services.ai_service import call_ai_with_web_search, is_ai_enabled
         user = db.session.get(User, user_id)
         if user and is_ai_enabled(user.username):
-            from portfolio_algo_models import PortfolioEngineLog
             master_config = json.loads(cfg.master_ai_config) if cfg.master_ai_config else {}
             
             def get_ai_kwargs(tier_num=1):
@@ -856,13 +864,12 @@ def run_audit(user_id, prompt=None, scheduled=False):
                         return {'provider_override': cfg_tier['provider'], 'model_override': cfg_tier['model']}
                 return {}
             
-            PortfolioEngineLog.log(user_id, 'INFO', 'AUDIT_START', 'Starting autonomous portfolio audit cascade.')
+            _record_portfolio_log(user_id, 'AUDIT_START', 'Starting autonomous portfolio audit cascade.')
             # Sequential Module Audits
             module_responses = {}
             for module in enabled_modules:
-                PortfolioEngineLog.log(user_id, 'INFO', 'AUDIT_MODULE', f'Running localized AI auditor for module: {module}')
-                mod_settings = settings_for(cfg)[module]
-                module_prompt = mod_settings.get('auditor_prompt', f'Audit the {module} portfolio.')
+                _record_portfolio_log(user_id, 'AUDIT_MODULE', f'Running localized AI auditor for module: {module}')
+                module_prompt = evidence['specialist_mandates'][module]
                 module_evidence = {
                     'module': module,
                     'allocation': evidence['allocations'][module],
@@ -886,7 +893,7 @@ def run_audit(user_id, prompt=None, scheduled=False):
                 else:
                     module_responses[module] = None
             
-            PortfolioEngineLog.log(user_id, 'INFO', 'AUDIT_MASTER', 'Synthesizing module insights via Master CIO.')
+            _record_portfolio_log(user_id, 'AUDIT_MASTER', 'Synthesizing module insights via Master CIO.')
             # Master Audit
             evidence['module_audits'] = module_responses
             for tier in range(1, 4):
@@ -899,7 +906,7 @@ def run_audit(user_id, prompt=None, scheduled=False):
                     prompt_type='portfolio_audit', symbol='PORTFOLIO', include_db_context=False,
                     **kwargs)
                 if getattr(response, 'text', None):
-                    PortfolioEngineLog.log(user_id, 'INFO', 'AUDIT_COMPLETE', 'Master CIO audit successfully completed.')
+                    _record_portfolio_log(user_id, 'AUDIT_COMPLETE', 'Master CIO audit successfully completed.')
                     break
             content = getattr(response, 'text', None)
             provider, model = getattr(response, 'provider', None), getattr(response, 'model', None)

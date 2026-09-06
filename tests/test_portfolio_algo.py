@@ -62,6 +62,44 @@ class PortfolioSignalsTests(unittest.TestCase):
             with self.subTest(payload=payload), self.assertRaises(ValueError):
                 e.validate_config(payload, cfg)
 
+    def test_legacy_specialist_prompts_are_read_without_mutating_saved_settings(self):
+        cfg = self.config()
+        saved = {module: {'specialist_prompt': f'Custom {module} audit'} for module in e.MODULES}
+        cfg.module_settings_json = json.dumps(saved)
+        settings = e.settings_for(cfg)
+        for module in e.MODULES:
+            self.assertEqual(settings[module]['auditor_prompt'], saved[module]['specialist_prompt'])
+            self.assertNotIn('specialist_prompt', settings[module])
+        self.assertEqual(json.loads(cfg.module_settings_json), saved)
+        e.validate_config({'module_settings': settings, 'allocations': DEFAULT_ALLOCATIONS}, cfg)
+
+    def test_legacy_prompt_payloads_are_normalized_and_validated(self):
+        for module in e.MODULES:
+            cfg = self.config()
+            with self.subTest(module=module):
+                result = e.validate_config({'module_settings': {module: {'specialist_prompt': ' Custom audit '}}}, cfg)
+                settings = json.loads(result['module_settings_json'])[module]
+                self.assertEqual(settings['auditor_prompt'], 'Custom audit')
+                self.assertNotIn('specialist_prompt', settings)
+            for invalid in (None, 42, 'x' * 12001):
+                with self.subTest(module=module, invalid_type=type(invalid).__name__), self.assertRaisesRegex(ValueError, 'Auditor prompt'):
+                    e.validate_config({'module_settings': {module: {'specialist_prompt': invalid}}}, cfg)
+
+    def test_current_prompt_takes_precedence_over_legacy_alias(self):
+        for prompt in ('Current prompt', ''):
+            cfg = self.config()
+            values = {'specialist_prompt': 'Old prompt', 'auditor_prompt': prompt}
+            cfg.module_settings_json = json.dumps({'equities': values})
+            self.assertEqual(e.settings_for(cfg)['equities']['auditor_prompt'], prompt)
+            result = e.validate_config({'module_settings': {'equities': values}}, cfg)
+            self.assertEqual(json.loads(result['module_settings_json'])['equities']['auditor_prompt'], prompt)
+
+    def test_unknown_strategy_parameters_still_identify_the_offending_key(self):
+        cfg = self.config()
+        cfg.module_settings_json = json.dumps({'equities': {'rsi_typo': 5}})
+        with self.assertRaisesRegex(ValueError, 'equities strategy parameter: rsi_typo'):
+            e.validate_config({'module_settings': e.settings_for(cfg)}, cfg)
+
     def test_holidays_dst_and_early_close(self):
         self.assertFalse(in_session(datetime(2026, 9, 7, 15)))  # Labor Day
         self.assertTrue(in_session(datetime(2026, 9, 4, 13, 30)))
@@ -165,6 +203,32 @@ class PortfolioLedgerTests(unittest.TestCase):
     def entry(self, module='equities', side='LONG', price=100, stop=95, **kwargs):
         return e.enter_lot(self.cfg, self.acc, self.state, module, 'TEST', {'side': side, 'stop': stop, 'enter': True, 'target': .5}, price, datetime.utcnow(), **kwargs)
 
+    def test_start_and_save_with_legacy_specialist_prompts(self):
+        settings = e.settings_for(self.cfg)
+        for module, values in settings.items():
+            values.pop('auditor_prompt')
+            values['specialist_prompt'] = f'Preserved {module} prompt'
+        self.cfg.module_settings_json = json.dumps(settings)
+        db.session.commit()
+
+        response = self.client.post('/api/webull/portfolio-algo/control', json={'action': 'start'})
+        self.assertEqual(response.status_code, 200, response.json)
+        self.assertTrue(self.cfg.enabled)
+        self.assertEqual(self.cfg.worker_status, 'STARTING')
+        self.assertEqual(self.client.post('/api/webull/portfolio-algo/control', json={'action': 'stop'}).status_code, 200)
+
+        loaded = self.client.get('/api/webull/portfolio-algo/config').json['config']
+        for module in e.MODULES:
+            self.assertEqual(loaded['module_settings'][module]['auditor_prompt'], f'Preserved {module} prompt')
+            self.assertNotIn('specialist_prompt', loaded['module_settings'][module])
+        # A browser opened before upgrading can still submit the old field names.
+        response = self.client.post('/api/webull/portfolio-algo/config', json={'module_settings': settings})
+        self.assertEqual(response.status_code, 200, response.json)
+        saved = json.loads(self.cfg.module_settings_json)
+        for module in e.MODULES:
+            self.assertEqual(saved[module]['auditor_prompt'], f'Preserved {module} prompt')
+            self.assertNotIn('specialist_prompt', saved[module])
+
     def test_disabled_modules_make_no_entry_data_calls_or_fills(self):
         from unittest.mock import MagicMock
         settings = e.settings_for(self.cfg)
@@ -179,6 +243,9 @@ class PortfolioLedgerTests(unittest.TestCase):
         self.assertFalse(data.mock_calls)
         self.assertEqual(e.current_lots(self.user_id, self.state), [])
         self.assertEqual({v['status'] for v in result['modules'].values()}, {'DISABLED'})
+        from portfolio_algo_models import PortfolioEngineLog
+        log_types = {row.event_type for row in PortfolioEngineLog.query.filter_by(user_id=self.user_id).all()}
+        self.assertIn('SCAN_COMPLETE', log_types)
         self.assertIsNone(self.entry())
         status = e.portfolio_status(self.user_id)
         self.assertEqual(status['cash_allocation_pct'], 100)
@@ -540,6 +607,9 @@ class PortfolioLedgerTests(unittest.TestCase):
         self.assertEqual(call.call_args.kwargs['username'], user.username)
         self.assertEqual(len(call.call_args.kwargs['messages']), 2)
         self.assertEqual(e.Audit.query.filter_by(user_id=self.user_id).count(), 1)
+        from portfolio_algo_models import PortfolioEngineLog
+        log_types = {row.event_type for row in PortfolioEngineLog.query.filter_by(user_id=self.user_id).all()}
+        self.assertTrue({'AUDIT_START', 'AUDIT_MODULE', 'AUDIT_MASTER', 'AUDIT_COMPLETE'} <= log_types)
 
     def test_scan_provider_failure_is_visible_and_lease_released(self):
         e.control(self.user_id, 'start')

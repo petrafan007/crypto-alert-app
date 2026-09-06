@@ -6,6 +6,13 @@
 
 **Last Updated**: September 2026
 
+## v2.91.2 (September 2026)
+
+- Fixed Start Paper Engine rejecting saved module settings with “Unknown equities strategy parameter.” Older `specialist_prompt` fields now load as `auditor_prompt` across all five modules, preserving custom prompts; an explicitly saved current prompt takes precedence.
+- Existing settings and older open settings pages remain compatible. Saving persists the current field name, and unknown-parameter errors now identify the offending key. No bankroll reset or database migration is required.
+- Fixed scan and AI audit crashes caused by calls to a nonexistent logging method; engine activity now uses the existing persistent logger.
+- Added regression coverage for legacy settings, prompt validation, and the Start/Stop/Save API workflow.
+
 ## v2.90.0 (September 2026)
 
 - Completed Global Master AI Architecture refactor for the Quantitative Strategy Engine.
