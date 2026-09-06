@@ -6,6 +6,12 @@
 
 **Last Updated**: September 2026
 
+## v2.92.3 (September 2026)
+
+- **Dashboard Allocations Donut Panel — Complete Portfolio Asset Coverage:** Fixed an issue where USDT, stablecoins, and cash balances were filtered out of the Dashboard Allocations donut chart and legend due to an aggressive non-investable filter (`isCashOrStableAsset`). Now all portfolio holdings with positive balance/value (including USDT and cash) are fully represented in the donut slices, legend, and center total.
+- **Enhanced Allocations Donut Tooltips:** Slices now display both the formatted USD dollar value and exact allocation percentage on hover (e.g., `$69.63 (3.7%)`).
+- **Dynamic Donut Palette Cycling:** Ensured slice colors cycle reliably across the neon palette even when holding more distinct assets than palette colors.
+
 ## v2.92.2 (September 2026)
 
 - **Master AI Test Connection Endpoint Fix:** Resolved an unhandled `ImportError` on `POST /api/webull/portfolio-algo/ai-test` where `test_provider_api` was incorrectly imported from `routes.event_algo`, which caused the connection test modal to display `"Portfolio operation failed. Check the application log."`. Implemented a robust, native multi-provider API connection test handler supporting Gemini, OpenAI, Z.AI, Perplexity, Inception Labs, and Ollama.

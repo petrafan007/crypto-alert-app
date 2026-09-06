@@ -13,7 +13,7 @@ import {
   Filler,
 } from 'chart.js';
 import 'chartjs-adapter-date-fns';
-import { getAssetDisplaySymbol, getAssetIdentity, isCashOrStableAsset } from '../utils/assetDisplay';
+import { getAssetDisplaySymbol, getAssetIdentity } from '../utils/assetDisplay';
 
 ChartJS.register(
   ArcElement,
@@ -33,13 +33,13 @@ export function PortfolioPie({ portfolio, isLightMode, totalValue: authoritative
     '#ef4444', '#f97316', '#eab308', '#84cc16', '#06b6d4', '#6366f1', '#d946ef'
   ];
 
-  // Keep the allocation chart investable and instrument-aware.  Webull can
-  // return multiple rows for the same ticker (for example Binance ETH and an
-  // ETH ETF); aggregate only rows with the same provider/instrument identity.
+  // Keep the allocation chart comprehensive and instrument-aware across all held
+  // assets (including USDT and cash balances). Webull can return multiple rows
+  // for the same ticker (e.g. Binance ETH vs ETH ETF); aggregate by provider/instrument identity.
   const filtered = useMemo(() => {
     const groups = new Map();
     (portfolio || [])
-      .filter((asset) => Number(asset?.current_value) > 0 && !isCashOrStableAsset(asset))
+      .filter((asset) => Number(asset?.current_value) > 0)
       .forEach((asset) => {
         const key = getAssetIdentity(asset);
         const currentValue = Number(asset.current_value) || 0;
@@ -66,11 +66,11 @@ export function PortfolioPie({ portfolio, isLightMode, totalValue: authoritative
     return [...groups.values()];
   }, [portfolio]);
 
-  // The center total matches the rendered investable slices. Cash and stable
-  // balances are intentionally omitted from this allocation view.
+  // Center total matches the rendered portfolio holdings.
   const totalValue = useMemo(() => {
-    return filtered.reduce((sum, c) => sum + Number(c.current_value || 0), 0);
-  }, [filtered]);
+    const sum = filtered.reduce((acc, c) => acc + Number(c.current_value || 0), 0);
+    return sum > 0 ? sum : (Number(authoritativeTotalValue) || 0);
+  }, [filtered, authoritativeTotalValue]);
 
   const formattedTotal = useMemo(() => (
     totalValue.toLocaleString('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -95,7 +95,7 @@ export function PortfolioPie({ portfolio, isLightMode, totalValue: authoritative
     datasets: [
       {
         data: filtered.map(c => c.current_value),
-        backgroundColor: neonPalette,
+        backgroundColor: filtered.map((_, i) => neonPalette[i % neonPalette.length]),
         borderWidth: 3,
         borderColor: isLightMode ? '#ffffff' : '#0f172a',
         hoverOffset: 6,
@@ -127,6 +127,13 @@ export function PortfolioPie({ portfolio, isLightMode, totalValue: authoritative
         titleFont: { size: 13, weight: 'bold', family: 'Inter, sans-serif' },
         bodyFont: { size: 13, family: 'Inter, sans-serif' },
         boxPadding: 6,
+        callbacks: {
+          label: (context) => {
+            const val = Number(context.raw) || 0;
+            const pct = totalValue > 0 ? ((val / totalValue) * 100).toFixed(1) : '0.0';
+            return ` ${val.toLocaleString('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 2 })} (${pct}%)`;
+          },
+        },
       },
     },
   }), [filtered, isLightMode, onCoinClick]);
