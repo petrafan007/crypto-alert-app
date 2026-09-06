@@ -542,7 +542,7 @@ export default function Settings({ isLightMode }) {
 
   const loadEventStrategyLogs = async () => {
     try {
-      const response = await axios.get('/api/webull/event-algo/logs?limit=200', { withCredentials: true });
+      const response = await axios.get('/api/webull/portfolio-algo/logs?limit=200', { withCredentials: true });
       setEventStrategyLogs(response.data?.logs || []);
       setShowEventStrategyLogs(true);
     } catch (error) {
@@ -623,7 +623,7 @@ export default function Settings({ isLightMode }) {
       if (response.data?.success) {
         setEventStrategyAIConfig({
           audit_hours: response.data.audit_hours ?? 6,
-          master_ai_prompt: response.data.master_ai_prompt || '',
+          master_ai_prompt: response.data.master_ai_prompt || DEFAULT_MASTER_CIO_PROMPT,
           ai_config: response.data.ai_config || {
             primary: { provider: 'gemini', model: 'gemini-3.8-flash', reasoning_level: 'medium', api_key: '', has_key: false },
             secondary: { provider: 'ollama', model: 'gpt-oss:120b-cloud', reasoning_level: 'medium', api_key: '', has_key: false },
@@ -4507,7 +4507,7 @@ export default function Settings({ isLightMode }) {
                           </button>
                         </div>
                         <textarea
-                          value={eventStrategyAIConfig.master_ai_prompt || ''}
+                          value={eventStrategyAIConfig.master_ai_prompt || DEFAULT_MASTER_CIO_PROMPT}
                           onChange={(e) => {
                             setEventStrategyAIConfig((prev) => ({
                               ...prev,
