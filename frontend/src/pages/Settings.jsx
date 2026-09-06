@@ -603,6 +603,9 @@ export default function Settings({ isLightMode }) {
     }
   };
 
+  const DEFAULT_MASTER_CIO_PROMPT =
+    "You are the Quantitative Chief Investment Officer (CIO) and Portfolio Risk Auditor for an autonomous multi-asset trading engine. Your mandate is to evaluate the blended portfolio ($50,000 baseline) across 5 asset classes (Equities & ETFs, Options Strategies, Cryptocurrency Spot, Micro Futures, and Event Contracts). Audit portfolio progress toward the net annual target (16.5%–21.0% CAGR), detect cross-asset correlation spikes, identify whether any asset allocation has drifted beyond target risk weights, and issue strategic capital rebalancing directives.";
+
   const DEFAULT_EVENT_AUDIT_PROMPT =
     'You are a principal quantitative trading auditor and AI reliability engineer. ' +
     'Your task is to analyze telemetry, execution logs, and decision traces from an autonomous ' +
@@ -620,7 +623,7 @@ export default function Settings({ isLightMode }) {
       if (response.data?.success) {
         setEventStrategyAIConfig({
           audit_hours: response.data.audit_hours ?? 6,
-          audit_prompt: response.data.audit_prompt || '',
+          master_ai_prompt: response.data.master_ai_prompt || '',
           ai_config: response.data.ai_config || {
             primary: { provider: 'gemini', model: 'gemini-3.8-flash', reasoning_level: 'medium', api_key: '', has_key: false },
             secondary: { provider: 'ollama', model: 'gpt-oss:120b-cloud', reasoning_level: 'medium', api_key: '', has_key: false },
@@ -650,12 +653,12 @@ export default function Settings({ isLightMode }) {
         setSettings((prev) => ({
           ...prev,
           event_strategy_audit_hours: response.data.audit_hours,
-          event_strategy_audit_prompt: response.data.audit_prompt,
+          event_strategy_master_ai_prompt: response.data.master_ai_prompt,
         }));
         setEventStrategyAIConfig((prev) => ({
           ...prev,
           audit_hours: response.data.audit_hours,
-          audit_prompt: response.data.audit_prompt,
+          master_ai_prompt: response.data.master_ai_prompt,
           ai_config: response.data.ai_config,
         }));
         setShowEventStrategyAIModal(false);
@@ -4482,13 +4485,13 @@ export default function Settings({ isLightMode }) {
                       <div>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
                           <label style={{ fontSize: '12px', fontWeight: 600, color: isLightMode ? '#334155' : '#e2e8f0' }}>
-                            Auditor System Prompt
+                            Master CIO / Auditor System Prompt
                           </label>
                           <button
                             type="button"
                             onClick={() => setEventStrategyAIConfig((prev) => ({
                               ...prev,
-                              audit_prompt: DEFAULT_EVENT_AUDIT_PROMPT,
+                              master_ai_prompt: DEFAULT_MASTER_CIO_PROMPT,
                             }))}
                             style={{
                               background: 'none',
@@ -4504,11 +4507,11 @@ export default function Settings({ isLightMode }) {
                           </button>
                         </div>
                         <textarea
-                          value={eventStrategyAIConfig.audit_prompt || ''}
+                          value={eventStrategyAIConfig.master_ai_prompt || ''}
                           onChange={(e) => {
                             setEventStrategyAIConfig((prev) => ({
                               ...prev,
-                              audit_prompt: e.target.value,
+                              master_ai_prompt: e.target.value,
                             }));
                             autoResizeTextarea(e.target);
                           }}
@@ -4529,7 +4532,7 @@ export default function Settings({ isLightMode }) {
                           }}
                         />
                         <span style={{ fontSize: '11px', color: isLightMode ? '#64748b' : '#94a3b8', marginTop: 4, display: 'block' }}>
-                          Guides the AI model's analytical persona, issue severity classification, telemetry inspection, and actionable tuning recommendations.
+                          Guides the AI model's analytical persona, multi-asset correlation tracking, and strategic capital rebalancing directives.
                         </span>
                       </div>
                     </div>

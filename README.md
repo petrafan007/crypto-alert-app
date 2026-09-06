@@ -2450,3 +2450,8 @@ Historical changelog entries retain the product name used when they were origina
 - **PostgreSQL Migration**: Completed refactoring to ORM. Legacy SQLite databases were purged.
 - **Unified Credentials**: Centralized API key management.
 - **Staking System**: Full Binance.US staking support with real-time APY.
+
+### v2.90.1 (Frontend UI adjustments)
+* Relocated Master Engine and AI Evaluation statuses to the top of the Quantitative Strategy Engine ribbon for centralized visibility.
+* Removed redundant "Save Settings" buttons inside the strategy configuration modals.
+* Expanded the Master Quantitative Strategy Engine AI Configuration modal to include a consolidated Master CIO/Auditor system prompt input field.

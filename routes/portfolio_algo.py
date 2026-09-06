@@ -151,6 +151,11 @@ def portfolio_algo_ai_config():
             except (TypeError, ValueError):
                 pass
 
+        if "master_ai_prompt" in payload:
+            prompt = payload["master_ai_prompt"]
+            if isinstance(prompt, str) and len(prompt) <= 16000:
+                cfg.master_ai_prompt = prompt.strip() or DEFAULT_MASTER_CIO_PROMPT
+
         if "ai_config" in payload and isinstance(payload["ai_config"], dict):
             try:
                 existing_ai = json.loads(cfg.master_ai_config) if cfg.master_ai_config else {}
@@ -191,6 +196,7 @@ def portfolio_algo_ai_config():
     return jsonify({
         "success": True,
         "audit_hours": audit_hours,
+        "master_ai_prompt": cfg.master_ai_prompt,
         "ai_config": sanitize_event_ai_config(cfg.master_ai_config or "{}"),
     })
 

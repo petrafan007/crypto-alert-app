@@ -386,6 +386,68 @@ export default function QuantitativeStrategyEngine({
           {engineStatus?.kill_switch && <button className="btn-quant-save" disabled={engineBusy} onClick={() => handleEngineControl('acknowledge')}>Acknowledge pause</button>}
         </div>
 
+        {/* Master Engine & AI Status Grid */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12, padding: '0 20px', marginBottom: 16 }}>
+          {[
+            ['worker_status', 'Worker', engineStatus?.worker_status || 'STOPPED'],
+            ['last_run', 'Last scan', eventStrategyHealth?.last_run ? formatEasternDateTime(eventStrategyHealth.last_run) : '—'],
+            ['heartbeat_at', 'Last heartbeat', eventStrategyHealth?.heartbeat_at ? formatEasternDateTime(eventStrategyHealth.heartbeat_at) : '—'],
+            ['next_expected_scan', 'Next expected scan', eventStrategyHealth?.next_expected_scan ? formatEasternDateTime(eventStrategyHealth.next_expected_scan) : '—'],
+            ['ai_batch_calls_last_hour', 'AI batches (last hour)', `${eventStrategyHealth?.ai_batch_calls_last_hour ?? 0} / ${eventStrategyHealth?.ai_batch_budget_per_hour ?? 12}`],
+            ['ai_evaluations', 'AI evaluation states', (() => {
+              const evals = eventStrategyHealth?.ai_evaluations;
+              if (!evals || typeof evals !== 'object' || Object.keys(evals).length === 0) {
+                return <span style={{ color: isLightMode ? '#718096' : '#94a3b8', fontStyle: 'italic', fontSize: '0.85rem' }}>No evaluations yet</span>;
+              }
+              const badgeMap = {
+                SUCCESS: { bg: isLightMode ? '#dcfce7' : 'rgba(34, 197, 94, 0.18)', border: '#22c55e', text: isLightMode ? '#15803d' : '#4ade80', label: 'Success' },
+                SKIPPED: { bg: isLightMode ? '#fef3c7' : 'rgba(234, 179, 8, 0.18)', border: '#eab308', text: isLightMode ? '#b45309' : '#fde047', label: 'Skipped' },
+                INVALID: { bg: isLightMode ? '#fee2e2' : 'rgba(239, 68, 68, 0.18)', border: '#ef4444', text: isLightMode ? '#b91c1c' : '#f87171', label: 'Invalid' },
+                FAILED: { bg: isLightMode ? '#fee2e2' : 'rgba(239, 68, 68, 0.18)', border: '#ef4444', text: isLightMode ? '#b91c1c' : '#f87171', label: 'Failed' },
+                PENDING: { bg: isLightMode ? '#e0f2fe' : 'rgba(56, 189, 248, 0.18)', border: '#38bdf8', text: isLightMode ? '#0369a1' : '#7dd3fc', label: 'Pending' },
+              };
+              return (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 4 }}>
+                  {Object.entries(evals).map(([k, count]) => {
+                    const conf = badgeMap[k.toUpperCase()] || {
+                      bg: isLightMode ? '#f1f5f9' : 'rgba(148, 163, 184, 0.18)',
+                      border: '#94a3b8',
+                      text: isLightMode ? '#475569' : '#cbd5e1',
+                      label: k.charAt(0) + k.slice(1).toLowerCase(),
+                    };
+                    return (
+                      <span
+                        key={k}
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: 4,
+                          padding: '2px 8px',
+                          borderRadius: 6,
+                          fontSize: '0.8rem',
+                          fontWeight: 600,
+                          background: conf.bg,
+                          border: `1px solid ${conf.border}`,
+                          color: conf.text,
+                        }}
+                      >
+                        <span>{conf.label}:</span>
+                        <span>{count}</span>
+                      </span>
+                    );
+                  })}
+                </div>
+              );
+            })()],
+          ].map(([cardKey, label, value]) => (
+            <div key={label} style={{ padding: '12px 14px', borderRadius: 8, background: isLightMode ? '#edf2f7' : 'rgba(255,255,255,0.05)', border: '1px solid rgba(148,163,184,0.2)' }}>
+              <div style={{ fontSize: 12, color: isLightMode ? '#718096' : '#94a3b8' }}>{label}</div>
+              <div style={{ marginTop: 4, fontWeight: 600, wordBreak: 'break-word' }}>
+                {cardKey === 'ai_evaluations' ? value : String(value || '—')}
+              </div>
+            </div>
+          ))}
+        </div>
         {engineError && (
           <div className="settings-message" style={{ marginBottom: 16, background: 'rgba(239, 68, 68, 0.15)', borderColor: '#ef4444' }}>
             {engineError}
@@ -700,73 +762,6 @@ export default function QuantitativeStrategyEngine({
                   {eventStrategyMessage}
                 </div>
               )}
-
-              {/* Status grid */}
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12, marginBottom: 16 }}>
-                {[
-                  ['worker_status', 'Worker', eventStrategyHealth?.worker_status || eventStrategyConfig?.worker_status || 'STOPPED'],
-                  ['last_run', 'Last scan', eventStrategyHealth?.last_run ? formatEasternDateTime(eventStrategyHealth.last_run) : '—'],
-                  ['heartbeat_at', 'Last heartbeat', eventStrategyHealth?.heartbeat_at ? formatEasternDateTime(eventStrategyHealth.heartbeat_at) : '—'],
-                  ['next_expected_scan', 'Next expected scan', eventStrategyHealth?.next_expected_scan ? formatEasternDateTime(eventStrategyHealth.next_expected_scan) : '—'],
-                  ['ai_batch_calls_last_hour', 'AI batches (last hour)', `${eventStrategyHealth?.ai_batch_calls_last_hour ?? 0} / ${eventStrategyHealth?.ai_batch_budget_per_hour ?? 12}`],
-                  ['ai_evaluations', 'AI evaluation states', (() => {
-                    const evals = eventStrategyHealth?.ai_evaluations;
-                    if (!evals || typeof evals !== 'object' || Object.keys(evals).length === 0) {
-                      return <span style={{ color: isLightMode ? '#718096' : '#94a3b8', fontStyle: 'italic', fontSize: '0.85rem' }}>No evaluations yet</span>;
-                    }
-                    const badgeMap = {
-                      SUCCESS: { bg: isLightMode ? '#dcfce7' : 'rgba(34, 197, 94, 0.18)', border: '#22c55e', text: isLightMode ? '#15803d' : '#4ade80', label: 'Success' },
-                      SKIPPED: { bg: isLightMode ? '#fef3c7' : 'rgba(234, 179, 8, 0.18)', border: '#eab308', text: isLightMode ? '#b45309' : '#fde047', label: 'Skipped' },
-                      INVALID: { bg: isLightMode ? '#fee2e2' : 'rgba(239, 68, 68, 0.18)', border: '#ef4444', text: isLightMode ? '#b91c1c' : '#f87171', label: 'Invalid' },
-                      FAILED: { bg: isLightMode ? '#fee2e2' : 'rgba(239, 68, 68, 0.18)', border: '#ef4444', text: isLightMode ? '#b91c1c' : '#f87171', label: 'Failed' },
-                      PENDING: { bg: isLightMode ? '#e0f2fe' : 'rgba(56, 189, 248, 0.18)', border: '#38bdf8', text: isLightMode ? '#0369a1' : '#7dd3fc', label: 'Pending' },
-                    };
-                    return (
-                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 4 }}>
-                        {Object.entries(evals).map(([k, count]) => {
-                          const conf = badgeMap[k.toUpperCase()] || {
-                            bg: isLightMode ? '#f1f5f9' : 'rgba(148, 163, 184, 0.18)',
-                            border: '#94a3b8',
-                            text: isLightMode ? '#475569' : '#cbd5e1',
-                            label: k.charAt(0) + k.slice(1).toLowerCase(),
-                          };
-                          return (
-                            <span
-                              key={k}
-                              style={{
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                gap: 4,
-                                padding: '2px 8px',
-                                borderRadius: 6,
-                                fontSize: '0.8rem',
-                                fontWeight: 600,
-                                background: conf.bg,
-                                border: `1px solid ${conf.border}`,
-                                color: conf.text,
-                              }}
-                            >
-                              <span>{conf.label}:</span>
-                              <span>{count}</span>
-                            </span>
-                          );
-                        })}
-                      </div>
-                    );
-                  })()],
-                ].map(([cardKey, label, value]) => (
-                  <div key={label} style={{ padding: '12px 14px', borderRadius: 8, background: isLightMode ? '#edf2f7' : 'rgba(255,255,255,0.05)', border: '1px solid rgba(148,163,184,0.2)' }}>
-                    <div style={{ fontSize: 12, color: isLightMode ? '#718096' : '#94a3b8' }}>{label}</div>
-                    <div style={{ marginTop: 4, fontWeight: 600, wordBreak: 'break-word' }}>
-                      {cardKey === 'ai_evaluations' ? value : String(value || '—')}
-                    </div>
-                  </div>
-                ))}
-              </div>
-
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginBottom: 18 }}>
-                <button type="button" className="settings-save-button" disabled={eventStrategyBusy} onClick={saveEventStrategy}>💾 Save settings</button>
-              </div>
 
               {/* Strategy Parameters Form */}
               {eventStrategyConfig && (
