@@ -23,7 +23,7 @@ from services.notification_service import send_telegram_message, create_system_n
 from routes.helpers import decrypt_secret, is_stablecoin
 
 from services.portfolio_audit_context import (
-    AUDIT_END, AUDIT_TOKEN_LIMITS, CompletionText, IncompleteAuditError, complete_audit_text,
+    AUDIT_END, AUDIT_TOKEN_LIMITS, CompletionText, IncompleteAuditError, complete_audit_text, check_drawdown_claim,
 )
 
 logger = logging.getLogger(__name__)
@@ -842,6 +842,8 @@ def call_ai_with_web_search(
                 value = _execute_ai_call(audit_messages, p_max_tokens=budget * (2 ** attempt))
                 try:
                     content = complete_audit_text(value)
+                    if prompt_type == 'portfolio_audit':
+                        check_drawdown_claim(content, json.loads(original_user_message))
                     break
                 except IncompleteAuditError:
                     if attempt:

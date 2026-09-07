@@ -31,7 +31,26 @@ EVIDENCE_RULES = (
     'is quantity times mark; collateral and fees are separate. Distinguish open position counts, '
     'watchlist symbols evaluated, qualified signals, rejected entries and actual filled entries. '
     'Insufficient daily samples cannot justify numerical stress tests, CAGR or correlations. Do not '
-    'introduce unrelated Binance accounts, tokenized equities, OCO orders, manual trade tickets or '
+    'An indicator omitted from the report is NOT evidence that its provider data are missing. '
+    'MARKET_CLOSED with zero evaluations means the session gate skipped the scan; it does not mean '
+    'missing price history or a broken feed. READY proves the evaluated symbols passed data collection '
+    'and indicator calculation. Use signal_checks to explain unqualified entries; do not infer a failed '
+    'dominance gate from a generic strategy name. NOT_DUE Event positions are ordinary unexpired '
+    'holdings, not stuck settlements, and two positions occupy two slots. Use exchange_session times '
+    'rather than guessing the local trading session from UTC. allocation_preference is an internal '
+    'relative weight, never actual exposure. Per-module realized P&L belongs to that named module. '
+    'Do not invent flags, controls, data-import jobs, provider outages or new risk violations. Do not '
+    'say the annual target is missed or not pursued on a one-day sample. Follow operational_summary '
+    'as the authoritative explanation of each module; specialist prose is not a source of new facts. '
+    'The implemented portfolio circuit pauses new entries at a 10% loss of starting bankroll; '
+    'do not claim it is missing or suggest adding it. This floor differs from historical peak-to-trough '
+    'maximum drawdown. Do not attribute maximum drawdown to current holdings or a single trade without '
+    'a supplied attribution. Drift is actual_pct minus target_pct. Open Event market value is '
+    'collateral plus unrealized P&L, not original collateral. Use supplied formatted monetary facts '
+    'rather than inventing notional exposure. Do not recommend relaxing confidence, edge, dominance '
+    'or warm-up requirements just to generate trades, especially with one daily return sample. '
+    'Do not propose adding controls or calculators that strategy_rules/risk_controls say are already implemented. '
+    'Do not introduce unrelated Binance accounts, tokenized equities, OCO orders, manual trade tickets or '
     'claims of live execution. Suggestions must relate to implemented rules and recorded limitations.'
 )
 
@@ -84,6 +103,9 @@ def check_drawdown_claim(text, evidence):
             match = re.search(r'(?:max(?:imum)?[\s-]*drawdown|observed[\s-]*drawdown)[^\d\n]{0,35}(\d+(?:\.\d+)?)\s*%', line, re.I)
             if match and abs(float(match[1])-actual) > 0.011:
                 raise IncompleteAuditError('Audit drawdown claim contradicts the recorded percentage.', text)
+    if evidence.get('risk_controls', {}).get('portfolio_circuit_implemented'):
+        if re.search(r'(?:does not enforce|lacks|no)\s+(?:a\s+)?(?:stop.loss|drawdown guard|drawdown circuit)[^\n.]{0,45}portfolio', text, re.I):
+            raise IncompleteAuditError('Audit incorrectly claims the implemented portfolio risk circuit is absent.', text)
 
 
 def audit_system_prompt(custom, module=None):

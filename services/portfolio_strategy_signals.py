@@ -110,6 +110,10 @@ def equity_signal(bars, price, settings, benchmark):
     deviation = math.sqrt(sum((x-sum(closes[-20:])/20)**2 for x in closes[-20:])/20)
     lower = sum(closes[-20:])/20 - settings['bollinger_std'] * deviation
     return {'enter': price > average and momentum > 0 and relative >= 0 and pullback < settings['rsi_entry_threshold'] and closes[-1] <= lower,
+            'checks': {'completed_daily_bars': len(bars), 'trend_sma': average, 'price_above_sma': price > average,
+                       'momentum_63_sessions': momentum, 'relative_momentum_vs_spy': relative,
+                       'rsi': pullback, 'rsi_below_entry_threshold': pullback < settings['rsi_entry_threshold'],
+                       'lower_bollinger_band': lower, 'close_below_lower_band': closes[-1] <= lower},
             'exit': price < average or pullback > 70, 'stop': price - 2 * atr(bars),
             'reason': f'RSI {pullback:.1f}, 63-session relative momentum {relative:.4f}', 'side': 'LONG'}
 
@@ -119,10 +123,17 @@ def crypto_signal(bars, price, settings, dominance_ok):
     if len(bars) < max(entry, leave, 15):
         raise ValueError('Insufficient completed hourly channel history.')
     # The live quote is compared with prior completed bars, never its own high.
-    return {'enter': dominance_ok and price > max(b['high'] for b in bars[-entry:]),
+    upper = max(b['high'] for b in bars[-entry:])
+    volatility = atr(bars)
+    return {'enter': dominance_ok and price > upper,
+            'checks': {'completed_hourly_bars': len(bars), 'entry_channel_high': upper,
+                       'price_above_entry_channel': price > upper, 'dominance_gate_passed': bool(dominance_ok),
+                       'atr_period': 14, 'atr': volatility},
             'exit': price < min(b['low'] for b in bars[-leave:]),
-            'stop': price - settings['atr_stop_multiplier'] * atr(bars), 'side': 'LONG',
-            'reason': 'Donchian breakout with measured dominance regime'}
+            'stop': price - settings['atr_stop_multiplier'] * volatility, 'side': 'LONG',
+            'reason': ('Breakout and dominance gates passed.' if dominance_ok and price > upper else
+                       'Price has not exceeded the completed-bar Donchian high.' if price <= upper else
+                       'Altcoin dominance gate did not pass.')}
 
 
 def futures_signal(bars, price, settings, now):

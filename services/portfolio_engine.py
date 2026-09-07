@@ -491,17 +491,21 @@ def portfolio_status(user_id):
         p = db.session.get(Position, lot.position_id)
         positions.append({'id': p.id, 'module': lot.module, 'instrument_type': p.instrument_type, 'symbol': p.symbol, 'side': p.side, 'quantity': p.quantity,
             'average_cost': p.average_cost, 'mark': p.market_price, 'unrealized_pnl': p.unrealized_pnl,
+            'market_value_usd': lot.collateral+p.unrealized_pnl,
             'collateral': lot.collateral, 'stop': lot.stop_price, 'target': lot.target_price,
             'marked_at': p.updated_at.isoformat()+'Z', 'details': loads(lot.details_json, {})})
         if lot.module == 'events':
-            from event_algo_models import EventContractOutcome
+            from event_algo_models import EventContractOutcome, EventMarketSnapshot
             outcome = EventContractOutcome.query.filter_by(user_id=user_id, contract_symbol=p.symbol).order_by(EventContractOutcome.updated_at.desc()).first()
+            market = EventMarketSnapshot.query.filter_by(user_id=user_id, contract_symbol=p.symbol).order_by(EventMarketSnapshot.received_at.desc()).first()
+            cutoff = outcome.cutoff_at if outcome else market.cutoff_at if market else None
             positions[-1]['purchased_outcome'] = positions[-1]['details'].get('outcome')
             positions[-1]['settlement'] = {
-                'status': outcome.settlement_status if outcome else 'UNKNOWN',
+                'status': outcome.settlement_status if outcome else 'NOT_DUE' if cutoff and cutoff > datetime.utcnow() else 'UNKNOWN',
                 'confirmed_outcome': outcome.outcome if outcome and outcome.settlement_status == 'RESOLVED' else None,
                 'last_attempt_at': outcome.observed_at.isoformat()+'Z' if outcome and outcome.observed_at else None,
-                'cutoff_at': outcome.cutoff_at.isoformat()+'Z' if outcome and outcome.cutoff_at else None,
+                'cutoff_at': cutoff.isoformat()+'Z' if cutoff else None,
+                'expired': cutoff <= datetime.utcnow() if cutoff else None,
             }
     query = Snapshot.query.filter_by(user_id=user_id, generation=state.generation).order_by(Snapshot.created_at)
     daily = daily_snapshots(user_id, state.generation)
@@ -913,6 +917,8 @@ def run_scan(user_id, force=False, provider=None):
                             'symbol': entry_symbol, 'observed_at': now.isoformat()+'Z', 'price': price,
                             'entry_qualified': bool(signal and signal.get('enter')),
                             'reason': (signal or {}).get('reason'),
+                            'signal_checks': (signal or {}).get('checks', {}),
+                            'dominance_filter_applies': entry_symbol != 'BTC' if module == 'crypto' else None,
                         })
                         if signal and signal.get('enter'):
                             report[module]['qualified_signals'] += 1
@@ -1003,7 +1009,7 @@ def measured_correlations(user_id, generation):
 def audit_dict(row):
     evidence = loads(row.evidence_json, {})
     warnings = []
-    if row.status in ('SUCCESS', 'PARTIAL') and not evidence.get('audit_schema_version'):
+    if row.status in ('SUCCESS', 'PARTIAL') and evidence.get('audit_context_version') != 3:
         warnings.append('This report predates v2.92.7 audit safeguards. Its AI prose may be incomplete or inaccurate; use the saved ledger evidence for facts or generate a fresh report.')
     return {'id': row.id, 'generation': row.generation, 'timestamp': row.created_at.isoformat()+'Z',
             'status': row.status, 'content': row.content, 'provider': row.provider, 'model': row.model,
@@ -1096,17 +1102,67 @@ def run_audit(user_id, prompt=None, scheduled=False, audit_id=None):
         }
         evidence['target_annual_return'] = cfg.target_annual_return
         evidence['audit_schema_version'] = '2.92.7'
+        evidence['audit_context_version'] = 3
         evidence['as_of'] = datetime.utcnow().isoformat()+'Z'
+        now = datetime.utcnow()
+        local = utc(now).astimezone(ET)
+        next_open = None
+        for offset in range(8):
+            bounds = session_bounds(local.date()+timedelta(days=offset))
+            if bounds and bounds[0] > utc(now):
+                next_open = bounds[0].astimezone(ET).isoformat()
+                break
+        evidence['exchange_session'] = {'as_of_eastern': local.isoformat(), 'open_now': in_session(now),
+                                        'has_session_today': session_bounds(local.date()) is not None,
+                                        'next_open_eastern': next_open}
         evidence['engine_purpose'] = ENGINE_PURPOSE
+        evidence['risk_controls'] = {
+            'portfolio_circuit_implemented': True, 'loss_of_starting_bankroll_pause_pct': 10,
+            'new_entries_paused': state.kill_switch, 'pause_reason': state.pause_reason,
+            'per_position_bucket_limit_pct': {'futures': 100, 'other_modules': 20}, 'modeled_stop_risk_portfolio_pct': 0.5,
+            'events_max_open_positions': 3, 'events_max_entry_risk_usd': 50,
+            'events_max_units_per_position': 50, 'quote_max_age_seconds': 120,
+            'cash_waits_for_qualified_signals': True,
+            'correlations_and_ratios_automatically_calculated_after_30_daily_samples': True,
+        }
         evidence['evidence_rules'] = EVIDENCE_RULES
         evidence['strategy_rules'] = {m: STRATEGY_RULES[m] for m in enabled_modules}
         evidence['strategy_settings'] = {m: {k: v for k, v in settings_for(cfg)[m].items()
-                                              if k != 'auditor_prompt'} for m in enabled_modules}
+                                              if k not in ('auditor_prompt', 'allocation_preference')} for m in enabled_modules}
+        all_lots = current_lots(user_id, state, False)
+        evidence['module_trade_results'] = {m: {
+            'closed_trades': sum(l.module == m and l.closed_at is not None for l in all_lots),
+            'realized_pnl_usd': sum(l.realized_pnl for l in all_lots if l.module == m and l.closed_at is not None),
+            'open_positions': sum(p['module'] == m for p in evidence['positions']),
+        } for m in MODULES}
+        evidence['operational_summary'] = {}
+        for module in enabled_modules:
+            metrics = evidence['modules'][module]
+            if metrics['status'] == 'MARKET_CLOSED':
+                explanation = ('The exchange calendar is closed. The session gate skipped new-entry data requests '
+                               'and signal evaluation. This is normal waiting, not evidence of missing price history '
+                               'or a provider outage. Next open: ' + str(next_open) + '.')
+            elif metrics['status'] == 'READY':
+                explanation = (f"The scan successfully evaluated {metrics.get('evaluated', 0)} watchlist symbols. "
+                               f"{metrics.get('qualified_signals', 'Unknown')} signals qualified and "
+                               f"{metrics.get('entries', 0)} entries filled. "
+                               'Data collection and required indicator calculations succeeded for evaluated symbols. '
+                               'If no signal qualified, cash correctly remains unused. Refer to signal_checks for '
+                               'the actual conditions; no missing-history outage is recorded.')
+            else:
+                explanation = 'Use the recorded module status and diagnostic messages to identify the actual limitation.'
+            if module == 'events':
+                explanation += (' Event positions with NOT_DUE settlement are unexpired normal holdings. '
+                                'Settlement-based exits are implemented; no stop/target price is required for them. '
+                                'Only expired unresolved positions are settlement blockers. Capacity: ' +
+                                json.dumps(metrics.get('capacity', {})))
+            evidence['operational_summary'][module] = explanation
         evidence['verified_facts'] = {
             'maximum_drawdown': f"{evidence['performance']['max_drawdown_pct']:.6f}%",
             'total_equity': f"${evidence['account']['total_equity']:,.2f}",
             'cash': f"${evidence['account']['cash_balance']:,.2f}",
             'total_return': f"{evidence['account']['return_pct']:.6f}%",
+            'event_market_value': f"${sum(p['market_value_usd'] for p in evidence['positions'] if p['module'] == 'events'):,.2f}",
             'open_position_counts': {m: sum(p['module'] == m for p in evidence['positions']) for m in MODULES},
         }
         evidence['limitations'] = ['Paper simulation with estimated costs; targets are aspirations.',
@@ -1133,6 +1189,10 @@ def run_audit(user_id, prompt=None, scheduled=False, audit_id=None):
                 module_evidence = {
                     'module': module,
                     'as_of': evidence['as_of'],
+                    'exchange_session': evidence['exchange_session'],
+                    'operational_summary': evidence['operational_summary'][module],
+                    'trade_results': evidence['module_trade_results'][module],
+                    'risk_controls': evidence['risk_controls'],
                     'strategy_rules': STRATEGY_RULES[module],
                     'strategy_settings': evidence['strategy_settings'][module],
                     'allocation': evidence['allocations'][module],
@@ -1172,7 +1232,7 @@ def run_audit(user_id, prompt=None, scheduled=False, audit_id=None):
                 username=user.username, user_id=user_id,
                 messages=[{'role': 'system', 'content': audit_system_prompt(prompt or cfg.master_ai_prompt or DEFAULT_MASTER_CIO_PROMPT)},
                           {'role': 'user', 'content': json.dumps({k: v for k, v in evidence.items()
-                            if k not in ('module_audit_inputs', 'incomplete_module_outputs')})}],
+                            if k not in ('module_audit_inputs', 'incomplete_module_outputs', 'module_audits')})}],
                 prompt_type='portfolio_audit', symbol='PORTFOLIO', include_db_context=False,
                 **ai_kwargs)
             content = str(getattr(response, 'text', '') or '').strip()

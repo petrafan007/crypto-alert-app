@@ -120,6 +120,11 @@ class PortfolioSignalsTests(unittest.TestCase):
         settings = DEFAULT_MODULE_SETTINGS['crypto']
         self.assertTrue(crypto_signal(bars, 101, settings, True)['enter'])
         self.assertFalse(crypto_signal(bars, 101, settings, False)['enter'])
+        checks = crypto_signal(bars, 101, settings, False)['checks']
+        self.assertEqual(checks['completed_hourly_bars'], 25)
+        self.assertTrue(checks['price_above_entry_channel'])
+        self.assertFalse(checks['dominance_gate_passed'])
+        self.assertEqual(checks['atr_period'], 14)
         self.assertTrue(crypto_signal(bars, 89, settings, True)['exit'])
         self.assertEqual(rsi([1, 1, 1]), 50)
 
@@ -718,6 +723,11 @@ class PortfolioLedgerTests(unittest.TestCase):
             self.assertEqual(request.kwargs['custom_api_keys'][('secondary', 'inception')], 'dedicated-test-key')
         self.assertNotIn('dedicated-test-key', json.dumps(result))
         self.assertEqual(result['evidence']['open_positions_count'], 5)
+        master_input = json.loads(call.call_args.kwargs['messages'][1]['content'])
+        self.assertNotIn('module_audits', master_input)
+        self.assertEqual(master_input['module_trade_results']['crypto']['open_positions'], 1)
+        self.assertIn('as_of_eastern', master_input['exchange_session'])
+        self.assertNotIn('allocation_preference', master_input['strategy_settings']['equities'])
 
     def test_module_failure_produces_partial_report_with_saved_diagnostics(self):
         self.audit_user()
