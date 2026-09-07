@@ -208,6 +208,17 @@ class PortfolioLedgerTests(unittest.TestCase):
     def entry(self, module='equities', side='LONG', price=100, stop=95, **kwargs):
         return e.enter_lot(self.cfg, self.acc, self.state, module, 'TEST', {'side': side, 'stop': stop, 'enter': True, 'target': .5}, price, datetime.utcnow(), **kwargs)
 
+    def test_positions_endpoint_preserves_futures_collateral_and_multiplier(self):
+        lot = self.entry(module='futures', multiplier=5, margin=1000)
+        self.assertIsNotNone(lot)
+        db.session.commit()
+        response = self.client.get('/api/webull/portfolio-algo/positions')
+        self.assertEqual(response.status_code, 200)
+        row = response.json['positions'][0]
+        self.assertEqual(row['contract_multiplier'], 5)
+        self.assertEqual(row['market_value'], lot.collateral)
+        self.assertEqual(row['cost_basis'], lot.collateral)
+
     def test_start_and_save_with_legacy_specialist_prompts(self):
         settings = e.settings_for(self.cfg)
         for module, values in settings.items():

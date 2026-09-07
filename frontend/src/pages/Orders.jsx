@@ -1,5 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
+import CombinedPositions from '../components/CombinedPositions';
+import { useAuth } from '../components/AuthContext';
 import CancelOrderModal from '../components/CancelOrderModal';
 import {
   formatEasternDate,
@@ -204,6 +206,7 @@ const instrumentCategory = (order) => {
   const hint = String(order?.instrument_type || order?.asset_class || order?.security_type || '').toUpperCase();
   if (hint.includes('CRYPTO') || hint.includes('COIN') || hint.includes('TOKEN')) return 'crypto';
   if (hint.includes('OPTION')) return 'option';
+  if (hint.includes('EVENT')) return 'event';
   if (hint.includes('FUTURE')) return 'future';
   if (hint.includes('ETF') || hint.includes('STOCK') || hint.includes('EQUITY') || hint.includes('SECURITY')) return 'equity';
   return 'other';
@@ -293,11 +296,13 @@ function Pagination({ page, setPage, pageSize, setPageSize, total }) {
 }
 
 export default function Orders() {
+  const { user } = useAuth();
+  const [positionsRefresh, setPositionsRefresh] = useState(0);
   const [activeTab, setActiveTab] = useState(() => {
     try {
       const params = new URLSearchParams(window.location.search);
       const t = params.get('tab');
-      if (['open', 'history', 'market_analysis', 'portfolio_review'].includes(t)) {
+      if (['open', 'history', 'positions', 'market_analysis', 'portfolio_review'].includes(t)) {
         return t;
       }
     } catch {}
@@ -426,6 +431,8 @@ export default function Orders() {
   };
 
   const load = async () => {
+    setPositionsRefresh(n => n + 1);
+    if (activeTab === 'positions') { setLoading(false); return; }
     setLoading(true);
     setNotice('');
     await loadOpenOrders();
@@ -550,6 +557,7 @@ export default function Orders() {
 
   const selectTab = (tab) => {
     setActiveTab(tab);
+    if (tab === 'open') { setLoading(true); loadOpenOrders().finally(() => setLoading(false)); }
     try {
       const url = new URL(window.location);
       url.searchParams.set('tab', tab);
@@ -648,7 +656,7 @@ export default function Orders() {
         <div>
           <h1 style={{ fontSize: '2rem', margin: 0 }}>📋 Orders</h1>
           <p style={{ margin: '6px 0 0', color: 'var(--text-secondary, #94a3b8)' }}>
-            Open orders and history across Binance.US and Webull.
+            Orders, history, and positions across Binance.US and Webull.
           </p>
         </div>
         <button type="button" className="btn btn-secondary" onClick={load}>🔄 Refresh</button>
@@ -661,6 +669,9 @@ export default function Orders() {
         <button className={`tab-button ${activeTab === 'history' ? 'active' : ''}`} onClick={() => selectTab('history')}>
           📜 <span className="tab-text">Order History</span>
         </button>
+        <button className={`tab-button ${activeTab === 'positions' ? 'active' : ''}`} onClick={() => selectTab('positions')}>
+          💼 <span className="tab-text">Positions</span>
+        </button>
         <button className={`tab-button ${activeTab === 'market_analysis' ? 'active' : ''}`} onClick={() => selectTab('market_analysis')}>
           📊 <span className="tab-text">Market Analysis</span>
         </button>
@@ -669,13 +680,14 @@ export default function Orders() {
         </button>
       </div>
       <div className="trading-content">
+        {activeTab === 'positions' && <CombinedPositions user={user} refreshKey={positionsRefresh} />}
         {(activeTab === 'open' || activeTab === 'history') && (
           <section className="order-history-container">
             <div className="combined-order-filters" aria-label="Combined order filters">
               <label>Source<select value={filters.source} onChange={(event) => setFilter('source', event.target.value)}><option value="all">All sources</option><option value="binance">Binance.US</option><option value="webull">Webull</option><option value="automation">Auto-Buy / Auto-Sell</option></select></label>
               <label>Account<select value={filters.account} onChange={(event) => setFilter('account', event.target.value)}><option value="all">All accounts</option><option value="binance">Binance.US</option>{webullAccounts.map((account) => <option key={account.account_id} value={account.account_id}>{accountLabel(account)}</option>)}</select></label>
               <label>Symbol<input type="search" value={filters.symbol} onChange={(event) => setFilter('symbol', event.target.value)} placeholder="BTC, TSLA…" /></label>
-              <label>Product<select value={filters.product} onChange={(event) => setFilter('product', event.target.value)}><option value="all">All products</option><option value="crypto">Crypto</option><option value="equity">Stock / ETF</option><option value="option">Options</option><option value="future">Futures</option><option value="automation">Automation</option><option value="other">Other</option></select></label>
+              <label>Product<select value={filters.product} onChange={(event) => setFilter('product', event.target.value)}><option value="all">All products</option><option value="crypto">Crypto</option><option value="equity">Stock / ETF</option><option value="option">Options</option><option value="future">Futures</option><option value="event">Event Contracts</option><option value="automation">Automation</option><option value="other">Other</option></select></label>
               <label>Time range<select value={filters.timeRange} onChange={(event) => setFilter('timeRange', event.target.value)}><option value="all">All time</option><option value="1">Past 24 hours</option><option value="7">Past 7 days</option><option value="30">Past 30 days</option><option value="90">Past 90 days</option></select></label>
               <button type="button" className="btn btn-secondary combined-order-filter-reset" onClick={resetFilters}>Reset filters</button>
             </div>

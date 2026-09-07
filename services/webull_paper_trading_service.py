@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from typing import Dict, Any, List, Optional
 
 from core.extensions import db
+from services.position_metadata import enrich_event_positions
 from models import WebullTestAccount, WebullTestPosition, WebullTestOrder
 from credentials import Credential, UserSetting
 from services.webull_paper_rules import (
@@ -647,7 +648,7 @@ def get_webull_test_positions(user_id: int) -> List[Dict[str, Any]]:
             'sentiment_reason': f"Simulated position entered at ${cost:,.2f}"
         })
     db.session.commit()
-    return rows
+    return enrich_event_positions(user_id, rows)
 
 
 def get_webull_test_orders(user_id: int) -> List[Dict[str, Any]]:

@@ -565,7 +565,11 @@ def portfolio_algo_positions():
             'quantity': p.get('quantity', 0),
             'cost_price': p.get('average_cost', 0),
             'last_price': p.get('mark', 0),
-            'market_value': (p.get('mark', 0) * p.get('quantity', 0)) or p.get('collateral', 0),
+            'market_value': p.get('market_value_usd'),
+            'cost_basis': p.get('collateral'),
+            'contract_multiplier': p.get('contract_multiplier'),
+            'purchased_outcome': p.get('purchased_outcome'),
+            'settlement': p.get('settlement', {}),
             'unrealized_profit_loss': p.get('unrealized_pnl', 0),
             'collateral': p.get('collateral', 0),
             'stop_price': p.get('stop'),
@@ -578,6 +582,8 @@ def portfolio_algo_positions():
             'source': 'webull_quant',
             'updated_at': p.get('marked_at'),
         })
+    from services.position_metadata import enrich_event_positions
+    enrich_event_positions(current_user.id, positions)
     return jsonify(success=True, positions=positions, total=len(positions))
 
 

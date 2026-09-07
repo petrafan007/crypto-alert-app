@@ -4,6 +4,7 @@ import json
 from datetime import datetime, timezone
 
 from core.extensions import db
+from services.position_metadata import enrich_event_positions
 from models import ExternalSentimentSignal, WebullAccountSnapshot, WebullHolding, WebullOrder
 from services.asset_identity import display_symbol, is_etf_asset
 
@@ -453,6 +454,7 @@ def get_webull_portfolio_rows(user_id):
             'option_type': holding.option_type,
             'option_multiplier': holding.option_multiplier,
             'event_outcome': holding.event_outcome,
+            'account_label': ' '.join(filter(None, [meta.get('webull_account_type') or 'Webull', meta.get('account_id_masked')])),
             'hidden': bool(getattr(holding, 'hidden', False)),
             'force_visible': bool(getattr(holding, 'force_visible', False)),
             'last_updated': holding.synced_at.isoformat() if holding.synced_at else None,
@@ -474,7 +476,7 @@ def get_webull_portfolio_rows(user_id):
             'sentiment_search_status': latest_signal.search_status if latest_signal else None,
             'sentiment_failover_history': latest_signal.failover_history if latest_signal else None,
         })
-    return rows
+    return enrich_event_positions(user_id, rows)
 
 
 def get_webull_total_value(user_id):

@@ -490,7 +490,7 @@ def portfolio_status(user_id):
             continue
         p = db.session.get(Position, lot.position_id)
         positions.append({'id': p.id, 'module': lot.module, 'instrument_type': p.instrument_type, 'symbol': p.symbol, 'side': p.side, 'quantity': p.quantity,
-            'average_cost': p.average_cost, 'mark': p.market_price, 'unrealized_pnl': p.unrealized_pnl,
+            'average_cost': p.average_cost, 'mark': p.market_price, 'unrealized_pnl': p.unrealized_pnl, 'contract_multiplier': lot.multiplier,
             'market_value_usd': lot.collateral+p.unrealized_pnl,
             'collateral': lot.collateral, 'stop': lot.stop_price, 'target': lot.target_price,
             'marked_at': p.updated_at.isoformat()+'Z', 'details': loads(lot.details_json, {})})

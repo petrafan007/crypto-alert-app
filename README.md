@@ -6,6 +6,16 @@
 
 **Last Updated**: September 2026
 
+## v2.93.0 (September 2026)
+
+- Unified Positions across Webull Real Trading, Test Mode, and Quantitative Strategy Mode, with All assets and dedicated Equities & ETFs, Crypto, Options, Futures, and Event Contracts views.
+- Added a Positions tab to `/orders`, including Binance.US and imported Webull real holdings, separate Webull test holdings, and administrator-only quantitative paper holdings. Account and instrument filters keep holdings easy to identify without mixing real and paper modes.
+- Drag column-header handles to reorder columns, or use accessible arrow controls in Customize columns. Visibility and order are saved per user and asset view in this browser and shared between Webull Trading and Orders; Reset to defaults restores the selected asset layout.
+- Event positions show readable questions, purchased YES/NO badges, cutoff/countdown, and settlement status. Expand rows for full symbols, conditions, confirmed outcomes, and option-spread legs. Exact-contract metadata supplements saved details when available; unavailable data is never guessed.
+- Corrected the quantitative paper mode label and preserved ledger market values, including zero-valued event positions, collateral-based derivative values, and contract multipliers.
+
+See [Positions views and column layouts](docs/positions.md) for controls, account scope, and data availability.
+
 ## v2.92.7 (September 2026)
 
 - Fixed Event settlement retries: open paper positions receive priority, duplicate snapshots no longer consume the retry batch, and older unresolved contracts are revisited fairly. Provider settlement fields survive normalization; delisted contracts can resolve from Kalshi’s finalized public result only after exact ticker, cutoff and payout validation. Terminal-looking trade prices never substitute for confirmed outcomes.
