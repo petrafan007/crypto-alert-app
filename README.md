@@ -6,6 +6,14 @@
 
 **Last Updated**: September 2026
 
+## v2.92.7 (September 2026)
+
+- Fixed Event settlement retries: open paper positions receive priority, duplicate snapshots no longer consume the retry batch, and older unresolved contracts are revisited fairly. Provider settlement fields survive normalization; delisted contracts can resolve from Kalshi’s finalized public result only after exact ticker, cutoff and payout validation. Terminal-looking trade prices never substitute for confirmed outcomes.
+- Repaired specialist AI routing so module and master reports use the isolated paper ledger, saved strategy parameters, actual scan observations, and explicit engine-purpose instructions. Reports distinguish allocation budgets from buy signals, purchased YES/NO sides from settlement results, and percentage values from fractions.
+- Increased specialist/master audit output budgets to 8,192/16,384 tokens, with a doubled-budget retry (16,384/32,768), longer provider timeouts, configured-provider failover, and completion checks. Incomplete responses cannot be marked successful; available evidence and unfinished text are preserved as diagnostics.
+- Corrected position-open logs to represent actual paper fills; rejected entries now show their reason. Added Event capacity/settlement details and per-symbol options IV-history progress. Existing risk limits and measured-history prerequisites remain enforced.
+- Older reports retain their original text and show a notice that they predate the corrected audit safeguards. New reports reject the observed drawdown percentage-scaling error.
+
 ## v2.92.6 (September 2026)
 
 - **Quantitative Worker Status Resilience & Degraded Trigger Resolution:** Resolved an overly aggressive degraded trigger in `services/portfolio_engine.py` where any telemetry message (such as informational notices or strategy warm-up messages) falsely degraded the entire running paper engine. Worker status now strictly reflects active operational health and only transitions to `DEGRADED` if enabled strategy modules encounter unresolved provider/subscription errors or data limitations (`DATA_LIMITED` / `SUBSCRIPTION_REQUIRED`).

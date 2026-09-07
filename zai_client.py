@@ -98,6 +98,8 @@ class ZAIClient:
 					return {
 						'success': True,
 						'content': content,
+						'finish_reason': choices[0].get('finish_reason') if choices else None,
+						'final_answer': bool(choices and choices[0].get('message', {}).get('content')),
 						'model': model,
 						'usage': {
 							'prompt_tokens': usage.get('prompt_tokens'),

@@ -1823,6 +1823,7 @@ def _normalise_event_market(raw, series_categories):
         if start is not None and end is not None and step and step > 0:
             price_ranges.append({'start': start, 'end': end, 'step': step})
     return {
+        **_event_settlement_fields(raw),
         'series_id': raw.get('series_id'),
         'series_symbol': series_symbol,
         'series_name': raw.get('series_name'),
@@ -2022,6 +2023,14 @@ def get_webull_event_catalog(
         return copy_catalog(catalog)
 
 
+def _event_settlement_fields(raw):
+    """Preserve provider resolution evidence without deriving a winner from quotes."""
+    return {key: raw[key] for key in (
+        'settled_outcome', 'winning_outcome', 'resolved_outcome', 'outcome', 'result',
+        'settlement_result', 'settlement_price', 'settlement', 'resolution', 'result_data',
+    ) if raw.get(key) is not None}
+
+
 def _normalise_event_snapshot(raw):
     if not isinstance(raw, dict):
         return None
@@ -2032,6 +2041,7 @@ def _normalise_event_snapshot(raw):
         raw, 'reference_price', 'referencePrice', 'underlying_price', 'underlyingPrice',
     ))
     snapshot = {
+        **_event_settlement_fields(raw),
         'symbol': symbol,
         'instrument_id': raw.get('instrument_id'),
         'quote_name': raw.get('name'),

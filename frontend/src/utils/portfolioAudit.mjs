@@ -1,9 +1,10 @@
 export function normalizePortfolioAudit(audit) {
+  const warnings = (audit.validation_warnings || []).map(warning => `> **Report limitation:** ${warning}\n\n`).join('');
   return {
     ...audit,
     created_at: audit.timestamp || audit.created_at,
-    content_markdown: [audit.content, audit.content_markdown, audit.summary].find(value => typeof value === 'string' && value.trim()) ||
-      (audit.status === 'PENDING' ? 'Audit queued. Waiting for the completed report.' : 'This archived report contains no text. Generate a fresh report to collect current evidence.'),
+    content_markdown: warnings + ([audit.content, audit.content_markdown, audit.summary].find(value => typeof value === 'string' && value.trim()) ||
+      (audit.status === 'PENDING' ? 'Audit queued. Waiting for the completed report.' : 'This archived report contains no text. Generate a fresh report to collect current evidence.')),
     evidence: audit.evidence || {},
   };
 }

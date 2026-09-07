@@ -2,6 +2,14 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { normalizePortfolioAudit, selectPortfolioAudit, auditOutcomeMessage } from '../frontend/src/utils/portfolioAudit.mjs';
 
+test('legacy validation warning is shown without rewriting archived content', () => {
+  const original = { status: 'SUCCESS', content: 'Original text', validation_warnings: ['Legacy report.'] };
+  const normalized = normalizePortfolioAudit(original);
+  assert.match(normalized.content_markdown, /Report limitation.*Legacy report/);
+  assert.equal(original.content, 'Original text');
+  assert.match(normalized.content_markdown, /Original text$/);
+});
+
 test('archive content and timestamp survive normalization and history selection', () => {
   const audits = [
     { id: 4, timestamp: '2026-09-06T15:13:09Z', status: 'FAILED', content: "AI audit failed: 'instrument_type'.", evidence: {} },

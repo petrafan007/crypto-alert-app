@@ -28,6 +28,9 @@ from services.portfolio_strategy_signals import (
 )
 
 from services.portfolio_allocations import normalize_allocations
+from services.portfolio_audit_context import (
+    ENGINE_PURPOSE, EVIDENCE_RULES, STRATEGY_RULES, audit_system_prompt, check_drawdown_claim,
+)
 
 logger = logging.getLogger(__name__)
 CADENCE = 300
@@ -265,12 +268,16 @@ def module_budget(cfg, acc, state, module):
     return max(0, max(0, acc.total_equity)*weights[module]/100-reserve)
 
 
-def enter_lot(cfg, acc, state, module, symbol, signal, price, now, *, multiplier=1, margin=None, details=None, key=None):
+def enter_lot(cfg, acc, state, module, symbol, signal, price, now, *, multiplier=1, margin=None, details=None, key=None, rejections=None):
+    def reject(reason):
+        if rejections is not None:
+            rejections.append(reason)
+        return None
     key = key or f'{module}:{symbol}:{utc(now).astimezone(ET).date()}'
     if Lot.query.filter_by(user_id=cfg.user_id, generation=state.generation, signal_key=key).first():
-        return None
+        return reject('Signal already consumed for this contract or trading day.')
     if any(lot.module == module and db.session.get(Position, lot.position_id).symbol == symbol for lot in current_lots(cfg.user_id, state)):
-        return None
+        return reject('An open position already exists for this symbol.')
     side = signal.get('side', 'LONG')
     price = fill_price(module, price, side)
     budget = min(module_budget(cfg, acc, state, module), acc.cash_balance)
@@ -282,11 +289,11 @@ def enter_lot(cfg, acc, state, module, symbol, signal, price, now, *, multiplier
         # Disciplined risk limits for binary event contracts:
         # Cap concurrent open event lots to 3, and restrict risk to $50 max per trade
         if sum(1 for l in current_lots(cfg.user_id, state) if l.module == 'events') >= 3:
-            return None
+            return reject('Event capacity full: three open positions, including pending settlements.')
         budget = min(budget, 50.0)
     unit = margin if margin is not None else price*multiplier
     if unit <= 0 or budget <= 0:
-        return None
+        return reject('Insufficient module budget or available cash.')
     quantity = budget / (unit + costs(module, price, 1))
     stop = signal.get('stop')
     risk = abs(price-stop)*multiplier if stop is not None else unit
@@ -302,7 +309,7 @@ def enter_lot(cfg, acc, state, module, symbol, signal, price, now, *, multiplier
         quantity = min(quantity, 50.0)
     quantity = math.floor(quantity) if module != 'crypto' else math.floor(quantity*1e6)/1e6
     if quantity <= 0:
-        return None
+        return reject('Risk or margin budget cannot fund the minimum trade quantity.')
     fee, collateral = costs(module, price, quantity), unit*quantity
     pos = Position(user_id=cfg.user_id, symbol=symbol, instrument_type=TYPES[module], side=side,
                    quantity=quantity, average_cost=price, market_price=price, market_value=collateral, unrealized_pnl=0)
@@ -321,6 +328,9 @@ def enter_lot(cfg, acc, state, module, symbol, signal, price, now, *, multiplier
         db.session.add(Order(user_id=cfg.user_id, module_name='OPTIONS', symbol=symbol, instrument_type='OPTION',
             side='BUY', order_type='LIMIT', quantity=quantity, price=lot.target_price, status='OPEN',
             notes=json.dumps({'lot_id': lot.id, 'time_in_force': 'GTC', 'rule': 'PROFIT_TARGET'}), created_at=now))
+    _record_portfolio_log(cfg.user_id, 'POSITION_OPENED',
+                          f'Opened {module} paper position ({symbol}): {quantity:g} at {price:.4f}.',
+                          module=module, symbol=symbol, lot_id=lot.id, generation=state.generation)
     return lot
 
 
@@ -483,6 +493,16 @@ def portfolio_status(user_id):
             'average_cost': p.average_cost, 'mark': p.market_price, 'unrealized_pnl': p.unrealized_pnl,
             'collateral': lot.collateral, 'stop': lot.stop_price, 'target': lot.target_price,
             'marked_at': p.updated_at.isoformat()+'Z', 'details': loads(lot.details_json, {})})
+        if lot.module == 'events':
+            from event_algo_models import EventContractOutcome
+            outcome = EventContractOutcome.query.filter_by(user_id=user_id, contract_symbol=p.symbol).order_by(EventContractOutcome.updated_at.desc()).first()
+            positions[-1]['purchased_outcome'] = positions[-1]['details'].get('outcome')
+            positions[-1]['settlement'] = {
+                'status': outcome.settlement_status if outcome else 'UNKNOWN',
+                'confirmed_outcome': outcome.outcome if outcome and outcome.settlement_status == 'RESOLVED' else None,
+                'last_attempt_at': outcome.observed_at.isoformat()+'Z' if outcome and outcome.observed_at else None,
+                'cutoff_at': outcome.cutoff_at.isoformat()+'Z' if outcome and outcome.cutoff_at else None,
+            }
     query = Snapshot.query.filter_by(user_id=user_id, generation=state.generation).order_by(Snapshot.created_at)
     daily = daily_snapshots(user_id, state.generation)
     first = query.first()
@@ -515,6 +535,21 @@ def portfolio_status(user_id):
             item['status'] = 'AWAITING_SCAN'
         elif item['status'] == 'SCANNED':
             item['status'] = 'READY'
+    # Surface warm-up prerequisites even when the session gate prevents a scan.
+    from portfolio_algo_models import PortfolioMarketObservation
+    watches = loads(cfg.watchlists_json, DEFAULT_QUANT_WATCHLISTS)
+    if module_settings['options']['enabled']:
+        telemetry['options']['prerequisites'] = []
+        for symbol in watches.get('options', []):
+            count = PortfolioMarketObservation.query.filter_by(user_id=user_id, series='IV:'+symbol).filter(
+                PortfolioMarketObservation.day >= datetime.utcnow().date()-timedelta(days=370)).count()
+            telemetry['options']['prerequisites'].append({
+                'symbol': symbol, 'daily_iv_observations': min(count, 252), 'required': 252,
+                'message': f'{symbol}: {min(count, 252)}/252 daily IV observations. Executable option quotes and a non-flat IV range also required.',
+            })
+    event_open = [p for p in positions if p['module'] == 'events']
+    telemetry['events']['capacity'] = {'open_positions': len(event_open), 'maximum': 3,
+                                      'available_slots': max(0, 3-len(event_open))}
     status = cfg.worker_status
     if cfg.enabled:
         # Starting is not a worker heartbeat: allow the supervisor time to claim work.
@@ -730,7 +765,8 @@ def run_scan(user_id, force=False, provider=None):
     token = claim(user_id, force)
     if not token:
         return {'success': False, 'message': 'Engine stopped, paused, busy, or not due.'}
-    report = {m: {'status': 'IDLE', 'messages': [], 'evaluated': 0, 'entries': 0} for m in MODULES}
+    report = {m: {'status': 'IDLE', 'messages': [], 'evaluated': 0, 'entries': 0,
+                  'qualified_signals': 0, 'rejected_entries': [], 'observations': []} for m in MODULES}
     try:
         from services.portfolio_strategy_data import PortfolioMarketData
         data = provider
@@ -873,14 +909,23 @@ def run_scan(user_id, force=False, provider=None):
                     balances(acc, state, user_id)
                     is_held = check_circuit(cfg, acc, state) or not cfg.enabled or state.kill_switch
                     for entry_symbol, price, signal, details, key in entries:
+                        report[module]['observations'].append({
+                            'symbol': entry_symbol, 'observed_at': now.isoformat()+'Z', 'price': price,
+                            'entry_qualified': bool(signal and signal.get('enter')),
+                            'reason': (signal or {}).get('reason'),
+                        })
                         if signal and signal.get('enter'):
+                            report[module]['qualified_signals'] += 1
                             if is_held:
                                 _record_portfolio_log(user_id, 'TRADE_VIABLE_HELD',
                                                       f"Qualified {module} setup detected on {entry_symbol} at {price:.4f} (viable signal; execution held in 24/7 monitoring mode). Reason: {signal.get('reason', 'Qualified')}")
                                 report[module]['messages'].append(f"{entry_symbol}: Viable entry signal detected ({signal.get('reason', 'Qualified')}); execution held.")
                             else:
-                                _record_portfolio_log(user_id, 'POSITION_OPENED', f"Opening {module} position ({entry_symbol}) at {price:.4f}. Signal: {signal.get('reason', 'Unknown')}")
-                                opened = enter_lot(cfg, acc, state, module, entry_symbol, signal, price, now, multiplier=multiplier, margin=margin, details=details, key=key)
+                                rejections = []
+                                opened = enter_lot(cfg, acc, state, module, entry_symbol, signal, price, now, multiplier=multiplier, margin=margin, details=details, key=key, rejections=rejections)
+                                if rejections:
+                                    report[module]['rejected_entries'].append({'symbol': entry_symbol, 'reason': rejections[0]})
+                                    _record_portfolio_log(user_id, 'ENTRY_SKIPPED', f'{entry_symbol}: {rejections[0]}', module=module, symbol=entry_symbol)
                                 report[module]['entries'] += int(opened is not None)
                                 balances(acc, state, user_id)
                     report[module]['evaluated'] += 1
@@ -956,9 +1001,13 @@ def measured_correlations(user_id, generation):
 
 
 def audit_dict(row):
+    evidence = loads(row.evidence_json, {})
+    warnings = []
+    if row.status in ('SUCCESS', 'PARTIAL') and not evidence.get('audit_schema_version'):
+        warnings.append('This report predates v2.92.7 audit safeguards. Its AI prose may be incomplete or inaccurate; use the saved ledger evidence for facts or generate a fresh report.')
     return {'id': row.id, 'generation': row.generation, 'timestamp': row.created_at.isoformat()+'Z',
             'status': row.status, 'content': row.content, 'provider': row.provider, 'model': row.model,
-            'evidence': loads(row.evidence_json, {})}
+            'evidence': evidence, 'validation_warnings': warnings}
 
 
 def audit_due(cfg, state, now):
@@ -979,11 +1028,14 @@ def reserve_audit(user_id, scheduled=False):
     if scheduled and not audit_due(cfg, state, now):
         db.session.rollback()
         return None
-    pending = Audit.query.filter_by(user_id=user_id, status='PENDING').filter(Audit.created_at>now-timedelta(minutes=15)).first()
-    if pending:
-        db.session.rollback()
-        raise ValueError('A portfolio audit is already running.')
-    for stale in Audit.query.filter_by(user_id=user_id, status='PENDING').all():
+    pending = Audit.query.filter_by(user_id=user_id, status='PENDING').all()
+    for active in pending:
+        progress = loads(active.evidence_json, {}).get('audit_progress_at')
+        last_activity = utc(progress or active.created_at)
+        if utc(now)-last_activity < timedelta(minutes=15):
+            db.session.rollback()
+            raise ValueError('A portfolio audit is already running.')
+    for stale in pending:
         stale.status = 'FAILED'
         stale.content = 'Audit interrupted or timed out; no verdict available.'
     row = Audit(user_id=user_id, generation=state.generation, created_at=now,
@@ -1043,6 +1095,20 @@ def run_audit(user_id, prompt=None, scheduled=False, audit_id=None):
                                 if evidence['account']['total_equity'] > 0 else None),
         }
         evidence['target_annual_return'] = cfg.target_annual_return
+        evidence['audit_schema_version'] = '2.92.7'
+        evidence['as_of'] = datetime.utcnow().isoformat()+'Z'
+        evidence['engine_purpose'] = ENGINE_PURPOSE
+        evidence['evidence_rules'] = EVIDENCE_RULES
+        evidence['strategy_rules'] = {m: STRATEGY_RULES[m] for m in enabled_modules}
+        evidence['strategy_settings'] = {m: {k: v for k, v in settings_for(cfg)[m].items()
+                                              if k != 'auditor_prompt'} for m in enabled_modules}
+        evidence['verified_facts'] = {
+            'maximum_drawdown': f"{evidence['performance']['max_drawdown_pct']:.6f}%",
+            'total_equity': f"${evidence['account']['total_equity']:,.2f}",
+            'cash': f"${evidence['account']['cash_balance']:,.2f}",
+            'total_return': f"{evidence['account']['return_pct']:.6f}%",
+            'open_position_counts': {m: sum(p['module'] == m for p in evidence['positions']) for m in MODULES},
+        }
         evidence['limitations'] = ['Paper simulation with estimated costs; targets are aspirations.',
                                   'Annualized return requires 30 elapsed days; ratios/correlations require 30 daily samples.',
                                   'No simulated stress test has been performed; no numerical forecast is supplied.']
@@ -1063,18 +1129,12 @@ def run_audit(user_id, prompt=None, scheduled=False, audit_id=None):
             for module in enabled_modules:
                 _record_portfolio_log(user_id, 'AUDIT_MODULE', f'Running AI auditor for module: {module}')
                 module_watches = watches.get(module, [])
-                recent_obs = []
-                for sym in module_watches:
-                    sym_log = PortfolioEngineLog.query.filter_by(user_id=user_id).filter(
-                        PortfolioEngineLog.message.ilike(f'%{sym}%')
-                    ).order_by(PortfolioEngineLog.created_at.desc()).first()
-                    obs_item = {'symbol': sym}
-                    if sym_log:
-                        obs_item['latest_event'] = sym_log.event_type
-                        obs_item['latest_note'] = sym_log.message[:180]
-                    recent_obs.append(obs_item)
+                recent_obs = evidence['modules'][module].get('observations', [])
                 module_evidence = {
                     'module': module,
+                    'as_of': evidence['as_of'],
+                    'strategy_rules': STRATEGY_RULES[module],
+                    'strategy_settings': evidence['strategy_settings'][module],
                     'allocation': evidence['allocations'][module],
                     'metrics': evidence['modules'][module],
                     'watchlist': module_watches,
@@ -1085,8 +1145,7 @@ def run_audit(user_id, prompt=None, scheduled=False, audit_id=None):
                 try:
                     response, _ = call_ai_with_web_search(
                         username=user.username, user_id=user_id,
-                        messages=[{'role': 'system', 'content': evidence['specialist_mandates'][module] +
-                                   '\nGive a concise Markdown assessment grounded in the supplied evidence. Missing data is a limitation; never invent results.'},
+                        messages=[{'role': 'system', 'content': audit_system_prompt(evidence['specialist_mandates'][module], module)},
                                   {'role': 'user', 'content': json.dumps(module_evidence)}],
                         prompt_type='portfolio_module_audit', symbol=module.upper(), include_db_context=False,
                         **ai_kwargs)
@@ -1094,28 +1153,32 @@ def run_audit(user_id, prompt=None, scheduled=False, audit_id=None):
                     if not text:
                         raise ValueError('AI provider returned an empty module assessment.')
                     module_responses[module] = text
+                    evidence.setdefault('module_audit_inputs', {})[module] = module_evidence
                 except Exception as exc:
                     db.session.rollback()
                     module_responses[module] = None
                     module_errors[module] = str(exc)[:300]
+                    if getattr(exc, 'partial_text', None):
+                        evidence.setdefault('incomplete_module_outputs', {})[module] = exc.partial_text
                     _record_portfolio_log(user_id, 'AUDIT_MODULE_FAILED',
                                           f'{module} assessment unavailable: {module_errors[module]}', level='WARNING')
                 row = db.session.get(Audit, audit_id)
+                evidence['audit_progress_at'] = datetime.utcnow().isoformat()+'Z'
                 row.evidence_json = json.dumps(evidence)
                 db.session.commit()
 
             _record_portfolio_log(user_id, 'AUDIT_MASTER', 'Synthesizing module insights via Master CIO.')
             response, _ = call_ai_with_web_search(
                 username=user.username, user_id=user_id,
-                messages=[{'role': 'system', 'content': (prompt or cfg.master_ai_prompt or DEFAULT_MASTER_CIO_PROMPT) +
-                          '\nSTRUCTURE REQUIREMENT: Section 1 (Executive Summary) MUST open with a 1-to-2 paragraph narrative TL;DR directly explaining: (1) what the user is reviewing and current portfolio status, (2) how the strategy engine is performing, (3) any errors, warnings, or module limitations encountered, and (4) concrete suggestions to improve the quantitative strategy engine. Do not start directly with a table; provide this executive summary text first.'
-                          '\nUse only supplied quantitative evidence for numerical claims. Null means unavailable. Evaluate enabled_allocations and cash_allocation only for prospective diversification and returns. Disabled-module legacy positions and historical P&L remain real exposures, not future strategy contributions. Never invent correlations, stress results, probabilities of profit or guaranteed returns. Explain module_audit_errors and missing evidence explicitly. Give advisory observations only; do not claim to execute changes. Return a readable Markdown report.'},
-                          {'role': 'user', 'content': json.dumps(evidence)}],
+                messages=[{'role': 'system', 'content': audit_system_prompt(prompt or cfg.master_ai_prompt or DEFAULT_MASTER_CIO_PROMPT)},
+                          {'role': 'user', 'content': json.dumps({k: v for k, v in evidence.items()
+                            if k not in ('module_audit_inputs', 'incomplete_module_outputs')})}],
                 prompt_type='portfolio_audit', symbol='PORTFOLIO', include_db_context=False,
                 **ai_kwargs)
             content = str(getattr(response, 'text', '') or '').strip()
             if not content:
                 raise ValueError('AI provider returned an empty portfolio report.')
+            check_drawdown_claim(content, evidence)
             provider, model = getattr(response, 'provider', None), getattr(response, 'model', None)
             status = 'PARTIAL' if module_errors else 'SUCCESS'
             _record_portfolio_log(user_id, 'AUDIT_COMPLETE',
@@ -1135,6 +1198,8 @@ def run_audit(user_id, prompt=None, scheduled=False, audit_id=None):
         row.status = 'FAILED'
         row.content = f'AI audit failed: {str(exc)[:300]}. No quantitative verdict was generated. Preserved evidence and completed module assessments are available below.'
         evidence['audit_error'] = str(exc)[:300]
+        if getattr(exc, 'partial_text', None):
+            evidence['incomplete_master_output'] = exc.partial_text
         row.evidence_json = json.dumps(evidence)
         _record_portfolio_log(user_id, 'AUDIT_FAILED', f'Portfolio audit {audit_id} failed: {str(exc)[:300]}', level='ERROR')
         db.session.commit()

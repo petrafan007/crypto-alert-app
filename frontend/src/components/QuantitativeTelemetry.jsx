@@ -55,6 +55,9 @@ export default function QuantitativeTelemetry({ onAccount, onStatus, refetchSign
       <summary>{module.toUpperCase()} · {moduleStatusLabel(status?.modules?.[module]?.status)}</summary>
       <p>{status?.modules?.[module]?.evaluated || 0} symbols evaluated · {status?.modules?.[module]?.entries || 0} new paper entries</p>
       {(status?.modules?.[module]?.messages || []).map((message, index) => <p key={index}>{message}</p>)}
+      {(status?.modules?.[module]?.prerequisites || []).map(item => <p key={item.symbol}>{item.message}</p>)}
+      {module === 'events' && status?.modules?.events?.capacity && <p>Event positions: {status.modules.events.capacity.open_positions}/{status.modules.events.capacity.maximum}. Unresolved settlements occupy a slot.</p>}
+      {(status?.modules?.[module]?.rejected_entries || []).map((item, index) => <p key={`rejected-${index}`}>{item.symbol}: Entry skipped — {item.reason}</p>)}
       {!status?.modules?.[module]?.messages?.length && <p>{status?.modules?.[module]?.status === 'DISABLED' ? 'New entries are disabled. Saved watchlists and history are retained; existing positions are managed while the engine runs.' : 'Readiness reflects the last scan. Ready does not guarantee an entry or future data access.'}</p>}
     </details>)}</div>
     <h4>Open positions</h4>

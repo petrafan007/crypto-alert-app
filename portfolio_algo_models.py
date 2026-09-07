@@ -9,6 +9,7 @@ import json
 from datetime import datetime
 
 from core.extensions import db
+from services.portfolio_audit_context import ENGINE_PURPOSE, STRATEGY_RULES
 
 DEFAULT_QUANT_WATCHLISTS = {
     "equities": ["SPY", "QQQ", "IWM", "SMH", "XLK", "NVDA", "AAPL", "MSFT", "AMZN", "TSLA"],
@@ -27,11 +28,10 @@ DEFAULT_ALLOCATIONS = {
 }
 
 DEFAULT_MASTER_CIO_PROMPT = (
-    "You are the Quantitative Chief Investment Officer (CIO) and Portfolio Risk Auditor for an autonomous multi-asset "
-    "trading engine. Your mandate is to evaluate the blended portfolio ($50,000 baseline) across 5 asset classes "
-    "(Equities & ETFs, Options Strategies, Cryptocurrency Spot, Micro Futures, and Event Contracts). "
-    "Audit portfolio progress toward the net annual target (16.5%–21.0% CAGR), detect cross-asset correlation spikes, "
-    "identify whether any asset allocation has drifted beyond target risk weights, and issue strategic capital rebalancing directives. "
+    ENGINE_PURPOSE + "\nYou are the research CIO and operational auditor. Explain the observed paper portfolio, "
+    "what each enabled strategy evaluated, what actually filled or exited, and why other entries were blocked. "
+    "Assess net results only over the supplied sample; distinguish operational defects from normal waiting. "
+    "Recommend prioritized, testable improvements grounded in recorded data and the configured strategy rules. "
     "MANDATORY FORMAT: Always begin with '## 1. Executive Summary' containing a concise 1 to 2 paragraph narrative TL;DR "
     "explaining: (1) what the user is looking at and current portfolio state, (2) how the strategy engine is performing, "
     "(3) any errors, warnings, or data gaps encountered, and (4) actionable suggestions to improve the quantitative strategy engine. "
@@ -48,8 +48,9 @@ DEFAULT_MODULE_SETTINGS = {
         "bollinger_std": 2.0,
         "target_cagr_range": "12%–16%",
         "auditor_prompt": (
-            "You are a quantitative equities specialist. Evaluate 200-day SMA trend alignment, sector momentum "
-            "divergence (SMH, XLK, SPY), and short-term 2-day RSI oversold pullbacks across US equities and ETFs."
+            "You are the equities paper-strategy auditor. " + STRATEGY_RULES["equities"] +
+            " Explain actual scans, holdings, entry/exit eligibility, missing evidence and testable improvements. "
+            "Use the saved strategy parameters; do not invent a replacement trading strategy."
         ),
     },
     "crypto": {
@@ -60,8 +61,9 @@ DEFAULT_MODULE_SETTINGS = {
         "atr_stop_multiplier": 2.5,
         "target_cagr_range": "20%–35%",
         "auditor_prompt": (
-            "You are a quantitative crypto assets specialist. Evaluate Donchian channel breakouts, Bitcoin dominance "
-            "trends, on-chain volume surges, and ATR trailing stop discipline for BTC, ETH, and SOL."
+            "You are the crypto paper-strategy auditor. " + STRATEGY_RULES["crypto"] +
+            " Explain actual scans, holdings, entry/exit eligibility, missing evidence and testable improvements. "
+            "Use the saved strategy parameters; do not invent a replacement trading strategy."
         ),
     },
     "options": {
@@ -73,8 +75,9 @@ DEFAULT_MODULE_SETTINGS = {
         "profit_target_pct": 50,
         "target_cagr_range": "18%–24%",
         "auditor_prompt": (
-            "You are a quantitative options volatility specialist. Analyze Implied Volatility Rank (IVR), Greeks "
-            "(Delta, Gamma, Theta decay, Vega), and volatility skew for 45-DTE out-of-the-money credit spreads."
+            "You are the options paper-strategy auditor. " + STRATEGY_RULES["options"] +
+            " Explain actual scans, holdings, entry/exit eligibility, missing evidence and testable improvements. "
+            "Use the saved strategy parameters; do not invent a replacement trading strategy."
         ),
     },
     "futures": {
@@ -84,8 +87,9 @@ DEFAULT_MODULE_SETTINGS = {
         "max_intraday_loss": 250.0,
         "target_cagr_range": "15%–22%",
         "auditor_prompt": (
-            "You are a quantitative futures intraday specialist. Evaluate the 15-minute Opening Range Breakout (ORB), "
-            "institutional volume at cash open (9:30 AM ET), and Volume-Weighted Average Price (VWAP) distance on MES and MNQ."
+            "You are the futures paper-strategy auditor. " + STRATEGY_RULES["futures"] +
+            " Explain actual scans, holdings, entry/exit eligibility, missing evidence and testable improvements. "
+            "Use the saved strategy parameters; do not invent a replacement trading strategy."
         ),
     },
     "events": {
@@ -95,8 +99,9 @@ DEFAULT_MODULE_SETTINGS = {
         "min_net_edge": 0.015,
         "target_cagr_range": "20%–30%",
         "auditor_prompt": (
-            "You are a quantitative binary event derivatives specialist. Audit 15-minute and hourly BTC/ETH event contracts, "
-            "order book probability mispricings, and underlying spot velocity to capture risk-adjusted net edge."
+            "You are the events paper-strategy auditor. " + STRATEGY_RULES["events"] +
+            " Explain actual scans, holdings, entry/exit eligibility, missing evidence and testable improvements. "
+            "Use the saved strategy parameters; do not invent a replacement trading strategy."
         ),
     },
 }
@@ -267,4 +272,3 @@ def _record_portfolio_log(user_id, event_type, message, level="INFO", **kwargs):
         db.session.add(row)
     except Exception as exc:
         print(f"Failed to record portfolio log: {exc}\n{traceback.format_exc()}")
-

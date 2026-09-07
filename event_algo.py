@@ -20,7 +20,7 @@ from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 from log import logger
-from sqlalchemy import select
+from sqlalchemy import select, func, case, or_
 from core.extensions import db
 from credentials import Credential, User, UserSetting
 from event_algo_models import (
@@ -2267,21 +2267,16 @@ def extract_settled_outcome(market):
         if text in {"YES", "NO"}:
             return text
 
-    # When the market is expired / delisting / settled (NT status):
+    # Only an explicit terminal settlement price is a payout. A last trade,
+    # even 0.00/1.00 on a delisted instrument, is not a confirmed resolution.
     status = str(market.get("status") or "").strip().upper()
     tradable = str(market.get("tradable_status") or "").strip().upper()
     if status in {"DELISTING", "SETTLED", "CLOSED", "EXPIRED"} or tradable == "NT":
         settle_px = _number(market.get("settlement_price"))
         if settle_px is not None:
-            if settle_px >= 0.95:
+            if settle_px == 1.0:
                 return "YES"
-            if settle_px <= 0.05:
-                return "NO"
-        last_px = _number(market.get("last_price"))
-        if last_px is not None:
-            if last_px >= 0.95:
-                return "YES"
-            if last_px <= 0.05:
+            if settle_px == 0.0:
                 return "NO"
     return None
 
@@ -2335,15 +2330,34 @@ def resolve_event_outcomes(user_id, *, config=None, limit=25, force=False):
             EventContractOutcome.settlement_status == "RESOLVED",
         )
     )
+    from portfolio_algo_models import PortfolioStrategyLot, PortfolioStrategyPosition
+    # Deduplicate before LIMIT; otherwise one frequently sampled contract can
+    # consume an entire batch. Rotate by last attempt, prioritizing held risk.
+    held_symbols = select(PortfolioStrategyPosition.symbol).join(
+        PortfolioStrategyLot, PortfolioStrategyLot.position_id == PortfolioStrategyPosition.id,
+    ).where(PortfolioStrategyLot.user_id == user_id,
+            PortfolioStrategyLot.module == 'events', PortfolioStrategyLot.closed_at.is_(None))
+    attempts = db.session.query(
+        EventContractOutcome.contract_symbol.label('symbol'),
+        func.max(EventContractOutcome.observed_at).label('last_attempt'),
+    ).filter_by(user_id=user_id).group_by(EventContractOutcome.contract_symbol).subquery()
+    latest = db.session.query(func.max(EventMarketSnapshot.id).label('snapshot_id'))
+    latest = latest.filter(
+        EventMarketSnapshot.user_id == user_id,
+        EventMarketSnapshot.cutoff_at.isnot(None),
+        EventMarketSnapshot.cutoff_at <= now,
+        ~EventMarketSnapshot.contract_symbol.in_(resolved_symbols),
+    ).group_by(EventMarketSnapshot.contract_symbol).subquery()
     snapshots = (
-        EventMarketSnapshot.query
+        EventMarketSnapshot.query.join(latest, latest.c.snapshot_id == EventMarketSnapshot.id)
+        .outerjoin(attempts, attempts.c.symbol == EventMarketSnapshot.contract_symbol)
         .filter(
-            EventMarketSnapshot.user_id == user_id,
-            EventMarketSnapshot.cutoff_at.isnot(None),
-            EventMarketSnapshot.cutoff_at <= now,
-            ~EventMarketSnapshot.contract_symbol.in_(resolved_symbols),
+            True if force else or_(attempts.c.last_attempt.is_(None),
+                                  attempts.c.last_attempt <= now-timedelta(seconds=180)),
         )
-        .order_by(EventMarketSnapshot.cutoff_at.desc())
+        .order_by(case((EventMarketSnapshot.contract_symbol.in_(held_symbols), 0), else_=1),
+                  attempts.c.last_attempt.asc().nullsfirst(),
+                  EventMarketSnapshot.cutoff_at.asc(), EventMarketSnapshot.id.asc())
         .limit(max(1, min(int(limit or 25), 100)))
         .all()
     )
@@ -2372,12 +2386,27 @@ def resolve_event_outcomes(user_id, *, config=None, limit=25, force=False):
                 environment,
                 credential.webull_access_token,
                 symbol=symbol,
-                force=force,
+                force=True,  # Settlement retries must bypass cached pre-expiry catalog data.
             ) or {}
             explicit = extract_settled_outcome(raw)
         except Exception as exc:
             error_message = str(exc)
             raw = {"error": error_message}
+        source = "WEBULL_EVENT_MARKET" if not error_message else "WEBULL_LOOKUP_ERROR"
+        if not explicit and environment == 'production':
+            # Webull can remove expired instruments entirely. Resolve only
+            # from the listing exchange's finalized result for the exact ticker
+            # and cutoff, retaining both providers' evidence for review.
+            from services.event_settlement_data import confirmed_kalshi_settlement
+            try:
+                fallback = confirmed_kalshi_settlement(symbol, snapshot.cutoff_at, now)
+                if fallback:
+                    raw = {**fallback, 'webull_evidence': raw}
+                    explicit = fallback['settled_outcome']
+                    source = 'KALSHI_FINALIZED_MARKET'
+            except Exception as exc:
+                error_message = (error_message or 'Webull settlement unavailable.') + f' Settlement fallback: {str(exc)[:160]}'
+                raw['settlement_fallback_error'] = str(exc)[:160]
         observed = now
         decision = _latest_decision_for_snapshot(snapshot)
         if not existing:
@@ -2393,7 +2422,7 @@ def resolve_event_outcomes(user_id, *, config=None, limit=25, force=False):
         existing.observed_at = observed
         existing.provider_timestamp = _market_provider_timestamp(raw) or snapshot.provider_timestamp
         existing.raw_json = _json_dump(raw)
-        existing.resolved_source = "WEBULL_EVENT_MARKET" if not error_message else "WEBULL_LOOKUP_ERROR"
+        existing.resolved_source = source
         if explicit:
             existing.outcome = explicit
             existing.settlement_status = "RESOLVED"

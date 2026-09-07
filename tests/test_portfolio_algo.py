@@ -592,6 +592,81 @@ class PortfolioLedgerTests(unittest.TestCase):
         e.close_lot(self.acc, lot, mark, reason, now)
         self.assertAlmostEqual(lot.realized_pnl, quantity*(.6-.015))
 
+    def test_settlement_retries_prioritize_held_contracts_and_deduplicate_before_limit(self):
+        from event_algo_models import EventStrategyConfig, EventMarketSnapshot, EventContractOutcome
+        from event_algo import resolve_event_outcomes
+        cfg = EventStrategyConfig(user_id=self.user_id, name='Retry test', enabled=True)
+        db.session.add(cfg)
+        now = datetime.utcnow()
+        symbols = ['KXBTCD-HELD', 'KXBTC15M-NEW', 'KXETH15M-NEW']
+        for index, symbol in enumerate(symbols):
+            for _ in range(35 if index else 1):
+                db.session.add(EventMarketSnapshot(user_id=self.user_id, contract_symbol=symbol,
+                    cutoff_at=now-timedelta(hours=10 if not index else 1), received_at=now))
+        # Another user's snapshot is never resolved by this worker.
+        db.session.add(EventMarketSnapshot(user_id=self.user_id+1000000, contract_symbol='OTHER', cutoff_at=now-timedelta(hours=1)))
+        held = e.enter_lot(self.cfg, self.acc, self.state, 'events', symbols[0], {'enter': True}, .4, now,
+                          details={'contract_symbol': symbols[0], 'outcome': 'NO'})
+        db.session.commit()
+        cred = SimpleNamespace(webull_app_key='test', webull_app_secret='test', webull_access_token='test')
+        with patch('event_algo._webull_connection_for_user', return_value=(cred, 'production')), \
+             patch('services.webull_service.get_webull_event_market', return_value={'status': 'DELISTING'}) as get:
+            result = resolve_event_outcomes(self.user_id, config=cfg, limit=1)
+            self.assertEqual(get.call_args.kwargs['symbol'], symbols[0])
+            self.assertTrue(get.call_args.kwargs['force'])
+            self.assertEqual(result['pending_count'], 1)
+            get.reset_mock()
+            # Pending cooldown is filtered before LIMIT; duplicate snapshots do
+            # not crowd out the second distinct contract.
+            result = resolve_event_outcomes(self.user_id, config=cfg, limit=2)
+            self.assertEqual({c.kwargs['symbol'] for c in get.call_args_list}, set(symbols[1:]))
+            self.assertEqual(result['pending_count'], 2)
+            pending = EventContractOutcome.query.filter_by(user_id=self.user_id, contract_symbol=symbols[0]).one()
+            pending.observed_at = now-timedelta(minutes=5)
+            db.session.commit()
+            get.return_value = {'settled_outcome': 'NO'}
+            result = resolve_event_outcomes(self.user_id, config=cfg, limit=1)
+            self.assertEqual(result['resolved_count'], 1)
+        mark, reason = e.mark_event(self.user_id, {'contract_symbol': symbols[0], 'outcome': 'NO'}, now)
+        self.assertEqual((mark, reason), (1.0, 'SETTLEMENT'))
+        e.close_lot(self.acc, held, mark, reason, now)
+        self.assertEqual(e.current_lots(self.user_id, self.state), [])
+
+    def test_delisted_event_uses_verified_exchange_settlement_and_records_provenance(self):
+        from event_algo_models import EventStrategyConfig, EventMarketSnapshot, EventContractOutcome
+        from event_algo import resolve_event_outcomes
+        cfg = EventStrategyConfig(user_id=self.user_id, name='Fallback test', enabled=True)
+        symbol = 'KXBTCD-26SEP0622-T75899.99'
+        db.session.add_all([cfg, EventMarketSnapshot(user_id=self.user_id, contract_symbol=symbol,
+            cutoff_at=datetime(2026, 9, 7, 2), received_at=datetime(2026, 9, 7, 1, 59))])
+        db.session.commit()
+        cred = SimpleNamespace(webull_app_key='test', webull_app_secret='test', webull_access_token='test')
+        fallback = {'settled_outcome': 'YES', 'settlement_price': 1.0,
+                    'payout_date': '2026-09-07T02:02:45Z', 'market': {'ticker': symbol, 'result': 'yes'}}
+        with patch('event_algo._webull_connection_for_user', return_value=(cred, 'production')), \
+             patch('services.webull_service.get_webull_event_market', side_effect=ValueError('Market removed')), \
+             patch('services.event_settlement_data.confirmed_kalshi_settlement', return_value=fallback):
+            result = resolve_event_outcomes(self.user_id, config=cfg)
+        self.assertEqual(result['resolved_count'], 1)
+        row = EventContractOutcome.query.filter_by(user_id=self.user_id, contract_symbol=symbol).one()
+        self.assertEqual(row.resolved_source, 'KALSHI_FINALIZED_MARKET')
+        self.assertEqual(row.outcome, 'YES')
+        self.assertIn('Market removed', json.loads(row.raw_json)['webull_evidence']['error'])
+
+    def test_event_capacity_rejection_does_not_emit_a_fill_log(self):
+        from portfolio_algo_models import PortfolioEngineLog
+        for index in range(3):
+            e.enter_lot(self.cfg, self.acc, self.state, 'events', f'EVENT-{index}', {'enter': True}, .01, datetime.utcnow())
+        rejected = []
+        lot = e.enter_lot(self.cfg, self.acc, self.state, 'events', 'EVENT-4', {'enter': True}, .01, datetime.utcnow(), rejections=rejected)
+        self.assertIsNone(lot)
+        self.assertIn('capacity full', rejected[0])
+        db.session.commit()
+        self.assertEqual(PortfolioEngineLog.query.filter_by(user_id=self.user_id, event_type='POSITION_OPENED').count(), 3)
+        status = e.portfolio_status(self.user_id)
+        self.assertEqual(status['modules']['events']['capacity']['available_slots'], 0)
+        self.assertEqual(status['modules']['options']['prerequisites'][0]['daily_iv_observations'], 0)
+
     def test_successful_audit_uses_real_ai_signature_and_records_archive(self):
         from credentials import User
         from unittest.mock import MagicMock

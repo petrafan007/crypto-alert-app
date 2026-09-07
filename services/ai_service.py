@@ -22,6 +22,10 @@ from services.helpers import format_eastern_datetime, get_eastern_now
 from services.notification_service import send_telegram_message, create_system_notification
 from routes.helpers import decrypt_secret, is_stablecoin
 
+from services.portfolio_audit_context import (
+    AUDIT_END, AUDIT_TOKEN_LIMITS, CompletionText, IncompleteAuditError, complete_audit_text,
+)
+
 logger = logging.getLogger(__name__)
 
 WEBULL_CRYPTO_SEARCH_PROMPT = (
@@ -193,6 +197,7 @@ def call_ollama_chat(model, messages, max_tokens=600, timeout=30, reasoning_leve
     payload = response.json()
     message = payload.get("message") or {}
     content = message.get("content") or payload.get("response") or ""
+    final_answer = bool(content)
     if isinstance(content, list):
         content = "".join(
             str(part.get("text") or part.get("content") or "")
@@ -207,7 +212,7 @@ def call_ollama_chat(model, messages, max_tokens=600, timeout=30, reasoning_leve
         content = str(message.get("thinking") or payload.get("thinking") or "").strip()
     if not content:
         raise RuntimeError("Ollama returned an empty response")
-    return content
+    return CompletionText(content, payload.get("done_reason"), final_answer=final_answer)
 
 
 def build_configured_ai_tiers(user_ai_settings):
@@ -531,6 +536,8 @@ def call_ai_with_web_search(
     """
     if failover_history is None:
         failover_history = []
+    is_portfolio_audit = prompt_type in AUDIT_TOKEN_LIMITS
+    audit_timeout = 120
     try:
         user_obj = None
         if user_id:
@@ -619,7 +626,7 @@ def call_ai_with_web_search(
                 break
 
         # Check for cached AI response
-        if use_cache:
+        if use_cache and not is_portfolio_audit:
             cache_key = hashlib.md5(f"{provider}:{model}:{prompt_type}:{original_user_message}".encode()).hexdigest()
             cached = AICache.query.filter_by(cache_key=cache_key).first()
             if cached and cached.is_valid():
@@ -640,7 +647,7 @@ def call_ai_with_web_search(
                 ), ""
 
         # Get prompt templates
-        ai_prompts = get_user_ai_prompts(user_id)
+        ai_prompts = None if is_portfolio_audit else get_user_ai_prompts(user_id)
         stage1_prompt_map = {
             'coin_analysis': getattr(ai_prompts, 'coin_analysis_pre', None),
             'market_analysis': getattr(ai_prompts, 'market_analysis_pre', None),
@@ -684,7 +691,7 @@ def call_ai_with_web_search(
                 if not key:
                     raise ValueError("OpenAI API key not configured")
                 from openai import OpenAI
-                client = OpenAI(api_key=key, timeout=25.0, max_retries=0)
+                client = OpenAI(api_key=key, timeout=audit_timeout if is_portfolio_audit else 25.0, max_retries=0)
                 is_reasoning_model = any(m in (model or '').lower() for m in ['o1', 'o3', 'gpt-5', 'reasoning'])
                 effective_tokens = max(p_max_tokens, 2500) if is_reasoning_model else p_max_tokens
                 resp = client.chat.completions.create(
@@ -694,19 +701,19 @@ def call_ai_with_web_search(
                 )
                 msg = resp.choices[0].message if (resp.choices and len(resp.choices) > 0) else None
                 content = getattr(msg, 'content', '') or ''
-                if not content and hasattr(msg, 'reasoning_content') and msg.reasoning_content:
+                if not is_portfolio_audit and not content and hasattr(msg, 'reasoning_content') and msg.reasoning_content:
                     content = msg.reasoning_content
-                return content
+                return CompletionText(content, getattr(resp.choices[0], 'finish_reason', None) if resp.choices else None)
 
             elif provider == 'zai':
                 key = _pick_key('zai')
                 if not key:
                     raise ValueError("Z.AI API key not configured")
                 from zai_client import ZAIClient
-                client = ZAIClient(key, timeout_seconds=12)
+                client = ZAIClient(key, timeout_seconds=audit_timeout if is_portfolio_audit else 12)
                 resp = client.chat_completion(messages=p_messages, model=model, max_tokens=max(p_max_tokens, 1024), temperature=0.2)
                 if resp.get('success'):
-                    return resp.get('content')
+                    return CompletionText(resp.get('content'), resp.get('finish_reason'), final_answer=resp.get('final_answer', True))
                 last_zai_error = resp.get('error', 'Unknown Z.AI error')
                 raise Exception(f"Z.AI error: {last_zai_error}")
 
@@ -718,10 +725,11 @@ def call_ai_with_web_search(
                     "https://api.perplexity.ai/chat/completions",
                     headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
                     json={"model": model, "messages": p_messages, "max_tokens": p_max_tokens},
-                    timeout=15
+                    timeout=audit_timeout if is_portfolio_audit else 15
                 )
                 if r.status_code == 200:
-                    return r.json()['choices'][0]['message']['content']
+                    choice = r.json()['choices'][0]
+                    return CompletionText(choice['message'].get('content'), choice.get('finish_reason'))
                 raise Exception(f"Perplexity API error: {r.text}")
 
             elif provider == 'inception':
@@ -735,9 +743,10 @@ def call_ai_with_web_search(
                     "max_tokens": p_max_tokens,
                     "temperature": 0.2
                 }
-                r = requests.post(INCEPTION_CHAT_COMPLETIONS_URL, headers=headers, json=payload, timeout=20)
+                r = requests.post(INCEPTION_CHAT_COMPLETIONS_URL, headers=headers, json=payload, timeout=audit_timeout if is_portfolio_audit else 20)
                 if r.status_code == 200:
-                    return r.json()['choices'][0]['message']['content']
+                    choice = r.json()['choices'][0]
+                    return CompletionText(choice['message'].get('content'), choice.get('finish_reason'))
                 raise Exception(f"Inception API error: {r.text}")
 
             elif provider == 'gemini':
@@ -775,22 +784,24 @@ def call_ai_with_web_search(
                 last_err = ""
                 for attempt in range(1):
                     try:
-                        r = requests.post(url, json=req_json, timeout=18)
+                        r = requests.post(url, json=req_json, timeout=audit_timeout if is_portfolio_audit else 18)
                         if r.status_code == 200:
                             res_json = r.json()
                             try:
-                                return res_json['candidates'][0]['content']['parts'][0]['text']
+                                candidate = res_json['candidates'][0]
+                                return CompletionText(''.join(p.get('text', '') for p in candidate.get('content', {}).get('parts', []) if not p.get('thought')), candidate.get('finishReason'))
                             except Exception:
                                 return json.dumps(res_json)
                         elif r.status_code == 429:
                             raise requests.HTTPError(f'Gemini HTTP 429: {r.text}', response=r)
                         elif r.status_code == 400 and "thinkingConfig" in gen_config:
                             req_json["generationConfig"] = {"maxOutputTokens": p_max_tokens}
-                            r_retry = requests.post(url, json=req_json, timeout=15)
+                            r_retry = requests.post(url, json=req_json, timeout=audit_timeout if is_portfolio_audit else 15)
                             if r_retry.status_code == 200:
                                 res_json = r_retry.json()
                                 try:
-                                    return res_json['candidates'][0]['content']['parts'][0]['text']
+                                    candidate = res_json['candidates'][0]
+                                    return CompletionText(''.join(p.get('text', '') for p in candidate.get('content', {}).get('parts', []) if not p.get('thought')), candidate.get('finishReason'))
                                 except Exception:
                                     return json.dumps(res_json)
                             last_err = r_retry.text
@@ -808,18 +819,38 @@ def call_ai_with_web_search(
                     model,
                     p_messages,
                     max_tokens=p_max_tokens,
-                    timeout=45,
+                    timeout=audit_timeout if is_portfolio_audit else 45,
                     reasoning_level=ai_reasoning_level,
                 )
             
             else:
                 raise ValueError(f"Unsupported AI provider: {provider}")
 
-        if prompt_type == 'portfolio_audit':
-            # Portfolio audits use the isolated ledger's supplied evidence only.
-            # Keep the existing provider cascade and response contract.
-            content = _execute_ai_call(messages, p_max_tokens=1800)
-            return AIResponseWrapper(content, tier=current_tier_name, provider=provider, model=model), ''
+        if is_portfolio_audit:
+            # Both specialist and CIO audits retain the caller's purpose/context.
+            # They never enter generic Copilot synthesis or external web search.
+            budget = AUDIT_TOKEN_LIMITS[prompt_type]
+            for attempt in range(2):
+                audit_messages = [dict(message) for message in messages]
+                instruction = ('\nFinish the entire assessment and all tables, then append exactly '
+                               + AUDIT_END + ' as the final line. Do not output this marker early.')
+                if attempt:
+                    instruction += (' The previous answer was incomplete. Regenerate a complete, '
+                                    'more concise assessment from the original evidence; do not continue '
+                                    'or repeat a truncated fragment. Keep the requested section structure.')
+                audit_messages[0]['content'] += instruction
+                value = _execute_ai_call(audit_messages, p_max_tokens=budget * (2 ** attempt))
+                try:
+                    content = complete_audit_text(value)
+                    break
+                except IncompleteAuditError:
+                    if attempt:
+                        raise  # Existing configured-provider failover handles exhaustion.
+            failover_history.append({'tier': current_tier_name, 'provider': provider,
+                                     'model': model, 'status': 'success', 'error': None})
+            return AIResponseWrapper(content, tier=current_tier_name, provider=provider, model=model,
+                                     search_status='Paper ledger evidence only',
+                                     failover_history=failover_history), ''
 
         # Stage 1: Queries
         is_equity = _is_equity_asset(symbol_value) or prompt_type == 'webull_equity_analysis'

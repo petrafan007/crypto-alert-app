@@ -142,8 +142,8 @@ class EventAlgoTests(unittest.TestCase):
 
     def test_extract_settled_outcome_terminal_prices(self):
         from event_algo import extract_settled_outcome
-        self.assertEqual(extract_settled_outcome({'status': 'DELISTING', 'tradable_status': 'NT', 'last_price': 0.999}), 'YES')
-        self.assertEqual(extract_settled_outcome({'status': 'DELISTING', 'tradable_status': 'NT', 'last_price': 0.001}), 'NO')
+        self.assertIsNone(extract_settled_outcome({'status': 'DELISTING', 'tradable_status': 'NT', 'last_price': 0.999}))
+        self.assertIsNone(extract_settled_outcome({'status': 'DELISTING', 'tradable_status': 'NT', 'last_price': 0.001}))
         self.assertEqual(extract_settled_outcome({'status': 'SETTLED', 'settlement_price': 1.0}), 'YES')
         self.assertEqual(extract_settled_outcome({'status': 'SETTLED', 'settlement_price': 0.0}), 'NO')
         self.assertEqual(extract_settled_outcome({'settled_outcome': 'YES'}), 'YES')
