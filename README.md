@@ -6,6 +6,13 @@
 
 **Last Updated**: September 2026
 
+## v2.94.7 (September 2026)
+
+- Enforced strictly sequential Quantitative Strategy Engine prompting: each specialist completes before the next starts, a 15-second minimum interval separates requests and retries, and Master CIO synthesis begins only after every specialist reaches a terminal result.
+- Extended each quantitative provider response window from 120 seconds to 10 minutes so slow primary responses are not prematurely treated as failures and routed into the fallback cascade.
+- Serialized AI generations across application processes per account/provider and globally for Ollama, preventing automated workers and audits from loading multiple local Ollama models concurrently. Autonomous Event and sentiment AI work is deferred while a quantitative audit is pending.
+- Added saved audit evidence describing the sequential execution policy and prompt interval, plus regression coverage for module/master ordering and host-wide Ollama serialization.
+
 ## v2.94.6 (September 2026)
 
 - Replaced the Quantitative Strategy Engine modal's inference-heavy Gemini and Ollama connection tests with fast provider/model metadata checks.

@@ -13,6 +13,7 @@ class ProviderResilienceTests(unittest.TestCase):
     def setUp(self):
         r._memory.clear()
         r._inflight.clear()
+        r._request_locks.clear()
 
     def test_429_stops_subsequent_requests_and_exposes_owner_scoped_status(self):
         response = Mock(status_code=429, headers={'Retry-After': '120'})
@@ -50,6 +51,31 @@ class ProviderResilienceTests(unittest.TestCase):
         self.assertEqual(output, [result])
         self.assertEqual(r.cached_search('alice', 'news', ['BTC'], lambda: self.fail('cache missed')), result)
         self.assertEqual(r.cached_search('bob', 'news', ['BTC'], lambda: []), [])
+
+    def test_ollama_requests_are_serialized_across_accounts(self):
+        first_entered = threading.Event()
+        release_first = threading.Event()
+        second_entered = threading.Event()
+
+        def first_request():
+            with r.serialized_ai_request('alice', 'ollama'):
+                first_entered.set()
+                self.assertTrue(release_first.wait(2))
+
+        def second_request():
+            with r.serialized_ai_request('bob', 'ollama'):
+                second_entered.set()
+
+        first = threading.Thread(target=first_request)
+        second = threading.Thread(target=second_request)
+        first.start()
+        self.assertTrue(first_entered.wait(2))
+        second.start()
+        self.assertFalse(second_entered.wait(.1))
+        release_first.set()
+        first.join(2)
+        second.join(2)
+        self.assertTrue(second_entered.is_set())
 
     def test_search_failure_returns_zero_sources_and_cools_down(self):
         with patch('services.ai_service.get_user_credentials', return_value=None), patch.object(r.requests, 'get', side_effect=requests.ConnectTimeout('outage')) as get:

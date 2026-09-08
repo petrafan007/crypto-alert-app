@@ -3,13 +3,14 @@ import hashlib
 import json
 import threading
 import time
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
 from zoneinfo import ZoneInfo
 
 import requests
 from flask import has_app_context
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.dialects.postgresql import insert
 from core.extensions import db
 
@@ -31,10 +32,39 @@ class ProviderUnavailable(RuntimeError):
 _memory = {}
 _lock = threading.RLock()
 _inflight = set()
+_request_locks = {}
 
 
 def identity(*parts):
     return hashlib.sha256(json.dumps(parts, default=str, sort_keys=True).encode()).hexdigest()
+
+
+@contextmanager
+def serialized_ai_request(owner, provider):
+    """Serialize provider generations across threads and application processes.
+
+    Ollama is host-scoped because loading two local models concurrently can
+    exhaust system memory. Cloud providers are serialized per account and
+    provider so automated jobs cannot burst the same API simultaneously.
+    """
+    normalized_provider = str(provider or '').strip().lower()
+    scope = 'host:ollama' if normalized_provider == 'ollama' else f'owner:{owner}:{normalized_provider}'
+    lock_key = identity('ai-request-slot', scope)
+    if persistent():
+        lock_id = int(lock_key[:15], 16)
+        connection = db.engine.connect()
+        try:
+            connection.execute(text('SELECT pg_advisory_lock(:key)'), {'key': lock_id})
+            yield
+        finally:
+            connection.execute(text('SELECT pg_advisory_unlock(:key)'), {'key': lock_id})
+            connection.close()
+        return
+
+    with _lock:
+        request_lock = _request_locks.setdefault(lock_key, threading.RLock())
+    with request_lock:
+        yield
 
 
 def persistent():

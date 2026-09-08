@@ -138,6 +138,8 @@ The dashboard includes the combined equity/cash curve, open positions, costs ref
 
 CIO audits use the configured existing AI provider cascade and the supplied isolated-ledger evidence. They do not add live account context or web search. Audits are advisory and cannot change allocations or execute orders. Missing AI is reported as unavailable; provider failure is recorded as failed. No deterministic replacement claims to be a successful AI verdict.
 
+As of v2.94.7, specialist prompts execute strictly one at a time with a minimum 15-second interval after each terminal response; Master CIO synthesis starts only after every enabled specialist has completed or failed. Provider generations are serialized across application processes, and autonomous Event/sentiment AI work is deferred while a quantitative audit is pending. Each provider request may wait up to 10 minutes for a response before failover. Ollama is additionally host-serialized so the application cannot load two local models concurrently; the production service is constrained to one loaded model with a 30-second keep-alive.
+
 Audit cadence is off by default, with daily and weekly options. Daily audits run after the session close; weekly audits run after the first available session close of the week. Failed attempts are archived and do not retry every supervisor tick. The audit worker is separate from execution so a slow AI response does not hold up paper position management. The latest 50 audits, including older paper runs, can be selected in the UI; all remain in persistence.
 
 ## API

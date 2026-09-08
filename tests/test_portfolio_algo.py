@@ -787,6 +787,10 @@ class PortfolioLedgerTests(unittest.TestCase):
             result = e.run_audit(self.user_id)
         self.assertEqual(result['status'], 'SUCCESS', result['content'])
         self.assertEqual(call.call_count, 6)
+        self.assertEqual(
+            [request.kwargs['prompt_type'] for request in call.call_args_list],
+            ['portfolio_module_audit'] * 5 + ['portfolio_audit'],
+        )
         for request in call.call_args_list[:-1]:
             payload = json.loads(request.kwargs['messages'][1]['content'])
             self.assertEqual(len(payload['positions']), 1)
@@ -799,6 +803,11 @@ class PortfolioLedgerTests(unittest.TestCase):
             {'tier': 'primary', 'provider': 'ollama', 'model': 'local-auditor', 'reasoning_level': 'high'},
             {'tier': 'secondary', 'provider': 'inception', 'model': 'mercury-2', 'reasoning_level': 'medium'},
         ])
+        self.assertEqual(result['evidence']['ai_prompt_execution'], {
+            'specialists_sequential': True,
+            'master_after_all_specialists': True,
+            'minimum_interval_seconds': 0,
+        })
         master_input = json.loads(call.call_args.kwargs['messages'][1]['content'])
         self.assertNotIn('module_audits', master_input)
         self.assertEqual(master_input['module_trade_results']['crypto']['open_positions'], 1)

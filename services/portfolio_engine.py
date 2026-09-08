@@ -7,12 +7,15 @@ import copy
 import json
 import logging
 import math
+import os
 import re
+import time
 from datetime import datetime, timedelta
 from uuid import uuid4
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy import func
+from flask import current_app
 from core.extensions import db
 from portfolio_algo_models import (
     DEFAULT_ALLOCATIONS, DEFAULT_MASTER_CIO_PROMPT, DEFAULT_MODULE_SETTINGS, DEFAULT_QUANT_WATCHLISTS,
@@ -34,6 +37,7 @@ from services.portfolio_audit_context import (
 
 logger = logging.getLogger(__name__)
 CADENCE = 300
+DEFAULT_AUDIT_PROMPT_INTERVAL_SECONDS = 15
 LIMITS = {
     'equities': {'trend_sma_days': (50, 300, int), 'rsi_period': (2, 14, int), 'rsi_entry_threshold': (1, 50, float), 'bollinger_std': (1, 3, float)},
     'options': {'min_ivr': (0, 100, float), 'target_delta': (10, 35, float), 'target_dte': (20, 60, int), 'profit_target_pct': (25, 75, float)},
@@ -49,6 +53,26 @@ def loads(value, default):
         return parsed if isinstance(parsed, type(default)) else copy.deepcopy(default)
     except (ValueError, TypeError):
         return copy.deepcopy(default)
+
+
+def audit_prompt_interval_seconds():
+    if current_app.config.get('TESTING'):
+        return 0
+    try:
+        return max(0, min(120, float(os.getenv(
+            'PORTFOLIO_AUDIT_PROMPT_INTERVAL_SECONDS',
+            str(DEFAULT_AUDIT_PROMPT_INTERVAL_SECONDS),
+        ))))
+    except (TypeError, ValueError):
+        return DEFAULT_AUDIT_PROMPT_INTERVAL_SECONDS
+
+
+def wait_for_next_audit_prompt(last_finished_at, interval_seconds):
+    if last_finished_at is None or interval_seconds <= 0:
+        return
+    remaining = interval_seconds - (time.monotonic() - last_finished_at)
+    if remaining > 0:
+        time.sleep(remaining)
 
 
 def normalize_module_settings(values):
@@ -1180,13 +1204,21 @@ def run_audit(user_id, prompt=None, scheduled=False, audit_id=None):
                 {'tier': tier, 'provider': provider, 'model': model, 'reasoning_level': reasoning}
                 for tier, provider, model, reasoning in ai_kwargs.get('custom_tier_configs', [])
             ]
+            prompt_interval = audit_prompt_interval_seconds()
+            evidence['ai_prompt_execution'] = {
+                'specialists_sequential': True,
+                'master_after_all_specialists': True,
+                'minimum_interval_seconds': prompt_interval,
+            }
             _record_portfolio_log(user_id, 'AUDIT_START', 'Starting autonomous portfolio audit cascade.')
             module_responses, module_errors = {}, {}
             evidence['module_audits'] = module_responses
             evidence['module_audit_errors'] = module_errors
             row.evidence_json = json.dumps(evidence)
             db.session.commit()
+            last_prompt_finished_at = None
             for module in enabled_modules:
+                wait_for_next_audit_prompt(last_prompt_finished_at, prompt_interval)
                 _record_portfolio_log(user_id, 'AUDIT_MODULE', f'Running AI auditor for module: {module}')
                 module_watches = watches.get(module, [])
                 recent_obs = evidence['modules'][module].get('observations', [])
@@ -1230,7 +1262,9 @@ def run_audit(user_id, prompt=None, scheduled=False, audit_id=None):
                 evidence['audit_progress_at'] = datetime.utcnow().isoformat()+'Z'
                 row.evidence_json = json.dumps(evidence)
                 db.session.commit()
+                last_prompt_finished_at = time.monotonic()
 
+            wait_for_next_audit_prompt(last_prompt_finished_at, prompt_interval)
             _record_portfolio_log(user_id, 'AUDIT_MASTER', 'Synthesizing module insights via Master CIO.')
             response, _ = call_ai_with_web_search(
                 username=user.username, user_id=user_id,

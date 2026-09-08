@@ -83,7 +83,7 @@ class AuditContextTests(unittest.TestCase):
         self.assertEqual([c.kwargs['max_tokens'] for c in calls], [8192, 16384])
         self.assertEqual(calls[0].args[1][1]['content'], '{"positions": []}')
         self.assertTrue(calls[0].args[1][0]['content'].startswith('PAPER SPECIALIST'))
-        self.assertEqual(calls[0].kwargs['timeout'], 120)
+        self.assertEqual(calls[0].kwargs['timeout'], 600)
 
     def test_master_uses_larger_budget_and_fails_over_after_incomplete_retry(self):
         response, calls = self.call_audit(['cut', 'cut again', 'Complete.\n'+AUDIT_END],

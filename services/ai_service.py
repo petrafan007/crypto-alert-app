@@ -8,7 +8,7 @@ import requests
 from datetime import datetime, timezone, timedelta
 from urllib.parse import quote
 import pytz
-from flask import current_app, session
+from flask import current_app, has_app_context, session
 
 from core.extensions import db
 from models import Coin, WatchlistCoin, AIPrompt, DefaultAIPrompt, AIConversation
@@ -27,6 +27,30 @@ from services.portfolio_audit_context import (
 )
 
 logger = logging.getLogger(__name__)
+
+AUTOMATED_AI_PROMPTS_DEFERRED_DURING_AUDITS = {
+    'sentiment_analysis',
+    'watchlist_sentiment_analysis',
+    'webull_event_contract_analysis',
+    'webull_event_contract_batch_analysis',
+    'event_strategy_audit',
+}
+
+
+def audit_provider_timeout_seconds():
+    try:
+        return max(120, min(1800, float(os.getenv('AI_AUDIT_PROVIDER_TIMEOUT_SECONDS', '600'))))
+    except (TypeError, ValueError):
+        return 600
+
+
+def audit_retry_interval_seconds():
+    if not has_app_context() or current_app.config.get('TESTING'):
+        return 0
+    try:
+        return max(0, min(120, float(os.getenv('AI_AUDIT_RETRY_INTERVAL_SECONDS', '15'))))
+    except (TypeError, ValueError):
+        return 15
 
 WEBULL_CRYPTO_SEARCH_PROMPT = (
     "Generate 1 to 2 targeted current-market search queries for the Webull crypto holding {symbol} as of {datetime}. "
@@ -537,7 +561,7 @@ def call_ai_with_web_search(
     if failover_history is None:
         failover_history = []
     is_portfolio_audit = prompt_type in AUDIT_TOKEN_LIMITS
-    audit_timeout = 120
+    audit_timeout = audit_provider_timeout_seconds()
     try:
         user_obj = None
         if user_id:
@@ -561,6 +585,20 @@ def call_ai_with_web_search(
                 user_id = session.get('_user_id')
             except Exception:
                 user_id = None
+
+        # Quantitative audits receive exclusive access over autonomous AI work
+        # for the same user. Interactive Copilot requests remain independent.
+        if user_id and not is_portfolio_audit and prompt_type in AUTOMATED_AI_PROMPTS_DEFERRED_DURING_AUDITS:
+            try:
+                from portfolio_algo_models import PortfolioAudit
+                audit_pending = PortfolioAudit.query.filter_by(user_id=user_id, status='PENDING').first()
+            except Exception:
+                audit_pending = None
+            if audit_pending:
+                from services.provider_resilience import ProviderUnavailable
+                raise ProviderUnavailable(
+                    f'Quantitative audit {audit_pending.id} has exclusive AI access; automated request deferred.'
+                )
         
         user_ai_settings = get_user_ai_settings(username)
         max_tokens = user_ai_settings.get('ai_max_tokens', 2000)
@@ -676,14 +714,15 @@ def call_ai_with_web_search(
         ]
 
         def _execute_ai_call(p_messages, p_max_tokens=500):
-            from services.provider_resilience import identity, check, block_failure
+            from services.provider_resilience import identity, check, block_failure, serialized_ai_request
             key = identity('ai', username, provider, model, _pick_key(provider) if provider != 'ollama' else '')
-            check(key)
-            try:
-                return _execute_ai_call_impl(p_messages, p_max_tokens)
-            except Exception as exc:
-                block_failure(key, username, provider + ':' + str(model), exc)
-                raise
+            with serialized_ai_request(username, provider):
+                check(key)
+                try:
+                    return _execute_ai_call_impl(p_messages, p_max_tokens)
+                except Exception as exc:
+                    block_failure(key, username, provider + ':' + str(model), exc)
+                    raise
 
         def _execute_ai_call_impl(p_messages, p_max_tokens=600):
             if provider == 'openai':
@@ -831,6 +870,10 @@ def call_ai_with_web_search(
             # They never enter generic Copilot synthesis or external web search.
             budget = AUDIT_TOKEN_LIMITS[prompt_type]
             for attempt in range(2):
+                if attempt:
+                    retry_interval = audit_retry_interval_seconds()
+                    if retry_interval:
+                        time.sleep(retry_interval)
                 audit_messages = [dict(message) for message in messages]
                 instruction = ('\nFinish the entire assessment and all tables, then append exactly '
                                + AUDIT_END + ' as the final line. Do not output this marker early.')
