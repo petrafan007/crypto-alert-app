@@ -14,6 +14,7 @@ import WebullAIDashboard from '../components/WebullAIDashboard';
 import WebullOptionChain from '../components/WebullOptionChain';
 import OptionsPayoffChart from '../components/OptionsPayoffChart';
 import WebullPositions from '../components/WebullPositions';
+import ConfigurableOrderTable from '../components/ConfigurableOrderTable';
 import { assetType as positionAssetType } from '../utils/positions.mjs';
 import EventPositionModal from '../components/EventPositionModal';
 import { differenceInEasternCalendarDays, formatEasternDate, formatEasternDateTime, formatEasternTime } from '../utils/dateTime';
@@ -352,7 +353,7 @@ function Pagination({ page, setPage, pageSize, setPageSize, total }) {
   );
 }
 
-function WebullOrderTable({ orders, emptyText, onCancelOrder, cancellingId, optionClosePnlByOrder = null }) {
+function LegacyWebullOrderTable({ orders, emptyText, onCancelOrder, cancellingId, optionClosePnlByOrder = null }) {
   if (!orders.length) return <div className="empty-state"><p>{emptyText}</p></div>;
   const showOptionColumns = orders.some((order) => optionContractDetails(order).isOption);
   const showClosePnlColumn = showOptionColumns && optionClosePnlByOrder !== null;
@@ -429,7 +430,47 @@ function WebullOrderTable({ orders, emptyText, onCancelOrder, cancellingId, opti
   );
 }
 
-function EventContractOpenOrders({ orders, onManageOrder }) {
+function WebullOrderTable({ orders, emptyText, onCancelOrder, cancellingId, optionClosePnlByOrder = null, userId, tableId }) {
+  const option = (order) => optionContractDetails(order);
+  const closePnlCell = (order) => {
+    if (!option(order).isOption) return '—';
+    const closePnl = optionClosePnlByOrder?.[order.id];
+    if (closePnl?.status === 'loading') return <span className="option-close-pnl-muted">Refreshing…</span>;
+    if (closePnl?.status === 'not_filled') return <span className="option-close-pnl-muted" title="P&L requires an actual fill price and filled quantity.">Not filled</span>;
+    if (closePnl?.status !== 'available') return <span className="option-close-pnl-muted" title={closePnl?.message || 'A current executable quote is unavailable.'}>Unavailable</span>;
+    return <span className={closePnl.pnl >= 0 ? 'option-close-pnl-positive' : 'option-close-pnl-negative'}>{closePnl.pnl >= 0 ? '+' : '-'}${number(Math.abs(closePnl.pnl), 2)}<small>@ {closePnl.closeSide} ${number(closePnl.closePrice, 4)}</small></span>;
+  };
+  const renderClosePnl = (order) => {
+    if (!option(order).isOption) return '—';
+    const closePnl = optionClosePnlByOrder?.[order.id];
+    if (closePnl?.status === 'loading') return <span className="option-close-pnl-muted">Refreshing…</span>;
+    if (closePnl?.status === 'not_filled') return <span className="option-close-pnl-muted">Not filled</span>;
+    if (closePnl?.status !== 'available') return <span className="option-close-pnl-muted" title={closePnl?.message || 'A current executable quote is unavailable.'}>Unavailable</span>;
+    return <span className={closePnl.pnl >= 0 ? 'option-close-pnl-positive' : 'option-close-pnl-negative'}>{closePnl.pnl >= 0 ? '+' : '-'}${number(Math.abs(closePnl.pnl), 2)}<small>@ {closePnl.closeSide} ${number(closePnl.closePrice, 4)}</small></span>;
+  };
+  const columns = [
+    { id: 'created_at', label: 'Date', value: (order) => order.created_at, render: (order) => formatEasternDate(order.created_at), locked: true },
+    { id: 'time', label: 'Time (ET)', value: (order) => order.created_at, render: (order) => formatEasternTime(order.created_at) },
+    { id: 'symbol', label: 'Symbol', value: (order) => option(order).isOption ? option(order).symbol : (order.display_symbol || getAssetDisplaySymbol(order)), filterable: true, style: { textAlign: 'center' } },
+    { id: 'expiration', label: 'Expiration', value: (order) => option(order).isOption ? option(order).expiration : '', render: (order) => option(order).isOption ? option(order).expiration || '—' : '—' },
+    { id: 'strike', label: 'Strike', value: (order) => option(order).isOption ? option(order).strike : '', render: (order) => option(order).isOption ? option(order).strikeLabel : '—' },
+    { id: 'option_type', label: 'Call / Put', value: (order) => option(order).isOption ? formatOrderType(option(order).optionType, option(order).optionType || '—') : '', filterable: true, render: (order) => option(order).isOption ? formatOrderType(option(order).optionType, option(order).optionType || '—') : '—' },
+    { id: 'side', label: 'Side', value: (order) => formatOrderSide(order.side), filterable: true },
+    { id: 'type', label: 'Type', value: (order) => formatOrderType(order.order_type), filterable: true },
+    { id: 'quantity', label: 'Quantity', value: (order) => Number(order.quantity), render: (order) => number(order.quantity, 6) },
+    { id: 'price', label: 'Price', value: (order) => Number(order.price), render: (order) => order.price ? `$${number(order.price, 4)}` : 'Market' },
+    { id: 'filled', label: 'Filled', value: (order) => Number(order.filled_quantity), render: (order) => number(order.filled_quantity, 6) },
+    ...(optionClosePnlByOrder !== null ? [{ id: 'close_pnl', label: 'Close-Now P&L', value: (order) => optionClosePnlByOrder?.[order.id]?.pnl, render: closePnlCell }] : []),
+    ...(optionClosePnlByOrder !== null ? [{ id: 'close_pnl', label: 'Close-Now P&L', value: (order) => optionClosePnlByOrder?.[order.id]?.pnl, render: renderClosePnl }] : []),
+    { id: 'status', label: 'Status', value: (order) => formatOrderStatus(order.status), filterable: true, render: (order) => <>{formatOrderStatus(order.status)}{order.history_note && <small style={{ display: 'block', maxWidth: 280 }}>{order.history_note}</small>}</> },
+    { id: 'filled_at', label: 'Filled at (ET)', value: (order) => order.filled_at, render: (order) => order.filled_at ? `${formatEasternDate(order.filled_at)} ${formatEasternTime(order.filled_at)}` : '—' },
+    { id: 'source', label: 'Source', value: () => 'Webull', filterable: true, render: () => <span className="badge" style={{ background: 'rgba(96, 165, 250, .16)', color: '#60a5fa' }}>Webull</span> },
+    ...(onCancelOrder ? [{ id: 'actions', label: 'Action', value: () => '', render: (order) => <button type="button" className="btn btn-sm btn-danger" disabled={cancellingId === order.id} onClick={() => onCancelOrder(order)}>{cancellingId === order.id ? 'Cancelling...' : 'Cancel'}</button> }] : []),
+  ];
+  return <ConfigurableOrderTable rows={orders} columns={columns} tableId={tableId} userId={userId} emptyText={emptyText} />;
+}
+
+function LegacyEventContractOpenOrders({ orders, onManageOrder }) {
   if (!orders.length) return <div className="empty-state"><p>No active Webull Event Contract orders are available.</p></div>;
   return (
     <div className="table-container trading-table" style={{ marginTop: 20 }}>
@@ -481,6 +522,25 @@ function EventContractOpenOrders({ orders, onManageOrder }) {
       </div>
     </div>
   );
+}
+
+function EventContractOpenOrders({ orders, onManageOrder, userId }) {
+  const details = (order) => eventContractOrderDetails(order);
+  const remaining = (order) => Math.max(0, Number(order.quantity || 0) - Number(order.filled_quantity || 0));
+  const columns = [
+    { id: 'created_at', label: 'Date', value: (order) => order.created_at, render: (order) => formatEasternDate(order.created_at), locked: true },
+    { id: 'time', label: 'Time (ET)', value: (order) => order.created_at, render: (order) => formatEasternTime(order.created_at) },
+    { id: 'contract', label: 'Contract', value: (order) => details(order).symbol, filterable: true, render: (order) => <strong>{details(order).symbol || '—'}</strong> },
+    { id: 'outcome', label: 'Outcome', value: (order) => details(order).outcome, filterable: true },
+    { id: 'side', label: 'Side', value: (order) => formatOrderSide(order.side), filterable: true },
+    { id: 'quantity', label: 'Order Qty', value: (order) => Number(order.quantity), render: (order) => number(order.quantity, 6) },
+    { id: 'filled', label: 'Filled', value: (order) => Number(order.filled_quantity), render: (order) => number(order.filled_quantity, 6) },
+    { id: 'remaining', label: 'Remaining', value: remaining, render: (order) => number(remaining(order), 6) },
+    { id: 'price', label: 'Limit', value: (order) => Number(order.price), render: (order) => order.price ? `$${number(order.price, 4)}` : 'Market' },
+    { id: 'status', label: 'Status', value: (order) => formatOrderStatus(order.status), filterable: true, render: (order) => <>{formatOrderStatus(order.status)}{order.history_note && <small style={{ display: 'block', maxWidth: 280 }}>{order.history_note}</small>}</> },
+    { id: 'actions', label: 'Action', value: () => '', render: (order) => <button type="button" className="badge" style={{ background: 'rgba(56, 189, 248, .18)', border: '1px solid rgba(56, 189, 248, .35)', color: '#38bdf8', cursor: 'pointer', padding: '5px 14px', fontWeight: 700, borderRadius: '6px', fontSize: '0.82rem' }} onClick={() => onManageOrder?.(order)}>Manage</button> },
+  ];
+  return <ConfigurableOrderTable rows={orders} columns={columns} tableId="webull-event-open-orders" userId={userId} emptyText="No active Webull Event Contract orders are available." />;
 }
 
 const isCryptoAccount = (acc) => {
@@ -1192,10 +1252,10 @@ export default function WebullTrading({ isLightMode = false }) {
         const initialQuantAcc = (selectedInstrumentType === 'CRYPTO')
           ? 'QUANT_CRYPTO_ACCOUNT'
           : (selectedInstrumentType === 'EVENT')
-          ? 'QUANT_EVENTS_ACCOUNT'
-          : (selectedInstrumentType === 'FUTURES')
-          ? 'QUANT_FUTURES_ACCOUNT'
-          : 'QUANT_INDIVIDUAL_CASH';
+            ? 'QUANT_EVENTS_ACCOUNT'
+            : (selectedInstrumentType === 'FUTURES')
+              ? 'QUANT_FUTURES_ACCOUNT'
+              : 'QUANT_INDIVIDUAL_CASH';
         setSelectedAccountId(initialQuantAcc);
         await loadQuantTradingData();
         setOrderFeedback({ type: 'success', message: 'Switched to Quantitative Strategy Engine Mode (Multi-Asset Algo).' });
@@ -1208,10 +1268,10 @@ export default function WebullTrading({ isLightMode = false }) {
         const initialTestAcc = (selectedInstrumentType === 'CRYPTO')
           ? 'TEST_CRYPTO_ACCOUNT'
           : (selectedInstrumentType === 'EVENT')
-          ? 'TEST_EVENTS_ACCOUNT'
-          : (selectedInstrumentType === 'FUTURES')
-          ? 'TEST_FUTURES_ACCOUNT'
-          : 'TEST_INDIVIDUAL_CASH';
+            ? 'TEST_EVENTS_ACCOUNT'
+            : (selectedInstrumentType === 'FUTURES')
+              ? 'TEST_FUTURES_ACCOUNT'
+              : 'TEST_INDIVIDUAL_CASH';
         setSelectedAccountId(initialTestAcc);
         await loadPaperTradingData();
         setOrderFeedback({ type: 'success', message: 'Switched to Webull Test Mode (Paper Trading with live quotes).' });
@@ -1359,16 +1419,16 @@ export default function WebullTrading({ isLightMode = false }) {
         const initialTestAcc = (selectedInstrumentType === 'CRYPTO')
           ? 'TEST_CRYPTO_ACCOUNT'
           : (selectedInstrumentType === 'EVENT')
-          ? 'TEST_EVENTS_ACCOUNT'
-          : (selectedInstrumentType === 'FUTURES')
-          ? 'TEST_FUTURES_ACCOUNT'
-          : 'TEST_INDIVIDUAL_CASH';
+            ? 'TEST_EVENTS_ACCOUNT'
+            : (selectedInstrumentType === 'FUTURES')
+              ? 'TEST_FUTURES_ACCOUNT'
+              : 'TEST_INDIVIDUAL_CASH';
         setSelectedAccountId(initialTestAcc);
         await loadPaperTradingData();
         setLoading(false);
         axios.get('/api/webull/ai-signals?limit=50', { withCredentials: true })
           .then((res) => setSignals(res.data?.signals || []))
-          .catch(() => {});
+          .catch(() => { });
         return;
       }
 
@@ -1521,7 +1581,7 @@ export default function WebullTrading({ isLightMode = false }) {
       // 3. Fetch background AI signals
       axios.get('/api/webull/ai-signals?limit=50', { withCredentials: true })
         .then((res) => setSignals(res.data?.signals || []))
-        .catch(() => {});
+        .catch(() => { });
     } catch (requestError) {
       setError(requestError.response?.data?.message || 'Unable to load the Webull workspace.');
       setLoading(false);
@@ -2365,18 +2425,18 @@ export default function WebullTrading({ isLightMode = false }) {
               params: { symbol: selectedSymbol },
               withCredentials: true,
             })
-          : await axios.get('/api/webull/market-snapshot', {
-            params: {
-              symbol: selectedSymbol,
-              instrument_type: selectedInstrumentType === 'EQUITY' ? selectedSecurityType : selectedInstrumentType,
-            },
-            withCredentials: true,
-          });
+            : await axios.get('/api/webull/market-snapshot', {
+              params: {
+                symbol: selectedSymbol,
+                instrument_type: selectedInstrumentType === 'EQUITY' ? selectedSecurityType : selectedInstrumentType,
+              },
+              withCredentials: true,
+            });
         const price = Number(selectedInstrumentType === 'OPTION'
           ? response.data?.quote?.last_price
           : selectedInstrumentType === 'FUTURES'
             ? response.data?.quote?.price
-          : response.data?.snapshot?.price || 0);
+            : response.data?.snapshot?.price || 0);
         if (active && price > 0) {
           setLivePrice(price);
           setOrderForm((prev) => (prev.price ? prev : { ...prev, price: price.toFixed(price >= 1 ? 2 : 4) }));
@@ -2566,7 +2626,7 @@ export default function WebullTrading({ isLightMode = false }) {
     const wholeQuantity = Math.floor(rawQuantity);
     const computedQty = fractionalQuantityAllowed
       ? formatQuantityForTicket(rawQuantity, 6)
-        : wholeQuantity > 0 ? String(wholeQuantity) : '';
+      : wholeQuantity > 0 ? String(wholeQuantity) : '';
     setOrderValidationError('');
     if (selectedInstrumentType === 'EQUITY' && !fractionalEquityAllowed && rawQuantity > 0 && wholeQuantity < 1) {
       setOrderValidationError('Extended and Overnight stock/ETF sessions require whole shares. Select Only Regular Hours (CORE) to use a fractional quantity.');
@@ -2624,7 +2684,7 @@ export default function WebullTrading({ isLightMode = false }) {
         const wholeQuantity = Math.floor(rawQuantity);
         const qty = fractionalQuantityAllowed
           ? formatQuantityForTicket(rawQuantity, 6)
-            : wholeQuantity > 0 ? String(wholeQuantity) : '';
+          : wholeQuantity > 0 ? String(wholeQuantity) : '';
         if (selectedInstrumentType === 'EQUITY' && !fractionalEquityAllowed && rawQuantity > 0 && wholeQuantity < 1) {
           setOrderValidationError('Extended and Overnight stock/ETF sessions require whole shares. Select Only Regular Hours (CORE) to use a fractional quantity.');
         }
@@ -2642,7 +2702,7 @@ export default function WebullTrading({ isLightMode = false }) {
         const wholeQuantity = Math.floor(targetQty);
         const formattedQty = fractionalQuantityAllowed
           ? formatQuantityForTicket(targetQty, 6)
-            : wholeQuantity > 0 ? String(wholeQuantity) : '';
+          : wholeQuantity > 0 ? String(wholeQuantity) : '';
         if (selectedInstrumentType === 'EQUITY' && !fractionalEquityAllowed && targetQty > 0 && wholeQuantity < 1) {
           setOrderValidationError('Extended and Overnight stock/ETF sessions require whole shares. Select Only Regular Hours (CORE) to sell this fractional position.');
         }
@@ -2715,7 +2775,7 @@ export default function WebullTrading({ isLightMode = false }) {
         ? 'Webull currently marks this contract Liquidate Only. New positions are closed, but an owned position may be sold.'
         : orderForm.side === 'SELL' && ['OC', 'CO'].includes(eventTradableStatus) && heldQuantity <= QUANTITY_EPSILON
           ? 'Sell to Close is available only for the exact Yes/No Event Contract position currently owned in this account.'
-        : 'Webull currently marks this Event Contract as not tradable.'
+          : 'Webull currently marks this Event Contract as not tradable.'
       : '';
   const eventSelectedQuote = eventQuoteFor(selectedEventMarket, orderForm.eventOutcome, orderForm.side);
   const eventSettlementPayout = Number(eventRules.settlement_payout);
@@ -3036,10 +3096,10 @@ export default function WebullTrading({ isLightMode = false }) {
         effectiveAccountId = (selectedInstrumentType === 'CRYPTO')
           ? 'TEST_CRYPTO_ACCOUNT'
           : (selectedInstrumentType === 'EVENT')
-          ? 'TEST_EVENTS_ACCOUNT'
-          : (selectedInstrumentType === 'FUTURES')
-          ? 'TEST_FUTURES_ACCOUNT'
-          : 'TEST_INDIVIDUAL_CASH';
+            ? 'TEST_EVENTS_ACCOUNT'
+            : (selectedInstrumentType === 'FUTURES')
+              ? 'TEST_FUTURES_ACCOUNT'
+              : 'TEST_INDIVIDUAL_CASH';
       }
       const payload = {
         test_mode: isTestMode,
@@ -3720,8 +3780,8 @@ export default function WebullTrading({ isLightMode = false }) {
             {isQuantMode
               ? 'Quantitative Strategy Engine Mode — Multi-asset autonomous algorithmic execution & live portfolio monitoring.'
               : isTestMode
-              ? 'Webull Paper Trading Mode — practice trading across all assets with simulated funds & real-time live quotes.'
-              : 'Execute orders, manage open positions, and review signals via Webull OpenAPI.'}
+                ? 'Webull Paper Trading Mode — practice trading across all assets with simulated funds & real-time live quotes.'
+                : 'Execute orders, manage open positions, and review signals via Webull OpenAPI.'}
           </p>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexShrink: 0 }}>
@@ -4064,1216 +4124,1216 @@ export default function WebullTrading({ isLightMode = false }) {
                     margin: '-8px',
                     ...(ticketFlash
                       ? {
-                          boxShadow: '0 0 35px rgba(56, 189, 248, 0.75)',
-                          border: '2px solid #38bdf8',
-                        }
+                        boxShadow: '0 0 35px rgba(56, 189, 248, 0.75)',
+                        border: '2px solid #38bdf8',
+                      }
                       : { border: '2px solid transparent' }),
                   }}
                 >
                   {/* Redesigned Order Placement Header Cards (matching Binance.US) */}
                   <div className="trading-order-header-cards">
-                  {/* Selected Asset Available Card */}
-                  <div className="trading-asset-card">
-                    <CryptoIcon symbol={selectedSymbol} size={32} />
-                    <div className="trading-asset-card-details">
-                      <span className="trading-asset-card-label">{selectedSymbol} Available</span>
-                      <span className="trading-asset-card-value">
-                        {number(heldQuantity, selectedInstrumentType === 'CRYPTO' ? 6 : 2)}{' '}
-                        <small>{selectedInstrumentType === 'CRYPTO' ? selectedSymbol.replace(/USD$/, '') : ['OPTION', 'FUTURES', 'EVENT'].includes(selectedInstrumentType) ? 'Contracts' : 'Shares'}</small>
-                      </span>
-                      {heldValue > 0 && (
+                    {/* Selected Asset Available Card */}
+                    <div className="trading-asset-card">
+                      <CryptoIcon symbol={selectedSymbol} size={32} />
+                      <div className="trading-asset-card-details">
+                        <span className="trading-asset-card-label">{selectedSymbol} Available</span>
+                        <span className="trading-asset-card-value">
+                          {number(heldQuantity, selectedInstrumentType === 'CRYPTO' ? 6 : 2)}{' '}
+                          <small>{selectedInstrumentType === 'CRYPTO' ? selectedSymbol.replace(/USD$/, '') : ['OPTION', 'FUTURES', 'EVENT'].includes(selectedInstrumentType) ? 'Contracts' : 'Shares'}</small>
+                        </span>
+                        {heldValue > 0 && (
+                          <span className="trading-asset-card-sub">
+                            ≈ ${number(heldValue)} USD
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Cash / Buying Power Card */}
+                    <div className="trading-asset-card">
+                      <CryptoIcon symbol="USD" size={32} />
+                      <div className="trading-asset-card-details" style={{ width: '100%' }}>
+                        <span className="trading-asset-card-label">USD Cash Available</span>
+                        <span className="trading-asset-card-value">
+                          ${number(cashBalance)} <small>USD</small>
+                        </span>
                         <span className="trading-asset-card-sub">
-                          ≈ ${number(heldValue)} USD
+                          {activeAccount?.account_label || activeAccount?.account_name || 'Webull Account'}{' '}
+                          ({activeAccount?.account_id_masked || (selectedAccountId ? `••••${String(selectedAccountId).slice(-4)}` : '')}) · Ready to trade
                         </span>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Cash / Buying Power Card */}
-                  <div className="trading-asset-card">
-                    <CryptoIcon symbol="USD" size={32} />
-                    <div className="trading-asset-card-details" style={{ width: '100%' }}>
-                      <span className="trading-asset-card-label">USD Cash Available</span>
-                      <span className="trading-asset-card-value">
-                        ${number(cashBalance)} <small>USD</small>
-                      </span>
-                      <span className="trading-asset-card-sub">
-                        {activeAccount?.account_label || activeAccount?.account_name || 'Webull Account'}{' '}
-                        ({activeAccount?.account_id_masked || (selectedAccountId ? `••••${String(selectedAccountId).slice(-4)}` : '')}) · Ready to trade
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Real-time Price Card */}
-                  <div className="trading-asset-card trading-price-card">
-                    <div className="trading-price-header">
-                      <span className="trading-asset-card-label">REAL-TIME PRICE</span>
-                      <span className="live-pulse-dot" />
-                    </div>
-                    <div className="event-price-value-row">
-                      <div className="trading-asset-card-value price-highlight">
-                        {(selectedInstrumentType === 'EVENT' ? eventDisplayPrice : livePrice) > 0
-                          ? `$${number(selectedInstrumentType === 'EVENT' ? eventDisplayPrice : livePrice, (selectedInstrumentType === 'EVENT' ? eventDisplayPrice : livePrice) >= 1 ? 2 : 4)}`
-                          : 'Market Price'}{' '}
-                        <small>USD</small>
                       </div>
-                      {selectedInstrumentType === 'EVENT' && eventUnderlyingPrice > 0 && (
-                        <div className="event-price-changes" aria-label="Event underlying price changes">
-                          {eventPriceChanges.map((change) => {
-                            const isUp = change.percent > 0;
-                            const isDown = change.percent < 0;
-                            return (
-                              <span
-                                key={change.label}
-                                className={`event-price-change ${isUp ? 'up' : isDown ? 'down' : 'flat'}`}
-                                title={change.percent == null ? `${change.label} price history is unavailable` : `${change.label} underlying price change from ${eventUnderlyingHistorySource || 'live market'} data`}
+                    </div>
+
+                    {/* Real-time Price Card */}
+                    <div className="trading-asset-card trading-price-card">
+                      <div className="trading-price-header">
+                        <span className="trading-asset-card-label">REAL-TIME PRICE</span>
+                        <span className="live-pulse-dot" />
+                      </div>
+                      <div className="event-price-value-row">
+                        <div className="trading-asset-card-value price-highlight">
+                          {(selectedInstrumentType === 'EVENT' ? eventDisplayPrice : livePrice) > 0
+                            ? `$${number(selectedInstrumentType === 'EVENT' ? eventDisplayPrice : livePrice, (selectedInstrumentType === 'EVENT' ? eventDisplayPrice : livePrice) >= 1 ? 2 : 4)}`
+                            : 'Market Price'}{' '}
+                          <small>USD</small>
+                        </div>
+                        {selectedInstrumentType === 'EVENT' && eventUnderlyingPrice > 0 && (
+                          <div className="event-price-changes" aria-label="Event underlying price changes">
+                            {eventPriceChanges.map((change) => {
+                              const isUp = change.percent > 0;
+                              const isDown = change.percent < 0;
+                              return (
+                                <span
+                                  key={change.label}
+                                  className={`event-price-change ${isUp ? 'up' : isDown ? 'down' : 'flat'}`}
+                                  title={change.percent == null ? `${change.label} price history is unavailable` : `${change.label} underlying price change from ${eventUnderlyingHistorySource || 'live market'} data`}
+                                >
+                                  <strong>{change.label}</strong>
+                                  {isUp && <FaArrowUp aria-hidden="true" />}
+                                  {isDown && <FaArrowDown aria-hidden="true" />}
+                                  <span>{change.percent == null ? '--' : `${Math.abs(change.percent).toFixed(2)}%`}</span>
+                                </span>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                      <span className="trading-asset-card-sub" title={selectedInstrumentType === 'EVENT' && !eventUnderlyingPrice && eventReferencePrice ? 'Webull contract reference price' : undefined}>Instant Market Rate</span>
+                    </div>
+                  </div>
+
+                  {/* 3. Redesigned Modern Order Panel (matching Binance.US) */}
+                  <form onSubmit={handleOrderSubmit} className="trading-order-panel" noValidate>
+                    {/* Selected Futures Contract Summary Indicator */}
+                    {selectedInstrumentType === 'FUTURES' && selectedFuturesContract && (
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'rgba(13, 148, 136, 0.12)', border: '1px solid rgba(45, 212, 191, 0.3)', borderRadius: '8px', padding: '10px 14px', marginBottom: '14px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                          <span style={{ fontSize: '14px', fontWeight: 800, color: '#2dd4bf' }}>🏁 {selectedFuturesContract.symbol}</span>
+                          <span style={{ fontSize: '12px', color: '#99f6e4' }}>{selectedFuturesContract.name || 'Webull Futures Contract'}</span>
+                        </div>
+                        <span style={{ fontSize: '11px', color: '#5eead4', background: 'rgba(20, 184, 166, 0.2)', padding: '3px 8px', borderRadius: '4px', fontWeight: 700 }}>
+                          {selectedFuturesContract.is_micro ? '⚡ MICRO 1/10x' : 'STANDARD'}
+                        </span>
+                      </div>
+                    )}
+
+                    {/* Webull Event Contract Setup (When EVENT selected) */}
+                    {selectedInstrumentType === 'EVENT' && (
+                      <div className="event-contract-card">
+                        <div className="event-contract-card-header">
+                          <span className="event-contract-card-title">
+                            🎯 Webull Event Contract Setup
+                          </span>
+                          <span className={`event-market-status status-${eventTradableStatus.toLowerCase() || 'unknown'}`}>
+                            {eventStatusLabel}
+                          </span>
+                        </div>
+
+                        <div className="event-contract-selector-grid">
+                          <div>
+                            <label className="order-field-label">Event Category</label>
+                            <select
+                              value={selectedEventCategory}
+                              onChange={(e) => handleEventCategoryChange(e.target.value)}
+                              className="order-styled-input"
+                              disabled={eventMetadataLoading && !eventCategories.length}
+                            >
+                              {eventCategories.map((cat) => (
+                                <option key={cat.category_id || cat.category_code} value={cat.category_code || cat.category_id}>
+                                  {cat.name}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+
+                          <div>
+                            <label className="order-field-label">Duration / Frequency</label>
+                            <select
+                              value={eventDuration}
+                              onChange={(event) => handleEventDurationChange(event.target.value)}
+                              className="order-styled-input"
+                            >
+                              <option value="">All durations</option>
+                              {eventDurationOptions.map((option) => (
+                                <option key={option.value} value={option.value}>{option.label}</option>
+                              ))}
+                            </select>
+                          </div>
+
+                          <div className="event-market-combobox" ref={eventMarketSelectorRef}>
+                            <label className="order-field-label" htmlFor="event-market-search">Select Event Market</label>
+                            <div className="event-market-search-row">
+                              <input
+                                id="event-market-search"
+                                type="search"
+                                value={eventMarketQuery}
+                                onChange={(event) => handleEventMarketQueryChange(event.target.value)}
+                                onKeyDown={(event) => {
+                                  if (event.key === 'Enter') {
+                                    event.preventDefault();
+                                    submitEventMarketSearch();
+                                  }
+                                }}
+                                placeholder="Search every contract by title or symbol"
+                                className="order-styled-input event-market-search-input"
+                                autoComplete="off"
+                                role="combobox"
+                                aria-expanded={eventMarketMenuOpen}
+                                aria-controls="event-market-results"
+                              />
+                              <button
+                                type="button"
+                                className="event-market-menu-toggle"
+                                onClick={submitEventMarketSearch}
+                                aria-label="Search Event Contract markets"
+                                title="Search Event Contract markets"
                               >
-                                <strong>{change.label}</strong>
-                                {isUp && <FaArrowUp aria-hidden="true" />}
-                                {isDown && <FaArrowDown aria-hidden="true" />}
-                                <span>{change.percent == null ? '--' : `${Math.abs(change.percent).toFixed(2)}%`}</span>
-                              </span>
-                            );
-                          })}
-                        </div>
-                      )}
-                    </div>
-                    <span className="trading-asset-card-sub" title={selectedInstrumentType === 'EVENT' && !eventUnderlyingPrice && eventReferencePrice ? 'Webull contract reference price' : undefined}>Instant Market Rate</span>
-                  </div>
-                </div>
-
-                {/* 3. Redesigned Modern Order Panel (matching Binance.US) */}
-                <form onSubmit={handleOrderSubmit} className="trading-order-panel" noValidate>
-                  {/* Selected Futures Contract Summary Indicator */}
-                  {selectedInstrumentType === 'FUTURES' && selectedFuturesContract && (
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'rgba(13, 148, 136, 0.12)', border: '1px solid rgba(45, 212, 191, 0.3)', borderRadius: '8px', padding: '10px 14px', marginBottom: '14px' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                        <span style={{ fontSize: '14px', fontWeight: 800, color: '#2dd4bf' }}>🏁 {selectedFuturesContract.symbol}</span>
-                        <span style={{ fontSize: '12px', color: '#99f6e4' }}>{selectedFuturesContract.name || 'Webull Futures Contract'}</span>
-                      </div>
-                      <span style={{ fontSize: '11px', color: '#5eead4', background: 'rgba(20, 184, 166, 0.2)', padding: '3px 8px', borderRadius: '4px', fontWeight: 700 }}>
-                        {selectedFuturesContract.is_micro ? '⚡ MICRO 1/10x' : 'STANDARD'}
-                      </span>
-                    </div>
-                  )}
-
-                  {/* Webull Event Contract Setup (When EVENT selected) */}
-                  {selectedInstrumentType === 'EVENT' && (
-                    <div className="event-contract-card">
-                      <div className="event-contract-card-header">
-                        <span className="event-contract-card-title">
-                          🎯 Webull Event Contract Setup
-                        </span>
-                        <span className={`event-market-status status-${eventTradableStatus.toLowerCase() || 'unknown'}`}>
-                          {eventStatusLabel}
-                        </span>
-                      </div>
-
-                      <div className="event-contract-selector-grid">
-                        <div>
-                          <label className="order-field-label">Event Category</label>
-                          <select
-                            value={selectedEventCategory}
-                            onChange={(e) => handleEventCategoryChange(e.target.value)}
-                            className="order-styled-input"
-                            disabled={eventMetadataLoading && !eventCategories.length}
-                          >
-                            {eventCategories.map((cat) => (
-                              <option key={cat.category_id || cat.category_code} value={cat.category_code || cat.category_id}>
-                                {cat.name}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-
-                        <div>
-                          <label className="order-field-label">Duration / Frequency</label>
-                          <select
-                            value={eventDuration}
-                            onChange={(event) => handleEventDurationChange(event.target.value)}
-                            className="order-styled-input"
-                          >
-                            <option value="">All durations</option>
-                            {eventDurationOptions.map((option) => (
-                              <option key={option.value} value={option.value}>{option.label}</option>
-                            ))}
-                          </select>
+                                <FaSearch aria-hidden="true" />
+                              </button>
+                            </div>
+                            {eventDuration && (
+                              <div className="event-trending-topics" aria-label={`${selectedEventCategory} trending Event Contract topics`}>
+                                {eventTrendingTopicsFor(selectedEventCategory).map((topic) => (
+                                  <button
+                                    key={topic}
+                                    type="button"
+                                    className="event-trending-topic"
+                                    onClick={() => searchEventTrendingTopic(topic)}
+                                  >
+                                    {topic}
+                                  </button>
+                                ))}
+                              </div>
+                            )}
+                            {eventMarketMenuOpen && (
+                              <div className="event-market-results" id="event-market-results" role="listbox">
+                                <div className="event-market-results-heading">
+                                  <span>{eventSearchSubmitted
+                                    ? `${eventTotalMatches}${eventHasMore ? '+' : ''} verified live contracts`
+                                    : 'Search Webull Event Contracts'}</span>
+                                  {eventLoading && (
+                                    <span>Searching…</span>
+                                  )}
+                                </div>
+                                {!eventSearchSubmitted && !eventLoading && (
+                                  <div className="event-market-empty">
+                                    Enter a contract title or symbol, then select Search.
+                                  </div>
+                                )}
+                                {eventSearchSubmitted && !eventLoading && !eventMarkets.length && (
+                                  <div className="event-market-empty">
+                                    {eventMessage || 'No verified live contracts match this search.'}
+                                  </div>
+                                )}
+                                {eventSearchSubmitted && eventMarkets.map((market) => (
+                                  <button
+                                    key={market.symbol}
+                                    type="button"
+                                    role="option"
+                                    aria-selected={market.symbol === selectedEventMarket?.symbol}
+                                    className={`event-market-result ${market.symbol === selectedEventMarket?.symbol ? 'selected' : ''}`}
+                                    onClick={() => applyEventMarket(market)}
+                                  >
+                                    <span className="event-market-result-copy">
+                                      <strong>{market.name}</strong>
+                                      <span className="event-market-condition">{eventConditionLabel(market)}</span>
+                                      <small className="event-market-period">{eventPeriodLabel(market)}</small>
+                                      <small className="event-market-symbol">{market.symbol}</small>
+                                    </span>
+                                    <span className="event-market-result-prices">
+                                      <span>Yes {eventMoney(market.yes_ask)}</span>
+                                      <span>No {eventMoney(market.no_ask)}</span>
+                                      <small>Vol {number(market.volume, 0)}</small>
+                                    </span>
+                                  </button>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                          {eventSearchSubmitted && eventMessage && (
+                            <p className="event-catalog-status event-catalog-status-bounded" role="status">⚠️ {eventMessage}</p>
+                          )}
                         </div>
 
-                        <div className="event-market-combobox" ref={eventMarketSelectorRef}>
-                          <label className="order-field-label" htmlFor="event-market-search">Select Event Market</label>
-                          <div className="event-market-search-row">
-                            <input
-                              id="event-market-search"
-                              type="search"
-                              value={eventMarketQuery}
-                              onChange={(event) => handleEventMarketQueryChange(event.target.value)}
-                              onKeyDown={(event) => {
-                                if (event.key === 'Enter') {
-                                  event.preventDefault();
-                                  submitEventMarketSearch();
-                                }
-                              }}
-                              placeholder="Search every contract by title or symbol"
-                              className="order-styled-input event-market-search-input"
-                              autoComplete="off"
-                              role="combobox"
-                              aria-expanded={eventMarketMenuOpen}
-                              aria-controls="event-market-results"
-                            />
+                        {selectedEventMarket && (
+                          <div className="selected-event-market" aria-live="polite">
+                            <div className="selected-event-market-heading">
+                              <span>Selected contract</span>
+                              <strong>{selectedEventMarket.name}</strong>
+                              <code>{selectedEventMarket.symbol}</code>
+                            </div>
+                            <div className="selected-event-market-stats">
+                              <span>Volume <strong>{number(selectedEventMarket.volume, 0)}</strong></span>
+                              <span>Open interest <strong>{number(selectedEventMarket.open_interest, 0)}</strong></span>
+                              <span>Last trade <strong>{eventTimestampLabel(selectedEventMarket.last_trade_time)}</strong></span>
+                            </div>
+                            <div className="event-contract-basis">{eventProposition.basis}</div>
+                            <div className="event-contract-period">Contract period: <strong>{eventPeriodLabel(selectedEventMarket)}</strong></div>
+                            <div className="event-proposition-grid">
+                              <div className="yes">
+                                <span>YES settles at {eventMoney(eventSettlementPayout)}</span>
+                                <strong>{eventProposition.yes}</strong>
+                              </div>
+                              <div className="no">
+                                <span>NO settles at {eventMoney(eventSettlementPayout)}</span>
+                                <strong>{eventProposition.no}</strong>
+                              </div>
+                            </div>
+                            {eventProposition.detail && <p className="event-contract-detail">{eventProposition.detail}</p>}
+                          </div>
+                        )}
+
+                        <div className="event-outcome-section">
+                          <label className="order-field-label">Contract Outcome</label>
+                          <div className="event-outcome-grid">
                             <button
                               type="button"
-                              className="event-market-menu-toggle"
-                              onClick={submitEventMarketSearch}
-                              aria-label="Search Event Contract markets"
-                              title="Search Event Contract markets"
+                              onClick={() => chooseEventOutcome('yes')}
+                              className={`event-outcome-button yes ${orderForm.eventOutcome === 'yes' ? 'selected' : ''}`}
+                              disabled={!selectedEventMarket}
                             >
-                              <FaSearch aria-hidden="true" />
+                              <strong>👍 YES · {orderForm.side === 'SELL' ? 'Sell' : 'Buy'} {eventMoney(eventQuoteFor(selectedEventMarket, 'yes', orderForm.side))}</strong>
+                              <span>Bid {eventMoney(selectedEventMarket?.yes_bid)} · Ask {eventMoney(selectedEventMarket?.yes_ask)}</span>
+                              <small>Available size {number(orderForm.side === 'SELL' ? selectedEventMarket?.yes_bid_size : selectedEventMarket?.yes_ask_size, 0)}</small>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => chooseEventOutcome('no')}
+                              className={`event-outcome-button no ${orderForm.eventOutcome === 'no' ? 'selected' : ''}`}
+                              disabled={!selectedEventMarket}
+                            >
+                              <strong>👎 NO · {orderForm.side === 'SELL' ? 'Sell' : 'Buy'} {eventMoney(eventQuoteFor(selectedEventMarket, 'no', orderForm.side))}</strong>
+                              <span>Bid {eventMoney(selectedEventMarket?.no_bid)} · Ask {eventMoney(selectedEventMarket?.no_ask)}</span>
+                              <small>Available size {number(orderForm.side === 'SELL' ? selectedEventMarket?.no_bid_size : selectedEventMarket?.no_ask_size, 0)}</small>
                             </button>
                           </div>
-                          {eventDuration && (
-                            <div className="event-trending-topics" aria-label={`${selectedEventCategory} trending Event Contract topics`}>
-                              {eventTrendingTopicsFor(selectedEventCategory).map((topic) => (
-                                <button
-                                  key={topic}
-                                  type="button"
-                                  className="event-trending-topic"
-                                  onClick={() => searchEventTrendingTopic(topic)}
-                                >
-                                  {topic}
-                                </button>
-                              ))}
-                            </div>
-                          )}
-                          {eventMarketMenuOpen && (
-                            <div className="event-market-results" id="event-market-results" role="listbox">
-                              <div className="event-market-results-heading">
-                                <span>{eventSearchSubmitted
-                                  ? `${eventTotalMatches}${eventHasMore ? '+' : ''} verified live contracts`
-                                  : 'Search Webull Event Contracts'}</span>
-                                {eventLoading && (
-                                  <span>Searching…</span>
-                                )}
-                              </div>
-                              {!eventSearchSubmitted && !eventLoading && (
-                                <div className="event-market-empty">
-                                  Enter a contract title or symbol, then select Search.
-                                </div>
-                              )}
-                              {eventSearchSubmitted && !eventLoading && !eventMarkets.length && (
-                                <div className="event-market-empty">
-                                  {eventMessage || 'No verified live contracts match this search.'}
-                                </div>
-                              )}
-                              {eventSearchSubmitted && eventMarkets.map((market) => (
-                                <button
-                                  key={market.symbol}
-                                  type="button"
-                                  role="option"
-                                  aria-selected={market.symbol === selectedEventMarket?.symbol}
-                                  className={`event-market-result ${market.symbol === selectedEventMarket?.symbol ? 'selected' : ''}`}
-                                  onClick={() => applyEventMarket(market)}
-                                >
-                                  <span className="event-market-result-copy">
-                                    <strong>{market.name}</strong>
-                                    <span className="event-market-condition">{eventConditionLabel(market)}</span>
-                                    <small className="event-market-period">{eventPeriodLabel(market)}</small>
-                                    <small className="event-market-symbol">{market.symbol}</small>
-                                  </span>
-                                  <span className="event-market-result-prices">
-                                    <span>Yes {eventMoney(market.yes_ask)}</span>
-                                    <span>No {eventMoney(market.no_ask)}</span>
-                                    <small>Vol {number(market.volume, 0)}</small>
-                                  </span>
-                                </button>
-                              ))}
-                            </div>
-                          )}
                         </div>
-                        {eventSearchSubmitted && eventMessage && (
-                          <p className="event-catalog-status event-catalog-status-bounded" role="status">⚠️ {eventMessage}</p>
+
+                        <div className="event-rules-grid">
+                          <div>
+                            <span>Order Type</span>
+                            <strong>{eventRules.order_types?.map((rule) => `${rule.order_type} · ${(rule.time_in_force || []).join('/')}`).join(', ') || 'Unavailable'}</strong>
+                          </div>
+                          <div>
+                            <span>Allowed Order Price</span>
+                            <strong>{eventPriceRangeLabel(eventRules.price_ranges)}</strong>
+                          </div>
+                          <div>
+                            <span>Settlement</span>
+                            <strong>{Number.isFinite(eventSettlementPayout) ? `${eventMoney(eventSettlementPayout)} if correct · $0.00 if incorrect` : 'Unavailable'}</strong>
+                          </div>
+                          <div>
+                            <span>Contract Cutoff</span>
+                            <strong>{eventContractCutoff ? eventCutoffLabel(eventContractCutoff) : 'See Webull contract rules'}</strong>
+                          </div>
+                          <div>
+                            <span>Order Quantity</span>
+                            <strong>{eventRules.fractionable ? 'Fractional contracts allowed' : 'Whole contracts only'}{eventRules.max_quantity ? ` · max ${number(eventRules.max_quantity, 0)}` : ''}</strong>
+                          </div>
+                        </div>
+
+                        <div className="event-payout-summary" aria-live="polite">
+                          <span>
+                            Current {String(orderForm.eventOutcome || '').toUpperCase()} {orderForm.side === 'SELL' ? 'bid' : 'ask'}:
+                            <strong>{eventMoney(eventSelectedQuote)}</strong>
+                          </span>
+                          <span>
+                            Profit per correct contract at your limit:
+                            <strong>{eventPotentialProfitEach != null ? eventMoney(eventPotentialProfitEach) : '—'}</strong>
+                          </span>
+                          <span>
+                            Gross winning payout for {Number.isFinite(eventQuantity) && eventQuantity > 0 ? number(eventQuantity, eventRules.fractionable ? 5 : 0) : '—'}:
+                            <strong>{eventGrossWinningPayout != null ? eventMoney(eventGrossWinningPayout) : '—'}</strong>
+                          </span>
+                          <span>
+                            Potential profit before fees:
+                            <strong>{eventPotentialProfitTotal != null ? eventMoney(eventPotentialProfitTotal) : '—'}</strong>
+                          </span>
+                        </div>
+
+                        {eventQuoteMessage && <p className="event-quote-status" role="status">⚠️ {eventQuoteMessage}</p>}
+                      </div>
+                    )}
+
+                    {/* Options Chain & Live Order Book (When OPTION selected) - Positioned Right Below Asset Class Switcher */}
+                    {selectedInstrumentType === 'OPTION' && (
+                      <WebullOptionChain
+                        defaultSymbol={selectedSymbol}
+                        availableTraditional={availableTraditional}
+                        selectedContract={{
+                          symbol: selectedSymbol,
+                          optionType: orderForm.optionType,
+                          strike: orderForm.optionStrike,
+                          expiration: orderForm.optionExpiration,
+                          price: orderForm.price,
+                          side: orderForm.side,
+                          optionStrategy: orderForm.optionStrategy,
+                          optionStrategyWidth: orderForm.optionStrategyWidth,
+                        }}
+                        onSelectOptionContract={handleSelectOptionContract}
+                        onUnderlyingPriceChange={setOptionUnderlyingPrice}
+                        chartStrikeRequest={chartStrikeRequest}
+                        onChartStrikeRequestHandled={(requestId) => {
+                          setChartStrikeRequest((previous) => (
+                            previous?.id === requestId ? null : previous
+                          ));
+                        }}
+                        onSymbolChange={(newSym) => {
+                          handleOptionUnderlyingChange(newSym);
+                        }}
+                        onStrategyChange={({ strategy, width }) => {
+                          setOrderForm((previous) => ({
+                            ...previous,
+                            optionStrategy: strategy,
+                            optionStrategyWidth: width,
+                            optionStrategyLegs: [],
+                            optionStrike: '',
+                            optionExpiration: '',
+                            optionIv: '',
+                            optionMarketPrice: '',
+                            price: '',
+                          }));
+                        }}
+                        isLightMode={isLightMode}
+                      />
+                    )}
+
+
+
+
+                    {/* Options Contract Setup (When OPTION selected) */}
+                    {selectedInstrumentType === 'OPTION' && (
+                      <div style={{ background: 'rgba(139, 92, 246, 0.12)', border: '1px solid rgba(139, 92, 246, 0.35)', borderRadius: '8px', padding: '14px', marginBottom: '14px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                          <span style={{ fontSize: '13px', fontWeight: 700, color: '#c4b5fd', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <span>🎯</span> Option Contract Setup ({selectedSymbol})
+                          </span>
+                          <span style={{ fontSize: '11px', color: '#a78bfa', background: 'rgba(139, 92, 246, 0.25)', padding: '3px 8px', borderRadius: '12px', fontWeight: 600 }}>
+                            {optionStrategyDefinition(orderForm.optionStrategy).label} · {orderForm.optionStrategyLegs?.length || 1} leg{(orderForm.optionStrategyLegs?.length || 1) === 1 ? '' : 's'}
+                          </span>
+                        </div>
+
+                        {orderForm.optionStrike && orderForm.optionExpiration ? (
+                          <div style={{ background: 'rgba(0, 0, 0, 0.3)', border: '1px solid rgba(139, 92, 246, 0.35)', borderRadius: '6px', padding: '8px 12px', marginBottom: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+                            <span style={{ fontSize: '13px', fontWeight: 700, color: '#f8fafc' }}>
+                              {selectedSymbol} {orderForm.optionExpiration} ${parseFloat(orderForm.optionStrike || 0).toFixed(2)} {orderForm.optionType}
+                            </span>
+                            <span style={{ fontSize: '11px', color: '#38bdf8', fontWeight: 700, background: 'rgba(56, 189, 248, 0.15)', padding: '2px 8px', borderRadius: '10px' }}>
+                              {orderForm.side} @ ${orderForm.price || '0.00'}
+                            </span>
+                          </div>
+                        ) : (
+                          <p style={{ margin: '0 0 10px', fontSize: '12px', color: '#94a3b8' }}>
+                            💡 Tip: Click any <strong>Bid</strong> or <strong>Ask</strong> in the Options Chain above to instantly load contract terms and prices.
+                          </p>
                         )}
-                      </div>
-
-                      {selectedEventMarket && (
-                        <div className="selected-event-market" aria-live="polite">
-                          <div className="selected-event-market-heading">
-                            <span>Selected contract</span>
-                            <strong>{selectedEventMarket.name}</strong>
-                            <code>{selectedEventMarket.symbol}</code>
-                          </div>
-                          <div className="selected-event-market-stats">
-                            <span>Volume <strong>{number(selectedEventMarket.volume, 0)}</strong></span>
-                            <span>Open interest <strong>{number(selectedEventMarket.open_interest, 0)}</strong></span>
-                            <span>Last trade <strong>{eventTimestampLabel(selectedEventMarket.last_trade_time)}</strong></span>
-                          </div>
-                          <div className="event-contract-basis">{eventProposition.basis}</div>
-                          <div className="event-contract-period">Contract period: <strong>{eventPeriodLabel(selectedEventMarket)}</strong></div>
-                          <div className="event-proposition-grid">
-                            <div className="yes">
-                              <span>YES settles at {eventMoney(eventSettlementPayout)}</span>
-                              <strong>{eventProposition.yes}</strong>
-                            </div>
-                            <div className="no">
-                              <span>NO settles at {eventMoney(eventSettlementPayout)}</span>
-                              <strong>{eventProposition.no}</strong>
-                            </div>
-                          </div>
-                          {eventProposition.detail && <p className="event-contract-detail">{eventProposition.detail}</p>}
-                        </div>
-                      )}
-
-                      <div className="event-outcome-section">
-                        <label className="order-field-label">Contract Outcome</label>
-                        <div className="event-outcome-grid">
-                          <button
-                            type="button"
-                            onClick={() => chooseEventOutcome('yes')}
-                            className={`event-outcome-button yes ${orderForm.eventOutcome === 'yes' ? 'selected' : ''}`}
-                            disabled={!selectedEventMarket}
-                          >
-                            <strong>👍 YES · {orderForm.side === 'SELL' ? 'Sell' : 'Buy'} {eventMoney(eventQuoteFor(selectedEventMarket, 'yes', orderForm.side))}</strong>
-                            <span>Bid {eventMoney(selectedEventMarket?.yes_bid)} · Ask {eventMoney(selectedEventMarket?.yes_ask)}</span>
-                            <small>Available size {number(orderForm.side === 'SELL' ? selectedEventMarket?.yes_bid_size : selectedEventMarket?.yes_ask_size, 0)}</small>
-                          </button>
-
-                          <button
-                            type="button"
-                            onClick={() => chooseEventOutcome('no')}
-                            className={`event-outcome-button no ${orderForm.eventOutcome === 'no' ? 'selected' : ''}`}
-                            disabled={!selectedEventMarket}
-                          >
-                            <strong>👎 NO · {orderForm.side === 'SELL' ? 'Sell' : 'Buy'} {eventMoney(eventQuoteFor(selectedEventMarket, 'no', orderForm.side))}</strong>
-                            <span>Bid {eventMoney(selectedEventMarket?.no_bid)} · Ask {eventMoney(selectedEventMarket?.no_ask)}</span>
-                            <small>Available size {number(orderForm.side === 'SELL' ? selectedEventMarket?.no_bid_size : selectedEventMarket?.no_ask_size, 0)}</small>
-                          </button>
-                        </div>
-                      </div>
-
-                      <div className="event-rules-grid">
-                        <div>
-                          <span>Order Type</span>
-                          <strong>{eventRules.order_types?.map((rule) => `${rule.order_type} · ${(rule.time_in_force || []).join('/')}`).join(', ') || 'Unavailable'}</strong>
-                        </div>
-                        <div>
-                          <span>Allowed Order Price</span>
-                          <strong>{eventPriceRangeLabel(eventRules.price_ranges)}</strong>
-                        </div>
-                        <div>
-                          <span>Settlement</span>
-                          <strong>{Number.isFinite(eventSettlementPayout) ? `${eventMoney(eventSettlementPayout)} if correct · $0.00 if incorrect` : 'Unavailable'}</strong>
-                        </div>
-                        <div>
-                          <span>Contract Cutoff</span>
-                          <strong>{eventContractCutoff ? eventCutoffLabel(eventContractCutoff) : 'See Webull contract rules'}</strong>
-                        </div>
-                        <div>
-                          <span>Order Quantity</span>
-                          <strong>{eventRules.fractionable ? 'Fractional contracts allowed' : 'Whole contracts only'}{eventRules.max_quantity ? ` · max ${number(eventRules.max_quantity, 0)}` : ''}</strong>
-                        </div>
-                      </div>
-
-                      <div className="event-payout-summary" aria-live="polite">
-                        <span>
-                          Current {String(orderForm.eventOutcome || '').toUpperCase()} {orderForm.side === 'SELL' ? 'bid' : 'ask'}:
-                          <strong>{eventMoney(eventSelectedQuote)}</strong>
-                        </span>
-                        <span>
-                          Profit per correct contract at your limit:
-                          <strong>{eventPotentialProfitEach != null ? eventMoney(eventPotentialProfitEach) : '—'}</strong>
-                        </span>
-                        <span>
-                          Gross winning payout for {Number.isFinite(eventQuantity) && eventQuantity > 0 ? number(eventQuantity, eventRules.fractionable ? 5 : 0) : '—'}:
-                          <strong>{eventGrossWinningPayout != null ? eventMoney(eventGrossWinningPayout) : '—'}</strong>
-                        </span>
-                        <span>
-                          Potential profit before fees:
-                          <strong>{eventPotentialProfitTotal != null ? eventMoney(eventPotentialProfitTotal) : '—'}</strong>
-                        </span>
-                      </div>
-
-                      {eventQuoteMessage && <p className="event-quote-status" role="status">⚠️ {eventQuoteMessage}</p>}
-                    </div>
-                  )}
-
-                  {/* Options Chain & Live Order Book (When OPTION selected) - Positioned Right Below Asset Class Switcher */}
-                  {selectedInstrumentType === 'OPTION' && (
-                    <WebullOptionChain
-                      defaultSymbol={selectedSymbol}
-                      availableTraditional={availableTraditional}
-                      selectedContract={{
-                        symbol: selectedSymbol,
-                        optionType: orderForm.optionType,
-                        strike: orderForm.optionStrike,
-                        expiration: orderForm.optionExpiration,
-                        price: orderForm.price,
-                        side: orderForm.side,
-                        optionStrategy: orderForm.optionStrategy,
-                        optionStrategyWidth: orderForm.optionStrategyWidth,
-                      }}
-                      onSelectOptionContract={handleSelectOptionContract}
-                      onUnderlyingPriceChange={setOptionUnderlyingPrice}
-                      chartStrikeRequest={chartStrikeRequest}
-                      onChartStrikeRequestHandled={(requestId) => {
-                        setChartStrikeRequest((previous) => (
-                          previous?.id === requestId ? null : previous
-                        ));
-                      }}
-                      onSymbolChange={(newSym) => {
-                        handleOptionUnderlyingChange(newSym);
-                      }}
-                      onStrategyChange={({ strategy, width }) => {
-                        setOrderForm((previous) => ({
-                          ...previous,
-                          optionStrategy: strategy,
-                          optionStrategyWidth: width,
-                          optionStrategyLegs: [],
-                          optionStrike: '',
-                          optionExpiration: '',
-                          optionIv: '',
-                          optionMarketPrice: '',
-                          price: '',
-                        }));
-                      }}
-                      isLightMode={isLightMode}
-                    />
-                  )}
-                  
-
-
-
-                  {/* Options Contract Setup (When OPTION selected) */}
-                  {selectedInstrumentType === 'OPTION' && (
-                    <div style={{ background: 'rgba(139, 92, 246, 0.12)', border: '1px solid rgba(139, 92, 246, 0.35)', borderRadius: '8px', padding: '14px', marginBottom: '14px' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-                        <span style={{ fontSize: '13px', fontWeight: 700, color: '#c4b5fd', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                          <span>🎯</span> Option Contract Setup ({selectedSymbol})
-                        </span>
-                        <span style={{ fontSize: '11px', color: '#a78bfa', background: 'rgba(139, 92, 246, 0.25)', padding: '3px 8px', borderRadius: '12px', fontWeight: 600 }}>
-                          {optionStrategyDefinition(orderForm.optionStrategy).label} · {orderForm.optionStrategyLegs?.length || 1} leg{(orderForm.optionStrategyLegs?.length || 1) === 1 ? '' : 's'}
-                        </span>
-                      </div>
-
-                      {orderForm.optionStrike && orderForm.optionExpiration ? (
-                        <div style={{ background: 'rgba(0, 0, 0, 0.3)', border: '1px solid rgba(139, 92, 246, 0.35)', borderRadius: '6px', padding: '8px 12px', marginBottom: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
-                          <span style={{ fontSize: '13px', fontWeight: 700, color: '#f8fafc' }}>
-                            {selectedSymbol} {orderForm.optionExpiration} ${parseFloat(orderForm.optionStrike || 0).toFixed(2)} {orderForm.optionType}
-                          </span>
-                          <span style={{ fontSize: '11px', color: '#38bdf8', fontWeight: 700, background: 'rgba(56, 189, 248, 0.15)', padding: '2px 8px', borderRadius: '10px' }}>
-                            {orderForm.side} @ ${orderForm.price || '0.00'}
-                          </span>
-                        </div>
-                      ) : (
-                        <p style={{ margin: '0 0 10px', fontSize: '12px', color: '#94a3b8' }}>
-                          💡 Tip: Click any <strong>Bid</strong> or <strong>Ask</strong> in the Options Chain above to instantly load contract terms and prices.
+                        <p style={{ margin: '0 0 12px', fontSize: '12px', color: '#c4b5fd', lineHeight: 1.45 }}>
+                          These values reflect the contract selected above. Buy is enabled only when available USD covers one contract; Sell is enabled only for the exact owned call or put in this Webull account.
                         </p>
-                      )}
-                      <p style={{ margin: '0 0 12px', fontSize: '12px', color: '#c4b5fd', lineHeight: 1.45 }}>
-                        These values reflect the contract selected above. Buy is enabled only when available USD covers one contract; Sell is enabled only for the exact owned call or put in this Webull account.
-                      </p>
-                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '12px' }}>
-                        <div>
-                          <label className="order-field-label">Option Type</label>
-                          <div
-                            className="order-styled-input"
-                            role="status"
-                            aria-label="Selected option type"
-                            style={{ fontWeight: 700, color: '#fff' }}
-                          >
-                            {orderForm.optionType || '—'}
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '12px' }}>
+                          <div>
+                            <label className="order-field-label">Option Type</label>
+                            <div
+                              className="order-styled-input"
+                              role="status"
+                              aria-label="Selected option type"
+                              style={{ fontWeight: 700, color: '#fff' }}
+                            >
+                              {orderForm.optionType || '—'}
+                            </div>
+                          </div>
+                          <div>
+                            <label className="order-field-label">Strike Price ($)</label>
+                            <input
+                              type="text"
+                              inputMode="decimal"
+                              value={orderForm.optionStrike}
+                              readOnly
+                              aria-readonly="true"
+                              className="order-styled-input"
+                            />
+                          </div>
+                          <div>
+                            <label className="order-field-label">Expiration Date</label>
+                            <input
+                              type="date"
+                              value={orderForm.optionExpiration}
+                              readOnly
+                              aria-readonly="true"
+                              className="order-styled-input"
+                            />
                           </div>
                         </div>
-                        <div>
-                          <label className="order-field-label">Strike Price ($)</label>
-                          <input
-                            type="text"
-                            inputMode="decimal"
-                            value={orderForm.optionStrike}
-                            readOnly
-                            aria-readonly="true"
-                            className="order-styled-input"
-                          />
-                        </div>
-                        <div>
-                          <label className="order-field-label">Expiration Date</label>
-                          <input
-                            type="date"
-                            value={orderForm.optionExpiration}
-                            readOnly
-                            aria-readonly="true"
-                            className="order-styled-input"
-                          />
-                        </div>
-                      </div>
 
-                      {/* Real-time Breakeven & Risk Safeguards */}
-                      {Number(orderForm.optionStrike) > 0 && Number(orderForm.price) > 0 && (
-                        <div style={{ marginTop: '12px', display: 'flex', gap: '16px', flexWrap: 'wrap', fontSize: '12px', color: '#e2e8f0', background: 'rgba(0,0,0,0.25)', padding: '8px 12px', borderRadius: '6px' }}>
-                          <div>
-                            <span style={{ color: '#94a3b8' }}>Breakeven Price: </span>
-                            <strong style={{ color: '#38bdf8' }}>
-                              ${(orderForm.optionType === 'CALL'
-                                ? Number(orderForm.optionStrike) + Number(orderForm.price)
-                                : Number(orderForm.optionStrike) - Number(orderForm.price)).toFixed(2)}
-                            </strong>
+                        {/* Real-time Breakeven & Risk Safeguards */}
+                        {Number(orderForm.optionStrike) > 0 && Number(orderForm.price) > 0 && (
+                          <div style={{ marginTop: '12px', display: 'flex', gap: '16px', flexWrap: 'wrap', fontSize: '12px', color: '#e2e8f0', background: 'rgba(0,0,0,0.25)', padding: '8px 12px', borderRadius: '6px' }}>
+                            <div>
+                              <span style={{ color: '#94a3b8' }}>Breakeven Price: </span>
+                              <strong style={{ color: '#38bdf8' }}>
+                                ${(orderForm.optionType === 'CALL'
+                                  ? Number(orderForm.optionStrike) + Number(orderForm.price)
+                                  : Number(orderForm.optionStrike) - Number(orderForm.price)).toFixed(2)}
+                              </strong>
+                            </div>
+                            <div>
+                              <span style={{ color: '#94a3b8' }}>Maximum Risk: </span>
+                              <strong style={{ color: '#f87171' }}>
+                                ${((Number(orderForm.quantity) || 1) * Number(orderForm.price) * 100).toFixed(2)} (Total Premium)
+                              </strong>
+                            </div>
+                            <div>
+                              <span style={{ color: '#94a3b8' }}>Est. Total Premium: </span>
+                              <strong style={{ color: '#4ade80' }}>
+                                ${((Number(orderForm.quantity) || 1) * Number(orderForm.price) * 100).toFixed(2)}
+                              </strong>
+                            </div>
                           </div>
-                          <div>
-                            <span style={{ color: '#94a3b8' }}>Maximum Risk: </span>
-                            <strong style={{ color: '#f87171' }}>
-                              ${((Number(orderForm.quantity) || 1) * Number(orderForm.price) * 100).toFixed(2)} (Total Premium)
-                            </strong>
-                          </div>
-                          <div>
-                            <span style={{ color: '#94a3b8' }}>Est. Total Premium: </span>
-                            <strong style={{ color: '#4ade80' }}>
-                              ${((Number(orderForm.quantity) || 1) * Number(orderForm.price) * 100).toFixed(2)}
-                            </strong>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  {/* Row 1: Order Side & Order Types (Stacked with Order Types underneath Order Side) */}
-                  <div className="order-control-row">
-                    <div className="order-control-group side-group">
-                      <label className="order-field-label">Order Side</label>
-                      <div className={`order-side-segmented ${selectedInstrumentType === 'EQUITY' ? (isTestMode && currentHoldingIsShort ? 'four-cols' : 'three-cols') : ''}`}>
-                        <button
-                          type="button"
-                          className={`order-side-btn buy-side ${orderForm.side === 'BUY' ? 'active' : ''}`}
-                          onClick={() => handleTicketSideChange('BUY')}
-                          disabled={(selectedInstrumentType === 'EVENT' ? !eventBuyEnabled : ticketOrderControlsDisabled) || assetClassDisabled(selectedInstrumentType)}
-                          title={selectedInstrumentType === 'OPTION' && !optionBuyEnabled ? optionExecutionMessage || 'A priced option contract and enough USD for one contract are required to buy.' : futuresOrderControlsDisabled ? futuresExecutionMessage : selectedInstrumentType === 'EVENT' ? 'Buy to open event contract' : 'Buy this instrument'}
-                        >
-                          📈 Buy {selectedInstrumentType === 'EVENT' ? '(To Open)' : ''}
-                        </button>
-                        <button
-                          type="button"
-                          className={`order-side-btn sell-side ${orderForm.side === 'SELL' ? 'active' : ''}`}
-                          onClick={() => handleTicketSideChange('SELL')}
-                          disabled={(selectedInstrumentType === 'EVENT' ? !eventSellEnabled : ticketOrderControlsDisabled) || assetClassDisabled(selectedInstrumentType)}
-                          title={selectedInstrumentType === 'OPTION' && !optionSellEnabled ? 'Sell is available only for an exact option contract currently owned in this Webull account.' : futuresOrderControlsDisabled ? futuresExecutionMessage : selectedInstrumentType === 'EVENT' ? 'Sell to close event contract' : 'Sell this instrument'}
-                        >
-                          📉 Sell {selectedInstrumentType === 'EVENT' ? '(To Close)' : ''}
-                        </button>
-                        {selectedInstrumentType === 'EQUITY' && isTestMode && currentHoldingIsShort && (
-                          <button
-                            type="button"
-                            className={`order-side-btn cover-side ${orderForm.side === 'BUY_TO_CLOSE' ? 'active' : ''}`}
-                            onClick={() => {
-                              setOrderForm((prev) => ({ ...prev, side: 'BUY_TO_CLOSE', entrustType: 'QTY' }));
-                              setBalancePercentage(0);
-                              setOrderValidationError('');
-                            }}
-                            disabled={ticketOrderControlsDisabled || heldQuantity <= 0}
-                            title={`Buy up to ${formatQuantityForTicket(heldQuantity, 6) || '0'} units to close this simulated short position`}
-                          >
-                            ↩ Cover
-                          </button>
-                        )}
-                        {selectedInstrumentType === 'EQUITY' && (
-                          <button
-                            type="button"
-                            className={`order-side-btn short-side ${orderForm.side === 'SHORT' ? 'active' : ''}`}
-                            onClick={() => {
-                              setOrderForm((prev) => ({ ...prev, side: 'SHORT' }));
-                              setBalancePercentage(0);
-                              setOrderValidationError('');
-                            }}
-                            disabled={ticketOrderControlsDisabled || assetClassDisabled('EQUITY')}
-                            title="Sell short this equity (Webull margin account required)"
-                          >
-                            🔻 Short
-                          </button>
                         )}
                       </div>
+                    )}
+
+                    {/* Row 1: Order Side & Order Types (Stacked with Order Types underneath Order Side) */}
+                    <div className="order-control-row">
+                      <div className="order-control-group side-group">
+                        <label className="order-field-label">Order Side</label>
+                        <div className={`order-side-segmented ${selectedInstrumentType === 'EQUITY' ? (isTestMode && currentHoldingIsShort ? 'four-cols' : 'three-cols') : ''}`}>
+                          <button
+                            type="button"
+                            className={`order-side-btn buy-side ${orderForm.side === 'BUY' ? 'active' : ''}`}
+                            onClick={() => handleTicketSideChange('BUY')}
+                            disabled={(selectedInstrumentType === 'EVENT' ? !eventBuyEnabled : ticketOrderControlsDisabled) || assetClassDisabled(selectedInstrumentType)}
+                            title={selectedInstrumentType === 'OPTION' && !optionBuyEnabled ? optionExecutionMessage || 'A priced option contract and enough USD for one contract are required to buy.' : futuresOrderControlsDisabled ? futuresExecutionMessage : selectedInstrumentType === 'EVENT' ? 'Buy to open event contract' : 'Buy this instrument'}
+                          >
+                            📈 Buy {selectedInstrumentType === 'EVENT' ? '(To Open)' : ''}
+                          </button>
+                          <button
+                            type="button"
+                            className={`order-side-btn sell-side ${orderForm.side === 'SELL' ? 'active' : ''}`}
+                            onClick={() => handleTicketSideChange('SELL')}
+                            disabled={(selectedInstrumentType === 'EVENT' ? !eventSellEnabled : ticketOrderControlsDisabled) || assetClassDisabled(selectedInstrumentType)}
+                            title={selectedInstrumentType === 'OPTION' && !optionSellEnabled ? 'Sell is available only for an exact option contract currently owned in this Webull account.' : futuresOrderControlsDisabled ? futuresExecutionMessage : selectedInstrumentType === 'EVENT' ? 'Sell to close event contract' : 'Sell this instrument'}
+                          >
+                            📉 Sell {selectedInstrumentType === 'EVENT' ? '(To Close)' : ''}
+                          </button>
+                          {selectedInstrumentType === 'EQUITY' && isTestMode && currentHoldingIsShort && (
+                            <button
+                              type="button"
+                              className={`order-side-btn cover-side ${orderForm.side === 'BUY_TO_CLOSE' ? 'active' : ''}`}
+                              onClick={() => {
+                                setOrderForm((prev) => ({ ...prev, side: 'BUY_TO_CLOSE', entrustType: 'QTY' }));
+                                setBalancePercentage(0);
+                                setOrderValidationError('');
+                              }}
+                              disabled={ticketOrderControlsDisabled || heldQuantity <= 0}
+                              title={`Buy up to ${formatQuantityForTicket(heldQuantity, 6) || '0'} units to close this simulated short position`}
+                            >
+                              ↩ Cover
+                            </button>
+                          )}
+                          {selectedInstrumentType === 'EQUITY' && (
+                            <button
+                              type="button"
+                              className={`order-side-btn short-side ${orderForm.side === 'SHORT' ? 'active' : ''}`}
+                              onClick={() => {
+                                setOrderForm((prev) => ({ ...prev, side: 'SHORT' }));
+                                setBalancePercentage(0);
+                                setOrderValidationError('');
+                              }}
+                              disabled={ticketOrderControlsDisabled || assetClassDisabled('EQUITY')}
+                              title="Sell short this equity (Webull margin account required)"
+                            >
+                              🔻 Short
+                            </button>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="order-control-group type-group">
+                        <label className="order-field-label">Order Types</label>
+                        <div className="order-type-segmented">
+                          {availableOrderTypes.map((t) => (
+                            <button
+                              key={t.value}
+                              type="button"
+                              className={`order-type-btn ${orderForm.type === t.value ? 'active' : ''}`}
+                              onClick={() => {
+                                setOrderForm((prev) => ({ ...prev, type: t.value }));
+                                setOrderValidationError('');
+                              }}
+                              title={t.description}
+                              disabled={ticketOrderControlsDisabled || selectedInstrumentType === 'EVENT'}
+                            >
+                              {t.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
                     </div>
 
-                    <div className="order-control-group type-group">
-                      <label className="order-field-label">Order Types</label>
-                      <div className="order-type-segmented">
-                        {availableOrderTypes.map((t) => (
+                    {selectedInstrumentType === 'OPTION' && optionExecutionMessage && (
+                      <p className="option-ticket-status" role="status">⚠️ {optionExecutionMessage}</p>
+                    )}
+                    {futuresExecutionMessage && (
+                      <p className="option-ticket-status" role="status">⚠️ {futuresExecutionMessage}</p>
+                    )}
+                    {eventExecutionMessage && (
+                      <p className="option-ticket-status" role="status">⚠️ {eventExecutionMessage}</p>
+                    )}
+
+                    {/* Webull Entrust Type Switcher (Equities only) */}
+                    {selectedInstrumentType === 'EQUITY' && (
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px', flexWrap: 'wrap', gap: '8px' }}>
+                        <span style={{ fontSize: '12px', fontWeight: 600, color: '#94a3b8' }}>Order Entry Mode:</span>
+                        <div className="webull-entrust-segmented">
                           <button
-                            key={t.value}
                             type="button"
-                            className={`order-type-btn ${orderForm.type === t.value ? 'active' : ''}`}
+                            className={`webull-entrust-btn ${orderForm.entrustType === 'QTY' ? 'active' : ''}`}
                             onClick={() => {
-                              setOrderForm((prev) => ({ ...prev, type: t.value }));
+                              setOrderForm((prev) => ({ ...prev, entrustType: 'QTY' }));
                               setOrderValidationError('');
                             }}
-                            title={t.description}
-                            disabled={ticketOrderControlsDisabled || selectedInstrumentType === 'EVENT'}
                           >
-                            {t.label}
+                            By Shares (QTY)
                           </button>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-
-                  {selectedInstrumentType === 'OPTION' && optionExecutionMessage && (
-                    <p className="option-ticket-status" role="status">⚠️ {optionExecutionMessage}</p>
-                  )}
-                  {futuresExecutionMessage && (
-                    <p className="option-ticket-status" role="status">⚠️ {futuresExecutionMessage}</p>
-                  )}
-                  {eventExecutionMessage && (
-                    <p className="option-ticket-status" role="status">⚠️ {eventExecutionMessage}</p>
-                  )}
-
-                  {/* Webull Entrust Type Switcher (Equities only) */}
-                  {selectedInstrumentType === 'EQUITY' && (
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px', flexWrap: 'wrap', gap: '8px' }}>
-                      <span style={{ fontSize: '12px', fontWeight: 600, color: '#94a3b8' }}>Order Entry Mode:</span>
-                      <div className="webull-entrust-segmented">
-                        <button
-                          type="button"
-                          className={`webull-entrust-btn ${orderForm.entrustType === 'QTY' ? 'active' : ''}`}
-                          onClick={() => {
-                            setOrderForm((prev) => ({ ...prev, entrustType: 'QTY' }));
-                            setOrderValidationError('');
-                          }}
-                        >
-                          By Shares (QTY)
-                        </button>
-                        <button
-                          type="button"
-                          className={`webull-entrust-btn ${orderForm.entrustType === 'AMOUNT' ? 'active' : ''}`}
-                          onClick={() => {
-                            setOrderForm((prev) => ({
-                              ...prev,
-                              entrustType: 'AMOUNT',
-                              totalCashAmount: prev.totalCashAmount || (prev.quoteQuantity && Number(prev.quoteQuantity) >= 5 ? prev.quoteQuantity : '25.00'),
-                            }));
-                            setOrderValidationError('');
-                          }}
-                        >
-                          By Cash Amount ($ AMOUNT)
-                        </button>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Cash Amount Input if in AMOUNT entrust mode for Equities */}
-                  {selectedInstrumentType === 'EQUITY' && orderForm.entrustType === 'AMOUNT' ? (
-                    <div className="order-inputs-row">
-                      <div className="order-input-group" style={{ width: '100%' }}>
-                        <label className="order-field-label" htmlFor="totalCashAmount">
-                          Total Cash Amount ($ USD)
-                        </label>
-                        <div className="order-input-wrapper">
-                          <input
-                            id="totalCashAmount"
-                            type="text"
-                            inputMode="decimal"
-                            value={orderForm.totalCashAmount}
-                            onChange={(e) => {
-                              const val = e.target.value.replace(/[^0-9.]/g, '');
+                          <button
+                            type="button"
+                            className={`webull-entrust-btn ${orderForm.entrustType === 'AMOUNT' ? 'active' : ''}`}
+                            onClick={() => {
                               setOrderForm((prev) => ({
                                 ...prev,
-                                totalCashAmount: val,
-                                quantity: effectivePrice > 0 && Number(val) > 0 ? (Number(val) / effectivePrice).toFixed(4) : prev.quantity,
+                                entrustType: 'AMOUNT',
+                                totalCashAmount: prev.totalCashAmount || (prev.quoteQuantity && Number(prev.quoteQuantity) >= 5 ? prev.quoteQuantity : '25.00'),
                               }));
                               setOrderValidationError('');
                             }}
-                            placeholder="e.g. 25.00 (min $5.00)"
-                            className="order-styled-input"
-                            disabled={ticketOrderControlsDisabled}
-                            autoComplete="off"
-                          />
-                        </div>
-                        <small className="order-field-help" style={{ color: '#94a3b8', fontSize: '11px', marginTop: '4px' }}>
-                          Webull cash fractional order (minimum $5.00).
-                          {effectivePrice > 0 && Number(orderForm.totalCashAmount) > 0 && (
-                            <span style={{ color: '#38bdf8', marginLeft: '6px' }}>
-                              ≈ {(Number(orderForm.totalCashAmount) / effectivePrice).toFixed(4)} shares @ ${number(effectivePrice)}
-                            </span>
-                          )}
-                        </small>
-                      </div>
-                    </div>
-                  ) : (
-                    /* Row 2: Quantity and Quote Value Inputs */
-                    <div className="order-inputs-row">
-                      <div className="order-input-group">
-                        <label className="order-field-label" htmlFor="quantity">
-                          {selectedInstrumentType === 'OPTION'
-                            ? 'Contracts (100 shares each)'
-                            : selectedInstrumentType === 'EVENT'
-                              ? `Contracts${Number.isFinite(Number(eventRules.max_quantity)) ? ` (Max ${number(eventRules.max_quantity, eventRules.fractionable ? 5 : 0)})` : ''}`
-                              : selectedInstrumentType === 'FUTURES'
-                                ? 'Contracts'
-                                : `Quantity (${selectedSymbol})`}
-                        </label>
-                        <div className="order-input-wrapper">
-                          <input
-                            id="quantity"
-                            type="text"
-                            inputMode="decimal"
-                            value={orderForm.quantity}
-                            onChange={(e) => handleBaseQuantityChange(e.target.value)}
-                            placeholder={['OPTION', 'FUTURES', 'EVENT'].includes(selectedInstrumentType) ? '1' : '0.0000'}
-                            className="order-styled-input"
-                            disabled={ticketOrderControlsDisabled}
-                            aria-label={selectedInstrumentType === 'OPTION' ? `Option strategy contracts, current value ${orderForm.quantity || 'empty'}` : `Order quantity for ${selectedSymbol}`}
-                            aria-invalid={Boolean(orderValidationError)}
-                            aria-describedby={orderValidationError ? 'webull-order-validation' : undefined}
-                            autoComplete="off"
-                          />
-                          {selectedInstrumentType !== 'FUTURES' && <button
-                            type="button"
-                            className="input-max-btn"
-                            onClick={() => handleSliderChange(100)}
-                            title="Use 100% Available Balance"
-                            disabled={ticketOrderControlsDisabled}
                           >
-                            MAX
-                          </button>}
+                            By Cash Amount ($ AMOUNT)
+                          </button>
                         </div>
-                        {orderValidationError && (
-                          <p
-                            id="webull-order-validation"
-                            role="alert"
-                            style={{ color: '#fca5a5', fontSize: '12px', fontWeight: 600, lineHeight: 1.4, margin: '7px 0 0' }}
-                          >
-                            ⚠️ {orderValidationError}
-                          </p>
-                        )}
                       </div>
+                    )}
 
-                      {selectedInstrumentType === 'FUTURES' ? (
-                        <div className="order-input-group">
-                          <label className="order-field-label">Margin &amp; Notional</label>
-                          <div className="order-styled-input" style={{ padding: '10px 12px', color: '#94a3b8' }}>
-                            Calculated by Webull for the selected contract
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="order-input-group">
-                          <label className="order-field-label" htmlFor="quoteQuantity">
-                            Order Value ($ USD)
+                    {/* Cash Amount Input if in AMOUNT entrust mode for Equities */}
+                    {selectedInstrumentType === 'EQUITY' && orderForm.entrustType === 'AMOUNT' ? (
+                      <div className="order-inputs-row">
+                        <div className="order-input-group" style={{ width: '100%' }}>
+                          <label className="order-field-label" htmlFor="totalCashAmount">
+                            Total Cash Amount ($ USD)
                           </label>
                           <div className="order-input-wrapper">
                             <input
-                              id="quoteQuantity"
+                              id="totalCashAmount"
                               type="text"
                               inputMode="decimal"
-                              value={selectedInstrumentType === 'OPTION' ? optionOrderValueText(orderForm.quantity, effectivePrice) : orderForm.quoteQuantity}
-                              onChange={(e) => handleQuoteQuantityChange(e.target.value)}
-                              placeholder="$0.00"
+                              value={orderForm.totalCashAmount}
+                              onChange={(e) => {
+                                const val = e.target.value.replace(/[^0-9.]/g, '');
+                                setOrderForm((prev) => ({
+                                  ...prev,
+                                  totalCashAmount: val,
+                                  quantity: effectivePrice > 0 && Number(val) > 0 ? (Number(val) / effectivePrice).toFixed(4) : prev.quantity,
+                                }));
+                                setOrderValidationError('');
+                              }}
+                              placeholder="e.g. 25.00 (min $5.00)"
                               className="order-styled-input"
                               disabled={ticketOrderControlsDisabled}
-                              readOnly={selectedInstrumentType === 'OPTION'}
-                              aria-label={selectedInstrumentType === 'OPTION' ? `Calculated option order value, ${optionOrderValueText(orderForm.quantity, effectivePrice)} US dollars` : 'Order value in US dollars'}
                               autoComplete="off"
+                            />
+                          </div>
+                          <small className="order-field-help" style={{ color: '#94a3b8', fontSize: '11px', marginTop: '4px' }}>
+                            Webull cash fractional order (minimum $5.00).
+                            {effectivePrice > 0 && Number(orderForm.totalCashAmount) > 0 && (
+                              <span style={{ color: '#38bdf8', marginLeft: '6px' }}>
+                                ≈ {(Number(orderForm.totalCashAmount) / effectivePrice).toFixed(4)} shares @ ${number(effectivePrice)}
+                              </span>
+                            )}
+                          </small>
+                        </div>
+                      </div>
+                    ) : (
+                      /* Row 2: Quantity and Quote Value Inputs */
+                      <div className="order-inputs-row">
+                        <div className="order-input-group">
+                          <label className="order-field-label" htmlFor="quantity">
+                            {selectedInstrumentType === 'OPTION'
+                              ? 'Contracts (100 shares each)'
+                              : selectedInstrumentType === 'EVENT'
+                                ? `Contracts${Number.isFinite(Number(eventRules.max_quantity)) ? ` (Max ${number(eventRules.max_quantity, eventRules.fractionable ? 5 : 0)})` : ''}`
+                                : selectedInstrumentType === 'FUTURES'
+                                  ? 'Contracts'
+                                  : `Quantity (${selectedSymbol})`}
+                          </label>
+                          <div className="order-input-wrapper">
+                            <input
+                              id="quantity"
+                              type="text"
+                              inputMode="decimal"
+                              value={orderForm.quantity}
+                              onChange={(e) => handleBaseQuantityChange(e.target.value)}
+                              placeholder={['OPTION', 'FUTURES', 'EVENT'].includes(selectedInstrumentType) ? '1' : '0.0000'}
+                              className="order-styled-input"
+                              disabled={ticketOrderControlsDisabled}
+                              aria-label={selectedInstrumentType === 'OPTION' ? `Option strategy contracts, current value ${orderForm.quantity || 'empty'}` : `Order quantity for ${selectedSymbol}`}
+                              aria-invalid={Boolean(orderValidationError)}
+                              aria-describedby={orderValidationError ? 'webull-order-validation' : undefined}
+                              autoComplete="off"
+                            />
+                            {selectedInstrumentType !== 'FUTURES' && <button
+                              type="button"
+                              className="input-max-btn"
+                              onClick={() => handleSliderChange(100)}
+                              title="Use 100% Available Balance"
+                              disabled={ticketOrderControlsDisabled}
+                            >
+                              MAX
+                            </button>}
+                          </div>
+                          {orderValidationError && (
+                            <p
+                              id="webull-order-validation"
+                              role="alert"
+                              style={{ color: '#fca5a5', fontSize: '12px', fontWeight: 600, lineHeight: 1.4, margin: '7px 0 0' }}
+                            >
+                              ⚠️ {orderValidationError}
+                            </p>
+                          )}
+                        </div>
+
+                        {selectedInstrumentType === 'FUTURES' ? (
+                          <div className="order-input-group">
+                            <label className="order-field-label">Margin &amp; Notional</label>
+                            <div className="order-styled-input" style={{ padding: '10px 12px', color: '#94a3b8' }}>
+                              Calculated by Webull for the selected contract
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="order-input-group">
+                            <label className="order-field-label" htmlFor="quoteQuantity">
+                              Order Value ($ USD)
+                            </label>
+                            <div className="order-input-wrapper">
+                              <input
+                                id="quoteQuantity"
+                                type="text"
+                                inputMode="decimal"
+                                value={selectedInstrumentType === 'OPTION' ? optionOrderValueText(orderForm.quantity, effectivePrice) : orderForm.quoteQuantity}
+                                onChange={(e) => handleQuoteQuantityChange(e.target.value)}
+                                placeholder="$0.00"
+                                className="order-styled-input"
+                                disabled={ticketOrderControlsDisabled}
+                                readOnly={selectedInstrumentType === 'OPTION'}
+                                aria-label={selectedInstrumentType === 'OPTION' ? `Calculated option order value, ${optionOrderValueText(orderForm.quantity, effectivePrice)} US dollars` : 'Order value in US dollars'}
+                                autoComplete="off"
+                              />
+                              <button
+                                type="button"
+                                className="input-percent-btn"
+                                onClick={() => {
+                                  const nextPct = balancePercentage === 25 ? 50 : balancePercentage === 50 ? 75 : balancePercentage === 75 ? 100 : 25;
+                                  handleSliderChange(nextPct);
+                                }}
+                                title="Step allocation: 25%, 50%, 75%, 100%"
+                                disabled={ticketOrderControlsDisabled}
+                              >
+                                %
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Conditional Price Inputs based on order type */}
+                    {orderForm.type === 'STOP_LOSS' && (
+                      <div className="order-inputs-row">
+                        <div className="order-input-group" style={{ width: '100%' }}>
+                          <label className="order-field-label" htmlFor="stopPrice">
+                            Stop Price ($ USD)
+                          </label>
+                          <div className="order-input-wrapper">
+                            <input
+                              id="stopPrice"
+                              type="text"
+                              inputMode="decimal"
+                              value={orderForm.stopPrice}
+                              onChange={(e) => handleStopPriceChange(e.target.value)}
+                              placeholder="0.00"
+                              className="order-styled-input"
+                              disabled={ticketOrderControlsDisabled}
+                              required
                             />
                             <button
                               type="button"
                               className="input-percent-btn"
-                              onClick={() => {
-                                const nextPct = balancePercentage === 25 ? 50 : balancePercentage === 50 ? 75 : balancePercentage === 75 ? 100 : 25;
-                                handleSliderChange(nextPct);
-                              }}
-                              title="Step allocation: 25%, 50%, 75%, 100%"
+                              onClick={() => handleOpenPercentModal('stopPrice')}
+                              title="Calculate stop price from percentage"
                               disabled={ticketOrderControlsDisabled}
                             >
                               %
                             </button>
                           </div>
+                          <small className="order-field-help" style={{ color: '#94a3b8', fontSize: '11px', marginTop: '4px' }}>
+                            Trigger price: once reached, a market order is placed to execute immediately.
+                          </small>
                         </div>
-                      )}
-                    </div>
-                  )}
-
-                  {/* Conditional Price Inputs based on order type */}
-                  {orderForm.type === 'STOP_LOSS' && (
-                    <div className="order-inputs-row">
-                      <div className="order-input-group" style={{ width: '100%' }}>
-                        <label className="order-field-label" htmlFor="stopPrice">
-                          Stop Price ($ USD)
-                        </label>
-                        <div className="order-input-wrapper">
-                          <input
-                            id="stopPrice"
-                            type="text"
-                            inputMode="decimal"
-                            value={orderForm.stopPrice}
-                            onChange={(e) => handleStopPriceChange(e.target.value)}
-                            placeholder="0.00"
-                            className="order-styled-input"
-                            disabled={ticketOrderControlsDisabled}
-                            required
-                          />
-                          <button
-                            type="button"
-                            className="input-percent-btn"
-                            onClick={() => handleOpenPercentModal('stopPrice')}
-                            title="Calculate stop price from percentage"
-                            disabled={ticketOrderControlsDisabled}
-                          >
-                            %
-                          </button>
-                        </div>
-                        <small className="order-field-help" style={{ color: '#94a3b8', fontSize: '11px', marginTop: '4px' }}>
-                          Trigger price: once reached, a market order is placed to execute immediately.
-                        </small>
                       </div>
-                    </div>
-                  )}
+                    )}
 
-                  {orderForm.type === 'STOP_LOSS_LIMIT' && (
-                    <div className="order-inputs-row">
-                      <div className="order-input-group">
-                        <label className="order-field-label" htmlFor="stopPrice">
-                          Stop Trigger Price ($ USD)
-                        </label>
-                        <div className="order-input-wrapper">
-                          <input
-                            id="stopPrice"
-                            type="text"
-                            inputMode="decimal"
-                            value={orderForm.stopPrice}
-                            onChange={(e) => handleStopPriceChange(e.target.value)}
-                            placeholder="0.00"
-                            className="order-styled-input"
-                            disabled={ticketOrderControlsDisabled}
-                            required
-                          />
-                          <button
-                            type="button"
-                            className="input-percent-btn"
-                            onClick={() => handleOpenPercentModal('stopPrice')}
-                            title="Calculate stop trigger & limit execution prices from percentage"
-                            disabled={ticketOrderControlsDisabled}
-                          >
-                            %
-                          </button>
-                        </div>
-                        <small className="order-field-help" style={{ color: '#94a3b8', fontSize: '11px', marginTop: '4px' }}>
-                          Price that triggers the limit order
-                        </small>
-                      </div>
-
-                      <div className="order-input-group">
-                        <label className="order-field-label" htmlFor="price">
-                          Limit Execution Price ($ USD)
-                        </label>
-                        <div className="order-input-wrapper">
-                          <input
-                            id="price"
-                            type="text"
-                            inputMode="decimal"
-                            value={orderForm.price}
-                            onChange={(e) => handlePriceChange(e.target.value)}
-                            placeholder="0.00"
-                            className="order-styled-input"
-                            disabled={ticketOrderControlsDisabled}
-                            required
-                          />
-                        </div>
-                        <small className="order-field-help" style={{ color: '#94a3b8', fontSize: '11px', marginTop: '4px' }}>
-                          Maximum purchase or minimum sale price
-                        </small>
-                      </div>
-                    </div>
-                  )}
-
-                  {['FUTURES', 'EQUITY'].includes(selectedInstrumentType) && orderForm.type === 'TRAILING_STOP_LOSS' && (
-                    <div className="order-inputs-row">
-                      <div className="order-input-group">
-                        <label className="order-field-label">Trail Type</label>
-                        <select
-                          value={orderForm.trailingType}
-                          onChange={(event) => setOrderForm((prev) => ({ ...prev, trailingType: event.target.value }))}
-                          className="order-styled-input"
-                          disabled={ticketOrderControlsDisabled}
-                        >
-                          <option value="AMOUNT">Dollar amount ($)</option>
-                          <option value="PERCENTAGE">Percentage (%)</option>
-                        </select>
-                      </div>
-                      <div className="order-input-group">
-                        <label className="order-field-label" htmlFor="trailingStopStep">Trail {orderForm.trailingType === 'PERCENTAGE' ? 'Percentage' : 'Amount'} {orderForm.trailingType === 'PERCENTAGE' ? '(%)' : '($ USD)'}</label>
-                        <input
-                          id="trailingStopStep"
-                          type="text"
-                          inputMode="decimal"
-                          value={orderForm.trailingStopStep}
-                          onChange={(event) => setOrderForm((prev) => ({ ...prev, trailingStopStep: event.target.value.replace(/[^0-9.]/g, '') }))}
-                          placeholder={orderForm.trailingType === 'PERCENTAGE' ? 'e.g. 1.00' : 'e.g. 5.00'}
-                          className="order-styled-input"
-                          disabled={ticketOrderControlsDisabled}
-                        />
-                      </div>
-                    </div>
-                  )}
-
-                  {['LIMIT', 'LIMIT_ON_OPEN'].includes(orderForm.type) && (
-                    <div className="order-inputs-row">
-                      <div className="order-input-group" style={{ width: '100%' }}>
-                        <label className="order-field-label" htmlFor="price">
-                          {selectedInstrumentType === 'EVENT' ? 'Event Contract Limit Price ($ USD)' : 'Limit Price ($ USD)'}
-                        </label>
-                        <div className="order-input-wrapper">
-                          <input
-                            id="price"
-                            type="text"
-                            inputMode="decimal"
-                            value={orderForm.price}
-                            onChange={(e) => handlePriceChange(e.target.value)}
-                            placeholder={selectedInstrumentType === 'EVENT' ? 'Select a market quote' : '0.00'}
-                            className="order-styled-input"
-                            disabled={ticketOrderControlsDisabled}
-                            required
-                          />
-                          {selectedInstrumentType !== 'EVENT' && (
+                    {orderForm.type === 'STOP_LOSS_LIMIT' && (
+                      <div className="order-inputs-row">
+                        <div className="order-input-group">
+                          <label className="order-field-label" htmlFor="stopPrice">
+                            Stop Trigger Price ($ USD)
+                          </label>
+                          <div className="order-input-wrapper">
+                            <input
+                              id="stopPrice"
+                              type="text"
+                              inputMode="decimal"
+                              value={orderForm.stopPrice}
+                              onChange={(e) => handleStopPriceChange(e.target.value)}
+                              placeholder="0.00"
+                              className="order-styled-input"
+                              disabled={ticketOrderControlsDisabled}
+                              required
+                            />
                             <button
                               type="button"
                               className="input-percent-btn"
-                              onClick={() => handleOpenPercentModal('price')}
-                              title="Calculate limit price from percentage"
+                              onClick={() => handleOpenPercentModal('stopPrice')}
+                              title="Calculate stop trigger & limit execution prices from percentage"
                               disabled={ticketOrderControlsDisabled}
                             >
                               %
                             </button>
-                          )}
-                        </div>
-                        {selectedInstrumentType === 'EVENT' && (
+                          </div>
                           <small className="order-field-help" style={{ color: '#94a3b8', fontSize: '11px', marginTop: '4px' }}>
-                            Current Webull range: {eventPriceRangeLabel(eventRules.price_ranges)}. Winning settlement: {eventMoney(eventSettlementPayout)}. Implied win probability: {Math.round((Number(orderForm.price) || 0) * 100)}%.
+                            Price that triggers the limit order
                           </small>
-                        )}
-                      </div>
-                    </div>
-                  )}
+                        </div>
 
-                  {/* Execution Settings: Time in Force & Trading Session */}
-                  <div className="order-inputs-row" style={{ marginTop: '12px' }}>
-                    <div className="order-input-group">
-                      <label className="order-field-label">Time In Force</label>
-                      <select
-                        value={orderForm.timeInForce}
-                        onChange={(e) => setOrderForm((prev) => ({ ...prev, timeInForce: e.target.value }))}
-                        className="order-styled-input"
-                        style={{ cursor: 'pointer' }}
-                        disabled={ticketOrderControlsDisabled || selectedInstrumentType === 'EVENT'}
-                      >
-                        <option value="DAY">Day Order (DAY)</option>
-                        {!(selectedInstrumentType === 'OPTION' && orderForm.side === 'SELL') && selectedInstrumentType !== 'EVENT' && !['TRAILING_STOP_LOSS', 'MARKET_ON_OPEN', 'MARKET_ON_CLOSE', 'LIMIT_ON_OPEN'].includes(orderForm.type) && <option value="GTC">Good &apos;Til Canceled (GTC)</option>}
-                        {selectedInstrumentType === 'CRYPTO' && <option value="IOC">Immediate or Cancel (IOC)</option>}
-                      </select>
-                    </div>
-                    {selectedInstrumentType === 'EQUITY' && (
-                      <div className="order-input-group">
-                        <label className="order-field-label">Trading Session</label>
-                        <select
-                          value={orderForm.tradingSession}
-                          onChange={(e) => {
-                            userChangedSessionRef.current = true;
-                            setOrderForm((prev) => ({ ...prev, tradingSession: e.target.value }));
-                            setOrderValidationError('');
-                          }}
-                          className="order-styled-input"
-                          style={{ cursor: 'pointer' }}
-                        >
-                          <option value="CORE">Only Regular Hours (CORE: 9:30 AM - 4:00 PM ET)</option>
-                          <option value="ALL">Including Extended Hours (ALL: 4:00 AM - 8:00 PM ET)</option>
-                          <option value="NIGHT">Overnight Hours Only (NIGHT: 8:00 PM - 4:00 AM ET)</option>
-                        </select>
+                        <div className="order-input-group">
+                          <label className="order-field-label" htmlFor="price">
+                            Limit Execution Price ($ USD)
+                          </label>
+                          <div className="order-input-wrapper">
+                            <input
+                              id="price"
+                              type="text"
+                              inputMode="decimal"
+                              value={orderForm.price}
+                              onChange={(e) => handlePriceChange(e.target.value)}
+                              placeholder="0.00"
+                              className="order-styled-input"
+                              disabled={ticketOrderControlsDisabled}
+                              required
+                            />
+                          </div>
+                          <small className="order-field-help" style={{ color: '#94a3b8', fontSize: '11px', marginTop: '4px' }}>
+                            Maximum purchase or minimum sale price
+                          </small>
+                        </div>
                       </div>
                     )}
-                  </div>
 
-                  {selectedInstrumentType === 'EQUITY' && (
-                    <p style={{ margin: '0 0 12px', color: '#94a3b8', fontSize: '12px', lineHeight: 1.45 }}>
-                      Fractional stock and ETF quantities are available only for <strong style={{ color: '#e2e8f0' }}>Only Regular Hours (CORE)</strong> and Webull Market orders. Extended and Overnight sessions require whole shares.
-                    </p>
-                  )}
-
-                  {/* Bracket Order Configuration (Take-Profit / Stop-Loss for Stocks) */}
-                  {selectedInstrumentType === 'EQUITY' && (
-                    <div className="webull-stock-feature-card webull-bracket-box">
-                      <div className="webull-feature-toggle-row">
-                        <label className="webull-feature-title" style={{ color: '#34d399', cursor: 'pointer' }}>
-                          <input
-                            type="checkbox"
-                            checked={orderForm.isBracketEnabled}
-                            onChange={(e) => setOrderForm((prev) => ({ ...prev, isBracketEnabled: e.target.checked }))}
-                            style={{ cursor: 'pointer', accentColor: '#10b981' }}
-                          />
-                          <span>🎯 Attach Take-Profit / Stop-Loss (Bracket)</span>
-                        </label>
-                        <span style={{ fontSize: '11px', color: '#6ee7b7', background: 'rgba(16, 185, 129, 0.2)', padding: '2px 8px', borderRadius: '10px' }}>
-                          Automated Exits
-                        </span>
-                      </div>
-                      {orderForm.isBracketEnabled && (
-                        <div style={{ marginTop: '10px' }}>
-                          <p style={{ margin: '0 0 10px', fontSize: '12px', color: '#94a3b8', lineHeight: 1.4 }}>
-                            When the primary stock order executes, Webull automatically deploys linked exit legs.
-                          </p>
-                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '10px' }}>
-                            <div>
-                              <label className="order-field-label">Take-Profit Price ($)</label>
-                              <input
-                                type="text"
-                                inputMode="decimal"
-                                value={orderForm.bracketTakeProfitPrice}
-                                onChange={(e) => setOrderForm((prev) => ({ ...prev, bracketTakeProfitPrice: e.target.value.replace(/[^0-9.]/g, '') }))}
-                                placeholder="e.g. 195.00"
-                                className="order-styled-input"
-                              />
-                            </div>
-                            <div>
-                              <label className="order-field-label">Stop-Loss Trigger ($)</label>
-                              <input
-                                type="text"
-                                inputMode="decimal"
-                                value={orderForm.bracketStopLossPrice}
-                                onChange={(e) => setOrderForm((prev) => ({ ...prev, bracketStopLossPrice: e.target.value.replace(/[^0-9.]/g, '') }))}
-                                placeholder="e.g. 170.00"
-                                className="order-styled-input"
-                              />
-                            </div>
-                            <div>
-                              <label className="order-field-label">Stop Limit Price ($ opt)</label>
-                              <input
-                                type="text"
-                                inputMode="decimal"
-                                value={orderForm.bracketStopLossLimitPrice}
-                                onChange={(e) => setOrderForm((prev) => ({ ...prev, bracketStopLossLimitPrice: e.target.value.replace(/[^0-9.]/g, '') }))}
-                                placeholder="e.g. 168.00"
-                                className="order-styled-input"
-                              />
-                            </div>
-                          </div>
+                    {['FUTURES', 'EQUITY'].includes(selectedInstrumentType) && orderForm.type === 'TRAILING_STOP_LOSS' && (
+                      <div className="order-inputs-row">
+                        <div className="order-input-group">
+                          <label className="order-field-label">Trail Type</label>
+                          <select
+                            value={orderForm.trailingType}
+                            onChange={(event) => setOrderForm((prev) => ({ ...prev, trailingType: event.target.value }))}
+                            className="order-styled-input"
+                            disabled={ticketOrderControlsDisabled}
+                          >
+                            <option value="AMOUNT">Dollar amount ($)</option>
+                            <option value="PERCENTAGE">Percentage (%)</option>
+                          </select>
                         </div>
-                      )}
-                    </div>
-                  )}
-
-                  {/* Institutional Algorithmic Trading (TWAP / VWAP / POV for Stocks) */}
-                  {selectedInstrumentType === 'EQUITY' && ['MARKET', 'LIMIT'].includes(orderForm.type) && orderForm.tradingSession === 'CORE' && (
-                    <div className="webull-stock-feature-card webull-algo-box">
-                      <div className="webull-feature-toggle-row">
-                        <label className="webull-feature-title" style={{ color: '#38bdf8', cursor: 'pointer' }}>
+                        <div className="order-input-group">
+                          <label className="order-field-label" htmlFor="trailingStopStep">Trail {orderForm.trailingType === 'PERCENTAGE' ? 'Percentage' : 'Amount'} {orderForm.trailingType === 'PERCENTAGE' ? '(%)' : '($ USD)'}</label>
                           <input
-                            type="checkbox"
-                            checked={orderForm.isAlgoEnabled}
-                            onChange={(e) => setOrderForm((prev) => ({ ...prev, isAlgoEnabled: e.target.checked }))}
-                            style={{ cursor: 'pointer', accentColor: '#0284c7' }}
+                            id="trailingStopStep"
+                            type="text"
+                            inputMode="decimal"
+                            value={orderForm.trailingStopStep}
+                            onChange={(event) => setOrderForm((prev) => ({ ...prev, trailingStopStep: event.target.value.replace(/[^0-9.]/g, '') }))}
+                            placeholder={orderForm.trailingType === 'PERCENTAGE' ? 'e.g. 1.00' : 'e.g. 5.00'}
+                            className="order-styled-input"
+                            disabled={ticketOrderControlsDisabled}
                           />
-                          <span>⚡ Algorithmic Execution (TWAP / VWAP / POV)</span>
-                        </label>
-                        <span style={{ fontSize: '11px', color: '#7dd3fc', background: 'rgba(2, 132, 199, 0.2)', padding: '2px 8px', borderRadius: '10px' }}>
-                          Regular Hours (CORE)
-                        </span>
+                        </div>
                       </div>
-                      {orderForm.isAlgoEnabled && (
-                        <div style={{ marginTop: '10px' }}>
-                          <p style={{ margin: '0 0 10px', fontSize: '12px', color: '#94a3b8', lineHeight: 1.4 }}>
-                            Institutional execution to slice orders over time and minimize slippage.
-                          </p>
-                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '10px' }}>
-                            <div>
-                              <label className="order-field-label">Algorithm Type</label>
-                              <select
-                                value={orderForm.algoType}
-                                onChange={(e) => setOrderForm((prev) => ({ ...prev, algoType: e.target.value }))}
-                                className="order-styled-input"
+                    )}
+
+                    {['LIMIT', 'LIMIT_ON_OPEN'].includes(orderForm.type) && (
+                      <div className="order-inputs-row">
+                        <div className="order-input-group" style={{ width: '100%' }}>
+                          <label className="order-field-label" htmlFor="price">
+                            {selectedInstrumentType === 'EVENT' ? 'Event Contract Limit Price ($ USD)' : 'Limit Price ($ USD)'}
+                          </label>
+                          <div className="order-input-wrapper">
+                            <input
+                              id="price"
+                              type="text"
+                              inputMode="decimal"
+                              value={orderForm.price}
+                              onChange={(e) => handlePriceChange(e.target.value)}
+                              placeholder={selectedInstrumentType === 'EVENT' ? 'Select a market quote' : '0.00'}
+                              className="order-styled-input"
+                              disabled={ticketOrderControlsDisabled}
+                              required
+                            />
+                            {selectedInstrumentType !== 'EVENT' && (
+                              <button
+                                type="button"
+                                className="input-percent-btn"
+                                onClick={() => handleOpenPercentModal('price')}
+                                title="Calculate limit price from percentage"
+                                disabled={ticketOrderControlsDisabled}
                               >
-                                <option value="TWAP">TWAP (Time-Weighted)</option>
-                                <option value="VWAP">VWAP (Volume-Weighted)</option>
-                                <option value="POV">POV (% of Volume)</option>
-                              </select>
-                            </div>
-                            <div>
-                              <label className="order-field-label">Start Time (ET)</label>
-                              <input
-                                type="text"
-                                value={orderForm.algoStartTime}
-                                onChange={(e) => setOrderForm((prev) => ({ ...prev, algoStartTime: e.target.value }))}
-                                placeholder="HH:mm:ss"
-                                className="order-styled-input"
-                              />
-                            </div>
-                            <div>
-                              <label className="order-field-label">End Time (ET)</label>
-                              <input
-                                type="text"
-                                value={orderForm.algoEndTime}
-                                onChange={(e) => setOrderForm((prev) => ({ ...prev, algoEndTime: e.target.value }))}
-                                placeholder="HH:mm:ss"
-                                className="order-styled-input"
-                              />
-                            </div>
-                            {['TWAP', 'VWAP'].includes(orderForm.algoType) && (
-                              <div>
-                                <label className="order-field-label">Max Target % (1-20)</label>
-                                <input
-                                  type="number"
-                                  min="1"
-                                  max="20"
-                                  value={orderForm.maxTargetPercent}
-                                  onChange={(e) => setOrderForm((prev) => ({ ...prev, maxTargetPercent: e.target.value }))}
-                                  className="order-styled-input"
-                                />
-                              </div>
-                            )}
-                            {orderForm.algoType === 'POV' && (
-                              <div>
-                                <label className="order-field-label">Target Volume % (1-20)</label>
-                                <input
-                                  type="number"
-                                  min="1"
-                                  max="20"
-                                  value={orderForm.targetVolPercent}
-                                  onChange={(e) => setOrderForm((prev) => ({ ...prev, targetVolPercent: e.target.value }))}
-                                  className="order-styled-input"
-                                />
-                              </div>
+                                %
+                              </button>
                             )}
                           </div>
+                          {selectedInstrumentType === 'EVENT' && (
+                            <small className="order-field-help" style={{ color: '#94a3b8', fontSize: '11px', marginTop: '4px' }}>
+                              Current Webull range: {eventPriceRangeLabel(eventRules.price_ranges)}. Winning settlement: {eventMoney(eventSettlementPayout)}. Implied win probability: {Math.round((Number(orderForm.price) || 0) * 100)}%.
+                            </small>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Execution Settings: Time in Force & Trading Session */}
+                    <div className="order-inputs-row" style={{ marginTop: '12px' }}>
+                      <div className="order-input-group">
+                        <label className="order-field-label">Time In Force</label>
+                        <select
+                          value={orderForm.timeInForce}
+                          onChange={(e) => setOrderForm((prev) => ({ ...prev, timeInForce: e.target.value }))}
+                          className="order-styled-input"
+                          style={{ cursor: 'pointer' }}
+                          disabled={ticketOrderControlsDisabled || selectedInstrumentType === 'EVENT'}
+                        >
+                          <option value="DAY">Day Order (DAY)</option>
+                          {!(selectedInstrumentType === 'OPTION' && orderForm.side === 'SELL') && selectedInstrumentType !== 'EVENT' && !['TRAILING_STOP_LOSS', 'MARKET_ON_OPEN', 'MARKET_ON_CLOSE', 'LIMIT_ON_OPEN'].includes(orderForm.type) && <option value="GTC">Good &apos;Til Canceled (GTC)</option>}
+                          {selectedInstrumentType === 'CRYPTO' && <option value="IOC">Immediate or Cancel (IOC)</option>}
+                        </select>
+                      </div>
+                      {selectedInstrumentType === 'EQUITY' && (
+                        <div className="order-input-group">
+                          <label className="order-field-label">Trading Session</label>
+                          <select
+                            value={orderForm.tradingSession}
+                            onChange={(e) => {
+                              userChangedSessionRef.current = true;
+                              setOrderForm((prev) => ({ ...prev, tradingSession: e.target.value }));
+                              setOrderValidationError('');
+                            }}
+                            className="order-styled-input"
+                            style={{ cursor: 'pointer' }}
+                          >
+                            <option value="CORE">Only Regular Hours (CORE: 9:30 AM - 4:00 PM ET)</option>
+                            <option value="ALL">Including Extended Hours (ALL: 4:00 AM - 8:00 PM ET)</option>
+                            <option value="NIGHT">Overnight Hours Only (NIGHT: 8:00 PM - 4:00 AM ET)</option>
+                          </select>
                         </div>
                       )}
                     </div>
-                  )}
 
-                  {/* Row 3: Use Balance Slider Section */}
-                  {selectedInstrumentType !== 'FUTURES' && <div className="order-slider-section">
-                    <div className="order-slider-header">
-                      <span className="order-field-label">Use Balance: {balancePercentage}%</span>
-                      {balancePercentage > 0 && (
-                        <span className="order-slider-amount">
-                          ({orderForm.side === 'SELL'
-                            ? `${((heldQuantity * balancePercentage) / 100).toFixed(selectedInstrumentType === 'CRYPTO' ? 6 : 2)} ${selectedSymbol}`
-                            : `$${((cashBalance * balancePercentage) / 100).toFixed(2)} USD`})
-                        </span>
-                      )}
-                    </div>
-                    <input
-                      type="range"
-                      min="0"
-                      max="100"
-                      step="1"
-                      value={balancePercentage}
-                      onChange={(e) => handleSliderChange(parseInt(e.target.value, 10))}
-                      className="modern-balance-slider"
-                      disabled={ticketOrderControlsDisabled}
-                      style={{
-                        background: `linear-gradient(to right, ${orderForm.side === 'BUY' ? '#10b981' : '#ef4444'} ${balancePercentage}%, rgba(255, 255, 255, 0.1) ${balancePercentage}%)`,
-                      }}
-                    />
-                    <div className="slider-pills-row">
-                      {[0, 25, 50, 75, 100].map((pct) => (
-                        <button
-                          key={pct}
-                          type="button"
-                          className={`slider-pct-pill ${balancePercentage === pct ? 'active' : ''}`}
-                          onClick={() => handleSliderChange(pct)}
-                          disabled={ticketOrderControlsDisabled}
-                        >
-                          {pct}%
-                        </button>
-                      ))}
-                    </div>
-                  </div>}
+                    {selectedInstrumentType === 'EQUITY' && (
+                      <p style={{ margin: '0 0 12px', color: '#94a3b8', fontSize: '12px', lineHeight: 1.45 }}>
+                        Fractional stock and ETF quantities are available only for <strong style={{ color: '#e2e8f0' }}>Only Regular Hours (CORE)</strong> and Webull Market orders. Extended and Overnight sessions require whole shares.
+                      </p>
+                    )}
 
-                  {/* Row 4: Order Summary Card */}
-                  <div className="order-summary-card">
-                    <div className="order-summary-row">
-                      <span>Order Total:</span>
-                      <strong>{selectedInstrumentType === 'FUTURES' ? 'Webull calculates margin' : `$${number(orderTotal)} USD`}</strong>
-                    </div>
-                    <div className="order-summary-row">
-                      <span>Estimated Cash Impact:</span>
-                      <span style={{ color: ['BUY', 'BUY_TO_CLOSE'].includes(orderForm.side) ? '#ef4444' : '#10b981', fontWeight: 600 }}>
-                        {selectedInstrumentType === 'FUTURES'
-                          ? 'Verified by Webull at order acceptance'
-                          : ['BUY', 'BUY_TO_CLOSE'].includes(orderForm.side) ? `-$${number(orderTotal)}` : `+$${number(orderTotal)}`}
-                      </span>
-                    </div>
-                  </div>
+                    {/* Bracket Order Configuration (Take-Profit / Stop-Loss for Stocks) */}
+                    {selectedInstrumentType === 'EQUITY' && (
+                      <div className="webull-stock-feature-card webull-bracket-box">
+                        <div className="webull-feature-toggle-row">
+                          <label className="webull-feature-title" style={{ color: '#34d399', cursor: 'pointer' }}>
+                            <input
+                              type="checkbox"
+                              checked={orderForm.isBracketEnabled}
+                              onChange={(e) => setOrderForm((prev) => ({ ...prev, isBracketEnabled: e.target.checked }))}
+                              style={{ cursor: 'pointer', accentColor: '#10b981' }}
+                            />
+                            <span>🎯 Attach Take-Profit / Stop-Loss (Bracket)</span>
+                          </label>
+                          <span style={{ fontSize: '11px', color: '#6ee7b7', background: 'rgba(16, 185, 129, 0.2)', padding: '2px 8px', borderRadius: '10px' }}>
+                            Automated Exits
+                          </span>
+                        </div>
+                        {orderForm.isBracketEnabled && (
+                          <div style={{ marginTop: '10px' }}>
+                            <p style={{ margin: '0 0 10px', fontSize: '12px', color: '#94a3b8', lineHeight: 1.4 }}>
+                              When the primary stock order executes, Webull automatically deploys linked exit legs.
+                            </p>
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '10px' }}>
+                              <div>
+                                <label className="order-field-label">Take-Profit Price ($)</label>
+                                <input
+                                  type="text"
+                                  inputMode="decimal"
+                                  value={orderForm.bracketTakeProfitPrice}
+                                  onChange={(e) => setOrderForm((prev) => ({ ...prev, bracketTakeProfitPrice: e.target.value.replace(/[^0-9.]/g, '') }))}
+                                  placeholder="e.g. 195.00"
+                                  className="order-styled-input"
+                                />
+                              </div>
+                              <div>
+                                <label className="order-field-label">Stop-Loss Trigger ($)</label>
+                                <input
+                                  type="text"
+                                  inputMode="decimal"
+                                  value={orderForm.bracketStopLossPrice}
+                                  onChange={(e) => setOrderForm((prev) => ({ ...prev, bracketStopLossPrice: e.target.value.replace(/[^0-9.]/g, '') }))}
+                                  placeholder="e.g. 170.00"
+                                  className="order-styled-input"
+                                />
+                              </div>
+                              <div>
+                                <label className="order-field-label">Stop Limit Price ($ opt)</label>
+                                <input
+                                  type="text"
+                                  inputMode="decimal"
+                                  value={orderForm.bracketStopLossLimitPrice}
+                                  onChange={(e) => setOrderForm((prev) => ({ ...prev, bracketStopLossLimitPrice: e.target.value.replace(/[^0-9.]/g, '') }))}
+                                  placeholder="e.g. 168.00"
+                                  className="order-styled-input"
+                                />
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
 
-                  {/* Options Payoff Chart Preview */}
-                  {selectedInstrumentType === 'OPTION' && orderForm.optionStrike && orderForm.optionExpiration && (
-                    <div style={{ marginTop: '20px', marginBottom: '20px' }}>
-                      <OptionsPayoffChart
-                        underlyingSymbol={selectedSymbol}
-                        baselinePrice={Number(optionUnderlyingPrice || orderForm.optionStrike)}
-                        strikePrice={Number(orderForm.optionStrike)}
-                        entryPremium={Number(orderForm.price || 0)}
-                        multiplier={100}
-                        quantity={Number(orderForm.quantity || 0)}
-                        iv={Number(orderForm.optionIv || 0)}
-                        marketPremium={Number(orderForm.optionMarketPrice || 0)}
-                        riskFreeRate={0.0379}
-                        expirationDate={orderForm.optionExpiration}
-                        startingDTE={differenceInEasternCalendarDays(orderForm.optionExpiration)}
-                        optionType={orderForm.optionType}
-                        action={orderForm.side}
-                        onStrikeSelect={handlePayoffChartStrikeSelect}
-                        isLightMode={isLightMode}
+                    {/* Institutional Algorithmic Trading (TWAP / VWAP / POV for Stocks) */}
+                    {selectedInstrumentType === 'EQUITY' && ['MARKET', 'LIMIT'].includes(orderForm.type) && orderForm.tradingSession === 'CORE' && (
+                      <div className="webull-stock-feature-card webull-algo-box">
+                        <div className="webull-feature-toggle-row">
+                          <label className="webull-feature-title" style={{ color: '#38bdf8', cursor: 'pointer' }}>
+                            <input
+                              type="checkbox"
+                              checked={orderForm.isAlgoEnabled}
+                              onChange={(e) => setOrderForm((prev) => ({ ...prev, isAlgoEnabled: e.target.checked }))}
+                              style={{ cursor: 'pointer', accentColor: '#0284c7' }}
+                            />
+                            <span>⚡ Algorithmic Execution (TWAP / VWAP / POV)</span>
+                          </label>
+                          <span style={{ fontSize: '11px', color: '#7dd3fc', background: 'rgba(2, 132, 199, 0.2)', padding: '2px 8px', borderRadius: '10px' }}>
+                            Regular Hours (CORE)
+                          </span>
+                        </div>
+                        {orderForm.isAlgoEnabled && (
+                          <div style={{ marginTop: '10px' }}>
+                            <p style={{ margin: '0 0 10px', fontSize: '12px', color: '#94a3b8', lineHeight: 1.4 }}>
+                              Institutional execution to slice orders over time and minimize slippage.
+                            </p>
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '10px' }}>
+                              <div>
+                                <label className="order-field-label">Algorithm Type</label>
+                                <select
+                                  value={orderForm.algoType}
+                                  onChange={(e) => setOrderForm((prev) => ({ ...prev, algoType: e.target.value }))}
+                                  className="order-styled-input"
+                                >
+                                  <option value="TWAP">TWAP (Time-Weighted)</option>
+                                  <option value="VWAP">VWAP (Volume-Weighted)</option>
+                                  <option value="POV">POV (% of Volume)</option>
+                                </select>
+                              </div>
+                              <div>
+                                <label className="order-field-label">Start Time (ET)</label>
+                                <input
+                                  type="text"
+                                  value={orderForm.algoStartTime}
+                                  onChange={(e) => setOrderForm((prev) => ({ ...prev, algoStartTime: e.target.value }))}
+                                  placeholder="HH:mm:ss"
+                                  className="order-styled-input"
+                                />
+                              </div>
+                              <div>
+                                <label className="order-field-label">End Time (ET)</label>
+                                <input
+                                  type="text"
+                                  value={orderForm.algoEndTime}
+                                  onChange={(e) => setOrderForm((prev) => ({ ...prev, algoEndTime: e.target.value }))}
+                                  placeholder="HH:mm:ss"
+                                  className="order-styled-input"
+                                />
+                              </div>
+                              {['TWAP', 'VWAP'].includes(orderForm.algoType) && (
+                                <div>
+                                  <label className="order-field-label">Max Target % (1-20)</label>
+                                  <input
+                                    type="number"
+                                    min="1"
+                                    max="20"
+                                    value={orderForm.maxTargetPercent}
+                                    onChange={(e) => setOrderForm((prev) => ({ ...prev, maxTargetPercent: e.target.value }))}
+                                    className="order-styled-input"
+                                  />
+                                </div>
+                              )}
+                              {orderForm.algoType === 'POV' && (
+                                <div>
+                                  <label className="order-field-label">Target Volume % (1-20)</label>
+                                  <input
+                                    type="number"
+                                    min="1"
+                                    max="20"
+                                    value={orderForm.targetVolPercent}
+                                    onChange={(e) => setOrderForm((prev) => ({ ...prev, targetVolPercent: e.target.value }))}
+                                    className="order-styled-input"
+                                  />
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Row 3: Use Balance Slider Section */}
+                    {selectedInstrumentType !== 'FUTURES' && <div className="order-slider-section">
+                      <div className="order-slider-header">
+                        <span className="order-field-label">Use Balance: {balancePercentage}%</span>
+                        {balancePercentage > 0 && (
+                          <span className="order-slider-amount">
+                            ({orderForm.side === 'SELL'
+                              ? `${((heldQuantity * balancePercentage) / 100).toFixed(selectedInstrumentType === 'CRYPTO' ? 6 : 2)} ${selectedSymbol}`
+                              : `$${((cashBalance * balancePercentage) / 100).toFixed(2)} USD`})
+                          </span>
+                        )}
+                      </div>
+                      <input
+                        type="range"
+                        min="0"
+                        max="100"
+                        step="1"
+                        value={balancePercentage}
+                        onChange={(e) => handleSliderChange(parseInt(e.target.value, 10))}
+                        className="modern-balance-slider"
+                        disabled={ticketOrderControlsDisabled}
+                        style={{
+                          background: `linear-gradient(to right, ${orderForm.side === 'BUY' ? '#10b981' : '#ef4444'} ${balancePercentage}%, rgba(255, 255, 255, 0.1) ${balancePercentage}%)`,
+                        }}
                       />
-                    </div>
-                  )}
+                      <div className="slider-pills-row">
+                        {[0, 25, 50, 75, 100].map((pct) => (
+                          <button
+                            key={pct}
+                            type="button"
+                            className={`slider-pct-pill ${balancePercentage === pct ? 'active' : ''}`}
+                            onClick={() => handleSliderChange(pct)}
+                            disabled={ticketOrderControlsDisabled}
+                          >
+                            {pct}%
+                          </button>
+                        ))}
+                      </div>
+                    </div>}
 
-                  {/* Row 5: Action Button (Binance parity) */}
-                  <div className="order-submit-row">
-                    <button
-                      type="submit"
-                      className={`modern-submit-button ${orderForm.side.toLowerCase()}`}
-                      disabled={orderSubmitting || ticketOrderControlsDisabled || assetClassDisabled(selectedInstrumentType) || isQuantMode}
-                    >
-                      {orderSubmitting ? (
-                        <span>⏳ Processing Order...</span>
-                      ) : isQuantMode ? (
-                        <span>🤖 Quantitative Strategy Mode Active (Autonomous Trading)</span>
-                      ) : isTestMode ? (
-                        <span>
-                          🧪 Place Simulated {orderTypeLabel(orderForm.type)} {orderForm.side === 'BUY' ? (selectedInstrumentType === 'EVENT' ? 'Buy to Open' : 'Buy') : orderForm.side === 'BUY_TO_CLOSE' ? 'Cover' : orderForm.side === 'SHORT' ? 'Short' : (selectedInstrumentType === 'EVENT' ? 'Sell to Close' : 'Sell')} Order (Paper)
+                    {/* Row 4: Order Summary Card */}
+                    <div className="order-summary-card">
+                      <div className="order-summary-row">
+                        <span>Order Total:</span>
+                        <strong>{selectedInstrumentType === 'FUTURES' ? 'Webull calculates margin' : `$${number(orderTotal)} USD`}</strong>
+                      </div>
+                      <div className="order-summary-row">
+                        <span>Estimated Cash Impact:</span>
+                        <span style={{ color: ['BUY', 'BUY_TO_CLOSE'].includes(orderForm.side) ? '#ef4444' : '#10b981', fontWeight: 600 }}>
+                          {selectedInstrumentType === 'FUTURES'
+                            ? 'Verified by Webull at order acceptance'
+                            : ['BUY', 'BUY_TO_CLOSE'].includes(orderForm.side) ? `-$${number(orderTotal)}` : `+$${number(orderTotal)}`}
                         </span>
-                      ) : (
-                        <span>
-                          ⚡ Place Real {orderTypeLabel(orderForm.type)} {orderForm.side === 'BUY' ? (selectedInstrumentType === 'EVENT' ? 'Buy to Open' : 'Buy') : orderForm.side === 'BUY_TO_CLOSE' ? 'Cover' : orderForm.side === 'SHORT' ? 'Short' : (selectedInstrumentType === 'EVENT' ? 'Sell to Close' : 'Sell')} Order
-                        </span>
-                      )}
-                    </button>
-                  </div>
-                  {orderFeedback.message && (
-                    <div
-                      role="alert"
-                      aria-live="assertive"
-                      className={orderFeedback.type === 'error' ? 'modern-real-warning' : 'modern-real-success'}
-                      style={{
-                        marginTop: '12px',
-                        padding: '12px 16px',
-                        borderRadius: '8px',
-                        background: orderFeedback.type === 'error' ? 'rgba(239, 68, 68, 0.15)' : 'rgba(16, 185, 129, 0.15)',
-                        color: orderFeedback.type === 'error' ? '#ef4444' : '#10b981',
-                        border: `1px solid ${orderFeedback.type === 'error' ? 'rgba(239, 68, 68, 0.3)' : 'rgba(16, 185, 129, 0.3)'}`,
-                      }}
-                    >
-                      {orderFeedback.type === 'error' ? '⚠️' : '✅'} {orderFeedback.message}
+                      </div>
                     </div>
-                  )}
 
-                  {/* Row 6: Warning in Real / Test / Quant Trading Mode */}
-                  {isQuantMode ? (
-                    <div className="modern-real-warning" style={{ marginTop: '12px', background: 'rgba(139, 92, 246, 0.15)', borderColor: 'rgba(139, 92, 246, 0.4)', color: '#c084fc' }}>
-                      🤖 <strong>QUANTITATIVE STRATEGY MODE ACTIVE:</strong> The autonomous multi-asset algorithmic engine is managing orders and positions (${number(cashBalance)} USD cash / ${number(paperSummary?.total_equity ?? cashBalance)} equity). Manual order entry is locked to prevent interfering with model strategies.
+                    {/* Options Payoff Chart Preview */}
+                    {selectedInstrumentType === 'OPTION' && orderForm.optionStrike && orderForm.optionExpiration && (
+                      <div style={{ marginTop: '20px', marginBottom: '20px' }}>
+                        <OptionsPayoffChart
+                          underlyingSymbol={selectedSymbol}
+                          baselinePrice={Number(optionUnderlyingPrice || orderForm.optionStrike)}
+                          strikePrice={Number(orderForm.optionStrike)}
+                          entryPremium={Number(orderForm.price || 0)}
+                          multiplier={100}
+                          quantity={Number(orderForm.quantity || 0)}
+                          iv={Number(orderForm.optionIv || 0)}
+                          marketPremium={Number(orderForm.optionMarketPrice || 0)}
+                          riskFreeRate={0.0379}
+                          expirationDate={orderForm.optionExpiration}
+                          startingDTE={differenceInEasternCalendarDays(orderForm.optionExpiration)}
+                          optionType={orderForm.optionType}
+                          action={orderForm.side}
+                          onStrikeSelect={handlePayoffChartStrikeSelect}
+                          isLightMode={isLightMode}
+                        />
+                      </div>
+                    )}
+
+                    {/* Row 5: Action Button (Binance parity) */}
+                    <div className="order-submit-row">
+                      <button
+                        type="submit"
+                        className={`modern-submit-button ${orderForm.side.toLowerCase()}`}
+                        disabled={orderSubmitting || ticketOrderControlsDisabled || assetClassDisabled(selectedInstrumentType) || isQuantMode}
+                      >
+                        {orderSubmitting ? (
+                          <span>⏳ Processing Order...</span>
+                        ) : isQuantMode ? (
+                          <span>🤖 Quantitative Strategy Mode Active (Autonomous Trading)</span>
+                        ) : isTestMode ? (
+                          <span>
+                            🧪 Place Simulated {orderTypeLabel(orderForm.type)} {orderForm.side === 'BUY' ? (selectedInstrumentType === 'EVENT' ? 'Buy to Open' : 'Buy') : orderForm.side === 'BUY_TO_CLOSE' ? 'Cover' : orderForm.side === 'SHORT' ? 'Short' : (selectedInstrumentType === 'EVENT' ? 'Sell to Close' : 'Sell')} Order (Paper)
+                          </span>
+                        ) : (
+                          <span>
+                            ⚡ Place Real {orderTypeLabel(orderForm.type)} {orderForm.side === 'BUY' ? (selectedInstrumentType === 'EVENT' ? 'Buy to Open' : 'Buy') : orderForm.side === 'BUY_TO_CLOSE' ? 'Cover' : orderForm.side === 'SHORT' ? 'Short' : (selectedInstrumentType === 'EVENT' ? 'Sell to Close' : 'Sell')} Order
+                          </span>
+                        )}
+                      </button>
                     </div>
-                  ) : isTestMode ? (
-                    <div className="modern-real-warning" style={{ marginTop: '12px', background: 'rgba(79, 209, 197, 0.15)', borderColor: 'rgba(79, 209, 197, 0.35)', color: '#4fd1c5' }}>
-                      🧪 <strong>TEST MODE ACTIVE:</strong> You are paper trading with simulated cash (${number(cashBalance)} USD available). Option fills obey regular U.S. options market hours, and no real orders are sent to Webull.
-                    </div>
-                  ) : (
-                    <div className="modern-real-warning" style={{ marginTop: '12px' }}>
-                      ⚠️ <strong>WARNING:</strong> You are in REAL TRADING MODE. This will execute an actual live order on Webull OpenAPI.
-                    </div>
-                  )}
-                </form>
+                    {orderFeedback.message && (
+                      <div
+                        role="alert"
+                        aria-live="assertive"
+                        className={orderFeedback.type === 'error' ? 'modern-real-warning' : 'modern-real-success'}
+                        style={{
+                          marginTop: '12px',
+                          padding: '12px 16px',
+                          borderRadius: '8px',
+                          background: orderFeedback.type === 'error' ? 'rgba(239, 68, 68, 0.15)' : 'rgba(16, 185, 129, 0.15)',
+                          color: orderFeedback.type === 'error' ? '#ef4444' : '#10b981',
+                          border: `1px solid ${orderFeedback.type === 'error' ? 'rgba(239, 68, 68, 0.3)' : 'rgba(16, 185, 129, 0.3)'}`,
+                        }}
+                      >
+                        {orderFeedback.type === 'error' ? '⚠️' : '✅'} {orderFeedback.message}
+                      </div>
+                    )}
+
+                    {/* Row 6: Warning in Real / Test / Quant Trading Mode */}
+                    {isQuantMode ? (
+                      <div className="modern-real-warning" style={{ marginTop: '12px', background: 'rgba(139, 92, 246, 0.15)', borderColor: 'rgba(139, 92, 246, 0.4)', color: '#c084fc' }}>
+                        🤖 <strong>QUANTITATIVE STRATEGY MODE ACTIVE:</strong> The autonomous multi-asset algorithmic engine is managing orders and positions (${number(cashBalance)} USD cash / ${number(paperSummary?.total_equity ?? cashBalance)} equity). Manual order entry is locked to prevent interfering with model strategies.
+                      </div>
+                    ) : isTestMode ? (
+                      <div className="modern-real-warning" style={{ marginTop: '12px', background: 'rgba(79, 209, 197, 0.15)', borderColor: 'rgba(79, 209, 197, 0.35)', color: '#4fd1c5' }}>
+                        🧪 <strong>TEST MODE ACTIVE:</strong> You are paper trading with simulated cash (${number(cashBalance)} USD available). Option fills obey regular U.S. options market hours, and no real orders are sent to Webull.
+                      </div>
+                    ) : (
+                      <div className="modern-real-warning" style={{ marginTop: '12px' }}>
+                        ⚠️ <strong>WARNING:</strong> You are in REAL TRADING MODE. This will execute an actual live order on Webull OpenAPI.
+                      </div>
+                    )}
+                  </form>
                 </div>
 
                 {/* Pre-Trade Confirmation Modal */}
@@ -5449,6 +5509,7 @@ export default function WebullTrading({ isLightMode = false }) {
                     <EventContractOpenOrders
                       orders={eventOpenOrders}
                       onManageOrder={handleManageEventOrder}
+                      userId={user?.id}
                     />
                     <WebullHoldings
                       holdings={modeHoldings}
@@ -5695,6 +5756,8 @@ export default function WebullTrading({ isLightMode = false }) {
                   onCancelOrder={openCancelModalForOrder}
                   cancellingId={cancellingOrderId}
                   optionClosePnlByOrder={optionClosePnlByOrder}
+                  userId={user?.id}
+                  tableId="webull-open-orders"
                 />
               </section>
             )}
@@ -5707,7 +5770,7 @@ export default function WebullTrading({ isLightMode = false }) {
                   <div className="empty-state"><p>Loading Webull order history…</p></div>
                 ) : (
                   <>
-                    <WebullOrderTable orders={paginatedHistory} emptyText="No Webull order history is available yet." />
+                    <WebullOrderTable orders={paginatedHistory} emptyText="No Webull order history is available yet." userId={user?.id} tableId="webull-order-history" />
                     <Pagination page={historyPage} setPage={setHistoryPage} pageSize={historyPageSize} setPageSize={setHistoryPageSize} total={historyTotal} />
                   </>
                 )}

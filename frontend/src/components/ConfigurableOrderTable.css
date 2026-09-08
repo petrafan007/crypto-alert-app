@@ -1,0 +1,41 @@
+.configurable-order-table {
+  margin-top: 12px;
+}
+
+.configurable-order-actions {
+  align-items: center;
+  color: var(--text-secondary, #94a3b8);
+  display: flex;
+  flex-wrap: wrap;
+  font-size: .85rem;
+  gap: 12px;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.configurable-order-table .position-column-header {
+  justify-content: flex-start;
+  min-width: max-content;
+}
+
+.configurable-order-table .position-column-header button {
+  color: inherit;
+  font: inherit;
+  white-space: nowrap;
+}
+
+.configurable-order-table .positions-drag-handle {
+  flex: 0 0 auto;
+}
+
+.configurable-order-table td {
+  vertical-align: middle;
+}
+
+@media (max-width: 640px) {
+  .configurable-order-actions,
+  .configurable-order-actions .webull-positions-actions {
+    align-items: stretch;
+    width: 100%;
+  }
+}

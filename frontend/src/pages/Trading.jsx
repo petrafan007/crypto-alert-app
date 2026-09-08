@@ -10,6 +10,8 @@ import TradeTimelineChart from '../components/TradeTimelineChart';
 import TradePermissionModal from '../components/TradePermissionModal';
 import ApiKeyRequiredModal from '../components/ApiKeyRequiredModal';
 import SearchablePairSelect from '../components/SearchablePairSelect';
+import ConfigurableOrderTable from '../components/ConfigurableOrderTable';
+import { useAuth } from '../components/AuthContext';
 import CryptoIcon, { BinanceLogo } from '../components/CryptoIcon';
 import AIDashboard from './AIDashboard';
 import Staking from './Staking';
@@ -60,6 +62,7 @@ const getOrderOrigin = (order) => {
 const DEFAULT_TRADING_PAIR = 'BTCUSDT';
 
 const Trading = ({ isLightMode = false }) => {
+  const { user } = useAuth();
   console.log('Trading component rendering...');
   const location = useLocation();
   const navigate = useNavigate();
@@ -87,7 +90,7 @@ const Trading = ({ isLightMode = false }) => {
       if (saved && saved !== 'USD' && saved !== 'USDT' && saved !== 'ALL' && saved.length >= 5 && saved !== 'ETHUSD') {
         return saved;
       }
-    } catch (e) {}
+    } catch (e) { }
     return DEFAULT_TRADING_PAIR;
   };
 
@@ -538,7 +541,7 @@ const Trading = ({ isLightMode = false }) => {
     if (newSymbol && newSymbol !== 'ALL') {
       try {
         localStorage.setItem('selectedTradingPair', newSymbol);
-      } catch (e) {}
+      } catch (e) { }
     }
     setAvgEntryPrice(null);
     setOrderForm((prev) => ({
@@ -641,7 +644,7 @@ const Trading = ({ isLightMode = false }) => {
       if (symbol) {
         try {
           localStorage.setItem('selectedTradingPair', symbol);
-        } catch (e) {}
+        } catch (e) { }
       }
       if (baseCoin) {
         setFilterCoin(baseCoin);
@@ -666,7 +669,7 @@ const Trading = ({ isLightMode = false }) => {
       setActiveTab('order');
       try {
         localStorage.setItem('selectedTradingPair', DEFAULT_TRADING_PAIR);
-      } catch (e) {}
+      } catch (e) { }
       setFilterCoin(null);
       setOrderForm((prev) => ({
         ...prev,
@@ -1764,6 +1767,23 @@ const Trading = ({ isLightMode = false }) => {
 
   const paginatedOrders = filteredOrders;
 
+  const sharedOrderColumns = ({ open = false, test = false } = {}) => [
+    { id: 'created_at', label: 'Date', value: (order) => order.created_at || order.time, render: (order) => formatEasternDate(order.created_at || order.time), locked: true, style: { whiteSpace: 'nowrap' } },
+    { id: 'time', label: 'Time', value: (order) => order.created_at || order.time, render: (order) => formatEasternTime(order.created_at || order.time), style: { whiteSpace: 'nowrap' } },
+    { id: 'symbol', label: 'Symbol', value: (order) => order.symbol, filterable: true, className: 'symbol-cell', render: (order) => test ? <strong>{order.symbol}</strong> : order.symbol },
+    { id: 'side', label: 'Side', value: (order) => formatOrderSide(order.side), filterable: true, render: (order) => test ? <span className={order.side === 'BUY' ? 'status-positive' : 'status-negative'}>{order.side === 'BUY' ? '📈' : '📉'} {formatOrderSide(order.side)}</span> : <span className={`badge badge-${(order.side || '').toLowerCase().replace(/_/g, '-')}`}>{formatOrderSide(order.side)}</span> },
+    { id: 'type', label: 'Type', value: (order) => formatOrderType(order.order_type || order.type), filterable: true },
+    ...(!open && !test ? [{ id: 'origin', label: 'Origin', value: (order) => getOrderOrigin(order).label, filterable: true, render: (order) => { const origin = getOrderOrigin(order); return <span className="badge" style={{ color: origin.color, background: origin.background, border: `1px solid ${origin.color}55` }}>{origin.label}</span>; } }] : []),
+    { id: 'quantity', label: 'Quantity', value: (order) => Number(order.quantity || order.origQty), render: (order) => open ? (order.quantity ? formatNumber(order.quantity, 8) : (order.origQty ? formatNumber(order.origQty, 8) : (order.trigger_details || '—'))) : formatNumber(order.quantity, 8) },
+    { id: 'price', label: 'Price', value: (order) => Number(order.price || order.trigger_price), render: (order) => open ? (order.price && Number(order.price) > 0 ? `$${formatNumber(order.price)}` : (order.trigger_price ? `$${formatNumber(order.trigger_price)}` : (order.trigger_details || '—'))) : (order.price ? `$${formatNumber(order.price)}` : '-') },
+    ...(test ? [{ id: 'fill_price', label: 'Fill Price', value: (order) => Number(order.simulated_fill_price), render: (order) => order.simulated_fill_price ? `$${formatNumber(order.simulated_fill_price)}` : '-' }] : [{ id: 'filled', label: 'Filled', value: (order) => Number(order.filled_quantity || order.executedQty), render: (order) => formatNumber(order.filled_quantity || order.executedQty || 0, 8) }]),
+    ...(!open && !test ? [{ id: 'fee', label: 'Fee', value: (order) => Number(order.fee || order.commission), render: (order) => { const feeVal = Number(order.fee || order.commission || 0); const asset = order.fee_asset || order.commission_asset || ''; if (feeVal <= 0) return '—'; return !asset || asset === 'USD' || asset === 'USDT' ? `$${formatNumber(feeVal, 4)}` : `${formatNumber(feeVal, 8)} ${asset}`; } }] : []),
+    { id: 'status', label: 'Status', value: (order) => order.status === 'NEW' || order.status === 'PARTIALLY_FILLED' ? 'ACTIVE' : (order.status || (open ? 'ACTIVE' : '—')), filterable: true, render: (order) => test ? <span className={`status-badge ${String(order.status || '').toLowerCase()}`}>{order.status}</span> : <span className={`badge badge-${open ? 'open' : ((order.status === 'NEW' || order.status === 'PARTIALLY_FILLED' ? 'ACTIVE' : order.status) || 'unknown').toLowerCase()}`}>{order.status === 'NEW' || order.status === 'PARTIALLY_FILLED' ? 'ACTIVE' : (order.status || 'ACTIVE')}</span> },
+    ...(!open && !test ? [{ id: 'total', label: 'Total', value: (order) => Number(order.filled_quantity || order.quantity || 0) * Number(order.filled_price || order.price || 0), render: (order) => `$${formatNumber((order.filled_quantity || order.quantity || 0) * (order.filled_price || order.price || 0))}` }] : []),
+    ...(test ? [{ id: 'notes', label: 'Notes', value: (order) => order.notes, className: 'notes-cell', render: (order) => order.notes || '-' }] : []),
+    ...(open ? [{ id: 'actions', label: 'Actions', value: () => '', render: (order) => <button className="btn btn-danger cancel-order-btn" onClick={() => openCancelModalForOrder(order)} disabled={cancelModal.loading && cancelModal.order && (cancelModal.order.order_id || cancelModal.order.orderId || cancelModal.order.id) === (order.order_id || order.orderId || order.id)}>Cancel Order</button> }] : []),
+  ];
+
   return (
     <div className="trading-container" style={{ minHeight: '100vh', padding: '20px', color: 'white' }}>
       {/* API Key Required Modal */}
@@ -2011,10 +2031,10 @@ const Trading = ({ isLightMode = false }) => {
                 <div className="trading-asset-card-value price-highlight">
                   {currentPrices.base > 0
                     ? (currentPrices.base >= 100
-                        ? `$${currentPrices.base.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-                        : currentPrices.base >= 1
-                          ? `$${currentPrices.base.toFixed(4)}`
-                          : `$${currentPrices.base.toFixed(6)}`)
+                      ? `$${currentPrices.base.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                      : currentPrices.base >= 1
+                        ? `$${currentPrices.base.toFixed(4)}`
+                        : `$${currentPrices.base.toFixed(6)}`)
                     : '—'}
                   <small> {quoteAsset}</small>
                 </div>
@@ -2292,69 +2312,15 @@ const Trading = ({ isLightMode = false }) => {
               </div>
             </div>
 
-            {filteredOpenOrders.length === 0 ? (
-              <div className="empty-state">
-                <p>No open orders {historySymbolFilter !== 'ALL' ? `for ${historySymbolFilter}` : ''}</p>
-              </div>
-            ) : (
-              <div className="table-container trading-table">
-                <div className="order-table-scroll">
-                  <table>
-                    <thead>
-                      <tr>
-                        <th>Date</th>
-                        <th>Time</th>
-                        <th>Symbol</th>
-                        <th>Side</th>
-                        <th>Type</th>
-                        <th>Quantity</th>
-                        <th>Price</th>
-                        <th>Filled</th>
-                        <th>Status</th>
-                        <th>Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {filteredOpenOrders.map((order, idx) => (
-                        <tr key={order.id || idx} className="open-order-row">
-                          <td style={{ whiteSpace: 'nowrap' }}>{formatEasternDate(order.created_at || order.time)}</td>
-                          <td style={{ whiteSpace: 'nowrap' }}>{formatEasternTime(order.created_at || order.time)}</td>
-                          <td className="symbol-cell">{order.symbol}</td>
-                          <td>
-                            <span className={`badge badge-${(order.side || '').toLowerCase().replace(/_/g, '-')}`}>
-                              {formatOrderSide(order.side)}
-                            </span>
-                          </td>
-                          <td>{formatOrderType(order.order_type || order.type)}</td>
-                          <td>{order.quantity ? formatNumber(order.quantity, 8) : (order.origQty ? formatNumber(order.origQty, 8) : (order.trigger_details || '—'))}</td>
-                          <td>{order.price && Number(order.price) > 0 ? `$${formatNumber(order.price)}` : (order.trigger_price ? `$${formatNumber(order.trigger_price)}` : (order.trigger_details || '—'))}</td>
-                          <td>{formatNumber(order.filled_quantity || order.executedQty || 0, 8)}</td>
-                          <td>
-                            <span className="badge badge-open">
-                              {order.status === 'NEW' ? 'ACTIVE' : (order.status || 'ACTIVE')}
-                            </span>
-                          </td>
-                          <td>
-                            <button
-                              className="btn btn-danger cancel-order-btn"
-                              onClick={() => openCancelModalForOrder(order)}
-                              disabled={
-                                cancelModal.loading &&
-                                cancelModal.order &&
-                                (cancelModal.order.order_id || cancelModal.order.orderId || cancelModal.order.id) ===
-                                (order.order_id || order.orderId || order.id)
-                              }
-                            >
-                              Cancel Order
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
+            <ConfigurableOrderTable
+              rows={filteredOpenOrders}
+              columns={sharedOrderColumns({ open: true })}
+              tableId="binance-open-orders"
+              userId={user?.id}
+              emptyText={`No open orders ${historySymbolFilter !== 'ALL' ? `for ${historySymbolFilter}` : ''}`}
+              rowKey={(order, index) => order.id || index}
+              rowClassName="open-order-row"
+            />
           </div>
         )}
 
@@ -2438,64 +2404,13 @@ const Trading = ({ isLightMode = false }) => {
               </div>
             ) : (
               <>
-                <div className="table-container trading-table">
-                  <div className="order-table-scroll">
-                    <table>
-                      <thead>
-                        <tr>
-                          <th>Date</th>
-                          <th>Time</th>
-                          <th>Symbol</th>
-                          <th>Side</th>
-                          <th>Type</th>
-                          <th>Origin</th>
-                          <th>Quantity</th>
-                          <th>Price</th>
-                          <th>Filled</th>
-                          <th>Fee</th>
-                          <th>Status</th>
-                          <th>Total</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {paginatedOrders.map((order) => (
-                          <tr key={order.id}>
-                            <td style={{ whiteSpace: 'nowrap' }}>{formatEasternDate(order.created_at)}</td>
-                            <td style={{ whiteSpace: 'nowrap' }}>{formatEasternTime(order.created_at)}</td>
-                            <td className="symbol-cell">{order.symbol}</td>
-                            <td>
-                              <span className={`badge badge-${(order.side || '').toLowerCase().replace(/_/g, '-')}`}>
-                                {formatOrderSide(order.side)}
-                              </span>
-                            </td>
-                            <td>{formatOrderType(order.order_type || order.type)}</td>
-                            {(() => { const origin = getOrderOrigin(order); return <td><span className="badge" style={{ color: origin.color, background: origin.background, border: `1px solid ${origin.color}55` }}>{origin.label}</span></td>; })()}
-                            <td>{formatNumber(order.quantity, 8)}</td>
-                            <td>{order.price ? `$${formatNumber(order.price)}` : '-'}</td>
-                            <td>{formatNumber(order.filled_quantity || 0, 8)}</td>
-                            <td>
-                              {(() => {
-                                const feeVal = Number(order.fee || order.commission || 0);
-                                const asset = order.fee_asset || order.commission_asset || '';
-                                if (feeVal <= 0) return '—';
-                                if (!asset || asset === 'USD' || asset === 'USDT') return `$${formatNumber(feeVal, 4)}`;
-                                return `${formatNumber(feeVal, 8)} ${asset}`;
-                              })()}
-                            </td>
-                            <td>
-                              <span className={`badge badge-${((order.status === 'NEW' || order.status === 'PARTIALLY_FILLED' ? 'ACTIVE' : order.status) || 'unknown').toLowerCase()}`}>
-                                {order.status === 'NEW' || order.status === 'PARTIALLY_FILLED' ? 'ACTIVE' : order.status}
-                              </span>
-                            </td>
-                            <td>
-                              ${formatNumber((order.filled_quantity || order.quantity || 0) * (order.filled_price || order.price || 0))}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
+                <ConfigurableOrderTable
+                  rows={paginatedOrders}
+                  columns={sharedOrderColumns()}
+                  tableId="binance-order-history"
+                  userId={user?.id}
+                  emptyText="No orders yet. Place your first order to get started!"
+                />
 
                 {/* Pagination Controls */}
                 {filteredOrders.length > 0 && (
@@ -2648,52 +2563,14 @@ const Trading = ({ isLightMode = false }) => {
             {/* Test Orders History Section */}
             <div className="portfolio-section">
               <h3>📜 Test Order History</h3>
-              {testOrders.length === 0 ? (
-                <div className="empty-state">
-                  <p>No test orders yet. Place a test order to see it here!</p>
-                </div>
-              ) : (
-                <div className="table-container portfolio-table">
-                  <table style={{ width: '100%' }}>
-                    <thead>
-                      <tr>
-                        <th>Date</th>
-                        <th>Time</th>
-                        <th>Symbol</th>
-                        <th>Side</th>
-                        <th>Type</th>
-                        <th>Quantity</th>
-                        <th>Price</th>
-                        <th>Fill Price</th>
-                        <th>Status</th>
-                        <th>Notes</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {testOrders.map((order) => (
-                        <tr key={order.id}>
-                          <td style={{ whiteSpace: 'nowrap' }}>{formatEasternDate(order.created_at)}</td>
-                          <td style={{ whiteSpace: 'nowrap' }}>{formatEasternTime(order.created_at)}</td>
-                          <td><strong>{order.symbol}</strong></td>
-                          <td className={order.side === 'BUY' ? 'status-positive' : 'status-negative'}>
-                            {order.side === 'BUY' ? '📈' : '📉'} {formatOrderSide(order.side)}
-                          </td>
-                          <td>{formatOrderType(order.type)}</td>
-                          <td>{formatNumber(order.quantity, 8)}</td>
-                          <td>{order.price ? '$' + formatNumber(order.price) : '-'}</td>
-                          <td>{order.simulated_fill_price ? '$' + formatNumber(order.simulated_fill_price) : '-'}</td>
-                          <td>
-                            <span className={`status-badge ${order.status.toLowerCase()}`}>
-                              {order.status}
-                            </span>
-                          </td>
-                          <td className="notes-cell">{order.notes || '-'}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
+              <ConfigurableOrderTable
+                rows={testOrders}
+                columns={sharedOrderColumns({ test: true })}
+                tableId="binance-test-order-history"
+                userId={user?.id}
+                emptyText="No test orders yet. Place a test order to see it here!"
+                tableClassName="portfolio-table"
+              />
             </div>
           </div>
         )}

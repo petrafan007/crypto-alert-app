@@ -6,6 +6,13 @@
 
 **Last Updated**: September 2026
 
+## v2.94.2 (September 2026)
+
+- Added the Webull Positions table's column controls to every Open Orders and Order History table across the combined Orders, Binance.US Trading, and Webull Trading workflows, including Binance.US test history and Webull Event Contract open orders.
+- Added click-to-sort headers, drag-and-drop column ordering, accessible arrow-based ordering, show/hide column controls, full-table search, and field filters while preserving each table's provider-specific cells and order actions.
+- Saved column order, visibility, sorting direction, and filters per user and per table in browser storage so the last layout survives navigation, logout/login, browser restarts, and application upgrades. New release columns are merged safely into saved layouts, and Reset to defaults remains available.
+- Added fixture-backed browser verification for sorting, filtering, column customization, reload persistence, and user isolation.
+
 ## v2.94.1 (September 2026)
 
 - Fixed AI Copilot message timestamps displaying incorrect times (such as showing 7:37 AM EDT instead of 11:38 PM EDT) for optimistic user messages and thinking placeholders.

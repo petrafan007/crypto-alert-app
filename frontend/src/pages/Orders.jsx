@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
 import CombinedPositions from '../components/CombinedPositions';
+import ConfigurableOrderTable from '../components/ConfigurableOrderTable';
 import { useAuth } from '../components/AuthContext';
 import CancelOrderModal from '../components/CancelOrderModal';
 import {
@@ -169,22 +170,22 @@ const normalize = (order, source) => {
   );
   const canonicalOrder = { ...order, source, origin };
   return {
-  ...canonicalOrder,
-  id: order.id || order.order_id || order.orderId || `${source}-${order.symbol || order.ticker || 'unknown'}-${order.created_at || order.create_time || order.filled_time_at || ''}`,
-  symbol: String(order.symbol || order.ticker || '—').toUpperCase(),
-  display_symbol: getAssetDisplaySymbol(canonicalOrder),
-  asset_key: getAssetIdentity(canonicalOrder),
-  side: order.side || '—',
-  order_type: order.order_type || order.type || '—',
-  quantity,
-  filled_quantity: filledQuantity,
-  filled_price: filledPrice,
-  price: orderPrice,
-  fee: firstValue(order.fee, order.commission, order.fee_amount, order.total_fee, order.commission_amount),
-  fee_asset: order.fee_asset || order.commission_asset || '',
-  estimated_pnl: firstValue(order.estimated_pnl, order.estimated_profit_loss, order.pnl, order.profit_loss),
-  status: order.status || order.order_status || '—',
-  created_at: order.created_at || order.create_time || order.placed_time || order.place_time || order.filled_time_at || order.time,
+    ...canonicalOrder,
+    id: order.id || order.order_id || order.orderId || `${source}-${order.symbol || order.ticker || 'unknown'}-${order.created_at || order.create_time || order.filled_time_at || ''}`,
+    symbol: String(order.symbol || order.ticker || '—').toUpperCase(),
+    display_symbol: getAssetDisplaySymbol(canonicalOrder),
+    asset_key: getAssetIdentity(canonicalOrder),
+    side: order.side || '—',
+    order_type: order.order_type || order.type || '—',
+    quantity,
+    filled_quantity: filledQuantity,
+    filled_price: filledPrice,
+    price: orderPrice,
+    fee: firstValue(order.fee, order.commission, order.fee_amount, order.total_fee, order.commission_amount),
+    fee_asset: order.fee_asset || order.commission_asset || '',
+    estimated_pnl: firstValue(order.estimated_pnl, order.estimated_profit_loss, order.pnl, order.profit_loss),
+    status: order.status || order.order_status || '—',
+    created_at: order.created_at || order.create_time || order.placed_time || order.place_time || order.filled_time_at || order.time,
   };
 };
 
@@ -226,68 +227,36 @@ function AccountCell({ order, webullAccounts }) {
   return <div className="combined-order-account">{label}</div>;
 }
 
-function OrderTable({ orders, open, onCancelOrder, cancellingId, webullAccounts }) {
-  if (!orders.length) return <div className="empty-state"><p>No {open ? 'open' : 'historical'} orders for the selected accounts.</p></div>;
-  return (
-    <div className="table-container trading-table">
-      <div className="order-table-scroll">
-        <table>
-          <thead>
-            <tr>
-              <th>Date</th><th>Time</th><th className="combined-order-account-heading">Account</th><th>Symbol</th><th>Side</th><th>Type</th><th>Quantity</th><th>Price</th><th>Filled</th><th>Fee</th><th>Status</th>
-              {open && <th>Est. P&L (if filled)</th>}
-              {open && <th>Actions</th>}
-            </tr>
-          </thead>
-          <tbody>
-            {orders.map((order) => (
-              <tr key={`${order.source}-${order.id}`}>
-                <td>{formatOrderDate(order.created_at)}</td>
-                <td>{formatOrderTime(order.created_at)}</td>
-                <td className="combined-order-account-cell"><AccountCell order={order} webullAccounts={webullAccounts} /></td>
-                <td>{order.display_symbol || getAssetDisplaySymbol(order)}</td>
-                <td>{displaySide(order.side)}</td>
-                <td>{displayType(order.order_type)}</td>
-                <td>{amount(order.quantity, 6, '0')}</td>
-                <td>{Number(order.price) > 0 ? `$${amount(order.price, 4)}` : '—'}</td>
-                <td>{amount(order.filled_quantity, 6, '0')}</td>
-                <td>
-                  {(() => {
-                    const feeVal = Number(order.fee);
-                    const asset = order.fee_asset || '';
-                    if (!Number.isFinite(feeVal) || feeVal <= 0) return '$0.00';
-                    if (!asset || asset === 'USD' || asset === 'USDT') return `$${amount(feeVal, 4)}`;
-                    return `${amount(feeVal, 8)} ${asset}`;
-                  })()}
-                </td>
-                <td>{order.status}{order.history_note && <small style={{ display: 'block', maxWidth: 280 }}>{order.history_note}</small>}</td>
-                {open && (
-                  <td>
-                    {Number.isFinite(Number(order.estimated_pnl))
-                      ? `${Number(order.estimated_pnl) >= 0 ? '+' : ''}$${amount(Math.abs(Number(order.estimated_pnl)), 2)}`
-                      : '—'}
-                  </td>
-                )}
-                {open && (
-                  <td>
-                    <button
-                      type="button"
-                      className="btn btn-sm btn-danger"
-                      style={{ padding: '3px 8px', fontSize: '11px', backgroundColor: '#ef4444', borderColor: '#ef4444', color: '#fff', borderRadius: '4px', cursor: 'pointer' }}
-                      disabled={cancellingId === order.id}
-                      onClick={() => onCancelOrder?.(order)}
-                    >
-                      {cancellingId === order.id ? 'Cancelling...' : 'Cancel'}
-                    </button>
-                  </td>
-                )}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  );
+function OrderTable({ orders, open, onCancelOrder, cancellingId, webullAccounts, userId }) {
+  const accountValue = (order) => {
+    const account = webullAccounts.find((candidate) => String(candidate.account_id) === webullAccountId(order));
+    return isWebull(order) ? (account ? accountLabel(account) : order.webull_account_type || 'Webull account') : 'Binance.US';
+  };
+  const feeDisplay = (order) => {
+    const feeVal = Number(order.fee);
+    const asset = order.fee_asset || '';
+    if (!Number.isFinite(feeVal) || feeVal <= 0) return '$0.00';
+    if (!asset || asset === 'USD' || asset === 'USDT') return `$${amount(feeVal, 4)}`;
+    return `${amount(feeVal, 8)} ${asset}`;
+  };
+  const columns = [
+    { id: 'created_at', label: 'Date', value: (order) => order.created_at, render: (order) => formatOrderDate(order.created_at), locked: true },
+    { id: 'time', label: 'Time', value: (order) => order.created_at, render: (order) => formatOrderTime(order.created_at) },
+    { id: 'account', label: 'Account', value: accountValue, render: (order) => <AccountCell order={order} webullAccounts={webullAccounts} />, filterable: true, className: 'combined-order-account-cell' },
+    { id: 'symbol', label: 'Symbol', value: (order) => order.display_symbol || getAssetDisplaySymbol(order), filterable: true },
+    { id: 'side', label: 'Side', value: (order) => displaySide(order.side), filterable: true },
+    { id: 'type', label: 'Type', value: (order) => displayType(order.order_type), filterable: true },
+    { id: 'quantity', label: 'Quantity', value: (order) => Number(order.quantity), render: (order) => amount(order.quantity, 6, '0') },
+    { id: 'price', label: 'Price', value: (order) => Number(order.price), render: (order) => Number(order.price) > 0 ? `$${amount(order.price, 4)}` : '—' },
+    { id: 'filled', label: 'Filled', value: (order) => Number(order.filled_quantity), render: (order) => amount(order.filled_quantity, 6, '0') },
+    { id: 'fee', label: 'Fee', value: (order) => Number(order.fee), render: feeDisplay },
+    { id: 'status', label: 'Status', value: (order) => order.status, filterable: true, render: (order) => <>{order.status}{order.history_note && <small style={{ display: 'block', maxWidth: 280 }}>{order.history_note}</small>}</> },
+    ...(open ? [
+      { id: 'estimated_pnl', label: 'Est. P&L (if filled)', value: (order) => Number(order.estimated_pnl), render: (order) => Number.isFinite(Number(order.estimated_pnl)) ? `${Number(order.estimated_pnl) >= 0 ? '+' : ''}$${amount(Math.abs(Number(order.estimated_pnl)), 2)}` : '—' },
+      { id: 'actions', label: 'Actions', value: () => '', render: (order) => <button type="button" className="btn btn-sm btn-danger" style={{ padding: '3px 8px', fontSize: '11px', backgroundColor: '#ef4444', borderColor: '#ef4444', color: '#fff', borderRadius: '4px', cursor: 'pointer' }} disabled={cancellingId === order.id} onClick={() => onCancelOrder?.(order)}>{cancellingId === order.id ? 'Cancelling...' : 'Cancel'}</button> },
+    ] : []),
+  ];
+  return <ConfigurableOrderTable rows={orders} columns={columns} tableId={`combined-${open ? 'open' : 'history'}`} userId={userId} emptyText={`No ${open ? 'open' : 'historical'} orders for the selected accounts.`} rowKey={(order) => `${order.source}-${order.id}`} />;
 }
 
 function Pagination({ page, setPage, pageSize, setPageSize, total }) {
@@ -305,7 +274,7 @@ export default function Orders() {
       if (['open', 'history', 'positions', 'market_analysis', 'portfolio_review'].includes(t)) {
         return t;
       }
-    } catch {}
+    } catch { }
     return 'open';
   });
   const [marketAnalysisData, setMarketAnalysisData] = useState(null);
@@ -462,14 +431,14 @@ export default function Orders() {
         const res = await axios.get('/api/ai/workflow-latest?type=market-analysis', { withCredentials: true });
         const normalized = normalizeWorkflowResult(res.data);
         if (normalized) setMarketAnalysisData(normalized);
-      } catch (err) {}
+      } catch (err) { }
     }
     if (targetType === 'all' || targetType === 'portfolio-review') {
       try {
         const res = await axios.get('/api/ai/workflow-latest?type=portfolio-review', { withCredentials: true });
         const normalized = normalizeWorkflowResult(res.data);
         if (normalized) setPortfolioReviewData(normalized);
-      } catch (err) {}
+      } catch (err) { }
     }
   };
 
@@ -562,7 +531,7 @@ export default function Orders() {
       const url = new URL(window.location);
       url.searchParams.set('tab', tab);
       window.history.replaceState({}, '', url);
-    } catch {}
+    } catch { }
     if (tab === 'market_analysis' && !marketAnalysisData) loadLatestWorkflowData('market-analysis');
     if (tab === 'portfolio_review' && !portfolioReviewData) loadLatestWorkflowData('portfolio-review');
   };
@@ -697,14 +666,14 @@ export default function Orders() {
               <>
                 <h2>All Open Orders</h2>
                 {webullOpenLoading && <p className="order-refresh-status" role="status">Refreshing Webull open orders{webullOpenProgress.total ? ` (${webullOpenProgress.complete}/${webullOpenProgress.total} accounts)…` : '…'}</p>}
-                <OrderTable orders={filteredOpenOrders} open onCancelOrder={openCancelModalForOrder} cancellingId={cancellingId} webullAccounts={webullAccounts} />
+                <OrderTable orders={filteredOpenOrders} open onCancelOrder={openCancelModalForOrder} cancellingId={cancellingId} webullAccounts={webullAccounts} userId={user?.id} />
               </>
             ) : historyLoading && !sortedHistory.length ? (
               <div className="empty-state"><p>Loading order history…</p></div>
             ) : (
               <>
                 <h2>All Order History</h2>
-                <OrderTable orders={paginatedHistory} webullAccounts={webullAccounts} />
+                <OrderTable orders={paginatedHistory} webullAccounts={webullAccounts} userId={user?.id} />
                 <Pagination page={historyPage} setPage={setHistoryPage} pageSize={historyPageSize} setPageSize={setHistoryPageSize} total={historyTotal} />
               </>
             )}
