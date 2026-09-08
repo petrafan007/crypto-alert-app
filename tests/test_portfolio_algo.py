@@ -28,6 +28,21 @@ class PortfolioSignalsTests(unittest.TestCase):
                 e.validate_config({'allocations': {**DEFAULT_ALLOCATIONS, 'equities': value}}, self.config())
         with self.assertRaises(ValueError):
             e.validate_config({'allocations': {**DEFAULT_ALLOCATIONS, 'extra': 0}}, self.config())
+
+    def test_dedicated_ai_config_rejects_removed_ollama_models(self):
+        from routes.portfolio_algo import validate_master_ai_config
+        config = {
+            'primary': {'provider': 'gemini', 'model': 'gemini-3.8-flash'},
+            'secondary': {'provider': 'ollama', 'model': 'nemotron-3-ultra:cloud'},
+            'tertiary': {'provider': 'ollama', 'model': 'lfm2-cpu:latest'},
+        }
+        available = ['gemma4:26b', 'nemotron-3-ultra:cloud']
+        with patch('services.ai_service.get_ollama_models', return_value=available), \
+             self.assertRaisesRegex(ValueError, "lfm2-cpu:latest.*not available"):
+            validate_master_ai_config(config)
+        config['tertiary']['model'] = 'gemma4:26b'
+        with patch('services.ai_service.get_ollama_models', return_value=available):
+            self.assertIsNone(validate_master_ai_config(config))
         with self.assertRaises(ValueError):
             e.validate_config({'allocations': {m: 20.006 for m in DEFAULT_ALLOCATIONS}}, self.config())
 
@@ -454,6 +469,29 @@ class PortfolioLedgerTests(unittest.TestCase):
         db.session.commit()
         self.assertEqual(self.client.get(path+'status').json['account']['total_equity'], 0)
 
+    def test_ai_config_rejects_removed_ollama_model_and_saves_available_models(self):
+        path = '/api/webull/portfolio-algo/ai-config'
+        payload = {'ai_config': {
+            'primary': {'provider': 'gemini', 'model': 'gemini-3.8-flash', 'reasoning_level': 'high'},
+            'secondary': {'provider': 'ollama', 'model': 'nemotron-3-ultra:cloud'},
+            'tertiary': {'provider': 'ollama', 'model': 'lfm2-cpu:latest'},
+        }}
+        available = ['gemma4:26b', 'nemotron-3-ultra:cloud']
+        with patch('services.ai_service.get_ollama_models', return_value=available):
+            rejected = self.client.post(path, json=payload)
+        self.assertEqual(rejected.status_code, 400, rejected.json)
+        self.assertIn('not available', rejected.json['message'])
+        self.assertEqual(json.loads(self.cfg.master_ai_config), {})
+
+        payload['ai_config']['tertiary']['model'] = 'gemma4:26b'
+        with patch('services.ai_service.get_ollama_models', return_value=available):
+            saved = self.client.post(path, json=payload)
+        self.assertEqual(saved.status_code, 200, saved.json)
+        self.assertEqual(saved.json['ai_config']['tertiary']['model'], 'gemma4:26b')
+        persisted = json.loads(self.cfg.master_ai_config)
+        self.assertEqual(persisted['secondary']['model'], 'nemotron-3-ultra:cloud')
+        self.assertEqual(persisted['tertiary']['model'], 'gemma4:26b')
+
     def test_futures_short_multiplier_and_daily_risk_budget(self):
         lot = e.enter_lot(self.cfg, self.acc, self.state, 'futures', 'MNQ', {'side': 'SHORT', 'stop': 110}, 100,
                           datetime.utcnow(), multiplier=2, margin=500)
@@ -734,6 +772,10 @@ class PortfolioLedgerTests(unittest.TestCase):
             self.assertEqual(request.kwargs['custom_api_keys'][('secondary', 'inception')], 'dedicated-test-key')
         self.assertNotIn('dedicated-test-key', json.dumps(result))
         self.assertEqual(result['evidence']['open_positions_count'], 5)
+        self.assertEqual(result['evidence']['ai_cascade'], [
+            {'tier': 'primary', 'provider': 'ollama', 'model': 'local-auditor', 'reasoning_level': 'high'},
+            {'tier': 'secondary', 'provider': 'inception', 'model': 'mercury-2', 'reasoning_level': 'medium'},
+        ])
         master_input = json.loads(call.call_args.kwargs['messages'][1]['content'])
         self.assertNotIn('module_audits', master_input)
         self.assertEqual(master_input['module_trade_results']['crypto']['open_positions'], 1)

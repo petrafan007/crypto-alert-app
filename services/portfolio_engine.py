@@ -1101,7 +1101,7 @@ def run_audit(user_id, prompt=None, scheduled=False, audit_id=None):
                                 if evidence['account']['total_equity'] > 0 else None),
         }
         evidence['target_annual_return'] = cfg.target_annual_return
-        evidence['audit_schema_version'] = '2.92.7'
+        evidence['audit_schema_version'] = '2.94.5'
         evidence['audit_context_version'] = 3
         evidence['as_of'] = datetime.utcnow().isoformat()+'Z'
         now = datetime.utcnow()
@@ -1176,6 +1176,10 @@ def run_audit(user_id, prompt=None, scheduled=False, audit_id=None):
         user = db.session.get(User, user_id)
         if user and is_ai_enabled(user.username):
             ai_kwargs = audit_ai_kwargs(cfg)
+            evidence['ai_cascade'] = [
+                {'tier': tier, 'provider': provider, 'model': model, 'reasoning_level': reasoning}
+                for tier, provider, model, reasoning in ai_kwargs.get('custom_tier_configs', [])
+            ]
             _record_portfolio_log(user_id, 'AUDIT_START', 'Starting autonomous portfolio audit cascade.')
             module_responses, module_errors = {}, {}
             evidence['module_audits'] = module_responses

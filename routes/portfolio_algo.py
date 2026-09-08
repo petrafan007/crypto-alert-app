@@ -57,6 +57,37 @@ def payload():
     return data
 
 
+def validate_master_ai_config(ai_config):
+    """Reject a dedicated cascade that references unavailable local models."""
+    allowed_providers = {'gemini', 'openai', 'zai', 'perplexity', 'inception', 'ollama'}
+    ollama_models = None
+    for tier_name in ('primary', 'secondary', 'tertiary'):
+        tier = ai_config.get(tier_name)
+        if not isinstance(tier, dict):
+            raise ValueError(f'{tier_name.title()} AI integration is required.')
+        provider = str(tier.get('provider') or '').strip().lower()
+        model = str(tier.get('model') or '').strip()
+        if provider not in allowed_providers:
+            raise ValueError(f'{tier_name.title()} AI provider is invalid.')
+        if not model:
+            raise ValueError(f'{tier_name.title()} AI model is required.')
+        if provider != 'ollama':
+            continue
+        if ollama_models is None:
+            try:
+                from services.ai_service import get_ollama_models
+                ollama_models = set(get_ollama_models())
+            except Exception as exc:
+                raise ValueError(
+                    'Ollama model inventory is unavailable; configuration was not saved.'
+                ) from exc
+        if model not in ollama_models:
+            raise ValueError(
+                f"{tier_name.title()} Ollama model '{model}' is not available; "
+                'refresh the model list and select an installed model.'
+            )
+
+
 def config_dict(cfg):
     return {'id': cfg.id, 'name': cfg.name, 'total_bankroll': cfg.total_bankroll,
             'target_annual_return': cfg.target_annual_return, 'allocations': engine.allocations_for(cfg),
@@ -283,6 +314,7 @@ def portfolio_algo_ai_config():
             except json.JSONDecodeError:
                 existing_ai = {}
             new_ai = payload["ai_config"]
+            validate_master_ai_config(new_ai)
             from credential_security import encrypt_secret
             merged_ai = existing_ai.copy()
             for tier in ("primary", "secondary", "tertiary"):

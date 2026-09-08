@@ -6,6 +6,12 @@
 
 **Last Updated**: September 2026
 
+## v2.94.5 (September 2026)
+
+- Fixed the Quantitative Strategy Engine AI configuration modal so a removed Ollama model can no longer remain hidden in form state while the model selector displays a different installed model.
+- Reconciled dedicated cascade selections with the live model inventory before saving and added server-side validation that refuses unavailable Ollama models instead of persisting a broken fallback chain.
+- Added the exact provider, model, tier, and reasoning configuration used by each new quantitative audit to its preserved evidence for direct routing verification without exposing API keys.
+
 ## v2.94.2 (September 2026)
 
 - Added the Webull Positions table's column controls to every Open Orders and Order History table across the combined Orders, Binance.US Trading, and Webull Trading workflows, including Binance.US test history and Webull Event Contract open orders.

@@ -10,6 +10,7 @@ import { formatEasternDateTime } from '../utils/dateTime';
 const QuantitativeStrategyEngine = React.lazy(() => import('../components/QuantitativeStrategyEngine'));
 import ProviderHealth from '../components/ProviderHealth';
 import { normalizePortfolioAudit, selectPortfolioAudit, auditOutcomeMessage } from '../utils/portfolioAudit.mjs';
+import { reconcileDedicatedAIConfig } from '../utils/dedicatedAIConfig.mjs';
 
 const SENTIMENT_VARIABLES = [
   { label: 'Buy Immediately', code: 'BI', kind: 'directional', direction: 'up', correctKey: 'sentiment_buy_immediately_correct_pct', wrongKey: 'sentiment_buy_immediately_wrong_pct' },
@@ -560,7 +561,7 @@ export default function Settings({ isLightMode }) {
     try {
       const response = await axios.get('/api/webull/portfolio-algo/ai-config', { withCredentials: true });
       if (response.data?.success) {
-        setEventStrategyAIConfig({
+        const loadedConfig = {
           audit_hours: response.data.audit_hours ?? 6,
           master_ai_prompt: response.data.master_ai_prompt || DEFAULT_MASTER_CIO_PROMPT,
           ai_config: response.data.ai_config || {
@@ -568,7 +569,8 @@ export default function Settings({ isLightMode }) {
             secondary: { provider: 'ollama', model: 'gpt-oss:120b-cloud', reasoning_level: 'medium', api_key: '', has_key: false },
             tertiary: { provider: 'ollama', model: 'qwen2.5:14b', reasoning_level: 'medium', api_key: '', has_key: false },
           },
-        });
+        };
+        setEventStrategyAIConfig(reconcileDedicatedAIConfig(loadedConfig, modelOptions));
       }
     } catch (err) {
       console.error('Failed to load Event Strategy AI configuration:', err);
@@ -586,7 +588,9 @@ export default function Settings({ isLightMode }) {
   const saveEventStrategyAIConfig = async () => {
     setEventStrategyAISaving(true);
     try {
-      const response = await axios.post('/api/webull/portfolio-algo/ai-config', eventStrategyAIConfig, { withCredentials: true });
+      const configToSave = reconcileDedicatedAIConfig(eventStrategyAIConfig, modelOptions);
+      setEventStrategyAIConfig(configToSave);
+      const response = await axios.post('/api/webull/portfolio-algo/ai-config', configToSave, { withCredentials: true });
       if (response.data?.success) {
         setEventStrategyMessage('Event Strategy AI configuration saved successfully.');
         setSettings((prev) => ({
@@ -609,6 +613,12 @@ export default function Settings({ isLightMode }) {
       setEventStrategyAISaving(false);
     }
   };
+
+  // A removed Ollama model can otherwise leave a controlled <select> showing
+  // its first option while retaining and submitting the removed hidden value.
+  useEffect(() => {
+    setEventStrategyAIConfig((prev) => reconcileDedicatedAIConfig(prev, modelOptions));
+  }, [modelOptions]);
 
   const testEventStrategyAITier = async (tierKey) => {
     setEventStrategyAITesting((prev) => ({ ...prev, [tierKey]: true }));
