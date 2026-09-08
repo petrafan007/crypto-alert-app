@@ -146,7 +146,7 @@ const PortfolioPerformanceTable = ({ hiddenCoins = [], excludeSymbols = null, on
                     <button
                       type="button"
                       onClick={() => onCoinClick?.(item)}
-                      title={`Open ${getAssetDisplaySymbol(item)} in Trading`}
+                      title={`Period price return (not return since purchase). ${item.as_of ? `Price as of ${new Date(item.as_of * 1000).toLocaleString()}.` : 'Historical prices unavailable.'} Open ${getAssetDisplaySymbol(item)} in Trading`}
                       style={{
                         display: 'inline-flex', alignItems: 'center', gap: '8px', padding: 0,
                         border: 'none', background: 'none', color: 'inherit', cursor: 'pointer',

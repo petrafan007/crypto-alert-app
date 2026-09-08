@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { useSearchParams } from 'react-router-dom';
 import './Staking.css';
+import StakingPurchaseModal from '../components/StakingPurchaseModal';
 import TradePermissionModal from '../components/TradePermissionModal';
 import ApiKeyRequiredModal from '../components/ApiKeyRequiredModal';
 import { formatEasternDateTime } from '../utils/dateTime';
@@ -9,6 +10,13 @@ import { formatEasternDateTime } from '../utils/dateTime';
 export default function Staking({ isLightMode }) {
   const [searchParams] = useSearchParams();
   const [stakingAssets, setStakingAssets] = useState([]);
+  const [recommendations, setRecommendations] = useState([]);
+  const [purchaseAsset, setPurchaseAsset] = useState(null);
+  const [purchaseUserId, setPurchaseUserId] = useState(null);
+  const [savedReceipt, setSavedReceipt] = useState(null);
+  const [showPurchase, setShowPurchase] = useState(false);
+  const [panelsLoading, setPanelsLoading] = useState(true);
+
   const [stakedCoins, setStakedCoins] = useState([]);
   const [stakingHistory, setStakingHistory] = useState([]);
   const [rewards, setRewards] = useState([]);
@@ -82,8 +90,9 @@ export default function Staking({ isLightMode }) {
     try {
       const response = await axios.get('/api/trading/settings', { withCredentials: true });
       if (response.data) {
-        setSettings(response.data);
-        setShowTwoFactorInput(!!(response.data.require_2fa && response.data.totp_enabled));
+        const value = response.data.settings || response.data;
+        setSettings(value);
+        setShowTwoFactorInput(!!(value.require_2fa && value.totp_enabled));
       }
     } catch (err) {
       console.error('Failed to fetch settings:', err);
@@ -91,168 +100,46 @@ export default function Staking({ isLightMode }) {
   };
 
   const fetchStakingData = async () => {
-    try {
-      setLoading(true);
-      setError('');
-
-      // Step 1: Fetch staking asset information from Binance.US
-      console.log('Fetching staking assets from Binance.US...');
-      const assetsResponse = await axios.get('/api/staking/assets', { withCredentials: true });
-      console.log('Staking assets response:', assetsResponse.data);
-
-      const allStakingAssets = assetsResponse.data || [];
-
-      // Create a set of stakeable symbols for quick lookup
-      const stakeableSymbols = new Set(allStakingAssets.map(a => a.stakingAsset));
-      console.log('Stakeable symbols:', Array.from(stakeableSymbols));
-
-      // Step 2: Fetch user's local portfolio from database
-      console.log('Fetching portfolio from database...');
-      const portfolioResponse = await axios.get('/api/coin-data', { withCredentials: true });
-
-      if (!portfolioResponse.data || !portfolioResponse.data.portfolio) {
-        throw new Error('Failed to fetch portfolio data');
-      }
-
-      const portfolioCoins = portfolioResponse.data.portfolio || [];
-      console.log('Portfolio coins:', portfolioCoins.length);
-
-      // Step 3: Filter portfolio to coins that are stakeable, not hidden, and >= $1 USDT
-      const eligibleCoins = portfolioCoins.filter(coin =>
-        stakeableSymbols.has(coin.symbol) &&
-        !coin.hidden &&
-        coin.current_value >= 1
-      );
-
-      console.log('Eligible coins for staking:', eligibleCoins.map(c => `${c.symbol} ($${c.current_value.toFixed(2)})`));
-
-      // Step 4: Create portfolio map for quick lookup (using symbol as key)
-      const portMap = {};
-      eligibleCoins.forEach(coin => {
-        portMap[coin.symbol] = {
-          symbol: coin.symbol,
-          balance: coin.amount,
-          value: coin.current_value,
-          price: coin.current_price
-        };
+    setLoading(true); setPanelsLoading(true); setError('');
+    const reportError = err => setError(previous => [previous, err.response?.data?.error || err.message || 'A staking panel could not be refreshed.'].filter(Boolean).join(' '));
+    const discovery = axios.get('/api/staking/discovery').then(({ data }) => {
+      const balances = data.balances || {};
+      setPortfolioMap(balances);
+      setStakingAssets((data.assets || []).filter(asset => balances[asset.stakingAsset]?.value >= 1));
+      setRecommendations(data.recommendations || []);
+      setPurchaseUserId(data.userId);
+      const receiptId = sessionStorage.getItem(`stakingPurchase:${data.userId}`);
+      if (receiptId) axios.get(`/api/staking/purchases/${receiptId}`).then(({ data: receipt }) => setSavedReceipt(receipt)).catch(() => {
+        setSavedReceipt({ id: receiptId, status: 'confirmation_unavailable', message: 'Confirmation unavailable. Check Binance order history before purchasing again.' });
       });
-      setPortfolioMap(portMap);
-
-      // Step 5: Filter staking assets to only show eligible coins
-      const filteredAssets = allStakingAssets.filter(asset =>
-        portMap[asset.stakingAsset] !== undefined
-      );
-
-      console.log('Filtered stakeable assets:', filteredAssets.map(a => a.stakingAsset));
-      setStakingAssets(filteredAssets);
-
-      // Step 6: Fetch current staking balances
-      const balanceResponse = await axios.get('/api/staking/balance', { withCredentials: true });
-      console.log('Staking balance response:', balanceResponse.data);
-      const balanceData = balanceResponse.data || {};
-      const balances = balanceData.balances || [];
-      const activeFromApi = balanceData.activePositions || balances;
-      const pendingFromApi = balanceData.pendingPositions || [];
-
-      setStakedCoins(activeFromApi);
-      setPendingPositions(pendingFromApi);
-      setPendingTransactions(balanceData.pendingTransactions || []);
-
-      const summary = balanceData.summary || {};
-      setBalanceSummary({
-        activeCount: summary.activeCount ?? activeFromApi.length,
-        pendingCount: summary.pendingCount ?? pendingFromApi.length,
-        activeUsd: summary.activeUsd ?? 0,
-        pendingUsd: summary.pendingUsd ?? 0,
-        totalUsd: summary.totalUsd ?? balanceData.totalStakedValue ?? 0
-      });
-      setTotalStakedValue(summary.totalUsd ?? balanceData.totalStakedValue ?? 0);
-
-      // Step 7: Fetch staking history
-      const historyResponse = await axios.get('/api/staking/history', { withCredentials: true });
-      setStakingHistory(historyResponse.data || []);
-
-      // Step 8: Fetch rewards
-      const rewardsResponse = await axios.get('/api/staking/rewards', { withCredentials: true });
-      setRewards(rewardsResponse.data || []);
-
-      // Calculate total rewards earned
-      const totalRewards = (rewardsResponse.data || []).reduce((sum, r) => sum + (r.usdValue || 0), 0);
-      setTotalRewardsEarned(totalRewards);
-
-      setLoading(false);
-    } catch (err) {
-      console.error('Failed to fetch staking data:', err);
-      console.error('Error details:', err.response?.data || err.message);
-      setError(err.response?.data?.error || err.message || 'Failed to load staking data. Please refresh the page.');
-      setLoading(false);
-      setStakingAssets([]); // Ensure it's set to empty array on error
-    }
+    }).catch(reportError).finally(() => setLoading(false));
+    const balance = axios.get('/api/staking/balance').then(({ data }) => {
+      if (data.error) throw new Error(data.error);
+      const active = data.activePositions || data.balances || [];
+      setStakedCoins(active); setPendingPositions(data.pendingPositions || []);
+      setPendingTransactions(data.pendingTransactions || []);
+      setBalanceSummary(data.summary || {});
+      setTotalStakedValue(data.summary?.totalUsd ?? data.totalStakedValue ?? 0);
+    }).catch(reportError).finally(() => setPanelsLoading(false));
+    const history = axios.get('/api/staking/history').then(({ data }) => setStakingHistory(data || [])).catch(reportError);
+    const rewards = axios.get('/api/staking/rewards').then(({ data }) => {
+      setRewards(data || []);
+      setTotalRewardsEarned((data || []).reduce((sum, row) => sum + (row.usdValue || 0), 0));
+    }).catch(reportError);
+    await Promise.allSettled([discovery, balance, history, rewards]);
   };
 
-  const fetchRealtimeBalance = async (symbol) => {
+  const fetchRealtimeBalance = async symbol => {
+    setFetchingBalance(true);
     try {
-      setFetchingBalance(true);
-      console.log(`Fetching real-time balance for ${symbol}...`);
-
-      // Use portfolio balance we already have from fetchStakingData
-      const portfolioCoin = portfolioMap[symbol];
-      if (!portfolioCoin) {
-        console.warn(`No portfolio data found for ${symbol}`);
-        setRealtimeBalance({ symbol, tradable: 0, reservedByOrders: 0 });
-        setFetchingBalance(false);
-        return;
-      }
-
-      const portfolioAmount = parseFloat(portfolioCoin.balance || 0);
-      const portfolioPrice = parseFloat(portfolioCoin.price || 0);
-
-      // Fetch pending orders to determine reserved quantity for this asset (SELL orders reserve base asset)
-      let reservedByOrders = 0;
-      try {
-        const po = await axios.get('/api/pending-orders', { withCredentials: true });
-        const pending = po.data && po.data.pending_orders ? po.data.pending_orders : [];
-        // Sum quantities for SELL orders matching this asset
-        pending.forEach(o => {
-          try {
-            const orderAsset = (o.asset || '').toUpperCase();
-            const side = (o.side || '').toUpperCase();
-            const qty = parseFloat(o.quantity || 0);
-            if (orderAsset === symbol.toUpperCase() && side === 'SELL' && qty > 0) {
-              reservedByOrders += qty;
-            }
-          } catch (e) {
-            // ignore parse errors per-order
-          }
-        });
-      } catch (err) {
-        console.warn('Failed to fetch pending orders for reserved calculation:', err);
-      }
-
-      // tradable = portfolio amount - reservedByOrders (cannot be negative)
-      const tradable = Math.max(0, portfolioAmount - reservedByOrders);
-
-      console.log(`Balance calculation for ${symbol}:`, {
-        portfolioAmount,
-        reservedByOrders,
-        tradable,
-        price: portfolioPrice,
-        value: tradable * portfolioPrice
-      });
-
-      setRealtimeBalance({
-        symbol,
-        amount: portfolioAmount,
-        reservedByOrders,
-        tradable,
-        price: portfolioPrice,
-        value: tradable * portfolioPrice
-      });
-      setFetchingBalance(false);
+      const { data } = await axios.get('/api/staking/discovery');
+      const balance = data.balances?.[symbol];
+      setRealtimeBalance({ symbol, tradable: balance?.balance || 0, amount: balance?.balance || 0,
+        reservedByOrders: balance?.locked || 0, price: balance?.price || 0, value: balance?.value || 0 });
     } catch (err) {
-      console.error(`Failed to fetch real-time balance for ${symbol}:`, err);
-      setFetchingBalance(false);
-    }
+      setRealtimeBalance({ symbol, tradable: 0 });
+      setError('Unable to verify the available Binance balance. Please refresh before staking.');
+    } finally { setFetchingBalance(false); }
   };
 
   const handleStakeClick = async (asset) => {
@@ -290,6 +177,12 @@ export default function Staking({ isLightMode }) {
 
     if (parseFloat(stakeAmount) > maxTradable) {
       setError(`You may only stake up to ${maxTradable} ${selectedAsset.stakingAsset} (tradable amount).`);
+      return;
+    }
+
+    if (!showTwoFactorInput) {
+      setVerifying2FA(true);
+      await submitStake(null);
       return;
     }
 
@@ -466,14 +359,6 @@ export default function Staking({ isLightMode }) {
     return `${days} day${days !== 1 ? 's' : ''}`;
   };
 
-  if (loading) {
-    return (
-      <div className={`staking-container ${isLightMode ? 'light' : 'dark'}`}>
-        <div className="loading-message">Loading staking data...</div>
-      </div>
-    );
-  }
-
   return (
     <div className={`staking-container ${isLightMode ? 'light' : 'dark'}`}>
       {/* API Key Required Modal */}
@@ -498,6 +383,9 @@ export default function Staking({ isLightMode }) {
         </div>
       )}
 
+      {showPurchase && <StakingPurchaseModal asset={purchaseAsset} balances={portfolioMap} settings={settings}
+        userId={purchaseUserId} savedReceipt={purchaseAsset ? null : savedReceipt} onClose={() => setShowPurchase(false)} onComplete={fetchStakingData} />}
+      {panelsLoading && <p role="status">Refreshing staking balances…</p>}
       {/* Staking Overview */}
       <div className="staking-overview">
         <div className="overview-card">
@@ -530,6 +418,20 @@ export default function Staking({ isLightMode }) {
       {/* Available Assets to Stake */}
       <div className="staking-section">
         <h2 className="section-title">Available Assets to Stake</h2>
+        <h3>Recommended Coins to Stake</h3>
+        <p>Top five Binance.US staking rates currently available. Yield ranking is not a risk rating; rates and availability can change.</p>
+        {savedReceipt && <button onClick={() => { setPurchaseAsset(null); setShowPurchase(true); }}>View last purchase receipt</button>}
+        <div className="assets-grid">
+          {recommendations.map(asset => <div className="asset-card" key={asset.stakingAsset}>
+            <div className="asset-symbol">{asset.stakingAsset}</div>
+            <p>{asset.rateLabel || 'APY'}: {(asset.apy * 100).toFixed(2)}%</p>
+            <p>Minimum stake: {asset.minStakingLimit}</p>
+            <p>Unstake: {formatUnstakingPeriod(asset.unstakingPeriod)}</p>
+            {(asset.quoteAssets || []).some(quote => portfolioMap[quote]?.balance > 1) && <button className="btn-stake" onClick={() => { setPurchaseAsset(asset); setShowPurchase(true); }}>Trade</button>}
+          </div>)}
+        </div>
+        {!loading && !recommendations.length && <p>Staking recommendations are currently unavailable.</p>}
+        <h3>Your Available Assets</h3>
         {loading ? (
           <div style={{
             padding: '40px',

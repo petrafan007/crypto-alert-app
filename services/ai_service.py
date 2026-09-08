@@ -1104,7 +1104,7 @@ def record_sentiment_history(user_id, symbol, sentiment, sentiment_reason, price
             created_at=now,
             outcome_status='tracking',
             forecast_horizon_hours=float(forecast_horizon_hours),
-            target_evaluation_at=now + timedelta(hours=float(forecast_horizon_hours)),
+            target_evaluation_at=(now + timedelta(hours=float(forecast_horizon_hours))).replace(tzinfo=None),
             evaluation_method='fixed_horizon',
             grading_config=grading_config,
         )

@@ -21,56 +21,78 @@ try:
 except Exception:
     pass
 
+# Successful read responses only; per-key locks coalesce concurrent dashboard requests.
+from threading import Lock
+from urllib.parse import urlencode
+from copy import deepcopy
+
+_read_cache = {}
+_read_locks = [Lock() for _ in range(64)]
+_cache_guard = Lock()
+
+
+def invalidate_staking_cache(cred):
+    with _cache_guard:
+        _read_cache.clear()
+
+
 def binance_us_api_call(cred, endpoint, method='GET', params_dict=None, use_trading_keys=False):
-    """Make a signed call to the Binance.US SAPI endpoints."""
+    """Signed Binance.US request, matching key pairs and bounded cached reads."""
+    trading = use_trading_keys and getattr(cred, 'trading_api_key', None) and getattr(cred, 'trading_api_secret', None)
+    api_key = cred.trading_api_key if trading else getattr(cred, 'api_key', None)
+    api_secret = cred.trading_api_secret if trading else getattr(cred, 'api_secret', None)
+    if not api_key or not api_secret:
+        raise ValueError('Missing Binance.US API credentials')
+    params = dict(params_dict or {})
+    if endpoint == '/sapi/v1/staking/history':
+        params.setdefault('limit', 200)
+    key = (hashlib.sha256(api_key.encode()).hexdigest(), endpoint, urlencode(sorted(params.items())))
+    ttl = 120 if endpoint.endswith('/asset') else 15
+    cacheable = method == 'GET' and endpoint.startswith('/sapi/v1/staking/')
+    lock = _read_locks[hash(key) % len(_read_locks)]
+    with lock:
+        cached = _read_cache.get(key)
+        if cacheable and cached and time.monotonic() - cached[0] < ttl:
+            return deepcopy(cached[1])
+        params['timestamp'] = int(time.time() * 1000)
+        query = urlencode(params, doseq=True)
+        signature = hmac.new(api_secret.encode(), query.encode(), hashlib.sha256).hexdigest()
+        response = requests.request(method, f'https://api.binance.us{endpoint}?{query}&signature={signature}',
+                                    headers={'X-MBX-APIKEY': api_key}, timeout=(3, 8))
+        if cacheable and response.status_code == 200:
+            payload = response.json()
+            if not isinstance(payload, dict) or (payload.get('success') is not False and str(payload.get('code', '0')) in ('0', '000000', '200')):
+                with _cache_guard:
+                    if len(_read_cache) > 512:
+                        _read_cache.clear()
+                    _read_cache[key] = (time.monotonic(), deepcopy(response))
+        if method != 'GET':
+            invalidate_staking_cache(cred)
+        return response
+
+
+def staking_rate(value):
+    """Binance.US numeric APR/APY fields are fractions, including rates above 100%."""
     try:
-        try:
-            urllib3_cn.allowed_gai_family = lambda: socket.AF_INET
-        except Exception:
-            pass
+        rate = float(str(value).replace('%', '').strip())
+        return rate / 100 if '%' in str(value) else rate
+    except (TypeError, ValueError):
+        return 0.0
 
-        api_key = getattr(cred, 'api_key', None) or getattr(cred, 'trading_api_key', None)
-        api_secret = getattr(cred, 'api_secret', None) or getattr(cred, 'trading_api_secret', None)
 
-        if not api_key or not api_secret:
-            raise ValueError("Missing API keys for Binance.US call")
-
-        base_url = "https://api.binance.us"
-        url = f"{base_url}{endpoint}"
-        
-        timestamp = int(time.time() * 1000)
-        params = params_dict.copy() if params_dict else {}
-        params['timestamp'] = timestamp
-        
-        query_parts = []
-        for k, v in params.items():
-            if isinstance(v, (list, tuple)):
-                for item in v:
-                    query_parts.append(f"{k}={item}")
-            else:
-                query_parts.append(f"{k}={v}")
-        query_string = '&'.join(query_parts)
-
-        signature = hmac.new(
-            api_secret.encode('utf-8'),
-            query_string.encode('utf-8'),
-            hashlib.sha256
-        ).hexdigest()
-        
-        url = f"{url}?{query_string}&signature={signature}"
-        headers = {'X-MBX-APIKEY': api_key}
-        
-        if method == 'GET':
-            return requests.get(url, headers=headers, timeout=20)
-        elif method == 'POST':
-            return requests.post(url, headers=headers, timeout=20)
-        
-    except ValueError as e:
-        logger.debug(f"Binance.US API call skipped: {e}")
-        raise
-    except Exception as e:
-        logger.error(f"Binance.US API call failed: {e}")
-        raise
+def staking_catalog(cred):
+    response = binance_us_api_call(cred, '/sapi/v1/staking/asset', use_trading_keys=True)
+    payload = response.json()
+    if response.status_code != 200 or isinstance(payload, dict) and (payload.get('success') is False or str(payload.get('code', '0')) not in ('0', '000000', '200')):
+        raise ValueError('Binance.US staking catalog is temporarily unavailable.')
+    rows = payload.get('data', []) if isinstance(payload, dict) else payload
+    result = []
+    for row in rows or []:
+        if not isinstance(row, dict) or not row.get('stakingAsset'):
+            continue
+        rate = row.get('apy') if row.get('apy') is not None else row.get('apr', 0)
+        result.append({**row, 'apy': staking_rate(rate), 'rateLabel': 'APY' if row.get('apy') is not None else 'APR'})
+    return result
 
 def calculate_staking_value_for_user(cred, user_id=None):
     """Return tuple (active_value_usd, pending_value_usd) for Binance.US staking balances."""
@@ -219,7 +241,7 @@ def build_staking_balance_view(cred, asset_param=None):
         api_key = getattr(cred, 'api_key', None) or getattr(cred, 'trading_api_key', None)
         api_secret = getattr(cred, 'api_secret', None) or getattr(cred, 'trading_api_secret', None)
         if not api_key or not api_secret:
-            return default_result
+            return {**default_result, 'error': 'Staking balance unavailable; check the Binance.US API connection.'}
 
         params = {}
         if asset_param:
@@ -238,6 +260,13 @@ def build_staking_balance_view(cred, asset_param=None):
             except Exception: pass
             return default
         
+        staking_data = []
+        price_cache = {}
+        def asset_price(symbol):
+            if symbol not in price_cache:
+                price_cache[symbol] = get_local_price(symbol) or fetch_binance_price(symbol)
+            return price_cache[symbol]
+
         asset_metadata = {}
         asset_metadata_by_product = {}
         active_api_ok = False
@@ -246,16 +275,16 @@ def build_staking_balance_view(cred, asset_param=None):
             balance_response = binance_us_api_call(cred, '/sapi/v1/staking/stakingBalance', method='GET', use_trading_keys=True)
             if balance_response.status_code == 200:
                 balance_payload = balance_response.json()
-                if isinstance(balance_payload, dict) and (balance_payload.get('success') is True or balance_payload.get('code') == '000000'):
+                if isinstance(balance_payload, dict) and balance_payload.get('success') is not False and 'data' in balance_payload:
                     staking_data = balance_payload.get('data', [])
                     active_api_ok = True
                 elif isinstance(balance_payload, list):
                     staking_data = balance_payload
                     active_api_ok = True
             else:
-                return default_result
+                return {**default_result, 'error': 'Staking balance unavailable; check the Binance.US API connection.'}
         except Exception:
-            return default_result
+            return {**default_result, 'error': 'Staking balance unavailable; check the Binance.US API connection.'}
 
         try:
             asset_response = binance_us_api_call(cred, '/sapi/v1/staking/asset', method='GET', use_trading_keys=True)
@@ -290,7 +319,7 @@ def build_staking_balance_view(cred, asset_param=None):
                     if status_raw and status_raw not in {'SUCCESS', 'COMPLETED', 'FAILED', 'CANCELLED', 'CANCELED'}:
                         asset = str(txn.get('asset', '')).upper()
                         amount = _coerce_float(txn.get('amount'), 0.0)
-                        price = fetch_binance_price(asset) or get_local_price(asset)
+                        price = asset_price(asset)
                         pending_transactions.append({
                             'tranId': txn.get('tranId'), 'asset': asset, 'amount': amount,
                             'status': status_raw, 'initiatedTime': txn.get('initiatedTime'),
@@ -316,14 +345,14 @@ def build_staking_balance_view(cred, asset_param=None):
             asset = str(staked.get('asset', '')).upper()
             found_symbols.add(asset)
             amount = _coerce_float(staked.get('stakingAmount') or staked.get('amount'), 0.0)
-            price = fetch_binance_price(asset) or get_local_price(asset)
+            price = asset_price(asset)
             current_value = amount * price if price else 0.0
             
             metadata = get_asset_metadata(asset, staked.get('productId')) or {}
             raw_apy = metadata.get('apy') or metadata.get('apr') or metadata.get('annualPercentageRate') or metadata.get('rewardRate') or metadata.get('estApr') or staked.get('apy') or staked.get('apr') or 0.0
             try:
                 apy = float(str(raw_apy).replace('%', '').strip())
-                if apy > 1.0:
+                if '%' in str(raw_apy):
                     apy = apy / 100.0
             except Exception:
                 apy = 0.0
@@ -337,6 +366,26 @@ def build_staking_balance_view(cred, asset_param=None):
             active_usd += current_value
             total_apy += apy
 
+        # Pending records are distinct from active exchange balances. History IDs
+        # prevent counting a locally recorded request and its exchange entry twice.
+        seen_transactions = set()
+        for txn in pending_transactions:
+            transaction_id = str(txn.get('tranId') or '')
+            if transaction_id:
+                seen_transactions.add(transaction_id)
+            pending_positions.append({**txn, 'stakingAmount': txn['amount'], 'status': txn['status']})
+            pending_usd += txn.get('currentValue', 0)
+        for record in staked_coin_records:
+            if str(record.status or '').lower() not in ('pending', 'bonding', 'unstaking'):
+                continue
+            if str(record.stake_transaction_id or '') in seen_transactions or record.symbol in found_symbols:
+                continue
+            price = asset_price(record.symbol) or 0
+            value = float(record.amount or 0) * price
+            pending_positions.append({'id': record.id, 'asset': record.symbol, 'stakingAmount': record.amount,
+                'currentValue': value, 'status': record.status})
+            pending_usd += value
+
         summary = {
             'activeCount': len(active_positions),
             'pendingCount': len(pending_positions),
@@ -348,7 +397,7 @@ def build_staking_balance_view(cred, asset_param=None):
 
         return {
             'balances': positions, 'activePositions': active_positions,
-            'pendingPositions': pending_positions, 'summary': summary,
+            'pendingPositions': pending_positions, 'pendingTransactions': pending_transactions, 'summary': summary,
             'totalStakedValue': summary['totalUsd']
         }
     except Exception as e:

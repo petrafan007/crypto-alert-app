@@ -100,18 +100,12 @@ def calculate_performance_changes(points, current_price, now_timestamp=None, is_
         if len(sorted_days) >= 4:
             p3d = day_points[sorted_days[-4]][-1][1]
             changes["change_3d"] = round(((current_price - p3d) / p3d) * 100, 2)
-        elif len(sorted_days) >= 2:
-            p3d = day_points[sorted_days[0]][-1][1]
-            changes["change_3d"] = round(((current_price - p3d) / p3d) * 100, 2)
         else:
             changes["change_3d"] = None
 
         # 7D: closing price ~5 trading days prior (1 calendar week)
         if len(sorted_days) >= 6:
             p7d = day_points[sorted_days[-6]][-1][1]
-            changes["change_7d"] = round(((current_price - p7d) / p7d) * 100, 2)
-        elif len(sorted_days) >= 2:
-            p7d = day_points[sorted_days[0]][-1][1]
             changes["change_7d"] = round(((current_price - p7d) / p7d) * 100, 2)
         else:
             changes["change_7d"] = None
@@ -148,145 +142,78 @@ def _has_complete_performance_history(rows, now_timestamp, is_traditional=False)
 
 
 def ensure_price_history(symbol, now_timestamp=None, is_traditional=False):
-    """Backfill missing hourly history from public Binance.US market data."""
-    symbol = (symbol or "").strip().upper()
+    """Backfill only the requested market: equity tickers never use crypto pairs."""
+    symbol = (symbol or '').strip().upper()
     if not symbol or symbol in STABLE_COINS:
         return False
-
     now_timestamp = int(now_timestamp or time.time())
-    cutoff = now_timestamp - _HISTORY_LOOKBACK_SECONDS
-    rows = PriceHistory.query.filter(
-        PriceHistory.symbol == symbol,
-        PriceHistory.timestamp >= cutoff,
-    ).order_by(PriceHistory.timestamp.asc()).all()
-    if _has_complete_performance_history(rows, now_timestamp, is_traditional=is_traditional):
-        return False
-
-    with _seed_lock:
-        last_attempt = _seed_attempts.get(symbol, 0)
-        if time.monotonic() - last_attempt < _SEED_RETRY_SECONDS:
-            return False
-        _seed_attempts[symbol] = time.monotonic()
-
-    try:
-        from binance.client import Client
-
-        client = Client(tld="us", requests_params={"timeout": 10})
-        klines = None
-        selected_pair = None
-        for pair in (f"{symbol}USDT", f"{symbol}USD"):
-            try:
-                candidate = client.get_klines(symbol=pair, interval="1h", limit=169)
-                if candidate:
-                    klines = candidate
-                    selected_pair = pair
+    exchange = 'equity' if is_traditional else 'binance'
+    cutoff = now_timestamp - (21 * 86400 if is_traditional else _HISTORY_LOOKBACK_SECONDS)
+    rows = PriceHistory.query.filter(PriceHistory.symbol == symbol, PriceHistory.exchange == exchange,
+        PriceHistory.timestamp >= cutoff).order_by(PriceHistory.timestamp).all()
+    complete = _has_complete_performance_history(rows, now_timestamp, is_traditional)
+    if is_traditional:
+        from datetime import datetime, timedelta, timezone
+        from zoneinfo import ZoneInfo
+        from services.portfolio_strategy_signals import session_bounds, in_session
+        now_utc = datetime.fromtimestamp(now_timestamp, timezone.utc)
+        latest_required = now_timestamp - 5400
+        if not in_session(now_utc):
+            day = now_utc.astimezone(ZoneInfo('America/New_York')).date()
+            for _ in range(10):
+                bounds = session_bounds(day)
+                if bounds and bounds[1] <= now_utc:
+                    latest_required = int(bounds[1].timestamp())
                     break
-            except Exception as pair_error:
-                logger.debug("No Binance.US hourly history for %s: %s", pair, pair_error)
-
-        if not klines:
-            logger.debug("No Binance.US hourly price history found for %s; checking stock/ETF market data", symbol)
-            # Try Webull Data API first if credentials are configured
-            try:
-                from credentials import Credential
-                from services.webull_service import get_webull_market_bars
-                cred = Credential.query.filter(Credential._webull_app_key.isnot(None)).first()
-                if cred and cred.webull_app_key and cred.webull_app_secret:
-                    wb_bars = get_webull_market_bars(
-                        cred.webull_app_key, cred.webull_app_secret,
-                        environment=getattr(cred, 'webull_token_environment', 'production') or 'production',
-                        access_token=cred.webull_access_token,
-                        symbol=symbol, instrument_type='STOCK', interval='1h', limit=168
-                    )
-                    if wb_bars:
-                        existing_buckets = {int(row.timestamp) // 3600 for row in rows}
-                        added = 0
-                        for b in wb_bars:
-                            ts = int(b['time'])
-                            close_price = _as_float(b.get('close'))
-                            vol = _as_float(b.get('volume', 0))
-                            bucket = ts // 3600
-                            if ts < cutoff or close_price <= 0 or bucket in existing_buckets:
-                                continue
-                            db.session.add(PriceHistory(
-                                symbol=symbol,
-                                price=close_price,
-                                volume=vol,
-                                quote_volume=vol * close_price,
-                                timestamp=ts,
-                                exchange="webull",
-                            ))
-                            existing_buckets.add(bucket)
-                            added += 1
-                        if added:
-                            db.session.commit()
-                            logger.info("Backfilled %s hourly price/volume points for stock %s via Webull Data API", added, symbol)
-                            return True
-            except Exception as wb_err:
-                logger.debug("Webull price history backfill failed for %s: %s; trying yfinance fallback", symbol, wb_err)
-
-            try:
-                import yfinance as yf
-                ticker = yf.Ticker(symbol)
-                hist = ticker.history(period="7d", interval="1h")
-                if hist is not None and not hist.empty:
-                    existing_buckets = {int(row.timestamp) // 3600 for row in rows}
-                    added = 0
-                    for dt, r in hist.iterrows():
-                        ts = int(dt.timestamp())
-                        close_price = _as_float(r['Close'])
-                        vol = _as_float(r.get('Volume', 0))
-                        bucket = ts // 3600
-                        if ts < cutoff or close_price <= 0 or bucket in existing_buckets:
-                            continue
-                        db.session.add(PriceHistory(
-                            symbol=symbol,
-                            price=close_price,
-                            volume=vol,
-                            quote_volume=vol * close_price,
-                            timestamp=ts,
-                            exchange="webull",
-                        ))
-                        existing_buckets.add(bucket)
-                        added += 1
-                    if added:
-                        db.session.commit()
-                        logger.info("Backfilled %s hourly price/volume points for stock %s via yfinance", added, symbol)
-                        return True
-            except Exception as yf_err:
-                logger.debug("Stock price history backfill failed for %s: %s", symbol, yf_err)
-
-            logger.warning("No hourly price history found for %s", symbol)
+                day -= timedelta(days=1)
+        complete = complete and bool(rows) and int(rows[-1].timestamp) >= latest_required
+    if complete:
+        return False
+    key = (exchange, symbol)
+    with _seed_lock:
+        if time.monotonic() - _seed_attempts.get(key, 0) < _SEED_RETRY_SECONDS:
             return False
-
-        existing_buckets = {int(row.timestamp) // 3600 for row in rows}
+        _seed_attempts[key] = time.monotonic()
+    try:
+        points = []
+        if is_traditional:
+            import yfinance as yf
+            history = yf.Ticker(symbol).history(period='1mo', interval='1h', auto_adjust=False, prepost=False, timeout=8)
+            if history is not None and not history.empty:
+                # Hourly bars carry opening timestamps. Ignore unfinished bars.
+                for dt, row in history.iterrows():
+                    bounds = session_bounds(dt.date())
+                    if not bounds:
+                        continue
+                    close_at = min(int(dt.timestamp()) + 3600, int(bounds[1].timestamp()))
+                    if close_at <= now_timestamp:
+                        points.append((close_at, _as_float(row['Close']), _as_float(row.get('Volume'))))
+        else:
+            from binance.client import Client
+            client = Client(tld='us', requests_params={'timeout': 8})
+            for pair in (f'{symbol}USDT', f'{symbol}USD'):
+                try:
+                    bars = client.get_klines(symbol=pair, interval='1h', limit=193)
+                    points = [(int(k[6]) // 1000, _as_float(k[4]), _as_float(k[5])) for k in bars if int(k[6]) // 1000 <= now_timestamp]
+                    if points:
+                        break
+                except Exception:
+                    continue
+        existing = {int(row.timestamp) // 3600 for row in rows}
         added = 0
-        for kline in klines:
-            close_timestamp = min(int(kline[6]) // 1000, now_timestamp)
-            close_price = _as_float(kline[4])
-            base_volume = _as_float(kline[5])
-            quote_volume = _as_float(kline[7])
-            bucket = close_timestamp // 3600
-            if close_timestamp < cutoff or close_price <= 0 or bucket in existing_buckets:
+        for ts, price, volume in points:
+            if ts < cutoff or price <= 0 or ts // 3600 in existing:
                 continue
-            db.session.add(PriceHistory(
-                symbol=symbol,
-                price=close_price,
-                volume=base_volume,
-                quote_volume=quote_volume,
-                timestamp=close_timestamp,
-                exchange="binance",
-            ))
-            existing_buckets.add(bucket)
+            db.session.add(PriceHistory(symbol=symbol, price=price, volume=volume, quote_volume=volume * price,
+                timestamp=ts, exchange=exchange))
+            existing.add(ts // 3600)
             added += 1
-
         if added:
             db.session.commit()
-            logger.info("Backfilled %s hourly price/volume points for %s from %s", added, symbol, selected_pair)
         return bool(added)
     except Exception as error:
         db.session.rollback()
-        logger.warning("Failed to backfill price history for %s: %s", symbol, error)
+        logger.warning('Unable to backfill %s history for %s: %s', exchange, symbol, type(error).__name__)
         return False
 
 
@@ -300,7 +227,7 @@ def record_price_history_snapshot(symbol, price, volume=0.0, quote_volume=0.0, n
     if not symbol or symbol in STABLE_COINS or price <= 0:
         return False
 
-    latest = PriceHistory.query.filter_by(symbol=symbol).order_by(PriceHistory.timestamp.desc()).first()
+    latest = PriceHistory.query.filter_by(symbol=symbol, exchange=exchange).order_by(PriceHistory.timestamp.desc()).first()
     if latest and now_timestamp - int(latest.timestamp) < min_interval_seconds:
         return False
 
@@ -332,6 +259,7 @@ def get_last_nh_price_and_volume(symbol, lookback_hours=12, now_timestamp=None):
     cutoff = now_timestamp - (lookback_hours * 3600 + 1800)
     rows = PriceHistory.query.filter(
         PriceHistory.symbol == symbol,
+        PriceHistory.exchange == "binance",
         PriceHistory.timestamp >= cutoff,
         PriceHistory.timestamp <= now_timestamp,
     ).order_by(PriceHistory.timestamp.asc()).all()
@@ -382,28 +310,18 @@ def get_last_nh_price_and_volume(symbol, lookback_hours=12, now_timestamp=None):
 
 
 def get_symbol_performance(symbol, current_price, now_timestamp=None, is_traditional=False):
-    """Return all configured performance windows for one symbol."""
-    symbol = (symbol or "").strip().upper()
+    """Compare prices within one market identity and one consistent timestamp."""
+    symbol = (symbol or '').strip().upper()
     now_timestamp = int(now_timestamp or time.time())
     ensure_price_history(symbol, now_timestamp, is_traditional=is_traditional)
-
-    cutoff = now_timestamp - _HISTORY_LOOKBACK_SECONDS
-    rows = PriceHistory.query.filter(
-        PriceHistory.symbol == symbol,
-        PriceHistory.timestamp >= cutoff,
-        PriceHistory.timestamp <= now_timestamp,
-    ).order_by(PriceHistory.timestamp.asc()).all()
+    exchange = 'equity' if is_traditional else 'binance'
+    rows = PriceHistory.query.filter(PriceHistory.symbol == symbol, PriceHistory.exchange == exchange,
+        PriceHistory.timestamp >= now_timestamp - (21 * 86400 if is_traditional else _HISTORY_LOOKBACK_SECONDS),
+        PriceHistory.timestamp <= now_timestamp).order_by(PriceHistory.timestamp).all()
     points = [(int(row.timestamp), _as_float(row.price)) for row in rows]
-
-    current_price = _as_float(current_price)
-    if current_price <= 0 and points:
-        current_price = points[-1][1]
-
-    has_webull_row = any(getattr(row, "exchange", None) == "webull" for row in rows)
-    traditional_flag = is_traditional or has_webull_row
-
-    return {
-        "symbol": symbol,
-        "current_price": current_price,
-        **calculate_performance_changes(points, current_price, now_timestamp, is_traditional=traditional_flag),
-    }
+    # Imported holdings can be days old. For a rolling performance window, use
+    # the same market's latest completed bar, not an unrelated account snapshot.
+    price = points[-1][1] if is_traditional and points else _as_float(current_price)
+    return {'symbol': symbol, 'current_price': price, 'price_source': exchange,
+        'as_of': points[-1][0] if points else None,
+        **calculate_performance_changes(points, price, now_timestamp, is_traditional=is_traditional)}

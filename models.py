@@ -1,5 +1,5 @@
 
-from datetime import datetime
+from datetime import datetime, timezone
 from core.extensions import db
 
 # Note: Legacy SQLite migration functions removed - PostgreSQL handles schema via SQLAlchemy
@@ -671,15 +671,30 @@ class SentimentHistory(db.Model):
     outcome_price = db.Column(db.Float, nullable=True)
     outcome_pct = db.Column(db.Float, nullable=True)
     outcome_status = db.Column(db.String(20), default='tracking')  # 'correct', 'wrong', 'tracking', 'neutral'
-    outcome_evaluated_at = db.Column(db.DateTime, nullable=True)
+    outcome_evaluated_at = db.Column(db.DateTime(timezone=True), nullable=True)
     forecast_horizon_hours = db.Column(db.Float, nullable=True)
     target_evaluation_at = db.Column(db.DateTime, nullable=True)
     evaluation_method = db.Column(db.String(32), nullable=True)
     grading_config = db.Column(db.Text, nullable=True)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
     __table_args__ = (
         db.Index('ix_sentiment_history_user_id', 'user_id'),
         db.Index('ix_sentiment_history_symbol', 'symbol'),
         db.Index('ix_sentiment_history_created_at', 'created_at'),
     )
+
+
+class StakingPurchase(db.Model):
+    """Durable purchase intent; uncertain exchange submissions are never resubmitted."""
+    __tablename__ = 'staking_purchases'
+    id = db.Column(db.String(36), primary_key=True)
+    user_id = db.Column(db.Integer, nullable=False, index=True)
+    asset = db.Column(db.String(20), nullable=False)
+    quote_asset = db.Column(db.String(10), nullable=False)
+    quote_amount = db.Column(db.String(40), nullable=False)
+    stake_requested = db.Column(db.Boolean, nullable=False)
+    status = db.Column(db.String(30), nullable=False)
+    result = db.Column(db.Text, default='{}')
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

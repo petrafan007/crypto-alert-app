@@ -1,3 +1,4 @@
+import SentimentAccuracyCards from './SentimentAccuracyCards';
 import React, { useState, useEffect, useMemo } from 'react';
 import axios from 'axios';
 import { useAuth } from './AuthContext';
@@ -269,47 +270,7 @@ export default function WebullAIDashboard({ isLightMode = false }) {
       {/* ========================================================================= */}
       <div className="ai-section prediction-visualizer-section">
         {/* KPI Scorecards */}
-        <div className="accuracy-kpi-grid">
-          <div className="accuracy-kpi-card overall">
-            <span className="kpi-label">Overall Accuracy</span>
-            <div className="kpi-value glow-text">
-              {formatRate(summary.overall_accuracy)}
-            </div>
-            <span className="kpi-subtext">
-              {summary.correct_count ?? 0} Correct / {summary.evaluated_signals ?? 0} Evaluated Calls
-            </span>
-          </div>
-
-          <div className="accuracy-kpi-card bullish">
-            <span className="kpi-label">Bullish Win Rate</span>
-            <div className="kpi-value text-green">
-              {formatRate(summary.bullish_win_rate)}
-            </div>
-            <span className="kpi-subtext">
-              {summary.bullish_correct_count ?? 0} Correct / {summary.bullish_count ?? 0} Decisive
-            </span>
-          </div>
-
-          <div className="accuracy-kpi-card bearish">
-            <span className="kpi-label">Bearish Win Rate</span>
-            <div className="kpi-value text-red">
-              {formatRate(summary.bearish_win_rate)}
-            </div>
-            <span className="kpi-subtext">
-              {summary.bearish_correct_count ?? 0} Correct / {summary.bearish_count ?? 0} Decisive
-            </span>
-          </div>
-
-          <div className="accuracy-kpi-card model">
-            <span className="kpi-label">Top Performing Model</span>
-            <div className="kpi-value" style={{ fontSize: '18px', color: '#c084fc', marginTop: '6px' }}>
-              {summary.top_model || 'Not enough validated data'}
-            </div>
-            <span className="kpi-subtext">
-              {summary.total_signals ?? 0} Total Stored Forecasts ({summary.tracking_count ?? 0} tracking)
-            </span>
-          </div>
-        </div>
+        <SentimentAccuracyCards history={(accuracyData?.history || []).filter(row => !activeLedgerCoins.length || activeLedgerCoins.includes(row.symbol))} defaultMethod="fixed_horizon" />
 
         {/* Sentiment Timeline Chart */}
         <SentimentTimelineChart

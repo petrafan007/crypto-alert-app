@@ -52,6 +52,7 @@ def main():
         with app.app_context(), db.engine.connect() as connection:
             connection.execute(text('SELECT telegram_notifications_enabled FROM user_settings LIMIT 0'))
             connection.execute(text('SELECT key FROM provider_request_states LIMIT 0'))
+            connection.execute(text('SELECT id, status, result FROM staking_purchases LIMIT 0'))
     else:
         stop = threading.Event()
         for signum in (signal.SIGINT, signal.SIGTERM):

@@ -78,7 +78,7 @@ def _find_or_merge_position(user_id: int, symbol: str, instrument_type: str, sid
 
 def _normalize_equity_like_positions(user_id: int) -> None:
     """Upgrade legacy paper equity rows and collapse duplicate symbol rows."""
-    positions = WebullTestPosition.query.filter_by(user_id=user_id).all()
+    positions = WebullTestPosition.query.filter_by(user_id=user_id).filter(WebullTestPosition.quantity > 0).all()
     keys = {
         (row.symbol, row.instrument_type, row.side)
         for row in positions
@@ -233,6 +233,7 @@ def fetch_live_price(
     option_strike: Optional[float] = None,
     option_expiration: Optional[str] = None,
     event_outcome: Optional[str] = None,
+    execution_side: Optional[str] = None,
 ) -> float:
     """Fetch live real-world pricing for paper order execution and valuation across all asset classes."""
     clean_sym = (symbol or '').upper().strip()
@@ -284,22 +285,22 @@ def fetch_live_price(
                     underlying_symbol=underlying,
                     expiration_date=option_expiration,
                 )
+                if chain.get('selected_expiration') != option_expiration:
+                    raise ValueError('Exact option expiration is unavailable.')
                 for strike_row in chain.get('strikes', []):
                     if abs(float(strike_row.get('strike') or 0) - float(option_strike)) < 0.01:
                         side_data = strike_row.get('call' if str(option_type).upper() == 'CALL' else 'put', {})
-                        opt_px = float(side_data.get('last_price') or side_data.get('mid_price') or side_data.get('ask') or side_data.get('bid') or 0.0)
+                        bid, ask = float(side_data.get('bid') or 0), float(side_data.get('ask') or 0)
+                        if execution_side:
+                            opt_px = ask if execution_side in {'BUY', 'BUY_TO_OPEN', 'BUY_TO_CLOSE', 'COVER'} else bid
+                        else:
+                            opt_px = (bid + ask) / 2 if bid > 0 and ask >= bid else float(side_data.get('last') or 0)
                         if opt_px > 0:
                             return opt_px
         except Exception as e:
             logger.debug(f"[PAPER_TRADING] Option chain lookup skipped for {clean_sym}: {e}")
 
-        # Fallback to existing position cost/last price (never return underlying equity price for option)
-        existing = WebullTestPosition.query.filter_by(user_id=user_id, symbol=clean_sym).first()
-        if existing and existing.last_price and existing.last_price > 0:
-            return float(existing.last_price)
-        if existing and existing.cost_price and existing.cost_price > 0:
-            return float(existing.cost_price)
-        return 2.50  # Sensible default option premium simulation
+        raise ValueError('No executable quote is available for this exact option contract.')
 
     # 3. FUTURES pricing
     if clean_type in {'FUTURES', 'FUTURE'}:
@@ -426,25 +427,31 @@ def fetch_live_price(
 
 def get_webull_test_account_summary(user_id: int) -> Dict[str, Any]:
     """Calculate and return full account balances, buying power, and P&L for paper trading."""
+    from services.webull_paper_lifecycle import reconcile_paper_options
+    reconcile_paper_options(user_id)
     account = get_or_create_webull_test_account(user_id)
     _normalize_equity_like_positions(user_id)
-    positions = WebullTestPosition.query.filter_by(user_id=user_id).all()
+    positions = WebullTestPosition.query.filter_by(user_id=user_id).filter(WebullTestPosition.quantity > 0).all()
 
     total_market_value = 0.0
     total_cost_basis = 0.0
     total_unrealized_pnl = 0.0
 
     for pos in positions:
-        if pos.instrument_type == 'OPTION':
-            curr_price = fetch_live_price(
-                user_id, pos.underlying_symbol or pos.symbol, 'OPTION',
-                option_type=pos.option_type, option_strike=pos.option_strike, option_expiration=pos.option_expiration
-            )
-        else:
-            curr_price = fetch_live_price(
-                user_id, pos.symbol, pos.instrument_type,
-                event_outcome=pos.event_outcome,
-            )
+        try:
+            if pos.instrument_type == 'OPTION':
+                curr_price = fetch_live_price(
+                    user_id, pos.underlying_symbol or pos.symbol, 'OPTION',
+                    option_type=pos.option_type, option_strike=pos.option_strike, option_expiration=pos.option_expiration
+                )
+            else:
+                curr_price = fetch_live_price(
+                    user_id, pos.symbol, pos.instrument_type,
+                    event_outcome=pos.event_outcome,
+                )
+
+        except ValueError:
+            curr_price = pos.last_price or 0.0
 
         pos.last_price = curr_price
         multiplier = int(pos.contract_multiplier or (100 if pos.instrument_type == 'OPTION' else 1))
@@ -588,17 +595,41 @@ def _test_account_mapping(instrument_type):
     return 'TEST_ACC_INDIVIDUAL_CASH', 'Individual Cash'
 
 
+def _paper_position_status(pos):
+    if pos.instrument_type == 'OPTION' and pos.option_expiration:
+        from services.webull_paper_lifecycle import expiry_close
+        if expiry_close(pos.option_expiration) <= datetime.now(timezone.utc):
+            return 'Expired — awaiting settlement price'
+    return 'Open'
+
+
+def _paper_history_note(order):
+    if order.order_type == 'EXPIRATION_SETTLEMENT':
+        return 'Paper cash settlement at expiration; not a broker fill.'
+    if order.status == 'Expired':
+        return 'Unfilled instruction expired; no trade was recorded.'
+    if order.instrument_type == 'OPTION' and order.status == 'Filled':
+        from services.portfolio_strategy_signals import in_session
+        if not in_session(order.created_at):
+            return 'Legacy simulated fill recorded outside market hours; not a verified market execution.'
+    return None
+
+
 def get_webull_test_positions(user_id: int) -> List[Dict[str, Any]]:
     """Return all simulated paper holdings formatted to match WebullHolding schema."""
+    from services.webull_paper_lifecycle import reconcile_paper_options
+    reconcile_paper_options(user_id)
     _normalize_equity_like_positions(user_id)
-    positions = WebullTestPosition.query.filter_by(user_id=user_id).all()
+    positions = WebullTestPosition.query.filter_by(user_id=user_id).filter(WebullTestPosition.quantity > 0).all()
     rows = []
     for pos in positions:
-        curr_price = (
-            fetch_live_price(user_id, pos.symbol, pos.instrument_type, event_outcome=pos.event_outcome)
-            if pos.instrument_type == 'EVENT'
-            else pos.last_price or fetch_live_price(user_id, pos.symbol, pos.instrument_type)
-        )
+        quote_status = 'current'
+        try:
+            curr_price = fetch_live_price(user_id, pos.symbol, pos.instrument_type, event_outcome=pos.event_outcome,
+                option_type=pos.option_type, option_strike=pos.option_strike, option_expiration=pos.option_expiration)
+        except ValueError:
+            curr_price = pos.last_price or 0
+            quote_status = 'last recorded mark; current quote unavailable'
         pos.last_price = curr_price
         multiplier = int(pos.contract_multiplier or (100 if pos.instrument_type == 'OPTION' else 1))
         qty = float(pos.quantity or 0.0)
@@ -640,6 +671,8 @@ def get_webull_test_positions(user_id: int) -> List[Dict[str, Any]]:
             'option_strike': pos.option_strike,
             'option_expiration': pos.option_expiration,
             'event_outcome': pos.event_outcome,
+            'position_status': _paper_position_status(pos),
+            'quote_status': quote_status,
             'contract_multiplier': multiplier,
             'is_paper': True,
             'alert_enabled': False,
@@ -653,7 +686,9 @@ def get_webull_test_positions(user_id: int) -> List[Dict[str, Any]]:
 
 def get_webull_test_orders(user_id: int) -> List[Dict[str, Any]]:
     """Return simulated paper orders history."""
-    orders = WebullTestOrder.query.filter_by(user_id=user_id).order_by(WebullTestOrder.id.desc()).limit(100).all()
+    from services.webull_paper_lifecycle import reconcile_paper_options
+    reconcile_paper_options(user_id)
+    orders = WebullTestOrder.query.filter_by(user_id=user_id).order_by(WebullTestOrder.id.desc()).all()
     rows = []
     for o in orders:
         status = o.status or 'Filled'
@@ -676,7 +711,10 @@ def get_webull_test_orders(user_id: int) -> List[Dict[str, Any]]:
             'price': o.limit_price or o.filled_price,
             'limit_price': o.limit_price,
             'stop_price': o.stop_price,
-            'avg_price': o.filled_price or o.limit_price or 0.0,
+            'avg_price': o.filled_price if filled_quantity or o.status == 'Settled' else None,
+            'filled_at': _utc_iso(o.updated_at) if status == 'Filled' else None,
+            'lifecycle': json.loads(o.combo_orders) if o.order_type == 'EXPIRATION_SETTLEMENT' and o.combo_orders else None,
+            'history_note': _paper_history_note(o),
             'status': status,
             'placed_time': _utc_iso(o.created_at),
             'created_at': _utc_iso(o.created_at),
@@ -909,24 +947,35 @@ def execute_webull_test_order(user_id: int, data: Dict[str, Any]) -> Dict[str, A
             'is_paper': True,
         }
 
+    if instrument_type == 'OPTION' and option_expiration:
+        from services.webull_paper_lifecycle import expiry_close
+        if expiry_close(option_expiration) <= datetime.now(timezone.utc):
+            raise ValueError('This option contract has expired.')
+
     # Event-specific parameter extraction
     event_outcome = str(data.get('event_outcome') or 'yes').lower().strip() if instrument_type == 'EVENT' else None
 
-    # Fetch live execution quote
-    live_price = fetch_live_price(
-        user_id, underlying_sym or symbol, instrument_type,
-        option_type=option_type, option_strike=option_strike, option_expiration=option_expiration,
-        event_outcome=event_outcome,
-    )
-
     limit_price = float(data.get('limit_price')) if data.get('limit_price') is not None else None
     stop_price = float(data.get('stop_price')) if data.get('stop_price') is not None else None
+    # A limit can reserve cash without a quote; it cannot manufacture a fill.
+    try:
+        live_price = fetch_live_price(
+            user_id, underlying_sym or symbol, instrument_type,
+            option_type=option_type, option_strike=option_strike, option_expiration=option_expiration,
+            event_outcome=event_outcome, execution_side=side if instrument_type == 'OPTION' else None,
+        )
+    except ValueError:
+        if instrument_type != 'OPTION' or order_type != 'LIMIT' or not limit_price or limit_price <= 0:
+            raise
+        live_price = None
 
     fill_price = limit_price if (order_type in {'LIMIT', 'LIMIT_ON_OPEN'} and limit_price and limit_price > 0) else live_price
     if order_type in {'STOP_LOSS', 'STOP_LOSS_LIMIT'} and stop_price and stop_price > 0:
         fill_price = limit_price if (order_type == 'STOP_LOSS_LIMIT' and limit_price and limit_price > 0) else stop_price
-    if fill_price <= 0:
-        fill_price = 1.0
+    if fill_price is None or fill_price <= 0:
+        raise ValueError('A valid market quote or limit price is required.')
+    if instrument_type == 'OPTION' and live_price and order_type == 'LIMIT':
+        fill_price = live_price if (live_price <= limit_price if side in {'BUY', 'BUY_TO_OPEN', 'BUY_TO_CLOSE', 'COVER'} else live_price >= limit_price) else limit_price
 
     # Quantity calculation: support cash amount mode (fractional shares)
     quantity = float(data.get('quantity') or 0.0)
@@ -997,7 +1046,9 @@ def execute_webull_test_order(user_id: int, data: Dict[str, Any]) -> Dict[str, A
     # Stop, trailing, and auction orders must never fabricate an immediate
     # weekend fill. They remain cancellable working orders until a future
     # trigger/auction processor can fill them against a qualifying quote.
-    if not paper_order_fills_immediately(order_type, instrument_type):
+    if (live_price is None or not paper_order_fills_immediately(order_type, instrument_type)
+            or (instrument_type == 'OPTION' and order_type == 'LIMIT' and limit_price is not None
+                and (live_price > limit_price if (is_buy or is_cover) else live_price < limit_price))):
         cash_for_order = cover_cash if is_cover else available_cash
         if (is_buy or is_cover) and cash_for_order < total_trade_amount:
             raise ValueError(

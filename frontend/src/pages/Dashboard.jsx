@@ -54,6 +54,7 @@ const COLLAPSED_ACTIONS_WIDTH = 104;
 
 export const PORTFOLIO_DEFAULT_COLUMNS = [
   'symbol',
+  'type',
   'amount',
   'current_price',
   'current_value',
@@ -66,9 +67,10 @@ export const PORTFOLIO_DEFAULT_COLUMNS = [
   'actions'
 ];
 
-export const PORTFOLIO_REQUIRED_COLUMNS = ['symbol', 'amount', 'current_price', 'current_value', 'actions'];
+export const PORTFOLIO_REQUIRED_COLUMNS = ['symbol', 'type', 'amount', 'current_price', 'current_value', 'actions'];
 
 export const PORTFOLIO_COLUMN_DEFINITIONS = {
+  type: { label: 'Type', required: true, sortable: false, defaultWidth: 150, description: 'Exchange account or asset type' },
   symbol: { label: 'Symbol', required: true, sortable: true, defaultWidth: 220, description: 'Asset ticker and icon' },
   amount: { label: 'Amount', required: true, sortable: true, defaultWidth: 110, description: 'Holdings quantity' },
   current_price: { label: 'Current Price', required: true, sortable: true, defaultWidth: 120, description: 'Live market rate' },
@@ -92,6 +94,7 @@ export const PORTFOLIO_COLUMN_DEFINITIONS = {
 
 export const WATCHLIST_DEFAULT_COLUMNS = [
   'symbol',
+  'type',
   'current_price',
   'down_alert',
   'up_alert',
@@ -100,9 +103,10 @@ export const WATCHLIST_DEFAULT_COLUMNS = [
   'actions'
 ];
 
-export const WATCHLIST_REQUIRED_COLUMNS = ['symbol', 'current_price', 'actions'];
+export const WATCHLIST_REQUIRED_COLUMNS = ['symbol', 'type', 'current_price', 'actions'];
 
 export const WATCHLIST_COLUMN_DEFINITIONS = {
+  type: { label: 'Type', required: true, sortable: false, defaultWidth: 150, description: 'Exchange account or asset type' },
   symbol: { label: 'Symbol', required: true, sortable: true, defaultWidth: 200, description: 'Asset ticker and icon' },
   current_price: { label: 'Current Price', required: true, sortable: true, defaultWidth: 120, description: 'Live market rate' },
   down_alert: { label: 'Price Down Alert', required: false, sortable: false, defaultWidth: 140, description: 'Drop price alert' },
@@ -222,6 +226,7 @@ function Dashboard({ isLightMode }) {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed) && parsed.length > 0) {
           let filtered = parsed.filter(c => c !== 'symbol' && c !== 'actions' && PORTFOLIO_COLUMN_DEFINITIONS[c]);
+          if (!filtered.includes('type')) filtered.unshift('type');
           return ['symbol', ...filtered, 'actions'];
         }
       }
@@ -269,6 +274,7 @@ function Dashboard({ isLightMode }) {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed) && parsed.length > 0) {
           let filtered = parsed.filter(c => c !== 'symbol' && c !== 'actions' && WATCHLIST_COLUMN_DEFINITIONS[c]);
+          if (!filtered.includes('type')) filtered.unshift('type');
           return ['symbol', ...filtered, 'actions'];
         }
       }
@@ -4614,7 +4620,7 @@ function Dashboard({ isLightMode }) {
                         <th
                           key={colKey}
                           onClick={isSortable ? () => handleSort(colKey) : undefined}
-                          className={`portfolio-header ${colKey === 'symbol' ? 'symbol-header' : ''} ${isSortable ? 'sortable' : ''} ${dragOverColKey === colKey ? 'drag-over-target' : ''} ${colKey === 'actions' && !isMobile && portfolioActionsCollapsed ? 'actions-header--collapsed' : ''}`}
+                          className={`portfolio-header ${colKey === 'symbol' ? 'symbol-header' : ''} ${colKey === 'type' ? 'asset-type-header' : ''} ${isSortable ? 'sortable' : ''} ${dragOverColKey === colKey ? 'drag-over-target' : ''} ${colKey === 'actions' && !isMobile && portfolioActionsCollapsed ? 'actions-header--collapsed' : ''}`}
                           draggable={isDraggable && !isResizing}
                           onDragStart={(e) => handleColDragStart('portfolio', colKey, e)}
                           onDragOver={(e) => handleColDragOver('portfolio', colKey, e)}
@@ -4708,7 +4714,7 @@ function Dashboard({ isLightMode }) {
                         {visibleCols.map((colKey) => {
                           // Imported brokerage positions are displayed alongside Binance
                           // holdings, but they must never inherit Binance-only controls.
-                          if (isExternal && !['symbol', 'amount', 'current_price', 'current_value', 'down_alert', 'up_alert', 'volatility_pct', 'avg_entry', 'pct_change', 'sentiment', 'pnl_usd', 'allocation_pct', 'last_updated', 'actions'].includes(colKey)) {
+                          if (isExternal && !['symbol', 'type', 'amount', 'current_price', 'current_value', 'down_alert', 'up_alert', 'volatility_pct', 'avg_entry', 'pct_change', 'sentiment', 'pnl_usd', 'allocation_pct', 'last_updated', 'actions'].includes(colKey)) {
                             return <td key={colKey} style={{ textAlign: 'center', color: 'var(--text-secondary, #94a3b8)' }}>—</td>;
                           }
                           switch (colKey) {
@@ -4740,53 +4746,11 @@ function Dashboard({ isLightMode }) {
                                     >
                                       {isCryptoAsset ? <FaBitcoin /> : <FaDollarSign />}
                                     </span>
-                                    {!isExternal && isCryptoAsset && coin.symbol !== 'USD' && (
-                                      <span
-                                        className="webull-account-pill binance-crypto-pill"
-                                        title="Binance Crypto asset"
-                                        style={{
-                                          display: 'inline-flex',
-                                          alignItems: 'center',
-                                          padding: '2px 8px',
-                                          borderRadius: '9999px',
-                                          fontSize: '0.72rem',
-                                          fontWeight: 600,
-                                          letterSpacing: '0.02em',
-                                          whiteSpace: 'nowrap',
-                                          background: isLightMode ? '#000000' : '#2563eb',
-                                          color: isLightMode ? '#facc15' : '#ffffff',
-                                          border: isLightMode ? '1px solid #1f2937' : '1px solid #3b82f6',
-                                          marginLeft: '2px',
-                                        }}
-                                      >
-                                        Crypto
-                                      </span>
-                                    )}
-                                    {isExternal && coin.webull_account_type && (
-                                      <span
-                                        className="webull-account-pill"
-                                        title={`Webull ${coin.webull_account_type} account`}
-                                        style={{
-                                          display: 'inline-flex',
-                                          alignItems: 'center',
-                                          padding: '2px 8px',
-                                          borderRadius: '9999px',
-                                          fontSize: '0.72rem',
-                                          fontWeight: 600,
-                                          letterSpacing: '0.02em',
-                                          whiteSpace: 'nowrap',
-                                          background: isLightMode ? '#000000' : '#2563eb',
-                                          color: isLightMode ? '#facc15' : '#ffffff',
-                                          border: isLightMode ? '1px solid #1f2937' : '1px solid #3b82f6',
-                                          marginLeft: '2px',
-                                        }}
-                                      >
-                                        {coin.webull_account_type}
-                                      </span>
-                                    )}
                                   </div>
                                 </td>
                               );
+                            case 'type':
+                              return <td key="type" className="asset-type-cell"><span className="asset-type-pill">{coin.webull_account_type || (isCryptoAsset ? 'Crypto' : coin.symbol === 'USD' ? 'Cash' : 'Securities')}</span></td>;
                             case 'amount':
                               return (
                                 <td key="amount" style={{ textAlign: 'center' }}>
@@ -5192,7 +5156,7 @@ function Dashboard({ isLightMode }) {
                         <th
                           key={colKey}
                           onClick={isSortable ? () => handleSort(colKey) : undefined}
-                          className={`watchlist-header ${colKey === 'symbol' ? 'symbol-header' : ''} ${isSortable ? 'sortable' : ''} ${dragOverColKey === colKey ? 'drag-over-target' : ''} ${colKey === 'actions' && !isMobile && watchlistActionsCollapsed ? 'actions-header--collapsed' : ''}`}
+                          className={`watchlist-header ${colKey === 'symbol' ? 'symbol-header' : ''} ${colKey === 'type' ? 'asset-type-header' : ''} ${isSortable ? 'sortable' : ''} ${dragOverColKey === colKey ? 'drag-over-target' : ''} ${colKey === 'actions' && !isMobile && watchlistActionsCollapsed ? 'actions-header--collapsed' : ''}`}
                           draggable={isDraggable && !isResizing}
                           onDragStart={(e) => handleColDragStart('watchlist', colKey, e)}
                           onDragOver={(e) => handleColDragOver('watchlist', colKey, e)}
@@ -5298,6 +5262,8 @@ function Dashboard({ isLightMode }) {
                                   </div>
                                 </td>
                               );
+                            case 'type':
+                              return <td key="type" className="asset-type-cell"><span className="asset-type-pill">{item.webull_account_type || (isTraditionalAsset(item) ? 'Securities' : 'Crypto')}</span></td>;
                             case 'current_price':
                               return (
                                 <td key="current_price" style={{ whiteSpace: 'nowrap', textAlign: 'center' }}>

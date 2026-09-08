@@ -1,3 +1,4 @@
+import SentimentAccuracyCards from '../components/SentimentAccuracyCards';
 import React, { useState, useEffect, useMemo } from 'react';
 import axios from 'axios';
 import { useAuth } from '../components/AuthContext';
@@ -253,7 +254,7 @@ const AIDashboard = () => {
       };
     }
 
-    const filteredHistory = (accuracyData.history || []).filter(row => row && row.symbol && activeFilterCoins.includes(row.symbol));
+    const filteredHistory = (accuracyData.history || []).filter(row => row && row.symbol && activeFilterCoins.includes(row.symbol) && row.evaluation_method === 'fixed_horizon');
 
     const recStats = {};
     const modStats = {};
@@ -302,8 +303,8 @@ const AIDashboard = () => {
     }).sort((a, b) => b.win_rate - a.win_rate);
 
     return {
-      recommendationBreakdown: recBreakdown.length > 0 ? recBreakdown : (accuracyData.recommendation_breakdown || []),
-      modelBreakdown: modBreakdown.length > 0 ? modBreakdown : (accuracyData.model_breakdown || [])
+      recommendationBreakdown: recBreakdown,
+      modelBreakdown: modBreakdown
     };
   }, [accuracyData, activeFilterCoins, excludedFilterCoins, availableCoinFilters]);
 
@@ -488,31 +489,7 @@ const AIDashboard = () => {
       {/* ========================================================================= */}
       <div className="ai-section prediction-visualizer-section">
         {/* KPI Scorecards */}
-        <div className="accuracy-kpi-grid">
-          <div className="accuracy-kpi-card overall">
-            <div className="kpi-label">Overall Accuracy</div>
-            <div className="kpi-value glow-text">{formatRate(summary.overall_accuracy)}</div>
-            <div className="kpi-subtext">{summary.correct_count || 0} Correct / {summary.evaluated_signals || 0} decisive of {summary.total_signals} fixed-horizon signals; neutral/tracking excluded</div>
-          </div>
-
-          <div className="accuracy-kpi-card bullish">
-            <div className="kpi-label">Bullish Win Rate</div>
-            <div className="kpi-value text-green">{formatRate(summary.bullish_win_rate)}</div>
-            <div className="kpi-subtext">{summary.bullish_correct_count || 0} Correct / {summary.bullish_count || 0} decisive Buy theses</div>
-          </div>
-
-          <div className="accuracy-kpi-card bearish">
-            <div className="kpi-label">Bearish Win Rate</div>
-            <div className="kpi-value text-red">{formatRate(summary.bearish_win_rate)}</div>
-            <div className="kpi-subtext">{summary.bearish_correct_count || 0} Correct / {summary.bearish_count || 0} decisive Sell/Watch theses</div>
-          </div>
-
-          <div className="accuracy-kpi-card model">
-            <div className="kpi-label">Top Performing Model</div>
-            <div className="kpi-value model-name">{summary.top_model}</div>
-            <div className="kpi-subtext">Highest validated prediction rate</div>
-          </div>
-        </div>
+        <SentimentAccuracyCards history={(accuracyData?.history || []).filter(row => activeFilterCoins.includes(row.symbol))} />
 
         <SentimentTimelineChart
           signals={accuracyData?.history || []}

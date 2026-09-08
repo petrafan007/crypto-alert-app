@@ -423,6 +423,46 @@ def _grade_record(record, evaluation_price, thresholds):
     return grade, threshold
 
 
+def canonical_forecast_target(record):
+    created = _as_utc(record.created_at)
+    horizon = getattr(record, 'forecast_horizon_hours', None)
+    return created + timedelta(hours=float(horizon)) if created and horizon and float(horizon) > 0 else None
+
+
+def repair_fixed_horizon_timestamps():
+    """Repair timezone-shifted targets while retaining the original evaluation evidence."""
+    from core.extensions import db
+    from models import SentimentHistory
+    records = SentimentHistory.query.filter_by(evaluation_method='fixed_horizon').all()
+    changed = 0
+    for record in records:
+        target = canonical_forecast_target(record)
+        saved = _as_utc(record.target_evaluation_at)
+        if not target or (saved and abs((target - saved).total_seconds()) < 1):
+            continue
+        try:
+            config = json.loads(record.grading_config or '{}')
+            if not isinstance(config, dict):
+                config = {'original_grading_config': record.grading_config}
+        except (ValueError, TypeError):
+            config = {'original_grading_config': record.grading_config}
+        config['_timestamp_repair_v2940'] = {
+            'original_target': saved.isoformat() if saved else None,
+            'original_outcome_price': record.outcome_price,
+            'original_outcome_pct': record.outcome_pct,
+            'original_outcome_status': record.outcome_status,
+            'original_evaluated_at': record.outcome_evaluated_at.isoformat() if record.outcome_evaluated_at else None,
+        }
+        record.grading_config = json.dumps(config)
+        record.target_evaluation_at = target.replace(tzinfo=None)
+        record.outcome_price = record.outcome_pct = record.outcome_evaluated_at = None
+        record.outcome_status = 'tracking'
+        changed += 1
+    if changed:
+        db.session.commit()
+    return changed
+
+
 def _resolve_fixed_horizon_price(record, target_at, now_utc):
     """Resolve the closest recorded price; use live price only near the target."""
     import time
@@ -434,6 +474,7 @@ def _resolve_fixed_horizon_price(record, target_at, now_utc):
     upper = target_timestamp + tolerance_seconds
     rows = PriceHistory.query.filter(
         PriceHistory.symbol == (record.symbol or '').upper(),
+        PriceHistory.exchange == 'binance',
         PriceHistory.timestamp >= lower,
         PriceHistory.timestamp <= upper,
     ).all()
@@ -459,6 +500,7 @@ def evaluate_pending_fixed_horizon_sentiments(now=None, price_resolver=None):
     from credentials import UserSetting
     from models import SentimentHistory
 
+    repair_fixed_horizon_timestamps()
     now_utc = _as_utc(now or datetime.now(dt_timezone.utc))
     due = SentimentHistory.query.filter(
         SentimentHistory.evaluation_method == 'fixed_horizon',
@@ -475,7 +517,11 @@ def evaluate_pending_fixed_horizon_sentiments(now=None, price_resolver=None):
             evaluation_price, evaluated_at = resolved
         else:
             evaluation_price, evaluated_at = resolved, record.target_evaluation_at
-        if not evaluation_price or float(evaluation_price) <= 0:
+        actual_at = _as_utc(evaluated_at)
+        target = canonical_forecast_target(record)
+        if (not evaluation_price or float(evaluation_price) <= 0 or not actual_at or not target
+                or actual_at < _as_utc(record.created_at) or actual_at > now_utc
+                or abs((actual_at - target).total_seconds()) > 900):
             continue
         if record.user_id not in settings_cache:
             settings = UserSetting.query.filter_by(user_id=record.user_id).first()
@@ -485,7 +531,7 @@ def evaluate_pending_fixed_horizon_sentiments(now=None, price_resolver=None):
         record.outcome_price = float(evaluation_price)
         record.outcome_pct = grade.get('delta_pct')
         record.outcome_status = grade.get('status') or 'unscored'
-        record.outcome_evaluated_at = (_as_utc(evaluated_at) or now_utc).replace(tzinfo=None)
+        record.outcome_evaluated_at = _as_utc(evaluated_at) or now_utc
         evaluated += 1
     if evaluated:
         db.session.commit()
@@ -548,7 +594,11 @@ def build_sentiment_accuracy_response(user_id, timeframe='30d', selected_tier=No
         neutral_lower = None
         neutral_upper = None
 
-        if is_fixed_horizon and record.outcome_evaluated_at is not None:
+        target = canonical_forecast_target(record)
+        target_valid = bool(target and record.target_evaluation_at and abs((target - _as_utc(record.target_evaluation_at)).total_seconds()) < 1)
+        if is_fixed_horizon and not target_valid:
+            status, reason = 'unscored', 'Forecast target requires timezone repair before it can be scored.'
+        elif is_fixed_horizon and record.outcome_evaluated_at is not None:
             evaluation_price = float(record.outcome_price or 0)
             evaluated_at = record.outcome_evaluated_at
             created_utc = _as_utc(record.created_at)
@@ -562,6 +612,8 @@ def build_sentiment_accuracy_response(user_id, timeframe='30d', selected_tier=No
             direction = grade.get('direction')
             neutral_lower = grade.get('neutral_lower_pct')
             neutral_upper = grade.get('neutral_upper_pct')
+        elif is_fixed_horizon and target and target + timedelta(minutes=15) < datetime.now(dt_timezone.utc):
+            status, reason = 'unscored', 'No reliable price observation at the forecast target is available.'
         elif not is_fixed_horizon and next_record is not None:
             evaluation_price = float(next_record.price_at_prediction or 0)
             evaluated_at = next_record.created_at

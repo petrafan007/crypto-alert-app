@@ -260,7 +260,7 @@ function OrderTable({ orders, open, onCancelOrder, cancellingId, webullAccounts 
                     return `${amount(feeVal, 8)} ${asset}`;
                   })()}
                 </td>
-                <td>{order.status}</td>
+                <td>{order.status}{order.history_note && <small style={{ display: 'block', maxWidth: 280 }}>{order.history_note}</small>}</td>
                 {open && (
                   <td>
                     {Number.isFinite(Number(order.estimated_pnl))

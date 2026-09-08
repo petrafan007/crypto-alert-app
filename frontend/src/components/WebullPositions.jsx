@@ -53,6 +53,7 @@ function PositionDetails({ position, onSelectHolding, onOpenEventPosition }) {
       ['Spread width', formatCell(position.details.width, 'currency')],
     ] : []),
     ...(position.is_quant && ['Options', 'Futures'].includes(assetType(position)) ? [['Valuation basis', 'Allocated collateral plus unrealized P&L']] : []),
+    ...(position.quote_status ? [['Price availability', position.quote_status]] : []),
     ['Last position update', formatTimestamp(position.updated_at || position.last_updated)],
   ];
   return <><dl className="position-details">{fields.map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value ?? '—'}</dd></div>)}</dl>
@@ -177,7 +178,7 @@ export default function WebullPositions({ positions = [], mode = 'REAL', userId,
               const value = valueForColumn(position, column.id);
               const isPnl = column.type === 'pnl' || column.type === 'pnl_percent';
               const pnlClass = isPnl && value > 0 ? 'position-gain' : isPnl && value < 0 ? 'position-loss' : '';
-              return <td key={column.id} className={`${column.id === 'symbol' ? 'position-symbol' : ''} ${pnlClass}`}>
+              return <td title={column.id === 'mark' ? position.quote_status : undefined} key={column.id} className={`${column.id === 'symbol' ? 'position-symbol' : ''} ${pnlClass}`}>
                 {column.id === 'symbol' ? <button type="button" className="position-expand" aria-expanded={isExpanded} onClick={event => { event.stopPropagation(); toggleExpanded(key); }} title={position.symbol}>
                   <span>{isExpanded ? '▾' : '▸'} {instrumentName(position)}</span>
                   {instrumentName(position) !== position.symbol && <small>{position.symbol}</small>}

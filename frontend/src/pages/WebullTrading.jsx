@@ -307,7 +307,7 @@ const normalizeOrder = (order) => ({
   order_type: order.order_type || order.type || '—',
   quantity: order.quantity ?? order.total_quantity ?? order.order_quantity,
   filled_quantity: order.filled_quantity ?? order.executed_quantity ?? order.filled_qty,
-  price: order.price ?? order.limit_price ?? order.order_price,
+  price: Number(order.filled_quantity || 0) > 0 ? (order.avg_price ?? order.filled_price ?? order.price ?? order.limit_price) : (order.price ?? order.limit_price ?? order.order_price),
   status: order.status || order.order_status || '—',
   created_at: order.created_at || order.create_time || order.placed_time || order.place_time || order.filled_time_at || order.update_time,
 });
@@ -366,7 +366,7 @@ function WebullOrderTable({ orders, emptyText, onCancelOrder, cancellingId, opti
               {showOptionColumns && <><th>Expiration</th><th>Strike</th><th>Call / Put</th></>}
               <th>Side</th><th>Type</th><th>Quantity</th><th>Price</th><th>Filled</th>
               {showClosePnlColumn && <th title="Estimated before fees from the filled basis and current executable close quote.">Close-Now P&amp;L</th>}
-              <th>Status</th><th>Source</th>
+              <th>Status</th><th>Filled at (ET)</th><th>Source</th>
               {onCancelOrder && <th>Action</th>}
             </tr>
           </thead>
@@ -404,7 +404,8 @@ function WebullOrderTable({ orders, emptyText, onCancelOrder, cancellingId, opti
                     )}
                   </td>
                 )}
-                <td>{formatOrderStatus(order.status)}</td>
+                <td>{formatOrderStatus(order.status)}{order.history_note && <small style={{ display: 'block', maxWidth: 280 }}>{order.history_note}</small>}</td>
+                <td>{order.filled_at ? `${formatEasternDate(order.filled_at)} ${formatEasternTime(order.filled_at)}` : '—'}</td>
                 <td><span className="badge" style={{ background: 'rgba(96, 165, 250, .16)', color: '#60a5fa' }}>Webull</span></td>
                 {onCancelOrder && (
                   <td>
@@ -457,7 +458,7 @@ function EventContractOpenOrders({ orders, onManageOrder }) {
                   <td>{number(order.filled_quantity, 6)}</td>
                   <td>{number(remainingQuantity, 6)}</td>
                   <td>{order.price ? `$${number(order.price, 4)}` : 'Market'}</td>
-                  <td>{formatOrderStatus(order.status)}</td>
+                  <td>{formatOrderStatus(order.status)}{order.history_note && <small style={{ display: 'block', maxWidth: 280 }}>{order.history_note}</small>}</td>
                   <td style={{ textAlign: 'center' }}>
                     <button
                       type="button"
@@ -745,6 +746,9 @@ export default function WebullTrading({ isLightMode = false }) {
 
   // Webull Trading Mode (Real, Paper Test, Quantitative Algo) state
   const [tradingMode, setTradingMode] = useState('REAL'); // 'REAL' | 'TEST' | 'QUANT'
+  const modeRef = useRef(tradingMode);
+  modeRef.current = tradingMode;
+  const openOrdersRequestRef = useRef(0);
   const isTestMode = tradingMode === 'TEST';
   const isQuantMode = tradingMode === 'QUANT';
   const setIsTestMode = (val) => setTradingMode(val ? 'TEST' : 'REAL');
@@ -1077,11 +1081,14 @@ export default function WebullTrading({ isLightMode = false }) {
   };
 
   const loadOpenOrders = async (targetAccId, paperMode = isTestMode) => {
+    const requestId = ++openOrdersRequestRef.current;
+    const requestedMode = tradingMode;
+    const isCurrent = () => requestId === openOrdersRequestRef.current && modeRef.current === requestedMode;
     if (isQuantMode) {
       try {
         const res = await axios.get('/api/webull/portfolio-algo/orders?status=open', { withCredentials: true });
         const working = (res.data?.orders || []).map(normalizeOrder);
-        setOpenOrders(working);
+        if (isCurrent()) setOpenOrders(working);
       } catch (e) {
         // non-blocking
       }
@@ -1091,24 +1098,26 @@ export default function WebullTrading({ isLightMode = false }) {
       try {
         const res = await axios.get('/api/webull/test/orders', { withCredentials: true });
         const working = (res.data?.orders || []).filter((o) => o.status === 'Working' || o.status === 'Open').map(normalizeOrder);
-        setOpenOrders(working);
+        if (isCurrent()) setOpenOrders(working);
       } catch (e) {
         // non-blocking
       }
       return;
     }
     const accId = targetAccId || selectedAccountId;
+    if (modeRef.current !== 'REAL' || !accounts.some(account => String(account.account_id) === String(accId))) return;
     try {
       const res = await axios.get(
         `/api/webull/open-orders${accId ? `?account_id=${accId}` : ''}`,
         { withCredentials: true }
       );
+      if (!isCurrent()) return;
       setOpenOrders((res.data?.orders || []).map(normalizeOrder));
       if (res.data?.success === false) {
         setError(res.data?.message || 'Unable to load Webull open orders.');
       }
     } catch (e) {
-      setError(e.response?.data?.message || 'Unable to load Webull open orders.');
+      if (isCurrent()) setError(e.response?.data?.message || 'Unable to load Webull open orders.');
     }
   };
 
@@ -1171,6 +1180,8 @@ export default function WebullTrading({ isLightMode = false }) {
 
   const handleSwitchMode = async (mode) => {
     if (mode === tradingMode) return;
+    setError('');
+    ++openOrdersRequestRef.current;
     try {
       if (mode === 'QUANT') {
         if (!isAdmin) return;
@@ -1335,8 +1346,8 @@ export default function WebullTrading({ isLightMode = false }) {
       );
       setSignalSettings((current) => ({ ...current, ...(signalSettingsResponse.data?.settings || {}) }));
 
-      const discoveredAccounts = accRes.data?.accounts || [];
-      const enabledIds = accRes.data?.enabled_account_ids;
+      const discoveredAccounts = (accRes.data?.accounts || []).map(account => ({ ...account, account_id: String(account.account_id).trim() }));
+      const enabledIds = accRes.data?.enabled_account_ids?.map(id => String(id).trim());
       const filteredAccounts = (enabledIds && enabledIds.length > 0)
         ? discoveredAccounts.filter((a) => enabledIds.includes(a.account_id))
         : discoveredAccounts.filter((a) => a.is_enabled !== false);
@@ -1526,12 +1537,20 @@ export default function WebullTrading({ isLightMode = false }) {
     }
   }, [activeTab, isTestMode, isQuantMode, historyPage, historyPageSize, selectedAccountId]);
 
+  useEffect(() => {
+    if (tradingMode !== 'REAL' || !accounts.length) return;
+    if (!accounts.some(a => String(a.account_id) === String(selectedAccountId))) {
+      setSelectedAccountId(String(accounts.find(a => String(a.account_id) === String(defaultAccountId))?.account_id || accounts[0].account_id));
+      setError('');
+    }
+  }, [tradingMode, accounts, selectedAccountId, defaultAccountId]);
+
   // Refetch open orders when account changes
   useEffect(() => {
     if (selectedAccountId) {
       loadOpenOrders(selectedAccountId, isTestMode);
     }
-  }, [selectedAccountId, isTestMode, isQuantMode]);
+  }, [selectedAccountId, isTestMode, isQuantMode, accounts]);
 
   useEffect(() => {
     if (selectedInstrumentType !== 'EVENT' || !selectedAccountId) return undefined;

@@ -228,15 +228,15 @@ def api_staking_balance():
     Optional param: asset"""
     try:
         cred = get_user_credentials(current_user.username)
-        if not cred or not cred.api_key or not cred.api_secret:
+        if not cred or not ((cred.trading_api_key and cred.trading_api_secret) or (cred.api_key and cred.api_secret)):
             logger.warning("Binance API credentials not configured")
-            return jsonify({'balances': [], 'totalStakedValue': 0})
+            return jsonify({'error': 'Binance.US API credentials are not configured.'}), 400
         
         # Call Binance.US staking balance endpoint
         asset_param = request.args.get('asset')
         overview = build_staking_balance_view(cred, asset_param)
         logger.info(f"/api/staking/balance response summary: {overview.get('summary')}")
-        return jsonify(overview)
+        return jsonify(overview), 502 if overview.get('error') else 200
     
     except Exception as e:
         logger.error(f"Error in api_staking_balance: {e}", exc_info=True)
@@ -5796,42 +5796,63 @@ def api_staking_assets():
     """Get available staking assets with details from Binance.US API
     Doc: GET /sapi/v1/staking/asset"""
     try:
-        cred = get_user_credentials(current_user.username)
-        
-        if not cred or not cred.api_key or not cred.api_secret:
-            logger.warning("Binance API credentials not configured for staking")
-            return jsonify([])
-        
-        # Call Binance.US staking asset information endpoint
-        response = binance_us_api_call(cred, '/sapi/v1/staking/asset', method='GET', use_trading_keys=True)
-        
-        if response.status_code == 200:
-            raw_payload = response.json()
-            staking_assets = raw_payload.get('data', []) if isinstance(raw_payload, dict) else (raw_payload or [])
-            normalized_assets = []
-            for asset in staking_assets:
-                if not isinstance(asset, dict):
-                    continue
-                a_copy = dict(asset)
-                raw_rate = a_copy.get('apy') or a_copy.get('apr') or a_copy.get('annualPercentageRate') or a_copy.get('rewardRate') or a_copy.get('estApr') or a_copy.get('interestRate') or 0.0
-                try:
-                    rate_num = float(str(raw_rate).replace('%', '').strip())
-                    if rate_num > 1.0:
-                        rate_num = rate_num / 100.0
-                except Exception:
-                    rate_num = 0.0
-                a_copy['apy'] = rate_num
-                a_copy['apr'] = rate_num
-                normalized_assets.append(a_copy)
-            logger.info(f"Retrieved {len(normalized_assets)} staking assets from Binance.US")
-            return jsonify(normalized_assets)
-        else:
-            logger.error(f"Binance.US staking API error: {response.status_code} - {response.text}")
-            return jsonify([])
-    
-    except Exception as e:
-        logger.error(f"Critical error in api_staking_assets: {e}", exc_info=True)
-        return jsonify([])
+        from services.staking_service import staking_catalog
+        return jsonify(staking_catalog(get_user_credentials(current_user.username)))
+    except Exception:
+        return jsonify({'error': 'Unable to load the Binance.US staking catalog. Please check your API connection.'}), 502
+
+
+@portfolio_bp.route('/api/staking/discovery', methods=['GET'])
+@login_required
+def api_staking_discovery():
+    try:
+        from services.staking_purchase_service import discovery
+        result = discovery(get_user_credentials(current_user.username))
+        result['userId'] = current_user.id
+        return jsonify(result)
+    except Exception:
+        return jsonify({'error': 'Unable to load Binance.US balances and staking markets. Check your trading API connection.'}), 502
+
+
+@portfolio_bp.route('/api/staking/purchases/<intent_id>', methods=['GET'])
+@login_required
+def api_staking_purchase_receipt(intent_id):
+    from models import StakingPurchase
+    from services.staking_purchase_service import receipt
+    intent = db.session.get(StakingPurchase, intent_id)
+    if not intent or intent.user_id != current_user.id:
+        return jsonify({'error': 'Purchase receipt not found.'}), 404
+    return jsonify(receipt(intent))
+
+
+@portfolio_bp.route('/api/staking/purchases', methods=['POST'])
+@login_required
+def api_staking_purchase():
+    from services.staking_purchase_service import purchase, receipt
+    from models import StakingPurchase
+    data = request.get_json(silent=True) or {}
+    existing = db.session.get(StakingPurchase, str(data.get('id', '')))
+    if existing:
+        if existing.user_id != current_user.id:
+            return jsonify({'error': 'Invalid purchase reference.'}), 404
+        return jsonify(receipt(existing))
+    settings = TradingSettings.query.filter_by(user_id=current_user.id).first()
+    if settings and settings.require_2fa and settings.totp_enabled:
+        token = data.get('twofa_token')
+        verified = session.get(f'2fa_verified_{token}', {})
+        if verified.get('user_id') != current_user.id or time.time() - verified.get('timestamp', 0) > 120:
+            return jsonify({'error': 'Verify your 2FA code before purchasing.', 'requires_2fa': True}), 403
+        session.pop(f'2fa_verified_{token}', None)
+    try:
+        result = purchase(current_user.id, get_user_credentials(current_user.username), settings, data)
+        return jsonify(result)
+    except ValueError as exc:
+        db.session.rollback()
+        return jsonify({'error': str(exc)}), 400
+    except Exception:
+        db.session.rollback()
+        return jsonify({'error': 'Purchase confirmation unavailable. Check the saved receipt and Binance history before trading again.'}), 503
+
 
 @portfolio_bp.route("/api/staking/stakeable-coins", methods=["GET"])
 @login_required
@@ -5876,7 +5897,7 @@ def api_stake_asset():
         auto_restake = data.get('autoRestake', True)
         twofa_token = data.get('twofa_token')
         
-        if not staking_asset or amount <= 0:
+        if not staking_asset or not __import__('math').isfinite(amount) or amount <= 0:
             return jsonify({"error": "Invalid staking asset or amount"}), 400
         
         # Check if 2FA is required
@@ -5906,7 +5927,7 @@ def api_stake_asset():
         
         # Get user credentials
         cred = get_user_credentials(current_user.username)
-        if not cred or not cred.api_key or not cred.api_secret:
+        if not cred or not ((cred.trading_api_key and cred.trading_api_secret) or (cred.api_key and cred.api_secret)):
             return jsonify({"error": "Binance API credentials not configured"}), 400
 
         permission_check = binance_has_staking_permission(cred)
@@ -5916,14 +5937,17 @@ def api_stake_asset():
                 "action": "Update the API key on Binance.US to allow Earn/Staking or create a new key with that permission."
             }), 403
         
-        # Find the coin in portfolio
+        # Validate exchange free balance, not an asynchronously synced portfolio amount.
+        from services.staking_purchase_service import trading_client
+        from services.staking_service import staking_catalog
+        free = float(trading_client(cred).get_asset_balance(asset=staking_asset).get('free', 0))
+        product_info = next((row for row in staking_catalog(cred) if row['stakingAsset'] == staking_asset), None)
+        if not product_info:
+            return jsonify({'error': 'This asset is not currently available to stake.'}), 400
+        if amount > free or amount < float(product_info.get('minStakingLimit', 0)) or (product_info.get('maxStakingLimit') and amount > float(product_info['maxStakingLimit'])):
+            return jsonify({'error': 'Amount exceeds your free balance or the staking product limits.'}), 400
         coin = Coin.query.filter_by(user_id=current_user.id, symbol=staking_asset).first()
-        if not coin:
-            return jsonify({"error": f"{staking_asset} not found in portfolio"}), 404
-        
-        if coin.amount < amount:
-            return jsonify({"error": f"Insufficient balance. Available: {coin.amount} {staking_asset}"}), 400
-        
+
         # Call Binance.US staking API
         # POST /sapi/v1/staking/stake
         params = {
@@ -5938,17 +5962,12 @@ def api_stake_asset():
             
             if response.status_code == 200:
                 result = response.json()
+                if result.get('success') is False or not (result.get('success') is True or result.get('code') == '000000'):
+                    return jsonify({'error': 'Binance did not accept this staking request.'}), 502
                 
                 # Deduct from coins table
-                coin.amount -= amount
-                
-                # Get staking asset info for APR/APY
-                asset_response = binance_us_api_call(cred, '/sapi/v1/staking/asset', method='GET', params_dict={'stakingAsset': staking_asset}, use_trading_keys=True)
-                product_info = {}
-                if asset_response.status_code == 200:
-                    assets = asset_response.json()
-                    if isinstance(assets, list) and len(assets) > 0:
-                        product_info = assets[0]
+                if coin:
+                    coin.amount = max(0, (coin.amount or 0) - amount)
                 
                 # Add to staked_coins table
                 staked_coin = StakedCoin(
@@ -5961,7 +5980,7 @@ def api_stake_asset():
                     reward_asset=product_info.get('rewardAsset', staking_asset),
                     unstaking_period_hours=int(product_info.get('unstakingPeriod', 168)),
                     auto_restake=auto_restake,
-                    status='active'
+                    status='pending'
                 )
                 
                 db.session.add(staked_coin)
@@ -5990,7 +6009,7 @@ def api_stake_asset():
                         symbol=staking_asset,
                         action='stake',
                         amount=float(amount),
-                        status='completed',
+                        status='pending',
                         transaction_id=result.get('data', {}).get('purchaseRecordId', ''),
                         auto_restake=auto_restake,
                         apr=float(product_info.get('apr', 0)),
@@ -6310,9 +6329,9 @@ def api_staking_history():
     Optional params: asset, startTime, endTime, page, limit"""
     try:
         cred = get_user_credentials(current_user.username)
-        if not cred or not cred.api_key or not cred.api_secret:
+        if not cred or not ((cred.trading_api_key and cred.trading_api_secret) or (cred.api_key and cred.api_secret)):
             logger.warning("Binance API credentials not configured")
-            return jsonify([])
+            return jsonify({'error': 'Staking history or rewards could not be loaded from Binance.US.'}), 502
         
         # Call Binance.US staking history endpoint
         # GET /sapi/v1/staking/history
@@ -6364,11 +6383,11 @@ def api_staking_history():
             return jsonify(normalized)
         else:
             logger.error(f"Binance staking history API error: {response.status_code} - {response.text}")
-            return jsonify([])
+            return jsonify({'error': 'Staking history or rewards could not be loaded from Binance.US.'}), 502
     
     except Exception as e:
         logger.error(f"Error in api_staking_history: {e}", exc_info=True)
-        return jsonify([])
+        return jsonify({'error': 'Staking history or rewards could not be loaded from Binance.US.'}), 502
 
 @portfolio_bp.route("/api/staking/rewards", methods=["GET"])
 @login_required
@@ -6378,9 +6397,9 @@ def api_staking_rewards():
     Optional params: asset, startTime, endTime, page, limit"""
     try:
         cred = get_user_credentials(current_user.username)
-        if not cred or not cred.api_key or not cred.api_secret:
+        if not cred or not ((cred.trading_api_key and cred.trading_api_secret) or (cred.api_key and cred.api_secret)):
             logger.warning("Binance API credentials not configured")
-            return jsonify([])
+            return jsonify({'error': 'Staking history or rewards could not be loaded from Binance.US.'}), 502
         
         # Call Binance.US staking rewards history endpoint
         # GET /sapi/v1/staking/stakingRewardsHistory
@@ -6420,11 +6439,11 @@ def api_staking_rewards():
             return jsonify(rewards_data)
         else:
             logger.error(f"Binance staking rewards API error: {response.status_code} - {response.text}")
-            return jsonify([])
+            return jsonify({'error': 'Staking history or rewards could not be loaded from Binance.US.'}), 502
     
     except Exception as e:
         logger.error(f"Error in api_staking_rewards: {e}", exc_info=True)
-        return jsonify([])
+        return jsonify({'error': 'Staking history or rewards could not be loaded from Binance.US.'}), 502
 
 @portfolio_bp.route("/api/set-watchlist-favorite", methods=["POST"])
 @login_required

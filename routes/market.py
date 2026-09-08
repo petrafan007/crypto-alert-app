@@ -575,7 +575,7 @@ def api_coin_performance():
         qualifying.sort(key=lambda item: display_symbol(item[0]))
         results = [
             {
-                **get_symbol_performance(asset['symbol'], curr, is_traditional=(asset['instrument_type'] != 'CRYPTO' or asset['source'] == 'webull')),
+                **get_symbol_performance(asset['symbol'], curr, is_traditional=asset['instrument_type'] not in ('CRYPTO', 'COIN', 'TOKEN')),
                 "source": asset['source'],
                 "instrument_type": asset['instrument_type'],
                 "is_etf": is_etf_asset(asset),

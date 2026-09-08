@@ -6,6 +6,17 @@
 
 **Last Updated**: September 2026
 
+## v2.94.0 (September 2026)
+
+- Fixed Asset Performance mixing an ETF's price with a same-symbol cryptocurrency history (including ETH ETF). Equity performance uses completed regular-session bars and shows the price timestamp; period returns remain distinct from portfolio returns since purchase.
+- Moved account/type badges into a centered **Type** column in Portfolio and Watchlist, preserving existing column layouts.
+- Fixed Webull account-selection requests during switches between Real Trading, Test Mode, and Quantitative Strategy Mode.
+- Added paper option expiration settlement, exchange-calendar DAY-order expiry, and observed marketable fills for working single-leg option market/limit orders. Removed the invented $2.50 option execution fallback. Order History preserves original fills, labels legacy off-session fills, and records settlement separately from trades.
+- Accelerated Staking with independent panel loading, Binance free balances instead of a full portfolio refresh, and shared short-lived staking reads. Added the five highest currently quoted Binance.US staking rates and a **Trade → Buy with USD/USDT → optionally stake** modal. Purchases have durable receipts, fee/minimum checks, existing real-mode/2FA controls, and no automatic resubmission after uncertain exchange responses.
+- Corrected fixed-horizon sentiment timestamps and added an audited repair for prior timezone-shifted targets. Directional, bullish, bearish, and Hold results now show separate sample counts; legacy, unavailable, pending, and neutral outcomes do not inflate decisive win rates.
+
+See [v2.94.0 behavior and verification](docs/release-2.94.0.md) for settlement policy, staking receipts, and accuracy interpretation.
+
 ## v2.93.0 (September 2026)
 
 - Unified Positions across Webull Real Trading, Test Mode, and Quantitative Strategy Mode, with All assets and dedicated Equities & ETFs, Crypto, Options, Futures, and Event Contracts views.

@@ -1256,6 +1256,14 @@ def sentiment_outcome_evaluation_loop(app):
         while True:
             @safe_background_iteration
             def iteration():
+                from models import WebullTestAccount
+                from services.webull_paper_lifecycle import reconcile_paper_options
+                for account in WebullTestAccount.query.all():
+                    try:
+                        reconcile_paper_options(account.user_id)
+                    except Exception:
+                        db.session.rollback()
+                        logger.exception('Paper option lifecycle update failed for user %s', account.user_id)
                 evaluated = evaluate_pending_fixed_horizon_sentiments()
                 evaluated += evaluate_due_webull_signals()
                 if evaluated:
