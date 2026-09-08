@@ -2701,6 +2701,7 @@ def api_ai_conversation():
             'provider': resp_provider,
             'model': resp_model,
             'session': session,
+            'created_at': format_iso_utc(datetime.now(timezone.utc)),
         })
     except ValueError as exc:
         return jsonify({'error': str(exc)}), 404
@@ -2720,7 +2721,8 @@ def api_ai_conversation():
             pass
         return jsonify({
             'response': err_msg,
-            'conversation_id': conversation_id
+            'conversation_id': conversation_id,
+            'created_at': format_iso_utc(datetime.now(timezone.utc)),
         })
 
 

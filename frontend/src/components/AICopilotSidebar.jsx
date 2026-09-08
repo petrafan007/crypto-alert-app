@@ -6,6 +6,7 @@ import rehypeRaw from 'rehype-raw';
 import rehypeSanitize, { defaultSchema } from 'rehype-sanitize';
 import './AICopilotSidebar.css';
 import { useAuth } from './AuthContext';
+import { parseAppTimestamp, EASTERN_TIME_ZONE } from '../utils/dateTime';
 
 const COPILOT_MARKDOWN_SCHEMA = {
   ...defaultSchema,
@@ -719,8 +720,10 @@ export default function AICopilotSidebar() {
     }).format(easternNow);
 
     // Add user message immediately
+    const nowIso = easternNow.toISOString();
     const userMessage = {
       id: Date.now(),
+      created_at: nowIso,
       date: dateStr,
       time: timeStr,
       prompt_type: 'manual',
@@ -735,6 +738,7 @@ export default function AICopilotSidebar() {
     thinkingPlaceholderIdRef.current = placeholderId;
     const placeholderMessage = {
       id: placeholderId,
+      created_at: nowIso,
       date: dateStr,
       time: timeStr,
       prompt_type: 'manual',
@@ -784,14 +788,16 @@ export default function AICopilotSidebar() {
             conversation_id: newConversationId,
             tier: response.data?.tier,
             provider: response.data?.provider,
-            model: response.data?.model
+            model: response.data?.model,
+            created_at: response.data?.created_at || m.created_at || new Date().toISOString()
           };
         }
         if (m.id === userMessage.id) {
           return {
             ...m,
             optimistic: false,
-            conversation_id: newConversationId
+            conversation_id: newConversationId,
+            created_at: m.created_at || nowIso
           };
         }
         return m;
@@ -804,7 +810,7 @@ export default function AICopilotSidebar() {
       if (activeSessionIdRef.current !== activeConversationId) return;
       // Show error in placeholder
       setConversations(prev => prev.map(m =>
-        m.id === placeholderId ? { ...m, body: errorMsg, thinking: false, optimistic: false } : m
+        m.id === placeholderId ? { ...m, body: errorMsg, thinking: false, optimistic: false, created_at: m.created_at || new Date().toISOString() } : m
       ));
       window.setTimeout(() => scrollToResponseStart(userMessage.id), 0);
     } finally {
@@ -894,46 +900,28 @@ export default function AICopilotSidebar() {
     return `Tier: ${tier}\nProvider: ${provider}\nModel: ${model}`;
   };
 
+  const getEasternTzAbbr = (d = new Date()) => {
+    try {
+      return new Intl.DateTimeFormat('en-US', {
+        timeZone: EASTERN_TIME_ZONE,
+        timeZoneName: 'short'
+      }).formatToParts(d).find(p => p.type === 'timeZoneName')?.value || 'EDT';
+    } catch {
+      return 'EDT';
+    }
+  };
+
   // Combined date+time formatter for display: "8-20-2026 at 5:50 PM EDT"
   const formatEasternDateTime = (dateStr, timeStr, createdAt) => {
     try {
       let d = null;
       if (createdAt) {
-        d = new Date(createdAt);
-      } else if (dateStr && timeStr) {
-        if (dateStr.includes('GMT') || dateStr.includes('UTC')) {
-          const parsedDate = new Date(dateStr);
-          if (!isNaN(parsedDate.getTime())) {
-            const timeParts = timeStr.match(/(\d{1,2}):(\d{2})(?::(\d{2}))?/);
-            if (timeParts) {
-              const hours = parseInt(timeParts[1], 10);
-              const minutes = parseInt(timeParts[2], 10);
-              const seconds = timeParts[3] ? parseInt(timeParts[3], 10) : 0;
-              d = new Date(Date.UTC(parsedDate.getUTCFullYear(), parsedDate.getUTCMonth(), parsedDate.getUTCDate(), hours, minutes, seconds));
-            } else {
-              d = parsedDate;
-            }
-          }
-        } else if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr.trim())) {
-          const [y, m, day] = dateStr.trim().split('-').map(Number);
-          const timeParts = (timeStr || '').match(/(\d{1,2}):(\d{2})(?::(\d{2}))?/);
-          if (timeParts) {
-            const hours = parseInt(timeParts[1], 10);
-            const minutes = parseInt(timeParts[2], 10);
-            const seconds = timeParts[3] ? parseInt(timeParts[3], 10) : 0;
-            d = new Date(Date.UTC(y, m - 1, day, hours, minutes, seconds));
-          } else {
-            d = new Date(y, m - 1, day);
-          }
-        } else {
-          const parsed = new Date(`${dateStr} ${timeStr}`);
-          if (!isNaN(parsed.getTime())) d = parsed;
-        }
+        d = parseAppTimestamp(createdAt);
       }
 
       if (d && !isNaN(d.getTime())) {
         const formatter = new Intl.DateTimeFormat('en-US', {
-          timeZone: 'America/New_York',
+          timeZone: EASTERN_TIME_ZONE,
           year: 'numeric',
           month: 'numeric',
           day: 'numeric',
@@ -950,8 +938,71 @@ export default function AICopilotSidebar() {
         const hour = getPart('hour');
         const minute = getPart('minute');
         const dayPeriod = getPart('dayPeriod');
-        const timeZoneName = getPart('timeZoneName') || 'EDT';
+        const timeZoneName = getPart('timeZoneName') || getEasternTzAbbr(d);
         return `${month}-${day}-${year} at ${hour}:${minute} ${dayPeriod} ${timeZoneName}`;
+      }
+
+      if (dateStr && timeStr) {
+        const trimmedDate = String(dateStr).trim();
+        const trimmedTime = String(timeStr).trim();
+
+        // If timeStr is already a 12-hour formatted time (e.g. "11:37 PM EDT" or "11:37 PM")
+        if (/([ap]m)/i.test(trimmedTime)) {
+          let cleanDate = trimmedDate;
+          if (/^\d{4}-\d{2}-\d{2}$/.test(trimmedDate)) {
+            const [y, m, day] = trimmedDate.split('-').map(Number);
+            cleanDate = `${m}-${day}-${y}`;
+          } else {
+            cleanDate = cleanDate.replace(/\s*00:00:00\s*GMT/gi, '').replace(/^[A-Za-z]+,\s*/, '');
+          }
+          const hasTz = /(EDT|EST|ET|UTC|GMT)/i.test(trimmedTime);
+          const tzSuffix = hasTz ? '' : ` ${getEasternTzAbbr()}`;
+          return `${cleanDate} at ${trimmedTime}${tzSuffix}`.trim();
+        }
+
+        // If timeStr is a 24-hour UTC time (e.g. "03:37:41") and date is "YYYY-MM-DD"
+        if (/^\d{4}-\d{2}-\d{2}$/.test(trimmedDate)) {
+          const [y, m, day] = trimmedDate.split('-').map(Number);
+          const timeParts = trimmedTime.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
+          if (timeParts) {
+            const hours = parseInt(timeParts[1], 10);
+            const minutes = parseInt(timeParts[2], 10);
+            const seconds = timeParts[3] ? parseInt(timeParts[3], 10) : 0;
+            const utcDate = new Date(Date.UTC(y, m - 1, day, hours, minutes, seconds));
+            if (!isNaN(utcDate.getTime())) {
+              const formatter = new Intl.DateTimeFormat('en-US', {
+                timeZone: EASTERN_TIME_ZONE,
+                year: 'numeric',
+                month: 'numeric',
+                day: 'numeric',
+                hour: 'numeric',
+                minute: '2-digit',
+                hour12: true,
+                timeZoneName: 'short'
+              });
+              const parts = formatter.formatToParts(utcDate);
+              const getPart = (type) => parts.find(p => p.type === type)?.value || '';
+              return `${getPart('month')}-${getPart('day')}-${getPart('year')} at ${getPart('hour')}:${getPart('minute')} ${getPart('dayPeriod')} ${getPart('timeZoneName') || getEasternTzAbbr(utcDate)}`;
+            }
+          }
+        } else {
+          const parsed = new Date(`${dateStr} ${timeStr}`);
+          if (!isNaN(parsed.getTime())) {
+            const formatter = new Intl.DateTimeFormat('en-US', {
+              timeZone: EASTERN_TIME_ZONE,
+              year: 'numeric',
+              month: 'numeric',
+              day: 'numeric',
+              hour: 'numeric',
+              minute: '2-digit',
+              hour12: true,
+              timeZoneName: 'short'
+            });
+            const parts = formatter.formatToParts(parsed);
+            const getPart = (type) => parts.find(p => p.type === type)?.value || '';
+            return `${getPart('month')}-${getPart('day')}-${getPart('year')} at ${getPart('hour')}:${getPart('minute')} ${getPart('dayPeriod')} ${getPart('timeZoneName') || getEasternTzAbbr(parsed)}`;
+          }
+        }
       }
     } catch (e) {
       console.warn('Error formatting date time:', e);

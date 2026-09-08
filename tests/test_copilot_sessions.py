@@ -56,7 +56,7 @@ class CopilotSessionTests(unittest.TestCase):
 
     def tearDown(self):
         db.session.rollback()
-        db.session.close()
+        db.session.remove()
 
     @staticmethod
     def _login(client, user):
@@ -157,6 +157,16 @@ class CopilotSessionTests(unittest.TestCase):
         source = Path('frontend/src/components/AICopilotSidebar.jsx').read_text()
         self.assertIn('scrollToResponseStart(userMessage.id)', source)
         self.assertNotIn('scrollToBottom', source)
+
+    def test_frontend_copilot_preserves_created_at_and_eastern_timestamp_formatting(self):
+        source = Path('frontend/src/components/AICopilotSidebar.jsx').read_text()
+        self.assertIn('created_at: nowIso', source)
+        self.assertIn('parseAppTimestamp(createdAt)', source)
+        self.assertIn('EASTERN_TIME_ZONE', source)
+
+    def test_routes_ai_api_conversation_includes_created_at(self):
+        source = Path('routes/ai.py').read_text()
+        self.assertIn("'created_at': format_iso_utc(datetime.now(timezone.utc))", source)
 
 
 if __name__ == '__main__':

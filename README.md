@@ -6,6 +6,13 @@
 
 **Last Updated**: September 2026
 
+## v2.94.1 (September 2026)
+
+- Fixed AI Copilot message timestamps displaying incorrect times (such as showing 7:37 AM EDT instead of 11:38 PM EDT) for optimistic user messages and thinking placeholders.
+- Attached high-precision ISO UTC `created_at` timestamps to client-side optimistic messages, ensuring accurate point-in-time rendering during AI generation and upon reply receipt.
+- Standardized `formatEasternDateTime` in AI Copilot to properly parse ISO timestamps via `parseAppTimestamp` and preserve already-formatted 12-hour Eastern Time strings without inadvertently mangling 12-hour hours as UTC.
+- Added `created_at` UTC timestamps to `POST /api/ai/conversation` API response payloads for immediate synchronization.
+
 ## v2.94.0 (September 2026)
 
 - Fixed Asset Performance mixing an ETF's price with a same-symbol cryptocurrency history (including ETH ETF). Equity performance uses completed regular-session bars and shows the price timestamp; period returns remain distinct from portfolio returns since purchase.
