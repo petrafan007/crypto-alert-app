@@ -9,6 +9,7 @@ import remarkGfm from 'remark-gfm';
 import { formatEasternDateTime } from '../utils/dateTime';
 const QuantitativeStrategyEngine = React.lazy(() => import('../components/QuantitativeStrategyEngine'));
 import ProviderHealth from '../components/ProviderHealth';
+import PortfolioAuditProgress from '../components/PortfolioAuditProgress';
 import { normalizePortfolioAudit, selectPortfolioAudit, auditOutcomeMessage } from '../utils/portfolioAudit.mjs';
 import { reconcileDedicatedAIConfig } from '../utils/dedicatedAIConfig.mjs';
 
@@ -526,6 +527,7 @@ export default function Settings({ isLightMode }) {
       try {
         const response = await axios.get('/api/webull/portfolio-algo/audits', { withCredentials: true });
         if (cancelled) return;
+        if (!response.data?.success) throw new Error('Report progress unavailable');
         const audits = (response.data.audits || []).map(normalizePortfolioAudit);
         setEventStrategyReportHistory(audits);
         setEventStrategyReport(previous => selectPortfolioAudit(audits, previous?.id));
@@ -4181,22 +4183,11 @@ export default function Settings({ isLightMode }) {
             </div>
 
             {/* Modal Alerts & Progress Banner */}
-            {(eventStrategyReportGenerating || portfolioAuditPending) && (
-              <div style={{
-                margin: '12px 24px 0',
-                padding: '12px 16px',
-                borderRadius: 8,
-                background: 'rgba(56, 189, 248, 0.12)',
-                border: '1px solid #38bdf8',
-                color: isLightMode ? '#0284c7' : '#38bdf8',
-                fontSize: '0.88rem',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 10,
-              }}>
-                <span style={{ fontSize: '1.1rem' }}>⚡</span>
-                <span>Auditing strategy telemetry, market quotes, worker cadence, and error logs... Please wait.</span>
-              </div>
+            {(eventStrategyReportGenerating || portfolioAuditPending || eventStrategyReport?.progress) && (
+              <PortfolioAuditProgress
+                audit={eventStrategyReportHistory.find(report => report.status === 'PENDING') || (eventStrategyReportGenerating ? null : eventStrategyReport)}
+                isLightMode={isLightMode}
+              />
             )}
             {eventStrategyReportError && (
               <div style={{
@@ -4297,7 +4288,7 @@ export default function Settings({ isLightMode }) {
                     </div>
                     <div style={{ padding: '10px 14px', borderRadius: 8, background: isLightMode ? '#f1f5f9' : 'rgba(255,255,255,0.04)', border: '1px solid rgba(148,163,184,0.18)' }}>
                       <div style={{ fontSize: 11, color: isLightMode ? '#64748b' : '#94a3b8' }}>Auditor Model</div>
-                      <div style={{ fontWeight: 600, fontSize: '0.88rem', marginTop: 3 }}>{eventStrategyReport.model || eventStrategyReport.provider || 'Unavailable'}</div>
+                      <div style={{ fontWeight: 600, fontSize: '0.88rem', marginTop: 3 }}>{eventStrategyReport.model || eventStrategyReport.provider || (eventStrategyReport.status === 'PENDING' ? 'Awaiting master report' : 'Unavailable')}</div>
                     </div>
                   </div>
 

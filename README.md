@@ -6,6 +6,14 @@
 
 **Last Updated**: September 2026
 
+## v2.94.8 (September 2026)
+
+- Added a live, approximate progress bar inside the Quantitative Portfolio AI Audit Report modal, showing enabled-specialist completion, the current module or Master CIO stage, elapsed time, and provider retries. Saved stages survive closing the modal, navigation, and login sessions; incomplete reports never show 100%.
+- Corrected Gemini 3 requests to use the documented thinking level, including mapping Extra High to High, while preserving Gemini 2.5 thinking budgets. Credentials are sent in the API header, and final-answer/termination metadata is retained.
+- Quantitative provider requests now retry transient timeouts, temporary throttling, and server errors on the same configured tier up to three attempts with exponential backoff and provider-directed retry delays. Definitive authentication, model, and daily-quota failures remain explicit; bounded retry exhaustion can still invoke the configured fallback chain.
+- Preserved exact, credential-redacted provider failure reasons and attempt transitions in report history. Ollama HTTP 500 errors no longer lose their status before retry handling, and compatibility retries only remove thinking when that parameter was rejected.
+- Ensured Master CIO synthesis receives the completed specialist assessments as well as the measured evidence. Added protocol, recovery, PostgreSQL integration, and browser regression coverage.
+
 ## v2.94.7 (September 2026)
 
 - Enforced strictly sequential Quantitative Strategy Engine prompting: each specialist completes before the next starts, a 15-second minimum interval separates requests and retries, and Master CIO synthesis begins only after every specialist reaches a terminal result.

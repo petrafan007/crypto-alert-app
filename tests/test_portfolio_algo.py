@@ -809,7 +809,9 @@ class PortfolioLedgerTests(unittest.TestCase):
             'minimum_interval_seconds': 0,
         })
         master_input = json.loads(call.call_args.kwargs['messages'][1]['content'])
-        self.assertNotIn('module_audits', master_input)
+        self.assertEqual(master_input['module_audits'], result['evidence']['module_audits'])
+        self.assertEqual(result['progress']['percent'], 100)
+        self.assertNotIn('provider_attempts', master_input)
         self.assertEqual(master_input['module_trade_results']['crypto']['open_positions'], 1)
         self.assertIn('as_of_eastern', master_input['exchange_session'])
         self.assertNotIn('allocation_preference', master_input['strategy_settings']['equities'])
@@ -828,6 +830,47 @@ class PortfolioLedgerTests(unittest.TestCase):
         self.assertIn('quota exhausted', result['evidence']['module_audit_errors']['crypto'])
         self.assertIsNone(result['evidence']['module_audits']['crypto'])
         self.assertTrue(result['evidence']['module_audits']['events'])
+
+    def test_progress_is_committed_before_requests_and_master_receives_all_specialists(self):
+        self.audit_user()
+        settings = e.settings_for(self.cfg)
+        settings['futures']['enabled'] = False
+        self.cfg.module_settings_json = json.dumps(settings)
+        db.session.commit()
+        seen = []
+        percentages = []
+        def answer(**kwargs):
+            row = e.Audit.query.filter_by(user_id=self.user_id).one()
+            saved = json.loads(row.evidence_json)
+            progress = e.audit_dict(row)['progress']
+            percentages.append(progress['percent'])
+            self.assertLess(progress['percent'], 100)
+            if kwargs['prompt_type'] == 'portfolio_module_audit':
+                module = kwargs['symbol'].lower()
+                self.assertEqual(progress['stage'], 'module')
+                self.assertEqual(progress['current_module'], module)
+                self.assertEqual(progress['completed_modules'], seen)
+                seen.append(module)
+            else:
+                self.assertEqual(progress['stage'], 'master')
+                payload = json.loads(kwargs['messages'][1]['content'])
+                self.assertEqual(list(payload['module_audits']), seen)
+                self.assertEqual(len(seen), 4)
+            kwargs['attempt_observer'](event='retrying', provider='ollama', model='nemotron-3-ultra:cloud',
+                tier='secondary', error='Ollama HTTP 500: server unavailable', retry_at='2026-09-08T12:00:00Z')
+            saved = json.loads(db.session.get(e.Audit, row.id).evidence_json)
+            self.assertEqual(saved['audit_progress']['event'], 'retrying')
+            self.assertIn('HTTP 500', saved['provider_attempts'][-1]['error'])
+            return SimpleNamespace(text='Completed assessment', provider='ollama', model='nemotron-3-ultra:cloud'), ''
+        with patch('services.ai_service.is_ai_enabled', return_value=True), \
+             patch('services.ai_service.call_ai_with_web_search', autospec=True, side_effect=answer):
+            result = e.run_audit(self.user_id)
+        self.assertEqual(result['status'], 'SUCCESS', result['content'])
+        self.assertEqual(percentages, [5, 25, 45, 65, 85])
+        self.assertEqual(result['progress']['percent'], 100)
+        self.assertNotIn('futures', result['progress']['modules'])
+        archived = self.client.get('/api/webull/portfolio-algo/audits').json['audits'][0]
+        self.assertEqual(archived['progress'], result['progress'])
 
     def test_master_failure_preserves_evidence_and_completed_module_reports(self):
         self.audit_user()

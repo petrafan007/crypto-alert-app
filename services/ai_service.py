@@ -4,6 +4,7 @@ import json
 import time
 import logging
 import threading
+import random
 import requests
 from datetime import datetime, timezone, timedelta
 from urllib.parse import quote
@@ -25,12 +26,15 @@ from routes.helpers import decrypt_secret, is_stablecoin
 from services.portfolio_audit_context import (
     AUDIT_END, AUDIT_TOKEN_LIMITS, CompletionText, IncompleteAuditError, complete_audit_text, check_drawdown_claim,
 )
+from services.ai_provider_protocol import AIProviderHTTPError, call_gemini_chat, safe_provider_error
 
 logger = logging.getLogger(__name__)
 
 AUTOMATED_AI_PROMPTS_DEFERRED_DURING_AUDITS = {
     'sentiment_analysis',
     'watchlist_sentiment_analysis',
+    'webull_crypto_analysis',
+    'webull_equity_analysis',
     'webull_event_contract_analysis',
     'webull_event_contract_batch_analysis',
     'event_strategy_audit',
@@ -51,6 +55,53 @@ def audit_retry_interval_seconds():
         return max(0, min(120, float(os.getenv('AI_AUDIT_RETRY_INTERVAL_SECONDS', '15'))))
     except (TypeError, ValueError):
         return 15
+
+
+def audit_provider_retry_attempts():
+    """Attempts on one audit tier before the cascade may advance."""
+    try:
+        return max(1, min(5, int(os.getenv('AI_AUDIT_PROVIDER_RETRY_ATTEMPTS', '3'))))
+    except (TypeError, ValueError):
+        return 3
+
+
+def is_transient_ai_provider_error(exc):
+    """Return whether an audit request should retry its current provider tier.
+
+    Timeouts, throttling, and server-side 5xx responses do not prove that an
+    account is out of usage. Authentication, permission, and missing-model
+    failures are definitive and remain eligible for configured failover.
+    """
+    response = getattr(exc, 'response', None)
+    status_code = getattr(exc, 'status_code', None) or getattr(response, 'status_code', None)
+    detail = str(exc).lower()
+    if status_code is None:
+        match = re.search(r'http(?: error)?\s*[(:]?\s*(\d{3})', detail)
+        status_code = int(match.group(1)) if match else None
+    if status_code == 429 and any(term in detail for term in ('perday', 'per_day', 'daily quota', 'weekly limit', 'insufficient balance')):
+        return False
+    if status_code is not None:
+        return status_code in {408, 429, 500, 502, 503, 504}
+    return isinstance(exc, (requests.Timeout, requests.ConnectionError)) or any(
+        phrase in detail for phrase in ('timed out', 'timeout', 'temporarily unavailable', 'connection aborted')
+    )
+
+
+def audit_provider_retry_delay_seconds(attempt_number, exc=None):
+    """Bounded backoff for transient audit-provider failures."""
+    if not has_app_context() or current_app.config.get('TESTING'):
+        return 0
+    try:
+        base = max(1, min(120, float(os.getenv('AI_AUDIT_PROVIDER_RETRY_DELAY_SECONDS', '15'))))
+    except (TypeError, ValueError):
+        base = 15
+    delay = min(120, base * (2 ** max(0, int(attempt_number) - 1)) + random.uniform(0, 2))
+    if exc is not None:
+        from services.provider_resilience import retry_seconds
+        response = getattr(exc, 'response', None)
+        if getattr(exc, 'status_code', None) == 429 or (response is not None and response.headers.get('Retry-After')):
+            delay = max(delay, retry_seconds(response, str(exc)))
+    return delay
 
 WEBULL_CRYPTO_SEARCH_PROMPT = (
     "Generate 1 to 2 targeted current-market search queries for the Webull crypto holding {symbol} as of {datetime}. "
@@ -206,7 +257,7 @@ def call_ollama_chat(model, messages, max_tokens=600, timeout=30, reasoning_leve
     # Older/local models may not recognize the thinking parameter. Retry the
     # same request without it so adding cloud-model support never regresses
     # ordinary Ollama models.
-    if response.status_code == 400 and "think" in request_payload:
+    if response.status_code == 400 and re.search(r'think(?:ing)?', response.text or '', re.I):
         request_payload.pop("think", None)
         response = requests.post(
             f"{OLLAMA_BASE_URL}/api/chat",
@@ -214,10 +265,7 @@ def call_ollama_chat(model, messages, max_tokens=600, timeout=30, reasoning_leve
             timeout=timeout,
         )
     if response.status_code != 200:
-        detail = response.text[:500] if response.text else "no response body"
-        if response.status_code in {401, 403} and model_name.lower().endswith("-cloud"):
-            detail = "Ollama cloud model access requires the Ollama service on this server to be signed in (run `ollama signin`)."
-        raise RuntimeError(f"Ollama error (HTTP {response.status_code}): {detail}")
+        raise AIProviderHTTPError('Ollama', response)
     payload = response.json()
     message = payload.get("message") or {}
     content = message.get("content") or payload.get("response") or ""
@@ -286,7 +334,7 @@ def build_configured_ai_tiers(user_ai_settings):
     return tiers
 
 
-def _notify_ai_attempt(observer, event, tier=None, provider=None, model=None, error=None):
+def _notify_ai_attempt(observer, event, tier=None, provider=None, model=None, error=None, **details):
     """Safely report the current provider attempt to an optional caller hook."""
     if not observer:
         return
@@ -297,6 +345,7 @@ def _notify_ai_attempt(observer, event, tier=None, provider=None, model=None, er
             provider=provider,
             model=model,
             error=error,
+            **details,
         )
     except Exception as observer_error:
         # Failure telemetry must never prevent the configured failover chain.
@@ -634,7 +683,7 @@ def call_ai_with_web_search(
             logger.info(f"Using PRIMARY AI Provider: {provider} / {model} (reasoning: {ai_reasoning_level})")
         _notify_ai_attempt(
             attempt_observer,
-            'started',
+            'queued' if is_portfolio_audit else 'started',
             tier=current_tier_name,
             provider=provider,
             model=model,
@@ -714,12 +763,48 @@ def call_ai_with_web_search(
         ]
 
         def _execute_ai_call(p_messages, p_max_tokens=500):
-            from services.provider_resilience import identity, check, block_failure, serialized_ai_request
+            from services.provider_resilience import identity, check, read, block_failure, serialized_ai_request
             key = identity('ai', username, provider, model, _pick_key(provider) if provider != 'ollama' else '')
             with serialized_ai_request(username, provider):
+                if is_portfolio_audit:
+                    cooldown = read(key)
+                    if cooldown:
+                        remaining = (cooldown['expires_at'] - datetime.now(timezone.utc).replace(tzinfo=None)).total_seconds()
+                        if 0 < remaining <= 120:
+                            _notify_ai_attempt(attempt_observer, 'retrying', tier=current_tier_name,
+                                provider=provider, model=model, error=cooldown['payload']['reason'],
+                                retry_at=cooldown['expires_at'].isoformat()+'Z')
+                            time.sleep(remaining)
                 check(key)
                 try:
-                    return _execute_ai_call_impl(p_messages, p_max_tokens)
+                    attempts = audit_provider_retry_attempts() if is_portfolio_audit else 1
+                    for request_attempt in range(1, attempts + 1):
+                        try:
+                            if is_portfolio_audit:
+                                _notify_ai_attempt(attempt_observer, 'started', tier=current_tier_name,
+                                    provider=provider, model=model, attempt=request_attempt,
+                                    max_attempts=attempts, timeout_seconds=audit_timeout)
+                            return _execute_ai_call_impl(p_messages, p_max_tokens)
+                        except Exception as exc:
+                            if request_attempt >= attempts or not is_transient_ai_provider_error(exc):
+                                raise
+                            delay = audit_provider_retry_delay_seconds(request_attempt, exc)
+                            # A long provider-directed reset is not an invitation
+                            # to hammer the same exhausted quota or wait for days.
+                            if delay > 120:
+                                raise
+                            _notify_ai_attempt(
+                                attempt_observer,
+                                'retrying',
+                                tier=current_tier_name,
+                                provider=provider,
+                                model=model,
+                                error=(f'Transient failure; retrying the same tier '
+                                       f'({request_attempt + 1}/{attempts}): {safe_provider_error(exc, [_pick_key(provider)])}'),
+                                retry_at=(datetime.now(timezone.utc) + timedelta(seconds=delay)).isoformat(),
+                            )
+                            if delay:
+                                time.sleep(delay)
                 except Exception as exc:
                     block_failure(key, username, provider + ':' + str(model), exc)
                     raise
@@ -789,69 +874,8 @@ def call_ai_with_web_search(
                 raise Exception(f"Inception API error: {r.text}")
 
             elif provider == 'gemini':
-                key = _pick_key('gemini')
-                if not key:
-                    raise ValueError("Gemini API key not configured")
-                url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={key}"
-
-                gemini_contents = []
-                system_instruction = None
-
-                for m in p_messages:
-                    role = m.get('role')
-                    text = m.get('content', '')
-                    if role == 'system':
-                        system_instruction = {"parts": [{"text": text}]}
-                    elif role == 'user':
-                        gemini_contents.append({"role": "user", "parts": [{"text": text}]})
-                    elif role == 'assistant':
-                        gemini_contents.append({"role": "model", "parts": [{"text": text}]})
-
-                req_json = {
-                    "contents": gemini_contents,
-                }
-
-                gen_config = {"maxOutputTokens": p_max_tokens}
-                if any(m in (model or '').lower() for m in ['thinking', '2.5', '3.7', '3.8']):
-                    budget = 1024 if ai_reasoning_level == 'low' else (4096 if ai_reasoning_level == 'high' else 2048)
-                    gen_config["thinkingConfig"] = {"thinkingBudget": budget}
-                req_json["generationConfig"] = gen_config
-
-                if system_instruction:
-                    req_json["systemInstruction"] = system_instruction
-
-                last_err = ""
-                for attempt in range(1):
-                    try:
-                        r = requests.post(url, json=req_json, timeout=audit_timeout if is_portfolio_audit else 18)
-                        if r.status_code == 200:
-                            res_json = r.json()
-                            try:
-                                candidate = res_json['candidates'][0]
-                                return CompletionText(''.join(p.get('text', '') for p in candidate.get('content', {}).get('parts', []) if not p.get('thought')), candidate.get('finishReason'))
-                            except Exception:
-                                return json.dumps(res_json)
-                        elif r.status_code == 429:
-                            raise requests.HTTPError(f'Gemini HTTP 429: {r.text}', response=r)
-                        elif r.status_code == 400 and "thinkingConfig" in gen_config:
-                            req_json["generationConfig"] = {"maxOutputTokens": p_max_tokens}
-                            r_retry = requests.post(url, json=req_json, timeout=audit_timeout if is_portfolio_audit else 15)
-                            if r_retry.status_code == 200:
-                                res_json = r_retry.json()
-                                try:
-                                    candidate = res_json['candidates'][0]
-                                    return CompletionText(''.join(p.get('text', '') for p in candidate.get('content', {}).get('parts', []) if not p.get('thought')), candidate.get('finishReason'))
-                                except Exception:
-                                    return json.dumps(res_json)
-                            last_err = r_retry.text
-                        else:
-                            last_err = r.text
-                    except requests.HTTPError:
-                        raise
-                    except Exception as req_ex:
-                        last_err = str(req_ex)
-
-                raise Exception(f"Gemini API error: {last_err}")
+                return call_gemini_chat(_pick_key('gemini'), model, p_messages, p_max_tokens,
+                    audit_timeout if is_portfolio_audit else 45, ai_reasoning_level)
 
             elif provider == 'ollama':
                 return call_ollama_chat(
@@ -888,11 +912,21 @@ def call_ai_with_web_search(
                     if prompt_type == 'portfolio_audit':
                         check_drawdown_claim(content, json.loads(original_user_message))
                     break
-                except IncompleteAuditError:
+                except IncompleteAuditError as exc:
                     if attempt:
                         raise  # Existing configured-provider failover handles exhaustion.
+                    _notify_ai_attempt(attempt_observer, 'retrying', tier=current_tier_name,
+                        provider=provider, model=model, error=str(exc),
+                        retry_at=(datetime.now(timezone.utc)+timedelta(seconds=audit_retry_interval_seconds())).isoformat())
             failover_history.append({'tier': current_tier_name, 'provider': provider,
                                      'model': model, 'status': 'success', 'error': None})
+            _notify_ai_attempt(
+                attempt_observer,
+                'succeeded',
+                tier=current_tier_name,
+                provider=provider,
+                model=model,
+            )
             return AIResponseWrapper(content, tier=current_tier_name, provider=provider, model=model,
                                      search_status='Paper ledger evidence only',
                                      failover_history=failover_history), ''
@@ -1059,7 +1093,7 @@ def call_ai_with_web_search(
 
     except Exception as e:
         logger.warning("AI provider attempt unavailable (%s): %s", locals().get('current_tier_name', tier_index), type(e).__name__)
-        err_str = str(e)
+        err_str = safe_provider_error(e, [_pick_key(provider)] if '_pick_key' in locals() else [])
         if '429' in err_str:
             if 'quota' in err_str.lower() or 'exhausted' in err_str.lower():
                 short_err = '429 Quota Exceeded'
@@ -1088,7 +1122,7 @@ def call_ai_with_web_search(
                 'provider': locals().get('provider', 'unknown'),
                 'model': locals().get('model', 'unknown'),
                 'status': 'failed',
-                'error': short_err,
+                'error': err_str if is_portfolio_audit else short_err,
             })
 
         _notify_ai_attempt(
@@ -1097,7 +1131,7 @@ def call_ai_with_web_search(
             tier=locals().get('current_tier_name'),
             provider=locals().get('provider'),
             model=locals().get('model'),
-            error=str(e),
+            error=err_str,
         )
         
         # Check if another tier is configured and available

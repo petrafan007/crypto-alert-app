@@ -385,12 +385,11 @@ def test_provider_api(provider: str, api_key: str, model: str = None, reasoning_
             url = f"https://generativelanguage.googleapis.com/v1beta/models/{test_model}"
             r = requests.get(
                 url,
-                params={"key": api_key},
-                headers={"Content-Type": "application/json"},
+                headers={"Content-Type": "application/json", "x-goog-api-key": api_key},
                 timeout=10,
             )
             if r.status_code == 200:
-                return jsonify({"success": True, "message": f"Gemini connection OK ({test_model})"})
+                return jsonify({"success": True, "message": f"Gemini credentials and model verified ({test_model}). Generation was not tested."})
             try:
                 err_data = r.json()
                 err_msg = err_data.get("error", {}).get("message") or r.text

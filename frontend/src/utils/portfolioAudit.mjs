@@ -19,3 +19,19 @@ export function auditOutcomeMessage(audit) {
   if (audit?.status === 'PENDING') return 'Audit queued. This window updates automatically; you can close it and return later.';
   return audit?.content_markdown || 'The audit did not complete. Review its saved diagnostics.';
 }
+
+export function portfolioAuditProgress(audit) {
+  if (audit?.progress) return audit.progress;
+  // Read older/in-flight releases using their saved enabled-specialist evidence.
+  const evidence = audit?.evidence || {};
+  const modules = Object.keys(evidence.specialist_mandates || {});
+  const failed = modules.filter(module => Object.hasOwn(evidence.module_audit_errors || {}, module));
+  const completed = modules.filter(module => evidence.module_audits?.[module] || failed.includes(module));
+  const finished = ['SUCCESS', 'PARTIAL'].includes(audit?.status);
+  return {
+    percent: finished ? 100 : modules.length ? Math.round(5 + 80 * completed.length / modules.length) : 0,
+    stage: finished ? 'complete' : audit?.status && audit.status !== 'PENDING' ? 'failed' : !modules.length ? 'queued' : completed.length === modules.length ? 'master' : 'module',
+    modules, completed_modules: completed, failed_modules: failed,
+    current_module: modules.find(module => !completed.includes(module)),
+  };
+}
