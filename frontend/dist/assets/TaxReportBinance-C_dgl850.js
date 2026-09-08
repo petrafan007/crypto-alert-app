@@ -1,1 +1,0 @@
-import{j as o}from"./index-Chj5iQxS.js";import{T as t}from"./TaxReport-DfDUFoVL.js";import"./vendor-zSynbJMn.js";import"./CryptoIcon-DQw8cNQM.js";import"./assetDisplay-CQE_PzEY.js";function n(r){return o.jsx(t,{...r,source:"binance"})}export{n as default};

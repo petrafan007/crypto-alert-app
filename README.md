@@ -6,6 +6,12 @@
 
 **Last Updated**: September 2026
 
+## v2.94.6 (September 2026)
+
+- Replaced the Quantitative Strategy Engine modal's inference-heavy Gemini and Ollama connection tests with fast provider/model metadata checks.
+- Connection tests no longer spend generation quota, wait on lengthy reasoning, or load local Ollama model weights into memory merely to confirm that the selected integration is available.
+- Reduced false timeout errors for valid Gemini credentials and Ollama models while retaining explicit errors for unreachable services and unavailable model names.
+
 ## v2.94.5 (September 2026)
 
 - Fixed the Quantitative Strategy Engine AI configuration modal so a removed Ollama model can no longer remain hidden in form state while the model selector displays a different installed model.

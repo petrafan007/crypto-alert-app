@@ -361,16 +361,18 @@ def test_provider_api(provider: str, api_key: str, model: str = None, reasoning_
 
     if provider == "ollama":
         try:
-            from services.ai_service import call_ollama_chat
+            from services.ai_service import get_ollama_models
             test_model = model or "gpt-oss:120b-cloud"
-            call_ollama_chat(
-                test_model,
-                [{"role": "user", "content": "Reply with exactly OK."}],
-                max_tokens=32,
-                timeout=30,
-                reasoning_level=reasoning_level or "medium",
-            )
-            return jsonify({"success": True, "message": f"Ollama connection OK ({test_model})"})
+            available_models = get_ollama_models(timeout=10)
+            if test_model not in available_models:
+                return jsonify({
+                    "success": False,
+                    "message": f"Ollama model is not available ({test_model})",
+                }), 400
+            return jsonify({
+                "success": True,
+                "message": f"Ollama service and model available ({test_model})",
+            })
         except Exception as exc:
             return jsonify({"success": False, "message": f"Ollama error: {exc}"}), 400
 
@@ -380,12 +382,12 @@ def test_provider_api(provider: str, api_key: str, model: str = None, reasoning_
     if provider == "gemini":
         try:
             test_model = model or "gemini-2.5-flash"
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/{test_model}:generateContent?key={api_key}"
-            r = requests.post(
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{test_model}"
+            r = requests.get(
                 url,
+                params={"key": api_key},
                 headers={"Content-Type": "application/json"},
-                json={"contents": [{"parts": [{"text": "ping"}]}]},
-                timeout=20
+                timeout=10,
             )
             if r.status_code == 200:
                 return jsonify({"success": True, "message": f"Gemini connection OK ({test_model})"})

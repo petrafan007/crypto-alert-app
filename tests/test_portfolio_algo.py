@@ -28,6 +28,8 @@ class PortfolioSignalsTests(unittest.TestCase):
                 e.validate_config({'allocations': {**DEFAULT_ALLOCATIONS, 'equities': value}}, self.config())
         with self.assertRaises(ValueError):
             e.validate_config({'allocations': {**DEFAULT_ALLOCATIONS, 'extra': 0}}, self.config())
+        with self.assertRaises(ValueError):
+            e.validate_config({'allocations': {m: 20.006 for m in DEFAULT_ALLOCATIONS}}, self.config())
 
     def test_dedicated_ai_config_rejects_removed_ollama_models(self):
         from routes.portfolio_algo import validate_master_ai_config
@@ -43,8 +45,29 @@ class PortfolioSignalsTests(unittest.TestCase):
         config['tertiary']['model'] = 'gemma4:26b'
         with patch('services.ai_service.get_ollama_models', return_value=available):
             self.assertIsNone(validate_master_ai_config(config))
-        with self.assertRaises(ValueError):
-            e.validate_config({'allocations': {m: 20.006 for m in DEFAULT_ALLOCATIONS}}, self.config())
+
+    def test_connection_checks_do_not_run_ai_inference(self):
+        from routes.portfolio_algo import test_provider_api
+        app = Flask(__name__)
+        gemini_response = SimpleNamespace(
+            status_code=200,
+            json=lambda: {'name': 'models/gemini-3.8-flash'},
+        )
+        with app.test_request_context(), \
+             patch('requests.get', return_value=gemini_response) as get_request, \
+             patch('requests.post') as post_request:
+            response = test_provider_api('gemini', 'secret', 'gemini-3.8-flash')
+            self.assertTrue(response.json['success'])
+            get_request.assert_called_once()
+            post_request.assert_not_called()
+
+        with app.test_request_context(), \
+             patch('services.ai_service.get_ollama_models', return_value=['lfm2.5:latest']) as get_models, \
+             patch('services.ai_service.call_ollama_chat') as chat_request:
+            response = test_provider_api('ollama', '', 'lfm2.5:latest')
+            self.assertTrue(response.json['success'])
+            get_models.assert_called_once_with(timeout=10)
+            chat_request.assert_not_called()
 
     def test_enabled_targets_cover_every_combination(self):
         for mask in range(32):
