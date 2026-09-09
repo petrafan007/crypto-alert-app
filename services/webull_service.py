@@ -146,13 +146,19 @@ def normalize_webull_environment(environment):
     return value
 
 
-def generate_webull_signature(path, query_params, app_key, app_secret, host, timestamp, nonce, body_string=None):
-    """Generate the HMAC-SHA1 signature required by Webull OpenAPI."""
+def generate_webull_signature(
+    path, query_params, app_key, app_secret, host, timestamp, nonce, body_string=None,
+    signature_algorithm='HMAC-SHA1',
+):
+    """Generate a Webull OpenAPI signature for either the v2 or v3 protocol."""
+    normalized_algorithm = str(signature_algorithm or 'HMAC-SHA1').strip().upper()
+    if normalized_algorithm not in {'HMAC-SHA1', 'HMAC-SHA256'}:
+        raise WebullConnectionError('Unsupported Webull request-signature algorithm.')
     signing_parameters = {
         **(query_params or {}),
         'host': host,
         'x-app-key': app_key,
-        'x-signature-algorithm': 'HMAC-SHA1',
+        'x-signature-algorithm': normalized_algorithm,
         'x-signature-nonce': nonce,
         'x-signature-version': '1.0',
         'x-timestamp': timestamp,
@@ -162,14 +168,16 @@ def generate_webull_signature(path, query_params, app_key, app_secret, host, tim
     )
     signing_string = f'{path}&{parameter_string}'
     if body_string:
-        body_hash = hashlib.md5(body_string.encode('utf-8')).hexdigest().upper()
+        hash_function = hashlib.sha256 if normalized_algorithm == 'HMAC-SHA256' else hashlib.md5
+        body_hash = hash_function(body_string.encode('utf-8')).hexdigest().upper()
         signing_string = f'{signing_string}&{body_hash}'
 
     encoded_string = quote(signing_string, safe='')
+    digest_function = hashlib.sha256 if normalized_algorithm == 'HMAC-SHA256' else hashlib.sha1
     signature_bytes = hmac.new(
         f'{app_secret}&'.encode('utf-8'),
         encoded_string.encode('utf-8'),
-        hashlib.sha1,
+        digest_function,
     ).digest()
     return base64.b64encode(signature_bytes).decode('utf-8')
 
@@ -203,17 +211,20 @@ def _webull_request(
     timestamp = datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
     nonce = uuid4().hex
     query_params = query_params or {}
+    normalized_api_version = str(api_version or 'v2').strip().lower()
+    signature_algorithm = 'HMAC-SHA256' if normalized_api_version == 'v3' else 'HMAC-SHA1'
     signature = generate_webull_signature(
-        path, query_params, app_key, app_secret, host, timestamp, nonce, body_string
+        path, query_params, app_key, app_secret, host, timestamp, nonce, body_string,
+        signature_algorithm,
     )
     headers = {
         'x-app-key': app_key,
         'x-timestamp': timestamp,
         'x-signature': signature,
-        'x-signature-algorithm': 'HMAC-SHA1',
+        'x-signature-algorithm': signature_algorithm,
         'x-signature-version': '1.0',
         'x-signature-nonce': nonce,
-        'x-version': str(api_version or 'v2'),
+        'x-version': normalized_api_version,
         'accept': 'application/json',
     }
     if access_token:

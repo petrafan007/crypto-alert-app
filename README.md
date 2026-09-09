@@ -6,6 +6,11 @@
 
 **Last Updated**: September 2026
 
+## v2.96.4 (September 2026)
+
+- **Complete Webull v3 Request Signing:** Corrected the remaining Webull live-order failure by upgrading v3 requests from the legacy HMAC-SHA1/MD5 signer to Webull 3.0's HMAC-SHA256/SHA256 protocol. The v3 API version, `US_EQUITY` category, request body, and signature now use one consistent provider-defined envelope.
+- **Provider-Accurate Regression Coverage:** Added a deterministic v3 signing vector alongside the exact AAPL `$100.24` cash-fractional Market Buy regression. Webull preview validation remains non-executing; deployment verification never places a brokerage order.
+
 ## v2.96.3 (September 2026)
 
 - **Webull Live Order Protocol Fix:** Fixed real Webull orders being submitted with the retired v2 protocol envelope after Webull's unified trading API moved to v3. Order placement now sends the provider-required instrument category header, including `US_EQUITY` for stock and ETF orders.

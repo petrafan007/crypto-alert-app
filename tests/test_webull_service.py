@@ -1350,6 +1350,21 @@ class WebullServiceTests(unittest.TestCase):
         )
         self.assertEqual(signature, 'kvlS6opdZDhEBo5jq40nHYXaLvM=')
 
+    def test_v3_signature_matches_webull_sha256_protocol(self):
+        signature = generate_webull_signature(
+            '/trading/orders/place',
+            {},
+            'app-key',
+            'app-secret',
+            'api.webull.com',
+            '2026-09-09T19:12:28Z',
+            '0123456789abcdef0123456789abcdef',
+            '{"account_id":"individual-cash","new_orders":[]}',
+            'HMAC-SHA256',
+        )
+
+        self.assertEqual(signature, '7xgNuFnhIqzWLd9GCy3s2iW3NC6M8ZdXVYQwDBjOVQc=')
+
     @patch('services.webull_service.requests.request')
     def test_webull_request_sends_v3_order_version_and_category_headers(self, request_mock):
         request_mock.return_value = Mock(status_code=200)
@@ -1364,6 +1379,7 @@ class WebullServiceTests(unittest.TestCase):
         headers = request_mock.call_args.kwargs['headers']
         self.assertEqual(headers['x-version'], 'v3')
         self.assertEqual(headers['category'], 'US_EQUITY')
+        self.assertEqual(headers['x-signature-algorithm'], 'HMAC-SHA256')
 
     def test_stock_movers_queries_gainers_losers_and_normalizes_pct(self):
         response = Mock(status_code=200)
