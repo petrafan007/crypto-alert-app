@@ -2,6 +2,10 @@
 
 The engine is an administrator-only, multi-asset **paper research system**. The default starting bankroll is $50,000, with relative allocation weights of 35 for equities, 25 for options, 20 for crypto, 10 for micro futures, and 10 for events. Enabled modules share 100% of the target capital proportionally. Futures is disabled by default, giving initial targets of 38.89%, 27.78%, 22.22%, 0%, and 11.11%, respectively. The 18.5% annual return setting is a research objective, not a forecast or validated strategy result.
 
+## Event cadence resilience (v2.95.2)
+
+Routine AI evaluation batch and cooldown deferrals (`AI_EVALUATION_DEFERRED`) no longer flag the Event module as `DATA_LIMITED` or degrade the running paper engine. They are reported as `NO_SIGNAL` with informative status text while preserving `DATA_LIMITED` triggers for actual model, provider or quote-feed outages.
+
 ## Worker supervision hotfix (v2.95.1)
 
 The independent Event decision handoff is included in the singleton scheduler's supervised thread registry. If that thread stops, the worker process exits and systemd restarts the complete scheduler instead of leaving Event handoff silently unavailable.

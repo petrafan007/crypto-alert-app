@@ -110,11 +110,14 @@ def readiness(user_id, event_cfg, now):
     if not recent:
         return 'DATA_LIMITED', 'No fresh Event decisions; waiting for market/model observations.'
     unavailable = {'AI_PROVIDER_ERROR', 'AI_RESPONSE_INVALID', 'AI_BUDGET_EXHAUSTED',
-                   'AI_EVALUATION_DEFERRED', 'MODEL_UNAVAILABLE', 'STALE_QUOTE', 'MISSING_QUOTE'}
+                   'MODEL_UNAVAILABLE', 'STALE_QUOTE', 'MISSING_QUOTE'}
     if any(unavailable.intersection(engine.loads(row.reason_codes, [])) for row in recent):
         return 'DATA_LIMITED', 'Latest Event scan contains unavailable model or quote evidence.'
-    return ('READY', 'Fresh eligible Event decisions evaluated.') if any(row.eligible for row in recent) else (
-        'NO_SIGNAL', 'Fresh markets and model decisions evaluated; no entry met the saved gates.')
+    if any(row.eligible for row in recent):
+        return 'READY', 'Fresh eligible Event decisions evaluated.'
+    if all('AI_EVALUATION_DEFERRED' in engine.loads(row.reason_codes, []) for row in recent):
+        return 'NO_SIGNAL', 'Fresh contract quotes evaluated; AI evaluation is deferred pending batch cadence.'
+    return 'NO_SIGNAL', 'Fresh markets and model decisions evaluated; no entry met the saved gates.'
 
 
 def consume_event_decisions(user_id, *, decision_ids=None, quote_loader=None):

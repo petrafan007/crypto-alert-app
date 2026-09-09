@@ -273,3 +273,8 @@ class EventHandoffLedgerTests(unittest.TestCase):
         row.reason_codes = json.dumps(['MODEL_UNAVAILABLE'])
         db.session.commit()
         self.assertEqual(handoff.readiness(self.user_id, cfg, datetime.utcnow())[0], 'DATA_LIMITED')
+        row.reason_codes = json.dumps(['AI_EVALUATION_DEFERRED'])
+        db.session.commit()
+        status, msg = handoff.readiness(self.user_id, cfg, datetime.utcnow())
+        self.assertEqual(status, 'NO_SIGNAL')
+        self.assertIn('deferred pending batch cadence', msg)

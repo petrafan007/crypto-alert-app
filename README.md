@@ -6,6 +6,10 @@
 
 **Last Updated**: September 2026
 
+## v2.95.2 (September 2026)
+
+- **Event Strategy Cadence Resilience & Degraded State Resolution:** Resolved an overly aggressive degraded trigger in `services/portfolio_event_execution.py` where routine AI evaluation batch/cadence deferrals (`AI_EVALUATION_DEFERRED`) incorrectly flagged the Event Contracts module as `DATA_LIMITED`, which subsequently caused the master Quantitative Strategy Engine worker status to report `DEGRADED`. Normal cadence throttling is now categorized as `NO_SIGNAL` with clear status messaging, while preserving `DATA_LIMITED` triggers for actual model, search provider, and quote feed outages.
+
 ## v2.95.1 (September 2026)
 
 - Added the independent quantitative Event handoff thread to the scheduler's supervised job registry so a stopped handoff worker is detected and recovered by systemd instead of remaining silently unavailable.
