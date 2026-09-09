@@ -6,6 +6,10 @@
 
 **Last Updated**: September 2026
 
+## v2.95.1 (September 2026)
+
+- Added the independent quantitative Event handoff thread to the scheduler's supervised job registry so a stopped handoff worker is detected and recovered by systemd instead of remaining silently unavailable.
+
 ## v2.95.0 (September 2026)
 
 - Added calculated progress toward the saved annual return target: compounded target equity, dollar/percentage gaps, annualized percentage-point gap, rolling returns, module contributions, capital utilization and observation coverage in telemetry and new audit evidence.

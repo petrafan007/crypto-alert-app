@@ -2,6 +2,10 @@
 
 The engine is an administrator-only, multi-asset **paper research system**. The default starting bankroll is $50,000, with relative allocation weights of 35 for equities, 25 for options, 20 for crypto, 10 for micro futures, and 10 for events. Enabled modules share 100% of the target capital proportionally. Futures is disabled by default, giving initial targets of 38.89%, 27.78%, 22.22%, 0%, and 11.11%, respectively. The 18.5% annual return setting is a research objective, not a forecast or validated strategy result.
 
+## Worker supervision hotfix (v2.95.1)
+
+The independent Event decision handoff is included in the singleton scheduler's supervised thread registry. If that thread stops, the worker process exits and systemd restarts the complete scheduler instead of leaving Event handoff silently unavailable.
+
 ## Goal measurement and research integrity (v2.95.0)
 
 Telemetry and newly generated audits contain deterministic `goal_tracking`: actual equity against `initial_balance × (1 + target/100)^(elapsed_days/365)`, signed dollar/percentage gaps, observed return, annualized percentage-point gap, 30/90/365-day rolling returns, net module contributions, capital utilization and snapshot coverage. The current reset generation and latest recorded valuation define the interval, not time spent waiting in the browser. Annualization begins after 30 elapsed days but is explicitly descriptive, never statistical validation. Missing days are disclosed rather than interpolated. Target changes recalculate a hypothetical target path; this is not a market benchmark or measured opportunity cost. Deposits/withdrawals are not modeled within a run; a new bankroll uses the existing explicit reset workflow.

@@ -1101,6 +1101,30 @@ class PortfolioLedgerTests(unittest.TestCase):
             finally:
                 connection.execute(text('SELECT pg_advisory_unlock(:key)'), {'key': WORKER_LOCK})
 
+    def test_background_job_registry_supervises_event_handoff(self):
+        from services import scheduler_tasks
+
+        class FakeThread:
+            def __init__(self, *args, **kwargs):
+                self.name = kwargs.get('name')
+
+            def start(self):
+                pass
+
+            def is_alive(self):
+                return True
+
+        previous = scheduler_tasks._background_tasks_started
+        scheduler_tasks._background_tasks_started = False
+        try:
+            with patch('threading.Thread', FakeThread):
+                jobs = scheduler_tasks.start_background_jobs(self.app)
+            self.assertIn('quantitative_event_handoff', jobs)
+            self.assertEqual(jobs['quantitative_event_handoff'].name, 'quant-event-handoff')
+            self.assertTrue(jobs['quantitative_event_handoff'].is_alive())
+        finally:
+            scheduler_tasks._background_tasks_started = previous
+
     def test_scheduler_writes_heartbeat_and_releases_ownership(self):
         from runtime import WORKER_LOCK, run_worker
         from services import provider_resilience as resilience

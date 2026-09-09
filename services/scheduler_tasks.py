@@ -1352,6 +1352,7 @@ def start_background_jobs(app=None):
     return {
         "event_strategy": event_algo_thread,
         "quantitative_strategy": quant_thread,
+        "quantitative_event_handoff": quant_event_thread,
         "quantitative_audits": quant_audit_thread,
         "options_thesis": t_opt,
         "sync": sync_thread,
