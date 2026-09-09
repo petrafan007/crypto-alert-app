@@ -1399,6 +1399,17 @@ class WebullServiceTests(unittest.TestCase):
         self.assertEqual(body['new_orders'][0]['symbol'], 'AAPL')
         self.assertEqual(body['new_orders'][0]['limit_price'], '220.50')
 
+    def test_place_webull_order_rejects_cash_as_an_equity_symbol(self):
+        with patch('services.webull_service._webull_request') as request_mock:
+            with self.assertRaisesRegex(WebullConnectionError, 'cash balance'):
+                place_webull_order(
+                    'app-key', 'app-secret', 'sandbox', 'token-123',
+                    account_id='acc-999', symbol='USD', instrument_type='EQUITY',
+                    side='BUY', order_type='MARKET', quantity=1,
+                )
+
+        request_mock.assert_not_called()
+
     def test_fractional_equity_market_order_is_core_only_and_preserves_quantity(self):
         response = Mock(status_code=200)
         response.json.return_value = {'data': {'order_id': 'wb-fractional-1'}}

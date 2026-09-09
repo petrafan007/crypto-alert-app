@@ -32,7 +32,7 @@ from services.helpers import format_date_only as _format_date_only
 from services.credential_service import get_user_credentials, is_encryption_available, is_persisted_key_available, persist_encryption_key, EncryptionKeyError
 from services.binance_service import sync_portfolio_from_binance
 from services.portfolio_service import record_true_portfolio_value
-from services.asset_identity import display_symbol, is_etf_asset
+from services.asset_identity import STABLE_SYMBOLS, display_symbol, is_etf_asset
 from services.analysis_service import get_user_ai_settings
 from event_algo import is_event_strategy_admin
 from services.notification_service import save_notification_record
@@ -2589,6 +2589,21 @@ def api_webull_place_order():
     """Place an order through Webull OpenAPI or simulated paper engine."""
     try:
         data = request.get_json(silent=True) or {}
+        requested_instrument_type = str(data.get('instrument_type') or 'EQUITY').strip().upper()
+        requested_symbols = [str(data.get('symbol') or '').strip().upper()]
+        if isinstance(data.get('combo_orders'), list):
+            requested_symbols.extend(
+                str(leg.get('symbol') or data.get('symbol') or '').strip().upper()
+                for leg in data['combo_orders']
+                if isinstance(leg, dict)
+            )
+        if requested_instrument_type in {'EQUITY', 'STOCK', 'ETF'} and any(
+            symbol in STABLE_SYMBOLS for symbol in requested_symbols
+        ):
+            return jsonify({
+                'success': False,
+                'message': 'A Webull cash balance is funding, not a stock or ETF order symbol.',
+            }), 400
         setting = UserSetting.query.filter_by(user_id=current_user.id).first()
         test_mode_param = data.get('test_mode')
         req_account_id = data.get('account_id')

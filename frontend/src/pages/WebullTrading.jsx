@@ -27,6 +27,7 @@ import {
   formatTimeInForce,
 } from '../utils/orderDisplay';
 import { getAssetDisplaySymbol, getAssetIdentity } from '../utils/assetDisplay';
+import { isNonTradableWebullCashAsset, normalizeWebullTradeSymbol } from '../utils/webullTradeNavigation.mjs';
 import './Trading.css';
 
 const OPEN_STATUSES = new Set([
@@ -1435,15 +1436,17 @@ export default function WebullTrading({ isLightMode = false }) {
       setHoldings(importedHoldings);
 
       const urlParams = new URLSearchParams(window.location.search);
-      const urlSymbol = urlParams.get('symbol')?.toUpperCase()?.trim();
       const urlSide = urlParams.get('side')?.toUpperCase()?.trim();
       const urlAccountId = urlParams.get('account_id')?.trim();
       const urlInstrumentType = urlParams.get('instrument_type')?.toUpperCase()?.trim();
       const urlAccountPreference = urlParams.get('account_preference')?.toLowerCase()?.trim();
       const requestedInstrumentType = ['CRYPTO', 'EQUITY', 'OPTION', 'FUTURES', 'EVENT'].includes(urlInstrumentType) ? urlInstrumentType : null;
+      const urlSymbol = normalizeWebullTradeSymbol(urlParams.get('symbol'), requestedInstrumentType);
       const urlHoldingId = urlParams.get('holding_id')?.trim();
       const deepLinkedHolding = urlHoldingId
-        ? importedHoldings.find((holding) => String(holding?.id || '') === urlHoldingId)
+        ? importedHoldings.find((holding) => (
+          String(holding?.id || '') === urlHoldingId && isSecurityHolding(holding)
+        ))
         : null;
 
       // Determine which account should be active on load:
@@ -3631,7 +3634,7 @@ export default function WebullTrading({ isLightMode = false }) {
   const analyzableHoldings = useMemo(() => modeHoldings.filter((holding) => ['CRYPTO', 'STOCK', 'EQUITY', 'ETF', 'OPTION', 'FUTURES'].includes(String(holding.instrument_type || '').toUpperCase())), [modeHoldings]);
   const availableStockSymbols = useMemo(() => {
     const stocks = modeHoldings
-      .filter((h) => !/crypto|coin|token/i.test(h.instrument_type || '') && !['OPTION', 'FUTURES', 'EVENT'].includes(String(h.instrument_type || '').toUpperCase()))
+      .filter((h) => !isNonTradableWebullCashAsset(h) && !/crypto|coin|token/i.test(h.instrument_type || '') && !['OPTION', 'FUTURES', 'EVENT'].includes(String(h.instrument_type || '').toUpperCase()))
       .map((h) => (h.underlying_symbol || h.symbol || '').toUpperCase().trim())
       .filter(Boolean);
     return Array.from(new Set(['AAPL', 'NVDA', 'SPY', 'TSLA', 'AMD', 'MSFT', ...stocks]));
@@ -3639,7 +3642,7 @@ export default function WebullTrading({ isLightMode = false }) {
 
   const availableTraditional = useMemo(() => {
     const fromHoldings = modeHoldings
-      .filter((h) => !/crypto|coin|token/i.test(h.instrument_type || '') && !['OPTION', 'FUTURES', 'EVENT'].includes(String(h.instrument_type || '').toUpperCase()) && h.symbol)
+      .filter((h) => !isNonTradableWebullCashAsset(h) && !/crypto|coin|token/i.test(h.instrument_type || '') && !['OPTION', 'FUTURES', 'EVENT'].includes(String(h.instrument_type || '').toUpperCase()) && h.symbol)
       .map((h) => ({
         id: h.symbol.toUpperCase(),
         symbol: h.symbol.toUpperCase(),

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { isNonTradableWebullCashAsset } from '../utils/webullTradeNavigation.mjs';
 
 const QuickTradeWidget = ({ isLightMode, portfolio = [], accountScope = 'binance' }) => {
   const navigate = useNavigate();
@@ -25,7 +26,7 @@ const QuickTradeWidget = ({ isLightMode, portfolio = [], accountScope = 'binance
 
   const availableStocks = React.useMemo(() => {
     const portfolioStocks = portfolio
-      .filter((p) => p.is_external || p.source === 'webull')
+      .filter((p) => (p.is_external || p.source === 'webull') && !isNonTradableWebullCashAsset(p))
       .map((p) => String(p.symbol || '').toUpperCase())
       .filter(Boolean);
     return Array.from(new Set([...portfolioStocks, ...defaultStockList])).slice(0, 10);
@@ -45,7 +46,7 @@ const QuickTradeWidget = ({ isLightMode, portfolio = [], accountScope = 'binance
 
   const handleGoToTrade = () => {
     if (isWebull) {
-      navigate(`/trading/webull?symbol=${encodeURIComponent(selectedSymbol)}&side=${side}`);
+      navigate(`/trading/webull?symbol=${encodeURIComponent(selectedSymbol)}&side=${side}&instrument_type=EQUITY&account_preference=individual_cash`);
     } else {
       navigate('/trading', {
         state: {

@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import SearchablePairSelect from './SearchablePairSelect';
+import { isNonTradableWebullCashAsset } from '../utils/webullTradeNavigation.mjs';
 import './TradingViewAdvancedChart.css';
 
 const SCRIPT = 'https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js';
@@ -55,7 +56,7 @@ export default function WebullTradingViewChart({
   // Combine user's imported holdings with default lists
   const availableTraditional = useMemo(() => {
     const fromHoldings = holdings
-      .filter((h) => !/crypto|coin|token/i.test(h.instrument_type || '') && !['OPTION', 'FUTURES', 'EVENT'].includes(String(h.instrument_type || '').toUpperCase()) && h.symbol)
+      .filter((h) => !isNonTradableWebullCashAsset(h) && !/crypto|coin|token/i.test(h.instrument_type || '') && !['OPTION', 'FUTURES', 'EVENT'].includes(String(h.instrument_type || '').toUpperCase()) && h.symbol)
       .map((h) => ({
         id: h.symbol.toUpperCase(),
         symbol: h.symbol.toUpperCase(),

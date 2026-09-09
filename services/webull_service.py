@@ -16,6 +16,7 @@ from uuid import uuid4
 import requests
 
 from log import logger
+from services.asset_identity import STABLE_SYMBOLS
 
 _WEBULL_ACCOUNTS_CACHE = {}       # (app_key, environment, token fingerprint) -> (timestamp, accounts)
 _WEBULL_OPEN_ORDERS_CACHE = {}    # (app_key, environment, token fingerprint, account_id) -> (timestamp, records)
@@ -3163,6 +3164,8 @@ def place_webull_order(
             leg_sym = str(leg.get('symbol') or symbol or '').strip().upper()
             if not leg_sym:
                 raise WebullConnectionError(f'Combo leg #{i + 1} requires a valid symbol.')
+            if leg_sym in STABLE_SYMBOLS:
+                raise WebullConnectionError('A Webull cash balance cannot be used as an equity combo-order symbol.')
             leg_side = str(leg.get('side') or '').strip().upper()
             if leg_side not in {'BUY', 'SELL', 'SHORT'}:
                 raise WebullConnectionError(f'Combo leg #{i + 1} side must be BUY, SELL, or SHORT.')
@@ -3269,6 +3272,9 @@ def place_webull_order(
         clean_instrument = 'EVENT'
     else:
         clean_instrument = 'EQUITY'
+
+    if clean_instrument == 'EQUITY' and clean_symbol in STABLE_SYMBOLS:
+        raise WebullConnectionError('A Webull cash balance cannot be used as a stock or ETF order symbol.')
 
     clean_side = str(side or '').strip().upper()
     if clean_instrument == 'CRYPTO':

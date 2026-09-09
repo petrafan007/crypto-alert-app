@@ -6,6 +6,11 @@
 
 **Last Updated**: September 2026
 
+## v2.96.1 (September 2026)
+
+- **Correct Webull Portfolio Trade Target:** Fixed Webull cash balances being misclassified as equities when launching a trade from the Portfolio Actions menu. An AAPL Buy action now remains AAPL throughout account selection, charting, quote lookup, and order entry; the USD funding row can no longer generate a `symbol=USD&instrument_type=EQUITY` deep link.
+- **Defensive Trade Navigation:** Webull cash rows now display a non-tradable cash action, the Quick Trade stock list excludes funding balances, and the Webull trading page rejects malformed or cash-symbol equity deep links before they can reach the chart or order ticket.
+
 ## v2.96.0 (September 2026)
 
 - **Complete Webull Copilot Context:** Expanded the existing AI Copilot snapshot beyond Binance.US and imported Webull holdings. Every response can now distinguish Webull Real Trading account balances, holdings, watchlist instruments, provider-backed orders, and stored AI signals from Test Mode cash, simulated positions, and simulated orders. Webull watchlist and Test Mode symbols also participate in focused symbol and current-market search resolution.

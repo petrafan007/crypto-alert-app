@@ -81,6 +81,24 @@ class WebullOrderTwoFactorTests(unittest.TestCase):
         self.assertEqual(place_order.call_args.kwargs['event_market'], event_market)
         self.assertEqual(place_order.call_args.kwargs['event_outcome'], 'yes')
 
+    def test_cash_balance_cannot_enter_the_equity_order_flow(self):
+        order = {
+            'account_id': 'account-1',
+            'symbol': 'USD',
+            'instrument_type': 'EQUITY',
+            'side': 'BUY',
+            'order_type': 'MARKET',
+            'quantity': 1,
+        }
+        with self.app.test_request_context('/api/webull/orders/place', method='POST', json=order):
+            response, status_code = system.api_webull_place_order.__wrapped__()
+
+        self.assertEqual(status_code, 400)
+        self.assertEqual(response.get_json(), {
+            'success': False,
+            'message': 'A Webull cash balance is funding, not a stock or ETF order symbol.',
+        })
+
     def test_verified_token_option_order_reaches_webull_submission(self):
         order = {
             'account_id': 'account-1', 'symbol': 'SPY', 'instrument_type': 'OPTION',

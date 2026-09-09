@@ -28,6 +28,11 @@ import TableColumnModal from '../components/TableColumnModal';
 import CancelOrderConfirmModal from '../components/CancelOrderConfirmModal';
 import WatchlistSymbolPicker from '../components/WatchlistSymbolPicker';
 import { getAssetDisplaySymbol, getAssetIdentity, isCashOrStableAsset } from '../utils/assetDisplay';
+import {
+  isNonTradableWebullCashAsset,
+  normalizeWebullTradeSymbol,
+  webullTradeTargetForAsset,
+} from '../utils/webullTradeNavigation.mjs';
 
 const TREND_RANGES = [
   { key: '1H', label: '1H' },
@@ -336,29 +341,37 @@ function Dashboard({ isLightMode }) {
   const isWebullAsset = (asset) => Boolean(
     asset?.is_external === true || asset?.source === 'webull'
   );
-  const webullInstrumentTypeForAsset = (asset) => {
-    const type = String(asset?.instrument_type || '').toUpperCase();
-    if (type === 'OPTION' || type === 'OPTIONS') return 'OPTION';
-    if (/crypto|coin|token/i.test(type)) return 'CRYPTO';
-    return 'EQUITY';
-  };
+  const isTradableWebullAsset = (asset) => Boolean(
+    (isWebullAsset(asset) || asset?.asset_type === 'stock')
+    && webullTradeTargetForAsset(asset)
+  );
   const navigateToWebullTrading = (symbol, side = 'BUY', accountId = null, { instrumentType = null, accountPreference = null, holdingId = null } = {}) => {
-    const cleanSymbol = String(symbol || '').toUpperCase().trim();
+    const cleanSymbol = normalizeWebullTradeSymbol(symbol, instrumentType);
+    if (!cleanSymbol) {
+      showAppToast('A Webull cash balance is funding, not a stock or ETF order symbol.', 'error', { symbol: String(symbol || '').toUpperCase() });
+      return false;
+    }
     let url = `/trading/webull?symbol=${encodeURIComponent(cleanSymbol)}&side=${side.toUpperCase()}`;
     if (accountId) url += `&account_id=${encodeURIComponent(accountId)}`;
     if (instrumentType) url += `&instrument_type=${encodeURIComponent(instrumentType)}`;
     if (accountPreference) url += `&account_preference=${encodeURIComponent(accountPreference)}`;
     if (holdingId) url += `&holding_id=${encodeURIComponent(holdingId)}`;
     navigate(url);
+    return true;
   };
   const navigateToWebullInstrument = (asset, side = 'BUY') => {
-    const instrumentType = webullInstrumentTypeForAsset(asset);
+    const target = webullTradeTargetForAsset(asset);
+    if (!target) {
+      showAppToast('USD cash is the Webull account funding balance and cannot be opened as a stock or ETF order.', 'error', { symbol: String(asset?.symbol || '').toUpperCase() });
+      return false;
+    }
+    const { symbol, instrumentType } = target;
     const isEquity = instrumentType === 'EQUITY';
     // Stock/ETF buys and all stock watchlist entries should begin in the
     // individual cash account. A sell stays on its source account to avoid
     // routing an owned position to an account that does not hold it.
-    navigateToWebullTrading(
-      asset?.symbol,
+    return navigateToWebullTrading(
+      symbol,
       side,
       isEquity && side === 'BUY' ? null : asset?.account_id,
       {
@@ -2701,7 +2714,10 @@ function Dashboard({ isLightMode }) {
             {(() => {
               const sym = isPortfolio ? coin.symbol : item.symbol;
               const target = isPortfolio ? coin : item;
-              if (isWebullAsset(target) || target.asset_type === 'stock') {
+              if ((isWebullAsset(target) || target.asset_type === 'stock') && isNonTradableWebullCashAsset(target)) {
+                return <button disabled title="Cash balances fund orders but are not orderable instruments">Cash balance</button>;
+              }
+              if (isTradableWebullAsset(target)) {
                 return (
                   <button
                     onClick={() => {
@@ -2801,7 +2817,7 @@ function Dashboard({ isLightMode }) {
             })()}
 
             {/* Sell button - only available for held Portfolio positions. */}
-            {isPortfolio && (
+            {isPortfolio && !isNonTradableWebullCashAsset(coin) && (
               isWebullAsset(coin) ? (
                 (() => {
                   const hasBalance = Number(coin.amount || 0) > 0;
@@ -2980,7 +2996,11 @@ function Dashboard({ isLightMode }) {
         <button role="menuitem" onClick={() => { openNoteModal(subject); closeActionMenu(); }}>
           <span>✏️</span>Notes
         </button>
-        {isWebullAsset(subject) || subject.asset_type === 'stock' ? (
+        {(isWebullAsset(subject) || subject.asset_type === 'stock') && isNonTradableWebullCashAsset(subject) ? (
+          <button role="menuitem" disabled title="Cash balances fund orders but are not orderable instruments">
+            <span>💵</span>Cash balance
+          </button>
+        ) : isTradableWebullAsset(subject) ? (
           <button
             role="menuitem"
             onClick={() => {
@@ -3001,7 +3021,7 @@ function Dashboard({ isLightMode }) {
             <span>🟢</span>Buy<span className="desktop-actions-context-menu__chevron">›</span>
           </button>
         )}
-        {isPortfolio && (
+        {isPortfolio && !isNonTradableWebullCashAsset(coin) && (
           isWebullAsset(coin) ? (
             (() => {
               const hasBalance = Number(coin.amount || 0) > 0;
@@ -4948,7 +4968,14 @@ function Dashboard({ isLightMode }) {
                                         ✏️
                                       </button>
                                       {(() => {
-                                        if (isWebullAsset(coin) || coin.asset_type === 'stock') {
+                                        if ((isWebullAsset(coin) || coin.asset_type === 'stock') && isNonTradableWebullCashAsset(coin)) {
+                                          return (
+                                            <button type="button" className="trade-action-btn buy" disabled title="Cash balances fund orders but are not orderable instruments">
+                                              Cash
+                                            </button>
+                                          );
+                                        }
+                                        if (isTradableWebullAsset(coin)) {
                                           return (
                                             <button
                                               type="button"
@@ -4975,6 +5002,7 @@ function Dashboard({ isLightMode }) {
                                         );
                                       })()}
                                       {(() => {
+                                        if (isWebullAsset(coin) && isNonTradableWebullCashAsset(coin)) return null;
                                         if (isWebullAsset(coin)) {
                                           const hasBalance = Number(coin.amount || 0) > 0;
                                           return (
@@ -5382,7 +5410,14 @@ function Dashboard({ isLightMode }) {
                                         ✏️
                                       </button>
                                       {(() => {
-                                        if (isWebullAsset(item) || item.asset_type === 'stock') {
+                                        if ((isWebullAsset(item) || item.asset_type === 'stock') && isNonTradableWebullCashAsset(item)) {
+                                          return (
+                                            <button type="button" className="trade-action-btn buy" disabled title="Cash balances fund orders but are not orderable instruments">
+                                              Cash
+                                            </button>
+                                          );
+                                        }
+                                        if (isTradableWebullAsset(item)) {
                                           return (
                                             <button
                                               type="button"
