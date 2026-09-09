@@ -12,6 +12,7 @@ from services.webull_service import (
     _WEBULL_EVENT_CACHE_LOCK,
     _cached_webull_event_series_markets,
     _normalise_option_snapshot_record,
+    _webull_request,
     WebullConnectionError,
     check_webull_access_token,
     create_webull_access_token,
@@ -1349,6 +1350,21 @@ class WebullServiceTests(unittest.TestCase):
         )
         self.assertEqual(signature, 'kvlS6opdZDhEBo5jq40nHYXaLvM=')
 
+    @patch('services.webull_service.requests.request')
+    def test_webull_request_sends_v3_order_version_and_category_headers(self, request_mock):
+        request_mock.return_value = Mock(status_code=200)
+
+        _webull_request(
+            'app-key', 'app-secret', 'production', 'POST', '/trading/orders/place',
+            body={'account_id': 'individual-cash', 'new_orders': []},
+            access_token='token-123', api_version='v3',
+            additional_headers={'category': 'US_EQUITY'},
+        )
+
+        headers = request_mock.call_args.kwargs['headers']
+        self.assertEqual(headers['x-version'], 'v3')
+        self.assertEqual(headers['category'], 'US_EQUITY')
+
     def test_stock_movers_queries_gainers_losers_and_normalizes_pct(self):
         response = Mock(status_code=200)
         response.json.return_value = {
@@ -1428,6 +1444,27 @@ class WebullServiceTests(unittest.TestCase):
         self.assertEqual(order['market'], 'US')
         self.assertEqual(order['entrust_type'], 'QTY')
         self.assertEqual(order['support_trading_session'], 'CORE')
+
+    def test_cash_fractional_equity_buy_uses_webull_v3_order_envelope(self):
+        response = Mock(status_code=200)
+        response.json.return_value = {'data': {'order_id': 'wb-aapl-cash-1'}}
+        with patch('services.webull_service._webull_request', return_value=response) as request_mock:
+            result = place_webull_order(
+                'app-key', 'app-secret', 'production', 'token-123',
+                account_id='individual-cash', symbol='AAPL', instrument_type='EQUITY',
+                side='BUY', order_type='MARKET', entrust_type='AMOUNT',
+                total_cash_amount=100.24, time_in_force='DAY', support_trading_session='CORE',
+            )
+
+        self.assertTrue(result['success'])
+        self.assertEqual(request_mock.call_args.args[4], '/trading/orders/place')
+        self.assertEqual(request_mock.call_args.kwargs['api_version'], 'v3')
+        self.assertEqual(request_mock.call_args.kwargs['additional_headers'], {'category': 'US_EQUITY'})
+        order = request_mock.call_args.kwargs['body']['new_orders'][0]
+        self.assertEqual(order['symbol'], 'AAPL')
+        self.assertEqual(order['entrust_type'], 'AMOUNT')
+        self.assertEqual(order['total_cash_amount'], '100.24')
+        self.assertNotIn('quantity', order)
 
     def test_fractional_equity_rejects_non_core_or_non_market_orders(self):
         with self.assertRaisesRegex(WebullConnectionError, 'Regular Hours'):

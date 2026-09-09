@@ -188,7 +188,10 @@ def _pace_market_request(app_key, path):
         time.sleep(delay)
 
 
-def _webull_request(app_key, app_secret, environment, method, path, *, query_params=None, body=None, access_token=None):
+def _webull_request(
+    app_key, app_secret, environment, method, path, *, query_params=None, body=None,
+    access_token=None, api_version='v2', additional_headers=None,
+):
     """Make one signed Webull request without exposing any secret in logs or responses."""
     if not app_key or not app_secret:
         raise WebullConnectionError('Webull App Key and App Secret are required.')
@@ -210,13 +213,19 @@ def _webull_request(app_key, app_secret, environment, method, path, *, query_par
         'x-signature-algorithm': 'HMAC-SHA1',
         'x-signature-version': '1.0',
         'x-signature-nonce': nonce,
-        'x-version': 'v2',
+        'x-version': str(api_version or 'v2'),
         'accept': 'application/json',
     }
     if access_token:
         headers['x-access-token'] = access_token
     if body_string is not None:
         headers['content-type'] = 'application/json'
+    if additional_headers:
+        headers.update({
+            str(key): str(value)
+            for key, value in additional_headers.items()
+            if value is not None
+        })
 
     try:
         return requests.request(
@@ -3129,6 +3138,27 @@ SUPPORTED_WEBULL_OPTION_STRATEGIES = {
 }
 
 
+def _webull_order_headers(orders):
+    """Match the category header emitted by Webull's unified v3 SDK."""
+    if not isinstance(orders, list) or not orders or not isinstance(orders[0], dict):
+        return {}
+    first_order = orders[0]
+    category_source = first_order
+    legs = first_order.get('legs')
+    if isinstance(legs, list):
+        option_leg = next((
+            leg for leg in legs
+            if isinstance(leg, dict) and str(leg.get('instrument_type') or '').upper() == 'OPTION'
+        ), None)
+        if option_leg:
+            category_source = option_leg
+    market = str(category_source.get('market') or '').strip().upper()
+    instrument_type = str(category_source.get('instrument_type') or '').strip().upper()
+    if not market or not instrument_type:
+        return {}
+    return {'category': f'{market}_{instrument_type}'}
+
+
 def place_webull_order(
     app_key, app_secret, environment='production', access_token=None, *,
     account_id, symbol=None, instrument_type='EQUITY', side=None, order_type=None, quantity=None,
@@ -3242,7 +3272,8 @@ def place_webull_order(
         }
         res = _rate_limited_order_request(
             app_key, app_secret, environment, 'POST', '/trading/orders/place',
-            body=body, access_token=access_token,
+            body=body, access_token=access_token, api_version='v3',
+            additional_headers=_webull_order_headers(leg_payloads),
         )
         data = _response_payload(res, 'combo order submission')
         clear_webull_order_cache()
@@ -3661,7 +3692,8 @@ def place_webull_order(
 
     response = _webull_request(
         app_key, app_secret, environment, 'POST', '/trading/orders/place',
-        body=request_body, access_token=access_token,
+        body=request_body, access_token=access_token, api_version='v3',
+        additional_headers=_webull_order_headers(request_body['new_orders']),
     )
     if getattr(response, 'status_code', None) in {404, 405}:
         legacy_request_body = {

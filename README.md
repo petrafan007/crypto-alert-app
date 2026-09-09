@@ -6,6 +6,11 @@
 
 **Last Updated**: September 2026
 
+## v2.96.3 (September 2026)
+
+- **Webull Live Order Protocol Fix:** Fixed real Webull orders being submitted with the retired v2 protocol envelope after Webull's unified trading API moved to v3. Order placement now sends the provider-required instrument category header, including `US_EQUITY` for stock and ETF orders.
+- **Cash-Fractional Market Buys:** Verified the exact AAPL `$100.24` cash-amount Market Buy payload through Webull's non-executing preview endpoint and added regression coverage that preserves `AAPL`, `AMOUNT`, Regular Hours, and the v3 submission metadata without fabricating a share quantity.
+
 ## v2.96.2 (September 2026)
 
 - **Automatic Webull Portfolio Refresh:** Connected Webull balances and positions now synchronize through the supervised background worker every 60 seconds. My Portfolio's existing live polling then displays deposits, withdrawals, cash changes, and position updates without requiring a manual import from Settings.
