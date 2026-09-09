@@ -34,12 +34,17 @@ from services.webull_service import WebullConnectionError
 from services.external_signal_service import signal_to_dict
 from services.webull_signal_service import create_webull_signal
 from services.portfolio_service import get_comprehensive_crypto_data_for_user
+from services.copilot_context import (
+    build_admin_quant_copilot_snapshot,
+    build_webull_copilot_snapshot,
+    copilot_context_json,
+)
 from services.ai_service import (
     call_ai_with_web_search, web_search, run_sentiment_analysis_for_user,
     run_watchlist_sentiment_analysis_for_user, log_ai_conversation,
     get_ollama_models, call_ollama_chat, is_ollama_admin
 )
-from event_algo import event_strategy_health_summary, is_event_strategy_admin
+from event_algo import is_event_strategy_admin
 
 # Local helpers previously in main
 import threading
@@ -2333,6 +2338,15 @@ def process_ai_conversation(user_id, message, conversation_id=None, include_all_
         f"{(chr(10).join(webull_lines)) if webull_lines else 'None'}"
     )
 
+    # Expand the existing imported-holdings context with Webull's complete mode
+    # topology. Provider credentials never enter this snapshot.
+    try:
+        webull_snapshot = build_webull_copilot_snapshot(user_id, holdings=webull_holdings)
+    except Exception as webull_context_error:
+        logger.warning("Unable to load expanded Webull context for Copilot: %s", webull_context_error)
+        webull_snapshot = {"unavailable": str(webull_context_error)[:500]}
+    webull_context_text = copilot_context_json(webull_snapshot)
+
     # 2. Gather active pending & open orders (with intelligent OCO grouping)
     pending_orders_list = []
     oco_groups = {}
@@ -2487,6 +2501,17 @@ def process_ai_conversation(user_id, message, conversation_id=None, include_all_
         if sym:
             webull_aliases[sym] = sym
 
+    # A watched instrument, simulated position, or stored Webull order must be
+    # eligible for focused market-search resolution even when it is not held in
+    # the provider-backed account snapshot.
+    for mode_key in ('real_mode', 'test_mode'):
+        mode_snapshot = webull_snapshot.get(mode_key, {}) if isinstance(webull_snapshot, dict) else {}
+        for collection_key in ('watchlist', 'positions', 'orders'):
+            for item in mode_snapshot.get(collection_key, []) or []:
+                sym = str(item.get('symbol') or '').upper()
+                if sym:
+                    webull_aliases[sym] = sym
+
     portfolio_symbols = [c.symbol.upper() for c in coins if c.symbol]
     wl_symbols = [w.symbol.upper() for w in wl_coins if w.symbol]
     all_candidate_symbols = set(portfolio_symbols + wl_symbols + list(crypto_aliases.keys()) + list(webull_aliases.keys()))
@@ -2559,23 +2584,25 @@ def process_ai_conversation(user_id, message, conversation_id=None, include_all_
 
     symbol_context_text = "\n".join(symbol_details) if symbol_details else ""
 
-    # Keep the Copilot aware of paper-worker health for the administrator only.
-    # Other users must not receive engine telemetry through an indirect context
-    # channel, even though the engine endpoints and Settings tab are hidden.
-    event_strategy_health_text = ""
-    if is_event_strategy_admin(current_user):
-        try:
-            event_strategy_health = event_strategy_health_summary(user_id)
-            event_strategy_health_text = json.dumps(event_strategy_health, sort_keys=True, default=str)
-        except Exception as health_error:
-            logger.warning("Unable to load Event Contract strategy health for Copilot: %s", health_error)
-            event_strategy_health_text = json.dumps({"worker_status": "UNKNOWN", "error": str(health_error)[:300]})
-
-    event_strategy_context = (
-        f"=== EVENT CONTRACT STRATEGY ENGINE HEALTH (PAPER / SIGNAL-ONLY) ===\n"
-        f"{event_strategy_health_text}\n\n"
-        if event_strategy_health_text else ""
-    )
+    # Authorization is checked before quantitative settings, logs, reports or
+    # paper ledgers are queried. Non-administrators receive no indirect engine
+    # context through the Copilot channel.
+    quant_strategy_context = ""
+    try:
+        quant_snapshot = build_admin_quant_copilot_snapshot(user_id, user)
+        if quant_snapshot:
+            quant_strategy_context = (
+                "=== ADMINISTRATOR-ONLY QUANTITATIVE STRATEGY ENGINE CONTEXT "
+                "(SETTINGS, CURRENT STATE, LEDGERS, LOGS & REPORTS) ===\n"
+                f"{copilot_context_json(quant_snapshot)}\n\n"
+            )
+    except Exception as quant_context_error:
+        logger.warning("Unable to load administrator quantitative context for Copilot: %s", quant_context_error)
+        if is_event_strategy_admin(user):
+            quant_strategy_context = (
+                "=== ADMINISTRATOR-ONLY QUANTITATIVE STRATEGY ENGINE CONTEXT ===\n"
+                f"{copilot_context_json({'unavailable': str(quant_context_error)[:500]})}\n\n"
+            )
 
     # Build complete context payload for AI
     context_payload = (
@@ -2586,15 +2613,17 @@ def process_ai_conversation(user_id, message, conversation_id=None, include_all_
         "Never treat an earlier Copilot message, completed trade, or prior-session discussion as current account state.\n\n"
         f"=== FOCUSED SYMBOL COMPLETE CONTEXT ({target_symbol}) ===\n"
         f"{symbol_context_text or f'General multi-asset inquiry (Focus: {target_symbol})'}\n\n"
-        f"=== USER ACTIVE PENDING & OPEN ORDERS (Binance.US + Webull) ===\n"
+        f"=== USER ACTIVE PENDING & OPEN BINANCE.US ORDERS ===\n"
         f"{pending_orders_text}\n\n"
         f"=== USER COMPLETE PORTFOLIO HOLDINGS (Binance.US + Cash + Webull) ===\n"
         f"{holdings_text}\n\n"
-        f"=== ACTIVE WATCHLIST TELEMETRY & ALERTS ===\n"
+        f"=== BINANCE.US / LEGACY ACTIVE WATCHLIST TELEMETRY & ALERTS ===\n"
         f"{watchlist_text}\n\n"
+        f"=== WEBULL REAL TRADING MODE + TEST MODE CONTEXT ===\n"
+        f"{webull_context_text}\n\n"
         f"=== RECENT COMPLETED TRANSACTIONS & TRADE AUDIT LEDGER ===\n"
         f"{activity_text}\n\n"
-        f"{event_strategy_context}"
+        f"{quant_strategy_context}"
         f"=== {history_label} (Oldest to Newest) ===\n"
         f"{sidebar_feed_text}\n\n"
         + (

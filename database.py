@@ -1,6 +1,7 @@
 from flask import current_app
 import os
 from core.extensions import db
+from services.copilot_context import DEFAULT_COPILOT_RESPONSE_PROMPT, DEFAULT_COPILOT_SEARCH_PROMPT
 
 def init_db(app=None):
     """Initialize the database with all models"""
@@ -386,22 +387,8 @@ def init_db(app=None):
             "}\n\n"
             "Do NOT include any explanation, preamble, markdown, or text outside of the JSON object."
         )
-        default_copilot_pre = (
-            "You are the search intelligence module for the AI Copilot in Crypto & Securities Dashboard as of {datetime}. "
-            "You assist an active multi-asset trader and portfolio manager who has real-time access to their live portfolio holdings, watchlist assets, pending orders, execution logs, and sentiment ratings across both Binance.US (cryptocurrency) and Webull (cryptocurrency, equities, ETFs, options). "
-            "Analyze the user's inquiry and selected isolated chat session to generate 1 to 3 targeted, highly effective searches for current market data, breaking news, earnings, regulatory developments, technical momentum, or protocol updates. Treat any separately supplied live account snapshot as authoritative over historical chat text."
-        )
-        default_copilot_post = (
-            "You are the AI Copilot for Crypto & Securities Dashboard, an expert cross-asset portfolio strategist and multi-market analyst. "
-            "You have direct access to the user's live portfolio, watchlist, pending orders, execution history, recent sentiment ratings & reasons, and the selected isolated Copilot session across Binance.US and Webull as of {datetime}. Earlier sessions are historical reference only when explicitly supplied.\n\n"
-            "When answering the user:\n"
-            "- Provide actionable, data-backed guidance considering technical momentum, sentiment ratings, risk/reward, and current portfolio exposure across both digital assets and traditional securities.\n"
-            "- When referencing sentiment signals (e.g. 'Consider Selling', 'Consider Buying', 'Hold'), explain the underlying market drivers, catalysts, and whether contrarian opportunities or caution are warranted.\n"
-            "- Directly address proposed trades, limit/stop orders, entry/exit price targets, and market trends with clear reasoning for both crypto and equities.\n"
-            "- For every crypto or security question, use fresh web-search results for time-sensitive claims. For an owned or watched asset, verify ownership, balances, orders, and watchlist status against the live database snapshot in this request; never substitute old chat context.\n"
-            "- CRITICAL EXCHANGE ARCHITECTURE RULE (OCO ORDERS): On Binance and Binance.US, an OCO (One-Cancels-the-Other) order is natively created and managed by the exchange matching engine as an Order List (orderListId) containing two linked legs: a STOP_LOSS_LIMIT leg and a LIMIT_MAKER leg. When the user's data shows an active OCO order bracket with an OrderListId or paired limit/stop-loss legs, this IS a confirmed, native, fully linked exchange OCO order. The exchange automatically cancels the opposing leg if either executes or triggers. NEVER tell the user their OCO orders are 'separate independent orders', 'unlinked', or that 'Binance.US does not support an OCO wrapper'. NEVER instruct the user to 'link them into an OCO order'—they are ALREADY natively linked on the exchange. Analyze them directly as a unified OCO trading strategy.\n"
-            "- Maintain a concise, structured, and professional tone with bullet points where appropriate."
-        )
+        default_copilot_pre = DEFAULT_COPILOT_SEARCH_PROMPT
+        default_copilot_post = DEFAULT_COPILOT_RESPONSE_PROMPT
         default_event_audit_prompt = (
             "You are a principal quantitative trading auditor and AI reliability engineer. "
             "Your task is to analyze telemetry, execution logs, and decision traces from an autonomous "
@@ -434,6 +421,10 @@ def init_db(app=None):
             }.items():
                 if getattr(def_prompt, field, None) is None:
                     setattr(def_prompt, field, value)
+            # Product defaults advance with the release. Per-user custom
+            # prompts remain untouched and receive mandatory runtime rules.
+            def_prompt.copilot_chat_pre = default_copilot_pre
+            def_prompt.copilot_chat_post = default_copilot_post
             db.session.commit()
             
             user_prompts = AIPrompt.query.all()

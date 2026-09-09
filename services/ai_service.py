@@ -27,6 +27,7 @@ from services.portfolio_audit_context import (
     AUDIT_END, AUDIT_TOKEN_LIMITS, CompletionText, IncompleteAuditError, complete_audit_text, check_drawdown_claim,
 )
 from services.ai_provider_protocol import AIProviderHTTPError, call_gemini_chat, safe_provider_error
+from services.copilot_context import COPILOT_CONTEXT_INTEGRITY_RULES
 
 logger = logging.getLogger(__name__)
 
@@ -1055,17 +1056,9 @@ def call_ai_with_web_search(
             stage3_system = stage3_template.replace('{symbol}', symbol_value).replace('{datetime}', current_datetime)
 
         if prompt_type in ['copilot', 'manual']:
-            stage3_system += (
-                "\n\nREAL-TIME COPILOT DATA INTEGRITY RULES:\n"
-                "- Treat the LIVE USER DATABASE SNAPSHOT in the current request as authoritative for the current user's holdings, cash/stablecoin balances, open orders, and watchlist. Never use a prior chat message, a completed transaction, or remembered context as current account state.\n"
-                "- The supplied conversation history is isolated to the selected Copilot session unless the request explicitly labels past-session history. Past-session material is historical reference only and can never override the live snapshot.\n"
-                "- For every crypto or security question, use the current web-search results supplied with this request for time-sensitive market claims. For an owned or watched asset, reconcile the answer against its current live database record before describing ownership, price, balance, or status.\n"
-                "- If current external market data is unavailable, say so plainly; do not fill gaps with stale chat content or unsupported current-market claims.\n"
-                "\n\nCRITICAL EXCHANGE ARCHITECTURE RULE (OCO ORDERS):\n"
-                "- On Binance and Binance.US, an OCO (One-Cancels-the-Other) order is natively created and managed by the exchange matching engine as an Order List (orderListId) containing two linked legs: a STOP_LOSS_LIMIT leg and a LIMIT_MAKER leg.\n"
-                "- When the user's data shows an active OCO order bracket with an OrderListId or paired limit/stop-loss legs, this IS a confirmed, native, fully linked exchange OCO order. The exchange automatically cancels the opposing leg if either executes or triggers.\n"
-                "- NEVER tell the user their OCO orders are 'separate independent orders', 'unlinked', or that 'Binance.US does not support an OCO wrapper'. NEVER instruct the user to 'link them into an OCO order'—they are ALREADY natively linked on the exchange. Analyze them directly as a unified OCO trading strategy."
-            )
+            # Mandatory role/mode rules are appended even when the user keeps a
+            # customized Copilot prompt in Settings.
+            stage3_system += COPILOT_CONTEXT_INTEGRITY_RULES
 
         stage3_user_msg = f"{original_user_message}\n\n=== RECENT WEB SEARCH RESULTS ===\n{search_text}"
 

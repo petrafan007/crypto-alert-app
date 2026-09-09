@@ -2,6 +2,12 @@
 
 The engine is an administrator-only, multi-asset **paper research system**. The default starting bankroll is $50,000, with relative allocation weights of 35 for equities, 25 for options, 20 for crypto, 10 for micro futures, and 10 for events. Enabled modules share 100% of the target capital proportionally. Futures is disabled by default, giving initial targets of 38.89%, 27.78%, 22.22%, 0%, and 11.11%, respectively. The 18.5% annual return setting is a research objective, not a forecast or validated strategy result.
 
+## AI Copilot administrator context (v2.96.0)
+
+The existing AI Copilot now receives quantitative-engine evidence only after the same administrator check used by the engine APIs. Its context includes the complete current Quantitative Portfolio and Event Contract configuration, including module settings, strategy prompts, allocations, watchlists, AI provider/model topology with secret values redacted, worker state, account state, telemetry, paper positions and recent order ledgers. It also includes up to 500 newest structured logs and 50 newest full audit reports per engine, matching or exceeding the Settings viewers. Each collection declares its total record count, supplied count, newest-first ordering and whether older records were outside the request window. The Copilot must acknowledge those bounds rather than imply that omitted history was inspected.
+
+Quantitative context remains operational evidence, not brokerage state. Runtime prompt rules require the Copilot to label Quantitative Strategy Mode as an isolated paper ledger, keep it separate from provider-backed Webull Real Trading and simulated Webull Test Mode, and cite record IDs/timestamps when diagnosing engine behavior. Non-administrators do not trigger quantitative queries and receive no strategy settings, logs, reports or indirect health summary. Credentials, tokens, API keys and secret values are never placed in Copilot requests. Existing user-authored Copilot prompts are preserved; the mode, authorization and redaction rules are appended at runtime.
+
 ## Event cadence resilience (v2.95.2)
 
 Routine AI evaluation batch and cooldown deferrals (`AI_EVALUATION_DEFERRED`) no longer flag the Event module as `DATA_LIMITED` or degrade the running paper engine. They are reported as `NO_SIGNAL` with informative status text while preserving `DATA_LIMITED` triggers for actual model, provider or quote-feed outages.
