@@ -30,17 +30,21 @@ EVIDENCE_RULES = (
     'unknown. Neither missing bids nor stale/terminal-looking trade prices prove a winner. Event value '
     'is quantity times mark; collateral and fees are separate. Distinguish open position counts, '
     'watchlist symbols evaluated, qualified signals, rejected entries and actual filled entries. '
-    'Insufficient daily samples cannot justify numerical stress tests, CAGR or correlations. Do not '
+    'Use only code-calculated goal_tracking annualization and correlations when present; a null metric '
+    'means unavailable, not zero. No sample-count threshold automatically implements or validates stress tests. '
     'An indicator omitted from the report is NOT evidence that its provider data are missing. '
     'MARKET_CLOSED with zero evaluations means the session gate skipped the scan; it does not mean '
     'missing price history or a broken feed. READY proves the evaluated symbols passed data collection '
-    'and indicator calculation. Use signal_checks to explain unqualified entries; do not infer a failed '
+    'and indicator calculation for that scan only; it is not proof of timely decision consumption or successful '
+    'execution. Event readiness must be supported by fresh observed decisions, quotes and handoff outcomes. '
+    'Use signal_checks to explain unqualified entries; do not infer a failed '
     'dominance gate from a generic strategy name. NOT_DUE Event positions are ordinary unexpired '
     'holdings, not stuck settlements, and two positions occupy two slots. Use exchange_session times '
     'rather than guessing the local trading session from UTC. allocation_preference is an internal '
     'relative weight, never actual exposure. Per-module realized P&L belongs to that named module. '
     'Do not invent flags, controls, data-import jobs, provider outages or new risk violations. Do not '
-    'say the annual target is missed or not pursued on a one-day sample. Follow operational_summary '
+    'claim a long-term annual target has failed on a one-day sample. A supplied target-path shortfall is a '
+    'descriptive difference at that timestamp, not proof of strategy failure. Follow operational_summary '
     'as the authoritative explanation of each module; specialist prose is not a source of new facts. '
     'The implemented portfolio circuit pauses new entries at a 10% loss of starting bankroll; '
     'do not claim it is missing or suggest adding it. This floor differs from historical peak-to-trough '
@@ -51,8 +55,50 @@ EVIDENCE_RULES = (
     'or warm-up requirements just to generate trades, especially with one daily return sample. '
     'Do not propose adding controls or calculators that strategy_rules/risk_controls say are already implemented. '
     'Do not introduce unrelated Binance accounts, tokenized equities, OCO orders, manual trade tickets or '
-    'claims of live execution. Suggestions must relate to implemented rules and recorded limitations.'
+    'claims of live execution. Suggestions must relate to implemented rules and recorded limitations. '
+    'The numeric goal_tracking.target_annual_return_pct is authoritative over legacy ranges in custom prompts. '
+    'Use the supplied target equity, dollar/percentage gap, CAGR percentage-point gap, rolling returns, '
+    'capital utilization and module contributions without inventing missing values. Label all results PAPER '
+    'and give the run period, as-of timestamp and observation gaps. The target path is hypothetical, not an '
+    'investable benchmark or measured cash opportunity cost. Thirty elapsed days is only the annualization '
+    'display threshold, not validation, statistical confidence, or evidence of attainable future CAGR. '
+    'Report SUCCESS means report generation completed, not that the strategy, data feeds or workers are healthy. '
+    'Separate recorded facts, inferred explanations, missing evidence and proposed experiments. '
+    'Only claim historical replay, cost/latency sensitivity, stress scenarios or calibration were performed '
+    'when their timestamped results and coverage are supplied. Never turn an engineering unit-test pass '
+    'into a claim of investment performance. Treat any validation result as scoped to its supplied data, '
+    'assumptions and module coverage, never proof of portfolio-wide goal attainment.'
 )
+
+DEFAULT_AUDIT_GUIDANCE = (
+    'Evaluate progress toward the configured annual research target using goal_tracking, not a legacy '
+    'target range. Explain the measured target-equity gap now and the annualized percentage-point gap '
+    'only when available. Identify each enabled module’s net contribution, capital utilization and '
+    'operational blockers. Distinguish a successful report from healthy workers and a validated strategy. '
+    'Organize recommendations into recorded defects to fix, missing evidence to collect, and controlled '
+    'strategy experiments with out-of-sample evaluation and realistic costs, latency and missed fills. '
+    'Explain exactly what has and has not been tested; do not invent stress-test or calibration results. '
+    'Do not relax freshness, risk, confidence or signal gates merely to force more trades.'
+)
+
+MASTER_SCOPE = (
+    'Begin with ## 1. Executive Summary and one or two narrative paragraphs before any table. '
+    'Then cover measured goal progress, recorded performance, module operation and blockers, capital/risk, '
+    'evidence limitations, and prioritized engineering/strategy observations. Aim for 900–1800 words. '
+    'Explain why the engine did or did not trade, rather than prescribing unconditional investment.'
+)
+MODULE_SCOPE = (
+    'Review only this module and its supplied positions. Explain readiness, actual activity, '
+    'entry/exit blockers, data limitations, net contribution when supplied and concrete next checks. '
+    'Do not infer portfolio-wide performance from this module. Aim for 400–700 words.'
+)
+
+
+def audit_prompt_policy():
+    """Expose every shared system instruction alongside the editable prompts."""
+    return {'engine_purpose': ENGINE_PURPOSE, 'evidence_rules': EVIDENCE_RULES,
+            'default_guidance': DEFAULT_AUDIT_GUIDANCE,
+            'master_scope': MASTER_SCOPE, 'module_scope': MODULE_SCOPE}
 
 STRATEGY_RULES = {
     'equities': 'US regular sessions only. Completed daily trend SMA, positive 63-session momentum and SPY relative strength; oversold RSI and lower Bollinger pullback. Exits: RSI recovery, trend failure or ATR stop.',
@@ -108,12 +154,7 @@ def check_drawdown_claim(text, evidence):
             raise IncompleteAuditError('Audit incorrectly claims the implemented portfolio risk circuit is absent.', text)
 
 
-def audit_system_prompt(custom, module=None):
-    scope = ('Review only this module and its supplied positions. Explain readiness, actual activity, '
-             'entry/exit blockers, data limitations and concrete next checks. Aim for 400–700 words.'
-             if module else
-             'Begin with ## 1. Executive Summary and one or two narrative paragraphs before any table. '
-             'Then cover recorded performance, module operation and blockers, capital/risk, evidence '
-             'limitations, and prioritized engineering/strategy observations. Aim for 900–1800 words. '
-             'Explain why the engine did or did not trade, rather than prescribing unconditional investment.')
-    return '\n\n'.join((custom or '', ENGINE_PURPOSE, EVIDENCE_RULES, scope))
+def audit_system_prompt(custom, module=None, guidance=None):
+    return '\n\n'.join((custom or '', ENGINE_PURPOSE,
+                        DEFAULT_AUDIT_GUIDANCE if guidance is None else guidance,
+                        EVIDENCE_RULES, MODULE_SCOPE if module else MASTER_SCOPE))

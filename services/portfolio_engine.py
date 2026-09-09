@@ -31,6 +31,9 @@ from services.portfolio_strategy_signals import (
 )
 
 from services.portfolio_allocations import normalize_allocations
+from services.portfolio_goal_tracking import build_goal_tracking
+from services.portfolio_calibration import event_calibration
+from services.portfolio_execution_math import costs, fill_price, entry_quantity, spot_exit
 from services.portfolio_audit_progress import audit_progress
 from services.portfolio_audit_context import (
     ENGINE_PURPOSE, EVIDENCE_RULES, STRATEGY_RULES, audit_system_prompt, check_drawdown_claim,
@@ -246,23 +249,6 @@ def balances(acc, state, user_id):
     return unrealized, reserved
 
 
-def costs(module, price, quantity):
-    if module == 'options':
-        return 1.30 * quantity  # two legs, $0.65 each, per side
-    if module == 'futures':
-        return 1.25 * quantity
-    if module == 'events':
-        return 0.015 * quantity
-    return price * quantity * 0.001  # 10 bps paper commission assumption
-
-
-def fill_price(module, price, side, closing=False):
-    if module in ('options', 'events'):
-        return price  # executable bid/ask already used
-    buy = (side == 'LONG') != closing
-    return price * (1.0005 if buy else 0.9995)  # 5 bps adverse slippage
-
-
 def close_lot(acc, lot, price, reason, now):
     pos = db.session.get(Position, lot.position_id)
     price = fill_price(lot.module, price, pos.side, closing=True)
@@ -319,20 +305,16 @@ def enter_lot(cfg, acc, state, module, symbol, signal, price, now, *, multiplier
     unit = margin if margin is not None else price*multiplier
     if unit <= 0 or budget <= 0:
         return reject('Insufficient module budget or available cash.')
-    quantity = budget / (unit + costs(module, price, 1))
     stop = signal.get('stop')
-    risk = abs(price-stop)*multiplier if stop is not None else unit
-    if risk > 0:
-        quantity = min(quantity, max(0, acc.total_equity)*0.005/(risk+2*costs(module, price, 1)))
+    max_loss = None
     if module == 'futures':
         ceiling = settings_for(cfg)['futures']['max_intraday_loss']
         day_start = utc(now).astimezone(ET).replace(hour=0, minute=0, second=0, microsecond=0)
         day_pnl = sum(l.realized_pnl for l in current_lots(cfg.user_id, state, False) if l.module=='futures' and l.closed_at and utc(l.closed_at)>=day_start)
         open_risk = sum(abs(db.session.get(Position, l.position_id).average_cost-(l.stop_price or 0))*db.session.get(Position, l.position_id).quantity*l.multiplier + 2*l.entry_fee for l in current_lots(cfg.user_id, state) if l.module=='futures')
-        quantity = min(quantity, max(0, ceiling+min(day_pnl, 0)-open_risk)/(risk+2*costs(module, price, 1)))
-    if module == 'events':
-        quantity = min(quantity, 50.0)
-    quantity = math.floor(quantity) if module != 'crypto' else math.floor(quantity*1e6)/1e6
+        max_loss = max(0, ceiling+min(day_pnl, 0)-open_risk)
+    quantity = entry_quantity(module, price, budget, acc.total_equity, stop,
+                              multiplier=multiplier, unit=unit, max_loss=max_loss)
     if quantity <= 0:
         return reject('Risk or margin budget cannot fund the minimum trade quantity.')
     fee, collateral = costs(module, price, quantity), unit*quantity
@@ -372,8 +354,8 @@ def trigger_pause(cfg, state, reason):
     newly = not state.kill_switch
     state.kill_switch = True
     state.pause_reason = reason
-    state.lease_token = None
-    state.lease_until = None
+    # A risk pause blocks entries, not the owner's management of existing lots.
+    # Explicit Stop and reset still revoke the lease in their own control paths.
     # Maintain cfg.enabled so 24/7 market data gathering and shadow viability tracking continue
     cfg.worker_status = 'MONITORING_ONLY'
     if newly:
@@ -571,10 +553,13 @@ def portfolio_status(user_id):
         telemetry['options']['prerequisites'] = []
         for symbol in watches.get('options', []):
             count = PortfolioMarketObservation.query.filter_by(user_id=user_id, series='IV:'+symbol).filter(
-                PortfolioMarketObservation.day >= datetime.utcnow().date()-timedelta(days=370)).count()
+                PortfolioMarketObservation.day >= datetime.utcnow().date()-timedelta(days=370),
+                PortfolioMarketObservation.day <= datetime.utcnow().date(),
+                PortfolioMarketObservation.source == 'WEBULL_OPTION_QUOTES',
+                PortfolioMarketObservation.observed_at.isnot(None)).count()
             telemetry['options']['prerequisites'].append({
                 'symbol': symbol, 'daily_iv_observations': min(count, 252), 'required': 252,
-                'message': f'{symbol}: {min(count, 252)}/252 daily IV observations. Executable option quotes and a non-flat IV range also required.',
+                'message': f'{symbol}: {min(count, 252)}/252 verified daily IV observations. Unverified legacy rows are retained but excluded. No historical IV import is configured; allocation remains unused until history and executable quotes qualify.',
             })
     event_open = [p for p in positions if p['module'] == 'events']
     telemetry['events']['capacity'] = {'open_positions': len(event_open), 'maximum': 3,
@@ -587,6 +572,17 @@ def portfolio_status(user_id):
             status = 'STALLED'
     realized = sum(l.realized_pnl for l in lots if l.closed_at)
     sub_accounts = compute_sub_accounts(user_id, cfg, acc, state, positions, lots)
+    module_pnl = {m: sum(l.realized_pnl if l.closed_at else db.session.get(Position, l.position_id).unrealized_pnl-l.entry_fee
+                         for l in lots if l.module == m) for m in MODULES}
+    # Compare recorded valuations, not the browser clock advancing against stale marks.
+    valuation_at = max(acc.reset_at, acc.updated_at, daily[-1].created_at if daily else acc.reset_at)
+    goal = build_goal_tracking(initial_balance=acc.initial_balance, current_equity=acc.total_equity,
+        cash_balance=acc.cash_balance, target_annual_return=cfg.target_annual_return,
+        started_at=acc.reset_at, as_of=valuation_at,
+        snapshots=[{'time': r.created_at, 'equity': r.equity} for r in metric_rows],
+        module_pnl=module_pnl, reserved_capital=sum(p['collateral'] for p in positions))
+    metrics['annualized_return_pct'] = goal['annualized_return_pct']
+    calibration = event_calibration(user_id, acc.reset_at)
     return {'success': True, 'mode': 'PAPER', 'worker_status': status, 'enabled': cfg.enabled,
             'kill_switch': state.kill_switch, 'pause_reason': state.pause_reason,
             'heartbeat_at': state.heartbeat_at.isoformat()+'Z' if state.heartbeat_at else None,
@@ -599,7 +595,8 @@ def portfolio_status(user_id):
             'sub_accounts': sub_accounts,
             'module_enabled': {m: module_settings[m]['enabled'] for m in MODULES},
             'cash_allocation_pct': 0 if any(module_settings[m]['enabled'] for m in MODULES) else 100,
-            'performance': metrics, 'equity_curve': curve[-2000:], 'allocations': allocations, 'rebalance': drift}
+            'performance': metrics, 'goal_tracking': goal, 'event_calibration': calibration,
+            'equity_curve': curve[-2000:], 'allocations': allocations, 'rebalance': drift}
 
 
 def reset_bankroll(user_id, amount):
@@ -716,10 +713,14 @@ def control(user_id, action):
     db.session.commit()
 
 
+def monitoring_allowed(cfg, state):
+    return cfg.mode == 'PAPER' and (cfg.enabled or (state.kill_switch and cfg.worker_status != 'STOPPED'))
+
+
 def claim(user_id, force=False):
     cfg, acc, state = locked(user_id)
     now = datetime.utcnow()
-    if not (cfg.enabled or state.kill_switch) or cfg.mode != 'PAPER':
+    if not monitoring_allowed(cfg, state):
         db.session.rollback()
         return None
     if state.lease_until and state.lease_until > now:
@@ -737,7 +738,7 @@ def claim(user_id, force=False):
 
 
 def owns(cfg, state, token):
-    return (cfg.enabled or state.kill_switch) and cfg.mode == 'PAPER' and state.lease_token == token and state.lease_until and state.lease_until > datetime.utcnow()
+    return monitoring_allowed(cfg, state) and state.lease_token == token and state.lease_until and state.lease_until > datetime.utcnow()
 
 
 def event_inputs(user_id, state, now, watchlist, settings):
@@ -815,6 +816,8 @@ def run_scan(user_id, force=False, provider=None):
         # Manage existing positions first, including symbols removed from the watchlist.
         for lot_id in lot_ids:
             lot = db.session.get(Lot, lot_id)
+            if lot.closed_at is not None:
+                continue
             pos = db.session.get(Position, lot.position_id)
             details = loads(lot.details_json, {})
             module, symbol, now = lot.module, pos.symbol, datetime.utcnow()
@@ -858,13 +861,24 @@ def run_scan(user_id, force=False, provider=None):
                 if not owns(cfg, state, token):
                     db.session.rollback()
                     return {'success': False, 'message': 'Worker ownership changed.'}
-                lot = db.session.get(Lot, lot_id)
-                pos = db.session.get(Position, lot.position_id)
+                # An independent Event consumer may already have settled the
+                # lot while this scan collected data. Refresh under the shared
+                # state lock before marking/closing to avoid a double credit.
+                lot = db.session.get(Lot, lot_id, populate_existing=True)
+                if lot.closed_at is not None:
+                    db.session.rollback()
+                    continue
+                pos = db.session.get(Position, lot.position_id, populate_existing=True)
+                if module == 'events':
+                    # Event marking reads only durable local quote/outcome
+                    # records: repeat it under the shared ledger lock so a
+                    # concurrent consumer's newer mark cannot be overwritten.
+                    price, reason = mark_event(user_id, loads(lot.details_json, {}), datetime.utcnow())
                 old_stop = lot.stop_price
-                if old_stop is not None and ((pos.side=='LONG' and price<=old_stop) or (pos.side=='SHORT' and price>=old_stop)):
+                if module in ('equities', 'crypto'):
+                    reason, lot.stop_price = spot_exit(module, price, pos.side, old_stop, signal)
+                elif old_stop is not None and ((pos.side=='LONG' and price<=old_stop) or (pos.side=='SHORT' and price>=old_stop)):
                     reason = 'STOP_LOSS'
-                if module == 'crypto' and signal and not reason:
-                    lot.stop_price = max(old_stop or 0, signal['stop'])
                 mark_position(pos, lot, price)
                 if module == 'futures':
                     bounds = utc(now).astimezone(ET).replace(hour=0, minute=0, second=0, microsecond=0)
@@ -889,6 +903,10 @@ def run_scan(user_id, force=False, provider=None):
                 db.session.rollback()
                 report[module]['messages'].append(f'{symbol}: {str(exc)[:200]}')
         for module in MODULES:
+            if module == 'events':
+                # Do not delay short-lived decisions behind this scan's provider
+                # calls or overwrite telemetry from the independent consumer.
+                continue
             if not settings[module]['enabled']:
                 report[module]['status'] = 'DISABLED'
                 continue
@@ -967,8 +985,17 @@ def run_scan(user_id, force=False, provider=None):
                     report[module]['messages'].append(f'{watch_symbol}: {str(exc)[:200]}')
         cfg, acc, state = locked(user_id)
         if state.lease_token == token:
+            report['events'] = loads(state.telemetry_json, {}).get('events', {
+                'status': 'DATA_LIMITED' if settings['events']['enabled'] else 'DISABLED',
+                'messages': ['Awaiting the independent Event handoff worker.'],
+                'evaluated': 0, 'entries': 0,
+            })
+            if not settings['events']['enabled']:
+                report['events']['status'] = 'DISABLED'
             _record_portfolio_log(user_id, 'SCAN_COMPLETE', 'Quantitative portfolio scan completed.')
             for module in MODULES:
+                if module == 'events':
+                    continue  # Independent consumer already classified its evidence.
                 if report[module]['messages'] and settings[module]['enabled']:
                     err_msgs = [m for m in report[module]['messages'] if 'execution held' not in m]
                     if err_msgs:
@@ -1144,7 +1171,9 @@ def run_audit(user_id, prompt=None, scheduled=False, audit_id=None):
                                 if evidence['account']['total_equity'] > 0 else None),
         }
         evidence['target_annual_return'] = cfg.target_annual_return
-        evidence['audit_schema_version'] = '2.94.5'
+        evidence['audit_schema_version'] = '2.95.0'
+        evidence['audit_guidance'] = loads(cfg.master_ai_config, {}).get('audit_guidance')
+        evidence['goal_tracking'].pop('curve', None)
         evidence['audit_context_version'] = 3
         evidence['as_of'] = datetime.utcnow().isoformat()+'Z'
         now = datetime.utcnow()
@@ -1185,6 +1214,11 @@ def run_audit(user_id, prompt=None, scheduled=False, audit_id=None):
                 explanation = ('The exchange calendar is closed. The session gate skipped new-entry data requests '
                                'and signal evaluation. This is normal waiting, not evidence of missing price history '
                                'or a provider outage. Next open: ' + str(next_open) + '.')
+            elif module == 'events':
+                explanation = ('Use the independently timestamped Event consumer and upstream decision diagnostics. '
+                               'An empty eligible-decision lookup is not evidence that market data or the AI provider succeeded. '
+                               'Distinguish upstream no-signal, deferred/failed evaluations, stale/cutoff misses, risk holds and actual fills. '
+                               'Report recorded counts only; watchlist size is not contracts evaluated.')
             elif metrics['status'] == 'READY':
                 explanation = (f"The scan successfully evaluated {metrics.get('evaluated', 0)} watchlist symbols. "
                                f"{metrics.get('qualified_signals', 'Unknown')} signals qualified and "
@@ -1258,6 +1292,9 @@ def run_audit(user_id, prompt=None, scheduled=False, audit_id=None):
                     'exchange_session': evidence['exchange_session'],
                     'operational_summary': evidence['operational_summary'][module],
                     'trade_results': evidence['module_trade_results'][module],
+                    'target_annual_return': cfg.target_annual_return,
+                    'net_contribution': next((item for item in evidence['goal_tracking']['module_contributions'] if item['module'] == module), None),
+                    'event_calibration': evidence['event_calibration'] if module == 'events' else None,
                     'risk_controls': evidence['risk_controls'],
                     'strategy_rules': STRATEGY_RULES[module],
                     'strategy_settings': evidence['strategy_settings'][module],
@@ -1271,7 +1308,7 @@ def run_audit(user_id, prompt=None, scheduled=False, audit_id=None):
                 try:
                     response, _ = call_ai_with_web_search(
                         username=user.username, user_id=user_id,
-                        messages=[{'role': 'system', 'content': audit_system_prompt(evidence['specialist_mandates'][module], module)},
+                        messages=[{'role': 'system', 'content': audit_system_prompt(evidence['specialist_mandates'][module], module, guidance=evidence['audit_guidance'])},
                                   {'role': 'user', 'content': json.dumps(module_evidence)}],
                         prompt_type='portfolio_module_audit', symbol=module.upper(), include_db_context=False,
                         attempt_observer=observe_attempt,
@@ -1304,7 +1341,7 @@ def run_audit(user_id, prompt=None, scheduled=False, audit_id=None):
             save_audit_progress(audit_id, evidence, 'master')
             response, _ = call_ai_with_web_search(
                 username=user.username, user_id=user_id,
-                messages=[{'role': 'system', 'content': audit_system_prompt(prompt or cfg.master_ai_prompt or DEFAULT_MASTER_CIO_PROMPT)},
+                messages=[{'role': 'system', 'content': audit_system_prompt(prompt or cfg.master_ai_prompt or DEFAULT_MASTER_CIO_PROMPT, guidance=evidence['audit_guidance'])},
                           {'role': 'user', 'content': json.dumps({k: v for k, v in evidence.items()
                             if k not in ('module_audit_inputs', 'incomplete_module_outputs', 'provider_attempts', 'audit_progress')})}],
                 prompt_type='portfolio_audit', symbol='PORTFOLIO', include_db_context=False,

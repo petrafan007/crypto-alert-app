@@ -31,6 +31,9 @@ DEFAULT_MASTER_CIO_PROMPT = (
     ENGINE_PURPOSE + "\nYou are the research CIO and operational auditor. Explain the observed paper portfolio, "
     "what each enabled strategy evaluated, what actually filled or exited, and why other entries were blocked. "
     "Assess net results only over the supplied sample; distinguish operational defects from normal waiting. "
+    "Use code-calculated goal_tracking to explain the configured annual target, observed target-equity "
+    "gap and available annualized percentage-point gap. Label the observation period and missing evidence; "
+    "never substitute a legacy target range or imply a short sample validates future CAGR. "
     "Recommend prioritized, testable improvements grounded in recorded data and the configured strategy rules. "
     "MANDATORY FORMAT: Always begin with '## 1. Executive Summary' containing a concise 1 to 2 paragraph narrative TL;DR "
     "explaining: (1) what the user is looking at and current portfolio state, (2) how the strategy engine is performing, "
@@ -249,6 +252,9 @@ class PortfolioMarketObservation(db.Model):
     series = db.Column(db.String(80), nullable=False)
     day = db.Column(db.Date, nullable=False)
     value = db.Column(db.Float, nullable=False)
+    # NULL provenance identifies retained pre-v2.95 observations, not verified history.
+    source = db.Column(db.String(80), nullable=True)
+    observed_at = db.Column(db.DateTime, nullable=True)
     __table_args__ = (db.UniqueConstraint("user_id", "series", "day", name="uq_portfolio_observation_day"),)
 
 

@@ -37,17 +37,24 @@ class PortfolioMarketData:
             raise ValueError('Provider quote does not match the requested instrument.')
         return fresh_quote(raw, now)
 
-    def observe(self, series, value, now):
-        day = utc(now).date()
+    def observe(self, series, value, now, *, source):
+        if source not in ('COINGECKO_GLOBAL', 'WEBULL_OPTION_QUOTES'):
+            raise ValueError('A supported measured observation source is required.')
+        day = utc(now).astimezone(ET).date() if series.startswith('IV:') else utc(now).date()
         row = PortfolioMarketObservation.query.filter_by(user_id=self.user_id, series=series, day=day).first()
         if row is None:
             row = PortfolioMarketObservation(user_id=self.user_id, series=series, day=day, value=value)
             db.session.add(row)
         else:
             row.value = value
+        row.source = source
+        row.observed_at = utc(now).replace(tzinfo=None)
         db.session.commit()
         return PortfolioMarketObservation.query.filter_by(user_id=self.user_id, series=series).filter(
-            PortfolioMarketObservation.day >= day-timedelta(days=370)).order_by(PortfolioMarketObservation.day).all()
+            PortfolioMarketObservation.day >= day-timedelta(days=370),
+            PortfolioMarketObservation.day <= day,
+            PortfolioMarketObservation.source == source,
+            PortfolioMarketObservation.observed_at.isnot(None)).order_by(PortfolioMarketObservation.day).all()
 
     def dominance_ok(self, symbol, now):
         if symbol == 'BTC':
@@ -59,23 +66,11 @@ class PortfolioMarketData:
             data = response.json()['data']
             fresh_quote({'price': 1, 'as_of': data['updated_at']}, now, seconds=3600)
             value = finite(data['market_cap_percentage']['btc'], 'Bitcoin dominance', 0.01, 100)
-            history = self.observe('BTC_DOMINANCE', value, now)
-            previous = [row.value for row in history if row.day < utc(now).date()][-7:]
+            history = self.observe('BTC_DOMINANCE', value, now, source='COINGECKO_GLOBAL')
+            today = utc(now).date()
+            previous = [row.value for row in history if today-timedelta(days=7) <= row.day < today]
             if len(previous) < 7:
-                today = utc(now).date()
-                d = 1
-                while len(previous) < 7 and d <= 30:
-                    backfill_day = today - timedelta(days=d)
-                    existing = PortfolioMarketObservation.query.filter_by(user_id=self.user_id, series='BTC_DOMINANCE', day=backfill_day).first()
-                    if not existing:
-                        db.session.add(PortfolioMarketObservation(user_id=self.user_id, series='BTC_DOMINANCE', day=backfill_day, value=value))
-                        db.session.flush()
-                    d += 1
-                db.session.commit()
-                history = PortfolioMarketObservation.query.filter_by(user_id=self.user_id, series='BTC_DOMINANCE').order_by(PortfolioMarketObservation.day).all()
-                previous = [row.value for row in history if row.day < today][-7:]
-            if len(previous) < 7:
-                raise ValueError('Bitcoin dominance filter needs seven previous daily observations.')
+                raise ValueError(f'Bitcoin dominance warming up: {len(previous)}/7 verified preceding daily observations. Legacy unverified history is retained but excluded; BTC is unaffected.')
             self.cache['dominance'] = value <= sum(previous)/len(previous)
         return self.cache['dominance']
 
@@ -141,7 +136,7 @@ class PortfolioMarketData:
         if not ivs:
             raise ValueError('Provider ATM implied volatility is missing.')
         current = sum(ivs)/len(ivs)
-        history = self.observe('IV:'+symbol, current, now)
+        history = self.observe('IV:'+symbol, current, now, source='WEBULL_OPTION_QUOTES')
         values = [row.value for row in history][-252:]
         rank = 100*(current-min(values))/(max(values)-min(values)) if len(values) >= 252 and max(values)>min(values) else None
         return price, quoted, rank

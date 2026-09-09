@@ -29,6 +29,8 @@ def init_db(app=None):
         
         # Ensure recently added columns exist in PostgreSQL
         columns_to_ensure = [
+            ("portfolio_market_observations", "source", "VARCHAR(80)"),
+            ("portfolio_market_observations", "observed_at", "TIMESTAMP"),
             ("user_settings", "telegram_notifications_enabled", "BOOLEAN DEFAULT TRUE"),
             ("user_settings", "ai_reasoning_level", "VARCHAR DEFAULT 'medium'"),
             ("user_settings", "ai_reasoning_level_fallback", "VARCHAR DEFAULT 'medium'"),

@@ -72,5 +72,6 @@ export function moduleStatusLabel(status) {
   return ({ DISABLED: 'Disabled', SUBSCRIPTION_REQUIRED: 'Subscription required',
     WARMING_UP: 'Warming up', READY: 'Ready', SCANNED: 'Ready', RUNNING: 'Running',
     AWAITING_SCAN: 'Awaiting scan', IDLE: 'Idle', MARKET_CLOSED: 'Market closed',
+    NO_SIGNAL: 'No eligible decision', DEGRADED: 'Degraded',
     DATA_LIMITED: 'Data unavailable' })[status] || 'Awaiting scan';
 }

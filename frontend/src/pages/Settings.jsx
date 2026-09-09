@@ -10,6 +10,9 @@ import { formatEasternDateTime } from '../utils/dateTime';
 const QuantitativeStrategyEngine = React.lazy(() => import('../components/QuantitativeStrategyEngine'));
 import ProviderHealth from '../components/ProviderHealth';
 import PortfolioAuditProgress from '../components/PortfolioAuditProgress';
+import PortfolioGoalTracking from '../components/PortfolioGoalTracking';
+import PortfolioEventCalibration from '../components/PortfolioEventCalibration';
+import PortfolioAuditPolicy from '../components/PortfolioAuditPolicy';
 import { normalizePortfolioAudit, selectPortfolioAudit, auditOutcomeMessage } from '../utils/portfolioAudit.mjs';
 import { reconcileDedicatedAIConfig } from '../utils/dedicatedAIConfig.mjs';
 
@@ -546,7 +549,7 @@ export default function Settings({ isLightMode }) {
   }, [showEventStrategyReport, portfolioAuditPending]);
 
   const DEFAULT_MASTER_CIO_PROMPT =
-    "You are the Quantitative Chief Investment Officer (CIO) and Portfolio Risk Auditor for an autonomous multi-asset trading engine. Your mandate is to evaluate the blended portfolio ($50,000 baseline) across 5 asset classes (Equities & ETFs, Options Strategies, Cryptocurrency Spot, Micro Futures, and Event Contracts). Audit portfolio progress toward the net annual target (16.5%–21.0% CAGR), detect cross-asset correlation spikes, identify whether any asset allocation has drifted beyond target risk weights, and issue strategic capital rebalancing directives. MANDATORY FORMAT: Always begin with '## 1. Executive Summary' containing a concise 1 to 2 paragraph narrative TL;DR explaining: (1) what the user is looking at and current portfolio state, (2) how the strategy engine is performing, (3) any errors, warnings, or data gaps encountered, and (4) actionable suggestions to improve the quantitative strategy engine. Do not begin Section 1 with a table; provide the executive narrative first, followed by supporting tables.";
+    "You are the paper-portfolio research CIO and operational auditor. Use supplied goal_tracking calculations for the configured annual research target, observed target-equity gap, and available annualized gap. Distinguish recorded facts, inferences, missing evidence and controlled experiments. Explain enabled-module operation, actual fills, costs, risk and blockers. A completed report is not proof of strategy health or future CAGR. Begin with '## 1. Executive Summary' and narrative paragraphs before tables.";
 
   const DEFAULT_EVENT_AUDIT_PROMPT =
     'You are a principal quantitative trading auditor and AI reliability engineer. ' +
@@ -566,6 +569,8 @@ export default function Settings({ isLightMode }) {
         const loadedConfig = {
           audit_hours: response.data.audit_hours ?? 6,
           master_ai_prompt: response.data.master_ai_prompt || DEFAULT_MASTER_CIO_PROMPT,
+          default_master_ai_prompt: response.data.default_master_ai_prompt || DEFAULT_MASTER_CIO_PROMPT,
+          audit_prompt_policy: response.data.audit_prompt_policy,
           ai_config: response.data.ai_config || {
             primary: { provider: 'gemini', model: 'gemini-3.8-flash', reasoning_level: 'medium', api_key: '', has_key: false },
             secondary: { provider: 'ollama', model: 'gpt-oss:120b-cloud', reasoning_level: 'medium', api_key: '', has_key: false },
@@ -4131,12 +4136,13 @@ export default function Settings({ isLightMode }) {
                       border: `1px solid ${eventStrategyReport.status === 'SUCCESS' ? '#22c55e' : (eventStrategyReport.status === 'DEGRADED' || eventStrategyReport.status === 'FAILED' ? '#ef4444' : '#eab308')}`,
                       color: eventStrategyReport.status === 'SUCCESS' ? '#4ade80' : (eventStrategyReport.status === 'DEGRADED' || eventStrategyReport.status === 'FAILED' ? '#f87171' : '#fde047'),
                     }}>
-                      {eventStrategyReport.status}
+                      {eventStrategyReport.status === 'SUCCESS' ? 'REPORT COMPLETE' : eventStrategyReport.status}
                     </span>
                   )}
                 </h3>
                 <div style={{ fontSize: '0.82rem', color: isLightMode ? '#64748b' : '#94a3b8', marginTop: 4 }}>
                   Portfolio and enabled-module assessments. Scheduled every {settings.event_strategy_audit_hours || 6} hours; execution state is reported separately.
+                  Report completion does not imply healthy workers or a validated return target.
                 </div>
               </div>
               <button type="button" onClick={() => setShowEventStrategyReport(false)} aria-label="Close report" style={{ background: 'none', border: 'none', color: isLightMode ? '#64748b' : '#94a3b8', fontSize: 20, cursor: 'pointer', padding: 4 }}>✕</button>
@@ -4292,6 +4298,9 @@ export default function Settings({ isLightMode }) {
                     </div>
                   </div>
 
+                  <PortfolioGoalTracking goal={eventStrategyReport.evidence?.goal_tracking} />
+                  <PortfolioEventCalibration calibration={eventStrategyReport.evidence?.event_calibration} />
+
                   {/* Headline Callout with dynamic alert coloring */}
                   {eventStrategyReport.headline && (() => {
                     const style = getHeadlineCalloutStyle(eventStrategyReport.status, isLightMode);
@@ -4435,14 +4444,14 @@ export default function Settings({ isLightMode }) {
 
                       <div>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                          <label style={{ fontSize: '12px', fontWeight: 600, color: isLightMode ? '#334155' : '#e2e8f0' }}>
+                          <label htmlFor="quant-master-audit-prompt" style={{ fontSize: '12px', fontWeight: 600, color: isLightMode ? '#334155' : '#e2e8f0' }}>
                             Master CIO / Auditor System Prompt
                           </label>
                           <button
                             type="button"
                             onClick={() => setEventStrategyAIConfig((prev) => ({
                               ...prev,
-                              master_ai_prompt: DEFAULT_MASTER_CIO_PROMPT,
+                              master_ai_prompt: prev.default_master_ai_prompt || DEFAULT_MASTER_CIO_PROMPT,
                             }))}
                             style={{
                               background: 'none',
@@ -4458,6 +4467,7 @@ export default function Settings({ isLightMode }) {
                           </button>
                         </div>
                         <textarea
+                          id="quant-master-audit-prompt"
                           value={eventStrategyAIConfig.master_ai_prompt || DEFAULT_MASTER_CIO_PROMPT}
                           onChange={(e) => {
                             setEventStrategyAIConfig((prev) => ({
@@ -4483,8 +4493,20 @@ export default function Settings({ isLightMode }) {
                           }}
                         />
                         <span style={{ fontSize: '11px', color: isLightMode ? '#64748b' : '#94a3b8', marginTop: 4, display: 'block' }}>
-                          Guides the AI model's analytical persona, multi-asset correlation tracking, and strategic capital rebalancing directives.
+                          Editable research mandate. Saved custom text is preserved; the configured numeric target and recorded evidence take precedence over legacy ranges or unsupported claims.
                         </span>
+                        <label htmlFor="quant-audit-guidance" style={{ display: 'block', fontSize: 12, fontWeight: 600, marginTop: 16 }}>
+                          Shared goal review &amp; experiment guidance (master and all specialists)
+                        </label>
+                        <textarea
+                          id="quant-audit-guidance"
+                          rows={7}
+                          value={eventStrategyAIConfig.ai_config?.audit_guidance ?? eventStrategyAIConfig.audit_prompt_policy?.default_guidance ?? ''}
+                          onChange={event => setEventStrategyAIConfig(previous => ({ ...previous, ai_config: { ...previous.ai_config, audit_guidance: event.target.value } }))}
+                          style={{ width: '100%', boxSizing: 'border-box', marginTop: 8, padding: 10, borderRadius: 6, background: isLightMode ? '#fff' : '#1e293b', color: 'inherit', border: '1px solid rgba(148,163,184,.3)', fontSize: 12 }}
+                        />
+                        <button type="button" onClick={() => setEventStrategyAIConfig(previous => ({ ...previous, ai_config: { ...previous.ai_config, audit_guidance: previous.audit_prompt_policy?.default_guidance || '' } }))} style={{ background: 'none', border: 0, color: '#38bdf8', cursor: 'pointer' }}>Reset shared guidance to default</button>
+                        <PortfolioAuditPolicy policy={eventStrategyAIConfig.audit_prompt_policy} />
                       </div>
                     </div>
                   </div>

@@ -1305,6 +1305,9 @@ def start_background_jobs(app=None):
     from services.portfolio_engine import portfolio_worker_loop, portfolio_audit_loop
     quant_thread = threading.Thread(target=portfolio_worker_loop, args=(app,), daemon=True, name="quant-paper-worker")
     quant_thread.start()
+    from services.portfolio_event_execution import portfolio_event_worker_loop
+    quant_event_thread = threading.Thread(target=portfolio_event_worker_loop, args=(app,), daemon=True, name="quant-event-handoff")
+    quant_event_thread.start()
     quant_audit_thread = threading.Thread(target=portfolio_audit_loop, args=(app,), daemon=True, name="quant-cio-audits")
     quant_audit_thread.start()
     

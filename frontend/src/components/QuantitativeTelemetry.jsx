@@ -1,6 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 import { moduleStatusLabel } from '../utils/portfolioModules.mjs';
+import PortfolioGoalTracking from './PortfolioGoalTracking';
+import PortfolioEventCalibration from './PortfolioEventCalibration';
+import PortfolioValidation from './PortfolioValidation';
 import { Line } from 'react-chartjs-2';
 import { Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Legend } from 'chart.js';
 
@@ -33,7 +36,7 @@ export default function QuantitativeTelemetry({ onAccount, onStatus, refetchSign
   const performance = status?.performance || {};
   return <section className="quant-master-ribbon quant-telemetry" aria-label="Paper execution and performance">
     <h3>Paper execution &amp; performance</h3>
-    <p>Saved settings govern execution. Five-minute scans · Heartbeat: {date(status?.heartbeat_at)} · Paper run {status?.generation || '—'}</p>
+    <p>Saved settings govern execution. Portfolio scans plus a separate fresh Event-decision handoff · Heartbeat: {date(status?.heartbeat_at)} · Paper run {status?.generation || '—'}</p>
     {error && <p role="alert">{error}</p>}
     {status?.pause_reason && <p className="quant-risk-notice" role="alert">{status.pause_reason}</p>}
     {status?.modules?.error && <p role="alert">{status.modules.error}</p>}
@@ -45,11 +48,13 @@ export default function QuantitativeTelemetry({ onAccount, onStatus, refetchSign
         ['Win rate', metric(performance.win_rate_pct, '%')], ['Maximum drawdown', metric(performance.max_drawdown_pct, '%')],
       ].map(([label, value]) => <div key={label}><small>{label}</small><strong>{value}</strong></div>)}
     </div>
-    <p>Returns include simulated fees and slippage. Annualization needs 30 elapsed days; ratios need 30 daily returns. Return targets are research objectives.</p>
-    {curve.length > 1 ? <div className="quant-equity-chart"><Line data={{
+    <p>Returns include simulated fees and slippage. Annualization needs 30 elapsed days; ratios need 30 daily returns. These are calculation thresholds, not strategy validation or implemented stress tests. Return targets are research objectives.</p>
+    <PortfolioGoalTracking goal={status?.goal_tracking} />
+    {!status?.goal_tracking && (curve.length > 1 ? <div className="quant-equity-chart"><Line data={{
       labels: curve.map(p => date(p.time)), datasets: [{ label: 'Paper equity', data: curve.map(p => p.equity), borderColor: '#38bdf8', pointRadius: 0, borderWidth: 2 },
         { label: 'Cash', data: curve.map(p => p.cash), borderColor: '#a78bfa', pointRadius: 0, borderWidth: 1 }],
-    }} options={{ responsive: true, maintainAspectRatio: false, animation: false, scales: { x: { ticks: { maxTicksLimit: 6 } } } }} /></div> : <p>The equity curve begins when the paper engine starts.</p>}
+    }} options={{ responsive: true, maintainAspectRatio: false, animation: false, scales: { x: { ticks: { maxTicksLimit: 6 } } } }} /></div> : <p>The equity curve begins when the paper engine starts.</p>)}
+    <PortfolioEventCalibration calibration={status?.event_calibration} />
     <h4>Module health</h4>
     <div className="quant-module-health">{['equities', 'options', 'crypto', 'futures', 'events'].map(module => <details key={module}>
       <summary>{module.toUpperCase()} · {moduleStatusLabel(status?.modules?.[module]?.status)}</summary>
@@ -72,5 +77,6 @@ export default function QuantitativeTelemetry({ onAccount, onStatus, refetchSign
     <div className="quant-table-scroll"><table><thead><tr><th>Module</th><th>Target</th><th>Deployed capital</th><th>Drift</th><th>Available</th><th>Signal</th></tr></thead><tbody>
       {(status?.rebalance || []).map(r => <tr key={r.module}><td>{r.module}</td><td>{metric(r.target_pct, '%')}</td><td>{metric(r.actual_pct, '%')}</td><td>{metric(r.drift_pct, ' pp')}</td><td>{money(r.available_capital)}</td><td>{r.signal.replaceAll('_', ' ')}</td></tr>)}
     </tbody></table></div>
+    <PortfolioValidation />
   </section>;
 }

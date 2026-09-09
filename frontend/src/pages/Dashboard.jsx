@@ -215,7 +215,7 @@ function Dashboard({ isLightMode }) {
           return parsed;
         }
       }
-    } catch (e) {}
+    } catch (e) { }
     return [...PORTFOLIO_DEFAULT_COLUMNS];
   });
 
@@ -230,7 +230,7 @@ function Dashboard({ isLightMode }) {
           return ['symbol', ...filtered, 'actions'];
         }
       }
-    } catch (e) {}
+    } catch (e) { }
     return [...PORTFOLIO_DEFAULT_COLUMNS];
   });
 
@@ -246,7 +246,7 @@ function Dashboard({ isLightMode }) {
           return parsed;
         }
       }
-    } catch (e) {}
+    } catch (e) { }
     return {};
   });
 
@@ -263,7 +263,7 @@ function Dashboard({ isLightMode }) {
           return parsed;
         }
       }
-    } catch (e) {}
+    } catch (e) { }
     return [...WATCHLIST_DEFAULT_COLUMNS];
   });
 
@@ -278,7 +278,7 @@ function Dashboard({ isLightMode }) {
           return ['symbol', ...filtered, 'actions'];
         }
       }
-    } catch (e) {}
+    } catch (e) { }
     return [...WATCHLIST_DEFAULT_COLUMNS];
   });
 
@@ -294,7 +294,7 @@ function Dashboard({ isLightMode }) {
           return parsed;
         }
       }
-    } catch (e) {}
+    } catch (e) { }
     return {};
   });
 
@@ -543,7 +543,7 @@ function Dashboard({ isLightMode }) {
         localStorage.setItem('crypto_performance_hidden_coins_persistent', JSON.stringify(parsed));
         return parsed;
       }
-    } catch (e) {}
+    } catch (e) { }
     return [];
   });
   const [performanceCoinDraft, setPerformanceCoinDraft] = useState([]);
@@ -563,7 +563,7 @@ function Dashboard({ isLightMode }) {
             : ['FILLED', 'NEW', 'CANCELED', 'PARTIALLY_FILLED']
         };
       }
-    } catch (e) {}
+    } catch (e) { }
     return {
       maxOrders: 5,
       statusFilters: ['FILLED', 'NEW', 'CANCELED', 'PARTIALLY_FILLED']
@@ -581,7 +581,7 @@ function Dashboard({ isLightMode }) {
         const parsed = JSON.parse(saved);
         return { count: Math.max(3, Math.min(50, parseInt(parsed.count, 10) || 10)) };
       }
-    } catch (e) {}
+    } catch (e) { }
     return { count: 10 };
   });
   const [topMoversDraftCount, setTopMoversDraftCount] = useState(10);
@@ -595,7 +595,7 @@ function Dashboard({ isLightMode }) {
         const parsed = JSON.parse(saved);
         return { count: Math.max(3, Math.min(50, parseInt(parsed.count, 10) || 10)) };
       }
-    } catch (e) {}
+    } catch (e) { }
     return { count: 10 };
   });
   const [topStockMoversDraftCount, setTopStockMoversDraftCount] = useState(10);
@@ -638,7 +638,7 @@ function Dashboard({ isLightMode }) {
         if (confirmation !== undefined && confirmation !== null && confirmation !== '') {
           setAutomatedTriggerConfirmationMinutes(parseInt(confirmation, 10) || 15);
         }
-      } catch (e) {}
+      } catch (e) { }
     };
     fetchSettings();
   }, []);
@@ -1368,11 +1368,11 @@ function Dashboard({ isLightMode }) {
     const estimatedHeight = type === 'portfolio' ? 390 : 270;
     const position = rect && !isMobile
       ? {
-          left: Math.max(8, Math.min(rect.right - menuWidth, window.innerWidth - menuWidth - 8)),
-          top: rect.bottom + estimatedHeight <= window.innerHeight - 8
-            ? rect.bottom + 6
-            : Math.max(8, Math.min(rect.top, window.innerHeight - estimatedHeight - 8)),
-        }
+        left: Math.max(8, Math.min(rect.right - menuWidth, window.innerWidth - menuWidth - 8)),
+        top: rect.bottom + estimatedHeight <= window.innerHeight - 8
+          ? rect.bottom + 6
+          : Math.max(8, Math.min(rect.top, window.innerHeight - estimatedHeight - 8)),
+      }
       : null;
     setOpenActionMenu(prev =>
       prev.type === type && prev.key === key
@@ -1807,7 +1807,7 @@ function Dashboard({ isLightMode }) {
             setAccountTotals(accountSummaryResponse.value.data?.totals || { all: 0, binance: 0, webull: 0 });
           }
 
-              // Refresh pending orders; row matching below remains provider-aware.
+          // Refresh pending orders; row matching below remains provider-aware.
           // Refresh pending orders; row matching below remains provider-aware.
           if (ordersResponse.status === 'fulfilled' && ordersResponse.value?.data?.pending_orders) {
             const refreshedPendingOrders = ordersResponse.value.data.pending_orders || [];
@@ -2296,7 +2296,7 @@ function Dashboard({ isLightMode }) {
         const result = ['symbol', ...list.filter(c => c !== 'symbol' && c !== 'actions'), 'actions'];
         try {
           localStorage.setItem('crypto_portfolio_column_order', JSON.stringify(result));
-        } catch (err) {}
+        } catch (err) { }
         return result;
       });
     } else {
@@ -2310,7 +2310,7 @@ function Dashboard({ isLightMode }) {
         const result = ['symbol', ...list.filter(c => c !== 'symbol' && c !== 'actions'), 'actions'];
         try {
           localStorage.setItem('crypto_watchlist_column_order', JSON.stringify(result));
-        } catch (err) {}
+        } catch (err) { }
         return result;
       });
     }
@@ -2358,7 +2358,7 @@ function Dashboard({ isLightMode }) {
           const next = { ...prev, [colKey]: latestWidth };
           try {
             localStorage.setItem('crypto_portfolio_column_widths', JSON.stringify(next));
-          } catch (err) {}
+          } catch (err) { }
           return next;
         });
       } else {
@@ -2366,7 +2366,7 @@ function Dashboard({ isLightMode }) {
           const next = { ...prev, [colKey]: latestWidth };
           try {
             localStorage.setItem('crypto_watchlist_column_widths', JSON.stringify(next));
-          } catch (err) {}
+          } catch (err) { }
           return next;
         });
       }
@@ -2390,12 +2390,12 @@ function Dashboard({ isLightMode }) {
       });
       try {
         localStorage.setItem('crypto_portfolio_column_order', JSON.stringify(order));
-      } catch (err) {}
+      } catch (err) { }
       return order;
     });
     try {
       localStorage.setItem('crypto_portfolio_visible_columns', JSON.stringify(newCols));
-    } catch (err) {}
+    } catch (err) { }
   };
 
   const handleResetPortfolioColumns = () => {
@@ -2406,7 +2406,7 @@ function Dashboard({ isLightMode }) {
       localStorage.removeItem('crypto_portfolio_visible_columns');
       localStorage.removeItem('crypto_portfolio_column_order');
       localStorage.removeItem('crypto_portfolio_column_widths');
-    } catch (err) {}
+    } catch (err) { }
   };
 
   const handleSaveWatchlistColumns = (newCols) => {
@@ -2422,12 +2422,12 @@ function Dashboard({ isLightMode }) {
       });
       try {
         localStorage.setItem('crypto_watchlist_column_order', JSON.stringify(order));
-      } catch (err) {}
+      } catch (err) { }
       return order;
     });
     try {
       localStorage.setItem('crypto_watchlist_visible_columns', JSON.stringify(newCols));
-    } catch (err) {}
+    } catch (err) { }
   };
 
   const handleResetWatchlistColumns = () => {
@@ -2438,7 +2438,7 @@ function Dashboard({ isLightMode }) {
       localStorage.removeItem('crypto_watchlist_visible_columns');
       localStorage.removeItem('crypto_watchlist_column_order');
       localStorage.removeItem('crypto_watchlist_column_widths');
-    } catch (err) {}
+    } catch (err) { }
   };
 
   // Cancel order handlers
@@ -2509,10 +2509,10 @@ function Dashboard({ isLightMode }) {
           setCancelModalState({ isOpen: false, coin: null, order: null, loading: false, error: null });
 
           // Background refresh
-          axios.get('/api/coin-data-live').then(r => r.data?.portfolio && setPortfolio(r.data.portfolio)).catch(() => {});
+          axios.get('/api/coin-data-live').then(r => r.data?.portfolio && setPortfolio(r.data.portfolio)).catch(() => { });
           {
             const wFetchId = nextWatchlistFetchId();
-            axios.get('/api/watchlist-live', { withCredentials: true }).then(r => Array.isArray(r.data) && applyWatchlistUpdate(r.data, wFetchId)).catch(() => {});
+            axios.get('/api/watchlist-live', { withCredentials: true }).then(r => Array.isArray(r.data) && applyWatchlistUpdate(r.data, wFetchId)).catch(() => { });
           }
           return { success: true };
         } else {
@@ -2534,10 +2534,10 @@ function Dashboard({ isLightMode }) {
           setCancelModalState({ isOpen: false, coin: null, order: null, loading: false, error: null });
 
           // Background refresh
-          axios.get('/api/coin-data-live').then(r => r.data?.portfolio && setPortfolio(r.data.portfolio)).catch(() => {});
+          axios.get('/api/coin-data-live').then(r => r.data?.portfolio && setPortfolio(r.data.portfolio)).catch(() => { });
           {
             const wFetchId = nextWatchlistFetchId();
-            axios.get('/api/watchlist-live', { withCredentials: true }).then(r => Array.isArray(r.data) && applyWatchlistUpdate(r.data, wFetchId)).catch(() => {});
+            axios.get('/api/watchlist-live', { withCredentials: true }).then(r => Array.isArray(r.data) && applyWatchlistUpdate(r.data, wFetchId)).catch(() => { });
           }
           return { success: true };
         } else {
@@ -2579,8 +2579,8 @@ function Dashboard({ isLightMode }) {
           setCancelModalState({ isOpen: false, coin: null, order: null, loading: false, error: null });
 
           // Background refresh
-          axios.get('/api/coin-data-live').then(r => r.data?.portfolio && setPortfolio(r.data.portfolio)).catch(() => {});
-          axios.get('/api/pending-orders', { withCredentials: true }).then(r => r.data?.pending_orders && setPendingOrders(r.data.pending_orders)).catch(() => {});
+          axios.get('/api/coin-data-live').then(r => r.data?.portfolio && setPortfolio(r.data.portfolio)).catch(() => { });
+          axios.get('/api/pending-orders', { withCredentials: true }).then(r => r.data?.pending_orders && setPendingOrders(r.data.pending_orders)).catch(() => { });
 
           return { success: true };
         } else {
@@ -3926,18 +3926,18 @@ function Dashboard({ isLightMode }) {
     if (!symbol) return;
     const cleanSymbol = String(symbol).toUpperCase().trim();
     if (['USD', 'USDT', 'USDC', 'BUSD', 'DAI', 'TUSD', 'USDP'].includes(cleanSymbol)) return;
-    
+
     const itemKey = typeof target === 'object' ? getItemIdentityKey(target, isWatchlist) : `${isWatchlist ? 'watchlist' : 'binance'}:${cleanSymbol}`;
 
     // Find initial timestamp so we know when a fresh analysis has landed
     const currentCoin = isWatchlist
       ? watchlist.find(x => (x.symbol || '').toUpperCase() === cleanSymbol)
       : portfolio.find(x => {
-          if (externalHolding) {
-            return (x.id && externalHolding.id && x.id === externalHolding.id) || ((x.source === 'webull' || x.is_external) && (x.symbol || '').toUpperCase() === cleanSymbol);
-          }
-          return !(x.source === 'webull' || x.is_external) && (x.symbol || '').toUpperCase() === cleanSymbol;
-        });
+        if (externalHolding) {
+          return (x.id && externalHolding.id && x.id === externalHolding.id) || ((x.source === 'webull' || x.is_external) && (x.symbol || '').toUpperCase() === cleanSymbol);
+        }
+        return !(x.source === 'webull' || x.is_external) && (x.symbol || '').toUpperCase() === cleanSymbol;
+      });
     const initialLastUpdated = currentCoin?.sentiment_last_updated || null;
 
     setRefreshingSentiment(prev => ({ ...prev, [itemKey]: true }));
@@ -3976,7 +3976,7 @@ function Dashboard({ isLightMode }) {
       }
       return;
     }
-    
+
     // Optimistically update local state to "Checking now..."
     if (isWatchlist) {
       setWatchlist(prev => prev.map(item => (item.symbol || '').toUpperCase() === cleanSymbol ? { ...item, sentiment: 'Checking now...' } : item));
@@ -4010,7 +4010,7 @@ function Dashboard({ isLightMode }) {
               if (found) {
                 const isFinished = (found.sentiment_last_updated && found.sentiment_last_updated !== initialLastUpdated && found.sentiment !== 'Checking now...')
                   || (attempts > 6 && found.sentiment !== 'Checking now...' && found.sentiment !== 'Watch');
-                
+
                 if (found.sentiment === 'Checking now...' || !isFinished) {
                   applyWatchlistUpdate(res.data.map(item => (item.symbol || '').toUpperCase() === cleanSymbol ? { ...item, sentiment: 'Checking now...' } : item), wFetchId);
                 } else {
@@ -4066,9 +4066,9 @@ function Dashboard({ isLightMode }) {
           // Final fetch
           if (isWatchlist) {
             const wFetchId = nextWatchlistFetchId();
-            axios.get('/api/watchlist-live', { withCredentials: true }).then(r => r.data && applyWatchlistUpdate(r.data, wFetchId)).catch(() => {});
+            axios.get('/api/watchlist-live', { withCredentials: true }).then(r => r.data && applyWatchlistUpdate(r.data, wFetchId)).catch(() => { });
           } else {
-            axios.get('/api/coin-data-live').then(r => r.data?.portfolio && setPortfolio(r.data.portfolio)).catch(() => {});
+            axios.get('/api/coin-data-live').then(r => r.data?.portfolio && setPortfolio(r.data.portfolio)).catch(() => { });
           }
         }
       }, 2000);
@@ -4138,7 +4138,7 @@ function Dashboard({ isLightMode }) {
       : '';
     const reason = cleanReason;
     const lastUpdated = coin.sentiment_last_updated ? `Last Updated: ${formatLocalDateTime(coin.sentiment_last_updated)}` : '';
-    
+
     const metaParts = [];
     if (coin.sentiment_tier || coin.sentiment_provider || coin.sentiment_model) {
       metaParts.push(`Tier: ${getTierDisplayName(coin.sentiment_tier)}`);
@@ -4204,7 +4204,7 @@ function Dashboard({ isLightMode }) {
         tooltipSections.push(metaInfo);
       }
     }
-    
+
     tooltip = tooltipSections.length > 0 ? tooltipSections.join('\n\n') : 'No sentiment explanation available';
 
     let color = isWatchlist ? '#63b3ed' : '#ecc94b';
@@ -4449,121 +4449,121 @@ function Dashboard({ isLightMode }) {
       <div className={`dashboard-widgets-section ${isMobile && mobileTab !== 'charts' ? 'mobile-hidden' : ''}`}>
         <DashboardWidgetGrid
           isLightMode={isLightMode}
-        renderWidgetContent={(widgetId) => {
-          switch (widgetId) {
-            case 'allocations':
-              return (
-                <div className="chart-panel widget-panel-inner" style={{ height: '100%', padding: '16px', display: 'flex', flexDirection: 'column' }}>
-                  <h2 className="chart-title" style={{ margin: '0 0 12px 0', fontSize: '1.1rem' }}>Allocations</h2>
-                  <div style={{ flex: 1, minHeight: '260px', width: '100%' }}>
-                    <PortfolioPie portfolio={scopedPortfolio} isLightMode={isLightMode} totalValue={scopedTotalValue} onCoinClick={handleCoinClick} />
+          renderWidgetContent={(widgetId) => {
+            switch (widgetId) {
+              case 'allocations':
+                return (
+                  <div className="chart-panel widget-panel-inner" style={{ height: '100%', padding: '16px', display: 'flex', flexDirection: 'column' }}>
+                    <h2 className="chart-title" style={{ margin: '0 0 12px 0', fontSize: '1.1rem' }}>Allocations</h2>
+                    <div style={{ flex: 1, minHeight: '260px', width: '100%' }}>
+                      <PortfolioPie portfolio={scopedPortfolio} isLightMode={isLightMode} totalValue={scopedTotalValue} onCoinClick={handleCoinClick} />
+                    </div>
                   </div>
-                </div>
-              );
-            case 'trend':
-              return (
-                <div className="chart-panel widget-panel-inner" style={{ height: '100%', padding: '16px', display: 'flex', flexDirection: 'column' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                    <h2 className="chart-title" style={{ margin: 0, fontSize: '1.1rem' }}>Portfolio Trend</h2>
-                    <button
-                      type="button"
-                      className="widget-edit-btn"
-                      title="Choose displayed portfolio trend ranges"
-                      aria-label="Customize portfolio trend ranges"
-                      onClick={() => { setTrendRangeDraft(visibleTrendRangeKeys); setShowTrendRangeModal(true); }}
-                    >
-                      ✏️
-                    </button>
-                  </div>
-                  <div style={{ flex: 1, minHeight: '220px', width: '100%' }}>
-                    {trendLoading || trendHistoryRange !== trendRange ? (
-                      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%', color: '#94a3b8' }}>
-                        Loading trend...
-                      </div>
-                    ) : (
-                      <PortfolioTrend key={`${trendRange}-${accountScope}`} history={trendHistory} range={trendRange} isLightMode={isLightMode} />
-                    )}
-                  </div>
-                  <div className="time-range-container portfolio-trend-ranges">
-                    {TREND_RANGES.filter(range => visibleTrendRangeKeys.includes(range.key)).map(range => (
+                );
+              case 'trend':
+                return (
+                  <div className="chart-panel widget-panel-inner" style={{ height: '100%', padding: '16px', display: 'flex', flexDirection: 'column' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                      <h2 className="chart-title" style={{ margin: 0, fontSize: '1.1rem' }}>Portfolio Trend</h2>
                       <button
-                        key={range.key}
-                        onClick={() => setTrendRange(range.key)}
-                        className={`time-range-btn ${trendRange === range.key ? 'active' : ''}`}
+                        type="button"
+                        className="widget-edit-btn"
+                        title="Choose displayed portfolio trend ranges"
+                        aria-label="Customize portfolio trend ranges"
+                        onClick={() => { setTrendRangeDraft(visibleTrendRangeKeys); setShowTrendRangeModal(true); }}
                       >
-                        {range.label}
+                        ✏️
                       </button>
-                    ))}
-                  </div>
-                </div>
-              );
-            case 'fear_greed':
-              return <FearGreedWidget />;
-            case 'portfolio_value':
-              return (
-                <div className="portfolio-value-widget-card widget-panel-inner" style={{ padding: '20px', height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center' }}>
-                  <div style={{ marginBottom: '14px', textAlign: 'center' }}>
-                    <h3 style={{ margin: '0 0 4px 0', fontSize: '16px', fontWeight: '600', color: 'var(--text-primary, #ffffff)' }}>
-                      Portfolio Value
-                    </h3>
-                    <small style={{ fontSize: '12px', color: 'var(--text-secondary, #94a3b8)', display: 'block' }}>
-                      Total Holdings (incl. staking & pending)
-                    </small>
-                  </div>
-                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px', flex: 1, justifyContent: 'center' }}>
-                    <div style={{ fontSize: '32px', fontWeight: 'bold', color: 'var(--primary-color, #38bdf8)', textAlign: 'center' }}>
-                      ${Number(scopedTotalValue || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </div>
-                    <div style={{ fontSize: '12px', color: 'var(--text-secondary, #94a3b8)', opacity: '0.85', textAlign: 'center' }}>
-                      {accountScope === 'all' ? 'All connected accounts' : accountScope === 'binance' ? 'Binance.US, including staking balances' : 'Webull imported account value'} · Last updated: {formatEasternTime(new Date(), { second: undefined, timeZoneName: 'short' })}
+                    <div style={{ flex: 1, minHeight: '220px', width: '100%' }}>
+                      {trendLoading || trendHistoryRange !== trendRange ? (
+                        <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%', color: '#94a3b8' }}>
+                          Loading trend...
+                        </div>
+                      ) : (
+                        <PortfolioTrend key={`${trendRange}-${accountScope}`} history={trendHistory} range={trendRange} isLightMode={isLightMode} />
+                      )}
+                    </div>
+                    <div className="time-range-container portfolio-trend-ranges">
+                      {TREND_RANGES.filter(range => visibleTrendRangeKeys.includes(range.key)).map(range => (
+                        <button
+                          key={range.key}
+                          onClick={() => setTrendRange(range.key)}
+                          className={`time-range-btn ${trendRange === range.key ? 'active' : ''}`}
+                        >
+                          {range.label}
+                        </button>
+                      ))}
                     </div>
                   </div>
-                </div>
-              );
-            case 'cbbi':
-              return <CBBIWidget />;
-            case 'staking':
-              return <StakingSummaryWidget />;
-            case 'performance':
-              return (
-                <PortfolioPerformanceTable
-                  hiddenCoins={performanceHiddenCoins}
-                  excludeSymbols={accountScope === 'binance' ? traditionalSymbols : null}
-                  onEdit={handleOpenPerformanceCoinModal}
-                  onCoinClick={handleCoinClick}
-                  accountScope={accountScope}
-                />
-              );
-            case 'top_movers':
-              return <TopMoversWidget isLightMode={isLightMode} config={topMoversConfig} onEdit={handleOpenTopMoversModal} ownedSymbols={ownedSymbols} onCoinClick={(symbol) => navigateToTrading(symbol, 'BUY', 'USDT')} />;
-            case 'top_stock_movers':
-              return <TopStockMoversWidget
-                isLightMode={isLightMode}
-                config={topStockMoversConfig}
-                onEdit={handleOpenTopStockMoversModal}
-                ownedSymbols={ownedStockSymbols}
-                onStockClick={(symbol) => navigateToWebullTrading(symbol, 'BUY', null, {
-                  instrumentType: 'EQUITY',
-                  accountPreference: 'individual_cash',
-                })}
-              />;
-            case 'recent_trades':
-              return <RecentTradesWidget isLightMode={isLightMode} config={recentTradesConfig} onEdit={handleOpenRecentTradesModal} onCoinClick={handleCoinClick} accountScope={accountScope} />;
-            case 'ai_pulse':
-              return <AIPulseWidget isLightMode={isLightMode} />;
-            case 'staking_rewards':
-              return <StakingYieldWidget isLightMode={isLightMode} />;
-            case 'risk_monitor':
-              return <RiskMonitorWidget isLightMode={isLightMode} portfolio={scopedPortfolio} totalValue={scopedTotalValue} />;
-            case 'quick_trade':
-              return <QuickTradeWidget isLightMode={isLightMode} portfolio={scopedPortfolio} accountScope={accountScope} />;
-            case 'gas_monitor':
-              return <GasMonitorWidget isLightMode={isLightMode} />;
-            default:
-              return null;
-          }
-        }}
-      />
+                );
+              case 'fear_greed':
+                return <FearGreedWidget />;
+              case 'portfolio_value':
+                return (
+                  <div className="portfolio-value-widget-card widget-panel-inner" style={{ padding: '20px', height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center' }}>
+                    <div style={{ marginBottom: '14px', textAlign: 'center' }}>
+                      <h3 style={{ margin: '0 0 4px 0', fontSize: '16px', fontWeight: '600', color: 'var(--text-primary, #ffffff)' }}>
+                        Portfolio Value
+                      </h3>
+                      <small style={{ fontSize: '12px', color: 'var(--text-secondary, #94a3b8)', display: 'block' }}>
+                        Total Holdings (incl. staking & pending)
+                      </small>
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px', flex: 1, justifyContent: 'center' }}>
+                      <div style={{ fontSize: '32px', fontWeight: 'bold', color: 'var(--primary-color, #38bdf8)', textAlign: 'center' }}>
+                        ${Number(scopedTotalValue || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </div>
+                      <div style={{ fontSize: '12px', color: 'var(--text-secondary, #94a3b8)', opacity: '0.85', textAlign: 'center' }}>
+                        {accountScope === 'all' ? 'All connected accounts' : accountScope === 'binance' ? 'Binance.US, including staking balances' : 'Webull imported account value'} · Last updated: {formatEasternTime(new Date(), { second: undefined, timeZoneName: 'short' })}
+                      </div>
+                    </div>
+                  </div>
+                );
+              case 'cbbi':
+                return <CBBIWidget />;
+              case 'staking':
+                return <StakingSummaryWidget />;
+              case 'performance':
+                return (
+                  <PortfolioPerformanceTable
+                    hiddenCoins={performanceHiddenCoins}
+                    excludeSymbols={accountScope === 'binance' ? traditionalSymbols : null}
+                    onEdit={handleOpenPerformanceCoinModal}
+                    onCoinClick={handleCoinClick}
+                    accountScope={accountScope}
+                  />
+                );
+              case 'top_movers':
+                return <TopMoversWidget isLightMode={isLightMode} config={topMoversConfig} onEdit={handleOpenTopMoversModal} ownedSymbols={ownedSymbols} onCoinClick={(symbol) => navigateToTrading(symbol, 'BUY', 'USDT')} />;
+              case 'top_stock_movers':
+                return <TopStockMoversWidget
+                  isLightMode={isLightMode}
+                  config={topStockMoversConfig}
+                  onEdit={handleOpenTopStockMoversModal}
+                  ownedSymbols={ownedStockSymbols}
+                  onStockClick={(symbol) => navigateToWebullTrading(symbol, 'BUY', null, {
+                    instrumentType: 'EQUITY',
+                    accountPreference: 'individual_cash',
+                  })}
+                />;
+              case 'recent_trades':
+                return <RecentTradesWidget isLightMode={isLightMode} config={recentTradesConfig} onEdit={handleOpenRecentTradesModal} onCoinClick={handleCoinClick} accountScope={accountScope} />;
+              case 'ai_pulse':
+                return <AIPulseWidget isLightMode={isLightMode} />;
+              case 'staking_rewards':
+                return <StakingYieldWidget isLightMode={isLightMode} />;
+              case 'risk_monitor':
+                return <RiskMonitorWidget isLightMode={isLightMode} portfolio={scopedPortfolio} totalValue={scopedTotalValue} />;
+              case 'quick_trade':
+                return <QuickTradeWidget isLightMode={isLightMode} portfolio={scopedPortfolio} accountScope={accountScope} />;
+              case 'gas_monitor':
+                return <GasMonitorWidget isLightMode={isLightMode} />;
+              default:
+                return null;
+            }
+          }}
+        />
       </div>
 
       {/* Tables Section */}
@@ -4862,10 +4862,10 @@ function Dashboard({ isLightMode }) {
                               const pnl = isExternal && coin.webull_unrealized_pnl !== undefined && coin.webull_unrealized_pnl !== null
                                 ? Number(coin.webull_unrealized_pnl)
                                 : (coin.current_price && coin.avg_entry && coin.amount)
-                                ? (coin.amount * (coin.current_price - coin.avg_entry))
-                                : (coin.current_value !== undefined && coin.cost_basis !== undefined && coin.cost_basis > 0)
-                                  ? (coin.current_value - coin.cost_basis)
-                                  : null;
+                                  ? (coin.amount * (coin.current_price - coin.avg_entry))
+                                  : (coin.current_value !== undefined && coin.cost_basis !== undefined && coin.cost_basis > 0)
+                                    ? (coin.current_value - coin.cost_basis)
+                                    : null;
                               return (
                                 <td
                                   key="pnl_usd"

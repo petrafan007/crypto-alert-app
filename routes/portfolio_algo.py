@@ -16,6 +16,7 @@ from portfolio_algo_models import (
     PortfolioEquitySnapshot, PortfolioAudit, PortfolioEngineLog
 )
 from services import portfolio_engine as engine
+from services.portfolio_audit_context import audit_prompt_policy, DEFAULT_AUDIT_GUIDANCE
 
 portfolio_algo_bp = Blueprint('portfolio_algo', __name__)
 
@@ -104,6 +105,7 @@ def config_dict(cfg):
 def portfolio_algo_get_config():
     cfg, acc, state = engine.ensure_portfolio(current_user.id)
     return jsonify(success=True, config=config_dict(cfg), account=engine.portfolio_status(current_user.id)['account'],
+                   audit_prompt_policy=audit_prompt_policy(),
                    defaults={'allocations': DEFAULT_ALLOCATIONS, 'watchlists': DEFAULT_QUANT_WATCHLISTS,
                              'module_settings': DEFAULT_MODULE_SETTINGS, 'master_ai_prompt': DEFAULT_MASTER_CIO_PROMPT,
                              'total_bankroll': 50000, 'target_annual_return': 18.5})
@@ -136,6 +138,23 @@ def portfolio_algo_data_check():
     from services.portfolio_readiness import check_data_access
     cfg, _, _ = engine.ensure_portfolio(current_user.id)
     return jsonify(success=True, modules=check_data_access(cfg))
+
+
+@portfolio_algo_bp.route('/api/webull/portfolio-algo/validation', methods=['POST'])
+@portfolio_admin_required
+def portfolio_algo_validation():
+    """Bounded administrator replay only: no inference, broker calls or ledger writes."""
+    if request.content_length is None or request.content_length > 5 * 1024 * 1024:
+        raise ValueError('Historical validation requires a JSON upload no larger than 5 MiB.')
+    data = payload()
+    from services.portfolio_validation import run_validation
+    cfg, _, _ = engine.ensure_portfolio(current_user.id)
+    module = data.get('module')
+    if module not in ('equities', 'crypto'):
+        raise ValueError('Historical replay currently supports equities or crypto only.')
+    result = run_validation(data, engine.settings_for(cfg)[module], engine.allocations_for(cfg)[module],
+                            cfg.total_bankroll, cfg.target_annual_return)
+    return jsonify(success=True, validation=result)
 
 
 @portfolio_algo_bp.route('/api/webull/portfolio-algo/reset-bankroll', methods=['POST'])
@@ -296,7 +315,9 @@ def portfolio_algo_ai_config():
     user_setting = UserSetting.query.filter_by(user_id=current_user.id).first()
 
     if request.method == "POST":
-        payload = request.get_json(silent=True) or {}
+        payload = request.get_json(silent=True)
+        if not isinstance(payload, dict):
+            raise ValueError('A JSON object is required.')
         if "audit_hours" in payload and user_setting:
             try:
                 user_setting.event_strategy_audit_hours = max(1, min(72, int(payload["audit_hours"])))
@@ -314,9 +335,13 @@ def portfolio_algo_ai_config():
             except json.JSONDecodeError:
                 existing_ai = {}
             new_ai = payload["ai_config"]
+            if 'audit_guidance' in new_ai and (not isinstance(new_ai['audit_guidance'], str) or len(new_ai['audit_guidance']) > 12000):
+                raise ValueError('Shared audit guidance must be text of at most 12000 characters.')
             validate_master_ai_config(new_ai)
             from credential_security import encrypt_secret
             merged_ai = existing_ai.copy()
+            if 'audit_guidance' in new_ai:
+                merged_ai['audit_guidance'] = new_ai['audit_guidance'].strip()
             for tier in ("primary", "secondary", "tertiary"):
                 new_tier = new_ai.get(tier) or {}
                 old_tier = existing_ai.get(tier) or {}
@@ -346,11 +371,15 @@ def portfolio_algo_ai_config():
     audit_hours = getattr(user_setting, "event_strategy_audit_hours", 6) if user_setting else 6
     
     from routes.event_algo import sanitize_event_ai_config
+    sanitized_ai = sanitize_event_ai_config(cfg.master_ai_config or "{}")
+    sanitized_ai['audit_guidance'] = engine.loads(cfg.master_ai_config, {}).get('audit_guidance', DEFAULT_AUDIT_GUIDANCE)
     return jsonify({
         "success": True,
         "audit_hours": audit_hours,
         "master_ai_prompt": cfg.master_ai_prompt,
-        "ai_config": sanitize_event_ai_config(cfg.master_ai_config or "{}"),
+        "default_master_ai_prompt": DEFAULT_MASTER_CIO_PROMPT,
+        "audit_prompt_policy": audit_prompt_policy(),
+        "ai_config": sanitized_ai,
     })
 
 

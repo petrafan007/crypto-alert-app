@@ -6,6 +6,18 @@
 
 **Last Updated**: September 2026
 
+## v2.95.0 (September 2026)
+
+- Added calculated progress toward the saved annual return target: compounded target equity, dollar/percentage gaps, annualized percentage-point gap, rolling returns, module contributions, capital utilization and observation coverage in telemetry and new audit evidence.
+- Added a timely, independently scheduled Event decision handoff with fresh exact-contract quote revalidation, paper-ledger locking, duplicate protection and recorded fill/rejection/missed/held reasons. Empty decision lookups no longer certify healthy upstream data.
+- Fixed repeated circuit-breaker checks invalidating the worker managing existing positions. New-entry pauses preserve risk management; an explicit Stop still freezes execution.
+- Removed fabricated Bitcoin-dominance history. Additive observation provenance retains old rows but excludes unverified history from dominance and IV warm-up calculations; BTC remains eligible independently of altcoin warm-up.
+- Added observed Event probability calibration against verified settlements, deduplicated by contract and including no-trade forecasts, with a contemporaneous market-midpoint comparison and explicit sample limitations.
+- Added bounded administrator historical replay for equities/crypto using shared paper execution math, chronological development/held-out windows and explicit cost, latency and missed-fill scenarios. Uploaded data are not certified; this is not a full multi-asset portfolio backtest.
+- Surfaced new editable shared audit guidance in Master AI Configuration and displayed mandatory evidence rules in master/module settings. Existing custom prompts are preserved; saved numeric target and recorded facts govern the audit.
+
+See [Quantitative Strategy Engine](docs/quantitative_strategy_engine.md) for upgrade effects, validation input requirements and remaining research limitations.
+
 ## v2.94.8 (September 2026)
 
 - Added a live, approximate progress bar inside the Quantitative Portfolio AI Audit Report modal, showing enabled-specialist completion, the current module or Master CIO stage, elapsed time, and provider retries. Saved stages survive closing the modal, navigation, and login sessions; incomplete reports never show 100%.

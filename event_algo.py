@@ -2877,10 +2877,15 @@ def run_event_strategy_scan(user_id, *, config=None, force=False, worker_id="man
                 notify=ai_scan_status["notify"],
             )
         db.session.commit()
+        # Dispatch immediately after durable decision commit. The Event paper
+        # ledger must not wait behind the multi-minute cross-asset scan.
+        from services.portfolio_event_execution import consume_event_decisions
+        handoff = consume_event_decisions(user_id, decision_ids=[item['decision_id'] for item in decisions])
         return {
             "success": True,
             "mode": PAPER_MODE,
             "run_id": run.id,
+            "portfolio_handoff": handoff,
             "status": run.status,
             "scanned_count": run.scanned_count,
             "qualified_count": run.qualified_count,

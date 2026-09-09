@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import axios from 'axios';
 import ReactMarkdown from 'react-markdown';
 import QuantitativeTelemetry from './QuantitativeTelemetry';
+import PortfolioAuditPolicy from './PortfolioAuditPolicy';
 import { normalizeAllocations, toggleModule, changeAllocation } from '../utils/portfolioModules.mjs';
 import './QuantitativeStrategyEngine.css';
 
@@ -198,7 +199,7 @@ export default function QuantitativeStrategyEngine({
       ]);
       if (cfgRes.data?.success) {
         setConfig(cfgRes.data.config);
-        setDefaults(cfgRes.data.defaults);
+        setDefaults({ ...cfgRes.data.defaults, audit_prompt_policy: cfgRes.data.audit_prompt_policy || cfgRes.data.config?.audit_prompt_policy });
         setAccount(statusRes.data?.account || cfgRes.data.account);
         setMasterAIPromptDraft(cfgRes.data.config?.master_ai_prompt || '');
       }
@@ -1172,6 +1173,7 @@ export default function QuantitativeStrategyEngine({
                   }}
                   placeholder={`Specialist AI prompt for ${ASSET_MODULE_DEFS[activeGearModal]?.title}...`}
                 />
+                <PortfolioAuditPolicy module policy={defaults?.audit_prompt_policy} guidance={config?.master_ai_config?.audit_guidance} />
               </div>
             </div>
 

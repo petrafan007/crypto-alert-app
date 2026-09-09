@@ -515,6 +515,35 @@ class PortfolioLedgerTests(unittest.TestCase):
         self.assertEqual(persisted['secondary']['model'], 'nemotron-3-ultra:cloud')
         self.assertEqual(persisted['tertiary']['model'], 'gemma4:26b')
 
+    def test_shared_audit_guidance_persists_and_preserves_custom_master_prompt(self):
+        from services.portfolio_audit_context import DEFAULT_AUDIT_GUIDANCE, audit_prompt_policy
+        path = '/api/webull/portfolio-algo/ai-config'
+        self.cfg.master_ai_prompt = 'Saved personal research mandate with legacy 16.5–21% range.'
+        original = self.cfg.master_ai_prompt
+        db.session.commit()
+        loaded = self.client.get(path)
+        self.assertEqual(loaded.status_code, 200)
+        self.assertEqual(loaded.json['audit_prompt_policy'], audit_prompt_policy())
+        self.assertEqual(loaded.json['ai_config']['audit_guidance'], DEFAULT_AUDIT_GUIDANCE)
+        self.assertEqual(loaded.json['master_ai_prompt'], original)
+        tiers = {tier: {'provider': 'gemini', 'model': 'gemini-fixture', 'reasoning_level': 'low'}
+                 for tier in ('primary', 'secondary', 'tertiary')}
+        saved = self.client.post(path, json={'ai_config': {**tiers, 'audit_guidance': ' Focus on measurable goal gaps. '}})
+        self.assertEqual(saved.status_code, 200, saved.json)
+        self.assertEqual(saved.json['ai_config']['audit_guidance'], 'Focus on measurable goal gaps.')
+        self.assertEqual(saved.json['master_ai_prompt'], original)
+        reloaded = self.client.get(path).json
+        self.assertEqual(reloaded['ai_config']['audit_guidance'], 'Focus on measurable goal gaps.')
+        self.assertEqual(self.client.get('/api/webull/portfolio-algo/config').json['audit_prompt_policy'], audit_prompt_policy())
+        for invalid in (None, 42, [], 'x'*12001):
+            with self.subTest(invalid_type=type(invalid).__name__):
+                rejected = self.client.post(path, json={'master_ai_prompt': 'Must not be partially saved',
+                    'ai_config': {**tiers, 'audit_guidance': invalid}})
+                self.assertEqual(rejected.status_code, 400)
+                after = self.client.get(path).json
+                self.assertEqual(after['master_ai_prompt'], original)
+                self.assertEqual(after['ai_config']['audit_guidance'], 'Focus on measurable goal gaps.')
+
     def test_futures_short_multiplier_and_daily_risk_budget(self):
         lot = e.enter_lot(self.cfg, self.acc, self.state, 'futures', 'MNQ', {'side': 'SHORT', 'stop': 110}, 100,
                           datetime.utcnow(), multiplier=2, margin=500)
@@ -941,6 +970,10 @@ class PortfolioLedgerTests(unittest.TestCase):
 
     def test_scan_warming_up_status_does_not_degrade_worker(self):
         from unittest.mock import MagicMock
+        # This test isolates price-history warm-up. An enabled Event producer
+        # with no completed scan is independently DATA_LIMITED, not healthy.
+        self.cfg.module_settings_json = json.dumps({**e.settings_for(self.cfg), 'events': {'enabled': False}})
+        db.session.commit()
         e.control(self.user_id, 'start')
         data = MagicMock()
         data.quote.side_effect = ValueError('Awaiting 7 daily observations for baseline')

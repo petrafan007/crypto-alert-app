@@ -2,6 +2,34 @@
 
 The engine is an administrator-only, multi-asset **paper research system**. The default starting bankroll is $50,000, with relative allocation weights of 35 for equities, 25 for options, 20 for crypto, 10 for micro futures, and 10 for events. Enabled modules share 100% of the target capital proportionally. Futures is disabled by default, giving initial targets of 38.89%, 27.78%, 22.22%, 0%, and 11.11%, respectively. The 18.5% annual return setting is a research objective, not a forecast or validated strategy result.
 
+## Goal measurement and research integrity (v2.95.0)
+
+Telemetry and newly generated audits contain deterministic `goal_tracking`: actual equity against `initial_balance × (1 + target/100)^(elapsed_days/365)`, signed dollar/percentage gaps, observed return, annualized percentage-point gap, 30/90/365-day rolling returns, net module contributions, capital utilization and snapshot coverage. The current reset generation and latest recorded valuation define the interval, not time spent waiting in the browser. Annualization begins after 30 elapsed days but is explicitly descriptive, never statistical validation. Missing days are disclosed rather than interpolated. Target changes recalculate a hypothetical target path; this is not a market benchmark or measured opportunity cost. Deposits/withdrawals are not modeled within a run; a new bankroll uses the existing explicit reset workflow.
+
+The Master AI Configuration modal includes editable **Shared audit guidance**, applied to specialists and the master, alongside the existing CIO prompt. Module-specific auditor prompts remain in their module settings. Both interfaces display the mandatory engine/evidence instructions. New guidance tells the auditor to use the saved numeric target (normally 18.5%), not an obsolete range embedded in a custom prompt, and to separate observed defects, missing evidence and proposed experiments. Custom prompts are not silently overwritten. Existing archived reports are unchanged; new evidence must be captured in a fresh report.
+
+Event probability calibration uses the earliest valid pre-cutoff forecast for each verified, resolved contract in the current run, including forecasts that did not produce a trade. Repeated forecasts are not independent trials. Reported diagnostics include Brier score, ten-bin calibration error and skill against a simultaneous YES bid/ask midpoint on the matched subset. Queries cap the earliest 10,000 joined forecast rows and disclose truncation/exclusions. Results pool provider/model changes and are descriptive; resolution coverage and correlated contracts limit inference. No AI call calculates these scores.
+
+### Timely Event execution and paused-risk management
+
+Fresh decisions trigger a post-commit handoff, complemented by an independent 15-second Event consumer. The consumer is independent of slow option-chain/equity scans, revalidates the exact contract against fresh executable quotes, and rechecks portfolio controls/generation under the same State row lock used by the supervisor. It never bypasses decision freshness, cutoff, fee, uncertainty, confidence or capital limits. Every processed eligible decision retains a generation-scoped FILLED, REJECTED, MISSED or HELD disposition in its existing evidence. New telemetry distinguishes unavailable/deferred upstream evidence from genuinely evaluated markets with no qualifying signal. Long portfolio scans cannot overwrite that independent telemetry with an empty lookup.
+
+Repeated circuit checks no longer clear the active risk-management lease. The circuit/kill switch blocks new entries while existing risk can still be marked and exited. An explicit Stop still freezes execution, and resets invalidate in-flight work. No real broker order is submitted.
+
+### Observation provenance and upgrade impact
+
+The additive migration adds nullable `source` and `observed_at` columns to `portfolio_market_observations`. Existing records are retained as unverified, not relabeled as measured or deleted. New Bitcoin-dominance observations come from the current CoinGecko global response; no history is synthesized. ETH/SOL require verified observations on all seven preceding UTC dates, plus a fresh current observation. They can therefore return to WARMING_UP after upgrade; BTC does not use this filter.
+
+New daily ATM IV observations carry Webull quote provenance. Options still require 252 measured observations and a non-flat range; no licensed historical IV feed/import is configured by this release. The UI shows remaining warm-up and unused allocation capacity. Missing observations are a data requirement, not permission to relax entry gates.
+
+### Historical validation workbench
+
+An administrator can upload a bounded historical JSON dataset in the Quantitative Strategy Engine telemetry panel. `POST /validation` accepts at most 5 MiB and performs deterministic computation only—no inference, new market-data requests, orders or ledger writes. It uses saved module parameters, allocation and bankroll with shared live paper commission/slippage/sizing/spot-exit functions. Supported scope is **one equity or crypto symbol**, not a complete multi-asset portfolio or an options/Event/futures validation.
+
+The payload declares `schema_version: 1`, `module`, `symbol`, `source`, chronological `bars` (time/open/high/low/close, optional volume/available_at), `quotes` (time/price), `evaluation_start` and `split_at`. Equities require `benchmark_bars` for SPY; ETH/SOL require genuinely historical `dominance_observations` (time/value), including the seven preceding UTC days. Dataset provenance is user-declared, not independently certified. The workbench includes a schema template and downloads its results.
+
+Separate development and held-out ledgers use only information available by each quote timestamp, with no parameter optimizer or automatic configuration change. Baseline and adverse cost/latency/missed-fill assumptions are compared explicitly. Results disclose coverage, unsupported assets, timing and accounting limitations. Passing a replay is not evidence of full-portfolio profitability; licensed, point-in-time historical datasets, wider regimes, assignment/settlement realism and longer forward observation remain research work.
+
 ## Positions display (v2.93.0)
 
 Quantitative paper holdings are available in Webull Trading and the Positions tab on Orders. Both use the shared [Positions views and column layouts](positions.md), including event settlement details, option-spread legs, per-asset filters, and saved column order. Paper holdings remain distinct from real trading accounts. The Positions adapter preserves the engine's collateral-plus-unrealized-P&L valuation, including zero values.
@@ -117,11 +145,11 @@ Positions are limited to their module's remaining budget and available cash. Sta
 
 Execution never calls broker order-submission methods or writes manual Webull/Binance ledgers. The existing Event decision and settlement records are read as research inputs. Existing legacy Event hypothetical orders are neither migrated into bankroll P&L nor counted twice.
 
-State row locks serialize ledger mutations. Provider requests run outside those locks. Every mutation rechecks a persisted expiring scan token; stop, kill, reset and configuration edits invalidate pending work. A second process cannot claim a live lease. After a crash, the lease expires and a later scan can recover. An unmanaged legacy position blocks Start until a confirmed reset archives it.
+State row locks serialize ledger mutations. Provider requests run outside those locks. Supervisor mutations recheck an expiring scan token; the independent Event consumer rechecks controls and reset generation under the same row lock. Stop, reset and configuration edits invalidate pending work. A second process cannot claim a live supervisor lease. After a crash, the lease expires and a later scan can recover. An unmanaged legacy position blocks Start until a confirmed reset archives it.
 
 ## Portfolio risk and rebalancing
 
-A portfolio equity loss of **10% or more of starting bankroll** triggers a persistent engine-wide execution pause, invalidates the scan token, freezes positions and writes a system notification. The master kill switch also blocks new Event research scans. Stop freezes execution; it does not invent liquidation prices. Acknowledgment never restarts the worker, and the drawdown floor cannot be bypassed through Start.
+A portfolio equity loss of **10% or more of starting bankroll** triggers a persistent new-entry pause and a system notification while retaining existing-position management. The master kill switch also blocks new Event research scans. Explicit Stop freezes execution; it does not invent liquidation prices. Acknowledgment cannot bypass the drawdown floor through Start.
 
 Rebalancing compares deployed capital (collateral plus unrealized P&L) with target portfolio weights. Exposure more than three percentage points above target is trimmed by closing whole positions at fresh executable prices, with the reason stored in orders. Underweight buckets receive available capacity for subsequent qualified entries; the engine does not force purchases merely to eliminate cash. Both target weight and actual deployed weight are visible.
 
@@ -158,7 +186,8 @@ All routes require an authenticated administrator under `/api/webull/portfolio-a
 | --- | --- |
 | `GET /config` | Saved relative weights, effective enabled targets, module preferences, account and canonical defaults. |
 | `POST /config` | Atomically validate and save allocation weights/targets, watchlists, module parameters, CIO mandate and cadence. |
-| `GET /status` | Worker health, diagnostics, account, positions, curve, metrics and drift. |
+| `GET /status` | Worker health, Event dispositions, account, positions, curve, metrics, goal tracking, Event calibration and drift. |
+| `POST /validation` | Administrator-uploaded, bounded equities/crypto historical replay; no trading or AI calls. |
 | `POST /data-check` | Read-only access probe for enabled modules using saved settings. |
 | `POST /control` | `action`: `start`, `stop`, `scan`, `kill`, or `acknowledge`. |
 | `POST /reset-bankroll` | Requires `confirm: true`; archives current run and creates the requested $100–$1,000,000 bankroll. |
