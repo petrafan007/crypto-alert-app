@@ -12,6 +12,7 @@ from services.webull_service import (
     _WEBULL_EVENT_CACHE_LOCK,
     _cached_webull_event_series_markets,
     _normalise_option_snapshot_record,
+    _response_payload,
     _webull_request,
     WebullConnectionError,
     check_webull_access_token,
@@ -1380,6 +1381,19 @@ class WebullServiceTests(unittest.TestCase):
         self.assertEqual(headers['x-version'], 'v3')
         self.assertEqual(headers['category'], 'US_EQUITY')
         self.assertEqual(headers['x-signature-algorithm'], 'HMAC-SHA256')
+        self.assertEqual(headers['x-webull-client-source'], 'sdk')
+        self.assertEqual(headers['accept'], '*/*')
+        self.assertEqual(headers['accept-encoding'], 'gzip')
+
+    def test_provider_error_preserves_webull_request_id(self):
+        response = Mock(
+            status_code=417,
+            text='{"message":"INVALID PARAMETER","error_code":"OPENAPI_INVALID_PARAMETER"}',
+            headers={'X-Request-Id': 'provider-request-123'},
+        )
+
+        with self.assertRaisesRegex(WebullConnectionError, 'provider-request-123'):
+            _response_payload(response, 'order placement')
 
     def test_stock_movers_queries_gainers_losers_and_normalizes_pct(self):
         response = Mock(status_code=200)

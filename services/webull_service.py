@@ -225,7 +225,13 @@ def _webull_request(
         'x-signature-version': '1.0',
         'x-signature-nonce': nonce,
         'x-version': normalized_api_version,
-        'accept': 'application/json',
+        # Webull's current official SDK adds this transport identifier to
+        # every HTTP request.  The unified v3 placement endpoint validates a
+        # stricter request envelope than preview and otherwise reduces the
+        # missing field to the unhelpful OPENAPI_INVALID_PARAMETER response.
+        'x-webull-client-source': 'sdk',
+        'accept': '*/*',
+        'accept-encoding': 'gzip',
     }
     if access_token:
         headers['x-access-token'] = access_token
@@ -254,6 +260,10 @@ def _webull_request(
 def _response_payload(response, action):
     if getattr(response, 'status_code', None) != 200:
         detail = getattr(response, 'text', '') or f'Webull could not {action}.'
+        response_headers = getattr(response, 'headers', {}) or {}
+        request_id = response_headers.get('X-Request-Id') or response_headers.get('x-request-id')
+        if isinstance(request_id, str) and request_id.strip():
+            detail = f'{detail} (Webull request ID: {request_id.strip()})'
         raise WebullConnectionError(
             f'Webull {action} failed (HTTP {getattr(response, "status_code", "unknown")}): {detail}'
         )

@@ -6,6 +6,11 @@
 
 **Last Updated**: September 2026
 
+## v2.96.5 (September 2026)
+
+- **Exact Webull Order Transport Envelope:** Fixed the placement-only HTTP 417 that remained after Webull accepted the same AAPL cash-fractional order in Preview. Signed requests now include the official SDK client-source header and matching transport headers required by Webull's stricter live placement gateway.
+- **Actionable Provider Failures:** Webull's provider request ID is now preserved in order errors instead of losing the only trace identifier behind a generic `OPENAPI_INVALID_PARAMETER` response. The exact AAPL `$100.24` request remains non-executing during deployment verification.
+
 ## v2.96.4 (September 2026)
 
 - **Complete Webull v3 Request Signing:** Corrected the remaining Webull live-order failure by upgrading v3 requests from the legacy HMAC-SHA1/MD5 signer to Webull 3.0's HMAC-SHA256/SHA256 protocol. The v3 API version, `US_EQUITY` category, request body, and signature now use one consistent provider-defined envelope.
