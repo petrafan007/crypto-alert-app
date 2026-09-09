@@ -9,10 +9,10 @@
 ## v2.96.0 (September 2026)
 
 - **Complete Webull Copilot Context:** Expanded the existing AI Copilot snapshot beyond Binance.US and imported Webull holdings. Every response can now distinguish Webull Real Trading account balances, holdings, watchlist instruments, provider-backed orders, and stored AI signals from Test Mode cash, simulated positions, and simulated orders. Webull watchlist and Test Mode symbols also participate in focused symbol and current-market search resolution.
-- **Administrator Quantitative Engine Visibility:** Authorized administrators now receive the Quantitative Portfolio and Event Contract engines' operational settings, prompts, allocation/watchlist configuration, worker and account state, paper positions/orders, Settings-visible log windows, and full audit-report records. Record counts and truncation metadata prevent the Copilot from claiming access to older evidence outside the supplied window; non-administrators never query or receive this context.
+- **Administrator Quantitative Engine Visibility:** Authorized administrators now receive the Quantitative Portfolio and Event Contract engines' complete operational settings, prompts, allocation/watchlist configuration, worker/account state, paper positions/orders, report catalogs, and request-relevant log/report evidence. Exact IDs and meaningful question terms search the administrator's complete archive; explicit size, count, and truncation metadata keeps large histories usable without pretending unsupplied detail was inspected. Non-administrators never query or receive this context.
 - **Mode-Safe, Secret-Safe AI Prompts:** Centralized and upgraded the Copilot search/response defaults to preserve Binance.US, Webull Real, Webull Test, and administrator-only Quant boundaries. Mandatory runtime integrity rules also extend existing customized prompts without overwriting them, prohibit describing test/quant records as live brokerage activity, and keep credentials and provider secrets redacted from AI requests.
 
-See [Quantitative Strategy Engine](docs/quantitative_strategy_engine.md) for the administrator context scope and evidence-window behavior.
+See [Quantitative Strategy Engine](docs/quantitative_strategy_engine.md) for the administrator context scope and archive-retrieval behavior.
 
 ## v2.95.2 (September 2026)
 

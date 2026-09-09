@@ -241,7 +241,11 @@ class CopilotExpandedContextTests(unittest.TestCase):
 
         self.assertIsNone(build_admin_quant_copilot_snapshot(self.member.id, self.member))
 
-        snapshot = build_admin_quant_copilot_snapshot(self.admin.id, self.admin)
+        snapshot = build_admin_quant_copilot_snapshot(
+            self.admin.id,
+            self.admin,
+            "Show the latest quantitative strategy logs and reports.",
+        )
         rendered = copilot_context_json(snapshot)
         self.assertEqual(snapshot["authorization"], "ADMINISTRATOR-ONLY CONTEXT")
         self.assertEqual(
@@ -263,6 +267,70 @@ class CopilotExpandedContextTests(unittest.TestCase):
         self.assertNotIn("do-not-leak", rendered)
         self.assertNotIn("event-secret", rendered)
         self.assertIn("[CONFIGURED - VALUE REDACTED]", rendered)
+
+    def test_quant_context_stays_compact_until_the_admin_asks_for_engine_detail(self):
+        db.session.add(PortfolioStrategyConfig(
+            user_id=self.admin.id,
+            name="Default Multi-Asset Portfolio",
+        ))
+        db.session.add(PortfolioStrategyAccount(user_id=self.admin.id))
+        db.session.add(PortfolioEngineState(user_id=self.admin.id))
+        db.session.add(PortfolioEngineLog(
+            user_id=self.admin.id,
+            event_type="COMPACT_CONTEXT_TEST",
+            message="Only load this when quantitative detail is relevant.",
+        ))
+        db.session.commit()
+
+        snapshot = build_admin_quant_copilot_snapshot(
+            self.admin.id,
+            self.admin,
+            "What is the current BTC market price?",
+        )
+
+        portfolio = snapshot["quantitative_portfolio_engine"]
+        self.assertFalse(snapshot["retrieval_scope"]["detail_requested"])
+        self.assertIn("settings", portfolio)
+        self.assertIn("report_catalog", portfolio)
+        self.assertNotIn("logs", portfolio)
+        self.assertNotIn("reports", portfolio)
+        self.assertNotIn("current_status", portfolio)
+
+    def test_quant_log_exact_id_search_reaches_beyond_the_recent_window(self):
+        db.session.add(PortfolioStrategyConfig(
+            user_id=self.admin.id,
+            name="Default Multi-Asset Portfolio",
+        ))
+        db.session.add(PortfolioStrategyAccount(user_id=self.admin.id))
+        db.session.add(PortfolioEngineState(user_id=self.admin.id))
+        old_log = PortfolioEngineLog(
+            user_id=self.admin.id,
+            event_type="OLD_ARCHIVE_RECORD",
+            message="Exact lookup must find this historical evidence.",
+            created_at=datetime.utcnow() - timedelta(days=30),
+        )
+        db.session.add(old_log)
+        db.session.flush()
+        old_log_id = old_log.id
+        for index in range(110):
+            db.session.add(PortfolioEngineLog(
+                user_id=self.admin.id,
+                event_type="RECENT_RECORD",
+                message=f"Recent log {index}",
+                created_at=datetime.utcnow() + timedelta(seconds=index),
+            ))
+        db.session.commit()
+
+        snapshot = build_admin_quant_copilot_snapshot(
+            self.admin.id,
+            self.admin,
+            f"Inspect quant log #{old_log_id}.",
+        )
+        portfolio = snapshot["quantitative_portfolio_engine"]
+
+        self.assertNotIn(old_log_id, [row["id"] for row in portfolio["logs"]])
+        self.assertIn(old_log_id, [row["id"] for row in portfolio["archive_log_matches"]])
+        self.assertTrue(portfolio["log_window"]["archive_search_performed"])
 
     def test_copilot_request_injects_quant_context_for_admin_only(self):
         db.session.add(PortfolioStrategyConfig(

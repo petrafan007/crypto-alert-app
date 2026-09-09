@@ -2589,7 +2589,7 @@ def process_ai_conversation(user_id, message, conversation_id=None, include_all_
     # context through the Copilot channel.
     quant_strategy_context = ""
     try:
-        quant_snapshot = build_admin_quant_copilot_snapshot(user_id, user)
+        quant_snapshot = build_admin_quant_copilot_snapshot(user_id, user, message)
         if quant_snapshot:
             quant_strategy_context = (
                 "=== ADMINISTRATOR-ONLY QUANTITATIVE STRATEGY ENGINE CONTEXT "

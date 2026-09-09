@@ -144,7 +144,7 @@ frontend/
 - **Trading Signals**: Generates buy/sell recommendations based on price movements
 - **Market Sentiment**: Determines bullish/bearish market conditions
 - **Portfolio Optimization**: Suggests rebalancing and diversification strategies
-- **AI Copilot Context**: Separates Binance.US, Webull Real Trading, and Webull Test Mode account state; administrators additionally receive credential-redacted quantitative settings, logs, and reports
+- **AI Copilot Context**: Separates Binance.US, Webull Real Trading, and Webull Test Mode account state; administrators additionally receive credential-redacted quantitative settings, report catalogs, and request-matched log/report evidence from the complete archive
 
 ### **Future AI Enhancements**
 - **Machine Learning Models**: Custom ML models for price prediction
