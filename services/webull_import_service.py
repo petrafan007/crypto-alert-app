@@ -362,6 +362,69 @@ def import_webull_portfolio_snapshot(user_id, preview):
     return {'accounts': imported_accounts, 'positions': imported_positions, 'synced_at': now}
 
 
+def _webull_import_account_ids(setting):
+    """Return the connected Webull accounts enabled for portfolio imports."""
+    try:
+        raw_accounts = getattr(setting, 'webull_connected_accounts', '[]') or '[]'
+        accounts = json.loads(raw_accounts) if isinstance(raw_accounts, str) else raw_accounts
+    except (TypeError, ValueError):
+        accounts = []
+    try:
+        raw_enabled = getattr(setting, 'webull_enabled_account_ids', '[]') or '[]'
+        enabled_values = json.loads(raw_enabled) if isinstance(raw_enabled, str) else raw_enabled
+    except (TypeError, ValueError):
+        enabled_values = []
+
+    known = {
+        str(account.get('account_id') or '').strip()
+        for account in (accounts if isinstance(accounts, list) else [])
+        if isinstance(account, dict) and str(account.get('account_id') or '').strip()
+    }
+    enabled = {
+        str(account_id).strip()
+        for account_id in (enabled_values if isinstance(enabled_values, list) else [])
+        if str(account_id).strip()
+    }
+    return sorted(known.intersection(enabled) if enabled else known)
+
+
+def refresh_webull_portfolio_snapshot(user_id, *, credential=None, setting=None):
+    """Fetch and persist the current enabled-account Webull portfolio state."""
+    from credentials import Credential, UserSetting
+    from services.webull_service import (
+        WebullConnectionError,
+        get_webull_portfolio_preview,
+        normalize_webull_environment,
+    )
+
+    credential = credential or Credential.query.filter_by(user_id=user_id).first()
+    setting = setting or UserSetting.query.filter_by(user_id=user_id).first()
+    environment = normalize_webull_environment(
+        getattr(setting, 'webull_environment', None) or 'production'
+    )
+    if getattr(setting, 'webull_account_selection_mode', None) not in (None, 'all'):
+        return {'skipped': True, 'reason': 'no_accounts_selected'}
+    if (
+        not credential
+        or credential.webull_token_status != 'NORMAL'
+        or credential.webull_token_environment != environment
+        or not credential.webull_app_key
+        or not credential.webull_app_secret
+        or not credential.webull_access_token
+    ):
+        raise WebullConnectionError('Webull is not connected or its token has expired.')
+
+    account_ids = _webull_import_account_ids(setting)
+    preview = get_webull_portfolio_preview(
+        credential.webull_app_key,
+        credential.webull_app_secret,
+        environment,
+        credential.webull_access_token,
+        account_ids=account_ids or None,
+    )
+    return import_webull_portfolio_snapshot(user_id, preview)
+
+
 def _webull_account_pill_label(account_class, account_label):
     """Return the exact account name displayed by Connected Webull Accounts."""
     label = str(account_label or '').strip()

@@ -6,6 +6,11 @@
 
 **Last Updated**: September 2026
 
+## v2.96.2 (September 2026)
+
+- **Automatic Webull Portfolio Refresh:** Connected Webull balances and positions now synchronize through the supervised background worker every 60 seconds. My Portfolio's existing live polling then displays deposits, withdrawals, cash changes, and position updates without requiring a manual import from Settings.
+- **Current Individual Cash Balance:** Fixed newly deposited funds remaining stuck behind an old imported snapshot. Changed cash balances are automatically made visible again and remain classified as non-tradable account funding.
+
 ## v2.96.1 (September 2026)
 
 - **Correct Webull Portfolio Trade Target:** Fixed Webull cash balances being misclassified as equities when launching a trade from the Portfolio Actions menu. An AAPL Buy action now remains AAPL throughout account selection, charting, quote lookup, and order entry; the USD funding row can no longer generate a `symbol=USD&instrument_type=EQUITY` deep link.

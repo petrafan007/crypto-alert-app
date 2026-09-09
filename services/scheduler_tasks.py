@@ -21,12 +21,14 @@ from services.credential_service import get_user_credentials
 from services.price_history_service import record_price_history_snapshot
 from trading_models import RealOrder
 from services.order_history_sync_service import sync_order_history_for_all_users
+from services.webull_import_service import refresh_webull_portfolio_snapshot
 
 # Persistent alert states store
 _alert_state_lock = threading.Lock()
 ALERT_STATE_FILE = "alert_state.json"
 DEFAULT_AUTOMATED_TRIGGER_CONFIRMATION_MINUTES = 15
 MAX_AUTOMATED_TRIGGER_CONFIRMATION_MINUTES = 1440
+WEBULL_PORTFOLIO_SYNC_INTERVAL_SECONDS = 60
 
 def _load_alert_states():
     if os.path.exists(ALERT_STATE_FILE):
@@ -254,6 +256,49 @@ def order_history_sync_loop(app):
 
             iteration()
             time.sleep(300)
+
+
+def webull_portfolio_sync_loop(app):
+    """Refresh connected Webull balances and holdings once per minute."""
+    logger.info("Starting Webull portfolio sync background job")
+    with app.app_context():
+        while True:
+            @safe_background_iteration
+            def iteration():
+                results = db.session.query(User, Credential)\
+                    .join(Credential, User.id == Credential.user_id)\
+                    .filter(
+                        Credential._webull_app_key.isnot(None),
+                        Credential._webull_app_secret.isnot(None),
+                        Credential._webull_access_token.isnot(None),
+                        Credential.webull_token_status == 'NORMAL',
+                    )\
+                    .all()
+
+                synced = 0
+                for user, credential in results:
+                    setting = UserSetting.query.filter_by(user_id=user.id).first()
+                    try:
+                        result = refresh_webull_portfolio_snapshot(
+                            user.id,
+                            credential=credential,
+                            setting=setting,
+                        )
+                        if not result.get('skipped'):
+                            synced += 1
+                    except Exception as exc:
+                        db.session.rollback()
+                        logger.warning(
+                            "Webull portfolio sync failed for user %s: %s",
+                            user.username,
+                            exc,
+                        )
+                if synced:
+                    logger.info("Completed Webull portfolio sync for %s user(s)", synced)
+
+            iteration()
+            time.sleep(WEBULL_PORTFOLIO_SYNC_INTERVAL_SECONDS)
+
 
 def portfolio_alert_loop(app):
     logger.info("=== portfolio_alert_loop STARTED ===")
@@ -1322,6 +1367,14 @@ def start_background_jobs(app=None):
     order_history_thread = threading.Thread(target=order_history_sync_loop, args=(app,), daemon=True)
     order_history_thread.start()
 
+    webull_portfolio_thread = threading.Thread(
+        target=webull_portfolio_sync_loop,
+        args=(app,),
+        daemon=True,
+        name="webull-portfolio-sync",
+    )
+    webull_portfolio_thread.start()
+
     # 2. Portfolio Price Alert Loop
     portfolio_thread = threading.Thread(target=portfolio_alert_loop, args=(app,), daemon=True)
     portfolio_thread.start()
@@ -1358,6 +1411,7 @@ def start_background_jobs(app=None):
         "sync": sync_thread,
         "order_status": order_status_thread,
         "order_history": order_history_thread,
+        "webull_portfolio": webull_portfolio_thread,
         "portfolio": portfolio_thread,
         "watchlist": watchlist_thread,
         "volatility": volatility_thread,

@@ -14,6 +14,7 @@ from services.webull_import_service import (
     get_webull_order_rows,
     import_webull_orders,
     import_webull_portfolio_snapshot,
+    refresh_webull_portfolio_snapshot,
 )
 from services.order_history_sync_service import get_binance_order_rows, import_binance_orders
 from routes.portfolio import _build_webull_tax_report, get_real_orders_only
@@ -235,6 +236,58 @@ class WebullPersistenceTests(unittest.TestCase):
         self.assertEqual(snapshot.total_net_liquidation_value, 172.76)
         self.assertEqual(cash.current_value, 13.94)
         self.assertEqual(WebullHolding.query.filter_by(user_id=7, instrument_type='EVENT').count(), 0)
+
+    @patch('services.webull_service.get_webull_portfolio_preview')
+    def test_provider_refresh_imports_new_individual_cash_deposit(self, preview_mock):
+        preview_mock.return_value = [{
+            'account_id': 'individual-cash',
+            'account_type': 'CASH',
+            'account_name': 'Individual Cash',
+            'balance': {
+                'total_asset_currency': 'USD',
+                'total_cash_balance': '100.24',
+                'total_net_liquidation_value': '100.24',
+            },
+            'positions': [],
+        }]
+        credential = SimpleNamespace(
+            webull_token_status='NORMAL',
+            webull_token_environment='production',
+            webull_app_key='app-key',
+            webull_app_secret='app-secret',
+            webull_access_token='access-token',
+        )
+        setting = SimpleNamespace(
+            webull_environment='production',
+            webull_account_selection_mode='all',
+            webull_connected_accounts='[{"account_id":"individual-cash"},{"account_id":"ira"}]',
+            webull_enabled_account_ids='["individual-cash"]',
+        )
+
+        result = refresh_webull_portfolio_snapshot(
+            7,
+            credential=credential,
+            setting=setting,
+        )
+
+        self.assertEqual(result['accounts'], 1)
+        self.assertEqual(result['positions'], 0)
+        preview_mock.assert_called_once_with(
+            'app-key',
+            'app-secret',
+            'production',
+            'access-token',
+            account_ids=['individual-cash'],
+        )
+        cash = WebullHolding.query.filter_by(
+            user_id=7,
+            account_id='individual-cash',
+            symbol='USD',
+            instrument_type='CASH',
+        ).one()
+        self.assertEqual(cash.quantity, 100.24)
+        self.assertEqual(cash.current_value, 100.24)
+        self.assertFalse(cash.hidden)
 
     def test_webull_etf_display_label_and_traditional_ira_account_label(self):
         preview = [{
