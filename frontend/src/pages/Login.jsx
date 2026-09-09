@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../components/AuthContext';
+import TotpCodeInput from '../components/TotpCodeInput';
 
 export default function Login() {
   const [username, setUsername] = useState('');
@@ -130,13 +131,9 @@ export default function Login() {
             }}>
               🔐 6-digit Two-Factor Code
             </label>
-            <input
-              type="text"
-              inputMode="numeric"
-              pattern="[0-9]*"
-              maxLength="6"
+            <TotpCodeInput
               value={twoFactorCode}
-              onChange={e => setTwoFactorCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+              onChange={e => setTwoFactorCode(e.target.value)}
               required
               autoFocus
               style={{

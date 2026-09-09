@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { formatOrderType } from '../utils/orderDisplay';
+import TotpCodeInput from './TotpCodeInput';
 import './CancelOrderConfirmModal.css';
 
 export default function CancelOrderConfirmModal({
@@ -163,14 +164,11 @@ export default function CancelOrderConfirmModal({
 
           <div className="cancel-2fa-input-group">
             <label htmlFor="cancel-totp">Enter 2FA Code to Confirm:</label>
-            <input
+            <TotpCodeInput
               id="cancel-totp"
-              type="text"
-              inputMode="numeric"
-              maxLength="6"
               placeholder="000000"
               value={twoFactorCode}
-              onChange={(e) => setTwoFactorCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+              onChange={(e) => setTwoFactorCode(e.target.value)}
               onKeyDown={handleKeyDown}
               className="cancel-2fa-input"
               autoFocus

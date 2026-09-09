@@ -13,6 +13,7 @@ from routes.helpers import *
 
 import os
 import json
+from decimal import Decimal, InvalidOperation
 from datetime import datetime
 
 from flask import Blueprint, request, jsonify, current_app
@@ -36,6 +37,7 @@ from services.asset_identity import STABLE_SYMBOLS, display_symbol, is_etf_asset
 from services.analysis_service import get_user_ai_settings
 from event_algo import is_event_strategy_admin
 from services.notification_service import save_notification_record
+from services.totp_service import verify_totp_code
 from services.webull_service import (
     WebullConnectionError,
     check_webull_access_token,
@@ -565,8 +567,7 @@ def _cancellation_2fa_error(data):
         return 'A valid 6-digit two-factor authentication code is required to cancel this order.'
 
     try:
-        import pyotp
-        if not pyotp.TOTP(settings.totp_secret).verify(code, valid_window=1):
+        if not verify_totp_code(settings.totp_secret, code):
             return 'Invalid or expired two-factor authentication code.'
     except Exception as exc:
         logger.error('Cancellation 2FA verification failed: %s', exc)
@@ -2731,6 +2732,21 @@ def api_webull_place_order():
                     return jsonify({'success': False, 'message': 'Fractional stock and ETF orders are supported only during Regular Hours (CORE).'}), 400
                 if str(order_type or '').upper() != 'MARKET':
                     return jsonify({'success': False, 'message': 'Webull supports fractional stock and ETF orders as Market orders only.'}), 400
+            if str(entrust_type).upper() == 'AMOUNT' and str(side or '').upper() != 'BUY':
+                return jsonify({'success': False, 'message': 'Webull cash-amount stock and ETF orders support BUY only.'}), 400
+            if str(entrust_type).upper() != 'AMOUNT' and quantity is not None:
+                try:
+                    quantity_decimal = Decimal(str(quantity))
+                    decimal_places = max(0, -quantity_decimal.normalize().as_tuple().exponent)
+                except (InvalidOperation, TypeError, ValueError):
+                    return jsonify({'success': False, 'message': 'Enter a valid order quantity.'}), 400
+                if not quantity_decimal.is_finite() or quantity_decimal <= 0:
+                    return jsonify({'success': False, 'message': 'Enter a valid order quantity.'}), 400
+                if not float(quantity_decimal).is_integer() and decimal_places > 5:
+                    return jsonify({
+                        'success': False,
+                        'message': 'Webull stock and ETF fractional quantities support no more than 5 decimal places.',
+                    }), 400
 
         # Crypto safety guard: isolate crypto from equity-only features
         if str(instrument_type).upper() == 'CRYPTO':
@@ -2931,9 +2947,7 @@ def api_webull_place_order():
                         verified = True
                         session.pop(f'2fa_verified_{twofa_token}', None)
             if not verified and twofa_code:
-                import pyotp
-                totp = pyotp.TOTP(trading_settings.totp_secret)
-                if totp.verify(str(twofa_code).strip(), valid_window=1):
+                if verify_totp_code(trading_settings.totp_secret, twofa_code):
                     verified = True
 
             if not verified:

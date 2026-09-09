@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { formatOrderSide, formatOrderType } from '../utils/orderDisplay';
+import TotpCodeInput from './TotpCodeInput';
 import './TwoFactorModal.css';
 
 export default function CancelOrderModal({
@@ -94,21 +95,15 @@ export default function CancelOrderModal({
             {requiresTwoFactor ? (
               <div className="form-group">
                 <label htmlFor="cancelTwoFactorCode">6-digit Code</label>
-                <input
+                <TotpCodeInput
                   id="cancelTwoFactorCode"
-                  type="text"
-                  inputMode="numeric"
-                  pattern="[0-9]*"
-                  maxLength="6"
                   value={code}
                   onChange={(e) => {
-                    const value = e.target.value.replace(/\D/g, '').slice(0, 6);
-                    setCode(value);
+                    setCode(e.target.value);
                     setLocalError('');
                   }}
                   placeholder="000000"
                   className="two-factor-input"
-                  autoComplete="one-time-code"
                   autoFocus
                   disabled={loading}
                 />

@@ -6,6 +6,13 @@
 
 **Last Updated**: September 2026
 
+## v2.96.6 (September 2026)
+
+- **Webull Fractional Buy Placement Fix:** Corrected the remaining AAPL live-order rejection at its actual payload source. Percentage and Max allocations below one share now submit Webull's native `AMOUNT` Market Buy with the exact dollar value instead of converting the allocation into an unsupported six-decimal `QTY` value. The review modal explicitly shows the cash amount before submission.
+- **Five-Decimal Live Guard:** Generated stock/ETF share quantities are floored to Webull's five-decimal fractional precision. Frontend, route, combo-leg, and provider-service validation reject higher precision before consuming a 2FA token or contacting Webull, preventing the generic HTTP 417 response from recurring through this path.
+- **Complete Six-Digit 2FA Field Audit:** Consolidated login, onboarding, settings, order placement/cancellation, staking, and dust-conversion prompts on one native six-digit field with numeric input and `autocomplete="one-time-code"` metadata. Removed the dust field's explicit autocomplete suppression and standardized server verification, including leading-zero handling and the existing one-interval clock-drift tolerance.
+- **Bitwarden Autofill Guidance:** Documented the extension setting that controls whether recognized TOTP suggestions open automatically or only after selecting the Bitwarden field icon. The application supplies the standard field metadata, while the extension retains control of its popup behavior.
+
 ## v2.96.5 (September 2026)
 
 - **Exact Webull Order Transport Envelope:** Fixed the placement-only HTTP 417 that remained after Webull accepted the same AAPL cash-fractional order in Preview. Signed requests now include the official SDK client-source header and matching transport headers required by Webull's stricter live placement gateway.

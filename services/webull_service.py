@@ -4,6 +4,7 @@ import base64
 import hashlib
 import hmac
 import math
+from decimal import Decimal, InvalidOperation
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 import json
@@ -3258,12 +3259,15 @@ def place_webull_order(
                 leg_payload['total_cash_amount'] = f'{cash_amt:.2f}'
             else:
                 try:
-                    lqty = float(leg.get('quantity') or 0)
-                    if lqty <= 0:
+                    leg_quantity_decimal = Decimal(str(leg.get('quantity') or 0))
+                    if not leg_quantity_decimal.is_finite() or leg_quantity_decimal <= 0:
                         raise ValueError()
-                except (TypeError, ValueError):
+                    lqty = float(leg_quantity_decimal)
+                except (InvalidOperation, TypeError, ValueError):
                     raise WebullConnectionError(f'Combo leg #{i + 1} quantity must be a positive number.')
-                leg_payload['quantity'] = str(lqty) if not lqty.is_integer() else str(int(lqty))
+                if not lqty.is_integer() and max(0, -leg_quantity_decimal.normalize().as_tuple().exponent) > 5:
+                    raise WebullConnectionError(f'Combo leg #{i + 1} fractional quantity supports no more than 5 decimal places.')
+                leg_payload['quantity'] = format(leg_quantity_decimal.normalize(), 'f') if not lqty.is_integer() else str(int(lqty))
 
             if leg_type in {'LIMIT', 'STOP_LOSS_LIMIT', 'LIMIT_ON_OPEN'}:
                 try:
@@ -3360,7 +3364,10 @@ def place_webull_order(
 
     clean_entrust_type = str(entrust_type or 'QTY').strip().upper()
     qty = 0.0
+    quantity_decimal = None
     if clean_instrument == 'EQUITY' and clean_entrust_type == 'AMOUNT':
+        if clean_side != 'BUY':
+            raise WebullConnectionError('Webull cash-amount stock and ETF orders support BUY only.')
         try:
             cash_val = float(total_cash_amount or 0)
             if cash_val < 5.0:
@@ -3370,10 +3377,11 @@ def place_webull_order(
     else:
         clean_entrust_type = 'QTY'
         try:
-            qty = float(quantity)
-            if qty <= 0:
+            quantity_decimal = Decimal(str(quantity))
+            if not quantity_decimal.is_finite() or quantity_decimal <= 0:
                 raise ValueError()
-        except (TypeError, ValueError):
+            qty = float(quantity_decimal)
+        except (InvalidOperation, TypeError, ValueError):
             raise WebullConnectionError('Order quantity must be a positive number.')
 
     clean_client_order_id = str(client_order_id or uuid4().hex[:24]).strip()
@@ -3551,6 +3559,10 @@ def place_webull_order(
                     raise WebullConnectionError('Fractional stock and ETF orders are supported only during Regular Hours (CORE).')
                 if clean_type != 'MARKET':
                     raise WebullConnectionError('Webull supports fractional stock and ETF orders as Market orders only.')
+            if clean_entrust_type == 'QTY' and not qty.is_integer():
+                decimal_places = max(0, -quantity_decimal.normalize().as_tuple().exponent)
+                if decimal_places > 5:
+                    raise WebullConnectionError('Webull stock and ETF fractional quantities support no more than 5 decimal places.')
 
         clean_time_in_force = str(time_in_force or 'DAY').upper()
         if clean_instrument == 'CRYPTO':
@@ -3578,7 +3590,7 @@ def place_webull_order(
         if clean_entrust_type == 'AMOUNT':
             order_payload['total_cash_amount'] = f'{float(total_cash_amount):.2f}'
         else:
-            order_payload['quantity'] = str(qty) if clean_instrument == 'CRYPTO' or not qty.is_integer() else str(int(qty))
+            order_payload['quantity'] = format(quantity_decimal.normalize(), 'f') if not qty.is_integer() else str(int(qty))
 
         order_payload = {key: value for key, value in order_payload.items() if value is not None}
 

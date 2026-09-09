@@ -27,6 +27,7 @@ from services.onboarding_service import (
     seed_new_user_defaults,
 )
 from services.ai_service import is_ollama_admin
+from services.totp_service import verify_totp_code
 import json
 import re
 
@@ -172,13 +173,12 @@ def enforce_required_onboarding():
 @auth_bp.route("/api/login", methods=["POST"])
 def api_login():
     """API endpoint for logging in. Returns JSON only, with 2FA verification if enabled on profile."""
-    import pyotp
     from trading_models import TradingSettings
 
     data = request.get_json() or request.form or {}
     username = (data.get("username") or "").strip()
     password = data.get("password")
-    two_factor_code = (data.get("two_factor_code") or data.get("code") or "").strip()
+    two_factor_code = data.get("two_factor_code") or data.get("code") or ""
 
     if not username or not password:
         return jsonify({"success": False, "error": "Username and password required."}), 400
@@ -198,8 +198,7 @@ def api_login():
             }), 200
 
         try:
-            totp = pyotp.TOTP(settings.totp_secret)
-            if not totp.verify(two_factor_code, valid_window=1):
+            if not verify_totp_code(settings.totp_secret, two_factor_code):
                 return jsonify({
                     "success": False,
                     "requires_2fa": True,

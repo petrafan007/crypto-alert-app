@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import axios from 'axios';
+import TotpCodeInput from './TotpCodeInput';
 
 export default function StakingPurchaseModal({ asset, balances, settings, userId, onClose, onComplete, savedReceipt }) {
   const quotes = (asset?.quoteAssets || []).filter(quote => balances[quote]?.balance > 1);
@@ -66,7 +67,7 @@ export default function StakingPurchaseModal({ asset, balances, settings, userId
       {stake && <label style={{ display: 'block', margin: '16px 0' }}><input type="checkbox" checked={autoRestake} onChange={event => setAutoRestake(event.target.checked)} disabled={busy || !!intentId} /> Automatically restake rewards (APY assumes compounding)</label>}
       <p>Estimated {asset?.rateLabel || 'APY'}: {((asset?.apy || 0) * 100).toFixed(2)}%. Rates vary. Minimum stake: {asset?.minStakingLimit} {asset?.stakingAsset}. Unstaking period: {asset?.unstakingPeriod} hours.</p>
       <p>This places a real market purchase. Trading fees apply; leave 1% of your balance available. If staking fails, the purchased coins remain in your account. Bonding can delay rewards.</p>
-      {requires2FA && <label>Authenticator code <input aria-label="Authenticator code" inputMode="numeric" maxLength={6} value={code} onChange={event => setCode(event.target.value)} required disabled={busy || !!intentId} /></label>}
+      {requires2FA && <label>Authenticator code <TotpCodeInput aria-label="Authenticator code" value={code} onChange={event => setCode(event.target.value)} required disabled={busy || !!intentId} /></label>}
       <button className="btn-stake" type="submit" disabled={busy || !!intentId || !quotes.length}>{busy ? 'Processing…' : stake ? 'Confirm purchase and stake' : 'Confirm purchase'}</button>
     </form>}
     {intentId && <button type="button" onClick={refreshReceipt} disabled={busy}>Refresh receipt</button>}

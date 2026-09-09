@@ -99,6 +99,42 @@ class WebullOrderTwoFactorTests(unittest.TestCase):
             'message': 'A Webull cash balance is funding, not a stock or ETF order symbol.',
         })
 
+    def test_aapl_cash_amount_buy_reaches_submission_without_share_quantity(self):
+        order = {
+            'account_id': 'account-1', 'symbol': 'AAPL', 'instrument_type': 'EQUITY',
+            'side': 'BUY', 'order_type': 'MARKET', 'entrust_type': 'AMOUNT',
+            'total_cash_amount': 100.24, 'time_in_force': 'DAY',
+            'support_trading_session': 'CORE', 'twofa_token': 'aapl-amount-token',
+        }
+
+        place_order = self._submit_with_verified_token(order)
+
+        self.assertIsNone(place_order.call_args.kwargs['quantity'])
+        self.assertEqual(place_order.call_args.kwargs['entrust_type'], 'AMOUNT')
+        self.assertEqual(place_order.call_args.kwargs['total_cash_amount'], 100.24)
+
+    def test_six_decimal_equity_quantity_is_rejected_before_2fa_token_is_consumed(self):
+        order = {
+            'account_id': 'account-1', 'symbol': 'AAPL', 'instrument_type': 'EQUITY',
+            'side': 'BUY', 'order_type': 'MARKET', 'quantity': 0.317657,
+            'entrust_type': 'QTY', 'time_in_force': 'DAY',
+            'support_trading_session': 'CORE', 'twofa_token': 'precision-token',
+        }
+        with self.app.test_request_context('/api/webull/orders/place', method='POST', json=order):
+            session['2fa_verified_precision-token'] = {'user_id': 1, 'timestamp': time.time()}
+            with patch.object(system, 'current_user', SimpleNamespace(id=1)), \
+                 patch.object(system.UserSetting, 'query', _Query(self.setting)), \
+                 patch.object(system.Credential, 'query', _Query(self.credential)), \
+                 patch.object(system, '_require_webull_account_access', return_value='account-1'), \
+                 patch.object(system, '_require_webull_instrument_account_match', return_value='EQUITY'), \
+                 patch.object(system, 'place_webull_order') as place_order:
+                response, status_code = system.api_webull_place_order.__wrapped__()
+
+            self.assertEqual(status_code, 400)
+            self.assertIn('no more than 5 decimal places', response.get_json()['message'])
+            self.assertIn('2fa_verified_precision-token', session)
+            place_order.assert_not_called()
+
     def test_verified_token_option_order_reaches_webull_submission(self):
         order = {
             'account_id': 'account-1', 'symbol': 'SPY', 'instrument_type': 'OPTION',

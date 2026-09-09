@@ -5,6 +5,7 @@ import './Staking.css';
 import StakingPurchaseModal from '../components/StakingPurchaseModal';
 import TradePermissionModal from '../components/TradePermissionModal';
 import ApiKeyRequiredModal from '../components/ApiKeyRequiredModal';
+import TotpCodeInput from '../components/TotpCodeInput';
 import { formatEasternDateTime } from '../utils/dateTime';
 
 export default function Staking({ isLightMode }) {
@@ -828,15 +829,10 @@ export default function Staking({ isLightMode }) {
                   <p style={{ fontSize: '13px', color: '#aaa', marginBottom: '10px' }}>
                     Enter your 6-digit authentication code:
                   </p>
-                  <input
-                    type="text"
-                    inputMode="numeric"
-                    pattern="[0-9]*"
-                    maxLength="6"
+                  <TotpCodeInput
                     value={twoFactorCode}
                     onChange={(e) => {
-                      const value = e.target.value.replace(/\D/g, '').slice(0, 6);
-                      setTwoFactorCode(value);
+                      setTwoFactorCode(e.target.value);
                       setTwoFactorError('');
                     }}
                     placeholder="000000"
@@ -948,15 +944,10 @@ export default function Staking({ isLightMode }) {
                   <p style={{ fontSize: '13px', color: '#aaa', marginBottom: '10px' }}>
                     Enter your 6-digit authentication code:
                   </p>
-                  <input
-                    type="text"
-                    inputMode="numeric"
-                    pattern="[0-9]*"
-                    maxLength="6"
+                  <TotpCodeInput
                     value={twoFactorCode}
                     onChange={(e) => {
-                      const value = e.target.value.replace(/\D/g, '').slice(0, 6);
-                      setTwoFactorCode(value);
+                      setTwoFactorCode(e.target.value);
                     }}
                     placeholder="000000"
                     style={{

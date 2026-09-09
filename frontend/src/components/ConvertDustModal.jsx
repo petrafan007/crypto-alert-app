@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
+import TotpCodeInput from './TotpCodeInput';
 import './ConvertDustModal.css';
 
 const TO_ASSET_OPTIONS = ['BNB', 'BTC', 'ETH', 'USDT'];
@@ -285,21 +286,16 @@ export default function ConvertDustModal({ isVisible, onClose, require2fa, onSuc
               <label className="dust-2fa-label" htmlFor="dustTwoFaCode">
                 🔐 Two-Factor Authentication
               </label>
-              <input
+              <TotpCodeInput
                 id="dustTwoFaCode"
-                type="text"
-                inputMode="numeric"
-                pattern="[0-9]*"
-                maxLength="6"
                 value={twoFaCode}
                 onChange={(e) => {
-                  setTwoFaCode(e.target.value.replace(/\D/g, '').slice(0, 6));
+                  setTwoFaCode(e.target.value);
                   setError('');
                 }}
                 placeholder="000000"
                 className="dust-2fa-input"
                 disabled={converting}
-                autoComplete="off"
               />
               <p className="dust-2fa-help">
                 Enter the code from your authenticator app (e.g. Google Authenticator, Bitwarden)

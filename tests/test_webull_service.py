@@ -1475,6 +1475,32 @@ class WebullServiceTests(unittest.TestCase):
         self.assertEqual(order['entrust_type'], 'QTY')
         self.assertEqual(order['support_trading_session'], 'CORE')
 
+    def test_fractional_equity_quantity_is_limited_to_five_decimal_places(self):
+        with patch('services.webull_service._webull_request') as request_mock:
+            with self.assertRaisesRegex(WebullConnectionError, 'no more than 5 decimal places'):
+                place_webull_order(
+                    'app-key', 'app-secret', 'production', 'token-123',
+                    account_id='cash-account', symbol='AAPL', instrument_type='EQUITY',
+                    side='BUY', order_type='MARKET', quantity=0.317657,
+                    time_in_force='DAY', support_trading_session='CORE',
+                )
+
+        request_mock.assert_not_called()
+
+    def test_fractional_equity_quantity_preserves_five_decimal_places(self):
+        response = Mock(status_code=200)
+        response.json.return_value = {'data': {'order_id': 'wb-fractional-5dp'}}
+        with patch('services.webull_service._webull_request', return_value=response) as request_mock:
+            place_webull_order(
+                'app-key', 'app-secret', 'production', 'token-123',
+                account_id='cash-account', symbol='AAPL', instrument_type='EQUITY',
+                side='BUY', order_type='MARKET', quantity='0.31765',
+                time_in_force='DAY', support_trading_session='CORE',
+            )
+
+        order = request_mock.call_args.kwargs['body']['new_orders'][0]
+        self.assertEqual(order['quantity'], '0.31765')
+
     def test_cash_fractional_equity_buy_uses_webull_v3_order_envelope(self):
         response = Mock(status_code=200)
         response.json.return_value = {'data': {'order_id': 'wb-aapl-cash-1'}}

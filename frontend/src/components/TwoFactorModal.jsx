@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { formatOrderType, formatTimeInForce } from '../utils/orderDisplay';
+import TotpCodeInput from './TotpCodeInput';
 import './TwoFactorModal.css';
 
 export default function TwoFactorModal({ isVisible, onClose, onVerify, orderDetails }) {
@@ -73,7 +74,9 @@ export default function TwoFactorModal({ isVisible, onClose, onVerify, orderDeta
     const type = (details.type || 'MARKET').toUpperCase();
     const symbol = details.symbol || '';
     const baseAsset = symbol.replace(/USDT$/i, '').replace(/USD$/i, '') || symbol;
-    const qtyText = formatQuantity(details.quantity) || 'the specified amount of';
+    const qtyText = details.cashAmount
+      ? `$${Number(details.cashAmount).toFixed(2)} worth of`
+      : formatQuantity(details.quantity) || 'the specified amount of';
     const currency = details.currency || 'USDT';
     const priceText = formatPrice(details.price, currency);
     const stopPriceText = formatPrice(details.stopPrice, currency);
@@ -204,10 +207,17 @@ export default function TwoFactorModal({ isVisible, onClose, onVerify, orderDeta
                   <span className="value">{orderDetails.optionType}{orderDetails.optionStrike ? ` · $${orderDetails.optionStrike}` : ''}{orderDetails.optionExpiration ? ` · ${orderDetails.optionExpiration}` : ''}</span>
                 </div>
               )}
-              <div className="order-detail-row">
-                <span className="label">Quantity:</span>
-                <span className="value">{orderDetails.quantity}</span>
-              </div>
+              {orderDetails.cashAmount ? (
+                <div className="order-detail-row">
+                  <span className="label">Cash Amount:</span>
+                  <span className="value">${orderDetails.cashAmount}</span>
+                </div>
+              ) : (
+                <div className="order-detail-row">
+                  <span className="label">Quantity:</span>
+                  <span className="value">{orderDetails.quantity}</span>
+                </div>
+              )}
               {orderDetails.price && orderDetails.price > 0 && (
                 <div className="order-detail-row">
                   <span className="label">Price:</span>
@@ -274,20 +284,14 @@ export default function TwoFactorModal({ isVisible, onClose, onVerify, orderDeta
               <label htmlFor="twoFactorCode">
                 Enter your 6-digit authentication code:
               </label>
-              <input
+              <TotpCodeInput
                 id="twoFactorCode"
-                name="one-time-code"
-                type="text"
-                inputMode="numeric"
-                pattern="[0-9]*"
-                maxLength="6"
                 value={code}
                 onChange={handleCodeChange}
                 placeholder="000000"
                 className="two-factor-input"
                 autoFocus
                 disabled={loading}
-                autoComplete="one-time-code"
                 ref={codeInputRef}
               />
               <p className="help-text">

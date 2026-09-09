@@ -13,6 +13,7 @@ import PortfolioAuditProgress from '../components/PortfolioAuditProgress';
 import PortfolioGoalTracking from '../components/PortfolioGoalTracking';
 import PortfolioEventCalibration from '../components/PortfolioEventCalibration';
 import PortfolioAuditPolicy from '../components/PortfolioAuditPolicy';
+import TotpCodeInput from '../components/TotpCodeInput';
 import { normalizePortfolioAudit, selectPortfolioAudit, auditOutcomeMessage } from '../utils/portfolioAudit.mjs';
 import { reconcileDedicatedAIConfig } from '../utils/dedicatedAIConfig.mjs';
 
@@ -2378,15 +2379,12 @@ export default function Settings({ isLightMode }) {
                 <p style={{ marginBottom: '8px', color: '#ccc', fontSize: '13px' }}>
                   <strong>Step 3:</strong> Enter the 6-digit code from your authenticator:
                 </p>
-                <input
-                  type="text"
+                <TotpCodeInput
                   value={verificationCode}
                   onChange={(e) => {
-                    const value = e.target.value.replace(/\D/g, '').slice(0, 6);
-                    setVerificationCode(value);
+                    setVerificationCode(e.target.value);
                   }}
                   placeholder="000000"
-                  maxLength="6"
                   style={{
                     width: '100%',
                     padding: '12px',
@@ -2435,15 +2433,12 @@ export default function Settings({ isLightMode }) {
                 Enter your current 6-digit code to disable 2FA:
               </p>
 
-              <input
-                type="text"
+              <TotpCodeInput
                 value={disableCode}
                 onChange={(e) => {
-                  const value = e.target.value.replace(/\D/g, '').slice(0, 6);
-                  setDisableCode(value);
+                  setDisableCode(e.target.value);
                 }}
                 placeholder="000000"
-                maxLength="6"
                 style={{
                   width: '100%',
                   padding: '12px',

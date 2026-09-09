@@ -28,6 +28,12 @@ import {
 } from '../utils/orderDisplay';
 import { getAssetDisplaySymbol, getAssetIdentity } from '../utils/assetDisplay';
 import { isNonTradableWebullCashAsset, normalizeWebullTradeSymbol } from '../utils/webullTradeNavigation.mjs';
+import {
+  floorCashAmountForTicket,
+  floorQuantityForTicket,
+  quantityDecimalPlaces,
+  shouldUseEquityCashAmount,
+} from '../utils/webullOrderEntry.mjs';
 import './Trading.css';
 
 const OPEN_STATUSES = new Set([
@@ -2609,6 +2615,23 @@ export default function WebullTrading({ isLightMode = false }) {
     || fractionalEquityAllowed
     || (selectedInstrumentType === 'EVENT' && Boolean(selectedEventMarket?.rules?.fractionable));
 
+  const generatedQuantity = (value) => {
+    if (selectedInstrumentType === 'EQUITY') return floorQuantityForTicket(value, 5);
+    if (selectedInstrumentType === 'EVENT') return floorQuantityForTicket(value, 5);
+    return formatQuantityForTicket(value, 6);
+  };
+
+  const useEquityCashAmount = (dollars, rawQuantity) => shouldUseEquityCashAmount({
+    instrumentType: selectedInstrumentType,
+    side: orderForm.side,
+    orderType: orderForm.type,
+    tradingSession: orderForm.tradingSession,
+    isAlgoEnabled: orderForm.isAlgoEnabled,
+    isBracketEnabled: orderForm.isBracketEnabled,
+    dollars,
+    rawQuantity,
+  });
+
   const handleBaseQuantityChange = (val) => {
     const qty = val.replace(/[^0-9.]/g, '');
     const numQty = parseFloat(qty) || 0;
@@ -2617,7 +2640,7 @@ export default function WebullTrading({ isLightMode = false }) {
       ? (numQty * effectivePrice * mult).toFixed(2)
       : selectedInstrumentType === 'OPTION' ? '0.00' : '';
     setOrderValidationError('');
-    setOrderForm((prev) => ({ ...prev, quantity: qty, quoteQuantity: computedVal }));
+    setOrderForm((prev) => ({ ...prev, entrustType: 'QTY', totalCashAmount: '', quantity: qty, quoteQuantity: computedVal }));
   };
 
   const handleQuoteQuantityChange = (val) => {
@@ -2628,8 +2651,9 @@ export default function WebullTrading({ isLightMode = false }) {
     const rawQuantity = numQuote > 0 && unitCost > 0 ? numQuote / unitCost : 0;
     const wholeQuantity = Math.floor(rawQuantity);
     const computedQty = fractionalQuantityAllowed
-      ? formatQuantityForTicket(rawQuantity, 6)
+      ? generatedQuantity(rawQuantity)
       : wholeQuantity > 0 ? String(wholeQuantity) : '';
+    const cashAmountMode = useEquityCashAmount(numQuote, rawQuantity);
     setOrderValidationError('');
     if (selectedInstrumentType === 'EQUITY' && !fractionalEquityAllowed && rawQuantity > 0 && wholeQuantity < 1) {
       setOrderValidationError('Extended and Overnight stock/ETF sessions require whole shares. Select Only Regular Hours (CORE) to use a fractional quantity.');
@@ -2640,6 +2664,8 @@ export default function WebullTrading({ isLightMode = false }) {
         ? optionOrderValueText(computedQty, effectivePrice)
         : quoteVal,
       quantity: computedQty,
+      entrustType: cashAmountMode ? 'AMOUNT' : 'QTY',
+      totalCashAmount: cashAmountMode ? quoteVal : '',
     }));
   };
 
@@ -2675,19 +2701,20 @@ export default function WebullTrading({ isLightMode = false }) {
     setBalancePercentage(pct);
     setOrderValidationError('');
     if (pct === 0) {
-      setOrderForm((prev) => ({ ...prev, quantity: '', quoteQuantity: '' }));
+      setOrderForm((prev) => ({ ...prev, entrustType: 'QTY', totalCashAmount: '', quantity: '', quoteQuantity: '' }));
       return;
     }
     if (orderForm.side === 'BUY') {
       if (cashBalance > 0 && effectivePrice > 0) {
-        const targetDollars = cashBalance * (pct / 100);
+        const targetDollars = floorCashAmountForTicket(cashBalance * (pct / 100));
         const mult = selectedInstrumentType === 'OPTION' ? OPTION_CONTRACT_MULTIPLIER : 1;
         const unitCost = effectivePrice * mult;
         const rawQuantity = targetDollars / unitCost;
         const wholeQuantity = Math.floor(rawQuantity);
         const qty = fractionalQuantityAllowed
-          ? formatQuantityForTicket(rawQuantity, 6)
+          ? generatedQuantity(rawQuantity)
           : wholeQuantity > 0 ? String(wholeQuantity) : '';
+        const cashAmountMode = useEquityCashAmount(targetDollars, rawQuantity);
         if (selectedInstrumentType === 'EQUITY' && !fractionalEquityAllowed && rawQuantity > 0 && wholeQuantity < 1) {
           setOrderValidationError('Extended and Overnight stock/ETF sessions require whole shares. Select Only Regular Hours (CORE) to use a fractional quantity.');
         }
@@ -2697,6 +2724,8 @@ export default function WebullTrading({ isLightMode = false }) {
           quoteQuantity: selectedInstrumentType === 'OPTION'
             ? optionOrderValueText(qty, effectivePrice)
             : targetDollars.toFixed(2),
+          entrustType: cashAmountMode ? 'AMOUNT' : 'QTY',
+          totalCashAmount: cashAmountMode ? targetDollars.toFixed(2) : '',
         }));
       }
     } else {
@@ -2704,7 +2733,7 @@ export default function WebullTrading({ isLightMode = false }) {
         const targetQty = (heldQuantity * (pct / 100));
         const wholeQuantity = Math.floor(targetQty);
         const formattedQty = fractionalQuantityAllowed
-          ? formatQuantityForTicket(targetQty, 6)
+          ? generatedQuantity(targetQty)
           : wholeQuantity > 0 ? String(wholeQuantity) : '';
         if (selectedInstrumentType === 'EQUITY' && !fractionalEquityAllowed && targetQty > 0 && wholeQuantity < 1) {
           setOrderValidationError('Extended and Overnight stock/ETF sessions require whole shares. Select Only Regular Hours (CORE) to sell this fractional position.');
@@ -2717,6 +2746,8 @@ export default function WebullTrading({ isLightMode = false }) {
           ...prev,
           quantity: formattedQty,
           quoteQuantity: computedVal,
+          entrustType: 'QTY',
+          totalCashAmount: '',
         }));
       } else {
         setOrderValidationError(`No ${selectedSymbol} is available to sell in the selected Webull account.`);
@@ -2826,7 +2857,8 @@ export default function WebullTrading({ isLightMode = false }) {
     instrumentType: selectedInstrumentType === 'EQUITY' ? selectedSecurityType : selectedInstrumentType,
     side: orderForm.side,
     type: orderForm.type,
-    quantity: orderForm.quantity,
+    quantity: orderForm.entrustType === 'AMOUNT' ? undefined : orderForm.quantity,
+    cashAmount: orderForm.entrustType === 'AMOUNT' ? Number(orderForm.totalCashAmount).toFixed(2) : undefined,
     price: ['LIMIT', 'STOP_LOSS_LIMIT'].includes(orderForm.type) || selectedInstrumentType === 'EVENT' ? orderForm.price : undefined,
     stopPrice: ['STOP_LOSS', 'STOP_LOSS_LIMIT'].includes(orderForm.type) ? orderForm.stopPrice : undefined,
     estimatedValue: orderTotal > 0 ? orderTotal.toFixed(2) : undefined,
@@ -2910,6 +2942,14 @@ export default function WebullTrading({ isLightMode = false }) {
     if (isCashAmountMode) {
       if (!cashAmt || cashAmt < 5) {
         rejectOrder('Please enter a total cash amount of at least $5.00 for dollar-based orders.');
+        return;
+      }
+      if (orderForm.side !== 'BUY' || orderForm.type !== 'MARKET' || orderForm.tradingSession !== 'CORE') {
+        rejectOrder('Webull cash-amount orders require a Buy Market order during Regular Hours (CORE).');
+        return;
+      }
+      if (orderForm.isAlgoEnabled || orderForm.isBracketEnabled) {
+        rejectOrder('Cash-amount orders cannot be combined with algorithmic execution or attached bracket exits. Use a share quantity instead.');
         return;
       }
     } else {
@@ -2996,6 +3036,10 @@ export default function WebullTrading({ isLightMode = false }) {
       return;
     }
     if (selectedInstrumentType === 'EQUITY' && !isCashAmountMode && isFractionalQuantity(qty)) {
+      if (quantityDecimalPlaces(orderForm.quantity) > 5) {
+        rejectOrder('Webull stock and ETF fractional quantities support no more than 5 decimal places.');
+        return;
+      }
       if (orderForm.tradingSession !== 'CORE') {
         rejectOrder('Fractional stock and ETF orders are available only during Regular Hours. Select Only Regular Hours (CORE) or use a whole-share quantity.');
         return;
@@ -3729,6 +3773,8 @@ export default function WebullTrading({ isLightMode = false }) {
       return {
         ...prev,
         side: nextSide,
+        entrustType: nextSide === 'BUY' ? prev.entrustType : 'QTY',
+        totalCashAmount: nextSide === 'BUY' ? prev.totalCashAmount : '',
         price: selectedInstrumentType === 'EVENT'
           ? (eventSuggestedPrice != null ? String(eventSuggestedPrice) : '')
           : prev.price,
@@ -4625,7 +4671,7 @@ export default function WebullTrading({ isLightMode = false }) {
                               type="button"
                               className={`order-side-btn cover-side ${orderForm.side === 'BUY_TO_CLOSE' ? 'active' : ''}`}
                               onClick={() => {
-                                setOrderForm((prev) => ({ ...prev, side: 'BUY_TO_CLOSE', entrustType: 'QTY' }));
+                                setOrderForm((prev) => ({ ...prev, side: 'BUY_TO_CLOSE', entrustType: 'QTY', totalCashAmount: '' }));
                                 setBalancePercentage(0);
                                 setOrderValidationError('');
                               }}
@@ -4640,7 +4686,7 @@ export default function WebullTrading({ isLightMode = false }) {
                               type="button"
                               className={`order-side-btn short-side ${orderForm.side === 'SHORT' ? 'active' : ''}`}
                               onClick={() => {
-                                setOrderForm((prev) => ({ ...prev, side: 'SHORT' }));
+                                setOrderForm((prev) => ({ ...prev, side: 'SHORT', entrustType: 'QTY', totalCashAmount: '' }));
                                 setBalancePercentage(0);
                                 setOrderValidationError('');
                               }}
@@ -4662,7 +4708,12 @@ export default function WebullTrading({ isLightMode = false }) {
                               type="button"
                               className={`order-type-btn ${orderForm.type === t.value ? 'active' : ''}`}
                               onClick={() => {
-                                setOrderForm((prev) => ({ ...prev, type: t.value }));
+                                setOrderForm((prev) => ({
+                                  ...prev,
+                                  type: t.value,
+                                  entrustType: t.value === 'MARKET' ? prev.entrustType : 'QTY',
+                                  totalCashAmount: t.value === 'MARKET' ? prev.totalCashAmount : '',
+                                }));
                                 setOrderValidationError('');
                               }}
                               title={t.description}
@@ -4703,6 +4754,8 @@ export default function WebullTrading({ isLightMode = false }) {
                           <button
                             type="button"
                             className={`webull-entrust-btn ${orderForm.entrustType === 'AMOUNT' ? 'active' : ''}`}
+                            disabled={orderForm.side !== 'BUY' || orderForm.type !== 'MARKET' || orderForm.tradingSession !== 'CORE' || orderForm.isAlgoEnabled || orderForm.isBracketEnabled}
+                            title="Cash amount is available for regular-hours equity Market Buys without algorithmic or bracket execution."
                             onClick={() => {
                               setOrderForm((prev) => ({
                                 ...prev,
@@ -5034,7 +5087,13 @@ export default function WebullTrading({ isLightMode = false }) {
                             value={orderForm.tradingSession}
                             onChange={(e) => {
                               userChangedSessionRef.current = true;
-                              setOrderForm((prev) => ({ ...prev, tradingSession: e.target.value }));
+                              const tradingSession = e.target.value;
+                              setOrderForm((prev) => ({
+                                ...prev,
+                                tradingSession,
+                                entrustType: tradingSession === 'CORE' ? prev.entrustType : 'QTY',
+                                totalCashAmount: tradingSession === 'CORE' ? prev.totalCashAmount : '',
+                              }));
                               setOrderValidationError('');
                             }}
                             className="order-styled-input"
@@ -5062,7 +5121,12 @@ export default function WebullTrading({ isLightMode = false }) {
                             <input
                               type="checkbox"
                               checked={orderForm.isBracketEnabled}
-                              onChange={(e) => setOrderForm((prev) => ({ ...prev, isBracketEnabled: e.target.checked }))}
+                              onChange={(e) => setOrderForm((prev) => ({
+                                ...prev,
+                                isBracketEnabled: e.target.checked,
+                                entrustType: e.target.checked ? 'QTY' : prev.entrustType,
+                                totalCashAmount: e.target.checked ? '' : prev.totalCashAmount,
+                              }))}
                               style={{ cursor: 'pointer', accentColor: '#10b981' }}
                             />
                             <span>🎯 Attach Take-Profit / Stop-Loss (Bracket)</span>
@@ -5124,7 +5188,12 @@ export default function WebullTrading({ isLightMode = false }) {
                             <input
                               type="checkbox"
                               checked={orderForm.isAlgoEnabled}
-                              onChange={(e) => setOrderForm((prev) => ({ ...prev, isAlgoEnabled: e.target.checked }))}
+                              onChange={(e) => setOrderForm((prev) => ({
+                                ...prev,
+                                isAlgoEnabled: e.target.checked,
+                                entrustType: e.target.checked ? 'QTY' : prev.entrustType,
+                                totalCashAmount: e.target.checked ? '' : prev.totalCashAmount,
+                              }))}
                               style={{ cursor: 'pointer', accentColor: '#0284c7' }}
                             />
                             <span>⚡ Algorithmic Execution (TWAP / VWAP / POV)</span>
@@ -5461,10 +5530,17 @@ export default function WebullTrading({ isLightMode = false }) {
                             )}
                           </>
                         )}
-                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                          <span style={{ color: '#94a3b8' }}>Quantity:</span>
-                          <strong>{number(orderForm.quantity, selectedInstrumentType === 'CRYPTO' ? 6 : 2)}</strong>
-                        </div>
+                        {selectedInstrumentType === 'EQUITY' && orderForm.entrustType === 'AMOUNT' ? (
+                          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                            <span style={{ color: '#94a3b8' }}>Cash Amount:</span>
+                            <strong>${number(orderForm.totalCashAmount)}</strong>
+                          </div>
+                        ) : (
+                          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                            <span style={{ color: '#94a3b8' }}>Quantity:</span>
+                            <strong>{number(orderForm.quantity, selectedInstrumentType === 'CRYPTO' ? 6 : 2)}</strong>
+                          </div>
+                        )}
                         <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                           <span style={{ color: '#94a3b8' }}>Estimated Total:</span>
                           <strong style={{ color: '#38bdf8' }}>

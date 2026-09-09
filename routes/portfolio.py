@@ -13,6 +13,7 @@ from credentials import Credential, User, UserSetting
 from core.extensions import db
 from log import logger
 from services.price_history_service import ensure_price_history
+from services.totp_service import verify_totp_code
 from routes.helpers import *
 
 # Database & Models
@@ -1070,7 +1071,7 @@ def api_cancel_order(order_id):
     try:
         data = request.get_json() or {}
         symbol = (data.get('symbol') or '').upper()
-        two_factor_code = (data.get('two_factor_code') or '').strip()
+        two_factor_code = data.get('two_factor_code') or ''
 
         if not symbol:
             return jsonify({'error': 'Symbol is required for order cancellation'}), 400
@@ -1080,9 +1081,7 @@ def api_cancel_order(order_id):
             if not two_factor_code:
                 return jsonify({'error': 'Two-factor code is required', 'requires_2fa': True}), 400
             try:
-                import pyotp
-                totp = pyotp.TOTP(settings.totp_secret)
-                if not totp.verify(two_factor_code, valid_window=1):
+                if not verify_totp_code(settings.totp_secret, two_factor_code):
                     return jsonify({'error': 'Invalid two-factor code', 'requires_2fa': True}), 400
             except Exception as totp_err:
                 logger.error(f"2FA verification failed: {totp_err}")
@@ -2498,7 +2497,7 @@ def setup_2fa():
         secret = pyotp.random_base32()
         
         # Create provisioning URI for QR code
-        totp = pyotp.TOTP(secret)
+        totp = pyotp.TOTP(secret, digits=6, interval=30)
         provisioning_uri = totp.provisioning_uri(
             name=current_user.username,
             issuer_name='Crypto & Securities Dashboard Trading'
@@ -2536,8 +2535,6 @@ def setup_2fa():
 def verify_2fa_setup():
     """Verify 2FA code and enable 2FA for trading"""
     try:
-        import pyotp
-        
         data = request.get_json()
         code = data.get('code')
         
@@ -2549,9 +2546,8 @@ def verify_2fa_setup():
         if not secret:
             return jsonify({'success': False, 'error': 'No pending 2FA setup found. Please start setup again.'}), 400
         
-        # Verify code
-        totp = pyotp.TOTP(secret)
-        if not totp.verify(code, valid_window=1):
+        # Verify the same exact six-digit TOTP format used throughout the app.
+        if not verify_totp_code(secret, code):
             return jsonify({'success': False, 'error': 'Invalid code. Please try again.'}), 400
         
         # Save secret to database
@@ -2586,8 +2582,6 @@ def verify_2fa_setup():
 def disable_2fa():
     """Disable 2FA for trading (requires code verification)"""
     try:
-        import pyotp
-        
         data = request.get_json()
         code = data.get('code')
         
@@ -2599,8 +2593,7 @@ def disable_2fa():
             return jsonify({'success': False, 'error': '2FA is not enabled'}), 400
         
         # Verify code before disabling
-        totp = pyotp.TOTP(settings.totp_secret)
-        if not totp.verify(code, valid_window=1):
+        if not verify_totp_code(settings.totp_secret, code):
             return jsonify({'success': False, 'error': 'Invalid code. Please try again.'}), 400
         
         # Disable 2FA
@@ -2627,8 +2620,6 @@ def disable_2fa():
 def verify_2fa_code():
     """Verify a 2FA code for order placement"""
     try:
-        import pyotp
-        
         data = request.get_json()
         code = data.get('code')
         
@@ -2640,8 +2631,7 @@ def verify_2fa_code():
             return jsonify({'success': False, 'error': '2FA is not enabled'}), 400
         
         # Verify code
-        totp = pyotp.TOTP(settings.totp_secret)
-        if not totp.verify(code, valid_window=1):
+        if not verify_totp_code(settings.totp_secret, code):
             return jsonify({'success': False, 'error': 'Invalid or expired code. Please try again.'}), 400
         
         # Generate a temporary token valid for 2 minutes
