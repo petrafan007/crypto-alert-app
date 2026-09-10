@@ -17,15 +17,12 @@ export default function TwoFactorModal({ isVisible, onClose, onVerify, orderDeta
     setError('');
     setLoading(false);
 
-    // Password managers discover one-time-code inputs after the newly opened
-    // modal has painted and the input has focus.
-    const focusCodeInput = () => codeInputRef.current?.focus({ preventScroll: true });
-    focusCodeInput();
-    const animationFrame = window.requestAnimationFrame(focusCodeInput);
-    const timer = window.setTimeout(focusCodeInput, 150);
+    // Give modal a tick to mount and paint before focusing the code input
+    const timer = window.setTimeout(() => {
+      codeInputRef.current?.focus({ preventScroll: true });
+    }, 50);
 
     return () => {
-      window.cancelAnimationFrame(animationFrame);
       window.clearTimeout(timer);
     };
   }, [isVisible]);
@@ -170,159 +167,167 @@ export default function TwoFactorModal({ isVisible, onClose, onVerify, orderDeta
         </div>
 
         <div className="two-factor-modal-content">
-          {orderDetails && (
-            <div className="order-summary">
-              <h4>Order Summary:</h4>
-              {orderDetails.provider && (
-                <div className="order-detail-row">
-                  <span className="label">Provider:</span>
-                  <span className="value">{orderDetails.provider}</span>
-                </div>
-              )}
-              {orderDetails.accountLabel && (
-                <div className="order-detail-row">
-                  <span className="label">Account:</span>
-                  <span className="value">{orderDetails.accountLabel}</span>
-                </div>
-              )}
-              <div className="order-detail-row">
-                <span className="label">Action:</span>
-                <span className={`value ${orderDetails.side.toLowerCase()}`}>
-                  {formatOrderActionLabel(orderDetails)}
-                </span>
-              </div>
-              <div className="order-detail-row">
-                <span className="label">Type:</span>
-                <span className="value">{formatOrderType(orderDetails.type, 'Market')}</span>
-              </div>
-              {orderDetails.instrumentType && (
-                <div className="order-detail-row">
-                  <span className="label">Asset:</span>
-                  <span className="value">{orderDetails.symbol} ({orderDetails.instrumentType})</span>
-                </div>
-              )}
-              {orderDetails.optionType && (
-                <div className="order-detail-row">
-                  <span className="label">Option:</span>
-                  <span className="value">{orderDetails.optionType}{orderDetails.optionStrike ? ` · $${orderDetails.optionStrike}` : ''}{orderDetails.optionExpiration ? ` · ${orderDetails.optionExpiration}` : ''}</span>
-                </div>
-              )}
-              {orderDetails.cashAmount ? (
-                <div className="order-detail-row">
-                  <span className="label">Cash Amount:</span>
-                  <span className="value">${orderDetails.cashAmount}</span>
-                </div>
-              ) : (
-                <div className="order-detail-row">
-                  <span className="label">Quantity:</span>
-                  <span className="value">{orderDetails.quantity}</span>
-                </div>
-              )}
-              {orderDetails.price && orderDetails.price > 0 && (
-                <div className="order-detail-row">
-                  <span className="label">Price:</span>
-                  <span className="value">${orderDetails.price}</span>
-                </div>
-              )}
-              {orderDetails.trailingStopStep && (
-                <div className="order-detail-row">
-                  <span className="label">Trailing Stop:</span>
-                  <span className="value">
-                    {orderDetails.trailingType === 'PERCENTAGE'
-                      ? `${orderDetails.trailingStopStep}%`
-                      : `$${orderDetails.trailingStopStep}`}
-                  </span>
-                </div>
-              )}
-              {orderDetails.bracketTakeProfitPrice && (
-                <div className="order-detail-row">
-                  <span className="label">Take Profit:</span>
-                  <span className="value">${orderDetails.bracketTakeProfitPrice}</span>
-                </div>
-              )}
-              {orderDetails.bracketStopLossPrice && (
-                <div className="order-detail-row">
-                  <span className="label">Stop Loss Trigger:</span>
-                  <span className="value">${orderDetails.bracketStopLossPrice}</span>
-                </div>
-              )}
-              {orderDetails.bracketStopLossLimitPrice && (
-                <div className="order-detail-row">
-                  <span className="label">Stop Loss Limit:</span>
-                  <span className="value">${orderDetails.bracketStopLossLimitPrice}</span>
-                </div>
-              )}
-              {orderDetails.estimatedValue && (
-                <div className="order-detail-row total">
-                  <span className="label">Est. Value:</span>
-                  <span className="value">${orderDetails.estimatedValue}</span>
-                </div>
-              )}
-              {orderDetails.timeInForce && (
-                <div className="order-detail-row">
-                  <span className="label">Time in Force:</span>
-                  <span className="value">{formatTimeInForce(orderDetails.timeInForce)}</span>
-                </div>
-              )}
-              {orderDetails.tradingSession && (
-                <div className="order-detail-row">
-                  <span className="label">Trading Session:</span>
-                  <span className="value">{orderDetails.tradingSession === 'CORE' ? 'Regular Hours' : orderDetails.tradingSession === 'ALL' ? 'Including Extended Hours' : 'Overnight Hours Only'}</span>
-                </div>
-              )}
-            </div>
-          )}
+          <div className={`two-factor-grid ${!orderDetails && !explanation ? 'single-column' : ''}`}>
+            {(orderDetails || explanation) && (
+              <div className="two-factor-grid-left">
+                {orderDetails && (
+                  <div className="order-summary">
+                    <h4>Order Summary:</h4>
+                    {orderDetails.provider && (
+                      <div className="order-detail-row">
+                        <span className="label">Provider:</span>
+                        <span className="value">{orderDetails.provider}</span>
+                      </div>
+                    )}
+                    {orderDetails.accountLabel && (
+                      <div className="order-detail-row">
+                        <span className="label">Account:</span>
+                        <span className="value">{orderDetails.accountLabel}</span>
+                      </div>
+                    )}
+                    <div className="order-detail-row">
+                      <span className="label">Action:</span>
+                      <span className={`value ${orderDetails.side.toLowerCase()}`}>
+                        {formatOrderActionLabel(orderDetails)}
+                      </span>
+                    </div>
+                    <div className="order-detail-row">
+                      <span className="label">Type:</span>
+                      <span className="value">{formatOrderType(orderDetails.type, 'Market')}</span>
+                    </div>
+                    {orderDetails.instrumentType && (
+                      <div className="order-detail-row">
+                        <span className="label">Asset:</span>
+                        <span className="value">{orderDetails.symbol} ({orderDetails.instrumentType})</span>
+                      </div>
+                    )}
+                    {orderDetails.optionType && (
+                      <div className="order-detail-row">
+                        <span className="label">Option:</span>
+                        <span className="value">{orderDetails.optionType}{orderDetails.optionStrike ? ` · $${orderDetails.optionStrike}` : ''}{orderDetails.optionExpiration ? ` · ${orderDetails.optionExpiration}` : ''}</span>
+                      </div>
+                    )}
+                    {orderDetails.cashAmount ? (
+                      <div className="order-detail-row">
+                        <span className="label">Cash Amount:</span>
+                        <span className="value">${orderDetails.cashAmount}</span>
+                      </div>
+                    ) : (
+                      <div className="order-detail-row">
+                        <span className="label">Quantity:</span>
+                        <span className="value">{orderDetails.quantity}</span>
+                      </div>
+                    )}
+                    {orderDetails.price && orderDetails.price > 0 && (
+                      <div className="order-detail-row">
+                        <span className="label">Price:</span>
+                        <span className="value">${orderDetails.price}</span>
+                      </div>
+                    )}
+                    {orderDetails.trailingStopStep && (
+                      <div className="order-detail-row">
+                        <span className="label">Trailing Stop:</span>
+                        <span className="value">
+                          {orderDetails.trailingType === 'PERCENTAGE'
+                            ? `${orderDetails.trailingStopStep}%`
+                            : `$${orderDetails.trailingStopStep}`}
+                        </span>
+                      </div>
+                    )}
+                    {orderDetails.bracketTakeProfitPrice && (
+                      <div className="order-detail-row">
+                        <span className="label">Take Profit:</span>
+                        <span className="value">${orderDetails.bracketTakeProfitPrice}</span>
+                      </div>
+                    )}
+                    {orderDetails.bracketStopLossPrice && (
+                      <div className="order-detail-row">
+                        <span className="label">Stop Loss Trigger:</span>
+                        <span className="value">${orderDetails.bracketStopLossPrice}</span>
+                      </div>
+                    )}
+                    {orderDetails.bracketStopLossLimitPrice && (
+                      <div className="order-detail-row">
+                        <span className="label">Stop Loss Limit:</span>
+                        <span className="value">${orderDetails.bracketStopLossLimitPrice}</span>
+                      </div>
+                    )}
+                    {orderDetails.estimatedValue && (
+                      <div className="order-detail-row total">
+                        <span className="label">Est. Value:</span>
+                        <span className="value">${orderDetails.estimatedValue}</span>
+                      </div>
+                    )}
+                    {orderDetails.timeInForce && (
+                      <div className="order-detail-row">
+                        <span className="label">Time in Force:</span>
+                        <span className="value">{formatTimeInForce(orderDetails.timeInForce)}</span>
+                      </div>
+                    )}
+                    {orderDetails.tradingSession && (
+                      <div className="order-detail-row">
+                        <span className="label">Trading Session:</span>
+                        <span className="value">{orderDetails.tradingSession === 'CORE' ? 'Regular Hours' : orderDetails.tradingSession === 'ALL' ? 'Including Extended Hours' : 'Overnight Hours Only'}</span>
+                      </div>
+                    )}
+                  </div>
+                )}
 
-          {explanation && (
-            <div className="order-explanation">
-              {explanation}
-            </div>
-          )}
-
-          <form onSubmit={handleSubmit} className="two-factor-form">
-            <div className="form-group">
-              <label htmlFor="twoFactorCode">
-                Enter your 6-digit authentication code:
-              </label>
-              <TotpCodeInput
-                id="twoFactorCode"
-                value={code}
-                onChange={handleCodeChange}
-                placeholder="000000"
-                className="two-factor-input"
-                autoFocus
-                disabled={loading}
-                ref={codeInputRef}
-              />
-              <p className="help-text">
-                Enter the code from your authenticator app (e.g., Bitwarden, Google Authenticator)
-              </p>
-            </div>
-
-            {error && (
-              <div className="error-message">
-                ❌ {error}
+                {explanation && (
+                  <div className="order-explanation">
+                    {explanation}
+                  </div>
+                )}
               </div>
             )}
 
-            <div className="two-factor-actions">
-              <button
-                type="button"
-                onClick={onClose}
-                className="btn btn-secondary"
-                disabled={loading}
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                className="btn btn-primary"
-                disabled={loading || code.length !== 6}
-              >
-                {loading ? '⏳ Verifying...' : '✓ Verify & Submit Order'}
-              </button>
+            <div className="two-factor-grid-right">
+              <form onSubmit={handleSubmit} className="two-factor-form" name="totpForm" autoComplete="on">
+                <div className="form-group">
+                  <label htmlFor="twoFactorCode">
+                    Enter your 6-digit authentication code:
+                  </label>
+                  <TotpCodeInput
+                    id="twoFactorCode"
+                    name="totp"
+                    value={code}
+                    onChange={handleCodeChange}
+                    placeholder="000000"
+                    className="two-factor-input"
+                    disabled={loading}
+                    ref={codeInputRef}
+                  />
+                  <p className="help-text">
+                    Enter the code from your authenticator app (e.g., Bitwarden, Google Authenticator)
+                  </p>
+                </div>
+
+                {error && (
+                  <div className="error-message">
+                    ❌ {error}
+                  </div>
+                )}
+
+                <div className="two-factor-actions">
+                  <button
+                    type="button"
+                    onClick={onClose}
+                    className="btn btn-secondary"
+                    disabled={loading}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="btn btn-primary"
+                    disabled={loading || code.length !== 6}
+                  >
+                    {loading ? '⏳ Verifying...' : '✓ Verify & Submit Order'}
+                  </button>
+                </div>
+              </form>
             </div>
-          </form>
+          </div>
         </div>
       </div>
     </div>
