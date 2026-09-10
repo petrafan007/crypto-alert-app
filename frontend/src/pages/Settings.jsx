@@ -550,19 +550,6 @@ export default function Settings({ isLightMode }) {
     return () => { cancelled = true; clearTimeout(timer); };
   }, [showEventStrategyReport, portfolioAuditPending]);
 
-  const DEFAULT_MASTER_CIO_PROMPT =
-    "You are the paper-portfolio research CIO and operational auditor. Explain the observed paper portfolio in plain English—avoid dense academic jargon or research-paper abstractions. Explain what the quantitative strategy engine is doing right now, whether it is working properly, what each enabled strategy evaluated, and why other entries were blocked. MANDATORY FORMAT: Always begin with '## 1. Executive Summary' containing a concise narrative TL;DR written in human-friendly language (strictly avoiding internal code slugs like 'warming_up', 'available_capacity', or 'market_closed'—translate them into everyday concepts like 'calibrating indicator history', 'available buying power / capital headroom', and 'regular market session closed'). The Executive Summary must state: (1) what the engine is doing right now and current portfolio state, (2) whether the engine is working properly, and (3) actionable suggestions to improve or repair the quantitative strategy engine.";
-
-  const DEFAULT_EVENT_AUDIT_PROMPT =
-    'You are a principal quantitative trading auditor and AI reliability engineer. ' +
-    'Your task is to analyze telemetry, execution logs, and decision traces from an autonomous ' +
-    'paper-trading strategy worker operating on Webull Event Contracts over an observation window. ' +
-    'Evaluate whether the worker is performing properly, whether the collected market data is useful and complete, ' +
-    'whether any scans or quotes were missed, what errors or warnings occurred, and how decisions were formed. ' +
-    'Cite specific timestamps, contract symbols, reason codes, and log messages as concrete evidence. ' +
-    'Format your evaluation as a structured audit with executive verdict, detected operational issues, ' +
-    'telemetry summary, actionable tuning recommendations, and next steps.';
-
   const loadEventStrategyAIConfig = async () => {
     setEventStrategyAILoading(true);
     try {
@@ -570,8 +557,8 @@ export default function Settings({ isLightMode }) {
       if (response.data?.success) {
         const loadedConfig = {
           audit_hours: response.data.audit_hours ?? 6,
-          master_ai_prompt: response.data.master_ai_prompt || DEFAULT_MASTER_CIO_PROMPT,
-          default_master_ai_prompt: response.data.default_master_ai_prompt || DEFAULT_MASTER_CIO_PROMPT,
+          master_ai_prompt: response.data.master_ai_prompt ?? '',
+          default_master_ai_prompt: response.data.default_master_ai_prompt || '',
           audit_prompt_policy: response.data.audit_prompt_policy,
           ai_config: response.data.ai_config || {
             primary: { provider: 'gemini', model: 'gemini-3.8-flash', reasoning_level: 'medium', api_key: '', has_key: false },
@@ -4234,7 +4221,7 @@ export default function Settings({ isLightMode }) {
                             type="button"
                             onClick={() => setEventStrategyAIConfig((prev) => ({
                               ...prev,
-                              master_ai_prompt: prev.default_master_ai_prompt || DEFAULT_MASTER_CIO_PROMPT,
+                              master_ai_prompt: prev.default_master_ai_prompt || '',
                             }))}
                             style={{
                               background: 'none',
@@ -4251,7 +4238,7 @@ export default function Settings({ isLightMode }) {
                         </div>
                         <textarea
                           id="quant-master-audit-prompt"
-                          value={eventStrategyAIConfig.master_ai_prompt || DEFAULT_MASTER_CIO_PROMPT}
+                          value={eventStrategyAIConfig.master_ai_prompt ?? ''}
                           onChange={(e) => {
                             setEventStrategyAIConfig((prev) => ({
                               ...prev,

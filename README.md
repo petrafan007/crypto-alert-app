@@ -6,6 +6,13 @@
 
 **Last Updated**: September 2026
 
+## v2.97.5 (September 2026)
+
+- **Eliminated Hardcoded Frontend Prompts & Enforced Full User Database Persistence:**
+  - Removed all hardcoded client-side prompt strings (`DEFAULT_MASTER_CIO_PROMPT`, `DEFAULT_EVENT_AUDIT_PROMPT`, and inline CIO mandate text) from `Settings.jsx` and `QuantitativeStrategyEngine.jsx`.
+  - Prompts in the UI now bind strictly to the user's database records (`PortfolioAlgoConfig.master_ai_prompt` and `AIPrompt`), ensuring that user modifications are fully isolated, persisted per user, and never overridden by frozen client-side constants.
+  - "Reset to Default" actions now dynamically utilize the server-provided default seed templates (`default_master_ai_prompt` / `defaults.master_ai_prompt`) directly from the backend API, preserving complete UI editing capabilities while establishing full database-driven architecture across all prompt fields.
+
 ## v2.97.4 (September 2026)
 
 - **Revamped Quantitative Portfolio AI Audit Report & Executive Summary:** Transformed the AI Audit Report to prioritize clear, human-accessible operational clarity over dense academic jargon. Positioned directly beneath the audit number and completion status header, a prominent **Executive Summary** card immediately communicates:

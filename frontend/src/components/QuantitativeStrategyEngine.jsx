@@ -1223,9 +1223,7 @@ export default function QuantitativeStrategyEngine({
                   <button
                     type="button"
                     onClick={() =>
-                      setMasterAIPromptDraft(
-                        'You are the Quantitative Chief Investment Officer (CIO) and Portfolio Risk Auditor for an autonomous multi-asset trading engine. Your mandate is to evaluate the blended portfolio ($50,000 baseline) across 5 asset classes (Equities & ETFs, Options Strategies, Cryptocurrency Spot, Micro Futures, and Event Contracts). Audit portfolio progress toward the net annual target (16.5%–21.0% CAGR), detect cross-asset correlation spikes, identify whether any asset allocation has drifted beyond target risk weights, and issue strategic capital rebalancing directives.'
-                      )
+                      setMasterAIPromptDraft(defaults?.master_ai_prompt || '')
                     }
                     style={{ background: 'none', border: 'none', color: '#38bdf8', fontSize: '11px', cursor: 'pointer', textDecoration: 'underline' }}
                   >
