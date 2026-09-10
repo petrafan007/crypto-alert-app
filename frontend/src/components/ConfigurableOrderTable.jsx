@@ -164,6 +164,8 @@ export default function ConfigurableOrderTable({
   };
   const resetFilters = () => updateState((current) => ({ ...current, filters: { search: '', values: {} } }));
 
+  const isColumnPinned = (col) => Boolean(col?.locked || (col?.id === 'symbol' && columns[0]?.id === 'symbol'));
+
   return <div className="configurable-order-table webull-positions">
     <div className="configurable-order-actions">
       <span>{displayedRows.length} of {rows.length} orders{activeFilterCount ? ` · ${activeFilterCount} active filter${activeFilterCount === 1 ? '' : 's'}` : ''}</span>
@@ -172,12 +174,75 @@ export default function ConfigurableOrderTable({
         <button type="button" onClick={() => setColumnsOpen(true)}><ViewColumnOutlinedIcon fontSize="small" /> Customize columns</button>
       </div>
     </div>
-    {!displayedRows.length ? <div className="empty-state"><p>{rows.length ? 'No orders match the saved filters.' : emptyText}</p>{rows.length > 0 && <button type="button" className="btn btn-secondary" onClick={resetFilters}>Reset filters</button>}</div> : <div className={`table-container trading-table ${tableClassName}`}>
-      <div className="order-table-scroll"><table style={{ '--order-table-width': `${tableWidth}px` }}><colgroup>{visibleColumns.map((column) => <col key={column.id} style={{ width: `${columnWidth(column)}px` }} />)}</colgroup><thead><tr>{visibleColumns.map((column) => <th key={column.id} scope="col" aria-sort={state.sort?.id === column.id ? (state.sort.direction === 'asc' ? 'ascending' : 'descending') : 'none'} className={dropTarget === column.id ? 'positions-drop-target' : ''} draggable={!isResizing && column.id !== 'symbol'} onDragStart={(event) => startDrag(event, column.id)} onDragEnd={endDrag} title={column.id === 'symbol' ? 'Symbol is pinned first' : `Drag ${column.label} to reorder`} style={column.headerStyle} {...dragProps(column.id)}>
-        <span className="position-column-header"><button type="button" onClick={() => toggleSort(column.id)}>{column.label}{state.sort?.id === column.id ? (state.sort.direction === 'asc' ? ' ↑' : ' ↓') : ''}</button></span>
-        <span className="order-column-resizer" draggable={false} onDragStart={(event) => { event.preventDefault(); event.stopPropagation(); }} onMouseDown={(event) => startResize(event, column)} title={`Resize ${column.label}`} />
-      </th>)}</tr></thead><tbody>{displayedRows.map((row, index) => <tr key={rowKey(row, index)} className={typeof rowClassName === 'function' ? rowClassName(row, index) : rowClassName}>{visibleColumns.map((column) => <td key={column.id} className={typeof column.className === 'function' ? column.className(row) : column.className} style={typeof column.style === 'function' ? column.style(row) : column.style}>{column.render ? column.render(row) : normalizedValue(column.value(row)) || '—'}</td>)}</tr>)}</tbody></table></div>
-    </div>}
+    {!displayedRows.length ? (
+      <div className="empty-state">
+        <p>{rows.length ? 'No orders match the saved filters.' : emptyText}</p>
+        {rows.length > 0 && <button type="button" className="btn btn-secondary" onClick={resetFilters}>Reset filters</button>}
+      </div>
+    ) : (
+      <div className={`webull-positions-table-wrap order-table-scroll ${tableClassName}`}>
+        <table className="webull-positions-table" style={{ '--order-table-width': `${tableWidth}px` }}>
+          <colgroup>
+            {visibleColumns.map((column) => <col key={column.id} style={{ width: `${columnWidth(column)}px` }} />)}
+          </colgroup>
+          <thead>
+            <tr>
+              {visibleColumns.map((column) => {
+                const pinned = isColumnPinned(column);
+                return (
+                  <th
+                    key={column.id}
+                    scope="col"
+                    aria-sort={state.sort?.id === column.id ? (state.sort.direction === 'asc' ? 'ascending' : 'descending') : 'none'}
+                    className={dropTarget === column.id ? 'positions-drop-target' : ''}
+                    draggable={!isResizing && !pinned}
+                    onDragStart={(event) => startDrag(event, column.id)}
+                    onDragEnd={endDrag}
+                    title={pinned ? `${column.label} is pinned` : `Drag ${column.label} to reorder`}
+                    style={{
+                      width: `${columnWidth(column)}px`,
+                      minWidth: `${columnWidth(column)}px`,
+                      maxWidth: `${columnWidth(column)}px`,
+                      ...column.headerStyle,
+                    }}
+                    {...dragProps(column.id)}
+                  >
+                    <span className="position-column-header">
+                      <button type="button" className="order-header-btn" onClick={() => toggleSort(column.id)}>
+                        {column.label}
+                        {state.sort?.id === column.id ? (state.sort.direction === 'asc' ? ' ↑' : ' ↓') : ''}
+                      </button>
+                    </span>
+                    <span
+                      className="positions-column-resizer order-column-resizer"
+                      draggable={false}
+                      onDragStart={(event) => { event.preventDefault(); event.stopPropagation(); }}
+                      onMouseDown={(event) => startResize(event, column)}
+                      title={`Resize ${column.label}`}
+                    />
+                  </th>
+                );
+              })}
+            </tr>
+          </thead>
+          <tbody>
+            {displayedRows.map((row, index) => (
+              <tr key={rowKey(row, index)} className={`position-data-row ${typeof rowClassName === 'function' ? rowClassName(row, index) : (rowClassName || '')}`}>
+                {visibleColumns.map((column) => (
+                  <td
+                    key={column.id}
+                    className={`${column.id === 'symbol' ? 'position-symbol' : ''} ${typeof column.className === 'function' ? column.className(row) : (column.className || '')}`}
+                    style={typeof column.style === 'function' ? column.style(row) : column.style}
+                  >
+                    {column.render ? column.render(row) : normalizedValue(column.value(row)) || '—'}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    )}
     {filterOpen && <OrderTableDialog title="Order filters" onClose={() => setFilterOpen(false)}>
       <div className="positions-filter-group positions-field-filters">
         <label>Search all columns<input type="search" value={state.filters.search} onChange={(event) => updateState((current) => ({ ...current, filters: { ...current.filters, search: event.target.value } }))} placeholder="Symbol, status, account…" /></label>
@@ -186,8 +251,8 @@ export default function ConfigurableOrderTable({
       <div className="positions-panel-footer"><button type="button" onClick={resetFilters}>Reset filters</button><button type="button" className="primary" onClick={() => setFilterOpen(false)}>Done</button></div>
     </OrderTableDialog>}
     {columnsOpen && <OrderTableDialog title="Customize columns" onClose={() => { setColumnsOpen(false); endDrag(); }}>
-      <p className="positions-layout-help">Drag any unpinned column to reorder or use the arrow buttons. Symbol stays first. Columns, widths, filters, and sorting are saved for your user on this browser.</p>
-      <div className="positions-column-list">{state.order.map((id, index) => { const column = columnMap.get(id); if (!column) return null; const pinned = id === 'symbol'; return <div key={id} draggable={!pinned} onDragStart={(event) => startDrag(event, id)} onDragEnd={endDrag} className={`positions-column-option ${pinned ? 'order-column-pinned' : ''} ${dropTarget === id ? 'positions-drop-target' : ''}`} {...dragProps(id)}><span>{column.label}</span><button type="button" disabled={pinned || index <= (state.order[0] === 'symbol' ? 1 : 0)} aria-label={`Move ${column.label} left`} onClick={() => updateState((current) => moveOrderTableColumn(current, id, current.order[index - 1]))}>←</button><button type="button" disabled={pinned || index === state.order.length - 1} aria-label={`Move ${column.label} right`} onClick={() => updateState((current) => moveOrderTableColumn(current, id, current.order[index + 1]))}>→</button><input type="checkbox" checked={state.selected.includes(id)} disabled={pinned || column.locked} onChange={() => toggleColumn(id)} aria-label={`Show ${column.label}`} /></div>; })}</div>
+      <p className="positions-layout-help">Drag any unpinned column to reorder or use the arrow buttons. Pinned columns stay locked first. Columns, widths, filters, and sorting are saved for your user on this browser.</p>
+      <div className="positions-column-list">{state.order.map((id, index) => { const column = columnMap.get(id); if (!column) return null; const pinned = isColumnPinned(column); return <div key={id} draggable={!pinned} onDragStart={(event) => startDrag(event, id)} onDragEnd={endDrag} className={`positions-column-option ${pinned ? 'order-column-pinned' : ''} ${dropTarget === id ? 'positions-drop-target' : ''}`} {...dragProps(id)}><span>{column.label}</span><button type="button" disabled={pinned || index === 0} aria-label={`Move ${column.label} left`} onClick={() => updateState((current) => moveOrderTableColumn(current, id, current.order[index - 1]))}>←</button><button type="button" disabled={pinned || index === state.order.length - 1} aria-label={`Move ${column.label} right`} onClick={() => updateState((current) => moveOrderTableColumn(current, id, current.order[index + 1]))}>→</button><input type="checkbox" checked={state.selected.includes(id)} disabled={pinned || column.locked} onChange={() => toggleColumn(id)} aria-label={`Show ${column.label}`} /></div>; })}</div>
       <div className="positions-panel-footer"><button type="button" onClick={() => updateState(defaultOrderTableState(columns, defaultSort))}>Reset to defaults</button><button type="button" className="primary" onClick={() => setColumnsOpen(false)}>Done</button></div>
     </OrderTableDialog>}
   </div>;

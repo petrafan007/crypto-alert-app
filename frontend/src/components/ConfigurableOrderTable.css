@@ -13,84 +13,118 @@
   margin-bottom: 10px;
 }
 
-.configurable-order-table .position-column-header {
-  justify-content: flex-start;
-  min-width: 0;
-}
-
-.configurable-order-table .position-column-header button {
-  color: inherit;
-  font: inherit;
-  white-space: nowrap;
-}
-
-.configurable-order-table .order-table-scroll {
+.configurable-order-table .webull-positions-table-wrap {
+  width: 100%;
+  max-height: 68vh;
   overflow: auto;
+  border-top: 1px solid var(--table-border, var(--border-color));
+  border-bottom: 1px solid var(--table-border, var(--border-color));
 }
 
-.configurable-order-table .table-container table {
+.configurable-order-table .webull-positions-table {
   table-layout: fixed !important;
-  width: var(--order-table-width) !important;
+  width: max-content !important;
   min-width: 100% !important;
   max-width: none !important;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-variant-numeric: tabular-nums;
 }
 
-.configurable-order-table th {
-  position: relative;
-  cursor: grab;
-}
-
-.configurable-order-table th:first-child {
-  cursor: default;
-}
-
-.configurable-order-table th,
-.configurable-order-table td {
+.configurable-order-table .webull-positions-table th,
+.configurable-order-table .webull-positions-table td {
   min-width: 80px;
-  overflow: hidden !important;
-  text-overflow: ellipsis !important;
-  white-space: nowrap !important;
+  padding: 15px 14px;
+  border-bottom: 1px solid var(--table-border, var(--border-color));
+  color: var(--text-primary);
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: middle;
 }
 
-.configurable-order-table .order-column-resizer {
-  position: absolute;
-  top: 0;
-  right: 0;
-  z-index: 26;
-  width: 10px;
-  height: 100%;
-  cursor: col-resize;
-  user-select: none;
-}
-
-.configurable-order-table .order-column-resizer:hover,
-.configurable-order-table .order-column-resizer:active {
-  background: var(--accent-primary, #38bdf8);
-  box-shadow: 0 0 8px rgba(56, 189, 248, .8);
-}
-
-/* Column header design — matches .webull-positions-table th button style */
-.configurable-order-table thead th {
+.configurable-order-table .webull-positions-table th {
   position: sticky;
   top: 0;
   z-index: 3;
   background: var(--table-header-bg);
-  border-bottom: 1px solid var(--table-border, var(--border-color));
   box-sizing: border-box;
+  cursor: grab;
   user-select: none;
 }
 
-.configurable-order-table .position-column-header button {
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  font-size: 11px;
-  font-weight: 800;
-  color: var(--text-secondary);
-  white-space: nowrap;
+.configurable-order-table .webull-positions-table th:first-child,
+.configurable-order-table .webull-positions-table td:first-child {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  min-width: 80px;
+  background: var(--table-row-bg);
+  text-align: left;
 }
 
-.configurable-order-table .position-column-header button:hover {
-  color: var(--accent-primary, #38bdf8);
+.configurable-order-table .webull-positions-table th:first-child {
+  z-index: 4;
+  background: var(--table-header-bg);
+}
+
+.configurable-order-table .webull-positions-table tbody tr:hover td {
+  background: var(--table-row-hover) !important;
+}
+
+/* Button appearance reset so headers are crystal clear in both light and dark mode */
+.configurable-order-table .webull-positions-table th button,
+.configurable-order-table .position-column-header button,
+.configurable-order-table .order-header-btn {
+  appearance: none;
+  -webkit-appearance: none;
+  background: transparent !important;
+  background-color: transparent !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  width: 100%;
+  color: var(--text-secondary, #94a3b8) !important;
+  font-size: 13px !important;
+  font-weight: 800 !important;
+  text-align: center !important;
+  cursor: pointer;
+  white-space: nowrap;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+}
+
+.configurable-order-table .webull-positions-table th button:hover,
+.configurable-order-table .position-column-header button:hover,
+.configurable-order-table .order-header-btn:hover {
+  color: var(--accent-primary, #38bdf8) !important;
+  background: transparent !important;
+}
+
+.configurable-order-table .positions-column-resizer,
+.configurable-order-table .order-column-resizer {
+  position: absolute;
+  top: 0;
+  right: -4px;
+  width: 9px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 6;
+}
+
+.configurable-order-table .positions-column-resizer:hover,
+.configurable-order-table .positions-column-resizer:active,
+.configurable-order-table .order-column-resizer:hover,
+.configurable-order-table .order-column-resizer:active {
+  background: var(--accent-primary, #38bdf8);
+  opacity: .7;
 }
 
 .configurable-order-table .positions-column-option {
@@ -99,10 +133,6 @@
 
 .configurable-order-table .positions-column-option.order-column-pinned {
   cursor: default;
-}
-
-.configurable-order-table td {
-  vertical-align: middle;
 }
 
 @media (max-width: 640px) {

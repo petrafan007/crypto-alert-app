@@ -83,6 +83,14 @@ DEFAULT_AUDIT_GUIDANCE = (
 
 MASTER_SCOPE = (
     'Begin with ## 1. Executive Summary and one or two narrative paragraphs before any table. '
+    'CRITICAL TONE AND VOCABULARY: Write in clear, human-friendly, plain English for an executive or active trader; '
+    'do not write like a dense academic research paper. In Section 1 Executive Summary, strictly avoid using raw internal '
+    'slugs or code variable names such as warming_up, available_capacity, market_closed, no_signal, or data_limited; '
+    'translate them into plain language (e.g. "calibrating indicator history", "available buying power / capital headroom", '
+    '"regular market session is closed", "no qualifying setups"). '
+    'The Executive Summary must state clearly: (1) what the engine is doing right now and its current operational state, '
+    '(2) whether the engine is working properly or has operational defects, and (3) actionable recommendations to improve '
+    'or repair the quantitative strategy engine. '
     'Then cover measured goal progress, recorded performance, module operation and blockers, capital/risk, '
     'evidence limitations, and prioritized engineering/strategy observations. Aim for 900–1800 words. '
     'Explain why the engine did or did not trade, rather than prescribing unconditional investment.'

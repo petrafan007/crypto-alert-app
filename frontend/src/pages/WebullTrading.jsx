@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { useAuth } from '../components/AuthContext';
 import CryptoIcon, { WebullLogo } from '../components/CryptoIcon';
@@ -15,6 +16,8 @@ import WebullOptionChain from '../components/WebullOptionChain';
 import OptionsPayoffChart from '../components/OptionsPayoffChart';
 import WebullPositions from '../components/WebullPositions';
 import ConfigurableOrderTable from '../components/ConfigurableOrderTable';
+import PortfolioAuditModal from '../components/PortfolioAuditModal';
+import { normalizePortfolioAudit, selectPortfolioAudit, auditOutcomeMessage } from '../utils/portfolioAudit.mjs';
 import { assetType as positionAssetType } from '../utils/positions.mjs';
 import EventPositionModal from '../components/EventPositionModal';
 import { differenceInEasternCalendarDays, formatEasternDate, formatEasternDateTime, formatEasternTime } from '../utils/dateTime';
@@ -457,23 +460,22 @@ function WebullOrderTable({ orders, emptyText, onCancelOrder, cancellingId, opti
     return <span className={closePnl.pnl >= 0 ? 'option-close-pnl-positive' : 'option-close-pnl-negative'}>{closePnl.pnl >= 0 ? '+' : '-'}${number(Math.abs(closePnl.pnl), 2)}<small>@ {closePnl.closeSide} ${number(closePnl.closePrice, 4)}</small></span>;
   };
   const columns = [
-    { id: 'created_at', label: 'Date', value: (order) => order.created_at, render: (order) => formatEasternDate(order.created_at), locked: true },
-    { id: 'time', label: 'Time (ET)', value: (order) => order.created_at, render: (order) => formatEasternTime(order.created_at) },
+    { id: 'created_at', label: 'Date', value: (order) => order.created_at, render: (order) => formatEasternDate(order.created_at), locked: true, style: { textAlign: 'left' } },
+    { id: 'time', label: 'Time (ET)', value: (order) => order.created_at, render: (order) => formatEasternTime(order.created_at), style: { textAlign: 'center' } },
     { id: 'symbol', label: 'Symbol', value: (order) => option(order).isOption ? option(order).symbol : (order.display_symbol || getAssetDisplaySymbol(order)), filterable: true, style: { textAlign: 'center' } },
-    { id: 'expiration', label: 'Expiration', value: (order) => option(order).isOption ? option(order).expiration : '', render: (order) => option(order).isOption ? option(order).expiration || '—' : '—' },
-    { id: 'strike', label: 'Strike', value: (order) => option(order).isOption ? option(order).strike : '', render: (order) => option(order).isOption ? option(order).strikeLabel : '—' },
-    { id: 'option_type', label: 'Call / Put', value: (order) => option(order).isOption ? formatOrderType(option(order).optionType, option(order).optionType || '—') : '', filterable: true, render: (order) => option(order).isOption ? formatOrderType(option(order).optionType, option(order).optionType || '—') : '—' },
-    { id: 'side', label: 'Side', value: (order) => formatOrderSide(order.side), filterable: true },
-    { id: 'type', label: 'Type', value: (order) => formatOrderType(order.order_type), filterable: true },
-    { id: 'quantity', label: 'Quantity', value: (order) => Number(order.quantity), render: (order) => number(order.quantity, 6) },
-    { id: 'price', label: 'Price', value: (order) => Number(order.price), render: (order) => order.price ? `$${number(order.price, 4)}` : 'Market' },
-    { id: 'filled', label: 'Filled', value: (order) => Number(order.filled_quantity), render: (order) => number(order.filled_quantity, 6) },
-    ...(optionClosePnlByOrder !== null ? [{ id: 'close_pnl', label: 'Close-Now P&L', value: (order) => optionClosePnlByOrder?.[order.id]?.pnl, render: closePnlCell }] : []),
-    ...(optionClosePnlByOrder !== null ? [{ id: 'close_pnl', label: 'Close-Now P&L', value: (order) => optionClosePnlByOrder?.[order.id]?.pnl, render: renderClosePnl }] : []),
-    { id: 'status', label: 'Status', value: (order) => formatOrderStatus(order.status), filterable: true, render: (order) => <>{formatOrderStatus(order.status)}{order.history_note && <small style={{ display: 'block', maxWidth: 280 }}>{order.history_note}</small>}</> },
-    { id: 'filled_at', label: 'Filled at (ET)', value: (order) => order.filled_at, render: (order) => order.filled_at ? `${formatEasternDate(order.filled_at)} ${formatEasternTime(order.filled_at)}` : '—' },
-    { id: 'source', label: 'Source', value: () => 'Webull', filterable: true, render: () => <span className="badge" style={{ background: 'rgba(96, 165, 250, .16)', color: '#60a5fa' }}>Webull</span> },
-    ...(onCancelOrder ? [{ id: 'actions', label: 'Action', value: () => '', render: (order) => <button type="button" className="btn btn-sm btn-danger" disabled={cancellingId === order.id} onClick={() => onCancelOrder(order)}>{cancellingId === order.id ? 'Cancelling...' : 'Cancel'}</button> }] : []),
+    { id: 'expiration', label: 'Expiration', value: (order) => option(order).isOption ? option(order).expiration : '', render: (order) => option(order).isOption ? option(order).expiration || '—' : '—', style: { textAlign: 'center' } },
+    { id: 'strike', label: 'Strike', value: (order) => option(order).isOption ? option(order).strike : '', render: (order) => option(order).isOption ? option(order).strikeLabel : '—', style: { textAlign: 'center' } },
+    { id: 'option_type', label: 'Call / Put', value: (order) => option(order).isOption ? formatOrderType(option(order).optionType, option(order).optionType || '—') : '', filterable: true, render: (order) => option(order).isOption ? formatOrderType(option(order).optionType, option(order).optionType || '—') : '—', style: { textAlign: 'center' } },
+    { id: 'side', label: 'Side', value: (order) => formatOrderSide(order.side), filterable: true, style: { textAlign: 'center' } },
+    { id: 'type', label: 'Type', value: (order) => formatOrderType(order.order_type), filterable: true, style: { textAlign: 'center' } },
+    { id: 'quantity', label: 'Quantity', value: (order) => Number(order.quantity), render: (order) => number(order.quantity, 6), style: { textAlign: 'right' } },
+    { id: 'price', label: 'Price', value: (order) => Number(order.price), render: (order) => order.price ? `$${number(order.price, 4)}` : 'Market', style: { textAlign: 'right' } },
+    { id: 'filled', label: 'Filled', value: (order) => Number(order.filled_quantity), render: (order) => number(order.filled_quantity, 6), style: { textAlign: 'right' } },
+    ...(optionClosePnlByOrder !== null ? [{ id: 'close_pnl', label: 'Close-Now P&L', value: (order) => optionClosePnlByOrder?.[order.id]?.pnl, render: renderClosePnl, style: { textAlign: 'right' } }] : []),
+    { id: 'status', label: 'Status', value: (order) => formatOrderStatus(order.status), filterable: true, render: (order) => <>{formatOrderStatus(order.status)}{order.history_note && <small style={{ display: 'block', maxWidth: 280 }}>{order.history_note}</small>}</>, style: { textAlign: 'center' } },
+    { id: 'filled_at', label: 'Filled at (ET)', value: (order) => order.filled_at, render: (order) => order.filled_at ? `${formatEasternDate(order.filled_at)} ${formatEasternTime(order.filled_at)}` : '—', style: { textAlign: 'center' } },
+    { id: 'source', label: 'Source', value: () => 'Webull', filterable: true, render: () => <span className="badge" style={{ background: 'rgba(96, 165, 250, .16)', color: '#60a5fa' }}>Webull</span>, style: { textAlign: 'center' } },
+    ...(onCancelOrder ? [{ id: 'actions', label: 'Action', value: () => '', render: (order) => <button type="button" className="btn btn-sm btn-danger" disabled={cancellingId === order.id} onClick={() => onCancelOrder(order)}>{cancellingId === order.id ? 'Cancelling...' : 'Cancel'}</button>, style: { textAlign: 'center' } }] : []),
   ];
   return <ConfigurableOrderTable rows={orders} columns={columns} tableId={tableId} userId={userId} emptyText={emptyText} />;
 }
@@ -795,6 +797,7 @@ const holdingMatchesOptionContract = (holding, { accountId, underlyingSymbol, op
 };
 
 export default function WebullTrading({ isLightMode = false }) {
+  const navigate = useNavigate();
   const { user } = useAuth();
   const isAdmin = Boolean(user?.is_admin || user?.id === 1);
   const [activeTab, setActiveTab] = useState('order');
@@ -811,6 +814,89 @@ export default function WebullTrading({ isLightMode = false }) {
   const [error, setError] = useState('');
   const [cancellingOrderId, setCancellingOrderId] = useState(null);
   const [cancelModal, setCancelModal] = useState({ isVisible: false, order: null, error: '', loading: false });
+
+  // Quant AI Audit Modal state
+  const [showQuantAuditModal, setShowQuantAuditModal] = useState(false);
+  const [quantAuditReport, setQuantAuditReport] = useState(null);
+  const [quantAuditHistory, setQuantAuditHistory] = useState([]);
+  const [quantAuditLoading, setQuantAuditLoading] = useState(false);
+  const [quantAuditGenerating, setQuantAuditGenerating] = useState(false);
+  const [quantAuditError, setQuantAuditError] = useState('');
+  const [quantAuditMessage, setQuantAuditMessage] = useState('');
+
+  const loadQuantAuditReport = async (reportId = null) => {
+    setQuantAuditLoading(true);
+    setQuantAuditError('');
+    setQuantAuditMessage('');
+    try {
+      const response = await axios.get('/api/webull/portfolio-algo/audits', { withCredentials: true });
+      if (response.data?.success) {
+        const audits = (response.data.audits || []).map(normalizePortfolioAudit);
+        setQuantAuditReport(selectPortfolioAudit(audits, reportId));
+        setQuantAuditHistory(audits);
+        setShowQuantAuditModal(true);
+      } else {
+        setQuantAuditError(response.data?.message || 'Unable to load strategy engine report.');
+      }
+    } catch (err) {
+      setQuantAuditError(err.response?.data?.message || err.message || 'Unable to load strategy engine report.');
+    } finally {
+      setQuantAuditLoading(false);
+    }
+  };
+
+  const generateQuantAuditReportNow = async () => {
+    setQuantAuditGenerating(true);
+    setQuantAuditError('');
+    setQuantAuditMessage('');
+    try {
+      const response = await axios.post('/api/webull/portfolio-algo/master-audit', {}, { withCredentials: true });
+      if (response.data?.success) {
+        const audit = normalizePortfolioAudit(response.data.audit || {});
+        setQuantAuditReport(audit);
+        setQuantAuditHistory((prev) => [audit, ...prev.filter((item) => item.id !== audit.id)]);
+        if (['SUCCESS', 'PENDING'].includes(audit.status)) {
+          setQuantAuditMessage(auditOutcomeMessage(audit));
+        } else {
+          setQuantAuditError(auditOutcomeMessage(audit));
+        }
+      } else {
+        setQuantAuditError(response.data?.message || 'Unable to generate AI audit report.');
+      }
+    } catch (err) {
+      setQuantAuditError(err.response?.data?.message || err.message || 'Unable to generate AI audit report.');
+    } finally {
+      setQuantAuditGenerating(false);
+    }
+  };
+
+  const quantAuditPending = quantAuditHistory.some((rep) => rep.status === 'PENDING');
+  useEffect(() => {
+    if (!showQuantAuditModal || !quantAuditPending) return undefined;
+    let cancelled = false;
+    let timer;
+    const refresh = async () => {
+      try {
+        const res = await axios.get('/api/webull/portfolio-algo/audits', { withCredentials: true });
+        if (cancelled) return;
+        if (res.data?.success) {
+          const audits = (res.data.audits || []).map(normalizePortfolioAudit);
+          setQuantAuditHistory(audits);
+          setQuantAuditReport((prev) => selectPortfolioAudit(audits, prev?.id));
+          if (!audits.some((rep) => rep.status === 'PENDING')) {
+            const latest = audits[0];
+            setQuantAuditMessage(latest?.status === 'SUCCESS' ? auditOutcomeMessage(latest) : '');
+            setQuantAuditError(latest?.status !== 'SUCCESS' ? auditOutcomeMessage(latest) : '');
+          }
+        }
+      } catch {
+        if (!cancelled) setQuantAuditError('Unable to refresh report progress.');
+      }
+      if (!cancelled) timer = setTimeout(refresh, 3000);
+    };
+    timer = setTimeout(refresh, 1500);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [showQuantAuditModal, quantAuditPending]);
 
   // Webull Trading Mode (Real, Paper Test, Quantitative Algo) state
   const [tradingMode, setTradingMode] = useState('REAL'); // 'REAL' | 'TEST' | 'QUANT'
@@ -4074,6 +4160,49 @@ export default function WebullTrading({ isLightMode = false }) {
             >
               🔄 Reset Paper Engine
             </button>
+            <button
+              type="button"
+              onClick={() => navigate('/settings?tab=quant-strategy')}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
+                background: isLightMode ? '#e2e8f0' : 'rgba(255, 255, 255, 0.08)',
+                color: isLightMode ? '#1e293b' : '#f1f5f9',
+                border: isLightMode ? '1px solid #cbd5e1' : '1px solid rgba(255, 255, 255, 0.15)',
+                padding: '7px 14px',
+                borderRadius: '8px',
+                fontWeight: 600,
+                fontSize: '0.85rem',
+                cursor: 'pointer',
+                whiteSpace: 'nowrap'
+              }}
+              title="Open Quantitative Strategy Settings"
+            >
+              ⚙️ Strategy Settings
+            </button>
+            <button
+              type="button"
+              onClick={() => loadQuantAuditReport()}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
+                background: 'linear-gradient(135deg, #0284c7 0%, #0369a1 100%)',
+                color: '#ffffff',
+                border: 'none',
+                padding: '7px 14px',
+                borderRadius: '8px',
+                fontWeight: 600,
+                fontSize: '0.85rem',
+                cursor: 'pointer',
+                boxShadow: '0 2px 8px rgba(2, 132, 199, 0.35)',
+                whiteSpace: 'nowrap'
+              }}
+              title="View latest Quantitative Portfolio AI Audit Report"
+            >
+              📊 Latest AI Audit Report
+            </button>
           </div>
         </div>
       )}
@@ -6174,6 +6303,24 @@ export default function WebullTrading({ isLightMode = false }) {
           </div>
         </div>
       )}
+
+      {/* Quantitative Portfolio AI Audit Report Modal */}
+      <PortfolioAuditModal
+        isOpen={showQuantAuditModal}
+        onClose={() => setShowQuantAuditModal(false)}
+        report={quantAuditReport}
+        history={quantAuditHistory}
+        onSelectReport={loadQuantAuditReport}
+        onGenerateNow={generateQuantAuditReportNow}
+        generating={quantAuditGenerating}
+        pending={quantAuditPending}
+        loading={quantAuditLoading}
+        error={quantAuditError}
+        onClearError={() => setQuantAuditError('')}
+        message={quantAuditMessage}
+        onClearMessage={() => setQuantAuditMessage('')}
+        isLightMode={isLightMode}
+      />
     </div>
   );
 }

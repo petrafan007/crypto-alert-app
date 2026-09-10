@@ -6,6 +6,20 @@
 
 **Last Updated**: September 2026
 
+## v2.97.4 (September 2026)
+
+- **Revamped Quantitative Portfolio AI Audit Report & Executive Summary:** Transformed the AI Audit Report to prioritize clear, human-accessible operational clarity over dense academic jargon. Positioned directly beneath the audit number and completion status header, a prominent **Executive Summary** card immediately communicates:
+  - **Operational Health Status:** High-contrast indicator badge (`🟢 Operating Properly (Healthy)`, `🟠 Trading Paused`, `🟡 Attention Needed`).
+  - **Plain-English Status Narrative:** Explains exactly what the strategy engine is doing right now, whether it is working properly, and why.
+  - **Technical Code Slug Elimination:** Replaces confusing internal identifiers (`warming_up`, `available_capacity`, `market_closed`, `circuit_paused`, `no_signal`, `data_limited`) with intuitive, human-friendly terms across executive summaries, module breakdowns, and report markdown.
+  - **Actionable Improvement & Repair Recommendations:** Clear, bulleted recommendations detailing concrete steps to improve strategy returns or repair operational bottlenecks.
+- **Webull Trading Quantitative Strategy Navigation & Modal Parity:** Added direct action shortcuts in Quantitative Strategy mode on the Webull Trading page immediately to the right of the `Reset Paper Engine` button:
+  - `⚙️ Strategy Settings`: Instantly jumps to the Quantitative Strategy configuration tab in Settings (`/settings?tab=quant-strategy`).
+  - `📊 Latest AI Audit Report`: Opens the latest AI Audit Report within the same comprehensive modal dialog, with full report generation, real-time polling, and historical report review capabilities without navigating away from trading.
+- **Order History Tables Appearance & Header Button Fix:** Fixed an issue where browser default button styles caused column headers across Webull, Consolidated, and Binance.US order history tables to display as solid white, illegible boxes in dark mode:
+  - Applied CSS appearance and background resets (`appearance: none; background: transparent !important; border: 0 !important; color: var(--text-secondary); font-size: 13px; font-weight: 800; text-align: center;`) with reactive hover states.
+  - Standardized the table architecture on `webull-positions-table` to ensure identical styling and behavior as Positions: sticky headers, sticky pinned first column (e.g. Date / Symbol) for horizontal scrolling, column drag-and-drop reordering, interactive column resizing handles, sort indicators, column visibility customization, and advanced filtering.
+
 ## v2.97.3 (September 2026)
 
 - **Webull AI Signal Failover Serialization Fix:** Fixed an uncaught `NameError` in `services/webull_signal_service.py` where serializing multi-tier provider failover logs crashed during manual and scheduled Webull signal generation (e.g. for AAPL and TSLA) when a primary AI provider hit rate limits and fell back to secondary tiers.
