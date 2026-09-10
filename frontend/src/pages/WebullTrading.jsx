@@ -5275,7 +5275,9 @@ export default function WebullTrading({ isLightMode = false }) {
                     {/* Row 3: Use Balance Slider Section */}
                     {selectedInstrumentType !== 'FUTURES' && <div className="order-slider-section">
                       <div className="order-slider-header">
-                        <span className="order-field-label">Use Balance: {balancePercentage}%</span>
+                        <span className="order-field-label">
+                          Use {selectedInstrumentType === 'EVENT' ? 'Event Buying Power' : 'Balance'}: {balancePercentage}%
+                        </span>
                         {balancePercentage > 0 && (
                           <span className="order-slider-amount">
                             ({orderForm.side === 'SELL'

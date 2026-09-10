@@ -404,25 +404,41 @@ def _normalise_webull_balance(raw):
     """Return a balance dict with a guaranteed ``total_cash_balance`` key.
 
     Webull's balance API uses different field names across account types and API
-    versions.  Callers should access ``total_cash_balance`` rather than the raw
-    field name so that cash is always captured regardless of payload shape.
+    versions. Event and linked-crypto accounts put their usable buying power in
+    the nested ``account_currency_assets`` row instead of a top-level cash
+    field. Callers should access ``total_cash_balance`` rather than the raw field
+    name so that usable funds are captured regardless of payload shape.
     """
     if not isinstance(raw, dict):
         return raw
-    if raw.get('total_cash_balance') not in (None, '', 0):
-        return raw  # already canonical
+
+    result = dict(raw)
+    currency_assets = raw.get('account_currency_assets') or raw.get('accountCurrencyAssets') or []
+    if isinstance(currency_assets, dict):
+        currency_assets = [currency_assets]
+    if isinstance(currency_assets, list):
+        currency_asset = next((
+            item for item in currency_assets
+            if isinstance(item, dict) and str(item.get('currency') or '').upper() == 'USD'
+        ), None) or next((item for item in currency_assets if isinstance(item, dict)), None)
+        if currency_asset:
+            # Preserve the provider's top-level values while making nested
+            # account-type-specific fields available to the common resolver.
+            for key, value in currency_asset.items():
+                result.setdefault(key, value)
+
+    if result.get('total_cash_balance') not in (None, ''):
+        return result  # already canonical, including a legitimate zero balance
     for alias in _WEBULL_CASH_BALANCE_ALIASES[1:]:
-        value = raw.get(alias)
+        value = result.get(alias)
         if value not in (None, ''):
             try:
                 numeric = float(str(value).replace(',', '').replace('$', '').strip())
-                if numeric > 0:
-                    result = dict(raw)
-                    result['total_cash_balance'] = numeric
-                    return result
+                result['total_cash_balance'] = numeric
+                return result
             except (TypeError, ValueError):
                 continue
-    return raw
+    return result
 
 
 def get_webull_account_balance(app_key, app_secret, environment, access_token, account_id):

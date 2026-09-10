@@ -6,6 +6,11 @@
 
 **Last Updated**: September 2026
 
+## v2.96.7 (September 2026)
+
+- **Webull Event Buying Power Fix:** CSD now reads the nested account-currency buying-power value returned by Webull for Events Cash accounts instead of treating the account's absent top-level cash field as `$0.00`. The Event ticket labels this amount as Event Buying Power and uses the provider-reported shared balance from the linked brokerage account.
+- **Provider-Accurate Balance Semantics:** Explicit zero cash balances remain zero for account types that report them, while nested fields are normalized without overwriting authoritative top-level values. This preserves separate-account cash reporting and fixes the Events-specific response shape.
+
 ## v2.96.6 (September 2026)
 
 - **Webull Fractional Buy Placement Fix:** Corrected the remaining AAPL live-order rejection at its actual payload source. Percentage and Max allocations below one share now submit Webull's native `AMOUNT` Market Buy with the exact dollar value instead of converting the allocation into an unsupported six-decimal `QTY` value. The review modal explicitly shows the cash amount before submission.

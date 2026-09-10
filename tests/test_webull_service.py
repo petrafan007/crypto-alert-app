@@ -12,6 +12,7 @@ from services.webull_service import (
     _WEBULL_EVENT_CACHE_LOCK,
     _cached_webull_event_series_markets,
     _normalise_option_snapshot_record,
+    _normalise_webull_balance,
     _response_payload,
     _webull_request,
     WebullConnectionError,
@@ -1086,6 +1087,32 @@ class WebullServiceTests(unittest.TestCase):
             'account_id': '1234', 'account_type': 'STOCK', 'account_name': 'Individual',
             'balance': {'total_cash_balance': '10'}, 'positions': [{'symbol': 'AAPL'}],
         }])
+
+    def test_event_balance_uses_nested_webull_buying_power(self):
+        balance = _normalise_webull_balance({
+            'total_asset_currency': 'USD',
+            'account_currency_assets': [{
+                'currency': 'USD',
+                'market_value': '0.00',
+                'buying_power': '100.24',
+            }],
+        })
+
+        self.assertEqual(balance['total_cash_balance'], 100.24)
+        self.assertEqual(balance['buying_power'], '100.24')
+
+    def test_nested_buying_power_does_not_replace_explicit_zero_cash(self):
+        balance = _normalise_webull_balance({
+            'total_cash_balance': '0.00',
+            'account_currency_assets': [{
+                'currency': 'USD',
+                'cash_balance': '0.00',
+                'buying_power': '100.24',
+            }],
+        })
+
+        self.assertEqual(balance['total_cash_balance'], '0.00')
+        self.assertEqual(balance['buying_power'], '100.24')
 
     def test_portfolio_preview_limits_reads_to_enabled_accounts(self):
         accounts = [
