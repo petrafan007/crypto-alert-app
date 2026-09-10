@@ -1,5 +1,6 @@
 """Read-only Webull signal generation and scheduled evaluation."""
 
+import json
 from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo
 

@@ -1,8 +1,10 @@
+import os
+import re
 from datetime import timedelta, datetime
 import datetime as datetime_module
 import requests
 import time
-from flask import send_file, request, jsonify, render_template, current_app, redirect, url_for
+from flask import Response, send_file, request, jsonify, render_template, current_app, redirect, url_for
 from flask_login import current_user, login_required, login_user, logout_user
 from models import Coin, WatchlistCoin, Notification, PriceHistory, WebullHolding
 from services.webull_import_service import get_webull_portfolio_rows
@@ -836,4 +838,85 @@ def export_options_thesis():
         )
     except Exception as e:
         logger.error(f"Error generating thesis excel: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@market_bp.route("/api/stock-icon/<path:symbol>")
+def get_stock_icon(symbol):
+    """Serve stock/ETF/equity icons, caching locally on the device disk for 1 year (immutable)."""
+    try:
+        clean_sym = (symbol or "").strip().upper()
+        clean_sym = re.sub(r'[^A-Z0-9.-]', '', clean_sym)
+        if not clean_sym or len(clean_sym) > 15:
+            return jsonify({"error": "Invalid symbol"}), 400
+
+        cache_dir = os.path.join(current_app.instance_path, "stock_icons")
+        os.makedirs(cache_dir, exist_ok=True)
+
+        # Check existing cached files on disk
+        for ext, mime in [("svg", "image/svg+xml"), ("png", "image/png"), ("jpg", "image/jpeg"), ("webp", "image/webp")]:
+            cached_path = os.path.join(cache_dir, f"{clean_sym}.{ext}")
+            if os.path.exists(cached_path) and os.path.getsize(cached_path) > 50:
+                with open(cached_path, "rb") as f:
+                    data = f.read()
+                response = Response(data, mimetype=mime)
+                response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+                return response
+
+        # Not cached on disk yet: fetch from remote sources
+        # 1. Primary source: Parqet symbol logo CDN
+        parqet_sym = clean_sym.replace('/', '-')
+        parqet_url = f"https://assets.parqet.com/logos/symbol/{parqet_sym}"
+        try:
+            resp = requests.get(
+                parqet_url,
+                timeout=5,
+                headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+            )
+            if resp.status_code == 200 and len(resp.content) > 50:
+                content_type = resp.headers.get("Content-Type", "").lower()
+                ext = "png"
+                mime = "image/png"
+                if "svg" in content_type or resp.content.strip().startswith(b"<svg"):
+                    ext = "svg"
+                    mime = "image/svg+xml"
+                elif "jpeg" in content_type or "jpg" in content_type:
+                    ext = "jpg"
+                    mime = "image/jpeg"
+                elif "webp" in content_type:
+                    ext = "webp"
+                    mime = "image/webp"
+
+                target_file = os.path.join(cache_dir, f"{clean_sym}.{ext}")
+                with open(target_file, "wb") as f:
+                    f.write(resp.content)
+
+                response = Response(resp.content, mimetype=mime)
+                response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+                return response
+        except Exception as e:
+            logger.debug(f"Error fetching icon from Parqet for {clean_sym}: {e}")
+
+        # 2. Secondary source: Financial Modeling Prep stock logo
+        fmp_url = f"https://financialmodelingprep.com/image-stock/{clean_sym}.png"
+        try:
+            resp = requests.get(
+                fmp_url,
+                timeout=5,
+                headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+            )
+            if resp.status_code == 200 and len(resp.content) > 100:
+                target_file = os.path.join(cache_dir, f"{clean_sym}.png")
+                with open(target_file, "wb") as f:
+                    f.write(resp.content)
+
+                response = Response(resp.content, mimetype="image/png")
+                response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+                return response
+        except Exception as e:
+            logger.debug(f"Error fetching icon from FMP for {clean_sym}: {e}")
+
+        return jsonify({"error": "Icon not found"}), 404
+    except Exception as e:
+        logger.error(f"Error in get_stock_icon for {symbol}: {e}")
         return jsonify({"error": str(e)}), 500

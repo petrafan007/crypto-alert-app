@@ -11,6 +11,7 @@ import {
   Title,
   Tooltip,
   Legend,
+  Filler,
 } from 'chart.js';
 
 ChartJS.register(
@@ -20,7 +21,8 @@ ChartJS.register(
   LineElement,
   Title,
   Tooltip,
-  Legend
+  Legend,
+  Filler
 );
 
 const PriceHistoryPopup = ({ symbol, isVisible, position, onClose, onMouseEnter, onChartClick }) => {
@@ -41,7 +43,7 @@ const PriceHistoryPopup = ({ symbol, isVisible, position, onClose, onMouseEnter,
     setLoading(true);
     setError(null);
     try {
-      const response = await axios.get(`/api/chart_history/${symbol}`);
+      const response = await axios.get(`/api/chart_history/${symbol}`, { withCredentials: true });
       if (response.data.prices && response.data.prices.length > 0) {
         setPriceData(response.data.prices);
         setLastFetchedSymbol(symbol); // Mark this symbol as fetched
@@ -66,19 +68,21 @@ const PriceHistoryPopup = ({ symbol, isVisible, position, onClose, onMouseEnter,
     const daysMap = {};
     priceData.forEach(point => {
       const d = parseAppTimestamp(point[0]);
-      const dateStr = d ? d.toLocaleDateString('en-US', { timeZone: EASTERN_TIME_ZONE, month: 'numeric', day: '2-digit' }) : '—';
-      daysMap[dateStr] = point[1]; // Keep latest price for the day
+      if (d) {
+        const dateStr = formatEasternDate(d, { month: 'numeric', day: 'numeric', year: undefined });
+        daysMap[dateStr] = point[1]; // Keep latest price for the day
+      }
     });
 
     const labels = [];
     const dataPoints = [];
+    const now = new Date();
     
     for (let i = 6; i >= 0; i--) {
-      const d = new Date();
-      d.setDate(d.getDate() - i);
-      const dateStr = `${d.getMonth() + 1}/${d.getDate().toString().padStart(2, '0')}`;
+      const targetTime = new Date(now.getTime() - i * 24 * 60 * 60 * 1000);
+      const dateStr = formatEasternDate(targetTime, { month: 'numeric', day: 'numeric', year: undefined });
       labels.push(dateStr);
-      dataPoints.push(daysMap[dateStr] || null);
+      dataPoints.push(daysMap[dateStr] !== undefined ? daysMap[dateStr] : null);
     }
     
     // Forward fill gaps

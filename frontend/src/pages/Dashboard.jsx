@@ -4759,7 +4759,7 @@ function Dashboard({ isLightMode }) {
                                   title={isExternal ? `Hover for 7-day chart, click to open on Webull Trading` : 'Hover for 7-day chart, click to open its local Trading pair'}
                                 >
                                   <div className="coin-symbol-container" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', justifyContent: 'flex-start' }}>
-                                    <CryptoIcon symbol={coin.symbol} size={20} />
+                                    <CryptoIcon symbol={coin.symbol} size={20} isStock={!isCryptoAsset || (isExternal && coin.instrument_type !== 'CRYPTO')} />
                                     <span>{coin.display_symbol || coin.symbol}</span>
                                     <span
                                       title={isExternal ? 'Webull' : 'Binance'}
@@ -5287,7 +5287,7 @@ function Dashboard({ isLightMode }) {
                                   title={isTraditionalAsset(item) ? "Hover for 7-day chart, click to open on Webull Trading" : "Hover for 7-day chart, click to open its local Trading pair"}
                                 >
                                   <div className="coin-symbol-container" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', justifyContent: 'flex-start' }}>
-                                    <CryptoIcon symbol={item.symbol} size={20} />
+                                    <CryptoIcon symbol={item.symbol} size={20} isStock={isTraditionalAsset(item)} />
                                     <span>{item.symbol}</span>
                                     <span
                                       title={isTraditionalAsset(item) ? 'Traditional asset' : 'Crypto asset'}
@@ -6100,7 +6100,7 @@ function Dashboard({ isLightMode }) {
                             }}
                             style={{ cursor: 'pointer', width: '16px', height: '16px' }}
                           />
-                          <CryptoIcon symbol={symbol} size={20} />
+                          <CryptoIcon symbol={symbol} size={20} isStock={isStock} />
                           <span style={{ fontWeight: '600', fontSize: '14px', color: 'var(--text-primary, #fff)' }}>
                             {label}
                           </span>

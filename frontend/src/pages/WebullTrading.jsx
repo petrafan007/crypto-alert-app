@@ -4220,7 +4220,7 @@ export default function WebullTrading({ isLightMode = false }) {
                   <div className="trading-order-header-cards">
                     {/* Selected Asset Available Card */}
                     <div className="trading-asset-card">
-                      <CryptoIcon symbol={selectedSymbol} size={32} />
+                      <CryptoIcon symbol={selectedSymbol} size={32} isStock={selectedInstrumentType !== 'CRYPTO'} />
                       <div className="trading-asset-card-details">
                         <span className="trading-asset-card-label">{selectedSymbol} Available</span>
                         <span className="trading-asset-card-value">

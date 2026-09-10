@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import './CryptoIcon.css';
 
 // Embedded SVGs for instant zero-latency rendering of major coins
@@ -103,6 +103,12 @@ const COIN_SVGS = {
       <path d="M17.2 12.5a2.5 2.5 0 00-2.4 1.8.8.8 0 01-1-.4.8.8 0 01.4-1 4.1 4.1 0 013-1.8v-1.1h1.6v1.1a4.2 4.2 0 012.8 1.6 4.1 4.1 0 01.3 4.9 3.5 3.5 0 01-2.9 1.5 2.3 2.3 0 00-2.3 2.3c0 1.2 1 2.2 2.3 2.2a2.5 2.5 0 002.4-1.8.8.8 0 011 .4.8.8 0 01-.4 1 4.1 4.1 0 01-3 1.8v1.1h-1.6v-1.1a4.2 4.2 0 01-2.8-1.6 4.1 4.1 0 01-.3-4.9 3.5 3.5 0 012.9-1.5 2.3 2.3 0 002.3-2.3c0-1.2-1-2.2-2.3-2.2z" fill="#FFF"/>
     </svg>
   ),
+  USD: (
+    <svg viewBox="0 0 32 32" fill="none">
+      <circle cx="16" cy="16" r="16" fill="#10B981"/>
+      <text x="16" y="22" textAnchor="middle" fill="#FFF" fontFamily="system-ui, -apple-system, sans-serif" fontWeight="700" fontSize="18">$</text>
+    </svg>
+  ),
   ONT: (
     <svg viewBox="0 0 32 32" fill="none">
       <circle cx="16" cy="16" r="16" fill="#00A6C4"/>
@@ -169,8 +175,8 @@ const getColorForSymbol = (sym) => {
   return `hsl(${hue}, 65%, 45%)`;
 };
 
-export const CryptoIcon = ({ symbol, size = 20, className = '' }) => {
-  const [imgError, setImgError] = useState(false);
+export const CryptoIcon = ({ symbol, size = 20, className = '', isStock = false }) => {
+  const [imgStage, setImgStage] = useState(0);
   
   if (!symbol) return null;
   
@@ -180,6 +186,10 @@ export const CryptoIcon = ({ symbol, size = 20, className = '' }) => {
   if (cleanSym.endsWith('USD') && cleanSym.length > 3) cleanSym = cleanSym.replace(/USD$/, '');
   if (cleanSym.includes('/')) cleanSym = cleanSym.split('/')[0];
   
+  useEffect(() => {
+    setImgStage(0);
+  }, [cleanSym, isStock]);
+
   // 1. Direct SVG embed match
   if (COIN_SVGS[cleanSym]) {
     return (
@@ -192,22 +202,29 @@ export const CryptoIcon = ({ symbol, size = 20, className = '' }) => {
     );
   }
   
-  // 2. High quality CDN icon with error fallback
-  const cdnUrl = `https://cdn.jsdelivr.net/gh/atomiclabs/cryptocurrency-icons@1a63539be16e3369b1813821e2f7b7629d900593/svg/color/${cleanSym.toLowerCase()}.svg`;
+  // 2. High quality icon pipeline:
+  // For stocks: try local cached /api/stock-icon first, then crypto CDN fallback
+  // For non-stocks: try crypto CDN first, then local cached /api/stock-icon fallback
+  const stockUrl = `/api/stock-icon/${encodeURIComponent(cleanSym)}`;
+  const cryptoUrl = `https://cdn.jsdelivr.net/gh/atomiclabs/cryptocurrency-icons@1a63539be16e3369b1813821e2f7b7629d900593/svg/color/${cleanSym.toLowerCase()}.svg`;
+
+  const sources = isStock ? [stockUrl, cryptoUrl] : [cryptoUrl, stockUrl];
   
-  if (!imgError) {
+  if (imgStage < sources.length) {
+    const currentUrl = sources[imgStage];
     return (
       <span 
         className={`crypto-coin-icon-wrapper ${className}`}
         style={{ width: `${size}px`, height: `${size}px`, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}
       >
         <img 
-          src={cdnUrl}
+          key={`${cleanSym}-${imgStage}`}
+          src={currentUrl}
           alt={cleanSym}
           width={size}
           height={size}
           className="crypto-coin-img"
-          onError={() => setImgError(true)}
+          onError={() => setImgStage(prev => prev + 1)}
           loading="lazy"
         />
       </span>

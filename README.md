@@ -6,6 +6,13 @@
 
 **Last Updated**: September 2026
 
+## v2.97.3 (September 2026)
+
+- **Webull AI Signal Failover Serialization Fix:** Fixed an uncaught `NameError` in `services/webull_signal_service.py` where serializing multi-tier provider failover logs crashed during manual and scheduled Webull signal generation (e.g. for AAPL and TSLA) when a primary AI provider hit rate limits and fell back to secondary tiers.
+- **7-Day Performance Popup Chart Rendering Fix:** Resolved an issue in `PriceHistoryPopup.jsx` where hovering over asset symbols (such as ETH) displayed a blank performance popover. Registered Chart.js `Filler` for shaded line charts, included authentication credentials in history queries, and aligned Eastern timezone date formatting between price points and daily chart axis buckets.
+- **Actual Stock Ticker Icons & Device-Level Caching:** Integrated high-resolution company and ETF logos for Webull tickers (e.g., AAPL, TSLA, NVDA, SPCX) served through `/api/stock-icon/<symbol>`. Icons are fetched from financial asset CDNs and cached permanently on the server device disk (`instance/stock_icons/`), while returning `Cache-Control: public, max-age=31536000, immutable` headers matching Binance's 1-year browser caching policy.
+- **Embedded Cash USD Icon:** Added a zero-latency embedded SVG for USD cash assets across the dashboard, portfolio, and trading views.
+
 ## v2.97.2 (September 2026)
 
 - **Two-Factor Authentication Modal Redesign:** Reorganized the 2FA verification modal into a balanced, two-column responsive layout (`max-width: 820px`, `max-height: 88vh`). Order summary details and strategy explanations are presented cleanly on the left, while the 6-digit TOTP input, error feedback, and action buttons are positioned on the right. This prevents modal height from exceeding the viewport and eliminates top/bottom clipping on all screen sizes.
