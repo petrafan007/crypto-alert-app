@@ -237,6 +237,61 @@ class WebullPersistenceTests(unittest.TestCase):
         self.assertEqual(cash.current_value, 13.94)
         self.assertEqual(WebullHolding.query.filter_by(user_id=7, instrument_type='EVENT').count(), 0)
 
+    def test_event_cash_account_does_not_create_duplicate_usd_holding(self):
+        preview = [
+            {
+                'account_id': 'individual-cash',
+                'account_type': 'CASH',
+                'account_name': 'Individual Cash',
+                'balance': {
+                    'total_asset_currency': 'USD',
+                    'total_cash_balance': '100.24',
+                    'total_net_liquidation_value': '261.63',
+                },
+                'positions': [{
+                    'symbol': 'AAPL',
+                    'instrument_type': 'EQUITY',
+                    'quantity': '0.15',
+                    'last_price': '316.00',
+                }],
+            },
+            {
+                'account_id': 'events-cash',
+                'account_type': 'CASH',
+                'account_name': 'Events Cash',
+                'balance': {
+                    'total_asset_currency': 'USD',
+                    'total_cash_balance': '100.24',
+                    'total_net_liquidation_value': '0.00',
+                },
+                'positions': [{
+                    'symbol': 'KXBTC15M-26SEP011915-15',
+                    'instrument_type': 'EVENT',
+                    'event_outcome': 'YES',
+                    'quantity': '1',
+                    'last_price': '0.60',
+                }],
+            },
+        ]
+        import_webull_portfolio_snapshot(7, preview)
+
+        # Check WebullHolding records in DB:
+        usd_holdings = WebullHolding.query.filter_by(user_id=7, symbol='USD', instrument_type='CASH').all()
+        self.assertEqual(len(usd_holdings), 1)
+        self.assertEqual(usd_holdings[0].account_id, 'individual-cash')
+        self.assertEqual(usd_holdings[0].current_value, 100.24)
+
+        # Event contract position is still preserved
+        event_positions = WebullHolding.query.filter_by(user_id=7, instrument_type='EVENT').all()
+        self.assertEqual(len(event_positions), 1)
+        self.assertEqual(event_positions[0].symbol, 'KXBTC15M-26SEP011915-15')
+
+        # Check get_webull_portfolio_rows output:
+        rows = get_webull_portfolio_rows(7)
+        usd_rows = [r for r in rows if r['symbol'] == 'USD']
+        self.assertEqual(len(usd_rows), 1)
+        self.assertEqual(usd_rows[0]['account_id'], 'individual-cash')
+
     @patch('services.webull_service.get_webull_portfolio_preview')
     def test_provider_refresh_imports_new_individual_cash_deposit(self, preview_mock):
         preview_mock.return_value = [{

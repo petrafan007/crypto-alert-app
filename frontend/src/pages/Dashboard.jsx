@@ -315,9 +315,18 @@ function Dashboard({ isLightMode }) {
 
   // Symbols currently held in the portfolio, used to highlight owned coins in the Top Movers widget
   const scopedPortfolio = useMemo(() => {
-    if (accountScope === 'binance') return portfolio.filter(item => !(item.is_external === true || item.source === 'webull'));
-    if (accountScope === 'webull') return portfolio.filter(item => item.is_external === true || item.source === 'webull');
-    return portfolio;
+    let list = portfolio;
+    if (accountScope === 'binance') list = portfolio.filter(item => !(item.is_external === true || item.source === 'webull'));
+    else if (accountScope === 'webull') list = portfolio.filter(item => item.is_external === true || item.source === 'webull');
+    // Defensively exclude any duplicate Webull Events Cash USD holding if one was returned
+    return list.filter(item => {
+      const isWebull = item?.is_external === true || item?.source === 'webull';
+      if (!isWebull) return true;
+      const isCash = String(item?.symbol || '').toUpperCase() === 'USD' || String(item?.instrument_type || '').toUpperCase() === 'CASH';
+      if (!isCash) return true;
+      const accountType = String(item?.webull_account_type || item?.account_label || '').toLowerCase();
+      return !accountType.includes('event');
+    });
   }, [portfolio, accountScope]);
 
   const scopedTotalValue = useMemo(() => {

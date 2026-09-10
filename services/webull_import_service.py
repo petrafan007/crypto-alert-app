@@ -307,11 +307,15 @@ def import_webull_portfolio_snapshot(user_id, preview):
         # Upsert or delete the synthetic USD/CASH holding for this account.
         # Cash sits in WebullAccountSnapshot.total_cash_balance; we surface it as a
         # WebullHolding row so it appears in the portfolio table alongside equities.
-        cash_balance = _number(snapshot.total_cash_balance)
+        # Webull Event accounts share their buying power with the linked primary
+        # brokerage account (Individual Cash) and do not hold separate cash funds.
+        # Surfacing a synthetic USD holding for an Event account duplicates the cash holding.
+        is_event = is_webull_event_account(account) or is_webull_event_account(snapshot)
+        cash_balance = 0.0 if is_event else _number(snapshot.total_cash_balance)
         usd_holding = WebullHolding.query.filter_by(
             user_id=user_id, account_id=account_id, symbol='USD', instrument_type='CASH',
         ).first()
-        if cash_balance > 0:
+        if not is_event and cash_balance > 0:
             if usd_holding is None:
                 usd_holding = WebullHolding(
                     user_id=user_id, account_id=account_id, symbol='USD', instrument_type='CASH',
@@ -425,6 +429,21 @@ def refresh_webull_portfolio_snapshot(user_id, *, credential=None, setting=None)
     return import_webull_portfolio_snapshot(user_id, preview)
 
 
+def is_webull_event_account(account_or_snapshot):
+    """Classify whether an account dict or snapshot represents an Event Contracts account."""
+    if not account_or_snapshot:
+        return False
+    if isinstance(account_or_snapshot, dict):
+        identity = ' '.join(str(account_or_snapshot.get(key) or '') for key in (
+            'account_class', 'account_type', 'account_sub_type', 'account_label', 'account_name',
+        )).lower()
+    else:
+        identity = ' '.join(str(getattr(account_or_snapshot, key, None) or '') for key in (
+            'account_class', 'account_type', 'account_sub_type', 'account_label', 'account_name',
+        )).lower()
+    return 'event' in identity
+
+
 def _webull_account_pill_label(account_class, account_label):
     """Return the exact account name displayed by Connected Webull Accounts."""
     label = str(account_label or '').strip()
@@ -479,6 +498,13 @@ def get_webull_portfolio_rows(user_id):
             continue
         amount = _number(holding.quantity)
         is_cash = (holding.instrument_type or '').upper() == 'CASH'
+        meta = account_meta.get(str(holding.account_id) if holding.account_id else '', {})
+        snapshot = snapshots.get(str(holding.account_id) if holding.account_id else '')
+        # Webull Event accounts share their buying power with the primary brokerage
+        # account (Individual Cash) and do not hold independent cash balances.
+        # Defensively omit any synthetic cash holding tied to an Event account.
+        if is_cash and (is_webull_event_account(snapshot) or 'event' in str(meta.get('webull_account_type') or '').lower()):
+            continue
         # USD cash rows always price at $1.00; never show a % change or unrealized PnL.
         current = 1.0 if is_cash else _number(holding.last_price, None)
         cost = 1.0 if is_cash else _number(holding.cost_price, None)
@@ -489,7 +515,6 @@ def get_webull_portfolio_rows(user_id):
             user_id=user_id, provider='webull', symbol=holding.symbol,
             instrument_type=str(holding.instrument_type or '').upper(),
         ).order_by(ExternalSentimentSignal.created_at.desc()).first()
-        meta = account_meta.get(str(holding.account_id) if holding.account_id else '', {})
         is_etf = bool(holding.is_etf) or _webull_position_is_etf({}, holding.symbol, holding.instrument_type)
         display_symbol_value = display_symbol({
             'symbol': holding.symbol,

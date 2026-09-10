@@ -6,6 +6,11 @@
 
 **Last Updated**: September 2026
 
+## v2.97.1 (September 2026)
+
+- **Webull Events Cash Portfolio Deduplication:** Resolved an issue where Webull Event Contract accounts displayed a duplicate synthetic USD cash holding in the Portfolio table. Because Event accounts share buying power with the primary Individual Cash brokerage account and do not hold separate funds, synthetic USD cash rows are now suppressed for Event accounts, eliminating duplicate cash rows while preserving full Event Buying Power on the Webull Event order ticket.
+- **Defensive Frontend and Reconciliation Pruning:** The dashboard's scoped portfolio now filters out Event account cash rows, and the background synchronization worker automatically cleans up any legacy synthetic USD holdings associated with Event accounts.
+
 ## v2.97.0 (September 2026)
 
 - **Model Catalog Update — Gemini:** Removed the retired `gemini-2.5-flash` model from all AI provider dropdowns and validation whitelists.
