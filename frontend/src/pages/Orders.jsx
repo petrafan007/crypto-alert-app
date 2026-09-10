@@ -337,7 +337,11 @@ export default function Orders() {
 
         const ordersByAccount = new Map();
         let completed = 0;
-        await Promise.all(accountIds.map(async (accountId) => {
+        // Fetch each Webull account sequentially to respect the Webull rate
+        // limit (max 1 request per ~2s). Parallel requests from multiple browser
+        // tabs or gunicorn workers can bypass the backend serialization lock and
+        // trigger HTTP 429 Too Many Requests.
+        for (const accountId of accountIds) {
           try {
             const response = await axios.get(`/api/webull/open-orders?account_id=${encodeURIComponent(accountId)}`, { withCredentials: true });
             if (requestId !== openOrdersRequestId.current) return;
@@ -354,7 +358,8 @@ export default function Orders() {
               setWebullOpenProgress({ complete: completed, total: accountIds.length });
             }
           }
-        }));
+          if (requestId !== openOrdersRequestId.current) return;
+        }
       } catch (error) {
         if (requestId === openOrdersRequestId.current) {
           setNotice(error.response?.data?.message || 'Webull open orders could not be refreshed.');

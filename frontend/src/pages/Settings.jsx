@@ -4637,7 +4637,6 @@ export default function Settings({ isLightMode }) {
                                   ))
                                 ) : (
                                   <>
-                                    {provider === 'gemini' && <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>}
                                     {provider === 'gemini' && <option value="gemini-3.7-flash">Gemini 3.7 Flash</option>}
                                     {provider === 'gemini' && <option value="gemini-3.8-flash">Gemini 3.8 Flash</option>}
                                     {provider === 'ollama' && <option value="gpt-oss:120b-cloud">gpt-oss:120b-cloud</option>}
@@ -4645,8 +4644,10 @@ export default function Settings({ isLightMode }) {
                                     {provider === 'openai' && <option value="gpt-5.4-mini">5.4 mini</option>}
                                     {provider === 'openai' && <option value="gpt-5.4">5.4</option>}
                                     {provider === 'zai' && <option value="glm-4.5-flash">GLM-4.5 Flash</option>}
+                                    {provider === 'zai' && <option value="glm-4.7-flash">GLM-4.7 Flash</option>}
                                     {provider === 'perplexity' && <option value="sonar">Sonar</option>}
                                     {provider === 'inception' && <option value="mercury-2">Mercury 2</option>}
+                                    {provider === 'inception' && <option value="mercury-2.5">Mercury 2.5</option>}
                                   </>
                                 )}
                               </select>

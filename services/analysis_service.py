@@ -371,16 +371,16 @@ def get_user_ai_settings(username: str) -> dict:
             'gpt-4.1-nano', 'o4-mini', 'o3', 'o3-mini',
         }
         zai_models = {
-            'glm-4.5-flash', 'glm-4.5', 'glm-4.5-air', 'glm-4.6', 'glm-4.7', 'glm-5.2', 'glm-5.3', 'glm-5.3-flash',
+            'glm-4.5-flash', 'glm-4.5', 'glm-4.5-air', 'glm-4.6', 'glm-4.7', 'glm-4.7-flash', 'glm-5.2', 'glm-5.3', 'glm-5.3-flash',
         }
         perplexity_models = {
             'sonar-pro', 'sonar', 'sonar-reasoning',
         }
         gemini_models = {
-            'gemini-2.5-flash', 'gemini-3.5-flash', 'gemini-3.6-flash', 'gemini-3.7-flash', 'gemini-3.8-flash',
+            'gemini-3.5-flash', 'gemini-3.6-flash', 'gemini-3.7-flash', 'gemini-3.8-flash',
         }
         inception_models = {
-            'mercury-2', 'mercury'
+            'mercury-2', 'mercury', 'mercury-2.5'
         }
         default_models = {
             'openai': 'gpt-5',

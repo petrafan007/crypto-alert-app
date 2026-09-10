@@ -216,7 +216,7 @@ def test_zai_connection():
         ai_settings = get_user_ai_settings(username)
         # Sanitize model to Z.AI-supported list only
         zai_models = {
-            'glm-4.5-flash', 'glm-4.5', 'glm-4.5-air', 'glm-4.6', 'glm-4.7', 'glm-5.2', 'glm-5.3', 'glm-5.3-flash'
+            'glm-4.5-flash', 'glm-4.5', 'glm-4.5-air', 'glm-4.6', 'glm-4.7', 'glm-4.7-flash', 'glm-5.2', 'glm-5.3', 'glm-5.3-flash'
         }
         requested_model = payload.get('model') or request.args.get('model')
         model = requested_model if requested_model in zai_models else (ai_settings.get('ai_model') or 'glm-4.5-flash')
@@ -971,16 +971,16 @@ def get_ai_models():
         'gpt-5.4-mini', 'gpt-5.4', 'gpt-5.5', 'gpt-5.6-luna', 'gpt-5.6-terra', 'gpt-5.6-sol'
     }
     zai_models = {
-        'glm-4.5-flash', 'glm-4.5', 'glm-4.5-air', 'glm-4.6', 'glm-4.7', 'glm-5.2', 'glm-5.3', 'glm-5.3-flash'
+        'glm-4.5-flash', 'glm-4.5', 'glm-4.5-air', 'glm-4.6', 'glm-4.7', 'glm-4.7-flash', 'glm-5.2', 'glm-5.3', 'glm-5.3-flash'
     }
     perplexity_models = {
         'sonar-pro', 'sonar', 'sonar-reasoning',
     }
     gemini_models = {
-        'gemini-2.5-flash', 'gemini-3.5-flash', 'gemini-3.6-flash', 'gemini-3.7-flash', 'gemini-3.8-flash',
+        'gemini-3.5-flash', 'gemini-3.6-flash', 'gemini-3.7-flash', 'gemini-3.8-flash',
     }
     inception_models = {
-        'mercury-2', 'mercury',
+        'mercury-2', 'mercury', 'mercury-2.5',
     }
     
     # Create a dictionary of labels for the models
@@ -996,19 +996,20 @@ def get_ai_models():
         'glm-4.5-air': 'GLM-4.5 Air',
         'glm-4.6': 'GLM-4.6',
         'glm-4.7': 'GLM-4.7',
+        'glm-4.7-flash': 'GLM-4.7 Flash',
         'glm-5.2': 'GLM-5.2',
         'glm-5.3': 'GLM-5.3',
         'glm-5.3-flash': 'GLM-5.3 Flash',
         'sonar-pro': 'Sonar Pro',
         'sonar': 'Sonar',
         'sonar-reasoning': 'Sonar Reasoning',
-        'gemini-2.5-flash': 'Gemini 2.5 Flash',
         'gemini-3.5-flash': 'Gemini 3.5 Flash',
         'gemini-3.6-flash': 'Gemini 3.6 Flash',
         'gemini-3.7-flash': 'Gemini 3.7 Flash',
         'gemini-3.8-flash': 'Gemini 3.8 Flash',
         'mercury-2': 'Mercury 2',
         'mercury': 'Mercury (v1)',
+        'mercury-2.5': 'Mercury 2.5',
     }
     
     def get_model_options(models):

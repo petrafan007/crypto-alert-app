@@ -69,6 +69,30 @@
   box-shadow: 0 0 8px rgba(56, 189, 248, .8);
 }
 
+/* Column header design — matches .webull-positions-table th button style */
+.configurable-order-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  background: var(--table-header-bg);
+  border-bottom: 1px solid var(--table-border, var(--border-color));
+  box-sizing: border-box;
+  user-select: none;
+}
+
+.configurable-order-table .position-column-header button {
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-size: 11px;
+  font-weight: 800;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.configurable-order-table .position-column-header button:hover {
+  color: var(--accent-primary, #38bdf8);
+}
+
 .configurable-order-table .positions-column-option {
   cursor: grab;
 }

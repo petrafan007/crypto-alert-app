@@ -3083,7 +3083,7 @@ def get_webull_open_orders(app_key, app_secret, environment='production', access
     now = time.time()
     if cache_key in _WEBULL_OPEN_ORDERS_CACHE:
         cached_time, cached_records = _WEBULL_OPEN_ORDERS_CACHE[cache_key]
-        if now - cached_time < 15:
+        if now - cached_time < 30:
             return [dict(r) for r in cached_records]
 
     if safe_account_id:

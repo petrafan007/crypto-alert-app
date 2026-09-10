@@ -398,7 +398,7 @@ export default function QuantitativeStrategyEngineDoc({ isLightMode }) {
                 </p>
                 <SubHeading>Configuring the Tiers</SubHeading>
                 <ul style={{ paddingLeft: '20px', lineHeight: '2.2', marginBottom: '16px' }}>
-                    <li><strong>Primary</strong> — your fastest/most capable model (e.g., <SettingTag>gemini-2.5-flash</SettingTag>).</li>
+                    <li><strong>Primary</strong> — your fastest/most capable model (e.g., <SettingTag>gemini-3.8-flash</SettingTag>).</li>
                     <li><strong>Secondary</strong> — a reliable backup (e.g., <SettingTag>gpt-4o</SettingTag>).</li>
                     <li><strong>Tertiary</strong> — a local or cost-free fallback (e.g., Ollama <SettingTag>qwen2.5:14b</SettingTag>).</li>
                 </ul>

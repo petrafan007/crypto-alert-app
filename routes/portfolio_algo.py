@@ -410,7 +410,7 @@ def test_provider_api(provider: str, api_key: str, model: str = None, reasoning_
 
     if provider == "gemini":
         try:
-            test_model = model or "gemini-2.5-flash"
+            test_model = model or "gemini-3.5-flash"
             url = f"https://generativelanguage.googleapis.com/v1beta/models/{test_model}"
             r = requests.get(
                 url,

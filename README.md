@@ -6,6 +6,14 @@
 
 **Last Updated**: September 2026
 
+## v2.97.0 (September 2026)
+
+- **Model Catalog Update — Gemini:** Removed the retired `gemini-2.5-flash` model from all AI provider dropdowns and validation whitelists.
+- **Model Catalog Update — Inception Labs Mercury 2.5:** Added `mercury-2.5` (Mercury 2.5) to the Inception Labs model list across all AI configuration dropdowns and server-side validation.
+- **Model Catalog Update — Z.AI GLM-4.7 Flash:** Added `glm-4.7-flash` (GLM-4.7 Flash) to the Z.AI / BigModel model list. The previous migration that reset this slug to `glm-4.5-flash` has been corrected — `glm-4.7-flash` is now an active, valid Z.AI model and will no longer be overwritten on startup.
+- **Order History Column Header Redesign:** Column headers in all Order History tables (Consolidated, Binance.US, Webull) now display uppercase text with refined letter-spacing and weight, matching the visual style of the Positions table headers.
+- **Webull 429 Rate-Limit Fix:** Eliminated the "Too Many Requests" error in the consolidated Orders view by switching the open-orders account fetch from parallel (Promise.all) to sequential. Each account's request now awaits the previous before proceeding, respecting the Webull API's 2-second rate window. The server-side open-orders cache TTL is also extended from 15 to 30 seconds.
+
 ## v2.96.9 (September 2026)
 
 - **Compact, Resizable Order History:** Consolidated, Binance.US, and Webull order-history tables no longer display six-dot drag handles. Entire unpinned column headers and Customize Columns rows remain draggable, and every visible column can be resized from its right edge with widths saved per user, browser, and table.
