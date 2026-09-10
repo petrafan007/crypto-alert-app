@@ -187,6 +187,39 @@
   white-space: nowrap;
 }
 
+/* Light Mode Overrides for Combined Order Filters */
+body.light-mode .combined-order-filters,
+.light-mode .combined-order-filters {
+  background: #f8fafc !important;
+  border: 1px solid #e2e8f0 !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+body.light-mode .combined-order-filters label,
+.light-mode .combined-order-filters label {
+  color: #475569 !important;
+}
+
+body.light-mode .combined-order-filters input,
+body.light-mode .combined-order-filters select,
+.light-mode .combined-order-filters input,
+.light-mode .combined-order-filters select {
+  background: #ffffff !important;
+  border: 1px solid #cbd5e1 !important;
+  color: #0f172a !important;
+}
+
+body.light-mode .combined-order-filters select option,
+.light-mode .combined-order-filters select option {
+  background: #ffffff !important;
+  color: #0f172a !important;
+}
+
+body.light-mode .combined-order-account,
+.light-mode .combined-order-account {
+  color: #334155 !important;
+}
+
 .combined-order-account {
   display: flex;
   align-items: center;
@@ -1510,22 +1543,20 @@ body:not(.dark-mode) .order-summary-total {
   }
 }
 
-/* Theme Variables */
-:root {
-  --text-primary: #ffffff;
-  --text-secondary: rgba(255, 255, 255, 0.7);
-  --bg-primary: #1a1a1a;
-  --bg-secondary: #2a2a2a;
-}
-
 /* Light Mode Overrides */
 body.light-mode .trading-container,
 .light-mode .trading-container {
-  color: #2d3748;
+  color: #2d3748 !important;
 }
 
+body.light-mode .trading-header h1,
 .light-mode .trading-header h1 {
-  color: #1a202c;
+  color: #1a202c !important;
+}
+
+body.light-mode .trading-header p,
+.light-mode .trading-header p {
+  color: #475569 !important;
 }
 
 .light-mode .test-mode-banner {

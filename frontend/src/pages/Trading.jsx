@@ -1785,19 +1785,19 @@ const Trading = ({ isLightMode = false }) => {
   ];
 
   return (
-    <div className="trading-container" style={{ minHeight: '100vh', padding: '20px', color: 'white' }}>
+    <div className="trading-container" style={{ minHeight: '100vh', padding: '20px', color: isLightMode ? '#2d3748' : '#ffffff' }}>
       {/* API Key Required Modal */}
       <ApiKeyRequiredModal
         show={showApiKeyModal}
         onClose={() => setShowApiKeyModal(false)}
-        isLightMode={false}
+        isLightMode={isLightMode}
       />
       {/* Trade Permission Modal */}
       <TradePermissionModal
         show={showPermissionModal}
         onClose={() => setShowPermissionModal(false)}
         pageName="trading"
-        isLightMode={false}
+        isLightMode={isLightMode}
       />
       <div className="trading-header">
         <div className="trading-header-left">

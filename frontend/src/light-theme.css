@@ -1,10 +1,22 @@
 /* Light theme */
-body { 
-  background-color: #f7fafc; 
-  color: #2d3748; 
+body,
+body.light-mode,
+body[data-theme="light"] {
+  background-color: #f7fafc !important;
+  color: #0f172a !important;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   margin: 0;
   padding: 0;
+}
+
+body.light-mode .app-container,
+body.light-mode .main-content,
+body.light-mode .trading-page,
+body.light-mode .trading-container,
+body.light-mode .settings-page-container,
+body.light-mode .tax-report-container {
+  background-color: #f7fafc !important;
+  color: #0f172a !important;
 }
 
 /* Navigation styling */
@@ -65,9 +77,20 @@ button.nav-link {
 }
 
 body.light-mode .nav-menu-popover {
-  background: #fff;
-  border-color: #cbd5e1;
-  box-shadow: 0 12px 24px rgba(15, 23, 42, 0.18);
+  background: #ffffff !important;
+  border: 1px solid #cbd5e1 !important;
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.15) !important;
+}
+
+body.light-mode .nav-menu-popover a {
+  color: #1e293b !important;
+  font-weight: 600 !important;
+  background: transparent !important;
+}
+
+body.light-mode .nav-menu-popover a:hover {
+  background: #f1f5f9 !important;
+  color: #2563eb !important;
 }
 
 .nav-button {
@@ -941,4 +964,147 @@ body.light-mode .action-icon-btn.note-btn:hover {
 
 .light-mode .symbol-cell:hover {
   color: #0369a1 !important;
+}
+
+/* ==========================================================================
+   Comprehensive Light Mode Overhaul & Typography Hierarchy
+   ========================================================================== */
+
+/* Page Titles across all pages */
+body.light-mode h1,
+body.light-mode .trading-header h1,
+body.light-mode .trading-page h1,
+body.light-mode .webull-trading-page .trading-header h1,
+body.light-mode .settings-page-container h1,
+body.light-mode .table-title,
+body.light-mode .tax-report-container .table-title {
+  color: #0f172a !important;
+}
+
+/* Section Headers */
+body.light-mode h2,
+body.light-mode h3,
+body.light-mode h4,
+body.light-mode h5,
+body.light-mode .section-header {
+  color: #1e3a8a !important;
+  font-weight: 700 !important;
+}
+
+/* Subtitles, hints, and secondary descriptions */
+body.light-mode .trading-header p,
+body.light-mode .trading-page p,
+body.light-mode .webull-trading-page .trading-header p,
+body.light-mode .settings-page-section p,
+body.light-mode .tax-report-container p,
+body.light-mode .main-container p {
+  color: #475569 !important;
+}
+
+/* Settings Page Overhaul */
+body.light-mode .settings-page-container {
+  background: #f7fafc !important;
+  color: #0f172a !important;
+}
+
+body.light-mode .settings-tabs-nav {
+  border-bottom: 1px solid #e2e8f0 !important;
+}
+
+body.light-mode .settings-tab-btn {
+  background: #ffffff !important;
+  border: 1px solid #cbd5e1 !important;
+  color: #334155 !important;
+  font-weight: 600 !important;
+}
+
+body.light-mode .settings-tab-btn:hover {
+  background: #f8fafc !important;
+  border-color: #3b82f6 !important;
+  color: #1d4ed8 !important;
+  transform: translateY(-1px);
+}
+
+body.light-mode .settings-tab-btn.active {
+  background: #eff6ff !important;
+  border-color: #3b82f6 !important;
+  color: #1d4ed8 !important;
+  font-weight: 700 !important;
+  box-shadow: 0 2px 4px rgba(59, 130, 246, 0.15) !important;
+}
+
+body.light-mode .settings-page-section {
+  background: #ffffff !important;
+  border: 1px solid #e2e8f0 !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05) !important;
+  color: #0f172a !important;
+}
+
+body.light-mode .settings-page-section h3 {
+  color: #1e40af !important;
+  font-weight: 700 !important;
+}
+
+body.light-mode .settings-page-section p {
+  color: #475569 !important;
+}
+
+body.light-mode .settings-form-group label,
+body.light-mode .settings-page-container label {
+  color: #1e293b !important;
+  font-weight: 600 !important;
+}
+
+body.light-mode .settings-form-group input,
+body.light-mode .settings-form-group textarea,
+body.light-mode .settings-form-group select {
+  background: #ffffff !important;
+  border: 1px solid #cbd5e1 !important;
+  color: #0f172a !important;
+}
+
+body.light-mode .settings-form-group input:focus,
+body.light-mode .settings-form-group textarea:focus,
+body.light-mode .settings-form-group select:focus {
+  border-color: #3b82f6 !important;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15) !important;
+}
+
+/* Tax Report Overhaul */
+body.light-mode .tax-report-container {
+  background: #f7fafc !important;
+  color: #0f172a !important;
+}
+
+body.light-mode .tax-report-container .table-container {
+  background: #ffffff !important;
+  border: 1px solid #e2e8f0 !important;
+}
+
+body.light-mode .tax-summary-card {
+  background: #ffffff !important;
+  border: 1px solid #e2e8f0 !important;
+  color: #0f172a !important;
+}
+
+body.light-mode .tax-report-selector {
+  background: #ffffff !important;
+  border: 1px solid #cbd5e1 !important;
+  color: #0f172a !important;
+}
+
+/* Table Column Header Buttons & Resizers */
+body.light-mode .configurable-order-table .webull-positions-table th button,
+body.light-mode .configurable-order-table .position-column-header button,
+body.light-mode .configurable-order-table .order-header-btn,
+body.light-mode .webull-positions-table th button {
+  color: #334155 !important;
+  font-weight: 800 !important;
+}
+
+body.light-mode .configurable-order-table .webull-positions-table th button:hover,
+body.light-mode .configurable-order-table .position-column-header button:hover,
+body.light-mode .configurable-order-table .order-header-btn:hover,
+body.light-mode .webull-positions-table th button:hover {
+  color: #1d4ed8 !important;
 }

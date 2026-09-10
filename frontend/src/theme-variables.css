@@ -1,7 +1,9 @@
 /* CSS Variables for Theme Management */
 
 /* Light Theme Variables */
-:root {
+:root,
+[data-theme="light"],
+body.light-mode {
   --bg-primary: #f7fafc;
   --bg-secondary: #ffffff;
   --bg-tertiary: #edf2f7;
@@ -55,7 +57,8 @@
 }
 
 /* Dark Theme Variables */
-[data-theme="dark"] {
+[data-theme="dark"],
+body.dark-mode {
   --bg-primary: #181f23;
   --bg-secondary: #232b31;
   --bg-tertiary: #2d3748;

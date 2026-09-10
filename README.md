@@ -6,6 +6,16 @@
 
 **Last Updated**: September 2026
 
+## v2.97.6 (September 2026)
+
+- **Comprehensive Light Mode Overhaul & Contrast Restoration:**
+  - **Eliminated Global CSS Variable Poisoning:** Removed a rogue `:root` declaration in `Trading.css` that was globally overriding `--bg-primary` to `#1a1a1a` and `--text-primary` to `#ffffff`, which caused page backgrounds behind tables, forms, and cards to appear pitch black in light mode.
+  - **Elevated Specificity for Theme Variables:** Scoped light theme variables in `theme-variables.css` to `:root, [data-theme="light"], body.light-mode`, guaranteeing high-specificity precedence over generic `:root` blocks.
+  - **Restored Navigation Dropdown Visibility:** Added explicit light-mode styles for `.nav-menu-popover a`, ensuring dropdown links in "Trading ▾" and "Tax Report ▾" render with crisp dark text (`#1e293b`) on pure white backgrounds with `#f1f5f9` hover feedback.
+  - **Restored Settings Page Tabs, Descriptions, & Form Labels:** Restored full contrast for Settings tab buttons (`.settings-tab-btn`) with active indicators, section descriptions, form labels, input backgrounds, and header toggles ("Include Beta Versions", "AI Integrations Enabled").
+  - **Overhauled Page Titles & Section Headers:** Enforced legible typography hierarchy across Orders (`📋 Orders`), Binance.US Trading, Webull Trading, and Tax Report views (`#0f172a` for primary titles, `#1e3a8a` for section headers, and `#475569` for subtitles).
+  - **Order Filters & Table Header Styling:** Styled `.combined-order-filters` with an off-white background, subtle border, and high-contrast inputs, and ensured table column header buttons retain sharp dark slate contrast in light mode.
+
 ## v2.97.5 (September 2026)
 
 - **Eliminated Hardcoded Frontend Prompts & Enforced Full User Database Persistence:**
