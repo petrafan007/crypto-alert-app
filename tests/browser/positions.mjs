@@ -50,14 +50,24 @@ try {
   await asset('Event Contracts');
   assert.equal(await table().locator('tbody .position-data-row').count(), 1);
   assert.ok((await headers()).includes('Trading cutoff'));
-  assert.equal(await table().locator('table').evaluate(el => getComputedStyle(el).tableLayout), 'auto');
+  assert.equal(await table().locator('table').evaluate(el => getComputedStyle(el).tableLayout), 'fixed');
   assert.ok(await table().locator('.webull-positions-table-wrap').evaluate(el => el.scrollWidth > el.clientWidth));
-  await table().getByRole('button', { name: /Will Bitcoin close/ }).click();
-  await table().getByText('Closing price must exceed $70,000.').waitFor();
-  await table().locator('th').filter({ hasText: 'Quantity' }).locator('.positions-drag-handle').dragTo(table().locator('th').filter({ hasText: /^Mark$/ }).first());
+  assert.equal(await table().locator('tbody .position-symbol').textContent(), 'KXBTC-TEST');
+  assert.equal(await table().locator('.position-expand').count(), 0);
+  assert.equal(await table().locator('.positions-drag-handle').count(), 0);
+  await table().locator('th').filter({ hasText: 'Quantity' }).dragTo(table().locator('th').filter({ hasText: /^Mark$/ }).first());
   const reordered = await headers();
   assert.ok(reordered.indexOf('Quantity') > reordered.indexOf('Mark'));
-  assert.match(reordered[0], /Instrument/); // Dragging did not change sorting.
+  assert.match(reordered[0], /Symbol \/ ticker/); // Dragging did not change sorting.
+  const symbolHeader = table().locator('th').filter({ hasText: /Symbol \/ ticker/ }).first();
+  const initialWidth = (await symbolHeader.boundingBox()).width;
+  const resizeHandle = symbolHeader.locator('.positions-column-resizer');
+  const handleBox = await resizeHandle.boundingBox();
+  await page.mouse.move(handleBox.x + handleBox.width / 2, handleBox.y + handleBox.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(handleBox.x + handleBox.width / 2 + 55, handleBox.y + handleBox.height / 2);
+  await page.mouse.up();
+  assert.ok((await symbolHeader.boundingBox()).width >= initialWidth + 50);
   await table().getByRole('button', { name: 'Customize columns' }).click();
   const dialog = page.getByRole('dialog', { name: 'Customize columns' });
   await dialog.getByRole('button', { name: 'Move Quantity left', exact: true }).click();
@@ -70,6 +80,7 @@ try {
   await table().getByText(/Real Trading — Positions/).waitFor();
   await asset('Event Contracts');
   assert.ok(!(await headers()).includes('Time to cutoff'));
+  assert.ok((await table().locator('th').filter({ hasText: /Symbol \/ ticker/ }).first().boundingBox()).width >= initialWidth + 50);
   await page.getByRole('group', { name: 'Positions trading mode', exact: true }).getByRole('button', { name: 'Webull Test Mode', exact: true }).click();
   await table().getByText(/Test Mode — Paper Positions/).waitFor();
   assert.equal(await table().locator('tbody .position-data-row').count(), 1);
@@ -89,8 +100,8 @@ try {
   await page.goto(`${origin}/trading/webull`);
   await table().getByText(/Real Trading — Positions/).waitFor();
   assert.equal(await table().getByRole('button', { name: /^Equities & ETFs/ }).getAttribute('aria-pressed'), 'true');
-  await table().getByRole('button', { name: /AAPL/ }).click();
-  await table().getByRole('button', { name: 'Load trade ticket', exact: true }).waitFor();
+  assert.equal((await table().locator('tbody .position-symbol').first().textContent()).trim(), 'AAPL');
+  assert.equal(await table().getByRole('button', { name: 'Load trade ticket', exact: true }).count(), 0);
   await page.getByRole('button', { name: /^Positions/ }).first().click();
   await table().getByText(/Real Trading — Positions/).waitFor();
   await asset('Event Contracts');
@@ -118,7 +129,7 @@ try {
   await asset('Event Contracts');
   assert.ok((await headers()).includes('Time to cutoff'));
   assert.deepEqual(errors, []);
-  console.log('Positions browser checks passed: /orders and Webull real/test/quant, filters, drag, keyboard, persistence, details, mobile, errors, user isolation.');
+  console.log('Positions browser checks passed: /orders and Webull real/test/quant, ticker-only rows, handle-free drag, resize persistence, filters, mobile, errors, user isolation.');
 } catch (error) {
   if (process.env.POSITIONS_SCREENSHOT) await page.screenshot({ path: process.env.POSITIONS_SCREENSHOT });
   console.error('Browser page errors:', errors);

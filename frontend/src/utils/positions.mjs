@@ -11,7 +11,7 @@ const COLUMN_DEFINITIONS = [
   { id: 'countdown', label: 'Time to cutoff', type: 'countdown' },
   { id: 'confirmed_outcome', label: 'Confirmed result', type: 'text' },
   { id: 'contract_multiplier', label: 'Contract multiplier', type: 'number' },
-  { id: 'symbol', label: 'Instrument / name', type: 'symbol', locked: true },
+  { id: 'symbol', label: 'Symbol / ticker', type: 'symbol', locked: true },
   { id: 'quantity', label: 'Quantity', type: 'number' },
   { id: 'available_quantity', label: 'Available quantity', type: 'number' },
   { id: 'market_value', label: 'Market value', type: 'currency' },
@@ -96,7 +96,7 @@ function positionDte(position) {
 
 function valueForColumn(position, columnId) {
   switch (columnId) {
-    case 'symbol': return instrumentName(position);
+    case 'symbol': return String(position?.symbol || '—').toUpperCase();
     case 'account': return firstValue(position, 'account_label', 'account_name', 'webull_account_type', 'source_label') || '—';
     case 'side': return positionSide(position);
     case 'status': return positionStatus(position);
@@ -218,7 +218,7 @@ export function availableColumns(view) {
 export function defaultColumnState(view, showAccount = false) {
   const selected = [...(VIEW_COLUMNS[view] || DEFAULT_COLUMNS)];
   if (showAccount) selected.splice(1, 0, 'account');
-  return { selected, order: [...selected, ...availableColumns(view).map(c => c.id).filter(id => !selected.includes(id))] };
+  return { selected, order: [...selected, ...availableColumns(view).map(c => c.id).filter(id => !selected.includes(id))], widths: {} };
 }
 export function cleanColumnState(saved, view, showAccount = false) {
   const defaults = defaultColumnState(view, showAccount);
@@ -226,7 +226,13 @@ export function cleanColumnState(saved, view, showAccount = false) {
   const valid = new Set(availableColumns(view).map(c => c.id));
   const order = [...new Set(saved.order.filter(id => valid.has(id)))];
   const selected = [...new Set(['symbol', ...saved.selected.filter(id => valid.has(id))])];
-  return { order: [...order, ...defaults.order.filter(id => !order.includes(id))], selected };
+  const widths = Object.fromEntries(Object.entries(saved.widths || {}).flatMap(([id, width]) => {
+    const numericWidth = Number(width);
+    return valid.has(id) && Number.isFinite(numericWidth)
+      ? [[id, Math.max(80, Math.min(800, Math.round(numericWidth)))]]
+      : [];
+  }));
+  return { order: [...order, ...defaults.order.filter(id => !order.includes(id))], selected, widths };
 }
 export function moveColumnState(state, source, target) {
   if (source === target || !state.order.includes(source) || !state.order.includes(target)) return state;
@@ -235,6 +241,16 @@ export function moveColumnState(state, source, target) {
   order.splice(order.indexOf(source), 1);
   order.splice(targetIndex, 0, source);
   return { ...state, order };
+}
+export function resizeColumnState(state, id, width) {
+  if (!state.order.includes(id) || !Number.isFinite(Number(width))) return state;
+  return {
+    ...state,
+    widths: {
+      ...(state.widths || {}),
+      [id]: Math.max(80, Math.min(800, Math.round(Number(width)))),
+    },
+  };
 }
 export function columnStorageKey(userId, view) {
   return userId == null ? null : `positions-columns-v2:${encodeURIComponent(userId)}:${encodeURIComponent(view)}`;

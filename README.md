@@ -6,6 +6,13 @@
 
 **Last Updated**: September 2026
 
+## v2.96.8 (September 2026)
+
+- **Compact, Resizable Positions Tables:** Webull and consolidated Positions now show only the symbol/ticker in the first column, with the row expander and expanded-detail feature removed. Visible six-dot drag handles are gone while whole column headers and Customize Columns rows remain draggable. Every column can now be resized from its right edge, with widths saved per user, browser, and asset view.
+- **Live Order Allocation Synchronization:** Manually editing Contracts, Quantity, Order Value, Limit Price, Stop Price, or cash amount after using `Max` now immediately recalculates the Use Balance percentage. This applies consistently across supported non-futures Webull tickets, including Event Contracts, equities/ETFs, options, and crypto, while sell tickets recalculate against the held quantity.
+- **Reliable Scheduled AI Reports:** Added the missing background consumer for overdue Market Analysis and Portfolio Review schedules, fixed saved `HH:MM` analysis-window parsing, and refreshes the active report tab every minute. A schedule advances only after both reports succeed, so partial provider failures remain due and retry automatically.
+- **Complete Portfolio Review Context:** Portfolio Review now receives the current unified Binance.US and Webull snapshot—including Webull cash, equities, ETFs, options, futures, crypto, and event contracts—with account/mode boundaries preserved. Mandatory runtime prompt scope also upgrades existing customized prompts without overwriting them.
+
 ## v2.96.7 (September 2026)
 
 - **Webull Event Buying Power Fix:** CSD now reads the nested account-currency buying-power value returned by Webull for Events Cash accounts instead of treating the account's absent top-level cash field as `$0.00`. The Event ticket labels this amount as Event Buying Power and uses the provider-reported shared balance from the linked brokerage account.

@@ -38,11 +38,26 @@ def _parse_iso(value, default=None):
 
 def _get_analysis_window_bounds(settings, now):
     """Get the window start and end times for today based on settings"""
-    window_start_hour = settings.get('ai_analysis_window_start', 9)
-    window_end_hour = settings.get('ai_analysis_window_end', 21)
-    
-    window_start = now.replace(hour=window_start_hour, minute=0, second=0, microsecond=0)
-    window_end = now.replace(hour=window_end_hour, minute=0, second=0, microsecond=0)
+    def clock_parts(value, default_hour, default_minute=0):
+        parts = (default_hour, default_minute)
+        if isinstance(value, str):
+            try:
+                hour, minute = value.split(':', 1)
+                parts = (int(hour), int(minute))
+            except (TypeError, ValueError):
+                pass
+        else:
+            try:
+                parts = (int(value), 0)
+            except (TypeError, ValueError):
+                pass
+        hour, minute = parts
+        return parts if 0 <= hour <= 23 and 0 <= minute <= 59 else (default_hour, default_minute)
+
+    start_hour, start_minute = clock_parts(settings.get('ai_analysis_window_start', '09:00'), 9)
+    end_hour, end_minute = clock_parts(settings.get('ai_analysis_window_end', '21:00'), 21)
+    window_start = now.replace(hour=start_hour, minute=start_minute, second=0, microsecond=0)
+    window_end = now.replace(hour=end_hour, minute=end_minute, second=0, microsecond=0)
     
     return window_start, window_end
 

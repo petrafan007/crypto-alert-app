@@ -754,6 +754,13 @@ def call_ai_with_web_search(
         if not stage1_template:
             stage1_template = user_ai_settings.get('copilot_chat_pre') or "Analyze the query and list 1 or 2 targeted search queries."
 
+        if prompt_type == 'portfolio_review':
+            stage1_template = (
+                f"{stage1_template}\n\nMANDATORY PORTFOLIO SCOPE: Treat every supplied Binance.US and Webull "
+                "cash, equity, ETF, option, futures, crypto, and event-contract row as portfolio data. "
+                "Do not omit an asset class merely because a customized prompt predates Webull support."
+            )
+
         current_datetime = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         symbol_value = symbol or "CRYPTO"
         stage1_prompt = stage1_template.replace('{symbol}', symbol_value).replace('{datetime}', current_datetime)
@@ -1049,6 +1056,13 @@ def call_ai_with_web_search(
         stage3_template = stage3_prompt_map.get(prompt_type)
         if not stage3_template:
             stage3_template = user_ai_settings.get('copilot_chat_post') or "Synthesize the analysis and recent market data into a clear summary."
+
+        if prompt_type == 'portfolio_review':
+            stage3_template = (
+                f"{stage3_template}\n\nMANDATORY PORTFOLIO SCOPE: Analyze every supplied Binance.US and Webull "
+                "cash, equity, ETF, option, futures, crypto, and event-contract row. Preserve account and "
+                "trading-mode boundaries, and never describe Test or Quantitative paper holdings as live assets."
+            )
         
         try:
             stage3_system = stage3_template.format(symbol=symbol_value, datetime=current_datetime, amount=amount_value)

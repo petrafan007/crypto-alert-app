@@ -29,6 +29,7 @@ import {
 import { getAssetDisplaySymbol, getAssetIdentity } from '../utils/assetDisplay';
 import { isNonTradableWebullCashAsset, normalizeWebullTradeSymbol } from '../utils/webullTradeNavigation.mjs';
 import {
+  allocationPercentage,
   floorCashAmountForTicket,
   floorQuantityForTicket,
   quantityDecimalPlaces,
@@ -2632,6 +2633,20 @@ export default function WebullTrading({ isLightMode = false }) {
     rawQuantity,
   });
 
+  const updateManualAllocation = ({ quantity = 0, quoteValue = null, cashAmount = null, price = effectivePrice, entrustType = 'QTY' }) => {
+    if (selectedInstrumentType === 'FUTURES') return;
+    if (orderForm.side === 'BUY') {
+      const multiplier = selectedInstrumentType === 'OPTION' ? OPTION_CONTRACT_MULTIPLIER : 1;
+      const explicitQuote = Number(quoteValue);
+      const usedCash = entrustType === 'AMOUNT'
+        ? Number(cashAmount)
+        : (Number.isFinite(explicitQuote) ? explicitQuote : Number(quantity) * Number(price) * multiplier);
+      setBalancePercentage(allocationPercentage(usedCash, cashBalance));
+      return;
+    }
+    setBalancePercentage(allocationPercentage(quantity, heldQuantity));
+  };
+
   const handleBaseQuantityChange = (val) => {
     const qty = val.replace(/[^0-9.]/g, '');
     const numQty = parseFloat(qty) || 0;
@@ -2641,6 +2656,7 @@ export default function WebullTrading({ isLightMode = false }) {
       : selectedInstrumentType === 'OPTION' ? '0.00' : '';
     setOrderValidationError('');
     setOrderForm((prev) => ({ ...prev, entrustType: 'QTY', totalCashAmount: '', quantity: qty, quoteQuantity: computedVal }));
+    updateManualAllocation({ quantity: numQty, quoteValue: computedVal });
   };
 
   const handleQuoteQuantityChange = (val) => {
@@ -2667,6 +2683,12 @@ export default function WebullTrading({ isLightMode = false }) {
       entrustType: cashAmountMode ? 'AMOUNT' : 'QTY',
       totalCashAmount: cashAmountMode ? quoteVal : '',
     }));
+    updateManualAllocation({
+      quantity: Number(computedQty) || 0,
+      quoteValue: numQuote,
+      cashAmount: cashAmountMode ? numQuote : null,
+      entrustType: cashAmountMode ? 'AMOUNT' : 'QTY',
+    });
   };
 
   const handlePriceChange = (val) => {
@@ -2681,6 +2703,14 @@ export default function WebullTrading({ isLightMode = false }) {
         : selectedInstrumentType === 'OPTION' ? '0.00' : prev.quoteQuantity;
       return { ...prev, price: px, quoteQuantity: computedQuote };
     });
+    const multiplier = selectedInstrumentType === 'OPTION' ? OPTION_CONTRACT_MULTIPLIER : 1;
+    updateManualAllocation({
+      quantity: Number(orderForm.quantity) || 0,
+      quoteValue: Number(orderForm.quantity) * Number(px) * multiplier,
+      cashAmount: orderForm.totalCashAmount,
+      price: Number(px),
+      entrustType: orderForm.entrustType,
+    });
     setOrderValidationError('');
   };
 
@@ -2694,6 +2724,13 @@ export default function WebullTrading({ isLightMode = false }) {
         ? optionOrderValueText(prev.quantity, spx)
         : prev.quoteQuantity,
     }));
+    if (orderForm.type === 'STOP_LOSS') {
+      updateManualAllocation({
+        quantity: Number(orderForm.quantity) || 0,
+        quoteValue: Number(orderForm.quantity) * Number(spx),
+        price: Number(spx),
+      });
+    }
   };
 
   // Slider change handler
@@ -4786,11 +4823,13 @@ export default function WebullTrading({ isLightMode = false }) {
                               value={orderForm.totalCashAmount}
                               onChange={(e) => {
                                 const val = e.target.value.replace(/[^0-9.]/g, '');
+                                const quantity = effectivePrice > 0 && Number(val) > 0 ? Number(val) / effectivePrice : 0;
                                 setOrderForm((prev) => ({
                                   ...prev,
                                   totalCashAmount: val,
-                                  quantity: effectivePrice > 0 && Number(val) > 0 ? (Number(val) / effectivePrice).toFixed(4) : prev.quantity,
+                                  quantity: quantity > 0 ? quantity.toFixed(4) : prev.quantity,
                                 }));
+                                updateManualAllocation({ quantity, cashAmount: Number(val), entrustType: 'AMOUNT' });
                                 setOrderValidationError('');
                               }}
                               placeholder="e.g. 25.00 (min $5.00)"
@@ -5276,7 +5315,7 @@ export default function WebullTrading({ isLightMode = false }) {
                     {selectedInstrumentType !== 'FUTURES' && <div className="order-slider-section">
                       <div className="order-slider-header">
                         <span className="order-field-label">
-                          Use {selectedInstrumentType === 'EVENT' ? 'Event Buying Power' : 'Balance'}: {balancePercentage}%
+                          Use {selectedInstrumentType === 'EVENT' ? 'Event Buying Power' : 'Balance'}: {number(balancePercentage, 2)}%
                         </span>
                         {balancePercentage > 0 && (
                           <span className="order-slider-amount">

@@ -532,9 +532,18 @@ export default function Orders() {
       url.searchParams.set('tab', tab);
       window.history.replaceState({}, '', url);
     } catch { }
-    if (tab === 'market_analysis' && !marketAnalysisData) loadLatestWorkflowData('market-analysis');
-    if (tab === 'portfolio_review' && !portfolioReviewData) loadLatestWorkflowData('portfolio-review');
+    if (tab === 'market_analysis') loadLatestWorkflowData('market-analysis');
+    if (tab === 'portfolio_review') loadLatestWorkflowData('portfolio-review');
   };
+
+  useEffect(() => {
+    const workflowType = activeTab === 'market_analysis'
+      ? 'market-analysis'
+      : activeTab === 'portfolio_review' ? 'portfolio-review' : null;
+    if (!workflowType) return undefined;
+    const timer = window.setInterval(() => loadLatestWorkflowData(workflowType), 60000);
+    return () => window.clearInterval(timer);
+  }, [activeTab]);
 
   useEffect(() => {
     if (activeTab === 'history') loadHistory();

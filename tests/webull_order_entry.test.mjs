@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 
 import {
+  allocationPercentage,
   floorCashAmountForTicket,
   floorQuantityForTicket,
   quantityDecimalPlaces,
@@ -12,6 +13,10 @@ assert.equal(floorQuantityForTicket(0.31765, 5), '0.31765');
 assert.equal(floorCashAmountForTicket(100.24), 100.24);
 assert.equal(quantityDecimalPlaces('0.317657'), 6);
 assert.equal(quantityDecimalPlaces('0.31765'), 5);
+assert.equal(allocationPercentage(5.20, 100.24), 5.19);
+assert.equal(allocationPercentage(100.24, 100.24), 100);
+assert.equal(allocationPercentage(150, 100), 100);
+assert.equal(allocationPercentage(5, 0), 0);
 
 const aaplCashBuy = {
   instrumentType: 'EQUITY',

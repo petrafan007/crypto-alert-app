@@ -44,6 +44,8 @@ from services.ai_service import (
     run_watchlist_sentiment_analysis_for_user, log_ai_conversation,
     get_ollama_models, call_ollama_chat, is_ollama_admin
 )
+from services.ai_scheduler import should_run_ai_analysis, update_ai_analysis_schedule
+from services.portfolio_review_context import build_portfolio_review_holdings
 from event_algo import is_event_strategy_admin
 
 # Local helpers previously in main
@@ -3461,7 +3463,8 @@ def api_market_analysis_workflow():
             logger.info(f"Market analysis workflow cache stored for user {user_id}")
             
             # Update the AI analysis schedule based on user settings
-            update_ai_analysis_schedule(user_id)
+            if request.args.get('update_schedule', 'true').lower() != 'false':
+                update_ai_analysis_schedule(user_id)
             
         except Exception as db_error:
             logger.error(f"Failed to store market analysis cache: {db_error}")
@@ -3575,21 +3578,19 @@ def api_portfolio_review_workflow():
         logger.info(f"=== PORTFOLIO REVIEW WORKFLOW START (SYNC) - User: {username} ===")
         analysis_start_time = get_eastern_now_iso()
 
-        # Build non-stablecoin user holdings summary
-        from models import Coin
-        coins = Coin.query.filter(Coin.user_id == user_id, Coin.hidden == False, Coin.amount > 0).all()
-        non_stablecoins = [c for c in coins if not is_stablecoin(c.symbol)]
-        coin_lines = []
-        for c in non_stablecoins:
-            price = getattr(c, 'current_price', None) or getattr(c, 'initial_price', 0) or 0
-            val = (c.amount or 0) * price
-            coin_lines.append(f"- {c.symbol}: {c.amount} tokens (current price: ${price:.2f}, total value: ${val:.2f})")
-        coin_data = "\n".join(coin_lines) if coin_lines else "No non-stablecoin holdings."
+        # The review must cover the same unified portfolio shown by CSD, not
+        # only the legacy Binance.US coin rows.
+        holdings_data = build_portfolio_review_holdings(user_id)
 
         portfolio_review_messages = [
             {
                 "role": "user",
-                "content": f"CURRENT PORTFOLIO HOLDINGS:\n{coin_data}\n\nPlease perform a comprehensive portfolio review."
+                "content": (
+                    "CURRENT UNIFIED PORTFOLIO (authoritative CSD snapshot):\n"
+                    f"{holdings_data}\n\n"
+                    "Review every supplied Binance.US and Webull holding and cash balance. "
+                    "Keep Real, Test, and Quantitative records distinct if a mode is identified."
+                )
             }
         ]
 
@@ -3681,8 +3682,9 @@ def api_portfolio_review_workflow():
             db.session.add(ai_conversation)
             db.session.commit()
             logger.info(f"Portfolio review workflow cache stored for user {user_id}")
-            update_ai_analysis_schedule(user_id)
-            logger.info(f"Next analysis scheduled for user {user_id}")
+            if request.args.get('update_schedule', 'true').lower() != 'false':
+                update_ai_analysis_schedule(user_id)
+                logger.info(f"Next analysis scheduled for user {user_id}")
         except Exception as db_error:
             logger.error(f"Failed to store portfolio review cache: {db_error}")
 

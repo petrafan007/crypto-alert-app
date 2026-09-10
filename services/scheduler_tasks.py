@@ -29,6 +29,7 @@ ALERT_STATE_FILE = "alert_state.json"
 DEFAULT_AUTOMATED_TRIGGER_CONFIRMATION_MINUTES = 15
 MAX_AUTOMATED_TRIGGER_CONFIRMATION_MINUTES = 1440
 WEBULL_PORTFOLIO_SYNC_INTERVAL_SECONDS = 60
+AI_WORKFLOW_SCHEDULER_INTERVAL_SECONDS = 900
 
 def _load_alert_states():
     if os.path.exists(ALERT_STATE_FILE):
@@ -1292,6 +1293,72 @@ def sentiment_analysis_loop(app):
             time.sleep(1800)
 
 
+def _workflow_response_result(result):
+    """Return (success, payload, status) for a Flask view result."""
+    response, status = result if isinstance(result, tuple) else (result, getattr(result, 'status_code', 200))
+    payload = response.get_json(silent=True) if hasattr(response, 'get_json') else {}
+    payload = payload if isinstance(payload, dict) else {}
+    return bool(int(status) < 400 and payload.get('success')), payload, int(status)
+
+
+def run_due_ai_workflows_for_user(app, user):
+    """Run both scheduled report workflows for one due, AI-enabled user."""
+    from flask_login import login_user
+    from routes.ai import api_market_analysis_workflow, api_portfolio_review_workflow
+    from services.ai_scheduler import should_run_ai_analysis, update_ai_analysis_schedule
+    from services.ai_service import is_user_analysis_window_active
+    from services.analysis_service import get_user_ai_settings, is_ai_enabled
+
+    if not is_ai_enabled(user.username):
+        return {'status': 'disabled'}
+    settings = get_user_ai_settings(user.username)
+    if not is_user_analysis_window_active(
+        settings.get('ai_analysis_window_start', '08:00'),
+        settings.get('ai_analysis_window_end', '23:59'),
+    ):
+        return {'status': 'outside_window'}
+    if not should_run_ai_analysis(user.id):
+        return {'status': 'not_due'}
+
+    results = {}
+    workflows = (
+        ('market_analysis', '/api/ai/market-analysis-workflow?refresh=true&update_schedule=false', api_market_analysis_workflow),
+        ('portfolio_review', '/api/ai/portfolio-review-workflow?refresh=true&update_schedule=false', api_portfolio_review_workflow),
+    )
+    for name, path, view in workflows:
+        with app.test_request_context(path):
+            login_user(user)
+            success, payload, status = _workflow_response_result(view())
+            results[name] = {
+                'success': success,
+                'status': status,
+                'message': payload.get('message') or payload.get('error'),
+            }
+
+    if all(result['success'] for result in results.values()):
+        update_ai_analysis_schedule(user.id)
+        return {'status': 'completed', 'workflows': results}
+    return {'status': 'partial_failure', 'workflows': results}
+
+
+def scheduled_ai_workflow_loop(app):
+    """Continuously consume overdue Market Analysis and Portfolio Review schedules."""
+    logger.info("=== scheduled_ai_workflow_loop STARTED ===")
+    with app.app_context():
+        while True:
+            @safe_background_iteration
+            def iteration():
+                for user in User.query.all():
+                    result = run_due_ai_workflows_for_user(app, user)
+                    if result.get('status') == 'completed':
+                        logger.info("Scheduled Market Analysis and Portfolio Review completed for user %s.", user.username)
+                    elif result.get('status') == 'partial_failure':
+                        logger.warning("Scheduled AI workflows were incomplete for user %s: %s", user.username, result.get('workflows'))
+
+            iteration()
+            time.sleep(AI_WORKFLOW_SCHEDULER_INTERVAL_SECONDS)
+
+
 def sentiment_outcome_evaluation_loop(app):
     """Grade predictions at their own fixed target time, independent of AI refreshes."""
     from services.sentiment_outcome_service import evaluate_pending_fixed_horizon_sentiments
@@ -1395,6 +1462,15 @@ def start_background_jobs(app=None):
     sentiment_thread = threading.Thread(target=sentiment_analysis_loop, args=(app,), daemon=True)
     sentiment_thread.start()
 
+    # 6b. Scheduled cross-asset Market Analysis and Portfolio Review reports
+    ai_workflow_thread = threading.Thread(
+        target=scheduled_ai_workflow_loop,
+        args=(app,),
+        daemon=True,
+        name="scheduled-ai-workflows",
+    )
+    ai_workflow_thread.start()
+
     # 7. Fixed-horizon grading loop (manual refreshes cannot close prior forecasts)
     sentiment_outcome_thread = threading.Thread(target=sentiment_outcome_evaluation_loop, args=(app,), daemon=True)
     sentiment_outcome_thread.start()
@@ -1417,6 +1493,7 @@ def start_background_jobs(app=None):
         "volatility": volatility_thread,
         "ai_retention": retention_thread,
         "sentiment": sentiment_thread,
+        "ai_workflows": ai_workflow_thread,
         "sentiment_outcomes": sentiment_outcome_thread,
     }
 

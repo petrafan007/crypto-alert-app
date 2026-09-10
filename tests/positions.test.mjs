@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { ASSET_VIEWS, defaultColumnState, cleanColumnState, moveColumnState, columnStorageKey, assetType, valueForColumn, positionStatus, positionSide, normalizeRealPositions, timestamp, countdown, mergeEventMarket } from '../frontend/src/utils/positions.mjs';
+import { ASSET_VIEWS, defaultColumnState, cleanColumnState, moveColumnState, resizeColumnState, columnStorageKey, assetType, valueForColumn, positionStatus, positionSide, normalizeRealPositions, timestamp, countdown, mergeEventMarket } from '../frontend/src/utils/positions.mjs';
 
 test('asset layouts expose event fields without cluttering equity defaults', () => {
   for (const view of ASSET_VIEWS) {
@@ -31,6 +31,17 @@ test('saved layouts recover from malformed values and remain user and asset scop
   const recovered = cleanColumnState({ order: ['symbol', 'symbol', 'removed'], selected: ['cutoff', 'removed'] }, 'Equities & ETFs');
   assert.equal(recovered.order.filter(id => id === 'symbol').length, 1);
   assert.deepEqual(recovered.selected, ['symbol']);
+  assert.deepEqual(recovered.widths, {});
+});
+test('saved position widths are validated and resizing preserves the column layout', () => {
+  const state = cleanColumnState({
+    order: ['symbol', 'quantity'], selected: ['symbol', 'quantity'], widths: { symbol: 175.4, quantity: 20, removed: 300 },
+  }, 'Equities & ETFs');
+  assert.deepEqual(state.widths, { symbol: 175, quantity: 80 });
+  const resized = resizeColumnState(state, 'quantity', 246.7);
+  assert.equal(resized.widths.quantity, 247);
+  assert.deepEqual(resized.order, state.order);
+  assert.deepEqual(resizeColumnState(state, 'removed', 200), state);
 });
 test('event status distinguishes cutoff from confirmed settlement and delay evidence', () => {
   const now = Date.parse('2026-09-07T15:00:00Z');
@@ -64,7 +75,7 @@ test('cutoff timestamps and spread names preserve full contract identity', () =>
   assert.equal(countdown(1000, 1000), 'Closed');
   assert.equal(countdown(121000, 1000), '2m 0s');
   const p = { symbol: 'SPY', instrument_type: 'OPTION', details: { expiration: '2026-10-16', short: { strike: 500, option_type: 'PUT' }, long: { strike: 495, option_type: 'PUT' } } };
-  assert.match(valueForColumn(p, 'symbol'), /500 \/ \$495 PUT spread/);
+  assert.equal(valueForColumn(p, 'symbol'), 'SPY');
 });
 
 test('exact contract metadata never replaces ledger marks, values, or confirmed results', () => {

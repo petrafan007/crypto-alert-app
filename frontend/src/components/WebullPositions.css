@@ -65,12 +65,14 @@
 
 .webull-positions-table th,
 .webull-positions-table td {
-  min-width: 138px;
+  min-width: 80px;
   padding: 15px 14px;
   border-bottom: 1px solid var(--table-border, var(--border-color));
   color: var(--text-primary);
   text-align: right;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .webull-positions-table th {
@@ -78,6 +80,8 @@
   top: 0;
   z-index: 3;
   background: var(--table-header-bg);
+  box-sizing: border-box;
+  cursor: grab;
 }
 
 .webull-positions-table th button {
@@ -97,7 +101,7 @@
   position: sticky;
   left: 0;
   z-index: 2;
-  min-width: 210px;
+  min-width: 80px;
   background: var(--table-row-bg);
   text-align: left;
 }
@@ -263,7 +267,7 @@
 
 .positions-column-option {
   display: grid;
-  grid-template-columns: 28px 1fr 32px;
+  grid-template-columns: 1fr 32px;
   align-items: center;
   gap: 8px;
   min-height: 50px;
@@ -275,10 +279,6 @@
 
 .positions-column-option:hover {
   background: var(--table-row-hover);
-}
-
-.positions-drag-handle {
-  color: var(--text-tertiary);
 }
 
 .positions-column-option input {
@@ -330,23 +330,16 @@
 }
 .positions-asset-views button[aria-pressed="true"] { background: var(--button-bg, #2563eb); color: var(--button-text, white); border-color: var(--accent-primary); }
 .positions-asset-views span { margin-left: 5px; opacity: .8; }
-.position-column-header { display: flex; align-items: center; gap: 6px; }
-.positions-drag-handle { display: inline-flex; cursor: grab; flex-shrink: 0; }
+.position-column-header { display: flex; align-items: center; width: 100%; }
+.positions-column-resizer { position: absolute; top: 0; right: -4px; width: 9px; height: 100%; cursor: col-resize; z-index: 6; }
+.positions-column-resizer:hover, .positions-column-resizer:active { background: var(--accent-primary, #38bdf8); opacity: .7; }
+body.is-resizing-columns { cursor: col-resize; user-select: none; }
 .positions-drop-target { box-shadow: inset 4px 0 var(--accent-primary, #38bdf8); background: var(--table-row-hover) !important; }
-.position-data-row { cursor: pointer; }
-.position-expand { max-width: 340px; min-width: 180px; white-space: normal; overflow-wrap: anywhere; text-align: left; background: transparent; border: 0; color: inherit; font: inherit; cursor: pointer; }
-.position-expand small { display: block; font-size: 11px; color: var(--text-secondary); margin: 4px 0; }
-.position-outcome { display: inline-block; border: 1px solid currentColor; border-radius: 4px; padding: 2px 6px; font-size: 11px; margin: 4px 0 0 6px; }
-.outcome-yes { color: var(--accent-success, #22c55e); }
-.outcome-no { color: var(--accent-danger, #ef4444); }
-.webull-positions-table .position-detail-row td { position: static; white-space: normal; text-align: left; }
-.position-details { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); max-width: 1100px; gap: 16px; margin: 8px 0; }
-.position-details dt { color: var(--text-secondary); font-size: 12px; }
-.position-details dd { margin: 4px 0 0; overflow-wrap: anywhere; white-space: pre-wrap; }
+.position-data-row { cursor: default; }
 .positions-dialog { padding: 0; width: min(650px, calc(100vw - 24px)); max-height: 85vh; border: 1px solid var(--border-color); border-radius: 10px; background: var(--modal-bg, var(--card-bg)); color: var(--text-primary); box-shadow: var(--shadow-lg); }
 .positions-dialog::backdrop { background: rgba(0, 0, 0, .68); }
 .positions-dialog .positions-column-list { max-height: 55vh; overflow: auto; }
-.positions-column-option { grid-template-columns: 24px 1fr 32px 32px 28px; cursor: default; }
+.positions-column-option { grid-template-columns: 1fr 32px 32px 28px; cursor: grab; }
 .positions-column-option button { padding: 4px; }
 .positions-column-option button:disabled { opacity: .35; cursor: default; }
 .positions-layout-help { padding: 0 20px; color: var(--text-secondary); font-size: 13px; }
@@ -356,21 +349,14 @@
 .webull-positions button:focus-visible, .positions-dialog button:focus-visible { outline: 2px solid var(--accent-primary, #38bdf8); outline-offset: 2px; }
 .positions-mode-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-bottom: 18px; }
 
-/* Override the site's fixed-layout table rules so contract fields remain readable. */
+/* Keep persisted column widths authoritative across both Positions screens. */
 .webull-positions .webull-positions-table {
-  table-layout: auto !important;
+  table-layout: fixed !important;
   width: max-content !important;
   max-width: none !important;
   min-width: 100% !important;
 }
 .webull-positions .webull-positions-table th,
 .webull-positions .webull-positions-table td {
-  width: auto !important;
-  max-width: none !important;
-  min-width: 120px;
   padding: 12px 14px !important;
-  overflow: visible !important;
-  text-overflow: clip !important;
 }
-.webull-positions .webull-positions-table .position-symbol { min-width: 280px; }
-.webull-positions .webull-positions-table .position-detail-row td { white-space: normal !important; }

@@ -174,11 +174,11 @@ def get_user_ai_settings(username: str) -> dict:
                 ),
                 'portfolio_review_pre': (
                     "You are an intelligent search query generator for multi-asset portfolio review as of {datetime}. "
-                    "The portfolio contains holdings across both cryptocurrency (Binance.US, Webull) and traditional securities/equities (Webull). "
+                    "The portfolio contains Binance.US crypto plus Webull cash, equities, ETFs, options, futures, crypto, and event contracts. "
                     "Generate 1 to 3 targeted search queries to identify breaking news, recent earnings, technical momentum shifts, and regulatory catalysts impacting these specific holdings and their respective asset classes."
                 ),
                 'portfolio_review_post': (
-                    "You are a professional portfolio manager and multi-asset strategist evaluating a unified portfolio of cryptocurrency (Binance.US / Webull) and securities (equities, ETFs, options on Webull) as of {datetime}. "
+                    "You are a professional portfolio manager and multi-asset strategist evaluating a unified portfolio of Binance.US crypto plus Webull cash, equities, ETFs, options, futures, crypto, and event contracts as of {datetime}. "
                     "Based on current live prices, cost basis, unrealized P&L, asset weighting, and recent web search news:\n"
                     "1. Assess portfolio risk balance between high-volatility crypto and equity allocations.\n"
                     "2. Identify top outperforming positions, concentration risks, and underperforming assets.\n"

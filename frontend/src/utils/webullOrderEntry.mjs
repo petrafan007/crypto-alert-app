@@ -14,6 +14,13 @@ export const floorCashAmountForTicket = (value) => {
   return Math.floor((numeric + ROUNDING_EPSILON) * 100) / 100;
 };
 
+export const allocationPercentage = (usedAmount, availableAmount) => {
+  const used = Number(usedAmount);
+  const available = Number(availableAmount);
+  if (!Number.isFinite(used) || !Number.isFinite(available) || used <= 0 || available <= 0) return 0;
+  return Math.round(Math.max(0, Math.min(100, (used / available) * 100)) * 100) / 100;
+};
+
 export const quantityDecimalPlaces = (value) => {
   const text = String(value ?? '').trim();
   const decimal = text.indexOf('.');
