@@ -6,6 +6,12 @@
 
 **Last Updated**: September 2026
 
+## v2.96.9 (September 2026)
+
+- **Compact, Resizable Order History:** Consolidated, Binance.US, and Webull order-history tables no longer display six-dot drag handles. Entire unpinned column headers and Customize Columns rows remain draggable, and every visible column can be resized from its right edge with widths saved per user, browser, and table.
+- **Symbol Permanently First:** Symbol is now visible, pinned, and first in every applicable order table. Existing saved layouts are migrated when loaded, so Date or another previously saved column cannot remain ahead of Symbol.
+- **Safer Column Reordering:** Order-table drops now use the browser's transferred column identity, preventing delayed UI state from moving the wrong column. Sorting, filters, visibility settings, and existing saved layouts remain intact.
+
 ## v2.96.8 (September 2026)
 
 - **Compact, Resizable Positions Tables:** Webull and consolidated Positions now show only the symbol/ticker in the first column, with the row expander and expanded-detail feature removed. Visible six-dot drag handles are gone while whole column headers and Customize Columns rows remain draggable. Every column can now be resized from its right edge, with widths saved per user, browser, and asset view.

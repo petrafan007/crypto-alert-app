@@ -1,12 +1,15 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import CloseIcon from '@mui/icons-material/Close';
-import DragIndicatorIcon from '@mui/icons-material/DragIndicator';
 import FilterListIcon from '@mui/icons-material/FilterList';
 import ViewColumnOutlinedIcon from '@mui/icons-material/ViewColumnOutlined';
+import {
+  cleanOrderTableState,
+  defaultOrderTableState,
+  moveOrderTableColumn,
+  resizeOrderTableColumn,
+} from '../utils/orderTable.mjs';
 import './WebullPositions.css';
 import './ConfigurableOrderTable.css';
-
-const EMPTY_FILTERS = Object.freeze({ search: '', values: {} });
 
 function OrderTableDialog({ title, onClose, children }) {
   const ref = useRef(null);
@@ -25,45 +28,6 @@ function OrderTableDialog({ title, onClose, children }) {
 function storageKey(userId, tableId) {
   if (!tableId) return null;
   return `order-table-state-v1:${encodeURIComponent(userId ?? 'local')}:${encodeURIComponent(tableId)}`;
-}
-
-function defaultState(columns, defaultSort) {
-  return {
-    order: columns.map((column) => column.id),
-    selected: columns.filter((column) => column.defaultVisible !== false).map((column) => column.id),
-    sort: defaultSort || null,
-    filters: { ...EMPTY_FILTERS, values: {} },
-  };
-}
-
-function cleanState(saved, columns, defaultSort) {
-  const defaults = defaultState(columns, defaultSort);
-  if (!saved || !Array.isArray(saved.order) || !Array.isArray(saved.selected)) return defaults;
-  const validIds = new Set(columns.map((column) => column.id));
-  const lockedIds = columns.filter((column) => column.locked).map((column) => column.id);
-  const order = [...new Set(saved.order.filter((id) => validIds.has(id)))];
-  const selected = [...new Set([...lockedIds, ...saved.selected.filter((id) => validIds.has(id))])];
-  const sort = saved.sort && validIds.has(saved.sort.id) && ['asc', 'desc'].includes(saved.sort.direction)
-    ? saved.sort
-    : defaults.sort;
-  const values = saved.filters?.values && typeof saved.filters.values === 'object'
-    ? Object.fromEntries(Object.entries(saved.filters.values).filter(([id]) => validIds.has(id)))
-    : {};
-  return {
-    order: [...order, ...defaults.order.filter((id) => !order.includes(id))],
-    selected,
-    sort,
-    filters: { search: typeof saved.filters?.search === 'string' ? saved.filters.search : '', values },
-  };
-}
-
-function moveColumn(state, source, target) {
-  if (!source || source === target || !state.order.includes(source) || !state.order.includes(target)) return state;
-  const order = [...state.order];
-  const targetIndex = order.indexOf(target);
-  order.splice(order.indexOf(source), 1);
-  order.splice(targetIndex, 0, source);
-  return { ...state, order };
 }
 
 function normalizedValue(value) {
@@ -94,30 +58,31 @@ export default function ConfigurableOrderTable({
   const [columnsOpen, setColumnsOpen] = useState(false);
   const [draggedColumn, setDraggedColumn] = useState(null);
   const [dropTarget, setDropTarget] = useState(null);
+  const [isResizing, setIsResizing] = useState(false);
   const key = storageKey(userId, tableId);
   const columnSignature = columns.map((column) => `${column.id}:${column.defaultVisible !== false}:${Boolean(column.locked)}`).join('|');
   const [state, setState] = useState(() => {
-    try { return cleanState(key ? JSON.parse(localStorage.getItem(key)) : null, columns, defaultSort); }
-    catch { return defaultState(columns, defaultSort); }
+    try { return cleanOrderTableState(key ? JSON.parse(localStorage.getItem(key)) : null, columns, defaultSort); }
+    catch { return defaultOrderTableState(columns, defaultSort); }
   });
 
   useEffect(() => {
-    setState((current) => cleanState(current, columns, defaultSort));
+    setState((current) => cleanOrderTableState(current, columns, defaultSort));
   }, [columnSignature, defaultSort?.id, defaultSort?.direction]);
 
   useEffect(() => {
     if (!key) return;
     try {
       const saved = localStorage.getItem(key);
-      setState(cleanState(saved ? JSON.parse(saved) : null, columns, defaultSort));
-    } catch { setState(defaultState(columns, defaultSort)); }
+      setState(cleanOrderTableState(saved ? JSON.parse(saved) : null, columns, defaultSort));
+    } catch { setState(defaultOrderTableState(columns, defaultSort)); }
   }, [key, columnSignature, defaultSort?.id, defaultSort?.direction]);
 
   useEffect(() => {
     const sync = (event) => {
       if (event.key !== key) return;
-      try { setState(cleanState(event.newValue ? JSON.parse(event.newValue) : null, columns, defaultSort)); }
-      catch { setState(defaultState(columns, defaultSort)); }
+      try { setState(cleanOrderTableState(event.newValue ? JSON.parse(event.newValue) : null, columns, defaultSort)); }
+      catch { setState(defaultOrderTableState(columns, defaultSort)); }
     };
     window.addEventListener('storage', sync);
     return () => window.removeEventListener('storage', sync);
@@ -165,10 +130,38 @@ export default function ConfigurableOrderTable({
   });
   const endDrag = () => { setDraggedColumn(null); setDropTarget(null); };
   const dragProps = (id) => ({
-    onDragOver: (event) => { if (draggedColumn) { event.preventDefault(); event.dataTransfer.dropEffect = 'move'; setDropTarget(id); } },
-    onDrop: (event) => { event.preventDefault(); updateState((current) => moveColumn(current, draggedColumn, id)); endDrag(); },
+    onDragOver: (event) => { event.preventDefault(); event.dataTransfer.dropEffect = 'move'; setDropTarget(id); },
+    onDrop: (event) => {
+      event.preventDefault();
+      const source = event.dataTransfer.getData('text/plain') || draggedColumn;
+      updateState((current) => moveOrderTableColumn(current, source, id));
+      endDrag();
+    },
   });
   const startDrag = (event, id) => { setDraggedColumn(id); event.dataTransfer.setData('text/plain', id); event.dataTransfer.effectAllowed = 'move'; };
+  const columnWidth = (column) => Number(state.widths?.[column.id]) || Number(column.defaultWidth) || (column.id === 'symbol' ? 160 : 140);
+  const tableWidth = visibleColumns.reduce((total, column) => total + columnWidth(column), 0);
+  const startResize = (event, column) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const startX = event.clientX;
+    const startWidth = columnWidth(column);
+    const startingState = state;
+    setIsResizing(true);
+    document.body.classList.add('is-resizing-columns');
+    const move = (moveEvent) => {
+      moveEvent.preventDefault();
+      updateState(resizeOrderTableColumn(startingState, column.id, startWidth + moveEvent.clientX - startX));
+    };
+    const stop = () => {
+      setIsResizing(false);
+      document.body.classList.remove('is-resizing-columns');
+      document.removeEventListener('mousemove', move);
+      document.removeEventListener('mouseup', stop);
+    };
+    document.addEventListener('mousemove', move);
+    document.addEventListener('mouseup', stop);
+  };
   const resetFilters = () => updateState((current) => ({ ...current, filters: { search: '', values: {} } }));
 
   return <div className="configurable-order-table webull-positions">
@@ -180,8 +173,9 @@ export default function ConfigurableOrderTable({
       </div>
     </div>
     {!displayedRows.length ? <div className="empty-state"><p>{rows.length ? 'No orders match the saved filters.' : emptyText}</p>{rows.length > 0 && <button type="button" className="btn btn-secondary" onClick={resetFilters}>Reset filters</button>}</div> : <div className={`table-container trading-table ${tableClassName}`}>
-      <div className="order-table-scroll"><table><thead><tr>{visibleColumns.map((column) => <th key={column.id} scope="col" aria-sort={state.sort?.id === column.id ? (state.sort.direction === 'asc' ? 'ascending' : 'descending') : 'none'} className={dropTarget === column.id ? 'positions-drop-target' : ''} style={column.headerStyle} {...dragProps(column.id)}>
-        <span className="position-column-header"><span draggable onDragStart={(event) => startDrag(event, column.id)} onDragEnd={endDrag} className="positions-drag-handle" title={`Drag ${column.label} to reorder; keyboard controls are in Customize columns`}><DragIndicatorIcon fontSize="small" /></span><button type="button" onClick={() => toggleSort(column.id)}>{column.label}{state.sort?.id === column.id ? (state.sort.direction === 'asc' ? ' ↑' : ' ↓') : ''}</button></span>
+      <div className="order-table-scroll"><table style={{ '--order-table-width': `${tableWidth}px` }}><colgroup>{visibleColumns.map((column) => <col key={column.id} style={{ width: `${columnWidth(column)}px` }} />)}</colgroup><thead><tr>{visibleColumns.map((column) => <th key={column.id} scope="col" aria-sort={state.sort?.id === column.id ? (state.sort.direction === 'asc' ? 'ascending' : 'descending') : 'none'} className={dropTarget === column.id ? 'positions-drop-target' : ''} draggable={!isResizing && column.id !== 'symbol'} onDragStart={(event) => startDrag(event, column.id)} onDragEnd={endDrag} title={column.id === 'symbol' ? 'Symbol is pinned first' : `Drag ${column.label} to reorder`} style={column.headerStyle} {...dragProps(column.id)}>
+        <span className="position-column-header"><button type="button" onClick={() => toggleSort(column.id)}>{column.label}{state.sort?.id === column.id ? (state.sort.direction === 'asc' ? ' ↑' : ' ↓') : ''}</button></span>
+        <span className="order-column-resizer" draggable={false} onDragStart={(event) => { event.preventDefault(); event.stopPropagation(); }} onMouseDown={(event) => startResize(event, column)} title={`Resize ${column.label}`} />
       </th>)}</tr></thead><tbody>{displayedRows.map((row, index) => <tr key={rowKey(row, index)} className={typeof rowClassName === 'function' ? rowClassName(row, index) : rowClassName}>{visibleColumns.map((column) => <td key={column.id} className={typeof column.className === 'function' ? column.className(row) : column.className} style={typeof column.style === 'function' ? column.style(row) : column.style}>{column.render ? column.render(row) : normalizedValue(column.value(row)) || '—'}</td>)}</tr>)}</tbody></table></div>
     </div>}
     {filterOpen && <OrderTableDialog title="Order filters" onClose={() => setFilterOpen(false)}>
@@ -192,9 +186,9 @@ export default function ConfigurableOrderTable({
       <div className="positions-panel-footer"><button type="button" onClick={resetFilters}>Reset filters</button><button type="button" className="primary" onClick={() => setFilterOpen(false)}>Done</button></div>
     </OrderTableDialog>}
     {columnsOpen && <OrderTableDialog title="Customize columns" onClose={() => { setColumnsOpen(false); endDrag(); }}>
-      <p className="positions-layout-help">Drag to reorder or use the arrow buttons. Columns, filters, and sorting are saved for your user on this browser.</p>
-      <div className="positions-column-list">{state.order.map((id, index) => { const column = columnMap.get(id); if (!column) return null; return <div key={id} className={`positions-column-option ${dropTarget === id ? 'positions-drop-target' : ''}`} {...dragProps(id)}><span draggable onDragStart={(event) => startDrag(event, id)} onDragEnd={endDrag} className="positions-drag-handle"><DragIndicatorIcon /></span><span>{column.label}</span><button type="button" disabled={index === 0} aria-label={`Move ${column.label} left`} onClick={() => updateState((current) => moveColumn(current, id, current.order[index - 1]))}>←</button><button type="button" disabled={index === state.order.length - 1} aria-label={`Move ${column.label} right`} onClick={() => updateState((current) => moveColumn(current, id, current.order[index + 1]))}>→</button><input type="checkbox" checked={state.selected.includes(id)} disabled={column.locked} onChange={() => toggleColumn(id)} aria-label={`Show ${column.label}`} /></div>; })}</div>
-      <div className="positions-panel-footer"><button type="button" onClick={() => updateState(defaultState(columns, defaultSort))}>Reset to defaults</button><button type="button" className="primary" onClick={() => setColumnsOpen(false)}>Done</button></div>
+      <p className="positions-layout-help">Drag any unpinned column to reorder or use the arrow buttons. Symbol stays first. Columns, widths, filters, and sorting are saved for your user on this browser.</p>
+      <div className="positions-column-list">{state.order.map((id, index) => { const column = columnMap.get(id); if (!column) return null; const pinned = id === 'symbol'; return <div key={id} draggable={!pinned} onDragStart={(event) => startDrag(event, id)} onDragEnd={endDrag} className={`positions-column-option ${pinned ? 'order-column-pinned' : ''} ${dropTarget === id ? 'positions-drop-target' : ''}`} {...dragProps(id)}><span>{column.label}</span><button type="button" disabled={pinned || index <= (state.order[0] === 'symbol' ? 1 : 0)} aria-label={`Move ${column.label} left`} onClick={() => updateState((current) => moveOrderTableColumn(current, id, current.order[index - 1]))}>←</button><button type="button" disabled={pinned || index === state.order.length - 1} aria-label={`Move ${column.label} right`} onClick={() => updateState((current) => moveOrderTableColumn(current, id, current.order[index + 1]))}>→</button><input type="checkbox" checked={state.selected.includes(id)} disabled={pinned || column.locked} onChange={() => toggleColumn(id)} aria-label={`Show ${column.label}`} /></div>; })}</div>
+      <div className="positions-panel-footer"><button type="button" onClick={() => updateState(defaultOrderTableState(columns, defaultSort))}>Reset to defaults</button><button type="button" className="primary" onClick={() => setColumnsOpen(false)}>Done</button></div>
     </OrderTableDialog>}
   </div>;
 }

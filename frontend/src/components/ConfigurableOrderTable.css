@@ -15,7 +15,7 @@
 
 .configurable-order-table .position-column-header {
   justify-content: flex-start;
-  min-width: max-content;
+  min-width: 0;
 }
 
 .configurable-order-table .position-column-header button {
@@ -24,8 +24,57 @@
   white-space: nowrap;
 }
 
-.configurable-order-table .positions-drag-handle {
-  flex: 0 0 auto;
+.configurable-order-table .order-table-scroll {
+  overflow: auto;
+}
+
+.configurable-order-table .table-container table {
+  table-layout: fixed !important;
+  width: var(--order-table-width) !important;
+  min-width: 100% !important;
+  max-width: none !important;
+}
+
+.configurable-order-table th {
+  position: relative;
+  cursor: grab;
+}
+
+.configurable-order-table th:first-child {
+  cursor: default;
+}
+
+.configurable-order-table th,
+.configurable-order-table td {
+  min-width: 80px;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+}
+
+.configurable-order-table .order-column-resizer {
+  position: absolute;
+  top: 0;
+  right: 0;
+  z-index: 26;
+  width: 10px;
+  height: 100%;
+  cursor: col-resize;
+  user-select: none;
+}
+
+.configurable-order-table .order-column-resizer:hover,
+.configurable-order-table .order-column-resizer:active {
+  background: var(--accent-primary, #38bdf8);
+  box-shadow: 0 0 8px rgba(56, 189, 248, .8);
+}
+
+.configurable-order-table .positions-column-option {
+  cursor: grab;
+}
+
+.configurable-order-table .positions-column-option.order-column-pinned {
+  cursor: default;
 }
 
 .configurable-order-table td {
