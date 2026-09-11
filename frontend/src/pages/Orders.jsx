@@ -728,9 +728,10 @@ export default function Orders() {
             )}
 
             {marketAnalysisData ? (
-              <div className="workflow-result" style={{ background: '#0b0f19', border: '1px solid #334155', borderRadius: 10, padding: 24 }}>
+              <div className="workflow-result" style={{ borderRadius: 10, padding: 24 }}>
                 <div
-                  style={{ whiteSpace: 'pre-wrap', fontFamily: 'inherit', fontSize: '14px', lineHeight: '1.7', color: '#e2e8f0' }}
+                  className="workflow-result-content"
+                  style={{ whiteSpace: 'pre-wrap', fontFamily: 'inherit', fontSize: '14px', lineHeight: '1.7', color: 'var(--text-primary, #e2e8f0)' }}
                   dangerouslySetInnerHTML={{ __html: renderMarkdown(marketAnalysisData.content) }}
                 />
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12, marginTop: 24, paddingTop: 16, borderTop: '1px solid #1e293b' }}>
@@ -790,9 +791,10 @@ export default function Orders() {
             )}
 
             {portfolioReviewData ? (
-              <div className="workflow-result" style={{ background: '#0b0f19', border: '1px solid #334155', borderRadius: 10, padding: 24 }}>
+              <div className="workflow-result" style={{ borderRadius: 10, padding: 24 }}>
                 <div
-                  style={{ whiteSpace: 'pre-wrap', fontFamily: 'inherit', fontSize: '14px', lineHeight: '1.7', color: '#e2e8f0' }}
+                  className="workflow-result-content"
+                  style={{ whiteSpace: 'pre-wrap', fontFamily: 'inherit', fontSize: '14px', lineHeight: '1.7', color: 'var(--text-primary, #e2e8f0)' }}
                   dangerouslySetInnerHTML={{ __html: renderMarkdown(portfolioReviewData.content) }}
                 />
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12, marginTop: 24, paddingTop: 16, borderTop: '1px solid #1e293b' }}>
@@ -835,7 +837,7 @@ export default function Orders() {
               <h3 style={{ margin: 0 }}>📝 Universal Market Analysis Prompt</h3>
             </div>
             <div className="modal-body" style={{ maxHeight: '60vh', overflowY: 'auto', padding: 20 }}>
-              <pre style={{ whiteSpace: 'pre-wrap', fontFamily: 'inherit', fontSize: '14px', lineHeight: '1.6', color: '#cbd5e1' }}>
+              <pre style={{ whiteSpace: 'pre-wrap', fontFamily: 'inherit', fontSize: '14px', lineHeight: '1.6', color: 'var(--text-primary, #0f172a)' }}>
                 {marketPrompt || '(No custom prompt configured, using system default)'}
               </pre>
             </div>
@@ -854,7 +856,7 @@ export default function Orders() {
               <h3 style={{ margin: 0 }}>📝 Universal Portfolio Review Prompt</h3>
             </div>
             <div className="modal-body" style={{ maxHeight: '60vh', overflowY: 'auto', padding: 20 }}>
-              <pre style={{ whiteSpace: 'pre-wrap', fontFamily: 'inherit', fontSize: '14px', lineHeight: '1.6', color: '#cbd5e1' }}>
+              <pre style={{ whiteSpace: 'pre-wrap', fontFamily: 'inherit', fontSize: '14px', lineHeight: '1.6', color: 'var(--text-primary, #0f172a)' }}>
                 {portfolioPrompt || '(No custom prompt configured, using system default)'}
               </pre>
             </div>

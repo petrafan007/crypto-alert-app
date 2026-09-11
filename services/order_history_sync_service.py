@@ -104,6 +104,30 @@ def import_binance_orders(user_id, orders):
         commission_asset = order.get('commissionAsset', order.get('commission_asset', order.get('fee_asset')))
         if commission_asset not in (None, ''):
             record.commission_asset = str(commission_asset).upper()
+        if record.commission is None and str(order.get('status') or record.status or '').upper() in {'FILLED', 'COMPLETED'}:
+            # Attempt lookup from AllActivity
+            try:
+                from trading_models import AllActivity
+                act = AllActivity.query.filter(
+                    AllActivity.user_id == user_id,
+                    AllActivity.details.contains(str(provider_order_id))
+                ).first()
+                if act and act.fee:
+                    record.commission = float(act.fee)
+                    if not record.commission_asset and act.details:
+                        import re
+                        m = re.search(r'Commission:\s*[\d\.]+\s*([A-Za-z0-9]+)', act.details)
+                        if m:
+                            record.commission_asset = m.group(1).upper()
+            except Exception:
+                pass
+            if record.commission is None:
+                fq = float(record.filled_quantity or 0.0)
+                fp = float(record.filled_price or record.price or 0.0)
+                if fq > 0 and fp > 0:
+                    record.commission = round(fq * fp * 0.001, 6)
+                    if not record.commission_asset:
+                        record.commission_asset = 'USD'
         record.status = str(order.get('status') or '').upper() or None
         record.created_at = _provider_datetime(order.get('time') or order.get('transactTime')) or record.created_at
         record.updated_at = _provider_datetime(order.get('updateTime') or order.get('time')) or record.updated_at

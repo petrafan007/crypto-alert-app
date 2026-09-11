@@ -1034,9 +1034,9 @@ body.light-mode .settings-tab-btn.active {
 }
 
 body.light-mode .settings-page-section {
-  background: #ffffff !important;
-  border: 1px solid #e2e8f0 !important;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05) !important;
+  background: #edf2f7 !important;
+  border: 1px solid #cbd5e1 !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06) !important;
   color: #0f172a !important;
 }
 
@@ -1107,4 +1107,77 @@ body.light-mode .configurable-order-table .position-column-header button:hover,
 body.light-mode .configurable-order-table .order-header-btn:hover,
 body.light-mode .webull-positions-table th button:hover {
   color: #1d4ed8 !important;
+}
+
+/* Order Types Segmented Control (Light Mode) */
+body.light-mode .order-type-segmented {
+  background: #f1f5f9 !important;
+  border: 1px solid #cbd5e1 !important;
+}
+
+body.light-mode .order-type-btn {
+  color: #475569 !important;
+  font-weight: 600 !important;
+}
+
+body.light-mode .order-type-btn:hover:not(.active) {
+  background: #e2e8f0 !important;
+  color: #0f172a !important;
+}
+
+body.light-mode .order-type-btn.active {
+  background: #2563eb !important;
+  color: #ffffff !important;
+  box-shadow: 0 2px 6px rgba(37, 99, 235, 0.35) !important;
+  font-weight: 700 !important;
+}
+
+/* Webull Entrust / Order Entry Mode Segmented (Light Mode) */
+body.light-mode .webull-entrust-segmented {
+  background: #f1f5f9 !important;
+  border: 1px solid #cbd5e1 !important;
+}
+
+body.light-mode .webull-entrust-btn {
+  color: #475569 !important;
+  font-weight: 600 !important;
+}
+
+body.light-mode .webull-entrust-btn:hover:not(.active):not(:disabled) {
+  background: #e2e8f0 !important;
+  color: #0f172a !important;
+}
+
+body.light-mode .webull-entrust-btn.active {
+  background: #2563eb !important;
+  color: #ffffff !important;
+  box-shadow: 0 1px 4px rgba(37, 99, 235, 0.3) !important;
+}
+
+body.light-mode .webull-entrust-btn:disabled {
+  color: #64748b !important;
+  background: #e2e8f0 !important;
+  opacity: 0.8 !important;
+  cursor: not-allowed !important;
+}
+
+/* Universal Market Analysis & Portfolio Review Containers (Light Mode) */
+body.light-mode .workflow-result {
+  background: #ffffff !important;
+  border: 1px solid #cbd5e1 !important;
+  color: #0f172a !important;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.05) !important;
+}
+
+body.light-mode .workflow-result-content {
+  color: #0f172a !important;
+}
+
+/* Prompt Modal Preview Text (Light Mode) */
+body.light-mode .modal-body pre {
+  background: #f8fafc !important;
+  color: #0f172a !important;
+  border: 1px solid #e2e8f0 !important;
+  border-radius: 6px !important;
+  padding: 12px !important;
 }

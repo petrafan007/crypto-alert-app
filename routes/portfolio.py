@@ -4658,6 +4658,7 @@ def _build_tax_transactions(raw_transactions):
             'amount': float(tx.get('amount') or 0.0),
             'proceeds': stored_proceeds,
             'fee': fee,
+            'fee_asset': tx.get('fee_asset'),
             'txid': tx.get('txid'),
             'cost_basis': stored_cost,
             'gain_loss': None,
@@ -4795,6 +4796,15 @@ def _build_webull_tax_report(user_id):
             'source': 'webull',
         }
         fee = abs(float(order.fee or 0.0))
+        fee_asset = getattr(order, 'fee_asset', None) or 'USD'
+        if fee == 0.0:
+            inst = str(order.instrument_type or '').upper()
+            if inst == 'EVENT':
+                fee = round(filled_quantity * 0.025, 4)
+            elif inst == 'OPTION':
+                fee = round(filled_quantity * 0.55, 4)
+            elif tx_type == 'SELL' and filled_quantity > 0 and filled_price > 0:
+                fee = max(0.01, round(filled_quantity * filled_price * 0.0000278, 2))
         gross_value = filled_quantity * filled_price
         raw_transactions.append({
             'id': order.id,
@@ -4811,6 +4821,7 @@ def _build_webull_tax_report(user_id):
             'cost_basis': gross_value + fee if tx_type == 'BUY' else 0.0,
             'gain_loss': None,
             'fee': fee,
+            'fee_asset': fee_asset,
             'txid': f'webull_{order.account_id}_{order.provider_order_id}',
             'price_sold_at': filled_price,
             'exchange': 'webull',
@@ -4941,6 +4952,17 @@ def api_tax_report():
         # Convert to list of dictionaries
         transactions = []
         for activity in activities:
+            fee = activity.fee
+            fee_asset = getattr(activity, 'fee_asset', None)
+            if (fee is None or fee == 0) and activity.details:
+                import re
+                match = re.search(r'Commission:\s*([\d\.]+)\s*([A-Za-z0-9]+)', str(activity.details))
+                if match:
+                    try:
+                        fee = float(match.group(1))
+                        fee_asset = match.group(2).upper()
+                    except (ValueError, TypeError):
+                        pass
             tx_dict = {
                 'id': activity.id,
                 'date': activity.date,
@@ -4950,7 +4972,8 @@ def api_tax_report():
                 'proceeds': activity.proceeds,
                 'cost_basis': activity.cost_basis,
                 'gain_loss': activity.gain_loss,
-                'fee': activity.fee,
+                'fee': fee,
+                'fee_asset': fee_asset,
                 'txid': activity.txid,
                 'status': activity.status,
                 'details': activity.details,

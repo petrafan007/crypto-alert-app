@@ -471,6 +471,18 @@ function WebullOrderTable({ orders, emptyText, onCancelOrder, cancellingId, opti
     { id: 'quantity', label: 'Quantity', value: (order) => Number(order.quantity), render: (order) => number(order.quantity, 6), style: { textAlign: 'right' } },
     { id: 'price', label: 'Price', value: (order) => Number(order.price), render: (order) => order.price ? `$${number(order.price, 4)}` : 'Market', style: { textAlign: 'right' } },
     { id: 'filled', label: 'Filled', value: (order) => Number(order.filled_quantity), render: (order) => number(order.filled_quantity, 6), style: { textAlign: 'right' } },
+    {
+      id: 'fee',
+      label: 'Fee',
+      value: (order) => Number(order.fee ?? order.commission ?? 0),
+      render: (order) => {
+        const feeVal = order.fee !== undefined && order.fee !== null ? Number(order.fee) : (order.commission !== undefined && order.commission !== null ? Number(order.commission) : null);
+        if (feeVal === null || !Number.isFinite(feeVal)) return '—';
+        if (feeVal === 0) return '$0.00';
+        return feeVal < 0.01 ? `$${number(feeVal, 4)}` : `$${number(feeVal, 2)}`;
+      },
+      style: { textAlign: 'right' },
+    },
     ...(optionClosePnlByOrder !== null ? [{ id: 'close_pnl', label: 'Close-Now P&L', value: (order) => optionClosePnlByOrder?.[order.id]?.pnl, render: renderClosePnl, style: { textAlign: 'right' } }] : []),
     { id: 'status', label: 'Status', value: (order) => formatOrderStatus(order.status), filterable: true, render: (order) => <>{formatOrderStatus(order.status)}{order.history_note && <small style={{ display: 'block', maxWidth: 280 }}>{order.history_note}</small>}</>, style: { textAlign: 'center' } },
     { id: 'filled_at', label: 'Filled at (ET)', value: (order) => order.filled_at, render: (order) => order.filled_at ? `${formatEasternDate(order.filled_at)} ${formatEasternTime(order.filled_at)}` : '—', style: { textAlign: 'center' } },

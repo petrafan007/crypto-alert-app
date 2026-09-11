@@ -178,17 +178,20 @@ const getColorForSymbol = (sym) => {
 export const CryptoIcon = ({ symbol, size = 20, className = '', isStock = false }) => {
   const [imgStage, setImgStage] = useState(0);
   
-  if (!symbol) return null;
-  
   // Clean symbol string (remove USDT, USD, /USDT, spaces)
-  let cleanSym = String(symbol).toUpperCase().trim();
-  if (cleanSym.endsWith('USDT') && cleanSym.length > 4) cleanSym = cleanSym.replace(/USDT$/, '');
-  if (cleanSym.endsWith('USD') && cleanSym.length > 3) cleanSym = cleanSym.replace(/USD$/, '');
-  if (cleanSym.includes('/')) cleanSym = cleanSym.split('/')[0];
+  let cleanSym = '';
+  if (symbol) {
+    cleanSym = String(symbol).toUpperCase().trim();
+    if (cleanSym.endsWith('USDT') && cleanSym.length > 4) cleanSym = cleanSym.replace(/USDT$/, '');
+    if (cleanSym.endsWith('USD') && cleanSym.length > 3) cleanSym = cleanSym.replace(/USD$/, '');
+    if (cleanSym.includes('/')) cleanSym = cleanSym.split('/')[0];
+  }
   
   useEffect(() => {
     setImgStage(0);
   }, [cleanSym, isStock]);
+
+  if (!symbol) return null;
 
   // 1. Direct SVG embed match
   if (COIN_SVGS[cleanSym]) {

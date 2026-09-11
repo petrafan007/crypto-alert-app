@@ -3,8 +3,11 @@ import axios from 'axios';
 import CryptoIcon from '../components/CryptoIcon';
 import { formatEasternDate } from '../utils/dateTime';
 import { getAssetDisplaySymbol } from '../utils/assetDisplay';
+import { useAuth } from '../components/AuthContext';
+import ConfigurableOrderTable from '../components/ConfigurableOrderTable';
 
 export default function TaxReport({ isLightMode, source = 'binance' }) {
+  const { user } = useAuth();
   const isWebullReport = source === 'webull';
   const exchangeLabel = isWebullReport ? 'Webull' : 'Binance.US';
   const [taxData, setTaxData] = useState(null);
@@ -282,8 +285,8 @@ export default function TaxReport({ isLightMode, source = 'binance' }) {
     }));
   };
 
-  const startEdit = (rowIndex, columnKey, value) => {
-    setEditingCell({ rowIndex, columnKey });
+  const startEdit = (id, columnKey, value) => {
+    setEditingCell({ id, columnKey });
     setEditValue(value || '');
   };
 
@@ -291,11 +294,10 @@ export default function TaxReport({ isLightMode, source = 'binance' }) {
     if (!editingCell) return;
     
     try {
-      const { rowIndex, columnKey } = editingCell;
-      const tx = taxData.transactions[rowIndex];
+      const { id, columnKey } = editingCell;
       
       await axios.post('/api/logs/update', {
-        id: tx.id,
+        id: id,
         field: columnKey,
         value: editValue
       }, { withCredentials: true });
@@ -303,8 +305,8 @@ export default function TaxReport({ isLightMode, source = 'binance' }) {
       // Update local state
       setTaxData(prev => ({
         ...prev,
-        transactions: prev.transactions.map((t, i) => 
-          i === rowIndex ? { ...t, [columnKey]: editValue } : t
+        transactions: (prev?.transactions || []).map((t) =>
+          t.id === id ? { ...t, [columnKey]: editValue } : t
         )
       }));
       
@@ -431,6 +433,211 @@ export default function TaxReport({ isLightMode, source = 'binance' }) {
     if (!taxData) return [];
     return [...new Set((taxData.transactions || []).map((tx) => getAssetDisplaySymbol(tx)).filter(Boolean))].sort();
   };
+
+  const formatFeeDisplay = (tx) => {
+    const feeVal = tx.fee !== undefined && tx.fee !== null ? Number(tx.fee) : null;
+    if (feeVal === null || !Number.isFinite(feeVal)) return '—';
+    if (feeVal === 0) return '$0.00';
+    const asset = tx.fee_asset || '';
+    if (asset && asset !== 'USD' && asset !== 'USDT') {
+      return `${feeVal < 0.0001 ? Number(feeVal.toFixed(8)) : Number(feeVal.toFixed(6))} ${asset}`;
+    }
+    if (feeVal < 0.01) {
+      return `$${Number(feeVal).toFixed(4)}`;
+    }
+    return formatCurrency(feeVal);
+  };
+
+  const renderEditableCell = (tx, columnKey, formattedDisplay) => {
+    if (editingCell && editingCell.id === tx.id && editingCell.columnKey === columnKey) {
+      return (
+        <input
+          type="text"
+          value={editValue}
+          onChange={(e) => setEditValue(e.target.value)}
+          onKeyDown={handleKeyPress}
+          onBlur={saveEdit}
+          autoFocus
+          style={{
+            width: '100%',
+            padding: '4px 8px',
+            background: isLightMode ? '#ffffff' : '#1a1f23',
+            color: isLightMode ? '#0f172a' : '#fff',
+            border: '1px solid #4fd1c5',
+            borderRadius: '4px',
+            fontSize: '12px'
+          }}
+        />
+      );
+    }
+    return (
+      <span
+        onDoubleClick={() => startEdit(tx.id, columnKey, tx[columnKey])}
+        style={{ cursor: 'pointer' }}
+        title="Double-click to edit"
+      >
+        {formattedDisplay}
+      </span>
+    );
+  };
+
+  const transactionColumns = useMemo(() => [
+    {
+      id: 'date',
+      label: 'Date (ET)',
+      value: (tx) => tx.date,
+      render: (tx) => formatEasternDate(tx.date),
+      locked: true,
+      style: { textAlign: 'center' },
+    },
+    {
+      id: 'type',
+      label: 'Type',
+      value: (tx) => tx.type,
+      filterable: true,
+      render: (tx) => (
+        <span
+          style={{
+            padding: '2px 8px',
+            borderRadius: '4px',
+            fontSize: '12px',
+            fontWeight: 'bold',
+            background:
+              tx.type === 'BUY'
+                ? 'rgba(72, 187, 120, 0.2)'
+                : tx.type === 'SELL'
+                ? 'rgba(245, 101, 101, 0.2)'
+                : 'rgba(79, 209, 197, 0.2)',
+            color:
+              tx.type === 'BUY'
+                ? '#48bb78'
+                : tx.type === 'SELL'
+                ? '#f56565'
+                : '#4fd1c5',
+          }}
+        >
+          {tx.type}
+        </span>
+      ),
+      style: { textAlign: 'center' },
+    },
+    {
+      id: 'asset',
+      label: 'Asset',
+      value: (tx) => getAssetDisplaySymbol(tx) || tx.asset,
+      filterable: true,
+      render: (tx) => (
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', justifyContent: 'center' }}>
+          {!isWebullReport && <CryptoIcon symbol={tx.asset} size={18} />}
+          <span style={{ fontWeight: 600 }}>{getAssetDisplaySymbol(tx) || tx.asset}</span>
+        </span>
+      ),
+      style: { textAlign: 'center' },
+    },
+    {
+      id: 'amount',
+      label: 'Amount',
+      value: (tx) => Number(tx.amount),
+      render: (tx) => formatNumber(tx.amount),
+      style: { textAlign: 'right' },
+    },
+    {
+      id: 'price_sold_at',
+      label: 'Price Traded At',
+      value: (tx) => Number(tx.price_sold_at || tx.avg_entry || 0),
+      render: (tx) => (tx.price_sold_at || tx.avg_entry ? `$${formatNumber(tx.price_sold_at || tx.avg_entry, 4)}` : '—'),
+      style: { textAlign: 'right' },
+    },
+    {
+      id: 'proceeds',
+      label: 'Proceeds',
+      value: (tx) => Number(tx.proceeds || 0),
+      render: (tx) => renderEditableCell(tx, 'proceeds', tx.proceeds > 0 ? formatCurrency(tx.proceeds) : (tx.type === 'SELL' ? '$0.00' : '—')),
+      style: { textAlign: 'right' },
+    },
+    {
+      id: 'fee',
+      label: 'Fee',
+      value: (tx) => Number(tx.fee || 0),
+      render: (tx) => renderEditableCell(tx, 'fee', formatFeeDisplay(tx)),
+      style: { textAlign: 'right' },
+    },
+    {
+      id: 'cost_basis',
+      label: 'Cost Basis',
+      value: (tx) => Number(tx.cost_basis || 0),
+      render: (tx) => renderEditableCell(tx, 'cost_basis', tx.cost_basis > 0 ? formatCurrency(tx.cost_basis) : (tx.type === 'BUY' ? '$0.00' : '—')),
+      style: { textAlign: 'right' },
+    },
+    {
+      id: 'gain_loss',
+      label: 'Gain/Loss',
+      value: (tx) => (tx.gain_loss !== null && tx.gain_loss !== undefined ? Number(tx.gain_loss) : null),
+      render: (tx) =>
+        tx.gain_loss !== null && tx.gain_loss !== undefined ? (
+          <span style={{ color: Number(tx.gain_loss) >= 0 ? '#48bb78' : '#f56565', fontWeight: 'bold' }}>
+            {formatCurrency(tx.gain_loss)}
+          </span>
+        ) : (
+          '—'
+        ),
+      style: { textAlign: 'right' },
+    },
+    {
+      id: 'gain_loss_type',
+      label: 'Type',
+      value: (tx) => tx.gain_loss_type || '',
+      filterable: true,
+      render: (tx) =>
+        tx.gain_loss_type ? (
+          <span
+            style={{
+              padding: '2px 6px',
+              borderRadius: '4px',
+              fontSize: '11px',
+              fontWeight: 'bold',
+              background:
+                tx.gain_loss_type === 'long_term'
+                  ? 'rgba(79, 209, 197, 0.2)'
+                  : tx.gain_loss_type === 'mixed'
+                  ? 'rgba(246, 173, 85, 0.2)'
+                  : 'rgba(72, 187, 120, 0.2)',
+              color:
+                tx.gain_loss_type === 'long_term'
+                  ? '#4fd1c5'
+                  : tx.gain_loss_type === 'mixed'
+                  ? '#f6ad55'
+                  : '#48bb78',
+            }}
+          >
+            {tx.gain_loss_type === 'short_term'
+              ? 'Short-Term'
+              : tx.gain_loss_type === 'long_term'
+              ? 'Long-Term'
+              : tx.gain_loss_type === 'mixed'
+              ? 'Mixed'
+              : 'Unclassified'}
+          </span>
+        ) : (
+          '—'
+        ),
+      style: { textAlign: 'center' },
+    },
+    {
+      id: 'txid',
+      label: 'TxID',
+      value: (tx) => tx.txid || '',
+      render: (tx) =>
+        tx.txid ? (
+          <span title={tx.txid} style={{ fontFamily: 'monospace', fontSize: '11px' }}>
+            {String(tx.txid).substring(0, 16)}…
+          </span>
+        ) : (
+          '—'
+        ),
+      style: { textAlign: 'center' },
+    },
+  ], [isWebullReport, isLightMode, editingCell, editValue]);
 
   if (loading) {
     return (
@@ -716,182 +923,14 @@ export default function TaxReport({ isLightMode, source = 'binance' }) {
         </div>
 
         {/* Transactions Table */}
-        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-          <thead>
-            <tr>
-              <th onClick={() => handleSort('date')} style={{ cursor: 'pointer', textAlign: 'center', padding: '8px 12px', color: '#4fd1c5' }}>
-                Date {getSortIcon('date')}
-              </th>
-              <th style={{ textAlign: 'center', padding: '8px 12px', color: '#4fd1c5' }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}>
-                  <span onClick={() => handleSort('type')} style={{ cursor: 'pointer' }}>
-                    Type {getSortIcon('type')}
-                  </span>
-                  <button 
-                    onClick={() => openFilterModal('type')}
-                    style={{
-                      background: 'none',
-                      border: 'none',
-                      color: filters.type.length > 0 ? '#4fd1c5' : '#666',
-                      cursor: 'pointer',
-                      fontSize: '12px',
-                      padding: '2px 4px'
-                    }}
-                  >
-                    🔍
-                  </button>
-                </div>
-              </th>
-              <th style={{ textAlign: 'center', padding: '8px 12px', color: '#4fd1c5' }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}>
-                  <span onClick={() => handleSort('asset')} style={{ cursor: 'pointer' }}>
-                    Asset {getSortIcon('asset')}
-                  </span>
-                  <button 
-                    onClick={() => openFilterModal('asset')}
-                    style={{
-                      background: 'none',
-                      border: 'none',
-                      color: filters.asset.length > 0 ? '#4fd1c5' : '#666',
-                      cursor: 'pointer',
-                      fontSize: '12px',
-                      padding: '2px 4px'
-                    }}
-                  >
-                    🔍
-                  </button>
-                </div>
-              </th>
-              <th style={{ textAlign: 'center', padding: '8px 12px', color: '#4fd1c5' }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}>
-                  <span onClick={() => handleSort('amount')} style={{ cursor: 'pointer' }}>
-                    Amount {getSortIcon('amount')}
-                  </span>
-                  <button 
-                    onClick={() => openFilterModal('amount')}
-                    style={{
-                      background: 'none',
-                      border: 'none',
-                      color: filters.amount.length > 0 ? '#4fd1c5' : '#666',
-                      cursor: 'pointer',
-                      fontSize: '12px',
-                      padding: '2px 4px'
-                    }}
-                  >
-                    🔍
-                  </button>
-                </div>
-              </th>
-              <th onClick={() => handleSort('price_sold_at')} style={{ cursor: 'pointer', textAlign: 'center', padding: '8px 12px', color: '#4fd1c5' }}>
-                Price Traded At {getSortIcon('price_sold_at')}
-              </th>
-              <th onClick={() => handleSort('proceeds')} style={{ cursor: 'pointer', textAlign: 'center', padding: '8px 12px', color: '#4fd1c5' }}>
-                Proceeds {getSortIcon('proceeds')}
-              </th>
-              <th onClick={() => handleSort('fee')} style={{ cursor: 'pointer', textAlign: 'center', padding: '8px 12px', color: '#4fd1c5' }}>
-                Fee {getSortIcon('fee')}
-              </th>
-              <th onClick={() => handleSort('cost_basis')} style={{ cursor: 'pointer', textAlign: 'center', padding: '8px 12px', color: '#4fd1c5' }}>
-                Cost Basis {getSortIcon('cost_basis')}
-              </th>
-              <th onClick={() => handleSort('gain_loss')} style={{ cursor: 'pointer', textAlign: 'center', padding: '8px 12px', color: '#4fd1c5' }}>
-                Gain/Loss {getSortIcon('gain_loss')}
-              </th>
-              <th onClick={() => handleSort('gain_loss_type')} style={{ cursor: 'pointer', textAlign: 'center', padding: '8px 12px', color: '#4fd1c5' }}>
-                Type {getSortIcon('gain_loss_type')}
-              </th>
-              <th onClick={() => handleSort('txid')} style={{ cursor: 'pointer', textAlign: 'center', padding: '8px 12px', color: '#4fd1c5' }}>
-                TxID {getSortIcon('txid')}
-              </th>
-            </tr>
-          </thead>
-            <tbody>
-              {filteredAndSortedTransactions.length === 0 ? (
-                <tr>
-                  <td colSpan="11" style={{ textAlign: 'center', padding: '16px', color: '#999' }}>
-                    No transactions found
-                  </td>
-                </tr>
-              ) : (
-                filteredAndSortedTransactions.map((tx, index) => (
-                  <tr key={tx.id}>
-                    {['date', 'type', 'asset', 'amount', 'price_sold_at', 'proceeds', 'fee', 'cost_basis', 'gain_loss', 'gain_loss_type', 'txid'].map(columnKey => (
-                      <td 
-                        key={columnKey}
-                        style={{ textAlign: 'center', padding: '8px 12px' }}
-                        onDoubleClick={() => startEdit(index, columnKey, tx[columnKey])}
-                      >
-                        {editingCell && editingCell.rowIndex === index && editingCell.columnKey === columnKey ? (
-                          <input
-                            type="text"
-                            value={editValue}
-                            onChange={(e) => setEditValue(e.target.value)}
-                            onKeyDown={handleKeyPress}
-                            onBlur={saveEdit}
-                            autoFocus
-                            style={{
-                              width: '100%',
-                              padding: '4px 8px',
-                              background: '#1a1f23',
-                              color: '#fff',
-                              border: '1px solid #4fd1c5',
-                              borderRadius: '4px',
-                              fontSize: '12px'
-                            }}
-                          />
-                        ) : (
-                          <span style={{ cursor: 'pointer' }}>
-                            {columnKey === 'date' ? formatEasternDate(tx[columnKey]) :
-                             columnKey === 'type' ? (
-                               <span style={{
-                                 padding: '2px 8px',
-                                 borderRadius: '4px',
-                                 fontSize: '12px',
-                                 fontWeight: 'bold',
-                                 background: tx[columnKey] === 'BUY' ? 'rgba(72, 187, 120, 0.2)' : 
-                                           tx[columnKey] === 'SELL' ? 'rgba(245, 101, 101, 0.2)' : 
-                                           'rgba(79, 209, 197, 0.2)',
-                                 color: tx[columnKey] === 'BUY' ? '#48bb78' : 
-                                        tx[columnKey] === 'SELL' ? '#f56565' : '#4fd1c5'
-                               }}>
-                                 {tx[columnKey]}
-                               </span>
-                             ) :
-                             columnKey === 'amount' ? formatNumber(tx[columnKey]) :
-                             columnKey === 'proceeds' ? (tx[columnKey] > 0 ? formatCurrency(tx[columnKey]) : '—') :
-                             columnKey === 'fee' ? (tx[columnKey] > 0 ? (tx[columnKey] < 0.01 ? `$${Number(tx[columnKey]).toFixed(4)}` : formatCurrency(tx[columnKey])) : '—') :
-                             columnKey === 'cost_basis' ? (tx[columnKey] > 0 ? formatCurrency(tx[columnKey]) : '—') :
-                             columnKey === 'gain_loss' ? (tx[columnKey] !== null ? formatCurrency(tx[columnKey]) : '—') :
-                             columnKey === 'gain_loss_type' ? (
-                               tx[columnKey] ? (
-                                 <span style={{
-                                   padding: '2px 6px',
-                                   borderRadius: '4px',
-                                   fontSize: '11px',
-                                   fontWeight: 'bold',
-                                   background: tx[columnKey] === 'long_term' ? 'rgba(79, 209, 197, 0.2)' : tx[columnKey] === 'mixed' ? 'rgba(246, 173, 85, 0.2)' : 'rgba(72, 187, 120, 0.2)',
-                                   color: tx[columnKey] === 'long_term' ? '#4fd1c5' : tx[columnKey] === 'mixed' ? '#f6ad55' : '#48bb78'
-                                 }}>
-                                   {tx[columnKey] === 'short_term' ? 'Short-Term' : tx[columnKey] === 'long_term' ? 'Long-Term' : tx[columnKey] === 'mixed' ? 'Mixed' : 'Unclassified'}
-                                 </span>
-                               ) : '—'
-                             ) :
-                              columnKey === 'asset' ? (
-                                <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', justifyContent: 'center' }}>
-                                  <CryptoIcon symbol={tx[columnKey]} size={18} />
-                                  <span>{getAssetDisplaySymbol(tx)}</span>
-                                </span>
-                              ) :
-                             tx[columnKey] || '—'}
-                          </span>
-                        )}
-                      </td>
-                    ))}
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
+        <ConfigurableOrderTable
+          rows={filteredTransactions}
+          columns={transactionColumns}
+          tableId={`tax-report-transactions-${source}`}
+          userId={user?.id}
+          defaultSort={{ id: 'date', direction: 'desc' }}
+          emptyText="No transactions found"
+        />
         </div>
 
       {/* Filter Modal */}

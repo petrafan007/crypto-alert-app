@@ -6,6 +6,23 @@
 
 **Last Updated**: September 2026
 
+## v2.97.7 (September 2026)
+
+- **React Hook Order & State Corruption Fix:**
+  - Resolved invariant errors (#300 and #310) in `CryptoIcon.jsx` caused by an early conditional return preceding the `useEffect` hook. Moved all React hooks to the top of the component to guarantee unconditional hook execution on every render across all pages (Webull Trading, Event Contracts, Orders, Tax Report, and Dashboard).
+- **Tax Report Advanced Column Controls & Customization:**
+  - Upgraded Binance.US and Webull Tax Report transaction tables to `ConfigurableOrderTable`, giving users full control to drag-and-drop column ordering, resize columns interactively via header handles, customize column visibility, and sort columns with persistent layout saved per user.
+  - Preserved inline editing for proceeds, fee, and cost basis cells with responsive double-click editing and keyboard controls.
+- **Accurate Transaction Fees Across Binance.US and Webull:**
+  - Replaced ambiguous dashes (`'—'`) with actual transaction fee amounts.
+  - Webull equity trades and zero-commission orders now display `$0.00` fee, option trades calculate contract fees ($0.55/contract), event contracts calculate $0.025/contract, and equity sells include SEC transaction fees.
+  - Binance trades extract explicit commission amounts and native crypto fee assets (e.g. BNB commissions displayed with high-precision decimals).
+- **Refined Light Mode Contrast & Styling:**
+  - **Webull Order Ticket:** Enhanced selected order type segment contrast (`#2563eb` active button with white text) and adjusted disabled/grayed-out options (such as "By Cash Amount") to remain crisp and readable (`#64748b` on `#e2e8f0`).
+  - **Settings Section Cards:** Deepened section card background contrast (`#edf2f7`) against page background (`#f7fafc`) with defined borders (`#cbd5e1`) and shadow separation.
+  - **Orders Page Workflow Results:** Restored Light Mode compliance for Universal Market Analysis and Universal Portfolio Review containers (`#ffffff` background with crisp dark text `#0f172a`), removing forced pitch-black background styling.
+  - **View Prompt Modals:** Ensured prompt inspection modal code and `<pre>` blocks render with high-contrast dark text (`#0f172a`) in light mode.
+
 ## v2.97.6 (September 2026)
 
 - **Comprehensive Light Mode Overhaul & Contrast Restoration:**

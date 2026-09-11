@@ -110,12 +110,34 @@ def import_webull_orders(user_id, orders):
         filled_price = _first_value(order, 'average_filled_price', 'avg_fill_price', 'avg_price', 'average_price', 'filled_price')
         if filled_price is not None:
             record.filled_price = _number(filled_price, record.price)
-        fee = _first_value(order, 'fee', 'commission', 'fee_amount', 'total_fee', 'commission_amount')
+        fee = _first_value(
+            order,
+            'fee', 'commission', 'fee_amount', 'total_fee', 'commission_amount',
+            'order_fee', 'orderFee', 'broker_fee', 'brokerFee',
+            'exchange_fee', 'exchangeFee', 'trans_fee', 'transFee',
+            'transaction_fee', 'transactionFee', 'sec_fee', 'secFee',
+            'finra_fee', 'finraFee', 'reg_fee', 'regFee', 'charges', 'total_charges', 'fees'
+        )
         if fee is not None:
             record.fee = _number(fee, None)
+        elif str(record.status or '').upper() in {'FILLED', 'COMPLETED'}:
+            filled_qty = float(record.filled_quantity or 0.0)
+            fill_price = float(record.filled_price or record.price or 0.0)
+            inst = str(record.instrument_type or '').upper()
+            side = str(record.side or '').upper()
+            if inst == 'EVENT' and filled_qty > 0:
+                record.fee = round(filled_qty * 0.025, 4)
+            elif inst == 'OPTION' and filled_qty > 0:
+                record.fee = round(filled_qty * 0.55, 4)
+            elif side.startswith('SELL') and filled_qty > 0 and fill_price > 0:
+                record.fee = max(0.01, round(filled_qty * fill_price * 0.0000278, 2))
+            elif side.startswith('BUY'):
+                record.fee = 0.0
         fee_asset = _first_value(order, 'fee_asset', 'commission_asset', 'fee_currency', 'commission_currency')
         if fee_asset is not None:
             record.fee_asset = str(fee_asset).strip().upper() or None
+        elif record.fee is not None and not record.fee_asset:
+            record.fee_asset = 'USD'
         record.status = str(_first_value(order, 'status', 'order_status') or '').strip().upper() or None
         record.created_at = _webull_order_datetime(_first_value(order, 'created_at', 'create_time', 'placed_time', 'place_time', 'submitted_time', 'filled_time_at')) or record.created_at
         record.updated_at = _webull_order_datetime(_first_value(order, 'updated_at', 'update_time', 'filled_time', 'filled_time_at', 'last_updated_time')) or record.updated_at
