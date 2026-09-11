@@ -377,6 +377,14 @@ function getToastConfig(category, toast) {
         defaultMessage: toast.message || '',
         subTitle: 'INFO'
       };
+    case 'event_strategy':
+    case 'strategy_engine':
+      return {
+        badge: toast.badge || 'Strategy Engine',
+        icon: toast.icon || '⚙️',
+        defaultMessage: toast.message || 'Strategy Engine event.',
+        subTitle: 'ENGINE'
+      };
     case 'price_alert':
     default:
       return {

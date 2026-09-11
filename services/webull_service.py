@@ -1353,12 +1353,11 @@ _EVENT_SYMBOL_MONTHS = {
 
 
 def _event_symbol_interval(value):
-    """Parse a Webull 15-minute Event symbol into an explicit Eastern interval."""
+    """Parse a Webull Event symbol into an explicit Eastern interval."""
     symbol = str(value or '').strip().upper()
-    if not re.search(r'(?:^|-)[A-Z0-9]*15M-', symbol):
-        return None
+    is_15m = bool(re.search(r'(?:^|-)[A-Z0-9]*15M-', symbol))
     match = re.search(
-        r'-(\d{2})(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)(\d{2})(\d{2})(\d{2})(?:-|$)',
+        r'-(\d{2})(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)(\d{2})(\d{2})(?:(\d{2}))?(?:-|$)',
         symbol,
     )
     if not match:
@@ -1369,14 +1368,15 @@ def _event_symbol_interval(value):
             _EVENT_SYMBOL_MONTHS[match.group(2)],
             int(match.group(3)),
             int(match.group(4)),
-            int(match.group(5)),
+            int(match.group(5) or 0),
             tzinfo=ZoneInfo('America/New_York'),
         )
-        start = end - timedelta(minutes=15)
+        minutes = 15 if is_15m else (60 if bool(re.search(r'(?:^|-)[A-Z0-9]*(?:1H|H)-', symbol)) else 1440)
+        start = end - timedelta(minutes=minutes)
         return {
             'start': start,
             'end': end,
-            'minutes': 15,
+            'minutes': minutes,
         }
     except (KeyError, ValueError):
         return None
@@ -1388,7 +1388,7 @@ def _event_symbol_cutoff(value):
     if interval:
         return interval['end'].timestamp()
     match = re.search(
-        r'-(\d{2})(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)(\d{2})(\d{2})(\d{2})(?:-|$)',
+        r'-(\d{2})(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)(\d{2})(\d{2})(?:(\d{2}))?(?:-|$)',
         str(value or '').strip().upper(),
     )
     if not match:
@@ -1399,7 +1399,7 @@ def _event_symbol_cutoff(value):
             _EVENT_SYMBOL_MONTHS[match.group(2)],
             int(match.group(3)),
             int(match.group(4)),
-            int(match.group(5)),
+            int(match.group(5) or 0),
             tzinfo=ZoneInfo('America/New_York'),
         ).timestamp()
     except (KeyError, ValueError):
@@ -1886,6 +1886,7 @@ def _normalise_event_market(raw, series_categories):
         'condition_pending': _event_condition_is_pending(yes_condition),
         'contract_period_start': interval['start'].isoformat() if interval else None,
         'contract_period_end': interval['end'].isoformat() if interval else None,
+        'cutoff_at': interval['end'].isoformat() if interval else None,
         'contract_period_minutes': interval['minutes'] if interval else None,
         'category_code': category_code,
         'status': str(raw.get('status') or '').upper(),
@@ -2215,6 +2216,7 @@ def get_webull_event_bars(
             app_key, app_secret, environment, 'GET',
             '/market-data/event-contracts/bars/list',
             query_params={
+                'symbols': clean_symbol,
                 'symbol': clean_symbol,
                 'timespan': clean_timespan,
                 'category': 'US_EVENT',
@@ -2229,8 +2231,11 @@ def get_webull_event_bars(
     if isinstance(records, dict):
         records = (
             records.get(clean_symbol) or records.get(clean_symbol.lower())
-            or records.get('bars') or records.get('items') or records.get('list') or []
+            or records.get('bars') or records.get('items') or records.get('list') or records.get('result') or []
         )
+    elif isinstance(records, list) and records and isinstance(records[0], dict) and 'result' in records[0]:
+        matching = next((item for item in records if str(item.get('symbol') or '').strip().upper() == clean_symbol), records[0])
+        records = matching.get('result') or []
     bars_by_time = {}
     for raw in records if isinstance(records, list) else []:
         bar = _normalise_event_bar(raw)

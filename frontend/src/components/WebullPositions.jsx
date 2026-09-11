@@ -240,8 +240,6 @@ export default function WebullPositions({ positions = [], mode = 'REAL', userId,
           return <tr
             key={key}
             className={`position-data-row${isEventContract ? ' event-contract-row' : ''}`}
-            onClick={isEventContract ? () => onOpenEventPosition?.(position) : undefined}
-            title={isEventContract ? 'Click to manage this event contract position' : undefined}
           >
             {visibleColumns.map(column => {
               const value = valueForColumn(position, column.id);

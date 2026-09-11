@@ -255,9 +255,50 @@ export function resizeColumnState(state, id, width) {
 export function columnStorageKey(userId, view) {
   return userId == null ? null : `positions-columns-v2:${encodeURIComponent(userId)}:${encodeURIComponent(view)}`;
 }
+export function cutoffFromSymbol(symbol) {
+  if (!symbol) return null;
+  const match = String(symbol).trim().toUpperCase().match(
+    /-(\d{2})(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)(\d{2})(\d{2})(?:(\d{2}))?(?:-|$)/
+  );
+  if (!match) return null;
+  const months = {
+    JAN: '01', FEB: '02', MAR: '03', APR: '04', MAY: '05', JUN: '06',
+    JUL: '07', AUG: '08', SEP: '09', OCT: '10', NOV: '11', DEC: '12',
+  };
+  const year = `20${match[1]}`;
+  const month = months[match[2]];
+  const day = match[3];
+  const hour = match[4];
+  const minute = match[5] || '00';
+  if (!month) return null;
+
+  const testIso = `${year}-${month}-${day}T${hour}:${minute}:00`;
+  let offset = '-04:00';
+  try {
+    const probeDate = new Date(`${testIso}Z`);
+    const tzStr = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', timeZoneName: 'short' }).format(probeDate);
+    if (tzStr.includes('EST')) offset = '-05:00';
+  } catch {
+    offset = '-04:00';
+  }
+  const parsed = Date.parse(`${testIso}${offset}`);
+  return Number.isFinite(parsed) ? parsed : null;
+}
 export function timestamp(value) {
   if (!value) return null;
-  const text = String(value);
+  const text = String(value).trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) {
+    let offset = '-04:00';
+    try {
+      const probe = new Date(`${text}T12:00:00Z`);
+      const tzStr = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', timeZoneName: 'short' }).format(probe);
+      if (tzStr.includes('EST')) offset = '-05:00';
+    } catch {
+      offset = '-04:00';
+    }
+    const endOfDay = Date.parse(`${text}T23:59:59${offset}`);
+    return Number.isFinite(endOfDay) ? endOfDay : null;
+  }
   const parsed = Date.parse(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(text) && !/(Z|[+-]\d{2}:?\d{2})$/i.test(text) ? `${text}Z` : text);
   return Number.isFinite(parsed) ? parsed : null;
 }
@@ -275,7 +316,9 @@ export function countdown(value, now = Date.now()) {
 }
 export function positionSide(position) {
   if (assetType(position) === 'Event Contracts') {
-    const outcome = firstValue(position, 'purchased_outcome', 'event_outcome') || position.details?.outcome || String(position.symbol || '').match(/ (YES|NO)$/i)?.[1];
+    const outcome = firstValue(position, 'purchased_outcome', 'event_outcome', 'side', 'position_side')
+      || position.details?.outcome
+      || String(position.symbol || '').match(/[\s-](YES|NO)$/i)?.[1];
     return ['YES', 'NO'].includes(String(outcome).toUpperCase()) ? String(outcome).toUpperCase() : 'Unknown outcome';
   }
   return firstValue(position, 'position_side', 'side') || (numericValue(position, 'quantity', 'amount') < 0 ? 'SHORT' : 'LONG');
@@ -290,7 +333,7 @@ export function positionStatus(position, now = Date.now()) {
   const status = String(settlement.status || '').toUpperCase();
   if (status === 'RESOLVED') return 'Settled — awaiting removal';
   if (['DELAYED', 'ERROR', 'FAILED'].includes(status)) return 'Settlement delayed';
-  const cutoff = timestamp(settlement.cutoff_at || position.cutoff_at || position.details?.cutoff_at);
+  const cutoff = cutoffFromSymbol(position.symbol) || timestamp(settlement.cutoff_at || position.cutoff_at || position.details?.cutoff_at);
   if (cutoff !== null && cutoff > now) return 'Active';
   if (cutoff !== null && cutoff <= now) {
     const expected = timestamp(settlement.expected_at);

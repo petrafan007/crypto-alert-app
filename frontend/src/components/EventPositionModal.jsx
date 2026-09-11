@@ -12,6 +12,7 @@ import {
 } from 'chart.js';
 import { Line } from 'react-chartjs-2';
 import { formatEasternDateTime } from '../utils/dateTime';
+import { cutoffFromSymbol } from '../utils/positions.mjs';
 import './EventPositionModal.css';
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Legend, Filler);
@@ -26,9 +27,16 @@ const contractSymbol = (holding) => String(holding?.underlying_symbol || holding
   .trim()
   .toUpperCase();
 
-const heldOutcome = (holding) => String(
-  holding?.event_outcome || String(holding?.symbol || '').match(/\s+(YES|NO)$/i)?.[1] || 'yes',
-).toLowerCase();
+const heldOutcome = (holding) => {
+  const raw = holding?.event_outcome
+    || holding?.purchased_outcome
+    || holding?.side
+    || holding?.position_side
+    || holding?.details?.outcome
+    || String(holding?.symbol || '').match(/[\s-](YES|NO)$/i)?.[1];
+  const val = String(raw || '').trim().toLowerCase();
+  return val === 'no' ? 'no' : 'yes';
+};
 
 const providerTime = (value) => {
   if (value === null || value === undefined || value === '') return null;
@@ -36,7 +44,20 @@ const providerTime = (value) => {
     const raw = Number(value);
     return new Date(raw > 100000000000 ? raw : raw * 1000);
   }
-  const parsed = new Date(value);
+  const text = String(value).trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) {
+    let offset = '-04:00';
+    try {
+      const probe = new Date(`${text}T12:00:00Z`);
+      const tzStr = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', timeZoneName: 'short' }).format(probe);
+      if (tzStr.includes('EST')) offset = '-05:00';
+    } catch {
+      offset = '-04:00';
+    }
+    const endOfDay = Date.parse(`${text}T23:59:59${offset}`);
+    return Number.isFinite(endOfDay) ? new Date(endOfDay) : null;
+  }
+  const parsed = new Date(text);
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 };
 
@@ -221,14 +242,17 @@ export default function EventPositionModal({
     };
   }, [isOpen, symbol, market?.symbol, outcome, side]);
 
-  const cutoff = providerTime(
+  const symbolCutoff = cutoffFromSymbol(market?.symbol || symbol);
+  const cutoff = symbolCutoff ? new Date(symbolCutoff) : providerTime(
     market?.contract_period_end
+    || market?.cutoff_at
     || market?.last_trading_date
     || market?.expected_exp_date
     || market?.latest_exp_date
   );
   const providerStatus = String(market?.tradable_status || '').toUpperCase();
-  const effectiveStatus = cutoffExpired ? 'NT' : providerStatus;
+  const isWebullOpen = providerStatus === 'OC' || providerStatus === 'CO';
+  const effectiveStatus = isWebullOpen ? providerStatus : (cutoffExpired ? 'NT' : providerStatus);
   const statusLabel = effectiveStatus === 'OC'
     ? 'Open for trading'
     : effectiveStatus === 'CO'
@@ -379,7 +403,7 @@ export default function EventPositionModal({
                   <div><span>Buy Yes</span><strong>{cents(market.yes_ask)}</strong><span>Buy No</span><strong>{cents(market.no_ask)}</strong></div>
                 </div>
                 <div className="event-position-chart">
-                  {bars.length ? <Line data={chartData} options={chartOptions} /> : <div className="event-position-chart-empty">{chartMessage || 'No chart history is available for this contract.'}</div>}
+                  {bars.length ? <Line data={chartData} options={chartOptions} /> : <div className="event-position-chart-empty">{chartMessage || 'No trade bars recorded yet for this contract.'}</div>}
                 </div>
               </div>
 

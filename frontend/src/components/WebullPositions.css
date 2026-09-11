@@ -361,9 +361,7 @@ body.is-resizing-columns { cursor: col-resize; user-select: none; }
   padding: 12px 14px !important;
 }
 
-/* Clickable event contract rows and symbol cells */
-.event-contract-row { cursor: pointer; }
-.event-contract-row:hover td { background: var(--table-row-hover) !important; outline: 1px solid var(--accent-primary, #38bdf8); outline-offset: -1px; }
+/* Clickable event contract symbol cells */
 
 .webull-positions-table .event-symbol-clickable {
   cursor: pointer;

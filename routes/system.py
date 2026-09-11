@@ -3154,10 +3154,12 @@ def api_webull_event_position():
                 timespan=timespan,
                 count=count,
             )
+            if not bars:
+                chart_message = 'No trade bars recorded yet for this contract.'
         except WebullConnectionError as exc:
             logger.warning('Webull Event position chart unavailable for %s: %s', symbol, exc)
             bars = []
-            chart_message = 'Webull did not return chart history for this contract.'
+            chart_message = 'No trade bars recorded yet for this contract.'
 
         available_quantity = None
         if account_id and request.args.get('test_mode') != '1':

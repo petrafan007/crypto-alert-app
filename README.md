@@ -6,6 +6,22 @@
 
 **Last Updated**: September 2026
 
+## v2.98.4 (September 2026)
+
+- **Event Contract Positions Table Row Click Refinement:**
+  - Restricted opening the `EventPositionModal` strictly to clicking on the contract Symbol / Ticker column (`.event-symbol-clickable`), preventing unintended modal popups when clicking anywhere else across the position table row.
+- **Event Contract Cutoff Timezone Fix (4-Hour UTC Offset):**
+  - Resolved an issue where date strings like `YYYY-MM-DD` and daily contracts (e.g., `KXBTCD-26SEP1100`) parsed to UTC midnight (`00:00:00Z`), showing a premature 8:00 PM EDT cutoff (4 hours early) and falsely displaying `Trading closed / awaiting determination` and `00:00.000` remaining.
+  - Implemented `cutoffFromSymbol` parsing for Eastern Time symbol timestamps (`DDHH` and `DDHHMM`), aligned end-of-trading-day date parsing, and ensured authoritative Webull trading status (`OC`) takes precedence over client clock discrepancies.
+- **Webull Event Contract Bars & Chart History API Fix:**
+  - Corrected parameter naming in Webull OpenAPI `/market-data/event-contracts/bars/list` from singular `symbol` to plural `symbols`, resolving the `HTTP 400: Parameters not valid` response and restoring real-time event contract price history charts in the modal.
+  - Updated empty-state messaging from *"Webull did not return chart history for this contract"* to *"No trade bars recorded yet for this contract."* when no trades have occurred yet for newly issued contracts.
+- **Event Contract Modal Held Outcome & Close Action Fix:**
+  - Fixed outcome detection in `EventPositionModal` so contracts held on the `NO` side accurately display `Held outcome: NO` and `Close NO Position` instead of defaulting to `YES`.
+- **Quantitative Strategy Engine AI Batching & Notifications:**
+  - Chunked event contract batch analysis into manageable batches of 5 contracts to prevent token limit truncation during AI market evaluations.
+  - Omitted or deferred contract scans in AI batch analyses no longer trigger high-priority alerts; added dedicated `Strategy Engine` toast notification categorizing engine notifications cleanly with proper badges and icons.
+
 ## v2.98.3 (September 2026)
 
 - **Event Contract Positions Table Cleanup:**
