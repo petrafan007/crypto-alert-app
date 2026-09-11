@@ -360,3 +360,101 @@ body.is-resizing-columns { cursor: col-resize; user-select: none; }
 .webull-positions .webull-positions-table td {
   padding: 12px 14px !important;
 }
+
+/* Clickable event contract rows */
+.event-contract-row { cursor: pointer; }
+.event-contract-row:hover td { background: var(--table-row-hover) !important; outline: 1px solid var(--accent-primary, #38bdf8); outline-offset: -1px; }
+
+/* Event symbol hover popover */
+.event-symbol-popover {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 2000;
+  min-width: 220px;
+  max-width: 290px;
+  background: var(--modal-bg, var(--card-bg, #1e293b));
+  border: 1px solid var(--border-color, #334155);
+  border-radius: 10px;
+  box-shadow: 0 8px 28px rgba(0,0,0,.45);
+  padding: 10px 12px 8px;
+  color: var(--text-primary);
+  font-size: 13px;
+  cursor: default;
+}
+.event-symbol-popover-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+.event-symbol-popover-symbol {
+  font-weight: 800;
+  font-size: 14px;
+  letter-spacing: .02em;
+}
+.event-symbol-popover-close {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 2px;
+  display: flex;
+  align-items: center;
+  border-radius: 4px;
+}
+.event-symbol-popover-close:hover { color: var(--text-primary); background: var(--table-row-hover); }
+.event-symbol-popover-question {
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin: 0 0 8px;
+  line-height: 1.3;
+}
+.event-symbol-popover-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 10px;
+  font-size: 12px;
+}
+.event-symbol-popover-table th {
+  color: var(--text-secondary);
+  font-weight: 600;
+  text-align: center;
+  padding: 2px 6px 4px;
+  font-size: 11px;
+}
+.event-symbol-popover-table th:first-child { text-align: left; }
+.event-symbol-popover-table td {
+  text-align: center;
+  padding: 3px 6px;
+  border-top: 1px solid var(--border-color, #334155);
+  font-variant-numeric: tabular-nums;
+}
+.event-symbol-popover-table td:first-child { text-align: left; }
+.outcome-label { font-weight: 700; font-size: 11px; letter-spacing: .04em; }
+.outcome-label.yes { color: var(--accent-success, #22c55e); }
+.outcome-label.no { color: var(--accent-danger, #ef4444); }
+.event-symbol-popover-actions {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.event-popover-btn {
+  flex: 1;
+  padding: 6px 10px;
+  border: none;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: opacity .15s;
+}
+.event-popover-btn:hover { opacity: .85; }
+.event-popover-btn.buy { background: var(--accent-success, #22c55e); color: #fff; }
+.event-popover-btn.sell { background: var(--accent-danger, #ef4444); color: #fff; }
+.event-symbol-popover-hint {
+  font-size: 10px;
+  color: var(--text-secondary);
+  text-align: center;
+  margin: 0;
+}

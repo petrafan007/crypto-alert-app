@@ -6,6 +6,19 @@
 
 **Last Updated**: September 2026
 
+## v2.98.2 (September 2026)
+
+- **Event Contract Positions: Real-Time Update Fix:**
+  - After placing an event contract order, the Positions table now begins aggressively refreshing holdings every 3 seconds (up to 10 attempts) so the new position surfaces with the correct cutoff time, Active status, and ticking countdown immediately — no manual page refresh needed.
+  - Market metadata (cutoff date, contract title, bid/ask prices) is now re-fetched every 4 seconds (up to 12 attempts) for any position still missing data, and continues on a 15-second background poll for all held event contracts to keep prices live.
+- **Event Contract Positions: Click Row to Manage:**
+  - Clicking any event contract row in the Positions table now opens the full `EventPositionModal` with complete close/buy/sell order entry, limit price controls, and live countdown — the same modal already available from the order blotter.
+  - Event contract rows show a pointer cursor and a highlighted border on hover to indicate interactivity.
+- **Event Contract Symbol Hover Popover:**
+  - Hovering over the symbol/ticker cell of an event contract position now shows a floating popover card with live YES and NO bid/ask prices (in cents) refreshed in real time.
+  - The popover includes **Buy** and **Sell** quick-action buttons that open the EventPositionModal with the appropriate order side pre-filled.
+  - The popover auto-dismisses on mouse-out and can be closed with the ✕ button.
+
 ## v2.98.1 (September 2026)
 
 - **Webull Event Contracts Mini Chart Layout, Axes, & Granularity Enhancements:**

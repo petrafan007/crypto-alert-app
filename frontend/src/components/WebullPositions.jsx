@@ -24,6 +24,43 @@ function PositionsDialog({ title, onClose, children }) {
   </dialog>;
 }
 
+const cents = (value) => {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return '—';
+  const amount = parsed * 100;
+  return `${amount.toLocaleString(undefined, { maximumFractionDigits: 2 })}¢`;
+};
+
+function EventSymbolPopover({ position, market, onBuy, onSell, onClose }) {
+  const symbol = String(position?.underlying_symbol || position?.symbol || '').replace(/ (YES|NO)$/i, '').trim().toUpperCase();
+  const yesBid = market?.yes_bid;
+  const yesAsk = market?.yes_ask;
+  const noBid = market?.no_bid;
+  const noAsk = market?.no_ask;
+  const question = market?.event_title || position?.event_title || symbol;
+  return (
+    <div className="event-symbol-popover" role="tooltip" onClick={e => e.stopPropagation()}>
+      <div className="event-symbol-popover-header">
+        <span className="event-symbol-popover-symbol">{symbol}</span>
+        <button type="button" className="event-symbol-popover-close" onClick={onClose} aria-label="Close"><CloseIcon fontSize="small" /></button>
+      </div>
+      {question && question !== symbol && <p className="event-symbol-popover-question">{question}</p>}
+      <table className="event-symbol-popover-table">
+        <thead><tr><th></th><th>Ask</th><th>Bid</th></tr></thead>
+        <tbody>
+          <tr><td className="outcome-label yes">YES</td><td>{cents(yesAsk)}</td><td>{cents(yesBid)}</td></tr>
+          <tr><td className="outcome-label no">NO</td><td>{cents(noAsk)}</td><td>{cents(noBid)}</td></tr>
+        </tbody>
+      </table>
+      <div className="event-symbol-popover-actions">
+        <button type="button" className="event-popover-btn buy" onClick={onBuy}>Buy</button>
+        <button type="button" className="event-popover-btn sell" onClick={onSell}>Sell</button>
+      </div>
+      <p className="event-symbol-popover-hint">Click row or Buy/Sell to manage this position</p>
+    </div>
+  );
+}
+
 export default function WebullPositions({ positions = [], mode = 'REAL', userId, initialAssetView = 'All assets', onSelectHolding, onOpenEventPosition }) {
   const [filterOpen, setFilterOpen] = useState(false);
   const [columnsOpen, setColumnsOpen] = useState(false);
@@ -33,26 +70,93 @@ export default function WebullPositions({ positions = [], mode = 'REAL', userId,
   const [dteFilter, setDteFilter] = useState(null);
   const [layouts, setLayouts] = useState({});
   const [markets, setMarkets] = useState({});
-  const missingSymbols = [...new Set(positions.filter(p => assetType(p) === 'Event Contracts' && (!p.event_title || !p.settlement?.cutoff_at)).map(p => String(p.symbol || '').replace(/ (YES|NO)$/i, '')))].sort().join(',');
+  const [hoveredSymbol, setHoveredSymbol] = useState(null);
+  const [hoveredPosition, setHoveredPosition] = useState(null);
+  const hoverTimerRef = useRef(null);
+
+  // All event contract base symbols held (for ongoing market data polling)
+  const allEventSymbols = useMemo(() =>
+    [...new Set(positions.filter(p => assetType(p) === 'Event Contracts').map(p => String(p.symbol || '').replace(/ (YES|NO)$/i, '').trim()).filter(Boolean))].sort(),
+    [positions]
+  );
+
+  // Symbols still missing metadata (event_title or cutoff_at) — need aggressive re-fetch
+  const missingSymbols = useMemo(() =>
+    [...new Set(positions.filter(p => assetType(p) === 'Event Contracts' && (!p.event_title || !p.settlement?.cutoff_at)).map(p => String(p.symbol || '').replace(/ (YES|NO)$/i, '').trim()).filter(Boolean))].sort(),
+    [positions]
+  );
+
+  // Fetch market data for a single symbol (shared helper)
+  const fetchMarket = async (symbol, signal) => {
+    const { data } = await axios.get('/api/webull/events/markets', { params: { symbol }, withCredentials: true, signal });
+    const market = data?.markets?.find(item => item.symbol === symbol);
+    if (!market) throw new Error('Contract metadata unavailable');
+    return market;
+  };
+
+  // Aggressive re-poll (every 4 s, up to 12 attempts) for positions still missing metadata
+  const retryCountRef = useRef({});
   useEffect(() => {
-    if (!userId || !missingSymbols) return;
+    if (!userId || !missingSymbols.length) return;
     const controller = new AbortController();
-    // Exact held contracts only; serialize requests to respect provider rate limits.
+    const MAX_RETRIES = 12;
+    const INTERVAL_MS = 4000;
+    const pending = [...missingSymbols];
     (async () => {
-      for (const symbol of missingSymbols.split(',')) {
-        try {
-          const { data } = await axios.get('/api/webull/events/markets', { params: { symbol }, withCredentials: true, signal: controller.signal });
-          const market = data?.markets?.find(item => item.symbol === symbol);
-          if (!market) throw new Error('Contract metadata unavailable');
-          if (!controller.signal.aborted) setMarkets(current => ({ ...current, [symbol]: market }));
-        } catch {
-          if (!controller.signal.aborted) setMarkets(current => ({ ...current, [symbol]: { unavailable: true } }));
-        }
-        if (controller.signal.aborted) break;
+      for (const symbol of pending) {
+        if (!retryCountRef.current[symbol]) retryCountRef.current[symbol] = 0;
       }
+      const poll = async () => {
+        for (const symbol of pending) {
+          if (controller.signal.aborted) return;
+          if ((retryCountRef.current[symbol] || 0) >= MAX_RETRIES) continue;
+          // If we already have a good market entry, skip
+          if (markets[symbol] && !markets[symbol].unavailable && markets[symbol].settlement?.cutoff_at) continue;
+          try {
+            const market = await fetchMarket(symbol, controller.signal);
+            if (!controller.signal.aborted) {
+              setMarkets(current => ({ ...current, [symbol]: market }));
+              retryCountRef.current[symbol] = MAX_RETRIES; // stop retrying once found
+            }
+          } catch {
+            if (!controller.signal.aborted) {
+              retryCountRef.current[symbol] = (retryCountRef.current[symbol] || 0) + 1;
+              if (retryCountRef.current[symbol] >= MAX_RETRIES) {
+                setMarkets(current => ({ ...current, [symbol]: { unavailable: true } }));
+              }
+            }
+          }
+        }
+      };
+      await poll();
+      const timer = setInterval(poll, INTERVAL_MS);
+      await new Promise(resolve => controller.signal.addEventListener('abort', resolve));
+      clearInterval(timer);
     })();
     return () => controller.abort();
-  }, [missingSymbols, userId]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userId, missingSymbols.join(',')]);
+
+  // Background poll (every 15 s) for ALL event contract market data (keeps bid/ask live for hover)
+  useEffect(() => {
+    if (!userId || !allEventSymbols.length) return;
+    const controller = new AbortController();
+    const INTERVAL_MS = 15000;
+    const poll = async () => {
+      for (const symbol of allEventSymbols) {
+        if (controller.signal.aborted) break;
+        try {
+          const market = await fetchMarket(symbol, controller.signal);
+          if (!controller.signal.aborted) setMarkets(current => ({ ...current, [symbol]: market }));
+        } catch { /* keep existing */ }
+      }
+    };
+    poll();
+    const timer = setInterval(poll, INTERVAL_MS);
+    return () => { controller.abort(); clearInterval(timer); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userId, allEventSymbols.join(',')]);
+
   const [sort, setSort] = useState({ id: 'symbol', direction: 'asc' });
   const [draggedColumn, setDraggedColumn] = useState(null);
   const [dropTarget, setDropTarget] = useState(null);
@@ -131,6 +235,29 @@ export default function WebullPositions({ positions = [], mode = 'REAL', userId,
   };
   const resetFilters = () => { setAssetFilter('All assets'); setAccountFilter('All'); setSearch(''); setDteFilter(null); };
   const modeLabel = mode === 'QUANT' ? 'Quantitative Strategy — Paper Positions' : mode === 'TEST' ? 'Test Mode — Paper Positions' : 'Real Trading — Positions';
+
+  const handleSymbolHoverEnter = (position) => {
+    if (assetType(position) !== 'Event Contracts') return;
+    clearTimeout(hoverTimerRef.current);
+    hoverTimerRef.current = setTimeout(() => {
+      setHoveredPosition(position);
+      const sym = String(position.symbol || '').replace(/ (YES|NO)$/i, '').trim();
+      setHoveredSymbol(sym);
+    }, 200);
+  };
+  const handleSymbolHoverLeave = () => {
+    clearTimeout(hoverTimerRef.current);
+    hoverTimerRef.current = setTimeout(() => {
+      setHoveredSymbol(null);
+      setHoveredPosition(null);
+    }, 300);
+  };
+  const closePopover = () => {
+    clearTimeout(hoverTimerRef.current);
+    setHoveredSymbol(null);
+    setHoveredPosition(null);
+  };
+
   return <section className="webull-positions">
     <header className="webull-positions-header">
       <div><h2>Positions</h2><p>{modeLabel} · {filteredPositions.length} of {securityPositions.length} positions</p></div>
@@ -157,11 +284,38 @@ export default function WebullPositions({ positions = [], mode = 'REAL', userId,
         </th>)}</tr></thead>
         <tbody>{filteredPositions.map((position) => {
           const key = `${position.source || mode}:${position.account_id}:${position.id || position.symbol}:${positionSide(position)}`;
-          return <tr key={key} className="position-data-row">
+          const isEventContract = assetType(position) === 'Event Contracts';
+          const baseSymbol = String(position.symbol || '').replace(/ (YES|NO)$/i, '').trim();
+          const posMarket = markets[baseSymbol];
+          const isPopoverOpen = isEventContract && hoveredSymbol === baseSymbol && hoveredPosition === position;
+          return <tr
+            key={key}
+            className={`position-data-row${isEventContract ? ' event-contract-row' : ''}`}
+            onClick={isEventContract ? () => { closePopover(); onOpenEventPosition?.(position); } : undefined}
+            title={isEventContract ? 'Click to manage this event contract position' : undefined}
+          >
             {visibleColumns.map(column => {
               const value = valueForColumn(position, column.id);
               const isPnl = column.type === 'pnl' || column.type === 'pnl_percent';
               const pnlClass = isPnl && value > 0 ? 'position-gain' : isPnl && value < 0 ? 'position-loss' : '';
+              if (column.id === 'symbol' && isEventContract) {
+                return <td key={column.id} className={`position-symbol ${pnlClass}`} style={{ position: 'relative' }}
+                  onMouseEnter={() => handleSymbolHoverEnter(position)}
+                  onMouseLeave={handleSymbolHoverLeave}
+                  onClick={e => e.stopPropagation()}
+                >
+                  {String(position.symbol || '—').toUpperCase()}
+                  {isPopoverOpen && (
+                    <EventSymbolPopover
+                      position={position}
+                      market={posMarket}
+                      onClose={closePopover}
+                      onBuy={() => { closePopover(); onOpenEventPosition?.(position); }}
+                      onSell={() => { closePopover(); onOpenEventPosition?.(position); }}
+                    />
+                  )}
+                </td>;
+              }
               return <td title={column.id === 'mark' ? position.quote_status : undefined} key={column.id} className={`${column.id === 'symbol' ? 'position-symbol' : ''} ${pnlClass}`}>
                 {column.id === 'symbol' ? String(position.symbol || '—').toUpperCase() : column.type === 'pnl' ? (value === null ? '—' : `${value > 0 ? '▲ ' : value < 0 ? '▼ ' : ''}${formatCurrency(Math.abs(value))}`)
                   : column.type === 'pnl_percent' ? (value === null ? '—' : `${value > 0 ? '▲ ' : value < 0 ? '▼ ' : ''}${Math.abs(value).toFixed(2)}%`)

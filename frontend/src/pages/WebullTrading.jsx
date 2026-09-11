@@ -3342,6 +3342,17 @@ export default function WebullTrading({ isLightMode = false }) {
             loadOpenOrders(selectedAccountId),
             refreshLiveWebullHoldings(),
           ]);
+          // For Event Contracts: aggressively re-poll holdings every 3 s (up to 10×)
+          // so the new position surfaces with correct cutoff_at and Active status immediately.
+          if (selectedInstrumentType === 'EVENT') {
+            let attempts = 0;
+            const MAX_ATTEMPTS = 10;
+            const eventRefreshTimer = window.setInterval(async () => {
+              attempts += 1;
+              await refreshLiveWebullHoldings();
+              if (attempts >= MAX_ATTEMPTS) window.clearInterval(eventRefreshTimer);
+            }, 3000);
+          }
         }
         loadHistory(selectedAccountId);
       } else {
