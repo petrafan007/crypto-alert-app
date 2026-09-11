@@ -657,6 +657,7 @@ function EventContractOpenOrders({ orders, onManageOrder, userId }) {
 const isCryptoAccount = (acc) => {
   if (!acc) return false;
   const identity = [
+    acc.account_id,
     acc.account_class,
     acc.account_type,
     acc.account_sub_type,
@@ -669,17 +670,19 @@ const isCryptoAccount = (acc) => {
 const isIndividualCashAccount = (acc) => {
   if (!acc || isCryptoAccount(acc)) return false;
   const identity = [
+    acc.account_id,
     acc.account_class,
     acc.account_type,
     acc.account_label,
     acc.account_name,
   ].filter(Boolean).join(' ').toLowerCase();
-  return identity.includes('individual') && identity.includes('cash');
+  return (identity.includes('individual') && identity.includes('cash')) || identity.includes('individual_cash');
 };
 
 const isEventAccount = (acc) => {
   if (!acc) return false;
   return [
+    acc.account_id,
     acc.account_class,
     acc.account_type,
     acc.account_label,
@@ -690,6 +693,7 @@ const isEventAccount = (acc) => {
 const isFuturesAccount = (acc) => {
   if (!acc) return false;
   return [
+    acc.account_id,
     acc.account_class,
     acc.account_type,
     acc.account_label,
@@ -708,9 +712,23 @@ const preferredEquityAccount = (accounts) => (
 const preferredEventAccount = (accounts) => accounts.find(isEventAccount) || null;
 const preferredFuturesAccount = (accounts) => accounts.find(isFuturesAccount) || null;
 
+const normalizePaperAccountId = (id) => {
+  if (!id) return '';
+  const s = String(id).trim();
+  if (s === 'TEST_EVENTS_ACCOUNT' || s === 'TEST_ACC_EVENTS') return 'TEST_ACC_EVENTS';
+  if (s === 'TEST_CRYPTO_ACCOUNT' || s === 'TEST_ACC_CRYPTO') return 'TEST_ACC_CRYPTO';
+  if (s === 'TEST_FUTURES_ACCOUNT' || s === 'TEST_ACC_FUTURES') return 'TEST_ACC_FUTURES';
+  if (s === 'TEST_INDIVIDUAL_CASH' || s === 'TEST_ACC_INDIVIDUAL_CASH') return 'TEST_ACC_INDIVIDUAL_CASH';
+  if (s === 'QUANT_EVENTS_ACCOUNT' || s === 'QUANT_ACC_EVENTS') return 'QUANT_ACC_EVENTS';
+  if (s === 'QUANT_CRYPTO_ACCOUNT' || s === 'QUANT_ACC_CRYPTO') return 'QUANT_ACC_CRYPTO';
+  if (s === 'QUANT_FUTURES_ACCOUNT' || s === 'QUANT_ACC_FUTURES') return 'QUANT_ACC_FUTURES';
+  if (s === 'QUANT_INDIVIDUAL_CASH' || s === 'QUANT_ACC_INDIVIDUAL_CASH') return 'QUANT_ACC_INDIVIDUAL_CASH';
+  return s;
+};
+
 const DEFAULT_QUANT_SUB_ACCOUNTS = [
   {
-    account_id: 'QUANT_INDIVIDUAL_CASH',
+    account_id: 'QUANT_ACC_INDIVIDUAL_CASH',
     account_id_masked: '••••CASH',
     account_label: 'Individual Cash (Equities, ETFs & Options)',
     account_name: 'Individual Cash Account',
@@ -725,7 +743,7 @@ const DEFAULT_QUANT_SUB_ACCOUNTS = [
     modules: ['equities', 'options']
   },
   {
-    account_id: 'QUANT_CRYPTO_ACCOUNT',
+    account_id: 'QUANT_ACC_CRYPTO',
     account_id_masked: '••••CRYP',
     account_label: 'Crypto Account (Spot)',
     account_name: 'Crypto Account',
@@ -740,7 +758,7 @@ const DEFAULT_QUANT_SUB_ACCOUNTS = [
     modules: ['crypto']
   },
   {
-    account_id: 'QUANT_EVENTS_ACCOUNT',
+    account_id: 'QUANT_ACC_EVENTS',
     account_id_masked: '••••EVNT',
     account_label: 'Events Cash Account (Event Contracts)',
     account_name: 'Events Cash Account',
@@ -755,7 +773,7 @@ const DEFAULT_QUANT_SUB_ACCOUNTS = [
     modules: ['events']
   },
   {
-    account_id: 'QUANT_FUTURES_ACCOUNT',
+    account_id: 'QUANT_ACC_FUTURES',
     account_id_masked: '••••FUTR',
     account_label: 'Futures Account (Micro Futures)',
     account_name: 'Futures Account',
@@ -773,7 +791,7 @@ const DEFAULT_QUANT_SUB_ACCOUNTS = [
 
 const DEFAULT_TEST_SUB_ACCOUNTS = [
   {
-    account_id: 'TEST_INDIVIDUAL_CASH',
+    account_id: 'TEST_ACC_INDIVIDUAL_CASH',
     account_id_masked: '••••CASH',
     account_label: 'Webull Paper Cash (Equities, ETFs & Options)',
     account_name: 'Paper Cash Account',
@@ -787,7 +805,7 @@ const DEFAULT_TEST_SUB_ACCOUNTS = [
     modules: ['equities', 'options']
   },
   {
-    account_id: 'TEST_CRYPTO_ACCOUNT',
+    account_id: 'TEST_ACC_CRYPTO',
     account_id_masked: '••••CRYP',
     account_label: 'Webull Paper Crypto Account (Spot)',
     account_name: 'Paper Crypto Account',
@@ -801,7 +819,7 @@ const DEFAULT_TEST_SUB_ACCOUNTS = [
     modules: ['crypto']
   },
   {
-    account_id: 'TEST_EVENTS_ACCOUNT',
+    account_id: 'TEST_ACC_EVENTS',
     account_id_masked: '••••EVNT',
     account_label: 'Webull Paper Events Account (Event Contracts)',
     account_name: 'Paper Events Account',
@@ -815,7 +833,7 @@ const DEFAULT_TEST_SUB_ACCOUNTS = [
     modules: ['events']
   },
   {
-    account_id: 'TEST_FUTURES_ACCOUNT',
+    account_id: 'TEST_ACC_FUTURES',
     account_id_masked: '••••FUTR',
     account_label: 'Webull Paper Futures Account (Micro Futures)',
     account_name: 'Paper Futures Account',
@@ -841,7 +859,11 @@ const holdingMatchesSymbol = (holding, symbol) => {
 };
 
 const holdingForAccount = (holdings, symbol, accountId) => (
-  holdings.find((holding) => String(holding?.account_id || '') === String(accountId || '') && holdingMatchesSymbol(holding, symbol))
+  holdings.find((holding) => (
+    (String(holding?.account_id || '') === String(accountId || '')
+      || (normalizePaperAccountId(holding?.account_id) && normalizePaperAccountId(holding?.account_id) === normalizePaperAccountId(accountId)))
+    && holdingMatchesSymbol(holding, symbol)
+  ))
 );
 
 const normalizedWebullInstrumentType = (value) => {
@@ -1018,6 +1040,7 @@ export default function WebullTrading({ isLightMode = false }) {
     [modeHoldings]
   );
   const [paperSummary, setPaperSummary] = useState(null);
+  const [quantSummary, setQuantSummary] = useState(null);
   const [showDepositModal, setShowDepositModal] = useState(false);
   const [depositAmount, setDepositAmount] = useState('1000');
   const [depositSubmitting, setDepositSubmitting] = useState(false);
@@ -1307,7 +1330,9 @@ export default function WebullTrading({ isLightMode = false }) {
       setHistoryLoading(true);
       try {
         const resp = await axios.get('/api/webull/test/orders', { withCredentials: true });
-        setHistory((resp.data?.orders || []).map(normalizeOrder));
+        const orders = (resp.data?.orders || []).map(normalizeOrder);
+        setHistory(orders);
+        setHistoryTotal(Number(orders.length || 0));
       } catch (e) {
         // non-blocking
       } finally {
@@ -1401,8 +1426,10 @@ export default function WebullTrading({ isLightMode = false }) {
         setHoldings(posRes.data.positions || []);
       }
       if (ordRes.data?.success) {
-        setHistory((ordRes.data.orders || []).map(normalizeOrder));
-        const working = (ordRes.data.orders || []).filter((o) => o.status === 'Working' || o.status === 'Open').map(normalizeOrder);
+        const orders = (ordRes.data.orders || []).map(normalizeOrder);
+        setHistory(orders);
+        setHistoryTotal(Number(orders.length || 0));
+        const working = orders.filter((o) => o.status === 'Working' || o.status === 'Open');
         setOpenOrders(working);
       }
     } catch (e) {
@@ -1418,14 +1445,16 @@ export default function WebullTrading({ isLightMode = false }) {
         axios.get('/api/webull/portfolio-algo/orders', { withCredentials: true }),
       ]);
       if (sumRes.data?.success) {
-        setPaperSummary(sumRes.data.summary);
+        setQuantSummary(sumRes.data.summary);
       }
       if (posRes.data?.success) {
         setHoldings(posRes.data.positions || []);
       }
       if (ordRes.data?.success) {
-        setHistory((ordRes.data.orders || []).map(normalizeOrder));
-        const working = (ordRes.data.orders || []).filter((o) => OPEN_STATUSES.has(String(o.status || '').toUpperCase()) || o.status === 'Working' || o.status === 'Open').map(normalizeOrder);
+        const orders = (ordRes.data.orders || []).map(normalizeOrder);
+        setHistory(orders);
+        setHistoryTotal(Number(orders.length || 0));
+        const working = orders.filter((o) => OPEN_STATUSES.has(String(o.status || '').toUpperCase()) || o.status === 'Working' || o.status === 'Open');
         setOpenOrders(working);
       }
     } catch (e) {
@@ -1445,12 +1474,12 @@ export default function WebullTrading({ isLightMode = false }) {
         setHistory([]);
         setOpenOrders([]);
         const initialQuantAcc = (selectedInstrumentType === 'CRYPTO')
-          ? 'QUANT_CRYPTO_ACCOUNT'
+          ? 'QUANT_ACC_CRYPTO'
           : (selectedInstrumentType === 'EVENT')
-            ? 'QUANT_EVENTS_ACCOUNT'
+            ? 'QUANT_ACC_EVENTS'
             : (selectedInstrumentType === 'FUTURES')
-              ? 'QUANT_FUTURES_ACCOUNT'
-              : 'QUANT_INDIVIDUAL_CASH';
+              ? 'QUANT_ACC_FUTURES'
+              : 'QUANT_ACC_INDIVIDUAL_CASH';
         setSelectedAccountId(initialQuantAcc);
         await loadQuantTradingData();
         setOrderFeedback({ type: 'success', message: 'Switched to Quantitative Strategy Engine Mode (Multi-Asset Algo).' });
@@ -1461,12 +1490,12 @@ export default function WebullTrading({ isLightMode = false }) {
         setHistory([]);
         setOpenOrders([]);
         const initialTestAcc = (selectedInstrumentType === 'CRYPTO')
-          ? 'TEST_CRYPTO_ACCOUNT'
+          ? 'TEST_ACC_CRYPTO'
           : (selectedInstrumentType === 'EVENT')
-            ? 'TEST_EVENTS_ACCOUNT'
+            ? 'TEST_ACC_EVENTS'
             : (selectedInstrumentType === 'FUTURES')
-              ? 'TEST_FUTURES_ACCOUNT'
-              : 'TEST_INDIVIDUAL_CASH';
+              ? 'TEST_ACC_FUTURES'
+              : 'TEST_ACC_INDIVIDUAL_CASH';
         setSelectedAccountId(initialTestAcc);
         await loadPaperTradingData();
         setOrderFeedback({ type: 'success', message: 'Switched to Webull Test Mode (Paper Trading with live quotes).' });
@@ -1477,6 +1506,7 @@ export default function WebullTrading({ isLightMode = false }) {
         setHistory([]);
         setOpenOrders([]);
         setPaperSummary(null);
+        setQuantSummary(null);
         await load(false);
         setOrderFeedback({ type: 'success', message: 'Switched to Webull Live Trading Mode.' });
       }
@@ -1610,15 +1640,35 @@ export default function WebullTrading({ isLightMode = false }) {
       const savedDefaultAccountId = String(accRes.data?.default_account_id || '');
       setDefaultAccountId(savedDefaultAccountId);
 
+      const urlParams = new URLSearchParams(window.location.search);
+      const urlSide = urlParams.get('side')?.toUpperCase()?.trim();
+      const urlAccountId = urlParams.get('account_id')?.trim();
+      const urlInstrumentType = urlParams.get('instrument_type')?.toUpperCase()?.trim();
+      const urlAccountPreference = urlParams.get('account_preference')?.toLowerCase()?.trim();
+      const requestedInstrumentType = ['CRYPTO', 'EQUITY', 'OPTION', 'FUTURES', 'EVENT'].includes(urlInstrumentType) ? urlInstrumentType : null;
+      const urlSymbol = normalizeWebullTradeSymbol(urlParams.get('symbol'), requestedInstrumentType);
+      const urlHoldingId = urlParams.get('holding_id')?.trim();
+
       if (testModeActive) {
-        const initialTestAcc = (selectedInstrumentType === 'CRYPTO')
-          ? 'TEST_CRYPTO_ACCOUNT'
-          : (selectedInstrumentType === 'EVENT')
-            ? 'TEST_EVENTS_ACCOUNT'
-            : (selectedInstrumentType === 'FUTURES')
-              ? 'TEST_FUTURES_ACCOUNT'
-              : 'TEST_INDIVIDUAL_CASH';
+        const targetType = requestedInstrumentType || selectedInstrumentType;
+        const initialTestAcc = urlAccountId
+          ? normalizePaperAccountId(urlAccountId)
+          : (targetType === 'CRYPTO')
+            ? 'TEST_ACC_CRYPTO'
+            : (targetType === 'EVENT')
+              ? 'TEST_ACC_EVENTS'
+              : (targetType === 'FUTURES')
+                ? 'TEST_ACC_FUTURES'
+                : 'TEST_ACC_INDIVIDUAL_CASH';
         setSelectedAccountId(initialTestAcc);
+        if (targetType) {
+          setSelectedInstrumentType(targetType);
+          setSelectedSecurityType(targetType === 'EQUITY' ? 'EQUITY' : targetType);
+        }
+        if (urlSymbol) {
+          setSelectedSymbol(urlSymbol);
+          setOrderForm((prev) => ({ ...prev, symbol: urlSymbol }));
+        }
         await loadPaperTradingData();
         setLoading(false);
         axios.get('/api/webull/ai-signals?limit=50', { withCredentials: true })
@@ -1628,15 +1678,6 @@ export default function WebullTrading({ isLightMode = false }) {
       }
 
       setHoldings(importedHoldings);
-
-      const urlParams = new URLSearchParams(window.location.search);
-      const urlSide = urlParams.get('side')?.toUpperCase()?.trim();
-      const urlAccountId = urlParams.get('account_id')?.trim();
-      const urlInstrumentType = urlParams.get('instrument_type')?.toUpperCase()?.trim();
-      const urlAccountPreference = urlParams.get('account_preference')?.toLowerCase()?.trim();
-      const requestedInstrumentType = ['CRYPTO', 'EQUITY', 'OPTION', 'FUTURES', 'EVENT'].includes(urlInstrumentType) ? urlInstrumentType : null;
-      const urlSymbol = normalizeWebullTradeSymbol(urlParams.get('symbol'), requestedInstrumentType);
-      const urlHoldingId = urlParams.get('holding_id')?.trim();
       const deepLinkedHolding = urlHoldingId
         ? importedHoldings.find((holding) => (
           String(holding?.id || '') === urlHoldingId && isSecurityHolding(holding)
@@ -1827,14 +1868,21 @@ export default function WebullTrading({ isLightMode = false }) {
     return () => window.clearInterval(timer);
   }, [isQuantMode]);
 
+  useEffect(() => {
+    if (!isTestMode) return undefined;
+    loadPaperTradingData();
+    const timer = window.setInterval(loadPaperTradingData, 15000);
+    return () => window.clearInterval(timer);
+  }, [isTestMode]);
+
   const allQuantAccounts = useMemo(() => {
-    const list = Array.isArray(paperSummary?.accounts) && paperSummary.accounts.length > 0
-      ? paperSummary.accounts
-      : (Array.isArray(paperSummary?.sub_accounts) && paperSummary.sub_accounts.length > 0
-        ? paperSummary.sub_accounts
+    const list = Array.isArray(quantSummary?.accounts) && quantSummary.accounts.length > 0
+      ? quantSummary.accounts
+      : (Array.isArray(quantSummary?.sub_accounts) && quantSummary.sub_accounts.length > 0
+        ? quantSummary.sub_accounts
         : DEFAULT_QUANT_SUB_ACCOUNTS);
     return list;
-  }, [paperSummary]);
+  }, [quantSummary]);
 
   const allTestAccounts = useMemo(() => {
     const list = Array.isArray(paperSummary?.accounts) && paperSummary.accounts.length > 0
@@ -1846,8 +1894,18 @@ export default function WebullTrading({ isLightMode = false }) {
   // Sync active account and cash balance
   const activeAccount = useMemo(() => {
     if (isQuantMode) {
-      const match = allQuantAccounts.find((a) => a.account_id === selectedAccountId);
-      const acc = match || allQuantAccounts[0] || DEFAULT_QUANT_SUB_ACCOUNTS[0];
+      const match = allQuantAccounts.find((a) => (
+        a.account_id === selectedAccountId ||
+        normalizePaperAccountId(a.account_id) === normalizePaperAccountId(selectedAccountId)
+      ));
+      const fallbackAcc = (selectedInstrumentType === 'EVENT')
+        ? (allQuantAccounts.find(isEventAccount) || allQuantAccounts[0])
+        : (selectedInstrumentType === 'CRYPTO')
+          ? (allQuantAccounts.find(isCryptoAccount) || allQuantAccounts[0])
+          : (selectedInstrumentType === 'FUTURES')
+            ? (allQuantAccounts.find(isFuturesAccount) || allQuantAccounts[0])
+            : (allQuantAccounts.find(isIndividualCashAccount) || allQuantAccounts[0]);
+      const acc = match || fallbackAcc || DEFAULT_QUANT_SUB_ACCOUNTS[0];
       const cash = Number(acc?.cash_balance ?? acc?.balance?.cash_balance ?? 0);
       const netLiq = Number(acc?.net_liquidation ?? acc?.balance?.net_liquidation ?? cash);
       const buyingPower = Number(acc?.buying_power ?? acc?.balance?.buying_power ?? cash);
@@ -1866,13 +1924,23 @@ export default function WebullTrading({ isLightMode = false }) {
         buying_power: buyingPower,
         cash_balance: cash,
         total_market_value: Math.max(0, netLiq - cash),
-        unrealized_profit_loss: paperSummary?.unrealized_pnl ?? 0,
-        unrealized_profit_loss_rate: paperSummary?.initial_balance ? ((paperSummary?.unrealized_pnl ?? 0) / paperSummary.initial_balance) * 100 : 0,
+        unrealized_profit_loss: quantSummary?.unrealized_pnl ?? 0,
+        unrealized_profit_loss_rate: quantSummary?.initial_balance ? ((quantSummary?.unrealized_pnl ?? 0) / quantSummary.initial_balance) * 100 : 0,
       };
     }
     if (isTestMode) {
-      const match = allTestAccounts.find((a) => a.account_id === selectedAccountId);
-      const acc = match || allTestAccounts[0] || DEFAULT_TEST_SUB_ACCOUNTS[0];
+      const match = allTestAccounts.find((a) => (
+        a.account_id === selectedAccountId ||
+        normalizePaperAccountId(a.account_id) === normalizePaperAccountId(selectedAccountId)
+      ));
+      const fallbackAcc = (selectedInstrumentType === 'EVENT')
+        ? (allTestAccounts.find(isEventAccount) || allTestAccounts[0])
+        : (selectedInstrumentType === 'CRYPTO')
+          ? (allTestAccounts.find(isCryptoAccount) || allTestAccounts[0])
+          : (selectedInstrumentType === 'FUTURES')
+            ? (allTestAccounts.find(isFuturesAccount) || allTestAccounts[0])
+            : (allTestAccounts.find(isIndividualCashAccount) || allTestAccounts[0]);
+      const acc = match || fallbackAcc || DEFAULT_TEST_SUB_ACCOUNTS[0];
       const cash = Number(acc?.cash_balance ?? acc?.balance?.cash_balance ?? paperSummary?.cash_balance ?? 0);
       const netLiq = Number(acc?.net_liquidation ?? acc?.balance?.net_liquidation ?? cash);
       const buyingPower = Number(acc?.buying_power ?? acc?.balance?.buying_power ?? cash);
@@ -1895,7 +1963,7 @@ export default function WebullTrading({ isLightMode = false }) {
       };
     }
     return accounts.find((a) => a.account_id === selectedAccountId) || accounts[0];
-  }, [isTestMode, isQuantMode, paperSummary, accounts, selectedAccountId, allQuantAccounts, allTestAccounts]);
+  }, [isTestMode, isQuantMode, quantSummary, paperSummary, accounts, selectedAccountId, selectedInstrumentType, allQuantAccounts, allTestAccounts]);
 
   const activeAccountIsCrypto = isCryptoAccount(activeAccount);
   const assetClassDisabled = (assetClass) => {
@@ -1998,7 +2066,10 @@ export default function WebullTrading({ isLightMode = false }) {
       const cryptoAccount = targetPool.find(isCryptoAccount);
       if (cryptoAccount) setSelectedAccountId(cryptoAccount.account_id);
     } else if (nextType === 'EQUITY' || nextType === 'OPTION') {
-      const currAcc = targetPool.find((a) => a.account_id === selectedAccountId);
+      const currAcc = targetPool.find((a) => (
+        a.account_id === selectedAccountId ||
+        normalizePaperAccountId(a.account_id) === normalizePaperAccountId(selectedAccountId)
+      ));
       if (!currAcc || isCryptoAccount(currAcc) || isEventAccount(currAcc) || isFuturesAccount(currAcc)) {
         const eqAcc = preferredEquityAccount(targetPool);
         if (eqAcc) setSelectedAccountId(eqAcc.account_id);
@@ -2043,7 +2114,7 @@ export default function WebullTrading({ isLightMode = false }) {
     if (assetClassDisabled(nextType)) return;
     setActiveTab('order');
     if (nextType === 'EQUITY') setEquityOrderMode('single');
-    if (nextType !== selectedInstrumentType) handleAssetClassChange(nextType);
+    handleAssetClassChange(nextType);
   };
 
   const handleEquityOrderModeChange = (nextMode) => {
@@ -2065,7 +2136,7 @@ export default function WebullTrading({ isLightMode = false }) {
       if (activeAccount?.cash_balance != null) {
         return Number(activeAccount.cash_balance);
       }
-      return Number(paperSummary?.total_cash ?? paperSummary?.buying_power ?? 0);
+      return Number(quantSummary?.total_cash ?? quantSummary?.buying_power ?? 0);
     }
     if (isTestMode) {
       if (activeAccount?.cash_balance != null) {
@@ -2076,7 +2147,7 @@ export default function WebullTrading({ isLightMode = false }) {
     if (!activeAccount?.balance) return 0;
     const b = activeAccount.balance;
     return nonNegativeNumber(b.total_cash_balance ?? b.cash_balance ?? b.settled_cash ?? b.cashBalance ?? 0);
-  }, [isTestMode, isQuantMode, paperSummary, activeAccount]);
+  }, [isTestMode, isQuantMode, quantSummary, paperSummary, activeAccount]);
 
   const selectFuturesContract = (contract) => {
     const contractSymbol = String(contract?.symbol || '').trim().toUpperCase();
@@ -2576,10 +2647,13 @@ export default function WebullTrading({ isLightMode = false }) {
         || null;
     }
     if (selectedInstrumentType === 'EVENT') {
-      return modeHoldings.find((holding) => String(holding?.account_id || '') === String(selectedAccountId || '')
+      return modeHoldings.find((holding) => (
+        (String(holding?.account_id || '') === String(selectedAccountId || '')
+          || (normalizePaperAccountId(holding?.account_id) && normalizePaperAccountId(holding?.account_id) === normalizePaperAccountId(selectedAccountId)))
         && String(holding?.instrument_type || '').toUpperCase() === 'EVENT'
         && holdingMatchesSymbol(holding, selectedSymbol)
-        && String(holding?.event_outcome || '').toLowerCase() === String(orderForm.eventOutcome || '').toLowerCase()) || null;
+        && String(holding?.event_outcome || '').toLowerCase() === String(orderForm.eventOutcome || '').toLowerCase()
+      )) || null;
     }
     return holdingForAccount(modeHoldings, selectedSymbol, selectedAccountId);
   }, [modeHoldings, selectedSymbol, selectedAccountId, selectedInstrumentType, selectedOptionHoldingId, orderForm.optionType, orderForm.optionStrike, orderForm.optionExpiration, orderForm.eventOutcome]);
@@ -3104,7 +3178,7 @@ export default function WebullTrading({ isLightMode = false }) {
     if (!pendingEventPositionOrder) return;
     const ready = (
       selectedInstrumentType === 'EVENT'
-      && String(selectedAccountId || '') === pendingEventPositionOrder.accountId
+      && (String(selectedAccountId || '') === pendingEventPositionOrder.accountId || normalizePaperAccountId(selectedAccountId) === normalizePaperAccountId(pendingEventPositionOrder.accountId))
       && String(selectedSymbol || '') === pendingEventPositionOrder.symbol
       && orderForm.side === pendingEventPositionOrder.side
       && String(orderForm.eventOutcome || '').toLowerCase() === pendingEventPositionOrder.outcome
@@ -3365,12 +3439,12 @@ export default function WebullTrading({ isLightMode = false }) {
         }
       } else if (isTestMode && !effectiveAccountId) {
         effectiveAccountId = (selectedInstrumentType === 'CRYPTO')
-          ? 'TEST_CRYPTO_ACCOUNT'
+          ? 'TEST_ACC_CRYPTO'
           : (selectedInstrumentType === 'EVENT')
-            ? 'TEST_EVENTS_ACCOUNT'
+            ? 'TEST_ACC_EVENTS'
             : (selectedInstrumentType === 'FUTURES')
-              ? 'TEST_FUTURES_ACCOUNT'
-              : 'TEST_INDIVIDUAL_CASH';
+              ? 'TEST_ACC_FUTURES'
+              : 'TEST_ACC_INDIVIDUAL_CASH';
       }
       const payload = {
         test_mode: isTestMode,
@@ -3515,10 +3589,10 @@ export default function WebullTrading({ isLightMode = false }) {
         setOrderFeedback({ type: 'success', message: response.data.message || 'Webull combo order submitted successfully!' });
         if (isTestMode) {
           loadPaperTradingData();
-          loadOpenOrders(selectedAccountId || 'TEST_INDIVIDUAL_CASH');
+          loadOpenOrders(selectedAccountId || 'TEST_ACC_INDIVIDUAL_CASH');
         } else if (isQuantMode) {
           loadQuantTradingData();
-          loadOpenOrders(selectedAccountId || 'QUANT_INDIVIDUAL_CASH');
+          loadOpenOrders(selectedAccountId || 'QUANT_ACC_INDIVIDUAL_CASH');
         } else {
           loadOpenOrders(selectedAccountId);
         }
@@ -4237,13 +4311,13 @@ export default function WebullTrading({ isLightMode = false }) {
             </div>
             <div>
               <span style={{ color: '#94a3b8', marginRight: '6px' }}>Total Engine Equity:</span>
-              <strong style={{ color: isLightMode ? '#0f172a' : '#f8fafc' }}>${number(paperSummary?.total_equity ?? cashBalance)} USD</strong>
+              <strong style={{ color: isLightMode ? '#0f172a' : '#f8fafc' }}>${number(quantSummary?.total_equity ?? cashBalance)} USD</strong>
             </div>
-            {paperSummary?.drawdown_pct != null && (
+            {quantSummary?.drawdown_pct != null && (
               <div>
                 <span style={{ color: '#94a3b8', marginRight: '6px' }}>Drawdown:</span>
-                <strong style={{ color: Number(paperSummary.drawdown_pct) > 5 ? '#f87171' : '#4ade80' }}>
-                  {Number(paperSummary.drawdown_pct).toFixed(2)}%
+                <strong style={{ color: Number(quantSummary.drawdown_pct) > 5 ? '#f87171' : '#4ade80' }}>
+                  {Number(quantSummary.drawdown_pct).toFixed(2)}%
                 </strong>
               </div>
             )}
@@ -4404,7 +4478,7 @@ export default function WebullTrading({ isLightMode = false }) {
                     product={selectedFuturesProduct}
                     contract={selectedFuturesContract}
                     accounts={displayAccounts}
-                    selectedAccountId={selectedAccountId || activeAccount?.account_id}
+                    selectedAccountId={displayAccounts.some((a) => a.account_id === selectedAccountId) ? selectedAccountId : (activeAccount?.account_id || selectedAccountId)}
                     onAccountChange={handleAccountChange}
                     defaultAccountId={defaultAccountId}
                     onSetDefaultAccount={saveDefaultAccount}
@@ -4418,7 +4492,7 @@ export default function WebullTrading({ isLightMode = false }) {
                     instrumentType={selectedInstrumentType}
                     onInstrumentChange={handleInstrumentChange}
                     accounts={displayAccounts}
-                    selectedAccountId={selectedAccountId || activeAccount?.account_id}
+                    selectedAccountId={displayAccounts.some((a) => a.account_id === selectedAccountId) ? selectedAccountId : (activeAccount?.account_id || selectedAccountId)}
                     onAccountChange={handleAccountChange}
                     defaultAccountId={defaultAccountId}
                     onSetDefaultAccount={saveDefaultAccount}
@@ -5691,7 +5765,7 @@ export default function WebullTrading({ isLightMode = false }) {
                     {/* Row 6: Warning in Real / Test / Quant Trading Mode */}
                     {isQuantMode ? (
                       <div className="modern-real-warning" style={{ marginTop: '12px', background: 'rgba(139, 92, 246, 0.15)', borderColor: 'rgba(139, 92, 246, 0.4)', color: '#c084fc' }}>
-                        🤖 <strong>QUANTITATIVE STRATEGY MODE ACTIVE:</strong> The autonomous multi-asset algorithmic engine is managing orders and positions (${number(cashBalance)} USD cash / ${number(paperSummary?.total_equity ?? cashBalance)} equity). Manual order entry is locked to prevent interfering with model strategies.
+                        🤖 <strong>QUANTITATIVE STRATEGY MODE ACTIVE:</strong> The autonomous multi-asset algorithmic engine is managing orders and positions (${number(cashBalance)} USD cash / ${number(quantSummary?.total_equity ?? cashBalance)} equity). Manual order entry is locked to prevent interfering with model strategies.
                       </div>
                     ) : isTestMode ? (
                       <div className="modern-real-warning" style={{ marginTop: '12px', background: 'rgba(79, 209, 197, 0.15)', borderColor: 'rgba(79, 209, 197, 0.35)', color: '#4fd1c5' }}>

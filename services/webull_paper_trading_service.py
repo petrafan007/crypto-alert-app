@@ -714,7 +714,7 @@ def get_webull_test_orders(user_id: int) -> List[Dict[str, Any]]:
         acct_id, acct_name = _test_account_mapping(o.instrument_type)
         qty = float(filled_quantity or 0.0)
         fill_price = float(o.filled_price if o.filled_price is not None else (o.limit_price or 0.0))
-        mult = 100 if o.instrument_type == 'OPTION' else int(o.contract_multiplier or 1)
+        mult = 100 if o.instrument_type == 'OPTION' else int(getattr(o, 'contract_multiplier', None) or 1)
         total_amt = round(qty * fill_price * mult, 2) if (qty > 0 and fill_price > 0) else 0.0
 
         realized_pnl = None

@@ -6,6 +6,24 @@
 
 **Last Updated**: September 2026
 
+## v2.98.5 (September 2026)
+
+- **Webull Paper & Quantitative Strategy Account ID Alignment:**
+  - Standardized paper trading sub-account identifiers (`TEST_ACC_INDIVIDUAL_CASH`, `TEST_ACC_CRYPTO`, `TEST_ACC_EVENTS`, `TEST_ACC_FUTURES`) and quantitative strategy engine identifiers (`QUANT_ACC_INDIVIDUAL_CASH`, `QUANT_ACC_CRYPTO`, `QUANT_ACC_EVENTS`, `QUANT_ACC_FUTURES`) across frontend and backend services.
+  - Implemented bidirectional normalization (`normalizePaperAccountId`) to ensure backward compatibility with legacy account IDs.
+  - Fixed account classification helpers (`isEventAccount`, `isFuturesAccount`, `isCryptoAccount`, `isIndividualCashAccount`) to inspect `account_id` alongside account labels and types.
+- **Resolved Cash Available & Dropdown Display Discrepancy:**
+  - Resolved an issue in Webull Test Mode where selecting the **Event Contracts** tab left the USD Cash Available card showing the Individual Cash balance (`$33,360.00 USD`) while the dropdown showed `Events Cash (Event Contracts) (••••EVNT)`.
+  - Added asset-class aware active account fallback logic so that whenever the Event Contracts, Futures, or Crypto tab is active, the corresponding sub-account cash is consistently selected, active, and reflected across the top banner, cash card, and chart dropdown.
+  - Fixed chart account selector to pass the matched active account ID, preventing browser fallback to mismatched options.
+- **Fixed Order History Server Error (500) & Blank Table:**
+  - Fixed an `AttributeError` in `services/webull_paper_trading_service.py` where accessing `contract_multiplier` directly on `WebullTestOrder` records threw a 500 error when fetching order history.
+  - Safeguarded multiplier lookup with `getattr` fallback to guarantee all historical paper orders load correctly.
+  - Set total order count in paper order history pagination to keep blotters synced.
+- **Independent State Management & Paper Polling:**
+  - Separated `quantSummary` and `paperSummary` state trees to prevent Quantitative Strategy Engine polling from overwriting Test Mode paper trading balances.
+  - Added a 15-second background polling interval for active Test Mode sessions, keeping simulated cash, buying power, and open orders up to date automatically.
+
 ## v2.98.4 (September 2026)
 
 - **Event Contract Positions Table Row Click Refinement:**
