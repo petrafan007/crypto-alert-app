@@ -24,43 +24,6 @@ function PositionsDialog({ title, onClose, children }) {
   </dialog>;
 }
 
-const cents = (value) => {
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed)) return '—';
-  const amount = parsed * 100;
-  return `${amount.toLocaleString(undefined, { maximumFractionDigits: 2 })}¢`;
-};
-
-function EventSymbolPopover({ position, market, onBuy, onSell, onClose }) {
-  const symbol = String(position?.underlying_symbol || position?.symbol || '').replace(/ (YES|NO)$/i, '').trim().toUpperCase();
-  const yesBid = market?.yes_bid;
-  const yesAsk = market?.yes_ask;
-  const noBid = market?.no_bid;
-  const noAsk = market?.no_ask;
-  const question = market?.event_title || position?.event_title || symbol;
-  return (
-    <div className="event-symbol-popover" role="tooltip" onClick={e => e.stopPropagation()}>
-      <div className="event-symbol-popover-header">
-        <span className="event-symbol-popover-symbol">{symbol}</span>
-        <button type="button" className="event-symbol-popover-close" onClick={onClose} aria-label="Close"><CloseIcon fontSize="small" /></button>
-      </div>
-      {question && question !== symbol && <p className="event-symbol-popover-question">{question}</p>}
-      <table className="event-symbol-popover-table">
-        <thead><tr><th></th><th>Ask</th><th>Bid</th></tr></thead>
-        <tbody>
-          <tr><td className="outcome-label yes">YES</td><td>{cents(yesAsk)}</td><td>{cents(yesBid)}</td></tr>
-          <tr><td className="outcome-label no">NO</td><td>{cents(noAsk)}</td><td>{cents(noBid)}</td></tr>
-        </tbody>
-      </table>
-      <div className="event-symbol-popover-actions">
-        <button type="button" className="event-popover-btn buy" onClick={onBuy}>Buy</button>
-        <button type="button" className="event-popover-btn sell" onClick={onSell}>Sell</button>
-      </div>
-      <p className="event-symbol-popover-hint">Click row or Buy/Sell to manage this position</p>
-    </div>
-  );
-}
-
 export default function WebullPositions({ positions = [], mode = 'REAL', userId, initialAssetView = 'All assets', onSelectHolding, onOpenEventPosition }) {
   const [filterOpen, setFilterOpen] = useState(false);
   const [columnsOpen, setColumnsOpen] = useState(false);
@@ -70,9 +33,6 @@ export default function WebullPositions({ positions = [], mode = 'REAL', userId,
   const [dteFilter, setDteFilter] = useState(null);
   const [layouts, setLayouts] = useState({});
   const [markets, setMarkets] = useState({});
-  const [hoveredSymbol, setHoveredSymbol] = useState(null);
-  const [hoveredPosition, setHoveredPosition] = useState(null);
-  const hoverTimerRef = useRef(null);
 
   // All event contract base symbols held (for ongoing market data polling)
   const allEventSymbols = useMemo(() =>
@@ -137,7 +97,7 @@ export default function WebullPositions({ positions = [], mode = 'REAL', userId,
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId, missingSymbols.join(',')]);
 
-  // Background poll (every 15 s) for ALL event contract market data (keeps bid/ask live for hover)
+  // Background poll (every 15 s) for ALL event contract market data (keeps bid/ask live for details)
   useEffect(() => {
     if (!userId || !allEventSymbols.length) return;
     const controller = new AbortController();
@@ -179,7 +139,21 @@ export default function WebullPositions({ positions = [], mode = 'REAL', userId,
     setLayouts(current => ({ ...current, [layoutKey]: next }));
     try { if (storageKey) localStorage.setItem(storageKey, JSON.stringify(next)); } catch { /* Session layout still works when browser storage is unavailable. */ }
   };
-  const securityPositions = useMemo(() => positions.filter(p => assetType(p) !== 'Cash' && Number(p.quantity ?? p.amount ?? 0) !== 0).map(p => mergeEventMarket(p, markets[String(p.symbol || '').replace(/ (YES|NO)$/i, '')])), [positions, markets]);
+  const securityPositions = useMemo(() => positions
+    .filter(p => assetType(p) !== 'Cash' && Number(p.quantity ?? p.amount ?? 0) !== 0)
+    .map(p => mergeEventMarket(p, markets[String(p.symbol || '').replace(/ (YES|NO)$/i, '')]))
+    .filter(p => {
+      if (assetType(p) === 'Event Contracts') {
+        const status = valueForColumn(p, 'status');
+        const settlementStatus = String(p.settlement?.status || '').toUpperCase();
+        if (status === 'Settled — awaiting removal' || status === 'Closed' || settlementStatus === 'RESOLVED') {
+          return false;
+        }
+      }
+      return true;
+    }),
+    [positions, markets]
+  );
   const accounts = [...new Map(securityPositions.map(p => [String(p.account_id || p.source || ''), valueForColumn(p, 'account')])).entries()];
   const visibleColumns = columnState.order.filter(id => columnState.selected.includes(id)).map(id => COLUMN_MAP.get(id));
   const filteredPositions = securityPositions
@@ -236,28 +210,6 @@ export default function WebullPositions({ positions = [], mode = 'REAL', userId,
   const resetFilters = () => { setAssetFilter('All assets'); setAccountFilter('All'); setSearch(''); setDteFilter(null); };
   const modeLabel = mode === 'QUANT' ? 'Quantitative Strategy — Paper Positions' : mode === 'TEST' ? 'Test Mode — Paper Positions' : 'Real Trading — Positions';
 
-  const handleSymbolHoverEnter = (position) => {
-    if (assetType(position) !== 'Event Contracts') return;
-    clearTimeout(hoverTimerRef.current);
-    hoverTimerRef.current = setTimeout(() => {
-      setHoveredPosition(position);
-      const sym = String(position.symbol || '').replace(/ (YES|NO)$/i, '').trim();
-      setHoveredSymbol(sym);
-    }, 200);
-  };
-  const handleSymbolHoverLeave = () => {
-    clearTimeout(hoverTimerRef.current);
-    hoverTimerRef.current = setTimeout(() => {
-      setHoveredSymbol(null);
-      setHoveredPosition(null);
-    }, 300);
-  };
-  const closePopover = () => {
-    clearTimeout(hoverTimerRef.current);
-    setHoveredSymbol(null);
-    setHoveredPosition(null);
-  };
-
   return <section className="webull-positions">
     <header className="webull-positions-header">
       <div><h2>Positions</h2><p>{modeLabel} · {filteredPositions.length} of {securityPositions.length} positions</p></div>
@@ -285,39 +237,24 @@ export default function WebullPositions({ positions = [], mode = 'REAL', userId,
         <tbody>{filteredPositions.map((position) => {
           const key = `${position.source || mode}:${position.account_id}:${position.id || position.symbol}:${positionSide(position)}`;
           const isEventContract = assetType(position) === 'Event Contracts';
-          const baseSymbol = String(position.symbol || '').replace(/ (YES|NO)$/i, '').trim();
-          const posMarket = markets[baseSymbol];
-          const isPopoverOpen = isEventContract && hoveredSymbol === baseSymbol && hoveredPosition === position;
           return <tr
             key={key}
             className={`position-data-row${isEventContract ? ' event-contract-row' : ''}`}
-            onClick={isEventContract ? () => { closePopover(); onOpenEventPosition?.(position); } : undefined}
+            onClick={isEventContract ? () => onOpenEventPosition?.(position) : undefined}
             title={isEventContract ? 'Click to manage this event contract position' : undefined}
           >
             {visibleColumns.map(column => {
               const value = valueForColumn(position, column.id);
               const isPnl = column.type === 'pnl' || column.type === 'pnl_percent';
               const pnlClass = isPnl && value > 0 ? 'position-gain' : isPnl && value < 0 ? 'position-loss' : '';
-              if (column.id === 'symbol' && isEventContract) {
-                return <td key={column.id} className={`position-symbol ${pnlClass}`} style={{ position: 'relative' }}
-                  onMouseEnter={() => handleSymbolHoverEnter(position)}
-                  onMouseLeave={handleSymbolHoverLeave}
-                  onClick={e => e.stopPropagation()}
-                >
-                  {String(position.symbol || '—').toUpperCase()}
-                  {isPopoverOpen && (
-                    <EventSymbolPopover
-                      position={position}
-                      market={posMarket}
-                      onClose={closePopover}
-                      onBuy={() => { closePopover(); onOpenEventPosition?.(position); }}
-                      onSell={() => { closePopover(); onOpenEventPosition?.(position); }}
-                    />
-                  )}
-                </td>;
-              }
-              return <td title={column.id === 'mark' ? position.quote_status : undefined} key={column.id} className={`${column.id === 'symbol' ? 'position-symbol' : ''} ${pnlClass}`}>
-                {column.id === 'symbol' ? String(position.symbol || '—').toUpperCase() : column.type === 'pnl' ? (value === null ? '—' : `${value > 0 ? '▲ ' : value < 0 ? '▼ ' : ''}${formatCurrency(Math.abs(value))}`)
+              const isSymbol = column.id === 'symbol';
+              return <td
+                title={column.id === 'mark' ? position.quote_status : (isSymbol && isEventContract ? 'Click to manage this event contract position' : undefined)}
+                key={column.id}
+                className={`${isSymbol ? 'position-symbol' : ''} ${pnlClass}${isSymbol && isEventContract ? ' event-symbol-clickable' : ''}`}
+                onClick={isSymbol && isEventContract ? (e) => { e.stopPropagation(); onOpenEventPosition?.(position); } : undefined}
+              >
+                {isSymbol ? String(position.symbol || '—').toUpperCase() : column.type === 'pnl' ? (value === null ? '—' : `${value > 0 ? '▲ ' : value < 0 ? '▼ ' : ''}${formatCurrency(Math.abs(value))}`)
                   : column.type === 'pnl_percent' ? (value === null ? '—' : `${value > 0 ? '▲ ' : value < 0 ? '▼ ' : ''}${Math.abs(value).toFixed(2)}%`)
                     : formatCell(value, column.type)}
               </td>;

@@ -181,12 +181,61 @@ const normalize = (order, source) => {
     filled_quantity: filledQuantity,
     filled_price: filledPrice,
     price: orderPrice,
+    total_amount: firstValue(order.total_amount, order.executed_value, order.net_amount),
+    realized_pnl: firstValue(order.realized_pnl, order.pnl, order.lifecycle?.realized_pnl),
+    realized_pnl_pct: firstValue(order.realized_pnl_pct, order.pnl_rate, order.lifecycle?.realized_pnl_pct),
     fee: firstValue(order.fee, order.commission, order.fee_amount, order.total_fee, order.commission_amount),
     fee_asset: order.fee_asset || order.commission_asset || '',
     estimated_pnl: firstValue(order.estimated_pnl, order.estimated_profit_loss, order.pnl, order.profit_loss),
     status: order.status || order.order_status || '—',
     created_at: order.created_at || order.create_time || order.placed_time || order.place_time || order.filled_time_at || order.time,
   };
+};
+
+const orderTotalAmount = (order) => {
+  if (order?.total_amount !== undefined && order?.total_amount !== null && Number.isFinite(Number(order.total_amount))) {
+    return Number(order.total_amount);
+  }
+  if (order?.executed_value !== undefined && order?.executed_value !== null && Number.isFinite(Number(order.executed_value))) {
+    return Number(order.executed_value);
+  }
+  if (order?.lifecycle?.cash_adjustment !== undefined && Number.isFinite(Number(order.lifecycle.cash_adjustment))) {
+    return Math.abs(Number(order.lifecycle.cash_adjustment));
+  }
+  const qty = Number(order?.filled_quantity ?? order?.quantity ?? 0);
+  const px = Number(order?.filled_price ?? order?.avg_price ?? order?.price ?? 0);
+  if (qty <= 0 || px <= 0) return null;
+  const isOpt = String(order?.instrument_type || '').toUpperCase().includes('OPTION');
+  const mult = isOpt ? 100 : (Number(order?.contract_multiplier) || 1);
+  return qty * px * mult;
+};
+
+const orderRealizedPnl = (order) => {
+  if (order?.realized_pnl !== undefined && order?.realized_pnl !== null && Number.isFinite(Number(order.realized_pnl))) {
+    return Number(order.realized_pnl);
+  }
+  if (order?.pnl !== undefined && order?.pnl !== null && Number.isFinite(Number(order.pnl))) {
+    return Number(order.pnl);
+  }
+  if (order?.lifecycle?.realized_pnl !== undefined && Number.isFinite(Number(order.lifecycle.realized_pnl))) {
+    return Number(order.lifecycle.realized_pnl);
+  }
+  return null;
+};
+
+const orderRealizedPnlPct = (order) => {
+  if (order?.realized_pnl_pct !== undefined && order?.realized_pnl_pct !== null && Number.isFinite(Number(order.realized_pnl_pct))) {
+    return Number(order.realized_pnl_pct);
+  }
+  if (order?.lifecycle?.realized_pnl_pct !== undefined && Number.isFinite(Number(order.lifecycle.realized_pnl_pct))) {
+    return Number(order.lifecycle.realized_pnl_pct);
+  }
+  const pnl = orderRealizedPnl(order);
+  const cost = orderTotalAmount(order);
+  if (pnl !== null && cost && cost > 0) {
+    return (pnl / cost) * 100;
+  }
+  return null;
 };
 
 const isAutomation = (order) => {
@@ -249,6 +298,42 @@ function OrderTable({ orders, open, onCancelOrder, cancellingId, webullAccounts,
     { id: 'quantity', label: 'Quantity', value: (order) => Number(order.quantity), render: (order) => amount(order.quantity, 6, '0') },
     { id: 'price', label: 'Price', value: (order) => Number(order.price), render: (order) => Number(order.price) > 0 ? `$${amount(order.price, 4)}` : '—' },
     { id: 'filled', label: 'Filled', value: (order) => Number(order.filled_quantity), render: (order) => amount(order.filled_quantity, 6, '0') },
+    {
+      id: 'total_amount',
+      label: 'Total Amount',
+      value: (order) => orderTotalAmount(order),
+      render: (order) => {
+        const val = orderTotalAmount(order);
+        if (val === null || !Number.isFinite(val)) return '—';
+        return `$${amount(val, 2)}`;
+      },
+    },
+    {
+      id: 'realized_pnl',
+      label: 'P&L ($)',
+      value: (order) => orderRealizedPnl(order),
+      render: (order) => {
+        const pnl = orderRealizedPnl(order);
+        if (pnl === null || !Number.isFinite(pnl)) return '—';
+        const isPos = pnl > 0;
+        const isNeg = pnl < 0;
+        const color = isPos ? '#22c55e' : isNeg ? '#ef4444' : 'inherit';
+        return <span style={{ color, fontWeight: 700 }}>{isPos ? '▲ ' : isNeg ? '▼ ' : ''}${amount(Math.abs(pnl), 2)}</span>;
+      },
+    },
+    {
+      id: 'realized_pnl_pct',
+      label: 'P&L (%)',
+      value: (order) => orderRealizedPnlPct(order),
+      render: (order) => {
+        const pct = orderRealizedPnlPct(order);
+        if (pct === null || !Number.isFinite(pct)) return '—';
+        const isPos = pct > 0;
+        const isNeg = pct < 0;
+        const color = isPos ? '#22c55e' : isNeg ? '#ef4444' : 'inherit';
+        return <span style={{ color, fontWeight: 700 }}>{isPos ? '▲ ' : isNeg ? '▼ ' : ''}{amount(Math.abs(pct), 2)}%</span>;
+      },
+    },
     { id: 'fee', label: 'Fee', value: (order) => Number(order.fee), render: feeDisplay },
     { id: 'status', label: 'Status', value: (order) => order.status, filterable: true, render: (order) => <>{order.status}{order.history_note && <small style={{ display: 'block', maxWidth: 280 }}>{order.history_note}</small>}</> },
     ...(open ? [

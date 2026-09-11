@@ -321,6 +321,9 @@ const normalizeOrder = (order) => ({
   quantity: order.quantity ?? order.total_quantity ?? order.order_quantity,
   filled_quantity: order.filled_quantity ?? order.executed_quantity ?? order.filled_qty,
   price: Number(order.filled_quantity || 0) > 0 ? (order.avg_price ?? order.filled_price ?? order.price ?? order.limit_price) : (order.price ?? order.limit_price ?? order.order_price),
+  total_amount: order.total_amount ?? order.executed_value ?? order.net_amount,
+  realized_pnl: order.realized_pnl ?? order.pnl ?? order.lifecycle?.realized_pnl,
+  realized_pnl_pct: order.realized_pnl_pct ?? order.pnl_rate ?? order.lifecycle?.realized_pnl_pct,
   status: order.status || order.order_status || '—',
   created_at: order.created_at || order.create_time || order.placed_time || order.place_time || order.filled_time_at || order.update_time,
 });
@@ -337,6 +340,52 @@ const eventContractOrderDetails = (order = {}) => {
     symbol: rawSymbol.replace(/\s+(YES|NO)$/i, ''),
     outcome,
   };
+};
+
+const orderTotalAmount = (order) => {
+  if (order?.total_amount !== undefined && order?.total_amount !== null && Number.isFinite(Number(order.total_amount))) {
+    return Number(order.total_amount);
+  }
+  if (order?.executed_value !== undefined && order?.executed_value !== null && Number.isFinite(Number(order.executed_value))) {
+    return Number(order.executed_value);
+  }
+  if (order?.lifecycle?.cash_adjustment !== undefined && Number.isFinite(Number(order.lifecycle.cash_adjustment))) {
+    return Math.abs(Number(order.lifecycle.cash_adjustment));
+  }
+  const qty = Number(order?.filled_quantity ?? order?.quantity ?? 0);
+  const px = Number(order?.avg_price ?? order?.filled_price ?? order?.price ?? 0);
+  if (qty <= 0 || px <= 0) return null;
+  const isOpt = optionContractDetails(order).isOption;
+  const mult = isOpt ? 100 : (Number(order?.contract_multiplier) || 1);
+  return qty * px * mult;
+};
+
+const orderRealizedPnl = (order) => {
+  if (order?.realized_pnl !== undefined && order?.realized_pnl !== null && Number.isFinite(Number(order.realized_pnl))) {
+    return Number(order.realized_pnl);
+  }
+  if (order?.pnl !== undefined && order?.pnl !== null && Number.isFinite(Number(order.pnl))) {
+    return Number(order.pnl);
+  }
+  if (order?.lifecycle?.realized_pnl !== undefined && Number.isFinite(Number(order.lifecycle.realized_pnl))) {
+    return Number(order.lifecycle.realized_pnl);
+  }
+  return null;
+};
+
+const orderRealizedPnlPct = (order) => {
+  if (order?.realized_pnl_pct !== undefined && order?.realized_pnl_pct !== null && Number.isFinite(Number(order.realized_pnl_pct))) {
+    return Number(order.realized_pnl_pct);
+  }
+  if (order?.lifecycle?.realized_pnl_pct !== undefined && Number.isFinite(Number(order.lifecycle.realized_pnl_pct))) {
+    return Number(order.lifecycle.realized_pnl_pct);
+  }
+  const pnl = orderRealizedPnl(order);
+  const cost = orderTotalAmount(order);
+  if (pnl !== null && cost && cost > 0) {
+    return (pnl / cost) * 100;
+  }
+  return null;
 };
 
 function Pagination({ page, setPage, pageSize, setPageSize, total }) {
@@ -472,6 +521,45 @@ function WebullOrderTable({ orders, emptyText, onCancelOrder, cancellingId, opti
     { id: 'quantity', label: 'Quantity', value: (order) => Number(order.quantity), render: (order) => number(order.quantity, 6), style: { textAlign: 'right' } },
     { id: 'price', label: 'Price', value: (order) => Number(order.price), render: (order) => order.price ? `$${number(order.price, 4)}` : 'Market', style: { textAlign: 'right' } },
     { id: 'filled', label: 'Filled', value: (order) => Number(order.filled_quantity), render: (order) => number(order.filled_quantity, 6), style: { textAlign: 'right' } },
+    {
+      id: 'total_amount',
+      label: 'Total Amount',
+      value: (order) => orderTotalAmount(order),
+      render: (order) => {
+        const val = orderTotalAmount(order);
+        if (val === null || !Number.isFinite(val)) return '—';
+        return `$${number(val, 2)}`;
+      },
+      style: { textAlign: 'right' },
+    },
+    {
+      id: 'realized_pnl',
+      label: 'P&L ($)',
+      value: (order) => orderRealizedPnl(order),
+      render: (order) => {
+        const pnl = orderRealizedPnl(order);
+        if (pnl === null || !Number.isFinite(pnl)) return '—';
+        const isPos = pnl > 0;
+        const isNeg = pnl < 0;
+        const cls = isPos ? 'position-gain' : isNeg ? 'position-loss' : '';
+        return <span className={cls} style={{ fontWeight: 700 }}>{isPos ? '▲ ' : isNeg ? '▼ ' : ''}${number(Math.abs(pnl), 2)}</span>;
+      },
+      style: { textAlign: 'right' },
+    },
+    {
+      id: 'realized_pnl_pct',
+      label: 'P&L (%)',
+      value: (order) => orderRealizedPnlPct(order),
+      render: (order) => {
+        const pct = orderRealizedPnlPct(order);
+        if (pct === null || !Number.isFinite(pct)) return '—';
+        const isPos = pct > 0;
+        const isNeg = pct < 0;
+        const cls = isPos ? 'position-gain' : isNeg ? 'position-loss' : '';
+        return <span className={cls} style={{ fontWeight: 700 }}>{isPos ? '▲ ' : isNeg ? '▼ ' : ''}{number(Math.abs(pct), 2)}%</span>;
+      },
+      style: { textAlign: 'right' },
+    },
     {
       id: 'fee',
       label: 'Fee',

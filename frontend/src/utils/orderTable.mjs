@@ -28,7 +28,8 @@ export function cleanOrderTableState(saved, columns, defaultSort) {
   if (validIds.has('symbol')) lockedIds.unshift('symbol');
   const savedOrder = [...new Set(saved.order.filter((id) => validIds.has(id)))];
   const order = symbolFirst([...savedOrder, ...defaults.order.filter((id) => !savedOrder.includes(id))]);
-  const selected = [...new Set([...lockedIds, ...saved.selected.filter((id) => validIds.has(id))])];
+  const newColumnIds = defaults.selected.filter(id => !saved.order.includes(id));
+  const selected = [...new Set([...lockedIds, ...saved.selected.filter((id) => validIds.has(id)), ...newColumnIds])];
   const sort = saved.sort && validIds.has(saved.sort.id) && ['asc', 'desc'].includes(saved.sort.direction)
     ? saved.sort
     : defaults.sort;

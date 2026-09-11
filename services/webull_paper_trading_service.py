@@ -617,8 +617,9 @@ def _paper_history_note(order):
 
 def get_webull_test_positions(user_id: int) -> List[Dict[str, Any]]:
     """Return all simulated paper holdings formatted to match WebullHolding schema."""
-    from services.webull_paper_lifecycle import reconcile_paper_options
+    from services.webull_paper_lifecycle import reconcile_paper_options, reconcile_paper_events
     reconcile_paper_options(user_id)
+    reconcile_paper_events(user_id)
     _normalize_equity_like_positions(user_id)
     positions = WebullTestPosition.query.filter_by(user_id=user_id).filter(WebullTestPosition.quantity > 0).all()
     rows = []
@@ -686,9 +687,24 @@ def get_webull_test_positions(user_id: int) -> List[Dict[str, Any]]:
 
 def get_webull_test_orders(user_id: int) -> List[Dict[str, Any]]:
     """Return simulated paper orders history."""
-    from services.webull_paper_lifecycle import reconcile_paper_options
+    from services.webull_paper_lifecycle import reconcile_paper_options, reconcile_paper_events
     reconcile_paper_options(user_id)
+    reconcile_paper_events(user_id)
     orders = WebullTestOrder.query.filter_by(user_id=user_id).order_by(WebullTestOrder.id.desc()).all()
+
+    event_orders = [o for o in orders if o.instrument_type == 'EVENT' or o.symbol.startswith('KX')]
+    event_symbols = {str(o.symbol or '').replace(' YES', '').replace(' NO', '').strip().upper() for o in event_orders}
+    outcome_map = {}
+    if event_symbols:
+        from event_algo_models import EventContractOutcome
+        outcome_map = {
+            rec.contract_symbol: rec
+            for rec in EventContractOutcome.query.filter(
+                EventContractOutcome.user_id == user_id,
+                EventContractOutcome.contract_symbol.in_(event_symbols)
+            ).all()
+        }
+
     rows = []
     for o in orders:
         status = o.status or 'Filled'
@@ -696,6 +712,40 @@ def get_webull_test_orders(user_id: int) -> List[Dict[str, Any]]:
         if filled_quantity is None:
             filled_quantity = o.quantity if str(status).upper() == 'FILLED' else 0.0
         acct_id, acct_name = _test_account_mapping(o.instrument_type)
+        qty = float(filled_quantity or 0.0)
+        fill_price = float(o.filled_price if o.filled_price is not None else (o.limit_price or 0.0))
+        mult = 100 if o.instrument_type == 'OPTION' else int(o.contract_multiplier or 1)
+        total_amt = round(qty * fill_price * mult, 2) if (qty > 0 and fill_price > 0) else 0.0
+
+        realized_pnl = None
+        realized_pnl_pct = None
+        if o.order_type == 'EXPIRATION_SETTLEMENT' and o.combo_orders:
+            try:
+                lc = json.loads(o.combo_orders)
+                if 'cash_adjustment' in lc:
+                    total_amt = round(abs(float(lc['cash_adjustment'])), 2)
+                if 'realized_pnl' in lc:
+                    realized_pnl = float(lc['realized_pnl'])
+                if 'realized_pnl_pct' in lc:
+                    realized_pnl_pct = float(lc['realized_pnl_pct'])
+            except Exception:
+                pass
+        elif o.instrument_type == 'EVENT' or o.symbol.startswith('KX'):
+            base_sym = str(o.symbol or '').replace(' YES', '').replace(' NO', '').strip().upper()
+            outcome = outcome_map.get(base_sym)
+            if outcome and outcome.settlement_status == 'RESOLVED':
+                target_outcome = (
+                    getattr(o, 'event_outcome', None)
+                    or ('YES' if str(o.symbol or '').upper().endswith(' YES') else 'NO' if str(o.symbol or '').upper().endswith(' NO') else '')
+                )
+                if target_outcome:
+                    won = bool(outcome.outcome and str(outcome.outcome).upper() == str(target_outcome).upper())
+                    payout_px = 1.0 if won else 0.0
+                    cost = round(qty * fill_price, 2)
+                    proceeds = round(qty * payout_px, 2)
+                    realized_pnl = round(proceeds - cost, 2)
+                    realized_pnl_pct = round((realized_pnl / cost * 100) if cost > 0 else 0.0, 2)
+
         rows.append({
             'order_id': o.order_id,
             'id': o.order_id,
@@ -722,6 +772,9 @@ def get_webull_test_orders(user_id: int) -> List[Dict[str, Any]]:
             'combo_orders': o.combo_orders,
             'time_in_force': o.time_in_force,
             'is_paper': True,
+            'total_amount': total_amt,
+            'realized_pnl': realized_pnl,
+            'realized_pnl_pct': realized_pnl_pct,
         })
     return rows
 

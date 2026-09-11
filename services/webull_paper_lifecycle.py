@@ -142,3 +142,78 @@ def reconcile_paper_options(user_id, now=None, close_resolver=None, quote_resolv
             order.status = 'Filled'
             order.updated_at = now.replace(tzinfo=None)
     db.session.commit()
+
+
+def reconcile_paper_events(user_id, now=None):
+    """Settle expired and resolved event contracts, credit paper cash, and clear holdings."""
+    from services.webull_paper_trading_service import _lock_webull_test_account
+    from event_algo_models import EventContractOutcome
+
+    now = utc(now or datetime.now(timezone.utc))
+    account = _lock_webull_test_account(user_id)
+    orders = WebullTestOrder.query.filter_by(user_id=user_id).order_by(WebullTestOrder.id).all()
+    positions = WebullTestPosition.query.filter_by(user_id=user_id, instrument_type='EVENT').filter(WebullTestPosition.quantity > 0).all()
+    if not positions:
+        return
+
+    symbols = {str(pos.symbol or '').replace(' YES', '').replace(' NO', '').strip().upper() for pos in positions}
+    outcomes = {
+        o.contract_symbol: o
+        for o in EventContractOutcome.query.filter(
+            EventContractOutcome.user_id == user_id,
+            EventContractOutcome.contract_symbol.in_(symbols)
+        ).all()
+    }
+
+    for pos in positions:
+        base_sym = str(pos.symbol or '').replace(' YES', '').replace(' NO', '').strip().upper()
+        outcome = outcomes.get(base_sym)
+        if not outcome or outcome.settlement_status != 'RESOLVED':
+            continue
+
+        event_id = f'SIM_EVENT_SETTLEMENT_{pos.id}'
+        if any(order.order_id == event_id for order in orders):
+            pos.quantity = 0
+            continue
+
+        target_side = pos.event_outcome or ('YES' if str(pos.symbol or '').upper().endswith(' YES') else 'NO' if str(pos.symbol or '').upper().endswith(' NO') else 'YES')
+        won = bool(outcome.outcome and str(outcome.outcome).upper() == str(target_side).upper())
+        payout_price = 1.0 if won else 0.0
+        qty = float(pos.quantity or 0.0)
+        cost_basis = round(qty * float(pos.cost_price or 0.0), 2)
+        cash_adjustment = round(qty * payout_price, 2)
+        realized_pnl = round(cash_adjustment - cost_basis, 2)
+        realized_pnl_pct = round((realized_pnl / cost_basis * 100) if cost_basis > 0 else 0.0, 2)
+
+        account.cash_balance = round(account.cash_balance + cash_adjustment, 2)
+        db.session.add(WebullTestOrder(
+            order_id=event_id,
+            user_id=user_id,
+            symbol=pos.symbol,
+            instrument_type='EVENT',
+            side='SETTLEMENT',
+            order_type='EXPIRATION_SETTLEMENT',
+            quantity=qty,
+            filled_quantity=qty,
+            filled_price=payout_price,
+            status='Settled',
+            created_at=now.replace(tzinfo=None),
+            updated_at=now.replace(tzinfo=None),
+            combo_orders=json.dumps({
+                'event': 'event_contract_settlement',
+                'outcome': outcome.outcome,
+                'purchased_outcome': target_side,
+                'won': won,
+                'cost': cost_basis,
+                'proceeds': cash_adjustment,
+                'realized_pnl': realized_pnl,
+                'realized_pnl_pct': realized_pnl_pct,
+                'cash_adjustment': cash_adjustment,
+                'note': f'Event contract settled: result {outcome.outcome}, held {target_side}. Payout ${payout_price:.2f}/contract.'
+            })
+        ))
+        pos.quantity = 0
+        pos.last_price = payout_price
+        pos.updated_at = now.replace(tzinfo=None)
+
+    db.session.commit()

@@ -6,6 +6,20 @@
 
 **Last Updated**: September 2026
 
+## v2.98.3 (September 2026)
+
+- **Event Contract Positions Table Cleanup:**
+  - Excluded expired and resolved event contracts (e.g., `Settled — awaiting removal`, `Closed`, and `RESOLVED` settlement statuses) from the Positions table and tab counters, ensuring only active, open event contract positions are shown.
+  - Implemented automated backend paper settlement reconciliation (`reconcile_paper_events`) to record `EXPIRATION_SETTLEMENT` orders, credit paper cash balances upon contract resolution ($1.00 for winning predictions, $0.00 for losing predictions), and zero out closed event contract quantities.
+- **Order History Financial Tracking (Total Amount, P&L $, P&L %):**
+  - Added dedicated **Total Amount** (total capital spent/received), **P&L ($)** (realized profit or loss), and **P&L (%)** (realized return percentage) columns to both the Webull Order History table (`WebullTrading`) and the combined Orders blotter (`Orders.jsx`).
+  - Supported dynamic layout migration to automatically include these new financial columns for existing saved custom table views.
+  - Enriched paper event contract settlement order history with realized P&L and return metrics directly matching the underlying contract outcome.
+- **Fixed Positions Sticky Symbol Column on Horizontal Scroll:**
+  - Resolved an issue where event contract tickers/symbols slid beneath other columns during horizontal scrolling by removing overriding inline relative positioning, restoring sticky column pinning parity across all asset types.
+- **Reliable Direct Click-to-Manage Modal:**
+  - Replaced the hover popover card with direct click-to-manage functionality on event contract symbols and rows, instantly opening the full `EventPositionModal` for seamless order modification, closing, or buying additional contracts.
+
 ## v2.98.2 (September 2026)
 
 - **Event Contract Positions: Real-Time Update Fix:**
