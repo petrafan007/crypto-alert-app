@@ -2694,15 +2694,52 @@ body.light-mode .pagination-btn.active {
 }
 
 .selected-event-market {
-  display: grid;
-  grid-template-columns: minmax(0, 1.4fr) minmax(240px, 0.6fr);
-  align-items: flex-start;
-  gap: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
   margin-bottom: 0.85rem;
   padding: 0.85rem;
   border: 1px solid rgba(148, 163, 184, 0.25);
   border-radius: 8px;
   background: rgba(15, 23, 42, 0.56);
+}
+
+.selected-event-market-main-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  width: 100%;
+}
+
+.selected-event-market-info-col {
+  flex: 1 1 50%;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.selected-event-market:not(.has-crypto-chart) .selected-event-market-info-col {
+  flex-direction: row;
+  justify-content: space-between;
+  align-items: flex-start;
+}
+
+.selected-event-market-chart-col {
+  flex: 1 1 50%;
+  min-width: 270px;
+  max-width: 480px;
+}
+
+@media (max-width: 768px) {
+  .selected-event-market-main-row {
+    flex-direction: column;
+  }
+  .selected-event-market-chart-col {
+    max-width: 100%;
+    width: 100%;
+  }
 }
 
 .selected-event-market-heading {
@@ -2738,6 +2775,7 @@ body.light-mode .pagination-btn.active {
 }
 
 .selected-event-market-stats {
+  display: flex;
   justify-content: flex-end;
   align-items: flex-end;
   flex-wrap: wrap;
@@ -2747,15 +2785,15 @@ body.light-mode .pagination-btn.active {
   text-align: right;
 }
 
+.selected-event-market.has-crypto-chart .selected-event-market-stats {
+  justify-content: flex-start;
+  align-items: flex-start;
+  text-align: left;
+}
+
 .selected-event-market-stats strong {
   display: inline;
   color: #e2e8f0;
-}
-
-.event-contract-basis,
-.event-proposition-grid,
-.event-contract-detail {
-  grid-column: 1 / -1;
 }
 
 .event-contract-basis {

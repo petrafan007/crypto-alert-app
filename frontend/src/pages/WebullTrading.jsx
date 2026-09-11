@@ -20,6 +20,7 @@ import PortfolioAuditModal from '../components/PortfolioAuditModal';
 import { normalizePortfolioAudit, selectPortfolioAudit, auditOutcomeMessage } from '../utils/portfolioAudit.mjs';
 import { assetType as positionAssetType } from '../utils/positions.mjs';
 import EventPositionModal from '../components/EventPositionModal';
+import EventContractMiniChart from '../components/EventContractMiniChart';
 import { differenceInEasternCalendarDays, formatEasternDate, formatEasternDateTime, formatEasternTime } from '../utils/dateTime';
 import { optionStrategyDefinition } from '../utils/optionStrategies';
 import {
@@ -4583,16 +4584,31 @@ export default function WebullTrading({ isLightMode = false }) {
                         </div>
 
                         {selectedEventMarket && (
-                          <div className="selected-event-market" aria-live="polite">
-                            <div className="selected-event-market-heading">
-                              <span>Selected contract</span>
-                              <strong>{selectedEventMarket.name}</strong>
-                              <code>{selectedEventMarket.symbol}</code>
-                            </div>
-                            <div className="selected-event-market-stats">
-                              <span>Volume <strong>{number(selectedEventMarket.volume, 0)}</strong></span>
-                              <span>Open interest <strong>{number(selectedEventMarket.open_interest, 0)}</strong></span>
-                              <span>Last trade <strong>{eventTimestampLabel(selectedEventMarket.last_trade_time)}</strong></span>
+                          <div className={`selected-event-market ${eventUnderlyingQuote?.instrumentType === 'CRYPTO' ? 'has-crypto-chart' : ''}`} aria-live="polite">
+                            <div className="selected-event-market-main-row">
+                              <div className="selected-event-market-info-col">
+                                <div className="selected-event-market-heading">
+                                  <span>Selected contract</span>
+                                  <strong>{selectedEventMarket.name}</strong>
+                                  <code>{selectedEventMarket.symbol}</code>
+                                </div>
+                                <div className="selected-event-market-stats">
+                                  <span>Volume <strong>{number(selectedEventMarket.volume, 0)}</strong></span>
+                                  <span>Open interest <strong>{number(selectedEventMarket.open_interest, 0)}</strong></span>
+                                  <span>Last trade <strong>{eventTimestampLabel(selectedEventMarket.last_trade_time)}</strong></span>
+                                </div>
+                              </div>
+                              {eventUnderlyingQuote?.instrumentType === 'CRYPTO' && (
+                                <div className="selected-event-market-chart-col">
+                                  <EventContractMiniChart
+                                    symbol={eventUnderlyingQuote.symbol}
+                                    market={selectedEventMarket}
+                                    duration={eventDuration}
+                                    isLightMode={isLightMode}
+                                    livePrice={eventUnderlyingPrice}
+                                  />
+                                </div>
+                              )}
                             </div>
                             <div className="event-contract-basis">{eventProposition.basis}</div>
                             <div className="event-contract-period">Contract period: <strong>{eventPeriodLabel(selectedEventMarket)}</strong></div>

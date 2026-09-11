@@ -6,6 +6,15 @@
 
 **Last Updated**: September 2026
 
+## v2.98.0 (September 2026)
+
+- **Webull Crypto Event Contracts Real-Time Mini Chart:**
+  - **Live Price Tracking & Visualization:** Introduced a real-time mini price chart embedded directly to the right of the selected contract verbiage on the Webull Trading Event Contracts interface (e.g., *"BTC price up in the next 15 minutes"*, ETH, XRP, SOL).
+  - **Context-Aware Default Timeframes:** Automatically detects contract duration and defaults the chart to **15m** for 15-minute contracts and **1h** for hourly contracts, providing instant situational awareness without manual configuration.
+  - **Interactive Granularity & Expansion Controls:** Users can switch between timeframes with a single click: **1m** (minute-by-minute tick granularity), **15m** (last 15 minutes), **1h** (1 hour), and **4h** (4 hours).
+  - **Rich Canvas Display & Hover Crosshair:** Features high-performance hardware-accelerated canvas rendering with smooth gradient area fill, dashed baseline reference price line, pulsing live price indicator, and interactive mouse/touch hover crosshairs displaying Eastern Time and exact prices.
+  - **Universal Dark & Light Theme Parity:** Fully styled for both dark and light modes, seamlessly matching active card backgrounds, borders, and high-contrast typography.
+
 ## v2.97.7 (September 2026)
 
 - **React Hook Order & State Corruption Fix:**
