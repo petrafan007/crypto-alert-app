@@ -1,12 +1,14 @@
 .event-mini-chart-card {
   display: flex;
   flex-direction: column;
+  height: 100%;
+  min-height: 165px;
   background: rgba(15, 23, 42, 0.85);
   border: 1px solid rgba(51, 65, 85, 0.8);
   border-radius: 8px;
-  padding: 0.55rem 0.65rem 0.4rem;
+  padding: 0.5rem 0.65rem 0.4rem;
   width: 100%;
-  min-width: 260px;
+  min-width: 280px;
   box-sizing: border-box;
   position: relative;
   overflow: hidden;
@@ -156,7 +158,8 @@
 .event-mini-chart-body {
   position: relative;
   width: 100%;
-  height: 96px;
+  flex: 1 1 auto;
+  min-height: 135px;
   cursor: crosshair;
 }
 
@@ -200,7 +203,7 @@
 .event-mini-chart-hover-bar {
   position: absolute;
   top: 4px;
-  left: 8px;
+  left: 58px;
   display: inline-flex;
   align-items: center;
   gap: 0.4rem;

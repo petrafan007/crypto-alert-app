@@ -2631,15 +2631,18 @@ body.light-mode .pagination-btn.active {
   font-size: 0.68rem;
 }
 
-.event-market-period,
-.event-contract-period {
+.event-market-period {
   color: #bfdbfe;
   font-size: 0.72rem;
   line-height: 1.35;
 }
 
 .event-contract-period {
-  margin: -0.25rem 0 0.25rem;
+  color: #bfdbfe;
+  font-size: 0.74rem;
+  line-height: 1.4;
+  margin: 0;
+  text-align: left;
 }
 
 .event-market-result-prices {
@@ -2706,9 +2709,9 @@ body.light-mode .pagination-btn.active {
 
 .selected-event-market-main-row {
   display: flex;
-  align-items: flex-start;
+  align-items: stretch;
   justify-content: space-between;
-  gap: 1rem;
+  gap: 1.25rem;
   width: 100%;
 }
 
@@ -2717,19 +2720,23 @@ body.light-mode .pagination-btn.active {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
+  align-items: flex-start;
+  gap: 0.6rem;
+  text-align: left;
 }
 
 .selected-event-market:not(.has-crypto-chart) .selected-event-market-info-col {
-  flex-direction: row;
-  justify-content: space-between;
+  flex-direction: column;
   align-items: flex-start;
+  gap: 0.6rem;
 }
 
 .selected-event-market-chart-col {
   flex: 1 1 50%;
-  min-width: 270px;
-  max-width: 480px;
+  min-width: 290px;
+  max-width: 540px;
+  display: flex;
+  flex-direction: column;
 }
 
 @media (max-width: 768px) {
@@ -2798,13 +2805,15 @@ body.light-mode .pagination-btn.active {
 
 .event-contract-basis {
   width: fit-content;
-  padding: 0.3rem 0.55rem;
+  padding: 0.28rem 0.6rem;
   border: 1px solid rgba(56, 189, 248, 0.35);
   border-radius: 5px;
   background: rgba(14, 165, 233, 0.1);
   color: #7dd3fc;
-  font-size: 0.7rem;
+  font-size: 0.72rem;
   font-weight: 700;
+  margin: 0.1rem 0 0 0;
+  text-align: left;
 }
 
 .event-proposition-grid {

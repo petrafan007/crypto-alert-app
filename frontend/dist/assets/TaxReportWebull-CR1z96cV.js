@@ -1,1 +1,0 @@
-import{j as o}from"./index-DmJPAm1e.js";import{T as t}from"./TaxReport-DJhw4U2P.js";import"./vendor-CIuZd218.js";import"./CryptoIcon-CO7YoxlK.js";import"./assetDisplay-CQE_PzEY.js";import"./ConfigurableOrderTable-qFrWc3t6.js";import"./clsx-Bvdrwz0Z.js";function x(r){return o.jsx(t,{...r,source:"webull"})}export{x as default};

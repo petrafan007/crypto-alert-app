@@ -6,6 +6,21 @@
 
 **Last Updated**: September 2026
 
+## v2.98.1 (September 2026)
+
+- **Webull Event Contracts Mini Chart Layout, Axes, & Granularity Enhancements:**
+  - **Left-Aligned Reference Price & Contract Period:** Relocated the Webull reference price badge and Contract Period date/time range into the left-hand contract information column, left-aligning them directly beneath the contract title and volume/trade statistics.
+  - **Expanded Height & Alignment:** Extended the mini chart to be approximately 50% taller, perfectly aligning its bottom edge horizontally with the bottom of the Contract Period date/time text on the left.
+  - **Integrated X and Y Axes:**
+    - **Y-Axis Price Scale on Left:** Embedded a dedicated price scale along the left edge of the chart canvas with clear price ticks, subtle horizontal dashed gridlines, and unobtrusive typography.
+    - **X-Axis Time Scale:** Rendered an Eastern Time (EDT) axis along the bottom border with tick marks and smart label alignment.
+  - **Refined Timeframe Ranges & Increments:**
+    - **`1m`**: Shows the past 15 minutes in 1-minute increments (15 data points).
+    - **`15m`**: Shows the past 1 hour in 15-minute increments (4 data points).
+    - **`1h`**: Shows the past 6 hours in 1-hour increments (6 data points).
+    - **`4h`**: Shows the last 24 hours in 4-hour increments (6 data points).
+  - **Dynamic Axis Hover Badges:** Added live price and time badge pills on the Y and X axes when hovering or scrubbing with crosshairs.
+
 ## v2.98.0 (September 2026)
 
 - **Webull Crypto Event Contracts Real-Time Mini Chart:**

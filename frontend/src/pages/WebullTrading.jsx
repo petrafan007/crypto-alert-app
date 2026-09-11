@@ -4597,6 +4597,8 @@ export default function WebullTrading({ isLightMode = false }) {
                                   <span>Open interest <strong>{number(selectedEventMarket.open_interest, 0)}</strong></span>
                                   <span>Last trade <strong>{eventTimestampLabel(selectedEventMarket.last_trade_time)}</strong></span>
                                 </div>
+                                {eventProposition.basis && <div className="event-contract-basis">{eventProposition.basis}</div>}
+                                <div className="event-contract-period">Contract period: <strong>{eventPeriodLabel(selectedEventMarket)}</strong></div>
                               </div>
                               {eventUnderlyingQuote?.instrumentType === 'CRYPTO' && (
                                 <div className="selected-event-market-chart-col">
@@ -4610,8 +4612,6 @@ export default function WebullTrading({ isLightMode = false }) {
                                 </div>
                               )}
                             </div>
-                            <div className="event-contract-basis">{eventProposition.basis}</div>
-                            <div className="event-contract-period">Contract period: <strong>{eventPeriodLabel(selectedEventMarket)}</strong></div>
                             <div className="event-proposition-grid">
                               <div className="yes">
                                 <span>YES settles at {eventMoney(eventSettlementPayout)}</span>

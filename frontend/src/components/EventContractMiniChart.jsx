@@ -4,10 +4,10 @@ import { formatEasternTime } from '../utils/dateTime';
 import './EventContractMiniChart.css';
 
 const TIMEFRAME_CONFIGS = {
-  '1m': { interval: '1m', limit: 30, label: '1m', description: 'Minute by minute' },
-  '15m': { interval: '1m', limit: 15, label: '15m', description: 'Last 15 minutes' },
-  '1h': { interval: '1m', limit: 60, label: '1h', description: '1 Hour' },
-  '4h': { interval: '5m', limit: 48, label: '4h', description: '4 Hours' },
+  '1m': { interval: '1m', limit: 15, label: '1m', description: 'Past 15 minutes in 1m increments' },
+  '15m': { interval: '15m', limit: 4, label: '15m', description: 'Past 1 hour in 15m increments' },
+  '1h': { interval: '1h', limit: 6, label: '1h', description: 'Past 6 hours in 1h increments' },
+  '4h': { interval: '4h', limit: 6, label: '4h', description: 'Last 24 hours in 4h increments' },
 };
 
 const detectDefaultTimeframe = (market, duration) => {
@@ -37,6 +37,57 @@ const formatPrice = (val) => {
   return `$${val.toLocaleString('en-US', { minimumFractionDigits: 4, maximumFractionDigits: 6 })}`;
 };
 
+const formatAxisPrice = (val, priceRange) => {
+  if (val == null || !Number.isFinite(val)) return '';
+  if (val >= 10000) {
+    if (priceRange != null && priceRange < 15) {
+      return `$${val.toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}`;
+    }
+    return `$${Math.round(val).toLocaleString('en-US')}`;
+  }
+  if (val >= 1000) {
+    if (priceRange != null && priceRange < 5) {
+      return `$${val.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    }
+    return `$${Math.round(val).toLocaleString('en-US')}`;
+  }
+  if (val >= 1) {
+    return `$${val.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  }
+  return `$${val.toLocaleString('en-US', { minimumFractionDigits: 3, maximumFractionDigits: 4 })}`;
+};
+
+const formatXAxisTime = (timestamp, timeframe) => {
+  if (!timestamp) return '';
+  const d = new Date(timestamp);
+  if (isNaN(d.getTime())) return '';
+
+  try {
+    if (timeframe === '4h') {
+      const parts = new Intl.DateTimeFormat('en-US', {
+        timeZone: 'America/New_York',
+        month: 'numeric',
+        day: 'numeric',
+        hour: 'numeric',
+        hour12: true,
+      }).formatToParts(d);
+      const m = parts.find((p) => p.type === 'month')?.value || '';
+      const day = parts.find((p) => p.type === 'day')?.value || '';
+      const h = parts.find((p) => p.type === 'hour')?.value || '';
+      const dp = parts.find((p) => p.type === 'dayPeriod')?.value || '';
+      return `${m}/${day} ${h} ${dp}`;
+    }
+    return new Intl.DateTimeFormat('en-US', {
+      timeZone: 'America/New_York',
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true,
+    }).format(d);
+  } catch (e) {
+    return d.toLocaleTimeString();
+  }
+};
+
 export default function EventContractMiniChart({
   symbol,
   market,
@@ -55,11 +106,30 @@ export default function EventContractMiniChart({
   const [error, setError] = useState(null);
   const [hoverData, setHoverData] = useState(null);
   const [chartMode, setChartMode] = useState('area'); // 'area' or 'candle'
+  const [containerSize, setContainerSize] = useState({ width: 0, height: 0 });
 
   const canvasRef = useRef(null);
   const containerRef = useRef(null);
   const pollTimerRef = useRef(null);
   const abortControllerRef = useRef(null);
+
+  // Observe container dimensions for responsive canvas sizing
+  useEffect(() => {
+    const el = canvasRef.current?.parentElement;
+    if (!el) return;
+
+    const observer = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const { width, height } = entry.contentRect;
+        if (width > 0 && height > 0) {
+          setContainerSize({ width: Math.round(width), height: Math.round(height) });
+        }
+      }
+    });
+
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
 
   // Sync default timeframe when market or contract duration changes
   useEffect(() => {
@@ -207,14 +277,15 @@ export default function EventContractMiniChart({
       return;
     }
 
+    // Chart margins: Left padding leaves ample room for Y-axis price labels
+    const padLeft = 54;
+    const padRight = 10;
     const padTop = 14;
-    const padBottom = 16;
-    const padLeft = 8;
-    const padRight = 8;
-    const drawWidth = width - padLeft - padRight;
-    const drawHeight = height - padTop - padBottom;
+    const padBottom = 22;
+    const drawWidth = Math.max(10, width - padLeft - padRight);
+    const drawHeight = Math.max(10, height - padTop - padBottom);
 
-    // Calculate min and max
+    // Calculate min and max price
     let minPrice = Infinity;
     let maxPrice = -Infinity;
     displayCandles.forEach((c) => {
@@ -233,26 +304,63 @@ export default function EventContractMiniChart({
     const getY = (price) => padTop + drawHeight - ((price - minPrice) / priceRange) * drawHeight;
     const getX = (idx) => padLeft + (idx / (displayCandles.length - 1)) * drawWidth;
 
+    // --- 1. Y-Axis Gridlines & Price Labels (on the Left) ---
+    const yTickFractions = drawHeight >= 110 ? [0, 0.333, 0.667, 1] : [0, 0.5, 1];
+    ctx.save();
+    ctx.font = '9px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, monospace';
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'middle';
+
+    yTickFractions.forEach((fraction) => {
+      const y = padTop + drawHeight * (1 - fraction);
+      const priceAtTick = minPrice + fraction * priceRange;
+      const label = formatAxisPrice(priceAtTick, priceRange);
+
+      // Subtle horizontal gridline
+      ctx.save();
+      ctx.strokeStyle = isLightMode ? 'rgba(226, 232, 240, 0.8)' : 'rgba(30, 41, 59, 0.7)';
+      ctx.setLineDash([2, 3]);
+      ctx.beginPath();
+      ctx.moveTo(padLeft, y);
+      ctx.lineTo(width - padRight, y);
+      ctx.stroke();
+      ctx.restore();
+
+      // Tick mark on Y-axis
+      ctx.strokeStyle = isLightMode ? 'rgba(148, 163, 184, 0.6)' : 'rgba(71, 85, 105, 0.6)';
+      ctx.beginPath();
+      ctx.moveTo(padLeft - 3, y);
+      ctx.lineTo(padLeft, y);
+      ctx.stroke();
+
+      // Price text on left
+      ctx.fillStyle = isLightMode ? '#64748b' : '#94a3b8';
+      ctx.fillText(label, padLeft - 6, y);
+    });
+    ctx.restore();
+
+    // Baseline dashed reference line
+    const baseY = getY(startPrice);
+    if (baseY >= padTop && baseY <= height - padBottom) {
+      ctx.save();
+      ctx.strokeStyle = isLightMode ? 'rgba(100, 116, 139, 0.65)' : 'rgba(148, 163, 184, 0.45)';
+      ctx.setLineDash([4, 3]);
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(padLeft, baseY);
+      ctx.lineTo(width - padRight, baseY);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    // --- 2. Chart Series (Area or Candles) ---
     const isUp = priceChange.isPositive;
     const strokeColor = isUp ? '#10b981' : '#f43f5e';
     const topGradient = isUp ? 'rgba(16, 185, 129, 0.28)' : 'rgba(244, 63, 94, 0.28)';
     const bottomGradient = isUp ? 'rgba(16, 185, 129, 0.01)' : 'rgba(244, 63, 94, 0.01)';
 
-    // Baseline dashed reference line
-    const baseY = getY(startPrice);
-    ctx.save();
-    ctx.strokeStyle = isLightMode ? 'rgba(148, 163, 184, 0.45)' : 'rgba(148, 163, 184, 0.25)';
-    ctx.setLineDash([3, 3]);
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(padLeft, baseY);
-    ctx.lineTo(width - padRight, baseY);
-    ctx.stroke();
-    ctx.restore();
-
     if (chartMode === 'candle') {
-      // Candlestick rendering
-      const candleWidth = Math.max(2, Math.min(8, (drawWidth / displayCandles.length) * 0.7));
+      const candleWidth = Math.max(3, Math.min(10, (drawWidth / displayCandles.length) * 0.65));
       displayCandles.forEach((c, i) => {
         const x = getX(i);
         const candleUp = c.close >= c.open;
@@ -314,7 +422,7 @@ export default function EventContractMiniChart({
       ctx.stroke();
       ctx.restore();
 
-      // Glowing dot at latest point
+      // Glowing live point at latest data point
       const lastPoint = points[points.length - 1];
       ctx.save();
       ctx.beginPath();
@@ -331,14 +439,65 @@ export default function EventContractMiniChart({
       ctx.restore();
     }
 
-    // Crosshair rendering if hovered
+    // --- 3. Axis Border Lines (Y-Axis & X-Axis) ---
+    ctx.save();
+    ctx.strokeStyle = isLightMode ? 'rgba(203, 213, 225, 0.9)' : 'rgba(71, 85, 105, 0.7)';
+    ctx.lineWidth = 1;
+
+    // Vertical Y-Axis border
+    ctx.beginPath();
+    ctx.moveTo(padLeft, padTop);
+    ctx.lineTo(padLeft, height - padBottom);
+    ctx.stroke();
+
+    // Horizontal X-Axis border
+    ctx.beginPath();
+    ctx.moveTo(padLeft, height - padBottom);
+    ctx.lineTo(width - padRight, height - padBottom);
+    ctx.stroke();
+    ctx.restore();
+
+    // --- 4. X-Axis Time Ticks & Labels (along Bottom) ---
+    ctx.save();
+    ctx.font = '9px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, monospace';
+    ctx.fillStyle = isLightMode ? '#64748b' : '#94a3b8';
+    ctx.textBaseline = 'top';
+
+    const numTimeLabels = Math.min(4, displayCandles.length);
+    const tickStep = (displayCandles.length - 1) / Math.max(1, numTimeLabels - 1);
+    const selectedIndices = [];
+    for (let k = 0; k < numTimeLabels; k++) {
+      selectedIndices.push(Math.round(k * tickStep));
+    }
+    const uniqueTickIndices = [...new Set(selectedIndices)];
+
+    uniqueTickIndices.forEach((idx) => {
+      const candle = displayCandles[idx];
+      if (!candle) return;
+      const x = getX(idx);
+      const timeStr = formatXAxisTime(candle.time, timeframe);
+
+      // Tick mark down from X-axis
+      ctx.strokeStyle = isLightMode ? 'rgba(148, 163, 184, 0.6)' : 'rgba(71, 85, 105, 0.6)';
+      ctx.beginPath();
+      ctx.moveTo(x, height - padBottom);
+      ctx.lineTo(x, height - padBottom + 3);
+      ctx.stroke();
+
+      // Align label: left at start, right at end, center elsewhere
+      ctx.textAlign = idx === 0 ? 'left' : (idx === displayCandles.length - 1 ? 'right' : 'center');
+      ctx.fillText(timeStr, x, height - padBottom + 5);
+    });
+    ctx.restore();
+
+    // --- 5. Interactive Crosshair & Hover Highlights ---
     if (hoverData && hoverData.index != null && hoverData.index >= 0 && hoverData.index < displayCandles.length) {
       const hoverIndex = hoverData.index;
       const hx = getX(hoverIndex);
       const hy = getY(displayCandles[hoverIndex].close);
 
       ctx.save();
-      ctx.strokeStyle = isLightMode ? 'rgba(30, 41, 59, 0.4)' : 'rgba(255, 255, 255, 0.4)';
+      ctx.strokeStyle = isLightMode ? 'rgba(30, 41, 59, 0.5)' : 'rgba(255, 255, 255, 0.5)';
       ctx.setLineDash([2, 2]);
       ctx.lineWidth = 1;
 
@@ -354,14 +513,35 @@ export default function EventContractMiniChart({
       ctx.lineTo(width - padRight, hy);
       ctx.stroke();
 
-      // Hover point dot
+      // Point dot
       ctx.beginPath();
-      ctx.arc(hx, hy, 4, 0, Math.PI * 2);
+      ctx.arc(hx, hy, 3.5, 0, Math.PI * 2);
       ctx.fillStyle = isLightMode ? '#0f172a' : '#ffffff';
       ctx.fill();
       ctx.restore();
+
+      // Highlight badge on Y-axis (Price)
+      ctx.save();
+      const hoverPriceStr = formatPrice(displayCandles[hoverIndex].close);
+      ctx.font = 'bold 9px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, monospace';
+      const textWidth = ctx.measureText(hoverPriceStr).width;
+      const pillWidth = textWidth + 8;
+      const pillHeight = 15;
+      const pillX = Math.max(2, padLeft - pillWidth - 2);
+      const pillY = Math.max(padTop - 7, Math.min(height - padBottom - 8, hy - pillHeight / 2));
+
+      ctx.fillStyle = isLightMode ? '#1e293b' : '#38bdf8';
+      ctx.beginPath();
+      ctx.roundRect ? ctx.roundRect(pillX, pillY, pillWidth, pillHeight, 3) : ctx.rect(pillX, pillY, pillWidth, pillHeight);
+      ctx.fill();
+
+      ctx.fillStyle = isLightMode ? '#ffffff' : '#0f172a';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(hoverPriceStr, pillX + pillWidth / 2, pillY + pillHeight / 2);
+      ctx.restore();
     }
-  }, [displayCandles, chartMode, isLightMode, priceChange.isPositive, startPrice, hoverData]);
+  }, [displayCandles, chartMode, isLightMode, priceChange.isPositive, startPrice, hoverData, containerSize, timeframe]);
 
   // Mouse / Touch crosshair events
   const handleMouseMove = (e) => {
@@ -371,8 +551,8 @@ export default function EventContractMiniChart({
     const clientX = e.touches ? e.touches[0].clientX : e.clientX;
     const xPos = clientX - rect.left;
 
-    const padLeft = 8;
-    const padRight = 8;
+    const padLeft = 54;
+    const padRight = 10;
     const drawWidth = rect.width - padLeft - padRight;
     const clampedX = Math.max(0, Math.min(drawWidth, xPos - padLeft));
     const ratio = clampedX / drawWidth;
