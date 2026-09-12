@@ -260,6 +260,13 @@ export default function EventPositionModal({
     };
   }, [isOpen, symbol, market?.symbol, outcome, side]);
 
+  const [clock, setClock] = useState(Date.now());
+  useEffect(() => {
+    if (!isOpen) return undefined;
+    const timer = window.setInterval(() => setClock(Date.now()), 100);
+    return () => window.clearInterval(timer);
+  }, [isOpen]);
+
   const symbolCutoff = cutoffFromSymbol(market?.symbol || symbol);
   const cutoff = symbolCutoff ? new Date(symbolCutoff) : providerTime(
     market?.contract_period_end
@@ -268,6 +275,9 @@ export default function EventPositionModal({
     || market?.expected_exp_date
     || market?.latest_exp_date
   );
+
+  const isCutoffPassed = cutoff ? cutoff.getTime() <= (clock + serverOffset) : false;
+  const isExpired = cutoffExpired || isCutoffPassed;
 
   // Resolve Opens using contract_period_start, falling back to open_date (only if non-midnight UTC)
   const opensDate = useMemo(() => {
@@ -293,15 +303,16 @@ export default function EventPositionModal({
   }, [market?.payout_date, cutoff]);
 
   const providerStatus = String(market?.tradable_status || '').toUpperCase();
-  const isWebullOpen = providerStatus === 'OC' || providerStatus === 'CO';
-  const effectiveStatus = isWebullOpen ? providerStatus : (cutoffExpired ? 'NT' : providerStatus);
-  const statusLabel = effectiveStatus === 'OC'
-    ? 'Open for trading'
-    : effectiveStatus === 'CO'
-      ? 'Closing only'
-      : effectiveStatus === 'NT'
-        ? 'Trading closed / awaiting determination'
-        : 'Status unavailable';
+  const effectiveStatus = isExpired
+    ? 'CLOSED'
+    : (['OC', 'CO'].includes(providerStatus) ? providerStatus : 'CLOSED');
+  const statusLabel = isExpired
+    ? 'Closed'
+    : (effectiveStatus === 'OC'
+      ? 'Open for trading'
+      : effectiveStatus === 'CO'
+        ? 'Closing only'
+        : 'Closed');
   const rules = market?.rules || {};
   const averagePrice = isOpenOrder ? null : numeric(record?.avg_entry ?? record?.cost_price, 0);
   const positionQuantity = isOpenOrder ? availableQuantity : numeric(record?.quantity ?? record?.amount, 0);
@@ -474,34 +485,55 @@ export default function EventPositionModal({
                 </div>
 
                 <div className="event-position-col-right">
-                  <div className="event-position-order-card">
+                  <div className={`event-position-order-card ${isExpired ? 'is-expired' : ''}`}>
                     <h3>{isOpenOrder ? 'Replace this open order' : 'Manage this position'}</h3>
                     <div className="event-position-order-actions">
                       {isOpenOrder && (
                         <button
                           type="button"
                           className="cancel-open-order"
-                          disabled={cancellingOrderId === record.id}
+                          disabled={isExpired || cancellingOrderId === record.id}
                           onClick={() => onCancelOrder?.(record)}
                         >
                           {cancellingOrderId === record.id ? 'Cancelling...' : 'Cancel Open Order'}
                         </button>
                       )}
-                      <button type="button" className={side === 'BUY' && outcome === 'yes' ? 'active yes' : ''} disabled={effectiveStatus !== 'OC'} onClick={() => chooseOrder('BUY', 'yes')}>Buy Yes {cents(market.yes_ask)}</button>
-                      <button type="button" className={side === 'BUY' && outcome === 'no' ? 'active no' : ''} disabled={effectiveStatus !== 'OC'} onClick={() => chooseOrder('BUY', 'no')}>Buy No {cents(market.no_ask)}</button>
-                      <button type="button" className={side === 'SELL' ? 'active close-position' : ''} disabled={!['OC', 'CO'].includes(effectiveStatus) || (!isOpenOrder && availableQuantity <= 0)} onClick={() => chooseOrder('SELL', positionOutcome)}>Close {positionOutcome.toUpperCase()} Position {cents(executableBid)}</button>
+                      <button type="button" className={side === 'BUY' && outcome === 'yes' ? 'active yes' : ''} disabled={isExpired || effectiveStatus !== 'OC'} onClick={() => chooseOrder('BUY', 'yes')}>Buy Yes {cents(market.yes_ask)}</button>
+                      <button type="button" className={side === 'BUY' && outcome === 'no' ? 'active no' : ''} disabled={isExpired || effectiveStatus !== 'OC'} onClick={() => chooseOrder('BUY', 'no')}>Buy No {cents(market.no_ask)}</button>
+                      <button type="button" className={side === 'SELL' ? 'active close-position' : ''} disabled={isExpired || !['OC', 'CO'].includes(effectiveStatus) || (!isOpenOrder && availableQuantity <= 0)} onClick={() => chooseOrder('SELL', positionOutcome)}>Close {positionOutcome.toUpperCase()} Position {cents(executableBid)}</button>
                     </div>
                     <div className="event-position-order-fields">
-                      <label>Contracts<input type="number" min="0" step={rules.fractionable ? '0.00001' : '1'} value={quantity} onChange={(event) => { setQuantity(event.target.value); setValidationError(''); }} /></label>
-                      <label>Limit price (USD)<input type="number" min="0" max="1" step="0.0001" value={price} onChange={(event) => { setPrice(event.target.value); setValidationError(''); }} /></label>
+                      <label>Contracts<input type="number" min="0" step={rules.fractionable ? '0.00001' : '1'} value={quantity} disabled={isExpired} onChange={(event) => { setQuantity(event.target.value); setValidationError(''); }} /></label>
+                      <label>Limit price (USD)<input type="number" min="0" max="1" step="0.0001" value={price} disabled={isExpired} onChange={(event) => { setPrice(event.target.value); setValidationError(''); }} /></label>
                       <div className="event-position-quote-box"><span>Current quote</span><strong>{cents(selectedQuote)}</strong></div>
                     </div>
                     {validationError && <p className="event-position-validation" role="alert">{validationError}</p>}
                     <div className="event-position-order-footer">
-                      <small>Limit / Day only. {isOpenOrder ? `Submitting will cancel open order #${record?.id || record?.order_id} and submit this updated order.` : 'Live orders continue through the normal Webull confirmation and security checks.'}</small>
-                      <button type="button" className="event-position-review" disabled={loading || !market || (side === 'BUY' ? effectiveStatus !== 'OC' : !['OC', 'CO'].includes(effectiveStatus))} onClick={reviewOrder}>
-                        {isOpenOrder ? 'Review & Replace Order' : `Review ${side === 'SELL' ? 'Close Position' : `Buy ${outcome.toUpperCase()}`} Order`}
-                      </button>
+                      <small>
+                        {isExpired
+                          ? 'Trading cutoff has passed. This contract is closed and awaiting settlement determination.'
+                          : (isOpenOrder ? `Submitting will cancel open order #${record?.id || record?.order_id} and submit this updated order.` : 'Limit / Day only. Live orders continue through the normal Webull confirmation and security checks.')
+                        }
+                      </small>
+                      {isExpired ? (
+                        <button
+                          type="button"
+                          className="event-position-review expired-close-btn"
+                          onClick={onClose}
+                          aria-label="Close modal"
+                        >
+                          Close
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          className="event-position-review"
+                          disabled={loading || !market || (side === 'BUY' ? effectiveStatus !== 'OC' : !['OC', 'CO'].includes(effectiveStatus))}
+                          onClick={reviewOrder}
+                        >
+                          {isOpenOrder ? 'Review & Replace Order' : `Review ${side === 'SELL' ? 'Close Position' : `Buy ${outcome.toUpperCase()}`} Order`}
+                        </button>
+                      )}
                     </div>
                   </div>
                 </div>

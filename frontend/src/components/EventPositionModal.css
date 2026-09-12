@@ -182,7 +182,8 @@
 
 .event-position-status.status-oc { color: #4ade80; border-color: rgba(74, 222, 128, 0.5); background: rgba(22, 163, 74, 0.12); }
 .event-position-status.status-co { color: #fbbf24; border-color: rgba(251, 191, 36, 0.5); background: rgba(217, 119, 6, 0.12); }
-.event-position-status.status-nt { color: #f87171; border-color: rgba(248, 113, 113, 0.5); background: rgba(220, 38, 38, 0.12); }
+.event-position-status.status-nt,
+.event-position-status.status-closed { color: #f87171; border-color: rgba(248, 113, 113, 0.5); background: rgba(220, 38, 38, 0.12); }
 
 .event-position-modal-body {
   max-height: calc(100vh - 150px);
@@ -460,6 +461,31 @@
   color: #fff;
   font-weight: 700;
   font-size: 0.82rem;
+}
+
+/* Expired Close button: prominent red button */
+.event-position-review.expired-close-btn {
+  background: #dc2626 !important;
+  border-color: #ef4444 !important;
+  color: #fff !important;
+  cursor: pointer !important;
+  opacity: 1 !important;
+  box-shadow: 0 0 14px rgba(239, 68, 68, 0.4);
+}
+.event-position-review.expired-close-btn:hover {
+  background: #b91c1c !important;
+  border-color: #f87171 !important;
+}
+
+/* Gray out order card controls when expired */
+.event-position-order-card.is-expired .event-position-order-actions button:not(.expired-close-btn),
+.event-position-order-card.is-expired .event-position-order-fields label,
+.event-position-order-card.is-expired .event-position-order-fields input,
+.event-position-order-card.is-expired .event-position-quote-box {
+  opacity: 0.35;
+  filter: grayscale(1);
+  pointer-events: none;
+  cursor: not-allowed;
 }
 
 @media (max-width: 900px) {

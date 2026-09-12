@@ -6,6 +6,14 @@
 
 **Last Updated**: September 2026
 
+## v2.99.4 (September 2026)
+
+- **Event Contract Modal Expiry State & Closed Lockout (`EventPositionModal`)**:
+  - Automatically and reactively detects expiration when the contract trading cutoff passes (`cutoff <= now`) or countdown timer reaches `00:00.000`.
+  - Instantly transitions the top-right status badge from green "Open for trading" to red "Closed".
+  - Grays out and disables all order action buttons ("Buy Yes", "Buy No", "Close Position", "Cancel Open Order"), quantity and price inputs, preventing any invalid order submissions.
+  - Replaces the review order submission button with a prominent red "Close" button that cleanly dismisses the modal.
+
 ## v2.99.3 (September 2026)
 
 - **Event Contract Modal Single-Screen Reorganization (`EventPositionModal`)**:
