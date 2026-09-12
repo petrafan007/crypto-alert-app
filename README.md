@@ -6,6 +6,12 @@
 
 **Last Updated**: September 2026
 
+## v2.99.7 (September 2026)
+
+- **Emergency Hotfix: Webull Trading View Crash (`WebullTrading`)**:
+  - Fixed a critical `ReferenceError: eventMarket is not defined` in `WebullTrading.jsx` that triggered the top-level `ErrorBoundary` and prevented the Webull trading view from rendering.
+  - Corrected market lookup in `initialMarket` for `EventPositionModal` to properly search the `eventMarkets` state collection.
+
 ## v2.99.6 (September 2026)
 
 - **Event Contract Modal Robust State & Seamless Market Preservation (`EventPositionModal`)**:

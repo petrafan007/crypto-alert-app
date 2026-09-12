@@ -6685,8 +6685,7 @@ export default function WebullTrading({ isLightMode = false }) {
           eventMarkets.find((m) => {
             const sym = (eventPositionHolding?.underlying_symbol || eventPositionHolding?.symbol || eventOpenOrder?.underlying_symbol || eventOpenOrder?.symbol || '').replace(/\s+(YES|NO)$/i, '').trim().toUpperCase();
             return m.symbol === sym || m.event_symbol === sym;
-          })
-          || (eventMarket && (eventMarket.symbol === (eventPositionHolding?.underlying_symbol || eventPositionHolding?.symbol || eventOpenOrder?.underlying_symbol || eventOpenOrder?.symbol || '').replace(/\s+(YES|NO)$/i, '').trim().toUpperCase()) ? eventMarket : null)
+          }) || null
         }
         isTestMode={isTestMode}
         isLightMode={isLightMode}
