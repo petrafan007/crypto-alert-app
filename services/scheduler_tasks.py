@@ -1369,13 +1369,18 @@ def sentiment_outcome_evaluation_loop(app):
             @safe_background_iteration
             def iteration():
                 from models import WebullTestAccount
-                from services.webull_paper_lifecycle import reconcile_paper_options
+                from services.webull_paper_lifecycle import reconcile_paper_options, reconcile_paper_events
                 for account in WebullTestAccount.query.all():
                     try:
                         reconcile_paper_options(account.user_id)
                     except Exception:
                         db.session.rollback()
                         logger.exception('Paper option lifecycle update failed for user %s', account.user_id)
+                    try:
+                        reconcile_paper_events(account.user_id)
+                    except Exception:
+                        db.session.rollback()
+                        logger.exception('Paper event lifecycle update failed for user %s', account.user_id)
                 evaluated = evaluate_pending_fixed_horizon_sentiments()
                 evaluated += evaluate_due_webull_signals()
                 if evaluated:
@@ -1422,6 +1427,9 @@ def start_background_jobs(app=None):
     quant_event_thread.start()
     quant_audit_thread = threading.Thread(target=portfolio_audit_loop, args=(app,), daemon=True, name="quant-cio-audits")
     quant_audit_thread.start()
+    from services.portfolio_audit_lifecycle import audit_recovery_loop
+    quant_recovery_thread = threading.Thread(target=audit_recovery_loop, args=(app,), daemon=True, name="quant-audit-recovery")
+    quant_recovery_thread.start()
     
     # 1. Binance Portfolio Sync Loop
     sync_thread = threading.Thread(target=background_binance_sync_loop, args=(app,), daemon=True)
@@ -1483,6 +1491,7 @@ def start_background_jobs(app=None):
         "quantitative_strategy": quant_thread,
         "quantitative_event_handoff": quant_event_thread,
         "quantitative_audits": quant_audit_thread,
+        "quantitative_audit_recovery": quant_recovery_thread,
         "options_thesis": t_opt,
         "sync": sync_thread,
         "order_status": order_status_thread,

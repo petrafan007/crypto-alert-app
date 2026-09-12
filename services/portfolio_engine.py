@@ -35,6 +35,8 @@ from services.portfolio_goal_tracking import build_goal_tracking
 from services.portfolio_calibration import event_calibration
 from services.portfolio_execution_math import costs, fill_price, entry_quantity, spot_exit
 from services.portfolio_audit_progress import audit_progress
+from services.portfolio_audit_lifecycle import require_pending_audit, recover_stale_audits
+from services.provider_resilience import AuditCancelled
 from services.portfolio_audit_context import (
     ENGINE_PURPOSE, EVIDENCE_RULES, STRATEGY_RULES, audit_system_prompt, check_drawdown_claim,
 )
@@ -1115,6 +1117,7 @@ def audit_dict(row):
 
 
 def save_audit_progress(audit_id, evidence, stage=None, module=None, **details):
+    row = require_pending_audit(audit_id)
     now = datetime.utcnow().isoformat()+'Z'
     progress = evidence.setdefault('audit_progress', {})
     if stage is not None:
@@ -1122,7 +1125,6 @@ def save_audit_progress(audit_id, evidence, stage=None, module=None, **details):
                         provider=None, model=None, tier=None, event=None, retry_at=None)
     progress.update(details, updated_at=now)
     evidence['audit_progress_at'] = now
-    row = db.session.get(Audit, audit_id)
     row.evidence_json = json.dumps(evidence)
     db.session.commit()
 
@@ -1160,22 +1162,15 @@ def audit_due(cfg, state, now):
 def reserve_audit(user_id, scheduled=False):
     """Reserve one audit under the engine lock before dispatching provider work."""
     ensure_portfolio(user_id)
+    recover_stale_audits(user_id)
     cfg, acc, state = locked(user_id)
     now = datetime.utcnow()
     if scheduled and not audit_due(cfg, state, now):
         db.session.rollback()
         return None
-    pending = Audit.query.filter_by(user_id=user_id, status='PENDING').all()
-    for active in pending:
-        progress = loads(active.evidence_json, {}).get('audit_progress_at')
-        last_activity = utc(progress or active.created_at)
-        from services.ai_service import audit_provider_timeout_seconds
-        if utc(now)-last_activity < timedelta(seconds=max(900, audit_provider_timeout_seconds()+180)):
-            db.session.rollback()
-            raise ValueError('A portfolio audit is already running.')
-    for stale in pending:
-        stale.status = 'FAILED'
-        stale.content = 'Audit interrupted or timed out; no verdict available.'
+    if Audit.query.filter_by(user_id=user_id, status='PENDING').first():
+        db.session.rollback()
+        raise ValueError('A portfolio audit is already running.')
     row = Audit(user_id=user_id, generation=state.generation, created_at=now,
                 content='Audit queued. Collecting portfolio evidence and module assessments.',
                 evidence_json=json.dumps({'audit_progress': {'stage': 'queued',
@@ -1385,6 +1380,8 @@ def run_audit(user_id, prompt=None, scheduled=False, audit_id=None):
                     evidence.setdefault('module_providers', {})[module] = {
                         'provider': getattr(response, 'provider', None), 'model': getattr(response, 'model', None)}
                     evidence.setdefault('module_audit_inputs', {})[module] = module_evidence
+                except AuditCancelled:
+                    raise
                 except Exception as exc:
                     db.session.rollback()
                     module_responses[module] = None
@@ -1393,10 +1390,7 @@ def run_audit(user_id, prompt=None, scheduled=False, audit_id=None):
                         evidence.setdefault('incomplete_module_outputs', {})[module] = exc.partial_text
                     _record_portfolio_log(user_id, 'AUDIT_MODULE_FAILED',
                                           f'{module} assessment unavailable: {module_errors[module]}', level='WARNING')
-                row = db.session.get(Audit, audit_id)
-                evidence['audit_progress_at'] = datetime.utcnow().isoformat()+'Z'
-                row.evidence_json = json.dumps(evidence)
-                db.session.commit()
+                save_audit_progress(audit_id, evidence)
                 last_prompt_finished_at = time.monotonic()
                 save_audit_progress(audit_id, evidence, event='spacing', provider=None, model=None,
                     retry_at=(datetime.utcnow()+timedelta(seconds=prompt_interval)).isoformat()+'Z')
@@ -1426,14 +1420,23 @@ def run_audit(user_id, prompt=None, scheduled=False, audit_id=None):
                        f"${evidence['account']['total_equity']:,.2f}. Observed maximum drawdown: "
                        f"{evidence['performance']['max_drawdown_pct']:.2f}%. "
                        'Review the evidence and module diagnostics below. No forecast, correlation estimate or stress-test result has been generated.')
-        row = db.session.get(Audit, audit_id)
+        row = require_pending_audit(audit_id)
         row.content, row.status, row.provider, row.model = content, status, provider, model
         evidence.setdefault('audit_progress', {})['finished_at'] = datetime.utcnow().isoformat()+'Z'
         row.evidence_json = json.dumps(evidence)
         db.session.commit()
+    except AuditCancelled:
+        db.session.rollback()
+        row = db.session.get(Audit, audit_id, populate_existing=True)
+        return audit_dict(row) if row else None
     except Exception as exc:
         db.session.rollback()
-        row = db.session.get(Audit, audit_id)
+        try:
+            row = require_pending_audit(audit_id)
+        except AuditCancelled:
+            db.session.rollback()
+            row = db.session.get(Audit, audit_id, populate_existing=True)
+            return audit_dict(row) if row else None
         row.status = 'FAILED'
         row.content = f'AI audit failed: {str(exc)[:300]}. No quantitative verdict was generated. Preserved evidence and completed module assessments are available below.'
         evidence['audit_error'] = str(exc)[:300]

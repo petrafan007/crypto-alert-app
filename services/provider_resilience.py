@@ -33,6 +33,10 @@ class AIRequestDeferred(RuntimeError):
     """Expected scheduling deferral before an AI provider is attempted."""
 
 
+class AuditCancelled(RuntimeError):
+    """The audit lost its persisted right to continue or publish a result."""
+
+
 _memory = {}
 _lock = threading.RLock()
 _inflight = set()
@@ -133,7 +137,7 @@ def retry_seconds(response=None, detail='', now=None):
 
 
 def block_failure(key, owner, service, exc):
-    if isinstance(exc, ProviderUnavailable):
+    if isinstance(exc, (ProviderUnavailable, AuditCancelled)):
         return
     response = getattr(exc, 'response', None)
     code = getattr(exc, 'status_code', None) or (getattr(response, 'status_code', None) if response is not None else None)

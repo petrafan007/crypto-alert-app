@@ -69,6 +69,93 @@ class WebullPaperTradingRulesTests(unittest.TestCase):
         ]
         self.assertEqual(grouped_reserved_quantity(orders), 6)
 
+    def test_event_limit_order_below_ask_sits_as_working_order(self):
+        from unittest.mock import patch, MagicMock
+        from services.webull_paper_trading_service import execute_webull_test_order
+
+        account_mock = MagicMock(cash_balance=100.0, user_id=1)
+        quote = {
+            'symbol': 'KXBTC-TEST',
+            'yes_ask': 0.47,
+            'yes_bid': 0.45,
+            'no_ask': 0.55,
+            'no_bid': 0.53,
+            'status': 'active',
+        }
+        order_data = {
+            'symbol': 'KXBTC-TEST',
+            'side': 'BUY',
+            'order_type': 'LIMIT',
+            'quantity': 10,
+            'limit_price': 0.10,
+            'instrument_type': 'EVENT',
+            'event_outcome': 'yes',
+            '_event_market_rules': {
+                'max_quantity': 100,
+                'fractionable': False,
+                'price_ranges': [{'start': 0.01, 'end': 0.99, 'step': 0.01}],
+            },
+            '_event_market': quote,
+        }
+
+        with patch('services.webull_paper_trading_service.db.session'), \
+             patch('services.webull_paper_trading_service._lock_webull_test_account', return_value=account_mock), \
+             patch('services.webull_paper_trading_service.fetch_live_price', return_value=0.47), \
+             patch('services.webull_paper_trading_service._reserved_cash_amount', return_value=0.0), \
+             patch('services.webull_paper_trading_service._reserved_short_margin', return_value=0.0), \
+             patch('services.webull_paper_trading_service._current_short_margin', return_value=0.0), \
+             patch('services.webull_paper_trading_service._find_or_merge_position', return_value=None):
+
+            result = execute_webull_test_order(1, order_data)
+
+            self.assertTrue(result['success'])
+            self.assertEqual(result['status'], 'Working')
+            self.assertIn('working', result['message'].lower())
+
+    def test_event_limit_order_at_or_above_ask_fills_with_price_improvement(self):
+        from unittest.mock import patch, MagicMock
+        from services.webull_paper_trading_service import execute_webull_test_order
+
+        account_mock = MagicMock(cash_balance=100.0, user_id=1)
+        quote = {
+            'symbol': 'KXBTC-TEST',
+            'yes_ask': 0.47,
+            'yes_bid': 0.45,
+            'no_ask': 0.55,
+            'no_bid': 0.53,
+            'status': 'active',
+        }
+        order_data = {
+            'symbol': 'KXBTC-TEST',
+            'side': 'BUY',
+            'order_type': 'LIMIT',
+            'quantity': 10,
+            'limit_price': 0.50,
+            'instrument_type': 'EVENT',
+            'event_outcome': 'yes',
+            '_event_market_rules': {
+                'max_quantity': 100,
+                'fractionable': False,
+                'price_ranges': [{'start': 0.01, 'end': 0.99, 'step': 0.01}],
+            },
+            '_event_market': quote,
+        }
+
+        with patch('services.webull_paper_trading_service.db.session'), \
+             patch('services.webull_paper_trading_service._lock_webull_test_account', return_value=account_mock), \
+             patch('services.webull_paper_trading_service.fetch_live_price', return_value=0.47), \
+             patch('services.webull_paper_trading_service._reserved_cash_amount', return_value=0.0), \
+             patch('services.webull_paper_trading_service._reserved_short_margin', return_value=0.0), \
+             patch('services.webull_paper_trading_service._current_short_margin', return_value=0.0), \
+             patch('services.webull_paper_trading_service._find_or_merge_position', return_value=None):
+
+            result = execute_webull_test_order(1, order_data)
+
+            self.assertTrue(result['success'])
+            self.assertEqual(result['status'], 'Filled')
+            self.assertAlmostEqual(float(result['filled_price']), 0.47)
+            self.assertIn('executed', result['message'].lower())
+
 
 if __name__ == '__main__':
     unittest.main()

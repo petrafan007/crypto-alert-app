@@ -338,7 +338,36 @@ function OrderTable({ orders, open, onCancelOrder, cancellingId, webullAccounts,
     { id: 'status', label: 'Status', value: (order) => order.status, filterable: true, render: (order) => <>{order.status}{order.history_note && <small style={{ display: 'block', maxWidth: 280 }}>{order.history_note}</small>}</> },
     ...(open ? [
       { id: 'estimated_pnl', label: 'Est. P&L (if filled)', value: (order) => Number(order.estimated_pnl), render: (order) => Number.isFinite(Number(order.estimated_pnl)) ? `${Number(order.estimated_pnl) >= 0 ? '+' : ''}$${amount(Math.abs(Number(order.estimated_pnl)), 2)}` : '—' },
-      { id: 'actions', label: 'Actions', value: () => '', render: (order) => <button type="button" className="btn btn-sm btn-danger" style={{ padding: '3px 8px', fontSize: '11px', backgroundColor: '#ef4444', borderColor: '#ef4444', color: '#fff', borderRadius: '4px', cursor: 'pointer' }} disabled={cancellingId === order.id} onClick={() => onCancelOrder?.(order)}>{cancellingId === order.id ? 'Cancelling...' : 'Cancel'}</button> },
+      {
+        id: 'actions',
+        label: 'Actions',
+        value: () => '',
+        render: (order) => (
+          <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+            {isWebull(order) && (
+              <button
+                type="button"
+                className="btn btn-sm"
+                style={{ padding: '3px 8px', fontSize: '11px', backgroundColor: '#2563eb', borderColor: '#2563eb', color: '#fff', borderRadius: '4px', cursor: 'pointer' }}
+                onClick={() => {
+                  window.location.href = `/webull-trading?replace_order_id=${encodeURIComponent(order.id)}&symbol=${encodeURIComponent(order.symbol)}&side=${encodeURIComponent(order.side)}&quantity=${encodeURIComponent(order.quantity)}&price=${encodeURIComponent(order.price || '')}&instrument_type=${encodeURIComponent(order.instrument_type || '')}`;
+                }}
+              >
+                Replace
+              </button>
+            )}
+            <button
+              type="button"
+              className="btn btn-sm btn-danger"
+              style={{ padding: '3px 8px', fontSize: '11px', backgroundColor: '#ef4444', borderColor: '#ef4444', color: '#fff', borderRadius: '4px', cursor: 'pointer' }}
+              disabled={cancellingId === order.id}
+              onClick={() => onCancelOrder?.(order)}
+            >
+              {cancellingId === order.id ? 'Cancelling...' : 'Cancel'}
+            </button>
+          </div>
+        ),
+      },
     ] : []),
   ];
   return <ConfigurableOrderTable rows={orders} columns={columns} tableId={`combined-${open ? 'open' : 'history'}`} userId={userId} emptyText={`No ${open ? 'open' : 'historical'} orders for the selected accounts.`} rowKey={(order) => `${order.source}-${order.id}`} />;

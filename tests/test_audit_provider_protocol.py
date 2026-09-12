@@ -23,11 +23,10 @@ class AuditProviderProtocolTests(unittest.TestCase):
     def test_audit_deferral_does_not_attempt_or_fail_over_providers(self):
         from services.provider_resilience import AIRequestDeferred
         with patch('services.ai_service.db') as database, \
-                patch('portfolio_algo_models.PortfolioAudit') as audits, \
+                patch('services.portfolio_audit_lifecycle.active_audit', return_value=SimpleNamespace(id=35)), \
                 patch('services.ai_service.get_user_ai_settings') as settings, \
                 patch('services.ai_service._notify_ai_attempt') as notify:
             database.session.get.return_value = SimpleNamespace(id=1, username='admin')
-            audits.query.filter_by.return_value.first.return_value = SimpleNamespace(id=35)
             history = []
             with self.assertRaises(AIRequestDeferred):
                 call_ai_with_web_search('admin', [], user_id=1,

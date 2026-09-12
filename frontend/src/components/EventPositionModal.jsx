@@ -149,18 +149,24 @@ export default function EventPositionModal({
   const positionOutcome = heldOutcome(record);
   const accountId = String(record?.account_id || record?._webull_account_id || record?.webull_account_id || '');
   const storedQuantity = isOpenOrder
-    ? numeric(record?.filled_quantity, 0)
+    ? numeric(record?.quantity, 0)
     : numeric(record?.available_quantity ?? record?.quantity ?? record?.amount, 0);
+  const storedPrice = isOpenOrder
+    ? (record?.price || record?.limit_price ? String(record.price || record.limit_price) : '')
+    : '';
+  const initialSide = isOpenOrder
+    ? (String(record?.side || '').toUpperCase().includes('SELL') ? 'SELL' : 'BUY')
+    : 'SELL';
   const [market, setMarket] = useState(null);
   const [availableQuantity, setAvailableQuantity] = useState(storedQuantity);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [serverOffset, setServerOffset] = useState(0);
   const [cutoffExpired, setCutoffExpired] = useState(false);
-  const [side, setSide] = useState(isOpenOrder ? 'BUY' : 'SELL');
+  const [side, setSide] = useState(initialSide);
   const [outcome, setOutcome] = useState(positionOutcome);
   const [quantity, setQuantity] = useState(storedQuantity > 0 ? String(storedQuantity) : '1');
-  const [price, setPrice] = useState('');
+  const [price, setPrice] = useState(storedPrice);
   const [validationError, setValidationError] = useState('');
 
   useEffect(() => {
@@ -183,11 +189,11 @@ export default function EventPositionModal({
     setLoading(true);
     setError('');
     setMarket(null);
-    setSide(isOpenOrder ? 'BUY' : 'SELL');
+    setSide(initialSide);
     setOutcome(positionOutcome);
     setAvailableQuantity(storedQuantity);
     setQuantity(storedQuantity > 0 ? String(storedQuantity) : '1');
-    setPrice('');
+    setPrice(storedPrice);
     setValidationError('');
     setCutoffExpired(false);
 
@@ -206,14 +212,18 @@ export default function EventPositionModal({
       const details = response.data || {};
       const nextMarket = details.market || null;
       setMarket(nextMarket);
-      if (details.available_quantity !== null && details.available_quantity !== undefined) {
+      if (!isOpenOrder && details.available_quantity !== null && details.available_quantity !== undefined) {
         setAvailableQuantity(numeric(details.available_quantity, storedQuantity));
         setQuantity(String(numeric(details.available_quantity, storedQuantity)));
       }
       const serverTime = providerTime(details.server_time);
       setServerOffset(serverTime ? serverTime.getTime() - Date.now() : 0);
-      const suggested = quoteFor(nextMarket, positionOutcome, isOpenOrder ? 'BUY' : 'SELL');
-      setPrice(suggested === null ? '' : String(suggested));
+      if (storedPrice) {
+        setPrice(storedPrice);
+      } else {
+        const suggested = quoteFor(nextMarket, positionOutcome, isOpenOrder ? initialSide : 'SELL');
+        setPrice(suggested === null ? '' : String(suggested));
+      }
     }).catch((requestError) => {
       if (!cancelled) {
         setError(requestError.response?.data?.message || 'Unable to load this Event Contract position.');
@@ -346,7 +356,7 @@ export default function EventPositionModal({
       setValidationError('Enter a contract quantity greater than zero.');
       return;
     }
-    if (side === 'SELL' && orderQty > availableQuantity + 1e-8) {
+    if (!isOpenOrder && side === 'SELL' && orderQty > availableQuantity + 1e-8) {
       setValidationError(`You can close up to ${quantityText(availableQuantity)} contracts.`);
       return;
     }
@@ -365,6 +375,7 @@ export default function EventPositionModal({
       outcome,
       quantity: orderQty,
       price: orderPx,
+      replacing_order_id: isOpenOrder ? (record?.id || record?.order_id) : undefined,
     });
   };
 
@@ -431,7 +442,7 @@ export default function EventPositionModal({
 
               {/* Manage position — directly below the chart */}
               <div className="event-position-order-card">
-                <h3>{isOpenOrder ? 'Manage this open order' : 'Manage this position'}</h3>
+                <h3>{isOpenOrder ? 'Replace this open order' : 'Manage this position'}</h3>
                 <div className="event-position-order-actions">
                   {isOpenOrder && (
                     <button
@@ -445,7 +456,7 @@ export default function EventPositionModal({
                   )}
                   <button type="button" className={side === 'BUY' && outcome === 'yes' ? 'active yes' : ''} disabled={effectiveStatus !== 'OC'} onClick={() => chooseOrder('BUY', 'yes')}>Buy Yes {cents(market.yes_ask)}</button>
                   <button type="button" className={side === 'BUY' && outcome === 'no' ? 'active no' : ''} disabled={effectiveStatus !== 'OC'} onClick={() => chooseOrder('BUY', 'no')}>Buy No {cents(market.no_ask)}</button>
-                  <button type="button" className={side === 'SELL' ? 'active close-position' : ''} disabled={!['OC', 'CO'].includes(effectiveStatus) || availableQuantity <= 0} onClick={() => chooseOrder('SELL', positionOutcome)}>Close {positionOutcome.toUpperCase()} Position {cents(executableBid)}</button>
+                  <button type="button" className={side === 'SELL' ? 'active close-position' : ''} disabled={!['OC', 'CO'].includes(effectiveStatus) || (!isOpenOrder && availableQuantity <= 0)} onClick={() => chooseOrder('SELL', positionOutcome)}>Close {positionOutcome.toUpperCase()} Position {cents(executableBid)}</button>
                 </div>
                 <div className="event-position-order-fields">
                   <label>Contracts<input type="number" min="0" step={rules.fractionable ? '0.00001' : '1'} value={quantity} onChange={(event) => { setQuantity(event.target.value); setValidationError(''); }} /></label>
@@ -454,9 +465,9 @@ export default function EventPositionModal({
                 </div>
                 {validationError && <p className="event-position-validation" role="alert">{validationError}</p>}
                 <div className="event-position-order-footer">
-                  <small>Limit / Day only. Live orders continue through the normal Webull confirmation and security checks.</small>
+                  <small>Limit / Day only. {isOpenOrder ? `Submitting will cancel open order #${record?.id || record?.order_id} and submit this updated order.` : 'Live orders continue through the normal Webull confirmation and security checks.'}</small>
                   <button type="button" className="event-position-review" disabled={loading || !market || (side === 'BUY' ? effectiveStatus !== 'OC' : !['OC', 'CO'].includes(effectiveStatus))} onClick={reviewOrder}>
-                    Review {side === 'SELL' ? 'Close Position' : `Buy ${outcome.toUpperCase()}`} Order
+                    {isOpenOrder ? 'Review & Replace Order' : `Review ${side === 'SELL' ? 'Close Position' : `Buy ${outcome.toUpperCase()}`} Order`}
                   </button>
                 </div>
               </div>

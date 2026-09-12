@@ -2611,14 +2611,41 @@ def api_webull_place_order():
             try:
                 event_market = _preflight_webull_event_order(data, setting)
                 data['_event_market_rules'] = event_market.get('rules') or {}
+                data['_event_market'] = event_market
             except WebullConnectionError as exc:
                 return jsonify({'success': False, 'message': str(exc)}), 400
+
+        replacing_order_id = data.get('replacing_order_id')
+        if replacing_order_id:
+            if is_test_order:
+                from services.webull_paper_trading_service import cancel_webull_test_order
+                try:
+                    cancel_webull_test_order(current_user.id, replacing_order_id)
+                except Exception as cancel_err:
+                    logger.warning(f"Could not cancel simulated order {replacing_order_id} during replace: {cancel_err}")
+            else:
+                credential = Credential.query.filter_by(user_id=current_user.id).first()
+                environment = normalize_webull_environment(getattr(setting, 'webull_environment', None) or 'production')
+                acc_id = data.get('account_id')
+                if credential and credential.webull_access_token and acc_id:
+                    try:
+                        from services.webull_service import cancel_webull_order
+                        cancel_webull_order(
+                            credential.webull_app_key, credential.webull_app_secret,
+                            environment, credential.webull_access_token,
+                            account_id=acc_id, order_id=replacing_order_id,
+                        )
+                    except Exception as cancel_err:
+                        logger.warning(f"Could not cancel live order {replacing_order_id} during replace: {cancel_err}")
+
         if is_test_order:
             data['test_mode'] = True
             data['account_id'] = 'TEST_PAPER_ACCOUNT'
             from services.webull_paper_trading_service import execute_webull_test_order
             try:
                 res = execute_webull_test_order(current_user.id, data)
+                if replacing_order_id and res.get('success'):
+                    res['message'] = (res.get('message') or '') + f' (Replaced order {replacing_order_id})'
                 return jsonify(res)
             except Exception as test_err:
                 db.session.rollback()

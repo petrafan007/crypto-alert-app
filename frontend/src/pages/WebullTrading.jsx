@@ -491,7 +491,7 @@ function LegacyWebullOrderTable({ orders, emptyText, onCancelOrder, cancellingId
   );
 }
 
-function WebullOrderTable({ orders, emptyText, onCancelOrder, cancellingId, optionClosePnlByOrder = null, userId, tableId }) {
+function WebullOrderTable({ orders, emptyText, onCancelOrder, onReplaceOrder = null, cancellingId, optionClosePnlByOrder = null, userId, tableId }) {
   const option = (order) => optionContractDetails(order);
   const closePnlCell = (order) => {
     if (!option(order).isOption) return '—';
@@ -576,7 +576,34 @@ function WebullOrderTable({ orders, emptyText, onCancelOrder, cancellingId, opti
     { id: 'status', label: 'Status', value: (order) => formatOrderStatus(order.status), filterable: true, render: (order) => <>{formatOrderStatus(order.status)}{order.history_note && <small style={{ display: 'block', maxWidth: 280 }}>{order.history_note}</small>}</>, style: { textAlign: 'center' } },
     { id: 'filled_at', label: 'Filled at (ET)', value: (order) => order.filled_at, render: (order) => order.filled_at ? `${formatEasternDate(order.filled_at)} ${formatEasternTime(order.filled_at)}` : '—', style: { textAlign: 'center' } },
     { id: 'source', label: 'Source', value: () => 'Webull', filterable: true, render: () => <span className="badge" style={{ background: 'rgba(96, 165, 250, .16)', color: '#60a5fa' }}>Webull</span>, style: { textAlign: 'center' } },
-    ...(onCancelOrder ? [{ id: 'actions', label: 'Action', value: () => '', render: (order) => <button type="button" className="btn btn-sm btn-danger" disabled={cancellingId === order.id} onClick={() => onCancelOrder(order)}>{cancellingId === order.id ? 'Cancelling...' : 'Cancel'}</button>, style: { textAlign: 'center' } }] : []),
+    ...(onCancelOrder ? [{
+      id: 'actions',
+      label: 'Action',
+      value: () => '',
+      render: (order) => (
+        <div style={{ display: 'flex', gap: '6px', justifyContent: 'center', alignItems: 'center' }}>
+          {onReplaceOrder && (
+            <button
+              type="button"
+              className="btn btn-sm"
+              style={{ padding: '3px 8px', fontSize: '11px', backgroundColor: '#2563eb', borderColor: '#2563eb', color: '#fff', borderRadius: '4px', cursor: 'pointer' }}
+              onClick={() => onReplaceOrder(order)}
+            >
+              Replace
+            </button>
+          )}
+          <button
+            type="button"
+            className="btn btn-sm btn-danger"
+            disabled={cancellingId === order.id}
+            onClick={() => onCancelOrder(order)}
+          >
+            {cancellingId === order.id ? 'Cancelling...' : 'Cancel'}
+          </button>
+        </div>
+      ),
+      style: { textAlign: 'center' },
+    }] : []),
   ];
   return <ConfigurableOrderTable rows={orders} columns={columns} tableId={tableId} userId={userId} emptyText={emptyText} />;
 }
@@ -622,7 +649,7 @@ function LegacyEventContractOpenOrders({ orders, onManageOrder }) {
                       }}
                       onClick={() => onManageOrder?.(order)}
                     >
-                      Manage
+                      Manage / Replace
                     </button>
                   </td>
                 </tr>
@@ -649,7 +676,7 @@ function EventContractOpenOrders({ orders, onManageOrder, userId }) {
     { id: 'remaining', label: 'Remaining', value: remaining, render: (order) => number(remaining(order), 6) },
     { id: 'price', label: 'Limit', value: (order) => Number(order.price), render: (order) => order.price ? `$${number(order.price, 4)}` : 'Market' },
     { id: 'status', label: 'Status', value: (order) => formatOrderStatus(order.status), filterable: true, render: (order) => <>{formatOrderStatus(order.status)}{order.history_note && <small style={{ display: 'block', maxWidth: 280 }}>{order.history_note}</small>}</> },
-    { id: 'actions', label: 'Action', value: () => '', render: (order) => <button type="button" className="badge" style={{ background: 'rgba(56, 189, 248, .18)', border: '1px solid rgba(56, 189, 248, .35)', color: '#38bdf8', cursor: 'pointer', padding: '5px 14px', fontWeight: 700, borderRadius: '6px', fontSize: '0.82rem' }} onClick={() => onManageOrder?.(order)}>Manage</button> },
+    { id: 'actions', label: 'Action', value: () => '', render: (order) => <button type="button" className="badge" style={{ background: 'rgba(56, 189, 248, .18)', border: '1px solid rgba(56, 189, 248, .35)', color: '#38bdf8', cursor: 'pointer', padding: '5px 14px', fontWeight: 700, borderRadius: '6px', fontSize: '0.82rem' }} onClick={() => onManageOrder?.(order)}>Manage / Replace</button> },
   ];
   return <ConfigurableOrderTable rows={orders} columns={columns} tableId="webull-event-open-orders" userId={userId} emptyText="No active Webull Event Contract orders are available." />;
 }
@@ -963,6 +990,7 @@ export default function WebullTrading({ isLightMode = false }) {
   const [error, setError] = useState('');
   const [cancellingOrderId, setCancellingOrderId] = useState(null);
   const [cancelModal, setCancelModal] = useState({ isVisible: false, order: null, error: '', loading: false });
+  const [replacingOrderId, setReplacingOrderId] = useState(null);
 
   // Quant AI Audit Modal state
   const [showQuantAuditModal, setShowQuantAuditModal] = useState(false);
@@ -1759,6 +1787,9 @@ export default function WebullTrading({ isLightMode = false }) {
       const urlAccountId = urlParams.get('account_id')?.trim();
       const urlInstrumentType = urlParams.get('instrument_type')?.toUpperCase()?.trim();
       const urlAccountPreference = urlParams.get('account_preference')?.toLowerCase()?.trim();
+      const urlReplaceOrderId = urlParams.get('replace_order_id')?.trim();
+      const urlQuantity = urlParams.get('quantity')?.trim();
+      const urlPrice = urlParams.get('price')?.trim();
       const requestedInstrumentType = ['CRYPTO', 'EQUITY', 'OPTION', 'FUTURES', 'EVENT'].includes(urlInstrumentType) ? urlInstrumentType : null;
       const urlSymbol = normalizeWebullTradeSymbol(urlParams.get('symbol'), requestedInstrumentType);
       const urlHoldingId = urlParams.get('holding_id')?.trim();
@@ -1779,9 +1810,22 @@ export default function WebullTrading({ isLightMode = false }) {
           setSelectedInstrumentType(targetType);
           setSelectedSecurityType(targetType === 'EQUITY' ? 'EQUITY' : targetType);
         }
+        if (urlReplaceOrderId) {
+          setReplacingOrderId(urlReplaceOrderId);
+          setActiveTab('order');
+          setTicketFlash(true);
+          setTimeout(() => setTicketFlash(false), 1800);
+        }
         if (urlSymbol) {
           setSelectedSymbol(urlSymbol);
-          setOrderForm((prev) => ({ ...prev, symbol: urlSymbol }));
+          setOrderForm((prev) => ({
+            ...prev,
+            symbol: urlSymbol,
+            side: urlSide && ['BUY', 'SELL'].includes(urlSide) ? urlSide : prev.side,
+            quantity: urlQuantity || prev.quantity,
+            price: urlPrice || prev.price,
+            type: urlPrice ? 'LIMIT' : prev.type,
+          }));
         }
         await loadPaperTradingData();
         setLoading(false);
@@ -1892,16 +1936,22 @@ export default function WebullTrading({ isLightMode = false }) {
               expiration_date: matchedHolding.expiration_date,
             } : null);
           }
+          if (urlReplaceOrderId) {
+            setReplacingOrderId(urlReplaceOrderId);
+            setActiveTab('order');
+            setTicketFlash(true);
+            setTimeout(() => setTicketFlash(false), 1800);
+          }
           if (matchedHolding?.current_price) setLivePrice(Number(matchedHolding.current_price));
           setOrderForm((prev) => ({
             ...prev,
             side: urlSide && ['BUY', 'SELL'].includes(urlSide) ? urlSide : prev.side,
-            type: nextInstrumentType === 'OPTION' ? 'LIMIT' : prev.type,
-            price: matchedHolding?.current_price ? Number(matchedHolding.current_price).toFixed(2) : prev.price,
+            type: urlPrice ? 'LIMIT' : (nextInstrumentType === 'OPTION' ? 'LIMIT' : prev.type),
+            price: urlPrice || (matchedHolding?.current_price ? Number(matchedHolding.current_price).toFixed(2) : prev.price),
             optionType: nextInstrumentType === 'OPTION' ? (matchedHolding?.option_type || prev.optionType) : prev.optionType,
             optionStrike: nextInstrumentType === 'OPTION' && matchedHolding?.option_strike != null ? String(matchedHolding.option_strike) : prev.optionStrike,
             optionExpiration: nextInstrumentType === 'OPTION' ? (matchedHolding?.option_expiration || prev.optionExpiration) : prev.optionExpiration,
-            quantity: nextInstrumentType === 'OPTION' && urlSide === 'SELL' && matchedHolding?.amount ? String(matchedHolding.amount) : prev.quantity,
+            quantity: urlQuantity || (nextInstrumentType === 'OPTION' && urlSide === 'SELL' && matchedHolding?.amount ? String(matchedHolding.amount) : prev.quantity),
           }));
         } else if (isCrypto && (selectedSymbol === 'AAPL' || !selectedSymbol.endsWith('USD'))) {
           const firstCrypto = importedHoldings.find((h) => String(h.account_id || '') === activeAcc.account_id && /crypto|coin|token/i.test(h.instrument_type || ''));
@@ -3617,6 +3667,7 @@ export default function WebullTrading({ isLightMode = false }) {
         bracket_take_profit_price: (selectedInstrumentType === 'EQUITY' && orderForm.isBracketEnabled && orderForm.bracketTakeProfitPrice) ? Number(orderForm.bracketTakeProfitPrice) : undefined,
         bracket_stop_loss_price: (selectedInstrumentType === 'EQUITY' && orderForm.isBracketEnabled && orderForm.bracketStopLossPrice) ? Number(orderForm.bracketStopLossPrice) : undefined,
         bracket_stop_loss_limit_price: (selectedInstrumentType === 'EQUITY' && orderForm.isBracketEnabled && orderForm.bracketStopLossLimitPrice) ? Number(orderForm.bracketStopLossLimitPrice) : undefined,
+        replacing_order_id: replacingOrderId || undefined,
         ...(tokenOverride ? { twofa_token: tokenOverride } : {}),
       };
 
@@ -3624,6 +3675,7 @@ export default function WebullTrading({ isLightMode = false }) {
       if (response.data?.success) {
         setOrderFeedback({ type: 'success', message: response.data.message || 'Order placed successfully!' });
         setShowConfirmModal(false);
+        setReplacingOrderId(null);
         setOrderForm((prev) => ({
           ...prev,
           quantity: '',
@@ -3826,7 +3878,7 @@ export default function WebullTrading({ isLightMode = false }) {
     setEventOpenOrder(order || null);
   };
 
-  const handleReviewEventPositionOrder = ({ holding, market, side, outcome, quantity, price }) => {
+  const handleReviewEventPositionOrder = ({ holding, market, side, outcome, quantity, price, replacing_order_id }) => {
     const accountId = String(holding?.account_id || holding?._webull_account_id || holding?.webull_account_id || selectedAccountId || '');
     const symbol = String(market?.symbol || holding?.underlying_symbol || holding?.symbol || '')
       .replace(/\s+(YES|NO)$/i, '')
@@ -3846,6 +3898,7 @@ export default function WebullTrading({ isLightMode = false }) {
     assetSymbolMemoryRef.current.EVENT = symbol;
     setOrderValidationError('');
     setOrderFeedback({ type: '', message: '' });
+    setReplacingOrderId(replacing_order_id || null);
     setOrderForm((previous) => ({
       ...previous,
       side,
@@ -3868,6 +3921,52 @@ export default function WebullTrading({ isLightMode = false }) {
       quantity: String(quantity),
       price: String(price),
     });
+    setTicketFlash(true);
+    setTimeout(() => setTicketFlash(false), 1800);
+    setTimeout(() => {
+      if (orderTicketRef.current) {
+        orderTicketRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+    }, 60);
+  };
+
+  const handleReplaceOrder = (order) => {
+    if (!order) return;
+    const isEvent = eventContractOrderDetails(order).isEvent || String(order.instrument_type || '').toUpperCase() === 'EVENT';
+    if (isEvent) {
+      handleManageEventOrder(order);
+      return;
+    }
+    const isOption = String(order.instrument_type || '').toUpperCase() === 'OPTION';
+    const isFutures = ['FUTURE', 'FUTURES'].includes(String(order.instrument_type || '').toUpperCase());
+    const isCrypto = /crypto|coin|token/i.test(order.instrument_type || '');
+    if (order.account_id) setSelectedAccountId(String(order.account_id));
+    const targetSymbol = isOption
+      ? (order.underlying_symbol || String(order.symbol || '').split(' ')[0])
+      : order.symbol;
+    setSelectedSymbol(targetSymbol);
+    setSelectedInstrumentType(isOption ? 'OPTION' : (isFutures ? 'FUTURES' : (isCrypto ? 'CRYPTO' : 'EQUITY')));
+    setSelectedSecurityType(isOption ? 'OPTION' : (isFutures ? 'FUTURES' : (isCrypto ? 'CRYPTO' : (String(order.instrument_type || '').toUpperCase() === 'ETF' ? 'ETF' : 'EQUITY'))));
+    const formattedQty = Number(order.quantity || 0) > 0 ? String(order.quantity) : '1';
+    const formattedPx = Number(order.limit_price || order.price || 0) > 0 ? String(order.limit_price || order.price) : '';
+    setOrderForm((prev) => ({
+      ...prev,
+      side: order.side || 'BUY',
+      type: order.order_type || 'LIMIT',
+      price: formattedPx,
+      quantity: formattedQty,
+      quoteQuantity: (formattedQty && formattedPx) ? (Number(formattedQty) * Number(formattedPx)).toFixed(2) : '',
+      stopPrice: order.stop_price ? String(order.stop_price) : '',
+    }));
+    setReplacingOrderId(order.id);
+    setActiveTab('order');
+    setTicketFlash(true);
+    setTimeout(() => setTicketFlash(false), 1800);
+    setTimeout(() => {
+      if (orderTicketRef.current) {
+        orderTicketRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+    }, 60);
   };
 
   const handleSelectHolding = (holding) => {
@@ -5149,6 +5248,34 @@ export default function WebullTrading({ isLightMode = false }) {
                       </div>
                     )}
 
+                    {/* Replacing Order Notice */}
+                    {replacingOrderId && (
+                      <div style={{
+                        marginBottom: '14px',
+                        padding: '10px 14px',
+                        background: 'rgba(234, 179, 8, 0.15)',
+                        border: '1px solid rgba(234, 179, 8, 0.35)',
+                        borderRadius: '8px',
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        color: '#facc15',
+                        fontSize: '13px',
+                      }}>
+                        <span>
+                          🔄 <strong>Replacing Order:</strong> Modifying order <code>#{replacingOrderId}</code>. Submitting this order will cancel and replace the previous one.
+                        </span>
+                        <button
+                          type="button"
+                          className="btn btn-sm btn-outline-warning"
+                          style={{ fontSize: '11px', padding: '2px 8px' }}
+                          onClick={() => setReplacingOrderId(null)}
+                        >
+                          Cancel Replace
+                        </button>
+                      </div>
+                    )}
+
                     {/* Row 1: Order Side & Order Types (Stacked with Order Types underneath Order Side) */}
                     <div className="order-control-row">
                       <div className="order-control-group side-group">
@@ -6380,6 +6507,7 @@ export default function WebullTrading({ isLightMode = false }) {
                   orders={displayOpenOrders}
                   emptyText="No Webull open orders found."
                   onCancelOrder={openCancelModalForOrder}
+                  onReplaceOrder={handleReplaceOrder}
                   cancellingId={cancellingOrderId}
                   optionClosePnlByOrder={optionClosePnlByOrder}
                   userId={user?.id}

@@ -255,6 +255,16 @@ def fetch_live_price(
             environment, credential.webull_access_token,
             symbol=market_symbol,
         )
+        if execution_side:
+            is_buy_side = execution_side in {'BUY', 'BUY_TO_OPEN', 'BUY_TO_CLOSE', 'COVER'}
+            if is_buy_side:
+                target_ask = market.get('no_ask') if outcome == 'no' else market.get('yes_ask')
+                if target_ask is not None and float(target_ask) > 0:
+                    return float(target_ask)
+            else:
+                target_bid = market.get('no_bid') if outcome == 'no' else market.get('yes_bid')
+                if target_bid is not None and float(target_bid) >= 0:
+                    return float(target_bid)
         if outcome == 'no':
             candidates = (market.get('no_bid'), market.get('no_ask'))
             if not any(value is not None for value in candidates) and market.get('last_price') is not None:
@@ -423,6 +433,24 @@ def fetch_live_price(
         return float(existing.cost_price)
 
     return 100.0
+
+
+def fetch_event_market_quote(user_id: int, symbol: str) -> Dict[str, Any]:
+    """Fetch complete quotes for both outcomes of an Event Contract market."""
+    from credentials import Credential, UserSetting
+    from services.webull_service import get_webull_event_market, normalize_webull_environment
+    clean_sym = str(symbol or '').strip().upper()
+    market_symbol = clean_sym.rsplit(' ', 1)[0] if clean_sym.endswith((' YES', ' NO')) else clean_sym
+    credential = Credential.query.filter_by(user_id=user_id).first()
+    setting = UserSetting.query.filter_by(user_id=user_id).first()
+    environment = normalize_webull_environment(getattr(setting, 'webull_environment', None) or 'production')
+    if not credential or not credential.webull_access_token:
+        raise ValueError('Connect Webull before querying Event Contract market quotes.')
+    return get_webull_event_market(
+        credential.webull_app_key, credential.webull_app_secret,
+        environment, credential.webull_access_token,
+        symbol=market_symbol,
+    )
 
 
 def get_webull_test_account_summary(user_id: int) -> Dict[str, Any]:
@@ -1014,10 +1042,10 @@ def execute_webull_test_order(user_id: int, data: Dict[str, Any]) -> Dict[str, A
         live_price = fetch_live_price(
             user_id, underlying_sym or symbol, instrument_type,
             option_type=option_type, option_strike=option_strike, option_expiration=option_expiration,
-            event_outcome=event_outcome, execution_side=side if instrument_type == 'OPTION' else None,
+            event_outcome=event_outcome, execution_side=side if instrument_type in ('OPTION', 'EVENT') else None,
         )
     except ValueError:
-        if instrument_type != 'OPTION' or order_type != 'LIMIT' or not limit_price or limit_price <= 0:
+        if instrument_type not in ('OPTION', 'EVENT') or order_type != 'LIMIT' or not limit_price or limit_price <= 0:
             raise
         live_price = None
 
@@ -1038,7 +1066,8 @@ def execute_webull_test_order(user_id: int, data: Dict[str, Any]) -> Dict[str, A
     elif quantity <= 0:
         raise ValueError("Order quantity must be greater than zero.")
 
-    # Event contract validations
+    # Event contract validations and marketability determination
+    is_marketable_event = False
     if instrument_type == 'EVENT':
         event_rules = data.get('_event_market_rules') if isinstance(data.get('_event_market_rules'), dict) else {}
         max_quantity = float(event_rules.get('max_quantity') or 0)
@@ -1065,7 +1094,33 @@ def execute_webull_test_order(user_id: int, data: Dict[str, Any]) -> Dict[str, A
                 continue
         if not valid_price:
             raise ValueError('The limit price does not match this event contract’s current Webull price range and tick size.')
-        fill_price = limit_price
+
+        event_market = data.get('_event_market') if isinstance(data.get('_event_market'), dict) else None
+        if not event_market:
+            try:
+                event_market = fetch_event_market_quote(user_id, symbol)
+            except Exception:
+                event_market = {}
+        outcome_key = str(event_outcome or 'YES').strip().lower()
+        if outcome_key == 'no':
+            event_ask = float(event_market['no_ask']) if event_market.get('no_ask') is not None else None
+            event_bid = float(event_market['no_bid']) if event_market.get('no_bid') is not None else None
+        else:
+            event_ask = float(event_market['yes_ask']) if event_market.get('yes_ask') is not None else None
+            event_bid = float(event_market['yes_bid']) if event_market.get('yes_bid') is not None else None
+
+        if side in {'BUY', 'BUY_TO_OPEN'}:
+            if event_ask is not None and limit_price >= event_ask:
+                is_marketable_event = True
+                fill_price = min(limit_price, event_ask)
+            else:
+                fill_price = limit_price
+        elif side in {'SELL', 'SELL_TO_CLOSE'}:
+            if event_bid is not None and limit_price <= event_bid:
+                is_marketable_event = True
+                fill_price = max(limit_price, event_bid)
+            else:
+                fill_price = limit_price
 
     # Options contract display symbol
     contract_symbol = symbol
@@ -1100,7 +1155,8 @@ def execute_webull_test_order(user_id: int, data: Dict[str, Any]) -> Dict[str, A
     # trigger/auction processor can fill them against a qualifying quote.
     if (live_price is None or not paper_order_fills_immediately(order_type, instrument_type)
             or (instrument_type == 'OPTION' and order_type == 'LIMIT' and limit_price is not None
-                and (live_price > limit_price if (is_buy or is_cover) else live_price < limit_price))):
+                and (live_price > limit_price if (is_buy or is_cover) else live_price < limit_price))
+            or (instrument_type == 'EVENT' and not is_marketable_event)):
         cash_for_order = cover_cash if is_cover else available_cash
         if (is_buy or is_cover) and cash_for_order < total_trade_amount:
             raise ValueError(

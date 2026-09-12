@@ -6,6 +6,23 @@
 
 **Last Updated**: September 2026
 
+## v2.99.1 (September 2026)
+
+- **Webull Event Contract Limit Order Marketability & Price Improvement**:
+  - Event contract limit orders below the prevailing market ask (for buy/buy-to-open) or above the market bid (for sell/sell-to-close) now correctly rest as **Working** orders instead of prematurely filling.
+  - Marketable orders (bid at or above ask, or sell at or below bid) fill immediately with real-time price improvement (filled at current executable ask/bid).
+  - Working orders properly reserve cash (for buy orders) or contract quantities (for sell orders) while resting.
+- **Event Contract Working Order Lifecycle & Automatic Reconciliation**:
+  - Background scheduler runs `reconcile_paper_events` to evaluate resting Event Contract working orders against live market quotes, executing fills when prices become marketable and expiring unfilled orders when contract cutoff or trading close is reached.
+- **Order Management — Cancel & Replace Flow**:
+  - Added an integrated **Replace** order flow across Webull trading surfaces:
+    - **Orders Page (`Orders.jsx`)**: Added "Replace" action button alongside "Cancel" for open Webull orders that deep-links directly into the Webull order ticket with prefilled side, quantity, price, and replacement context.
+    - **Open Orders Table (`WebullTrading.jsx`)**: Added "Replace" action buttons to open order rows.
+    - **Event Open Orders & Positions**: Updated Event Contract order cards to "Manage / Replace", allowing one-click order modification.
+    - **Order Ticket Banner**: An active replacement banner highlights the order being modified and passes `replacing_order_id` to `/api/webull/orders/place`, cleanly cancelling the previous order and submitting the replacement without double reservations.
+- **Bounded Quantitative Audit AI Recovery & Provider Resilience**:
+  - Enhanced quantitative AI audit lifecycle with resilient retry handling, bounded context limits, and reliable provider failover.
+
 ## v2.99.0 (September 2026)
 
 - **Authoritative Event Entry Risk:** The quantitative ledger enforces saved per-entry dollars, aggregate exposure, position count, contract count, rolling-hour loss, Eastern-day loss, and realized-P&L drawdown limits under the portfolio lock. Entry fees count toward dollar exposure; existing stakes and estimated entry/exit fees reserve loss allowance. Portfolio cash, allocation, and risk ceilings still apply.
