@@ -6,6 +6,14 @@
 
 **Last Updated**: September 2026
 
+## v2.99.2 (September 2026)
+
+- **Default to Real Trading Mode on Dashboard Actions (Webull & Binance)**:
+  - Clicking "Buy on Webull", "Sell on Webull", or direct Buy/Sell actions from Portfolio or Watchlist rows on the Dashboard now strictly and always defaults to **REAL (Live) Trading Mode**, never Test Mode and never Quantitative Strategy Mode.
+  - Webull trading ticket recognizes navigation intent (`mode=REAL`), sets active mode to Real, selects the live account, and synchronizes the user setting on the backend to prevent unintentional simulated orders.
+  - Binance trading actions now explicitly navigate in Real Mode (`mode=REAL`), automatically disabling `test_mode_enabled` on the server and in local state to ensure orders execute on live exchange endpoints with live portfolio balances.
+  - Dashboard `QuickTradeWidget` and order replacement links now explicitly preserve and propagate the intended real/test trading mode.
+
 ## v2.99.1 (September 2026)
 
 - **Webull Event Contract Limit Order Marketability & Price Improvement**:

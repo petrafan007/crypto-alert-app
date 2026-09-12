@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import axios from 'axios';
 import { useAuth } from '../components/AuthContext';
 import CryptoIcon, { WebullLogo } from '../components/CryptoIcon';
@@ -974,6 +974,8 @@ const holdingMatchesOptionContract = (holding, { accountId, underlyingSymbol, op
 
 export default function WebullTrading({ isLightMode = false }) {
   const navigate = useNavigate();
+  const location = useLocation();
+  const searchRef = useRef(location.search);
   const { user } = useAuth();
   const isAdmin = Boolean(user?.is_admin || user?.id === 1);
   const [activeTab, setActiveTab] = useState('order');
@@ -1761,10 +1763,55 @@ export default function WebullTrading({ isLightMode = false }) {
         axios.get('/api/trading/settings', { withCredentials: true }).catch(() => ({ data: {} })),
         axios.get('/api/webull/test/status', { withCredentials: true }).catch(() => ({ data: {} })),
       ]);
-      const testModeActive = forcedTestMode == null
-        ? Boolean(testStatusRes?.data?.enabled)
-        : Boolean(forcedTestMode);
-      setTradingMode((prev) => (prev === 'QUANT' ? 'QUANT' : (testModeActive ? 'TEST' : 'REAL')));
+      const urlParams = new URLSearchParams(window.location.search);
+      const urlSide = urlParams.get('side')?.toUpperCase()?.trim();
+      const urlAccountId = urlParams.get('account_id')?.trim();
+      const urlInstrumentType = urlParams.get('instrument_type')?.toUpperCase()?.trim();
+      const urlAccountPreference = urlParams.get('account_preference')?.toLowerCase()?.trim();
+      const urlReplaceOrderId = urlParams.get('replace_order_id')?.trim();
+      const urlQuantity = urlParams.get('quantity')?.trim();
+      const urlPrice = urlParams.get('price')?.trim();
+      const requestedInstrumentType = ['CRYPTO', 'EQUITY', 'OPTION', 'FUTURES', 'EVENT'].includes(urlInstrumentType) ? urlInstrumentType : null;
+      const urlSymbol = normalizeWebullTradeSymbol(urlParams.get('symbol'), requestedInstrumentType);
+      const urlHoldingId = urlParams.get('holding_id')?.trim();
+      const urlMode = (urlParams.get('mode') || location?.state?.mode || '')?.toUpperCase()?.trim();
+
+      // Explicit real trading requested (e.g. from Dashboard or query param),
+      // OR a trade symbol/target was supplied from an action link without specifying test/quant.
+      // ALWAYS default to REAL trading mode when triggered from dashboard actions.
+      const isRealModeTarget = urlMode === 'REAL' || (Boolean(urlSymbol) && urlMode !== 'TEST' && urlMode !== 'QUANT');
+
+      let testModeActive = false;
+      if (isRealModeTarget) {
+        testModeActive = false;
+        setTradingMode('REAL');
+        if (testStatusRes?.data?.enabled) {
+          try {
+            await axios.post('/api/webull/test/toggle', { enabled: false }, { withCredentials: true });
+          } catch (syncErr) {
+            console.warn('Failed to sync server test mode to off:', syncErr);
+          }
+        }
+      } else if (urlMode === 'QUANT') {
+        testModeActive = false;
+        setTradingMode('QUANT');
+      } else if (urlMode === 'TEST' || forcedTestMode === true) {
+        testModeActive = true;
+        setTradingMode('TEST');
+        if (!testStatusRes?.data?.enabled) {
+          try {
+            await axios.post('/api/webull/test/toggle', { enabled: true }, { withCredentials: true });
+          } catch (syncErr) {
+            console.warn('Failed to sync server test mode to on:', syncErr);
+          }
+        }
+      } else {
+        testModeActive = forcedTestMode == null
+          ? Boolean(testStatusRes?.data?.enabled)
+          : Boolean(forcedTestMode);
+        setTradingMode((prev) => (prev === 'QUANT' ? 'QUANT' : (testModeActive ? 'TEST' : 'REAL')));
+      }
+
       if (tradingSettingsRes.data?.settings?.require_2fa) {
         setRequire2fa(true);
       }
@@ -1781,18 +1828,6 @@ export default function WebullTrading({ isLightMode = false }) {
       setAccounts(filteredAccounts);
       const savedDefaultAccountId = String(accRes.data?.default_account_id || '');
       setDefaultAccountId(savedDefaultAccountId);
-
-      const urlParams = new URLSearchParams(window.location.search);
-      const urlSide = urlParams.get('side')?.toUpperCase()?.trim();
-      const urlAccountId = urlParams.get('account_id')?.trim();
-      const urlInstrumentType = urlParams.get('instrument_type')?.toUpperCase()?.trim();
-      const urlAccountPreference = urlParams.get('account_preference')?.toLowerCase()?.trim();
-      const urlReplaceOrderId = urlParams.get('replace_order_id')?.trim();
-      const urlQuantity = urlParams.get('quantity')?.trim();
-      const urlPrice = urlParams.get('price')?.trim();
-      const requestedInstrumentType = ['CRYPTO', 'EQUITY', 'OPTION', 'FUTURES', 'EVENT'].includes(urlInstrumentType) ? urlInstrumentType : null;
-      const urlSymbol = normalizeWebullTradeSymbol(urlParams.get('symbol'), requestedInstrumentType);
-      const urlHoldingId = urlParams.get('holding_id')?.trim();
 
       if (testModeActive) {
         const targetType = requestedInstrumentType || selectedInstrumentType;
@@ -1991,6 +2026,15 @@ export default function WebullTrading({ isLightMode = false }) {
   };
 
   useEffect(() => { load(); }, []);
+
+  useEffect(() => {
+    if (searchRef.current !== location.search) {
+      searchRef.current = location.search;
+      if (location.search) {
+        load();
+      }
+    }
+  }, [location.search]);
 
   // History is database-backed and refreshed when the visible page changes.
   useEffect(() => {

@@ -1266,7 +1266,7 @@ def get_trading_settings():
             # Create default settings
             settings = TradingSettings(
                 user_id=current_user.id,
-                test_mode_enabled=True,
+                test_mode_enabled=False,
                 max_order_size_usd=1000.0,
                 require_2fa=False
             )

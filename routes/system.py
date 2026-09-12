@@ -2595,9 +2595,15 @@ def api_webull_place_order():
             }), 400
         setting = UserSetting.query.filter_by(user_id=current_user.id).first()
         test_mode_param = data.get('test_mode')
-        req_account_id = data.get('account_id')
+        req_account_id = str(data.get('account_id') or '').strip()
         paper_mode_enabled = bool(getattr(setting, 'webull_test_mode_enabled', False))
-        paper_requested = test_mode_param is True or req_account_id == 'TEST_PAPER_ACCOUNT'
+        paper_requested = test_mode_param is True or req_account_id.startswith('TEST_') or req_account_id == 'TEST_PAPER_ACCOUNT'
+        if not paper_requested and test_mode_param is False and not req_account_id.startswith('QUANT_'):
+            if paper_mode_enabled:
+                paper_mode_enabled = False
+                if setting:
+                    setting.webull_test_mode_enabled = False
+                    db.session.commit()
         if paper_requested and not paper_mode_enabled:
             return jsonify({
                 'success': False,

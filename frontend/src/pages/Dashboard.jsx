@@ -354,18 +354,19 @@ function Dashboard({ isLightMode }) {
     (isWebullAsset(asset) || asset?.asset_type === 'stock')
     && webullTradeTargetForAsset(asset)
   );
-  const navigateToWebullTrading = (symbol, side = 'BUY', accountId = null, { instrumentType = null, accountPreference = null, holdingId = null } = {}) => {
+  const navigateToWebullTrading = (symbol, side = 'BUY', accountId = null, { instrumentType = null, accountPreference = null, holdingId = null, mode = 'REAL' } = {}) => {
     const cleanSymbol = normalizeWebullTradeSymbol(symbol, instrumentType);
     if (!cleanSymbol) {
       showAppToast('A Webull cash balance is funding, not a stock or ETF order symbol.', 'error', { symbol: String(symbol || '').toUpperCase() });
       return false;
     }
-    let url = `/trading/webull?symbol=${encodeURIComponent(cleanSymbol)}&side=${side.toUpperCase()}`;
+    const cleanMode = (mode || 'REAL').toUpperCase();
+    let url = `/trading/webull?symbol=${encodeURIComponent(cleanSymbol)}&side=${side.toUpperCase()}&mode=${encodeURIComponent(cleanMode)}`;
     if (accountId) url += `&account_id=${encodeURIComponent(accountId)}`;
     if (instrumentType) url += `&instrument_type=${encodeURIComponent(instrumentType)}`;
     if (accountPreference) url += `&account_preference=${encodeURIComponent(accountPreference)}`;
     if (holdingId) url += `&holding_id=${encodeURIComponent(holdingId)}`;
-    navigate(url);
+    navigate(url, { state: { mode: cleanMode } });
     return true;
   };
   const navigateToWebullInstrument = (asset, side = 'BUY') => {
@@ -3123,13 +3124,15 @@ function Dashboard({ isLightMode }) {
         avgEntry = Number(match.avg_entry);
       }
     }
-    navigate('/trading', {
+    navigate(`/trading?symbol=${encodeURIComponent(pair)}&side=${side === 'SELL' ? 'SELL' : 'BUY'}&mode=REAL`, {
       state: {
+        mode: 'REAL',
         tradePrefill: {
           symbol: pair,
           side: side === 'SELL' ? 'SELL' : 'BUY',
           baseCoin: cleanBase,
-          avgEntry: avgEntry !== undefined && avgEntry !== null ? Number(avgEntry) : null
+          avgEntry: avgEntry !== undefined && avgEntry !== null ? Number(avgEntry) : null,
+          mode: 'REAL'
         }
       }
     });

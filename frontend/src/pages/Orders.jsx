@@ -350,7 +350,10 @@ function OrderTable({ orders, open, onCancelOrder, cancellingId, webullAccounts,
                 className="btn btn-sm"
                 style={{ padding: '3px 8px', fontSize: '11px', backgroundColor: '#2563eb', borderColor: '#2563eb', color: '#fff', borderRadius: '4px', cursor: 'pointer' }}
                 onClick={() => {
-                  window.location.href = `/webull-trading?replace_order_id=${encodeURIComponent(order.id)}&symbol=${encodeURIComponent(order.symbol)}&side=${encodeURIComponent(order.side)}&quantity=${encodeURIComponent(order.quantity)}&price=${encodeURIComponent(order.price || '')}&instrument_type=${encodeURIComponent(order.instrument_type || '')}`;
+                  const orderIsQuant = String(order.account_id || '').startsWith('QUANT_');
+                  const orderIsPaper = Boolean(order.is_paper || order.is_simulated || String(order.account_id || '').startsWith('TEST_'));
+                  const replaceMode = orderIsQuant ? 'QUANT' : (orderIsPaper ? 'TEST' : 'REAL');
+                  window.location.href = `/webull-trading?replace_order_id=${encodeURIComponent(order.id)}&symbol=${encodeURIComponent(order.symbol)}&side=${encodeURIComponent(order.side)}&quantity=${encodeURIComponent(order.quantity)}&price=${encodeURIComponent(order.price || '')}&instrument_type=${encodeURIComponent(order.instrument_type || '')}&mode=${encodeURIComponent(replaceMode)}`;
                 }}
               >
                 Replace

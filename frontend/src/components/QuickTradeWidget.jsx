@@ -46,14 +46,20 @@ const QuickTradeWidget = ({ isLightMode, portfolio = [], accountScope = 'binance
 
   const handleGoToTrade = () => {
     if (isWebull) {
-      navigate(`/trading/webull?symbol=${encodeURIComponent(selectedSymbol)}&side=${side}&instrument_type=EQUITY&account_preference=individual_cash`);
+      navigate(`/trading/webull?symbol=${encodeURIComponent(selectedSymbol)}&side=${side}&instrument_type=EQUITY&account_preference=individual_cash&mode=REAL`, {
+        state: { mode: 'REAL' }
+      });
     } else {
-      navigate('/trading', {
+      const cleanBase = String(selectedSymbol || '').toUpperCase();
+      const pair = `${cleanBase}USDT`;
+      navigate(`/trading?symbol=${encodeURIComponent(pair)}&side=${side === 'SELL' ? 'SELL' : 'BUY'}&mode=REAL`, {
         state: {
+          mode: 'REAL',
           tradePrefill: {
-            symbol: `${selectedSymbol}USDT`,
+            symbol: pair,
             side: side === 'SELL' ? 'SELL' : 'BUY',
-            baseCoin: selectedSymbol
+            baseCoin: cleanBase,
+            mode: 'REAL'
           }
         }
       });

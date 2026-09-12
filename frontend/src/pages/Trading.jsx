@@ -67,13 +67,18 @@ const Trading = ({ isLightMode = false }) => {
   const location = useLocation();
   const navigate = useNavigate();
 
-  // Trading Settings
+  // Trading Settings - Default to real live trading mode
   const [settings, setSettings] = useState({
-    test_mode_enabled: true,
+    test_mode_enabled: false,
     max_order_size_usd: 1000,
     daily_loss_limit_usd: 500,
     require_2fa: false
   });
+
+  const urlParams = new URLSearchParams(location.search);
+  const urlMode = urlParams.get('mode')?.toUpperCase()?.trim();
+  const stateMode = (location.state?.mode || location.state?.tradePrefill?.mode || '')?.toUpperCase()?.trim();
+  const isRealModeRequested = urlMode === 'REAL' || stateMode === 'REAL' || Boolean(location.state?.tradePrefill);
 
   // Quick Trade navigation wins, while the main Trading nav always resets to BTC/USDT.
   // Direct refreshes retain the current pair for continuity.
@@ -664,6 +669,11 @@ const Trading = ({ isLightMode = false }) => {
       }));
       setQuoteQuantity('');
       setBalancePercentage(0);
+      if (settings.test_mode_enabled) {
+        handleSettingsUpdate({ test_mode_enabled: false });
+      }
+      loadLivePortfolio();
+      loadOpenOrders();
       navigate('.', { replace: true, state: {} });
     } else if (location.state?.resetTradingPair) {
       setActiveTab('order');
@@ -767,7 +777,7 @@ const Trading = ({ isLightMode = false }) => {
     loadOrderTypes(orderForm.symbol);
     loadOpenOrders();
     loadLivePortfolio();
-    if (settings.test_mode_enabled) {
+    if (!isRealModeRequested && settings.test_mode_enabled) {
       loadTestPortfolio();
       loadTestOrders();
     }
@@ -867,7 +877,17 @@ const Trading = ({ isLightMode = false }) => {
     try {
       const response = await axios.get('/api/trading/settings', { withCredentials: true });
       if (response.data.success) {
-        setSettings(response.data.settings);
+        const fetched = response.data.settings || {};
+        if (isRealModeRequested && fetched.test_mode_enabled) {
+          try {
+            await axios.post('/api/trading/settings', { test_mode_enabled: false }, { withCredentials: true });
+          } catch (syncErr) {
+            console.warn('Failed to sync trading settings test mode to false:', syncErr);
+          }
+          setSettings({ ...fetched, test_mode_enabled: false });
+        } else {
+          setSettings(fetched);
+        }
       }
     } catch (error) {
       console.error('Failed to load trading settings:', error);
