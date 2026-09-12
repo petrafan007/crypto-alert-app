@@ -157,6 +157,9 @@ export default function WebullTradingViewChart({
       const pair = resolved.endsWith('USD') ? resolved : `${resolved}USD`;
       return `COINBASE:${pair}`;
     }
+    if (resolved.startsWith('KX') || resolved.includes('-')) {
+      return 'AAPL';
+    }
     return resolved;
   }, [symbol, isCrypto, isFutures, accountOnly]);
 

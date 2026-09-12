@@ -6,6 +6,22 @@
 
 **Last Updated**: September 2026
 
+## v2.98.9 (September 2026)
+
+- **Webull Test Mode Unified Cash Balance Across Sub-Accounts**:
+  - Eliminated simulated cash balance splitting across paper sub-accounts (which previously divided cash using quantitative engine portfolio weights, causing available cash to oscillate between $5,334.48 on Event Contracts and $32,093.49 on Equities).
+  - All paper trading sub-accounts (`TEST_ACC_INDIVIDUAL_CASH`, `TEST_ACC_CRYPTO`, `TEST_ACC_EVENTS`, `TEST_ACC_FUTURES`) now report the full simulated paper trading cash balance, available cash, and buying power.
+  - The top Test Mode banner consistently displays total available paper cash across all trading tabs.
+- **Instrument Symbol Isolation & Chart Leakage Prevention**:
+  - Added strict instrument symbol validators (`isEventContractSymbol`, `isCryptoSymbol`, `isFuturesSymbol`, `isEquitySymbol`).
+  - Isolated symbol memory cache so that active event contract tickers (e.g., `KXBTC...`) and crypto/futures pairs can never leak into the Equities & ETFs chart selector.
+  - Added defensive symbol fallback in the TradingView chart widget: if an event contract or invalid symbol is encountered on the Equities chart, it safely falls back to `AAPL` instead of rendering TradingView's *"Invalid symbol"* error.
+- **Blank Screen Elimination & Automatic Chunk Load Recovery**:
+  - Implemented a dedicated React `<ErrorBoundary>` component wrapping the application root and routing views, providing an informative error card and one-click refresh button instead of a completely blank screen (White Screen of Death).
+  - Added global window error and unhandled rejection listeners targeting dynamic chunk load errors (`Loading chunk...`, `Failed to fetch dynamically imported module`), automatically executing a single clean page reload when new production asset hashes are deployed.
+- **System Route Resilience**:
+  - Removed HTTP 409 rejections from Webull test account summary, deposit, orders, and positions API endpoints when `webull_test_mode_enabled` was unpersisted, preventing frontend Promise.all cascade rejections.
+
 ## v2.98.8 (September 2026)
 
 - Master portfolio audits honor Off/Daily/Weekly independently of Event report hours, using NYSE session closes, holidays, early closes, and bounded catch-up.

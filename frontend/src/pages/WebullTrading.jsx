@@ -798,10 +798,10 @@ const DEFAULT_TEST_SUB_ACCOUNTS = [
     account_type: 'CASH',
     account_class: 'STOCK_OPTION_CASH',
     is_paper: true,
-    cash_balance: 33360.00,
-    buying_power: 33360.00,
-    net_liquidation: 33360.00,
-    allocation_pct: 66.72,
+    cash_balance: 50000.00,
+    buying_power: 50000.00,
+    net_liquidation: 50000.00,
+    allocation_pct: 100.0,
     modules: ['equities', 'options']
   },
   {
@@ -812,10 +812,10 @@ const DEFAULT_TEST_SUB_ACCOUNTS = [
     account_type: 'CRYPTO',
     account_class: 'CRYPTO',
     is_paper: true,
-    cash_balance: 11095.00,
-    buying_power: 11095.00,
-    net_liquidation: 11095.00,
-    allocation_pct: 22.19,
+    cash_balance: 50000.00,
+    buying_power: 50000.00,
+    net_liquidation: 50000.00,
+    allocation_pct: 100.0,
     modules: ['crypto']
   },
   {
@@ -826,10 +826,10 @@ const DEFAULT_TEST_SUB_ACCOUNTS = [
     account_type: 'EVENT',
     account_class: 'EVENT',
     is_paper: true,
-    cash_balance: 5545.00,
-    buying_power: 5545.00,
-    net_liquidation: 5545.00,
-    allocation_pct: 11.09,
+    cash_balance: 50000.00,
+    buying_power: 50000.00,
+    net_liquidation: 50000.00,
+    allocation_pct: 100.0,
     modules: ['events']
   },
   {
@@ -840,13 +840,39 @@ const DEFAULT_TEST_SUB_ACCOUNTS = [
     account_type: 'FUTURES',
     account_class: 'FUTURES',
     is_paper: true,
-    cash_balance: 0.00,
-    buying_power: 0.00,
-    net_liquidation: 0.00,
-    allocation_pct: 0.00,
+    cash_balance: 50000.00,
+    buying_power: 50000.00,
+    net_liquidation: 50000.00,
+    allocation_pct: 100.0,
     modules: ['futures']
   }
 ];
+
+const isEventContractSymbol = (sym) => {
+  if (!sym) return false;
+  const s = String(sym).trim().toUpperCase();
+  return s.startsWith('KX') || /^KX[A-Z0-9]+-\d+[A-Z0-9]+-\d+/i.test(s) || /-\d{2}[A-Z]{3}\d{6}/i.test(s);
+};
+
+const isCryptoSymbol = (sym) => {
+  if (!sym) return false;
+  const s = String(sym).trim().toUpperCase();
+  if (s.endsWith('USD') || s.endsWith('USDT')) return true;
+  return /^(BTC|ETH|SOL|DOGE|LTC|SHIB|AVAX|BCH|LINK|UNI)$/i.test(s);
+};
+
+const isFuturesSymbol = (sym) => {
+  if (!sym) return false;
+  const s = String(sym).trim().toUpperCase();
+  return /^(ES|MES|NQ|MNQ|YM|MYM|RTY|M2K|CL|MCL|NG|GC|MGC|SI|SIL|BTC|MBT|ETH|MET|ZN|ZB)/i.test(s) && /\d/.test(s);
+};
+
+const isEquitySymbol = (sym) => {
+  if (!sym) return false;
+  const s = String(sym).trim().toUpperCase();
+  if (isEventContractSymbol(s) || isCryptoSymbol(s) || isFuturesSymbol(s)) return false;
+  return /^[A-Z]{1,6}$/.test(s);
+};
 
 const holdingMatchesSymbol = (holding, symbol) => {
   const holdingSymbol = String(holding?.symbol || '').toUpperCase();
@@ -2170,13 +2196,26 @@ export default function WebullTrading({ isLightMode = false }) {
     const cryptoHolding = modeHoldings.find((holding) => String(holding.account_id || '') === String(selectedAccountId)
       && /crypto|coin|token/i.test(holding.instrument_type || ''));
     const defaultSymbols = {
-      EQUITY: equityHolding?.symbol || 'AAPL',
-      OPTION: assetSymbolMemoryRef.current.EQUITY || equityHolding?.symbol || 'AAPL',
-      CRYPTO: cryptoHolding?.symbol || 'BTCUSD',
+      EQUITY: (equityHolding?.symbol && isEquitySymbol(equityHolding.symbol)) ? equityHolding.symbol : 'AAPL',
+      OPTION: (assetSymbolMemoryRef.current.EQUITY && isEquitySymbol(assetSymbolMemoryRef.current.EQUITY)) ? assetSymbolMemoryRef.current.EQUITY : ((equityHolding?.symbol && isEquitySymbol(equityHolding.symbol)) ? equityHolding.symbol : 'AAPL'),
+      CRYPTO: (cryptoHolding?.symbol && isCryptoSymbol(cryptoHolding.symbol)) ? cryptoHolding.symbol : 'BTCUSD',
       FUTURES: selectedFuturesContract?.symbol || 'ESU26',
       EVENT: selectedEventMarket?.symbol || '',
     };
-    const nextSymbol = assetSymbolMemoryRef.current[nextType] || defaultSymbols[nextType] || '';
+    let nextSymbol = assetSymbolMemoryRef.current[nextType] || defaultSymbols[nextType] || '';
+    if (nextType === 'EQUITY' && !isEquitySymbol(nextSymbol)) {
+      nextSymbol = defaultSymbols.EQUITY;
+      assetSymbolMemoryRef.current.EQUITY = defaultSymbols.EQUITY;
+    } else if (nextType === 'OPTION' && !isEquitySymbol(nextSymbol)) {
+      nextSymbol = defaultSymbols.OPTION;
+      assetSymbolMemoryRef.current.OPTION = defaultSymbols.OPTION;
+    } else if (nextType === 'CRYPTO' && !isCryptoSymbol(nextSymbol)) {
+      nextSymbol = defaultSymbols.CRYPTO;
+      assetSymbolMemoryRef.current.CRYPTO = defaultSymbols.CRYPTO;
+    } else if (nextType === 'EVENT' && !isEventContractSymbol(nextSymbol)) {
+      nextSymbol = defaultSymbols.EVENT;
+      assetSymbolMemoryRef.current.EVENT = defaultSymbols.EVENT;
+    }
     setSelectedInstrumentType(nextType);
     setSelectedSecurityType(nextType === 'EQUITY' ? 'EQUITY' : nextType);
     setSelectedSymbol(nextSymbol);
@@ -2383,7 +2422,18 @@ export default function WebullTrading({ isLightMode = false }) {
   );
 
   useEffect(() => {
-    assetSymbolMemoryRef.current[selectedInstrumentType] = selectedSymbol;
+    if (!selectedSymbol) return;
+    if (selectedInstrumentType === 'EQUITY' && isEquitySymbol(selectedSymbol)) {
+      assetSymbolMemoryRef.current.EQUITY = selectedSymbol;
+    } else if (selectedInstrumentType === 'OPTION' && isEquitySymbol(selectedSymbol)) {
+      assetSymbolMemoryRef.current.OPTION = selectedSymbol;
+    } else if (selectedInstrumentType === 'CRYPTO' && isCryptoSymbol(selectedSymbol)) {
+      assetSymbolMemoryRef.current.CRYPTO = selectedSymbol;
+    } else if (selectedInstrumentType === 'EVENT' && isEventContractSymbol(selectedSymbol)) {
+      assetSymbolMemoryRef.current.EVENT = selectedSymbol;
+    } else if (selectedInstrumentType === 'FUTURES' && isFuturesSymbol(selectedSymbol)) {
+      assetSymbolMemoryRef.current.FUTURES = selectedSymbol;
+    }
   }, [selectedInstrumentType, selectedSymbol]);
 
   const applyEventMarket = (market, { resetPrice = true } = {}) => {
@@ -2909,7 +2959,8 @@ export default function WebullTrading({ isLightMode = false }) {
       const topEquityHolding = modeHoldings.find((h) => String(h.account_id || '') === String(newAccountId)
         && !/crypto|coin|token/i.test(h.instrument_type || '')
         && !['OPTION', 'FUTURES', 'EVENT'].includes(String(h.instrument_type || '').toUpperCase()));
-      const nextSym = assetSymbolMemoryRef.current.EQUITY || topEquityHolding?.symbol || 'AAPL';
+      const rawSym = assetSymbolMemoryRef.current.EQUITY || topEquityHolding?.symbol || 'AAPL';
+      const nextSym = isEquitySymbol(rawSym) ? rawSym : 'AAPL';
       if (selectedInstrumentType !== 'OPTION') {
         setSelectedInstrumentType('EQUITY');
         setSelectedSecurityType('EQUITY');
@@ -4338,7 +4389,7 @@ export default function WebullTrading({ isLightMode = false }) {
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px', fontWeight: 600 }}>
             <span style={{ fontSize: '1.2rem' }}>🧪</span>
             <span>
-              TEST MODE ACTIVE — Simulated Webull Paper Account (${number(cashBalance)} USD available cash). Trades fill against real live market quotes with zero financial risk.
+              TEST MODE ACTIVE — Simulated Webull Paper Account (${number(paperSummary?.available_cash ?? paperSummary?.cash_balance ?? cashBalance)} USD available cash). Trades fill against real live market quotes with zero financial risk.
             </span>
           </div>
           <button

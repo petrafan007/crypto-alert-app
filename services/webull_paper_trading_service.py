@@ -483,19 +483,9 @@ def get_webull_test_account_summary(user_id: int) -> Dict[str, Any]:
     )
     buying_power = max(0.0, available_cash - (short_market_value * 1.5))
 
-    try:
-        from portfolio_algo_models import PortfolioStrategyConfig, DEFAULT_ALLOCATIONS
-        from services.portfolio_engine import allocations_for
-        cfg = PortfolioStrategyConfig.query.filter_by(user_id=user_id).first()
-        weights = allocations_for(cfg) if cfg else DEFAULT_ALLOCATIONS
-    except Exception:
-        weights = {'equities': 38.98, 'options': 27.74, 'crypto': 22.19, 'events': 11.09, 'futures': 0.0}
-
-    eq_opt_w = weights.get('equities', 0.0) + weights.get('options', 0.0)
-    crypto_w = weights.get('crypto', 0.0)
-    events_w = weights.get('events', 0.0)
-    futures_w = weights.get('futures', 0.0)
-
+    # In Webull simulated Paper Trading, the simulated bankroll is unified across all
+    # asset classes, giving users full access to their paper funds whether trading
+    # equities, options, crypto, futures, or event contracts.
     sub_accounts = [
         {
             'account_id': 'TEST_ACC_INDIVIDUAL_CASH',
@@ -504,13 +494,14 @@ def get_webull_test_account_summary(user_id: int) -> Dict[str, Any]:
             'account_label': 'Individual Cash (Equities & Options)',
             'account_type': 'CASH',
             'account_class': 'CASH',
-            'allocation_pct': round(eq_opt_w, 4),
-            'cash_balance': round(cash * (eq_opt_w / 100.0), 2),
-            'total_cash_balance': round(cash * (eq_opt_w / 100.0), 2),
-            'settled_cash': round(cash * (eq_opt_w / 100.0), 2),
-            'buying_power': round(buying_power * (eq_opt_w / 100.0), 2),
-            'net_liquidation': round(net_liquidation * (eq_opt_w / 100.0), 2),
-            'total_equity': round(net_liquidation * (eq_opt_w / 100.0), 2),
+            'allocation_pct': 100.0,
+            'cash_balance': round(cash, 2),
+            'total_cash_balance': round(cash, 2),
+            'settled_cash': round(cash, 2),
+            'available_cash': round(available_cash, 2),
+            'buying_power': round(buying_power, 2),
+            'net_liquidation': round(net_liquidation, 2),
+            'total_equity': round(net_liquidation, 2),
             'is_paper': True,
         },
         {
@@ -520,13 +511,14 @@ def get_webull_test_account_summary(user_id: int) -> Dict[str, Any]:
             'account_label': 'Crypto (Spot)',
             'account_type': 'CASH',
             'account_class': 'CRYPTO',
-            'allocation_pct': round(crypto_w, 4),
-            'cash_balance': round(cash * (crypto_w / 100.0), 2),
-            'total_cash_balance': round(cash * (crypto_w / 100.0), 2),
-            'settled_cash': round(cash * (crypto_w / 100.0), 2),
-            'buying_power': round(buying_power * (crypto_w / 100.0), 2),
-            'net_liquidation': round(net_liquidation * (crypto_w / 100.0), 2),
-            'total_equity': round(net_liquidation * (crypto_w / 100.0), 2),
+            'allocation_pct': 100.0,
+            'cash_balance': round(cash, 2),
+            'total_cash_balance': round(cash, 2),
+            'settled_cash': round(cash, 2),
+            'available_cash': round(available_cash, 2),
+            'buying_power': round(buying_power, 2),
+            'net_liquidation': round(net_liquidation, 2),
+            'total_equity': round(net_liquidation, 2),
             'is_paper': True,
         },
         {
@@ -536,13 +528,14 @@ def get_webull_test_account_summary(user_id: int) -> Dict[str, Any]:
             'account_label': 'Events Cash (Event Contracts)',
             'account_type': 'CASH',
             'account_class': 'EVENT',
-            'allocation_pct': round(events_w, 4),
-            'cash_balance': round(cash * (events_w / 100.0), 2),
-            'total_cash_balance': round(cash * (events_w / 100.0), 2),
-            'settled_cash': round(cash * (events_w / 100.0), 2),
-            'buying_power': round(buying_power * (events_w / 100.0), 2),
-            'net_liquidation': round(net_liquidation * (events_w / 100.0), 2),
-            'total_equity': round(net_liquidation * (events_w / 100.0), 2),
+            'allocation_pct': 100.0,
+            'cash_balance': round(cash, 2),
+            'total_cash_balance': round(cash, 2),
+            'settled_cash': round(cash, 2),
+            'available_cash': round(available_cash, 2),
+            'buying_power': round(buying_power, 2),
+            'net_liquidation': round(net_liquidation, 2),
+            'total_equity': round(net_liquidation, 2),
             'is_paper': True,
         },
         {
@@ -552,13 +545,14 @@ def get_webull_test_account_summary(user_id: int) -> Dict[str, Any]:
             'account_label': 'Futures (Micro Futures)',
             'account_type': 'FUTURES',
             'account_class': 'FUTURES',
-            'allocation_pct': round(futures_w, 4),
-            'cash_balance': round(cash * (futures_w / 100.0), 2),
-            'total_cash_balance': round(cash * (futures_w / 100.0), 2),
-            'settled_cash': round(cash * (futures_w / 100.0), 2),
-            'buying_power': round(buying_power * (futures_w / 100.0), 2),
-            'net_liquidation': round(net_liquidation * (futures_w / 100.0), 2),
-            'total_equity': round(net_liquidation * (futures_w / 100.0), 2),
+            'allocation_pct': 100.0,
+            'cash_balance': round(cash, 2),
+            'total_cash_balance': round(cash, 2),
+            'settled_cash': round(cash, 2),
+            'available_cash': round(available_cash, 2),
+            'buying_power': round(buying_power, 2),
+            'net_liquidation': round(net_liquidation, 2),
+            'total_equity': round(net_liquidation, 2),
             'is_paper': True,
         },
     ]

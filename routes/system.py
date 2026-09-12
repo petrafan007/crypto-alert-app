@@ -2494,9 +2494,6 @@ def api_webull_open_orders():
 def api_webull_test_account_summary():
     """Retrieve simulated paper trading balances, buying power, and P&L."""
     try:
-        setting = UserSetting.query.filter_by(user_id=current_user.id).first()
-        if not bool(getattr(setting, 'webull_test_mode_enabled', False)):
-            return jsonify({'success': False, 'message': 'Enable Webull Test Mode to view the paper account.'}), 409
         from services.webull_paper_trading_service import get_webull_test_account_summary
         summary = get_webull_test_account_summary(current_user.id)
         return jsonify({'success': True, 'summary': summary})
@@ -2510,9 +2507,6 @@ def api_webull_test_account_summary():
 def api_webull_test_deposit():
     """Deposit or reset fake money in the simulated paper account."""
     try:
-        setting = UserSetting.query.filter_by(user_id=current_user.id).first()
-        if not bool(getattr(setting, 'webull_test_mode_enabled', False)):
-            return jsonify({'success': False, 'message': 'Enable Webull Test Mode before changing paper funds.'}), 409
         data = request.get_json(silent=True) or {}
         amount = float(data.get('amount') or 1000.0)
         reset = bool(data.get('reset', False))
@@ -2529,9 +2523,6 @@ def api_webull_test_deposit():
 def api_webull_test_positions():
     """Retrieve all simulated paper trading positions."""
     try:
-        setting = UserSetting.query.filter_by(user_id=current_user.id).first()
-        if not bool(getattr(setting, 'webull_test_mode_enabled', False)):
-            return jsonify({'success': True, 'positions': []})
         from services.webull_paper_trading_service import get_webull_test_positions
         positions = get_webull_test_positions(current_user.id)
         return jsonify({'success': True, 'positions': positions})
@@ -2545,9 +2536,6 @@ def api_webull_test_positions():
 def api_webull_test_orders():
     """Retrieve simulated paper trading orders history."""
     try:
-        setting = UserSetting.query.filter_by(user_id=current_user.id).first()
-        if not bool(getattr(setting, 'webull_test_mode_enabled', False)):
-            return jsonify({'success': True, 'orders': []})
         from services.webull_paper_trading_service import get_webull_test_orders
         orders = get_webull_test_orders(current_user.id)
         return jsonify({'success': True, 'orders': orders})

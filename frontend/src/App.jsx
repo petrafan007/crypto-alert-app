@@ -22,6 +22,7 @@ const AcceptableUse = React.lazy(() => import('./pages/AcceptableUse'));
 const TradingRiskDisclosure = React.lazy(() => import('./pages/TradingRiskDisclosure'));
 const Support = React.lazy(() => import('./pages/Support'));
 import ToastNotifications from './components/ToastNotifications';
+import ErrorBoundary from './components/ErrorBoundary';
 import { APP_VERSION } from './version';
 import './App.css';
 import './theme.css';
@@ -324,94 +325,96 @@ export default function App() {
 
       {/* Main Content */}
       <div className={isOnboarding ? '' : 'main-content'}>
-        <React.Suspense fallback={
-          <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
-            <div className="spinner-border text-primary" role="status">
-              <span className="visually-hidden">Loading...</span>
+        <ErrorBoundary fallbackTitle="View Loading Error" fallbackMessage="An error occurred while displaying this page. Please reload to restore live data.">
+          <React.Suspense fallback={
+            <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
+              <div className="spinner-border text-primary" role="status">
+                <span className="visually-hidden">Loading...</span>
+              </div>
             </div>
-          </div>
-        }>
-          <Routes>
-            <Route path="/login" element={user ? <Navigate to="/" /> : <Login />} />
-            <Route path="/signup" element={user ? <Navigate to="/" /> : <Signup isLightMode={isLightMode} toggleTheme={toggleTheme} />} />
-            <Route path="/onboarding" element={user ? (user.onboardingRequired ? <Onboarding isLightMode={isLightMode} toggleTheme={toggleTheme} /> : <Navigate to="/" replace />) : <Navigate to="/login" replace />} />
-            <Route path="/" element={
-              <ProtectedRoute isLightMode={isLightMode}>
-                <Dashboard />
-              </ProtectedRoute>
-            } />
-            <Route path="/trading" element={
-              <ProtectedRoute isLightMode={isLightMode}>
-                <Trading />
-              </ProtectedRoute>
-            } />
-            <Route path="/trading/binance" element={
-              <ProtectedRoute isLightMode={isLightMode}>
-                <Trading />
-              </ProtectedRoute>
-            } />
-            <Route path="/trading/webull" element={
-              <ProtectedRoute isLightMode={isLightMode}>
-                <WebullTrading />
-              </ProtectedRoute>
-            } />
-            <Route path="/webull-trading" element={
-              <ProtectedRoute isLightMode={isLightMode}>
-                <WebullTrading />
-              </ProtectedRoute>
-            } />
-            <Route path="/orders" element={
-              <ProtectedRoute isLightMode={isLightMode}>
-                <Orders />
-              </ProtectedRoute>
-            } />
-            <Route path="/ai-analysis" element={
-              <Navigate to="/trading/binance?tab=ai-analysis" replace />
-            } />
-            <Route path="/settings" element={
-              <ProtectedRoute isLightMode={isLightMode}>
-                <Settings />
-              </ProtectedRoute>
-            } />
-            <Route path="/staking" element={
-              <ProtectedRoute isLightMode={isLightMode}>
-                <Staking />
-              </ProtectedRoute>
-            } />
+          }>
+            <Routes>
+              <Route path="/login" element={user ? <Navigate to="/" /> : <Login />} />
+              <Route path="/signup" element={user ? <Navigate to="/" /> : <Signup isLightMode={isLightMode} toggleTheme={toggleTheme} />} />
+              <Route path="/onboarding" element={user ? (user.onboardingRequired ? <Onboarding isLightMode={isLightMode} toggleTheme={toggleTheme} /> : <Navigate to="/" replace />) : <Navigate to="/login" replace />} />
+              <Route path="/" element={
+                <ProtectedRoute isLightMode={isLightMode}>
+                  <Dashboard />
+                </ProtectedRoute>
+              } />
+              <Route path="/trading" element={
+                <ProtectedRoute isLightMode={isLightMode}>
+                  <Trading />
+                </ProtectedRoute>
+              } />
+              <Route path="/trading/binance" element={
+                <ProtectedRoute isLightMode={isLightMode}>
+                  <Trading />
+                </ProtectedRoute>
+              } />
+              <Route path="/trading/webull" element={
+                <ProtectedRoute isLightMode={isLightMode}>
+                  <WebullTrading />
+                </ProtectedRoute>
+              } />
+              <Route path="/webull-trading" element={
+                <ProtectedRoute isLightMode={isLightMode}>
+                  <WebullTrading />
+                </ProtectedRoute>
+              } />
+              <Route path="/orders" element={
+                <ProtectedRoute isLightMode={isLightMode}>
+                  <Orders />
+                </ProtectedRoute>
+              } />
+              <Route path="/ai-analysis" element={
+                <Navigate to="/trading/binance?tab=ai-analysis" replace />
+              } />
+              <Route path="/settings" element={
+                <ProtectedRoute isLightMode={isLightMode}>
+                  <Settings />
+                </ProtectedRoute>
+              } />
+              <Route path="/staking" element={
+                <ProtectedRoute isLightMode={isLightMode}>
+                  <Staking />
+                </ProtectedRoute>
+              } />
 
-            <Route path="/tax-report" element={
-              <ProtectedRoute isLightMode={isLightMode}>
-                <TaxReportBinance />
-              </ProtectedRoute>
-            } />
-            <Route path="/tax-report-binance" element={
-              <ProtectedRoute isLightMode={isLightMode}>
-                <TaxReportBinance />
-              </ProtectedRoute>
-            } />
-            <Route path="/tax-report-webull" element={
-              <ProtectedRoute isLightMode={isLightMode}>
-                <TaxReportWebull />
-              </ProtectedRoute>
-            } />
-            <Route path="/help" element={
-              <ProtectedRoute isLightMode={isLightMode}>
-                <Help isLightMode={isLightMode} />
-              </ProtectedRoute>
-            }
-            />
-            <Route path="/help/quant-strategy-engine" element={
-              <ProtectedRoute isLightMode={isLightMode}>
-                <QuantitativeStrategyEngineDoc isLightMode={isLightMode} />
-              </ProtectedRoute>
-            } />
-            <Route path="/privacy" element={<PrivacyPolicy isLightMode={isLightMode} />} />
-            <Route path="/terms" element={<TermsOfService isLightMode={isLightMode} />} />
-            <Route path="/acceptable-use" element={<AcceptableUse isLightMode={isLightMode} />} />
-            <Route path="/risk-disclosure" element={<TradingRiskDisclosure isLightMode={isLightMode} />} />
-            <Route path="/support" element={<Support isLightMode={isLightMode} />} />
-          </Routes>
-        </React.Suspense>
+              <Route path="/tax-report" element={
+                <ProtectedRoute isLightMode={isLightMode}>
+                  <TaxReportBinance />
+                </ProtectedRoute>
+              } />
+              <Route path="/tax-report-binance" element={
+                <ProtectedRoute isLightMode={isLightMode}>
+                  <TaxReportBinance />
+                </ProtectedRoute>
+              } />
+              <Route path="/tax-report-webull" element={
+                <ProtectedRoute isLightMode={isLightMode}>
+                  <TaxReportWebull />
+                </ProtectedRoute>
+              } />
+              <Route path="/help" element={
+                <ProtectedRoute isLightMode={isLightMode}>
+                  <Help isLightMode={isLightMode} />
+                </ProtectedRoute>
+              }
+              />
+              <Route path="/help/quant-strategy-engine" element={
+                <ProtectedRoute isLightMode={isLightMode}>
+                  <QuantitativeStrategyEngineDoc isLightMode={isLightMode} />
+                </ProtectedRoute>
+              } />
+              <Route path="/privacy" element={<PrivacyPolicy isLightMode={isLightMode} />} />
+              <Route path="/terms" element={<TermsOfService isLightMode={isLightMode} />} />
+              <Route path="/acceptable-use" element={<AcceptableUse isLightMode={isLightMode} />} />
+              <Route path="/risk-disclosure" element={<TradingRiskDisclosure isLightMode={isLightMode} />} />
+              <Route path="/support" element={<Support isLightMode={isLightMode} />} />
+            </Routes>
+          </React.Suspense>
+        </ErrorBoundary>
       </div>
 
       {/* Unhide Assets Modal */}
