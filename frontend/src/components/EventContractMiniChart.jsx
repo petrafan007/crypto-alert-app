@@ -112,6 +112,7 @@ export default function EventContractMiniChart({
   const containerRef = useRef(null);
   const pollTimerRef = useRef(null);
   const abortControllerRef = useRef(null);
+  const timeframeInitializedRef = useRef(false);
 
   // Observe container dimensions for responsive canvas sizing
   useEffect(() => {
@@ -131,11 +132,15 @@ export default function EventContractMiniChart({
     return () => observer.disconnect();
   }, []);
 
-  // Sync default timeframe when market or contract duration changes
+  // Set the default timeframe once on first mount based on the contract duration.
+  // Do NOT re-run on market/duration changes — that would override the user's manual
+  // timeframe selection every time the market poll returns a fresh object.
   useEffect(() => {
-    const nextDefault = detectDefaultTimeframe(market, duration);
-    setTimeframe(nextDefault);
-  }, [market?.symbol, market?.name, market?.series_frequency, duration]);
+    if (timeframeInitializedRef.current) return;
+    timeframeInitializedRef.current = true;
+    setTimeframe(detectDefaultTimeframe(market, duration));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Fetch Kline / Candlestick data
   const fetchKlines = useCallback(async (isPolling = false) => {
@@ -195,9 +200,10 @@ export default function EventContractMiniChart({
     if (pollTimerRef.current) {
       clearInterval(pollTimerRef.current);
     }
+    // Poll every 10 s — frequent enough for live contracts without hammering the backend.
     pollTimerRef.current = setInterval(() => {
       fetchKlines(true);
-    }, 4000);
+    }, 10000);
 
     return () => {
       if (pollTimerRef.current) {

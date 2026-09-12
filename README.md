@@ -6,6 +6,17 @@
 
 **Last Updated**: September 2026
 
+## v2.99.11 (September 2026)
+
+- **Fix: Paper Trading Poll Abort Storm (`webull_paper_lifecycle.py`)**:
+  - `reconcile_paper_events` now enforces a 30-second in-process throttle per user on the polling path (`get_webull_test_account_summary`, `get_webull_test_positions`, `get_webull_test_orders`). These three functions are called together on every 1.5-second poll cycle when active event orders are open; each was triggering a live Webull market-quote API call, causing back-to-back `AxiosError: Request aborted` floods in the console.
+  - Route-triggered calls (market-quote refresh from `EventPositionModal`, explicit position refresh) pass `force=True` to bypass the throttle, so settlement still happens promptly when the user has the modal open.
+- **Fix: Chart Timeframe Buttons Have No Effect (`EventContractMiniChart`)**:
+  - A `useEffect` that synced the default timeframe from the market/duration prop was re-running on every market poll (every 2 s), silently overwriting any timeframe the user had manually selected back to the contract default. Replaced with a one-time initialization that only runs on mount; subsequent market-prop updates no longer touch the selected timeframe.
+  - Reduced chart kline poll interval from 4 s to 10 s to relieve backend pressure.
+- **Fix: Selected Contract Chart Fails to Load (`EventPositionModal`)**:
+  - The `underlyingChartSymbol` derivation that feeds the mini chart was fragile when `underlying_symbol` is absent from the Webull market response. Replaced with a three-tier extraction: explicit `underlying_symbol/underlying_name` → KX-prefix regex (`KXBTC15M-...` → `BTC`) → generic strip fallback, all reliably appending `USDT` for the Binance klines lookup.
+
 ## v2.99.10 (September 2026)
 
 - **Event Contract Limit Price Formatting (`EventPositionModal`)**:

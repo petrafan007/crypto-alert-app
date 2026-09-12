@@ -395,11 +395,24 @@ export default function EventPositionModal({
 
   // Derive the underlying crypto symbol for the mini chart (e.g. "KXBTC15M-..." → "BTCUSDT")
   const underlyingChartSymbol = useMemo(() => {
-    const ms = activeMarket?.underlying_symbol || activeMarket?.underlying_name || symbol;
-    const base = String(ms || '').replace(/^KX/, '').replace(/15M.*|1H.*|DAILY.*/i, '').trim().toUpperCase();
-    if (!base) return null;
-    // If it looks like a crypto base (BTC, ETH, SOL, etc.) add USDT for Binance kline lookup
-    return /^[A-Z]{2,6}$/.test(base) ? `${base}USDT` : base;
+    // 1. Prefer the explicit underlying_symbol from the market object
+    const explicit = activeMarket?.underlying_symbol || activeMarket?.underlying_name;
+    if (explicit) {
+      const clean = String(explicit).trim().toUpperCase().replace(/USDT?$/, '');
+      if (/^[A-Z]{2,10}$/.test(clean)) return `${clean}USDT`;
+    }
+
+    // 2. Fall back to parsing the contract symbol (e.g. "KXBTC15M-26SEP011030-30" or "KXBTC15M-...")
+    const raw = String(symbol || '').toUpperCase().trim();
+    // Strip the KX prefix then capture the asset letters up to the first digit or frequency suffix
+    const kxMatch = raw.match(/^KX([A-Z]{2,10})(?:\d|15M|1H|DAILY|D|H)/);
+    if (kxMatch) return `${kxMatch[1]}USDT`;
+
+    // 3. Last resort: strip KX prefix and any trailing frequency/date/number noise
+    const stripped = raw.replace(/^KX/, '').replace(/\d.*$/, '').trim();
+    if (/^[A-Z]{2,10}$/.test(stripped)) return `${stripped}USDT`;
+
+    return null;
   }, [activeMarket?.underlying_symbol, activeMarket?.underlying_name, symbol]);
 
   // Best guess at live underlying price from market reference data

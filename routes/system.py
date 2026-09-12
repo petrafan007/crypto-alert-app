@@ -3115,7 +3115,7 @@ def api_webull_event_markets():
             if setting and getattr(setting, 'webull_test_mode_enabled', False):
                 from services.webull_paper_lifecycle import reconcile_paper_events
                 try:
-                    reconcile_paper_events(current_user.id)
+                    reconcile_paper_events(current_user.id, force=True)
                 except Exception as rec_err:
                     logger.warning('Error reconciling paper events on market quote refresh: %s', rec_err)
             result = {
@@ -3201,7 +3201,7 @@ def api_webull_event_position():
         elif setting and (getattr(setting, 'webull_test_mode_enabled', False) or request.args.get('test_mode') == '1'):
             from services.webull_paper_lifecycle import reconcile_paper_events
             try:
-                reconcile_paper_events(current_user.id)
+                reconcile_paper_events(current_user.id, force=True)
             except Exception as rec_err:
                 logger.warning('Error reconciling paper events on position refresh: %s', rec_err)
         return jsonify({

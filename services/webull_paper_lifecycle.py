@@ -11,6 +11,12 @@ from services.portfolio_strategy_signals import session_bounds, in_session
 ET = ZoneInfo('America/New_York')
 OPTION_SYMBOL = re.compile(r'^(.+?)\s+(\d{4}-\d{2}-\d{2})\s+\$([\d.]+)\s+(CALL|PUT)$')
 
+# Throttle: track the last time reconcile_paper_events successfully ran per user.
+# Prevents the high-frequency poll path (every 1.5 s) from hammering live Webull
+# market-quote calls. Route-triggered calls pass force=True to bypass.
+_RECONCILE_EVENTS_LAST_RUN: dict = {}  # user_id -> datetime (UTC)
+_RECONCILE_EVENTS_THROTTLE_SECS = 30
+
 
 def utc(value):
     return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value.astimezone(timezone.utc)
@@ -144,12 +150,25 @@ def reconcile_paper_options(user_id, now=None, close_resolver=None, quote_resolv
     db.session.commit()
 
 
-def reconcile_paper_events(user_id, now=None):
-    """Settle expired and resolved event contracts, credit paper cash, and clear holdings."""
+def reconcile_paper_events(user_id, now=None, force=False):
+    """Settle expired and resolved event contracts, credit paper cash, and clear holdings.
+
+    Args:
+        user_id: The user whose paper account to reconcile.
+        now: Override the current UTC time (used in tests).
+        force: Bypass the 30-second throttle.  Pass True from route handlers
+               that are responding to an explicit user action or a modal poll.
+    """
+    _now_utc = utc(now or datetime.now(timezone.utc))
+    if not force:
+        last = _RECONCILE_EVENTS_LAST_RUN.get(user_id)
+        if last is not None and (_now_utc - last).total_seconds() < _RECONCILE_EVENTS_THROTTLE_SECS:
+            return  # skip: ran recently enough via another poll cycle
     from services.webull_paper_trading_service import _lock_webull_test_account
     from event_algo_models import EventContractOutcome
 
-    now = utc(now or datetime.now(timezone.utc))
+    now = _now_utc
+    _RECONCILE_EVENTS_LAST_RUN[user_id] = now
     account = _lock_webull_test_account(user_id)
     orders = WebullTestOrder.query.filter_by(user_id=user_id).order_by(WebullTestOrder.id).all()
     positions = WebullTestPosition.query.filter_by(user_id=user_id, instrument_type='EVENT').filter(WebullTestPosition.quantity > 0).all()
