@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState, useRef } from 'react';
 import axios from 'axios';
 import { cutoffFromSymbol } from '../utils/positions.mjs';
 import EventContractMiniChart from './EventContractMiniChart';

@@ -6,6 +6,13 @@
 
 **Last Updated**: September 2026
 
+## v2.99.8 (September 2026)
+
+- **Comprehensive Runtime Fix & AST Verification (`EventPositionModal` & `Dashboard`)**:
+  - Fixed a critical `ReferenceError: useRef is not defined` in `EventPositionModal.jsx` by explicitly importing `useRef` from `react`.
+  - Replaced orphaned `fetchPortfolio()` reference in `Dashboard.jsx` error handling with the standard live-data refresh pattern.
+  - Executed full Babel AST traversal across all JSX/JS files in `frontend/src` to guarantee 100% resolution of all identifiers and prevent any further runtime reference errors.
+
 ## v2.99.7 (September 2026)
 
 - **Emergency Hotfix: Webull Trading View Crash (`WebullTrading`)**:

@@ -3621,7 +3621,7 @@ function Dashboard({ isLightMode }) {
       } catch (err) {
         console.error('Update alert type error:', err);
         // Revert optimistic update on error by refreshing data
-        fetchPortfolio();
+        axios.get('/api/coin-data-live').then(r => r.data?.portfolio && setPortfolio(r.data.portfolio)).catch(() => { });
       }
     };
 
