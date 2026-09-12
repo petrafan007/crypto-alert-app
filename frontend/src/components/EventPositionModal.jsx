@@ -428,22 +428,8 @@ export default function EventPositionModal({
                 </div>
               )}
 
-              <div className="event-position-facts-grid">
-                <div><span>{isOpenOrder ? 'Order outcome' : 'Held outcome'}</span><strong>{positionOutcome.toUpperCase()}</strong></div>
-                <div><span>{isOpenOrder ? 'Live contracts owned' : 'Contracts'}</span><strong>{quantityText(positionQuantity)}</strong></div>
-                <div><span>Available to close</span><strong>{quantityText(availableQuantity)}</strong></div>
-                <div><span>Average entry</span><strong>{cents(averagePrice)}</strong></div>
-                <div><span>Executable bid</span><strong>{cents(executableBid)}</strong></div>
-                <div><span>Estimated close value</span><strong>{money(estimatedCloseValue)}</strong></div>
-                <div><span>Open P&amp;L at bid</span><strong className={unrealizedPnl > 0 ? 'gain' : unrealizedPnl < 0 ? 'loss' : ''}>{money(unrealizedPnl)}</strong></div>
-                <div><span>Winning settlement payout</span><strong>{money(winningPayout)}</strong></div>
-                <div><span>Yes bid / ask</span><strong>{cents(market.yes_bid)} / {cents(market.yes_ask)}</strong></div>
-                <div><span>No bid / ask</span><strong>{cents(market.no_bid)} / {cents(market.no_ask)}</strong></div>
-                <div><span>Volume / open interest</span><strong>{quantityText(market.volume)} / {quantityText(market.open_interest)}</strong></div>
-                <div><span>Last trade</span><strong>{market.last_trade_time ? fmtEastern(market.last_trade_time) : '—'}</strong></div>
-              </div>
 
-              {/* Manage position — placed above timeline */}
+              {/* Manage position — directly below the chart */}
               <div className="event-position-order-card">
                 <h3>{isOpenOrder ? 'Manage this open order' : 'Manage this position'}</h3>
                 <div className="event-position-order-actions">
@@ -475,7 +461,22 @@ export default function EventPositionModal({
                 </div>
               </div>
 
-              {/* Timeline — moved below manage-position */}
+              <div className="event-position-facts-grid">
+                <div><span>{isOpenOrder ? 'Order outcome' : 'Held outcome'}</span><strong>{positionOutcome.toUpperCase()}</strong></div>
+                <div><span>{isOpenOrder ? 'Live contracts owned' : 'Contracts'}</span><strong>{quantityText(positionQuantity)}</strong></div>
+                <div><span>Available to close</span><strong>{quantityText(availableQuantity)}</strong></div>
+                <div><span>Average entry</span><strong>{cents(averagePrice)}</strong></div>
+                <div><span>Executable bid</span><strong>{cents(executableBid)}</strong></div>
+                <div><span>Estimated close value</span><strong>{money(estimatedCloseValue)}</strong></div>
+                <div><span>Open P&amp;L at bid</span><strong className={unrealizedPnl > 0 ? 'gain' : unrealizedPnl < 0 ? 'loss' : ''}>{money(unrealizedPnl)}</strong></div>
+                <div><span>Winning settlement payout</span><strong>{money(winningPayout)}</strong></div>
+                <div><span>Yes bid / ask</span><strong>{cents(market.yes_bid)} / {cents(market.yes_ask)}</strong></div>
+                <div><span>No bid / ask</span><strong>{cents(market.no_bid)} / {cents(market.no_ask)}</strong></div>
+                <div><span>Volume / open interest</span><strong>{quantityText(market.volume)} / {quantityText(market.open_interest)}</strong></div>
+                <div><span>Last trade</span><strong>{market.last_trade_time ? fmtEastern(market.last_trade_time) : '—'}</strong></div>
+              </div>
+
+              {/* Timeline */}
               <div className="event-position-timeline">
                 <h3>Timeline and contract facts</h3>
                 <div><span>Opens</span><strong>{fmtEastern(opensDate)}</strong></div>

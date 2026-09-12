@@ -6,6 +6,12 @@
 
 **Last Updated**: September 2026
 
+## v2.98.11 (September 2026)
+
+- **Event Contract Position Modal — Chart Size & Layout**:
+  - Chart reduced to ~1/3 of the modal width (max 380px), horizontally centered.
+  - "Manage this position" card now appears directly below the chart, before the position stats grid.
+
 ## v2.98.10 (September 2026)
 
 - **Event Contract Position Modal — Chart Replacement**:

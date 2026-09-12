@@ -172,7 +172,15 @@
 }
 
 /* EventContractMiniChart fills the card — zero padding lets it own its border-radius */
-.event-position-chart-card { padding: 0; overflow: hidden; min-height: 200px; }
+.event-position-chart-card {
+  padding: 0;
+  overflow: hidden;
+  width: 33%;
+  min-width: 260px;
+  max-width: 380px;
+  margin: 0 auto 16px;
+  border-radius: 14px;
+}
 .event-position-chart-card .event-mini-chart-card { border: none; border-radius: 14px; }
 
 .event-position-facts-grid {
