@@ -6,6 +6,15 @@
 
 **Last Updated**: September 2026
 
+## v2.99.6 (September 2026)
+
+- **Event Contract Modal Robust State & Seamless Market Preservation (`EventPositionModal`)**:
+  - Prevented modal content truncation: Fixed an issue where the 5×2 facts grid, mini price chart, and order ticket would fail to display and get stuck showing a loading message after an order-to-position transition.
+  - Eliminated infinite cancellation loops: Decoupled contract fact fetching from rapid polling and quantity updates so background polling never aborts in-flight market responses.
+  - Preserved active market data across transitions (`activeMarket = market || fallbackMarket`), ensuring the modal immediately renders all contract facts, countdown timer, and interactive controls without flicker or screen wipes.
+  - Fixed false "Closed" status badge: Corrected status resolution so active contracts with time remaining never falsely report "Closed" while market facts are loading.
+  - Supplied `initialMarket` directly from parent trading state for instant, zero-latency modal rendering.
+
 ## v2.99.5 (September 2026)
 
 - **Real-Time Order-to-Position Transition & In-Place Modal Transformation (`EventPositionModal` & `WebullTrading`)**:

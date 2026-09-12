@@ -136,6 +136,7 @@ export default function EventPositionModal({
   isOpen,
   holding,
   openOrder = null,
+  initialMarket = null,
   isTestMode = false,
   isLightMode = false,
   onClose,
@@ -157,7 +158,9 @@ export default function EventPositionModal({
   const initialSide = isOpenOrder
     ? (String(record?.side || '').toUpperCase().includes('SELL') ? 'SELL' : 'BUY')
     : 'SELL';
-  const [market, setMarket] = useState(null);
+
+  const [market, setMarket] = useState(() => initialMarket || record?.market || null);
+  const loadedSymbolRef = useRef(symbol);
   const [availableQuantity, setAvailableQuantity] = useState(storedQuantity);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -183,19 +186,50 @@ export default function EventPositionModal({
     };
   }, [isOpen, onClose]);
 
+  // Synchronize initialMarket when supplied externally
   useEffect(() => {
-    if (!isOpen || !symbol) return undefined;
-    let cancelled = false;
-    setLoading(true);
-    setError('');
-    setMarket(null);
+    if (initialMarket && (!market || market.symbol !== initialMarket.symbol)) {
+      setMarket(initialMarket);
+      loadedSymbolRef.current = initialMarket.symbol;
+    }
+  }, [initialMarket]);
+
+  // Reset or initialize state only when symbol actually changes to a different contract
+  useEffect(() => {
+    if (symbol && loadedSymbolRef.current !== symbol) {
+      loadedSymbolRef.current = symbol;
+      setMarket(initialMarket?.symbol === symbol ? initialMarket : null);
+      setCutoffExpired(false);
+    }
+  }, [symbol, initialMarket]);
+
+  // Synchronize form side, outcome, quantity, and price when order/position changes
+  useEffect(() => {
+    if (!isOpen) return;
     setSide(initialSide);
     setOutcome(positionOutcome);
     setAvailableQuantity(storedQuantity);
     setQuantity(storedQuantity > 0 ? String(storedQuantity) : '1');
-    setPrice(storedPrice);
+    if (storedPrice) {
+      setPrice(storedPrice);
+    } else {
+      const suggested = quoteFor(market || initialMarket, positionOutcome, isOpenOrder ? initialSide : 'SELL');
+      if (suggested !== null) {
+        setPrice(String(suggested));
+      }
+    }
     setValidationError('');
-    setCutoffExpired(false);
+  }, [isOpen, isOpenOrder, positionOutcome, initialSide, storedQuantity, storedPrice]);
+
+  // Fetch contract position facts and bars without cancelling on quantity or fill state changes
+  useEffect(() => {
+    if (!isOpen || !symbol) return undefined;
+    let cancelled = false;
+
+    if (!market || market.symbol !== symbol) {
+      setLoading(true);
+    }
+    setError('');
 
     axios.get('/api/webull/events/position', {
       params: {
@@ -211,31 +245,33 @@ export default function EventPositionModal({
       if (cancelled) return;
       const details = response.data || {};
       const nextMarket = details.market || null;
-      setMarket(nextMarket);
+      if (nextMarket) {
+        setMarket((prev) => ({ ...(prev || {}), ...nextMarket }));
+      }
       if (!isOpenOrder && details.available_quantity !== null && details.available_quantity !== undefined) {
         setAvailableQuantity(numeric(details.available_quantity, storedQuantity));
-        setQuantity(String(numeric(details.available_quantity, storedQuantity)));
       }
       const serverTime = providerTime(details.server_time);
       setServerOffset(serverTime ? serverTime.getTime() - Date.now() : 0);
-      if (storedPrice) {
-        setPrice(storedPrice);
-      } else {
+      if (!storedPrice) {
         const suggested = quoteFor(nextMarket, positionOutcome, isOpenOrder ? initialSide : 'SELL');
-        setPrice(suggested === null ? '' : String(suggested));
+        if (suggested !== null) {
+          setPrice((current) => (!current ? String(suggested) : current));
+        }
       }
     }).catch((requestError) => {
-      if (!cancelled) {
+      if (!cancelled && !market) {
         setError(requestError.response?.data?.message || 'Unable to load this Event Contract position.');
       }
     }).finally(() => {
       if (!cancelled) setLoading(false);
     });
+
     return () => { cancelled = true; };
-  }, [isOpen, symbol, accountId, positionOutcome, isTestMode, storedQuantity, isOpenOrder]);
+  }, [isOpen, symbol, accountId, positionOutcome, isTestMode]);
 
   useEffect(() => {
-    if (!isOpen || !symbol || !market) return undefined;
+    if (!isOpen || !symbol) return undefined;
     let cancelled = false;
     const refreshQuote = () => axios.get('/api/webull/events/markets', {
       params: { symbol },
@@ -244,7 +280,7 @@ export default function EventPositionModal({
       if (cancelled) return;
       const nextMarket = response.data?.markets?.[0];
       if (!nextMarket) return;
-      setMarket(nextMarket);
+      setMarket((prev) => ({ ...(prev || {}), ...nextMarket }));
       setPrice((current) => {
         const previousSuggested = quoteFor(market, outcome, side);
         const nextSuggested = quoteFor(nextMarket, outcome, side);
@@ -258,7 +294,7 @@ export default function EventPositionModal({
       cancelled = true;
       window.clearInterval(interval);
     };
-  }, [isOpen, symbol, market?.symbol, outcome, side]);
+  }, [isOpen, symbol, outcome, side]);
 
   const [clock, setClock] = useState(Date.now());
   useEffect(() => {
@@ -279,33 +315,50 @@ export default function EventPositionModal({
   const isCutoffPassed = cutoff ? cutoff.getTime() <= (clock + serverOffset) : false;
   const isExpired = cutoffExpired || isCutoffPassed;
 
+  const fallbackMarket = useMemo(() => {
+    if (!symbol) return null;
+    const base = symbol.replace(/^KX/, '').replace(/15M.*|1H.*|DAILY.*/i, '').trim().toUpperCase();
+    return {
+      symbol,
+      name: symbol,
+      underlying_symbol: base ? `${base}USDT` : symbol,
+      display_condition: `${symbol} Event Contract`,
+      cutoff_at: symbolCutoff ? new Date(symbolCutoff).toISOString() : null,
+      tradable_status: isExpired ? 'CLOSED' : 'OC',
+    };
+  }, [symbol, symbolCutoff, isExpired]);
+
+  const activeMarket = market || fallbackMarket;
+
   // Resolve Opens using contract_period_start, falling back to open_date (only if non-midnight UTC)
   const opensDate = useMemo(() => {
-    const periodStart = market?.contract_period_start;
+    const periodStart = activeMarket?.contract_period_start;
     if (periodStart) return providerTime(periodStart);
-    if (market?.open_date && !isDateOnlyMidnight(market.open_date)) return providerTime(market.open_date);
+    if (activeMarket?.open_date && !isDateOnlyMidnight(activeMarket.open_date)) return providerTime(activeMarket.open_date);
     return null;
-  }, [market?.contract_period_start, market?.open_date]);
+  }, [activeMarket?.contract_period_start, activeMarket?.open_date]);
 
   // Expected determination: use contract_period_end/cutoff if the provider's expected_exp_date is bare UTC midnight
   const expectedDetermination = useMemo(() => {
-    const exp = market?.expected_exp_date;
+    const exp = activeMarket?.expected_exp_date;
     if (exp && !isDateOnlyMidnight(exp)) return providerTime(exp);
     // Fall back to cutoff (contract period end), which we already computed
     return cutoff;
-  }, [market?.expected_exp_date, cutoff]);
+  }, [activeMarket?.expected_exp_date, cutoff]);
 
   // Expected payout: use payout_date if non-midnight, else fall back to cutoff
   const expectedPayout = useMemo(() => {
-    const pd = market?.payout_date;
+    const pd = activeMarket?.payout_date;
     if (pd && !isDateOnlyMidnight(pd)) return providerTime(pd);
     return cutoff;
-  }, [market?.payout_date, cutoff]);
+  }, [activeMarket?.payout_date, cutoff]);
 
-  const providerStatus = String(market?.tradable_status || '').toUpperCase();
+  const providerStatus = String(activeMarket?.tradable_status || '').toUpperCase();
   const effectiveStatus = isExpired
     ? 'CLOSED'
-    : (['OC', 'CO'].includes(providerStatus) ? providerStatus : 'CLOSED');
+    : (['OC', 'CO'].includes(providerStatus)
+        ? providerStatus
+        : (isCutoffPassed ? 'CLOSED' : (providerStatus ? 'CLOSED' : 'OC')));
   const statusLabel = isExpired
     ? 'Closed'
     : (effectiveStatus === 'OC'
@@ -313,34 +366,34 @@ export default function EventPositionModal({
       : effectiveStatus === 'CO'
         ? 'Closing only'
         : 'Closed');
-  const rules = market?.rules || {};
+  const rules = activeMarket?.rules || {};
   const averagePrice = isOpenOrder ? null : numeric(record?.avg_entry ?? record?.cost_price, 0);
   const positionQuantity = isOpenOrder ? availableQuantity : numeric(record?.quantity ?? record?.amount, 0);
   const orderQuantity = numeric(record?.quantity, 0);
   const orderFilledQuantity = numeric(record?.filled_quantity, 0);
   const orderRemainingQuantity = Math.max(0, orderQuantity - orderFilledQuantity);
-  const executableBid = quoteFor(market, positionOutcome, 'SELL');
+  const executableBid = quoteFor(activeMarket, positionOutcome, 'SELL');
   const estimatedCloseValue = executableBid === null ? null : executableBid * availableQuantity;
   const unrealizedPnl = executableBid === null || averagePrice === null ? null : (executableBid - averagePrice) * positionQuantity;
   const winningPayout = positionQuantity * numeric(rules.settlement_payout, 1);
-  const selectedQuote = quoteFor(market, outcome, side);
+  const selectedQuote = quoteFor(activeMarket, outcome, side);
 
   // Derive the underlying crypto symbol for the mini chart (e.g. "KXBTC15M-..." → "BTCUSDT")
   const underlyingChartSymbol = useMemo(() => {
-    const ms = market?.underlying_symbol || market?.underlying_name || symbol;
+    const ms = activeMarket?.underlying_symbol || activeMarket?.underlying_name || symbol;
     const base = String(ms || '').replace(/^KX/, '').replace(/15M.*|1H.*|DAILY.*/i, '').trim().toUpperCase();
     if (!base) return null;
     // If it looks like a crypto base (BTC, ETH, SOL, etc.) add USDT for Binance kline lookup
     return /^[A-Z]{2,6}$/.test(base) ? `${base}USDT` : base;
-  }, [market?.underlying_symbol, market?.underlying_name, symbol]);
+  }, [activeMarket?.underlying_symbol, activeMarket?.underlying_name, symbol]);
 
   // Best guess at live underlying price from market reference data
-  const liveUnderlyingPrice = numeric(market?.reference_price ?? market?.target_value, 0);
+  const liveUnderlyingPrice = numeric(activeMarket?.reference_price ?? activeMarket?.target_value, 0);
 
   if (!isOpen || !record) return null;
 
   const chooseOrder = (nextSide, nextOutcome) => {
-    const nextQuote = quoteFor(market, nextOutcome, nextSide);
+    const nextQuote = quoteFor(activeMarket, nextOutcome, nextSide);
     setSide(nextSide);
     setOutcome(nextOutcome);
     setPrice(nextQuote === null ? '' : String(nextQuote));
@@ -404,28 +457,28 @@ export default function EventPositionModal({
           </div>
 
           <div className="event-position-title-row">
-            <h2 id="event-position-title">{market?.name || symbol}</h2>
+            <h2 id="event-position-title">{activeMarket?.name || symbol}</h2>
             <span className={`event-position-status status-${effectiveStatus.toLowerCase() || 'unknown'}`}>{statusLabel}</span>
           </div>
 
           <div className="event-position-header-sub">
-            <p className="event-position-condition">{market?.display_condition || market?.yes_condition || 'Contract condition unavailable'}</p>
-            {market?.symbol && (
+            <p className="event-position-condition">{activeMarket?.display_condition || activeMarket?.yes_condition || `${symbol} Event Contract`}</p>
+            {activeMarket?.symbol && (
               <div className="event-position-header-meta">
-                {market?.target_value != null && (
-                  <span className="event-position-target-badge">Target Price: <strong>{market?.reference_price != null ? `$${Number(market.reference_price).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—'}</strong></span>
+                {activeMarket?.target_value != null && (
+                  <span className="event-position-target-badge">Target Price: <strong>{activeMarket?.reference_price != null ? `$${Number(activeMarket.reference_price).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—'}</strong></span>
                 )}
-                <span className="event-position-symbol-badge">{market.symbol}</span>
+                <span className="event-position-symbol-badge">{activeMarket.symbol}</span>
               </div>
             )}
           </div>
         </header>
 
         <div className="event-position-modal-body">
-          {loading && <div className="event-position-loading">Loading current Webull contract facts and chart…</div>}
+          {loading && !market && <div className="event-position-loading">Loading current Webull contract facts and chart…</div>}
           {error && <div className="event-position-error">{error}</div>}
 
-          {market && (
+          {activeMarket && (
             <>
               {/* Compact 5x2 Facts Grid */}
               <div className="event-position-facts-grid">
@@ -438,9 +491,9 @@ export default function EventPositionModal({
                     <div><span>Order limit</span><strong>{cents(record?.price ?? record?.limit_price)}</strong></div>
                     <div><span>Order status</span><strong>{String(record?.status || 'Working')}</strong></div>
                     <div><span>Available to close</span><strong>{quantityText(availableQuantity)}</strong></div>
-                    <div><span>Yes bid / ask</span><strong>{cents(market.yes_bid)} / {cents(market.yes_ask)}</strong></div>
-                    <div><span>No bid / ask</span><strong>{cents(market.no_bid)} / {cents(market.no_ask)}</strong></div>
-                    <div><span>Volume / open int</span><strong>{quantityText(market.volume)} / {quantityText(market.open_interest)}</strong></div>
+                    <div><span>Yes bid / ask</span><strong>{cents(activeMarket.yes_bid)} / {cents(activeMarket.yes_ask)}</strong></div>
+                    <div><span>No bid / ask</span><strong>{cents(activeMarket.no_bid)} / {cents(activeMarket.no_ask)}</strong></div>
+                    <div><span>Volume / open int</span><strong>{quantityText(activeMarket.volume)} / {quantityText(activeMarket.open_interest)}</strong></div>
                   </>
                 ) : (
                   <>
@@ -452,8 +505,8 @@ export default function EventPositionModal({
                     <div><span>Estimated close value</span><strong>{money(estimatedCloseValue)}</strong></div>
                     <div><span>Open P&amp;L at bid</span><strong className={unrealizedPnl > 0 ? 'gain' : unrealizedPnl < 0 ? 'loss' : ''}>{money(unrealizedPnl)}</strong></div>
                     <div><span>Winning payout</span><strong>{money(winningPayout)}</strong></div>
-                    <div><span>Yes bid / ask</span><strong>{cents(market.yes_bid)} / {cents(market.yes_ask)}</strong></div>
-                    <div><span>No bid / ask</span><strong>{cents(market.no_bid)} / {cents(market.no_ask)}</strong></div>
+                    <div><span>Yes bid / ask</span><strong>{cents(activeMarket.yes_bid)} / {cents(activeMarket.yes_ask)}</strong></div>
+                    <div><span>No bid / ask</span><strong>{cents(activeMarket.no_bid)} / {cents(activeMarket.no_ask)}</strong></div>
                   </>
                 )}
               </div>
@@ -465,8 +518,8 @@ export default function EventPositionModal({
                     <div className="event-position-chart-card">
                       <EventContractMiniChart
                         symbol={underlyingChartSymbol}
-                        market={market}
-                        duration={market?.series_frequency}
+                        market={activeMarket}
+                        duration={activeMarket?.series_frequency}
                         isLightMode={isLightMode}
                         livePrice={liveUnderlyingPrice}
                       />
@@ -498,9 +551,9 @@ export default function EventPositionModal({
                           {cancellingOrderId === record.id ? 'Cancelling...' : 'Cancel Open Order'}
                         </button>
                       )}
-                      <button type="button" className={side === 'BUY' && outcome === 'yes' ? 'active yes' : ''} disabled={isExpired || effectiveStatus !== 'OC'} onClick={() => chooseOrder('BUY', 'yes')}>Buy Yes {cents(market.yes_ask)}</button>
-                      <button type="button" className={side === 'BUY' && outcome === 'no' ? 'active no' : ''} disabled={isExpired || effectiveStatus !== 'OC'} onClick={() => chooseOrder('BUY', 'no')}>Buy No {cents(market.no_ask)}</button>
-                      <button type="button" className={side === 'SELL' ? 'active close-position' : ''} disabled={isExpired || !['OC', 'CO'].includes(effectiveStatus) || (!isOpenOrder && availableQuantity <= 0)} onClick={() => chooseOrder('SELL', positionOutcome)}>Close {positionOutcome.toUpperCase()} Position {cents(executableBid)}</button>
+                      <button type="button" className={side === 'BUY' && outcome === 'yes' ? 'active yes' : ''} disabled={isExpired || effectiveStatus !== 'OC'} onClick={() => chooseOrder('BUY', 'yes')}>Buy Yes {activeMarket?.yes_ask ? cents(activeMarket.yes_ask) : ''}</button>
+                      <button type="button" className={side === 'BUY' && outcome === 'no' ? 'active no' : ''} disabled={isExpired || effectiveStatus !== 'OC'} onClick={() => chooseOrder('BUY', 'no')}>Buy No {activeMarket?.no_ask ? cents(activeMarket.no_ask) : ''}</button>
+                      <button type="button" className={side === 'SELL' ? 'active close-position' : ''} disabled={isExpired || !['OC', 'CO'].includes(effectiveStatus) || (!isOpenOrder && availableQuantity <= 0)} onClick={() => chooseOrder('SELL', positionOutcome)}>Close {positionOutcome.toUpperCase()} Position {executableBid ? cents(executableBid) : ''}</button>
                     </div>
                     <div className="event-position-order-fields">
                       <label>Contracts<input type="number" min="0" step={rules.fractionable ? '0.00001' : '1'} value={quantity} disabled={isExpired} onChange={(event) => { setQuantity(event.target.value); setValidationError(''); }} /></label>
@@ -528,7 +581,7 @@ export default function EventPositionModal({
                         <button
                           type="button"
                           className="event-position-review"
-                          disabled={loading || !market || (side === 'BUY' ? effectiveStatus !== 'OC' : !['OC', 'CO'].includes(effectiveStatus))}
+                          disabled={!activeMarket || (side === 'BUY' ? effectiveStatus !== 'OC' : !['OC', 'CO'].includes(effectiveStatus))}
                           onClick={reviewOrder}
                         >
                           {isOpenOrder ? 'Review & Replace Order' : `Review ${side === 'SELL' ? 'Close Position' : `Buy ${outcome.toUpperCase()}`} Order`}

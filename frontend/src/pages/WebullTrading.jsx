@@ -1610,7 +1610,10 @@ export default function WebullTrading({ isLightMode = false }) {
       if (isStillOpen) {
         const updatedOpenOrder = currentWorkingOrders.find((w) => String(w.id || w.order_id || '') === activeOrderId);
         if (updatedOpenOrder) {
-          setEventOpenOrder(updatedOpenOrder);
+          const cur = eventOpenOrderRef.current;
+          if (cur.status !== updatedOpenOrder.status || cur.filled_quantity !== updatedOpenOrder.filled_quantity || cur.price !== updatedOpenOrder.price) {
+            setEventOpenOrder(updatedOpenOrder);
+          }
         }
       } else {
         const targetSymbol = String(eventOpenOrderRef.current.underlying_symbol || eventOpenOrderRef.current.symbol || '')
@@ -1638,7 +1641,10 @@ export default function WebullTrading({ isLightMode = false }) {
         return hSym === activePosSym && String(hOut).toUpperCase() === String(activePosOut).toUpperCase() && Number(h.quantity || h.amount || 0) > 0;
       });
       if (updatedHolding) {
-        setEventPositionHolding(updatedHolding);
+        const cur = eventPositionHoldingRef.current;
+        if (cur.quantity !== updatedHolding.quantity || cur.avg_entry !== updatedHolding.avg_entry || cur.available_quantity !== updatedHolding.available_quantity) {
+          setEventPositionHolding(updatedHolding);
+        }
       }
     }
   };
@@ -6675,6 +6681,13 @@ export default function WebullTrading({ isLightMode = false }) {
         isOpen={Boolean(eventPositionHolding || eventOpenOrder)}
         holding={eventPositionHolding}
         openOrder={eventOpenOrder}
+        initialMarket={
+          eventMarkets.find((m) => {
+            const sym = (eventPositionHolding?.underlying_symbol || eventPositionHolding?.symbol || eventOpenOrder?.underlying_symbol || eventOpenOrder?.symbol || '').replace(/\s+(YES|NO)$/i, '').trim().toUpperCase();
+            return m.symbol === sym || m.event_symbol === sym;
+          })
+          || (eventMarket && (eventMarket.symbol === (eventPositionHolding?.underlying_symbol || eventPositionHolding?.symbol || eventOpenOrder?.underlying_symbol || eventOpenOrder?.symbol || '').replace(/\s+(YES|NO)$/i, '').trim().toUpperCase()) ? eventMarket : null)
+        }
         isTestMode={isTestMode}
         isLightMode={isLightMode}
         onClose={() => {
