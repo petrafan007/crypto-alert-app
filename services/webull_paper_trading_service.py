@@ -632,7 +632,14 @@ def _paper_position_status(pos):
 
 
 def _paper_history_note(order):
-    if order.order_type == 'EXPIRATION_SETTLEMENT':
+    if order.order_type == 'EXPIRATION_SETTLEMENT' or order.status == 'Settled':
+        if order.combo_orders:
+            try:
+                lc = json.loads(order.combo_orders)
+                if lc.get('note'):
+                    return lc['note']
+            except Exception:
+                pass
         return 'Paper cash settlement at expiration; not a broker fill.'
     if order.status == 'Expired':
         return 'Unfilled instruction expired; no trade was recorded.'
@@ -726,7 +733,13 @@ def get_webull_test_orders(user_id: int) -> List[Dict[str, Any]]:
     reconcile_paper_events(user_id)
     orders = WebullTestOrder.query.filter_by(user_id=user_id).order_by(WebullTestOrder.id.desc()).all()
 
-    event_orders = [o for o in orders if o.instrument_type == 'EVENT' or o.symbol.startswith('KX')]
+    # Exclude synthetic expiration settlements for event contracts so order history displays exactly 1 row per contract
+    orders = [
+        o for o in orders
+        if not (str(o.order_type or '') == 'EXPIRATION_SETTLEMENT' and (str(o.instrument_type or '').upper() == 'EVENT' or str(o.symbol or '').startswith('KX')))
+    ]
+
+    event_orders = [o for o in orders if str(o.instrument_type or '').upper() == 'EVENT' or str(o.symbol or '').startswith('KX')]
     event_symbols = {str(o.symbol or '').replace(' YES', '').replace(' NO', '').strip().upper() for o in event_orders}
     outcome_map = {}
     if event_symbols:
@@ -738,6 +751,9 @@ def get_webull_test_orders(user_id: int) -> List[Dict[str, Any]]:
                 EventContractOutcome.contract_symbol.in_(event_symbols)
             ).all()
         }
+
+    positions = WebullTestPosition.query.filter_by(user_id=user_id, instrument_type='EVENT').all()
+    pos_map = {pos.symbol: pos for pos in positions}
 
     rows = []
     for o in orders:
@@ -758,17 +774,25 @@ def get_webull_test_orders(user_id: int) -> List[Dict[str, Any]]:
             try:
                 lc = json.loads(o.combo_orders)
                 if lc.get('event') in ('event_contract_settlement', 'paper_cash_settlement', 'close_position') or o.order_type == 'EXPIRATION_SETTLEMENT':
-                    if 'cash_adjustment' in lc:
+                    if o.order_type == 'EXPIRATION_SETTLEMENT' and 'cash_adjustment' in lc:
                         total_amt = round(abs(float(lc['cash_adjustment'])), 2)
+                    elif 'cost' in lc and float(lc['cost']) > 0:
+                        total_amt = round(float(lc['cost']), 2)
                     if 'realized_pnl' in lc:
                         realized_pnl = float(lc['realized_pnl'])
                     if 'realized_pnl_pct' in lc:
                         realized_pnl_pct = float(lc['realized_pnl_pct'])
                     if 'fee' in lc:
                         fee = float(lc['fee'])
+                elif 'fee' in lc:
+                    fee = float(lc['fee'])
             except Exception:
                 pass
-        elif o.instrument_type == 'EVENT' or o.symbol.startswith('KX'):
+
+        if (str(o.instrument_type or '').upper() == 'EVENT' or str(o.symbol or '').startswith('KX')) and str(status).upper() not in ('CANCELLED', 'REJECTED', 'EXPIRED'):
+            # Official Webull fee schedule: $0.01 exchange fee + $0.01 commission = $0.02 per contract
+            if not fee and qty > 0:
+                fee = round(qty * 0.02, 2)
             base_sym = str(o.symbol or '').replace(' YES', '').replace(' NO', '').strip().upper()
             outcome = outcome_map.get(base_sym)
             if outcome and outcome.settlement_status == 'RESOLVED':
@@ -781,8 +805,29 @@ def get_webull_test_orders(user_id: int) -> List[Dict[str, Any]]:
                     payout_px = 1.0 if won else 0.0
                     cost = round(qty * fill_price, 2)
                     proceeds = round(qty * payout_px, 2)
-                    realized_pnl = round(proceeds - cost, 2)
+                    realized_pnl = round(proceeds - cost - fee, 2)
                     realized_pnl_pct = round((realized_pnl / cost * 100) if cost > 0 else 0.0, 2)
+                    status = 'Settled'
+            elif status in ('Filled', 'Open', 'Working'):
+                active_pos = pos_map.get(o.symbol)
+                if active_pos and float(active_pos.quantity or 0.0) > 0 and float(active_pos.cost_price or 0.0) > 0:
+                    pos_cost = float(active_pos.cost_price or fill_price)
+                    pos_last = float(active_pos.last_price or fill_price)
+                    realized_pnl = round(qty * (pos_last - pos_cost) - fee, 2)
+                    realized_pnl_pct = round((realized_pnl / (qty * pos_cost) * 100) if (qty * pos_cost) > 0 else 0.0, 2)
+
+        history_note = _paper_history_note(o)
+        if not history_note and status == 'Settled':
+            base_sym = str(o.symbol or '').replace(' YES', '').replace(' NO', '').strip().upper()
+            outcome = outcome_map.get(base_sym)
+            if outcome and outcome.settlement_status == 'RESOLVED':
+                target_outcome = (
+                    getattr(o, 'event_outcome', None)
+                    or ('YES' if str(o.symbol or '').upper().endswith(' YES') else 'NO' if str(o.symbol or '').upper().endswith(' NO') else '')
+                )
+                won = bool(outcome.outcome and str(outcome.outcome).upper() == str(target_outcome).upper())
+                payout_px = 1.0 if won else 0.0
+                history_note = f'Event contract settled: result {outcome.outcome}, held {target_outcome}. Payout ${payout_px:.2f}/contract.'
 
         rows.append({
             'order_id': o.order_id,
@@ -799,10 +844,10 @@ def get_webull_test_orders(user_id: int) -> List[Dict[str, Any]]:
             'price': o.limit_price or o.filled_price,
             'limit_price': o.limit_price,
             'stop_price': o.stop_price,
-            'avg_price': o.filled_price if filled_quantity or o.status == 'Settled' else None,
-            'filled_at': _utc_iso(o.updated_at) if status == 'Filled' else None,
-            'lifecycle': json.loads(o.combo_orders) if o.order_type == 'EXPIRATION_SETTLEMENT' and o.combo_orders else None,
-            'history_note': _paper_history_note(o),
+            'avg_price': o.filled_price if (filled_quantity or status == 'Settled') else None,
+            'filled_at': _utc_iso(o.updated_at or o.created_at) if (status in ('Filled', 'Settled') and filled_quantity > 0) else None,
+            'lifecycle': json.loads(o.combo_orders) if o.combo_orders and (o.order_type == 'EXPIRATION_SETTLEMENT' or status == 'Settled') else None,
+            'history_note': history_note,
             'status': status,
             'placed_time': _utc_iso(o.created_at),
             'created_at': _utc_iso(o.created_at),
@@ -1142,6 +1187,8 @@ def execute_webull_test_order(user_id: int, data: Dict[str, Any]) -> Dict[str, A
         contract_symbol = f"{symbol} {event_outcome.upper()}"
 
     total_trade_amount = round(quantity * fill_price * multiplier, 2)
+    # Webull official fee schedule: $0.01 exchange fee + $0.01 commission = $0.02 per contract for event contracts
+    order_fee = round(quantity * 0.02, 2) if instrument_type == 'EVENT' else 0.0
 
     is_buy = side in {'BUY', 'BUY_TO_OPEN'}
     is_sell = side in {'SELL', 'SELL_TO_CLOSE'}
@@ -1170,10 +1217,11 @@ def execute_webull_test_order(user_id: int, data: Dict[str, Any]) -> Dict[str, A
                 and (live_price > limit_price if (is_buy or is_cover) else live_price < limit_price))
             or (instrument_type == 'EVENT' and not is_marketable_event)):
         cash_for_order = cover_cash if is_cover else available_cash
-        if (is_buy or is_cover) and cash_for_order < total_trade_amount:
+        required_cash = total_trade_amount + order_fee
+        if (is_buy or is_cover) and cash_for_order < required_cash:
             raise ValueError(
                 f"Insufficient paper cash after working-order reservations. "
-                f"Available: ${cash_for_order:,.2f}, Required: ${total_trade_amount:,.2f}."
+                f"Available: ${cash_for_order:,.2f}, Required: ${required_cash:,.2f}."
             )
         if is_sell:
             available_quantity = _available_long_quantity(user_id, contract_symbol, instrument_type)
@@ -1209,6 +1257,7 @@ def execute_webull_test_order(user_id: int, data: Dict[str, Any]) -> Dict[str, A
             filled_quantity=0.0,
             status='Working',
             combo_type=data.get('combo_type'),
+            combo_orders=json.dumps({'fee': order_fee}) if order_fee > 0 else data.get('combo_orders'),
             time_in_force=data.get('time_in_force', 'DAY'),
         )
         db.session.add(test_order)
@@ -1223,19 +1272,21 @@ def execute_webull_test_order(user_id: int, data: Dict[str, Any]) -> Dict[str, A
             'filled_price': None,
             'filled_quantity': 0.0,
             'total_amount': total_trade_amount,
+            'fee': order_fee,
             'status': 'Working',
             'message': f"Simulated {side.title()} {paper_order_type_label(order_type)} order accepted for {quantity} {contract_symbol} and queued as Working.",
             'is_paper': True,
         }
 
     if is_buy:
-        if available_cash < total_trade_amount:
+        required_cash = total_trade_amount + order_fee
+        if available_cash < required_cash:
             raise ValueError(
                 f"Insufficient paper cash. Available after working-order reservations: ${available_cash:,.2f}, "
-                f"Required: ${total_trade_amount:,.2f}. "
+                f"Required: ${required_cash:,.2f}. "
                 f"Please use the Deposit button to add simulated funds."
             )
-        account.cash_balance = cash - total_trade_amount
+        account.cash_balance = cash - required_cash
 
         pos = _find_or_merge_position(user_id, contract_symbol, instrument_type, 'LONG')
 
@@ -1351,13 +1402,17 @@ def execute_webull_test_order(user_id: int, data: Dict[str, Any]) -> Dict[str, A
     # Attach realized P&L metadata for closing orders
     closing_combo = None
     if is_sell or is_cover:
+        if order_fee > 0:
+            close_realized_pnl = round(close_proceeds - close_cost_basis - order_fee, 2)
+            close_realized_pnl_pct = round((close_realized_pnl / close_cost_basis * 100) if close_cost_basis > 0 else 0.0, 2)
+            account.cash_balance = round(float(account.cash_balance or 0.0) - order_fee, 2)
         closing_combo = json.dumps({
             'event': 'close_position',
             'cost_basis': close_cost_basis,
             'proceeds': close_proceeds,
             'realized_pnl': close_realized_pnl,
             'realized_pnl_pct': close_realized_pnl_pct,
-            'fee': 0.0,
+            'fee': order_fee,
             'cash_adjustment': close_proceeds,
         })
 
@@ -1377,7 +1432,7 @@ def execute_webull_test_order(user_id: int, data: Dict[str, Any]) -> Dict[str, A
         filled_quantity=quantity,
         status='Filled',
         combo_type=data.get('combo_type'),
-        combo_orders=closing_combo,
+        combo_orders=closing_combo if closing_combo else (json.dumps({'fee': order_fee}) if order_fee > 0 else None),
         time_in_force=data.get('time_in_force', 'DAY'),
     )
     db.session.add(test_order)
@@ -1453,6 +1508,7 @@ def execute_webull_test_order(user_id: int, data: Dict[str, Any]) -> Dict[str, A
         'filled_price': fill_price,
         'filled_quantity': quantity,
         'total_amount': total_trade_amount,
+        'fee': order_fee,
         'status': 'Filled',
         'message': f"Simulated {side} order executed for {quantity} {contract_symbol} at ${fill_price:,.2f} (Total: ${total_trade_amount:,.2f}).",
         'is_paper': True,

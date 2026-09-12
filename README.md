@@ -6,6 +6,21 @@
 
 **Last Updated**: September 2026
 
+## v2.99.5 (September 2026)
+
+- **Real-Time Order-to-Position Transition & In-Place Modal Transformation (`EventPositionModal` & `WebullTrading`)**:
+  - Accelerated polling interval to 1.5 seconds during active event contract orders or open modals, delivering instant updates without requiring a manual page refresh (F5).
+  - When an open event contract order fills, it immediately drops off the **Open Orders** tab and appears in the **Positions** tab in real time.
+  - In-place modal transformation: When an open order is being viewed in `EventPositionModal`, upon fill the modal transforms seamlessly into the position view without closing or unmounting, updating the header kicker, 5×2 facts grid, and action controls to position management.
+- **Order History Single-Row Consolidation for Settled Event Contracts**:
+  - Resolved order history duplication by consolidating contract expiration settlements directly into the original parent order record rather than generating redundant synthetic settlement rows.
+  - Settled event orders clearly display status `Settled` alongside the official settlement resolution note, preserving the entry trade cost, filled timestamp, and total quantity.
+  - Automatically cleans up legacy duplicate settlement entries while maintaining exact historical ledger balance.
+- **Webull Official Event Contract Fee Structure ($0.02 / contract)**:
+  - Implemented Webull's official Event Contract fee schedule ($0.01 Kalshi exchange fee + $0.01 Webull commission per contract) for both simulated and live orders.
+  - Accurately deducts and records the total fee ($1.00 for 50 contracts) across working order reservations, fills, settlements, and order history.
+  - Incorporates fees into realized net P&L and return percentages in Order History and account balances.
+
 ## v2.99.4 (September 2026)
 
 - **Event Contract Modal Expiry State & Closed Lockout (`EventPositionModal`)**:

@@ -322,10 +322,15 @@ const normalizeOrder = (order) => ({
   filled_quantity: order.filled_quantity ?? order.executed_quantity ?? order.filled_qty,
   price: Number(order.filled_quantity || 0) > 0 ? (order.avg_price ?? order.filled_price ?? order.price ?? order.limit_price) : (order.price ?? order.limit_price ?? order.order_price),
   total_amount: order.total_amount ?? order.executed_value ?? order.net_amount,
+  fee: order.fee ?? order.commission ?? 0,
   realized_pnl: order.realized_pnl ?? order.pnl ?? order.lifecycle?.realized_pnl,
   realized_pnl_pct: order.realized_pnl_pct ?? order.pnl_rate ?? order.lifecycle?.realized_pnl_pct,
+  unrealized_pnl: order.unrealized_pnl,
+  unrealized_pnl_pct: order.unrealized_pnl_pct,
+  history_note: order.history_note,
   status: order.status || order.order_status || '—',
   created_at: order.created_at || order.create_time || order.placed_time || order.place_time || order.filled_time_at || order.update_time,
+  filled_at: order.filled_at || order.filled_time || order.filled_time_at,
 });
 
 const eventContractOrderDetails = (order = {}) => {
@@ -367,6 +372,9 @@ const orderRealizedPnl = (order) => {
   if (order?.pnl !== undefined && order?.pnl !== null && Number.isFinite(Number(order.pnl))) {
     return Number(order.pnl);
   }
+  if (order?.unrealized_pnl !== undefined && order?.unrealized_pnl !== null && Number.isFinite(Number(order.unrealized_pnl))) {
+    return Number(order.unrealized_pnl);
+  }
   if (order?.lifecycle?.realized_pnl !== undefined && Number.isFinite(Number(order.lifecycle.realized_pnl))) {
     return Number(order.lifecycle.realized_pnl);
   }
@@ -376,6 +384,9 @@ const orderRealizedPnl = (order) => {
 const orderRealizedPnlPct = (order) => {
   if (order?.realized_pnl_pct !== undefined && order?.realized_pnl_pct !== null && Number.isFinite(Number(order.realized_pnl_pct))) {
     return Number(order.realized_pnl_pct);
+  }
+  if (order?.unrealized_pnl_pct !== undefined && order?.unrealized_pnl_pct !== null && Number.isFinite(Number(order.unrealized_pnl_pct))) {
+    return Number(order.unrealized_pnl_pct);
   }
   if (order?.lifecycle?.realized_pnl_pct !== undefined && Number.isFinite(Number(order.lifecycle.realized_pnl_pct))) {
     return Number(order.lifecycle.realized_pnl_pct);
@@ -993,6 +1004,14 @@ export default function WebullTrading({ isLightMode = false }) {
   const [holdings, setHoldings] = useState([]);
   const [history, setHistory] = useState([]);
   const [openOrders, setOpenOrders] = useState([]);
+  const holdingsRef = useRef([]);
+  const openOrdersRef = useRef([]);
+  useEffect(() => {
+    holdingsRef.current = holdings;
+  }, [holdings]);
+  useEffect(() => {
+    openOrdersRef.current = openOrders;
+  }, [openOrders]);
   const [optionClosePnlByOrder, setOptionClosePnlByOrder] = useState({});
   const [accounts, setAccounts] = useState([]);
   const [selectedAccountId, setSelectedAccountId] = useState('');
@@ -1166,6 +1185,14 @@ export default function WebullTrading({ isLightMode = false }) {
   const [eventPositionHolding, setEventPositionHolding] = useState(null);
   const [eventOpenOrder, setEventOpenOrder] = useState(null);
   const [pendingEventPositionOrder, setPendingEventPositionOrder] = useState(null);
+  const eventPositionHoldingRef = useRef(null);
+  const eventOpenOrderRef = useRef(null);
+  useEffect(() => {
+    eventPositionHoldingRef.current = eventPositionHolding;
+  }, [eventPositionHolding]);
+  useEffect(() => {
+    eventOpenOrderRef.current = eventOpenOrder;
+  }, [eventOpenOrder]);
 
   // Helper to detect cash-based Webull accounts (Individual Cash, Roth IRA, Rollover IRA)
   const isCashBasedAccount = (account) => {
@@ -1522,7 +1549,10 @@ export default function WebullTrading({ isLightMode = false }) {
       try {
         const res = await axios.get('/api/webull/portfolio-algo/orders?status=open', { withCredentials: true });
         const working = (res.data?.orders || []).map(normalizeOrder);
-        if (isCurrent()) setOpenOrders(working);
+        if (isCurrent()) {
+          setOpenOrders(working);
+          syncEventModalAfterUpdate(holdingsRef.current || [], working);
+        }
       } catch (e) {
         // non-blocking
       }
@@ -1532,7 +1562,10 @@ export default function WebullTrading({ isLightMode = false }) {
       try {
         const res = await axios.get('/api/webull/test/orders', { withCredentials: true });
         const working = (res.data?.orders || []).filter((o) => o.status === 'Working' || o.status === 'Open').map(normalizeOrder);
-        if (isCurrent()) setOpenOrders(working);
+        if (isCurrent()) {
+          setOpenOrders(working);
+          syncEventModalAfterUpdate(holdingsRef.current || [], working);
+        }
       } catch (e) {
         // non-blocking
       }
@@ -1546,7 +1579,9 @@ export default function WebullTrading({ isLightMode = false }) {
         { withCredentials: true }
       );
       if (!isCurrent()) return;
-      setOpenOrders((res.data?.orders || []).map(normalizeOrder));
+      const working = (res.data?.orders || []).map(normalizeOrder);
+      setOpenOrders(working);
+      syncEventModalAfterUpdate(holdingsRef.current || [], working);
       if (res.data?.success === false) {
         setError(res.data?.message || 'Unable to load Webull open orders.');
       }
@@ -1558,11 +1593,53 @@ export default function WebullTrading({ isLightMode = false }) {
   const refreshLiveWebullHoldings = async () => {
     try {
       const response = await axios.get('/api/coin-data-live', { withCredentials: true });
-      setHoldings((response.data?.portfolio || []).filter(
+      const liveHoldings = (response.data?.portfolio || []).filter(
         (item) => item?.is_external || item?.source === 'webull'
-      ));
+      );
+      setHoldings(liveHoldings);
+      syncEventModalAfterUpdate(liveHoldings, openOrdersRef.current || []);
     } catch (error) {
       console.warn('Unable to refresh Webull positions after order update:', error);
+    }
+  };
+
+  const syncEventModalAfterUpdate = (currentHoldings = [], currentWorkingOrders = []) => {
+    if (eventOpenOrderRef.current) {
+      const activeOrderId = String(eventOpenOrderRef.current.id || eventOpenOrderRef.current.order_id || '');
+      const isStillOpen = currentWorkingOrders.some((w) => String(w.id || w.order_id || '') === activeOrderId);
+      if (isStillOpen) {
+        const updatedOpenOrder = currentWorkingOrders.find((w) => String(w.id || w.order_id || '') === activeOrderId);
+        if (updatedOpenOrder) {
+          setEventOpenOrder(updatedOpenOrder);
+        }
+      } else {
+        const targetSymbol = String(eventOpenOrderRef.current.underlying_symbol || eventOpenOrderRef.current.symbol || '')
+          .replace(/\s+(YES|NO)$/i, '').trim().toUpperCase();
+        const targetOutcome = String(eventOpenOrderRef.current.event_outcome || eventOpenOrderRef.current.symbol || '')
+          .match(/\s+(YES|NO)$/i)?.[1] || (eventOpenOrderRef.current.event_outcome || 'YES');
+        const matchedHolding = currentHoldings.find((h) => {
+          const hSym = String(h.underlying_symbol || h.symbol || '').replace(/\s+(YES|NO)$/i, '').trim().toUpperCase();
+          const hOut = String(h.event_outcome || h.purchased_outcome || h.symbol || '').match(/\s+(YES|NO)$/i)?.[1] || (h.event_outcome || 'YES');
+          return hSym === targetSymbol && String(hOut).toUpperCase() === String(targetOutcome).toUpperCase() && Number(h.quantity || h.amount || 0) > 0;
+        });
+        if (matchedHolding) {
+          setEventPositionHolding(matchedHolding);
+          setEventOpenOrder(null);
+        }
+      }
+    } else if (eventPositionHoldingRef.current) {
+      const activePosSym = String(eventPositionHoldingRef.current.underlying_symbol || eventPositionHoldingRef.current.symbol || '')
+        .replace(/\s+(YES|NO)$/i, '').trim().toUpperCase();
+      const activePosOut = String(eventPositionHoldingRef.current.event_outcome || eventPositionHoldingRef.current.purchased_outcome || eventPositionHoldingRef.current.symbol || '')
+        .match(/\s+(YES|NO)$/i)?.[1] || (eventPositionHoldingRef.current.event_outcome || 'YES');
+      const updatedHolding = currentHoldings.find((h) => {
+        const hSym = String(h.underlying_symbol || h.symbol || '').replace(/\s+(YES|NO)$/i, '').trim().toUpperCase();
+        const hOut = String(h.event_outcome || h.purchased_outcome || h.symbol || '').match(/\s+(YES|NO)$/i)?.[1] || (h.event_outcome || 'YES');
+        return hSym === activePosSym && String(hOut).toUpperCase() === String(activePosOut).toUpperCase() && Number(h.quantity || h.amount || 0) > 0;
+      });
+      if (updatedHolding) {
+        setEventPositionHolding(updatedHolding);
+      }
     }
   };
 
@@ -1576,8 +1653,10 @@ export default function WebullTrading({ isLightMode = false }) {
       if (sumRes.data?.success) {
         setPaperSummary(sumRes.data.summary);
       }
+      let latestHoldings = [];
       if (posRes.data?.success) {
-        setHoldings(posRes.data.positions || []);
+        latestHoldings = posRes.data.positions || [];
+        setHoldings(latestHoldings);
       }
       if (ordRes.data?.success) {
         const orders = (ordRes.data.orders || []).map(normalizeOrder);
@@ -1585,6 +1664,7 @@ export default function WebullTrading({ isLightMode = false }) {
         setHistoryTotal(Number(orders.length || 0));
         const working = orders.filter((o) => o.status === 'Working' || o.status === 'Open');
         setOpenOrders(working);
+        syncEventModalAfterUpdate(latestHoldings, working);
       }
     } catch (e) {
       console.error('Failed to load paper trading data:', e);
@@ -1601,8 +1681,10 @@ export default function WebullTrading({ isLightMode = false }) {
       if (sumRes.data?.success) {
         setQuantSummary(sumRes.data.summary);
       }
+      let latestHoldings = [];
       if (posRes.data?.success) {
-        setHoldings(posRes.data.positions || []);
+        latestHoldings = posRes.data.positions || [];
+        setHoldings(latestHoldings);
       }
       if (ordRes.data?.success) {
         const orders = (ordRes.data.orders || []).map(normalizeOrder);
@@ -1610,6 +1692,7 @@ export default function WebullTrading({ isLightMode = false }) {
         setHistoryTotal(Number(orders.length || 0));
         const working = orders.filter((o) => OPEN_STATUSES.has(String(o.status || '').toUpperCase()) || o.status === 'Working' || o.status === 'Open');
         setOpenOrders(working);
+        syncEventModalAfterUpdate(latestHoldings, working);
       }
     } catch (e) {
       console.error('Failed to load quantitative strategy trading data:', e);
@@ -2068,6 +2151,10 @@ export default function WebullTrading({ isLightMode = false }) {
     }
   }, [selectedAccountId, isTestMode, isQuantMode, accounts]);
 
+  const hasActiveEventOrders = Boolean(eventOpenOrder) || openOrders.some((order) =>
+    eventContractOrderDetails(order).isEvent && (OPEN_STATUSES.has(String(order?.status || '').toUpperCase()) || order?.status === 'Working' || order?.status === 'Open')
+  );
+
   useEffect(() => {
     if (selectedInstrumentType !== 'EVENT' || !selectedAccountId) return undefined;
     const refresh = async () => {
@@ -2075,23 +2162,26 @@ export default function WebullTrading({ isLightMode = false }) {
       if (!isTestMode && !isQuantMode) await refreshLiveWebullHoldings();
     };
     refresh();
-    const timer = window.setInterval(refresh, 15000);
+    const pollInterval = hasActiveEventOrders ? 1500 : 15000;
+    const timer = window.setInterval(refresh, pollInterval);
     return () => window.clearInterval(timer);
-  }, [selectedInstrumentType, selectedAccountId, isTestMode, isQuantMode]);
+  }, [selectedInstrumentType, selectedAccountId, isTestMode, isQuantMode, hasActiveEventOrders]);
 
   useEffect(() => {
     if (!isQuantMode) return undefined;
     loadQuantTradingData();
-    const timer = window.setInterval(loadQuantTradingData, 15000);
+    const pollInterval = hasActiveEventOrders ? 1500 : 15000;
+    const timer = window.setInterval(loadQuantTradingData, pollInterval);
     return () => window.clearInterval(timer);
-  }, [isQuantMode]);
+  }, [isQuantMode, hasActiveEventOrders]);
 
   useEffect(() => {
     if (!isTestMode) return undefined;
     loadPaperTradingData();
-    const timer = window.setInterval(loadPaperTradingData, 15000);
+    const pollInterval = hasActiveEventOrders ? 1500 : 15000;
+    const timer = window.setInterval(loadPaperTradingData, pollInterval);
     return () => window.clearInterval(timer);
-  }, [isTestMode]);
+  }, [isTestMode, hasActiveEventOrders]);
 
   const allQuantAccounts = useMemo(() => {
     const list = Array.isArray(quantSummary?.accounts) && quantSummary.accounts.length > 0

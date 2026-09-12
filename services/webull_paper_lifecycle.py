@@ -176,50 +176,110 @@ def reconcile_paper_events(user_id, now=None):
             if not outcome or outcome.settlement_status != 'RESOLVED':
                 continue
 
-            event_id = f'SIM_EVENT_SETTLEMENT_{pos.id}'
-            if any(order.order_id == event_id for order in orders):
-                pos.quantity = 0
-                continue
-
             target_side = pos.event_outcome or ('YES' if str(pos.symbol or '').upper().endswith(' YES') else 'NO' if str(pos.symbol or '').upper().endswith(' NO') else 'YES')
             won = bool(outcome.outcome and str(outcome.outcome).upper() == str(target_side).upper())
             payout_price = 1.0 if won else 0.0
             qty = float(pos.quantity or 0.0)
             cost_basis = round(qty * float(pos.cost_price or 0.0), 2)
             cash_adjustment = round(qty * payout_price, 2)
-            realized_pnl = round(cash_adjustment - cost_basis, 2)
+            # Official Webull fee schedule: $0.01 exchange fee + $0.01 commission = $0.02 per contract
+            fee = round(qty * 0.02, 2)
+            realized_pnl = round(cash_adjustment - cost_basis - fee, 2)
             realized_pnl_pct = round((realized_pnl / cost_basis * 100) if cost_basis > 0 else 0.0, 2)
 
             account.cash_balance = round(account.cash_balance + cash_adjustment, 2)
-            db.session.add(WebullTestOrder(
-                order_id=event_id,
-                user_id=user_id,
-                symbol=pos.symbol,
-                instrument_type='EVENT',
-                side='SETTLEMENT',
-                order_type='EXPIRATION_SETTLEMENT',
-                quantity=qty,
-                filled_quantity=qty,
-                filled_price=payout_price,
-                status='Settled',
-                created_at=now.replace(tzinfo=None),
-                updated_at=now.replace(tzinfo=None),
-                combo_orders=json.dumps({
-                    'event': 'event_contract_settlement',
-                    'outcome': outcome.outcome,
-                    'purchased_outcome': target_side,
-                    'won': won,
-                    'cost': cost_basis,
-                    'proceeds': cash_adjustment,
-                    'realized_pnl': realized_pnl,
-                    'realized_pnl_pct': realized_pnl_pct,
-                    'cash_adjustment': cash_adjustment,
-                    'note': f'Event contract settled: result {outcome.outcome}, held {target_side}. Payout ${payout_price:.2f}/contract.'
-                })
-            ))
+
+            # Consolidate into the original order row in place (single row in Order History)
+            matching_orders = [
+                o for o in orders
+                if o.symbol == pos.symbol and (o.instrument_type == 'EVENT' or str(o.symbol or '').startswith('KX'))
+                and str(o.side or '').upper() in ('BUY', 'BUY_TO_OPEN')
+                and str(o.order_type or '') != 'EXPIRATION_SETTLEMENT'
+            ]
+            settlement_payload = {
+                'event': 'event_contract_settlement',
+                'outcome': outcome.outcome,
+                'purchased_outcome': target_side,
+                'won': won,
+                'cost': cost_basis,
+                'proceeds': cash_adjustment,
+                'realized_pnl': realized_pnl,
+                'realized_pnl_pct': realized_pnl_pct,
+                'cash_adjustment': cash_adjustment,
+                'fee': fee,
+                'note': f'Event contract settled: result {outcome.outcome}, held {target_side}. Payout ${payout_price:.2f}/contract.'
+            }
+            if matching_orders:
+                for orig_order in matching_orders:
+                    orig_order.status = 'Settled'
+                    orig_order.updated_at = now.replace(tzinfo=None)
+                    existing_data = {}
+                    if orig_order.combo_orders:
+                        try:
+                            existing_data = json.loads(orig_order.combo_orders)
+                        except Exception:
+                            pass
+                    existing_data.update(settlement_payload)
+                    orig_order.combo_orders = json.dumps(existing_data)
+            else:
+                event_id = f'SIM_EVENT_SETTLEMENT_{pos.id}'
+                if not any(order.order_id == event_id for order in orders):
+                    db.session.add(WebullTestOrder(
+                        order_id=event_id,
+                        user_id=user_id,
+                        symbol=pos.symbol,
+                        instrument_type='EVENT',
+                        side='SETTLEMENT',
+                        order_type='EXPIRATION_SETTLEMENT',
+                        quantity=qty,
+                        filled_quantity=qty,
+                        filled_price=payout_price,
+                        status='Settled',
+                        created_at=now.replace(tzinfo=None),
+                        updated_at=now.replace(tzinfo=None),
+                        combo_orders=json.dumps(settlement_payload)
+                    ))
+
             pos.quantity = 0
             pos.last_price = payout_price
             pos.updated_at = now.replace(tzinfo=None)
+
+    # Consolidate and clean up any legacy duplicate SIM_EVENT_SETTLEMENT_ rows
+    legacy_settlements = [
+        o for o in orders
+        if str(o.order_id or '').startswith('SIM_EVENT_SETTLEMENT_')
+    ]
+    for leg_s in legacy_settlements:
+        parent = next((
+            o for o in orders
+            if o.id != leg_s.id
+            and o.symbol == leg_s.symbol
+            and str(o.side or '').upper() in ('BUY', 'BUY_TO_OPEN')
+            and str(o.status or '').upper() in ('FILLED', 'SETTLED')
+            and float(o.filled_quantity or o.quantity or 0.0) > 0
+            and str(o.order_type or '') != 'EXPIRATION_SETTLEMENT'
+        ), None)
+        if parent:
+            parent.status = 'Settled'
+            parent.updated_at = leg_s.updated_at or leg_s.created_at or now.replace(tzinfo=None)
+            p_qty = float(parent.filled_quantity or parent.quantity or 0.0)
+            p_fee = round(p_qty * 0.02, 2)
+            p_data = {}
+            if leg_s.combo_orders:
+                try:
+                    p_data = json.loads(leg_s.combo_orders)
+                except Exception:
+                    pass
+            p_data['fee'] = p_fee
+            if 'cost' in p_data and 'proceeds' in p_data:
+                cost_val = float(p_data['cost'])
+                proc_val = float(p_data['proceeds'])
+                p_data['realized_pnl'] = round(proc_val - cost_val - p_fee, 2)
+                p_data['realized_pnl_pct'] = round((p_data['realized_pnl'] / cost_val * 100) if cost_val > 0 else 0.0, 2)
+            parent.combo_orders = json.dumps(p_data)
+            db.session.delete(leg_s)
+            if leg_s in orders:
+                orders.remove(leg_s)
 
     # Reconcile working event orders (check expiration and market fills)
     working_orders = [
@@ -269,9 +329,10 @@ def reconcile_paper_events(user_id, now=None):
             if is_buy and ask is not None and order.limit_price is not None and order.limit_price >= ask:
                 fill_price = min(float(order.limit_price), ask)
                 total_cost = round(qty * fill_price, 2)
-                if float(account.cash_balance or 0.0) < total_cost:
+                fee = round(qty * 0.02, 2)
+                if float(account.cash_balance or 0.0) < (total_cost + fee):
                     continue
-                account.cash_balance = round(float(account.cash_balance or 0.0) - total_cost, 2)
+                account.cash_balance = round(float(account.cash_balance or 0.0) - total_cost - fee, 2)
                 pos = WebullTestPosition.query.filter_by(
                     user_id=user_id, symbol=order.symbol, instrument_type='EVENT', side='LONG'
                 ).first()
@@ -300,22 +361,24 @@ def reconcile_paper_events(user_id, now=None):
                 order.filled_quantity = order.quantity
                 order.status = 'Filled'
                 order.updated_at = now.replace(tzinfo=None)
+                order.combo_orders = json.dumps({'fee': fee})
 
             elif is_sell and bid is not None and order.limit_price is not None and order.limit_price <= bid:
                 fill_price = max(float(order.limit_price), bid)
                 total_proceeds = round(qty * fill_price, 2)
+                fee = round(qty * 0.02, 2)
                 pos = WebullTestPosition.query.filter_by(
                     user_id=user_id, symbol=order.symbol, instrument_type='EVENT', side='LONG'
                 ).first()
                 if pos is None or float(pos.quantity or 0.0) < qty:
                     continue
                 cost_basis = round(qty * float(pos.cost_price or 0.0), 2)
-                realized_pnl = round(total_proceeds - cost_basis, 2)
+                realized_pnl = round(total_proceeds - cost_basis - fee, 2)
                 realized_pnl_pct = round((realized_pnl / cost_basis * 100) if cost_basis > 0 else 0.0, 2)
                 pos.quantity = max(0.0, float(pos.quantity or 0.0) - qty)
                 pos.last_price = fill_price
                 pos.updated_at = now.replace(tzinfo=None)
-                account.cash_balance = round(float(account.cash_balance or 0.0) + total_proceeds, 2)
+                account.cash_balance = round(float(account.cash_balance or 0.0) + total_proceeds - fee, 2)
 
                 order.filled_price = fill_price
                 order.filled_quantity = order.quantity
@@ -327,7 +390,7 @@ def reconcile_paper_events(user_id, now=None):
                     'proceeds': total_proceeds,
                     'realized_pnl': realized_pnl,
                     'realized_pnl_pct': realized_pnl_pct,
-                    'fee': 0.0,
+                    'fee': fee,
                     'note': f'Simulated limit sell fill: closed {qty:g} {order.symbol} at ${fill_price:.2f}.'
                 })
 
