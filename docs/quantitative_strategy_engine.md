@@ -242,15 +242,31 @@ Entry qualification and fresh-quote revalidation now check the bid and spread of
 
 The Event supervisor checks due settlements for administrator-owned paper configurations before applying stopped, killed, module-disabled, or master-pause entry gates. It preserves those controls and does not start scans or scheduled Event AI reports while stopped/killed/master-paused. Empty settlement queues do not require credentials or provider requests. Existing resolution throttling, provider evidence, user isolation, and duplicate-settlement prevention remain in effect. This records confirmed outcomes and settles legacy simulated Event orders; an explicit portfolio Stop still freezes portfolio ledger execution until resumed. Kill/circuit monitoring can consume confirmed outcomes under its existing position-management rules. Settlement still shares the Event worker with AI reporting; separating those workloads remains deferred.
 
-## Remaining review items after v2.98.12
+## Saved Event risk policy (v2.99.0)
+
+The quantitative ledger now reads the originating Event configuration at the locked entry point. Saved dollar-per-entry, open-dollar, open-position and contract-count limits replace the hard-coded entry caps. Zero limits block new entries. Missing keys receive documented defaults; malformed, negative, nonfinite or fractional count limits are rejected. Entry fees count toward dollar exposure. The ledger also applies the smaller of the saved loss allowances after reserving all existing Event stakes plus entry and estimated early-exit fees. Gains do not expand the nominal period limits.
+
+Hourly loss uses the trailing hour. Daily loss starts at Eastern midnight, including daylight-saving offsets. Drawdown uses the high-water mark of cumulative closed-trade Event net P&L within the current portfolio generation; it is not a mark-to-market drawdown estimate. Open trades reserve their full modeled loss, rather than spending unrealized gains. Existing portfolio cash, allocation, 20%-of-module position budget and 0.5%-of-equity modeled-risk checks remain additional ceilings. Tightening limits stops or reduces new entries; it does not force liquidation of existing holdings.
+
+The current selected-outcome ask size, when supplied, caps integer contract quantity. Absent depth remains UNKNOWN in archived fill evidence, with conservative saved dollar/count/loss limits still applied. This is a disclosed paper-fill assumption, not proof that the market could fill that quantity. Fresh quote refreshes remove old depth fields before applying the new snapshot. Each attempted fill records its saved limits and available allowance; telemetry and audit evidence read the same policy.
+
+Regression tests use synthetic ledgers, including a temporary PostgreSQL instance to verify two concurrent entries cannot overspend saved exposure. They do not validate forecast profitability or real venue fill quality.
+
+## Release checkpoints toward v3.0.0
+
+- v2.99.0: Saved Event risk enforcement, reported-depth sizing, policy evidence, and concurrent-entry verification.
+- Subsequent completed release checkpoints advance through v2.99.1, v2.99.2, and so on. The remaining list below defines review work, not a promise that all findings are already known.
+- Before declaring readiness for v3.0.0, present completed fixes, test evidence, unresolved findings, and research/data limitations and obtain the user's explicit permission. Do not label incomplete review or unavailable empirical validation as 100% complete.
+
+## Remaining review items after v2.99.0
 
 These review findings remain deferred, not fixed or certified by this release:
 
 - Bound audit-exclusive AI access and recover abandoned audits independently of new audit requests.
 - Repair the dormant single-contract Event AI helper, which references an undefined config; the active batch path is separate.
-- Enforce one authoritative Event risk policy, including saved exposure and hourly/daily loss limits.
+- Review the legacy standalone Event hypothetical-fill path separately; the active quantitative ledger now enforces the saved Event risk policy.
 - Preserve provider quote time, retrieval time, and underlying-price freshness separately.
-- Add depth-aware Event quantity limits and a policy for unavailable depth; selected-outcome bid/spread and explicit empty-ask validation are fixed in v2.98.12.
+- Validate paper fills against historical order-book depth and adverse execution scenarios; reported-depth limits and explicit UNKNOWN handling are implemented, but missing-depth fills remain a disclosed research assumption.
 - Correct date-only settlement timestamps with evidence-backed historical remediation.
 - Correct Event audit sampling, missing-value/status defaults, and unsupported model conclusions; render factual report tables deterministically.
 - Deduplicate calibration samples before limits and compare matched model/market samples by model, duration and period.

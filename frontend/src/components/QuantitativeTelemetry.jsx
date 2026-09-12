@@ -34,6 +34,7 @@ export default function QuantitativeTelemetry({ onAccount, onStatus, refetchSign
   }, [onAccount, refetchSignal]);
   const curve = status?.equity_curve || [];
   const performance = status?.performance || {};
+  const eventRisk = status?.modules?.events?.risk_policy;
   return <section className="quant-master-ribbon quant-telemetry" aria-label="Paper execution and performance">
     <h3>Paper execution &amp; performance</h3>
     <p>Saved settings govern execution. Portfolio scans plus a separate fresh Event-decision handoff · Heartbeat: {date(status?.heartbeat_at)} · Paper run {status?.generation || '—'}</p>
@@ -61,7 +62,11 @@ export default function QuantitativeTelemetry({ onAccount, onStatus, refetchSign
       <p>{status?.modules?.[module]?.evaluated || 0} symbols evaluated · {status?.modules?.[module]?.entries || 0} new paper entries</p>
       {(status?.modules?.[module]?.messages || []).map((message, index) => <p key={index}>{message}</p>)}
       {(status?.modules?.[module]?.prerequisites || []).map(item => <p key={item.symbol}>{item.message}</p>)}
-      {module === 'events' && status?.modules?.events?.capacity && <p>Event positions: {status.modules.events.capacity.open_positions}/{status.modules.events.capacity.maximum}. Unresolved settlements occupy a slot.</p>}
+      {module === 'events' && status?.modules?.events?.capacity && <p>Event positions: {status.modules.events.capacity.open_positions}/{status.modules.events.capacity.maximum ?? 'Unknown'}. Unresolved settlements occupy a slot.</p>}
+      {module === 'events' && eventRisk && <>
+        {eventRisk.status === 'CONFIGURED' && <p>Saved Event limits: {money(eventRisk.limits.max_dollars_per_trade)} per entry including entry fees · {money(eventRisk.open_dollars)} / {money(eventRisk.limits.max_open_dollars)} open exposure · {eventRisk.limits.max_contracts_per_trade} contracts per entry. Remaining loss allowance after reserving existing stakes and fees: {money(eventRisk.remaining_loss_allowance)}.</p>}
+        {eventRisk.reason && <p className="quant-risk-notice">{eventRisk.reason}</p>}
+      </>}
       {(status?.modules?.[module]?.rejected_entries || []).map((item, index) => <p key={`rejected-${index}`}>{item.symbol}: Entry skipped — {item.reason}</p>)}
       {!status?.modules?.[module]?.messages?.length && <p>{status?.modules?.[module]?.status === 'DISABLED' ? 'New entries are disabled. Saved watchlists and history are retained; existing positions are managed while the engine runs.' : 'Readiness reflects the last scan. Ready does not guarantee an entry or future data access.'}</p>}
     </details>)}</div>

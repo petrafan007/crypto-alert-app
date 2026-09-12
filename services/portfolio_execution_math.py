@@ -24,7 +24,7 @@ def fill_price(module, price, side, closing=False, slippage_multiplier=1.0):
 
 
 def entry_quantity(module, price, budget, equity, stop=None, *, multiplier=1,
-                   unit=None, max_loss=None, cost_multiplier=1.0):
+                   unit=None, max_loss=None, cost_multiplier=1.0, max_contracts=50):
     """Quantity after caller's cash/module/position budget and optional loss cap.
 
     ``price`` is the already-slipped execution price. ``max_loss`` is the
@@ -42,7 +42,7 @@ def entry_quantity(module, price, budget, equity, stop=None, *, multiplier=1,
     if max_loss is not None:
         quantity = min(quantity, max(0, max_loss) / (risk + 2 * fee))
     if module == 'events':
-        quantity = min(quantity, 50.0)
+        quantity = min(quantity, max(0, max_contracts))
     return math.floor(quantity * 1e6) / 1e6 if module == 'crypto' else math.floor(quantity)
 
 

@@ -59,6 +59,17 @@ class EventQuoteValidationTests(unittest.TestCase):
             status, _ = handoff.readiness(1, SimpleNamespace(id=1, enabled=True), self.now)
         self.assertEqual(status, 'DATA_LIMITED')
 
+    def test_fresh_quote_does_not_inherit_old_depth(self):
+        old = {'symbol': 'TEST', 'yes_ask_size': 0, 'no_ask_size': 500}
+        credential = SimpleNamespace(webull_app_key='test', webull_app_secret='test', webull_access_token='test')
+        with patch.object(handoff, 'db') as database, \
+                patch('event_algo._webull_connection_for_user', return_value=(credential, 'test')), \
+                patch('services.webull_service.get_webull_event_snapshots', return_value={'TEST': {'yes_ask': .4}}):
+            database.session.get.return_value = SimpleNamespace(raw_json=json.dumps(old))
+            market = handoff.fresh_market(1, SimpleNamespace(snapshot_id=1, contract_symbol='TEST'))
+        self.assertNotIn('yes_ask_size', market)
+        self.assertNotIn('no_ask_size', market)
+
     def test_expired_decision_and_cutoff_do_not_get_relaxed(self):
         self.decision.created_at = self.now - timedelta(seconds=121)
         self.assertEqual(self.validate(quote(now=self.now))[0], 'MISSED')

@@ -23,6 +23,7 @@ from log import logger
 from sqlalchemy import select, func, case, or_
 from core.extensions import db
 from services.provider_resilience import AIRequestDeferred
+from services.event_risk_policy import DEFAULT_RISK_CONFIG, normalize_risk_config
 from credentials import Credential, User, UserSetting
 from event_algo_models import (
     EventContractOutcome,
@@ -162,19 +163,6 @@ def summarize_ai_scan_status(markets):
     }
 
 
-DEFAULT_RISK_CONFIG = {
-    "max_dollars_per_trade": 10.0,
-    "max_open_dollars": 30.0,
-    "max_open_positions": 3,
-    "max_hourly_loss": 15.0,
-    "max_daily_loss": 25.0,
-    "max_drawdown": 35.0,
-    "max_contracts_per_trade": 50,
-    "max_spread": 0.15,
-    "min_volume": 0.0,
-    "min_time_remaining_seconds": 60,
-    "max_time_remaining_seconds": 86400,
-}
 DEFAULT_SIGNAL_CONFIG = {
     "min_net_edge": 0.015,
     "min_confidence": 0.50,
@@ -1172,12 +1160,7 @@ def normalize_config_payload(payload, *, user_id):
     result["durations"] = normalized_durations if durations_provided else result["durations"]
     result["enabled"] = bool(payload.get("enabled", False))
     result["kill_switch"] = bool(payload.get("kill_switch", False))
-    risk = dict(DEFAULT_RISK_CONFIG)
-    risk.update(payload.get("risk_config") if isinstance(payload.get("risk_config"), dict) else {})
-    for key in DEFAULT_RISK_CONFIG:
-        parsed = _number(risk.get(key))
-        if parsed is not None:
-            risk[key] = max(0.0, parsed)
+    risk = normalize_risk_config(payload.get("risk_config"))
     signal = json.loads(json.dumps(DEFAULT_SIGNAL_CONFIG))
     signal.update(payload.get("signal_config") if isinstance(payload.get("signal_config"), dict) else {})
     for key in ("min_net_edge", "min_confidence", "fee_per_contract", "uncertainty_buffer"):
@@ -2143,7 +2126,7 @@ def update_config(config, payload):
 def evaluate_market(market, config, *, now=None):
     """Return one deterministic decision without submitting an order."""
     now = now or datetime.utcnow()
-    risk = _json_load(config.risk_config, dict(DEFAULT_RISK_CONFIG))
+    risk = normalize_risk_config(config.risk_config)
     signal = _json_load(config.signal_config, dict(DEFAULT_SIGNAL_CONFIG))
     features = _market_features(market, now)
     reasons = []

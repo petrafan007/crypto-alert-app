@@ -288,6 +288,10 @@ class PortfolioLedgerTests(unittest.TestCase):
         self.context.pop()
 
     def entry(self, module='equities', side='LONG', price=100, stop=95, **kwargs):
+        if module == 'events':
+            from event_algo import get_or_create_config
+            get_or_create_config(self.user_id).enabled = True
+            db.session.flush()
         return e.enter_lot(self.cfg, self.acc, self.state, module, 'TEST', {'side': side, 'stop': stop, 'enter': True, 'target': .5}, price, datetime.utcnow(), **kwargs)
 
     def test_positions_endpoint_preserves_futures_collateral_and_multiplier(self):

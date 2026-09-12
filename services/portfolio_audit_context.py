@@ -113,7 +113,7 @@ STRATEGY_RULES = {
     'options': 'Standard defined-risk credit spreads, 20–65 DTE closest to configured target, short absolute delta near target, executable two-sided legs, IV Rank above minimum. IV Rank needs 252 observed daily ATM IV values with a non-flat range. Exits: profit target, spread stop or seven DTE. No invented IV history.',
     'crypto': '24/7 completed-hour Donchian breakouts with ATR trailing stops. ETH/SOL also require measured Bitcoin dominance at or below the preceding seven-day average. BTC does not require that filter.',
     'futures': 'Opt-in micro futures opening-range breakout with volume/VWAP confirmation, actual contract metadata, margin reserves, session exits and daily risk ceiling.',
-    'events': 'Fresh eligible Event-worker decisions, configured confidence/net edge after fees, executable asks and pre-cutoff entries. Maximum three simultaneous positions, $50 entry risk and 50 units per lot. Mark at purchased-side bid; settle only on explicit provider evidence. Unresolved expired positions remain open and occupy capacity.',
+    'events': 'Fresh eligible Event-worker decisions, configured confidence/net edge after fees, selected-side executable books and pre-cutoff entries. Use the saved Event risk policy in structured evidence for position, fee-inclusive exposure, contract, rolling-hour, Eastern-day and realized high-water drawdown limits; do not substitute historical hard-coded limits. Open stakes and fees reserve loss allowance. Supplied ask depth caps quantity; missing depth is unknown. Mark at purchased-side bid; settle only on explicit provider evidence. Unresolved expired positions remain open and occupy capacity.',
 }
 
 

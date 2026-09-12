@@ -6,11 +6,18 @@
 
 **Last Updated**: September 2026
 
+## v2.99.0 (September 2026)
+
+- **Authoritative Event Entry Risk:** The quantitative ledger enforces saved per-entry dollars, aggregate exposure, position count, contract count, rolling-hour loss, Eastern-day loss, and realized-P&L drawdown limits under the portfolio lock. Entry fees count toward dollar exposure; existing stakes and estimated entry/exit fees reserve loss allowance. Portfolio cash, allocation, and risk ceilings still apply.
+- **Executable Depth:** Reported selected-outcome ask size caps paper quantity. Fresh quotes cannot inherit stale depth. Missing depth is archived as unknown; fills and rejection records retain the applied risk policy and available allowance.
+- **Consistent Controls and Reports:** Telemetry and audit instructions use saved limits instead of the former hard-coded three-position/$50 policy. Invalid risk settings fail closed and configuration saves return a clear validation error.
+- Verified risk behavior with an isolated PostgreSQL database, including concurrent entry attempts. This is a checkpoint toward v3.0.0, not a claim that the complete engine review is finished. See the [release checkpoints and remaining work](docs/quantitative_strategy_engine.md#release-checkpoints-toward-v300).
+
 ## v2.98.12 (September 2026)
 
 - **Quantitative Event Entry Validation:** Spread checks and opportunity scoring use the selected YES/NO outcome. Missing bids, crossed quotes, and explicitly empty or invalid ask sizes block entry; the opposite outcome cannot supply those checks. The independent paper execution handoff applies the same validation to refreshed quotes.
 - **Settlement During Entry Stops:** The Event worker continues provider-confirmed settlement resolution for paper configurations while stopped, killed, or paused by the master circuit. New-entry scans and scheduled Event AI reports remain suppressed under those controls. Configurations without due contracts require no provider connection.
-- Updated the [remaining engine review list](docs/quantitative_strategy_engine.md#remaining-review-items-after-v29812). No strategy thresholds, live-order behavior, historical settlement data, or database schema were changed.
+- Updated the [remaining engine review list](docs/quantitative_strategy_engine.md#remaining-review-items-after-v2990). No strategy thresholds, live-order behavior, historical settlement data, or database schema were changed.
 
 ## v2.98.11 (September 2026)
 
@@ -58,14 +65,14 @@
 
 - Master portfolio audits honor Off/Daily/Weekly independently of Event report hours, using NYSE session closes, holidays, early closes, and bounded catch-up.
 - Audit-related Event AI deferrals are informational skips, with no provider-failure alerts, failover, or added failure backoff. Unfinished evaluations become eligible on the normal scan cadence; completed batch results are retained.
-- Clarified scheduling labels and documentation. Larger risk, execution, data, and report-validation fixes remain deferred; see the [remaining review list](docs/quantitative_strategy_engine.md#remaining-review-items-after-v29812).
+- Clarified scheduling labels and documentation. Larger risk, execution, data, and report-validation fixes remain deferred; see the [remaining review list](docs/quantitative_strategy_engine.md#remaining-review-items-after-v2990).
 
 ## v2.98.7 (September 2026)
 
 - Portfolio settings saves preserve dedicated audit AI providers, models, keys, and shared guidance when updating cadence.
 - Portfolio report health badges use saved structured worker, module, and risk-control evidence. Failed or unavailable reports cannot imply healthy operation, and prose mentioning an inactive risk circuit cannot imply a pause.
 - Successful report generation is distinct from engine health; archived reports describe their capture time. Legacy reports lacking health evidence show an unverified state.
-- This release is limited to these two fixes. Scheduling, Event execution/risk controls, data provenance, and research/report validation improvements remain deferred; see the [engine guide](docs/quantitative_strategy_engine.md#remaining-review-items-after-v29812).
+- This release is limited to these two fixes. Scheduling, Event execution/risk controls, data provenance, and research/report validation improvements remain deferred; see the [engine guide](docs/quantitative_strategy_engine.md#remaining-review-items-after-v2990).
 
 ## v2.98.6 (September 2026)
 

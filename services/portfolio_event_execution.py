@@ -51,7 +51,8 @@ def fresh_market(user_id, decision):
     if not quote:
         raise ValueError('Provider returned no fresh executable Event quote.')
     # Do not retain old executable fields if the new quote omits them.
-    for field in ('yes_bid', 'yes_ask', 'no_bid', 'no_ask', 'quote_as_of', 'timestamp',
+    for field in ('yes_bid', 'yes_ask', 'no_bid', 'no_ask',
+                  'yes_bid_size', 'yes_ask_size', 'no_bid_size', 'no_ask_size', 'quote_as_of', 'timestamp',
                   'last_trade_time', 'trade_time', 'updated_at'):
         market.pop(field, None)
     market.update(quote)
@@ -206,7 +207,8 @@ def _consume(user_id, *, decision_ids, quote_loader):
         else:
             watches = engine.loads(cfg.watchlists_json, engine.DEFAULT_QUANT_WATCHLISTS)['events']
             status, reason, assessment = validate_entry(decision, market, event_cfg, settings, watches, now)
-        details = {'decision_id': decision.id, 'contract_symbol': decision.contract_symbol, 'outcome': decision.outcome}
+        details = {'decision_id': decision.id, 'contract_symbol': decision.contract_symbol,
+                   'outcome': decision.outcome, 'event_config_id': decision.config_id}
         if status is None:
             from event_algo import _snapshot_model, _market_features
             # Preserve the exact fresh quote used for the fill and subsequent
@@ -215,6 +217,7 @@ def _consume(user_id, *, decision_ids, quote_loader):
             db.session.add(quote_row)
             db.session.flush()
             price = assessment['executable_price']
+            details['selected_ask_size'] = market.get(f"{assessment['outcome'].lower()}_ask_size")
             details.update({'quote_snapshot_id': quote_row.id, 'quote_refreshed_at': now.isoformat() + 'Z', 'net_edge_at_fill': assessment['net_edge']})
             rejections = []
             lot = engine.enter_lot(cfg, acc, state, 'events', decision.contract_symbol[:64],

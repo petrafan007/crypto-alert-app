@@ -228,6 +228,20 @@ def current_lots(user_id, state, opened_only=True):
     return query.order_by(Lot.id).all()
 
 
+def event_risk_status(user_id, state, now):
+    from event_algo_models import EventStrategyConfig
+    from services.event_risk_policy import normalize_risk_config, entry_allowance
+    event_cfg = EventStrategyConfig.query.filter_by(user_id=user_id).first()
+    if event_cfg is None:
+        return {'status': 'UNAVAILABLE', 'limits': {}, 'reason': 'No Event configuration is saved.'}
+    try:
+        allowance = entry_allowance(normalize_risk_config(event_cfg.risk_config),
+            [lot for lot in current_lots(user_id, state, False) if lot.module == 'events'], now)
+        return {'status': 'CONFIGURED', 'config_id': event_cfg.id, **allowance}
+    except ValueError as exc:
+        return {'status': 'INVALID', 'limits': {}, 'reason': str(exc)}
+
+
 def mark_position(pos, lot, price):
     details = loads(lot.details_json, {})
     if lot.module == 'options':
@@ -297,17 +311,44 @@ def enter_lot(cfg, acc, state, module, symbol, signal, price, now, *, multiplier
     weight = allocations_for(cfg)[module]
     fraction = 1.0 if module == 'futures' else 0.2
     budget = min(budget, max(0, acc.total_equity)*weight/100*fraction)
+    max_loss = None
+    max_contracts = 50
     if module == 'events':
-        # Disciplined risk limits for binary event contracts:
-        # Cap concurrent open event lots to 3, and restrict risk to $50 max per trade
-        if sum(1 for l in current_lots(cfg.user_id, state) if l.module == 'events') >= 3:
-            return reject('Event capacity full: three open positions, including pending settlements.')
-        budget = min(budget, 50.0)
+        from event_algo_models import EventStrategyConfig
+        from services.event_risk_policy import normalize_risk_config, entry_allowance
+        details = details if details is not None else {}
+        event_config_id = details.get('event_config_id')
+        event_cfg = (db.session.get(EventStrategyConfig, event_config_id, populate_existing=True)
+                     if event_config_id is not None else
+                     EventStrategyConfig.query.filter_by(user_id=cfg.user_id).populate_existing().first())
+        if not event_cfg or event_cfg.user_id != cfg.user_id or event_cfg.mode != 'PAPER' or not event_cfg.enabled or event_cfg.kill_switch:
+            return reject('Saved Event configuration is unavailable or paused.')
+        try:
+            risk = normalize_risk_config(event_cfg.risk_config)
+            allowance = entry_allowance(risk, [l for l in current_lots(cfg.user_id, state, False)
+                                              if l.module == 'events'], now)
+        except ValueError as exc:
+            return reject(str(exc))
+        details['event_risk_at_fill'] = allowance
+        if allowance['reason']:
+            return reject(allowance['reason'])
+        budget = min(budget, allowance['entry_budget'])
+        max_loss = allowance['remaining_loss_allowance']
+        max_contracts = risk['max_contracts_per_trade']
+        raw_depth = details.get('selected_ask_size')
+        details['depth_status'] = 'UNKNOWN' if raw_depth is None else 'REPORTED'
+        if raw_depth is not None:
+            try:
+                depth = float(raw_depth)
+                if not math.isfinite(depth) or depth < 1:
+                    return reject('Selected Event ask depth cannot fund one contract.')
+                max_contracts = min(max_contracts, math.floor(depth))
+            except (TypeError, ValueError):
+                return reject('Selected Event ask depth is invalid.')
     unit = margin if margin is not None else price*multiplier
     if unit <= 0 or budget <= 0:
         return reject('Insufficient module budget or available cash.')
     stop = signal.get('stop')
-    max_loss = None
     if module == 'futures':
         ceiling = settings_for(cfg)['futures']['max_intraday_loss']
         day_start = utc(now).astimezone(ET).replace(hour=0, minute=0, second=0, microsecond=0)
@@ -315,7 +356,7 @@ def enter_lot(cfg, acc, state, module, symbol, signal, price, now, *, multiplier
         open_risk = sum(abs(db.session.get(Position, l.position_id).average_cost-(l.stop_price or 0))*db.session.get(Position, l.position_id).quantity*l.multiplier + 2*l.entry_fee for l in current_lots(cfg.user_id, state) if l.module=='futures')
         max_loss = max(0, ceiling+min(day_pnl, 0)-open_risk)
     quantity = entry_quantity(module, price, budget, acc.total_equity, stop,
-                              multiplier=multiplier, unit=unit, max_loss=max_loss)
+                              multiplier=multiplier, unit=unit, max_loss=max_loss, max_contracts=max_contracts)
     if quantity <= 0:
         return reject('Risk or margin budget cannot fund the minimum trade quantity.')
     fee, collateral = costs(module, price, quantity), unit*quantity
@@ -563,8 +604,11 @@ def portfolio_status(user_id):
                 'message': f'{symbol}: {min(count, 252)}/252 verified daily IV observations. Unverified legacy rows are retained but excluded. No historical IV import is configured; allocation remains unused until history and executable quotes qualify.',
             })
     event_open = [p for p in positions if p['module'] == 'events']
-    telemetry['events']['capacity'] = {'open_positions': len(event_open), 'maximum': 3,
-                                      'available_slots': max(0, 3-len(event_open))}
+    risk_status = event_risk_status(user_id, state, datetime.utcnow())
+    maximum = risk_status['limits'].get('max_open_positions')
+    telemetry['events']['risk_policy'] = risk_status
+    telemetry['events']['capacity'] = {'open_positions': len(event_open), 'maximum': maximum,
+                                      'available_slots': max(0, maximum-len(event_open)) if maximum is not None else None}
     status = cfg.worker_status
     if cfg.enabled:
         # Starting is not a worker heartbeat: allow the supervisor time to claim work.
@@ -1213,8 +1257,8 @@ def run_audit(user_id, prompt=None, scheduled=False, audit_id=None):
             'portfolio_circuit_implemented': True, 'loss_of_starting_bankroll_pause_pct': 10,
             'new_entries_paused': state.kill_switch, 'pause_reason': state.pause_reason,
             'per_position_bucket_limit_pct': {'futures': 100, 'other_modules': 20}, 'modeled_stop_risk_portfolio_pct': 0.5,
-            'events_max_open_positions': 3, 'events_max_entry_risk_usd': 50,
-            'events_max_units_per_position': 50, 'quote_max_age_seconds': 120,
+            'event_risk_policy': evidence['modules'].get('events', {}).get('risk_policy'),
+            'quote_max_age_seconds': 120,
             'cash_waits_for_qualified_signals': True,
             'correlations_and_ratios_automatically_calculated_after_30_daily_samples': True,
         }

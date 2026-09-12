@@ -129,7 +129,11 @@ def _decision_dict(decision):
 def event_algo_config():
     config = get_or_create_config(current_user.id)
     if request.method == "PUT":
-        update_config(config, request.get_json(silent=True) or {})
+        try:
+            update_config(config, request.get_json(silent=True) or {})
+        except ValueError as exc:
+            db.session.rollback()
+            return jsonify({"success": False, "message": str(exc)}), 400
         _record_engine_log(current_user.id, "CONFIG_UPDATED", "Event Contract Strategy Engine settings updated from Settings.", config_id=config.id)
         db.session.commit()
     else:
