@@ -6,6 +6,22 @@
 
 **Last Updated**: September 2026
 
+## v2.98.6 (September 2026)
+
+- **Dashboard Asset Performance Table Alignment:**
+  - Standardized Coin/Asset column row cell alignment to left-aligned (`text-align: left`) while keeping the column header centered for clean table readability.
+- **Top Crypto Gainers & Losers & Chart Fallback:**
+  - Filtered Binance.US market movers to verify `status == 'TRADING'`, filtering out halted, break, or delisted pairs (such as `ANTUSDT`).
+  - Added smart exchange fallback to TradingView charts: if an asset is not actively tradable on Binance.US, it automatically falls back to global Binance or Webull/Coinbase charts so the chart widget never fails with *"This symbol doesn't exist"*.
+- **Webull Trading Ticket Official Execution Rules Enforcement:**
+  - Dynamically gray out and disable invalid combinations of order types and trading sessions on the Webull trading ticket according to official exchange rules:
+    - Fractional shares and Cash Amount mode (`$ AMOUNT`) are restricted to Regular Hours (`CORE`) and Market orders only; Limit, Stop, and Extended/Overnight sessions are disabled with informative tooltips.
+    - Extended (`ALL`) and Overnight (`NIGHT`) sessions require Limit orders with whole shares; Market orders, Stop types, and Cash Amount mode are disabled.
+    - Overnight (`NIGHT`) sessions and fractional orders enforce Day order validity (`DAY`); Good 'Til Canceled (`GTC`) is disabled.
+- **Resilient AI Market Sentiment Web Search:**
+  - Upgraded the AI sentiment web search pipeline with resilient fallback mechanisms. When Brave Search hits API rate limits (HTTP 429) or DuckDuckGo issues bot challenge responses (HTTP 202), the system automatically falls back to real-time Google News RSS feeds.
+  - Eliminates *"Web Search Unavailable"* errors and guarantees continuous, high-quality grounding context for sentiment signals and AI Copilot queries.
+
 ## v2.98.5 (September 2026)
 
 - **Webull Paper & Quantitative Strategy Account ID Alignment:**

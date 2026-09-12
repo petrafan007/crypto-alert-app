@@ -778,9 +778,17 @@ body.light-mode .equity-order-mode-tabs button.active,
   font-weight: 700;
 }
 
-.order-type-btn:hover:not(.active) {
+.order-type-btn:hover:not(.active):not(:disabled) {
   background: rgba(255, 255, 255, 0.05);
   color: #ffffff;
+}
+
+.order-type-btn:disabled,
+.order-type-btn.disabled-rule {
+  opacity: 0.35 !important;
+  cursor: not-allowed !important;
+  pointer-events: auto !important;
+  filter: grayscale(0.5);
 }
 
 /* Row 2: Inputs */
@@ -2372,6 +2380,11 @@ body.light-mode .pagination-btn.active {
 .webull-entrust-btn.active {
   background: #3b82f6;
   color: #ffffff;
+}
+
+.webull-entrust-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
 }
 
 .combo-builder-card {

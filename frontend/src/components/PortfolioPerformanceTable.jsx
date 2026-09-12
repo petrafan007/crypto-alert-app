@@ -114,7 +114,7 @@ const PortfolioPerformanceTable = ({ hiddenCoins = [], excludeSymbols = null, on
         <table className="portfolio-performance-table">
           <thead>
             <tr>
-              <th>{accountScope === 'webull' ? 'Asset' : 'Coin'}</th>
+              <th style={{ textAlign: 'center' }}>{accountScope === 'webull' ? 'Asset' : 'Coin'}</th>
               {WINDOW_KEYS.map((w) => (
                 <th key={w.label}>{w.label}</th>
               ))}
@@ -142,7 +142,7 @@ const PortfolioPerformanceTable = ({ hiddenCoins = [], excludeSymbols = null, on
             ) : (
               visibleData.map((item) => (
                 <tr key={item.asset_key || getAssetIdentity(item)}>
-                  <td className="performance-symbol">
+                  <td className="performance-symbol" style={{ textAlign: 'left' }}>
                     <button
                       type="button"
                       onClick={() => onCoinClick?.(item)}
@@ -150,7 +150,7 @@ const PortfolioPerformanceTable = ({ hiddenCoins = [], excludeSymbols = null, on
                       style={{
                         display: 'inline-flex', alignItems: 'center', gap: '8px', padding: 0,
                         border: 'none', background: 'none', color: 'inherit', cursor: 'pointer',
-                        font: 'inherit', textAlign: 'left'
+                        font: 'inherit', textAlign: 'left', justifyContent: 'flex-start'
                       }}
                     >
                       <CryptoIcon symbol={item.symbol} size={18} />

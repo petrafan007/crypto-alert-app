@@ -1490,6 +1490,10 @@ function Dashboard({ isLightMode }) {
       ? 'USD'
       : hasUsdtPair(cleanBase) ? 'USDT' : hasUsdPair(cleanBase) ? 'USD' : null;
     if (!quote) {
+      if (typeof navigateToWebullTrading === 'function') {
+        navigateToWebullTrading(cleanBase, 'BUY', null, { instrumentType: 'CRYPTO' });
+        return;
+      }
       showAppToast(`No Binance.US USD or USDT trading pair is available for ${cleanBase}.`, 'error', { symbol: cleanBase });
       return;
     }
@@ -4564,7 +4568,7 @@ function Dashboard({ isLightMode }) {
                   />
                 );
               case 'top_movers':
-                return <TopMoversWidget isLightMode={isLightMode} config={topMoversConfig} onEdit={handleOpenTopMoversModal} ownedSymbols={ownedSymbols} onCoinClick={(symbol) => navigateToTrading(symbol, 'BUY', 'USDT')} />;
+                return <TopMoversWidget isLightMode={isLightMode} config={topMoversConfig} onEdit={handleOpenTopMoversModal} ownedSymbols={ownedSymbols} onCoinClick={handleCoinClick} />;
               case 'top_stock_movers':
                 return <TopStockMoversWidget
                   isLightMode={isLightMode}

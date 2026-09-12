@@ -606,13 +606,29 @@ def api_coin_performance():
 @market_bp.route("/api/market-movers")
 @login_required
 def api_market_movers():
-    """Return 24h price change % across every USD/USDT pair Binance.US lists, deduped by base asset."""
+    """Return 24h price change % across every actively tradable USD/USDT pair Binance.US lists, deduped by base asset."""
     try:
-        from services.binance_service import STABLE_COINS
+        from services.binance_service import STABLE_COINS, get_cached_exchange_info
+        from binance.client import Client
+
+        active_symbols = set()
+        try:
+            client = Client(tld='us')
+            info = get_cached_exchange_info(client)
+            if info and 'symbols' in info:
+                for s in info['symbols']:
+                    if s.get('status') == 'TRADING':
+                        active_symbols.add(s.get('symbol'))
+        except Exception as e:
+            logger.warning(f"Unable to fetch active Binance.US symbols for market movers: {e}")
+
         tickers = _get_binance_24h_tickers()
 
         best_by_base = {}
         for symbol, t in tickers.items():
+            if active_symbols and symbol not in active_symbols:
+                continue
+
             quote = None
             base = None
             if symbol.endswith('USDT'):

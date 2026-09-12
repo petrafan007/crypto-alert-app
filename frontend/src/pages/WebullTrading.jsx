@@ -1237,12 +1237,100 @@ export default function WebullTrading({ isLightMode = false }) {
     ];
   }, [selectedInstrumentType, orderForm.side]);
 
+  const isFractional = useMemo(() => {
+    if (selectedInstrumentType !== 'EQUITY') return false;
+    if (orderForm.entrustType === 'AMOUNT') return true;
+    const q = parseFloat(orderForm.quantity);
+    return isFractionalQuantity(q);
+  }, [selectedInstrumentType, orderForm.entrustType, orderForm.quantity]);
+
+  const isExtendedSession = selectedInstrumentType === 'EQUITY' && orderForm.tradingSession === 'ALL';
+  const isOvernightSession = selectedInstrumentType === 'EQUITY' && orderForm.tradingSession === 'NIGHT';
+
+  const getOrderTypeDisabledReason = (typeValue) => {
+    if (selectedInstrumentType === 'EVENT') {
+      return typeValue === 'LIMIT' ? '' : 'Event contracts support Limit orders only.';
+    }
+    if (selectedInstrumentType === 'EQUITY') {
+      if (isFractional && typeValue !== 'MARKET') {
+        return 'Webull supports fractional stock and ETF orders as Market orders only.';
+      }
+      if (isExtendedSession && typeValue !== 'LIMIT') {
+        return 'Extended hours trading (pre-market & after-hours) on Webull supports Limit orders only.';
+      }
+      if (isOvernightSession && typeValue !== 'LIMIT') {
+        return 'Overnight trading on Webull supports Limit orders only.';
+      }
+    }
+    return '';
+  };
+
+  const getSessionDisabledReason = (sessionValue) => {
+    if (selectedInstrumentType !== 'EQUITY') return '';
+    if (sessionValue === 'CORE') return '';
+    if (isFractional) {
+      return 'Fractional stock and ETF orders are supported only during Regular Hours (CORE).';
+    }
+    if (orderForm.type !== 'LIMIT') {
+      return `${sessionValue === 'NIGHT' ? 'Overnight' : 'Extended'} hours trading on Webull requires a Limit order.`;
+    }
+    return '';
+  };
+
   // Reset to LIMIT if current type is unsupported for current asset class
   useEffect(() => {
     if (!availableOrderTypes.some((t) => t.value === orderForm.type)) {
       setOrderForm((prev) => ({ ...prev, type: 'LIMIT', stopPrice: '' }));
     }
   }, [availableOrderTypes, orderForm.type]);
+
+  // Auto-enforce Webull fractional rules: Market order, Regular Hours (CORE), and DAY order only
+  useEffect(() => {
+    if (selectedInstrumentType === 'EQUITY' && isFractional) {
+      setOrderForm((prev) => {
+        let changed = false;
+        let nextType = prev.type;
+        let nextSession = prev.tradingSession;
+        let nextTif = prev.timeInForce;
+        if (prev.type !== 'MARKET') {
+          nextType = 'MARKET';
+          changed = true;
+        }
+        if (prev.tradingSession !== 'CORE') {
+          nextSession = 'CORE';
+          changed = true;
+        }
+        if (prev.timeInForce !== 'DAY') {
+          nextTif = 'DAY';
+          changed = true;
+        }
+        return changed ? { ...prev, type: nextType, tradingSession: nextSession, timeInForce: nextTif, stopPrice: '' } : prev;
+      });
+    }
+  }, [selectedInstrumentType, isFractional]);
+
+  // Auto-enforce Webull extended and overnight rules: Limit order and whole shares only; Overnight is DAY order only
+  useEffect(() => {
+    if (selectedInstrumentType === 'EQUITY' && (orderForm.tradingSession === 'ALL' || orderForm.tradingSession === 'NIGHT')) {
+      if (orderForm.type !== 'LIMIT' || orderForm.entrustType === 'AMOUNT' || (orderForm.tradingSession === 'NIGHT' && orderForm.timeInForce !== 'DAY')) {
+        setOrderForm((prev) => ({
+          ...prev,
+          type: 'LIMIT',
+          stopPrice: '',
+          entrustType: 'QTY',
+          totalCashAmount: '',
+          timeInForce: prev.tradingSession === 'NIGHT' ? 'DAY' : prev.timeInForce,
+        }));
+      }
+    }
+  }, [selectedInstrumentType, orderForm.tradingSession, orderForm.type, orderForm.entrustType, orderForm.timeInForce]);
+
+  // Auto-enforce non-limit orders run during Regular Hours (CORE) only
+  useEffect(() => {
+    if (selectedInstrumentType === 'EQUITY' && orderForm.type !== 'LIMIT' && orderForm.tradingSession !== 'CORE') {
+      setOrderForm((prev) => ({ ...prev, tradingSession: 'CORE' }));
+    }
+  }, [selectedInstrumentType, orderForm.type, orderForm.tradingSession]);
 
   useEffect(() => {
     if (selectedInstrumentType === 'EVENT' && orderForm.timeInForce !== 'DAY') {
@@ -5069,27 +5157,42 @@ export default function WebullTrading({ isLightMode = false }) {
                       <div className="order-control-group type-group">
                         <label className="order-field-label">Order Types</label>
                         <div className="order-type-segmented">
-                          {availableOrderTypes.map((t) => (
-                            <button
-                              key={t.value}
-                              type="button"
-                              className={`order-type-btn ${orderForm.type === t.value ? 'active' : ''}`}
-                              onClick={() => {
-                                setOrderForm((prev) => ({
-                                  ...prev,
-                                  type: t.value,
-                                  entrustType: t.value === 'MARKET' ? prev.entrustType : 'QTY',
-                                  totalCashAmount: t.value === 'MARKET' ? prev.totalCashAmount : '',
-                                }));
-                                setOrderValidationError('');
-                              }}
-                              title={t.description}
-                              disabled={ticketOrderControlsDisabled || selectedInstrumentType === 'EVENT'}
-                            >
-                              {t.label}
-                            </button>
-                          ))}
+                          {availableOrderTypes.map((t) => {
+                            const disabledReason = getOrderTypeDisabledReason(t.value);
+                            const isDisabled = ticketOrderControlsDisabled || selectedInstrumentType === 'EVENT' || Boolean(disabledReason);
+                            return (
+                              <button
+                                key={t.value}
+                                type="button"
+                                className={`order-type-btn ${orderForm.type === t.value ? 'active' : ''} ${disabledReason ? 'disabled-rule' : ''}`}
+                                onClick={() => {
+                                  if (isDisabled) return;
+                                  setOrderForm((prev) => ({
+                                    ...prev,
+                                    type: t.value,
+                                    entrustType: t.value === 'MARKET' ? prev.entrustType : 'QTY',
+                                    totalCashAmount: t.value === 'MARKET' ? prev.totalCashAmount : '',
+                                  }));
+                                  setOrderValidationError('');
+                                }}
+                                title={disabledReason || t.description}
+                                disabled={isDisabled}
+                              >
+                                {t.label}
+                              </button>
+                            );
+                          })}
                         </div>
+                        {selectedInstrumentType === 'EQUITY' && isFractional && (
+                          <div style={{ fontSize: '11px', color: '#38bdf8', marginTop: '6px', lineHeight: 1.4 }}>
+                            ℹ️ Fractional share orders on Webull execute as Market orders during Regular Hours only. Other order types are grayed out.
+                          </div>
+                        )}
+                        {selectedInstrumentType === 'EQUITY' && (isExtendedSession || isOvernightSession) && (
+                          <div style={{ fontSize: '11px', color: '#f59e0b', marginTop: '6px', lineHeight: 1.4 }}>
+                            ℹ️ {isOvernightSession ? 'Overnight' : 'Extended'} hours trading on Webull supports Limit orders only with whole shares. Other order types are grayed out.
+                          </div>
+                        )}
                       </div>
                     </div>
 
@@ -5122,7 +5225,17 @@ export default function WebullTrading({ isLightMode = false }) {
                             type="button"
                             className={`webull-entrust-btn ${orderForm.entrustType === 'AMOUNT' ? 'active' : ''}`}
                             disabled={orderForm.side !== 'BUY' || orderForm.type !== 'MARKET' || orderForm.tradingSession !== 'CORE' || orderForm.isAlgoEnabled || orderForm.isBracketEnabled}
-                            title="Cash amount is available for regular-hours equity Market Buys without algorithmic or bracket execution."
+                            title={
+                              orderForm.side !== 'BUY'
+                                ? 'Cash amount mode is only supported for Buy orders.'
+                                : orderForm.tradingSession !== 'CORE'
+                                ? 'Cash amount mode is supported only during Regular Hours (CORE).'
+                                : orderForm.type !== 'MARKET'
+                                ? 'Cash amount mode requires a Market order on Webull.'
+                                : orderForm.isAlgoEnabled || orderForm.isBracketEnabled
+                                ? 'Cash amount mode is not available with algorithmic or bracket execution.'
+                                : 'Cash amount is available for regular-hours equity Market Buys.'
+                            }
                             onClick={() => {
                               setOrderForm((prev) => ({
                                 ...prev,
@@ -5445,7 +5558,7 @@ export default function WebullTrading({ isLightMode = false }) {
                           disabled={ticketOrderControlsDisabled || selectedInstrumentType === 'EVENT'}
                         >
                           <option value="DAY">Day Order (DAY)</option>
-                          {!(selectedInstrumentType === 'OPTION' && orderForm.side === 'SELL') && selectedInstrumentType !== 'EVENT' && !['TRAILING_STOP_LOSS', 'MARKET_ON_OPEN', 'MARKET_ON_CLOSE', 'LIMIT_ON_OPEN'].includes(orderForm.type) && <option value="GTC">Good &apos;Til Canceled (GTC)</option>}
+                          {!(selectedInstrumentType === 'OPTION' && orderForm.side === 'SELL') && selectedInstrumentType !== 'EVENT' && orderForm.tradingSession !== 'NIGHT' && !isFractional && !['TRAILING_STOP_LOSS', 'MARKET_ON_OPEN', 'MARKET_ON_CLOSE', 'LIMIT_ON_OPEN'].includes(orderForm.type) && <option value="GTC">Good &apos;Til Canceled (GTC)</option>}
                           {selectedInstrumentType === 'CRYPTO' && <option value="IOC">Immediate or Cancel (IOC)</option>}
                         </select>
                       </div>
@@ -5469,8 +5582,20 @@ export default function WebullTrading({ isLightMode = false }) {
                             style={{ cursor: 'pointer' }}
                           >
                             <option value="CORE">Only Regular Hours (CORE: 9:30 AM - 4:00 PM ET)</option>
-                            <option value="ALL">Including Extended Hours (ALL: 4:00 AM - 8:00 PM ET)</option>
-                            <option value="NIGHT">Overnight Hours Only (NIGHT: 8:00 PM - 4:00 AM ET)</option>
+                            <option
+                              value="ALL"
+                              disabled={Boolean(getSessionDisabledReason('ALL'))}
+                              title={getSessionDisabledReason('ALL')}
+                            >
+                              Including Extended Hours (ALL: 4:00 AM - 8:00 PM ET){getSessionDisabledReason('ALL') ? ' — (Limit & whole shares only)' : ''}
+                            </option>
+                            <option
+                              value="NIGHT"
+                              disabled={Boolean(getSessionDisabledReason('NIGHT'))}
+                              title={getSessionDisabledReason('NIGHT')}
+                            >
+                              Overnight Hours Only (NIGHT: 8:00 PM - 4:00 AM ET){getSessionDisabledReason('NIGHT') ? ' — (Limit & whole shares only)' : ''}
+                            </option>
                           </select>
                         </div>
                       )}

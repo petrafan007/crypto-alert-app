@@ -460,10 +460,30 @@ def _web_search(query, max_results=2, username=None, freshness="pd"):
     # 2. DuckDuckGo fallback
     try:
         from bs4 import BeautifulSoup
+        ddg_headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        }
+        # Try DuckDuckGo Lite first (POST)
+        ddg_resp = requests.post("https://lite.duckduckgo.com/lite/", data={"q": query}, headers=ddg_headers, timeout=6)
+        if ddg_resp.status_code == 200:
+            soup = BeautifulSoup(ddg_resp.text, 'html.parser')
+            results = []
+            links = soup.select("a.result-link")
+            snippets = soup.select("td.result-snippet")
+            for l, s in zip(links[:max_results], snippets[:max_results]):
+                results.append({
+                    'title': l.get_text(strip=True),
+                    'snippet': s.get_text(strip=True)[:300],
+                    'url': l.get('href', ''),
+                    'source': 'DuckDuckGo'
+                })
+            if results:
+                return results
+
+        # Try DuckDuckGo HTML endpoint as secondary
         search_url = f"https://html.duckduckgo.com/html/?q={quote(query)}"
-        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
-        from services.provider_resilience import checked_get
-        resp = checked_get('DuckDuckGo', username, '', search_url, headers=headers, timeout=6)
+        resp = requests.get(search_url, headers=ddg_headers, timeout=6)
         if resp.status_code == 200:
             soup = BeautifulSoup(resp.text, 'html.parser')
             results = []
@@ -482,7 +502,36 @@ def _web_search(query, max_results=2, username=None, freshness="pd"):
     except Exception as e:
         logger.warning(f"DuckDuckGo fallback failed: {e}")
 
-    # 3. Final default
+    # 3. Resilient Google News RSS fallback (100% reliable for market/sentiment queries)
+    try:
+        import xml.etree.ElementTree as ET
+        from bs4 import BeautifulSoup
+        news_url = f"https://news.google.com/rss/search?q={quote(query)}&hl=en-US&gl=US&ceid=US:en"
+        rss_headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+        rss_resp = requests.get(news_url, headers=rss_headers, timeout=8)
+        if rss_resp.status_code == 200:
+            root = ET.fromstring(rss_resp.content)
+            results = []
+            for item in root.findall('.//item')[:max_results]:
+                title = (item.find('title').text if item.find('title') is not None else '').strip()
+                link = (item.find('link').text if item.find('link') is not None else '').strip()
+                desc_raw = item.find('description').text if item.find('description') is not None else ''
+                snippet = BeautifulSoup(desc_raw, 'html.parser').get_text(strip=True) if desc_raw else title
+                source_elem = item.find('source')
+                source_name = source_elem.text if source_elem is not None else 'News'
+                results.append({
+                    'title': title,
+                    'snippet': f"[{source_name}] {snippet}"[:300],
+                    'url': link,
+                    'source': 'Google News'
+                })
+            if results:
+                logger.info(f"Google News RSS returned {len(results)} results for '{query}'")
+                return results
+    except Exception as e:
+        logger.warning(f"Google News RSS fallback failed: {e}")
+
+    # 4. Final default
     return []
 
 
@@ -1024,7 +1073,7 @@ def call_ai_with_web_search(
 
         # Compute search status string
         if any('NewsAPI' in s for s in search_sources):
-            supplemental = ' + web search' if any(('Brave' in s or 'DuckDuckGo' in s) for s in search_sources) else ''
+            supplemental = ' + web search' if any(('Brave' in s or 'DuckDuckGo' in s or 'Google News' in s) for s in search_sources) else ''
             search_status = f"NewsAPI ({valid_search_results} results{supplemental})"
         elif any('Brave' in s for s in search_sources):
             if valid_search_results > 0:
@@ -1036,6 +1085,8 @@ def call_ai_with_web_search(
                 search_status = "Brave Search (0 results found)"
         elif any('DuckDuckGo' in s for s in search_sources):
             search_status = f"DuckDuckGo Fallback ({valid_search_results} results found)"
+        elif any('Google News' in s for s in search_sources):
+            search_status = f"Google News Fallback ({valid_search_results} results found)"
         else:
             search_status = "Web Search Unavailable"
 

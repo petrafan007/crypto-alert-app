@@ -17,10 +17,35 @@ export default function TradingViewAdvancedChart({
   const [status, setStatus] = useState('loading');
   const pair = normalize(symbol);
   const { base, quote } = assets(pair);
-  const tvSymbol = `${EXCHANGE}:${pair}`;
-  const pageUrl = `https://www.tradingview.com/symbols/${pair}/?exchange=${EXCHANGE}`;
-  const watchlist = useMemo(() => Array.from(new Set([pair, ...watchlistPairs.map(item => normalize(typeof item === 'string' ? item : item?.id || item?.symbol))]))
-    .filter(Boolean).slice(0, 50).map(item => `${EXCHANGE}:${item}`), [pair, watchlistPairs]);
+
+  const isBinanceUS = useMemo(() => {
+    if (!tradingPairs || !tradingPairs.length) return true;
+    return tradingPairs.some(p => {
+      const pid = normalize(p.id || `${p.base_currency}${p.quote_currency}`);
+      return pid === pair;
+    });
+  }, [pair, tradingPairs]);
+
+  const tvSymbol = useMemo(() => {
+    if (isBinanceUS) {
+      return `BINANCEUS:${pair}`;
+    }
+    if (quote === 'USDT' || quote === 'BTC' || quote === 'ETH') {
+      return `BINANCE:${base}${quote}`;
+    }
+    return `BINANCE:${base}USDT`;
+  }, [base, quote, pair, isBinanceUS]);
+
+  const targetExchange = tvSymbol.split(':')[0] || 'BINANCEUS';
+  const pageUrl = `https://www.tradingview.com/symbols/${pair}/?exchange=${targetExchange}`;
+  const watchlist = useMemo(() => {
+    const rawItems = Array.from(new Set([pair, ...watchlistPairs.map(item => normalize(typeof item === 'string' ? item : item?.id || item?.symbol))])).filter(Boolean).slice(0, 50);
+    const pairsSet = new Set((tradingPairs || []).map(p => normalize(p.id || `${p.base_currency}${p.quote_currency}`)));
+    return rawItems.map(item => {
+      const ex = (!pairsSet.size || pairsSet.has(item)) ? 'BINANCEUS' : 'BINANCE';
+      return `${ex}:${item}`;
+    });
+  }, [pair, watchlistPairs, tradingPairs]);
   const watchlistKey = watchlist.join('|');
 
   useEffect(() => {
