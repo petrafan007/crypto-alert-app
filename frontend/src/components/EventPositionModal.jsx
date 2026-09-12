@@ -383,10 +383,22 @@ export default function EventPositionModal({
     <div className="event-position-modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose?.()}>
       <section className="event-position-modal" role="dialog" aria-modal="true" aria-labelledby="event-position-title">
         <header className="event-position-modal-header">
-          <div>
+          <div className="event-position-header-top-row">
             <span className="event-position-kicker">{isOpenOrder ? 'Event Contract Open Order' : 'Current Event Contract Position'}</span>
+            <div className="event-position-header-countdown">
+              <span className="countdown-label">Trading time remaining</span>
+              <EventCountdown cutoff={cutoff} serverOffset={serverOffset} onExpire={() => setCutoffExpired(true)} />
+            </div>
+            <button type="button" className="event-position-close" onClick={onClose} aria-label="Close Event Contract position">×</button>
+          </div>
+
+          <div className="event-position-title-row">
             <h2 id="event-position-title">{market?.name || symbol}</h2>
-            <p>{market?.display_condition || market?.yes_condition || 'Contract condition unavailable'}</p>
+            <span className={`event-position-status status-${effectiveStatus.toLowerCase() || 'unknown'}`}>{statusLabel}</span>
+          </div>
+
+          <div className="event-position-header-sub">
+            <p className="event-position-condition">{market?.display_condition || market?.yes_condition || 'Contract condition unavailable'}</p>
             {market?.symbol && (
               <div className="event-position-header-meta">
                 {market?.target_value != null && (
@@ -396,104 +408,103 @@ export default function EventPositionModal({
               </div>
             )}
           </div>
-          <button type="button" className="event-position-close" onClick={onClose} aria-label="Close Event Contract position">×</button>
         </header>
 
         <div className="event-position-modal-body">
-          <div className="event-position-status-row">
-            <span className={`event-position-status status-${effectiveStatus.toLowerCase() || 'unknown'}`}>{statusLabel}</span>
-            <div className="event-position-countdown">
-              <span>Trading time remaining</span>
-              <EventCountdown cutoff={cutoff} serverOffset={serverOffset} onExpire={() => setCutoffExpired(true)} />
-            </div>
-          </div>
-
           {loading && <div className="event-position-loading">Loading current Webull contract facts and chart…</div>}
           {error && <div className="event-position-error">{error}</div>}
 
           {market && (
             <>
-              {isOpenOrder && (
-                <div className="event-position-facts-grid event-position-order-summary">
-                  <div><span>Open order side</span><strong>{String(record?.side || 'BUY').toUpperCase()}</strong></div>
-                  <div><span>Order outcome</span><strong>{positionOutcome.toUpperCase()}</strong></div>
-                  <div><span>Order quantity</span><strong>{quantityText(orderQuantity)}</strong></div>
-                  <div><span>Filled / remaining</span><strong>{quantityText(orderFilledQuantity)} / {quantityText(orderRemainingQuantity)}</strong></div>
-                  <div><span>Order limit</span><strong>{cents(record?.price ?? record?.limit_price)}</strong></div>
-                  <div><span>Order status</span><strong>{String(record?.status || 'Working')}</strong></div>
-                  <div><span>Available to close</span><strong>{quantityText(availableQuantity)}</strong></div>
-                  <div><span>Order submitted</span><strong>{record?.created_at || record?.create_time || record?.placed_time || 'Not provided'}</strong></div>
-                </div>
-              )}
-
-              {/* Underlying crypto price chart (replaces Chart.js yes-price chart) */}
-              {underlyingChartSymbol && (
-                <div className="event-position-chart-card">
-                  <EventContractMiniChart
-                    symbol={underlyingChartSymbol}
-                    market={market}
-                    duration={market?.series_frequency}
-                    isLightMode={isLightMode}
-                    livePrice={liveUnderlyingPrice}
-                  />
-                </div>
-              )}
-
-
-              {/* Manage position — directly below the chart */}
-              <div className="event-position-order-card">
-                <h3>{isOpenOrder ? 'Replace this open order' : 'Manage this position'}</h3>
-                <div className="event-position-order-actions">
-                  {isOpenOrder && (
-                    <button
-                      type="button"
-                      className="cancel-open-order"
-                      disabled={cancellingOrderId === record.id}
-                      onClick={() => onCancelOrder?.(record)}
-                    >
-                      {cancellingOrderId === record.id ? 'Cancelling...' : 'Cancel Open Order'}
-                    </button>
-                  )}
-                  <button type="button" className={side === 'BUY' && outcome === 'yes' ? 'active yes' : ''} disabled={effectiveStatus !== 'OC'} onClick={() => chooseOrder('BUY', 'yes')}>Buy Yes {cents(market.yes_ask)}</button>
-                  <button type="button" className={side === 'BUY' && outcome === 'no' ? 'active no' : ''} disabled={effectiveStatus !== 'OC'} onClick={() => chooseOrder('BUY', 'no')}>Buy No {cents(market.no_ask)}</button>
-                  <button type="button" className={side === 'SELL' ? 'active close-position' : ''} disabled={!['OC', 'CO'].includes(effectiveStatus) || (!isOpenOrder && availableQuantity <= 0)} onClick={() => chooseOrder('SELL', positionOutcome)}>Close {positionOutcome.toUpperCase()} Position {cents(executableBid)}</button>
-                </div>
-                <div className="event-position-order-fields">
-                  <label>Contracts<input type="number" min="0" step={rules.fractionable ? '0.00001' : '1'} value={quantity} onChange={(event) => { setQuantity(event.target.value); setValidationError(''); }} /></label>
-                  <label>Limit price (USD)<input type="number" min="0" max="1" step="0.0001" value={price} onChange={(event) => { setPrice(event.target.value); setValidationError(''); }} /></label>
-                  <div><span>Current executable quote</span><strong>{cents(selectedQuote)}</strong></div>
-                </div>
-                {validationError && <p className="event-position-validation" role="alert">{validationError}</p>}
-                <div className="event-position-order-footer">
-                  <small>Limit / Day only. {isOpenOrder ? `Submitting will cancel open order #${record?.id || record?.order_id} and submit this updated order.` : 'Live orders continue through the normal Webull confirmation and security checks.'}</small>
-                  <button type="button" className="event-position-review" disabled={loading || !market || (side === 'BUY' ? effectiveStatus !== 'OC' : !['OC', 'CO'].includes(effectiveStatus))} onClick={reviewOrder}>
-                    {isOpenOrder ? 'Review & Replace Order' : `Review ${side === 'SELL' ? 'Close Position' : `Buy ${outcome.toUpperCase()}`} Order`}
-                  </button>
-                </div>
-              </div>
-
+              {/* Compact 5x2 Facts Grid */}
               <div className="event-position-facts-grid">
-                <div><span>{isOpenOrder ? 'Order outcome' : 'Held outcome'}</span><strong>{positionOutcome.toUpperCase()}</strong></div>
-                <div><span>{isOpenOrder ? 'Live contracts owned' : 'Contracts'}</span><strong>{quantityText(positionQuantity)}</strong></div>
-                <div><span>Available to close</span><strong>{quantityText(availableQuantity)}</strong></div>
-                <div><span>Average entry</span><strong>{cents(averagePrice)}</strong></div>
-                <div><span>Executable bid</span><strong>{cents(executableBid)}</strong></div>
-                <div><span>Estimated close value</span><strong>{money(estimatedCloseValue)}</strong></div>
-                <div><span>Open P&amp;L at bid</span><strong className={unrealizedPnl > 0 ? 'gain' : unrealizedPnl < 0 ? 'loss' : ''}>{money(unrealizedPnl)}</strong></div>
-                <div><span>Winning settlement payout</span><strong>{money(winningPayout)}</strong></div>
-                <div><span>Yes bid / ask</span><strong>{cents(market.yes_bid)} / {cents(market.yes_ask)}</strong></div>
-                <div><span>No bid / ask</span><strong>{cents(market.no_bid)} / {cents(market.no_ask)}</strong></div>
-                <div><span>Volume / open interest</span><strong>{quantityText(market.volume)} / {quantityText(market.open_interest)}</strong></div>
-                <div><span>Last trade</span><strong>{market.last_trade_time ? fmtEastern(market.last_trade_time) : '—'}</strong></div>
+                {isOpenOrder ? (
+                  <>
+                    <div><span>Open order side</span><strong>{String(record?.side || 'BUY').toUpperCase()}</strong></div>
+                    <div><span>Order outcome</span><strong>{positionOutcome.toUpperCase()}</strong></div>
+                    <div><span>Order quantity</span><strong>{quantityText(orderQuantity)}</strong></div>
+                    <div><span>Filled / remaining</span><strong>{quantityText(orderFilledQuantity)} / {quantityText(orderRemainingQuantity)}</strong></div>
+                    <div><span>Order limit</span><strong>{cents(record?.price ?? record?.limit_price)}</strong></div>
+                    <div><span>Order status</span><strong>{String(record?.status || 'Working')}</strong></div>
+                    <div><span>Available to close</span><strong>{quantityText(availableQuantity)}</strong></div>
+                    <div><span>Yes bid / ask</span><strong>{cents(market.yes_bid)} / {cents(market.yes_ask)}</strong></div>
+                    <div><span>No bid / ask</span><strong>{cents(market.no_bid)} / {cents(market.no_ask)}</strong></div>
+                    <div><span>Volume / open int</span><strong>{quantityText(market.volume)} / {quantityText(market.open_interest)}</strong></div>
+                  </>
+                ) : (
+                  <>
+                    <div><span>Held outcome</span><strong>{positionOutcome.toUpperCase()}</strong></div>
+                    <div><span>Contracts</span><strong>{quantityText(positionQuantity)}</strong></div>
+                    <div><span>Available to close</span><strong>{quantityText(availableQuantity)}</strong></div>
+                    <div><span>Average entry</span><strong>{cents(averagePrice)}</strong></div>
+                    <div><span>Executable bid</span><strong>{cents(executableBid)}</strong></div>
+                    <div><span>Estimated close value</span><strong>{money(estimatedCloseValue)}</strong></div>
+                    <div><span>Open P&amp;L at bid</span><strong className={unrealizedPnl > 0 ? 'gain' : unrealizedPnl < 0 ? 'loss' : ''}>{money(unrealizedPnl)}</strong></div>
+                    <div><span>Winning payout</span><strong>{money(winningPayout)}</strong></div>
+                    <div><span>Yes bid / ask</span><strong>{cents(market.yes_bid)} / {cents(market.yes_ask)}</strong></div>
+                    <div><span>No bid / ask</span><strong>{cents(market.no_bid)} / {cents(market.no_ask)}</strong></div>
+                  </>
+                )}
               </div>
 
-              {/* Timeline */}
-              <div className="event-position-timeline">
-                <h3>Timeline and contract facts</h3>
-                <div><span>Opens</span><strong>{fmtEastern(opensDate)}</strong></div>
-                <div><span>Trading cutoff</span><strong>{cutoff ? fmtEastern(cutoff) : 'Not provided'}</strong></div>
-                <div><span>Expected determination</span><strong>{fmtEastern(expectedDetermination)}</strong></div>
-                <div><span>Expected payout</span><strong>{fmtEastern(expectedPayout)}</strong></div>
+              {/* Two-Column Main Content: Left Column (Chart + Timeline), Right Column (Action Card) */}
+              <div className="event-position-main-columns">
+                <div className="event-position-col-left">
+                  {underlyingChartSymbol && (
+                    <div className="event-position-chart-card">
+                      <EventContractMiniChart
+                        symbol={underlyingChartSymbol}
+                        market={market}
+                        duration={market?.series_frequency}
+                        isLightMode={isLightMode}
+                        livePrice={liveUnderlyingPrice}
+                      />
+                    </div>
+                  )}
+
+                  <div className="event-position-timeline">
+                    <h3>Timeline &amp; Settlement</h3>
+                    <div className="event-position-timeline-grid">
+                      <div><span>Opens</span><strong>{fmtEastern(opensDate)}</strong></div>
+                      <div><span>Trading cutoff</span><strong>{cutoff ? fmtEastern(cutoff) : 'Not provided'}</strong></div>
+                      <div><span>Expected determination</span><strong>{fmtEastern(expectedDetermination)}</strong></div>
+                      <div><span>Expected payout</span><strong>{fmtEastern(expectedPayout)}</strong></div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="event-position-col-right">
+                  <div className="event-position-order-card">
+                    <h3>{isOpenOrder ? 'Replace this open order' : 'Manage this position'}</h3>
+                    <div className="event-position-order-actions">
+                      {isOpenOrder && (
+                        <button
+                          type="button"
+                          className="cancel-open-order"
+                          disabled={cancellingOrderId === record.id}
+                          onClick={() => onCancelOrder?.(record)}
+                        >
+                          {cancellingOrderId === record.id ? 'Cancelling...' : 'Cancel Open Order'}
+                        </button>
+                      )}
+                      <button type="button" className={side === 'BUY' && outcome === 'yes' ? 'active yes' : ''} disabled={effectiveStatus !== 'OC'} onClick={() => chooseOrder('BUY', 'yes')}>Buy Yes {cents(market.yes_ask)}</button>
+                      <button type="button" className={side === 'BUY' && outcome === 'no' ? 'active no' : ''} disabled={effectiveStatus !== 'OC'} onClick={() => chooseOrder('BUY', 'no')}>Buy No {cents(market.no_ask)}</button>
+                      <button type="button" className={side === 'SELL' ? 'active close-position' : ''} disabled={!['OC', 'CO'].includes(effectiveStatus) || (!isOpenOrder && availableQuantity <= 0)} onClick={() => chooseOrder('SELL', positionOutcome)}>Close {positionOutcome.toUpperCase()} Position {cents(executableBid)}</button>
+                    </div>
+                    <div className="event-position-order-fields">
+                      <label>Contracts<input type="number" min="0" step={rules.fractionable ? '0.00001' : '1'} value={quantity} onChange={(event) => { setQuantity(event.target.value); setValidationError(''); }} /></label>
+                      <label>Limit price (USD)<input type="number" min="0" max="1" step="0.0001" value={price} onChange={(event) => { setPrice(event.target.value); setValidationError(''); }} /></label>
+                      <div className="event-position-quote-box"><span>Current quote</span><strong>{cents(selectedQuote)}</strong></div>
+                    </div>
+                    {validationError && <p className="event-position-validation" role="alert">{validationError}</p>}
+                    <div className="event-position-order-footer">
+                      <small>Limit / Day only. {isOpenOrder ? `Submitting will cancel open order #${record?.id || record?.order_id} and submit this updated order.` : 'Live orders continue through the normal Webull confirmation and security checks.'}</small>
+                      <button type="button" className="event-position-review" disabled={loading || !market || (side === 'BUY' ? effectiveStatus !== 'OC' : !['OC', 'CO'].includes(effectiveStatus))} onClick={reviewOrder}>
+                        {isOpenOrder ? 'Review & Replace Order' : `Review ${side === 'SELL' ? 'Close Position' : `Buy ${outcome.toUpperCase()}`} Order`}
+                      </button>
+                    </div>
+                  </div>
+                </div>
               </div>
             </>
           )}

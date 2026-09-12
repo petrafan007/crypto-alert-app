@@ -155,6 +155,12 @@ def reconcile_paper_events(user_id, now=None):
     positions = WebullTestPosition.query.filter_by(user_id=user_id, instrument_type='EVENT').filter(WebullTestPosition.quantity > 0).all()
 
     if positions:
+        try:
+            from event_algo import resolve_event_outcomes
+            resolve_event_outcomes(user_id)
+        except Exception:
+            pass
+
         symbols = {str(pos.symbol or '').replace(' YES', '').replace(' NO', '').strip().upper() for pos in positions}
         outcomes = {
             o.contract_symbol: o

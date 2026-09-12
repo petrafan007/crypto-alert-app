@@ -18,7 +18,7 @@ import WebullPositions from '../components/WebullPositions';
 import ConfigurableOrderTable from '../components/ConfigurableOrderTable';
 import PortfolioAuditModal from '../components/PortfolioAuditModal';
 import { normalizePortfolioAudit, selectPortfolioAudit, auditOutcomeMessage } from '../utils/portfolioAudit.mjs';
-import { assetType as positionAssetType } from '../utils/positions.mjs';
+import { assetType as positionAssetType, cutoffFromSymbol } from '../utils/positions.mjs';
 import EventPositionModal from '../components/EventPositionModal';
 import EventContractMiniChart from '../components/EventContractMiniChart';
 import { differenceInEasternCalendarDays, formatEasternDate, formatEasternDateTime, formatEasternTime } from '../utils/dateTime';
@@ -928,7 +928,17 @@ const normalizedWebullInstrumentType = (value) => {
   return 'EQUITY';
 };
 
-const isSecurityHolding = (holding) => String(holding?.instrument_type || '').trim().toUpperCase() !== 'CASH';
+const isSecurityHolding = (holding) => {
+  if (String(holding?.instrument_type || '').trim().toUpperCase() === 'CASH') return false;
+  if (Number(holding?.quantity ?? holding?.amount ?? 0) === 0) return false;
+  if (String(holding?.instrument_type || '').toUpperCase().includes('EVENT')) {
+    const cutoff = cutoffFromSymbol(holding.symbol) || (holding.settlement?.cutoff_at ? new Date(holding.settlement.cutoff_at).getTime() : null);
+    if (cutoff !== null && cutoff <= Date.now()) return false;
+    const status = String(holding?.position_status || holding?.status || holding?.settlement?.status || '').toUpperCase();
+    if (status === 'CLOSED' || status === 'RESOLVED' || status === 'SETTLED') return false;
+  }
+  return true;
+};
 
 const QUANTITY_EPSILON = 1e-8;
 const OPTION_CONTRACT_MULTIPLIER = 100;
@@ -5054,6 +5064,17 @@ export default function WebullTrading({ isLightMode = false }) {
                                 </div>
                                 {eventProposition.basis && <div className="event-contract-basis">{eventProposition.basis}</div>}
                                 <div className="event-contract-period">Contract period: <strong>{eventPeriodLabel(selectedEventMarket)}</strong></div>
+                                <div className="event-proposition-grid">
+                                  <div className="yes">
+                                    <span>YES settles at {eventMoney(eventSettlementPayout)}</span>
+                                    <strong>{eventProposition.yes}</strong>
+                                  </div>
+                                  <div className="no">
+                                    <span>NO settles at {eventMoney(eventSettlementPayout)}</span>
+                                    <strong>{eventProposition.no}</strong>
+                                  </div>
+                                </div>
+                                {eventProposition.detail && <p className="event-contract-detail">{eventProposition.detail}</p>}
                               </div>
                               {eventUnderlyingQuote?.instrumentType === 'CRYPTO' && (
                                 <div className="selected-event-market-chart-col">
@@ -5067,17 +5088,6 @@ export default function WebullTrading({ isLightMode = false }) {
                                 </div>
                               )}
                             </div>
-                            <div className="event-proposition-grid">
-                              <div className="yes">
-                                <span>YES settles at {eventMoney(eventSettlementPayout)}</span>
-                                <strong>{eventProposition.yes}</strong>
-                              </div>
-                              <div className="no">
-                                <span>NO settles at {eventMoney(eventSettlementPayout)}</span>
-                                <strong>{eventProposition.no}</strong>
-                              </div>
-                            </div>
-                            {eventProposition.detail && <p className="event-contract-detail">{eventProposition.detail}</p>}
                           </div>
                         )}
 
@@ -5105,29 +5115,6 @@ export default function WebullTrading({ isLightMode = false }) {
                               <span>Bid {eventMoney(selectedEventMarket?.no_bid)} · Ask {eventMoney(selectedEventMarket?.no_ask)}</span>
                               <small>Available size {number(orderForm.side === 'SELL' ? selectedEventMarket?.no_bid_size : selectedEventMarket?.no_ask_size, 0)}</small>
                             </button>
-                          </div>
-                        </div>
-
-                        <div className="event-rules-grid">
-                          <div>
-                            <span>Order Type</span>
-                            <strong>{eventRules.order_types?.map((rule) => `${rule.order_type} · ${(rule.time_in_force || []).join('/')}`).join(', ') || 'Unavailable'}</strong>
-                          </div>
-                          <div>
-                            <span>Allowed Order Price</span>
-                            <strong>{eventPriceRangeLabel(eventRules.price_ranges)}</strong>
-                          </div>
-                          <div>
-                            <span>Settlement</span>
-                            <strong>{Number.isFinite(eventSettlementPayout) ? `${eventMoney(eventSettlementPayout)} if correct · $0.00 if incorrect` : 'Unavailable'}</strong>
-                          </div>
-                          <div>
-                            <span>Contract Cutoff</span>
-                            <strong>{eventContractCutoff ? eventCutoffLabel(eventContractCutoff) : 'See Webull contract rules'}</strong>
-                          </div>
-                          <div>
-                            <span>Order Quantity</span>
-                            <strong>{eventRules.fractionable ? 'Fractional contracts allowed' : 'Whole contracts only'}{eventRules.max_quantity ? ` · max ${number(eventRules.max_quantity, 0)}` : ''}</strong>
                           </div>
                         </div>
 

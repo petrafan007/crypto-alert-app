@@ -7,6 +7,7 @@ import {
   ASSET_VIEWS, COLUMN_MAP, assetType, valueForColumn, formatCell, formatCurrency,
   instrumentName, positionSide, defaultColumnState, cleanColumnState,
   moveColumnState, resizeColumnState, columnStorageKey, mergeEventMarket,
+  cutoffFromSymbol, timestamp,
 } from '../utils/positions.mjs';
 import './WebullPositions.css';
 
@@ -121,11 +122,11 @@ export default function WebullPositions({ positions = [], mode = 'REAL', userId,
   const [draggedColumn, setDraggedColumn] = useState(null);
   const [dropTarget, setDropTarget] = useState(null);
   const [isResizing, setIsResizing] = useState(false);
-  const [, tick] = useState(0);
+  const [now, setNow] = useState(Date.now());
   const storageKey = columnStorageKey(userId, assetFilter);
   const layoutKey = storageKey || assetFilter;
   useEffect(() => {
-    const timer = setInterval(() => tick(n => n + 1), 1000);
+    const timer = setInterval(() => setNow(Date.now()), 1000);
     const sync = () => setLayouts({});
     window.addEventListener('storage', sync);
     return () => { clearInterval(timer); window.removeEventListener('storage', sync); };
@@ -144,15 +145,19 @@ export default function WebullPositions({ positions = [], mode = 'REAL', userId,
     .map(p => mergeEventMarket(p, markets[String(p.symbol || '').replace(/ (YES|NO)$/i, '')]))
     .filter(p => {
       if (assetType(p) === 'Event Contracts') {
+        const cutoff = cutoffFromSymbol(p.symbol) || timestamp(p.settlement?.cutoff_at || p.cutoff_at || p.details?.cutoff_at);
+        if (cutoff !== null && cutoff <= now) {
+          return false;
+        }
         const status = valueForColumn(p, 'status');
         const settlementStatus = String(p.settlement?.status || '').toUpperCase();
-        if (status === 'Settled — awaiting removal' || status === 'Closed' || settlementStatus === 'RESOLVED') {
+        if (status === 'Settled — awaiting removal' || status === 'Closed' || status === 'Awaiting settlement' || status === 'Settlement delayed' || settlementStatus === 'RESOLVED') {
           return false;
         }
       }
       return true;
     }),
-    [positions, markets]
+    [positions, markets, now]
   );
   const accounts = [...new Map(securityPositions.map(p => [String(p.account_id || p.source || ''), valueForColumn(p, 'account')])).entries()];
   const visibleColumns = columnState.order.filter(id => columnState.selected.includes(id)).map(id => COLUMN_MAP.get(id));

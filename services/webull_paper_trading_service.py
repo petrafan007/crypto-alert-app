@@ -622,6 +622,12 @@ def _paper_position_status(pos):
         from services.webull_paper_lifecycle import expiry_close
         if expiry_close(pos.option_expiration) <= datetime.now(timezone.utc):
             return 'Expired — awaiting settlement price'
+    if pos.instrument_type == 'EVENT':
+        from event_algo import _cutoff_from_symbol
+        base_sym = str(pos.symbol or '').replace(' YES', '').replace(' NO', '').strip().upper()
+        cutoff = _cutoff_from_symbol(base_sym)
+        if cutoff and cutoff <= datetime.now(timezone.utc).replace(tzinfo=None):
+            return 'Closed'
     return 'Open'
 
 
@@ -646,6 +652,12 @@ def get_webull_test_positions(user_id: int) -> List[Dict[str, Any]]:
     positions = WebullTestPosition.query.filter_by(user_id=user_id).filter(WebullTestPosition.quantity > 0).all()
     rows = []
     for pos in positions:
+        if pos.instrument_type == 'EVENT':
+            from event_algo import _cutoff_from_symbol
+            base_sym = str(pos.symbol or '').replace(' YES', '').replace(' NO', '').strip().upper()
+            cutoff = _cutoff_from_symbol(base_sym)
+            if cutoff and cutoff <= datetime.now(timezone.utc).replace(tzinfo=None):
+                continue
         quote_status = 'current'
         try:
             curr_price = fetch_live_price(user_id, pos.symbol, pos.instrument_type, event_outcome=pos.event_outcome,

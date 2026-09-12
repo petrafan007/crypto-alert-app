@@ -6,6 +6,23 @@
 
 **Last Updated**: September 2026
 
+## v2.99.3 (September 2026)
+
+- **Event Contract Modal Single-Screen Reorganization (`EventPositionModal`)**:
+  - Reorganized the Event Contract modal to fit on a single screen without vertical scrolling.
+  - Mathematically centered the `Trading time remaining` digital countdown timer at the top of the modal between the kicker and close button.
+  - Placed the contract status badge (`Open for trading`) on the exact same line as the contract title, right-aligned.
+  - Replaced the previous 4-column tall facts section with a compact 5×2 facts grid (10 core position and market statistics) with tightened card heights.
+  - Structured the lower modal into a two-column split layout:
+    - **Left Column**: Live underlying crypto price chart (`EventContractMiniChart`) with a compact 2-column contract timeline card directly beneath.
+    - **Right Column**: Order management and replacement panel (`Manage this position` / `Replace this open order`) with action buttons, contract inputs, live executable quote, and review button.
+- **Event Contract Trading Ticket Refinements (`WebullTrading`)**:
+  - Relocated settlement outcome propositions ("YES settles at $1.00" / "NO settles at $1.00") directly under the contract period to the left of the mini chart, eliminating wasted vertical space.
+  - Streamlined the order outcome panel by removing the redundant bottom rules grid (Order Type, Allowed Order Price, Settlement, Contract Cutoff, Order Quantity).
+- **Immediate Removal of Closed/Expired Event Contracts from Positions**:
+  - Event contracts whose cutoff has closed (`cutoff <= now`) or status is closed are immediately removed from active Positions in real time and accessible under Order History.
+  - Backend lifecycle (`reconcile_paper_events` and `get_webull_test_positions`) automatically resolves expired event contracts, moves them to `WebullTestOrder` records, and clears them from active holdings.
+
 ## v2.99.2 (September 2026)
 
 - **Default to Real Trading Mode on Dashboard Actions (Webull & Binance)**:
