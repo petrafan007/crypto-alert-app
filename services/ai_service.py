@@ -28,6 +28,7 @@ from services.portfolio_audit_context import (
 )
 from services.ai_provider_protocol import AIProviderHTTPError, call_gemini_chat, safe_provider_error
 from services.copilot_context import COPILOT_CONTEXT_INTEGRITY_RULES
+from services.provider_resilience import AIRequestDeferred
 
 logger = logging.getLogger(__name__)
 
@@ -694,8 +695,7 @@ def call_ai_with_web_search(
             except Exception:
                 audit_pending = None
             if audit_pending:
-                from services.provider_resilience import ProviderUnavailable
-                raise ProviderUnavailable(
+                raise AIRequestDeferred(
                     f'Quantitative audit {audit_pending.id} has exclusive AI access; automated request deferred.'
                 )
         
@@ -1149,6 +1149,8 @@ def call_ai_with_web_search(
             failover_history=failover_history,
         ), stage3_user_msg
 
+    except AIRequestDeferred:
+        raise
     except Exception as e:
         logger.warning("AI provider attempt unavailable (%s): %s", locals().get('current_tier_name', tier_index), type(e).__name__)
         err_str = safe_provider_error(e, [_pick_key(provider)] if '_pick_key' in locals() else [])

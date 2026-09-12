@@ -230,12 +230,18 @@ Ordinary portfolio configuration saves merge audit cadence into the saved dedica
 
 Report health badges use the archived structured worker/module status and risk controls. A failed report, successful generation, or wording about a risk circuit cannot establish healthy operation or an active pause. Reports without sufficient structured evidence are labeled unverified; all badges describe the report timestamp, not current telemetry. Original archived report prose is preserved.
 
-## Remaining review items after v2.98.7
+## Audit scheduling and deferrals (v2.98.8)
+
+The master Off/Daily/Weekly control now governs automatic portfolio audits independently of the Event operational report interval. Off disables automatic master audits; manual requests remain available. Daily runs after the latest completed NYSE session close, including early closes, with one catch-up after downtime rather than a backlog. Enabling Daily before today's close can therefore catch up the previous session. Weekly runs after the first NYSE session close of the current Eastern calendar week, moving past holidays; a missed run can catch up during that week. The last reservation timestamp prevents repeated runs for the same close, including when a manual audit has already run after it.
+
+An automated Event AI request deferred by a pending portfolio audit is recorded as an informational skip, without provider failover, failure notification, or added failure backoff. Unfinished contracts become eligible again on the normal scan interval, subject to the existing batch budget and scheduling gates. Already completed batch results are retained. A deferral supplies no new prediction and does not authorize a trade. The separate Event operational report cadence remains configured in hours.
+
+## Remaining review items after v2.98.8
 
 These review findings remain deferred, not fixed or certified by this release:
 
-- Honor the master Off/Daily/Weekly audit schedule; separate it from Event audit hours.
-- Classify audit-induced AI deferrals correctly; bound exclusive access and recover abandoned audits.
+- Bound audit-exclusive AI access and recover abandoned audits independently of new audit requests.
+- Repair the dormant single-contract Event AI helper, which references an undefined config; the active batch path is separate.
 - Enforce one authoritative Event risk policy, including saved exposure and hourly/daily loss limits.
 - Preserve provider quote time, retrieval time, and underlying-price freshness separately.
 - Validate spread and liquidity for the selected Event outcome.

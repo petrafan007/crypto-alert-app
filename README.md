@@ -6,12 +6,18 @@
 
 **Last Updated**: September 2026
 
+## v2.98.8 (September 2026)
+
+- Master portfolio audits honor Off/Daily/Weekly independently of Event report hours, using NYSE session closes, holidays, early closes, and bounded catch-up.
+- Audit-related Event AI deferrals are informational skips, with no provider-failure alerts, failover, or added failure backoff. Unfinished evaluations become eligible on the normal scan cadence; completed batch results are retained.
+- Clarified scheduling labels and documentation. Larger risk, execution, data, and report-validation fixes remain deferred; see the [remaining review list](docs/quantitative_strategy_engine.md#remaining-review-items-after-v2988).
+
 ## v2.98.7 (September 2026)
 
 - Portfolio settings saves preserve dedicated audit AI providers, models, keys, and shared guidance when updating cadence.
 - Portfolio report health badges use saved structured worker, module, and risk-control evidence. Failed or unavailable reports cannot imply healthy operation, and prose mentioning an inactive risk circuit cannot imply a pause.
 - Successful report generation is distinct from engine health; archived reports describe their capture time. Legacy reports lacking health evidence show an unverified state.
-- This release is limited to these two fixes. Scheduling, Event execution/risk controls, data provenance, and research/report validation improvements remain deferred; see the [engine guide](docs/quantitative_strategy_engine.md#remaining-review-items-after-v2987).
+- This release is limited to these two fixes. Scheduling, Event execution/risk controls, data provenance, and research/report validation improvements remain deferred; see the [engine guide](docs/quantitative_strategy_engine.md#remaining-review-items-after-v2988).
 
 ## v2.98.6 (September 2026)
 

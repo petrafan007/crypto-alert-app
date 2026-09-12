@@ -268,7 +268,7 @@ export default function QuantitativeStrategyEngineDoc({ isLightMode }) {
                         Both opens and closes are written to the <SettingTag>PortfolioEngineLog</SettingTag> table.
                     </li>
                     <li>
-                        <strong>AI Audit Cascade</strong> — On the <strong>Audit Interval (Hours)</strong> you configure,
+                        <strong>AI Audit Cascade</strong> — On the master daily/weekly market-close schedule, or on manual request,
                         the engine takes a portfolio snapshot and initiates the AI evaluation cascade:
                         <ul style={{ marginTop: '8px', paddingLeft: '20px', lineHeight: '2' }}>
                             <li><strong>Localized Module Agents</strong> — each active module (Equities, Options, Crypto, Futures, Events) gets its own isolated AI agent call using its <SettingTag>auditor_prompt</SettingTag> and module-scoped evidence.</li>
@@ -404,7 +404,7 @@ export default function QuantitativeStrategyEngineDoc({ isLightMode }) {
                 </ul>
                 <SubHeading>Failover Execution Logic</SubHeading>
                 <p style={{ lineHeight: '1.7' }}>
-                    When the <SettingTag>Audit Interval (Hours)</SettingTag> triggers:
+                    When the master audit schedule triggers, or you request a manual audit:
                 </p>
                 <ol style={{ paddingLeft: '24px', lineHeight: '2.2' }}>
                     <li>For each active module, the engine calls the <strong>Primary</strong> localized AI agent.</li>

@@ -22,6 +22,7 @@ from zoneinfo import ZoneInfo
 from log import logger
 from sqlalchemy import select, func, case, or_
 from core.extensions import db
+from services.provider_resilience import AIRequestDeferred
 from credentials import Credential, User, UserSetting
 from event_algo_models import (
     EventContractOutcome,
@@ -645,6 +646,9 @@ def _predict_event_market(user_id, market):
             "model_confidence": parsed["confidence"],
             "metadata": metadata,
         }
+    except AIRequestDeferred as exc:
+        metadata.update({"status": "skipped", "deferral_reason": "AUDIT_IN_PROGRESS", "error": str(exc)[:500]})
+        return {"metadata": metadata}
     except Exception as exc:
         metadata.update({"status": "error", "error": str(exc)[:500]})
         return {"metadata": metadata}
@@ -837,6 +841,12 @@ def _predict_event_markets_batch(user_id, markets, *, context_refresh_hours=1, c
                 else:
                     results[symbol] = {"metadata": {**shared, "status": "invalid", "error": "Batch response omitted this contract"}}
         return results
+    except AIRequestDeferred as exc:
+        for market in markets:
+            symbol = str(market.get("symbol") or "").upper()
+            results.setdefault(symbol, {"metadata": {**base, "status": "skipped",
+                "deferral_reason": "AUDIT_IN_PROGRESS", "error": str(exc)[:500]}})
+        return results
     except Exception as exc:
         for market in markets:
             symbol = str(market.get("symbol") or "").upper()
@@ -948,6 +958,8 @@ def _record_ai_evaluation(user_id, config_id, market, duration, result, signal, 
         else:
             row.next_retry_at = None
         row.next_evaluation_at = now + timedelta(seconds=_ai_cooldown_seconds(signal, duration))
+    if status == "skipped" and metadata.get("deferral_reason") == "AUDIT_IN_PROGRESS":
+        row.next_evaluation_at = now + timedelta(seconds=max(30, int(_number(signal.get("scan_interval_seconds"), 60))))
     db.session.flush()
     return row
 

@@ -19,6 +19,35 @@ from services.portfolio_strategy_signals import (
 
 
 class PortfolioSignalsTests(unittest.TestCase):
+    def test_master_audit_schedule_market_closes(self):
+        # UTC inputs; NYSE holiday, early-close and daylight-saving rules.
+        cases = [
+            ('off', '2026-09-08T21:00:00', None, False),
+            ('invalid', '2026-09-08T21:00:00', None, False),
+            ('daily', '2026-09-08T19:59:59', '2026-09-04T20:00:00', False),
+            ('daily', '2026-09-08T20:00:00', '2026-09-04T20:00:00', True),
+            ('daily', '2026-09-08T21:00:00', '2026-09-08T20:00:00', False),
+            ('daily', '2026-09-06T15:00:00', None, True),
+            ('daily', '2026-09-06T15:00:00', '2026-09-04T20:00:00', False),
+            ('daily', '2026-11-27T17:59:59', '2026-11-25T21:00:00', False),
+            ('daily', '2026-11-27T18:00:00', '2026-11-25T21:00:00', True),
+            ('daily', '2026-11-30T20:59:59', '2026-11-27T18:00:00', False),
+            ('daily', '2026-11-30T21:00:00', '2026-11-27T18:00:00', True),
+            ('weekly', '2026-09-07T21:00:00', None, False),
+            ('weekly', '2026-09-08T19:59:59', None, False),
+            ('weekly', '2026-09-08T20:00:00', None, True),
+            ('weekly', '2026-09-11T21:00:00', None, True),
+            ('weekly', '2026-09-11T21:00:00', '2026-09-08T20:00:00', False),
+            ('weekly', '2026-09-14T19:00:00', '2026-09-08T20:00:00', False),
+            ('weekly', '2026-09-14T20:00:00', '2026-09-08T20:00:00', True),
+        ]
+        for cadence, now, last, expected in cases:
+            with self.subTest(cadence=cadence, now=now, last=last):
+                cfg = SimpleNamespace(master_ai_config=json.dumps({'cadence': cadence}))
+                state = SimpleNamespace(last_audit_at=datetime.fromisoformat(last) if last else None)
+                self.assertEqual(e.audit_due(cfg, state, datetime.fromisoformat(now)), expected)
+        self.assertFalse(e.audit_due(SimpleNamespace(), SimpleNamespace(last_audit_at=None), datetime.utcnow()))
+
     def config(self):
         return SimpleNamespace(total_bankroll=50000, module_settings_json='{}', allocations_json=json.dumps(DEFAULT_ALLOCATIONS), watchlists_json=json.dumps(DEFAULT_QUANT_WATCHLISTS))
 

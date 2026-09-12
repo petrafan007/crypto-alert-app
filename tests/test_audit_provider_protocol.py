@@ -20,6 +20,22 @@ def response(code=200, body=None, headers=None):
 
 
 class AuditProviderProtocolTests(unittest.TestCase):
+    def test_audit_deferral_does_not_attempt_or_fail_over_providers(self):
+        from services.provider_resilience import AIRequestDeferred
+        with patch('services.ai_service.db') as database, \
+                patch('portfolio_algo_models.PortfolioAudit') as audits, \
+                patch('services.ai_service.get_user_ai_settings') as settings, \
+                patch('services.ai_service._notify_ai_attempt') as notify:
+            database.session.get.return_value = SimpleNamespace(id=1, username='admin')
+            audits.query.filter_by.return_value.first.return_value = SimpleNamespace(id=35)
+            history = []
+            with self.assertRaises(AIRequestDeferred):
+                call_ai_with_web_search('admin', [], user_id=1,
+                    prompt_type='webull_event_contract_batch_analysis', failover_history=history)
+            settings.assert_not_called()
+            notify.assert_not_called()
+            self.assertEqual(history, [])
+
     def test_gemini_version_specific_thinking(self):
         self.assertEqual(gemini_generation_config('gemini-3.8-flash', 8192, 'extra high'),
                          {'maxOutputTokens': 8192, 'thinkingConfig': {'thinkingLevel': 'high'}})

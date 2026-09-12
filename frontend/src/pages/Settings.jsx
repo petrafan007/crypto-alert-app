@@ -4116,7 +4116,6 @@ export default function Settings({ isLightMode }) {
         message={eventStrategyReportMessage}
         onClearMessage={() => setEventStrategyReportMessage('')}
         isLightMode={isLightMode}
-        auditScheduleHours={settings.event_strategy_audit_hours || 6}
       />
 
       {/* Master Quantitative Strategy Engine AI Configuration Modal */}
@@ -4178,13 +4177,13 @@ export default function Settings({ isLightMode }) {
                       </span>
                     </div>
                     <p style={{ fontSize: '0.82rem', color: isLightMode ? '#475569' : '#94a3b8', margin: '0 0 16px 0', lineHeight: 1.45 }}>
-                      Governs the autonomous evaluation cadence and system prompt used by the AI auditor to inspect worker cadence, quote data utility, decision calibration, error logs, and operational tuning recommendations.
+                      Configures Event operational reports and their AI prompt. Portfolio master audits follow the separate Off/Daily/Weekly schedule in the Quantitative Strategy Engine.
                     </p>
 
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 16, alignItems: 'start' }}>
                       <div style={{ maxWidth: 280 }}>
                         <label style={{ display: 'block', marginBottom: 8, fontSize: '12px', fontWeight: 600, color: isLightMode ? '#334155' : '#e2e8f0' }}>
-                          Audit Interval (Hours)
+                          Event operational report interval (hours)
                         </label>
                         <input
                           type="number"

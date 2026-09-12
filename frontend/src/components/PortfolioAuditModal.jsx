@@ -79,7 +79,6 @@ export default function PortfolioAuditModal({
   message = '',
   onClearMessage,
   isLightMode = false,
-  auditScheduleHours = 6,
 }) {
   if (!isOpen) return null;
 
@@ -188,7 +187,7 @@ export default function PortfolioAuditModal({
               )}
             </h3>
             <div style={{ fontSize: '0.82rem', color: isLightMode ? '#64748b' : '#94a3b8', marginTop: 4 }}>
-              Portfolio and enabled-module assessments. Scheduled every {auditScheduleHours} hours; execution state is reported separately.
+              Portfolio and enabled-module assessments. Automatic reports follow the master Off/Daily/Weekly schedule; manual reports remain available.
             </div>
           </div>
           <button

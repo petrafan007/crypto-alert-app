@@ -1084,13 +1084,33 @@ def save_audit_progress(audit_id, evidence, stage=None, module=None, **details):
 
 
 def audit_due(cfg, state, now):
-    from credentials import UserSetting
-    setting = UserSetting.query.filter_by(user_id=cfg.user_id).first()
-    hours = setting.event_strategy_audit_hours if setting and setting.event_strategy_audit_hours else 6
-    if state.last_audit_at:
-        if (utc(now) - utc(state.last_audit_at)).total_seconds() < hours * 3600:
-            return False
-    return True
+    """Run once per completed daily close or first weekly NYSE close.
+
+    Daily catch-up uses only the latest completed session. Weekly catch-up
+    stays within the current Eastern calendar week. Manual requests bypass
+    this check in reserve_audit.
+    """
+    cadence = loads(getattr(cfg, 'master_ai_config', None), {}).get('cadence', 'off')
+    if cadence not in ('daily', 'weekly'):
+        return False
+    now = utc(now)
+    today = now.astimezone(ET).date()
+    if cadence == 'daily':
+        days = (today - timedelta(days=offset) for offset in range(8))
+    else:
+        monday = today - timedelta(days=today.weekday())
+        days = (monday + timedelta(days=offset) for offset in range(7))
+    for day in days:
+        bounds = session_bounds(day)
+        if not bounds:
+            continue
+        close = utc(bounds[1])
+        if close > now:
+            if cadence == 'weekly':
+                return False
+            continue
+        return state.last_audit_at is None or utc(state.last_audit_at) < close
+    return False
 
 
 def reserve_audit(user_id, scheduled=False):

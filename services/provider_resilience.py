@@ -29,6 +29,10 @@ class ProviderUnavailable(RuntimeError):
     pass
 
 
+class AIRequestDeferred(RuntimeError):
+    """Expected scheduling deferral before an AI provider is attempted."""
+
+
 _memory = {}
 _lock = threading.RLock()
 _inflight = set()
