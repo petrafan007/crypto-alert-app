@@ -37,6 +37,28 @@ class EventQuoteValidationTests(unittest.TestCase):
         self.assertEqual(self.validate(quote(now=self.now, quote_as_of=None))[0], 'MISSED')
         self.assertEqual(self.validate(quote(symbol='KXETH15M-OTHER', now=self.now))[0], 'REJECTED')
 
+    def test_handoff_rejects_selected_wide_crossed_or_empty_book(self):
+        for changes, reason in [({'yes_bid': .1}, 'SPREAD_TOO_WIDE'),
+                                ({'yes_bid': .45}, 'CROSSED_QUOTE'),
+                                ({'yes_bid': None}, 'MISSING_QUOTE'),
+                                ({'yes_ask_size': 0}, 'INSUFFICIENT_LIQUIDITY')]:
+            with self.subTest(changes=changes):
+                status, message, _ = self.validate(quote(now=self.now, **changes))
+                self.assertEqual(status, 'REJECTED')
+                self.assertIn(reason, message)
+
+    def test_crossed_book_is_data_limited_in_readiness(self):
+        run = SimpleNamespace(id=1, finished_at=self.now, error_count=0,
+                              error_message=None, status='COMPLETED')
+        decision = SimpleNamespace(created_at=self.now, eligible=False,
+                                   reason_codes='["CROSSED_QUOTE"]')
+        with patch.object(handoff, 'EventStrategyRun') as runs, \
+                patch.object(handoff, 'EventStrategyDecision') as decisions:
+            runs.query.filter_by.return_value.order_by.return_value.first.return_value = run
+            decisions.query.filter_by.return_value.all.return_value = [decision]
+            status, _ = handoff.readiness(1, SimpleNamespace(id=1, enabled=True), self.now)
+        self.assertEqual(status, 'DATA_LIMITED')
+
     def test_expired_decision_and_cutoff_do_not_get_relaxed(self):
         self.decision.created_at = self.now - timedelta(seconds=121)
         self.assertEqual(self.validate(quote(now=self.now))[0], 'MISSED')

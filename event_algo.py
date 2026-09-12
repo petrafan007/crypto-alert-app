@@ -2173,13 +2173,7 @@ def evaluate_market(market, config, *, now=None):
     no_bid = _number(market.get("no_bid"))
     if yes_ask is None and no_ask is None:
         reasons.append("MISSING_QUOTE")
-    for quote in (yes_ask, no_ask):
-        if quote is not None and not 0 < quote < 1:
-            reasons.append("MISSING_QUOTE")
     max_spread = float(risk.get("max_spread", 0.15))
-    spreads = [item for item in (features.get("spread_yes"), features.get("spread_no")) if item is not None]
-    if spreads and min(spreads) > max_spread:
-        reasons.append("SPREAD_TOO_WIDE")
     volume = float(features.get("volume") or 0.0)
     open_interest = float(features.get("open_interest") or 0.0)
     min_volume = float(risk.get("min_volume", 0.0))
@@ -2212,16 +2206,39 @@ def evaluate_market(market, config, *, now=None):
     fee = float(signal.get("fee_per_contract", DEFAULT_SIGNAL_CONFIG["fee_per_contract"]))
     uncertainty = float(signal.get("uncertainty_buffer", DEFAULT_SIGNAL_CONFIG["uncertainty_buffer"]))
     candidates = []
-    if probability_yes is not None and yes_ask is not None:
+    if probability_yes is not None and yes_ask is not None and 0 < yes_ask < 1:
         gross = probability_yes - yes_ask
         spread_cost = max(0.0, float(features.get("spread_yes") or 0.0)) / 2
         candidates.append((gross - fee - spread_cost - uncertainty, "YES", yes_ask, gross))
-    if probability_no is not None and no_ask is not None:
+    if probability_no is not None and no_ask is not None and 0 < no_ask < 1:
         gross = probability_no - no_ask
         spread_cost = max(0.0, float(features.get("spread_no") or 0.0)) / 2
         candidates.append((gross - fee - spread_cost - uncertainty, "NO", no_ask, gross))
     best = max(candidates, default=(None, None, None, None), key=lambda item: item[0] if item[0] is not None else -math.inf)
     net_edge, outcome, executable_price, gross_edge = best
+    # Validate the book we would actually buy. The opposite outcome cannot
+    # establish an executable spread or available depth for this order.
+    selected_spread = None
+    if outcome:
+        side = outcome.lower()
+        bid = yes_bid if outcome == "YES" else no_bid
+        if bid is None or not 0 <= bid < 1:
+            reasons.append("MISSING_QUOTE")
+        elif bid > executable_price:
+            reasons.append("CROSSED_QUOTE")
+        else:
+            selected_spread = round(executable_price - bid, 6)
+            if selected_spread > max_spread:
+                reasons.append("SPREAD_TOO_WIDE")
+        raw_size = market.get(f"{side}_ask_size")
+        if raw_size is not None:
+            size = _number(raw_size)
+            if size is None or size < 1:
+                reasons.append("INSUFFICIENT_LIQUIDITY")
+    elif probability_yes is not None:
+        reasons.append("MISSING_QUOTE")
+    features["selected_outcome"] = outcome
+    features["selected_spread"] = selected_spread
     min_net_edge = float(signal.get("min_net_edge", DEFAULT_SIGNAL_CONFIG["min_net_edge"]))
     if net_edge is not None and net_edge < min_net_edge:
         reasons.append("EDGE_TOO_SMALL_AFTER_FEES")
@@ -2241,8 +2258,8 @@ def evaluate_market(market, config, *, now=None):
         score += max(0.0, min(50.0, net_edge * 100))
     if confidence is not None:
         score += max(0.0, min(25.0, confidence * 25))
-    if spreads:
-        score += max(0.0, 15.0 - min(15.0, min(spreads) * 100))
+    if selected_spread is not None:
+        score += max(0.0, 15.0 - min(15.0, selected_spread * 100))
     score += min(10.0, math.log10(1 + max(0.0, volume)))
     return {
         "contract_symbol": str(market.get("symbol") or "").upper(),
@@ -2337,11 +2354,8 @@ def _settle_simulated_orders(user_id, contract_symbol, outcome, settled_at):
 def resolve_event_outcomes(user_id, *, config=None, limit=25, force=False):
     """Resolve expired contracts from Webull's explicit settlement fields."""
     config = config or get_or_create_config(user_id)
-    if config.mode != PAPER_MODE or config.kill_switch:
+    if config.mode != PAPER_MODE:
         return {"success": False, "message": "Outcome resolution is available only in paper mode."}
-    credential, environment = _webull_connection_for_user(user_id)
-    from services.webull_service import get_webull_event_market
-
     now = datetime.utcnow()
     resolved_symbols = (
         select(EventContractOutcome.contract_symbol)
@@ -2381,6 +2395,10 @@ def resolve_event_outcomes(user_id, *, config=None, limit=25, force=False):
         .limit(max(1, min(int(limit or 25), 100)))
         .all()
     )
+    if not snapshots:
+        return {"success": True, "resolved": [], "pending": [], "resolved_count": 0, "pending_count": 0}
+    credential, environment = _webull_connection_for_user(user_id)
+    from services.webull_service import get_webull_event_market
     resolved = []
     pending = []
     seen = set()
@@ -2925,18 +2943,19 @@ def run_event_strategy_scan(user_id, *, config=None, force=False, worker_id="man
         db.session.remove()
 
 
-def event_algo_worker_loop(app):
+def event_algo_worker_loop(app, stop_event=None):
     """Persisted paper-only supervisor with stale-run recovery, outcome resolution, and alerts."""
     logger.info("Event Contract strategy worker started in paper/signal-only mode.")
     last_resolve_by_user = {}
     last_report_by_user = {}
+    stop_event = stop_event or threading.Event()
     with app.app_context():
-        while True:
+        while not stop_event.is_set():
             try:
-                config_ids = [row.id for row in EventStrategyConfig.query.filter_by(enabled=True, mode=PAPER_MODE, kill_switch=False).all()]
+                config_ids = [row.id for row in EventStrategyConfig.query.filter_by(mode=PAPER_MODE).all()]
                 for config_id in config_ids:
                     config = db.session.get(EventStrategyConfig, config_id)
-                    if not config or not config.enabled or config.mode != PAPER_MODE or config.kill_switch:
+                    if not config or config.mode != PAPER_MODE:
                         continue
                     # Do not run legacy or tampered configs belonging to any
                     # other account.  The engine is permanently owned by the
@@ -2963,6 +2982,12 @@ def event_algo_worker_loop(app):
                             logger.warning("Periodic event outcome resolution failed for user %s: %s", config.user_id, resolve_err)
                             db.session.rollback()
 
+                    # Settlement is bookkeeping for existing exposure. Entry
+                    # stops must still suppress scans, AI reports and alerts.
+                    from portfolio_algo_models import PortfolioEngineState
+                    master_state = db.session.get(PortfolioEngineState, config.user_id)
+                    if not config.enabled or config.kill_switch or (master_state and master_state.kill_switch):
+                        continue
                     if not quantitative_event_entries_enabled(config.user_id):
                         config.worker_status = "DISABLED"
                         db.session.commit()
@@ -3052,4 +3077,4 @@ def event_algo_worker_loop(app):
                 db.session.rollback()
             finally:
                 db.session.remove()
-            time.sleep(15)
+            stop_event.wait(15)

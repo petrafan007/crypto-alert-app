@@ -236,7 +236,13 @@ The master Off/Daily/Weekly control now governs automatic portfolio audits indep
 
 An automated Event AI request deferred by a pending portfolio audit is recorded as an informational skip, without provider failover, failure notification, or added failure backoff. Unfinished contracts become eligible again on the normal scan interval, subject to the existing batch budget and scheduling gates. Already completed batch results are retained. A deferral supplies no new prediction and does not authorize a trade. The separate Event operational report cadence remains configured in hours.
 
-## Remaining review items after v2.98.8
+## Event entry and settlement controls (v2.98.12)
+
+Entry qualification and fresh-quote revalidation now check the bid and spread of the selected YES/NO outcome. A tight spread on the other outcome cannot qualify the selected side or improve its spread score. Missing/out-of-range bids, crossed books, and explicitly supplied ask sizes below one contract or invalid sizes block entry. An unavailable ask size remains unknown; it is not evidence of available depth. Contract-wide volume/open-interest gates remain in place. This release does not add depth-aware quantity sizing or repair provider timestamp provenance.
+
+The Event supervisor checks due settlements for administrator-owned paper configurations before applying stopped, killed, module-disabled, or master-pause entry gates. It preserves those controls and does not start scans or scheduled Event AI reports while stopped/killed/master-paused. Empty settlement queues do not require credentials or provider requests. Existing resolution throttling, provider evidence, user isolation, and duplicate-settlement prevention remain in effect. This records confirmed outcomes and settles legacy simulated Event orders; an explicit portfolio Stop still freezes portfolio ledger execution until resumed. Kill/circuit monitoring can consume confirmed outcomes under its existing position-management rules. Settlement still shares the Event worker with AI reporting; separating those workloads remains deferred.
+
+## Remaining review items after v2.98.12
 
 These review findings remain deferred, not fixed or certified by this release:
 
@@ -244,8 +250,7 @@ These review findings remain deferred, not fixed or certified by this release:
 - Repair the dormant single-contract Event AI helper, which references an undefined config; the active batch path is separate.
 - Enforce one authoritative Event risk policy, including saved exposure and hourly/daily loss limits.
 - Preserve provider quote time, retrieval time, and underlying-price freshness separately.
-- Validate spread and liquidity for the selected Event outcome.
-- Keep Event settlement resolution available while new entries are killed/paused.
+- Add depth-aware Event quantity limits and a policy for unavailable depth; selected-outcome bid/spread and explicit empty-ask validation are fixed in v2.98.12.
 - Correct date-only settlement timestamps with evidence-backed historical remediation.
 - Correct Event audit sampling, missing-value/status defaults, and unsupported model conclusions; render factual report tables deterministically.
 - Deduplicate calibration samples before limits and compare matched model/market samples by model, duration and period.

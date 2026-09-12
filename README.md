@@ -6,6 +6,12 @@
 
 **Last Updated**: September 2026
 
+## v2.98.12 (September 2026)
+
+- **Quantitative Event Entry Validation:** Spread checks and opportunity scoring use the selected YES/NO outcome. Missing bids, crossed quotes, and explicitly empty or invalid ask sizes block entry; the opposite outcome cannot supply those checks. The independent paper execution handoff applies the same validation to refreshed quotes.
+- **Settlement During Entry Stops:** The Event worker continues provider-confirmed settlement resolution for paper configurations while stopped, killed, or paused by the master circuit. New-entry scans and scheduled Event AI reports remain suppressed under those controls. Configurations without due contracts require no provider connection.
+- Updated the [remaining engine review list](docs/quantitative_strategy_engine.md#remaining-review-items-after-v29812). No strategy thresholds, live-order behavior, historical settlement data, or database schema were changed.
+
 ## v2.98.11 (September 2026)
 
 - **Event Contract Position Modal — Chart Size & Layout**:
@@ -52,14 +58,14 @@
 
 - Master portfolio audits honor Off/Daily/Weekly independently of Event report hours, using NYSE session closes, holidays, early closes, and bounded catch-up.
 - Audit-related Event AI deferrals are informational skips, with no provider-failure alerts, failover, or added failure backoff. Unfinished evaluations become eligible on the normal scan cadence; completed batch results are retained.
-- Clarified scheduling labels and documentation. Larger risk, execution, data, and report-validation fixes remain deferred; see the [remaining review list](docs/quantitative_strategy_engine.md#remaining-review-items-after-v2988).
+- Clarified scheduling labels and documentation. Larger risk, execution, data, and report-validation fixes remain deferred; see the [remaining review list](docs/quantitative_strategy_engine.md#remaining-review-items-after-v29812).
 
 ## v2.98.7 (September 2026)
 
 - Portfolio settings saves preserve dedicated audit AI providers, models, keys, and shared guidance when updating cadence.
 - Portfolio report health badges use saved structured worker, module, and risk-control evidence. Failed or unavailable reports cannot imply healthy operation, and prose mentioning an inactive risk circuit cannot imply a pause.
 - Successful report generation is distinct from engine health; archived reports describe their capture time. Legacy reports lacking health evidence show an unverified state.
-- This release is limited to these two fixes. Scheduling, Event execution/risk controls, data provenance, and research/report validation improvements remain deferred; see the [engine guide](docs/quantitative_strategy_engine.md#remaining-review-items-after-v2988).
+- This release is limited to these two fixes. Scheduling, Event execution/risk controls, data provenance, and research/report validation improvements remain deferred; see the [engine guide](docs/quantitative_strategy_engine.md#remaining-review-items-after-v29812).
 
 ## v2.98.6 (September 2026)
 

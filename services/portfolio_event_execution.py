@@ -110,7 +110,7 @@ def readiness(user_id, event_cfg, now):
     if not recent:
         return 'DATA_LIMITED', 'No fresh Event decisions; waiting for market/model observations.'
     unavailable = {'AI_PROVIDER_ERROR', 'AI_RESPONSE_INVALID', 'AI_BUDGET_EXHAUSTED',
-                   'MODEL_UNAVAILABLE', 'STALE_QUOTE', 'MISSING_QUOTE'}
+                   'MODEL_UNAVAILABLE', 'STALE_QUOTE', 'MISSING_QUOTE', 'CROSSED_QUOTE'}
     if any(unavailable.intersection(engine.loads(row.reason_codes, [])) for row in recent):
         return 'DATA_LIMITED', 'Latest Event scan contains unavailable model or quote evidence.'
     if any(row.eligible for row in recent):

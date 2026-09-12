@@ -141,6 +141,39 @@ class EventAlgoTests(unittest.TestCase):
         self.assertIn('PAPER_SIGNALS_ONLY', decision['reason_codes'])
         self.assertFalse(decision['execution_allowed'])
 
+    def test_entry_checks_selected_outcome_book(self):
+        for outcome, probability in [('YES', .9), ('NO', .1)]:
+            side = outcome.lower()
+            other = 'no' if side == 'yes' else 'yes'
+            market = {'symbol': 'TEST', 'volume': 100, 'model_probability_yes': probability,
+                      'model_confidence': .9, f'{side}_ask': .4, f'{side}_bid': .39,
+                      f'{other}_ask': .61, f'{other}_bid': .60}
+            cases = [
+                ({f'{side}_bid': .1}, 'SPREAD_TOO_WIDE'),
+                ({f'{side}_bid': None}, 'MISSING_QUOTE'),
+                ({f'{side}_bid': -.01}, 'MISSING_QUOTE'),
+                ({f'{side}_bid': .45}, 'CROSSED_QUOTE'),
+                ({f'{side}_ask_size': 0}, 'INSUFFICIENT_LIQUIDITY'),
+                ({f'{side}_ask_size': 'invalid'}, 'INSUFFICIENT_LIQUIDITY'),
+            ]
+            for changes, reason in cases:
+                with self.subTest(outcome=outcome, changes=changes):
+                    decision = evaluate_market({**market, **changes}, self.config())
+                    self.assertEqual(decision['outcome'], outcome)
+                    self.assertFalse(decision['eligible'])
+                    self.assertEqual(decision['action'], 'NO_TRADE')
+                    self.assertIn(reason, decision['reason_codes'])
+            for changes in ({}, {f'{other}_bid': .1}, {f'{other}_ask': None},
+                            {f'{other}_ask': 0}, {f'{other}_ask_size': 0},
+                            {f'{side}_ask_size': 1}):
+                with self.subTest(outcome=outcome, valid_changes=changes):
+                    decision = evaluate_market({**market, **changes}, self.config())
+                    self.assertTrue(decision['eligible'], decision['reason_codes'])
+                    self.assertEqual(decision['features']['selected_spread'], .01)
+            tight = evaluate_market(market, self.config())
+            worse = evaluate_market({**market, f'{side}_bid': .3}, self.config())
+            self.assertGreater(tight['opportunity_score'], worse['opportunity_score'])
+
     def test_market_cutoff_parsing(self):
         from event_algo import _market_cutoff
         # 15M symbol: 26SEP032245 -> 22:45 Eastern -> 02:45 UTC next day
