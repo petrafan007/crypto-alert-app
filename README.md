@@ -6,6 +6,18 @@
 
 **Last Updated**: September 2026
 
+## v2.99.9 (September 2026)
+
+- **Event Contract Position Retention & Seamless Visibility (`WebullPositions` & Backend)**:
+  - Eliminated premature position suppression: Held Event Contract positions are now strictly preserved in the **Positions** table across active and awaiting-settlement phases as long as `quantity > 0`.
+  - Removed aggressive frontend cutoff/status filter that caused newly bought or near-cutoff contracts to vanish from the Positions view when reaching cutoff time or entering settlement.
+  - Corrected backend paper trading endpoint (`/api/webull/test/positions`) to keep event positions in active holdings until settlement payout and resolution zero their quantity.
+  - Enhanced post-cutoff status in test mode to clearly report `Awaiting settlement` rather than premature closure.
+  - Hardened quote resolution in account summary and test positions with complete exception handling, preventing price fetch failures on post-cutoff contracts.
+- **Simulated Order Execution Feedback & Routing (`WebullTrading`)**:
+  - Clear user notification upon test mode execution explicitly detailing that the order filled immediately into **Positions** and was logged in **Order History**.
+  - Intelligent tab routing automatically directs the user to the **Positions** tab upon immediate fill so the holding is immediately visible.
+
 ## v2.99.8 (September 2026)
 
 - **Comprehensive Runtime Fix & AST Verification (`EventPositionModal` & `Dashboard`)**:

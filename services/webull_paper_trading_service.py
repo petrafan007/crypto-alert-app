@@ -478,7 +478,7 @@ def get_webull_test_account_summary(user_id: int) -> Dict[str, Any]:
                     event_outcome=pos.event_outcome,
                 )
 
-        except ValueError:
+        except Exception:
             curr_price = pos.last_price or 0.0
 
         pos.last_price = curr_price
@@ -627,7 +627,7 @@ def _paper_position_status(pos):
         base_sym = str(pos.symbol or '').replace(' YES', '').replace(' NO', '').strip().upper()
         cutoff = _cutoff_from_symbol(base_sym)
         if cutoff and cutoff <= datetime.now(timezone.utc).replace(tzinfo=None):
-            return 'Closed'
+            return 'Awaiting settlement'
     return 'Open'
 
 
@@ -659,17 +659,11 @@ def get_webull_test_positions(user_id: int) -> List[Dict[str, Any]]:
     positions = WebullTestPosition.query.filter_by(user_id=user_id).filter(WebullTestPosition.quantity > 0).all()
     rows = []
     for pos in positions:
-        if pos.instrument_type == 'EVENT':
-            from event_algo import _cutoff_from_symbol
-            base_sym = str(pos.symbol or '').replace(' YES', '').replace(' NO', '').strip().upper()
-            cutoff = _cutoff_from_symbol(base_sym)
-            if cutoff and cutoff <= datetime.now(timezone.utc).replace(tzinfo=None):
-                continue
         quote_status = 'current'
         try:
             curr_price = fetch_live_price(user_id, pos.symbol, pos.instrument_type, event_outcome=pos.event_outcome,
                 option_type=pos.option_type, option_strike=pos.option_strike, option_expiration=pos.option_expiration)
-        except ValueError:
+        except Exception:
             curr_price = pos.last_price or 0
             quote_status = 'last recorded mark; current quote unavailable'
         pos.last_price = curr_price

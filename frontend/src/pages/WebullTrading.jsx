@@ -3823,7 +3823,13 @@ export default function WebullTrading({ isLightMode = false }) {
 
       const response = await axios.post('/api/webull/orders/place', payload, { withCredentials: true });
       if (response.data?.success) {
-        setOrderFeedback({ type: 'success', message: response.data.message || 'Order placed successfully!' });
+        const orderStatus = response.data?.status || response.data?.order?.status;
+        const isFilled = orderStatus === 'Filled';
+        const isWorking = orderStatus === 'Working' || orderStatus === 'Open';
+        const feedbackMsg = isTestMode && isFilled
+          ? `${response.data.message || 'Simulated order executed successfully!'} (Position is now active under Positions and recorded in Order History)`
+          : (response.data.message || 'Order placed successfully!');
+        setOrderFeedback({ type: 'success', message: feedbackMsg });
         setShowConfirmModal(false);
         setReplacingOrderId(null);
         setOrderForm((prev) => ({
@@ -3840,6 +3846,7 @@ export default function WebullTrading({ isLightMode = false }) {
         }));
         if (isTestMode) {
           loadPaperTradingData();
+          setActiveTab(isWorking ? 'open_orders' : 'positions');
         } else {
           await Promise.all([
             loadOpenOrders(selectedAccountId),

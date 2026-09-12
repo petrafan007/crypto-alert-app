@@ -142,22 +142,8 @@ export default function WebullPositions({ positions = [], mode = 'REAL', userId,
   };
   const securityPositions = useMemo(() => positions
     .filter(p => assetType(p) !== 'Cash' && Number(p.quantity ?? p.amount ?? 0) !== 0)
-    .map(p => mergeEventMarket(p, markets[String(p.symbol || '').replace(/ (YES|NO)$/i, '')]))
-    .filter(p => {
-      if (assetType(p) === 'Event Contracts') {
-        const cutoff = cutoffFromSymbol(p.symbol) || timestamp(p.settlement?.cutoff_at || p.cutoff_at || p.details?.cutoff_at);
-        if (cutoff !== null && cutoff <= now) {
-          return false;
-        }
-        const status = valueForColumn(p, 'status');
-        const settlementStatus = String(p.settlement?.status || '').toUpperCase();
-        if (status === 'Settled — awaiting removal' || status === 'Closed' || status === 'Awaiting settlement' || status === 'Settlement delayed' || settlementStatus === 'RESOLVED') {
-          return false;
-        }
-      }
-      return true;
-    }),
-    [positions, markets, now]
+    .map(p => mergeEventMarket(p, markets[String(p.symbol || '').replace(/ (YES|NO)$/i, '')])),
+    [positions, markets]
   );
   const accounts = [...new Map(securityPositions.map(p => [String(p.account_id || p.source || ''), valueForColumn(p, 'account')])).entries()];
   const visibleColumns = columnState.order.filter(id => columnState.selected.includes(id)).map(id => COLUMN_MAP.get(id));
