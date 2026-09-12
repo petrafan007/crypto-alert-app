@@ -435,7 +435,7 @@ def fetch_live_price(
     return 100.0
 
 
-def fetch_event_market_quote(user_id: int, symbol: str) -> Dict[str, Any]:
+def fetch_event_market_quote(user_id: int, symbol: str, force: bool = True) -> Dict[str, Any]:
     """Fetch complete quotes for both outcomes of an Event Contract market."""
     from credentials import Credential, UserSetting
     from services.webull_service import get_webull_event_market, normalize_webull_environment
@@ -450,13 +450,15 @@ def fetch_event_market_quote(user_id: int, symbol: str) -> Dict[str, Any]:
         credential.webull_app_key, credential.webull_app_secret,
         environment, credential.webull_access_token,
         symbol=market_symbol,
+        force=force,
     )
 
 
 def get_webull_test_account_summary(user_id: int) -> Dict[str, Any]:
     """Calculate and return full account balances, buying power, and P&L for paper trading."""
-    from services.webull_paper_lifecycle import reconcile_paper_options
+    from services.webull_paper_lifecycle import reconcile_paper_options, reconcile_paper_events
     reconcile_paper_options(user_id)
+    reconcile_paper_events(user_id)
     account = get_or_create_webull_test_account(user_id)
     _normalize_equity_like_positions(user_id)
     positions = WebullTestPosition.query.filter_by(user_id=user_id).filter(WebullTestPosition.quantity > 0).all()

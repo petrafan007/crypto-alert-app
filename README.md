@@ -6,6 +6,21 @@
 
 **Last Updated**: September 2026
 
+## v2.99.10 (September 2026)
+
+- **Event Contract Limit Price Formatting (`EventPositionModal`)**:
+  - Introduced `formatLimitPrice` helper that normalises suggested and stored limit prices to two decimal places for standard event contract display, while preserving trailing precision when more than two decimal places are present.
+  - Applied formatting consistently to: initial price state from open-order records, quote-poll auto-suggestions, side/outcome toggle resets, and on-blur normalisation of the manual price input field.
+- **Forced Quote Refresh on Market Poll (`EventPositionModal` & `routes/system.py`)**:
+  - Modal now passes `refresh=1` on each poll interval request to `/api/webull/events/markets`, bypassing the cache and guaranteeing fresh ask/bid depth on every tick.
+  - Backend `/api/webull/events/markets` route honours `refresh=1` or `force=1` query parameters and passes `force=True` to `get_webull_event_market`, ensuring post-cutoff contracts receive up-to-date quotes.
+  - Reduced poll interval for open orders from 5 s to 2 s so resting limit orders receive more timely market updates.
+- **Reconciliation on Market-Quote Refresh (`routes/system.py`)**:
+  - `reconcile_paper_events` is now triggered on every `/api/webull/events/markets` request in test mode, settling expired paper contracts immediately when the modal polls for a fresh quote.
+- **`fetch_event_market_quote` Default Force (`webull_paper_trading_service.py` & `webull_paper_lifecycle.py`)**:
+  - Changed the default value of the `force` parameter in `fetch_event_market_quote` to `True` so all internal paper-lifecycle calls bypass stale cached market data.
+  - Reconciliation loop already used `force=True`; the signature default now matches the intent, preventing accidental stale-cache usage in future call sites.
+
 ## v2.99.9 (September 2026)
 
 - **Event Contract Position Retention & Seamless Visibility (`WebullPositions` & Backend)**:

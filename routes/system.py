@@ -3106,11 +3106,18 @@ def api_webull_event_markets():
         setting = UserSetting.query.filter_by(user_id=current_user.id).first()
         credential, environment = _webull_event_connection(setting)
         if symbol:
+            force_market = request.args.get('refresh') == '1' or request.args.get('force') == '1'
             market = get_webull_event_market(
                 credential.webull_app_key, credential.webull_app_secret,
                 environment, credential.webull_access_token,
-                symbol=symbol, force=False,
+                symbol=symbol, force=force_market,
             )
+            if setting and getattr(setting, 'webull_test_mode_enabled', False):
+                from services.webull_paper_lifecycle import reconcile_paper_events
+                try:
+                    reconcile_paper_events(current_user.id)
+                except Exception as rec_err:
+                    logger.warning('Error reconciling paper events on market quote refresh: %s', rec_err)
             result = {
                 'markets': [market],
                 'total_matches': 1,
@@ -3191,6 +3198,12 @@ def api_webull_event_position():
                 symbol=symbol,
                 event_outcome=outcome,
             )
+        elif setting and (getattr(setting, 'webull_test_mode_enabled', False) or request.args.get('test_mode') == '1'):
+            from services.webull_paper_lifecycle import reconcile_paper_events
+            try:
+                reconcile_paper_events(current_user.id)
+            except Exception as rec_err:
+                logger.warning('Error reconciling paper events on position refresh: %s', rec_err)
         return jsonify({
             'success': True,
             'market': market,

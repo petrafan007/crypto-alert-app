@@ -15,14 +15,21 @@ const contractSymbol = (holding) => String(holding?.underlying_symbol || holding
   .toUpperCase();
 
 const heldOutcome = (holding) => {
+  const fromSym = String(holding?.symbol || '').match(/[\s-](YES|NO)$/i)?.[1];
+  if (fromSym) return fromSym.toLowerCase();
   const raw = holding?.event_outcome
     || holding?.purchased_outcome
-    || holding?.side
-    || holding?.position_side
-    || holding?.details?.outcome
-    || String(holding?.symbol || '').match(/[\s-](YES|NO)$/i)?.[1];
-  const val = String(raw || '').trim().toLowerCase();
-  return val === 'no' ? 'no' : 'yes';
+    || holding?.outcome
+    || holding?.details?.outcome;
+  if (raw) {
+    const val = String(raw).trim().toLowerCase();
+    if (val === 'no' || val === 'yes') return val;
+  }
+  const posSide = String(holding?.position_side || '').trim().toLowerCase();
+  if (posSide === 'no' || posSide === 'yes') return posSide;
+  const s = String(holding?.side || '').trim().toLowerCase();
+  if (s === 'no' || s === 'yes') return s;
+  return 'yes';
 };
 
 const providerTime = (value) => {
@@ -96,6 +103,14 @@ const money = (value, digits = 2) => {
   return parsed === null ? '—' : `$${parsed.toLocaleString(undefined, { minimumFractionDigits: digits, maximumFractionDigits: digits })}`;
 };
 
+const formatLimitPrice = (value) => {
+  const parsed = numeric(value);
+  if (parsed === null) return '';
+  const str = String(parsed);
+  const decimals = (str.split('.')[1] || '').length;
+  return decimals <= 2 ? parsed.toFixed(2) : str;
+};
+
 const quantityText = (value) => {
   const parsed = numeric(value);
   return parsed === null ? '—' : parsed.toLocaleString(undefined, { maximumFractionDigits: 5 });
@@ -153,7 +168,7 @@ export default function EventPositionModal({
     ? numeric(record?.quantity, 0)
     : numeric(record?.available_quantity ?? record?.quantity ?? record?.amount, 0);
   const storedPrice = isOpenOrder
-    ? (record?.price || record?.limit_price ? String(record.price || record.limit_price) : '')
+    ? formatLimitPrice(record?.price ?? record?.limit_price)
     : '';
   const initialSide = isOpenOrder
     ? (String(record?.side || '').toUpperCase().includes('SELL') ? 'SELL' : 'BUY')
@@ -215,7 +230,7 @@ export default function EventPositionModal({
     } else {
       const suggested = quoteFor(market || initialMarket, positionOutcome, isOpenOrder ? initialSide : 'SELL');
       if (suggested !== null) {
-        setPrice(String(suggested));
+        setPrice(formatLimitPrice(suggested));
       }
     }
     setValidationError('');
@@ -274,7 +289,7 @@ export default function EventPositionModal({
     if (!isOpen || !symbol) return undefined;
     let cancelled = false;
     const refreshQuote = () => axios.get('/api/webull/events/markets', {
-      params: { symbol },
+      params: { symbol, refresh: '1' },
       withCredentials: true,
     }).then((response) => {
       if (cancelled) return;
@@ -285,16 +300,16 @@ export default function EventPositionModal({
         const previousSuggested = quoteFor(market, outcome, side);
         const nextSuggested = quoteFor(nextMarket, outcome, side);
         return nextSuggested !== null && (!current || Number(current) === previousSuggested)
-          ? String(nextSuggested)
+          ? formatLimitPrice(nextSuggested)
           : current;
       });
     }).catch(() => {});
-    const interval = window.setInterval(refreshQuote, 5000);
+    const interval = window.setInterval(refreshQuote, isOpenOrder ? 2000 : 5000);
     return () => {
       cancelled = true;
       window.clearInterval(interval);
     };
-  }, [isOpen, symbol, outcome, side]);
+  }, [isOpen, isOpenOrder, symbol, outcome, side]);
 
   const [clock, setClock] = useState(Date.now());
   useEffect(() => {
@@ -396,7 +411,7 @@ export default function EventPositionModal({
     const nextQuote = quoteFor(activeMarket, nextOutcome, nextSide);
     setSide(nextSide);
     setOutcome(nextOutcome);
-    setPrice(nextQuote === null ? '' : String(nextQuote));
+    setPrice(nextQuote === null ? '' : formatLimitPrice(nextQuote));
     setQuantity(nextSide === 'SELL' ? String(availableQuantity || '') : '1');
     setValidationError('');
   };
@@ -557,7 +572,7 @@ export default function EventPositionModal({
                     </div>
                     <div className="event-position-order-fields">
                       <label>Contracts<input type="number" min="0" step={rules.fractionable ? '0.00001' : '1'} value={quantity} disabled={isExpired} onChange={(event) => { setQuantity(event.target.value); setValidationError(''); }} /></label>
-                      <label>Limit price (USD)<input type="number" min="0" max="1" step="0.0001" value={price} disabled={isExpired} onChange={(event) => { setPrice(event.target.value); setValidationError(''); }} /></label>
+                      <label>Limit price (USD)<input type="number" min="0" max="1" step="0.0001" value={price} disabled={isExpired} onChange={(event) => { setPrice(event.target.value); setValidationError(''); }} onBlur={() => { if (price) setPrice((curr) => formatLimitPrice(curr)); }} /></label>
                       <div className="event-position-quote-box"><span>Current quote</span><strong>{cents(selectedQuote)}</strong></div>
                     </div>
                     {validationError && <p className="event-position-validation" role="alert">{validationError}</p>}

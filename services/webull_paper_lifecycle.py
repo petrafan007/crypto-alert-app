@@ -306,7 +306,7 @@ def reconcile_paper_events(user_id, now=None):
 
             if base_sym not in market_cache:
                 try:
-                    market_cache[base_sym] = fetch_event_market_quote(user_id, base_sym)
+                    market_cache[base_sym] = fetch_event_market_quote(user_id, base_sym, force=True)
                 except Exception:
                     market_cache[base_sym] = None
             market = market_cache.get(base_sym)
