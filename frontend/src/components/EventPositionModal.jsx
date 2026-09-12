@@ -1,21 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
-import {
-  Chart as ChartJS,
-  CategoryScale,
-  LinearScale,
-  PointElement,
-  LineElement,
-  Tooltip,
-  Legend,
-  Filler,
-} from 'chart.js';
-import { Line } from 'react-chartjs-2';
-import { formatEasternDateTime } from '../utils/dateTime';
 import { cutoffFromSymbol } from '../utils/positions.mjs';
+import EventContractMiniChart from './EventContractMiniChart';
 import './EventPositionModal.css';
-
-ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Legend, Filler);
 
 const numeric = (value, fallback = null) => {
   const parsed = Number(value);
@@ -59,6 +46,33 @@ const providerTime = (value) => {
   }
   const parsed = new Date(text);
   return Number.isNaN(parsed.getTime()) ? null : parsed;
+};
+
+/** Format a Date or ISO string as M/D/YYYY, h:mm A in Eastern time, without seconds or TZ label. */
+const fmtEastern = (value) => {
+  if (!value) return 'Not provided';
+  const d = value instanceof Date ? value : providerTime(value);
+  if (!d || Number.isNaN(d.getTime())) return 'Not provided';
+  return d.toLocaleString('en-US', {
+    timeZone: 'America/New_York',
+    month: 'numeric',
+    day: 'numeric',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  });
+};
+
+/**
+ * Detect if a date value is a bare UTC midnight that was parsed from a date-only string
+ * (e.g. "2026-09-11") and would therefore show as 8:00 PM EDT the prior evening.
+ * In that case we should prefer the contract cutoff time instead.
+ */
+const isDateOnlyMidnight = (value) => {
+  if (!value) return false;
+  const text = String(value).trim();
+  // A bare YYYY-MM-DD date or a UTC midnight ISO
+  return /^\d{4}-\d{2}-\d{2}$/.test(text) || /T00:00:00(\.0+)?(Z|[+-]00:00)$/.test(text);
 };
 
 const formatCountdown = (milliseconds) => {
@@ -138,11 +152,9 @@ export default function EventPositionModal({
     ? numeric(record?.filled_quantity, 0)
     : numeric(record?.available_quantity ?? record?.quantity ?? record?.amount, 0);
   const [market, setMarket] = useState(null);
-  const [bars, setBars] = useState([]);
   const [availableQuantity, setAvailableQuantity] = useState(storedQuantity);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [chartMessage, setChartMessage] = useState('');
   const [serverOffset, setServerOffset] = useState(0);
   const [cutoffExpired, setCutoffExpired] = useState(false);
   const [side, setSide] = useState(isOpenOrder ? 'BUY' : 'SELL');
@@ -170,9 +182,7 @@ export default function EventPositionModal({
     let cancelled = false;
     setLoading(true);
     setError('');
-    setChartMessage('');
     setMarket(null);
-    setBars([]);
     setSide(isOpenOrder ? 'BUY' : 'SELL');
     setOutcome(positionOutcome);
     setAvailableQuantity(storedQuantity);
@@ -196,8 +206,6 @@ export default function EventPositionModal({
       const details = response.data || {};
       const nextMarket = details.market || null;
       setMarket(nextMarket);
-      setBars(Array.isArray(details.bars) ? details.bars : []);
-      setChartMessage(details.chart_message || '');
       if (details.available_quantity !== null && details.available_quantity !== undefined) {
         setAvailableQuantity(numeric(details.available_quantity, storedQuantity));
         setQuantity(String(numeric(details.available_quantity, storedQuantity)));
@@ -250,6 +258,30 @@ export default function EventPositionModal({
     || market?.expected_exp_date
     || market?.latest_exp_date
   );
+
+  // Resolve Opens using contract_period_start, falling back to open_date (only if non-midnight UTC)
+  const opensDate = useMemo(() => {
+    const periodStart = market?.contract_period_start;
+    if (periodStart) return providerTime(periodStart);
+    if (market?.open_date && !isDateOnlyMidnight(market.open_date)) return providerTime(market.open_date);
+    return null;
+  }, [market?.contract_period_start, market?.open_date]);
+
+  // Expected determination: use contract_period_end/cutoff if the provider's expected_exp_date is bare UTC midnight
+  const expectedDetermination = useMemo(() => {
+    const exp = market?.expected_exp_date;
+    if (exp && !isDateOnlyMidnight(exp)) return providerTime(exp);
+    // Fall back to cutoff (contract period end), which we already computed
+    return cutoff;
+  }, [market?.expected_exp_date, cutoff]);
+
+  // Expected payout: use payout_date if non-midnight, else fall back to cutoff
+  const expectedPayout = useMemo(() => {
+    const pd = market?.payout_date;
+    if (pd && !isDateOnlyMidnight(pd)) return providerTime(pd);
+    return cutoff;
+  }, [market?.payout_date, cutoff]);
+
   const providerStatus = String(market?.tradable_status || '').toUpperCase();
   const isWebullOpen = providerStatus === 'OC' || providerStatus === 'CO';
   const effectiveStatus = isWebullOpen ? providerStatus : (cutoffExpired ? 'NT' : providerStatus);
@@ -272,40 +304,17 @@ export default function EventPositionModal({
   const winningPayout = positionQuantity * numeric(rules.settlement_payout, 1);
   const selectedQuote = quoteFor(market, outcome, side);
 
-  const chartData = useMemo(() => ({
-    labels: bars.map((bar) => formatEasternDateTime(new Date(Number(bar.time) * 1000).toISOString())),
-    datasets: [{
-      label: 'Yes contract price',
-      data: bars.map((bar) => numeric(bar.close, 0) * 100),
-      borderColor: '#14b8a6',
-      backgroundColor: 'rgba(20, 184, 166, 0.16)',
-      pointRadius: 0,
-      pointHoverRadius: 4,
-      borderWidth: 2,
-      fill: true,
-      tension: 0.2,
-    }],
-  }), [bars]);
+  // Derive the underlying crypto symbol for the mini chart (e.g. "KXBTC15M-..." → "BTCUSDT")
+  const underlyingChartSymbol = useMemo(() => {
+    const ms = market?.underlying_symbol || market?.underlying_name || symbol;
+    const base = String(ms || '').replace(/^KX/, '').replace(/15M.*|1H.*|DAILY.*/i, '').trim().toUpperCase();
+    if (!base) return null;
+    // If it looks like a crypto base (BTC, ETH, SOL, etc.) add USDT for Binance kline lookup
+    return /^[A-Z]{2,6}$/.test(base) ? `${base}USDT` : base;
+  }, [market?.underlying_symbol, market?.underlying_name, symbol]);
 
-  const chartOptions = useMemo(() => ({
-    responsive: true,
-    maintainAspectRatio: false,
-    animation: false,
-    interaction: { intersect: false, mode: 'index' },
-    plugins: {
-      legend: { labels: { color: isLightMode ? '#334155' : '#cbd5e1' } },
-      tooltip: { callbacks: { label: (context) => `Yes ${Number(context.parsed.y).toFixed(2)}¢` } },
-    },
-    scales: {
-      x: { ticks: { color: isLightMode ? '#475569' : '#94a3b8', maxTicksLimit: 8 }, grid: { color: isLightMode ? 'rgba(71,85,105,.14)' : 'rgba(148,163,184,.12)' } },
-      y: {
-        min: 0,
-        max: 100,
-        ticks: { color: isLightMode ? '#475569' : '#94a3b8', callback: (value) => `${value}¢` },
-        grid: { color: isLightMode ? 'rgba(71,85,105,.14)' : 'rgba(148,163,184,.12)' },
-      },
-    },
-  }), [isLightMode]);
+  // Best guess at live underlying price from market reference data
+  const liveUnderlyingPrice = numeric(market?.reference_price ?? market?.target_value, 0);
 
   if (!isOpen || !record) return null;
 
@@ -319,8 +328,8 @@ export default function EventPositionModal({
   };
 
   const reviewOrder = () => {
-    const orderQuantity = numeric(quantity);
-    const orderPrice = numeric(price);
+    const orderQty = numeric(quantity);
+    const orderPx = numeric(price);
     if (!market?.symbol) {
       setValidationError('Live contract details must load before an order can be reviewed.');
       return;
@@ -333,20 +342,20 @@ export default function EventPositionModal({
       setValidationError('This position can no longer be closed because trading has ended.');
       return;
     }
-    if (orderQuantity === null || orderQuantity <= 0) {
+    if (orderQty === null || orderQty <= 0) {
       setValidationError('Enter a contract quantity greater than zero.');
       return;
     }
-    if (side === 'SELL' && orderQuantity > availableQuantity + 1e-8) {
+    if (side === 'SELL' && orderQty > availableQuantity + 1e-8) {
       setValidationError(`You can close up to ${quantityText(availableQuantity)} contracts.`);
       return;
     }
-    if (!rules.fractionable && !Number.isInteger(orderQuantity)) {
+    if (!rules.fractionable && !Number.isInteger(orderQty)) {
       setValidationError('This Event Contract requires a whole-number quantity.');
       return;
     }
-    if (orderPrice === null || !priceMatchesRanges(orderPrice, rules.price_ranges || [])) {
-      setValidationError('Enter a limit price that matches Webull’s current price range and tick size.');
+    if (orderPx === null || !priceMatchesRanges(orderPx, rules.price_ranges || [])) {
+      setValidationError('Enter a limit price that matches Webull\u2019s current price range and tick size.');
       return;
     }
     onReviewOrder?.({
@@ -354,8 +363,8 @@ export default function EventPositionModal({
       market,
       side,
       outcome,
-      quantity: orderQuantity,
-      price: orderPrice,
+      quantity: orderQty,
+      price: orderPx,
     });
   };
 
@@ -367,6 +376,14 @@ export default function EventPositionModal({
             <span className="event-position-kicker">{isOpenOrder ? 'Event Contract Open Order' : 'Current Event Contract Position'}</span>
             <h2 id="event-position-title">{market?.name || symbol}</h2>
             <p>{market?.display_condition || market?.yes_condition || 'Contract condition unavailable'}</p>
+            {market?.symbol && (
+              <div className="event-position-header-meta">
+                {market?.target_value != null && (
+                  <span className="event-position-target-badge">Target Price: <strong>{market?.reference_price != null ? `$${Number(market.reference_price).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—'}</strong></span>
+                )}
+                <span className="event-position-symbol-badge">{market.symbol}</span>
+              </div>
+            )}
           </div>
           <button type="button" className="event-position-close" onClick={onClose} aria-label="Close Event Contract position">×</button>
         </header>
@@ -397,15 +414,19 @@ export default function EventPositionModal({
                   <div><span>Order submitted</span><strong>{record?.created_at || record?.create_time || record?.placed_time || 'Not provided'}</strong></div>
                 </div>
               )}
-              <div className="event-position-chart-card">
-                <div className="event-position-chart-heading">
-                  <div><strong>Yes price history</strong><span>Provider OHLCV · Eastern Time</span></div>
-                  <div><span>Buy Yes</span><strong>{cents(market.yes_ask)}</strong><span>Buy No</span><strong>{cents(market.no_ask)}</strong></div>
+
+              {/* Underlying crypto price chart (replaces Chart.js yes-price chart) */}
+              {underlyingChartSymbol && (
+                <div className="event-position-chart-card">
+                  <EventContractMiniChart
+                    symbol={underlyingChartSymbol}
+                    market={market}
+                    duration={market?.series_frequency}
+                    isLightMode={isLightMode}
+                    livePrice={liveUnderlyingPrice}
+                  />
                 </div>
-                <div className="event-position-chart">
-                  {bars.length ? <Line data={chartData} options={chartOptions} /> : <div className="event-position-chart-empty">{chartMessage || 'No trade bars recorded yet for this contract.'}</div>}
-                </div>
-              </div>
+              )}
 
               <div className="event-position-facts-grid">
                 <div><span>{isOpenOrder ? 'Order outcome' : 'Held outcome'}</span><strong>{positionOutcome.toUpperCase()}</strong></div>
@@ -419,20 +440,10 @@ export default function EventPositionModal({
                 <div><span>Yes bid / ask</span><strong>{cents(market.yes_bid)} / {cents(market.yes_ask)}</strong></div>
                 <div><span>No bid / ask</span><strong>{cents(market.no_bid)} / {cents(market.no_ask)}</strong></div>
                 <div><span>Volume / open interest</span><strong>{quantityText(market.volume)} / {quantityText(market.open_interest)}</strong></div>
-                <div><span>Last trade</span><strong>{market.last_trade_time ? formatEasternDateTime(market.last_trade_time) : '—'}</strong></div>
+                <div><span>Last trade</span><strong>{market.last_trade_time ? fmtEastern(market.last_trade_time) : '—'}</strong></div>
               </div>
 
-              <div className="event-position-timeline">
-                <h3>Timeline and contract facts</h3>
-                <div><span>Opens</span><strong>{market.open_date ? formatEasternDateTime(market.open_date) : 'Not provided'}</strong></div>
-                <div><span>Trading cutoff</span><strong>{cutoff ? formatEasternDateTime(cutoff.toISOString()) : 'Not provided'}</strong></div>
-                <div><span>Expected determination</span><strong>{market.expected_exp_date ? formatEasternDateTime(market.expected_exp_date) : 'Not provided'}</strong></div>
-                <div><span>Expected payout</span><strong>{market.payout_date ? formatEasternDateTime(market.payout_date) : 'Not provided'}</strong></div>
-                <div><span>Trading hours</span><strong>{rules.trading_hours || market.trading_hours || 'Provider status is authoritative'}</strong></div>
-                <div><span>Settlement source</span><strong>{market.settlement_source || 'Not provided by Webull'}</strong></div>
-                <div><span>Contract symbol</span><strong>{market.symbol}</strong></div>
-              </div>
-
+              {/* Manage position — placed above timeline */}
               <div className="event-position-order-card">
                 <h3>{isOpenOrder ? 'Manage this open order' : 'Manage this position'}</h3>
                 <div className="event-position-order-actions">
@@ -462,6 +473,15 @@ export default function EventPositionModal({
                     Review {side === 'SELL' ? 'Close Position' : `Buy ${outcome.toUpperCase()}`} Order
                   </button>
                 </div>
+              </div>
+
+              {/* Timeline — moved below manage-position */}
+              <div className="event-position-timeline">
+                <h3>Timeline and contract facts</h3>
+                <div><span>Opens</span><strong>{fmtEastern(opensDate)}</strong></div>
+                <div><span>Trading cutoff</span><strong>{cutoff ? fmtEastern(cutoff) : 'Not provided'}</strong></div>
+                <div><span>Expected determination</span><strong>{fmtEastern(expectedDetermination)}</strong></div>
+                <div><span>Expected payout</span><strong>{fmtEastern(expectedPayout)}</strong></div>
               </div>
             </>
           )}

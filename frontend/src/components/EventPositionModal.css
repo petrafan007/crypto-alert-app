@@ -49,6 +49,44 @@
   text-transform: uppercase;
 }
 
+.event-position-header-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+
+.event-position-target-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.82rem;
+  color: var(--text-secondary, #94a3b8);
+  background: rgba(56, 189, 248, 0.08);
+  border: 1px solid rgba(56, 189, 248, 0.25);
+  border-radius: 6px;
+  padding: 3px 10px;
+}
+
+.event-position-target-badge strong {
+  color: #38bdf8;
+}
+
+.event-position-symbol-badge {
+  display: inline-flex;
+  align-items: center;
+  font-size: 0.76rem;
+  font-weight: 700;
+  font-family: monospace;
+  color: #a78bfa;
+  background: rgba(167, 139, 250, 0.1);
+  border: 1px solid rgba(167, 139, 250, 0.28);
+  border-radius: 6px;
+  padding: 3px 10px;
+  letter-spacing: 0.03em;
+}
+
 .event-position-close {
   flex: 0 0 auto;
   width: 40px;
@@ -133,33 +171,9 @@
   background: color-mix(in srgb, var(--card-bg, #111827) 86%, var(--input-bg, #0f172a));
 }
 
-.event-position-chart-card { padding: 16px; }
-.event-position-chart-heading {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
-  margin-bottom: 12px;
-}
-
-.event-position-chart-heading > div:first-child { display: grid; gap: 3px; }
-.event-position-chart-heading span { color: var(--text-secondary, #94a3b8); font-size: 0.76rem; }
-.event-position-chart-heading > div:last-child {
-  display: grid;
-  grid-template-columns: auto auto auto auto;
-  align-items: center;
-  gap: 5px 10px;
-}
-
-.event-position-chart { height: 310px; }
-.event-position-chart-empty {
-  height: 100%;
-  display: grid;
-  place-items: center;
-  color: var(--text-secondary, #94a3b8);
-  border-radius: 10px;
-  background: var(--input-bg, rgba(15, 23, 42, 0.66));
-}
+/* EventContractMiniChart fills the card — zero padding lets it own its border-radius */
+.event-position-chart-card { padding: 0; overflow: hidden; min-height: 200px; }
+.event-position-chart-card .event-mini-chart-card { border: none; border-radius: 14px; }
 
 .event-position-facts-grid {
   display: grid;

@@ -16,7 +16,7 @@ const COLUMN_DEFINITIONS = [
   { id: 'available_quantity', label: 'Available quantity', type: 'number' },
   { id: 'market_value', label: 'Market value', type: 'currency' },
   { id: 'mark', label: 'Mark', type: 'currency' },
-  { id: 'average_price', label: 'Average price', type: 'currency' },
+  { id: 'average_price', label: 'AVG Price', type: 'currency' },
   { id: 'last', label: 'Last', type: 'currency' },
   { id: 'day_pnl', label: '1D open P&L', type: 'pnl' },
   { id: 'day_pnl_pct', label: '1D open P&L %', type: 'pnl_percent' },
@@ -304,7 +304,7 @@ export function timestamp(value) {
 }
 export function formatTimestamp(value) {
   const parsed = timestamp(value);
-  return parsed === null ? '—' : new Date(parsed).toLocaleString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short' });
+  return parsed === null ? '—' : new Date(parsed).toLocaleString('en-US', { timeZone: 'America/New_York', month: 'numeric', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' });
 }
 export function countdown(value, now = Date.now()) {
   if (value === null) return '—';

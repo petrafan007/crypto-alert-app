@@ -713,15 +713,19 @@ def get_webull_test_orders(user_id: int) -> List[Dict[str, Any]]:
 
         realized_pnl = None
         realized_pnl_pct = None
-        if o.order_type == 'EXPIRATION_SETTLEMENT' and o.combo_orders:
+        fee = 0.0
+        if o.combo_orders:
             try:
                 lc = json.loads(o.combo_orders)
-                if 'cash_adjustment' in lc:
-                    total_amt = round(abs(float(lc['cash_adjustment'])), 2)
-                if 'realized_pnl' in lc:
-                    realized_pnl = float(lc['realized_pnl'])
-                if 'realized_pnl_pct' in lc:
-                    realized_pnl_pct = float(lc['realized_pnl_pct'])
+                if lc.get('event') in ('event_contract_settlement', 'paper_cash_settlement', 'close_position') or o.order_type == 'EXPIRATION_SETTLEMENT':
+                    if 'cash_adjustment' in lc:
+                        total_amt = round(abs(float(lc['cash_adjustment'])), 2)
+                    if 'realized_pnl' in lc:
+                        realized_pnl = float(lc['realized_pnl'])
+                    if 'realized_pnl_pct' in lc:
+                        realized_pnl_pct = float(lc['realized_pnl_pct'])
+                    if 'fee' in lc:
+                        fee = float(lc['fee'])
             except Exception:
                 pass
         elif o.instrument_type == 'EVENT' or o.symbol.startswith('KX'):
@@ -769,6 +773,7 @@ def get_webull_test_orders(user_id: int) -> List[Dict[str, Any]]:
             'total_amount': total_amt,
             'realized_pnl': realized_pnl,
             'realized_pnl_pct': realized_pnl_pct,
+            'fee': fee,
         })
     return rows
 
@@ -1200,6 +1205,12 @@ def execute_webull_test_order(user_id: int, data: Dict[str, Any]) -> Dict[str, A
                 f"Only {available_quantity} unreserved long units are available."
             )
 
+        close_cost_price = float(pos.cost_price or 0.0)
+        close_cost_basis = round(close_cost_price * quantity * multiplier, 2)
+        close_proceeds = round(fill_price * quantity * multiplier, 2)
+        close_realized_pnl = round(close_proceeds - close_cost_basis, 2)
+        close_realized_pnl_pct = round((close_realized_pnl / close_cost_basis * 100) if close_cost_basis > 0 else 0.0, 2)
+
         account.cash_balance = cash + total_trade_amount
 
         if float(pos.quantity) == quantity:
@@ -1223,6 +1234,14 @@ def execute_webull_test_order(user_id: int, data: Dict[str, Any]) -> Dict[str, A
                 f"${cover_cash:,.2f}, "
                 f"Required: ${total_trade_amount:,.2f}."
             )
+
+        close_cost_price = float(pos.cost_price or 0.0)
+        close_cost_basis = round(close_cost_price * quantity * multiplier, 2)
+        close_proceeds = round(fill_price * quantity * multiplier, 2)
+        # For shorts: profit when cover price < entry price
+        close_realized_pnl = round(close_cost_basis - close_proceeds, 2)
+        close_realized_pnl_pct = round((close_realized_pnl / close_cost_basis * 100) if close_cost_basis > 0 else 0.0, 2)
+
         account.cash_balance = cash - total_trade_amount
         if float(pos.quantity) == quantity:
             db.session.delete(pos)
@@ -1261,6 +1280,19 @@ def execute_webull_test_order(user_id: int, data: Dict[str, Any]) -> Dict[str, A
             )
             db.session.add(pos)
 
+    # Attach realized P&L metadata for closing orders
+    closing_combo = None
+    if is_sell or is_cover:
+        closing_combo = json.dumps({
+            'event': 'close_position',
+            'cost_basis': close_cost_basis,
+            'proceeds': close_proceeds,
+            'realized_pnl': close_realized_pnl,
+            'realized_pnl_pct': close_realized_pnl_pct,
+            'fee': 0.0,
+            'cash_adjustment': close_proceeds,
+        })
+
     # Record test order
     simulated_order_id = f"SIM_{uuid.uuid4().hex[:12].upper()}"
     test_order = WebullTestOrder(
@@ -1277,6 +1309,7 @@ def execute_webull_test_order(user_id: int, data: Dict[str, Any]) -> Dict[str, A
         filled_quantity=quantity,
         status='Filled',
         combo_type=data.get('combo_type'),
+        combo_orders=closing_combo,
         time_in_force=data.get('time_in_force', 'DAY'),
     )
     db.session.add(test_order)

@@ -6,6 +6,26 @@
 
 **Last Updated**: September 2026
 
+## v2.98.10 (September 2026)
+
+- **Event Contract Position Modal — Chart Replacement**:
+  - Removed the Chart.js yes-price line chart from the Event Position modal.
+  - Embedded the `EventContractMiniChart` component (the same live underlying crypto price chart used in the trading ticket), showing real-time OHLC candles / area fill with 1m/15m/1h/4h timeframe controls.
+- **Event Contract Position Modal — Layout Restructure**:
+  - "Manage this position" order card now appears above "Timeline and contract facts".
+  - Contract symbol (e.g. `KXBTC15M-...`) moved to the modal header (purple monospace badge, with a live reference-price badge alongside it when available).
+  - Removed "Trading hours" and "Settlement source" rows from the timeline section.
+- **Event Contract Position Modal — Timeline Date Fixes**:
+  - **Opens** field now reads `contract_period_start` (falls back to `open_date`, skipping bare UTC midnight values).
+  - **Expected determination** no longer shows the day before due to UTC→Eastern shift; falls back to the contract cutoff when the provider field is a bare date string.
+  - **Expected payout** similarly avoids midnight-UTC artifacts.
+- **Positions Table**:
+  - Column header "Average price" renamed to "AVG Price".
+  - "Trading cutoff" timestamps formatted as `M/D/YYYY, h:mm A` (Eastern) — no seconds and no timezone suffix.
+- **Paper Order History — Realized P&L on Manual Closes**:
+  - `execute_webull_test_order` now computes realized P&L, cost basis, proceeds, and fee for SELL and BUY_TO_CLOSE orders and stores them in the order's `combo_orders` JSON field.
+  - `get_webull_test_orders` extracts P&L and fee from any `combo_orders` record with event type `close_position`, `event_contract_settlement`, or `paper_cash_settlement` — covering both manual closes and settlement events. Returned rows now always include a `fee` field.
+
 ## v2.98.9 (September 2026)
 
 - **Webull Test Mode Unified Cash Balance Across Sub-Accounts**:
