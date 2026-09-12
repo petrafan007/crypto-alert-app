@@ -22,6 +22,21 @@ class PortfolioSignalsTests(unittest.TestCase):
     def config(self):
         return SimpleNamespace(total_bankroll=50000, module_settings_json='{}', allocations_json=json.dumps(DEFAULT_ALLOCATIONS), watchlists_json=json.dumps(DEFAULT_QUANT_WATCHLISTS))
 
+    def test_cadence_save_preserves_dedicated_ai_configuration(self):
+        cfg = self.config()
+        saved = {'cadence': 'off', 'primary': {'provider': 'gemini', 'model': 'saved-model', 'api_key': 'encrypted-key'},
+                 'secondary': {'provider': 'ollama', 'model': 'saved-fallback'},
+                 'tertiary': {'provider': 'ollama', 'model': 'saved-local'}, 'audit_guidance': 'Custom guidance'}
+        cfg.master_ai_config = json.dumps(saved)
+        for cadence in ('off', 'daily', 'weekly'):
+            result = e.validate_config({'master_ai_config': {'cadence': cadence}}, cfg)
+            self.assertEqual(json.loads(result['master_ai_config']), {**saved, 'cadence': cadence})
+            self.assertEqual(json.loads(cfg.master_ai_config), saved)
+        with self.assertRaises(ValueError):
+            e.validate_config({'master_ai_config': {'cadence': 'off', 'primary': {}}}, cfg)
+        cfg.master_ai_config = None
+        self.assertEqual(json.loads(e.validate_config({'master_ai_config': {'cadence': 'off'}}, cfg)['master_ai_config']), {'cadence': 'off'})
+
     def test_allocation_rejects_nan_negative_unknown_and_rounding(self):
         for value in (float('nan'), float('inf'), -1, True):
             with self.subTest(value=value), self.assertRaises(ValueError):

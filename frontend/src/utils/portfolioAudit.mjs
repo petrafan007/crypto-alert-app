@@ -102,53 +102,53 @@ export function buildExecutiveSummary(audit) {
   const moduleNames = Object.keys(specialistMandates);
   const failedCount = Object.keys(moduleErrors).length;
 
-  const rawMarkdown = [audit.content, audit.content_markdown, audit.summary].find((val) => typeof val === 'string' && val.trim()) || '';
-  const cleanedMarkdown = cleanHumanText(rawMarkdown);
+  // Archived evidence describes the report timestamp, not today's engine.
+  // Narrative text and successful report generation cannot establish health.
+  const reportStatus = String(audit.status || '').toUpperCase();
+  const workerStatus = String(evidence.worker_status || '').toUpperCase();
+  const moduleStates = Object.values(evidence.modules || {})
+    .filter((item) => item && item.enabled !== false && item.status !== 'DISABLED')
+    .map((item) => String(item.status || '').toUpperCase());
+  const isCircuitPaused = evidence.kill_switch === true ||
+    evidence.risk_controls?.new_entries_paused === true ||
+    ['MONITORING_ONLY', 'CIRCUIT_PAUSED', 'KILLED'].includes(workerStatus);
+  const isWarmingUp = moduleStates.includes('WARMING_UP');
+  const isMarketClosed = moduleStates.includes('MARKET_CLOSED');
+  const operationalFailure = ['DEGRADED', 'STALLED', 'STALE', 'ERROR'].includes(workerStatus) ||
+    moduleStates.some((status) => ['DATA_LIMITED', 'SUBSCRIPTION_REQUIRED', 'ERROR', 'STALE', 'STALLED'].includes(status));
+  const knownReadyStates = ['READY', 'SCANNED', 'NO_SIGNAL', 'WARMING_UP', 'MARKET_CLOSED'];
 
-  let healthStatus = 'healthy';
-  let healthLabel = '🟢 Operating Properly (Healthy)';
-  let isOperatingProperly = true;
+  let healthStatus = 'idle';
+  let healthLabel = '⚪ Engine Health Unverified';
+  let isOperatingProperly = false;
+  let statusExplanation = 'This report does not contain sufficient structured evidence to establish engine health. Check current telemetry.';
 
-  const textLower = cleanedMarkdown.toLowerCase();
-  const isCircuitPaused = textLower.includes('circuit paused') || textLower.includes('risk circuit') || textLower.includes('trading paused');
-  const isWarmingUp = textLower.includes('calibrating indicators') || textLower.includes('warming up');
-  const isMarketClosed = textLower.includes('market closed') || textLower.includes('session inactive');
-
-  if (audit.status === 'PENDING') {
+  if (reportStatus === 'PENDING') {
     healthStatus = 'pending';
     healthLabel = '🔵 Generating Report…';
-    isOperatingProperly = true;
-  } else if (failedCount > 0 || audit.status === 'PARTIAL') {
+    statusExplanation = 'The audit is still being generated. Engine health has not been established by this report.';
+  } else if (['FAILED', 'UNAVAILABLE', 'ERROR'].includes(reportStatus)) {
     healthStatus = 'degraded';
-    healthLabel = `🟡 Attention Needed (${failedCount} module issue${failedCount === 1 ? '' : 's'})`;
-    isOperatingProperly = false;
+    healthLabel = '🟡 Report Unavailable';
+    statusExplanation = 'Report generation failed or was unavailable. Review its diagnostics and current engine telemetry.';
   } else if (isCircuitPaused) {
     healthStatus = 'paused';
-    healthLabel = '🟠 Trading Paused (Risk Circuit Active)';
-    isOperatingProperly = false;
-  } else if (isWarmingUp) {
+    healthLabel = '🟠 Entries Paused (Risk Circuit Active)';
+    statusExplanation = 'The saved evidence records a risk pause on new entries. Check current controls before taking action.';
+  } else if (failedCount > 0 || reportStatus === 'PARTIAL' || operationalFailure) {
+    healthStatus = 'degraded';
+    healthLabel = '🟡 Attention Needed';
+    statusExplanation = 'The saved evidence records operational limitations or incomplete specialist assessments that require inspection.';
+  } else if (evidence.enabled === false || workerStatus === 'STOPPED') {
+    healthLabel = '⚪ Engine Stopped';
+    statusExplanation = 'The engine was stopped at the time of this report.';
+  } else if (reportStatus === 'SUCCESS' && workerStatus === 'RUNNING' &&
+             moduleStates.length > 0 && moduleStates.every((status) => knownReadyStates.includes(status))) {
     healthStatus = 'healthy';
-    healthLabel = '🟢 Operating Properly (Calibrating)';
+    healthLabel = isWarmingUp ? '🟢 Operating Properly (Collecting History)' :
+      isMarketClosed ? '🟢 Operating Properly (Market Closed)' : '🟢 Operating Properly (Healthy)';
     isOperatingProperly = true;
-  } else if (isMarketClosed) {
-    healthStatus = 'healthy';
-    healthLabel = '🟢 Operating Properly (Market Closed)';
-    isOperatingProperly = true;
-  }
-
-  let statusExplanation = '';
-  if (audit.status === 'PENDING') {
-    statusExplanation = 'The quantitative audit is currently running. Specialist modules are inspecting portfolio performance, market signals, and risk limits.';
-  } else if (isCircuitPaused) {
-    statusExplanation = 'The strategy engine is operating with active risk protections: trading is temporarily paused by a portfolio risk circuit or daily drawdown guardrail to preserve capital.';
-  } else if (failedCount > 0) {
-    statusExplanation = `The engine is partially running, but ${failedCount} specialist module${failedCount === 1 ? ' encountered an error and requires' : 's encountered errors and require'} inspection. Other strategy components continue to function normally.`;
-  } else if (isMarketClosed) {
-    statusExplanation = 'The strategy engine is healthy and standing by for the next regular market session. Account balances, risk parameters, and watchlists are ready for market open.';
-  } else if (isWarmingUp) {
-    statusExplanation = 'The engine is operating properly, calibrating technical indicators and ingesting real-time price history before issuing automated trade setups.';
-  } else {
-    statusExplanation = 'The quantitative strategy engine is operating properly with no system faults. Strategy modules are actively evaluating market conditions and scanning watchlists for qualifying trade setups adhering to risk boundaries.';
+    statusExplanation = 'At the report timestamp, structured worker and module evidence indicated the engine was operating properly. This does not validate strategy profitability or establish current health.';
   }
 
   const modules = moduleNames.map((modName) => {
@@ -182,20 +182,19 @@ export function buildExecutiveSummary(audit) {
     }
   }
   if (isCircuitPaused) {
-    recommendations.push('Review portfolio risk circuit thresholds in Strategy Settings. If market conditions have stabilized, evaluate lifting circuit pauses.');
+    recommendations.push('Review the recorded pause reason and current risk controls before considering new entries.');
   }
   if (isMarketClosed) {
     recommendations.push('Regular market hours are closed. Prepare watchlists and verify capital allocation for the upcoming trading session.');
   }
   if (recommendations.length === 0) {
-    recommendations.push('The engine is running smoothly. Continue monitoring execution fills and review open positions periodically in Webull Trading.');
-    recommendations.push('Ensure sufficient buying power is allocated under Strategy Settings to capitalize on emerging algorithmic setups.');
+    recommendations.push('Compare this report’s timestamped evidence with current worker telemetry and review any recorded limitations.');
   }
 
   return {
     healthStatus,
     healthLabel,
-    headline: audit.headline ? cleanHumanText(audit.headline) : (audit.status === 'SUCCESS' ? 'Audit Complete: Engine Healthy' : 'Audit Complete: Limitations Noted'),
+    headline: audit.headline ? cleanHumanText(audit.headline) : (reportStatus === 'SUCCESS' ? 'Report Generation Complete' : 'Report Status: ' + (reportStatus || 'Unknown')),
     statusExplanation,
     isOperatingProperly,
     modules,

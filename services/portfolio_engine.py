@@ -185,7 +185,8 @@ def validate_config(payload, cfg):
         audit = payload['master_ai_config']
         if not isinstance(audit, dict) or set(audit)-{'cadence'} or audit.get('cadence') not in ('off', 'daily', 'weekly'):
             raise ValueError('Audit cadence must be off, daily or weekly.')
-        result['master_ai_config'] = json.dumps(audit)
+        saved = loads(getattr(cfg, 'master_ai_config', None), {})
+        result['master_ai_config'] = json.dumps({**saved, **audit})
     return result
 
 

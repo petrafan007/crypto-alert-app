@@ -223,3 +223,28 @@ The remaining operational work is gathering sufficient forward observations and 
 The v2.89.2 regression coverage additionally verifies disabled entry/data gates, retained settings/history/marks, re-enable status, Event collector gating, cash-aware audit evidence, explicit allocation rounding, provider cooldown/search behavior, and singleton scheduler ownership. Provider subscriptions, quota allowances and forward-history requirements still apply.
 
 The v2.89.4 allocation tests cover all 32 enabled-module combinations, the approved percentage examples, slider endpoints and remembered proportions, exact totals across repeated toggles/reloads, backend validation, persistence, execution budgets, existing-position management and cash-aware CIO evidence. Browser verification checks the rendered controls, draft isolation and save/reload behavior against an isolated test ledger.
+
+## v2.98.7 configuration preservation and report health
+
+Ordinary portfolio configuration saves merge audit cadence into the saved dedicated AI configuration, preserving providers, models, keys and shared guidance. This does not repair configuration lost before the upgrade or change the scheduler.
+
+Report health badges use the archived structured worker/module status and risk controls. A failed report, successful generation, or wording about a risk circuit cannot establish healthy operation or an active pause. Reports without sufficient structured evidence are labeled unverified; all badges describe the report timestamp, not current telemetry. Original archived report prose is preserved.
+
+## Remaining review items after v2.98.7
+
+These review findings remain deferred, not fixed or certified by this release:
+
+- Honor the master Off/Daily/Weekly audit schedule; separate it from Event audit hours.
+- Classify audit-induced AI deferrals correctly; bound exclusive access and recover abandoned audits.
+- Enforce one authoritative Event risk policy, including saved exposure and hourly/daily loss limits.
+- Preserve provider quote time, retrieval time, and underlying-price freshness separately.
+- Validate spread and liquidity for the selected Event outcome.
+- Keep Event settlement resolution available while new entries are killed/paused.
+- Correct date-only settlement timestamps with evidence-backed historical remediation.
+- Correct Event audit sampling, missing-value/status defaults, and unsupported model conclusions; render factual report tables deterministically.
+- Deduplicate calibration samples before limits and compare matched model/market samples by model, duration and period.
+- Separate time-sensitive scans/settlement from AI reporting; add progress deadlines and latency measurements.
+- Unify Event producer and portfolio watchlists and count actual AI requests against batch budgets.
+- Plan verified options IV history collection/import and consistent ATM/expiration methodology.
+- Validate forecast skill, realistic fills/costs, correlated exposure and held-out strategy performance before expanding risk.
+- Label module P&L correlations accurately and disclose the single-symbol equity/crypto replay scope.

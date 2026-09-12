@@ -6,6 +6,13 @@
 
 **Last Updated**: September 2026
 
+## v2.98.7 (September 2026)
+
+- Portfolio settings saves preserve dedicated audit AI providers, models, keys, and shared guidance when updating cadence.
+- Portfolio report health badges use saved structured worker, module, and risk-control evidence. Failed or unavailable reports cannot imply healthy operation, and prose mentioning an inactive risk circuit cannot imply a pause.
+- Successful report generation is distinct from engine health; archived reports describe their capture time. Legacy reports lacking health evidence show an unverified state.
+- This release is limited to these two fixes. Scheduling, Event execution/risk controls, data provenance, and research/report validation improvements remain deferred; see the [engine guide](docs/quantitative_strategy_engine.md#remaining-review-items-after-v2987).
+
 ## v2.98.6 (September 2026)
 
 - **Dashboard Asset Performance Table Alignment:**

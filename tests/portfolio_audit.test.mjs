@@ -35,6 +35,9 @@ test('buildExecutiveSummary derives healthy status and plain-English explanation
     headline: 'Macro strategy performing normally',
     content: 'All systems green.',
     evidence: {
+      worker_status: 'RUNNING',
+      enabled: true,
+      modules: { crypto: { status: 'READY', enabled: true } },
       specialist_mandates: {
         equity_momentum: { title: 'Equity Momentum' },
         crypto_trend: { title: 'Crypto Trend' },
@@ -61,6 +64,9 @@ test('buildExecutiveSummary derives degraded status on module error and gives re
     status: 'PARTIAL',
     content: 'Failed to evaluate crypto.',
     evidence: {
+      worker_status: 'RUNNING',
+      enabled: true,
+      modules: { crypto: { status: 'READY', enabled: true } },
       specialist_mandates: {
         crypto_trend: { title: 'Crypto Trend' },
       },
@@ -75,4 +81,28 @@ test('buildExecutiveSummary derives degraded status on module error and gives re
   assert.ok(!summary.isOperatingProperly);
   assert.ok(summary.statusExplanation.includes('requires inspection') || summary.statusExplanation.includes('require inspection'));
   assert.ok(summary.recommendations.some((rec) => rec.includes('Repair CRYPTO_TREND')));
+});
+
+test('health uses structured evidence, never narrative or report success alone', () => {
+  const running = {worker_status: 'RUNNING', enabled: true, kill_switch: false, modules: {events: {status: 'NO_SIGNAL'}}};
+  const cases = [
+    [{status: 'FAILED', content: 'All systems healthy.'}, 'degraded'],
+    [{status: 'UNAVAILABLE'}, 'degraded'],
+    [{status: 'SUCCESS', content: 'All systems healthy.'}, 'idle'],
+    [{status: 'PENDING', evidence: running}, 'pending'],
+    [{status: 'SUCCESS', content: 'The risk circuit is not triggered.', evidence: running}, 'healthy'],
+    [{status: 'SUCCESS', evidence: {...running, kill_switch: true}}, 'paused'],
+    [{status: 'SUCCESS', evidence: {...running, worker_status: 'DEGRADED'}}, 'degraded'],
+    [{status: 'SUCCESS', evidence: {...running, modules: {events: {status: 'DATA_LIMITED'}}}}, 'degraded'],
+    [{status: 'SUCCESS', evidence: {...running, enabled: false, worker_status: 'STOPPED'}}, 'idle'],
+    [{status: 'SUCCESS', evidence: {...running, modules: {crypto: {status: 'WARMING_UP'}}}}, 'healthy'],
+    [{status: 'SUCCESS', evidence: {...running, modules: {equities: {status: 'MARKET_CLOSED'}}}}, 'healthy'],
+    [{status: 'SUCCESS', evidence: {...running, modules: {events: {status: 'AWAITING_SCAN'}}}}, 'idle'],
+  ];
+  for (const [audit, expected] of cases) {
+    const result = buildExecutiveSummary(audit);
+    assert.equal(result.healthStatus, expected, JSON.stringify(audit));
+    assert.equal(result.isOperatingProperly, expected === 'healthy');
+    assert.ok(!result.headline.includes('Engine Healthy'));
+  }
 });
