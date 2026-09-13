@@ -147,14 +147,15 @@ export default function EventContractMiniChart({
     if (!cleanSymbol) return;
     const config = TIMEFRAME_CONFIGS[timeframe] || TIMEFRAME_CONFIGS['15m'];
 
-    if (!isPolling) {
-      setLoading(true);
-      setError(null);
-    }
-
     abortControllerRef.current?.abort();
     const controller = new AbortController();
     abortControllerRef.current = controller;
+
+    if (!isPolling) {
+      setLoading(true);
+      setError(null);
+      setCandles([]); // Clear old candles so chart doesn't freeze on previous timeframe
+    }
 
     try {
       const response = await axios.get(`/api/trading/klines/${cleanSymbol}`, {
@@ -187,7 +188,8 @@ export default function EventContractMiniChart({
         setError('Price feed currently unavailable');
       }
     } finally {
-      if (!isPolling) {
+      // Only clear loading state if this fetch wasn't superseded by another
+      if (!isPolling && abortControllerRef.current === controller) {
         setLoading(false);
       }
     }

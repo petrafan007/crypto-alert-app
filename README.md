@@ -6,6 +6,10 @@
 
 **Last Updated**: September 2026
 
+## v2.99.13 (September 2026)
+
+- **Fix: Chart Timeframe Loading Race Condition**: Resolved an issue in the Event Contract open order modal where rapidly clicking chart timeframe increments would cause the loading spinner to disappear immediately while hiding the new chart data behind stale historical candles. The chart now correctly blanks its history and sustains the loading indicator until the new timeframe fully loads.
+
 ## v2.99.12 (September 2026)
 
 - **Fix: Spinner/Blank Page on Hard Refresh in Paper Trading Mode**: In TEST mode, `load()` was `await`-ing `loadPaperTradingData()` before calling `setLoading(false)`, blocking the UI for the full duration of 3 API calls (account-summary + positions + orders). The UI now unblocks immediately after the lightweight initial `Promise.all`, then fires `loadPaperTradingData()` in the background — matching the same non-blocking pattern already used for REAL mode.
