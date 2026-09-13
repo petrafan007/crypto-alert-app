@@ -467,9 +467,12 @@ def get_webull_test_account_summary(user_id: int) -> Dict[str, Any]:
     total_cost_basis = 0.0
     total_unrealized_pnl = 0.0
 
+    now = datetime.utcnow()
     for pos in positions:
         try:
-            if pos.instrument_type == 'OPTION':
+            if pos.updated_at and (now - pos.updated_at).total_seconds() < 30:
+                curr_price = pos.last_price or 0.0
+            elif pos.instrument_type == 'OPTION':
                 curr_price = fetch_live_price(
                     user_id, pos.underlying_symbol or pos.symbol, 'OPTION',
                     option_type=pos.option_type, option_strike=pos.option_strike, option_expiration=pos.option_expiration
@@ -660,11 +663,16 @@ def get_webull_test_positions(user_id: int) -> List[Dict[str, Any]]:
     _normalize_equity_like_positions(user_id)
     positions = WebullTestPosition.query.filter_by(user_id=user_id).filter(WebullTestPosition.quantity > 0).all()
     rows = []
+    now = datetime.utcnow()
     for pos in positions:
         quote_status = 'current'
         try:
-            curr_price = fetch_live_price(user_id, pos.symbol, pos.instrument_type, event_outcome=pos.event_outcome,
-                option_type=pos.option_type, option_strike=pos.option_strike, option_expiration=pos.option_expiration)
+            if pos.updated_at and (now - pos.updated_at).total_seconds() < 30:
+                curr_price = pos.last_price or 0.0
+                quote_status = 'cached'
+            else:
+                curr_price = fetch_live_price(user_id, pos.symbol, pos.instrument_type, event_outcome=pos.event_outcome,
+                    option_type=pos.option_type, option_strike=pos.option_strike, option_expiration=pos.option_expiration)
         except Exception:
             curr_price = pos.last_price or 0
             quote_status = 'last recorded mark; current quote unavailable'

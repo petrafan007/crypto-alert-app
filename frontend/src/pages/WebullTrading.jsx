@@ -1649,7 +1649,11 @@ export default function WebullTrading({ isLightMode = false }) {
     }
   };
 
+  const isPaperPollingRef = useRef(false);
+
   const loadPaperTradingData = async () => {
+    if (isPaperPollingRef.current) return;
+    isPaperPollingRef.current = true;
     try {
       const [sumRes, posRes, ordRes] = await Promise.all([
         axios.get('/api/webull/test/account-summary', { withCredentials: true }),
@@ -1674,10 +1678,16 @@ export default function WebullTrading({ isLightMode = false }) {
       }
     } catch (e) {
       console.error('Failed to load paper trading data:', e);
+    } finally {
+      isPaperPollingRef.current = false;
     }
   };
 
+  const isQuantPollingRef = useRef(false);
+
   const loadQuantTradingData = async () => {
+    if (isQuantPollingRef.current) return;
+    isQuantPollingRef.current = true;
     try {
       const [sumRes, posRes, ordRes] = await Promise.all([
         axios.get('/api/webull/portfolio-algo/account-summary', { withCredentials: true }),
@@ -1702,6 +1712,8 @@ export default function WebullTrading({ isLightMode = false }) {
       }
     } catch (e) {
       console.error('Failed to load quantitative strategy trading data:', e);
+    } finally {
+      isQuantPollingRef.current = false;
     }
   };
 

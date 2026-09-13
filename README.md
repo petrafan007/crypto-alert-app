@@ -1,4 +1,12 @@
-# Crypto & Securities Dashboard
+# Crypto & Quant Securities Dashboard
+
+**Version:** 2.99.14
+
+## Recent Updates
+
+### v2.99.14
+- **Performance Fix**: Prevented frontend connection pool exhaustion (which caused the Webull Trading "Order History" tab to hang infinitely and the paper balance to randomly disappear) by guarding `loadPaperTradingData` against overlapping `setInterval` execution.
+- **Backend Optimization**: Sped up Webull Paper Trading account valuation queries by throttling synchronous live price fetches to once every 30 seconds per position, preventing the UI from locking up during event contract polling.
 
 **Crypto & Securities Dashboard** is a comprehensive, non-custodial digital-asset and securities portfolio management and trading platform for Binance.US and Webull. It provides real-time portfolio tracking, automated price alerts, exchange-scoped order workflows, built-in staking management, and AI-powered market sentiment analysis. Webull supports explicitly authorized, account-scoped equity/ETF, crypto, single-leg and documented multi-leg option strategies, futures, and event contract orders; no provider data or orders cross exchange boundaries.
 
