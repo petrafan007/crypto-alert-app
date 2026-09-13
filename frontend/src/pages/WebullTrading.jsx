@@ -1961,8 +1961,8 @@ export default function WebullTrading({ isLightMode = false }) {
             type: urlPrice ? 'LIMIT' : prev.type,
           }));
         }
-        await loadPaperTradingData();
         setLoading(false);
+        loadPaperTradingData();
         axios.get('/api/webull/ai-signals?limit=50', { withCredentials: true })
           .then((res) => setSignals(res.data?.signals || []))
           .catch(() => { });

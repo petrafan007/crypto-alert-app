@@ -6,6 +6,10 @@
 
 **Last Updated**: September 2026
 
+## v2.99.12 (September 2026)
+
+- **Fix: Spinner/Blank Page on Hard Refresh in Paper Trading Mode**: In TEST mode, `load()` was `await`-ing `loadPaperTradingData()` before calling `setLoading(false)`, blocking the UI for the full duration of 3 API calls (account-summary + positions + orders). The UI now unblocks immediately after the lightweight initial `Promise.all`, then fires `loadPaperTradingData()` in the background — matching the same non-blocking pattern already used for REAL mode.
+
 ## v2.99.11 (September 2026)
 
 - **Fix: Paper Trading Poll Abort Storm (`webull_paper_lifecycle.py`)**:
