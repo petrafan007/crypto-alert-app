@@ -32,6 +32,7 @@ import {
 } from '../utils/orderDisplay';
 import { getAssetDisplaySymbol, getAssetIdentity } from '../utils/assetDisplay';
 import { isNonTradableWebullCashAsset, normalizeWebullTradeSymbol } from '../utils/webullTradeNavigation.mjs';
+import { formatEventLimitPrice } from '../utils/eventOrderPrice.mjs';
 import {
   allocationPercentage,
   floorCashAmountForTicket,
@@ -1969,7 +1970,7 @@ export default function WebullTrading({ isLightMode = false }) {
             symbol: urlSymbol,
             side: urlSide && ['BUY', 'SELL'].includes(urlSide) ? urlSide : prev.side,
             quantity: urlQuantity || prev.quantity,
-            price: urlPrice || prev.price,
+            price: targetType === 'EVENT' ? formatEventLimitPrice(urlPrice || prev.price) : (urlPrice || prev.price),
             type: urlPrice ? 'LIMIT' : prev.type,
           }));
         }
@@ -2093,7 +2094,9 @@ export default function WebullTrading({ isLightMode = false }) {
             ...prev,
             side: urlSide && ['BUY', 'SELL'].includes(urlSide) ? urlSide : prev.side,
             type: urlPrice ? 'LIMIT' : (nextInstrumentType === 'OPTION' ? 'LIMIT' : prev.type),
-            price: urlPrice || (matchedHolding?.current_price ? Number(matchedHolding.current_price).toFixed(2) : prev.price),
+            price: nextInstrumentType === 'EVENT'
+              ? formatEventLimitPrice(urlPrice || matchedHolding?.current_price || prev.price)
+              : (urlPrice || (matchedHolding?.current_price ? Number(matchedHolding.current_price).toFixed(2) : prev.price)),
             optionType: nextInstrumentType === 'OPTION' ? (matchedHolding?.option_type || prev.optionType) : prev.optionType,
             optionStrike: nextInstrumentType === 'OPTION' && matchedHolding?.option_strike != null ? String(matchedHolding.option_strike) : prev.optionStrike,
             optionExpiration: nextInstrumentType === 'OPTION' ? (matchedHolding?.option_expiration || prev.optionExpiration) : prev.optionExpiration,
@@ -2440,7 +2443,7 @@ export default function WebullTrading({ isLightMode = false }) {
       type: nextType === 'EVENT' ? 'LIMIT' : (nextType === 'OPTION' ? 'LIMIT' : 'MARKET'),
       quantity: '',
       quoteQuantity: '',
-      price: nextType === 'EVENT' ? String(eventQuoteFor(selectedEventMarket, 'yes', 'BUY') ?? '') : '',
+      price: nextType === 'EVENT' ? formatEventLimitPrice(eventQuoteFor(selectedEventMarket, 'yes', 'BUY')) : '',
       stopPrice: '',
       trailingStopStep: '',
       timeInForce: 'DAY',
@@ -2663,7 +2666,7 @@ export default function WebullTrading({ isLightMode = false }) {
     setOrderValidationError('');
     setOrderForm((prev) => ({
       ...prev,
-      price: resetPrice && suggestedPrice != null ? String(suggestedPrice) : prev.price,
+      price: resetPrice && suggestedPrice != null ? formatEventLimitPrice(suggestedPrice) : prev.price,
       quoteQuantity: resetPrice && suggestedPrice != null && Number(prev.quantity) > 0
         ? (Number(prev.quantity) * suggestedPrice).toFixed(2)
         : prev.quoteQuantity,
@@ -2843,7 +2846,7 @@ export default function WebullTrading({ isLightMode = false }) {
     setOrderForm((prev) => ({
       ...prev,
       eventOutcome: outcome,
-      price: suggestedPrice != null ? String(suggestedPrice) : '',
+      price: formatEventLimitPrice(suggestedPrice),
       quoteQuantity: suggestedPrice != null && Number(prev.quantity) > 0
         ? (Number(prev.quantity) * suggestedPrice).toFixed(2)
         : '',
@@ -2951,7 +2954,7 @@ export default function WebullTrading({ isLightMode = false }) {
             const suggestedPrice = eventQuoteFor(market, prev.eventOutcome, prev.side);
             return suggestedPrice == null ? prev : {
               ...prev,
-              price: String(suggestedPrice),
+              price: formatEventLimitPrice(suggestedPrice),
               quoteQuantity: Number(prev.quantity) > 0
                 ? (Number(prev.quantity) * suggestedPrice).toFixed(2)
                 : prev.quoteQuantity,
@@ -4074,7 +4077,7 @@ export default function WebullTrading({ isLightMode = false }) {
       type: 'LIMIT',
       quantity: String(quantity),
       quoteQuantity: (Number(quantity) * Number(price)).toFixed(2),
-      price: String(price),
+      price: formatEventLimitPrice(price),
       stopPrice: '',
       timeInForce: 'DAY',
       entrustType: 'QTY',
@@ -4088,7 +4091,7 @@ export default function WebullTrading({ isLightMode = false }) {
       side,
       outcome: String(outcome).toLowerCase(),
       quantity: String(quantity),
-      price: String(price),
+      price: formatEventLimitPrice(price),
     });
     setTicketFlash(true);
     setTimeout(() => setTicketFlash(false), 1800);
@@ -4215,7 +4218,7 @@ export default function WebullTrading({ isLightMode = false }) {
       setSelectedSecurityType('EVENT');
       const outcome = String(holding.event_outcome || String(holding.symbol || '').match(/\s+(YES|NO)$/i)?.[1] || 'yes').toLowerCase();
       const formattedQty = holdingQuantity > 0 ? String(holdingQuantity) : '1';
-      const formattedPx = holdingPrice > 0 ? String(holdingPrice) : '';
+      const formattedPx = holdingPrice > 0 ? formatEventLimitPrice(holdingPrice) : '';
       setOrderForm((prev) => ({
         ...prev,
         side: 'SELL',
@@ -4240,7 +4243,7 @@ export default function WebullTrading({ isLightMode = false }) {
         if (bid != null) {
           setOrderForm((prev) => ({
             ...prev,
-            price: String(bid),
+            price: formatEventLimitPrice(bid),
             quoteQuantity: Number(prev.quantity) > 0 ? (Number(prev.quantity) * bid).toFixed(2) : '',
           }));
         }
@@ -4492,7 +4495,7 @@ export default function WebullTrading({ isLightMode = false }) {
         entrustType: nextSide === 'BUY' ? prev.entrustType : 'QTY',
         totalCashAmount: nextSide === 'BUY' ? prev.totalCashAmount : '',
         price: selectedInstrumentType === 'EVENT'
-          ? (eventSuggestedPrice != null ? String(eventSuggestedPrice) : '')
+          ? formatEventLimitPrice(eventSuggestedPrice)
           : prev.price,
         quoteQuantity: selectedInstrumentType === 'EVENT' && eventSuggestedPrice != null && Number(prev.quantity) > 0
           ? (Number(prev.quantity) * eventSuggestedPrice).toFixed(2)
@@ -5844,6 +5847,11 @@ export default function WebullTrading({ isLightMode = false }) {
                               inputMode="decimal"
                               value={orderForm.price}
                               onChange={(e) => handlePriceChange(e.target.value)}
+                              onBlur={() => {
+                                if (selectedInstrumentType === 'EVENT') {
+                                  setOrderForm((prev) => ({ ...prev, price: formatEventLimitPrice(prev.price) }));
+                                }
+                              }}
                               placeholder={selectedInstrumentType === 'EVENT' ? 'Select a market quote' : '0.00'}
                               className="order-styled-input"
                               disabled={ticketOrderControlsDisabled}

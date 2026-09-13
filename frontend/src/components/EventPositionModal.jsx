@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState, useRef } from 'react';
 import axios from 'axios';
 import { cutoffFromSymbol } from '../utils/positions.mjs';
+import { formatEventLimitPrice as formatLimitPrice } from '../utils/eventOrderPrice.mjs';
 import EventContractMiniChart from './EventContractMiniChart';
 import './EventPositionModal.css';
 
@@ -101,14 +102,6 @@ const cents = (value) => {
 const money = (value, digits = 2) => {
   const parsed = numeric(value);
   return parsed === null ? '—' : `$${parsed.toLocaleString(undefined, { minimumFractionDigits: digits, maximumFractionDigits: digits })}`;
-};
-
-const formatLimitPrice = (value) => {
-  const parsed = numeric(value);
-  if (parsed === null) return '';
-  const str = String(parsed);
-  const decimals = (str.split('.')[1] || '').length;
-  return decimals <= 2 ? parsed.toFixed(2) : str;
 };
 
 const quantityText = (value) => {
@@ -271,7 +264,7 @@ export default function EventPositionModal({
       if (!storedPrice) {
         const suggested = quoteFor(nextMarket, positionOutcome, isOpenOrder ? initialSide : 'SELL');
         if (suggested !== null) {
-          setPrice((current) => (!current ? String(suggested) : current));
+          setPrice((current) => (!current ? formatLimitPrice(suggested) : current));
         }
       }
     }).catch((requestError) => {

@@ -1,8 +1,13 @@
 # Crypto & Quant Securities Dashboard
 
-**Version:** 2.99.15
+**Version:** 2.99.16
 
 ## Recent Updates
+
+### v2.99.16
+- **Event limit price display:** The main order ticket and position modal consistently display cent prices with two decimal places (for example, `0.40`) across quote refreshes, side/outcome changes, position review and manual entry when leaving the field. Valid fractional-cent prices retain their precision so formatting does not change an order's limit.
+- **Quantitative-engine checkpoint:** Fixed the dormant single-contract Event AI helper's undefined configuration reference. It now loads saved provider/model settings or uses explicitly supplied settings; disabled-AI and audit-deferral behavior remain covered by regression tests.
+- **Remaining work:** Calibration deduplication before sample limits and the other review items in `docs/quantitative_strategy_engine.md` remain open. This checkpoint does not declare readiness for v3.0.0.
 
 ### v2.99.15
 - **Refresh and tunnel outage fix:** Paper reconciliation fetches provider data before locking the account, then reloads current orders and holdings under a short lock. Polling skips a busy account instead of queuing web threads behind it; overlapping forced refreshes are coalesced within each process.

@@ -255,15 +255,15 @@ Regression tests use synthetic ledgers, including a temporary PostgreSQL instanc
 ## Release checkpoints toward v3.0.0
 
 - v2.99.0: Saved Event risk enforcement, reported-depth sizing, policy evidence, and concurrent-entry verification.
+- v2.99.16: Repaired the dormant single-contract Event AI helper to load saved or explicitly supplied provider configuration. Regression coverage checks configuration routing, disabled/nontradable skips, and audit deferral. The active batch predictor is unchanged.
 - Subsequent completed release checkpoints advance through v2.99.1, v2.99.2, and so on. The remaining list below defines review work, not a promise that all findings are already known.
 - Before declaring readiness for v3.0.0, present completed fixes, test evidence, unresolved findings, and research/data limitations and obtain the user's explicit permission. Do not label incomplete review or unavailable empirical validation as 100% complete.
 
-## Remaining review items after v2.99.0
+## Remaining review items after v2.99.16
 
 These review findings remain deferred, not fixed or certified by this release:
 
 - Bound audit-exclusive AI access and recover abandoned audits independently of new audit requests.
-- Repair the dormant single-contract Event AI helper, which references an undefined config; the active batch path is separate.
 - Review the legacy standalone Event hypothetical-fill path separately; the active quantitative ledger now enforces the saved Event risk policy.
 - Preserve provider quote time, retrieval time, and underlying-price freshness separately.
 - Validate paper fills against historical order-book depth and adverse execution scenarios; reported-depth limits and explicit UNKNOWN handling are implemented, but missing-depth fills remain a disclosed research assumption.

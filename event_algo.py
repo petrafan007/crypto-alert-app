@@ -537,7 +537,7 @@ def _event_model_context(market):
     }
 
 
-def _predict_event_market(user_id, market):
+def _predict_event_market(user_id, market, *, config=None):
     """Ask the configured AI cascade for a probability, never an order."""
     metadata = {
         "status": "unavailable",
@@ -598,6 +598,8 @@ def _predict_event_market(user_id, market):
             },
         ]
         from services.ai_service import call_ai_with_web_search
+        if config is None:
+            config = get_or_create_config(user_id)
         custom_tier_configs, custom_api_keys = get_event_strategy_ai_tiers_and_keys(config, user_id)
 
         response, _ = call_ai_with_web_search(

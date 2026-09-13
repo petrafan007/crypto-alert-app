@@ -22,6 +22,69 @@ from routes.event_algo import _paper_mode_enabled
 
 
 class EventAlgoTests(unittest.TestCase):
+    def test_single_contract_prediction_uses_saved_or_explicit_ai_configuration(self):
+        from event_algo import _predict_event_market
+        market = {'symbol': 'TEST', 'yes_ask': 0.4, 'no_ask': 0.6}
+        saved_config = SimpleNamespace(ai_config='saved')
+        supplied_config = SimpleNamespace(ai_config='explicit')
+        tiers, keys = [{'provider': 'configured', 'model': 'saved-model'}], {'configured': 'test-key'}
+        response = SimpleNamespace(
+            text=json.dumps({'probability_yes': 0.65, 'confidence': 0.8, 'rationale': 'Test evidence'}),
+            provider='configured', model='saved-model',
+        )
+        for explicit in (False, True):
+            with self.subTest(explicit_config=explicit), \
+                    patch('event_algo.User') as users, \
+                    patch('services.analysis_service.is_ai_enabled', return_value=True), \
+                    patch('event_algo.get_or_create_config', return_value=saved_config) as load_config, \
+                    patch('event_algo.get_event_strategy_ai_tiers_and_keys', return_value=(tiers, keys)) as configuration, \
+                    patch('services.ai_service.call_ai_with_web_search', return_value=(response, None)) as provider:
+                users.query.filter_by.return_value.first.return_value = SimpleNamespace(username='admin')
+                kwargs = {'config': supplied_config} if explicit else {}
+                result = _predict_event_market(7, market, **kwargs)
+                self.assertEqual(result['metadata']['status'], 'success')
+                self.assertEqual(result['model_probability_yes'], 0.65)
+                self.assertEqual(result['model_confidence'], 0.8)
+                configuration.assert_called_once_with(supplied_config if explicit else saved_config, 7)
+                if explicit:
+                    load_config.assert_not_called()
+                else:
+                    load_config.assert_called_once_with(7)
+                self.assertEqual(provider.call_args.kwargs['custom_tier_configs'], tiers)
+                self.assertEqual(provider.call_args.kwargs['custom_api_keys'], keys)
+
+    def test_single_contract_prediction_gates_provider_and_configuration_loading(self):
+        from event_algo import _predict_event_market
+        for enabled, market in (
+            (False, {'symbol': 'TEST', 'yes_ask': 0.4}),
+            (True, {'symbol': 'TEST'}),
+            (True, {'symbol': 'TEST', 'yes_ask': 0.4, 'tradable_status': 'CO'}),
+        ):
+            with self.subTest(enabled=enabled, market=market), \
+                    patch('event_algo.User') as users, \
+                    patch('services.analysis_service.is_ai_enabled', return_value=enabled), \
+                    patch('event_algo.get_or_create_config') as load_config, \
+                    patch('services.ai_service.call_ai_with_web_search') as provider:
+                users.query.filter_by.return_value.first.return_value = SimpleNamespace(username='admin')
+                result = _predict_event_market(7, market)
+                self.assertEqual(result['metadata']['status'], 'skipped')
+                self.assertNotIn('model_probability_yes', result)
+                load_config.assert_not_called()
+                provider.assert_not_called()
+
+    def test_single_contract_prediction_preserves_audit_deferral(self):
+        from event_algo import _predict_event_market
+        from services.provider_resilience import AIRequestDeferred
+        with patch('event_algo.User') as users, \
+                patch('services.analysis_service.is_ai_enabled', return_value=True), \
+                patch('event_algo.get_event_strategy_ai_tiers_and_keys', return_value=([], {})), \
+                patch('services.ai_service.call_ai_with_web_search', side_effect=AIRequestDeferred('Audit in progress')):
+            users.query.filter_by.return_value.first.return_value = SimpleNamespace(username='admin')
+            result = _predict_event_market(7, {'symbol': 'TEST', 'yes_ask': 0.4}, config=SimpleNamespace())
+        self.assertEqual(result['metadata']['status'], 'skipped')
+        self.assertEqual(result['metadata']['deferral_reason'], 'AUDIT_IN_PROGRESS')
+        self.assertNotIn('model_probability_yes', result)
+
     def test_audit_deferral_is_informational_and_retries_without_failure_backoff(self):
         from event_algo import _predict_event_markets_batch, _record_ai_evaluation
         from services.provider_resilience import AIRequestDeferred
