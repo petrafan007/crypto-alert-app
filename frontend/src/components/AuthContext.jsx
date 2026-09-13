@@ -29,6 +29,7 @@ export function useAuth() {
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [authError, setAuthError] = useState('');
   const [isLoggingOut, setIsLoggingOut] = useState(false);
 
 
@@ -53,6 +54,8 @@ export function AuthProvider({ children }) {
   }, []);
 
   const checkAuthStatus = async (force = false) => {
+    setAuthError('');
+    setLoading(true);
     try {
       if (isLoggingOut || window.globalIsLoggingOut) {
         setLoading(false);
@@ -62,7 +65,7 @@ export function AuthProvider({ children }) {
         setLoading(false);
         return;
       }
-      const response = await axios.get('/api/session', { withCredentials: true });
+      const response = await axios.get('/api/session', { withCredentials: true, timeout: 15000 });
       if (response.data?.user?.id) {
         setUser({
           id: response.data.user.id,
@@ -79,7 +82,11 @@ export function AuthProvider({ children }) {
       if (error.response && error.response.status !== 401) {
         console.error('Auth check error:', error);
       }
-      setUser(null);
+      if (error.response?.status === 401) {
+        setUser(null);
+      } else {
+        setAuthError('The server is taking too long to verify your session. Please retry.');
+      }
     } finally {
       setLoading(false);
     }
@@ -200,6 +207,7 @@ export function AuthProvider({ children }) {
     login,
     logout,
     loading,
+    authError,
     isLoggingOut,
     checkAuthStatus // Exporting this so Signup.jsx can use it
   };

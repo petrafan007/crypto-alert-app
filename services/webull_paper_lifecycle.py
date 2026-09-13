@@ -2,6 +2,9 @@
 import json
 import math
 import re
+import threading
+import time
+from functools import wraps
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 from core.extensions import db
@@ -16,6 +19,24 @@ OPTION_SYMBOL = re.compile(r'^(.+?)\s+(\d{4}-\d{2}-\d{2})\s+\$([\d.]+)\s+(CALL|P
 # market-quote calls. Route-triggered calls pass force=True to bypass.
 _RECONCILE_EVENTS_LAST_RUN: dict = {}  # user_id -> datetime (UTC)
 _RECONCILE_EVENTS_THROTTLE_SECS = 30
+_RECONCILING = set()
+_RECONCILING_LOCK = threading.Lock()
+
+
+def nonblocking_reconciliation(fn):
+    """Coalesce polling and forced refreshes while this process is already working."""
+    @wraps(fn)
+    def run(user_id, *args, **kwargs):
+        with _RECONCILING_LOCK:
+            if user_id in _RECONCILING:
+                return
+            _RECONCILING.add(user_id)
+        try:
+            return fn(user_id, *args, **kwargs)
+        finally:
+            with _RECONCILING_LOCK:
+                _RECONCILING.discard(user_id)
+    return run
 
 
 def utc(value):
@@ -54,12 +75,45 @@ def historical_expiry_price(symbol, expiration):
     raise ValueError('Official-date closing price unavailable; settlement remains pending.')
 
 
+@nonblocking_reconciliation
 def reconcile_paper_options(user_id, now=None, close_resolver=None, quote_resolver=None):
     from services.webull_paper_trading_service import _lock_webull_test_account, fetch_live_price
     now = utc(now or datetime.now(timezone.utc))
-    account = _lock_webull_test_account(user_id)
     orders = WebullTestOrder.query.filter_by(user_id=user_id).order_by(WebullTestOrder.id).all()
     positions = WebullTestPosition.query.filter_by(user_id=user_id, instrument_type='OPTION').filter(WebullTestPosition.quantity > 0).all()
+    # Provider I/O must not hold the account lock or a read transaction.
+    closes = {(pos.underlying_symbol or pos.symbol.split()[0], pos.option_expiration)
+              for pos in positions if pos.option_expiration and expiry_close(pos.option_expiration) <= now}
+    quote_keys = set()
+    if in_session(now):
+        for order in orders:
+            match = OPTION_SYMBOL.match(order.symbol)
+            if match and order.status in ('Working', 'Open') and not order.combo_type:
+                quote_keys.add((match[1], match[2], float(match[3]), match[4], order.side))
+    if not positions and not any(order.status in ('Working', 'Open') for order in orders):
+        db.session.commit()
+        return
+    db.session.commit()
+    close_prices, quote_prices, quote_times = {}, {}, {}
+    for key in closes:
+        try:
+            close_prices[key] = (close_resolver or historical_expiry_price)(*key)
+        except Exception:
+            pass
+    for key in quote_keys:
+        try:
+            quote_prices[key] = (quote_resolver or fetch_live_price)(user_id, key[0], 'OPTION',
+                option_expiration=key[1], option_strike=key[2], option_type=key[3], execution_side=key[4])
+            quote_times[key] = time.monotonic()
+        except Exception:
+            pass
+    db.session.commit()
+    account = _lock_webull_test_account(user_id, wait=False)
+    if account is None:
+        db.session.rollback()
+        return
+    orders = WebullTestOrder.query.filter_by(user_id=user_id).populate_existing().order_by(WebullTestOrder.id).all()
+    positions = WebullTestPosition.query.filter_by(user_id=user_id, instrument_type='OPTION').filter(WebullTestPosition.quantity > 0).populate_existing().all()
     for order in orders:
         if order.status not in ('Working', 'Open'):
             continue
@@ -79,7 +133,7 @@ def reconcile_paper_options(user_id, now=None, close_resolver=None, quote_resolv
         if any(order.order_id == event_id for order in orders):
             continue
         try:
-            underlying = (close_resolver or historical_expiry_price)(pos.underlying_symbol or pos.symbol.split()[0], pos.option_expiration)
+            underlying = close_prices[(pos.underlying_symbol or pos.symbol.split()[0], pos.option_expiration)]
         except Exception:
             continue
         if underlying is None or not math.isfinite(float(underlying)) or float(underlying) <= 0:
@@ -108,7 +162,10 @@ def reconcile_paper_options(user_id, now=None, close_resolver=None, quote_resolv
             if order.side not in ('BUY', 'BUY_TO_OPEN', 'SELL', 'SELL_TO_CLOSE'):
                 continue
             try:
-                price = (quote_resolver or fetch_live_price)(user_id, match[1], 'OPTION', option_expiration=match[2], option_strike=float(match[3]), option_type=match[4], execution_side=order.side)
+                key = (match[1], match[2], float(match[3]), match[4], order.side)
+                if time.monotonic() - quote_times.get(key, -math.inf) > 30:
+                    continue
+                price = quote_prices[key]
             except Exception:
                 continue
             if price is None or not math.isfinite(price) or price <= 0:
@@ -150,6 +207,7 @@ def reconcile_paper_options(user_id, now=None, close_resolver=None, quote_resolv
     db.session.commit()
 
 
+@nonblocking_reconciliation
 def reconcile_paper_events(user_id, now=None, force=False):
     """Settle expired and resolved event contracts, credit paper cash, and clear holdings.
 
@@ -169,17 +227,37 @@ def reconcile_paper_events(user_id, now=None, force=False):
 
     now = _now_utc
     _RECONCILE_EVENTS_LAST_RUN[user_id] = now
-    account = _lock_webull_test_account(user_id)
     orders = WebullTestOrder.query.filter_by(user_id=user_id).order_by(WebullTestOrder.id).all()
     positions = WebullTestPosition.query.filter_by(user_id=user_id, instrument_type='EVENT').filter(WebullTestPosition.quantity > 0).all()
-
-    if positions:
+    has_positions = bool(positions)
+    pending_symbols = {str(order.symbol or '').replace(' YES', '').replace(' NO', '').strip().upper()
+                       for order in orders if order.instrument_type == 'EVENT' and order.status in ('Working', 'Open')}
+    db.session.commit()
+    if has_positions:
         try:
             from event_algo import resolve_event_outcomes
             resolve_event_outcomes(user_id)
         except Exception:
-            pass
+            db.session.rollback()
+    from services.webull_paper_trading_service import fetch_event_market_quote
+    market_cache, market_times = {}, {}
+    for symbol in pending_symbols:
+        try:
+            market_cache[symbol] = fetch_event_market_quote(user_id, symbol, force=True)
+            market_times[symbol] = time.monotonic()
+        except Exception:
+            market_cache[symbol] = None
+    db.session.commit()
+    account = _lock_webull_test_account(user_id, wait=False)
+    if account is None:
+        db.session.rollback()
+        return
+    # Re-read under the lock: another request may have filled/cancelled/settled
+    # these rows while the provider requests were in progress.
+    orders = WebullTestOrder.query.filter_by(user_id=user_id).populate_existing().order_by(WebullTestOrder.id).all()
+    positions = WebullTestPosition.query.filter_by(user_id=user_id, instrument_type='EVENT').filter(WebullTestPosition.quantity > 0).populate_existing().all()
 
+    if positions:
         symbols = {str(pos.symbol or '').replace(' YES', '').replace(' NO', '').strip().upper() for pos in positions}
         outcomes = {
             o.contract_symbol: o
@@ -308,8 +386,6 @@ def reconcile_paper_events(user_id, now=None, force=False):
     ]
     if working_orders:
         from event_algo import _cutoff_from_symbol
-        from services.webull_paper_trading_service import fetch_event_market_quote
-        market_cache = {}
         for order in working_orders:
             base_sym = str(order.symbol or '').replace(' YES', '').replace(' NO', '').strip().upper()
             cutoff = _cutoff_from_symbol(base_sym)
@@ -323,13 +399,8 @@ def reconcile_paper_events(user_id, now=None, force=False):
                 order.updated_at = now.replace(tzinfo=None)
                 continue
 
-            if base_sym not in market_cache:
-                try:
-                    market_cache[base_sym] = fetch_event_market_quote(user_id, base_sym, force=True)
-                except Exception:
-                    market_cache[base_sym] = None
             market = market_cache.get(base_sym)
-            if not market:
+            if not market or time.monotonic() - market_times.get(base_sym, -math.inf) > 30:
                 continue
 
             outcome = 'no' if str(order.symbol or '').upper().endswith(' NO') else 'yes'

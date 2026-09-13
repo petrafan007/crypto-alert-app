@@ -1497,7 +1497,7 @@ export default function WebullTrading({ isLightMode = false }) {
     if (isQuantMode) {
       setHistoryLoading(true);
       try {
-        const resp = await axios.get('/api/webull/portfolio-algo/orders', { withCredentials: true });
+        const resp = await axios.get('/api/webull/portfolio-algo/orders', { withCredentials: true, timeout: 15000 });
         setHistory((resp.data?.orders || []).map(normalizeOrder));
         setHistoryTotal(Number(resp.data?.orders?.length || 0));
       } catch (e) {
@@ -1510,7 +1510,7 @@ export default function WebullTrading({ isLightMode = false }) {
     if (paperMode) {
       setHistoryLoading(true);
       try {
-        const resp = await axios.get('/api/webull/test/orders', { withCredentials: true });
+        const resp = await axios.get('/api/webull/test/orders', { withCredentials: true, timeout: 15000 });
         const orders = (resp.data?.orders || []).map(normalizeOrder);
         setHistory(orders);
         setHistoryTotal(Number(orders.length || 0));
@@ -1656,9 +1656,9 @@ export default function WebullTrading({ isLightMode = false }) {
     isPaperPollingRef.current = true;
     try {
       const [sumRes, posRes, ordRes] = await Promise.all([
-        axios.get('/api/webull/test/account-summary', { withCredentials: true }),
-        axios.get('/api/webull/test/positions', { withCredentials: true }),
-        axios.get('/api/webull/test/orders', { withCredentials: true }),
+        axios.get('/api/webull/test/account-summary', { withCredentials: true, timeout: 15000 }),
+        axios.get('/api/webull/test/positions', { withCredentials: true, timeout: 15000 }),
+        axios.get('/api/webull/test/orders', { withCredentials: true, timeout: 15000 }),
       ]);
       if (sumRes.data?.success) {
         setPaperSummary(sumRes.data.summary);
@@ -1690,9 +1690,9 @@ export default function WebullTrading({ isLightMode = false }) {
     isQuantPollingRef.current = true;
     try {
       const [sumRes, posRes, ordRes] = await Promise.all([
-        axios.get('/api/webull/portfolio-algo/account-summary', { withCredentials: true }),
-        axios.get('/api/webull/portfolio-algo/positions', { withCredentials: true }),
-        axios.get('/api/webull/portfolio-algo/orders', { withCredentials: true }),
+        axios.get('/api/webull/portfolio-algo/account-summary', { withCredentials: true, timeout: 15000 }),
+        axios.get('/api/webull/portfolio-algo/positions', { withCredentials: true, timeout: 15000 }),
+        axios.get('/api/webull/portfolio-algo/orders', { withCredentials: true, timeout: 15000 }),
       ]);
       if (sumRes.data?.success) {
         setQuantSummary(sumRes.data.summary);
@@ -1868,11 +1868,11 @@ export default function WebullTrading({ isLightMode = false }) {
     try {
       // 1. Fetch lightweight core data needed for trading UI (accounts & portfolio holdings & 2FA setting)
       const [portfolioResponse, accRes, signalSettingsResponse, tradingSettingsRes, testStatusRes] = await Promise.all([
-        axios.get('/api/coin-data-live', { withCredentials: true }),
-        axios.get('/api/webull/accounts', { withCredentials: true }),
-        axios.get('/api/webull/ai-settings', { withCredentials: true }),
-        axios.get('/api/trading/settings', { withCredentials: true }).catch(() => ({ data: {} })),
-        axios.get('/api/webull/test/status', { withCredentials: true }).catch(() => ({ data: {} })),
+        axios.get('/api/coin-data-live', { withCredentials: true, timeout: 15000 }),
+        axios.get('/api/webull/accounts', { withCredentials: true, timeout: 15000 }),
+        axios.get('/api/webull/ai-settings', { withCredentials: true, timeout: 15000 }),
+        axios.get('/api/trading/settings', { withCredentials: true, timeout: 15000 }).catch(() => ({ data: {} })),
+        axios.get('/api/webull/test/status', { withCredentials: true, timeout: 15000 }).catch(() => ({ data: {} })),
       ]);
       const urlParams = new URLSearchParams(window.location.search);
       const urlSide = urlParams.get('side')?.toUpperCase()?.trim();
@@ -1975,7 +1975,7 @@ export default function WebullTrading({ isLightMode = false }) {
         }
         setLoading(false);
         loadPaperTradingData();
-        axios.get('/api/webull/ai-signals?limit=50', { withCredentials: true })
+        axios.get('/api/webull/ai-signals?limit=50', { withCredentials: true, timeout: 15000 })
           .then((res) => setSignals(res.data?.signals || []))
           .catch(() => { });
         return;
@@ -2127,7 +2127,7 @@ export default function WebullTrading({ isLightMode = false }) {
       }
 
       // 3. Fetch background AI signals
-      axios.get('/api/webull/ai-signals?limit=50', { withCredentials: true })
+      axios.get('/api/webull/ai-signals?limit=50', { withCredentials: true, timeout: 15000 })
         .then((res) => setSignals(res.data?.signals || []))
         .catch(() => { });
     } catch (requestError) {

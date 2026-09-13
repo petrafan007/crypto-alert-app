@@ -184,10 +184,10 @@ def get_or_create_webull_test_account(user_id: int) -> WebullTestAccount:
     return account
 
 
-def _lock_webull_test_account(user_id: int) -> WebullTestAccount:
+def _lock_webull_test_account(user_id: int, *, wait=True) -> WebullTestAccount:
     """Serialize paper-ledger mutations for one user to prevent reservation races."""
     get_or_create_webull_test_account(user_id)
-    return WebullTestAccount.query.filter_by(user_id=user_id).with_for_update().one()
+    return WebullTestAccount.query.filter_by(user_id=user_id).populate_existing().with_for_update(skip_locked=not wait).first()
 
 
 def deposit_fake_money(user_id: int, amount: float, reset: bool = False) -> Dict[str, Any]:

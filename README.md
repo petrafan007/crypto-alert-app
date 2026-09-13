@@ -1,8 +1,13 @@
 # Crypto & Quant Securities Dashboard
 
-**Version:** 2.99.14
+**Version:** 2.99.15
 
 ## Recent Updates
+
+### v2.99.15
+- **Refresh and tunnel outage fix:** Paper reconciliation fetches provider data before locking the account, then reloads current orders and holdings under a short lock. Polling skips a busy account instead of queuing web threads behind it; overlapping forced refreshes are coalesced within each process.
+- **Loading recovery:** Session checks and core Webull reads have bounded waits. A session-check outage shows a retry action rather than an endless spinner or a false logout.
+- **Verification:** Isolated PostgreSQL regression tests cover nonblocking account locks, provider calls outside the lock, and cancellation during quote refresh. The quantitative-engine backlog is paused for this availability hotfix.
 
 ### v2.99.14
 - **Performance Fix**: Prevented frontend connection pool exhaustion (which caused the Webull Trading "Order History" tab to hang infinitely and the paper balance to randomly disappear) by guarding `loadPaperTradingData` against overlapping `setInterval` execution.

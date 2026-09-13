@@ -31,7 +31,7 @@ import './theme-variables.css';
 
 // Protected Route component
 function ProtectedRoute({ children, isLightMode }) {
-  const { user, loading } = useAuth();
+  const { user, loading, authError, checkAuthStatus } = useAuth();
 
   if (loading) {
     return <div style={{
@@ -47,6 +47,10 @@ function ProtectedRoute({ children, isLightMode }) {
   }
 
   // Inject theme prop into routed page components
+  if (authError) return <div role="alert" style={{ padding: 32 }}>
+    <p>{authError}</p>
+    <button type="button" onClick={() => checkAuthStatus(true)}>Retry connection</button>
+  </div>;
   if (!user) return <Navigate to="/login" />;
   if (user.onboardingRequired) return <Navigate to="/onboarding" replace />;
   return React.cloneElement(children, { isLightMode });
