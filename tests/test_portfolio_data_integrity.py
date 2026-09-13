@@ -86,3 +86,74 @@ class CalibrationTests(unittest.TestCase):
         self.assertAlmostEqual(result['brier_score'], .52)
         self.assertAlmostEqual(result['skill_score'], .84)
         self.assertEqual(result['market_comparison_contracts'], 1)
+
+    def test_breakdowns_use_earliest_forecast_and_match_within_each_group(self):
+        def features(model, duration):
+            return {'model': {'provider': 'test-provider', 'model': model},
+                    'contract_details': {'duration_label': duration}}
+        result = summarize_event_calibration([
+            self.sample(feature_json=features('model-a', '15-minute'), model_version='v1'),
+            self.sample(predicted_at='2026-09-08T10:10:00Z', feature_json=features('later-model', 'daily')),
+            self.sample('B', 0, 'YES', yes_bid=None, feature_json=features('model-a', '15-minute'), model_version='v1'),
+            self.sample('C', .2, 'NO', feature_json=features('model-b', 'hourly'), model_version='v2'),
+        ])
+        model_rows = result['breakdowns']['model']['rows']
+        self.assertEqual(len(model_rows), 2)
+        a, b = model_rows
+        self.assertEqual(a['label'], 'test-provider / model-a / v1')
+        self.assertEqual(a['resolved_contracts'], 2)
+        self.assertEqual(a['market_comparison_contracts'], 1)
+        self.assertAlmostEqual(a['brier_score'], .52)
+        self.assertAlmostEqual(a['paired_model_brier_score'], .04)
+        self.assertAlmostEqual(a['market_brier_score'], .25)
+        self.assertAlmostEqual(a['skill_score'], .84)
+        self.assertEqual(b['resolved_contracts'], 1)
+        self.assertAlmostEqual(b['skill_score'], .84)
+        for dimension in ('model', 'duration', 'period'):
+            rows = result['breakdowns'][dimension]['rows']
+            self.assertEqual(sum(row['resolved_contracts'] for row in rows), 3)
+            self.assertEqual(sum(row['market_comparison_contracts'] for row in rows), 2)
+
+    def test_unknown_metadata_and_utc_forecast_month_are_explicit(self):
+        rows = [self.sample('A', predicted_at='2026-08-31T23:30:00-04:00',
+                            cutoff_at='2026-09-01T04:00:00Z', resolved_at='2026-09-01T04:01:00Z',
+                            feature_json='not JSON', yes_bid=None)]
+        result = summarize_event_calibration(rows)
+        model = result['breakdowns']['model']['rows'][0]
+        self.assertEqual(model['label'], 'Unknown provider / Unknown model / Unknown strategy version')
+        self.assertEqual(result['breakdowns']['duration']['rows'][0]['label'], 'Unknown duration')
+        self.assertEqual(result['breakdowns']['period']['rows'][0]['label'], '2026-09')
+        self.assertIsNone(model['paired_model_brier_score'])
+        self.assertIsNone(model['skill_score'])
+        for features in ('[]', 'null', {'model': [], 'contract_details': 'null'}):
+            with self.subTest(features=features):
+                result = summarize_event_calibration([self.sample(feature_json=features)])
+                self.assertEqual(result['breakdowns']['duration']['rows'][0]['label'], 'Unknown duration')
+
+    def test_strategy_versions_and_periods_are_separate_without_skill_ranking(self):
+        features = {'model': {'provider': 'test', 'model': 'same-model'}}
+        result = summarize_event_calibration([
+            self.sample('A', feature_json=features, model_version='v1'),
+            self.sample('B', feature_json=features, model_version='v2',
+                        predicted_at='2026-08-01T00:00:00Z'),
+        ])
+        self.assertEqual(result['breakdowns']['model']['total_groups'], 2)
+        self.assertEqual([row['label'] for row in result['breakdowns']['period']['rows']], ['2026-09', '2026-08'])
+
+    def test_breakdown_group_cap_discloses_omitted_contracts(self):
+        from services.portfolio_calibration import BREAKDOWN_GROUP_LIMIT
+        rows = [self.sample(str(i), feature_json={'model': {'model': f'model-{i:03}'}})
+                for i in range(BREAKDOWN_GROUP_LIMIT+1)]
+        result = summarize_event_calibration(rows)
+        groups = result['breakdowns']['model']
+        self.assertEqual(len(groups['rows']), BREAKDOWN_GROUP_LIMIT)
+        self.assertEqual(groups['total_groups'], BREAKDOWN_GROUP_LIMIT+1)
+        self.assertEqual(groups['omitted_groups'], 1)
+        self.assertEqual(groups['omitted_contracts'], 1)
+        self.assertEqual(sum(row['resolved_contracts'] for row in groups['rows']) + groups['omitted_contracts'], result['resolved_contracts'])
+        self.assertEqual(summarize_event_calibration([])['breakdowns']['model']['rows'], [])
+
+    def test_perfect_market_has_no_defined_relative_skill(self):
+        result = summarize_event_calibration([self.sample(yes_bid=1, yes_ask=1)])
+        self.assertEqual(result['market_brier_score'], 0)
+        self.assertIsNone(result['breakdowns']['model']['rows'][0]['skill_score'])

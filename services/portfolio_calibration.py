@@ -1,15 +1,91 @@
 """Observed Event forecast calibration, independent of whether a trade filled."""
+import json
 import math
-from collections import Counter
+from collections import Counter, defaultdict
 
 from sqlalchemy import case, func, or_
 
 from services.portfolio_strategy_signals import utc
 
 
+BREAKDOWN_GROUP_LIMIT = 50
+
+
+def _object(value):
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except (TypeError, ValueError):
+            return {}
+    return value if isinstance(value, dict) else {}
+
+
+def _label(value, fallback):
+    return value.strip() if isinstance(value, str) and value.strip() else fallback
+
+
+def _forecast_groups(row):
+    """Use only metadata archived on the selected decision, never current settings."""
+    features = _object(row.get('feature_json'))
+    model = _object(features.get('model'))
+    contract = _object(features.get('contract_details'))
+    provider = _label(model.get('provider'), 'Unknown provider')
+    name = _label(model.get('model'), 'Unknown model')
+    version = _label(row.get('model_version'), 'Unknown strategy version')
+    duration = _label(contract.get('duration_label'), 'Unknown duration')
+    return {'model': (provider, name, version), 'duration': (duration,),
+            'period': (utc(row['predicted_at']).strftime('%Y-%m'),)}
+
+
+def _calibration_metrics(samples):
+    buckets = []
+    for index in range(10):
+        items = [(p, y) for p, y, _ in samples if min(9, int(p*10)) == index]
+        buckets.append({'lower': index/10, 'upper': (index+1)/10, 'count': len(items),
+                        'mean_probability': sum(p for p, _ in items)/len(items) if items else None,
+                        'observed_yes_rate': sum(y for _, y in items)/len(items) if items else None})
+    n = len(samples)
+    paired = [(p, y, m) for p, y, m in samples if m is not None]
+    market_brier = sum((m-y)**2 for _, y, m in paired)/len(paired) if paired else None
+    paired_brier = sum((p-y)**2 for p, y, _ in paired)/len(paired) if paired else None
+    return {
+        'status': 'DESCRIPTIVE_ONLY' if n else 'AWAITING_RESOLVED_FORECASTS',
+        'resolved_contracts': n,
+        'brier_score': sum((p-y)**2 for p, y, _ in samples)/n if n else None,
+        'market_brier_score': market_brier,
+        'paired_model_brier_score': paired_brier,
+        'market_comparison_contracts': len(paired),
+        'skill_score': 1-paired_brier/market_brier if market_brier else None,
+        'calibration_error': sum(b['count']*abs(b['mean_probability']-b['observed_yes_rate']) for b in buckets if b['count'])/n if n else None,
+        'buckets': buckets,
+    }
+
+
+def _calibration_breakdowns(chosen, groups):
+    breakdowns = {}
+    for dimension in ('model', 'duration', 'period'):
+        members = defaultdict(list)
+        for contract, sample in chosen.items():
+            members[groups[contract][dimension]].append(sample)
+        # Keep reports bounded. Periods show the newest months; other dimensions
+        # show the largest groups, with stable label ordering for ties.
+        keys = sorted(members, reverse=True) if dimension == 'period' else sorted(members, key=lambda key: (-len(members[key]), key))
+        rows = []
+        for key in keys[:BREAKDOWN_GROUP_LIMIT]:
+            metrics = _calibration_metrics(members[key])
+            metrics.pop('buckets')
+            metrics.pop('status')
+            rows.append({'key': json.dumps(key), 'label': ' / '.join(key), **metrics})
+        omitted = keys[BREAKDOWN_GROUP_LIMIT:]
+        breakdowns[dimension] = {'rows': rows, 'total_groups': len(keys), 'group_limit': BREAKDOWN_GROUP_LIMIT,
+                                 'omitted_groups': len(omitted),
+                                 'omitted_contracts': sum(len(members[key]) for key in omitted)}
+    return breakdowns
+
+
 def summarize_event_calibration(rows):
     """One earliest valid pre-cutoff forecast per contract; never count repeats as trials."""
-    exclusions, chosen = Counter(), {}
+    exclusions, chosen, groups = Counter(), {}, {}
     for row in sorted(rows, key=lambda r: str(r.get('predicted_at') or '')):
         contract = row.get('contract')
         try:
@@ -43,29 +119,13 @@ def summarize_event_calibration(rows):
         except (KeyError, TypeError, ValueError):
             pass
         chosen[contract] = (probability, int(row['result'] == 'YES'), market_probability)
-    samples = list(chosen.values())
-    buckets = []
-    for index in range(10):
-        items = [(p, y) for p, y, _ in samples if min(9, int(p*10)) == index]
-        buckets.append({'lower': index/10, 'upper': (index+1)/10, 'count': len(items),
-                        'mean_probability': sum(p for p, _ in items)/len(items) if items else None,
-                        'observed_yes_rate': sum(y for _, y in items)/len(items) if items else None})
-    n = len(samples)
-    paired = [(p, y, m) for p, y, m in samples if m is not None]
-    market_brier = sum((m-y)**2 for _, y, m in paired)/len(paired) if paired else None
-    paired_brier = sum((p-y)**2 for p, y, _ in paired)/len(paired) if paired else None
+        groups[contract] = _forecast_groups(row)
     return {
-        'status': 'DESCRIPTIVE_ONLY' if n else 'AWAITING_RESOLVED_FORECASTS',
-        'resolved_contracts': n,
-        'brier_score': sum((p-y)**2 for p, y, _ in samples)/n if n else None,
-        'market_brier_score': market_brier,
-        'paired_model_brier_score': paired_brier,
-        'market_comparison_contracts': len(paired),
-        'skill_score': 1-paired_brier/market_brier if market_brier else None,
-        'calibration_error': sum(b['count']*abs(b['mean_probability']-b['observed_yes_rate']) for b in buckets if b['count'])/n if n else None,
-        'buckets': buckets, 'exclusions': dict(exclusions),
+        **_calibration_metrics(list(chosen.values())), 'exclusions': dict(exclusions),
+        'breakdowns': _calibration_breakdowns(chosen, groups),
+        'breakdown_policy': 'Each breakdown partitions the same selected contract sample using its earliest valid forecast. Model groups use archived provider, model and strategy version; duration uses the archived contract label, not time remaining; periods are forecast calendar months in UTC. Missing metadata is Unknown. Model and market Brier scores and skill use the matched subset within each group. Groups can contain different contracts and small, correlated samples; they do not establish a winning model or statistical significance. At most 50 groups are shown per dimension; omitted groups are disclosed.',
         'sample_policy': 'Earliest recorded valid pre-cutoff forecast per resolved contract in this paper run, including no-trade decisions. Repeated forecasts are not independent trials.',
-        'interpretation': 'Lower Brier/error is better; positive paired skill beats the contemporaneous YES bid/ask midpoint. These are descriptive diagnostics, not proof of a calibrated model, independent samples, or profitability. Provider/model changes are pooled.',
+        'interpretation': 'Lower Brier/error is better; positive paired skill beats the contemporaneous YES bid/ask midpoint. These are descriptive diagnostics, not proof of a calibrated model, independent samples, or profitability. The overall scores pool provider/model changes; breakdowns disclose the selected forecast groups.',
     }
 
 
@@ -114,6 +174,15 @@ def event_calibration(user_id, started_at, limit=10000):
                .order_by(ranked.c.predicted_at, ranked.c.decision_id)
                .limit(limit+1).all())
     rows = [dict(entry._mapping, verified_outcome=True) for entry in entries[:limit]]
+    # Fetch metadata only for the bounded selected forecasts, keeping potentially
+    # large JSON payloads out of the full-run join, ranking and count queries.
+    if rows:
+        metadata = {item.id: item for item in db.session.query(Decision.id, Decision.feature_json, Decision.model_version)
+                    .filter(Decision.user_id == user_id, Decision.id.in_([row['decision_id'] for row in rows])).all()}
+        for row in rows:
+            saved = metadata.get(row['decision_id'])
+            row.update(feature_json=saved.feature_json if saved else None,
+                       model_version=saved.model_version if saved else None)
     result = summarize_event_calibration(rows)
     # Aggregate diagnostics in SQL: reporting exclusions must not require loading
     # every repeated forecast or applying the sample cap to the raw evidence.

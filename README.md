@@ -1,8 +1,13 @@
 # Crypto & Quant Securities Dashboard
 
-**Version:** 2.99.17
+**Version:** 2.99.18
 
 ## Recent Updates
+
+### v2.99.18
+- **Calibration comparisons:** Added model, contract-duration and UTC forecast-month tables. Each shows resolved and matched sample counts, matched model/market Brier scores, relative skill, and calibration error.
+- **Historical attribution:** Groups use provider, model, strategy version and duration saved on the selected forecast. Later forecasts and current settings cannot relabel historical samples; absent or malformed metadata is shown as Unknown. All groups partition the same deduplicated sample, with a disclosed maximum of 50 displayed groups per table.
+- **Research limits:** Group scores are descriptive and may cover different, small or correlated contract samples. They do not establish a winning model or profitability. Other engine review items remain in `docs/quantitative_strategy_engine.md`; **3.00.0** remains reserved for the final fix with readiness approval.
 
 ### v2.99.17
 - **Quantitative calibration sampling:** Valid forecasts are now deduplicated by resolved contract before applying the sample limit. Repeated scans or duplicate settlement records can no longer crowd other contracts out of the calibration report; the earliest valid pre-cutoff forecast is retained.

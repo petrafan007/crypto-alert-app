@@ -1,5 +1,6 @@
 """Calibration population selection against isolated SQLite or PostgreSQL."""
 import os
+import json
 import unittest
 from datetime import datetime, timedelta
 from uuid import uuid4
@@ -174,3 +175,22 @@ class CalibrationQueryTests(unittest.TestCase):
         for limit in (0, -1, True, 1.5, '2'):
             with self.subTest(limit=limit), self.assertRaises(ValueError):
                 self.calibration(limit)
+
+    def test_breakdowns_use_selected_decision_metadata_not_snapshot_or_later_models(self):
+        features = {'model': {'provider': 'archived-provider', 'model': 'archived-model'},
+                    'contract_details': {'duration_label': '15-minute'}}
+        _, snapshot = self.forecast('A', feature_json=json.dumps(features), model_version='archived-v1')
+        snapshot.feature_json = json.dumps({'model': {'model': 'older-snapshot-model'}})
+        self.forecast('A', minute=1, feature_json='{"model":{"model":"later-model"}}')
+        self.forecast('B', minute=2, feature_json='broken JSON')
+        self.resolve('A')
+        self.resolve('B')
+        result = self.calibration(limit=1)
+        self.assertTrue(result['truncated'])
+        self.assertEqual(result['breakdowns']['model']['rows'][0]['label'], 'archived-provider / archived-model / archived-v1')
+        self.assertEqual(result['breakdowns']['duration']['rows'][0]['label'], '15-minute')
+        for dimension in ('model', 'duration', 'period'):
+            self.assertEqual(sum(row['resolved_contracts'] for row in result['breakdowns'][dimension]['rows']), 1)
+        result = self.calibration(limit=2)
+        self.assertEqual(result['breakdowns']['model']['total_groups'], 2)
+        self.assertTrue(any(row['label'].startswith('Unknown provider') for row in result['breakdowns']['model']['rows']))
