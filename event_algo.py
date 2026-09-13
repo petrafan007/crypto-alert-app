@@ -24,6 +24,7 @@ from sqlalchemy import select, func, case, or_
 from core.extensions import db
 from services.provider_resilience import AIRequestDeferred
 from services.event_market_timing import quote_freshness, underlying_observation
+from services.event_settlement_timing import settlement_timing
 from services.event_risk_policy import DEFAULT_RISK_CONFIG, normalize_risk_config
 from credentials import Credential, User, UserSetting
 from event_algo_models import (
@@ -2444,7 +2445,7 @@ def resolve_event_outcomes(user_id, *, config=None, limit=25, force=False):
             except Exception as exc:
                 error_message = (error_message or 'Webull settlement unavailable.') + f' Settlement fallback: {str(exc)[:160]}'
                 raw['settlement_fallback_error'] = str(exc)[:160]
-        observed = now
+        observed = datetime.utcnow()
         decision = _latest_decision_for_snapshot(snapshot)
         if not existing:
             existing = EventContractOutcome(
@@ -2463,7 +2464,8 @@ def resolve_event_outcomes(user_id, *, config=None, limit=25, force=False):
         if explicit:
             existing.outcome = explicit
             existing.settlement_status = "RESOLVED"
-            existing.settlement_at = _utc_naive(raw.get("payout_date")) or observed
+            existing.settlement_at, timing = settlement_timing(raw, snapshot.cutoff_at, observed)
+            existing.raw_json = _json_dump({**raw, '_settlement_timing': timing})
             settle_px = _number(raw.get("settlement_price"))
             existing.settlement_price = settle_px if settle_px is not None else _number(raw.get("last_price"))
             _settle_simulated_orders(user_id, symbol, explicit, existing.settlement_at)

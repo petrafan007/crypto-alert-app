@@ -1,8 +1,13 @@
 # Crypto & Quant Securities Dashboard
 
-**Version:** 2.99.19
+**Version:** 2.99.20
 
 ## Recent Updates
+
+### v2.99.20
+- **Event settlement timestamps:** Date-only payout values no longer become midnight UTC settlements before contract cutoff. New confirmed resolutions use a valid provider timestamp or the time confirmation was received, with the basis and original payout value saved. Observation time is captured after the provider response.
+- **Guarded historical repair:** Added a dry-run-first repair routine for the exact date-only defect. It requires a matching explicit saved settlement result, preserves original timestamps, and leaves amounts and P&L unchanged. Regression coverage includes PostgreSQL, user/config isolation and repeat runs.
+- **Historical evidence limitation:** Read-only inspection found 656 affected outcomes and 69 matching legacy simulated orders. All 656 outcomes lack explicit saved settlement proof; their trade prices cannot certify a result. These records remain unchanged and require provider verification before repair. Other unfinished engine work remains in `docs/quantitative_strategy_engine.md`.
 
 ### v2.99.19
 - **Event timestamp integrity:** Provider quote time, local snapshot retrieval time and last-trade time are recorded separately. Cached reads retain their original retrieval time. Fresh snapshots without a provider quote timestamp use an explicitly disclosed retrieval-time fallback; supplied stale, future or invalid quote timestamps cannot be refreshed by that fallback.

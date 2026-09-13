@@ -258,6 +258,14 @@ The current selected-outcome ask size, when supplied, caps integer contract quan
 
 Regression tests use synthetic ledgers, including a temporary PostgreSQL instance to verify two concurrent entries cannot overspend saved exposure. They do not validate forecast profitability or real venue fill quality.
 
+## Settlement timestamp evidence (v2.99.20)
+
+New confirmed Event outcomes retain a precise provider payout timestamp only when it has an explicit timezone or numeric epoch and falls between cutoff and the local confirmation observation. Date-only, missing, ambiguous, invalid, pre-cutoff or future payout times use the observation recorded after the provider response. Saved `_settlement_timing` evidence identifies `PROVIDER_PAYOUT_TIMESTAMP` or `OBSERVED_RESOLUTION`, the reason, and the original payout value. An observation fallback describes when this system learned the result; it does not reconstruct the exchange's settlement instant.
+
+`services.event_settlement_timing.repair_date_only_settlements` previews eligible historical corrections by default. Applying requires an explicit saved result matching the outcome, an exact date-only-to-midnight defect, and an observation at or after cutoff. It locks affected rows, limits each batch, preserves original outcome/order timestamps in evidence, and leaves monetary fields unchanged. The caller owns the transaction and commit. Matching legacy orders are scoped by user, symbol, original timestamp and configuration when available. Repeated repairs do not update already-corrected rows. Inspect skip/truncation counts before applying; this is a maintenance helper, not an automatic worker migration.
+
+The personal-instance inspection for this release found 656 resolved outcomes before cutoff and 69 matching legacy simulated orders. All 656 saved payloads lack explicit settlement proof and instead contain near-terminal trade prices. The repair rejects them; no production history was rewritten. They remain excluded by the calibration timestamp check. Provider outcome verification and any resulting ledger/report correction remain necessary; saved legacy P&L must not be treated as verified by this timestamp release.
+
 ## Release checkpoints toward v3.00.0
 
 - v2.99.0: Saved Event risk enforcement, reported-depth sizing, policy evidence, and concurrent-entry verification.
@@ -265,10 +273,11 @@ Regression tests use synthetic ledgers, including a temporary PostgreSQL instanc
 - v2.99.17: Calibration eligibility and per-contract deduplication now precede the sample limit. Database regressions cover repeated forecasts, invalid early predictions, duplicate outcomes, deterministic ties, user/run isolation, truncation and matched model/market samples.
 - v2.99.18: Added matched calibration comparisons by archived model/strategy version, contract duration and UTC forecast month. Tests cover historical attribution, matched denominators, missing metadata, date boundaries and disclosed group limits.
 - v2.99.19: Separated quote, retrieval, trade and underlying-observation timing; preserved timestamp basis in model context and decision evidence; rejected stale/invalid/future quotes at entry; removed stale underlying prices and spot-as-reference substitution from calculations.
+- v2.99.20: Corrected new settlement timestamps and saved their basis; added a guarded historical repair with PostgreSQL regression coverage. All 656 affected historical outcomes lack explicit saved settlement proof and remain unchanged pending provider verification.
 - Subsequent completed release checkpoints advance through v2.99.1, v2.99.2, and so on. The remaining list below defines review work, not a promise that all findings are already known.
 - Reserve v3.00.0 for the final fix. Before declaring readiness, present completed fixes, test evidence, unresolved findings, and research/data limitations and obtain the user's explicit permission. Do not label incomplete review or unavailable empirical validation as 100% complete.
 
-## Remaining review items after v2.99.19
+## Remaining review items after v2.99.20
 
 These review findings remain deferred, not fixed or certified by this release:
 
@@ -276,7 +285,7 @@ These review findings remain deferred, not fixed or certified by this release:
 - Review the legacy standalone Event hypothetical-fill path separately; the active quantitative ledger now enforces the saved Event risk policy.
 - Validate exchange quote/underlying timestamps where available and measure retrieval-time assumptions against independent data; timestamp separation and stale-underlying suppression are implemented.
 - Validate paper fills against historical order-book depth and adverse execution scenarios; reported-depth limits and explicit UNKNOWN handling are implemented, but missing-depth fills remain a disclosed research assumption.
-- Correct date-only settlement timestamps with evidence-backed historical remediation.
+- Verify the 656 legacy outcomes against explicit provider results before repairing their date-only timestamps and reviewing the 69 matching simulated orders and affected reports. New settlement timestamp handling and a guarded repair helper are implemented; historical remediation remains blocked by missing saved proof.
 - Correct Event audit sampling, missing-value/status defaults, and unsupported model conclusions; render factual report tables deterministically.
 - Separate time-sensitive scans/settlement from AI reporting; add progress deadlines and latency measurements.
 - Unify Event producer and portfolio watchlists and count actual AI requests against batch budgets.
