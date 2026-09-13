@@ -24,7 +24,7 @@ Telemetry and newly generated audits contain deterministic `goal_tracking`: actu
 
 The Master AI Configuration modal includes editable **Shared audit guidance**, applied to specialists and the master, alongside the existing CIO prompt. Module-specific auditor prompts remain in their module settings. Both interfaces display the mandatory engine/evidence instructions. New guidance tells the auditor to use the saved numeric target (normally 18.5%), not an obsolete range embedded in a custom prompt, and to separate observed defects, missing evidence and proposed experiments. Custom prompts are not silently overwritten. Existing archived reports are unchanged; new evidence must be captured in a fresh report.
 
-Event probability calibration uses the earliest valid pre-cutoff forecast for each verified, resolved contract in the current run, including forecasts that did not produce a trade. Repeated forecasts are not independent trials. Reported diagnostics include Brier score, ten-bin calibration error and skill against a simultaneous YES bid/ask midpoint on the matched subset. Queries cap the earliest 10,000 joined forecast rows and disclose truncation/exclusions. Results pool provider/model changes and are descriptive; resolution coverage and correlated contracts limit inference. No AI call calculates these scores.
+Event probability calibration uses the earliest valid pre-cutoff forecast for each verified, resolved contract in the current run, including forecasts that did not produce a trade. Repeated forecasts are not independent trials. Reported diagnostics include Brier score, ten-bin calibration error and skill against a simultaneous YES bid/ask midpoint on the matched subset. SQL validates forecasts and ranks them per contract before capping the earliest 10,000 distinct resolved contracts. Duplicate outcome records prefer the latest valid update, with record ID breaking ties. Exclusion counts cover joined forecast/outcome rows across the run, so they may include duplicate outcome records; they are not counts of independent contracts. Queries return only bounded samples and aggregate counts without changing historical records. Results pool provider/model changes and are descriptive; resolution coverage and correlated contracts limit inference. No AI call calculates these scores.
 
 ### Timely Event execution and paused-risk management
 
@@ -252,14 +252,15 @@ The current selected-outcome ask size, when supplied, caps integer contract quan
 
 Regression tests use synthetic ledgers, including a temporary PostgreSQL instance to verify two concurrent entries cannot overspend saved exposure. They do not validate forecast profitability or real venue fill quality.
 
-## Release checkpoints toward v3.0.0
+## Release checkpoints toward v3.00.0
 
 - v2.99.0: Saved Event risk enforcement, reported-depth sizing, policy evidence, and concurrent-entry verification.
 - v2.99.16: Repaired the dormant single-contract Event AI helper to load saved or explicitly supplied provider configuration. Regression coverage checks configuration routing, disabled/nontradable skips, and audit deferral. The active batch predictor is unchanged.
+- v2.99.17: Calibration eligibility and per-contract deduplication now precede the sample limit. Database regressions cover repeated forecasts, invalid early predictions, duplicate outcomes, deterministic ties, user/run isolation, truncation and matched model/market samples.
 - Subsequent completed release checkpoints advance through v2.99.1, v2.99.2, and so on. The remaining list below defines review work, not a promise that all findings are already known.
-- Before declaring readiness for v3.0.0, present completed fixes, test evidence, unresolved findings, and research/data limitations and obtain the user's explicit permission. Do not label incomplete review or unavailable empirical validation as 100% complete.
+- Reserve v3.00.0 for the final fix. Before declaring readiness, present completed fixes, test evidence, unresolved findings, and research/data limitations and obtain the user's explicit permission. Do not label incomplete review or unavailable empirical validation as 100% complete.
 
-## Remaining review items after v2.99.16
+## Remaining review items after v2.99.17
 
 These review findings remain deferred, not fixed or certified by this release:
 
@@ -269,7 +270,7 @@ These review findings remain deferred, not fixed or certified by this release:
 - Validate paper fills against historical order-book depth and adverse execution scenarios; reported-depth limits and explicit UNKNOWN handling are implemented, but missing-depth fills remain a disclosed research assumption.
 - Correct date-only settlement timestamps with evidence-backed historical remediation.
 - Correct Event audit sampling, missing-value/status defaults, and unsupported model conclusions; render factual report tables deterministically.
-- Deduplicate calibration samples before limits and compare matched model/market samples by model, duration and period.
+- Compare matched calibration model/market samples by model, duration and period; deduplication before sample limits is implemented.
 - Separate time-sensitive scans/settlement from AI reporting; add progress deadlines and latency measurements.
 - Unify Event producer and portfolio watchlists and count actual AI requests against batch budgets.
 - Plan verified options IV history collection/import and consistent ATM/expiration methodology.

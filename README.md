@@ -1,8 +1,13 @@
 # Crypto & Quant Securities Dashboard
 
-**Version:** 2.99.16
+**Version:** 2.99.17
 
 ## Recent Updates
+
+### v2.99.17
+- **Quantitative calibration sampling:** Valid forecasts are now deduplicated by resolved contract before applying the sample limit. Repeated scans or duplicate settlement records can no longer crowd other contracts out of the calibration report; the earliest valid pre-cutoff forecast is retained.
+- **Report coverage:** Truncation is stated in distinct resolved contracts. Exclusion counts cover the current run, and model-versus-market scores still use the same matched contracts. Selection remains user-scoped and read-only.
+- **Remaining work:** Calibration comparisons by model, duration and period, plus the remaining quantitative-engine review items, remain open in `docs/quantitative_strategy_engine.md`. The final release is reserved as **3.00.0**, subject to your readiness approval.
 
 ### v2.99.16
 - **Event limit price display:** The main order ticket and position modal consistently display cent prices with two decimal places (for example, `0.40`) across quote refreshes, side/outcome changes, position review and manual entry when leaving the field. Valid fractional-cent prices retain their precision so formatting does not change an order's limit.
