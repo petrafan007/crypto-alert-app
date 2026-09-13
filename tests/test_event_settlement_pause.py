@@ -18,6 +18,7 @@ from event_algo_models import (
 )
 from portfolio_algo_models import PortfolioStrategyPosition, PortfolioStrategyLot, PortfolioEngineState
 from services.event_settlement_timing import repair_date_only_settlements
+from services.event_settlement_repair import collect_legacy_settlement_evidence, repair_verified_legacy_settlements
 
 
 class PausedEventSettlementTests(unittest.TestCase):
@@ -207,3 +208,129 @@ class PausedEventSettlementTests(unittest.TestCase):
         self.assertEqual(report['skipped'], {'unverified_resolution': 4})
         self.assertEqual(before, [(row.id, row.raw_json, row.settlement_at)
                                   for row in EventContractOutcome.query.order_by(EventContractOutcome.id)])
+
+    def legacy_provider_fixture(self, user_id=1, symbol='KXBTC15M-26SEP031500-00'):
+        old = datetime(2026, 9, 3)
+        cutoff = old+timedelta(hours=19)
+        row = EventContractOutcome(user_id=user_id, config_id=self.config.id, contract_symbol=symbol,
+            outcome='YES', settlement_status='RESOLVED', cutoff_at=cutoff, settlement_at=old,
+            observed_at=cutoff+timedelta(minutes=4), settlement_price=.999, resolved_source='WEBULL_EVENT_MARKET',
+            raw_json=json.dumps({'payout_date': old.date().isoformat(), 'last_price': .999, 'status': 'DELISTING'}))
+        db.session.add(row)
+        provider = {'source_url': 'https://external-api.kalshi.com/trade-api/v2/markets/'+symbol,
+            'market': {'ticker': symbol, 'market_type': 'binary', 'status': 'finalized', 'result': 'yes',
+                       'close_time': cutoff.isoformat()+'Z', 'settlement_ts': (cutoff+timedelta(minutes=1)).isoformat()+'Z',
+                       'settlement_value_dollars': '1.0000'}}
+        return row, provider
+
+    def test_provider_repair_previews_archives_and_preserves_money_and_scope(self):
+        row, provider = self.legacy_provider_fixture()
+        self.legacy_provider_fixture(user_id=2)
+        old, symbol, config_id = row.settlement_at, row.contract_symbol, self.config.id
+        for user, config, mode in ((1, config_id, 'PAPER'), (2, config_id, 'PAPER'),
+                                    (1, config_id+10, 'PAPER'), (1, config_id, 'LIVE')):
+            db.session.add(EventStrategyOrder(user_id=user, config_id=config, contract_symbol=symbol,
+                mode=mode, outcome='YES', side='BUY', quantity=2, status='SIMULATED_SETTLED', settled_at=old,
+                filled_quantity=2, filled_price=.4, fee=.03, realized_pnl=1.17))
+        db.session.commit()
+        def lookup(*args):
+            if hasattr(db.engine.pool, 'checkedout'):
+                self.assertEqual(db.engine.pool.checkedout(), 0, 'Provider I/O must not hold a DB connection')
+            return provider
+        with patch('services.event_settlement_repair.confirmed_kalshi_settlement', side_effect=lookup) as fetch:
+            plan = collect_legacy_settlement_evidence(1)
+        fetch.assert_called_once()
+        # JSON round trips must preserve the exact stale-state comparison.
+        plan = json.loads(json.dumps(plan))
+        preview = repair_verified_legacy_settlements(plan, user_id=1)
+        self.assertEqual((preview['eligible_outcomes'], preview['matching_orders'], preview['updated_outcomes']), (1, 1, 0))
+        self.assertEqual(EventContractOutcome.query.filter_by(user_id=1).one().settlement_at, old)
+        with patch('services.event_settlement_repair.confirmed_kalshi_settlement', side_effect=AssertionError('HTTP in apply')):
+            applied = repair_verified_legacy_settlements(plan, user_id=1, apply=True)
+        db.session.commit()
+        self.assertEqual((applied['updated_outcomes'], applied['updated_orders']), (1, 1))
+        fixed = EventContractOutcome.query.filter_by(user_id=1).one()
+        self.assertEqual(fixed.settlement_at, datetime(2026, 9, 3, 19, 1))
+        self.assertEqual((fixed.outcome, fixed.settlement_price, fixed.resolved_source), ('YES', 1, 'KALSHI_FINALIZED_MARKET'))
+        archived = json.loads(fixed.raw_json)['_settlement_timing']['repair']
+        self.assertEqual(archived['previous_outcome'], plan['records'][0]['before'])
+        self.assertEqual(archived['previous_orders'][0]['realized_pnl'], 1.17)
+        for order in EventStrategyOrder.query.all():
+            self.assertEqual((order.quantity, order.filled_price, order.fee, order.realized_pnl), (2, .4, .03, 1.17))
+            expected = fixed.settlement_at if (order.user_id, order.config_id, order.mode) == (1, config_id, 'PAPER') else old
+            self.assertEqual(order.settled_at, expected)
+        self.assertEqual(EventContractOutcome.query.filter_by(user_id=2).one().settlement_at, old)
+        self.assertEqual(repair_verified_legacy_settlements(plan, user_id=1, apply=True)['updated_outcomes'], 0)
+
+    def test_provider_repair_rejects_conflicts_invalid_evidence_and_failed_lookups(self):
+        row, provider = self.legacy_provider_fixture()
+        db.session.commit()
+        with patch('services.event_settlement_repair.confirmed_kalshi_settlement', return_value=provider):
+            original = collect_legacy_settlement_evidence(1)
+        for change, reason in (({'result': 'no', 'settlement_value_dollars': '0'}, 'outcome_conflict'),
+                               ({'ticker': 'WRONG'}, 'invalid_provider_evidence'),
+                               ({'status': 'determined'}, 'invalid_provider_evidence'),
+                               ({'close_time': '2026-09-03T18:00:00Z'}, 'invalid_provider_evidence'),
+                               ({'settlement_ts': '2026-09-03'}, 'invalid_provider_evidence')):
+            plan = json.loads(json.dumps(original))
+            plan['records'][0]['provider']['market'].update(change)
+            report = repair_verified_legacy_settlements(plan, user_id=1, apply=True)
+            self.assertEqual(report['skipped'], {reason: 1})
+            self.assertEqual(report['updated_outcomes'], 0)
+        with patch('services.event_settlement_repair.confirmed_kalshi_settlement', side_effect=TimeoutError('private request')):
+            plan = collect_legacy_settlement_evidence(1)
+        self.assertEqual(plan['records'][0]['error'], 'TimeoutError')
+        self.assertNotIn('private request', json.dumps(plan))
+        self.assertEqual(repair_verified_legacy_settlements(plan, user_id=1)['skipped'], {'provider_unavailable': 1})
+
+    def test_provider_repair_rechecks_changed_rows_and_supports_transaction_rollback(self):
+        row, provider = self.legacy_provider_fixture()
+        db.session.commit()
+        with patch('services.event_settlement_repair.confirmed_kalshi_settlement', return_value=provider):
+            plan = collect_legacy_settlement_evidence(1)
+        self.assertEqual(repair_verified_legacy_settlements(plan, user_id=1, apply=True)['updated_outcomes'], 1)
+        db.session.rollback()
+        self.assertEqual(EventContractOutcome.query.one().resolved_source, 'WEBULL_EVENT_MARKET')
+        EventContractOutcome.query.one().raw_json = '{"changed": true}'
+        db.session.commit()
+        self.assertEqual(repair_verified_legacy_settlements(plan, user_id=1, apply=True)['skipped'], {'changed_or_missing_outcome': 1})
+
+    def test_provider_repair_enforces_user_scope_and_bounded_cursor(self):
+        _, provider = self.legacy_provider_fixture()
+        self.legacy_provider_fixture(symbol='KXBTC15M-26SEP031515-15')
+        db.session.commit()
+        with patch('services.event_settlement_repair.confirmed_kalshi_settlement', return_value=provider):
+            first = collect_legacy_settlement_evidence(1, limit=1)
+            second = collect_legacy_settlement_evidence(1, limit=1, after_id=first['last_id'])
+        self.assertTrue(first['truncated'])
+        self.assertFalse(second['truncated'])
+        self.assertNotEqual(first['records'][0]['before']['id'], second['records'][0]['before']['id'])
+        with self.assertRaises(ValueError):
+            repair_verified_legacy_settlements(first, user_id=2, apply=True)
+        first['records'][0]['before']['user_id'] = 2
+        with self.assertRaises(ValueError):
+            repair_verified_legacy_settlements(first, user_id=1, apply=True)
+        for limit in (0, 1001, True):
+            with self.assertRaises(ValueError):
+                collect_legacy_settlement_evidence(1, limit=limit)
+
+    def test_provider_verified_repair_restores_pre_cutoff_calibration_sample(self):
+        from services.portfolio_calibration import event_calibration
+        row, provider = self.legacy_provider_fixture()
+        start = row.cutoff_at-timedelta(hours=1)
+        market = EventMarketSnapshot(user_id=1, config_id=self.config.id, contract_symbol=row.contract_symbol,
+                                      cutoff_at=row.cutoff_at, yes_bid=.45, yes_ask=.55)
+        db.session.add(market)
+        db.session.flush()
+        db.session.add(EventStrategyDecision(user_id=1, config_id=self.config.id, snapshot_id=market.id,
+            contract_symbol=row.contract_symbol, created_at=start, probability_yes=.8, action='NO_TRADE', eligible=False))
+        db.session.commit()
+        self.assertEqual(event_calibration(1, start)['resolved_contracts'], 0)
+        db.session.rollback()
+        with patch('services.event_settlement_repair.confirmed_kalshi_settlement', return_value=provider):
+            plan = collect_legacy_settlement_evidence(1)
+        repair_verified_legacy_settlements(plan, user_id=1, apply=True)
+        db.session.commit()
+        calibration = event_calibration(1, start)
+        self.assertEqual(calibration['resolved_contracts'], 1)
+        self.assertAlmostEqual(calibration['brier_score'], .04)

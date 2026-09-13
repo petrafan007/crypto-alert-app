@@ -266,6 +266,12 @@ New confirmed Event outcomes retain a precise provider payout timestamp only whe
 
 The personal-instance inspection for this release found 656 resolved outcomes before cutoff and 69 matching legacy simulated orders. All 656 saved payloads lack explicit settlement proof and instead contain near-terminal trade prices. The repair rejects them; no production history was rewritten. They remain excluded by the calibration timestamp check. Provider outcome verification and any resulting ledger/report correction remain necessary; saved legacy P&L must not be treated as verified by this timestamp release.
 
+## Historical provider verification (v2.99.21)
+
+The 656 historical outcomes identified in v2.99.20 were subsequently checked against the listing exchange's exact-contract finalized results. All 656 results match the saved outcomes. The v2.99.21 personal-instance upgrade replaces their date-only midnight timestamps with the provider's precise settlement timestamp and adjusts 69 matching legacy simulated-order timestamps. It records `KALSHI_FINALIZED_MARKET` provenance and the new verification observation time. Original outcome records, including their raw evidence and old observation/source fields, and affected order records are retained under `_settlement_timing.repair`. Quantities, entry prices, fees and realized P&L remain unchanged. Archived reports are not rewritten; newly generated calibration uses repaired outcomes subject to its existing user/run and pre-cutoff forecast checks. Historical verification does not establish prospective profitability.
+
+The maintenance workflow is `collect_legacy_settlement_evidence(user_id, limit=100, after_id=0)` followed by `repair_verified_legacy_settlements(plan, user_id=..., apply=False)`, both in `services/event_settlement_repair.py`. Collection closes its database read connection before provider requests. Batches are capped at 1,000 candidates and expose a cursor and truncation flag. Preview/application makes no provider requests. Apply only after reviewing the preview, in a clean session with transaction/lock timeouts and an explicit caller commit. The plan is trusted maintenance input, not a public API. Application validates the saved provider payload again, locks and reloads current rows, and rejects outcomes changed since collection. It updates only matching paper-order timestamps; conflicts, unavailable evidence and changed records are reported and left untouched. Repeated application cannot apply the same correction twice. Provider timestamps must include a timezone; date-only or naive timestamps and boolean payout values cannot establish provider settlement proof.
+
 ## Release checkpoints toward v3.00.0
 
 - v2.99.0: Saved Event risk enforcement, reported-depth sizing, policy evidence, and concurrent-entry verification.
@@ -274,10 +280,11 @@ The personal-instance inspection for this release found 656 resolved outcomes be
 - v2.99.18: Added matched calibration comparisons by archived model/strategy version, contract duration and UTC forecast month. Tests cover historical attribution, matched denominators, missing metadata, date boundaries and disclosed group limits.
 - v2.99.19: Separated quote, retrieval, trade and underlying-observation timing; preserved timestamp basis in model context and decision evidence; rejected stale/invalid/future quotes at entry; removed stale underlying prices and spot-as-reference substitution from calculations.
 - v2.99.20: Corrected new settlement timestamps and saved their basis; added a guarded historical repair with PostgreSQL regression coverage. All 656 affected historical outcomes lack explicit saved settlement proof and remain unchanged pending provider verification.
+- v2.99.21: Independently verified all 656 affected historical outcomes with no winner conflicts; repaired their timestamps and 69 matching legacy paper-order timestamps, retaining original evidence and monetary values. Added bounded collection, preview, stale-row protection, rollback and calibration regression coverage.
 - Subsequent completed release checkpoints advance through v2.99.1, v2.99.2, and so on. The remaining list below defines review work, not a promise that all findings are already known.
 - Reserve v3.00.0 for the final fix. Before declaring readiness, present completed fixes, test evidence, unresolved findings, and research/data limitations and obtain the user's explicit permission. Do not label incomplete review or unavailable empirical validation as 100% complete.
 
-## Remaining review items after v2.99.20
+## Remaining review items after v2.99.21
 
 These review findings remain deferred, not fixed or certified by this release:
 
@@ -285,7 +292,6 @@ These review findings remain deferred, not fixed or certified by this release:
 - Review the legacy standalone Event hypothetical-fill path separately; the active quantitative ledger now enforces the saved Event risk policy.
 - Validate exchange quote/underlying timestamps where available and measure retrieval-time assumptions against independent data; timestamp separation and stale-underlying suppression are implemented.
 - Validate paper fills against historical order-book depth and adverse execution scenarios; reported-depth limits and explicit UNKNOWN handling are implemented, but missing-depth fills remain a disclosed research assumption.
-- Verify the 656 legacy outcomes against explicit provider results before repairing their date-only timestamps and reviewing the 69 matching simulated orders and affected reports. New settlement timestamp handling and a guarded repair helper are implemented; historical remediation remains blocked by missing saved proof.
 - Correct Event audit sampling, missing-value/status defaults, and unsupported model conclusions; render factual report tables deterministically.
 - Separate time-sensitive scans/settlement from AI reporting; add progress deadlines and latency measurements.
 - Unify Event producer and portfolio watchlists and count actual AI requests against batch budgets.

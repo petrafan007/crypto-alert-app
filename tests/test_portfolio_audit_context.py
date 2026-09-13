@@ -26,7 +26,9 @@ class AuditContextTests(unittest.TestCase):
             for change in ({'ticker': 'WRONG'}, {'result': 'scalar'}, {'status': 'determined'},
                            {'is_provisional': True}, {'settlement_value_dollars': '0.0'},
                            {'close_time': '2026-09-07T01:00:00Z'}, {'settlement_ts': None},
-                           {'settlement_ts': '2026-09-08T02:00:00Z'}, {'market_type': 'scalar'}):
+                           {'settlement_ts': '2026-09-08T02:00:00Z'}, {'market_type': 'scalar'},
+                           {'settlement_ts': '2026-09-07T02:02:45'}, {'close_time': '2026-09-07'},
+                           {'settlement_value_dollars': True}, {'settlement_value_dollars': 'NaN'}):
                 response.json = lambda change=change: {'market': {**market, **change}}
                 with self.subTest(change=change):
                     self.assertIsNone(confirmed_kalshi_settlement(symbol, cutoff, now))

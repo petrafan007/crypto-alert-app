@@ -1,8 +1,13 @@
 # Crypto & Quant Securities Dashboard
 
-**Version:** 2.99.20
+**Version:** 2.99.21
 
 ## Recent Updates
+
+### v2.99.21
+- **Historical Event verification:** Retrieved explicit finalized provider results for all 656 outcomes affected by the old date-only timestamp defect. Every result matches the saved outcome. The repair uses each provider's precise settlement timestamp and records the new verification time and source.
+- **Traceable repair:** The personal-instance upgrade repairs the 656 outcome timestamps and 69 matching legacy simulated-order timestamps. Original outcome records and affected orders are preserved in the saved evidence. Quantities, entry prices, fees and P&L are unchanged; archived reports remain unchanged.
+- **Safe maintenance workflow:** Provider collection runs outside database locks. A separate preview/application step validates exact ticker, cutoff, finalized result, payout and timestamp, rejects changed rows and conflicting results, and scopes edits to the selected user and matching paper orders. PostgreSQL tests cover the repair and rollback; forecast calibration tests cover restored eligibility.
 
 ### v2.99.20
 - **Event settlement timestamps:** Date-only payout values no longer become midnight UTC settlements before contract cutoff. New confirmed resolutions use a valid provider timestamp or the time confirmation was received, with the basis and original payout value saved. Observation time is captured after the provider response.
