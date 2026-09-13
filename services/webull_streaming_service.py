@@ -186,6 +186,13 @@ def get_webull_streaming_manager(app_key: str, app_secret: str, environment: str
         return _ACTIVE_CLIENTS[app_key]
 
 
+def get_latest_streaming_quote(symbol):
+    """Return a cache copy with its original timestamp; callers choose the age limit."""
+    with _STREAMING_LOCK:
+        entry = WEBULL_STREAMING_CACHE.get(str(symbol or '').upper().strip())
+        return dict(entry) if entry else None
+
+
 def get_latest_streaming_price(symbol: str) -> Optional[float]:
     """Retrieve the latest streaming price from the Webull cache if fresh (within 60s)."""
     clean_sym = str(symbol or '').upper().strip()

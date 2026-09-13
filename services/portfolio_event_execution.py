@@ -12,6 +12,7 @@ from datetime import datetime, timedelta
 from core.extensions import db
 from event_algo_models import EventMarketSnapshot, EventStrategyConfig, EventStrategyDecision, EventStrategyRun
 from services import portfolio_engine as engine
+from services.event_market_timing import quote_freshness
 
 logger = logging.getLogger(__name__)
 _ACTIVE = set()
@@ -53,7 +54,8 @@ def fresh_market(user_id, decision):
     # Do not retain old executable fields if the new quote omits them.
     for field in ('yes_bid', 'yes_ask', 'no_bid', 'no_ask',
                   'yes_bid_size', 'yes_ask_size', 'no_bid_size', 'no_ask_size', 'quote_as_of', 'timestamp',
-                  'last_trade_time', 'trade_time', 'updated_at'):
+                  'last_trade_time', 'trade_time', 'updated_at', 'quote_retrieved_at',
+                  'quote_time_basis', 'quote_timestamp_source', 'quote_provider_timestamp_raw'):
         market.pop(field, None)
     market.update(quote)
     market['symbol'] = symbol
@@ -62,15 +64,15 @@ def fresh_market(user_id, decision):
 
 def validate_entry(decision, market, event_cfg, settings, watchlist, now):
     """Reapply original decision gates against the new quote, without new AI."""
-    from event_algo import _market_cutoff, _market_provider_timestamp, evaluate_market
+    from event_algo import _market_cutoff, evaluate_market
     age = (now - decision.created_at).total_seconds()
     if age < -5 or age > DECISION_TTL_SECONDS:
         return 'MISSED', 'Decision exceeded its 120-second freshness window.', None
     if not market or market.get('symbol') != decision.contract_symbol:
         return 'REJECTED', 'Fresh quote did not match the exact decision contract.', None
-    provider_time = _market_provider_timestamp(market)
-    if not provider_time or not -5 <= (now - provider_time).total_seconds() <= 30:
-        return 'MISSED', 'Fresh quote has no usable as-of timestamp or is older than 30 seconds.', None
+    timing = quote_freshness(market, now)
+    if timing['status'] != 'FRESH':
+        return 'MISSED', f"Quote freshness is {timing['status']} ({timing['basis']}); a usable timestamp within 30 seconds is required.", None
     cutoff = _market_cutoff(market)
     if not cutoff or cutoff <= now + timedelta(seconds=30):
         return 'MISSED', 'Contract entered the cutoff exclusion window.', None

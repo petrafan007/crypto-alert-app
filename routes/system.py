@@ -3127,7 +3127,7 @@ def api_webull_event_markets():
                 'partial': False,
                 'loading': False,
                 'status': 'exact_market',
-                'catalog_as_of': market.get('quote_as_of'),
+                'catalog_as_of': market.get('quote_retrieved_at') or market.get('quote_as_of'),
             }
         else:
             result = get_webull_event_markets(

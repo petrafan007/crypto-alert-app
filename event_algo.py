@@ -23,6 +23,7 @@ from log import logger
 from sqlalchemy import select, func, case, or_
 from core.extensions import db
 from services.provider_resilience import AIRequestDeferred
+from services.event_market_timing import quote_freshness, underlying_observation
 from services.event_risk_policy import DEFAULT_RISK_CONFIG, normalize_risk_config
 from credentials import Credential, User, UserSetting
 from event_algo_models import (
@@ -49,26 +50,36 @@ _EVENT_SYMBOL_MONTHS = {
 EVENT_STRATEGY_ADMIN_USERNAME = os.getenv("EVENT_STRATEGY_ADMIN_USERNAME", os.getenv("ADMIN_USERNAME", "")).strip()
 
 
-def _get_crypto_spot_price(symbol):
-    """Fetch the latest spot price for crypto underlying."""
+def _get_crypto_spot_quote(symbol):
+    """Preserve the observation time of cached prices; reading them does not refresh it."""
     clean = str(symbol or "").upper().strip()
     if not clean:
         return None
     try:
-        from services.webull_streaming_service import get_latest_streaming_price
-        px = get_latest_streaming_price(clean)
-        if px and px > 0:
-            return float(px)
+        from services.webull_streaming_service import get_latest_streaming_quote
+        entry = get_latest_streaming_quote(clean) or {}
+        quote = {'underlying_price': entry.get('price'), 'underlying_price_as_of': entry.get('timestamp'),
+                 'underlying_price_source': 'WEBULL_STREAM_CACHE', 'underlying_timestamp_basis': 'CACHE_TIMESTAMP',
+                 'underlying_price_retrieved_at': datetime.now(timezone.utc).isoformat()}
+        if underlying_observation(quote)['price'] is not None:
+            return quote
     except Exception:
         pass
     try:
         from models import PriceHistory
         row = PriceHistory.query.filter_by(symbol=clean).order_by(PriceHistory.timestamp.desc()).first()
         if row and row.price and row.price > 0:
-            return float(row.price)
+            return {'underlying_price': float(row.price), 'underlying_price_as_of': row.timestamp,
+                    'underlying_price_source': 'PRICE_HISTORY', 'underlying_timestamp_basis': 'RECORDED_OBSERVATION',
+                    'underlying_price_retrieved_at': datetime.now(timezone.utc).isoformat()}
     except Exception:
         pass
     return None
+
+
+def _get_crypto_spot_price(symbol):
+    quote = _get_crypto_spot_quote(symbol)
+    return underlying_observation(quote)['price'] if quote else None
 
 
 def is_event_strategy_admin(user_or_username):
@@ -512,6 +523,7 @@ def parse_event_model_response(text):
 def _event_model_context(market):
     """Build a bounded, provider-neutral prompt context from a Webull market."""
     details = contract_details(market)
+    underlying = underlying_observation(market)
     return {
         "contract": details,
         "market_status": str(market.get("tradable_status") or "").strip().upper() or None,
@@ -525,11 +537,14 @@ def _event_model_context(market):
         },
         "underlying": {
             "symbol": str(market.get("underlying_symbol") or "").upper() or None,
-            "price": _number(market.get("underlying_price")),
+            "price": underlying['price'],
+            "freshness": {key: value for key, value in underlying.items() if key not in ('price', 'observed_price')},
             "change_pct": _number(market.get("underlying_change_pct")),
             "realized_volatility": _number(market.get("realized_volatility")),
         },
         "timing": {
+            "quote": quote_freshness(market),
+            "interpretation": "Retrieval-only timing is local snapshot receipt, not proof of exchange quote freshness. A null underlying price has no verified recent observation; do not substitute the contract reference price.",
             "duration": _market_duration_label(market),
             "open_at": details.get("open_at"),
             "cutoff_at": details.get("cutoff_at"),
@@ -566,15 +581,15 @@ def _predict_event_market(user_id, market, *, config=None):
 
         # Do not spend provider calls on closed, stale, or quote-less markets.
         quote_values = [_number(market.get(key)) for key in ("yes_ask", "no_ask")]
-        provider_time = _market_provider_timestamp(market)
+        quote_status = quote_freshness(market)['status']
         if not any(value is not None and 0 < value < 1 for value in quote_values):
             metadata.update({"status": "skipped", "error": "No live executable quote"})
             return {"metadata": metadata}
         if str(market.get("tradable_status") or "").strip().upper() == "CO":
             metadata.update({"status": "skipped", "error": "Market is closed"})
             return {"metadata": metadata}
-        if provider_time and (datetime.utcnow() - provider_time).total_seconds() > 30:
-            metadata.update({"status": "skipped", "error": "Quote is stale"})
+        if quote_status in {'STALE', 'FUTURE', 'INVALID'}:
+            metadata.update({"status": "skipped", "error": f"Quote timing is {quote_status.lower()}"})
             return {"metadata": metadata}
 
         context = _event_model_context(market)
@@ -752,13 +767,13 @@ def _predict_event_markets_batch(user_id, markets, *, context_refresh_hours=1, c
         for market in markets:
             symbol = str(market.get("symbol") or "").upper()
             quote_values = [_number(market.get(key)) for key in ("yes_ask", "no_ask")]
-            provider_time = _market_provider_timestamp(market)
+            quote_status = quote_freshness(market)['status']
             if not any(value is not None and 0 < value < 1 for value in quote_values):
                 results[symbol] = {"metadata": {**base, "status": "skipped", "error": "No live executable quote"}}
             elif str(market.get("tradable_status") or "").strip().upper() == "CO":
                 results[symbol] = {"metadata": {**base, "status": "skipped", "error": "Market is closed"}}
-            elif provider_time and (datetime.utcnow() - provider_time).total_seconds() > 30:
-                results[symbol] = {"metadata": {**base, "status": "skipped", "error": "Quote is stale"}}
+            elif quote_status in {'STALE', 'FUTURE', 'INVALID'}:
+                results[symbol] = {"metadata": {**base, "status": "skipped", "error": f"Quote timing is {quote_status.lower()}"}}
             else:
                 eligible.append(market)
         if not eligible:
@@ -1021,11 +1036,7 @@ def _market_cutoff(market):
 
 
 def _market_provider_timestamp(market):
-    for key in ("quote_as_of", "timestamp", "last_trade_time", "trade_time", "updated_at"):
-        value = _utc_naive(market.get(key))
-        if value:
-            return value
-    return None
+    return _utc_naive(quote_freshness(market)['provider_quote_at'])
 
 
 _DURATION_LABELS = {
@@ -1097,7 +1108,8 @@ def _market_features(market, now=None):
     no_ask = _number(market.get("no_ask"))
     cutoff = _market_cutoff(market)
     time_remaining = max(0.0, (cutoff - now).total_seconds()) if cutoff else None
-    underlying = _number(market.get("underlying_price"))
+    underlying_details = underlying_observation(market, now)
+    underlying = underlying_details['price']
     reference = _number(market.get("reference_price", market.get("target_value")))
     return {
         "yes_mid": round((yes_bid + yes_ask) / 2, 6) if yes_bid is not None and yes_ask is not None else None,
@@ -1106,6 +1118,8 @@ def _market_features(market, now=None):
         "spread_no": round(max(0.0, no_ask - no_bid), 6) if no_bid is not None and no_ask is not None else None,
         "time_remaining_seconds": time_remaining,
         "underlying_price": underlying,
+        "underlying_observation": underlying_details,
+        "quote_freshness": quote_freshness(market, now),
         "reference_price": reference,
         "distance_to_reference": round(underlying - reference, 8) if underlying is not None and reference is not None else None,
         "volume": _number(market.get("volume"), 0.0),
@@ -2149,8 +2163,8 @@ def evaluate_market(market, config, *, now=None):
         elif remaining > float(risk.get("max_time_remaining_seconds", 86400)):
             reasons.append("TOO_FAR_FROM_EXPIRATION")
 
-    provider_time = _market_provider_timestamp(market)
-    if provider_time and (now - provider_time).total_seconds() > 30:
+    quote_status = features['quote_freshness']['status']
+    if quote_status in {'STALE', 'FUTURE', 'INVALID'}:
         reasons.append("STALE_QUOTE")
     yes_ask = _number(market.get("yes_ask"))
     no_ask = _number(market.get("no_ask"))
@@ -2600,7 +2614,7 @@ def _snapshot_model(user_id, config_id, run_id, market, features, received_at):
         no_ask_size=_number(market.get("no_ask_size")),
         volume=_number(market.get("volume")),
         open_interest=_number(market.get("open_interest")),
-        underlying_price=_number(market.get("underlying_price")),
+        underlying_price=features.get("underlying_price"),
         underlying_change_pct=_number(market.get("underlying_change_pct")),
         realized_volatility=_number(market.get("realized_volatility")),
         time_remaining_seconds=features.get("time_remaining_seconds"),
@@ -2734,9 +2748,9 @@ def run_event_strategy_scan(user_id, *, config=None, force=False, worker_id="man
                             if not market.get("underlying_symbol"):
                                 market["underlying_symbol"] = ctx_sym
                             if not market.get("underlying_price"):
-                                spot_px = _get_crypto_spot_price(ctx_sym)
-                                if spot_px:
-                                    market["underlying_price"] = spot_px
+                                spot_quote = _get_crypto_spot_quote(ctx_sym)
+                                if spot_quote:
+                                    market.update(spot_quote)
                             markets[contract_symbol] = market
                             market_context[contract_symbol] = (symbol, duration)
                 except Exception as exc:

@@ -4,6 +4,7 @@ import base64
 import hashlib
 import hmac
 import math
+from services.event_market_timing import normalise_quote_times
 from decimal import Decimal, InvalidOperation
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
@@ -1907,7 +1908,7 @@ def _normalise_event_market(raw, series_categories):
         'underlying_symbol': _event_first_value(raw, 'underlying_symbol', 'reference_symbol'),
         'underlying_name': _event_first_value(raw, 'underlying_name', 'reference_name'),
         'reference_price': _event_number(_event_first_value(
-            raw, 'reference_price', 'referencePrice', 'underlying_price', 'underlyingPrice',
+            raw, 'reference_price', 'referencePrice',
         )),
         'target_value': _event_number(_event_first_value(raw, 'target_value', 'target_price', 'strike_price')),
         'fractionable': _event_bool(raw.get('fractionable')),
@@ -2087,10 +2088,11 @@ def _normalise_event_snapshot(raw):
     if not symbol:
         return None
     reference_price = _event_number(_event_first_value(
-        raw, 'reference_price', 'referencePrice', 'underlying_price', 'underlyingPrice',
+        raw, 'reference_price', 'referencePrice',
     ))
     snapshot = {
         **_event_settlement_fields(raw),
+        **normalise_quote_times(raw, datetime.now(timezone.utc)),
         'symbol': symbol,
         'instrument_id': raw.get('instrument_id'),
         'quote_name': raw.get('name'),
@@ -2106,10 +2108,15 @@ def _normalise_event_snapshot(raw):
         'no_bid_size': _event_number(raw.get('no_bid_size')),
         'no_ask': _event_number(raw.get('no_ask')),
         'no_ask_size': _event_number(raw.get('no_ask_size')),
-        'quote_as_of': datetime.now(timezone.utc).isoformat(),
     }
     if reference_price is not None:
         snapshot['reference_price'] = reference_price
+    underlying = _event_number(_event_first_value(raw, 'underlying_price', 'underlyingPrice'))
+    if underlying is not None:
+        snapshot.update(underlying_price=underlying, underlying_price_as_of=raw.get('underlying_price_as_of'),
+                        underlying_price_source='WEBULL_SNAPSHOT',
+                        underlying_timestamp_basis='PROVIDER' if raw.get('underlying_price_as_of') else 'UNKNOWN',
+                        underlying_price_retrieved_at=snapshot['quote_retrieved_at'])
     return snapshot
 
 

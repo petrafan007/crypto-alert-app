@@ -30,6 +30,10 @@ Calibration breakdowns partition this same sample by archived provider/model/str
 
 ### Timely Event execution and paused-risk management
 
+As of v2.99.19, snapshot normalization keeps provider quote time (`quote_as_of`), local retrieval time (`quote_retrieved_at`), and last-trade time separate. A cached read never changes retrieval time. [Webull describes this endpoint as a real-time snapshot](https://developer.webull.com/apis/docs/reference/event-snapshot/); when no provider quote timestamp is supplied, the existing paper-entry receipt-time assumption is retained and explicitly labeled `RETRIEVAL_ONLY`. Last-trade time is not substituted for quote time. Supplied stale, invalid or future quote timestamps cannot fall back to a fresh retrieval time. Entry requires a usable quote or retrieval timestamp within 30 seconds, allowing at most five seconds of clock skew. Unmarked legacy quote timestamps remain labeled `UNSPECIFIED_QUOTE_TIME`; historical provenance is not reconstructed. Timing alone does not prove exchange freshness or executable depth.
+
+Underlying observations carry their own source, timestamp basis, original time and retrieval time. Streaming-cache timestamps and recorded price-history timestamps are labeled as observations rather than claimed exchange quote times. Stale, future, missing-time or invalid underlying observations are retained in the evidence but excluded from current-price model inputs and distance-to-reference calculations. Snapshot price columns use the same validated value. Contract reference prices are preserved separately from spot prices. AI context explains missing observations and the limits of retrieval-based quote timing. These changes do not supply unavailable exchange timestamps or new historical data; further source/fill validation remains part of the research backlog.
+
 Fresh decisions trigger a post-commit handoff, complemented by an independent 15-second Event consumer. The consumer is independent of slow option-chain/equity scans, revalidates the exact contract against fresh executable quotes, and rechecks portfolio controls/generation under the same State row lock used by the supervisor. It never bypasses decision freshness, cutoff, fee, uncertainty, confidence or capital limits. Every processed eligible decision retains a generation-scoped FILLED, REJECTED, MISSED or HELD disposition in its existing evidence. New telemetry distinguishes unavailable/deferred upstream evidence from genuinely evaluated markets with no qualifying signal. Long portfolio scans cannot overwrite that independent telemetry with an empty lookup.
 
 Repeated circuit checks no longer clear the active risk-management lease. The circuit/kill switch blocks new entries while existing risk can still be marked and exited. An explicit Stop still freezes execution, and resets invalidate in-flight work. No real broker order is submitted.
@@ -260,16 +264,17 @@ Regression tests use synthetic ledgers, including a temporary PostgreSQL instanc
 - v2.99.16: Repaired the dormant single-contract Event AI helper to load saved or explicitly supplied provider configuration. Regression coverage checks configuration routing, disabled/nontradable skips, and audit deferral. The active batch predictor is unchanged.
 - v2.99.17: Calibration eligibility and per-contract deduplication now precede the sample limit. Database regressions cover repeated forecasts, invalid early predictions, duplicate outcomes, deterministic ties, user/run isolation, truncation and matched model/market samples.
 - v2.99.18: Added matched calibration comparisons by archived model/strategy version, contract duration and UTC forecast month. Tests cover historical attribution, matched denominators, missing metadata, date boundaries and disclosed group limits.
+- v2.99.19: Separated quote, retrieval, trade and underlying-observation timing; preserved timestamp basis in model context and decision evidence; rejected stale/invalid/future quotes at entry; removed stale underlying prices and spot-as-reference substitution from calculations.
 - Subsequent completed release checkpoints advance through v2.99.1, v2.99.2, and so on. The remaining list below defines review work, not a promise that all findings are already known.
 - Reserve v3.00.0 for the final fix. Before declaring readiness, present completed fixes, test evidence, unresolved findings, and research/data limitations and obtain the user's explicit permission. Do not label incomplete review or unavailable empirical validation as 100% complete.
 
-## Remaining review items after v2.99.18
+## Remaining review items after v2.99.19
 
 These review findings remain deferred, not fixed or certified by this release:
 
 - Bound audit-exclusive AI access and recover abandoned audits independently of new audit requests.
 - Review the legacy standalone Event hypothetical-fill path separately; the active quantitative ledger now enforces the saved Event risk policy.
-- Preserve provider quote time, retrieval time, and underlying-price freshness separately.
+- Validate exchange quote/underlying timestamps where available and measure retrieval-time assumptions against independent data; timestamp separation and stale-underlying suppression are implemented.
 - Validate paper fills against historical order-book depth and adverse execution scenarios; reported-depth limits and explicit UNKNOWN handling are implemented, but missing-depth fills remain a disclosed research assumption.
 - Correct date-only settlement timestamps with evidence-backed historical remediation.
 - Correct Event audit sampling, missing-value/status defaults, and unsupported model conclusions; render factual report tables deterministically.

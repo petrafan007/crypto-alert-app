@@ -1,8 +1,13 @@
 # Crypto & Quant Securities Dashboard
 
-**Version:** 2.99.18
+**Version:** 2.99.19
 
 ## Recent Updates
+
+### v2.99.19
+- **Event timestamp integrity:** Provider quote time, local snapshot retrieval time and last-trade time are recorded separately. Cached reads retain their original retrieval time. Fresh snapshots without a provider quote timestamp use an explicitly disclosed retrieval-time fallback; supplied stale, future or invalid quote timestamps cannot be refreshed by that fallback.
+- **Underlying-price evidence:** Saved observations retain their source and timestamp. Prices older than 30 seconds, more than five seconds in the future, or without a usable observation time are omitted from the AI's current-price input and distance-to-reference calculations, while the original observation remains in the evidence. Spot prices no longer substitute for a missing contract reference price.
+- **Worker and prompt consistency:** Prediction checks and portfolio entry validation use the same timing rules. New decision/snapshot evidence and AI context disclose the time basis; historical records are unchanged. Remaining review items are tracked in `docs/quantitative_strategy_engine.md`.
 
 ### v2.99.18
 - **Calibration comparisons:** Added model, contract-duration and UTC forecast-month tables. Each shows resolved and matched sample counts, matched model/market Brier scores, relative skill, and calibration error.
