@@ -1,8 +1,14 @@
 # Crypto & Quant Securities Dashboard
 
-**Version:** 2.99.25
+**Version:** 2.99.26
 
 ## Recent Updates
+
+### v2.99.26
+- **Webull Fractional Agreement Decoding & Actionable Resolution:** Webull HTTP 417 rejections carrying `OPENAPI_FRACT_VERSION2_ACCOUNT_NOT_TRADE` and `TRADE_FRACT_PROB` agreement requirements are now cleanly decoded into human-readable guidance instead of dumping unformatted raw JSON. Extracted agreement URLs, error codes, and provider trace request IDs are passed cleanly across service and route boundaries.
+- **Two-Step Activation Card & In-App Instructions:** When Webull rejects a fractional share or cash-amount order due to missing fractional permissions, the order ticket presents a dedicated resolution card explaining the two necessary actions: (1) completing the in-app Fractional Shares Risk Disclosure inside the official Webull mobile app via an initial order prompt, and (2) signing the Third-Party Web Agreement via a direct portal link.
+- **On-Demand Token Refresh & Pre-Flight Re-Verification:** Added forced-refresh capability to the Webull token verification endpoint and ticket interface, allowing users to re-sync account trading permissions and clear cached token capabilities immediately after completing disclosures on Webull without having to navigate away or wait for token expiry.
+- **Verification:** Tested with isolated unit tests covering `OPENAPI_FRACT_VERSION2_ACCOUNT_NOT_TRADE` parsing, agreement link extraction, and status code preservation. All 93 Webull service tests pass. Frontend regression checks and production build pass with zero warnings.
 
 ### v2.99.25
 - **Legacy Event performance accuracy:** Reports now require positive actual fills, a settled order status and matching saved settlement proof. Net P&L is reconstructed from filled quantity, filled price, payout and entry fee instead of trusting a default zero. Profitable, losing and breakeven trades reflect after-fee results; drawdown follows settlement chronology.

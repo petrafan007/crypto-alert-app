@@ -1549,6 +1549,34 @@ class WebullServiceTests(unittest.TestCase):
         self.assertEqual(order['total_cash_amount'], '100.24')
         self.assertNotIn('quantity', order)
 
+    def test_place_webull_order_decodes_fractional_agreement_error_cleanly(self):
+        error_response = Mock(
+            status_code=417,
+            text='{"message":"https://sp.webull.com/agreement/third-party?bizTypes=TRADE_FRACT_PROB&secAccountId=28829498&hl=en","error_code":"OPENAPI_FRACT_VERSION2_ACCOUNT_NOT_TRADE"}',
+            headers={'X-Request-Id': '88b7afe7-9908-4617-806e-81e770ccaa56'},
+        )
+        with patch('services.webull_service._webull_request', return_value=error_response):
+            with self.assertRaises(WebullConnectionError) as ctx:
+                place_webull_order(
+                    'app-key', 'app-secret', 'production', 'token-123',
+                    account_id='individual-cash', symbol='ETH', instrument_type='EQUITY',
+                    side='BUY', order_type='MARKET', entrust_type='AMOUNT',
+                    total_cash_amount=12.46, time_in_force='DAY', support_trading_session='CORE',
+                )
+
+        exc = ctx.exception
+        self.assertEqual(exc.error_code, 'OPENAPI_FRACT_VERSION2_ACCOUNT_NOT_TRADE')
+        self.assertEqual(
+            exc.agreement_url,
+            'https://sp.webull.com/agreement/third-party?bizTypes=TRADE_FRACT_PROB&secAccountId=28829498&hl=en',
+        )
+        self.assertEqual(exc.request_id, '88b7afe7-9908-4617-806e-81e770ccaa56')
+        self.assertEqual(exc.http_status, 417)
+        self.assertIn('Fractional stock and ETF trading is not enabled on this Webull account', str(exc))
+        self.assertIn('Webull Mobile App', str(exc))
+        self.assertIn('Agreement link: https://sp.webull.com/agreement/third-party', str(exc))
+
+
     def test_fractional_equity_rejects_non_core_or_non_market_orders(self):
         with self.assertRaisesRegex(WebullConnectionError, 'Regular Hours'):
             place_webull_order(

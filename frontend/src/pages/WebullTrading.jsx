@@ -3881,14 +3881,37 @@ export default function WebullTrading({ isLightMode = false }) {
         }
         loadHistory(selectedAccountId);
       } else {
-        setOrderFeedback({ type: 'error', message: response.data.message || 'Order placement failed.' });
+        setOrderFeedback({
+          type: 'error',
+          message: response.data?.message || 'Order placement failed.',
+          errorCode: response.data?.error_code,
+          agreementUrl: response.data?.agreement_url,
+          requestId: response.data?.request_id,
+        });
       }
     } catch (err) {
       if (err.response?.data?.requires_2fa) {
         setShowConfirmModal(false);
         setTwoFactorModal({ isVisible: true, orderData: webullTwoFactorOrderDetails() });
       } else {
-        setOrderFeedback({ type: 'error', message: err.response?.data?.message || err.message || 'Failed to place order.' });
+        const data = err.response?.data || {};
+        const msg = data.message || err.message || 'Failed to place order.';
+        let agreementUrl = data.agreement_url;
+        let errorCode = data.error_code;
+        if (!agreementUrl) {
+          const match = String(msg).match(/https?:\/\/[^\s"'\)\(\}]+/);
+          if (match && match[0].includes('agreement')) agreementUrl = match[0];
+        }
+        if (!errorCode && String(msg).includes('OPENAPI_FRACT_VERSION2_ACCOUNT_NOT_TRADE')) {
+          errorCode = 'OPENAPI_FRACT_VERSION2_ACCOUNT_NOT_TRADE';
+        }
+        setOrderFeedback({
+          type: 'error',
+          message: msg,
+          agreementUrl,
+          errorCode,
+          requestId: data.request_id,
+        });
       }
     } finally {
       setOrderSubmitting(false);
@@ -3962,10 +3985,33 @@ export default function WebullTrading({ isLightMode = false }) {
         loadHistory(selectedAccountId);
         setActiveTab('open_orders');
       } else {
-        setOrderFeedback({ type: 'error', message: response.data?.message || 'Failed to submit combo order.' });
+        setOrderFeedback({
+          type: 'error',
+          message: response.data?.message || 'Failed to submit combo order.',
+          errorCode: response.data?.error_code,
+          agreementUrl: response.data?.agreement_url,
+          requestId: response.data?.request_id,
+        });
       }
     } catch (err) {
-      setOrderFeedback({ type: 'error', message: err.response?.data?.message || err.message || 'Webull combo order failed.' });
+      const data = err.response?.data || {};
+      const msg = data.message || err.message || 'Webull combo order failed.';
+      let agreementUrl = data.agreement_url;
+      let errorCode = data.error_code;
+      if (!agreementUrl) {
+        const match = String(msg).match(/https?:\/\/[^\s"'\)\(\}]+/);
+        if (match && match[0].includes('agreement')) agreementUrl = match[0];
+      }
+      if (!errorCode && String(msg).includes('OPENAPI_FRACT_VERSION2_ACCOUNT_NOT_TRADE')) {
+        errorCode = 'OPENAPI_FRACT_VERSION2_ACCOUNT_NOT_TRADE';
+      }
+      setOrderFeedback({
+        type: 'error',
+        message: msg,
+        agreementUrl,
+        errorCode,
+        requestId: data.request_id,
+      });
     } finally {
       setOrderSubmitting(false);
     }
@@ -6202,21 +6248,113 @@ export default function WebullTrading({ isLightMode = false }) {
                       </button>
                     </div>
                     {orderFeedback.message && (
-                      <div
-                        role="alert"
-                        aria-live="assertive"
-                        className={orderFeedback.type === 'error' ? 'modern-real-warning' : 'modern-real-success'}
-                        style={{
-                          marginTop: '12px',
-                          padding: '12px 16px',
-                          borderRadius: '8px',
-                          background: orderFeedback.type === 'error' ? 'rgba(239, 68, 68, 0.15)' : 'rgba(16, 185, 129, 0.15)',
-                          color: orderFeedback.type === 'error' ? '#ef4444' : '#10b981',
-                          border: `1px solid ${orderFeedback.type === 'error' ? 'rgba(239, 68, 68, 0.3)' : 'rgba(16, 185, 129, 0.3)'}`,
-                        }}
-                      >
-                        {orderFeedback.type === 'error' ? '⚠️' : '✅'} {orderFeedback.message}
-                      </div>
+                      (orderFeedback.agreementUrl || orderFeedback.errorCode === 'OPENAPI_FRACT_VERSION2_ACCOUNT_NOT_TRADE' || String(orderFeedback.message).includes('agreement/third-party')) ? (
+                        <div
+                          role="alert"
+                          aria-live="assertive"
+                          style={{
+                            marginTop: '14px',
+                            padding: '16px 18px',
+                            borderRadius: '10px',
+                            background: 'rgba(245, 158, 11, 0.12)',
+                            color: '#fef3c7',
+                            border: '1px solid rgba(245, 158, 11, 0.45)',
+                            boxShadow: '0 4px 12px rgba(0, 0, 0, 0.25)',
+                          }}
+                        >
+                          <div style={{ display: 'flex', alignItems: 'flex-start', gap: '12px' }}>
+                            <span style={{ fontSize: '1.6rem', lineHeight: 1 }}>📝</span>
+                            <div style={{ flex: 1 }}>
+                              <strong style={{ display: 'block', fontSize: '1.05rem', marginBottom: '6px', color: '#fbbf24' }}>
+                                Webull Fractional Shares Trading Agreement Required
+                              </strong>
+                              <p style={{ margin: '0 0 10px 0', fontSize: '0.88rem', lineHeight: 1.45, color: '#f1f5f9' }}>
+                                Webull rejected this fractional/cash-amount order because fractional trading has not been fully activated for this account.
+                              </p>
+                              <div style={{ background: 'rgba(0, 0, 0, 0.35)', borderRadius: '8px', padding: '12px 14px', marginBottom: '12px', fontSize: '0.85rem', lineHeight: 1.5, border: '1px solid rgba(255, 255, 255, 0.08)' }}>
+                                <div style={{ fontWeight: 600, color: '#38bdf8', marginBottom: '6px' }}>Two required steps to activate:</div>
+                                <div style={{ marginBottom: '8px' }}>
+                                  <span style={{ color: '#fbbf24', fontWeight: 600 }}>1. Webull Mobile App:</span> Open the official Webull mobile app on your phone, go to Trade on any stock (e.g. ETH or AAPL), enter a small fractional dollar amount (e.g. $5), and tap Buy. When prompted with the <em>Fractional Shares Risk Disclosure</em>, tap <strong>"I Agree"</strong>. (You can cancel the order right after signing).
+                                </div>
+                                <div>
+                                  <span style={{ color: '#fbbf24', fontWeight: 600 }}>2. Third-Party Web Agreement:</span> Confirm you have also signed the Webull Third-Party Authorization via the link below.
+                                </div>
+                              </div>
+                              <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'center', marginBottom: '10px' }}>
+                                {(orderFeedback.agreementUrl || (String(orderFeedback.message).match(/https?:\/\/[^\s"'\)\(\}]+/)?.[0])) && (
+                                  <a
+                                    href={orderFeedback.agreementUrl || String(orderFeedback.message).match(/https?:\/\/[^\s"'\)\(\}]+/)?.[0]}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    style={{
+                                      display: 'inline-flex',
+                                      alignItems: 'center',
+                                      gap: '8px',
+                                      padding: '8px 16px',
+                                      borderRadius: '6px',
+                                      background: '#f59e0b',
+                                      color: '#0f172a',
+                                      fontWeight: 600,
+                                      fontSize: '0.88rem',
+                                      textDecoration: 'none',
+                                      boxShadow: '0 2px 4px rgba(0, 0, 0, 0.2)',
+                                    }}
+                                  >
+                                    <span>Sign Agreement on Webull Portal</span>
+                                    <span>↗</span>
+                                  </a>
+                                )}
+                                <button
+                                  type="button"
+                                  onClick={async () => {
+                                    try {
+                                      await axios.post('/api/webull-token/initiate', { force: true }, { withCredentials: true });
+                                      setOrderFeedback((prev) => ({ ...prev, type: 'success', message: 'Webull access token refreshed! You can now re-submit your order.' }));
+                                    } catch (tokenErr) {
+                                      setOrderFeedback((prev) => ({ ...prev, message: 'Token refresh failed. Try verifying your connection in Settings.' }));
+                                    }
+                                  }}
+                                  style={{
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '6px',
+                                    padding: '8px 14px',
+                                    borderRadius: '6px',
+                                    background: 'rgba(255, 255, 255, 0.1)',
+                                    color: '#e2e8f0',
+                                    border: '1px solid rgba(255, 255, 255, 0.2)',
+                                    fontWeight: 600,
+                                    fontSize: '0.85rem',
+                                    cursor: 'pointer',
+                                  }}
+                                >
+                                  🔄 Refresh Token & Re-verify
+                                </button>
+                              </div>
+                              <p style={{ margin: 0, fontSize: '0.8rem', color: '#94a3b8' }}>
+                                Alternatively, ordering whole shares (if funded) bypasses fractional agreements entirely.
+                                {orderFeedback.requestId && ` (Request ID: ${orderFeedback.requestId})`}
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                      ) : (
+                        <div
+                          role="alert"
+                          aria-live="assertive"
+                          className={orderFeedback.type === 'error' ? 'modern-real-warning' : 'modern-real-success'}
+                          style={{
+                            marginTop: '12px',
+                            padding: '12px 16px',
+                            borderRadius: '8px',
+                            background: orderFeedback.type === 'error' ? 'rgba(239, 68, 68, 0.15)' : 'rgba(16, 185, 129, 0.15)',
+                            color: orderFeedback.type === 'error' ? '#ef4444' : '#10b981',
+                            border: `1px solid ${orderFeedback.type === 'error' ? 'rgba(239, 68, 68, 0.3)' : 'rgba(16, 185, 129, 0.3)'}`,
+                          }}
+                        >
+                          {orderFeedback.type === 'error' ? '⚠️' : '✅'} {orderFeedback.message}
+                        </div>
+                      )
                     )}
 
                     {/* Row 6: Warning in Real / Test / Quant Trading Mode */}

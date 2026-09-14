@@ -138,7 +138,25 @@ WEBULL_MARKET_INTERVALS = {'M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D', 'W', 'M'}
 
 
 class WebullConnectionError(Exception):
-    """Raised when a Webull credential or account-list check fails."""
+    """Raised when a Webull credential, connection, or order check fails."""
+
+    def __init__(
+        self,
+        message,
+        *,
+        error_code=None,
+        agreement_url=None,
+        request_id=None,
+        http_status=None,
+        raw_detail=None,
+    ):
+        super().__init__(message)
+        self.message = message
+        self.error_code = error_code
+        self.agreement_url = agreement_url
+        self.request_id = request_id
+        self.http_status = http_status
+        self.raw_detail = raw_detail
 
 
 def normalize_webull_environment(environment):
@@ -261,13 +279,63 @@ def _webull_request(
 
 def _response_payload(response, action):
     if getattr(response, 'status_code', None) != 200:
-        detail = getattr(response, 'text', '') or f'Webull could not {action}.'
+        raw_text = getattr(response, 'text', '') or ''
         response_headers = getattr(response, 'headers', {}) or {}
         request_id = response_headers.get('X-Request-Id') or response_headers.get('x-request-id')
-        if isinstance(request_id, str) and request_id.strip():
-            detail = f'{detail} (Webull request ID: {request_id.strip()})'
+        if isinstance(request_id, str):
+            request_id = request_id.strip() or None
+        else:
+            request_id = None
+
+        error_code = None
+        message_field = None
+        agreement_url = None
+        try:
+            parsed = json.loads(raw_text)
+            if isinstance(parsed, dict):
+                error_code = str(parsed.get('error_code') or parsed.get('code') or '').strip() or None
+                message_field = str(parsed.get('message') or parsed.get('msg') or '').strip() or None
+                if message_field and ('agreement' in message_field or message_field.startswith('http')):
+                    agreement_url = message_field
+                elif isinstance(parsed.get('data'), dict):
+                    data_url = parsed['data'].get('agreement_url') or parsed['data'].get('url')
+                    if data_url and str(data_url).startswith('http'):
+                        agreement_url = str(data_url)
+        except Exception:
+            pass
+
+        http_status = getattr(response, 'status_code', 'unknown')
+
+        # Translate known Webull OpenAPI error codes into actionable user guidance
+        if error_code == 'OPENAPI_FRACT_VERSION2_ACCOUNT_NOT_TRADE' or (agreement_url and 'TRADE_FRACT_PROB' in agreement_url):
+            detail = (
+                "Fractional stock and ETF trading is not enabled on this Webull account. "
+                "Webull requires you to sign the in-app Fractional Shares Risk Disclosure inside the Webull Mobile App "
+                "(open Webull app -> attempt a $5 trade -> tap 'I Agree') and accept the Third-Party Fractional Agreement."
+            )
+            if agreement_url:
+                detail += f" Agreement link: {agreement_url}"
+        elif error_code == 'OPENAPI_EVENT_CONTRACT_CAN_NOT_TRADING_FOR_ACCOUNT_BIZ':
+            detail = "Event Contract trading is not supported on this Webull account. Please select an Events Cash account to trade Event Contracts."
+        elif error_code == 'OPENAPI_INVALID_PARAMETER':
+            detail = "Webull rejected one or more order parameters. Please check your order side, type, time in force, or limit price."
+        elif message_field and not message_field.startswith('http') and not message_field.startswith('{'):
+            detail = f"{message_field} ({error_code})" if error_code else message_field
+        elif raw_text:
+            detail = raw_text
+        else:
+            detail = f"Webull could not {action}."
+
+        if request_id:
+            detail = f"{detail} (Webull request ID: {request_id})"
+
         raise WebullConnectionError(
-            f'Webull {action} failed (HTTP {getattr(response, "status_code", "unknown")}): {detail}'
+            f"Webull {action} failed (HTTP {http_status}): {detail}",
+            error_code=error_code,
+            agreement_url=agreement_url,
+            request_id=request_id,
+            http_status=http_status,
+            raw_detail=raw_text,
         )
     try:
         return response.json()

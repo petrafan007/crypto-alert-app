@@ -1955,8 +1955,10 @@ def api_initiate_webull_token():
                 'status': 'PENDING', 'expires': credential.webull_token_expires_at.isoformat()
                 if credential.webull_token_expires_at else None,
             }, environment))
+        force = bool(data.get('force') or request.args.get('force'))
         if (
-            credential.webull_access_token
+            not force
+            and credential.webull_access_token
             and credential.webull_token_environment == environment
             and credential.webull_token_status == 'NORMAL'
         ):
@@ -3027,7 +3029,13 @@ def api_webull_place_order():
             'order': result,
         })
     except WebullConnectionError as exc:
-        return jsonify({'success': False, 'message': str(exc)}), 400
+        return jsonify({
+            'success': False,
+            'message': str(exc),
+            'error_code': getattr(exc, 'error_code', None),
+            'agreement_url': getattr(exc, 'agreement_url', None),
+            'request_id': getattr(exc, 'request_id', None),
+        }), 400
     except Exception as exc:
         logger.error('Webull order placement failed: %s', exc, exc_info=True)
         return jsonify({'success': False, 'message': 'Unable to place this Webull order. Try again.'}), 500
