@@ -809,12 +809,16 @@ class PortfolioLedgerTests(unittest.TestCase):
 
     def test_event_capacity_rejection_does_not_emit_a_fill_log(self):
         from portfolio_algo_models import PortfolioEngineLog
+        from event_algo import get_or_create_config
+        get_or_create_config(self.user_id).enabled = True
+        db.session.flush()
         for index in range(3):
-            e.enter_lot(self.cfg, self.acc, self.state, 'events', f'EVENT-{index}', {'enter': True}, .01, datetime.utcnow())
+            self.assertIsNotNone(e.enter_lot(self.cfg, self.acc, self.state, 'events',
+                f'EVENT-{index}', {'enter': True}, .01, datetime.utcnow()))
         rejected = []
         lot = e.enter_lot(self.cfg, self.acc, self.state, 'events', 'EVENT-4', {'enter': True}, .01, datetime.utcnow(), rejections=rejected)
         self.assertIsNone(lot)
-        self.assertIn('capacity full', rejected[0])
+        self.assertIn('Saved Event open-position limit reached', rejected[0])
         db.session.commit()
         self.assertEqual(PortfolioEngineLog.query.filter_by(user_id=self.user_id, event_type='POSITION_OPENED').count(), 3)
         status = e.portfolio_status(self.user_id)
@@ -879,10 +883,12 @@ class PortfolioLedgerTests(unittest.TestCase):
     def test_audit_with_positions_in_every_module_and_dedicated_ai_tiers(self):
         self.audit_user()
         for module in e.MODULES:
+            rejections = []
             lot = self.entry(module=module, price=.5 if module == 'events' else 100,
+                             stop=None if module == 'events' else 95,
                              margin=100 if module in ('options', 'futures') else None,
-                             details={'width': 2} if module == 'options' else {})
-            self.assertIsNotNone(lot)
+                             details={'width': 2} if module == 'options' else {}, rejections=rejections)
+            self.assertIsNotNone(lot, f'{module}: {rejections}')
         self.cfg.master_ai_config = json.dumps({
             'primary': {'provider': 'ollama', 'model': 'local-auditor', 'reasoning_level': 'high'},
             'secondary': {'provider': 'inception', 'model': 'mercury-2', 'api_key': 'encrypted-test'},

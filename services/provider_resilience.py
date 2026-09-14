@@ -196,10 +196,19 @@ def block_failure(key, owner, service, exc):
 
 
 def checked_get(service, owner, credential, url, **kwargs):
+    return _checked_request(requests.get, service, owner, credential, url, **kwargs)
+
+
+def checked_post(service, owner, credential, url, **kwargs):
+    return _checked_request(requests.post, service, owner, credential, url, **kwargs)
+
+
+def _checked_request(request, service, owner, credential, url, *, unavailable_cooldown=0, **kwargs):
+    """GET/POST share provider scope; optional fallback covers non-200 search responses."""
     key = identity('provider', owner, service, credential)
     check(key)
     try:
-        response = requests.get(url, **kwargs)
+        response = request(url, **kwargs)
         if response.status_code != 200:
             # Log/retain only the provider error code, never response bodies or credentials.
             try:
@@ -209,6 +218,11 @@ def checked_get(service, owner, credential, url, **kwargs):
                 detail = ''
             exc = requests.HTTPError(f'{service} HTTP {response.status_code} {detail}', response=response)
             block_failure(key, owner, service, exc)
+            if unavailable_cooldown and not read(key):
+                # A search challenge (e.g. HTTP 202) is unavailable evidence.
+                # Preserve any longer cooldown / Retry-After already recorded.
+                write(key, owner, service, 'cooldown',
+                      {'reason': f'HTTP {response.status_code}: search unavailable'}, unavailable_cooldown)
             raise ProviderUnavailable(str(exc))
         return response
     except (requests.Timeout, requests.ConnectionError) as exc:

@@ -1,12 +1,18 @@
 import threading
 import unittest
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 import requests
 from services import provider_resilience as r
 from services.ai_service import event_search_queries, validated_search_queries, web_search
+
+
+def search_response(code=200, body='', headers=None):
+    response = Mock(status_code=code, text=body, content=body.encode(), headers=headers or {})
+    response.json.side_effect = ValueError('Not JSON')
+    return response
 
 
 class ProviderResilienceTests(unittest.TestCase):
@@ -78,10 +84,55 @@ class ProviderResilienceTests(unittest.TestCase):
         self.assertTrue(second_entered.is_set())
 
     def test_search_failure_returns_zero_sources_and_cools_down(self):
-        with patch('services.ai_service.get_user_credentials', return_value=None), patch.object(r.requests, 'get', side_effect=requests.ConnectTimeout('outage')) as get:
+        with patch('services.ai_service.get_user_credentials', return_value=None), \
+                patch.object(r.requests, 'get', side_effect=requests.ConnectTimeout('outage')) as get, \
+                patch.object(r.requests, 'post', side_effect=requests.ConnectTimeout('outage')) as post:
             self.assertEqual(web_search('BTC news', username='alice'), [])
             self.assertEqual(web_search('ETH news', username='alice'), [])
         self.assertEqual(get.call_count, 1)
+        self.assertEqual(post.call_count, 1)
+        self.assertEqual({row['service'] for row in r.health('alice')}, {'DuckDuckGo', 'Google News RSS'})
+
+    def test_post_throttle_is_shared_with_get_and_recovers_after_expiry(self):
+        response = search_response(429, 'private response body', {'Retry-After': '120'})
+        with patch.object(r.requests, 'post', return_value=response) as post, \
+                patch.object(r.requests, 'get', return_value=search_response()) as get:
+            with self.assertRaises(r.ProviderUnavailable):
+                r.checked_post('DuckDuckGo', 'alice', '', 'https://example.test', unavailable_cooldown=60)
+            with self.assertRaises(r.ProviderUnavailable):
+                r.checked_get('DuckDuckGo', 'alice', '', 'https://example.test/other')
+            get.assert_not_called()
+            key = r.identity('provider', 'alice', 'DuckDuckGo', '')
+            self.assertGreater((r.read(key)['expires_at']-datetime.now(timezone.utc).replace(tzinfo=None)).total_seconds(), 110)
+            self.assertNotIn('private response body', str(r._memory))
+            r.checked_get('DuckDuckGo', 'bob', '', 'https://example.test/other')
+            r._memory[key]['expires_at'] = datetime.now(timezone.utc).replace(tzinfo=None)-timedelta(seconds=1)
+            r.checked_get('DuckDuckGo', 'alice', '', 'https://example.test/other')
+        self.assertEqual((post.call_count, get.call_count), (1, 2))
+
+    def test_search_challenge_cools_down_duckduckgo_but_google_results_still_work(self):
+        rss = '<rss><channel><item><title>Actual article</title><link>https://example.test/news</link><description>Evidence</description><source>Publisher</source></item></channel></rss>'
+        with patch('services.ai_service.get_user_credentials', return_value=None), \
+                patch.object(r.requests, 'post', return_value=search_response(202, 'challenge')) as post, \
+                patch.object(r.requests, 'get', return_value=search_response(body=rss)) as get:
+            first = web_search('BTC news', username='alice')
+            second = web_search('ETH news', username='alice')
+            self.assertEqual((first[0]['title'], second[0]['source']), ('Actual article', 'Google News'))
+            self.assertEqual(web_search('BTC news', username='alice'), first)
+        self.assertEqual(post.call_count, 1)
+        self.assertEqual(get.call_count, 2)
+        self.assertTrue(all('news.google.com/rss/' in call.args[0] for call in get.call_args_list))
+        self.assertEqual([row['service'] for row in r.health('alice')], ['DuckDuckGo'])
+
+    def test_empty_lite_page_can_fall_back_to_html_without_false_cooldown(self):
+        html = '<div class="result"><a class="result__a" href="https://example.test/news">Actual article</a><div class="result__snippet">Evidence</div></div>'
+        with patch('services.ai_service.get_user_credentials', return_value=None), \
+                patch.object(r.requests, 'post', return_value=search_response(body='<html></html>')) as post, \
+                patch.object(r.requests, 'get', return_value=search_response(body=html)) as get:
+            result = web_search('BTC news', username='alice')
+        self.assertEqual(result[0]['source'], 'DuckDuckGo')
+        self.assertEqual((post.call_count, get.call_count), (1, 1))
+        self.assertEqual(r.health('alice'), [])
 
     def test_event_queries_use_underlyings_and_reject_model_prose(self):
         queries = event_search_queries('EVENT_BATCH contracts KXBTC15M and KXETHD')

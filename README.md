@@ -1,8 +1,13 @@
 # Crypto & Quant Securities Dashboard
 
-**Version:** 2.99.22
+**Version:** 2.99.23
 
 ## Recent Updates
+
+### v2.99.23
+- **Search fallback cooldowns:** DuckDuckGo GET/POST and Google News RSS requests now use the shared provider controls. Failures suppress repeated requests for other queries from the same user across web/worker connections. Rate-limit delays are preserved; other unavailable search responses, including HTTP 202 challenges, receive a short cooldown. Independent providers and users retain their own state.
+- **Valid regression fixtures:** Search-failure tests now mock every network path. The all-module audit fixture uses no stock-style stop for Event contracts, and the capacity fixture explicitly enables its Event configuration and verifies that its setup positions actually opened. Production strategy/risk rules are unchanged.
+- **Verification:** All 110 tests in the search, audit and full portfolio suites passed with isolated PostgreSQL coverage, including cross-app cooldown sharing, expiry, fallback success, risk/capacity checks and complete audit execution. The two verification blockers reported in v2.99.22 are resolved; remaining engine work is tracked in `docs/quantitative_strategy_engine.md`.
 
 ### v2.99.22
 - **Bounded AI queue waits:** Shared provider locks now use bounded waits instead of blocking indefinitely. Regular requests defer after 60 seconds of contention; quantitative audits retain their provider-timeout allowance and check persisted ownership while waiting. Queue deferral does not attempt another provider or create a provider-failure cooldown.

@@ -282,6 +282,12 @@ Fresh, read-only checks before and after provider calls reject late output after
 
 Verification passed 57 focused tests on an isolated UTF-8 PostgreSQL instance, including full audit execution, cancellation during preparation, and deadline expiry at final publication. The full ledger suite was not certified: `test_audit_with_positions_in_every_module_and_dedicated_ai_tiers` fails while creating a holding, before invoking the audit. Entry/allocation code is unchanged by this release. The unrelated fallback-search cooldown regression below also remains open.
 
+## Search fallback resilience and regression fixtures (v2.99.23)
+
+DuckDuckGo Lite POST and HTML GET requests now share a provider cooldown per user; Google News RSS has an independent cooldown. The existing PostgreSQL provider state makes these controls visible across web and worker app connections. A timeout/connection error or server outage normally suppresses that provider for 60 seconds. HTTP 429 retains the shared `Retry-After`/quota handling; other non-200 search responses, including a DuckDuckGo HTTP 202 challenge, receive a 60-second cooldown when no existing cooldown was recorded. Failed providers can still fall through to another provider. Unavailable sources are returned as an empty list; a successful page with no Lite results may still use the HTML endpoint. Normal query caching and configured Brave keys remain in place. These controls reduce repeat requests during failures; they cannot remove an upstream quota limit or guarantee search availability.
+
+The old search-failure regression now mocks GET and POST so it cannot contact a live search engine. PostgreSQL coverage verifies that a failure in one app suppresses another app's requests for the same user, while other users remain independent. The all-module audit fixture now models Event contracts without the stock fixture's $95 stop. The Event capacity fixture enables the saved configuration, verifies its initial holdings and checks the actual saved position-limit rejection. No production entry, sizing or risk rule was weakened. All 110 tests across the selected search/audit suites and the complete `tests/test_portfolio_algo.py` suite passed with isolated UTF-8 PostgreSQL. This resolves the broader-test blockers documented for v2.99.22; it does not certify every repository test or establish strategy profitability.
+
 ## Release checkpoints toward v3.00.0
 
 - v2.99.0: Saved Event risk enforcement, reported-depth sizing, policy evidence, and concurrent-entry verification.
@@ -292,10 +298,11 @@ Verification passed 57 focused tests on an isolated UTF-8 PostgreSQL instance, i
 - v2.99.20: Corrected new settlement timestamps and saved their basis; added a guarded historical repair with PostgreSQL regression coverage. All 656 affected historical outcomes lack explicit saved settlement proof and remain unchanged pending provider verification.
 - v2.99.21: Independently verified all 656 affected historical outcomes with no winner conflicts; repaired their timestamps and 69 matching legacy paper-order timestamps, retaining original evidence and monetary values. Added bounded collection, preview, stale-row protection, rollback and calibration regression coverage.
 - v2.99.22: Bounded shared provider queue waits, added fresh cancellation checks before/after AI calls, recovered obsolete-generation audits, and fenced preparation/completion writes. Verified independent recovery, deadline limits and PostgreSQL lock cleanup. The older web-search fallback cooldown regression remains open.
+- v2.99.23: Restored shared search-fallback cooldowns, made search regressions offline, and corrected Event audit/capacity test setup. All 110 selected search/audit and full portfolio tests passed, resolving the v2.99.22 verification blockers.
 - Subsequent completed release checkpoints advance through v2.99.1, v2.99.2, and so on. The remaining list below defines review work, not a promise that all findings are already known.
 - Reserve v3.00.0 for the final fix. Before declaring readiness, present completed fixes, test evidence, unresolved findings, and research/data limitations and obtain the user's explicit permission. Do not label incomplete review or unavailable empirical validation as 100% complete.
 
-## Remaining review items after v2.99.22
+## Remaining review items after v2.99.23
 
 These review findings remain deferred, not fixed or certified by this release:
 
@@ -305,8 +312,6 @@ These review findings remain deferred, not fixed or certified by this release:
 - Correct Event audit sampling, missing-value/status defaults, and unsupported model conclusions; render factual report tables deterministically.
 - Separate time-sensitive scans/settlement from AI reporting; add progress deadlines and latency measurements.
 - Unify Event producer and portfolio watchlists and count actual AI requests against batch budgets.
-- Restore shared cooldown behavior for DuckDuckGo/Google fallback searches and make the old `test_search_failure_returns_zero_sources_and_cools_down` fully offline. The current fallback makes repeated GET/POST requests during outages; this existing regression is outside the v2.99.22 audit-queue fix.
-- Reconcile the older all-module audit test fixture with current allocation/risk requirements, then finish the broader ledger regression run; it currently fails before audit execution when a requested holding cannot be opened.
 - Plan verified options IV history collection/import and consistent ATM/expiration methodology.
 - Validate forecast skill, realistic fills/costs, correlated exposure and held-out strategy performance before expanding risk.
 - Label module P&L correlations accurately and disclose the single-symbol equity/crypto replay scope.

@@ -411,10 +411,10 @@ def web_search(query, max_results=2, username=None, freshness="pd"):
 
 def _web_search(query, max_results=2, username=None, freshness="pd"):
     """
-    Search the web for real-time crypto info.
-    Priority: Brave Search API -> DuckDuckGo HTML -> Binance Price fallback.
+    Search actual sources through Brave, DuckDuckGo and Google News RSS.
     freshness parameter options: 'pd' (past 24h / 12-24h window), 'pw' (past week), 'pm' (past month), 'py' (past year).
     """
+    from services.provider_resilience import checked_get, checked_post
     # 1. Try Brave Search API if credentials exist
     if username:
         try:
@@ -442,7 +442,6 @@ def _web_search(query, max_results=2, username=None, freshness="pd"):
                             "safesearch": "moderate",
                             "freshness": freshness or "pd"
                         }
-                        from services.provider_resilience import checked_get
                         resp = checked_get('Brave Search', username, api_key, brave_url, headers=headers, params=params, timeout=12)
                         if resp.status_code == 200:
                             data = resp.json()
@@ -470,7 +469,8 @@ def _web_search(query, max_results=2, username=None, freshness="pd"):
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
         }
         # Try DuckDuckGo Lite first (POST)
-        ddg_resp = requests.post("https://lite.duckduckgo.com/lite/", data={"q": query}, headers=ddg_headers, timeout=6)
+        ddg_resp = checked_post('DuckDuckGo', username, '', "https://lite.duckduckgo.com/lite/",
+                               data={"q": query}, headers=ddg_headers, timeout=6, unavailable_cooldown=60)
         if ddg_resp.status_code == 200:
             soup = BeautifulSoup(ddg_resp.text, 'html.parser')
             results = []
@@ -488,7 +488,8 @@ def _web_search(query, max_results=2, username=None, freshness="pd"):
 
         # Try DuckDuckGo HTML endpoint as secondary
         search_url = f"https://html.duckduckgo.com/html/?q={quote(query)}"
-        resp = requests.get(search_url, headers=ddg_headers, timeout=6)
+        resp = checked_get('DuckDuckGo', username, '', search_url,
+                           headers=ddg_headers, timeout=6, unavailable_cooldown=60)
         if resp.status_code == 200:
             soup = BeautifulSoup(resp.text, 'html.parser')
             results = []
@@ -507,13 +508,14 @@ def _web_search(query, max_results=2, username=None, freshness="pd"):
     except Exception as e:
         logger.warning(f"DuckDuckGo fallback failed: {e}")
 
-    # 3. Resilient Google News RSS fallback (100% reliable for market/sentiment queries)
+    # 3. Independent Google News RSS fallback; outages return no sources.
     try:
         import xml.etree.ElementTree as ET
         from bs4 import BeautifulSoup
         news_url = f"https://news.google.com/rss/search?q={quote(query)}&hl=en-US&gl=US&ceid=US:en"
         rss_headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
-        rss_resp = requests.get(news_url, headers=rss_headers, timeout=8)
+        rss_resp = checked_get('Google News RSS', username, '', news_url,
+                               headers=rss_headers, timeout=8, unavailable_cooldown=60)
         if rss_resp.status_code == 200:
             root = ET.fromstring(rss_resp.content)
             results = []
