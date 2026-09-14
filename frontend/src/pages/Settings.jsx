@@ -153,15 +153,15 @@ export default function Settings({ isLightMode }) {
     gemini_key_tertiary: '',
     inception_key_tertiary: '',
 
-    // Quartan AI Integration (fourth fallback)
-    ai_provider_quartan: '',
-    ai_model_quartan: '',
-    ai_reasoning_level_quartan: 'medium',
-    openai_key_quartan: '',
-    zai_key_quartan: '',
-    perplexity_key_quartan: '',
-    gemini_key_quartan: '',
-    inception_key_quartan: '',
+    // Quaternary AI Integration (fourth fallback)
+    ai_provider_quaternary: '',
+    ai_model_quaternary: '',
+    ai_reasoning_level_quaternary: 'medium',
+    openai_key_quaternary: '',
+    zai_key_quaternary: '',
+    perplexity_key_quaternary: '',
+    gemini_key_quaternary: '',
+    inception_key_quaternary: '',
 
     telegram_token: '',
     telegram_chat_id: '',
@@ -212,6 +212,7 @@ export default function Settings({ isLightMode }) {
     },
     copilot_chat_pre: '',
     copilot_chat_post: '',
+    copilot_title_prompt: '',
     event_strategy_audit_hours: 6,
     event_strategy_audit_prompt: ''
   });
@@ -241,8 +242,8 @@ export default function Settings({ isLightMode }) {
   const [fallbackTestResult, setFallbackTestResult] = useState(null);
   const [testingTertiaryAi, setTestingTertiaryAi] = useState(false);
   const [tertiaryAiTestResult, setTertiaryAiTestResult] = useState(null);
-  const [testingQuartanAi, setTestingQuartanAi] = useState(false);
-  const [quartanAiTestResult, setQuartanAiTestResult] = useState(null);
+  const [testingQuaternaryAi, setTestingQuaternaryAi] = useState(false);
+  const [quaternaryAiTestResult, setQuaternaryAiTestResult] = useState(null);
   const [syncing, setSyncing] = useState(false);
   const [encryptionStatus, setEncryptionStatus] = useState({ configured: false, persisted: false });
   const [encryptionKeyDirty, setEncryptionKeyDirty] = useState(false);
@@ -736,9 +737,9 @@ export default function Settings({ isLightMode }) {
         let tertiaryModel = mergedSettings.ai_model_tertiary;
         const sanitizedTertiaryModel = tertiaryProvider ? sanitizeModel(tertiaryProvider, tertiaryModel, currentModelOptions) : (tertiaryModel || '');
 
-        const quartanProvider = mergedSettings.ai_provider_quartan || prev.ai_provider_quartan || '';
-        let quartanModel = mergedSettings.ai_model_quartan;
-        const sanitizedQuartanModel = quartanProvider ? sanitizeModel(quartanProvider, quartanModel, currentModelOptions) : (quartanModel || '');
+        const quaternaryProvider = mergedSettings.ai_provider_quaternary || prev.ai_provider_quaternary || '';
+        let quaternaryModel = mergedSettings.ai_model_quaternary;
+        const sanitizedQuaternaryModel = quaternaryProvider ? sanitizeModel(quaternaryProvider, quaternaryModel, currentModelOptions) : (quaternaryModel || '');
 
         return {
           ...prev,
@@ -754,9 +755,9 @@ export default function Settings({ isLightMode }) {
           ai_provider_tertiary: tertiaryProvider,
           ai_model_tertiary: sanitizedTertiaryModel,
           ai_reasoning_level_tertiary: mergedSettings.ai_reasoning_level_tertiary || prev.ai_reasoning_level_tertiary || 'medium',
-          ai_provider_quartan: quartanProvider,
-          ai_model_quartan: sanitizedQuartanModel,
-          ai_reasoning_level_quartan: mergedSettings.ai_reasoning_level_quartan || prev.ai_reasoning_level_quartan || 'medium'
+          ai_provider_quaternary: quaternaryProvider,
+          ai_model_quaternary: sanitizedQuaternaryModel,
+          ai_reasoning_level_quaternary: mergedSettings.ai_reasoning_level_quaternary || prev.ai_reasoning_level_quaternary || 'medium'
         };
       });
     } catch (error) {
@@ -778,7 +779,7 @@ export default function Settings({ isLightMode }) {
       settings.ai_provider,
       settings.ai_provider_secondary || settings.ai_provider_fallback,
       settings.ai_provider_tertiary,
-      settings.ai_provider_quartan,
+      settings.ai_provider_quaternary,
     ];
     if (!selectedProviders.includes('ollama')) return undefined;
 
@@ -799,14 +800,14 @@ export default function Settings({ isLightMode }) {
               next.ai_model_fallback = firstModel;
             }
             if (prev.ai_provider_tertiary === 'ollama' && !prev.ai_model_tertiary) next.ai_model_tertiary = firstModel;
-            if (prev.ai_provider_quartan === 'ollama' && !prev.ai_model_quartan) next.ai_model_quartan = firstModel;
+            if (prev.ai_provider_quaternary === 'ollama' && !prev.ai_model_quaternary) next.ai_model_quaternary = firstModel;
             return next;
           });
         }
       })
       .catch((error) => console.error('Failed to refresh Ollama models:', error));
     return () => { active = false; };
-  }, [isEventStrategyAdmin, settings.ai_provider, settings.ai_provider_secondary, settings.ai_provider_fallback, settings.ai_provider_tertiary, settings.ai_provider_quartan]);
+  }, [isEventStrategyAdmin, settings.ai_provider, settings.ai_provider_secondary, settings.ai_provider_fallback, settings.ai_provider_tertiary, settings.ai_provider_quaternary]);
 
   const handleInputChange = (field, value) => {
     console.log(`Updating ${field} to: ${value}`);
@@ -866,20 +867,20 @@ export default function Settings({ isLightMode }) {
         };
       }
 
-      if (field === 'ai_provider_quartan') {
-        const sanitizedModel = value ? sanitizeModel(value, value === 'ollama' ? '' : prev.ai_model_quartan, modelOptions) : '';
+      if (field === 'ai_provider_quaternary') {
+        const sanitizedModel = value ? sanitizeModel(value, value === 'ollama' ? '' : prev.ai_model_quaternary, modelOptions) : '';
         return {
           ...prev,
-          ai_provider_quartan: value,
-          ai_model_quartan: sanitizedModel,
+          ai_provider_quaternary: value,
+          ai_model_quaternary: sanitizedModel,
         };
       }
 
-      if (field === 'ai_model_quartan') {
-        const sanitizedModel = prev.ai_provider_quartan ? sanitizeModel(prev.ai_provider_quartan, value, modelOptions) : value;
+      if (field === 'ai_model_quaternary') {
+        const sanitizedModel = prev.ai_provider_quaternary ? sanitizeModel(prev.ai_provider_quaternary, value, modelOptions) : value;
         return {
           ...prev,
-          ai_model_quartan: sanitizedModel,
+          ai_model_quaternary: sanitizedModel,
         };
       }
 
@@ -930,13 +931,13 @@ export default function Settings({ isLightMode }) {
         }
       }
 
-      // Quartan is optional, but once selected it must have a supported model
+      // Quaternary is optional, but once selected it must have a supported model
       // and a key for cloud providers. Ollama is local and requires no key.
-      if (settings.ai_provider_quartan) {
-        if (!settings.ai_model_quartan) errors.push("Quartan AI Model is required when a provider is selected.");
-        if (settings.ai_provider_quartan !== 'ollama') {
-          const quartanKey = settings[`${settings.ai_provider_quartan}_key_quartan`];
-          if (!quartanKey) errors.push("Quartan AI API Key is required for the selected provider.");
+      if (settings.ai_provider_quaternary) {
+        if (!settings.ai_model_quaternary) errors.push("Quaternary AI Model is required when a provider is selected.");
+        if (settings.ai_provider_quaternary !== 'ollama') {
+          const quaternaryKey = settings[`${settings.ai_provider_quaternary}_key_quaternary`];
+          if (!quaternaryKey) errors.push("Quaternary AI API Key is required for the selected provider.");
         }
       }
 
@@ -1431,41 +1432,41 @@ export default function Settings({ isLightMode }) {
     }
   };
 
-  // Test the fourth (quartan) AI fallback connection.
-  const testQuartanAiConnection = async () => {
-    setTestingQuartanAi(true);
-    setQuartanAiTestResult(null);
+  // Test the fourth (quaternary) AI fallback connection.
+  const testQuaternaryAiConnection = async () => {
+    setTestingQuaternaryAi(true);
+    setQuaternaryAiTestResult(null);
 
-    const provider = settings.ai_provider_quartan;
+    const provider = settings.ai_provider_quaternary;
     let apiKey = '';
-    if (provider === 'openai') apiKey = settings.openai_key_quartan;
-    else if (provider === 'zai') apiKey = settings.zai_key_quartan;
-    else if (provider === 'perplexity') apiKey = settings.perplexity_key_quartan;
-    else if (provider === 'gemini') apiKey = settings.gemini_key_quartan;
-    else if (provider === 'inception') apiKey = settings.inception_key_quartan;
+    if (provider === 'openai') apiKey = settings.openai_key_quaternary;
+    else if (provider === 'zai') apiKey = settings.zai_key_quaternary;
+    else if (provider === 'perplexity') apiKey = settings.perplexity_key_quaternary;
+    else if (provider === 'gemini') apiKey = settings.gemini_key_quaternary;
+    else if (provider === 'inception') apiKey = settings.inception_key_quaternary;
 
     try {
       const response = await axios.post('/api/test-ai-connection-generic', {
         provider,
         api_key: apiKey,
-        model: settings.ai_model_quartan,
-        tier: 'quartan',
-        reasoning_level: settings.ai_reasoning_level_quartan,
+        model: settings.ai_model_quaternary,
+        tier: 'quaternary',
+        reasoning_level: settings.ai_reasoning_level_quaternary,
         is_fallback: true
       }, { withCredentials: true });
 
-      setQuartanAiTestResult({
+      setQuaternaryAiTestResult({
         success: response.data.success,
-        message: response.data.message || (response.data.success ? 'Quartan connection successful!' : 'Connection failed')
+        message: response.data.message || (response.data.success ? 'Quaternary connection successful!' : 'Connection failed')
       });
     } catch (error) {
-      console.error('Error testing quartan connection:', error);
-      setQuartanAiTestResult({
+      console.error('Error testing quaternary connection:', error);
+      setQuaternaryAiTestResult({
         success: false,
-        message: error.response?.data?.message || error.message || 'Failed to test quartan connection'
+        message: error.response?.data?.message || error.message || 'Failed to test quaternary connection'
       });
     } finally {
-      setTestingQuartanAi(false);
+      setTestingQuaternaryAi(false);
     }
   };
 
@@ -2938,17 +2939,17 @@ export default function Settings({ isLightMode }) {
           </div>
         </div>
 
-        {/* Row 4: Quartan AI Integration */}
+        {/* Row 4: Quaternary AI Integration */}
         <div className="settings-page-section">
-          <h3>Quartan AI Integration (Fourth Fallback)</h3>
+          <h3>Quaternary AI Integration (Fourth Fallback)</h3>
 
           <div className="settings-form-group">
             <label>AI Provider</label>
             <select
-              value={settings.ai_provider_quartan || ''}
-              onChange={(e) => handleInputChange('ai_provider_quartan', e.target.value)}
+              value={settings.ai_provider_quaternary || ''}
+              onChange={(e) => handleInputChange('ai_provider_quaternary', e.target.value)}
             >
-              <option value="">-- Select Quartan Provider --</option>
+              <option value="">-- Select Quaternary Provider --</option>
               <option value="openai">OpenAI</option>
               <option value="zai">Z.AI</option>
               <option value="perplexity">Perplexity</option>
@@ -2964,26 +2965,26 @@ export default function Settings({ isLightMode }) {
           <div className="settings-form-group">
             <label>AI Model</label>
             <select
-              value={settings.ai_model_quartan || ''}
-              onChange={(e) => handleInputChange('ai_model_quartan', e.target.value)}
-              disabled={!settings.ai_provider_quartan}
+              value={settings.ai_model_quaternary || ''}
+              onChange={(e) => handleInputChange('ai_model_quaternary', e.target.value)}
+              disabled={!settings.ai_provider_quaternary}
             >
               <option value="">-- Select a model --</option>
-              {(modelOptions[settings.ai_provider_quartan] || []).map((option) => (
+              {(modelOptions[settings.ai_provider_quaternary] || []).map((option) => (
                 <option key={option.value || option} value={option.value || option}>{option.label || option.value || option}</option>
               ))}
             </select>
             <div className="settings-form-help">
-              Select an AI model supported by the chosen quartan provider.
+              Select an AI model supported by the chosen quaternary provider.
             </div>
           </div>
 
-          {['gemini', 'openai'].includes(settings.ai_provider_quartan) && (
+          {['gemini', 'openai'].includes(settings.ai_provider_quaternary) && (
             <div className="settings-form-group">
               <label>Reasoning</label>
               <select
-                value={settings.ai_reasoning_level_quartan || 'medium'}
-                onChange={(e) => handleInputChange('ai_reasoning_level_quartan', e.target.value)}
+                value={settings.ai_reasoning_level_quaternary || 'medium'}
+                onChange={(e) => handleInputChange('ai_reasoning_level_quaternary', e.target.value)}
               >
                 <option value="light">Light</option>
                 <option value="medium">Medium</option>
@@ -2994,20 +2995,20 @@ export default function Settings({ isLightMode }) {
             </div>
           )}
 
-          {settings.ai_provider_quartan && settings.ai_provider_quartan !== 'ollama' && (
+          {settings.ai_provider_quaternary && settings.ai_provider_quaternary !== 'ollama' && (
             <div className="settings-form-group">
-              <label>{settings.ai_provider_quartan === 'zai' ? 'Z.AI' : settings.ai_provider_quartan[0].toUpperCase() + settings.ai_provider_quartan.slice(1)} API Key</label>
+              <label>{settings.ai_provider_quaternary === 'zai' ? 'Z.AI' : settings.ai_provider_quaternary[0].toUpperCase() + settings.ai_provider_quaternary.slice(1)} API Key</label>
               <input
                 type="password"
-                value={settings[`${settings.ai_provider_quartan}_key_quartan`] || ''}
-                onChange={(e) => handleInputChange(`${settings.ai_provider_quartan}_key_quartan`, e.target.value)}
+                value={settings[`${settings.ai_provider_quaternary}_key_quaternary`] || ''}
+                onChange={(e) => handleInputChange(`${settings.ai_provider_quaternary}_key_quaternary`, e.target.value)}
                 placeholder="Enter API Key"
               />
               <div className="settings-form-help">Used only when all earlier AI providers are unavailable.</div>
             </div>
           )}
 
-          {settings.ai_provider_quartan === 'ollama' && isEventStrategyAdmin && (
+          {settings.ai_provider_quaternary === 'ollama' && isEventStrategyAdmin && (
             <div className="settings-form-help" style={{ marginTop: '8px' }}>
               Ollama runs through the Ollama service on this server. Local and signed-in cloud models are supported; no API key is required here.
             </div>
@@ -3015,15 +3016,15 @@ export default function Settings({ isLightMode }) {
 
           <div className="settings-form-group" style={{ marginTop: '8px' }}>
             <button
-              onClick={testQuartanAiConnection}
-              disabled={!settings.ai_provider_quartan || !settings.ai_model_quartan || testingQuartanAi}
-              style={{ marginTop: '10px', padding: '8px 16px', backgroundColor: (!settings.ai_provider_quartan || !settings.ai_model_quartan || testingQuartanAi) ? '#6c757d' : '#f0b90b', color: 'black', border: 'none', borderRadius: '4px', cursor: (!settings.ai_provider_quartan || !settings.ai_model_quartan || testingQuartanAi) ? 'not-allowed' : 'pointer', fontSize: '14px', width: '100%', fontWeight: 'bold', transition: 'all 0.2s' }}
+              onClick={testQuaternaryAiConnection}
+              disabled={!settings.ai_provider_quaternary || !settings.ai_model_quaternary || testingQuaternaryAi}
+              style={{ marginTop: '10px', padding: '8px 16px', backgroundColor: (!settings.ai_provider_quaternary || !settings.ai_model_quaternary || testingQuaternaryAi) ? '#6c757d' : '#f0b90b', color: 'black', border: 'none', borderRadius: '4px', cursor: (!settings.ai_provider_quaternary || !settings.ai_model_quaternary || testingQuaternaryAi) ? 'not-allowed' : 'pointer', fontSize: '14px', width: '100%', fontWeight: 'bold', transition: 'all 0.2s' }}
             >
-              {testingQuartanAi ? 'Testing Connection...' : 'Test API Connection'}
+              {testingQuaternaryAi ? 'Testing Connection...' : 'Test API Connection'}
             </button>
-            {quartanAiTestResult && (
-              <div className={`settings-status ${quartanAiTestResult.success ? 'success' : 'error'}`} style={{ marginTop: '8px' }}>
-                {quartanAiTestResult.message}
+            {quaternaryAiTestResult && (
+              <div className={`settings-status ${quaternaryAiTestResult.success ? 'success' : 'error'}`} style={{ marginTop: '8px' }}>
+                {quaternaryAiTestResult.message}
               </div>
             )}
           </div>

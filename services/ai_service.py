@@ -323,10 +323,10 @@ def build_configured_ai_tiers(user_ai_settings):
             settings.get("ai_reasoning_level_tertiary") or "medium",
         ),
         (
-            "quartan",
-            settings.get("ai_provider_quartan"),
-            settings.get("ai_model_quartan"),
-            settings.get("ai_reasoning_level_quartan") or "medium",
+            "quaternary",
+            settings.get("ai_provider_quaternary"),
+            settings.get("ai_model_quaternary"),
+            settings.get("ai_reasoning_level_quaternary") or "medium",
         ),
     )
 
@@ -754,8 +754,8 @@ def call_ai_with_web_search(
                     return custom_api_keys[current_tier_name]
                 if p in custom_api_keys:
                     return custom_api_keys[p]
-            if current_tier_name == 'quartan':
-                return getattr(cred, f"{p}_key_quartan", None) or getattr(cred, f"{p}_key_tertiary", None) or getattr(cred, f"{p}_key_fallback", None) or getattr(cred, f"{p}_key", None)
+            if current_tier_name == 'quaternary':
+                return getattr(cred, f"{p}_key_quaternary", None) or getattr(cred, f"{p}_key_tertiary", None) or getattr(cred, f"{p}_key_fallback", None) or getattr(cred, f"{p}_key", None)
             elif current_tier_name == 'tertiary':
                 return getattr(cred, f"{p}_key_tertiary", None) or getattr(cred, f"{p}_key_fallback", None) or getattr(cred, f"{p}_key", None)
             elif current_tier_name == 'secondary':

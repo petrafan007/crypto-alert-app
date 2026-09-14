@@ -526,6 +526,8 @@ class AIPrompt(db.Model):
     sentiment_prompt_pre = db.Column(db.Text)  # Portfolio Sentiment analysis pre-search prompt
     watchlist_sentiment_prompt_pre = db.Column(db.Text)  # Watchlist Sentiment analysis pre-search prompt
     copilot_chat_pre = db.Column(db.Text)  # AI Copilot pre-search prompt
+    copilot_chat_post = db.Column(db.Text) # AI Copilot post-search response prompt
+    copilot_title_prompt = db.Column(db.Text) # AI Copilot title generation prompt
     
     # Stage 2 (Post-search) prompts for final analysis
     coin_analysis_post = db.Column(db.Text)
@@ -551,6 +553,8 @@ class DefaultAIPrompt(db.Model):
     sentiment_prompt_pre = db.Column(db.Text)
     watchlist_sentiment_prompt_pre = db.Column(db.Text)
     copilot_chat_pre = db.Column(db.Text)
+    copilot_chat_post = db.Column(db.Text)
+    copilot_title_prompt = db.Column(db.Text)
     
     # Stage 2 (Post-search) prompts
     coin_analysis_post = db.Column(db.Text)

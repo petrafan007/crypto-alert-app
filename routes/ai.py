@@ -405,9 +405,9 @@ def test_ai_connection_generic():
             from routes.helpers import decrypt_secret
             cred = Credential.query.filter_by(user_id=current_user.id).first()
             if cred:
-                if tier == 'quartan':
+                if tier == 'quaternary':
                     api_key = (
-                        decrypt_secret(getattr(cred, f'_{provider}_key_quartan', None)) or
+                        decrypt_secret(getattr(cred, f'_{provider}_key_quaternary', None)) or
                         decrypt_secret(getattr(cred, f'_{provider}_key_tertiary', None)) or
                         decrypt_secret(getattr(cred, f'_{provider}_key_fallback', None)) or
                         decrypt_secret(getattr(cred, f'_{provider}_key', None))
@@ -765,7 +765,7 @@ def api_ai_settings():
                 'ai_provider_fallback',
                 'ai_provider_secondary',
                 'ai_provider_tertiary',
-                'ai_provider_quartan',
+                'ai_provider_quaternary',
             )
             if any(str(data.get(field) or '').strip().lower() == 'ollama' for field in ollama_fields):
                 if not is_ollama_admin(current_user):
@@ -822,17 +822,17 @@ def api_ai_settings():
             if 'inception_key_tertiary' in data:
                 cred.inception_key_tertiary = data.pop('inception_key_tertiary')
 
-            # Quartan (fourth fallback) Keys
-            if 'openai_key_quartan' in data:
-                cred.openai_key_quartan = data.pop('openai_key_quartan')
-            if 'zai_key_quartan' in data:
-                cred.zai_key_quartan = data.pop('zai_key_quartan')
-            if 'perplexity_key_quartan' in data:
-                cred.perplexity_key_quartan = data.pop('perplexity_key_quartan')
-            if 'gemini_key_quartan' in data:
-                cred.gemini_key_quartan = data.pop('gemini_key_quartan')
-            if 'inception_key_quartan' in data:
-                cred.inception_key_quartan = data.pop('inception_key_quartan')
+            # Quaternary (fourth fallback) Keys
+            if 'openai_key_quaternary' in data:
+                cred.openai_key_quaternary = data.pop('openai_key_quaternary')
+            if 'zai_key_quaternary' in data:
+                cred.zai_key_quaternary = data.pop('zai_key_quaternary')
+            if 'perplexity_key_quaternary' in data:
+                cred.perplexity_key_quaternary = data.pop('perplexity_key_quaternary')
+            if 'gemini_key_quaternary' in data:
+                cred.gemini_key_quaternary = data.pop('gemini_key_quaternary')
+            if 'inception_key_quaternary' in data:
+                cred.inception_key_quaternary = data.pop('inception_key_quaternary')
 
             # Update each setting
             # Update UserSetting columns
@@ -892,7 +892,7 @@ def api_ai_settings():
                 'ai_provider_fallback', 'ai_model_fallback', 'ai_reasoning_level_fallback',
                 'ai_provider_secondary', 'ai_model_secondary', 'ai_reasoning_level_secondary',
                 'ai_provider_tertiary', 'ai_model_tertiary', 'ai_reasoning_level_tertiary',
-                'ai_provider_quartan', 'ai_model_quartan', 'ai_reasoning_level_quartan',
+                'ai_provider_quaternary', 'ai_model_quaternary', 'ai_reasoning_level_quaternary',
                 'ai_risk_tolerance', 'ai_confidence_threshold', 'ai_notifications_enabled',
                 'ai_analysis_frequency', 'ai_cache_duration_hours', 'ai_analysis_window_start',
                 'ai_analysis_window_end', 'ai_max_tokens', 'ai_web_search_enabled',
@@ -2629,18 +2629,12 @@ def process_ai_conversation(user_id, message, conversation_id=None, include_all_
         f"{quant_strategy_context}"
         f"=== {history_label} (Oldest to Newest) ===\n"
         f"{sidebar_feed_text}\n\n"
-        + (
-            "=== NEW SESSION TITLE REQUIREMENT ===\n"
-            "This is the first reply in a new Copilot session. Start the reply with exactly one line in this format: "
-            "SESSION_TITLE: a concise 3-8 word title. Then provide a blank line and the normal answer. "
-            "Do not mention this title instruction in the answer.\n"
-            if is_first_message else ""
-        )
     )
 
     copilot_messages = [
         {"role": "user", "content": context_payload}
     ]
+
     
     try:
         response, actual_stage3_prompt = call_ai_with_web_search(
@@ -2659,11 +2653,37 @@ def process_ai_conversation(user_id, message, conversation_id=None, include_all_
         else:
             ai_content = str(response)
 
-        generated_title, ai_content = _extract_copilot_session_title(ai_content)
         if is_first_message:
-            session.title = generated_title or _fallback_copilot_session_title(message)
+            try:
+                title_prompt_sys = getattr(current_user.settings, 'copilot_title_prompt', None)
+                if not title_prompt_sys:
+                    title_prompt_sys = "You are an AI tasked with generating a concise 3-8 word title for this chat based on the user's first message. Respond ONLY with the title and nothing else, no quotes, no formatting."
+                
+                title_msgs = [
+                    {"role": "system", "content": title_prompt_sys},
+                    {"role": "user", "content": f"User message to summarize into a title: {message}"}
+                ]
+                title_resp, _ = call_ai_with_web_search(
+                    username=username,
+                    messages=title_msgs,
+                    user_id=user_id,
+                    prompt_type='copilot',
+                    symbol=target_symbol,
+                    model=None
+                )
+                if hasattr(title_resp, 'choices') and title_resp.choices:
+                    session.title = title_resp.choices[0].message.content.strip(' "\'.')
+                elif hasattr(title_resp, 'text'):
+                    session.title = title_resp.text.strip(' "\'.')
+                else:
+                    session.title = str(title_resp).strip(' "\'.')
+            except Exception as e:
+                logger.warning(f"Background title generation failed: {e}")
+                session.title = _fallback_copilot_session_title(message)
+
         session.updated_at = datetime.utcnow()
         db.session.commit()
+
         
         resp_tier = getattr(response, 'tier', 'primary')
         resp_provider = getattr(response, 'provider', None)
@@ -2679,15 +2699,18 @@ def process_ai_conversation(user_id, message, conversation_id=None, include_all_
     except Exception as ai_err:
         logger.error(f"All AI providers exhausted for Copilot: {ai_err}")
         # Build immediate data-backed response from live database telemetry
-        resp_tier = "telemetry_fallback"
-        resp_provider = "system"
-        resp_model = "live-telemetry"
+        resp_tier = "Fallback"
+        resp_provider = "System Failover"
+        resp_model = f"Live Telemetry (Failed: {ai_err})"
+        
         ai_content = (
+            f"**All AI Providers Failed.** *(Error: {ai_err})*\n\n"
+            f"Please check your AI API key settings or troubleshoot your local Ollama connection.\n"
+            f"Here is your raw telemetry data as a fallback:\n\n"
             f"**Live Copilot Analysis for {target_symbol}:**\n\n"
             f"• **Focused Coin Context**: {symbol_context_text or f'{target_symbol} telemetry active'}\n"
             f"• **Active Pending Orders**: {pending_orders_text}\n"
-            f"• **Current Portfolio Holdings**: {holdings_text}\n\n"
-            f"*(Note: Live crypto telemetry supplied directly because upstream AI provider returned a temporary rate limit or overload: {ai_err})*"
+            f"• **Current Portfolio Holdings**: {holdings_text}\n"
         )
         if is_first_message:
             session.title = _fallback_copilot_session_title(message)

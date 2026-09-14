@@ -96,9 +96,9 @@ def get_user_ai_settings(username: str) -> dict:
             'ai_provider_tertiary': '',
             'ai_model_tertiary': '',
             'ai_reasoning_level_tertiary': 'medium',
-            'ai_provider_quartan': '',
-            'ai_model_quartan': '',
-            'ai_reasoning_level_quartan': 'medium',
+            'ai_provider_quaternary': '',
+            'ai_model_quaternary': '',
+            'ai_reasoning_level_quaternary': 'medium',
             'ai_cache_duration_hours': 1,
             'ai_confidence_threshold': 70,
             'ai_risk_tolerance': 'moderate',
@@ -124,6 +124,7 @@ def get_user_ai_settings(username: str) -> dict:
             },
             'copilot_chat_pre': DEFAULT_COPILOT_SEARCH_PROMPT,
             'copilot_chat_post': DEFAULT_COPILOT_RESPONSE_PROMPT,
+            'copilot_title_prompt': "You are an AI tasked with generating a concise 3-8 word title for this chat based on the user's first message. Respond ONLY with the title and nothing else, no quotes, no formatting.",
             'event_strategy_audit_hours': 6,
             'event_strategy_audit_prompt': (
                 "You are a principal quantitative trading auditor and AI reliability engineer. "
@@ -263,9 +264,9 @@ def get_user_ai_settings(username: str) -> dict:
                 settings['ai_provider_tertiary'] = getattr(user_setting, 'ai_provider_tertiary', '')
                 settings['ai_model_tertiary'] = getattr(user_setting, 'ai_model_tertiary', '')
                 settings['ai_reasoning_level_tertiary'] = getattr(user_setting, 'ai_reasoning_level_tertiary', 'medium') or 'medium'
-                settings['ai_provider_quartan'] = getattr(user_setting, 'ai_provider_quartan', '')
-                settings['ai_model_quartan'] = getattr(user_setting, 'ai_model_quartan', '')
-                settings['ai_reasoning_level_quartan'] = getattr(user_setting, 'ai_reasoning_level_quartan', 'medium') or 'medium'
+                settings['ai_provider_quaternary'] = getattr(user_setting, 'ai_provider_quaternary', '')
+                settings['ai_model_quaternary'] = getattr(user_setting, 'ai_model_quaternary', '')
+                settings['ai_reasoning_level_quaternary'] = getattr(user_setting, 'ai_reasoning_level_quaternary', 'medium') or 'medium'
 
                 settings['ai_risk_tolerance'] = user_setting.ai_risk_tolerance
                 settings['ai_confidence_threshold'] = user_setting.ai_confidence_threshold
@@ -284,6 +285,8 @@ def get_user_ai_settings(username: str) -> dict:
                     settings['copilot_chat_pre'] = user_setting.copilot_chat_pre
                 if hasattr(user_setting, 'copilot_chat_post') and user_setting.copilot_chat_post:
                     settings['copilot_chat_post'] = user_setting.copilot_chat_post
+                if hasattr(user_setting, 'copilot_title_prompt') and user_setting.copilot_title_prompt:
+                    settings['copilot_title_prompt'] = user_setting.copilot_title_prompt
                 if hasattr(user_setting, 'event_strategy_audit_hours') and user_setting.event_strategy_audit_hours:
                     settings['event_strategy_audit_hours'] = user_setting.event_strategy_audit_hours
                 if hasattr(user_setting, 'event_strategy_audit_prompt') and user_setting.event_strategy_audit_prompt:
@@ -354,7 +357,7 @@ def get_user_ai_settings(username: str) -> dict:
         settings['ai_provider'] = provider
         model = settings.get('ai_model')
 
-        for provider_field in ('ai_provider_fallback', 'ai_provider_secondary', 'ai_provider_tertiary', 'ai_provider_quartan'):
+        for provider_field in ('ai_provider_fallback', 'ai_provider_secondary', 'ai_provider_tertiary', 'ai_provider_quaternary'):
             current_provider = settings.get(provider_field)
             settings[provider_field] = str(current_provider or '').strip().lower()
 
@@ -419,7 +422,7 @@ def get_user_ai_settings(username: str) -> dict:
             for provider_field, model_field, default_value in (
                 ('ai_provider_secondary', 'ai_model_secondary', ''),
                 ('ai_provider_tertiary', 'ai_model_tertiary', ''),
-                ('ai_provider_quartan', 'ai_model_quartan', ''),
+                ('ai_provider_quaternary', 'ai_model_quaternary', ''),
             ):
                 if str(settings.get(provider_field) or '').strip().lower() == 'ollama':
                     settings[provider_field] = ''

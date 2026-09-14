@@ -63,20 +63,20 @@ def init_db(app=None):
             ("user_settings", "onboarding_ai_skipped", "BOOLEAN DEFAULT FALSE"),
             ("user_settings", "onboarding_search_skipped", "BOOLEAN DEFAULT FALSE"),
             ("user_settings", "onboarding_telegram_skipped", "BOOLEAN DEFAULT FALSE"),
-            ("user_settings", "ai_provider_quartan", "VARCHAR"),
-            ("user_settings", "ai_model_quartan", "VARCHAR"),
-            ("user_settings", "ai_reasoning_level_quartan", "VARCHAR DEFAULT 'medium'"),
+            ("user_settings", "ai_provider_quaternary", "VARCHAR"),
+            ("user_settings", "ai_model_quaternary", "VARCHAR"),
+            ("user_settings", "ai_reasoning_level_quaternary", "VARCHAR DEFAULT 'medium'"),
             ("credentials", "webull_app_key", "VARCHAR"),
             ("credentials", "webull_app_secret", "VARCHAR"),
             ("credentials", "webull_access_token", "VARCHAR"),
             ("credentials", "webull_token_environment", "VARCHAR(20)"),
             ("credentials", "webull_token_status", "VARCHAR(20)"),
             ("credentials", "webull_token_expires_at", "TIMESTAMP"),
-            ("credentials", "openai_key_quartan", "VARCHAR"),
-            ("credentials", "zai_key_quartan", "VARCHAR"),
-            ("credentials", "perplexity_key_quartan", "VARCHAR"),
-            ("credentials", "gemini_key_quartan", "VARCHAR"),
-            ("credentials", "inception_key_quartan", "VARCHAR"),
+            ("credentials", "openai_key_quaternary", "VARCHAR"),
+            ("credentials", "zai_key_quaternary", "VARCHAR"),
+            ("credentials", "perplexity_key_quaternary", "VARCHAR"),
+            ("credentials", "gemini_key_quaternary", "VARCHAR"),
+            ("credentials", "inception_key_quaternary", "VARCHAR"),
             ("webull_holdings", "webull_position_id", "VARCHAR(100)"),
             ("webull_holdings", "instrument_id", "VARCHAR(100)"),
             ("webull_holdings", "display_name", "VARCHAR(200)"),
@@ -115,13 +115,16 @@ def init_db(app=None):
             ("watchlist", "sentiment_last_updated", "TIMESTAMP"),
             ("ai_prompts", "watchlist_sentiment_prompt_pre", "TEXT"),
             ("ai_prompts", "watchlist_sentiment_prompt_post", "TEXT"),
-            ("ai_prompts", "copilot_chat_pre", "TEXT"),
-            ("ai_prompts", "copilot_chat_post", "TEXT"),
+            ("user_settings", "copilot_chat_pre", "TEXT"),
+            ("user_settings", "copilot_chat_post", "TEXT"),
+            ("user_settings", "copilot_title_prompt", "TEXT"),
+            ("ai_prompts", "copilot_title_prompt", "TEXT"),
             ("ai_prompts", "event_strategy_audit_prompt", "TEXT"),
             ("default_ai_prompts", "watchlist_sentiment_prompt_pre", "TEXT"),
             ("default_ai_prompts", "watchlist_sentiment_prompt_post", "TEXT"),
             ("default_ai_prompts", "copilot_chat_pre", "TEXT"),
             ("default_ai_prompts", "copilot_chat_post", "TEXT"),
+            ("default_ai_prompts", "copilot_title_prompt", "TEXT"),
             ("default_ai_prompts", "event_strategy_audit_prompt", "TEXT"),
             ("coins", "auto_sell_enabled", "BOOLEAN DEFAULT FALSE"),
             ("coins", "auto_sell_volatility_pct", "FLOAT"),
@@ -391,6 +394,7 @@ def init_db(app=None):
         )
         default_copilot_pre = DEFAULT_COPILOT_SEARCH_PROMPT
         default_copilot_post = DEFAULT_COPILOT_RESPONSE_PROMPT
+        default_copilot_title_prompt = "You are an AI tasked with generating a concise 3-8 word title for this chat based on the user's first message. Respond ONLY with the title and nothing else, no quotes, no formatting."
         default_event_audit_prompt = (
             "You are a principal quantitative trading auditor and AI reliability engineer. "
             "Your task is to analyze telemetry, execution logs, and decision traces from an autonomous "
@@ -419,6 +423,7 @@ def init_db(app=None):
                 'watchlist_sentiment_prompt_post': default_wl_post,
                 'copilot_chat_pre': default_copilot_pre,
                 'copilot_chat_post': default_copilot_post,
+                'copilot_title_prompt': default_copilot_title_prompt,
                 'event_strategy_audit_prompt': default_event_audit_prompt,
             }.items():
                 if getattr(def_prompt, field, None) is None:
@@ -444,6 +449,7 @@ def init_db(app=None):
                     'watchlist_sentiment_prompt_post': default_wl_post,
                     'copilot_chat_pre': default_copilot_pre,
                     'copilot_chat_post': default_copilot_post,
+                    'copilot_title_prompt': default_copilot_title_prompt,
                     'event_strategy_audit_prompt': default_event_audit_prompt,
                 }.items():
                     if getattr(up, field, None) is None:
@@ -456,6 +462,8 @@ def init_db(app=None):
                     us.copilot_chat_pre = default_copilot_pre
                 if getattr(us, 'copilot_chat_post', None) is None:
                     us.copilot_chat_post = default_copilot_post
+                if getattr(us, 'copilot_title_prompt', None) is None:
+                    us.copilot_title_prompt = default_copilot_title_prompt
                 if getattr(us, 'event_strategy_audit_hours', None) is None:
                     us.event_strategy_audit_hours = 6
                 if getattr(us, 'event_strategy_audit_prompt', None) is None:

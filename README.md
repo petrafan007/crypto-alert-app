@@ -814,7 +814,7 @@ See [Positions views and column layouts](docs/positions.md) for controls, accoun
   - Strictly segregated instrument account lanes across the frontend trading terminal and backend API for Event Contracts (`EVENTS_CASH`), Futures (`FUTURES`), Crypto (`CRYPTO`), and Equities/Options (`INDIVIDUAL_CASH`).
 - **AI Strategy Engine 4-Tier Fallback Resilience & Local Ollama Execution**:
   - Resolved administrator identity verification in background worker tasks to ensure authorized system administrators can reliably run local Ollama models.
-  - Enhanced the 4-tier AI failover chain (Primary → Secondary → Tertiary → Quartan) with robust error classification and graceful failover when upstream cloud API providers encounter rate limits or temporary outages.
+  - Enhanced the 4-tier AI failover chain (Primary → Secondary → Tertiary → Quaternary) with robust error classification and graceful failover when upstream cloud API providers encounter rate limits or temporary outages.
 
 ## v2.87.0 (September 2026)
 
@@ -1055,10 +1055,10 @@ Historical changelog entries retain the product name used when they were origina
 
 ## v2.82.0 (September 2026)
 
-### Quartan AI Fallback and Ollama Cloud Compatibility
-- Added an optional Quartan AI Integration as the fourth and final provider in the configured failover chain, with independent provider, model, reasoning, and encrypted API-key settings.
-- Added Quartan connection testing, onboarding support, status reporting, and server-side persistence alongside the existing primary, secondary, and tertiary integrations.
-- Kept Ollama administrator-only while allowing the administrator to select discovered local or signed-in Ollama cloud models for any fallback tier, including Quartan.
+### Quaternary AI Fallback and Ollama Cloud Compatibility
+- Added an optional Quaternary AI Integration as the fourth and final provider in the configured failover chain, with independent provider, model, reasoning, and encrypted API-key settings.
+- Added Quaternary connection testing, onboarding support, status reporting, and server-side persistence alongside the existing primary, secondary, and tertiary integrations.
+- Kept Ollama administrator-only while allowing the administrator to select discovered local or signed-in Ollama cloud models for any fallback tier, including Quaternary.
 - Improved Ollama chat handling for cloud-backed thinking models by sending a supported reasoning level, accepting documented content-part and thinking response shapes, and providing actionable sign-in guidance for unauthorized cloud access.
 
 ## v2.81.0 (September 2026)

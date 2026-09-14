@@ -79,7 +79,7 @@ class AIProviderFailoverTests(unittest.TestCase):
             'https://api.inceptionlabs.ai/v1/chat/completions',
         )
 
-    def test_quartan_is_the_fourth_explicit_fallback(self):
+    def test_quaternary_is_the_fourth_explicit_fallback(self):
         settings = {
             'ai_provider': 'openai',
             'ai_model': 'gpt-5',
@@ -87,13 +87,13 @@ class AIProviderFailoverTests(unittest.TestCase):
             'ai_model_secondary': 'glm-4.5-flash',
             'ai_provider_tertiary': 'inception',
             'ai_model_tertiary': 'mercury-2',
-            'ai_provider_quartan': 'ollama',
-            'ai_model_quartan': 'gpt-oss:120b-cloud',
-            'ai_reasoning_level_quartan': 'high',
+            'ai_provider_quaternary': 'ollama',
+            'ai_model_quaternary': 'gpt-oss:120b-cloud',
+            'ai_reasoning_level_quaternary': 'high',
         }
         self.assertEqual(
             build_configured_ai_tiers(settings)[-1],
-            ('quartan', 'ollama', 'gpt-oss:120b-cloud', 'high'),
+            ('quaternary', 'ollama', 'gpt-oss:120b-cloud', 'high'),
         )
 
     def test_ollama_is_restricted_to_the_permanent_administrator(self):

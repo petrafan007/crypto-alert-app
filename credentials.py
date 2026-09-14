@@ -102,12 +102,12 @@ class Credential(db.Model):
     _gemini_key_tertiary = db.Column("gemini_key_tertiary", db.String)
     _inception_key_tertiary = db.Column("inception_key_tertiary", db.String)
 
-    # Quartan (fourth fallback) AI Keys
-    _openai_key_quartan = db.Column("openai_key_quartan", db.String)
-    _zai_key_quartan = db.Column("zai_key_quartan", db.String)
-    _perplexity_key_quartan = db.Column("perplexity_key_quartan", db.String)
-    _gemini_key_quartan = db.Column("gemini_key_quartan", db.String)
-    _inception_key_quartan = db.Column("inception_key_quartan", db.String)
+    # Quaternary (fourth fallback) AI Keys
+    _openai_key_quaternary = db.Column("openai_key_quaternary", db.String)
+    _zai_key_quaternary = db.Column("zai_key_quaternary", db.String)
+    _perplexity_key_quaternary = db.Column("perplexity_key_quaternary", db.String)
+    _gemini_key_quaternary = db.Column("gemini_key_quaternary", db.String)
+    _inception_key_quaternary = db.Column("inception_key_quaternary", db.String)
 
     
     # OAuth (Legacy/Unused fields removed)
@@ -341,46 +341,46 @@ class Credential(db.Model):
     def inception_key_tertiary(self, value):
         self._inception_key_tertiary = normalize_secret_for_storage(value)
 
-    # Quartan (fourth fallback) Keys
+    # Quaternary (fourth fallback) Keys
     @property
-    def openai_key_quartan(self):
-        return decrypt_secret(self._openai_key_quartan)
+    def openai_key_quaternary(self):
+        return decrypt_secret(self._openai_key_quaternary)
 
-    @openai_key_quartan.setter
-    def openai_key_quartan(self, value):
-        self._openai_key_quartan = normalize_secret_for_storage(value)
-
-    @property
-    def zai_key_quartan(self):
-        return decrypt_secret(self._zai_key_quartan)
-
-    @zai_key_quartan.setter
-    def zai_key_quartan(self, value):
-        self._zai_key_quartan = normalize_secret_for_storage(value)
+    @openai_key_quaternary.setter
+    def openai_key_quaternary(self, value):
+        self._openai_key_quaternary = normalize_secret_for_storage(value)
 
     @property
-    def perplexity_key_quartan(self):
-        return decrypt_secret(self._perplexity_key_quartan)
+    def zai_key_quaternary(self):
+        return decrypt_secret(self._zai_key_quaternary)
 
-    @perplexity_key_quartan.setter
-    def perplexity_key_quartan(self, value):
-        self._perplexity_key_quartan = normalize_secret_for_storage(value)
-
-    @property
-    def gemini_key_quartan(self):
-        return decrypt_secret(self._gemini_key_quartan)
-
-    @gemini_key_quartan.setter
-    def gemini_key_quartan(self, value):
-        self._gemini_key_quartan = normalize_secret_for_storage(value)
+    @zai_key_quaternary.setter
+    def zai_key_quaternary(self, value):
+        self._zai_key_quaternary = normalize_secret_for_storage(value)
 
     @property
-    def inception_key_quartan(self):
-        return decrypt_secret(self._inception_key_quartan)
+    def perplexity_key_quaternary(self):
+        return decrypt_secret(self._perplexity_key_quaternary)
 
-    @inception_key_quartan.setter
-    def inception_key_quartan(self, value):
-        self._inception_key_quartan = normalize_secret_for_storage(value)
+    @perplexity_key_quaternary.setter
+    def perplexity_key_quaternary(self, value):
+        self._perplexity_key_quaternary = normalize_secret_for_storage(value)
+
+    @property
+    def gemini_key_quaternary(self):
+        return decrypt_secret(self._gemini_key_quaternary)
+
+    @gemini_key_quaternary.setter
+    def gemini_key_quaternary(self, value):
+        self._gemini_key_quaternary = normalize_secret_for_storage(value)
+
+    @property
+    def inception_key_quaternary(self):
+        return decrypt_secret(self._inception_key_quaternary)
+
+    @inception_key_quaternary.setter
+    def inception_key_quaternary(self, value):
+        self._inception_key_quaternary = normalize_secret_for_storage(value)
 
 
     @property
@@ -450,10 +450,10 @@ class UserSetting(db.Model):
     ai_model_tertiary = db.Column(db.String)
     ai_reasoning_level_tertiary = db.Column(db.String, default='medium')
 
-    # Quartan (fourth fallback) AI Tier
-    ai_provider_quartan = db.Column(db.String)
-    ai_model_quartan = db.Column(db.String)
-    ai_reasoning_level_quartan = db.Column(db.String, default='medium')
+    # Quaternary (fourth fallback) AI Tier
+    ai_provider_quaternary = db.Column(db.String)
+    ai_model_quaternary = db.Column(db.String)
+    ai_reasoning_level_quaternary = db.Column(db.String, default='medium')
 
     ai_risk_tolerance = db.Column(db.String, default='medium')
     ai_confidence_threshold = db.Column(db.Float, default=0.7)
@@ -486,6 +486,7 @@ class UserSetting(db.Model):
     browser_notifications_enabled = db.Column(db.Boolean, default=True)
     copilot_chat_pre = db.Column(db.Text)
     copilot_chat_post = db.Column(db.Text)
+    copilot_title_prompt = db.Column(db.Text)
     event_strategy_audit_hours = db.Column(db.Integer, default=6)
     event_strategy_audit_prompt = db.Column(db.Text)
     sentiment_analysis_frequency_hours = db.Column(db.Integer, default=24)

@@ -1484,7 +1484,7 @@ def api_settings():
                 'ai_provider_fallback',
                 'ai_provider_secondary',
                 'ai_provider_tertiary',
-                'ai_provider_quartan',
+                'ai_provider_quaternary',
             )
             if any(str(data.get(field) or '').strip().lower() == 'ollama' for field in ollama_fields):
                 if not is_event_strategy_admin(current_user):
@@ -1557,8 +1557,7 @@ def api_settings():
                 'ai_enabled', 'ai_provider', 'ai_model', 'ai_risk_tolerance',
                 'ai_confidence_threshold', 'ai_notifications_enabled', 'ai_analysis_frequency',
                 'ai_cache_duration_hours', 'ai_analysis_window_start', 'ai_analysis_window_end',
-                'ai_max_tokens', 'ai_web_search_enabled', 'tax_manual_invested_updated', 
-                'tax_cost_basis_method', 'copilot_chat_pre', 'copilot_chat_post',
+                'tax_cost_basis_method', 'copilot_chat_pre', 'copilot_chat_post', 'copilot_title_prompt',
                 'event_strategy_audit_hours', 'event_strategy_audit_prompt',
                 'sentiment_analysis_frequency_hours', 'watchlist_sentiment_analysis_frequency_hours',
                 'sentiment_history_lookback_hours', 'watchlist_sentiment_history_lookback_hours',
@@ -1571,7 +1570,7 @@ def api_settings():
                 'ai_provider_fallback', 'ai_model_fallback', 'ai_reasoning_level_fallback',
                 'ai_provider_secondary', 'ai_model_secondary', 'ai_reasoning_level_secondary',
                 'ai_provider_tertiary', 'ai_model_tertiary', 'ai_reasoning_level_tertiary',
-                'ai_provider_quartan', 'ai_model_quartan', 'ai_reasoning_level_quartan',
+                'ai_provider_quaternary', 'ai_model_quaternary', 'ai_reasoning_level_quaternary',
                 'ai_reasoning_level',
                 'browser_notifications_enabled', 'toast_notifications_enabled', 'telegram_notifications_enabled'
             ]
@@ -1589,7 +1588,7 @@ def api_settings():
                         'coin_analysis_pre', 'coin_analysis_post',
                         'sentiment_prompt_pre', 'sentiment_prompt_post',
                         'watchlist_sentiment_prompt_pre', 'watchlist_sentiment_prompt_post',
-                        'event_strategy_audit_prompt'
+                        'event_strategy_audit_prompt', 'copilot_title_prompt'
                     ]
                     for field in prompt_fields:
                         if field in value:
@@ -1698,17 +1697,17 @@ def api_settings():
                 if 'inception_key_tertiary' in data:
                     cred.inception_key_tertiary = data['inception_key_tertiary']
 
-                # Quartan (fourth fallback) Keys
-                if 'openai_key_quartan' in data:
-                    cred.openai_key_quartan = data['openai_key_quartan']
-                if 'zai_key_quartan' in data:
-                    cred.zai_key_quartan = data['zai_key_quartan']
-                if 'perplexity_key_quartan' in data:
-                    cred.perplexity_key_quartan = data['perplexity_key_quartan']
-                if 'gemini_key_quartan' in data:
-                    cred.gemini_key_quartan = data['gemini_key_quartan']
-                if 'inception_key_quartan' in data:
-                    cred.inception_key_quartan = data['inception_key_quartan']
+                # Quaternary (fourth fallback) Keys
+                if 'openai_key_quaternary' in data:
+                    cred.openai_key_quaternary = data['openai_key_quaternary']
+                if 'zai_key_quaternary' in data:
+                    cred.zai_key_quaternary = data['zai_key_quaternary']
+                if 'perplexity_key_quaternary' in data:
+                    cred.perplexity_key_quaternary = data['perplexity_key_quaternary']
+                if 'gemini_key_quaternary' in data:
+                    cred.gemini_key_quaternary = data['gemini_key_quaternary']
+                if 'inception_key_quaternary' in data:
+                    cred.inception_key_quaternary = data['inception_key_quaternary']
 
                 if 'ai_provider' in data:
                     cred.ai_provider = data['ai_provider']
@@ -1817,11 +1816,11 @@ def api_settings():
             "perplexity_key_tertiary": getattr(cred, 'perplexity_key_tertiary', None),
             "gemini_key_tertiary": getattr(cred, 'gemini_key_tertiary', None),
             "inception_key_tertiary": getattr(cred, 'inception_key_tertiary', None),
-            "openai_key_quartan": getattr(cred, 'openai_key_quartan', None),
-            "zai_key_quartan": getattr(cred, 'zai_key_quartan', None),
-            "perplexity_key_quartan": getattr(cred, 'perplexity_key_quartan', None),
-            "gemini_key_quartan": getattr(cred, 'gemini_key_quartan', None),
-            "inception_key_quartan": getattr(cred, 'inception_key_quartan', None),
+            "openai_key_quaternary": getattr(cred, 'openai_key_quaternary', None),
+            "zai_key_quaternary": getattr(cred, 'zai_key_quaternary', None),
+            "perplexity_key_quaternary": getattr(cred, 'perplexity_key_quaternary', None),
+            "gemini_key_quaternary": getattr(cred, 'gemini_key_quaternary', None),
+            "inception_key_quaternary": getattr(cred, 'inception_key_quaternary', None),
             # ai_provider is already in ai_settings, but ensure sync? 
             # ai_settings takes precedence as it handles defaults and user_settings overlay
             "telegram_token": cred.telegram_token,
