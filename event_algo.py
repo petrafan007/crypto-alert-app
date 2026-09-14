@@ -2499,63 +2499,9 @@ def simulate_paper_fills(user_id, *, config=None, decision_ids=None, limit=25):
 
 
 def event_strategy_performance(user_id, *, config=None, limit=500):
-    """Aggregate settled hypothetical fills; unresolved contracts are excluded."""
-    orders = (
-        EventStrategyOrder.query.filter_by(user_id=user_id, mode=PAPER_MODE)
-        .order_by(EventStrategyOrder.submitted_at.asc()).limit(max(1, min(int(limit or 500), 2000))).all()
-    )
-    outcomes = {}
-    for row in EventContractOutcome.query.filter_by(user_id=user_id, settlement_status="RESOLVED").order_by(EventContractOutcome.observed_at.desc()).all():
-        outcomes.setdefault(row.contract_symbol, row.outcome)
-    decision_ids = [row.decision_id for row in orders if row.decision_id]
-    decision_map = {row.id: row for row in EventStrategyDecision.query.filter(EventStrategyDecision.id.in_(decision_ids)).all()} if decision_ids else {}
-    settled = []
-    pending = 0
-    for order in orders:
-        result = outcomes.get(order.contract_symbol)
-        if result not in {"YES", "NO"}:
-            pending += 1
-            continue
-        won = str(order.outcome or "").upper() == result
-        entry = _number(order.filled_price if order.filled_price is not None else order.limit_price, 0.0) or 0.0
-        quantity = _number(order.filled_quantity, 0.0) or 0.0
-        fee = _number(order.fee, 0.0) or 0.0
-        pnl = _number(order.realized_pnl)
-        if pnl is None:
-            pnl = (quantity if won else 0.0) - quantity * entry - fee
-        details = _json_load(decision_map.get(order.decision_id).feature_json if decision_map.get(order.decision_id) else "{}", {})
-        label = ((details.get("contract_details") or {}).get("duration_label") or "Unknown duration") if isinstance(details, dict) else "Unknown duration"
-        settled.append({"order": order, "won": won, "pnl": float(pnl), "fee": fee, "duration": label})
-    pnls = [item["pnl"] for item in settled]
-    gross_profit = sum(item for item in pnls if item > 0)
-    gross_loss = sum(item for item in pnls if item < 0)
-    running = peak = drawdown = 0.0
-    for value in pnls:
-        running += value
-        peak = max(peak, running)
-        drawdown = max(drawdown, peak - running)
-    by_duration = {}
-    for item in settled:
-        bucket = by_duration.setdefault(item["duration"], {"duration": item["duration"], "trades": 0, "wins": 0, "net_pnl": 0.0})
-        bucket["trades"] += 1
-        bucket["wins"] += int(item["won"])
-        bucket["net_pnl"] += item["pnl"]
-    return {
-        "mode": PAPER_MODE,
-        "trades": len(settled),
-        "pending": pending,
-        "wins": sum(int(item["won"]) for item in settled),
-        "losses": sum(int(not item["won"]) for item in settled),
-        "gross_profit": round(gross_profit, 8),
-        "gross_loss": round(gross_loss, 8),
-        "fees": round(sum(item["fee"] for item in settled), 8),
-        "net_pnl": round(sum(pnls), 8),
-        "max_drawdown": round(drawdown, 8),
-        "profit_factor": round(gross_profit / abs(gross_loss), 6) if gross_loss else None,
-        "expectancy": round(sum(pnls) / len(pnls), 8) if pnls else None,
-        "by_duration": [{**bucket, "net_pnl": round(bucket["net_pnl"], 8)} for bucket in by_duration.values()],
-        "generated_at": datetime.utcnow().replace(tzinfo=timezone.utc).isoformat().replace("+00:00", "Z"),
-    }
+    """Read evidence-scoped results from the legacy hypothetical-fill ledger."""
+    from services.event_performance import legacy_performance
+    return legacy_performance(user_id, config=config, limit=limit)
 
 
 def _snapshot_model(user_id, config_id, run_id, market, features, received_at):

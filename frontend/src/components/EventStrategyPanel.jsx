@@ -9,8 +9,9 @@ const DURATIONS = [
   ['DAILY', 'Daily'],
 ];
 
-const formatPercent = (value) => Number.isFinite(Number(value)) ? `${(Number(value) * 100).toFixed(1)}%` : '—';
-const formatMoney = (value) => Number.isFinite(Number(value)) ? `$${Number(value).toFixed(2)}` : '—';
+const hasNumber = (value) => value !== null && value !== undefined && value !== '' && typeof value !== 'boolean' && Number.isFinite(Number(value));
+const formatPercent = (value) => hasNumber(value) ? `${(Number(value) * 100).toFixed(1)}%` : '—';
+const formatMoney = (value) => hasNumber(value) ? `$${Number(value).toFixed(2)}` : '—';
 const formatDate = (value) => value ? formatEasternDateTime(value) : '—';
 
 export default function EventStrategyPanel({ isPaperMode }) {
@@ -108,7 +109,7 @@ export default function EventStrategyPanel({ isPaperMode }) {
         <div><span>Scanned</span><strong>{lastRun?.scanned_count ?? 0}</strong></div>
         <div><span>NO_TRADE decisions</span><strong>{lastRun?.no_trade_count ?? recentNoTrade}</strong></div>
         <div><span>Simulated trades</span><strong>{performance?.trades ?? 0}</strong></div>
-        <div><span>Paper net P&amp;L</span><strong>{formatMoney(performance?.net_pnl)}</strong></div>
+        <div><span>Legacy paper net P&amp;L</span><strong>{formatMoney(performance?.net_pnl)}</strong></div>
       </div>
 
       <div className="event-strategy-controls">
@@ -165,11 +166,20 @@ export default function EventStrategyPanel({ isPaperMode }) {
       </div>
 
       <div className="event-strategy-performance">
-        <div className="event-strategy-decisions-heading"><strong>Paper performance</strong><span>{performance?.pending || 0} unresolved</span></div>
+        <div className="event-strategy-decisions-heading"><strong>Legacy paper performance</strong><span>{performance?.pending ?? '—'} filled, awaiting settlement</span></div>
+        {performance?.sample && <p>
+          Latest {performance.sample.examined_orders} of {performance.sample.total_orders} paper orders across all legacy configurations.
+          {' '}{performance.trades} verified settled trades; {performance.excluded} excluded.
+          {performance.sample.truncated && ` ${performance.sample.omitted_orders} older orders omitted; these results are not lifetime totals.`}
+        </p>}
+        {performance && performance.trades === 0 && <p>No verified settled fills in this sample. Monetary results are unavailable.</p>}
+        {!!performance?.excluded && <p>Excluded: {Object.entries(performance.exclusions || {}).map(([reason, count]) => `${reason.replaceAll('_', ' ')} (${count})`).join('; ')}.</p>}
+        {!!performance?.stored_pnl_discrepancies && <p>P&amp;L was reconstructed for {performance.stored_pnl_discrepancies} records whose saved totals differ or are missing. Historical records were preserved.</p>}
         <div className="event-strategy-performance-grid">
-          <span>Wins <b>{performance?.wins ?? 0}</b></span><span>Losses <b>{performance?.losses ?? 0}</b></span><span>Fees <b>{formatMoney(performance?.fees)}</b></span><span>Max drawdown <b>{formatMoney(performance?.max_drawdown)}</b></span><span>Profit factor <b>{performance?.profit_factor ?? '—'}</b></span><span>Expectancy <b>{formatMoney(performance?.expectancy)}</b></span>
+          <span>Profitable trades <b>{performance?.wins ?? '—'}</b></span><span>Losing trades <b>{performance?.losses ?? '—'}</b></span><span>Breakeven trades <b>{performance?.breakeven ?? '—'}</b></span><span>Entry fees <b>{formatMoney(performance?.fees)}</b></span><span>Sample drawdown <b>{formatMoney(performance?.max_drawdown)}</b></span><span>Profit factor <b>{performance?.profit_factor ?? '—'}</b></span><span>Expectancy <b>{formatMoney(performance?.expectancy)}</b></span>
         </div>
-        {!!performance?.by_duration?.length && <div className="event-strategy-duration-results">{performance.by_duration.map((item) => <span key={item.duration}>{item.duration}: {item.wins}/{item.trades} wins · {formatMoney(item.net_pnl)}</span>)}</div>}
+        <p>Trade results include entry fees. Drawdown follows settlement order within this sample. This history is separate from the quantitative bankroll.</p>
+        {!!performance?.by_duration?.length && <div className="event-strategy-duration-results">{performance.by_duration.map((item) => <span key={item.duration}>{item.duration}: {item.wins}/{item.trades} profitable · {formatMoney(item.net_pnl)}</span>)}</div>}
       </div>
     </section>
   );

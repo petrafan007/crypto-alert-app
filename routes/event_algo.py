@@ -34,7 +34,7 @@ from event_algo import (
     _json_dump,
 )
 from credentials import Credential, UserSetting
-from event_algo_models import EventStrategyDecision, EventStrategyRun
+from event_algo_models import EventStrategyConfig, EventStrategyDecision, EventStrategyRun
 
 
 event_algo_bp = Blueprint("event_algo", __name__)
@@ -280,7 +280,18 @@ def event_algo_performance():
         limit = max(1, min(int(request.args.get("limit") or 500), 2000))
     except (TypeError, ValueError):
         limit = 500
-    return jsonify({"success": True, **event_strategy_performance(current_user.id, limit=limit)})
+    config = None
+    if 'config_id' in request.args:
+        try:
+            config_id = int(request.args['config_id'])
+        except (TypeError, ValueError):
+            return jsonify({"success": False, "message": "Invalid Event configuration ID."}), 400
+        if not 0 < config_id <= 2147483647:
+            return jsonify({"success": False, "message": "Invalid Event configuration ID."}), 400
+        config = EventStrategyConfig.query.filter_by(id=config_id, user_id=current_user.id).first()
+        if config is None:
+            return jsonify({"success": False, "message": "Event configuration is unavailable."}), 404
+    return jsonify({"success": True, **event_strategy_performance(current_user.id, config=config, limit=limit)})
 
 
 def test_provider_api(*args, **kwargs):

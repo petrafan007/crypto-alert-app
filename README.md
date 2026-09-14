@@ -1,8 +1,13 @@
 # Crypto & Quant Securities Dashboard
 
-**Version:** 2.99.24
+**Version:** 2.99.25
 
 ## Recent Updates
+
+### v2.99.25
+- **Legacy Event performance accuracy:** Reports now require positive actual fills, a settled order status and matching saved settlement proof. Net P&L is reconstructed from filled quantity, filled price, payout and entry fee instead of trusting a default zero. Profitable, losing and breakeven trades reflect after-fee results; drawdown follows settlement chronology.
+- **Explicit reporting scope:** Reports select the newest orders with stable tie-breaking, disclose sample limits and exclusions, honor an optional user-owned configuration filter, and keep missing monetary results unavailable. Malformed duration metadata is labeled Unknown. Historical ledger values are never rewritten.
+- **Verification:** All 240 selected Event/portfolio tests passed with isolated PostgreSQL coverage. A read-only check of the personal instance includes all 170 settled legacy trades with no exclusions or stored-P&L discrepancies; reconstructed net P&L remains -$5.658. Active quantitative bankroll accounting is unchanged. Remaining AI audit/reporting work is tracked in `docs/quantitative_strategy_engine.md`.
 
 ### v2.99.24
 - **Guarded legacy Event fills:** The standalone simulator now reloads saved controls, enforces fee-inclusive exposure/count/loss limits across the user's legacy configurations, and prevents duplicate contracts under database row locks. Invalid selections cannot expand into unrelated fills, stopped/killed configurations cannot enter, and an explicitly configured zero fee is preserved.
