@@ -1,8 +1,11 @@
 # Crypto & Quant Securities Dashboard
 
-**Version:** 2.99.28
+**Version:** 2.99.29
 
 ## Recent Updates
+
+### v2.99.29
+- **Frontend Tooltip Polish:** Finalized the UI logic to cleanly parse and display the exact fallback reason from the backend (e.g. "All AI providers exhausted") inside the AI Copilot message tooltip.
 
 ### v2.99.28
 - **AI Copilot Background Title Generation & Transparent Tooltips:** The AI Copilot now generates concise chat titles via a fast, background generation call that is separated from the main session prompt. The prompt for this title generation is fully exposed in Settings and can be modified. Additionally, fallback transparency has been improved: if all four AI providers (Primary through Quaternary) fail, the UI explicitly displays the failure reason and details on the fallback telemetry data in the tooltip.

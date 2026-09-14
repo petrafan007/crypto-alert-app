@@ -897,6 +897,15 @@ export default function AICopilotSidebar() {
     const tier = getTierLabel(conv.tier);
     const provider = getProviderLabel(conv.provider || 'openai');
     const model = conv.model || 'Default';
+    
+    if (conv.tier === 'fallback') {
+      let errorMsg = 'All AI providers exhausted.';
+      if (model.includes('Failed:')) {
+        errorMsg = model.split('Failed:')[1]?.replace(')', '')?.trim() || errorMsg;
+      }
+      return `Tier: Telemetry Fallback\nError: ${errorMsg}`;
+    }
+    
     return `Tier: ${tier}\nProvider: ${provider}\nModel: ${model}`;
   };
 
