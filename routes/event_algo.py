@@ -262,7 +262,9 @@ def event_algo_resolve():
 @event_algo_bp.route("/api/webull/event-algo/simulate", methods=["POST"])
 @event_strategy_admin_required
 def event_algo_simulate():
-    payload = request.get_json(silent=True) or {}
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return jsonify({"success": False, "message": "Simulation request must be a JSON object."}), 400
     result = simulate_paper_fills(
         current_user.id,
         decision_ids=payload.get("decision_ids"),

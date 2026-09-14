@@ -1,8 +1,13 @@
 # Crypto & Quant Securities Dashboard
 
-**Version:** 2.99.23
+**Version:** 2.99.24
 
 ## Recent Updates
+
+### v2.99.24
+- **Guarded legacy Event fills:** The standalone simulator now reloads saved controls, enforces fee-inclusive exposure/count/loss limits across the user's legacy configurations, and prevents duplicate contracts under database row locks. Invalid selections cannot expand into unrelated fills, stopped/killed configurations cannot enter, and an explicitly configured zero fee is preserved.
+- **Fresh execution evidence:** Each fill requires a decision within 120 seconds and its exact saved quote within 30 seconds. Current spread, depth, expiry, confidence and edge gates are reapplied. Filled/skipped decisions retain structured evidence; missing depth is explicitly UNKNOWN. Users with a quantitative bankroll continue using its existing ledger.
+- **Verification and scope:** Isolated PostgreSQL regressions cover concurrent entries, replay prevention, configuration/user isolation, stale quotes and transaction rollback. All 225 tests in the related Event, risk, handoff, settlement and full portfolio suites pass. No production orders or historical records were changed. The remaining engine review is tracked in `docs/quantitative_strategy_engine.md`; v3.00.0 remains reserved for final review and your approval.
 
 ### v2.99.23
 - **Search fallback cooldowns:** DuckDuckGo GET/POST and Google News RSS requests now use the shared provider controls. Failures suppress repeated requests for other queries from the same user across web/worker connections. Rate-limit delays are preserved; other unavailable search responses, including HTTP 202 challenges, receive a short cooldown. Independent providers and users retain their own state.

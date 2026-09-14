@@ -2478,60 +2478,24 @@ def resolve_event_outcomes(user_id, *, config=None, limit=25, force=False):
 
 
 def simulate_paper_fills(user_id, *, config=None, decision_ids=None, limit=25):
-    """Create hypothetical fills for eligible signals without a broker call."""
+    """Commit guarded legacy fills and their evidence without a broker call."""
     from portfolio_algo_models import PortfolioStrategyConfig
     if PortfolioStrategyConfig.query.filter_by(user_id=user_id).first() is not None:
         return {"success": True, "simulated_count": 0, "orders": [],
                 "message": "Qualified signals are consumed by the capital-constrained quantitative ledger."}
-    config = config or get_or_create_config(user_id)
-    if config.mode != PAPER_MODE or config.kill_switch:
-        return {"success": False, "message": "Paper-fill simulation is available only while the paper engine is enabled."}
-    query = EventStrategyDecision.query.filter_by(user_id=user_id, eligible=True).order_by(EventStrategyDecision.created_at.desc())
-    if decision_ids:
-        try:
-            ids = [int(value) for value in decision_ids]
-        except (TypeError, ValueError):
-            ids = []
-        if ids:
-            query = query.filter(EventStrategyDecision.id.in_(ids))
-    decisions = query.limit(max(1, min(int(limit or 25), 100))).all()
-    fee = _number(_json_load(config.signal_config, dict(DEFAULT_SIGNAL_CONFIG)).get("fee_per_contract"), 0.02) or 0.02
-    created = []
-    for decision in decisions:
-        duplicate = EventStrategyOrder.query.filter_by(user_id=user_id, decision_id=decision.id).first()
-        if duplicate:
-            continue
-        price = _number(decision.executable_price)
-        outcome = str(decision.outcome or "").upper()
-        if price is None or outcome not in {"YES", "NO"}:
-            continue
-        order = EventStrategyOrder(
-            user_id=user_id,
-            config_id=config.id,
-            decision_id=decision.id,
-            mode=PAPER_MODE,
-            broker="WEBULL",
-            client_order_id=f"paper-{uuid4().hex}",
-            contract_symbol=decision.contract_symbol,
-            outcome=outcome,
-            side="BUY",
-            quantity=1.0,
-            limit_price=price,
-            status="SIMULATED_FILLED",
-            filled_quantity=1.0,
-            filled_price=price,
-            fee=fee,
-        )
-        db.session.add(order)
-        created.append(order)
-    db.session.commit()
-    return {
-        "success": True,
-        "mode": PAPER_MODE,
-        "simulated_count": len(created),
-        "message": "No eligible signals are available to simulate." if not created else "Eligible signals simulated in paper mode.",
-        "orders": [{"id": order.id, "contract_symbol": order.contract_symbol, "outcome": order.outcome, "price": order.filled_price, "status": order.status} for order in created],
-    }
+    from services.event_paper_execution import simulate_legacy_fills
+    try:
+        # The scanner may already have a new decision/snapshot in its outer
+        # transaction. A held/invalid fill must preserve that research record.
+        with db.session.begin_nested() as fill_batch:
+            result = simulate_legacy_fills(user_id, config=config, decision_ids=decision_ids, limit=limit)
+            if not result['success']:
+                fill_batch.rollback()
+        db.session.commit()
+        return result
+    except Exception:
+        db.session.rollback()
+        raise
 
 
 def event_strategy_performance(user_id, *, config=None, limit=500):
