@@ -845,6 +845,37 @@ class PortfolioLedgerTests(unittest.TestCase):
         db.session.add(User(id=self.user_id, username=f'audit-{self.user_id}', pwd_hash='test'))
         db.session.commit()
 
+    def test_recovery_during_preparation_preserves_terminal_evidence(self):
+        self.audit_user()
+        def recover_before_ai(_username):
+            row = e.Audit.query.filter_by(user_id=self.user_id).one()
+            row.status, row.content, row.evidence_json = 'FAILED', 'Recovered', '{"preserved": true}'
+            db.session.commit()
+            return True
+        with patch('services.ai_service.is_ai_enabled', side_effect=recover_before_ai), \
+                patch('services.ai_service.call_ai_with_web_search') as call:
+            result = e.run_audit(self.user_id)
+        call.assert_not_called()
+        self.assertEqual(result['status'], 'FAILED')
+        self.assertEqual(result['content'], 'Recovered')
+        self.assertEqual(result['evidence'], {'preserved': True})
+
+    def test_deadline_at_publication_cannot_commit_a_completion_log(self):
+        from portfolio_algo_models import PortfolioEngineLog
+        self.audit_user()
+        def expire_before_publication(*args):
+            row = e.Audit.query.filter_by(user_id=self.user_id).one()
+            row.created_at = datetime.utcnow()-timedelta(hours=4)
+            db.session.commit()
+        response = SimpleNamespace(text='Completed assessment', provider='test', model='test')
+        with patch('services.ai_service.is_ai_enabled', return_value=True), \
+                patch('services.ai_service.call_ai_with_web_search', return_value=(response, '')), \
+                patch('services.portfolio_engine.check_drawdown_claim', side_effect=expire_before_publication):
+            result = e.run_audit(self.user_id)
+        self.assertEqual(result['status'], 'FAILED')
+        self.assertEqual(PortfolioEngineLog.query.filter_by(user_id=self.user_id, event_type='AUDIT_COMPLETE').count(), 0)
+        self.assertEqual(PortfolioEngineLog.query.filter_by(user_id=self.user_id, event_type='AUDIT_RECOVERED').count(), 1)
+
     def test_audit_with_positions_in_every_module_and_dedicated_ai_tiers(self):
         self.audit_user()
         for module in e.MODULES:

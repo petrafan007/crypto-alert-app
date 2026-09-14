@@ -1,8 +1,13 @@
 # Crypto & Quant Securities Dashboard
 
-**Version:** 2.99.21
+**Version:** 2.99.22
 
 ## Recent Updates
+
+### v2.99.22
+- **Bounded AI queue waits:** Shared provider locks now use bounded waits instead of blocking indefinitely. Regular requests defer after 60 seconds of contention; quantitative audits retain their provider-timeout allowance and check persisted ownership while waiting. Queue deferral does not attempt another provider or create a provider-failure cooldown.
+- **Audit recovery and late-result protection:** Only pending audits from the current portfolio generation retain exclusive AI access. The independent recovery worker also closes obsolete-generation audits. Fresh checks before and after provider calls prevent expired/cancelled work from retrying, failing over or publishing late output. Evidence preparation and completion logs now use the same guarded final-write path.
+- **Verification scope:** All 57 focused tests pass, covering independent recovery, preserved evidence, deadlines, provider cancellation, PostgreSQL lock contention and full audit execution. Broader testing found two older issues: fallback searches bypass shared cooldowns (with an unmocked POST in the old test), and the all-module audit fixture cannot create a holding before reaching audit execution. Both remain tracked in `docs/quantitative_strategy_engine.md`; this is not a claim that the entire suite passes.
 
 ### v2.99.21
 - **Historical Event verification:** Retrieved explicit finalized provider results for all 656 outcomes affected by the old date-only timestamp defect. Every result matches the saved outcome. The repair uses each provider's precise settlement timestamp and records the new verification time and source.

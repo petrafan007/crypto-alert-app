@@ -1,6 +1,7 @@
 """Shared provider cooldowns and short-lived search caches; never stores API keys."""
 import hashlib
 import json
+import math
 import threading
 import time
 from contextlib import contextmanager
@@ -48,31 +49,69 @@ def identity(*parts):
 
 
 @contextmanager
-def serialized_ai_request(owner, provider):
+def serialized_ai_request(owner, provider, *, wait_timeout=60, request_guard=None):
     """Serialize provider generations across threads and application processes.
 
     Ollama is host-scoped because loading two local models concurrently can
     exhaust system memory. Cloud providers are serialized per account and
     provider so automated jobs cannot burst the same API simultaneously.
     """
+    if not math.isfinite(wait_timeout) or wait_timeout < 0:
+        raise ValueError('Provider queue timeout must be finite and nonnegative')
+    deadline = time.monotonic() + wait_timeout
+    def guard():
+        if request_guard:
+            request_guard()
+    def wait():
+        remaining = deadline-time.monotonic()
+        if remaining <= 0:
+            raise AIRequestDeferred('AI provider queue is busy; request deferred without a provider attempt.')
+        time.sleep(min(.5, remaining))
+
     normalized_provider = str(provider or '').strip().lower()
     scope = 'host:ollama' if normalized_provider == 'ollama' else f'owner:{owner}:{normalized_provider}'
     lock_key = identity('ai-request-slot', scope)
     if persistent():
         lock_id = int(lock_key[:15], 16)
         connection = db.engine.connect()
+        acquired = False
         try:
-            connection.execute(text('SELECT pg_advisory_lock(:key)'), {'key': lock_id})
+            while not acquired:
+                guard()
+                acquired = connection.execute(text('SELECT pg_try_advisory_lock(:key)'), {'key': lock_id}).scalar()
+                connection.commit()
+                if not acquired:
+                    wait()
+            guard()
             yield
         finally:
-            connection.execute(text('SELECT pg_advisory_unlock(:key)'), {'key': lock_id})
-            connection.close()
+            try:
+                if acquired:
+                    connection.rollback()
+                    connection.execute(text('SELECT pg_advisory_unlock(:key)'), {'key': lock_id})
+                    connection.commit()
+            except Exception:
+                # Never return a connection retaining a session lock to the pool.
+                connection.invalidate()
+                raise
+            finally:
+                connection.close()
         return
 
     with _lock:
         request_lock = _request_locks.setdefault(lock_key, threading.RLock())
-    with request_lock:
+    acquired = False
+    try:
+        while not acquired:
+            guard()
+            acquired = request_lock.acquire(blocking=False)
+            if not acquired:
+                wait()
+        guard()
         yield
+    finally:
+        if acquired:
+            request_lock.release()
 
 
 def persistent():

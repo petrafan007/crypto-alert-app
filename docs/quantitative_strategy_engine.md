@@ -272,6 +272,16 @@ The 656 historical outcomes identified in v2.99.20 were subsequently checked aga
 
 The maintenance workflow is `collect_legacy_settlement_evidence(user_id, limit=100, after_id=0)` followed by `repair_verified_legacy_settlements(plan, user_id=..., apply=False)`, both in `services/event_settlement_repair.py`. Collection closes its database read connection before provider requests. Batches are capped at 1,000 candidates and expose a cursor and truncation flag. Preview/application makes no provider requests. Apply only after reviewing the preview, in a clean session with transaction/lock timeouts and an explicit caller commit. The plan is trusted maintenance input, not a public API. Application validates the saved provider payload again, locks and reloads current rows, and rejects outcomes changed since collection. It updates only matching paper-order timestamps; conflicts, unavailable evidence and changed records are reported and left untouched. Repeated application cannot apply the same correction twice. Provider timestamps must include a timezone; date-only or naive timestamps and boolean payout values cannot establish provider settlement proof.
 
+## Audit ownership and provider queues (v2.99.22)
+
+The existing independent recovery thread checks pending audits every 30 seconds. Overall audit duration defaults to 3,600 seconds, configurable through `AI_AUDIT_MAX_DURATION_SECONDS` within 900–10,800 seconds; progress never renews that overall deadline. The idle allowance is the larger of 900 seconds and the configured provider timeout plus 180 seconds. Invalid/future progress timestamps do not establish fresh ownership. Recovery preserves completed evidence, records a reason and fails the audit without inventing a verdict. It now also handles audits whose portfolio generation is missing or has changed; those audits cannot retain exclusive AI access.
+
+Shared provider queues now use nonblocking lock attempts. Regular AI requests defer after 60 seconds of contention; portfolio audit queue allowance is the larger of 900 seconds and the provider timeout plus 180 seconds, additionally subject to the audit's own expiration checks. Queue deferral is a scheduling event, not a provider failure or a reason to try another tier. PostgreSQL locks remain scoped per user/provider, with host-wide Ollama serialization. Waiting checks persisted audit ownership every half-second, and lock connections do not retain an open transaction during provider work. Lock release/connection cleanup also runs on cancellation and errors.
+
+Fresh, read-only checks before and after provider calls reject late output after recovery or a portfolio reset. Cancellation cannot be interpreted as a transient provider timeout and retried or failed over. Preparation evidence and completion logs are written through the same pending-audit fence as final results. An HTTP request already in progress still relies on the provider transport timeout; this does not forcibly stop an upstream inference or refund provider usage. Cooldown/backoff sleeps retain their existing bounded delays, with ownership checked before another provider attempt. No live paid AI calls are needed for regression verification.
+
+Verification passed 57 focused tests on an isolated UTF-8 PostgreSQL instance, including full audit execution, cancellation during preparation, and deadline expiry at final publication. The full ledger suite was not certified: `test_audit_with_positions_in_every_module_and_dedicated_ai_tiers` fails while creating a holding, before invoking the audit. Entry/allocation code is unchanged by this release. The unrelated fallback-search cooldown regression below also remains open.
+
 ## Release checkpoints toward v3.00.0
 
 - v2.99.0: Saved Event risk enforcement, reported-depth sizing, policy evidence, and concurrent-entry verification.
@@ -281,20 +291,22 @@ The maintenance workflow is `collect_legacy_settlement_evidence(user_id, limit=1
 - v2.99.19: Separated quote, retrieval, trade and underlying-observation timing; preserved timestamp basis in model context and decision evidence; rejected stale/invalid/future quotes at entry; removed stale underlying prices and spot-as-reference substitution from calculations.
 - v2.99.20: Corrected new settlement timestamps and saved their basis; added a guarded historical repair with PostgreSQL regression coverage. All 656 affected historical outcomes lack explicit saved settlement proof and remain unchanged pending provider verification.
 - v2.99.21: Independently verified all 656 affected historical outcomes with no winner conflicts; repaired their timestamps and 69 matching legacy paper-order timestamps, retaining original evidence and monetary values. Added bounded collection, preview, stale-row protection, rollback and calibration regression coverage.
+- v2.99.22: Bounded shared provider queue waits, added fresh cancellation checks before/after AI calls, recovered obsolete-generation audits, and fenced preparation/completion writes. Verified independent recovery, deadline limits and PostgreSQL lock cleanup. The older web-search fallback cooldown regression remains open.
 - Subsequent completed release checkpoints advance through v2.99.1, v2.99.2, and so on. The remaining list below defines review work, not a promise that all findings are already known.
 - Reserve v3.00.0 for the final fix. Before declaring readiness, present completed fixes, test evidence, unresolved findings, and research/data limitations and obtain the user's explicit permission. Do not label incomplete review or unavailable empirical validation as 100% complete.
 
-## Remaining review items after v2.99.21
+## Remaining review items after v2.99.22
 
 These review findings remain deferred, not fixed or certified by this release:
 
-- Bound audit-exclusive AI access and recover abandoned audits independently of new audit requests.
 - Review the legacy standalone Event hypothetical-fill path separately; the active quantitative ledger now enforces the saved Event risk policy.
 - Validate exchange quote/underlying timestamps where available and measure retrieval-time assumptions against independent data; timestamp separation and stale-underlying suppression are implemented.
 - Validate paper fills against historical order-book depth and adverse execution scenarios; reported-depth limits and explicit UNKNOWN handling are implemented, but missing-depth fills remain a disclosed research assumption.
 - Correct Event audit sampling, missing-value/status defaults, and unsupported model conclusions; render factual report tables deterministically.
 - Separate time-sensitive scans/settlement from AI reporting; add progress deadlines and latency measurements.
 - Unify Event producer and portfolio watchlists and count actual AI requests against batch budgets.
+- Restore shared cooldown behavior for DuckDuckGo/Google fallback searches and make the old `test_search_failure_returns_zero_sources_and_cools_down` fully offline. The current fallback makes repeated GET/POST requests during outages; this existing regression is outside the v2.99.22 audit-queue fix.
+- Reconcile the older all-module audit test fixture with current allocation/risk requirements, then finish the broader ledger regression run; it currently fails before audit execution when a requested holding cannot be opened.
 - Plan verified options IV history collection/import and consistent ATM/expiration methodology.
 - Validate forecast skill, realistic fills/costs, correlated exposure and held-out strategy performance before expanding risk.
 - Label module P&L correlations accurately and disclose the single-symbol equity/crypto replay scope.

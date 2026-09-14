@@ -5,6 +5,9 @@ import math
 import os
 import threading
 from datetime import datetime
+from types import SimpleNamespace
+
+from sqlalchemy import select
 
 from core.extensions import db
 from portfolio_algo_models import PortfolioAudit as Audit, PortfolioEngineState as State, _record_portfolio_log
@@ -53,10 +56,26 @@ def expiration_reason(row, now=None):
 
 def active_audit(user_id, now=None):
     """Expired rows cannot indefinitely defer autonomous AI before recovery runs."""
-    for row in Audit.query.filter_by(user_id=user_id, status='PENDING').all():
+    for row in (Audit.query.join(State, (State.user_id == Audit.user_id) & (State.generation == Audit.generation))
+                .filter(Audit.user_id == user_id, Audit.status == 'PENDING').populate_existing().all()):
         if expiration_reason(row, now) is None:
             return row
     return None
+
+
+def check_pending_audit(audit_id):
+    """Fresh, read-only ownership check for provider waits; no ORM locks/writes."""
+    query = (select(Audit.__table__, State.generation.label('current_generation'))
+             .outerjoin(State, State.user_id == Audit.user_id).where(Audit.id == audit_id))
+    with db.engine.connect() as connection:
+        saved = connection.execute(query).mappings().first()
+    if saved is None or saved['status'] != 'PENDING':
+        raise AuditCancelled('Audit is no longer pending.')
+    if saved['generation'] != saved['current_generation']:
+        raise AuditCancelled('Portfolio generation changed while the audit was running.')
+    reason = expiration_reason(SimpleNamespace(**saved))
+    if reason:
+        raise AuditCancelled(reason)
 
 
 def mark_expired(row, reason, now):
@@ -86,6 +105,9 @@ def recover_stale_audits(user_id=None, now=None):
     recovered = []
     for row in query.populate_existing().with_for_update(skip_locked=True).all():
         reason = expiration_reason(row, now)
+        generation = db.session.query(State.generation).filter_by(user_id=row.user_id).scalar()
+        if generation is None or generation != row.generation:
+            reason = 'Portfolio generation changed while the audit was running.'
         if reason:
             mark_expired(row, reason, now)
             recovered.append(row.id)

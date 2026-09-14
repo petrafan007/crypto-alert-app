@@ -35,7 +35,7 @@ from services.portfolio_goal_tracking import build_goal_tracking
 from services.portfolio_calibration import event_calibration
 from services.portfolio_execution_math import costs, fill_price, entry_quantity, spot_exit
 from services.portfolio_audit_progress import audit_progress
-from services.portfolio_audit_lifecycle import require_pending_audit, recover_stale_audits
+from services.portfolio_audit_lifecycle import require_pending_audit, recover_stale_audits, check_pending_audit
 from services.provider_resilience import AuditCancelled
 from services.portfolio_audit_context import (
     ENGINE_PURPOSE, EVIDENCE_RULES, STRATEGY_RULES, audit_system_prompt, check_drawdown_claim,
@@ -1327,8 +1327,7 @@ def run_audit(user_id, prompt=None, scheduled=False, audit_id=None):
             module_responses, module_errors = {}, {}
             evidence['module_audits'] = module_responses
             evidence['module_audit_errors'] = module_errors
-            row.evidence_json = json.dumps(evidence)
-            db.session.commit()
+            save_audit_progress(audit_id, evidence)
             def observe_attempt(**event):
                 from services.ai_provider_protocol import safe_provider_error
                 if event.get('error'):
@@ -1372,6 +1371,7 @@ def run_audit(user_id, prompt=None, scheduled=False, audit_id=None):
                                   {'role': 'user', 'content': json.dumps(module_evidence)}],
                         prompt_type='portfolio_module_audit', symbol=module.upper(), include_db_context=False,
                         attempt_observer=observe_attempt,
+                        request_guard=lambda: check_pending_audit(audit_id),
                         **ai_kwargs)
                     text = str(getattr(response, 'text', '') or '').strip()
                     if not text:
@@ -1405,6 +1405,7 @@ def run_audit(user_id, prompt=None, scheduled=False, audit_id=None):
                             if k not in ('module_audit_inputs', 'incomplete_module_outputs', 'provider_attempts', 'audit_progress')})}],
                 prompt_type='portfolio_audit', symbol='PORTFOLIO', include_db_context=False,
                 attempt_observer=observe_attempt,
+                request_guard=lambda: check_pending_audit(audit_id),
                 **ai_kwargs)
             save_audit_progress(audit_id, evidence, 'finalizing')
             content = str(getattr(response, 'text', '') or '').strip()
@@ -1413,8 +1414,6 @@ def run_audit(user_id, prompt=None, scheduled=False, audit_id=None):
             check_drawdown_claim(content, evidence)
             provider, model = getattr(response, 'provider', None), getattr(response, 'model', None)
             status = 'PARTIAL' if module_errors else 'SUCCESS'
-            _record_portfolio_log(user_id, 'AUDIT_COMPLETE',
-                                  'Portfolio audit completed with module limitations.' if module_errors else 'Master CIO audit successfully completed.')
         if not content:
             content = ('AI audit unavailable. Measured portfolio equity: '
                        f"${evidence['account']['total_equity']:,.2f}. Observed maximum drawdown: "
@@ -1422,11 +1421,15 @@ def run_audit(user_id, prompt=None, scheduled=False, audit_id=None):
                        'Review the evidence and module diagnostics below. No forecast, correlation estimate or stress-test result has been generated.')
         row = require_pending_audit(audit_id)
         row.content, row.status, row.provider, row.model = content, status, provider, model
+        if status in ('SUCCESS', 'PARTIAL'):
+            _record_portfolio_log(user_id, 'AUDIT_COMPLETE',
+                                  'Portfolio audit completed with module limitations.' if status == 'PARTIAL' else 'Master CIO audit successfully completed.')
         evidence.setdefault('audit_progress', {})['finished_at'] = datetime.utcnow().isoformat()+'Z'
         row.evidence_json = json.dumps(evidence)
         db.session.commit()
     except AuditCancelled:
         db.session.rollback()
+        recover_stale_audits(user_id)
         row = db.session.get(Audit, audit_id, populate_existing=True)
         return audit_dict(row) if row else None
     except Exception as exc:

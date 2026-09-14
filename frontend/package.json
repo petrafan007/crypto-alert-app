@@ -1,6 +1,6 @@
 {
   "name": "crypto-securities-dashboard-frontend",
-  "version": "2.99.21",
+  "version": "2.99.22",
   "private": true,
   "dependencies": {
     "@emotion/react": "^11.11.1",

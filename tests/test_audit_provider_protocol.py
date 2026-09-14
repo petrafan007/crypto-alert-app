@@ -71,7 +71,7 @@ class AuditProviderProtocolTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'SAFETY'):
                 call_gemini_chat('key', 'gemini-3.8-flash', [], 100, 600)
 
-    def run_cascade(self, results, tiers=None):
+    def run_cascade(self, results, tiers=None, request_guard=None):
         tiers = tiers or [('primary', 'gemini', 'gemini-3.8-flash', 'high'),
                           ('secondary', 'ollama', 'nemotron-3-ultra:cloud', 'medium'),
                           ('tertiary', 'ollama', 'lfm2.5:latest', 'medium')]
@@ -86,7 +86,8 @@ class AuditProviderProtocolTests(unittest.TestCase):
             post = stack.enter_context(patch('requests.post', side_effect=results))
             answer, _ = call_ai_with_web_search(None, [{'role': 'system', 'content': 'Audit'}, {'role': 'user', 'content': '{}'}],
                 prompt_type='portfolio_module_audit', custom_tier_configs=tiers,
-                custom_api_keys={('primary', 'gemini'): 'dedicated-secret'}, attempt_observer=lambda **event: events.append(event))
+                custom_api_keys={('primary', 'gemini'): 'dedicated-secret'}, attempt_observer=lambda **event: events.append(event),
+                request_guard=request_guard)
             return answer, post.call_args_list, events
 
     def test_gemini_timeout_and_503_retry_same_key_then_succeed_without_ollama(self):
@@ -98,6 +99,34 @@ class AuditProviderProtocolTests(unittest.TestCase):
         self.assertTrue(all(c.kwargs['headers']['x-goog-api-key'] == 'dedicated-secret' for c in calls))
         self.assertEqual([e['event'] for e in events].count('retrying'), 2)
         self.assertNotIn('dedicated-secret', json.dumps(events))
+
+    def test_expired_audit_does_not_retry_or_fail_over_a_late_response(self):
+        from services.provider_resilience import AuditCancelled
+        cancelled, calls = [], []
+        def post(*args, **kwargs):
+            calls.append(args[0])
+            cancelled.append(True)
+            return response(body={'candidates': [{'content': {'parts': [{'text': 'Late.\n'+AUDIT_END}]}, 'finishReason': 'STOP'}]})
+        def guard():
+            if cancelled:
+                raise AuditCancelled('Audit stopped reporting progress beyond the provider timeout allowance.')
+        with self.assertRaises(AuditCancelled):
+            self.run_cascade(post, request_guard=guard)
+        self.assertEqual(len(calls), 1)
+
+    def test_request_guard_survives_configured_provider_failover(self):
+        from services.provider_resilience import AuditCancelled
+        failed, calls = [], []
+        def post(*args, **kwargs):
+            calls.append(args[0])
+            failed.append(True)
+            return response(401, {'error': 'Unauthorized'})
+        def guard():
+            if failed:
+                raise AuditCancelled('Audit expired during provider failover.')
+        with self.assertRaises(AuditCancelled):
+            self.run_cascade(post, request_guard=guard)
+        self.assertEqual(len(calls), 1)
 
     def test_ollama_cloud_500_retries_without_loading_local_model(self):
         answer, calls, events = self.run_cascade([

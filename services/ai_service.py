@@ -74,6 +74,8 @@ def is_transient_ai_provider_error(exc):
     account is out of usage. Authentication, permission, and missing-model
     failures are definitive and remain eligible for configured failover.
     """
+    if isinstance(exc, (AuditCancelled, AIRequestDeferred)):
+        return False
     response = getattr(exc, 'response', None)
     status_code = getattr(exc, 'status_code', None) or getattr(response, 'status_code', None)
     detail = str(exc).lower()
@@ -653,6 +655,7 @@ def call_ai_with_web_search(
     failover_history=None,
     custom_tier_configs=None,
     custom_api_keys=None,
+    request_guard=None,
 ):
     """
     AGENTIC AI WORKFLOW - 3-STAGE PROCESS WITH 3-TIER CASCADE FAILOVER:
@@ -824,7 +827,9 @@ def call_ai_with_web_search(
         def _execute_ai_call(p_messages, p_max_tokens=500):
             from services.provider_resilience import identity, check, read, block_failure, serialized_ai_request
             key = identity('ai', username, provider, model, _pick_key(provider) if provider != 'ollama' else '')
-            with serialized_ai_request(username, provider):
+            with serialized_ai_request(username, provider,
+                    wait_timeout=max(900, audit_timeout + 180) if is_portfolio_audit else 60,
+                    request_guard=request_guard):
                 if is_portfolio_audit:
                     cooldown = read(key)
                     if cooldown:
@@ -843,7 +848,12 @@ def call_ai_with_web_search(
                                 _notify_ai_attempt(attempt_observer, 'started', tier=current_tier_name,
                                     provider=provider, model=model, attempt=request_attempt,
                                     max_attempts=attempts, timeout_seconds=audit_timeout)
-                            return _execute_ai_call_impl(p_messages, p_max_tokens)
+                            if request_guard:
+                                request_guard()
+                            result = _execute_ai_call_impl(p_messages, p_max_tokens)
+                            if request_guard:
+                                request_guard()
+                            return result
                         except Exception as exc:
                             if request_attempt >= attempts or not is_transient_ai_provider_error(exc):
                                 raise
@@ -1218,6 +1228,7 @@ def call_ai_with_web_search(
                     failover_history=failover_history,
                     custom_tier_configs=custom_tier_configs,
                     custom_api_keys=custom_api_keys,
+                    request_guard=request_guard,
                 )
         raise
 
