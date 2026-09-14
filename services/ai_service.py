@@ -953,7 +953,7 @@ def call_ai_with_web_search(
                     model,
                     p_messages,
                     max_tokens=p_max_tokens,
-                    timeout=audit_timeout if is_portfolio_audit else 45,
+                    timeout=audit_timeout if is_portfolio_audit else 180,
                     reasoning_level=ai_reasoning_level,
                 )
             
@@ -1042,7 +1042,16 @@ def call_ai_with_web_search(
         # Stage 2: NewsAPI plus web searches
         search_summaries = []
         search_sources = set()
+        
         freshness_filter = "pd"
+        lower_msg = original_user_message.lower()
+        if "this week" in lower_msg or "past week" in lower_msg or "last week" in lower_msg:
+            freshness_filter = "pw"
+        elif "this month" in lower_msg or "past month" in lower_msg or "last month" in lower_msg:
+            freshness_filter = "pm"
+        elif "this year" in lower_msg or "past year" in lower_msg or "last year" in lower_msg:
+            freshness_filter = "py"
+            
         valid_search_results = 0
         symbol_mentioned = False
         clean_sym = (symbol_value or '').upper()
@@ -1062,12 +1071,14 @@ def call_ai_with_web_search(
                 symbol_mentioned = True
             search_summaries.append(f"- {item.get('title')}: {item.get('snippet')} ({item.get('url')})")
 
+        search_error_msg = None
         for q in search_queries:
             if not q: continue
             try:
                 res = web_search(q, max_results=2, username=username, freshness=freshness_filter)
                 if isinstance(res, dict) and res.get('error'):
                     logger.warning(f"Search warning for query '{q}': {res.get('error')}")
+                    search_error_msg = res.get('error')
                     continue
                 if isinstance(res, list):
                     for item in res:
@@ -1082,11 +1093,15 @@ def call_ai_with_web_search(
                         search_summaries.append(f"- {item.get('title')}: {item.get('snippet')} ({item.get('url')})")
             except Exception as e:
                 logger.warning(f"Search failed for query '{q}': {e}")
+                search_error_msg = "Error"
 
-        search_text = "\n".join(search_summaries) if search_summaries else "No recent search results found."
+        search_details = "\n".join(f"Query: '{q}'" for q in search_queries if q)
+        search_text = f"Exact Search Terms Used:\n{search_details}\n\nResults:\n" + ("\n".join(search_summaries) if search_summaries else "No recent search results found.")
 
         # Compute search status string
-        if any('NewsAPI' in s for s in search_sources):
+        if search_error_msg and valid_search_results == 0:
+            search_status = f"Error ({search_error_msg})"
+        elif any('NewsAPI' in s for s in search_sources):
             supplemental = ' + web search' if any(('Brave' in s or 'DuckDuckGo' in s or 'Google News' in s) for s in search_sources) else ''
             search_status = f"NewsAPI ({valid_search_results} results{supplemental})"
         elif any('Brave' in s for s in search_sources):
@@ -1232,7 +1247,9 @@ def call_ai_with_web_search(
                     custom_api_keys=custom_api_keys,
                     request_guard=request_guard,
                 )
-        raise
+        
+        # All tiers exhausted
+        raise RuntimeError(f"{locals().get('provider', 'AI Provider').title()}: {short_err}")
 
 def record_sentiment_history(user_id, symbol, sentiment, sentiment_reason, price_at_prediction, provider=None, model=None, tier=None, source_type='portfolio', coin_id=None, search_status=None, forecast_horizon_hours=24, grading_config=None, failover_history=None):
     """Save an AI sentiment recommendation snapshot into sentiment_history for accuracy tracking."""

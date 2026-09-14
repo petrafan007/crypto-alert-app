@@ -1,8 +1,14 @@
 # Crypto & Quant Securities Dashboard
 
-**Version:** 2.99.26
+**Version:** 2.99.27
 
 ## Recent Updates
+
+### v2.99.27
+- **AI Failover Resilience:** Fixed a bug where a timed-out request on the tertiary/final local AI model cascade (e.g. Ollama `read timeout=45`) caused the Quantitative Strategy Engine to completely abort and display a raw HTTPConnectionPool error instead of failing gracefully. Local Ollama evaluations now use an extended 180-second timeout by default to accommodate complex prompts, and total exhaustion of failover tiers reports a clean, human-readable UI error.
+- **AI Copilot Search Transparency:** The exact search terms used by the AI Copilot are now permanently injected into its conversational context loop as a system memo. When asked "What exact terms did you search for?", the agent can accurately recite them alongside the verbatim raw results.
+- **Dynamic Search Freshness & Source Tooltips:** Search actions for the AI Copilot now use dynamic freshness parameters (parsing terms like "today", "this week", etc.) for Brave Search or DuckDuckGo. The AI model's UI tooltip has been updated to distinctly show the successful web search provider (e.g., `Search: Brave Search (2 results found)`) or an explicit search failure error state, rather than just the generic model tier.
+- **Verification:** Verified Copilot UI tooltip appending works accurately via backend route string interpolation without requiring new database columns. Confirmed extended timeout handles slow local models and exceptions are caught before polluting UI alerts.
 
 ### v2.99.26
 - **Webull Fractional Agreement Decoding & Actionable Resolution:** Webull HTTP 417 rejections carrying `OPENAPI_FRACT_VERSION2_ACCOUNT_NOT_TRADE` and `TRADE_FRACT_PROB` agreement requirements are now cleanly decoded into human-readable guidance instead of dumping unformatted raw JSON. Extracted agreement URLs, error codes, and provider trace request IDs are passed cleanly across service and route boundaries.

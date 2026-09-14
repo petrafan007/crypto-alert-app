@@ -2668,6 +2668,13 @@ def process_ai_conversation(user_id, message, conversation_id=None, include_all_
         resp_tier = getattr(response, 'tier', 'primary')
         resp_provider = getattr(response, 'provider', None)
         resp_model = getattr(response, 'model', None)
+        resp_search_status = getattr(response, 'search_status', None)
+        
+        if resp_search_status and resp_model:
+            # Append search status to model so it shows in the tooltip
+            resp_model = f"{resp_model} (Search: {resp_search_status})"
+        elif resp_search_status:
+            resp_model = f"Search: {resp_search_status}"
 
     except Exception as ai_err:
         logger.error(f"All AI providers exhausted for Copilot: {ai_err}")
