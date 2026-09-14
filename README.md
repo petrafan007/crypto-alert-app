@@ -1,8 +1,12 @@
 # Crypto & Quant Securities Dashboard
 
-**Version:** 2.99.27
+**Version:** 2.99.28
 
 ## Recent Updates
+
+### v2.99.28
+- **AI Copilot Background Title Generation & Transparent Tooltips:** The AI Copilot now generates concise chat titles via a fast, background generation call that is separated from the main session prompt. The prompt for this title generation is fully exposed in Settings and can be modified. Additionally, fallback transparency has been improved: if all four AI providers (Primary through Quaternary) fail, the UI explicitly displays the failure reason and details on the fallback telemetry data in the tooltip.
+- **Naming Alignment:** "Quartan" tier renamed to "Quaternary" across the full stack for naming consistency.
 
 ### v2.99.27
 - **AI Failover Resilience:** Fixed a bug where a timed-out request on the tertiary/final local AI model cascade (e.g. Ollama `read timeout=45`) caused the Quantitative Strategy Engine to completely abort and display a raw HTTPConnectionPool error instead of failing gracefully. Local Ollama evaluations now use an extended 180-second timeout by default to accommodate complex prompts, and total exhaustion of failover tiers reports a clean, human-readable UI error.
