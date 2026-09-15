@@ -879,7 +879,7 @@ def call_ai_with_web_search(
                             time.sleep(remaining)
                 check(key)
                 try:
-                    attempts = audit_provider_retry_attempts() if is_portfolio_audit else 1
+                    attempts = audit_provider_retry_attempts() if (is_portfolio_audit or prompt_type in ['sentiment_analysis', 'watchlist_sentiment_analysis', 'webull_event_contract_analysis', 'webull_event_contract_batch_analysis']) else 1
                     for request_attempt in range(1, attempts + 1):
                         try:
                             if is_portfolio_audit:

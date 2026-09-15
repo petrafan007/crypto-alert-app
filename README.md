@@ -1,8 +1,12 @@
 # Crypto & Quant Securities Dashboard
 
-**Version:** 3.0.5
+**Version:** 3.0.6
 
 ## Recent Updates
+
+### v3.0.6
+- **Pending OCO Quote Deduplication & Watchlist Highlighting:** Fixed double-counting of locked quote funds for open Binance OCO (One-Cancels-the-Other) orders by accurately deduplicating locked quote amounts using `orderListId`. Watchlist stablecoin (USD/USDT) rows now dynamically present available quote amounts in parentheses alongside a yellow pending-order highlight whenever funds are locked in open orders. 
+- **AI Background Retry Resilience:** Background agent tasks (like scheduled Sentiment Analysis) now properly inherit the AI service's retry routines for transient provider errors (e.g. `503 Service Unavailable`, `429 Rate Limited`), preventing premature task aborts when temporary provider capacity limits are reached.
 
 ### v3.0.5
 - **Scheduled Order Mode Regression Fix:** Restored the `isCashMode` variable inside `handleOpenScheduleModal` in `WebullTrading.jsx` that was inadvertently removed during the v3.0.4 refactor of the reference price fallback chain. The scheduled order modal now correctly derives `entrust_type` (`AMOUNT` vs `QTY`) and populates quantity/total_cash_amount fields based on the active order ticket mode.

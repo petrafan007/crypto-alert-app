@@ -919,7 +919,8 @@ def api_pending_orders():
                     'is_oco': is_oco,
                     'direction': direction,
                     'trigger_price': trigger_price,
-                    'quantity_usdt': quote_amount
+                    'quantity_usdt': quote_amount,
+                    'orderListId': order.get('orderListId', -1)
                 })
             
             coin_updates = False
