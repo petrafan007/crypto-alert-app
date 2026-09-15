@@ -1,8 +1,11 @@
 # Crypto & Quant Securities Dashboard
 
-**Version:** 2.99.31
+**Version:** 2.99.32
 
 ## Recent Updates
+
+### v2.99.32
+- **Quantitative Strategy & Event Strategy AI Ollama Timeout Resilience:** Increased the Ollama execution timeout from 30s to 180s in `services/ai_service.py` for strategy scans and AI model execution, allowing local LLMs (e.g. `qwen2.5:14b`, `gemma:4b`) sufficient inference time to evaluate multi-contract batches without timing out. Also updated the serialized AI queue wait timeout to 180s for Ollama. This resolves the `Ollama: Request Timed Out` error that previously caused Event Contract AI evaluation failure and inappropriately triggered `DATA_LIMITED` and `DEGRADED` worker status on the Quantitative Strategy Engine.
 
 ### v2.99.31
 - **Bugfix (AI Copilot Settings):** Increased the connection test timeout for Ollama from 30 seconds to 120 seconds to allow sufficient time for large local models to cold-boot into VRAM without failing the test prematurely.

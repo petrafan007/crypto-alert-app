@@ -224,7 +224,7 @@ def get_ollama_models(timeout=5):
     return sorted(models, key=str.casefold)
 
 
-def call_ollama_chat(model, messages, max_tokens=600, timeout=30, reasoning_level=None):
+def call_ollama_chat(model, messages, max_tokens=600, timeout=180, reasoning_level=None):
     """Call a local Ollama chat model and return its assistant text.
 
     Ollama cloud-backed models such as GPT-OSS can emit a separate thinking
@@ -829,8 +829,9 @@ def call_ai_with_web_search(
         def _execute_ai_call(p_messages, p_max_tokens=500):
             from services.provider_resilience import identity, check, read, block_failure, serialized_ai_request
             key = identity('ai', username, provider, model, _pick_key(provider) if provider != 'ollama' else '')
+            wait_timeout = max(900, audit_timeout + 180) if is_portfolio_audit else (180 if provider == 'ollama' else 60)
             with serialized_ai_request(username, provider,
-                    wait_timeout=max(900, audit_timeout + 180) if is_portfolio_audit else 60,
+                    wait_timeout=wait_timeout,
                     request_guard=request_guard):
                 if is_portfolio_audit:
                     cooldown = read(key)
@@ -953,7 +954,7 @@ def call_ai_with_web_search(
                     model,
                     p_messages,
                     max_tokens=p_max_tokens,
-                    timeout=audit_timeout if is_portfolio_audit else 30,
+                    timeout=audit_timeout if is_portfolio_audit else 180,
                     reasoning_level=ai_reasoning_level,
                 )
             
