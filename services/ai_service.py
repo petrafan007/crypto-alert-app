@@ -898,7 +898,9 @@ def call_ai_with_web_search(
                             delay = audit_provider_retry_delay_seconds(request_attempt, exc)
                             # A long provider-directed reset is not an invitation
                             # to hammer the same exhausted quota or wait for days.
-                            if delay > 120:
+                            from flask import has_request_context
+                            max_delay = 10 if has_request_context() else 120
+                            if delay > max_delay:
                                 raise
                             _notify_ai_attempt(
                                 attempt_observer,
@@ -1672,7 +1674,7 @@ def analyze_single_symbol_sentiment(user_id, username, symbol, is_watchlist=Fals
             'error': None,
         }
 
-        def observe_ai_attempt(event, tier=None, provider=None, model=None, error=None):
+        def observe_ai_attempt(event, tier=None, provider=None, model=None, error=None, **kwargs):
             latest_attempt.update({
                 'tier': tier,
                 'provider': provider,
@@ -1689,6 +1691,13 @@ def analyze_single_symbol_sentiment(user_id, username, symbol, is_watchlist=Fals
                     f"{provider_label} ({model_label})."
                 )
                 search_status = 'AI provider attempt in progress'
+            elif event == 'retrying':
+                status = 'Checking now...'
+                reason = (
+                    f"Retrying {tier_label} AI provider ({provider_label} / {model_label}): "
+                    f"{error or 'Transient error'}"
+                )
+                search_status = 'AI provider attempt retrying'
             else:
                 status = 'Error'
                 reason = (

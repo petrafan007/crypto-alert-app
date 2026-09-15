@@ -1,8 +1,12 @@
 # Crypto & Quant Securities Dashboard
 
-**Version:** 3.0.9
+**Version:** 3.0.10
 
 ## Recent Updates
+
+### v3.0.10
+- **AI Retry Web Worker Hang Fix:** Fixed a critical issue where the application would permanently hang on "Checking now..." when a user manually triggered an AI analysis that hit a significant rate limit. The backend would sleep for the duration of the rate limit, causing the web worker to eventually time out and abort without saving the error state. The application now properly short-circuits long retry sleeps during manual user web requests and correctly logs the transient retry states.
+
 
 ### v3.0.9
 - **Sentiment Failover Resilience:** Fixed a bug where a database transaction aborted during a secondary AI provider failover would cause the sentiment status to be permanently stuck on "Checking now...". Database sessions are now properly rolled back before persisting an error state when AI providers are unavailable.
