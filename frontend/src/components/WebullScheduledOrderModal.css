@@ -508,6 +508,12 @@
   color: #ffffff;
 }
 
+.scheduled-order-paste-btn.pasted {
+  background: rgba(16, 185, 129, 0.25);
+  border-color: #10b981;
+  color: #34d399;
+}
+
 .scheduled-order-pct-input-wrap:focus-within {
   border-color: #10b981;
   box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.2);
@@ -529,14 +535,14 @@
 .scheduled-order-pct-input::-webkit-inner-spin-button,
 .scheduled-order-input::-webkit-outer-spin-button,
 .scheduled-order-input::-webkit-inner-spin-button {
-  -webkit-appearance: none;
-  margin: 0;
+  -webkit-appearance: none !important;
+  margin: 0 !important;
 }
 
 .scheduled-order-pct-input,
 .scheduled-order-input {
-  -moz-appearance: textfield;
-  appearance: textfield;
+  -moz-appearance: textfield !important;
+  appearance: textfield !important;
 }
 
 .scheduled-order-pct-suffix {

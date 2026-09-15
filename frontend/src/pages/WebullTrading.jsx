@@ -1488,7 +1488,11 @@ export default function WebullTrading({ isLightMode = false }) {
     const numCash = parseFloat(orderForm.totalCashAmount) || parseFloat(orderForm.quoteQuantity?.replace(/[^0-9.]/g, '') || 0);
     const numQty = parseFloat(orderForm.quantity || 0);
     const isCashMode = orderForm.entrustType === 'AMOUNT' || (numCash > 0 && (!numQty || numQty <= 0));
-    const refPx = effectivePrice || livePrice || 0;
+    const refPx = effectivePrice
+      || livePrice
+      || (Number(orderForm.price) > 0 ? Number(orderForm.price) : 0)
+      || (Number(selectedHolding?.current_price) > 0 ? Number(selectedHolding.current_price) : 0)
+      || 0;
     setScheduledOrderData({
       account_id: activeAcc?.account_id || selectedAccountId || '',
       account_name: accName,

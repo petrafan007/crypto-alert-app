@@ -1,8 +1,11 @@
 # Crypto & Quant Securities Dashboard
 
-**Version:** 3.0.4
+**Version:** 3.0.5
 
 ## Recent Updates
+
+### v3.0.5
+- **Scheduled Order Mode Regression Fix:** Restored the `isCashMode` variable inside `handleOpenScheduleModal` in `WebullTrading.jsx` that was inadvertently removed during the v3.0.4 refactor of the reference price fallback chain. The scheduled order modal now correctly derives `entrust_type` (`AMOUNT` vs `QTY`) and populates quantity/total_cash_amount fields based on the active order ticket mode.
 
 ### v3.0.4
 - **Scheduled Order Percent Buffer Input & Stepper Removal:** Removed the up/down stepper arrows from the percent buffer input (`#scheduledBufferPct`) in the 9:30 AM market-open order scheduling modal. Set default buffer to `3.00%` (2 decimal places). Users can now directly backspace, type any desired percentage with up to two decimal places, or click quick buffer chips (+1%, +2%, +3%, +5%, +10%) with clean two-way synchronization to the dollar ceiling price.

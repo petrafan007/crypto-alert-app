@@ -45,7 +45,11 @@ const TotpCodeInput = forwardRef(function TotpCodeInput({ onChange, id = 'twoFac
       inputMode="numeric"
       pattern="[0-9]*"
       maxLength={6}
-      autoComplete="one-time-code"
+      autoComplete="off"
+      data-bwignore="true"
+      data-1p-ignore="true"
+      data-lpignore="true"
+      data-form-type="other"
       autoCapitalize="none"
       spellCheck={false}
       aria-label="Two-factor authentication code"
