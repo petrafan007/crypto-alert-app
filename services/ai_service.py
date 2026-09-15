@@ -684,6 +684,7 @@ def call_ai_with_web_search(
     include_db_context=True,
     amount=None,
     is_fallback_attempt=False,
+    is_manual_override=False,
     tier_index=0,
     use_cache=False,
     search_lookback_hours=12,
@@ -899,7 +900,7 @@ def call_ai_with_web_search(
                             # A long provider-directed reset is not an invitation
                             # to hammer the same exhausted quota or wait for days.
                             from flask import has_request_context
-                            max_delay = 10 if has_request_context() else 120
+                            max_delay = 10 if (has_request_context() or is_manual_override) else 120
                             if delay > max_delay:
                                 raise
                             _notify_ai_attempt(
@@ -1276,6 +1277,7 @@ def call_ai_with_web_search(
                     symbol=symbol,
                     include_db_context=include_db_context,
                     amount=amount,
+                    is_manual_override=is_manual_override,
                     tier_index=next_tier_index,
                     search_lookback_hours=search_lookback_hours,
                     forecast_horizon_hours=forecast_horizon_hours,
@@ -1727,6 +1729,7 @@ def analyze_single_symbol_sentiment(user_id, username, symbol, is_watchlist=Fals
             prompt_type=prompt_type,
             symbol=symbol,
             amount=amount,
+            is_manual_override=force,
             search_lookback_hours=lookback_hours,
             forecast_horizon_hours=forecast_horizon_hours,
             attempt_observer=observe_ai_attempt,
