@@ -2792,8 +2792,6 @@ def api_webull_place_order():
             or credential.webull_token_environment != environment or not credential.webull_access_token
         ):
             return jsonify({'success': False, 'message': 'Webull is not connected or token has expired.'}), 400
-
-        data = request.get_json(silent=True) or {}
         account_id = data.get('account_id')
         symbol = data.get('symbol')
         instrument_type = data.get('instrument_type', 'EQUITY')
