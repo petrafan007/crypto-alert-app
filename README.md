@@ -1,8 +1,11 @@
 # Crypto & Quant Securities Dashboard
 
-**Version:** 3.0.2
+**Version:** 3.0.3
 
 ## Recent Updates
+
+### v3.0.3
+- **Scheduled Order Modal Viewport & Pinned Footer Fix:** Resolved an issue where the scheduled order modal exceeded viewport boundaries and cut off the bottom controls (Cancel & Schedule Buy buttons). Added flexbox height constraints (`flex: 1; min-height: 0; overflow-y: auto;`) on the form and body, pinned the action footer to the bottom (`flex-shrink: 0`), and added responsive mobile styling and smooth custom scrollbars.
 
 ### v3.0.2
 - **Scheduled Order Modal Runtime Fix:** Resolved an unhandled `ReferenceError: accountLabel is not defined` that prevented the 9:30 AM market-open timing prompt button and order submission flow from opening the scheduled order modal.

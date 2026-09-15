@@ -12,6 +12,7 @@
   z-index: 2100;
   padding: 16px;
   backdrop-filter: blur(4px);
+  overflow-y: auto;
 }
 
 .scheduled-order-modal {
@@ -21,7 +22,7 @@
   box-shadow: 0 20px 60px rgba(16, 185, 129, 0.25), 0 0 0 1px rgba(16, 185, 129, 0.2);
   max-width: 580px;
   width: 100%;
-  max-height: 90vh;
+  max-height: min(90vh, 850px);
   display: flex;
   flex-direction: column;
   animation: scheduledModalIn 0.25s cubic-bezier(0.16, 1, 0.3, 1);
@@ -41,11 +42,12 @@
 }
 
 .scheduled-order-header {
-  padding: 20px 24px 16px;
+  padding: 18px 24px 14px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
+  flex-shrink: 0;
 }
 
 .scheduled-order-title-wrap {
@@ -103,12 +105,41 @@
   color: #fff;
 }
 
-.scheduled-order-body {
-  padding: 20px 24px;
-  overflow-y: auto;
+.scheduled-order-form,
+.scheduled-order-modal form {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.scheduled-order-body {
+  padding: 16px 24px;
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  overscroll-behavior: contain;
+}
+
+.scheduled-order-body::-webkit-scrollbar {
+  width: 6px;
+}
+
+.scheduled-order-body::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.scheduled-order-body::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.18);
+  border-radius: 4px;
+}
+
+.scheduled-order-body::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.3);
 }
 
 .scheduled-order-prompt-box {
@@ -284,12 +315,13 @@
 }
 
 .scheduled-order-footer {
-  padding: 16px 24px 20px;
+  padding: 14px 24px 16px;
   border-top: 1px solid rgba(255, 255, 255, 0.08);
   display: flex;
   justify-content: flex-end;
   gap: 12px;
   background: #0f172a;
+  flex-shrink: 0;
 }
 
 .scheduled-order-btn-cancel {
@@ -496,4 +528,30 @@
 
 .scheduled-order-protection-text strong {
   color: #ffffff;
+}
+
+@media (max-width: 640px) {
+  .scheduled-order-backdrop {
+    padding: 8px;
+    align-items: flex-end;
+  }
+
+  .scheduled-order-modal {
+    max-height: 94vh;
+    border-bottom-left-radius: 0;
+    border-bottom-right-radius: 0;
+  }
+
+  .scheduled-order-header {
+    padding: 14px 16px 12px;
+  }
+
+  .scheduled-order-body {
+    padding: 14px 16px;
+    gap: 12px;
+  }
+
+  .scheduled-order-footer {
+    padding: 12px 16px;
+  }
 }

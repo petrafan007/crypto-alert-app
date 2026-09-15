@@ -243,7 +243,7 @@ export default function WebullScheduledOrderModal({
           </button>
         </div>
 
-        <form onSubmit={handleSubmit}>
+        <form onSubmit={handleSubmit} className="scheduled-order-form">
           <div className="scheduled-order-body">
             <div className="scheduled-order-prompt-box">
               <span className="scheduled-order-prompt-icon" aria-hidden="true">💡</span>
