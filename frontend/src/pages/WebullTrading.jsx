@@ -1668,6 +1668,8 @@ export default function WebullTrading({ isLightMode = false }) {
         if (matchedHolding) {
           setEventPositionHolding(matchedHolding);
           setEventOpenOrder(null);
+        } else {
+          setEventOpenOrder(null);
         }
       }
     } else if (eventPositionHoldingRef.current) {
@@ -1685,6 +1687,8 @@ export default function WebullTrading({ isLightMode = false }) {
         if (cur.quantity !== updatedHolding.quantity || cur.avg_entry !== updatedHolding.avg_entry || cur.available_quantity !== updatedHolding.available_quantity) {
           setEventPositionHolding(updatedHolding);
         }
+      } else {
+        setEventPositionHolding(null);
       }
     }
   };
