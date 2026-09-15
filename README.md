@@ -1,8 +1,11 @@
 # Crypto & Quant Securities Dashboard
 
-**Version:** 2.99.29
+**Version:** 2.99.30
 
 ## Recent Updates
+
+### v2.99.30
+- **Bugfix (AI Copilot):** Reduced Ollama connection timeout from 180s to 30s to prevent frontend cascade timeouts. Refactored fallback failure handling to immediately reject the request and display a clean error message in the UI instead of generating a fallback telemetry response.
 
 ### v2.99.29
 - **Frontend Tooltip Polish:** Finalized the UI logic to cleanly parse and display the exact fallback reason from the backend (e.g. "All AI providers exhausted") inside the AI Copilot message tooltip.

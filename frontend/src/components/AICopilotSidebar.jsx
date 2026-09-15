@@ -806,11 +806,11 @@ export default function AICopilotSidebar() {
       window.setTimeout(() => scrollToResponseStart(userMessage.id), 0);
     } catch (error) {
       console.error('Error sending message:', error);
-      const errorMsg = error.response?.data?.response || error.response?.data?.error || (error.code === 'ECONNABORTED' ? 'Request timed out. Please try again.' : 'Error: Failed to get AI response. Please try again.');
+      const errorMsg = error.response?.data?.error || error.response?.data?.response || (error.code === 'ECONNABORTED' ? 'Request timed out. Please try again.' : 'Error: Failed to get AI response. Please try again.');
       if (activeSessionIdRef.current !== activeConversationId) return;
       // Show error in placeholder
       setConversations(prev => prev.map(m =>
-        m.id === placeholderId ? { ...m, body: errorMsg, thinking: false, optimistic: false, created_at: m.created_at || new Date().toISOString() } : m
+        m.id === placeholderId ? { ...m, body: errorMsg, thinking: false, optimistic: false, created_at: m.created_at || new Date().toISOString(), isError: true } : m
       ));
       window.setTimeout(() => scrollToResponseStart(userMessage.id), 0);
     } finally {
@@ -1134,7 +1134,7 @@ export default function AICopilotSidebar() {
             <div
               key={conv.id}
               ref={(node) => registerConversationRef(conv.id, node)}
-              className={`conversation-message ${conv.sender}`}
+              className={`conversation-message ${conv.sender} ${conv.isError ? 'error-message' : ''}`}
             >
               <div className="message-header">
                 <div className="message-meta">

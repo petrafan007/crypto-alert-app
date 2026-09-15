@@ -2698,24 +2698,8 @@ def process_ai_conversation(user_id, message, conversation_id=None, include_all_
 
     except Exception as ai_err:
         logger.error(f"All AI providers exhausted for Copilot: {ai_err}")
-        # Build immediate data-backed response from live database telemetry
-        resp_tier = "Fallback"
-        resp_provider = "System Failover"
-        resp_model = f"Live Telemetry (Failed: {ai_err})"
-        
-        ai_content = (
-            f"**All AI Providers Failed.** *(Error: {ai_err})*\n\n"
-            f"Please check your AI API key settings or troubleshoot your local Ollama connection.\n"
-            f"Here is your raw telemetry data as a fallback:\n\n"
-            f"**Live Copilot Analysis for {target_symbol}:**\n\n"
-            f"• **Focused Coin Context**: {symbol_context_text or f'{target_symbol} telemetry active'}\n"
-            f"• **Active Pending Orders**: {pending_orders_text}\n"
-            f"• **Current Portfolio Holdings**: {holdings_text}\n"
-        )
-        if is_first_message:
-            session.title = _fallback_copilot_session_title(message)
-        session.updated_at = datetime.utcnow()
-        db.session.commit()
+        # Remove telemetry fallback and return a clean error message per user request
+        raise RuntimeError(f"All AI Providers Failed. (Error: {ai_err})")
 
     # Log AI response in database
     try:
@@ -2769,23 +2753,8 @@ def api_ai_conversation():
         return jsonify({'error': str(exc)}), 404
     except Exception as e:
         logger.error(f"Error processing AI conversation: {e}", exc_info=True)
-        err_msg = f"I'm sorry, I was unable to connect to the AI model right now ({str(e)}). Please verify your AI API key in Settings or try again shortly."
-        try:
-            if conversation_id and _get_owned_copilot_session(current_user.id, conversation_id):
-                log_ai_conversation(
-                    current_user.id,
-                    "manual",
-                    "ai",
-                    err_msg,
-                    conversation_id=conversation_id,
-                )
-        except Exception:
-            pass
-        return jsonify({
-            'response': err_msg,
-            'conversation_id': conversation_id,
-            'created_at': format_iso_utc(datetime.now(timezone.utc)),
-        })
+        err_msg = str(e)
+        return jsonify({'error': err_msg, 'conversation_id': conversation_id}), 500
 
 
 @ai_bp.route('/api/ai/conversations/<int:message_id>', methods=['DELETE'])
