@@ -1,8 +1,11 @@
-# Crypto & Quant Securities Dashboard
+# Crypto & Securities Dashboard
 
-**Version:** 3.0.10
+**Version:** 3.0.12
 
 ## Recent Updates
+
+### v3.0.12
+- **Fix (WebullTrading):** Disabled auto-pricing background polling for Event Contract orders when the Review Order modal is opened from the Positions table. This prevents the user's custom limit price from being silently overwritten by the latest live market quote right before order submission.
 
 ### v3.0.10
 - **AI Retry Web Worker Hang Fix:** Fixed a critical issue where the application would permanently hang on "Checking now..." when a user manually triggered an AI analysis that hit a significant rate limit. The backend would sleep for the duration of the rate limit, causing the web worker to eventually time out and abort without saving the error state. The application now properly short-circuits long retry sleeps during manual user web requests and correctly logs the transient retry states.

@@ -4185,6 +4185,7 @@ export default function WebullTrading({ isLightMode = false }) {
       quantity: String(quantity),
       price: formatEventLimitPrice(price),
     });
+    eventAutoPriceRef.current = false;
     setTicketFlash(true);
     setTimeout(() => setTicketFlash(false), 1800);
     setTimeout(() => {
