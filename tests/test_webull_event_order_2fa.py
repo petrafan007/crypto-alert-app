@@ -172,10 +172,9 @@ class WebullOrderTwoFactorTests(unittest.TestCase):
                 response, status_code = system.api_webull_place_order.__wrapped__()
 
             self.assertEqual(status_code, 400)
-            self.assertEqual(response.get_json(), {
-                'success': False,
-                'message': 'Provider rejected this order.',
-            })
+            data = response.get_json()
+            self.assertEqual(data.get('success'), False)
+            self.assertEqual(data.get('message'), 'Provider rejected this order.')
             self.assertEqual(place_order.call_count, 1)
             self.assertNotIn('2fa_verified_rejected-option-token', session)
 

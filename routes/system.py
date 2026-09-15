@@ -2490,6 +2490,132 @@ def api_webull_open_orders():
         return jsonify({'success': False, 'orders': [], 'message': 'Unable to load Webull open orders.'}), 500
 
 
+@system_bp.route('/api/webull/scheduled-orders/next-open', methods=['GET'])
+@login_required
+def api_webull_scheduled_orders_next_open():
+    """Return the next 9:30 AM Eastern Time NYSE market open and current regular market status."""
+    try:
+        from services.market_calendar_service import get_next_regular_market_open, is_regular_market_hours
+        target_utc, target_et, target_date_str = get_next_regular_market_open()
+        is_open = is_regular_market_hours()
+        return jsonify({
+            'success': True,
+            'target_execution_time_utc': target_utc.isoformat(),
+            'target_execution_time_et': target_et.strftime('%a, %b %d at 9:30 AM %Z'),
+            'target_trading_day': target_date_str,
+            'is_regular_market_open': is_open,
+        })
+    except Exception as exc:
+        logger.error('Failed to compute next market open: %s', exc, exc_info=True)
+        return jsonify({'success': False, 'message': 'Unable to calculate next market open.'}), 500
+
+
+@system_bp.route('/api/webull/scheduled-orders', methods=['GET'])
+@login_required
+def api_webull_get_scheduled_orders():
+    """Return all pending and past scheduled market-open orders for the current user."""
+    try:
+        from services.webull_scheduled_order_service import get_user_scheduled_orders
+        status = request.args.get('status')
+        account_id = request.args.get('account_id')
+        orders = get_user_scheduled_orders(current_user.id, status=status, account_id=account_id)
+        return jsonify({'success': True, 'orders': orders})
+    except Exception as exc:
+        logger.error('Failed to load scheduled orders: %s', exc, exc_info=True)
+        return jsonify({'success': False, 'orders': [], 'message': 'Unable to load scheduled orders.'}), 500
+
+
+@system_bp.route('/api/webull/scheduled-orders', methods=['POST'])
+@login_required
+def api_webull_create_scheduled_order():
+    """Schedule a fractional stock or ETF Buy order for the next 9:30 AM ET market open."""
+    try:
+        data = request.get_json(silent=True) or {}
+        setting = UserSetting.query.filter_by(user_id=current_user.id).first()
+        account_id = data.get('account_id')
+        if not account_id:
+            return jsonify({'success': False, 'message': 'Select a Webull account.'}), 400
+
+        try:
+            account_id = _require_webull_account_access(setting, account_id)
+        except WebullConnectionError as exc:
+            return jsonify({'success': False, 'message': str(exc)}), 400
+
+        # Enforce 2FA verification if enabled for user
+        from trading_models import TradingSettings
+        trading_settings = TradingSettings.query.filter_by(user_id=current_user.id).first()
+        if trading_settings and getattr(trading_settings, 'require_2fa', False) and getattr(trading_settings, 'totp_secret', None):
+            twofa_token = data.get('twofa_token')
+            twofa_code = data.get('twofa_code') or data.get('two_factor_code')
+            verified = False
+            if twofa_token:
+                token_data = session.get(f'2fa_verified_{twofa_token}')
+                if token_data and token_data.get('user_id') == current_user.id:
+                    if time.time() - token_data.get('timestamp', 0) <= 120:
+                        verified = True
+                        session.pop(f'2fa_verified_{twofa_token}', None)
+            if not verified and twofa_code:
+                if verify_totp_code(trading_settings.totp_secret, twofa_code):
+                    verified = True
+
+            if not verified:
+                return jsonify({
+                    'success': False,
+                    'message': 'Two-factor authentication (2FA) verification is required to schedule orders.',
+                    'requires_2fa': True,
+                }), 403
+
+        from services.webull_scheduled_order_service import create_scheduled_fractional_order
+        order_dict = create_scheduled_fractional_order(
+            user_id=current_user.id,
+            account_id=account_id,
+            symbol=data.get('symbol'),
+            account_name=data.get('account_name'),
+            instrument_type=data.get('instrument_type', 'EQUITY'),
+            side=data.get('side', 'BUY'),
+            entrust_type=data.get('entrust_type', 'QTY'),
+            quantity=data.get('quantity'),
+            total_cash_amount=data.get('total_cash_amount'),
+            reference_price=data.get('reference_price'),
+            max_price=data.get('max_price'),
+            min_price=data.get('min_price'),
+        )
+        return jsonify({
+            'success': True,
+            'message': f"Scheduled buy for {data.get('symbol')} successfully timed for 9:30 AM market open.",
+            'order': order_dict,
+        }), 201
+    except ValueError as val_err:
+        return jsonify({'success': False, 'message': str(val_err)}), 400
+    except Exception as exc:
+        logger.error('Failed to create scheduled order: %s', exc, exc_info=True)
+        return jsonify({'success': False, 'message': 'Unable to schedule order. Please try again.'}), 500
+
+
+@system_bp.route('/api/webull/scheduled-orders/<int:order_id>/cancel', methods=['POST'])
+@login_required
+def api_webull_cancel_scheduled_order(order_id):
+    """Cancel a pending scheduled market-open order."""
+    try:
+        data = request.get_json(silent=True) or {}
+        two_factor_error = _cancellation_2fa_error(data)
+        if two_factor_error:
+            return jsonify({'success': False, 'message': two_factor_error, 'requires_2fa': True}), 403
+
+        from services.webull_scheduled_order_service import cancel_scheduled_fractional_order
+        updated_order = cancel_scheduled_fractional_order(current_user.id, order_id)
+        return jsonify({
+            'success': True,
+            'message': f"Scheduled order #{order_id} for {updated_order.get('symbol')} was cancelled.",
+            'order': updated_order,
+        })
+    except ValueError as val_err:
+        return jsonify({'success': False, 'message': str(val_err)}), 400
+    except Exception as exc:
+        logger.error('Failed to cancel scheduled order #%s: %s', order_id, exc, exc_info=True)
+        return jsonify({'success': False, 'message': 'Unable to cancel scheduled order.'}), 500
+
+
 @system_bp.route('/api/webull/test/account-summary', methods=['GET'])
 @login_required
 def api_webull_test_account_summary():

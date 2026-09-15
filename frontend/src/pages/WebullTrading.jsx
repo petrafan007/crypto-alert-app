@@ -11,6 +11,7 @@ import WebullTradeTimelineChart from '../components/WebullTradeTimelineChart';
 import TwoFactorModal from '../components/TwoFactorModal';
 import CancelOrderModal from '../components/CancelOrderModal';
 import PercentPriceModal from '../components/PercentPriceModal';
+import WebullScheduledOrderModal from '../components/WebullScheduledOrderModal';
 import WebullAIDashboard from '../components/WebullAIDashboard';
 import WebullOptionChain from '../components/WebullOptionChain';
 import OptionsPayoffChart from '../components/OptionsPayoffChart';
@@ -1475,6 +1476,34 @@ export default function WebullTrading({ isLightMode = false }) {
   // 2FA State
   const [require2fa, setRequire2fa] = useState(false);
   const [twoFactorModal, setTwoFactorModal] = useState({ isVisible: false, orderData: null });
+  const [scheduledOrderModalOpen, setScheduledOrderModalOpen] = useState(false);
+  const [scheduledOrderData, setScheduledOrderData] = useState(null);
+
+  const handleOpenScheduleModal = () => {
+    const activeAcc = accounts.find((a) => String(a.account_id) === String(orderForm.accountId)) || accounts[0];
+    const accName = activeAcc ? accountLabel(activeAcc) : orderForm.accountId;
+    const isCashMode = orderForm.entrustType === 'AMOUNT' || (orderForm.quoteQuantity && !orderForm.quantity);
+    setScheduledOrderData({
+      account_id: orderForm.accountId || (activeAcc ? activeAcc.account_id : ''),
+      account_name: accName,
+      symbol: selectedSymbol,
+      instrument_type: 'EQUITY',
+      side: 'BUY',
+      entrust_type: isCashMode ? 'AMOUNT' : 'QTY',
+      quantity: isCashMode ? null : orderForm.quantity,
+      total_cash_amount: isCashMode ? (orderForm.totalCashAmount || orderForm.quoteQuantity?.replace(/[^0-9.]/g, '')) : null,
+      reference_price: effectivePrice || currentPriceNumber || 0,
+    });
+    setScheduledOrderModalOpen(true);
+  };
+
+  const handleScheduledOrderSuccess = (newOrder) => {
+    setOrderMessage({
+      type: 'success',
+      text: `✅ Scheduled buy for ${newOrder.symbol} queued for 9:30 AM market open! View in Orders tab.`,
+    });
+    setOrderValidationError('');
+  };
 
   // History & Signal State
   const [historyPage, setHistoryPage] = useState(1);
@@ -3597,6 +3626,10 @@ export default function WebullTrading({ isLightMode = false }) {
         return;
       }
       if (orderForm.side !== 'BUY' || orderForm.type !== 'MARKET' || orderForm.tradingSession !== 'CORE') {
+        if (orderForm.side === 'BUY' && orderForm.tradingSession !== 'CORE') {
+          handleOpenScheduleModal();
+          return;
+        }
         rejectOrder('Webull cash-amount orders require a Buy Market order during Regular Hours (CORE).');
         return;
       }
@@ -3693,6 +3726,10 @@ export default function WebullTrading({ isLightMode = false }) {
         return;
       }
       if (orderForm.tradingSession !== 'CORE') {
+        if (orderForm.side === 'BUY') {
+          handleOpenScheduleModal();
+          return;
+        }
         rejectOrder('Fractional stock and ETF orders are available only during Regular Hours. Select Only Regular Hours (CORE) or use a whole-share quantity.');
         return;
       }
@@ -5703,13 +5740,36 @@ export default function WebullTrading({ isLightMode = false }) {
                             </button>}
                           </div>
                           {orderValidationError && (
-                            <p
-                              id="webull-order-validation"
-                              role="alert"
-                              style={{ color: '#fca5a5', fontSize: '12px', fontWeight: 600, lineHeight: 1.4, margin: '7px 0 0' }}
-                            >
-                              ⚠️ {orderValidationError}
-                            </p>
+                            <div style={{ marginTop: '7px' }}>
+                              <p
+                                id="webull-order-validation"
+                                role="alert"
+                                style={{ color: '#fca5a5', fontSize: '12px', fontWeight: 600, lineHeight: 1.4, margin: '0 0 6px' }}
+                              >
+                                ⚠️ {orderValidationError}
+                              </p>
+                              {selectedInstrumentType === 'EQUITY' && orderForm.side === 'BUY' && (isFractional || isCashAmountMode) && (
+                                <button
+                                  type="button"
+                                  onClick={handleOpenScheduleModal}
+                                  style={{
+                                    background: 'rgba(16, 185, 129, 0.15)',
+                                    border: '1px solid #10b981',
+                                    color: '#34d399',
+                                    padding: '5px 10px',
+                                    borderRadius: '6px',
+                                    fontSize: '12px',
+                                    fontWeight: 700,
+                                    cursor: 'pointer',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '6px',
+                                  }}
+                                >
+                                  ⏰ Would you like to time your buy for 9:30 AM?
+                                </button>
+                              )}
+                            </div>
                           )}
                         </div>
 
@@ -6867,6 +6927,13 @@ export default function WebullTrading({ isLightMode = false }) {
         onClose={() => setTwoFactorModal({ isVisible: false, orderData: null })}
         onVerify={handleTwoFactorVerify}
         orderDetails={twoFactorModal.orderData}
+      />
+      <WebullScheduledOrderModal
+        isOpen={scheduledOrderModalOpen}
+        onClose={() => setScheduledOrderModalOpen(false)}
+        orderData={scheduledOrderData}
+        require2fa={require2fa && !isTestMode}
+        onSuccess={handleScheduledOrderSuccess}
       />
       <CancelOrderModal
         isVisible={cancelModal.isVisible}

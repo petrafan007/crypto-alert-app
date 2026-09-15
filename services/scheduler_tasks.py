@@ -301,6 +301,20 @@ def webull_portfolio_sync_loop(app):
             time.sleep(WEBULL_PORTFOLIO_SYNC_INTERVAL_SECONDS)
 
 
+def webull_scheduled_orders_loop(app):
+    """Periodically evaluate and execute pending 9:30 AM ET Webull scheduled fractional orders."""
+    logger.info("Starting Webull scheduled fractional orders background job")
+    with app.app_context():
+        while True:
+            @safe_background_iteration
+            def iteration():
+                from services.webull_scheduled_order_service import process_due_scheduled_orders
+                process_due_scheduled_orders(app=app)
+
+            iteration()
+            time.sleep(15)
+
+
 def portfolio_alert_loop(app):
     logger.info("=== portfolio_alert_loop STARTED ===")
     with app.app_context():
@@ -1450,6 +1464,14 @@ def start_background_jobs(app=None):
     )
     webull_portfolio_thread.start()
 
+    webull_scheduled_thread = threading.Thread(
+        target=webull_scheduled_orders_loop,
+        args=(app,),
+        daemon=True,
+        name="webull-scheduled-orders",
+    )
+    webull_scheduled_thread.start()
+
     # 2. Portfolio Price Alert Loop
     portfolio_thread = threading.Thread(target=portfolio_alert_loop, args=(app,), daemon=True)
     portfolio_thread.start()
@@ -1497,6 +1519,7 @@ def start_background_jobs(app=None):
         "order_status": order_status_thread,
         "order_history": order_history_thread,
         "webull_portfolio": webull_portfolio_thread,
+        "webull_scheduled_orders": webull_scheduled_thread,
         "portfolio": portfolio_thread,
         "watchlist": watchlist_thread,
         "volatility": volatility_thread,

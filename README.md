@@ -1,8 +1,16 @@
 # Crypto & Quant Securities Dashboard
 
-**Version:** 2.99.32
+**Version:** 3.0.0
 
 ## Recent Updates
+
+### v3.0.0
+- **Webull Scheduled Fractional Order Engine (9:30 AM ET Market Open):** Webull OpenAPI requires stock and ETF fractional share orders (both fractional share quantities and cash-amount budgets) to execute strictly as Market orders during Regular Trading Hours (`CORE`: 9:30 AM – 4:00 PM Eastern Time). Outside regular hours, entering a fractional quantity or dollar budget now presents an interactive scheduling prompt: *"Would you like to time your buy for the next trading day at 9:30 AM?"*
+- **Automated Queue & NYSE Market Calendar:** Queued orders are stored in the `webull_scheduled_orders` ledger and tracked against an NYSE calendar service that calculates the exact next 9:30:00 AM ET regular market open, accurately accounting for weekends and official NYSE market holidays.
+- **Price Protection Ceiling (+3% Default Buffer):** Features an editable price ceiling cutoff pre-populated with a +3% default buffer above current quote. If opening price at 9:30 AM gaps above the user's ceiling, the order automatically aborts (`SKIPPED_PRICE_LIMIT`), protecting the user from buying at an unwanted price spike.
+- **Two-Factor Authentication (2FA):** Fully integrated with TOTP 2FA verification when trading 2FA is required, authorizing execution in advance so orders fill autonomously at market open.
+- **Scheduled Orders Management:** Pending scheduled orders are visible in `Orders.jsx` with full details (asset, side, account, size, price ceiling, target execution time, status) along with an immediate cancellation option.
+- **Background Execution Worker:** A dedicated thread evaluates pending orders every 15 seconds, executing eligible orders via Webull OpenAPI as CORE Market Buy orders upon market open and dispatching system notifications and Telegram alerts.
 
 ### v2.99.32
 - **Quantitative Strategy & Event Strategy AI Ollama Timeout Resilience:** Increased the Ollama execution timeout from 30s to 180s in `services/ai_service.py` for strategy scans and AI model execution, allowing local LLMs (e.g. `qwen2.5:14b`, `gemma:4b`) sufficient inference time to evaluate multi-contract batches without timing out. Also updated the serialized AI queue wait timeout to 180s for Ollama. This resolves the `Ollama: Request Timed Out` error that previously caused Event Contract AI evaluation failure and inappropriately triggered `DATA_LIMITED` and `DEGRADED` worker status on the Quantitative Strategy Engine.

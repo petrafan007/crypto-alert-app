@@ -415,10 +415,44 @@ export default function Orders() {
   const [webullOpenLoading, setWebullOpenLoading] = useState(false);
   const [webullOpenProgress, setWebullOpenProgress] = useState({ complete: 0, total: 0 });
   const [webullAccounts, setWebullAccounts] = useState([]);
+  const [scheduledOrders, setScheduledOrders] = useState([]);
+  const [scheduledLoading, setScheduledLoading] = useState(false);
+  const [cancellingScheduledId, setCancellingScheduledId] = useState(null);
   const [filters, setFilters] = useState({
     source: 'all', account: 'all', symbol: '', product: 'all', timeRange: 'all',
   });
   const openOrdersRequestId = useRef(0);
+
+  const loadScheduledOrders = async () => {
+    try {
+      setScheduledLoading(true);
+      const res = await axios.get('/api/webull/scheduled-orders?status=PENDING', { withCredentials: true });
+      if (res.data?.success) {
+        setScheduledOrders(res.data.orders || []);
+      }
+    } catch (err) {
+      console.warn('Failed to load scheduled orders:', err);
+    } finally {
+      setScheduledLoading(false);
+    }
+  };
+
+  const handleCancelScheduledOrder = async (orderId) => {
+    if (!window.confirm('Are you sure you want to cancel this scheduled 9:30 AM order?')) return;
+    try {
+      setCancellingScheduledId(orderId);
+      const res = await axios.post(`/api/webull/scheduled-orders/${orderId}/cancel`, {}, { withCredentials: true });
+      if (res.data?.success) {
+        setScheduledOrders((prev) => prev.filter((o) => o.id !== orderId));
+      } else {
+        alert(res.data?.message || 'Failed to cancel scheduled order.');
+      }
+    } catch (err) {
+      alert(err.response?.data?.message || err.message || 'Failed to cancel scheduled order.');
+    } finally {
+      setCancellingScheduledId(null);
+    }
+  };
 
   const replaceOpenOrdersForSource = (source, orders) => {
     setOpenOrders((previous) => {
@@ -431,6 +465,7 @@ export default function Orders() {
 
   const loadOpenOrders = async () => {
     const requestId = ++openOrdersRequestId.current;
+    loadScheduledOrders();
     setWebullOpenLoading(true);
     setWebullOpenProgress({ complete: 0, total: 0 });
     replaceOpenOrdersForSource('webull', []);
@@ -795,6 +830,97 @@ export default function Orders() {
               <div className="empty-state"><p>Loading combined orders…</p></div>
             ) : activeTab === 'open' ? (
               <>
+                {scheduledOrders.length > 0 && (
+                  <div className="scheduled-orders-container" style={{ marginBottom: '24px', background: '#111827', border: '1px solid rgba(16, 185, 129, 0.35)', borderRadius: '12px', padding: '16px 20px', boxShadow: '0 4px 20px rgba(0, 0, 0, 0.25)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px', flexWrap: 'wrap', gap: '8px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <span style={{ fontSize: '22px' }}>⏰</span>
+                        <div>
+                          <h3 style={{ margin: 0, fontSize: '16px', color: '#10b981', fontWeight: 700 }}>
+                            Scheduled Market Open (9:30 AM ET) Orders ({scheduledOrders.length})
+                          </h3>
+                          <p style={{ margin: '2px 0 0', fontSize: '12px', color: '#9ca3af' }}>
+                            Queued for automated CORE Market execution at next regular NYSE open
+                          </p>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        className="btn btn-secondary btn-sm"
+                        onClick={loadScheduledOrders}
+                        disabled={scheduledLoading}
+                        style={{ fontSize: '12px', padding: '4px 10px' }}
+                      >
+                        {scheduledLoading ? 'Refreshing…' : '🔄 Refresh Scheduled'}
+                      </button>
+                    </div>
+                    <div className="table-responsive">
+                      <table className="order-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
+                        <thead>
+                          <tr style={{ borderBottom: '1px solid rgba(255, 255, 255, 0.1)', textAlign: 'left', color: '#9ca3af', fontSize: '12px' }}>
+                            <th style={{ padding: '8px 10px' }}>Symbol</th>
+                            <th style={{ padding: '8px 10px' }}>Side / Session</th>
+                            <th style={{ padding: '8px 10px' }}>Account</th>
+                            <th style={{ padding: '8px 10px' }}>Order Size</th>
+                            <th style={{ padding: '8px 10px' }}>Price Ceiling</th>
+                            <th style={{ padding: '8px 10px' }}>Target Execution</th>
+                            <th style={{ padding: '8px 10px' }}>Status</th>
+                            <th style={{ padding: '8px 10px', textAlign: 'right' }}>Action</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {scheduledOrders.map((order) => (
+                            <tr key={order.id} style={{ borderBottom: '1px solid rgba(255, 255, 255, 0.05)', fontSize: '13px' }}>
+                              <td style={{ padding: '10px' }}>
+                                <strong style={{ color: '#60a5fa', fontSize: '14px' }}>{order.symbol}</strong>
+                              </td>
+                              <td style={{ padding: '10px' }}>
+                                <span style={{ color: '#34d399', fontWeight: 700 }}>BUY</span>
+                                <span style={{ fontSize: '11px', color: '#9ca3af', marginLeft: '6px' }}>CORE Market</span>
+                              </td>
+                              <td style={{ padding: '10px', fontSize: '12px', color: '#cbd5e1' }}>
+                                {order.account_name || order.account_id}
+                              </td>
+                              <td style={{ padding: '10px' }}>
+                                {order.entrust_type === 'AMOUNT' ? (
+                                  <strong style={{ color: '#f3f4f6' }}>${Number(order.total_cash_amount || 0).toFixed(2)} USD</strong>
+                                ) : (
+                                  <strong style={{ color: '#f3f4f6' }}>{order.quantity} shares</strong>
+                                )}
+                              </td>
+                              <td style={{ padding: '10px' }}>
+                                {order.max_price ? (
+                                  <span style={{ color: '#f59e0b', fontWeight: 600 }}>${Number(order.max_price).toFixed(2)}</span>
+                                ) : (
+                                  <span style={{ color: '#6b7280' }}>None</span>
+                                )}
+                              </td>
+                              <td style={{ padding: '10px', fontSize: '12px', color: '#34d399' }}>
+                                {order.target_execution_time ? formatEasternTime(order.target_execution_time) : order.target_trading_day}
+                              </td>
+                              <td style={{ padding: '10px' }}>
+                                <span style={{ background: 'rgba(16, 185, 129, 0.15)', color: '#34d399', border: '1px solid rgba(16, 185, 129, 0.3)', padding: '2px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: 600 }}>
+                                  {order.status}
+                                </span>
+                              </td>
+                              <td style={{ padding: '10px', textAlign: 'right' }}>
+                                <button
+                                  type="button"
+                                  className="btn btn-danger btn-sm"
+                                  disabled={cancellingScheduledId === order.id}
+                                  onClick={() => handleCancelScheduledOrder(order.id)}
+                                  style={{ padding: '4px 10px', fontSize: '12px' }}
+                                >
+                                  {cancellingScheduledId === order.id ? 'Cancelling…' : 'Cancel'}
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
                 <h2>All Open Orders</h2>
                 {webullOpenLoading && <p className="order-refresh-status" role="status">Refreshing Webull open orders{webullOpenProgress.total ? ` (${webullOpenProgress.complete}/${webullOpenProgress.total} accounts)…` : '…'}</p>}
                 <OrderTable orders={filteredOpenOrders} open onCancelOrder={openCancelModalForOrder} cancellingId={cancellingId} webullAccounts={webullAccounts} userId={user?.id} />

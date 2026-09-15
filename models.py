@@ -160,6 +160,67 @@ class WebullOrder(db.Model):
     )
 
 
+class WebullScheduledOrder(db.Model):
+    """A user-configured pending scheduled fractional order queued for 9:30 AM ET market open."""
+    __tablename__ = 'webull_scheduled_orders'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id', ondelete='CASCADE'), nullable=False)
+    account_id = db.Column(db.String(80), nullable=False)
+    account_name = db.Column(db.String(120), nullable=True)
+    symbol = db.Column(db.String(30), nullable=False)
+    instrument_type = db.Column(db.String(30), default='EQUITY', nullable=False)
+    side = db.Column(db.String(10), default='BUY', nullable=False)
+    order_type = db.Column(db.String(20), default='MARKET', nullable=False)
+    entrust_type = db.Column(db.String(20), default='QTY', nullable=False)  # 'QTY' or 'AMOUNT'
+    quantity = db.Column(db.Float, nullable=True)
+    total_cash_amount = db.Column(db.Float, nullable=True)
+    reference_price = db.Column(db.Float, nullable=True)
+    max_price = db.Column(db.Float, nullable=True)
+    min_price = db.Column(db.Float, nullable=True)
+    target_execution_time = db.Column(db.DateTime, nullable=False)
+    target_trading_day = db.Column(db.String(20), nullable=False)
+    status = db.Column(db.String(40), default='PENDING', nullable=False)
+    provider_order_id = db.Column(db.String(120), nullable=True)
+    executed_price = db.Column(db.Float, nullable=True)
+    executed_at = db.Column(db.DateTime, nullable=True)
+    execution_error = db.Column(db.Text, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    __table_args__ = (
+        db.Index('ix_webull_scheduled_orders_user_status', 'user_id', 'status'),
+        db.Index('ix_webull_scheduled_orders_target_time', 'target_execution_time', 'status'),
+    )
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'user_id': self.user_id,
+            'account_id': self.account_id,
+            'account_name': self.account_name,
+            'symbol': self.symbol,
+            'instrument_type': self.instrument_type,
+            'side': self.side,
+            'order_type': self.order_type,
+            'entrust_type': self.entrust_type,
+            'quantity': self.quantity,
+            'total_cash_amount': self.total_cash_amount,
+            'reference_price': self.reference_price,
+            'max_price': self.max_price,
+            'min_price': self.min_price,
+            'target_execution_time': self.target_execution_time.isoformat() + 'Z' if self.target_execution_time else None,
+            'target_trading_day': self.target_trading_day,
+            'status': self.status,
+            'provider_order_id': self.provider_order_id,
+            'executed_price': self.executed_price,
+            'executed_at': self.executed_at.isoformat() + 'Z' if self.executed_at else None,
+            'execution_error': self.execution_error,
+            'created_at': self.created_at.isoformat() + 'Z' if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() + 'Z' if self.updated_at else None,
+        }
+
+
 class BinanceOrder(db.Model):
     """A complete per-user Binance.US order ledger, including external orders."""
     __tablename__ = 'binance_orders'
