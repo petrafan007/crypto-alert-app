@@ -1,8 +1,12 @@
 # Crypto & Quant Securities Dashboard
 
-**Version:** 3.0.8
+**Version:** 3.0.9
 
 ## Recent Updates
+
+### v3.0.9
+- **Sentiment Failover Resilience:** Fixed a bug where a database transaction aborted during a secondary AI provider failover would cause the sentiment status to be permanently stuck on "Checking now...". Database sessions are now properly rolled back before persisting an error state when AI providers are unavailable.
+
 
 ### v3.0.8
 - **Portfolio Available Balance Tooltip:** Added a native hover tooltip to stablecoin portfolio rows (e.g., USDT) that dynamically displays the exact available balance when funds are tied up in pending exchange orders.

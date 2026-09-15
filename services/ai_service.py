@@ -1832,6 +1832,12 @@ def analyze_single_symbol_sentiment(user_id, username, symbol, is_watchlist=Fals
     except Exception as e:
         logger.error(f"Error in analyze_single_symbol_sentiment for {symbol}: {e}")
         try:
+            # Ensure any aborted transaction is rolled back before we attempt to record the error
+            db.session.rollback()
+        except Exception:
+            pass
+
+        try:
             attempt = locals().get('latest_attempt') or {}
             tier = attempt.get('tier')
             provider = attempt.get('provider')
