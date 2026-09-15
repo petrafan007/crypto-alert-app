@@ -7,7 +7,13 @@ def init_db(app=None):
     """Initialize the database with all models"""
     # Import models here to avoid circular imports
     from services.provider_resilience import ProviderState
-    from models import Coin, WatchlistCoin, Notification, AIPrompt, DefaultAIPrompt, StakedCoin, StakingReward, AICopilotSession, AIConversation, AICache, AIAnalysisSchedule, PriceHistory, WebullAccountSnapshot, WebullHolding, WebullOrder, BinanceOrder, OrderHistorySyncState, WebullWatchlistItem, ExternalSentimentSignal, WebullTestAccount, WebullTestPosition, WebullTestOrder
+    from models import (
+        Coin, WatchlistCoin, Notification, AIPrompt, DefaultAIPrompt, StakedCoin, StakingReward,
+        AICopilotSession, AIConversation, AICache, AIAnalysisSchedule, PriceHistory,
+        WebullAccountSnapshot, WebullHolding, WebullOrder, BinanceOrder, OrderHistorySyncState,
+        WebullWatchlistItem, ExternalSentimentSignal, WebullTestAccount, WebullTestPosition,
+        WebullTestOrder, WebullScheduledOrder,
+    )
     from event_algo_models import EventStrategyConfig, EventStrategyRun, EventStrategyLog, EventStrategyAIEvaluation, EventMarketSnapshot, EventStrategyDecision, EventStrategyOrder, EventStrategyPosition, EventStrategyPerformance, EventContractOutcome, EventStrategyReport
     from portfolio_algo_models import (PortfolioStrategyConfig, PortfolioStrategyAccount,
         PortfolioStrategyPosition, PortfolioStrategyOrder, PortfolioEngineState,
@@ -25,6 +31,7 @@ def init_db(app=None):
             PortfolioStrategyAccount.__table__.create(db.engine, checkfirst=True)
             PortfolioStrategyPosition.__table__.create(db.engine, checkfirst=True)
             PortfolioStrategyOrder.__table__.create(db.engine, checkfirst=True)
+            WebullScheduledOrder.__table__.create(db.engine, checkfirst=True)
         except Exception as e:
             print(f"db.create_all error: {e}")
         
