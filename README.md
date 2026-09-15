@@ -1,8 +1,12 @@
 # Crypto & Quant Securities Dashboard
 
-**Version:** 3.0.7
+**Version:** 3.0.8
 
 ## Recent Updates
+
+### v3.0.8
+- **Portfolio Available Balance Tooltip:** Added a native hover tooltip to stablecoin portfolio rows (e.g., USDT) that dynamically displays the exact available balance when funds are tied up in pending exchange orders.
+- **Frontend Version Sync:** Fixed a minor desync where the frontend was incorrectly broadcasting an older version in the footer.
 
 ### v3.0.7
 - **Portfolio Stablecoin Highlight Refinement:** Removed incorrect pending-order yellow highlighting from Webull `USD` cash balances (e.g., Individual Cash, Roth IRA). The highlighting logic now strictly respects asset origin, ensuring that only Binance `USD`/`USDT` balances are highlighted when they have active pending exchange orders locking up funds.

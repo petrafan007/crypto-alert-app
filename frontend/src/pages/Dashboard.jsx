@@ -4757,6 +4757,7 @@ function Dashboard({ isLightMode }) {
                       <tr
                         key={coin.id || coin.symbol}
                         className={rowClass}
+                        title={hasLockedQuote ? `${availableQuote.toFixed(2)} available` : undefined}
                         onMouseMove={(e) => handleRowHover(coin, e)}
                         onMouseLeave={handleRowLeave}
                       >
