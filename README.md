@@ -1,8 +1,12 @@
 # Crypto & Quant Securities Dashboard
 
-**Version:** 3.0.6
+**Version:** 3.0.7
 
 ## Recent Updates
+
+### v3.0.7
+- **Portfolio Stablecoin Highlight Refinement:** Removed incorrect pending-order yellow highlighting from Webull `USD` cash balances (e.g., Individual Cash, Roth IRA). The highlighting logic now strictly respects asset origin, ensuring that only Binance `USD`/`USDT` balances are highlighted when they have active pending exchange orders locking up funds.
+- **Available Amount Display:** Removed the parenthetical available amount display from the amount column to keep the interface cleaner, as the available quote balance is already accessible within the trading flows.
 
 ### v3.0.6
 - **Pending OCO Quote Deduplication & Watchlist Highlighting:** Fixed double-counting of locked quote funds for open Binance OCO (One-Cancels-the-Other) orders by accurately deduplicating locked quote amounts using `orderListId`. Watchlist stablecoin (USD/USDT) rows now dynamically present available quote amounts in parentheses alongside a yellow pending-order highlight whenever funds are locked in open orders. 

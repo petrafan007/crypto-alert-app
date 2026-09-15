@@ -4734,10 +4734,10 @@ function Dashboard({ isLightMode }) {
 
                     const isStableQuote = ['USD', 'USDT'].includes(sym);
                     let availableQuote = null;
-                    if (isStableQuote) {
+                    if (isStableQuote && !isExternal) {
                       availableQuote = getQuoteBalance(sym);
                     }
-                    const hasLockedQuote = isStableQuote && availableQuote !== null && availableQuote < (coin.amount || 0) - 0.0001;
+                    const hasLockedQuote = isStableQuote && !isExternal && availableQuote !== null && availableQuote < (coin.amount || 0) - 0.0001;
                     const hasExchangeOrder = getPendingOrdersForCoin(coin).length > 0 || hasLockedQuote;
                     const isAutoBuy = !!coin.auto_buy_enabled;
                     const isAutoSell = !!coin.auto_sell_enabled;
@@ -4801,18 +4801,9 @@ function Dashboard({ isLightMode }) {
                             case 'type':
                               return <td key="type" className="asset-type-cell"><span className="asset-type-pill">{coin.webull_account_type || (isCryptoAsset ? 'Crypto' : coin.symbol === 'USD' ? 'Cash' : 'Securities')}</span></td>;
                             case 'amount':
-                              let amtDisplay = '—';
-                              if (coin.pendingPlaceholder) {
-                                amtDisplay = '0.0000';
-                              } else if (coin.amount !== undefined && coin.amount !== null) {
-                                amtDisplay = coin.amount.toFixed(4);
-                                if (hasLockedQuote) {
-                                  amtDisplay += ` ($${availableQuote.toFixed(2)})`;
-                                }
-                              }
                               return (
-                                <td key="amount" style={{ textAlign: 'center' }} title={hasLockedQuote ? "Available amount shown in parentheses" : undefined}>
-                                  {amtDisplay}
+                                <td key="amount" style={{ textAlign: 'center' }}>
+                                  {coin.pendingPlaceholder ? '0.0000' : (coin.amount !== undefined && coin.amount !== null ? coin.amount.toFixed(4) : '—')}
                                 </td>
                               );
                             case 'current_price':
