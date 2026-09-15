@@ -328,10 +328,14 @@ def process_due_scheduled_orders(app=None) -> List[Dict[str, Any]]:
             except Exception as q_err:
                 logger.warning(f"[SCHEDULED_ORDER] Unable to fetch market snapshot for {order.symbol}: {q_err}")
 
+            effective_max_price = order.max_price
+            if not effective_max_price and order.reference_price and order.reference_price > 0:
+                effective_max_price = round(order.reference_price * (1.0 + DEFAULT_PRICE_CEILING_BUFFER), 2)
+
             # If user specified a maximum purchase price ceiling and market opened above it:
-            if order.max_price and current_price and (current_price > order.max_price):
+            if effective_max_price and current_price and (current_price > effective_max_price):
                 skip_msg = (
-                    f"Market open price (${current_price:.2f}) exceeded cutoff ceiling (${order.max_price:.2f}). "
+                    f"Market open price (${current_price:.2f}) exceeded cutoff ceiling (${effective_max_price:.2f}). "
                     "Order safely aborted to protect against gap-up price spikes."
                 )
                 logger.info(f"[SCHEDULED_ORDER] Order #{order.id} ({order.symbol}) skipped price ceiling: {skip_msg}")
@@ -346,7 +350,7 @@ def process_due_scheduled_orders(app=None) -> List[Dict[str, Any]]:
                 amount_text = f"${order.total_cash_amount:.2f}" if order.entrust_type == 'AMOUNT' else f"{order.quantity:g} shares"
                 notif_text = (
                     f"⚠️ Scheduled Buy Aborted: {order.symbol} opened at ${current_price:.2f}, "
-                    f"exceeding your ceiling of ${order.max_price:.2f}. "
+                    f"exceeding your ceiling of ${effective_max_price:.2f}. "
                     f"No purchase was made for {amount_text}."
                 )
                 create_system_notification(
@@ -355,7 +359,7 @@ def process_due_scheduled_orders(app=None) -> List[Dict[str, Any]]:
                     symbol=order.symbol,
                     message=notif_text,
                     current_price=current_price,
-                    crossing_price=order.max_price,
+                    crossing_price=effective_max_price,
                     table_type='portfolio',
                 )
                 if user and getattr(user, 'telegram_chat_id', None):

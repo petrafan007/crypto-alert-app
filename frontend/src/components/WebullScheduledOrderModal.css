@@ -338,3 +338,162 @@
   cursor: not-allowed;
   transform: none;
 }
+
+/* Mode Switcher Tabs */
+.scheduled-order-tabs {
+  display: flex;
+  background: #1e293b;
+  border-radius: 8px;
+  padding: 3px;
+  gap: 4px;
+}
+
+.scheduled-order-tab {
+  flex: 1;
+  padding: 8px 12px;
+  border-radius: 6px;
+  border: none;
+  background: transparent;
+  color: #94a3b8;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.scheduled-order-tab:hover:not(.active) {
+  color: #f1f5f9;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.scheduled-order-tab.active {
+  background: #0f172a;
+  color: #38bdf8;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(56, 189, 248, 0.3);
+}
+
+.scheduled-order-input-no-prefix {
+  padding-left: 14px !important;
+}
+
+/* Quick Buffer Chips */
+.scheduled-order-chips {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin: 4px 0 6px;
+}
+
+.scheduled-order-chips-label {
+  font-size: 12px;
+  color: #9ca3af;
+  font-weight: 500;
+  margin-right: 2px;
+}
+
+.scheduled-order-chip {
+  background: #1f2937;
+  border: 1px solid #374151;
+  color: #cbd5e1;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 4px 9px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.scheduled-order-chip:hover:not(.active) {
+  background: #374151;
+  border-color: #4b5563;
+  color: #ffffff;
+}
+
+.scheduled-order-chip.active {
+  background: rgba(16, 185, 129, 0.2);
+  border-color: #10b981;
+  color: #34d399;
+}
+
+/* Buffer & Ceiling Row */
+.scheduled-order-buffer-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.scheduled-order-flex-1 {
+  flex: 1;
+}
+
+.scheduled-order-pct-input-wrap {
+  display: flex;
+  align-items: center;
+  background: #1f2937;
+  border: 1px solid #374151;
+  border-radius: 8px;
+  padding: 0 10px;
+  height: 42px;
+  box-sizing: border-box;
+}
+
+.scheduled-order-pct-label {
+  color: #10b981;
+  font-weight: 700;
+  font-size: 14px;
+}
+
+.scheduled-order-pct-input {
+  width: 48px;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: #ffffff;
+  font-size: 14px;
+  font-weight: 600;
+  text-align: right;
+  padding: 0 4px;
+}
+
+.scheduled-order-pct-suffix {
+  color: #9ca3af;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+/* Protection Callout */
+.scheduled-order-protection-callout {
+  background: rgba(16, 185, 129, 0.08);
+  border: 1px solid rgba(16, 185, 129, 0.25);
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-top: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.scheduled-order-protection-badge {
+  font-size: 12px;
+  font-weight: 700;
+  color: #34d399;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.scheduled-order-protection-text {
+  font-size: 12px;
+  color: #d1d5db;
+  line-height: 1.45;
+}
+
+.scheduled-order-protection-text strong {
+  color: #ffffff;
+}

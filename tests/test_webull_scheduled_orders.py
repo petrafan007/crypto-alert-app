@@ -209,6 +209,48 @@ class WebullScheduledOrdersTests(unittest.TestCase):
         self.assertEqual(kwargs.get('support_trading_session'), 'CORE')
         self.assertEqual(kwargs.get('order_type'), 'MARKET')
 
+    @patch('services.webull_scheduled_order_service.is_regular_market_hours', return_value=True)
+    @patch('services.webull_scheduled_order_service.get_webull_market_snapshot')
+    @patch('services.webull_scheduled_order_service.place_webull_order')
+    @patch('services.webull_scheduled_order_service.User.query')
+    @patch('services.webull_scheduled_order_service.UserSetting.query')
+    @patch('services.webull_scheduled_order_service.Credential.query')
+    @patch('services.webull_scheduled_order_service.WebullScheduledOrder.query')
+    @patch('services.webull_scheduled_order_service.db.session')
+    def test_process_due_scheduled_orders_applies_default_3_pct_buffer_when_max_price_omitted(
+        self, mock_db, mock_order_query, mock_cred_query, mock_sett_query, mock_user_query,
+        mock_place, mock_snapshot, mock_is_open
+    ):
+        """When max_price is not provided, service defaults to +3% above reference_price ($100 -> $103.00), allowing $100.01 to execute."""
+        order = WebullScheduledOrder(
+            id=12,
+            user_id=1,
+            account_id='acc-1',
+            symbol='TSLA',
+            total_cash_amount=100.00,
+            entrust_type='AMOUNT',
+            reference_price=100.00,
+            max_price=None,  # No explicit max_price, should default to $103.00 (+3%)
+            target_execution_time=datetime.utcnow() - timedelta(seconds=10),
+            status='PENDING',
+        )
+        mock_order_query.filter.return_value.order_by.return_value.all.return_value = [order]
+        mock_user_query.get.return_value = SimpleNamespace(id=1, username='testuser', telegram_chat_id=None)
+        mock_sett_query.filter_by.return_value.first.return_value = SimpleNamespace(webull_environment='production')
+        mock_cred_query.filter_by.return_value.first.return_value = SimpleNamespace(
+            webull_app_key='k', webull_app_secret='s', webull_access_token='t',
+            webull_token_status='NORMAL', webull_token_environment='production',
+        )
+        # Snapshot returns price $100.01 (minor price increase within +3% buffer ceiling)
+        mock_snapshot.return_value = {'symbol': 'TSLA', 'price': 100.01}
+        mock_place.return_value = {'order_id': 'wb-fill-10001'}
+
+        results = process_due_scheduled_orders()
+        self.assertEqual(len(results), 1)
+        self.assertEqual(order.status, 'EXECUTED')
+        self.assertEqual(order.provider_order_id, 'wb-fill-10001')
+        self.assertTrue(mock_place.called)
+
     def test_endpoints_2fa_enforcement(self):
         """Verify POST /api/webull/scheduled-orders enforces 2FA when require_2fa is enabled."""
         with self.app.test_request_context(

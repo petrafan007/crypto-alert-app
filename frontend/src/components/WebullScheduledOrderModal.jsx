@@ -3,6 +3,8 @@ import axios from 'axios';
 import TotpCodeInput from './TotpCodeInput';
 import './WebullScheduledOrderModal.css';
 
+const DEFAULT_BUFFER_PCT = 3.0;
+
 export default function WebullScheduledOrderModal({
   isOpen,
   onClose,
@@ -10,6 +12,10 @@ export default function WebullScheduledOrderModal({
   require2fa = false,
   onSuccess,
 }) {
+  const [orderMode, setOrderMode] = useState('QTY'); // 'QTY' or 'AMOUNT'
+  const [quantity, setQuantity] = useState('');
+  const [totalCashAmount, setTotalCashAmount] = useState('');
+  const [bufferPercent, setBufferPercent] = useState('3.0');
   const [maxPrice, setMaxPrice] = useState('');
   const [totpCode, setTotpCode] = useState('');
   const [nextOpenText, setNextOpenText] = useState('Next trading day at 9:30 AM ET');
@@ -19,17 +25,41 @@ export default function WebullScheduledOrderModal({
   const totpInputRef = useRef(null);
 
   useEffect(() => {
-    if (!isOpen) {
+    if (!isOpen || !orderData) {
       setError('');
       setTotpCode('');
       setLoading(false);
       return;
     }
 
-    // Default price ceiling: +3% buffer above current quote (editable by user)
-    const refPx = parseFloat(orderData?.reference_price || 0);
+    const refPx = parseFloat(orderData.reference_price || 0);
+    const initialCash = parseFloat(orderData.total_cash_amount || 0);
+    const initialQty = parseFloat(orderData.quantity || 0);
+
+    // Prefer cash amount mode if order was triggered via total cash / quote value and no raw quantity
+    const isCashMode = orderData.entrust_type === 'AMOUNT' || (initialCash > 0 && initialQty <= 0);
+    setOrderMode(isCashMode ? 'AMOUNT' : 'QTY');
+
+    if (initialCash > 0) {
+      setTotalCashAmount(initialCash.toFixed(2));
+    } else if (initialQty > 0 && refPx > 0) {
+      setTotalCashAmount((initialQty * refPx).toFixed(2));
+    } else {
+      setTotalCashAmount('');
+    }
+
+    if (initialQty > 0) {
+      setQuantity(String(initialQty));
+    } else if (initialCash > 0 && refPx > 0) {
+      setQuantity((initialCash / refPx).toFixed(5));
+    } else {
+      setQuantity('');
+    }
+
+    // Default +3% price ceiling buffer
+    setBufferPercent(String(DEFAULT_BUFFER_PCT));
     if (refPx > 0) {
-      setMaxPrice((refPx * 1.03).toFixed(2));
+      setMaxPrice((refPx * (1 + DEFAULT_BUFFER_PCT / 100)).toFixed(2));
     } else {
       setMaxPrice('');
     }
@@ -43,14 +73,12 @@ export default function WebullScheduledOrderModal({
         }
       })
       .catch(() => {
-        // Fallback to generic message
         setNextOpenText('Next trading day at 9:30 AM ET');
       })
       .finally(() => {
         setLoadingSchedule(false);
       });
 
-    // Focus 2FA if required
     if (require2fa) {
       setTimeout(() => {
         totpInputRef.current?.focus();
@@ -60,14 +88,79 @@ export default function WebullScheduledOrderModal({
 
   if (!isOpen || !orderData) return null;
 
-  const isCashAmount = orderData.entrust_type === 'AMOUNT';
+  const refPriceNum = parseFloat(orderData.reference_price || 0);
+  const qtyNum = parseFloat(quantity || 0);
+  const cashNum = parseFloat(totalCashAmount || 0);
+
+  // Buffer % change handler: calculates new price ceiling
+  const handleBufferSelect = (pct) => {
+    setBufferPercent(String(pct));
+    if (refPriceNum > 0) {
+      setMaxPrice((refPriceNum * (1 + pct / 100)).toFixed(2));
+    }
+  };
+
+  const handleBufferInputChange = (val) => {
+    const clean = val.replace(/[^0-9.]/g, '');
+    setBufferPercent(clean);
+    const pct = parseFloat(clean);
+    if (!isNaN(pct) && refPriceNum > 0) {
+      setMaxPrice((refPriceNum * (1 + pct / 100)).toFixed(2));
+    }
+  };
+
+  // Ceiling price change handler: updates buffer percentage in sync
+  const handleMaxPriceChange = (val) => {
+    const clean = val.replace(/[^0-9.]/g, '');
+    setMaxPrice(clean);
+    const px = parseFloat(clean);
+    if (!isNaN(px) && refPriceNum > 0 && px > 0) {
+      const computedPct = ((px - refPriceNum) / refPriceNum) * 100;
+      setBufferPercent(computedPct >= 0 ? computedPct.toFixed(1) : '0.0');
+    }
+  };
+
+  const handleModeChange = (mode) => {
+    setOrderMode(mode);
+    setError('');
+    if (mode === 'AMOUNT' && (!cashNum || cashNum <= 0) && qtyNum > 0 && refPriceNum > 0) {
+      setTotalCashAmount((qtyNum * refPriceNum).toFixed(2));
+    } else if (mode === 'QTY' && (!qtyNum || qtyNum <= 0) && cashNum > 0 && refPriceNum > 0) {
+      setQuantity((cashNum / refPriceNum).toFixed(5));
+    }
+  };
+
+  const handleCashChange = (val) => {
+    const clean = val.replace(/[^0-9.]/g, '');
+    setTotalCashAmount(clean);
+    const num = parseFloat(clean);
+    if (num > 0 && refPriceNum > 0) {
+      setQuantity((num / refPriceNum).toFixed(5));
+    }
+  };
+
+  const handleQuantityChange = (val) => {
+    const clean = val.replace(/[^0-9.]/g, '');
+    setQuantity(clean);
+    const num = parseFloat(clean);
+    if (num > 0 && refPriceNum > 0) {
+      setTotalCashAmount((num * refPriceNum).toFixed(2));
+    }
+  };
+
+  const isCashAmount = orderMode === 'AMOUNT';
   const displayQty = isCashAmount
-    ? `$${parseFloat(orderData.total_cash_amount || 0).toFixed(2)} USD`
-    : `${orderData.quantity} shares`;
+    ? `$${cashNum.toFixed(2)} USD`
+    : `${qtyNum > 0 ? qtyNum : (orderData.quantity || '0')} shares`;
 
   const estimatedValue = isCashAmount
-    ? parseFloat(orderData.total_cash_amount || 0)
-    : (parseFloat(orderData.quantity || 0) * parseFloat(orderData.reference_price || 0));
+    ? cashNum
+    : (qtyNum > 0 && refPriceNum > 0 ? qtyNum * refPriceNum : 0);
+
+  const ceilingNum = parseFloat(maxPrice || 0);
+  const maxEstimatedValue = isCashAmount
+    ? cashNum
+    : (qtyNum > 0 && ceilingNum > 0 ? qtyNum * ceilingNum : 0);
 
   const handleSubmit = async (e) => {
     e?.preventDefault();
@@ -76,6 +169,18 @@ export default function WebullScheduledOrderModal({
     if (require2fa && (!totpCode || totpCode.trim().length !== 6)) {
       setError('Please enter your 6-digit two-factor authentication code.');
       return;
+    }
+
+    if (isCashAmount) {
+      if (isNaN(cashNum) || cashNum < 5.0) {
+        setError('Total order value must be at least $5.00 for dollar-based fractional orders.');
+        return;
+      }
+    } else {
+      if (isNaN(qtyNum) || qtyNum <= 0) {
+        setError('Please enter a valid share quantity greater than zero.');
+        return;
+      }
     }
 
     const ceilingValue = maxPrice.trim() ? parseFloat(maxPrice) : null;
@@ -92,10 +197,10 @@ export default function WebullScheduledOrderModal({
         symbol: orderData.symbol,
         instrument_type: 'EQUITY',
         side: 'BUY',
-        entrust_type: orderData.entrust_type || 'QTY',
-        quantity: isCashAmount ? null : parseFloat(orderData.quantity),
-        total_cash_amount: isCashAmount ? parseFloat(orderData.total_cash_amount) : null,
-        reference_price: orderData.reference_price ? parseFloat(orderData.reference_price) : null,
+        entrust_type: isCashAmount ? 'AMOUNT' : 'QTY',
+        quantity: isCashAmount ? null : qtyNum,
+        total_cash_amount: isCashAmount ? cashNum : null,
+        reference_price: refPriceNum > 0 ? refPriceNum : null,
         max_price: ceilingValue,
         two_factor_code: require2fa ? totpCode.trim() : undefined,
       };
@@ -145,9 +250,27 @@ export default function WebullScheduledOrderModal({
               <div>
                 <strong>Would you like to time your buy for the next trading day at 9:30 AM?</strong>
                 <div style={{ marginTop: '4px', opacity: 0.9 }}>
-                  Webull requires whole shares during extended/overnight sessions. We can safely hold this fractional order in queue and route it to Webull right as regular hours open.
+                  Webull requires whole shares during extended/overnight sessions. We can safely hold this order in queue and route it to Webull right as regular hours open.
                 </div>
               </div>
+            </div>
+
+            {/* Mode Switcher */}
+            <div className="scheduled-order-tabs">
+              <button
+                type="button"
+                className={`scheduled-order-tab ${orderMode === 'AMOUNT' ? 'active' : ''}`}
+                onClick={() => handleModeChange('AMOUNT')}
+              >
+                💵 Order by Dollar Value ($ USD)
+              </button>
+              <button
+                type="button"
+                className={`scheduled-order-tab ${orderMode === 'QTY' ? 'active' : ''}`}
+                onClick={() => handleModeChange('QTY')}
+              >
+                📊 Order by Share Quantity (QTY)
+              </button>
             </div>
 
             <div className="scheduled-order-summary-card">
@@ -155,7 +278,7 @@ export default function WebullScheduledOrderModal({
                 <span className="scheduled-order-label">Target Asset</span>
                 <span className="scheduled-order-val">
                   <span className="scheduled-order-symbol-tag">{orderData.symbol}</span>
-                  {orderData.reference_price ? ` ($${parseFloat(orderData.reference_price).toFixed(2)})` : ''}
+                  {refPriceNum > 0 ? ` ($${refPriceNum.toFixed(2)} / share)` : ''}
                 </span>
               </div>
 
@@ -171,15 +294,24 @@ export default function WebullScheduledOrderModal({
                 <span className="scheduled-order-val">Market Buy (CORE Session)</span>
               </div>
 
-              <div className="scheduled-order-row">
-                <span className="scheduled-order-label">Order Size</span>
-                <span className="scheduled-order-val" style={{ color: '#60a5fa' }}>{displayQty}</span>
-              </div>
-
-              {estimatedValue > 0 && (
+              {isCashAmount ? (
+                <div className="scheduled-order-row">
+                  <span className="scheduled-order-label">Estimated Shares</span>
+                  <span className="scheduled-order-val" style={{ color: '#60a5fa' }}>
+                    ~{refPriceNum > 0 && cashNum > 0 ? (cashNum / refPriceNum).toFixed(5) : '0'} shares
+                  </span>
+                </div>
+              ) : (
                 <div className="scheduled-order-row">
                   <span className="scheduled-order-label">Estimated Value</span>
-                  <span className="scheduled-order-val">${estimatedValue.toFixed(2)} USD</span>
+                  <span className="scheduled-order-val" style={{ color: '#60a5fa' }}>
+                    ${estimatedValue.toFixed(2)} USD
+                    {ceilingNum > 0 && (
+                      <span style={{ fontSize: '11px', color: '#9ca3af', marginLeft: '4px' }}>
+                        (Max: ${maxEstimatedValue.toFixed(2)})
+                      </span>
+                    )}
+                  </span>
                 </div>
               )}
 
@@ -193,27 +325,124 @@ export default function WebullScheduledOrderModal({
               )}
             </div>
 
+            {/* Editable Order Size */}
+            {isCashAmount ? (
+              <div className="scheduled-order-field-group">
+                <label className="scheduled-order-field-label" htmlFor="scheduledCashAmount">
+                  <span>Order Value ($ USD)</span>
+                  <span className="scheduled-order-field-badge">Min $5.00</span>
+                </label>
+                <div className="scheduled-order-input-wrapper">
+                  <span className="scheduled-order-currency-prefix">$</span>
+                  <input
+                    id="scheduledCashAmount"
+                    type="number"
+                    step="0.01"
+                    min="5.00"
+                    className="scheduled-order-input"
+                    value={totalCashAmount}
+                    onChange={(e) => handleCashChange(e.target.value)}
+                    placeholder="0.00"
+                    required
+                  />
+                </div>
+                <p className="scheduled-order-field-hint">
+                  Specify the exact dollar budget to spend on {orderData.symbol} at market open.
+                </p>
+              </div>
+            ) : (
+              <div className="scheduled-order-field-group">
+                <label className="scheduled-order-field-label" htmlFor="scheduledQuantity">
+                  <span>Share Quantity</span>
+                  <span className="scheduled-order-field-badge">Up to 5 Decimals</span>
+                </label>
+                <input
+                  id="scheduledQuantity"
+                  type="number"
+                  step="0.00001"
+                  min="0.00001"
+                  className="scheduled-order-input scheduled-order-input-no-prefix"
+                  value={quantity}
+                  onChange={(e) => handleQuantityChange(e.target.value)}
+                  placeholder="0.00"
+                  required
+                />
+                <p className="scheduled-order-field-hint">
+                  Specify the exact fractional or whole shares of {orderData.symbol} to purchase.
+                </p>
+              </div>
+            )}
+
+            {/* Price Protection Buffer & Price Ceiling */}
             <div className="scheduled-order-field-group">
               <label className="scheduled-order-field-label" htmlFor="scheduledPriceCeiling">
                 <span>Maximum Purchase Price Ceiling ($ USD)</span>
-                <span className="scheduled-order-field-badge">+3% Default Buffer</span>
+                <span className="scheduled-order-field-badge">+{bufferPercent}% Buffer</span>
               </label>
-              <div className="scheduled-order-input-wrapper">
-                <span className="scheduled-order-currency-prefix">$</span>
-                <input
-                  id="scheduledPriceCeiling"
-                  type="number"
-                  step="0.01"
-                  min="0.01"
-                  className="scheduled-order-input"
-                  value={maxPrice}
-                  onChange={(e) => setMaxPrice(e.target.value)}
-                  placeholder="0.00"
-                />
+
+              {/* Quick % Buffer Chips */}
+              <div className="scheduled-order-chips">
+                <span className="scheduled-order-chips-label">Quick Buffer:</span>
+                {[1, 2, 3, 5, 10].map((pct) => (
+                  <button
+                    key={pct}
+                    type="button"
+                    className={`scheduled-order-chip ${parseFloat(bufferPercent) === pct ? 'active' : ''}`}
+                    onClick={() => handleBufferSelect(pct)}
+                  >
+                    +{pct}% {pct === 3 ? '(Default)' : ''}
+                  </button>
+                ))}
               </div>
-              <p className="scheduled-order-field-hint">
-                <strong>Price Protection:</strong> If the market opens at 9:30 AM above this ceiling price, the order will safely abort without buying to protect you against sudden gap-ups.
-              </p>
+
+              <div className="scheduled-order-buffer-row">
+                <div className="scheduled-order-input-wrapper scheduled-order-flex-1">
+                  <span className="scheduled-order-currency-prefix">$</span>
+                  <input
+                    id="scheduledPriceCeiling"
+                    type="number"
+                    step="0.01"
+                    min="0.01"
+                    className="scheduled-order-input"
+                    value={maxPrice}
+                    onChange={(e) => handleMaxPriceChange(e.target.value)}
+                    placeholder="0.00"
+                  />
+                </div>
+                <div className="scheduled-order-pct-input-wrap">
+                  <span className="scheduled-order-pct-label">+</span>
+                  <input
+                    id="scheduledBufferPct"
+                    type="number"
+                    step="0.1"
+                    min="0"
+                    max="100"
+                    className="scheduled-order-pct-input"
+                    value={bufferPercent}
+                    onChange={(e) => handleBufferInputChange(e.target.value)}
+                    title="Buffer percentage above reference price"
+                  />
+                  <span className="scheduled-order-pct-suffix">%</span>
+                </div>
+              </div>
+
+              {/* Protection Explanation Callout */}
+              <div className="scheduled-order-protection-callout">
+                <div className="scheduled-order-protection-badge">
+                  🛡️ Purchase Allowed Up to: ${maxPrice || '0.00'} / share (+{bufferPercent}%)
+                </div>
+                <div className="scheduled-order-protection-text">
+                  {isCashAmount ? (
+                    <>
+                      If <strong>{orderData.symbol}</strong> opens at 9:30 AM between <strong>${refPriceNum.toFixed(2)}</strong> and <strong>${maxPrice || '0.00'}</strong> (+{bufferPercent}%), your <strong>${cashNum.toFixed(2)}</strong> buy will execute at open. It will <strong>NOT</strong> cancel for minor movements (such as +$0.01). It will only safely abort if the opening price spikes above <strong>${maxPrice || '0.00'}</strong>.
+                    </>
+                  ) : (
+                    <>
+                      If <strong>{orderData.symbol}</strong> opens at 9:30 AM between <strong>${refPriceNum.toFixed(2)}</strong> and <strong>${maxPrice || '0.00'}</strong> (+{bufferPercent}%), your order for <strong>{qtyNum || orderData.quantity} shares</strong> will execute at open (up to <strong>${maxEstimatedValue.toFixed(2)}</strong>). It will <strong>NOT</strong> cancel for minor movements (such as +$0.01). It will only safely abort if the opening price spikes above <strong>${maxPrice || '0.00'}</strong>.
+                    </>
+                  )}
+                </div>
+              </div>
             </div>
 
             {require2fa && (

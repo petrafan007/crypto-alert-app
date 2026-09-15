@@ -1,8 +1,15 @@
 # Crypto & Quant Securities Dashboard
 
-**Version:** 3.0.0
+**Version:** 3.0.1
 
 ## Recent Updates
+
+### v3.0.1
+- **Webull Order Ticket Scope Bugfix:** Fixed an unhandled runtime `ReferenceError: isCashAmountMode is not defined` that triggered when calculating balance allocation on stock/ETF tickets outside Regular Hours (CORE).
+- **Honored Order Values & Quantity Preservation:** Prevented automatic blanking of share quantities when hitting MAX or entering dollar budgets during extended or overnight sessions. The ticket and scheduled order modal now honor the exact computed fractional quantity and dollar order value entered by the user.
+- **Interactive Price Buffer (+3% Default) & Price Ceiling Synchronization:** The 9:30 AM scheduled order modal now includes interactive price protection buffer controls (`+1%`, `+2%`, `+3%`, `+5%`, `+10%`, plus custom percentage input) in two-way synchronization with the dollar ceiling price per share.
+- **Price Fluctuation Protection Guarantee:** Clarified and enforced that orders execute at market open as long as the opening price does not exceed the ceiling price (e.g. up to $103.00 at opening for a $100.00 stock at scheduling time). Orders will not cancel for minor price fluctuations (such as +$0.01), only aborting safely if the opening price spikes above the selected ceiling percentage.
+- **Dual Order Mode Support:** Added a mode switcher in the scheduled order modal allowing users to toggle between fixed dollar budget ($ USD) and fixed share quantity (Shares) with dynamic estimation.
 
 ### v3.0.0
 - **Webull Scheduled Fractional Order Engine (9:30 AM ET Market Open):** Webull OpenAPI requires stock and ETF fractional share orders (both fractional share quantities and cash-amount budgets) to execute strictly as Market orders during Regular Trading Hours (`CORE`: 9:30 AM – 4:00 PM Eastern Time). Outside regular hours, entering a fractional quantity or dollar budget now presents an interactive scheduling prompt: *"Would you like to time your buy for the next trading day at 9:30 AM?"*

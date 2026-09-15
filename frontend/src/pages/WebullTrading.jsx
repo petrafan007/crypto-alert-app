@@ -1339,6 +1339,8 @@ export default function WebullTrading({ isLightMode = false }) {
     return isFractionalQuantity(q);
   }, [selectedInstrumentType, orderForm.entrustType, orderForm.quantity]);
 
+  const isCashAmountMode = selectedInstrumentType === 'EQUITY' && orderForm.entrustType === 'AMOUNT';
+
   const isExtendedSession = selectedInstrumentType === 'EQUITY' && orderForm.tradingSession === 'ALL';
   const isOvernightSession = selectedInstrumentType === 'EQUITY' && orderForm.tradingSession === 'NIGHT';
 
@@ -1482,7 +1484,9 @@ export default function WebullTrading({ isLightMode = false }) {
   const handleOpenScheduleModal = () => {
     const activeAcc = accounts.find((a) => String(a.account_id) === String(orderForm.accountId)) || accounts[0];
     const accName = activeAcc ? accountLabel(activeAcc) : orderForm.accountId;
-    const isCashMode = orderForm.entrustType === 'AMOUNT' || (orderForm.quoteQuantity && !orderForm.quantity);
+    const numQuote = parseFloat(orderForm.quoteQuantity?.replace(/[^0-9.]/g, '') || 0);
+    const numQty = parseFloat(orderForm.quantity || 0);
+    const isCashMode = orderForm.entrustType === 'AMOUNT' || (numQuote > 0 && (!numQty || numQty <= 0));
     setScheduledOrderData({
       account_id: orderForm.accountId || (activeAcc ? activeAcc.account_id : ''),
       account_name: accName,
@@ -1490,8 +1494,8 @@ export default function WebullTrading({ isLightMode = false }) {
       instrument_type: 'EQUITY',
       side: 'BUY',
       entrust_type: isCashMode ? 'AMOUNT' : 'QTY',
-      quantity: isCashMode ? null : orderForm.quantity,
-      total_cash_amount: isCashMode ? (orderForm.totalCashAmount || orderForm.quoteQuantity?.replace(/[^0-9.]/g, '')) : null,
+      quantity: numQty > 0 ? String(numQty) : (effectivePrice > 0 && numQuote > 0 ? (numQuote / effectivePrice).toFixed(5) : ''),
+      total_cash_amount: numQuote > 0 ? numQuote.toFixed(2) : (numQty > 0 && effectivePrice > 0 ? (numQty * effectivePrice).toFixed(2) : ''),
       reference_price: effectivePrice || currentPriceNumber || 0,
     });
     setScheduledOrderModalOpen(true);
@@ -3299,6 +3303,9 @@ export default function WebullTrading({ isLightMode = false }) {
       ? (numQty * effectivePrice * mult).toFixed(2)
       : selectedInstrumentType === 'OPTION' ? '0.00' : '';
     setOrderValidationError('');
+    if (selectedInstrumentType === 'EQUITY' && !fractionalEquityAllowed && isFractionalQuantity(numQty)) {
+      setOrderValidationError('Extended and Overnight stock/ETF sessions require whole shares. Select Only Regular Hours (CORE) to use a fractional quantity.');
+    }
     setOrderForm((prev) => ({ ...prev, entrustType: 'QTY', totalCashAmount: '', quantity: qty, quoteQuantity: computedVal }));
     updateManualAllocation({ quantity: numQty, quoteValue: computedVal });
   };
@@ -3310,12 +3317,12 @@ export default function WebullTrading({ isLightMode = false }) {
     const unitCost = effectivePrice * mult;
     const rawQuantity = numQuote > 0 && unitCost > 0 ? numQuote / unitCost : 0;
     const wholeQuantity = Math.floor(rawQuantity);
-    const computedQty = fractionalQuantityAllowed
+    const computedQty = (fractionalQuantityAllowed || selectedInstrumentType === 'EQUITY')
       ? generatedQuantity(rawQuantity)
       : wholeQuantity > 0 ? String(wholeQuantity) : '';
     const cashAmountMode = useEquityCashAmount(numQuote, rawQuantity);
     setOrderValidationError('');
-    if (selectedInstrumentType === 'EQUITY' && !fractionalEquityAllowed && rawQuantity > 0 && wholeQuantity < 1) {
+    if (selectedInstrumentType === 'EQUITY' && !fractionalEquityAllowed && isFractionalQuantity(rawQuantity)) {
       setOrderValidationError('Extended and Overnight stock/ETF sessions require whole shares. Select Only Regular Hours (CORE) to use a fractional quantity.');
     }
     setOrderForm((prev) => ({
@@ -3390,13 +3397,13 @@ export default function WebullTrading({ isLightMode = false }) {
         const targetDollars = floorCashAmountForTicket(cashBalance * (pct / 100));
         const mult = selectedInstrumentType === 'OPTION' ? OPTION_CONTRACT_MULTIPLIER : 1;
         const unitCost = effectivePrice * mult;
-        const rawQuantity = targetDollars / unitCost;
+        const rawQuantity = unitCost > 0 ? targetDollars / unitCost : 0;
         const wholeQuantity = Math.floor(rawQuantity);
-        const qty = fractionalQuantityAllowed
+        const qty = (fractionalQuantityAllowed || selectedInstrumentType === 'EQUITY')
           ? generatedQuantity(rawQuantity)
           : wholeQuantity > 0 ? String(wholeQuantity) : '';
         const cashAmountMode = useEquityCashAmount(targetDollars, rawQuantity);
-        if (selectedInstrumentType === 'EQUITY' && !fractionalEquityAllowed && rawQuantity > 0 && wholeQuantity < 1) {
+        if (selectedInstrumentType === 'EQUITY' && !fractionalEquityAllowed && isFractionalQuantity(rawQuantity)) {
           setOrderValidationError('Extended and Overnight stock/ETF sessions require whole shares. Select Only Regular Hours (CORE) to use a fractional quantity.');
         }
         setOrderForm((prev) => ({
@@ -3413,10 +3420,10 @@ export default function WebullTrading({ isLightMode = false }) {
       if (heldQuantity > 0) {
         const targetQty = (heldQuantity * (pct / 100));
         const wholeQuantity = Math.floor(targetQty);
-        const formattedQty = fractionalQuantityAllowed
+        const formattedQty = (fractionalQuantityAllowed || selectedInstrumentType === 'EQUITY')
           ? generatedQuantity(targetQty)
           : wholeQuantity > 0 ? String(wholeQuantity) : '';
-        if (selectedInstrumentType === 'EQUITY' && !fractionalEquityAllowed && targetQty > 0 && wholeQuantity < 1) {
+        if (selectedInstrumentType === 'EQUITY' && !fractionalEquityAllowed && isFractionalQuantity(targetQty)) {
           setOrderValidationError('Extended and Overnight stock/ETF sessions require whole shares. Select Only Regular Hours (CORE) to sell this fractional position.');
         }
         const mult = selectedInstrumentType === 'OPTION' ? OPTION_CONTRACT_MULTIPLIER : 1;
@@ -5748,7 +5755,12 @@ export default function WebullTrading({ isLightMode = false }) {
                               >
                                 ⚠️ {orderValidationError}
                               </p>
-                              {selectedInstrumentType === 'EQUITY' && orderForm.side === 'BUY' && (isFractional || isCashAmountMode) && (
+                              {selectedInstrumentType === 'EQUITY' && orderForm.side === 'BUY' && (
+                                isFractional
+                                || isCashAmountMode
+                                || Boolean(parseFloat(orderForm.quantity) > 0)
+                                || Boolean(parseFloat(orderForm.quoteQuantity) > 0)
+                              ) && (
                                 <button
                                   type="button"
                                   onClick={handleOpenScheduleModal}
