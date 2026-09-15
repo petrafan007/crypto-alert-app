@@ -53,3 +53,13 @@ export const accountLabel = (account, fallbackId = '') => {
   const id = account?.account_id_masked || (account?.account_id ? `••••${String(account.account_id).slice(-4)}` : (fallbackId ? `••••${String(fallbackId).slice(-4)}` : ''));
   return id ? `${name} (${id})` : name;
 };
+
+export const sanitizeTotpCode = (value) => String(value ?? '')
+  .replace(/\D/g, '')
+  .slice(0, 6);
+
+export const formatBufferPercent = (value, defaultPct = 3.00) => {
+  const num = parseFloat(value);
+  if (!Number.isFinite(num) || num < 0) return defaultPct.toFixed(2);
+  return num.toFixed(2);
+};

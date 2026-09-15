@@ -481,8 +481,40 @@
   font-size: 14px;
 }
 
+.scheduled-order-field-label-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.scheduled-order-paste-btn {
+  background: rgba(99, 102, 241, 0.15);
+  border: 1px solid rgba(99, 102, 241, 0.35);
+  color: #a5b4fc;
+  border-radius: 6px;
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  transition: all 0.15s ease;
+}
+
+.scheduled-order-paste-btn:hover {
+  background: rgba(99, 102, 241, 0.25);
+  border-color: #818cf8;
+  color: #ffffff;
+}
+
+.scheduled-order-pct-input-wrap:focus-within {
+  border-color: #10b981;
+  box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.2);
+}
+
 .scheduled-order-pct-input {
-  width: 48px;
+  width: 58px;
   background: transparent;
   border: none;
   outline: none;
@@ -491,6 +523,20 @@
   font-weight: 600;
   text-align: right;
   padding: 0 4px;
+}
+
+.scheduled-order-pct-input::-webkit-outer-spin-button,
+.scheduled-order-pct-input::-webkit-inner-spin-button,
+.scheduled-order-input::-webkit-outer-spin-button,
+.scheduled-order-input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.scheduled-order-pct-input,
+.scheduled-order-input {
+  -moz-appearance: textfield;
+  appearance: textfield;
 }
 
 .scheduled-order-pct-suffix {

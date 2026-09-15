@@ -253,11 +253,46 @@ def call_ollama_chat(model, messages, max_tokens=600, timeout=180, reasoning_lev
             "num_predict": max(1, int(max_tokens or 600)),
         },
     }
-    response = requests.post(
-        f"{OLLAMA_BASE_URL}/api/chat",
-        json=request_payload,
-        timeout=timeout,
-    )
+    try:
+        response = requests.post(
+            f"{OLLAMA_BASE_URL}/api/chat",
+            json=request_payload,
+            timeout=timeout,
+        )
+    except (requests.Timeout, requests.ConnectionError) as req_err:
+        # If a heavy local model timed out on CPU (e.g. qwen2.5:14b), attempt
+        # a fallback to an installed fast lightweight model (e.g. llama3.2:3b)
+        # so the caller gets a valid response instead of failing the entire scan.
+        fast_fallbacks = ["llama3.2:3b", "lfm2.5-thinking:1.2b"]
+        fallback_success = False
+        for fallback_model in fast_fallbacks:
+            if fallback_model != model_name:
+                try:
+                    models_installed = get_ollama_models(timeout=3)
+                except Exception:
+                    models_installed = []
+                if fallback_model in models_installed:
+                    logger.warning(
+                        "Ollama model %s timed out (%s); attempting fast local fallback model %s...",
+                        model_name, req_err, fallback_model
+                    )
+                    try:
+                        fallback_payload = dict(request_payload)
+                        fallback_payload["model"] = fallback_model
+                        fallback_payload.pop("think", None)
+                        response = requests.post(
+                            f"{OLLAMA_BASE_URL}/api/chat",
+                            json=fallback_payload,
+                            timeout=60,
+                        )
+                        if response.status_code == 200:
+                            fallback_success = True
+                            break
+                    except Exception as fb_err:
+                        logger.warning("Ollama fast fallback %s also failed: %s", fallback_model, fb_err)
+        if not fallback_success:
+            raise
+
     # Older/local models may not recognize the thinking parameter. Retry the
     # same request without it so adding cloud-model support never regresses
     # ordinary Ollama models.

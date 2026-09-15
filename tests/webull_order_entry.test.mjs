@@ -47,4 +47,19 @@ assert.equal(shouldUseEquityCashAmount({ ...aaplCashBuy, side: 'SELL' }), false)
 assert.equal(shouldUseEquityCashAmount({ ...aaplCashBuy, tradingSession: 'ALL' }), false);
 assert.equal(shouldUseEquityCashAmount({ ...aaplCashBuy, rawQuantity: 1.25 }), false);
 
+import { sanitizeTotpCode, formatBufferPercent } from '../frontend/src/utils/webullOrderEntry.mjs';
+
+assert.equal(sanitizeTotpCode('123456'), '123456');
+assert.equal(sanitizeTotpCode('123 456'), '123456');
+assert.equal(sanitizeTotpCode('123-456-789'), '123456');
+assert.equal(sanitizeTotpCode('abc'), '');
+assert.equal(sanitizeTotpCode(null), '');
+
+assert.equal(formatBufferPercent('3.00'), '3.00');
+assert.equal(formatBufferPercent('3'), '3.00');
+assert.equal(formatBufferPercent('2.5'), '2.50');
+assert.equal(formatBufferPercent(''), '3.00');
+assert.equal(formatBufferPercent('-1'), '3.00');
+assert.equal(formatBufferPercent('abc'), '3.00');
+
 console.log('Webull order-entry regression checks passed.');

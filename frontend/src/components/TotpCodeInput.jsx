@@ -1,8 +1,8 @@
 import React, { forwardRef } from 'react';
 
-export const sanitizeTotpCode = (value) => String(value ?? '')
-  .replace(/\D/g, '')
-  .slice(0, 6);
+import { sanitizeTotpCode } from '../utils/webullOrderEntry.mjs';
+
+export { sanitizeTotpCode };
 
 /** A consistent native TOTP field for password managers and platform OTP autofill. */
 const TotpCodeInput = forwardRef(function TotpCodeInput({ onChange, id = 'twoFactorCode', name = 'totp', ...props }, ref) {
@@ -10,6 +10,31 @@ const TotpCodeInput = forwardRef(function TotpCodeInput({ onChange, id = 'twoFac
     const sanitized = sanitizeTotpCode(event.target.value);
     if (event.target.value !== sanitized) event.target.value = sanitized;
     onChange?.(event);
+  };
+
+  const handleClick = (event) => {
+    event.target.select?.();
+    props.onClick?.(event);
+  };
+
+  const handleFocus = (event) => {
+    event.target.select?.();
+    props.onFocus?.(event);
+  };
+
+  const handlePaste = (event) => {
+    const text = event.clipboardData?.getData('text') || '';
+    const sanitized = sanitizeTotpCode(text);
+    if (sanitized) {
+      event.preventDefault();
+      const syntheticEvent = {
+        ...event,
+        target: { ...event.target, value: sanitized, name: event.target.name || name },
+      };
+      if (event.target) event.target.value = sanitized;
+      onChange?.(syntheticEvent);
+    }
+    props.onPaste?.(event);
   };
 
   return (
@@ -26,6 +51,9 @@ const TotpCodeInput = forwardRef(function TotpCodeInput({ onChange, id = 'twoFac
       aria-label="Two-factor authentication code"
       {...props}
       ref={ref}
+      onClick={handleClick}
+      onFocus={handleFocus}
+      onPaste={handlePaste}
       onChange={handleChange}
     />
   );

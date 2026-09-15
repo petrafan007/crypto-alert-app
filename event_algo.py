@@ -285,6 +285,23 @@ def get_event_strategy_ai_tiers_and_keys(config, user_id=None):
                 custom_api_keys[tier_name] = decrypted_key
                 custom_api_keys[(tier_name, provider)] = decrypted_key
 
+    # If the user has global credentials for providers not yet in the cascade,
+    # append an emergency fallback tier so quota/timeout exhaustion does not halt paper scans.
+    if user_cred:
+        existing_providers = {t[1] for t in tier_configs}
+        for fallback_provider, default_model in [("openai", "gpt-4o-mini"), ("gemini", "gemini-3-flash-preview")]:
+            if fallback_provider not in existing_providers:
+                fb_key = (
+                    decrypt_secret(getattr(user_cred, f"_{fallback_provider}_key", None)) or
+                    decrypt_secret(getattr(user_cred, f"{fallback_provider}_key", None))
+                )
+                if fb_key:
+                    fb_tier_name = f"fallback_{fallback_provider}"
+                    tier_configs.append((fb_tier_name, fallback_provider, default_model, "medium"))
+                    custom_api_keys[fb_tier_name] = fb_key
+                    custom_api_keys[(fb_tier_name, fallback_provider)] = fb_key
+                    break
+
     return tier_configs, custom_api_keys
 
 
@@ -361,6 +378,19 @@ def _record_engine_log(user_id, event_type, message, *, level="INFO", config_id=
                 should_notify = now - previous >= 900
                 if should_notify:
                     _WORKER_ALERT_STATE[key] = now
+            if should_notify:
+                try:
+                    cutoff = datetime.utcnow() - timedelta(minutes=15)
+                    dup = EventStrategyLog.query.filter(
+                        EventStrategyLog.user_id == user_id,
+                        EventStrategyLog.event_type == str(event_type or "ENGINE").upper()[:60],
+                        EventStrategyLog.created_at >= cutoff,
+                        EventStrategyLog.id != row.id,
+                    ).first()
+                    if dup:
+                        should_notify = False
+                except Exception:
+                    pass
             if should_notify:
                 try:
                     from services.notification_service import create_system_notification

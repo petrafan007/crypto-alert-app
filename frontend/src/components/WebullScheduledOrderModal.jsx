@@ -3,7 +3,7 @@ import axios from 'axios';
 import TotpCodeInput from './TotpCodeInput';
 import './WebullScheduledOrderModal.css';
 
-const DEFAULT_BUFFER_PCT = 3.0;
+const DEFAULT_BUFFER_PCT = 3.00;
 
 export default function WebullScheduledOrderModal({
   isOpen,
@@ -15,7 +15,7 @@ export default function WebullScheduledOrderModal({
   const [orderMode, setOrderMode] = useState('QTY'); // 'QTY' or 'AMOUNT'
   const [quantity, setQuantity] = useState('');
   const [totalCashAmount, setTotalCashAmount] = useState('');
-  const [bufferPercent, setBufferPercent] = useState('3.0');
+  const [bufferPercent, setBufferPercent] = useState('3.00');
   const [maxPrice, setMaxPrice] = useState('');
   const [totpCode, setTotpCode] = useState('');
   const [nextOpenText, setNextOpenText] = useState('Next trading day at 9:30 AM ET');
@@ -56,8 +56,8 @@ export default function WebullScheduledOrderModal({
       setQuantity('');
     }
 
-    // Default +3% price ceiling buffer
-    setBufferPercent(String(DEFAULT_BUFFER_PCT));
+    // Default +3.00% price ceiling buffer
+    setBufferPercent(DEFAULT_BUFFER_PCT.toFixed(2));
     if (refPx > 0) {
       setMaxPrice((refPx * (1 + DEFAULT_BUFFER_PCT / 100)).toFixed(2));
     } else {
@@ -82,7 +82,8 @@ export default function WebullScheduledOrderModal({
     if (require2fa) {
       setTimeout(() => {
         totpInputRef.current?.focus();
-      }, 80);
+        totpInputRef.current?.select?.();
+      }, 100);
     }
   }, [isOpen, orderData, require2fa]);
 
@@ -94,14 +95,22 @@ export default function WebullScheduledOrderModal({
 
   // Buffer % change handler: calculates new price ceiling
   const handleBufferSelect = (pct) => {
-    setBufferPercent(String(pct));
+    const formatted = Number(pct).toFixed(2);
+    setBufferPercent(formatted);
     if (refPriceNum > 0) {
       setMaxPrice((refPriceNum * (1 + pct / 100)).toFixed(2));
     }
   };
 
   const handleBufferInputChange = (val) => {
-    const clean = val.replace(/[^0-9.]/g, '');
+    let clean = val.replace(/[^0-9.]/g, '');
+    const parts = clean.split('.');
+    if (parts.length > 2) {
+      clean = parts[0] + '.' + parts.slice(1).join('');
+    }
+    if (parts.length === 2 && parts[1].length > 2) {
+      clean = parts[0] + '.' + parts[1].slice(0, 2);
+    }
     setBufferPercent(clean);
     const pct = parseFloat(clean);
     if (!isNaN(pct) && refPriceNum > 0) {
@@ -109,15 +118,47 @@ export default function WebullScheduledOrderModal({
     }
   };
 
+  const handleBufferBlur = () => {
+    const num = parseFloat(bufferPercent);
+    if (isNaN(num) || num < 0) {
+      setBufferPercent(DEFAULT_BUFFER_PCT.toFixed(2));
+      if (refPriceNum > 0) {
+        setMaxPrice((refPriceNum * (1 + DEFAULT_BUFFER_PCT / 100)).toFixed(2));
+      }
+    } else {
+      setBufferPercent(num.toFixed(2));
+    }
+  };
+
   // Ceiling price change handler: updates buffer percentage in sync
   const handleMaxPriceChange = (val) => {
-    const clean = val.replace(/[^0-9.]/g, '');
+    let clean = val.replace(/[^0-9.]/g, '');
+    const parts = clean.split('.');
+    if (parts.length > 2) clean = parts[0] + '.' + parts.slice(1).join('');
+    if (parts.length === 2 && parts[1].length > 2) clean = parts[0] + '.' + parts[1].slice(0, 2);
     setMaxPrice(clean);
     const px = parseFloat(clean);
     if (!isNaN(px) && refPriceNum > 0 && px > 0) {
       const computedPct = ((px - refPriceNum) / refPriceNum) * 100;
-      setBufferPercent(computedPct >= 0 ? computedPct.toFixed(1) : '0.0');
+      setBufferPercent(computedPct >= 0 ? computedPct.toFixed(2) : '0.00');
     }
+  };
+
+  const handlePasteTotp = async () => {
+    try {
+      if (navigator.clipboard?.readText) {
+        const text = await navigator.clipboard.readText();
+        const clean = text.replace(/\D/g, '').slice(0, 6);
+        if (clean) {
+          setTotpCode(clean);
+          return;
+        }
+      }
+    } catch {
+      // clipboard access not permitted
+    }
+    totpInputRef.current?.focus?.();
+    totpInputRef.current?.select?.();
   };
 
   const handleModeChange = (mode) => {
@@ -243,7 +284,7 @@ export default function WebullScheduledOrderModal({
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="scheduled-order-form">
+        <form onSubmit={handleSubmit} className="scheduled-order-form" autoComplete="on">
           <div className="scheduled-order-body">
             <div className="scheduled-order-prompt-box">
               <span className="scheduled-order-prompt-icon" aria-hidden="true">💡</span>
@@ -413,13 +454,13 @@ export default function WebullScheduledOrderModal({
                   <span className="scheduled-order-pct-label">+</span>
                   <input
                     id="scheduledBufferPct"
-                    type="number"
-                    step="0.1"
-                    min="0"
-                    max="100"
+                    type="text"
+                    inputMode="decimal"
                     className="scheduled-order-pct-input"
                     value={bufferPercent}
                     onChange={(e) => handleBufferInputChange(e.target.value)}
+                    onBlur={handleBufferBlur}
+                    placeholder="3.00"
                     title="Buffer percentage above reference price"
                   />
                   <span className="scheduled-order-pct-suffix">%</span>
@@ -447,17 +488,27 @@ export default function WebullScheduledOrderModal({
 
             {require2fa && (
               <div className="scheduled-order-field-group">
-                <label className="scheduled-order-field-label" htmlFor="scheduledTotpCode">
-                  Two-Factor Authentication Code
-                </label>
+                <div className="scheduled-order-field-label-row">
+                  <label className="scheduled-order-field-label" htmlFor="scheduledTotpCode">
+                    Two-Factor Authentication Code
+                  </label>
+                  <button
+                    type="button"
+                    className="scheduled-order-paste-btn"
+                    onClick={handlePasteTotp}
+                    title="Paste 6-digit TOTP code from clipboard"
+                  >
+                    📋 Paste Code
+                  </button>
+                </div>
                 <TotpCodeInput
                   id="scheduledTotpCode"
+                  name="totp"
                   ref={totpInputRef}
                   className="scheduled-order-totp-input"
                   value={totpCode}
                   onChange={(e) => setTotpCode(e.target.value)}
                   placeholder="000000"
-                  autoFocus
                 />
                 <p className="scheduled-order-field-hint">
                   Enter your 6-digit TOTP code to authorize this scheduled execution.

@@ -1,8 +1,13 @@
 # Crypto & Quant Securities Dashboard
 
-**Version:** 3.0.3
+**Version:** 3.0.4
 
 ## Recent Updates
+
+### v3.0.4
+- **Scheduled Order Percent Buffer Input & Stepper Removal:** Removed the up/down stepper arrows from the percent buffer input (`#scheduledBufferPct`) in the 9:30 AM market-open order scheduling modal. Set default buffer to `3.00%` (2 decimal places). Users can now directly backspace, type any desired percentage with up to two decimal places, or click quick buffer chips (+1%, +2%, +3%, +5%, +10%) with clean two-way synchronization to the dollar ceiling price.
+- **TOTP 2FA Presentation & Clipboard Paste:** Resolved an issue where clicking the 2FA input box did not consistently present TOTP options from password managers. Added automatic select-all behavior on click/focus and introduced a 1-click **📋 Paste Code** button beside the label to quickly paste and sanitize 6-digit TOTP codes directly from the clipboard.
+- **Event Strategy AI Timeout Failover & CPU Inference Resilience:** Resolved persistent `AI evaluation failed for this scan (Ollama: Request Timed Out)` warnings. Added automatic local model fallback in `services/ai_service.py` (falling back to installed lightweight models like `llama3.2:3b` if heavy models time out on CPU inference), integrated emergency global credential fallback to OpenAI/Gemini providers when configured tiers are exhausted, and added database-backed 15-minute deduplication to prevent repetitive toast notification spam across background worker scans.
 
 ### v3.0.3
 - **Scheduled Order Modal Viewport & Pinned Footer Fix:** Resolved an issue where the scheduled order modal exceeded viewport boundaries and cut off the bottom controls (Cancel & Schedule Buy buttons). Added flexbox height constraints (`flex: 1; min-height: 0; overflow-y: auto;`) on the form and body, pinned the action footer to the bottom (`flex-shrink: 0`), and added responsive mobile styling and smooth custom scrollbars.
