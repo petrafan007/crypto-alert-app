@@ -47,3 +47,9 @@ export const shouldUseEquityCashAmount = ({
   && rawQuantity > 0
   && rawQuantity < 1
 );
+
+export const accountLabel = (account, fallbackId = '') => {
+  const name = account?.account_label || account?.account_name || 'Webull Account';
+  const id = account?.account_id_masked || (account?.account_id ? `••••${String(account.account_id).slice(-4)}` : (fallbackId ? `••••${String(fallbackId).slice(-4)}` : ''));
+  return id ? `${name} (${id})` : name;
+};

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 
 import {
+  accountLabel,
   allocationPercentage,
   floorCashAmountForTicket,
   floorQuantityForTicket,
@@ -17,6 +18,19 @@ assert.equal(allocationPercentage(5.20, 100.24), 5.19);
 assert.equal(allocationPercentage(100.24, 100.24), 100);
 assert.equal(allocationPercentage(150, 100), 100);
 assert.equal(allocationPercentage(5, 0), 0);
+
+assert.equal(
+  accountLabel({ account_label: 'Individual Cash', account_id: '12345678' }),
+  'Individual Cash (••••5678)'
+);
+assert.equal(
+  accountLabel({ account_name: 'Margin Account', account_id_masked: '••••9999' }),
+  'Margin Account (••••9999)'
+);
+assert.equal(
+  accountLabel(null, '87654321'),
+  'Webull Account (••••4321)'
+);
 
 const aaplCashBuy = {
   instrumentType: 'EQUITY',

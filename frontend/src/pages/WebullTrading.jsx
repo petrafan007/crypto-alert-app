@@ -35,6 +35,7 @@ import { getAssetDisplaySymbol, getAssetIdentity } from '../utils/assetDisplay';
 import { isNonTradableWebullCashAsset, normalizeWebullTradeSymbol } from '../utils/webullTradeNavigation.mjs';
 import { formatEventLimitPrice } from '../utils/eventOrderPrice.mjs';
 import {
+  accountLabel,
   allocationPercentage,
   floorCashAmountForTicket,
   floorQuantityForTicket,
@@ -1482,29 +1483,30 @@ export default function WebullTrading({ isLightMode = false }) {
   const [scheduledOrderData, setScheduledOrderData] = useState(null);
 
   const handleOpenScheduleModal = () => {
-    const activeAcc = accounts.find((a) => String(a.account_id) === String(orderForm.accountId)) || accounts[0];
-    const accName = activeAcc ? accountLabel(activeAcc) : orderForm.accountId;
-    const numQuote = parseFloat(orderForm.quoteQuantity?.replace(/[^0-9.]/g, '') || 0);
+    const activeAcc = accounts.find((a) => String(a.account_id) === String(selectedAccountId)) || activeAccount || accounts[0];
+    const accName = accountLabel(activeAcc, selectedAccountId);
+    const numCash = parseFloat(orderForm.totalCashAmount) || parseFloat(orderForm.quoteQuantity?.replace(/[^0-9.]/g, '') || 0);
     const numQty = parseFloat(orderForm.quantity || 0);
-    const isCashMode = orderForm.entrustType === 'AMOUNT' || (numQuote > 0 && (!numQty || numQty <= 0));
+    const isCashMode = orderForm.entrustType === 'AMOUNT' || (numCash > 0 && (!numQty || numQty <= 0));
+    const refPx = effectivePrice || livePrice || 0;
     setScheduledOrderData({
-      account_id: orderForm.accountId || (activeAcc ? activeAcc.account_id : ''),
+      account_id: activeAcc?.account_id || selectedAccountId || '',
       account_name: accName,
       symbol: selectedSymbol,
       instrument_type: 'EQUITY',
       side: 'BUY',
       entrust_type: isCashMode ? 'AMOUNT' : 'QTY',
-      quantity: numQty > 0 ? String(numQty) : (effectivePrice > 0 && numQuote > 0 ? (numQuote / effectivePrice).toFixed(5) : ''),
-      total_cash_amount: numQuote > 0 ? numQuote.toFixed(2) : (numQty > 0 && effectivePrice > 0 ? (numQty * effectivePrice).toFixed(2) : ''),
-      reference_price: effectivePrice || currentPriceNumber || 0,
+      quantity: numQty > 0 ? String(numQty) : (refPx > 0 && numCash > 0 ? (numCash / refPx).toFixed(5) : ''),
+      total_cash_amount: numCash > 0 ? numCash.toFixed(2) : (numQty > 0 && refPx > 0 ? (numQty * refPx).toFixed(2) : ''),
+      reference_price: refPx,
     });
     setScheduledOrderModalOpen(true);
   };
 
   const handleScheduledOrderSuccess = (newOrder) => {
-    setOrderMessage({
+    setOrderFeedback({
       type: 'success',
-      text: `✅ Scheduled buy for ${newOrder.symbol} queued for 9:30 AM market open! View in Orders tab.`,
+      message: `Scheduled buy for ${newOrder.symbol} queued for 9:30 AM market open! View in Orders tab.`,
     });
     setOrderValidationError('');
   };
@@ -3532,11 +3534,7 @@ export default function WebullTrading({ isLightMode = false }) {
     }
   }, [selectedInstrumentType, orderForm.side, optionBuyEnabled, optionSellEnabled]);
 
-  const activeAccountLabel = () => {
-    const name = activeAccount?.account_label || activeAccount?.account_name || 'Webull Account';
-    const masked = activeAccount?.account_id_masked || (selectedAccountId ? `••••${String(selectedAccountId).slice(-4)}` : '');
-    return masked ? `${name} (${masked})` : name;
-  };
+  const activeAccountLabel = () => accountLabel(activeAccount, selectedAccountId);
 
   const webullTwoFactorOrderDetails = () => ({
     provider: 'Webull',
@@ -5760,6 +5758,7 @@ export default function WebullTrading({ isLightMode = false }) {
                                 || isCashAmountMode
                                 || Boolean(parseFloat(orderForm.quantity) > 0)
                                 || Boolean(parseFloat(orderForm.quoteQuantity) > 0)
+                                || Boolean(parseFloat(orderForm.totalCashAmount) > 0)
                               ) && (
                                 <button
                                   type="button"

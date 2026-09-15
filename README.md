@@ -1,8 +1,14 @@
 # Crypto & Quant Securities Dashboard
 
-**Version:** 3.0.1
+**Version:** 3.0.2
 
 ## Recent Updates
+
+### v3.0.2
+- **Scheduled Order Modal Runtime Fix:** Resolved an unhandled `ReferenceError: accountLabel is not defined` that prevented the 9:30 AM market-open timing prompt button and order submission flow from opening the scheduled order modal.
+- **Active Webull Account Resolution:** Corrected account association for scheduled market-open orders to resolve the currently active trading account (`activeAccount` / `selectedAccountId`) instead of falling back to default.
+- **Order Success Feedback Alignment:** Fixed `ReferenceError: setOrderMessage is not defined` on modal submission callback by directing notifications through the ticket's `setOrderFeedback` state, cleanly displaying confirmation banners upon queueing scheduled buys.
+- **Price Fallback Safety:** Hardened reference price evaluation in `handleOpenScheduleModal` against undefined price identifiers, gracefully falling back to live asset marks.
 
 ### v3.0.1
 - **Webull Order Ticket Scope Bugfix:** Fixed an unhandled runtime `ReferenceError: isCashAmountMode is not defined` that triggered when calculating balance allocation on stock/ETF tickets outside Regular Hours (CORE).
