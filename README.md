@@ -1,8 +1,11 @@
 # Crypto & Quant Securities Dashboard
 
-**Version:** 2.99.30
+**Version:** 2.99.31
 
 ## Recent Updates
+
+### v2.99.31
+- **Bugfix (AI Copilot Settings):** Increased the connection test timeout for Ollama from 30 seconds to 120 seconds to allow sufficient time for large local models to cold-boot into VRAM without failing the test prematurely.
 
 ### v2.99.30
 - **Bugfix (AI Copilot):** Reduced Ollama connection timeout from 180s to 30s to prevent frontend cascade timeouts. Refactored fallback failure handling to immediately reject the request and display a clean error message in the UI instead of generating a fallback telemetry response.

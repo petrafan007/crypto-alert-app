@@ -392,7 +392,7 @@ def test_ai_connection_generic():
                     test_model,
                     [{"role": "user", "content": "Reply with exactly OK."}],
                     max_tokens=64,
-                    timeout=30,
+                    timeout=120,
                     reasoning_level=payload.get('reasoning_level') or 'medium',
                 )
                 return jsonify(success=True, message=f'Ollama connection OK ({test_model})')
