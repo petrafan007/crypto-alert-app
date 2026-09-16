@@ -1,10 +1,10 @@
 # Crypto & Securities Dashboard
 
-**Version:** 3.1.4
+**Version:** 3.1.5
 
 ## Recent Updates
 
-### v3.1.4
+### v3.1.5
 - **Fix (WebullTrading):** Added a dynamic listener that strictly enforces the 2% MAX buffer rule even if the user switches their order type *after* clicking the MAX button.
 
 ### v3.1.3

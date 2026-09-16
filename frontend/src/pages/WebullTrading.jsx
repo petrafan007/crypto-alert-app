@@ -505,7 +505,7 @@ function LegacyWebullOrderTable({ orders, emptyText, onCancelOrder, cancellingId
   );
 }
 
-function WebullOrderTable({ orders, emptyText, onCancelOrder, onReplaceOrder = null, cancellingId, optionClosePnlByOrder = null, userId, tableId }) {
+function WebullOrderTable({ orders, emptyText, onCancelOrder, onReplaceOrder = null, cancellingId, optionClosePnlByOrder = null, userId, tableId, accounts = [] }) {
   const option = (order) => optionContractDetails(order);
   const closePnlCell = (order) => {
     if (!option(order).isOption) return '—';
@@ -535,7 +535,10 @@ function WebullOrderTable({ orders, emptyText, onCancelOrder, onReplaceOrder = n
       if (/crypto|coin/i.test(type)) return 'Crypto';
       return 'Equities';
     }, filterable: true, style: { textAlign: 'center' } },
-    { id: 'account_number', label: 'Account Number', value: (order) => order.account_id || '', filterable: true, style: { textAlign: 'center' } },
+    { id: 'account_number', label: 'Account', value: (order) => {
+      const acc = accounts.find((a) => String(a.account_id) === String(order.account_id));
+      return accountLabel(acc, order.account_id);
+    }, filterable: true, style: { textAlign: 'center' } },
     { id: 'symbol', label: 'Symbol', value: (order) => option(order).isOption ? option(order).symbol : (order.display_symbol || getAssetDisplaySymbol(order)), filterable: true, style: { textAlign: 'center' } },
     { id: 'expiration', label: 'Expiration', value: (order) => option(order).isOption ? option(order).expiration : '', render: (order) => option(order).isOption ? option(order).expiration || '—' : '—', style: { textAlign: 'center' } },
     { id: 'strike', label: 'Strike', value: (order) => option(order).isOption ? option(order).strike : '', render: (order) => option(order).isOption ? option(order).strikeLabel : '—', style: { textAlign: 'center' } },
@@ -686,14 +689,17 @@ function LegacyEventContractOpenOrders({ orders, onManageOrder }) {
   );
 }
 
-function EventContractOpenOrders({ orders, onManageOrder, userId }) {
+function EventContractOpenOrders({ orders, onManageOrder, userId, accounts = [] }) {
   const details = (order) => eventContractOrderDetails(order);
   const remaining = (order) => Math.max(0, Number(order.quantity || 0) - Number(order.filled_quantity || 0));
   const columns = [
     { id: 'created_at', label: 'Date', value: (order) => order.created_at, render: (order) => formatEasternDate(order.created_at), locked: true },
     { id: 'time', label: 'Time (ET)', value: (order) => order.created_at, render: (order) => formatEasternTime(order.created_at) },
     { id: 'asset_type', label: 'Asset Type', value: () => 'EVENT', render: () => 'Event Contracts', filterable: true },
-    { id: 'account_number', label: 'Account Number', value: (order) => order.account_id || '', filterable: true },
+    { id: 'account_number', label: 'Account', value: (order) => {
+      const acc = accounts.find((a) => String(a.account_id) === String(order.account_id));
+      return accountLabel(acc, order.account_id);
+    }, filterable: true },
     { id: 'contract', label: 'Contract', value: (order) => details(order).symbol, filterable: true, render: (order) => <strong>{details(order).symbol || '—'}</strong> },
     { id: 'outcome', label: 'Outcome', value: (order) => details(order).outcome, filterable: true },
     { id: 'side', label: 'Side', value: (order) => formatOrderSide(order.side), filterable: true },
@@ -1662,8 +1668,15 @@ export default function WebullTrading({ isLightMode = false }) {
     }
   };
 
-  const refreshLiveWebullHoldings = async () => {
+  const refreshLiveWebullHoldings = async (forceSync = false) => {
     try {
+      if (forceSync && tradingMode === 'REAL') {
+        try {
+          await axios.post('/api/webull/portfolio-sync', {}, { withCredentials: true });
+        } catch (e) {
+          console.warn('Silent portfolio sync failed after order placement:', e);
+        }
+      }
       const response = await axios.get('/api/coin-data-live', { withCredentials: true });
       const liveHoldings = (response.data?.portfolio || []).filter(
         (item) => item?.is_external || item?.source === 'webull'
@@ -3976,7 +3989,7 @@ export default function WebullTrading({ isLightMode = false }) {
         } else {
           await Promise.all([
             loadOpenOrders(selectedAccountId),
-            refreshLiveWebullHoldings(),
+            refreshLiveWebullHoldings(true),
           ]);
           // For Event Contracts: aggressively re-poll holdings every 3 s (up to 10×)
           // so the new position surfaces with correct cutoff_at and Active status immediately.
@@ -6782,6 +6795,7 @@ export default function WebullTrading({ isLightMode = false }) {
                       orders={eventOpenOrders}
                       onManageOrder={handleManageEventOrder}
                       userId={user?.id}
+                      accounts={accounts}
                     />
                     <WebullHoldings
                       holdings={modeHoldings}
@@ -7043,7 +7057,7 @@ export default function WebullTrading({ isLightMode = false }) {
                   <div className="empty-state"><p>Loading Webull order history…</p></div>
                 ) : (
                   <>
-                    <WebullOrderTable orders={paginatedHistory} emptyText="No Webull order history is available yet." userId={user?.id} tableId="webull-order-history" />
+                    <WebullOrderTable orders={paginatedHistory} emptyText="No Webull order history is available yet." userId={user?.id} tableId="webull-order-history" accounts={accounts} />
                     <Pagination page={historyPage} setPage={setHistoryPage} pageSize={historyPageSize} setPageSize={setHistoryPageSize} total={historyTotal} />
                   </>
                 )}
