@@ -3454,7 +3454,7 @@ export default function WebullTrading({ isLightMode = false }) {
     if (orderForm.side === 'BUY') {
       if (cashBalance > 0 && effectivePrice > 0) {
         let activePct = pct;
-        if (orderForm.type === 'MKT' && pct === 100) {
+        if ((orderForm.type === 'MKT' || orderForm.type === 'MARKET') && pct === 100) {
           activePct = 98;
         }
         const targetDollars = floorCashAmountForTicket(cashBalance * (activePct / 100));

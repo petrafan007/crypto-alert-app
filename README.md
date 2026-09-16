@@ -1,8 +1,12 @@
 # Crypto & Securities Dashboard
 
-**Version:** 3.1.2
+**Version:** 3.1.3
 
 ## Recent Updates
+
+### v3.1.3
+- **Fix (WebullTrading):** Hotfix for the 2% MAX button buffer rule to properly apply when the order type string evaluates to `MARKET`.
+- **Fix (Frontend):** Updated the frontend versioning tag to properly reflect the latest deployed release at the bottom of the page.
 
 ### v3.1.2
 - **Feature (WebullTrading):** Updated the MAX balance button to intelligently reserve a 2% buffer when placing Market Buy orders to prevent "Insufficient Buying Power" errors caused by market volatility. Limit Orders are unaffected.
