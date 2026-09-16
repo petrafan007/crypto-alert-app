@@ -1118,10 +1118,30 @@ export default function WebullTrading({ isLightMode = false }) {
   const isQuantMode = tradingMode === 'QUANT';
   const setIsTestMode = (val) => setTradingMode(val ? 'TEST' : 'REAL');
 
-  const modeHoldings = useMemo(() => {
-    if (isQuantMode) return holdings;
-    return holdings.filter((holding) => orderIsPaper(holding) === isTestMode);
-  }, [holdings, isTestMode, isQuantMode]);
+  const [liveClock, setLiveClock] = useState(Date.now());
+  useEffect(() => {
+    const timer = window.setInterval(() => setLiveClock(Date.now()), 15000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  const { activeModeHoldings, expiredModeHoldings } = useMemo(() => {
+    const list = isQuantMode ? holdings : holdings.filter((holding) => orderIsPaper(holding) === isTestMode);
+    const active = [];
+    const expired = [];
+    for (const h of list) {
+      if (String(h.asset_type) === 'Event Contracts') {
+        const cutoff = cutoffFromSymbol(h.symbol || h.underlying_symbol);
+        if (cutoff && cutoff.getTime() <= liveClock) {
+          expired.push(h);
+          continue;
+        }
+      }
+      active.push(h);
+    }
+    return { activeModeHoldings: active, expiredModeHoldings: expired };
+  }, [holdings, isTestMode, isQuantMode, liveClock]);
+
+  const modeHoldings = activeModeHoldings;
 
   const securityPositionCount = useMemo(
     () => modeHoldings.filter(isSecurityHolding).length,
@@ -4419,15 +4439,46 @@ export default function WebullTrading({ isLightMode = false }) {
     }, 60);
   };
 
-  const modeOpenOrders = useMemo(() => {
-    if (isQuantMode) return openOrders;
-    return openOrders.filter((order) => orderIsPaper(order) === isTestMode);
-  }, [openOrders, isTestMode, isQuantMode]);
+  const { activeModeOpenOrders, expiredModeOpenOrders } = useMemo(() => {
+    const list = isQuantMode ? openOrders : openOrders.filter((order) => orderIsPaper(order) === isTestMode);
+    const active = [];
+    const expired = [];
+    for (const o of list) {
+      if (String(o.asset_type) === 'Event Contracts') {
+        const cutoff = cutoffFromSymbol(o.symbol || o.underlying_symbol);
+        if (cutoff && cutoff.getTime() <= liveClock) {
+          expired.push(o);
+          continue;
+        }
+      }
+      active.push(o);
+    }
+    return { activeModeOpenOrders: active, expiredModeOpenOrders: expired };
+  }, [openOrders, isTestMode, isQuantMode, liveClock]);
+
+  const modeOpenOrders = activeModeOpenOrders;
+
   const modeHistory = useMemo(() => {
     if (isQuantMode) return history;
     return history.filter((order) => orderIsPaper(order) === isTestMode);
   }, [history, isTestMode, isQuantMode]);
-  const displayOpenOrders = useMemo(() => modeOpenOrders.filter((order) => OPEN_STATUSES.has(String(order.status).toUpperCase()) || !order.status), [modeOpenOrders]);
+
+  const displayOpenOrders = useMemo(() => {
+    return modeOpenOrders.filter((order) => {
+      if (!OPEN_STATUSES.has(String(order.status).toUpperCase()) && order.status) return false;
+      if (String(order.asset_type) === 'Event Contracts' && String(order.action || order.side || '').toUpperCase() === 'SELL') {
+        const orderSym = String(order.underlying_symbol || order.symbol || '').replace(/\s+(YES|NO)$/i, '').trim().toUpperCase();
+        const orderOut = String(order.event_outcome || order.symbol || '').match(/\s+(YES|NO)$/i)?.[1] || (order.event_outcome || 'YES');
+        const matchesHolding = activeModeHoldings.some((h) => {
+          const hSym = String(h.underlying_symbol || h.symbol || '').replace(/\s+(YES|NO)$/i, '').trim().toUpperCase();
+          const hOut = String(h.event_outcome || h.purchased_outcome || h.symbol || '').match(/\s+(YES|NO)$/i)?.[1] || (h.event_outcome || 'YES');
+          return hSym === orderSym && String(hOut).toUpperCase() === String(orderOut).toUpperCase();
+        });
+        if (matchesHolding) return false;
+      }
+      return true;
+    });
+  }, [modeOpenOrders, activeModeHoldings]);
   const eventOpenOrders = useMemo(
     () => displayOpenOrders.filter((order) => eventContractOrderDetails(order).isEvent),
     [displayOpenOrders],
@@ -4524,7 +4575,38 @@ export default function WebullTrading({ isLightMode = false }) {
       window.clearInterval(timer);
     };
   }, [activeTab, displayOpenOrders]);
-  const sortedHistory = useMemo(() => [...modeHistory].sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || ''))), [modeHistory]);
+  const sortedHistory = useMemo(() => {
+    const combined = [...modeHistory];
+    
+    expiredModeHoldings.forEach(h => {
+      combined.push({
+        id: `synth-settlement-${h.id || h.symbol}`,
+        order_id: `synth-settlement-${h.id || h.symbol}`,
+        symbol: h.symbol,
+        underlying_symbol: h.underlying_symbol,
+        event_outcome: h.event_outcome,
+        asset_type: 'Event Contracts',
+        side: 'Sell',
+        action: 'Settlement',
+        status: 'Pending Settlement',
+        quantity: h.quantity || h.amount,
+        price: h.cost_price || h.avg_entry,
+        created_at: new Date(cutoffFromSymbol(h.symbol || h.underlying_symbol)?.getTime() || Date.now()).toISOString(),
+        _isSyntheticSettlement: true
+      });
+    });
+
+    expiredModeOpenOrders.forEach(o => {
+      combined.push({
+        ...o,
+        status: 'Expired',
+        created_at: new Date(cutoffFromSymbol(o.symbol || o.underlying_symbol)?.getTime() || Date.now()).toISOString(),
+        _isSyntheticExpired: true
+      });
+    });
+
+    return combined.sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')));
+  }, [modeHistory, expiredModeHoldings, expiredModeOpenOrders]);
   const historyPages = Math.max(1, Math.ceil(historyTotal / historyPageSize));
   const paginatedHistory = sortedHistory;
   useEffect(() => { if (historyPage > historyPages) setHistoryPage(historyPages); }, [historyPage, historyPages]);
