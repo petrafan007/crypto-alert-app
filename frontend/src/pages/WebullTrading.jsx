@@ -526,6 +526,16 @@ function WebullOrderTable({ orders, emptyText, onCancelOrder, onReplaceOrder = n
   const columns = [
     { id: 'created_at', label: 'Date', value: (order) => order.created_at, render: (order) => formatEasternDate(order.created_at), locked: true, style: { textAlign: 'left' } },
     { id: 'time', label: 'Time (ET)', value: (order) => order.created_at, render: (order) => formatEasternTime(order.created_at), style: { textAlign: 'center' } },
+    { id: 'asset_type', label: 'Asset Type', value: (order) => order.instrument_type || order.asset_type || '', render: (order) => {
+      const type = String(order.instrument_type || order.asset_type || '').toUpperCase();
+      if (type === 'OPTION') return 'Options';
+      if (type === 'FUTURE' || type === 'FUTURES') return 'Futures';
+      if (type === 'EVENT') return 'Event Contracts';
+      if (type === 'ETF') return 'ETFs';
+      if (/crypto|coin/i.test(type)) return 'Crypto';
+      return 'Equities';
+    }, filterable: true, style: { textAlign: 'center' } },
+    { id: 'account_number', label: 'Account Number', value: (order) => order.account_id || '', filterable: true, style: { textAlign: 'center' } },
     { id: 'symbol', label: 'Symbol', value: (order) => option(order).isOption ? option(order).symbol : (order.display_symbol || getAssetDisplaySymbol(order)), filterable: true, style: { textAlign: 'center' } },
     { id: 'expiration', label: 'Expiration', value: (order) => option(order).isOption ? option(order).expiration : '', render: (order) => option(order).isOption ? option(order).expiration || '—' : '—', style: { textAlign: 'center' } },
     { id: 'strike', label: 'Strike', value: (order) => option(order).isOption ? option(order).strike : '', render: (order) => option(order).isOption ? option(order).strikeLabel : '—', style: { textAlign: 'center' } },
@@ -682,6 +692,8 @@ function EventContractOpenOrders({ orders, onManageOrder, userId }) {
   const columns = [
     { id: 'created_at', label: 'Date', value: (order) => order.created_at, render: (order) => formatEasternDate(order.created_at), locked: true },
     { id: 'time', label: 'Time (ET)', value: (order) => order.created_at, render: (order) => formatEasternTime(order.created_at) },
+    { id: 'asset_type', label: 'Asset Type', value: () => 'EVENT', render: () => 'Event Contracts', filterable: true },
+    { id: 'account_number', label: 'Account Number', value: (order) => order.account_id || '', filterable: true },
     { id: 'contract', label: 'Contract', value: (order) => details(order).symbol, filterable: true, render: (order) => <strong>{details(order).symbol || '—'}</strong> },
     { id: 'outcome', label: 'Outcome', value: (order) => details(order).outcome, filterable: true },
     { id: 'side', label: 'Side', value: (order) => formatOrderSide(order.side), filterable: true },

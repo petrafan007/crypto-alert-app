@@ -1,8 +1,12 @@
 # Crypto & Securities Dashboard
 
-**Version:** 3.0.12
+**Version:** 3.1.0
 
 ## Recent Updates
+
+### v3.1.0
+- **Feature (WebullTrading):** Added `Asset Type` and `Account Number` columns to the configurable Webull Open Orders and Order History tables.
+- **Fix (Dashboard):** Fixed an issue where clicking on a cash-based asset (like USD) for a Webull IRA account would incorrectly show an error toast instead of routing the user to the Webull Trading interface.
 
 ### v3.0.12
 - **Fix (WebullTrading):** Disabled auto-pricing background polling for Event Contract orders when the Review Order modal is opened from the Positions table. This prevents the user's custom limit price from being silently overwritten by the latest live market quote right before order submission.

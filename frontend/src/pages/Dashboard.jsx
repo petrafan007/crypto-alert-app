@@ -372,6 +372,14 @@ function Dashboard({ isLightMode }) {
   const navigateToWebullInstrument = (asset, side = 'BUY') => {
     const target = webullTradeTargetForAsset(asset);
     if (!target) {
+      if (isNonTradableWebullCashAsset(asset)) {
+        return navigateToWebullTrading(
+          'SPY',
+          side,
+          asset?.account_id,
+          { accountPreference: asset?.webull_account_type || asset?.account_type }
+        );
+      }
       showAppToast('USD cash is the Webull account funding balance and cannot be opened as a stock or ETF order.', 'error', { symbol: String(asset?.symbol || '').toUpperCase() });
       return false;
     }
@@ -2736,7 +2744,16 @@ function Dashboard({ isLightMode }) {
               const sym = isPortfolio ? coin.symbol : item.symbol;
               const target = isPortfolio ? coin : item;
               if ((isWebullAsset(target) || target.asset_type === 'stock') && isNonTradableWebullCashAsset(target)) {
-                return <button disabled title="Cash balances fund orders but are not orderable instruments">Cash balance</button>;
+                return (
+                  <button
+                    onClick={() => {
+                      navigateToWebullInstrument(target, 'BUY');
+                      closeActionMenu();
+                    }}
+                  >
+                    Buy on Webull
+                  </button>
+                );
               }
               if (isTradableWebullAsset(target)) {
                 return (
@@ -3018,8 +3035,14 @@ function Dashboard({ isLightMode }) {
           <span>✏️</span>Notes
         </button>
         {(isWebullAsset(subject) || subject.asset_type === 'stock') && isNonTradableWebullCashAsset(subject) ? (
-          <button role="menuitem" disabled title="Cash balances fund orders but are not orderable instruments">
-            <span>💵</span>Cash balance
+          <button
+            role="menuitem"
+            onClick={() => {
+              navigateToWebullInstrument(subject, 'BUY');
+              closeActionMenu();
+            }}
+          >
+            <span>🟢</span>Buy on Webull
           </button>
         ) : isTradableWebullAsset(subject) ? (
           <button
@@ -5006,8 +5029,13 @@ function Dashboard({ isLightMode }) {
                                       {(() => {
                                         if ((isWebullAsset(coin) || coin.asset_type === 'stock') && isNonTradableWebullCashAsset(coin)) {
                                           return (
-                                            <button type="button" className="trade-action-btn buy" disabled title="Cash balances fund orders but are not orderable instruments">
-                                              Cash
+                                            <button
+                                              type="button"
+                                              className="trade-action-btn buy"
+                                              onClick={() => navigateToWebullInstrument(coin, 'BUY')}
+                                              title={`Trade on Webull with Cash`}
+                                            >
+                                              Buy
                                             </button>
                                           );
                                         }
@@ -5448,8 +5476,13 @@ function Dashboard({ isLightMode }) {
                                       {(() => {
                                         if ((isWebullAsset(item) || item.asset_type === 'stock') && isNonTradableWebullCashAsset(item)) {
                                           return (
-                                            <button type="button" className="trade-action-btn buy" disabled title="Cash balances fund orders but are not orderable instruments">
-                                              Cash
+                                            <button
+                                              type="button"
+                                              className="trade-action-btn buy"
+                                              onClick={() => navigateToWebullInstrument(item, 'BUY')}
+                                              title={`Trade on Webull with Cash`}
+                                            >
+                                              Buy
                                             </button>
                                           );
                                         }
