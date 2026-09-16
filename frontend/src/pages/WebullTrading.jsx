@@ -4137,8 +4137,29 @@ export default function WebullTrading({ isLightMode = false }) {
   };
 
   const handleOpenEventPosition = (holding) => {
-    setEventOpenOrder(null);
-    setEventPositionHolding(holding || null);
+    if (!holding) {
+      setEventOpenOrder(null);
+      setEventPositionHolding(null);
+      return;
+    }
+    
+    // Check if there is an active open order for this holding
+    const targetSymbol = String(holding.underlying_symbol || holding.symbol || '').replace(/\s+(YES|NO)$/i, '').trim().toUpperCase();
+    const targetOutcome = String(holding.event_outcome || holding.purchased_outcome || holding.symbol || '').match(/\s+(YES|NO)$/i)?.[1] || (holding.event_outcome || 'YES');
+    
+    const matchingOrder = openOrders.find((w) => {
+      const wSym = String(w.underlying_symbol || w.symbol || '').replace(/\s+(YES|NO)$/i, '').trim().toUpperCase();
+      const wOut = String(w.event_outcome || w.symbol || '').match(/\s+(YES|NO)$/i)?.[1] || (w.event_outcome || 'YES');
+      return wSym === targetSymbol && String(wOut).toUpperCase() === String(targetOutcome).toUpperCase() && String(w.side || '').toUpperCase() === 'SELL';
+    });
+
+    if (matchingOrder) {
+      setEventOpenOrder(matchingOrder);
+      setEventPositionHolding(null);
+    } else {
+      setEventOpenOrder(null);
+      setEventPositionHolding(holding);
+    }
   };
 
   const handleManageEventOrder = (order) => {

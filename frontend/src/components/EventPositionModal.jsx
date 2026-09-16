@@ -127,16 +127,13 @@ const priceMatchesRanges = (price, ranges = []) => {
   });
 };
 
-function EventCountdown({ cutoff, serverOffset, onExpire }) {
+function EventCountdown({ cutoff, serverOffset }) {
   const [clock, setClock] = useState(Date.now());
   useEffect(() => {
     const interval = window.setInterval(() => setClock(Date.now()), 33);
     return () => window.clearInterval(interval);
   }, []);
   const remaining = cutoff ? cutoff.getTime() - (clock + serverOffset) : null;
-  useEffect(() => {
-    if (remaining !== null && remaining <= 0) onExpire?.();
-  }, [remaining, onExpire]);
   return <strong>{remaining === null ? 'Unavailable' : formatCountdown(remaining)}</strong>;
 }
 
@@ -173,7 +170,6 @@ export default function EventPositionModal({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [serverOffset, setServerOffset] = useState(0);
-  const [cutoffExpired, setCutoffExpired] = useState(false);
   const [side, setSide] = useState(initialSide);
   const [outcome, setOutcome] = useState(positionOutcome);
   const [quantity, setQuantity] = useState(storedQuantity > 0 ? String(storedQuantity) : '1');
@@ -207,7 +203,6 @@ export default function EventPositionModal({
     if (symbol && loadedSymbolRef.current !== symbol) {
       loadedSymbolRef.current = symbol;
       setMarket(initialMarket?.symbol === symbol ? initialMarket : null);
-      setCutoffExpired(false);
     }
   }, [symbol, initialMarket]);
 
@@ -321,7 +316,7 @@ export default function EventPositionModal({
   );
 
   const isCutoffPassed = cutoff ? cutoff.getTime() <= (clock + serverOffset) : false;
-  const isExpired = cutoffExpired || isCutoffPassed;
+  const isExpired = isCutoffPassed;
 
   const fallbackMarket = useMemo(() => {
     if (!symbol) return null;
@@ -472,7 +467,7 @@ export default function EventPositionModal({
             <span className="event-position-kicker">{isOpenOrder ? 'Event Contract Open Order' : 'Current Event Contract Position'}</span>
             <div className="event-position-header-countdown">
               <span className="countdown-label">Trading time remaining</span>
-              <EventCountdown cutoff={cutoff} serverOffset={serverOffset} onExpire={() => setCutoffExpired(true)} />
+              <EventCountdown cutoff={cutoff} serverOffset={serverOffset} />
             </div>
             <button type="button" className="event-position-close" onClick={onClose} aria-label="Close Event Contract position">×</button>
           </div>
