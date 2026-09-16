@@ -1669,7 +1669,23 @@ export default function WebullTrading({ isLightMode = false }) {
           setEventPositionHolding(matchedHolding);
           setEventOpenOrder(null);
         } else {
-          setEventOpenOrder(null);
+          if (String(eventOpenOrderRef.current.side).toUpperCase() === 'BUY') {
+            const curOrder = eventOpenOrderRef.current;
+            const optimisticHolding = {
+              symbol: `${targetSymbol} ${targetOutcome}`,
+              underlying_symbol: targetSymbol,
+              event_outcome: targetOutcome,
+              quantity: curOrder.quantity || curOrder.total_quantity,
+              available_quantity: curOrder.quantity || curOrder.total_quantity,
+              avg_entry: curOrder.price || curOrder.limit_price,
+              cost_price: curOrder.price || curOrder.limit_price,
+              _optimistic: true
+            };
+            setEventPositionHolding(optimisticHolding);
+            setEventOpenOrder(null);
+          } else {
+            setEventOpenOrder(null);
+          }
         }
       }
     } else if (eventPositionHoldingRef.current) {
