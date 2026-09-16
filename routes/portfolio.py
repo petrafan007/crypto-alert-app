@@ -5653,7 +5653,8 @@ def api_watchlist_add():
                     symbol=symbol,
                     is_watchlist=True,
                     coin_id=wl_id,
-                    amount=0.0
+                    amount=0.0,
+                    force=True
                 )
             except Exception as ex:
                 logger.error(f"Background watchlist sentiment check error for {symbol}: {ex}")

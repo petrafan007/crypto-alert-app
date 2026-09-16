@@ -1518,7 +1518,7 @@ def persist_sentiment_analysis_status(
     return True
 
 
-def analyze_single_symbol_sentiment(user_id, username, symbol, is_watchlist=False, coin_id=None, amount=0.0):
+def analyze_single_symbol_sentiment(user_id, username, symbol, is_watchlist=False, coin_id=None, amount=0.0, force=False):
     """
     Run on-demand sentiment analysis for a single symbol (Portfolio coin or Watchlist coin).
     Updates the database with parsed sentiment and reason, logs the AI conversation,
@@ -1994,7 +1994,8 @@ def run_sentiment_analysis_for_user(user_id, username, force=False, symbol=None)
                     symbol=sym,
                     is_watchlist=False,
                     coin_id=coin_id,
-                    amount=amount
+                    amount=amount,
+                    force=force
                 )
                 count += 1
                 if not symbol:
@@ -2108,7 +2109,8 @@ def run_watchlist_sentiment_analysis_for_user(user_id, username, force=False, sy
                     symbol=sym,
                     is_watchlist=True,
                     coin_id=coin_id,
-                    amount=0.0
+                    amount=0.0,
+                    force=force
                 )
                 count += 1
                 if not symbol:
