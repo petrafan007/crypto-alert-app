@@ -263,12 +263,11 @@ const instrumentCategory = (order) => {
 };
 const accountLabel = (account) => {
   const name = account?.account_label || account?.account_name || 'Webull account';
-  const masked = account?.account_id_masked || (account?.account_id ? `••••${String(account.account_id).slice(-4)}` : '');
-  return masked ? `${name} (${masked})` : name;
+  return name;
 };
 
-const displaySide = (side) => String(side || '—').replaceAll('_', ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
-const displayType = (type) => String(type || '—').replaceAll('_', ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
+const displaySide = (side) => String(side || '—').toLowerCase().replaceAll('_', ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
+const displayType = (type) => String(type || '—').toLowerCase().replaceAll('_', ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
 
 function AccountCell({ order, webullAccounts }) {
   const account = webullAccounts.find((candidate) => String(candidate.account_id) === webullAccountId(order));
@@ -300,7 +299,7 @@ function OrderTable({ orders, open, onCancelOrder, cancellingId, webullAccounts,
     { id: 'filled', label: 'Filled', value: (order) => Number(order.filled_quantity), render: (order) => amount(order.filled_quantity, 6, '0') },
     {
       id: 'total_amount',
-      label: 'Total Amount',
+      label: 'Total AMT',
       value: (order) => orderTotalAmount(order),
       render: (order) => {
         const val = orderTotalAmount(order);
@@ -337,7 +336,7 @@ function OrderTable({ orders, open, onCancelOrder, cancellingId, webullAccounts,
     { id: 'fee', label: 'Fee', value: (order) => Number(order.fee), render: feeDisplay },
     { id: 'status', label: 'Status', value: (order) => order.status, filterable: true, render: (order) => <>{order.status}{order.history_note && <small style={{ display: 'block', maxWidth: 280 }}>{order.history_note}</small>}</> },
     ...(open ? [
-      { id: 'estimated_pnl', label: 'Est. P&L (if filled)', value: (order) => Number(order.estimated_pnl), render: (order) => Number.isFinite(Number(order.estimated_pnl)) ? `${Number(order.estimated_pnl) >= 0 ? '+' : ''}$${amount(Math.abs(Number(order.estimated_pnl)), 2)}` : '—' },
+      { id: 'estimated_pnl', label: 'EST P&L', value: (order) => Number(order.estimated_pnl), render: (order) => Number.isFinite(Number(order.estimated_pnl)) ? `${Number(order.estimated_pnl) >= 0 ? '+' : ''}$${amount(Math.abs(Number(order.estimated_pnl)), 2)}` : '—' },
       {
         id: 'actions',
         label: 'Actions',

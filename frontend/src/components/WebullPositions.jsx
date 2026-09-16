@@ -243,7 +243,7 @@ export default function WebullPositions({ positions = [], mode = 'REAL', userId,
                 className={`${isSymbol ? 'position-symbol' : ''} ${pnlClass}${isSymbol && isEventContract ? ' event-symbol-clickable' : ''}`}
                 onClick={isSymbol && isEventContract ? (e) => { e.stopPropagation(); onOpenEventPosition?.(position); } : undefined}
               >
-                {isSymbol ? String(position.symbol || '—').toUpperCase() : column.type === 'pnl' ? (value === null ? '—' : `${value > 0 ? '▲ ' : value < 0 ? '▼ ' : ''}${formatCurrency(Math.abs(value))}`)
+                {isSymbol ? String(position.symbol || '—').toUpperCase() : column.type === 'pnl' ? (value === null ? '—' : `${value > 0 ? '▲ ' : value < 0 ? '▼ ' : ''}$${Math.abs(value).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`)
                   : column.type === 'pnl_percent' ? (value === null ? '—' : `${value > 0 ? '▲ ' : value < 0 ? '▼ ' : ''}${Math.abs(value).toFixed(2)}%`)
                     : formatCell(value, column.type)}
               </td>;

@@ -1931,10 +1931,14 @@ function Dashboard({ isLightMode }) {
     }, 10000);
 
     // Cleanup interval on unmount
+    const handleRefreshEvent = () => fetchData(true);
+    window.addEventListener('app:refresh-dashboard', handleRefreshEvent);
+
     return () => {
       if (refreshInterval) {
         clearInterval(refreshInterval);
       }
+      window.removeEventListener('app:refresh-dashboard', handleRefreshEvent);
     };
   }, []);
 
@@ -3344,7 +3348,7 @@ function Dashboard({ isLightMode }) {
 
       console.log('Hide response:', response.data);
       if (response.data.success) {
-        setPortfolio(prev => prev.filter(coin => coin.id !== coinId && (!symbol || coin.symbol !== symbol)));
+        setPortfolio(prev => prev.filter(coin => coin.id !== coinId));
         console.log('Coin hidden successfully');
       }
     } catch (err) {

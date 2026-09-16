@@ -184,7 +184,7 @@ export default function App() {
         setSelectedHiddenCoins([]);
         setSelectAllHidden(false);
         // Refresh the page to show updated data
-        window.location.reload();
+        window.dispatchEvent(new CustomEvent('app:refresh-dashboard'));
       } else {
         setMessage(response.data.error || 'Failed to unhide assets');
         setMessageType('error');

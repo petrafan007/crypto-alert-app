@@ -1,10 +1,12 @@
 # Crypto & Securities Dashboard
 
-**Version:** 3.1.5
+**Version:** 3.1.6
 
 ## Recent Updates
 
-### v3.1.5
+### v3.1.6
+- **UI/UX Cleanup:** Standardized P&L formatting to 2 decimal places, updated column headers (Total AMT, EST P&L, Filled at, Time), changed Type/Side labels to Proper Case, and cleaned up account labels to display just the name.
+- **Fix (Dashboard):** Fixed issue where hiding a USD asset would hide all USD assets. Fixed page reload glitch when unhiding assets via the modal.
 - **Fix (WebullTrading):** Added a dynamic listener that strictly enforces the 2% MAX buffer rule even if the user switches their order type *after* clicking the MAX button.
 
 ### v3.1.3

@@ -438,11 +438,11 @@ function LegacyWebullOrderTable({ orders, emptyText, onCancelOrder, cancellingId
         <table>
           <thead>
             <tr>
-              <th>Date</th><th>Time (ET)</th><th style={{ textAlign: 'center' }}>Symbol</th>
+              <th>Date</th><th>Time</th><th style={{ textAlign: 'center' }}>Symbol</th>
               {showOptionColumns && <><th>Expiration</th><th>Strike</th><th>Call / Put</th></>}
               <th>Side</th><th>Type</th><th>Quantity</th><th>Price</th><th>Filled</th>
               {showClosePnlColumn && <th title="Estimated before fees from the filled basis and current executable close quote.">Close-Now P&amp;L</th>}
-              <th>Status</th><th>Filled at (ET)</th><th>Source</th>
+              <th>Status</th><th>Filled at</th><th>Source</th>
               {onCancelOrder && <th>Action</th>}
             </tr>
           </thead>
@@ -525,7 +525,7 @@ function WebullOrderTable({ orders, emptyText, onCancelOrder, onReplaceOrder = n
   };
   const columns = [
     { id: 'created_at', label: 'Date', value: (order) => order.created_at, render: (order) => formatEasternDate(order.created_at), locked: true, style: { textAlign: 'left' } },
-    { id: 'time', label: 'Time (ET)', value: (order) => order.created_at, render: (order) => formatEasternTime(order.created_at), style: { textAlign: 'center' } },
+    { id: 'time', label: 'Time', value: (order) => order.created_at, render: (order) => formatEasternTime(order.created_at), style: { textAlign: 'center' } },
     { id: 'asset_type', label: 'Asset Type', value: (order) => order.instrument_type || order.asset_type || '', render: (order) => {
       const type = String(order.instrument_type || order.asset_type || '').toUpperCase();
       if (type === 'OPTION') return 'Options';
@@ -550,7 +550,7 @@ function WebullOrderTable({ orders, emptyText, onCancelOrder, onReplaceOrder = n
     { id: 'filled', label: 'Filled', value: (order) => Number(order.filled_quantity), render: (order) => number(order.filled_quantity, 6), style: { textAlign: 'right' } },
     {
       id: 'total_amount',
-      label: 'Total Amount',
+      label: 'Total AMT',
       value: (order) => orderTotalAmount(order),
       render: (order) => {
         const val = orderTotalAmount(order);
@@ -601,7 +601,7 @@ function WebullOrderTable({ orders, emptyText, onCancelOrder, onReplaceOrder = n
     },
     ...(optionClosePnlByOrder !== null ? [{ id: 'close_pnl', label: 'Close-Now P&L', value: (order) => optionClosePnlByOrder?.[order.id]?.pnl, render: renderClosePnl, style: { textAlign: 'right' } }] : []),
     { id: 'status', label: 'Status', value: (order) => formatOrderStatus(order.status), filterable: true, render: (order) => <>{formatOrderStatus(order.status)}{order.history_note && <small style={{ display: 'block', maxWidth: 280 }}>{order.history_note}</small>}</>, style: { textAlign: 'center' } },
-    { id: 'filled_at', label: 'Filled at (ET)', value: (order) => order.filled_at, render: (order) => order.filled_at ? `${formatEasternDate(order.filled_at)} ${formatEasternTime(order.filled_at)}` : '—', style: { textAlign: 'center' } },
+    { id: 'filled_at', label: 'Filled at', value: (order) => order.filled_at, render: (order) => order.filled_at ? `${formatEasternDate(order.filled_at)} ${formatEasternTime(order.filled_at)}` : '—', style: { textAlign: 'center' } },
     { id: 'source', label: 'Source', value: () => 'Webull', filterable: true, render: () => <span className="badge" style={{ background: 'rgba(96, 165, 250, .16)', color: '#60a5fa' }}>Webull</span>, style: { textAlign: 'center' } },
     ...(onCancelOrder ? [{
       id: 'actions',
@@ -643,7 +643,7 @@ function LegacyEventContractOpenOrders({ orders, onManageOrder }) {
         <table>
           <thead>
             <tr>
-              <th>Date</th><th>Time (ET)</th><th>Contract</th><th>Outcome</th><th>Side</th>
+              <th>Date</th><th>Time</th><th>Contract</th><th>Outcome</th><th>Side</th>
               <th>Order Qty</th><th>Filled</th><th>Remaining</th><th>Limit</th><th>Status</th><th>Action</th>
             </tr>
           </thead>
@@ -694,7 +694,7 @@ function EventContractOpenOrders({ orders, onManageOrder, userId, accounts = [] 
   const remaining = (order) => Math.max(0, Number(order.quantity || 0) - Number(order.filled_quantity || 0));
   const columns = [
     { id: 'created_at', label: 'Date', value: (order) => order.created_at, render: (order) => formatEasternDate(order.created_at), locked: true },
-    { id: 'time', label: 'Time (ET)', value: (order) => order.created_at, render: (order) => formatEasternTime(order.created_at) },
+    { id: 'time', label: 'Time', value: (order) => order.created_at, render: (order) => formatEasternTime(order.created_at) },
     { id: 'asset_type', label: 'Asset Type', value: () => 'EVENT', render: () => 'Event Contracts', filterable: true },
     { id: 'account_number', label: 'Account', value: (order) => {
       const acc = accounts.find((a) => String(a.account_id) === String(order.account_id));
@@ -6332,7 +6332,7 @@ export default function WebullTrading({ isLightMode = false }) {
                                 </select>
                               </div>
                               <div>
-                                <label className="order-field-label">Start Time (ET)</label>
+                                <label className="order-field-label">Start Time</label>
                                 <input
                                   type="text"
                                   value={orderForm.algoStartTime}
@@ -6342,7 +6342,7 @@ export default function WebullTrading({ isLightMode = false }) {
                                 />
                               </div>
                               <div>
-                                <label className="order-field-label">End Time (ET)</label>
+                                <label className="order-field-label">End Time</label>
                                 <input
                                   type="text"
                                   value={orderForm.algoEndTime}

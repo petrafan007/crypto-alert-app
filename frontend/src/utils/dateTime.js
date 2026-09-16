@@ -42,7 +42,6 @@ export const formatEasternTime = (value, options = {}) => formatEastern(value, {
   hour: 'numeric',
   minute: '2-digit',
   second: '2-digit',
-  timeZoneName: 'short',
   ...options,
 });
 
@@ -53,7 +52,6 @@ export const formatEasternDateTime = (value, options = {}) => formatEastern(valu
   hour: 'numeric',
   minute: '2-digit',
   second: '2-digit',
-  timeZoneName: 'short',
   ...options,
 });
 
