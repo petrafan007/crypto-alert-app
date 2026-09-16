@@ -295,7 +295,7 @@ def _response_payload(response, action):
             if isinstance(parsed, dict):
                 error_code = str(parsed.get('error_code') or parsed.get('code') or '').strip() or None
                 message_field = str(parsed.get('message') or parsed.get('msg') or '').strip() or None
-                if message_field and ('agreement' in message_field or message_field.startswith('http')):
+                if message_field and message_field.startswith('http'):
                     agreement_url = message_field
                 elif isinstance(parsed.get('data'), dict):
                     data_url = parsed['data'].get('agreement_url') or parsed['data'].get('url')

@@ -1,8 +1,11 @@
 # Crypto & Securities Dashboard
 
-**Version:** 3.1.0
+**Version:** 3.1.1
 
 ## Recent Updates
+
+### v3.1.1
+- **Fix (WebullTrading):** Fixed a bug where a fractional trading agreement error message was being incorrectly parsed as the agreement URL, leading to a broken link when attempting to sign the Webull fractional trading agreement.
 
 ### v3.1.0
 - **Feature (WebullTrading):** Added `Asset Type` and `Account Number` columns to the configurable Webull Open Orders and Order History tables.
