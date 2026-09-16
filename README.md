@@ -1,8 +1,12 @@
 # Crypto & Securities Dashboard
 
-**Version:** 3.1.1
+**Version:** 3.1.2
 
 ## Recent Updates
+
+### v3.1.2
+- **Feature (WebullTrading):** Updated the MAX balance button to intelligently reserve a 2% buffer when placing Market Buy orders to prevent "Insufficient Buying Power" errors caused by market volatility. Limit Orders are unaffected.
+- **Feature (WebullTrading):** Upgraded error handling in the order ticket. Order placement failures are now displayed in a clean, modern pop-up modal with actionable steps rather than an inline banner.
 
 ### v3.1.1
 - **Fix (WebullTrading):** Fixed a bug where a fractional trading agreement error message was being incorrectly parsed as the agreement URL, leading to a broken link when attempting to sign the Webull fractional trading agreement.
