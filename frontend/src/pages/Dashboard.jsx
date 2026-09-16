@@ -4122,6 +4122,16 @@ function Dashboard({ isLightMode }) {
         delete next[itemKey];
         return next;
       });
+
+      // Roll back optimistic state by fetching the real data
+      if (isWatchlist) {
+        const wFetchId = nextWatchlistFetchId();
+        axios.get('/api/watchlist-live', { withCredentials: true }).then(r => r.data && applyWatchlistUpdate(r.data, wFetchId)).catch(() => { });
+      } else {
+        axios.get('/api/coin-data-live').then(r => r.data?.portfolio && setPortfolio(r.data.portfolio)).catch(() => { });
+      }
+
+      showAppToast(err.response?.data?.message || err.message || 'Unable to refresh sentiment.', 'error', { symbol: cleanSymbol });
     }
   };
 
