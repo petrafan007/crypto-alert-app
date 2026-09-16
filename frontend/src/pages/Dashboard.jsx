@@ -4340,13 +4340,13 @@ function Dashboard({ isLightMode }) {
           <button
             type="button"
             onClick={(e) => handleSingleSentimentRefresh(coin, isWatchlist, e)}
-            disabled={isChecking}
-            title={isChecking ? 'Analysis in progress...' : `Refresh sentiment for ${coin.symbol}`}
+            disabled={false}
+            title={`Refresh sentiment for ${coin.symbol}`}
             style={{
               background: 'transparent',
               border: 'none',
-              color: isChecking ? '#38bdf8' : (hasPendingOrder ? '#94a3b8' : 'rgba(255, 255, 255, 0.45)'),
-              cursor: isChecking ? 'not-allowed' : 'pointer',
+              color: hasPendingOrder ? '#94a3b8' : 'rgba(255, 255, 255, 0.45)',
+              cursor: 'pointer',
               padding: '2px',
               borderRadius: '4px',
               display: 'inline-flex',
@@ -4357,16 +4357,12 @@ function Dashboard({ isLightMode }) {
               flexShrink: 0
             }}
             onMouseEnter={(e) => {
-              if (!isChecking) {
-                e.currentTarget.style.color = '#38bdf8';
-                e.currentTarget.style.background = 'rgba(56, 189, 248, 0.15)';
-              }
+              e.currentTarget.style.color = '#38bdf8';
+              e.currentTarget.style.background = 'rgba(56, 189, 248, 0.15)';
             }}
             onMouseLeave={(e) => {
-              if (!isChecking) {
-                e.currentTarget.style.color = hasPendingOrder ? '#94a3b8' : 'rgba(255, 255, 255, 0.45)';
-                e.currentTarget.style.background = 'transparent';
-              }
+              e.currentTarget.style.color = hasPendingOrder ? '#94a3b8' : 'rgba(255, 255, 255, 0.45)';
+              e.currentTarget.style.background = 'transparent';
             }}
           >
             <FaSyncAlt style={{ animation: isChecking ? 'spin 1s linear infinite' : 'none' }} />
