@@ -148,9 +148,9 @@ const PortfolioPerformanceTable = ({ hiddenCoins = [], excludeSymbols = null, on
                       onClick={() => onCoinClick?.(item)}
                       title={`Period price return (not return since purchase). ${item.as_of ? `Price as of ${new Date(item.as_of * 1000).toLocaleString()}.` : 'Historical prices unavailable.'} Open ${getAssetDisplaySymbol(item)} in Trading`}
                       style={{
-                        display: 'inline-flex', alignItems: 'center', gap: '8px', padding: 0,
+                        display: 'flex', alignItems: 'center', gap: '8px', padding: 0,
                         border: 'none', background: 'none', color: 'inherit', cursor: 'pointer',
-                        font: 'inherit', textAlign: 'left', justifyContent: 'flex-start'
+                        font: 'inherit', textAlign: 'left', justifyContent: 'flex-start', width: '100%'
                       }}
                     >
                       <CryptoIcon symbol={item.symbol} size={18} />

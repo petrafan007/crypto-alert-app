@@ -913,7 +913,10 @@ def get_stock_icon(symbol):
         except Exception as e:
             logger.debug(f"Error fetching icon from FMP for {clean_sym}: {e}")
 
-        return jsonify({"error": "Icon not found"}), 404
+        resp_404 = jsonify({"error": "Icon not found"})
+        resp_404.status_code = 404
+        resp_404.headers["Cache-Control"] = "public, max-age=86400"
+        return resp_404
     except Exception as e:
         logger.error(f"Error in get_stock_icon for {symbol}: {e}")
         return jsonify({"error": str(e)}), 500

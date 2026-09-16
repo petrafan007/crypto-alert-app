@@ -4221,15 +4221,15 @@ export default function WebullTrading({ isLightMode = false }) {
     const targetSymbol = String(holding.underlying_symbol || holding.symbol || '').replace(/\s+(YES|NO)$/i, '').trim().toUpperCase();
     const targetOutcome = String(holding.event_outcome || holding.purchased_outcome || holding.symbol || '').match(/\s+(YES|NO)$/i)?.[1] || (holding.event_outcome || 'YES');
     
-    const matchingOrder = openOrders.find((w) => {
-      const wSym = String(w.underlying_symbol || w.symbol || '').replace(/\s+(YES|NO)$/i, '').trim().toUpperCase();
-      const wOut = String(w.event_outcome || w.symbol || '').match(/\s+(YES|NO)$/i)?.[1] || (w.event_outcome || 'YES');
-      return wSym === targetSymbol && String(wOut).toUpperCase() === String(targetOutcome).toUpperCase() && String(w.side || '').toUpperCase() === 'SELL';
+    const matchingOrder = modeOpenOrders.find((w) => {
+      const wDetails = eventContractOrderDetails(w);
+      const targetDetails = eventContractOrderDetails(holding);
+      return wDetails.symbol === targetDetails.symbol && wDetails.outcome === targetDetails.outcome && String(w.side || '').toUpperCase() === 'SELL';
     });
 
     if (matchingOrder) {
       setEventOpenOrder(matchingOrder);
-      setEventPositionHolding(null);
+      setEventPositionHolding(holding);
     } else {
       setEventOpenOrder(null);
       setEventPositionHolding(holding);
@@ -4504,13 +4504,12 @@ export default function WebullTrading({ isLightMode = false }) {
   const displayOpenOrders = useMemo(() => {
     return modeOpenOrders.filter((order) => {
       if (!OPEN_STATUSES.has(String(order.status).toUpperCase()) && order.status) return false;
-      if (String(order.asset_type) === 'Event Contracts' && String(order.action || order.side || '').toUpperCase() === 'SELL') {
-        const orderSym = String(order.underlying_symbol || order.symbol || '').replace(/\s+(YES|NO)$/i, '').trim().toUpperCase();
-        const orderOut = String(order.event_outcome || order.symbol || '').match(/\s+(YES|NO)$/i)?.[1] || (order.event_outcome || 'YES');
+      const eventDetails = eventContractOrderDetails(order);
+      if (eventDetails.isEvent || String(order.asset_type) === 'Event Contracts') {
+        const orderSym = eventDetails.symbol;
         const matchesHolding = activeModeHoldings.some((h) => {
-          const hSym = String(h.underlying_symbol || h.symbol || '').replace(/\s+(YES|NO)$/i, '').trim().toUpperCase();
-          const hOut = String(h.event_outcome || h.purchased_outcome || h.symbol || '').match(/\s+(YES|NO)$/i)?.[1] || (h.event_outcome || 'YES');
-          return hSym === orderSym && String(hOut).toUpperCase() === String(orderOut).toUpperCase();
+          const hDetails = eventContractOrderDetails(h);
+          return hDetails.symbol === orderSym;
         });
         if (matchesHolding) return false;
       }
