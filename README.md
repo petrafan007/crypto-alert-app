@@ -1,8 +1,13 @@
 # Crypto & Securities Dashboard
 
-**Version:** 3.1.6
+**Version:** 3.2.0
 
 ## Recent Updates
+
+### v3.2.0
+- **Feature (Dashboard):** Completely removed all confusing auto-hiding logic across the backend and frontend. Coins are now only hidden if explicitly chosen by the user. Assets will conditionally auto-unhide ONLY if their held balance strictly increases due to a new transaction/deposit.
+- **Fix (Dashboard):** Fixed an issue where unhidden assets would sometimes immediately disappear due to a frontend quantity filter (`< 0.0001`).
+- **Fix (Dashboard):** The "Assets unhidden successfully!" toast message now automatically dismisses itself after 5 seconds instead of lingering indefinitely.
 
 ### v3.1.6
 - **UI/UX Cleanup:** Standardized P&L formatting to 2 decimal places, updated column headers (Total AMT, EST P&L, Filled at, Time), changed Type/Side labels to Proper Case, and cleaned up account labels to display just the name.

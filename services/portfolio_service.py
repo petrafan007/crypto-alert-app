@@ -585,10 +585,8 @@ def update_portfolio_from_real_order(user_id, symbol, side, quantity, price, com
                 logger.info(f"Updated coin {base_asset}: New amount={coin.amount}, New avg_entry=${coin.avg_entry:.2f}")
             
             if coin:
-                if (coin.amount or 0) >= 0.0001:
+                if quantity > 0:
                     coin.hidden = False
-                    coin.auto_hidden = False
-                    coin.force_visible = False
                 remove_auto_watchlist_entry(user_id, base_asset)
         
         elif side == 'SELL':
@@ -596,13 +594,7 @@ def update_portfolio_from_real_order(user_id, symbol, side, quantity, price, com
                 coin.amount = max(0.0, (coin.amount or 0) - quantity)
                 coin.current = price
                 logger.info(f"Updated coin {base_asset} after sell: New amount={coin.amount}")
-                remaining_value = (coin.amount or 0) * price
-                if remaining_value < 1.0:
-                    coin.hidden = True
-                    coin.auto_hidden = True
-                    coin.force_visible = False
-                    coin.alert_enabled = False
-                    coin.auto_sell_enabled = False
+                if coin.amount <= 0.00000001:
                     ensure_auto_watchlist_entry(user_id, base_asset, price)
                 else:
                     remove_auto_watchlist_entry(user_id, base_asset)
@@ -630,11 +622,12 @@ def update_portfolio_from_real_order(user_id, symbol, side, quantity, price, com
 
             commission_in_quote = commission if commission_asset == quote_asset else 0.0
             quote_delta = -executed_quote - commission_in_quote if side == 'BUY' else executed_quote - commission_in_quote
-            quote_coin.amount = max(0.0, (quote_coin.amount or 0) + quote_delta)
+            old_quote_amount = quote_coin.amount or 0
+            quote_coin.amount = max(0.0, old_quote_amount + quote_delta)
             quote_coin.current = 1.0
             quote_coin.avg_entry = 1.0
-            quote_coin.hidden = False
-            quote_coin.auto_hidden = False
+            if quote_coin.amount > old_quote_amount:
+                quote_coin.hidden = False
             logger.info(f"Updated {quote_asset} after {side} {base_asset}: New amount={quote_coin.amount}")
 
         if coin:

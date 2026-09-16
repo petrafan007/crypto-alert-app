@@ -825,35 +825,6 @@ def get_user_latest_news_cache(user_id):
         logger.error(f"Error fetching latest news cache for user {user_id}: {e}")
         return {}
 
-def apply_auto_visibility_rules(coin, _current_value):
-    """Apply automatic Portfolio visibility rules based on the held amount."""
-    changed = False
-    try:
-        amount = float(getattr(coin, 'amount', 0) or 0)
-    except (TypeError, ValueError):
-        amount = 0.0
-
-    # Filled positions are Portfolio holdings from 0.0001 units upward. Below
-    # that, an unfilled/pending BUY stays represented in the Watchlist instead.
-    if amount >= 0.0001:
-        if getattr(coin, 'auto_hidden', False):
-            if getattr(coin, 'hidden', False):
-                coin.hidden = False
-                changed = True
-            coin.auto_hidden = False
-            changed = True
-        # If manually hidden, we respect it unless it's auto_hidden
-    else:
-        if not getattr(coin, 'force_visible', False) and not getattr(coin, 'is_manual', False):
-            if not getattr(coin, 'hidden', False):
-                coin.hidden = True
-                changed = True
-            if not getattr(coin, 'auto_hidden', False):
-                coin.auto_hidden = True
-                changed = True
-    
-    return changed
-
 
 from pathlib import Path
 import re

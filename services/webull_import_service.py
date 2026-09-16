@@ -299,11 +299,9 @@ def import_webull_portfolio_snapshot(user_id, preview):
                 )
                 db.session.add(holding)
             else:
-                # If quantity changed significantly from a transaction/trade, automatically unhide
-                if abs((holding.quantity or 0.0) - new_qty) > 1e-6:
+                # If quantity increased from a transaction/trade/deposit, automatically unhide
+                if new_qty > (holding.quantity or 0.0) + 1e-6:
                     holding.hidden = False
-                    holding.auto_hidden = False
-                    holding.force_visible = True
             holding.quantity = new_qty
             display_name = _first_value(
                 position,
@@ -345,11 +343,9 @@ def import_webull_portfolio_snapshot(user_id, preview):
                 )
                 db.session.add(usd_holding)
             else:
-                # Only unhide cash if balance changed significantly (new deposit/trade fill)
-                if abs((usd_holding.quantity or 0.0) - cash_balance) > 1e-4:
+                # Only unhide cash if balance strictly increased (new deposit/trade sell)
+                if cash_balance > (usd_holding.quantity or 0.0) + 1e-4:
                     usd_holding.hidden = False
-                    usd_holding.auto_hidden = False
-                    usd_holding.force_visible = True
             usd_holding.quantity = cash_balance
             usd_holding.last_price = 1.0
             usd_holding.cost_price = 1.0

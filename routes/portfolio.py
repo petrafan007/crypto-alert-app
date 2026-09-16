@@ -1138,29 +1138,7 @@ def api_cancel_order(order_id):
                 logger.warning(f"Failed to update local order after cancellation: {db_err}")
                 db.session.rollback()
 
-            # Auto-hide zero-balance coins when all their open orders are canceled
-            try:
-                base_asset = symbol.replace('USDT', '').replace('USD', '').upper()
-                coin_rec = Coin.query.filter_by(user_id=current_user.id, symbol=base_asset).first()
-                if coin_rec and float(coin_rec.amount or 0) <= 0.00000001:
-                    try:
-                        open_orders = client.get_open_orders()
-                        has_other = any(
-                            o.get('symbol', '').upper().startswith(base_asset) and int(o.get('orderId', 0)) != int(order_id)
-                            for o in open_orders
-                        )
-                    except Exception:
-                        has_other = False
-                    if not has_other:
-                        coin_rec.force_visible = False
-                        coin_rec.hidden = True
-                        coin_rec.auto_hidden = True
-                        coin_rec.alert_enabled = False
-                        coin_rec.auto_sell_enabled = False
-                        coin_rec.auto_buy_enabled = False
-                        db.session.commit()
-            except Exception as hide_err:
-                logger.warning(f"Failed to auto-hide zero balance coin after cancel: {hide_err}")
+
 
             try:
                 msg = f"🚫 ORDER CANCELED: {symbol} (Order ID: {order_id})"

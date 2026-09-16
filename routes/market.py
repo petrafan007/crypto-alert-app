@@ -207,16 +207,7 @@ def api_coin_data_live():
                 if record_price_history_snapshot(symbol, current_price, now_timestamp):
                     price_changed = True
 
-                if apply_auto_visibility_rules(coin, current_value):
-                    visibility_changed = True
-
-                if amount < 0.0001:
-                    continue
-
                 if coin.hidden:
-                    continue
-
-                if amount <= 0 and not coin.force_visible:
                     continue
 
                 avg_entry_val = _to_float(coin.avg_entry) if amount > 0.00000001 else 0.0
@@ -404,18 +395,8 @@ def api_coin_data():
                 current_value = amount * current_price if current_price else 0
                 # logger.error(f"[DEBUG] {symbol} current_value: {current_value}")
 
-                if apply_auto_visibility_rules(coin, current_value):
-                    visibility_changed = True
-
-                if amount < 0.0001:
-                    continue
-
                 if coin.hidden:
                     # logger.error(f"[DEBUG] {symbol} skipped: hidden flag")
-                    continue
-
-                if amount <= 0 and not coin.force_visible:
-                    # logger.error(f"[DEBUG] {symbol} skipped: amount <= 0 and not force_visible")
                     continue
 
                 cost_basis = get_cost_basis_for_asset(

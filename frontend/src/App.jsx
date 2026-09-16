@@ -106,6 +106,17 @@ export default function App() {
     return () => clearTimeout(timeout);
   }, [isLightMode]);
 
+  // Auto-clear messages after 5 seconds
+  useEffect(() => {
+    if (message) {
+      const timer = setTimeout(() => {
+        setMessage('');
+        setMessageType('');
+      }, 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [message]);
+
   // Keep the exchange menu open while moving from its trigger into the
   // popover. Dismiss only from an intentional outside click or Escape.
   useEffect(() => {

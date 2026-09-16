@@ -1740,7 +1740,7 @@ function Dashboard({ isLightMode }) {
             // ignore if not authed yet; we still render portfolio
           }
           const rawPortfolio = Array.isArray(portfolioResponse.data.portfolio)
-            ? portfolioResponse.data.portfolio.filter((coin) => Number(coin.amount || 0) >= MINIMUM_PORTFOLIO_AMOUNT)
+            ? portfolioResponse.data.portfolio
             : [];
 
           const withFlags = rawPortfolio.map((c) => ({
