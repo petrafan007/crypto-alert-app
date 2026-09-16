@@ -4099,7 +4099,7 @@ function Dashboard({ isLightMode }) {
           console.error('Error polling after sentiment refresh:', pollErr);
         }
 
-        if (attempts >= 35) {
+        if (attempts >= 100) {
           clearInterval(pollInterval);
           setRefreshingSentiment(prev => {
             const next = { ...prev };
@@ -4357,8 +4357,8 @@ function Dashboard({ isLightMode }) {
               flexShrink: 0
             }}
             onMouseEnter={(e) => {
-              e.currentTarget.style.color = '#38bdf8';
-              e.currentTarget.style.background = 'rgba(56, 189, 248, 0.15)';
+              e.currentTarget.style.color = '#fff';
+              e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)';
             }}
             onMouseLeave={(e) => {
               e.currentTarget.style.color = hasPendingOrder ? '#94a3b8' : 'rgba(255, 255, 255, 0.45)';
