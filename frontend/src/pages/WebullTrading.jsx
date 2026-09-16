@@ -2520,6 +2520,7 @@ export default function WebullTrading({ isLightMode = false }) {
     setOrderForm((prev) => ({
       ...prev,
       type: nextType === 'EVENT' ? 'LIMIT' : (nextType === 'OPTION' ? 'LIMIT' : 'MARKET'),
+      side: nextType === 'EVENT' ? 'BUY' : prev.side,
       quantity: '',
       quoteQuantity: '',
       price: nextType === 'EVENT' ? formatEventLimitPrice(eventQuoteFor(selectedEventMarket, 'yes', 'BUY')) : '',
@@ -5655,15 +5656,17 @@ export default function WebullTrading({ isLightMode = false }) {
                           >
                             📈 Buy {selectedInstrumentType === 'EVENT' ? '(To Open)' : ''}
                           </button>
-                          <button
-                            type="button"
-                            className={`order-side-btn sell-side ${orderForm.side === 'SELL' ? 'active' : ''}`}
-                            onClick={() => handleTicketSideChange('SELL')}
-                            disabled={(selectedInstrumentType === 'EVENT' ? !eventSellEnabled : ticketOrderControlsDisabled) || assetClassDisabled(selectedInstrumentType)}
-                            title={selectedInstrumentType === 'OPTION' && !optionSellEnabled ? 'Sell is available only for an exact option contract currently owned in this Webull account.' : futuresOrderControlsDisabled ? futuresExecutionMessage : selectedInstrumentType === 'EVENT' ? 'Sell to close event contract' : 'Sell this instrument'}
-                          >
-                            📉 Sell {selectedInstrumentType === 'EVENT' ? '(To Close)' : ''}
-                          </button>
+                          {selectedInstrumentType !== 'EVENT' && (
+                            <button
+                              type="button"
+                              className={`order-side-btn sell-side ${orderForm.side === 'SELL' ? 'active' : ''}`}
+                              onClick={() => handleTicketSideChange('SELL')}
+                              disabled={ticketOrderControlsDisabled || assetClassDisabled(selectedInstrumentType)}
+                              title={selectedInstrumentType === 'OPTION' && !optionSellEnabled ? 'Sell is available only for an exact option contract currently owned in this Webull account.' : futuresOrderControlsDisabled ? futuresExecutionMessage : 'Sell this instrument'}
+                            >
+                              📉 Sell
+                            </button>
+                          )}
                           {selectedInstrumentType === 'EQUITY' && isTestMode && currentHoldingIsShort && (
                             <button
                               type="button"
