@@ -4505,11 +4505,11 @@ export default function WebullTrading({ isLightMode = false }) {
     return modeOpenOrders.filter((order) => {
       if (!OPEN_STATUSES.has(String(order.status).toUpperCase()) && order.status) return false;
       const eventDetails = eventContractOrderDetails(order);
-      if (eventDetails.isEvent || String(order.asset_type) === 'Event Contracts') {
+      if ((eventDetails.isEvent || String(order.asset_type) === 'Event Contracts') && String(order.action || order.side || '').toUpperCase() === 'SELL') {
         const orderSym = eventDetails.symbol;
         const matchesHolding = activeModeHoldings.some((h) => {
           const hDetails = eventContractOrderDetails(h);
-          return hDetails.symbol === orderSym;
+          return hDetails.symbol === orderSym && hDetails.outcome === eventDetails.outcome;
         });
         if (matchesHolding) return false;
       }
