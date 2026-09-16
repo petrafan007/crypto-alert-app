@@ -3506,6 +3506,14 @@ export default function WebullTrading({ isLightMode = false }) {
     }
   };
 
+  useEffect(() => {
+    // If the user selects MAX (100%), and THEN switches order types (e.g. Limit -> Market),
+    // we must re-calculate to enforce or remove the 2% buffer rule dynamically.
+    if (orderForm.side === 'BUY' && balancePercentage === 100) {
+      handleSliderChange(100);
+    }
+  }, [orderForm.type, orderForm.side]);
+
   const orderTotal = useMemo(() => {
     if (selectedInstrumentType === 'EQUITY' && orderForm.entrustType === 'AMOUNT') {
       const cashVal = parseFloat(orderForm.totalCashAmount) || 0;
