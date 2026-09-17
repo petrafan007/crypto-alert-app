@@ -1,8 +1,19 @@
 # Crypto & Securities Dashboard
 
-**Version:** 3.2.0
+**Version:** 3.2.3
 
 ## Recent Updates
+
+### v3.2.3
+- **Fix (WebullTrading):** Expired and settled event contracts are now immediately moved out of the open positions table and seamlessly displayed in the Order History table as "Pending Settlement" with the correct unrealized P&L displayed.
+- **Fix (Dashboard):** Fixed an issue where the `Filled at` timestamp was showing up blank for filled event contracts in order history.
+- **Fix (Dashboard):** Correctly compute Webull fees for EVENT CONTRACTS in the database backend.
+
+### v3.2.2
+- **Fix (WebullTrading):** Fixed a regression where all event contract orders (including BUY orders) were hidden if a position existed. 
+
+### v3.2.1
+- **Fix (Dashboard):** Resolved event contract modal interaction (Manage Order vs. Position), cached 404 stock icon lookups, and fixed CSS alignment in `PortfolioPerformanceTable.jsx`.
 
 ### v3.2.0
 - **Feature (Dashboard):** Completely removed all confusing auto-hiding logic across the backend and frontend. Coins are now only hidden if explicitly chosen by the user. Assets will conditionally auto-unhide ONLY if their held balance strictly increases due to a new transaction/deposit.

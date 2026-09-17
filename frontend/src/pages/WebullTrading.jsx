@@ -1147,7 +1147,7 @@ export default function WebullTrading({ isLightMode = false }) {
     const active = [];
     const expired = [];
     for (const h of list) {
-      if (String(h.asset_type) === 'Event Contracts') {
+      if (String(h.instrument_type || h.asset_type || '').toUpperCase().includes('EVENT')) {
         const cutoff = cutoffFromSymbol(h.symbol || h.underlying_symbol);
         if (cutoff && cutoff.getTime() <= liveClock) {
           expired.push(h);
@@ -4482,7 +4482,7 @@ export default function WebullTrading({ isLightMode = false }) {
     const active = [];
     const expired = [];
     for (const o of list) {
-      if (String(o.asset_type) === 'Event Contracts') {
+      if (String(o.instrument_type || o.asset_type || '').toUpperCase().includes('EVENT')) {
         const cutoff = cutoffFromSymbol(o.symbol || o.underlying_symbol);
         if (cutoff && cutoff.getTime() <= liveClock) {
           expired.push(o);
@@ -4628,6 +4628,8 @@ export default function WebullTrading({ isLightMode = false }) {
         status: 'Pending Settlement',
         quantity: h.quantity || h.amount,
         price: h.cost_price || h.avg_entry,
+        pnl: h.unrealized_profit_loss,
+        realized_pnl_pct: h.unrealized_profit_loss_rate,
         created_at: new Date(cutoffFromSymbol(h.symbol || h.underlying_symbol)?.getTime() || Date.now()).toISOString(),
         _isSyntheticSettlement: true
       });

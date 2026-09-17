@@ -258,7 +258,7 @@ export function columnStorageKey(userId, view) {
 export function cutoffFromSymbol(symbol) {
   if (!symbol) return null;
   const match = String(symbol).trim().toUpperCase().match(
-    /-(\d{2})(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)(\d{2})(\d{2})(?:(\d{2}))?(?:-|$)/
+    /-(\d{2})(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)(\d{2})(\d{2})(?:(\d{2}))?(?:\s+(?:YES|NO))?(?:-|$)/
   );
   if (!match) return null;
   const months = {

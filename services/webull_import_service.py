@@ -125,7 +125,7 @@ def import_webull_orders(user_id, orders):
             fill_price = float(record.filled_price or record.price or 0.0)
             inst = str(record.instrument_type or '').upper()
             side = str(record.side or '').upper()
-            if inst == 'EVENT' and filled_qty > 0:
+            if inst in {'EVENT', 'EVENT CONTRACTS', 'EVENT_CONTRACT', 'EVENT_CONTRACTS'} and filled_qty > 0:
                 record.fee = round(filled_qty * 0.025, 4)
             elif inst == 'OPTION' and filled_qty > 0:
                 record.fee = round(filled_qty * 0.55, 4)
@@ -216,6 +216,7 @@ def get_webull_order_rows(user_id, *, account_id=None, limit=None):
         'fee': record.fee,
         'fee_asset': record.fee_asset,
         'status': record.status or 'UNKNOWN',
+        'filled_at': record.updated_at.isoformat() if record.updated_at and record.status in {'FILLED', 'COMPLETED'} else None,
         'created_at': record.created_at.isoformat() if record.created_at else None,
         'updated_at': record.updated_at.isoformat() if record.updated_at else None,
         'source': 'webull', 'origin': 'webull', 'origin_label': 'Webull',
