@@ -1886,7 +1886,7 @@ function Dashboard({ isLightMode }) {
                 const item = prevMap.get(key);
                 if (item) {
                   const hasHoldings = Number(item.amount || 0) >= MINIMUM_PORTFOLIO_AMOUNT;
-                  if (hasHoldings) {
+                  if (hasHoldings || item.hasPendingOrder || item.force_visible) {
                     updated.push(item);
                   }
                   seen.add(key);
@@ -1899,7 +1899,7 @@ function Dashboard({ isLightMode }) {
                   const item = prevMap.get(key);
                   if (item) {
                     const hasHoldings = Number(item.amount || 0) >= MINIMUM_PORTFOLIO_AMOUNT;
-                    if (hasHoldings) {
+                    if (hasHoldings || item.hasPendingOrder || item.force_visible) {
                       updated.push(item);
                     }
                   }
