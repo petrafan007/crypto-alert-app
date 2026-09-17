@@ -992,7 +992,7 @@ def call_ai_with_web_search(
                     model,
                     p_messages,
                     max_tokens=p_max_tokens,
-                    timeout=audit_timeout if is_portfolio_audit else 60,
+                    timeout=audit_timeout if is_portfolio_audit else 1800,
                     reasoning_level=ai_reasoning_level,
                 )
             

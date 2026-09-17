@@ -1,8 +1,11 @@
 # Crypto & Securities Dashboard
 
-**Version:** 3.2.6
+**Version:** 3.2.7
 
 ## Recent Updates
+
+### v3.2.7
+- **Fix (AI):** Extended the timeout for the Ollama local model to 1800 seconds (30 minutes) to resolve the "AI evaluation failed for this scan (Ollama: Request Timed Out)" error, ensuring that heavy local models have sufficient inference time.
 
 ### v3.2.6
 - **Fix (Dashboard):** Resolved an elusive race condition causing hidden Binance coins (like USD balances) to instantly pop back up and permanently resurrect themselves. Out-of-order background polling responses could arrive slightly after a coin was hidden, re-injecting the older visible state into the frontend. The Dashboard now tags all portfolio fetches with a strict monotonically increasing sequence ID, instantly discarding stale network payloads before they can overwrite newer state.
