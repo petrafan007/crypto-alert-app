@@ -1,8 +1,14 @@
 # Crypto & Securities Dashboard
 
-**Version:** 3.2.3
+**Version:** 3.2.4
 
 ## Recent Updates
+
+### v3.2.4
+- **Fix (Dashboard):** Addressed an aggressive auto-hiding issue where coins with a zero balance would forcefully get re-hidden continuously in the background after a user unhid them via the Unhide Assets modal.
+- **Fix (WebullTrading):** The Event Contract Order Modal now correctly recognizes when you are attempting to manage an existing SELL open order that is tied to a position you hold. It explicitly labels the order and displays an "Estimated closing credit" payout helper.
+- **Fix (WebullTrading):** Attempting to "Review & Replace" an open order for an event contract where the current quantity is already committed no longer fails with `OPENAPI_EVENT_CONTRACT_SELL_QTY_EXCEED_AVAILABLE_QTY`. A slight delay was added during the cancellation phase to allow Webull's background APIs to fully free the locked contracts.
+- **Fix (Dashboard):** The "Trading cutoff" column time in Positions now uses the highest-precision date embedded in the symbol to display real-time sub-minute accuracy, and the "Time to cutoff" column now displays seconds remaining (`#h #m #s`).
 
 ### v3.2.3
 - **Fix (WebullTrading):** Expired and settled event contracts are now immediately moved out of the open positions table and seamlessly displayed in the Order History table as "Pending Settlement" with the correct unrealized P&L displayed.

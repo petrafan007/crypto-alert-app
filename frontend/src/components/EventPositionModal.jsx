@@ -464,7 +464,14 @@ export default function EventPositionModal({
       <section className="event-position-modal" role="dialog" aria-modal="true" aria-labelledby="event-position-title">
         <header className="event-position-modal-header">
           <div className="event-position-header-top-row">
-            <span className="event-position-kicker">{isOpenOrder ? 'Event Contract Open Order' : 'Current Event Contract Position'}</span>
+            <span className="event-position-kicker">
+              {isOpenOrder && String(openOrder?.side || '').toUpperCase() === 'SELL' && holding
+                ? 'Event contract open order on existing position'
+                : isOpenOrder
+                  ? 'Event Contract Open Order'
+                  : 'Current Event Contract Position'
+              }
+            </span>
             <div className="event-position-header-countdown">
               <span className="countdown-label">Trading time remaining</span>
               <EventCountdown cutoff={cutoff} serverOffset={serverOffset} />
@@ -574,7 +581,15 @@ export default function EventPositionModal({
                     <div className="event-position-order-fields">
                       <label>Contracts<input type="number" min="0" step={rules.fractionable ? '0.00001' : '1'} value={quantity} disabled={isExpired} onChange={(event) => { setQuantity(event.target.value); setValidationError(''); }} /></label>
                       <label>Limit price (USD)<input type="number" min="0" max="1" step="0.0001" value={price} disabled={isExpired} onChange={(event) => { setPrice(event.target.value); setValidationError(''); }} onBlur={() => { if (price) setPrice((curr) => formatLimitPrice(curr)); }} /></label>
-                      <div className="event-position-quote-box"><span>Current quote</span><strong>{cents(selectedQuote)}</strong></div>
+                      <div className="event-position-quote-box">
+                        <span>Current quote</span><strong>{cents(selectedQuote)}</strong>
+                      </div>
+                      {side === 'SELL' && (
+                        <div className="event-position-quote-box">
+                          <span>Estimated closing credit</span>
+                          <strong>{numeric(quantity) && numeric(price) ? `$${(numeric(quantity) * numeric(price)).toFixed(2)}` : '—'}</strong>
+                        </div>
+                      )}
                     </div>
                     {validationError && <p className="event-position-validation" role="alert">{validationError}</p>}
                     <div className="event-position-order-footer">

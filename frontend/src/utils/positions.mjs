@@ -100,7 +100,7 @@ function valueForColumn(position, columnId) {
     case 'account': return firstValue(position, 'account_label', 'account_name', 'webull_account_type', 'source_label') || '—';
     case 'side': return positionSide(position);
     case 'status': return positionStatus(position);
-    case 'cutoff': return position.settlement?.cutoff_at || position.cutoff_at || position.details?.cutoff_at || null;
+    case 'cutoff': return cutoffFromSymbol(position.symbol)?.toISOString() || position.settlement?.cutoff_at || position.cutoff_at || position.details?.cutoff_at || null;
     case 'countdown': return timestamp(valueForColumn(position, 'cutoff'));
     case 'confirmed_outcome': return position.settlement?.confirmed_outcome || null;
     case 'contract_multiplier': return numericValue(position, 'contract_multiplier', 'option_multiplier') ?? position.details?.multiplier ?? null;
@@ -310,8 +310,8 @@ export function countdown(value, now = Date.now()) {
   if (value === null) return '—';
   const seconds = Math.ceil((value - now) / 1000);
   if (seconds <= 0) return 'Closed';
-  if (seconds >= 86400) return `${Math.floor(seconds / 86400)}d ${Math.floor(seconds % 86400 / 3600)}h`;
-  if (seconds >= 3600) return `${Math.floor(seconds / 3600)}h ${Math.floor(seconds % 3600 / 60)}m`;
+  if (seconds >= 86400) return `${Math.floor(seconds / 86400)}d ${Math.floor(seconds % 86400 / 3600)}h ${Math.floor(seconds % 3600 / 60)}m`;
+  if (seconds >= 3600) return `${Math.floor(seconds / 3600)}h ${Math.floor(seconds % 3600 / 60)}m ${seconds % 60}s`;
   return `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
 }
 export function positionSide(position) {

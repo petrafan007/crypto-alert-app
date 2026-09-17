@@ -4237,7 +4237,16 @@ export default function WebullTrading({ isLightMode = false }) {
   };
 
   const handleManageEventOrder = (order) => {
-    setEventPositionHolding(null);
+    if (order && String(order.side || '').toUpperCase() === 'SELL' && eventContractOrderDetails(order).isEvent) {
+      const orderDetails = eventContractOrderDetails(order);
+      const matchingHolding = activeModeHoldings.find((h) => {
+        const hDetails = eventContractOrderDetails(h);
+        return hDetails.symbol === orderDetails.symbol && hDetails.outcome === orderDetails.outcome;
+      });
+      setEventPositionHolding(matchingHolding || null);
+    } else {
+      setEventPositionHolding(null);
+    }
     setEventOpenOrder(order || null);
   };
 

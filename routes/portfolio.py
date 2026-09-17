@@ -957,8 +957,7 @@ def api_pending_orders():
             all_user_coins = Coin.query.filter_by(user_id=current_user.id).all()
             for c in all_user_coins:
                 if float(c.amount or 0) < 0.0001:
-                    if c.force_visible or not c.hidden:
-                        c.force_visible = False
+                    if not c.hidden and not getattr(c, 'force_visible', False):
                         c.hidden = True
                         c.auto_hidden = True
                         c.alert_enabled = False
