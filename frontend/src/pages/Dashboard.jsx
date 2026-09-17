@@ -147,9 +147,72 @@ function Dashboard({ isLightMode }) {
   // can never overwrite state with data older than what's already been rendered.
   const watchlistFetchIdRef = useRef(0);
   const watchlistAppliedIdRef = useRef(0);
+  const portfolioFetchIdRef = useRef(0);
+  const portfolioAppliedIdRef = useRef(0);
   const portfolioScrollRef = useRef(null);
   const watchlistScrollRef = useRef(null);
   const nextWatchlistFetchId = () => ++watchlistFetchIdRef.current;
+  const nextPortfolioFetchId = () => ++portfolioFetchIdRef.current;
+  
+  const applyPortfolioUpdate = (incoming, fetchId, pendingOrdersList) => {
+    if (typeof fetchId === 'number' && fetchId < portfolioAppliedIdRef.current) {
+      return;
+    }
+    if (typeof fetchId === 'number') {
+      portfolioAppliedIdRef.current = fetchId;
+    }
+    
+    setPortfolio(prev => {
+      const incomingMap = new Map();
+      const portfolioRowKey = (item) => `${item?.source === 'webull' || item?.is_external ? 'webull' : 'binance'}:${item?.id || (item?.symbol || '').toUpperCase()}`;
+      
+      incoming.forEach(c => {
+        incomingMap.set(portfolioRowKey(c), {
+          ...c,
+          hasPendingOrder: getPendingOrdersForCoin(c, pendingOrdersList || []).length > 0,
+          pendingPlaceholder: false
+        });
+      });
+
+      const prevMap = new Map();
+      prev.forEach(p => prevMap.set(portfolioRowKey(p), p));
+      
+      // Update or add incoming coins
+      incomingMap.forEach((val, key) => {
+        prevMap.set(key, { ...(prevMap.get(key) || {}), ...val });
+      });
+
+      // Return stable array preserving previous order, filtering out zero-balance coins that no longer have pending orders
+      const updated = [];
+      const seen = new Set();
+      prev.forEach(p => {
+        const key = portfolioRowKey(p);
+        const item = prevMap.get(key);
+        if (item) {
+          const hasHoldings = Number(item.amount || 0) >= MINIMUM_PORTFOLIO_AMOUNT;
+          if (hasHoldings || item.hasPendingOrder || item.force_visible) {
+            updated.push(item);
+          }
+          seen.add(key);
+        }
+      });
+
+      // Append any new symbols not in previous
+      incoming.forEach(c => {
+        const key = portfolioRowKey(c);
+        if (!seen.has(key)) {
+          const item = prevMap.get(key);
+          if (item) {
+            const hasHoldings = Number(item.amount || 0) >= MINIMUM_PORTFOLIO_AMOUNT;
+            if (hasHoldings || item.hasPendingOrder || item.force_visible) {
+              updated.push(item);
+            }
+          }
+        }
+      });
+      return updated;
+    });
+  };
 
   // Helper to preserve pending optimistic watchlist items across background poll intervals
   const mergeWatchlistPreservingPending = (newList, prevList) => {
@@ -1857,56 +1920,10 @@ function Dashboard({ isLightMode }) {
           }
 
           // Handle live portfolio data (update with fresh prices) – merge into existing state
-          if (livePortfolioResponse.status === 'fulfilled' && livePortfolioResponse.value.data.portfolio && livePortfolioResponse.value.data.portfolio.length > 0) {
-            const incoming = livePortfolioResponse.value.data.portfolio;
-            const incomingMap = new Map();
-            const portfolioRowKey = (item) => `${item?.source === 'webull' || item?.is_external ? 'webull' : 'binance'}:${item?.id || (item?.symbol || '').toUpperCase()}`;
-            incoming.forEach(c => {
-              incomingMap.set(portfolioRowKey(c), {
-                ...c,
-                hasPendingOrder: getPendingOrdersForCoin(c, ordersResponse.status === 'fulfilled'
-                  ? ordersResponse.value.data.pending_orders || []
-                  : []).length > 0,
-                pendingPlaceholder: false
-              });
-            });
-
-            setPortfolio(prev => {
-              const prevMap = new Map();
-              prev.forEach(p => prevMap.set(portfolioRowKey(p), p));
-              // Update or add incoming coins
-              incomingMap.forEach((val, key) => {
-                prevMap.set(key, { ...(prevMap.get(key) || {}), ...val });
-              });
-              // Return stable array preserving previous order, filtering out zero-balance coins that no longer have pending orders
-              const updated = [];
-              const seen = new Set();
-              prev.forEach(p => {
-                const key = portfolioRowKey(p);
-                const item = prevMap.get(key);
-                if (item) {
-                  const hasHoldings = Number(item.amount || 0) >= MINIMUM_PORTFOLIO_AMOUNT;
-                  if (hasHoldings || item.hasPendingOrder || item.force_visible) {
-                    updated.push(item);
-                  }
-                  seen.add(key);
-                }
-              });
-              // Append any new symbols not in previous
-              incoming.forEach(c => {
-                const key = portfolioRowKey(c);
-                if (!seen.has(key)) {
-                  const item = prevMap.get(key);
-                  if (item) {
-                    const hasHoldings = Number(item.amount || 0) >= MINIMUM_PORTFOLIO_AMOUNT;
-                    if (hasHoldings || item.hasPendingOrder || item.force_visible) {
-                      updated.push(item);
-                    }
-                  }
-                }
-              });
-              return updated;
-            });
+          if (livePortfolioResponse.status === 'fulfilled' && livePortfolioResponse.value.data.portfolio) {
+            const pendingOrdersList = ordersResponse.status === 'fulfilled' ? (ordersResponse.value.data.pending_orders || []) : [];
+            const pFetchId = nextPortfolioFetchId();
+            applyPortfolioUpdate(livePortfolioResponse.value.data.portfolio, pFetchId, pendingOrdersList);
           }
         }
 
@@ -2555,7 +2572,7 @@ function Dashboard({ isLightMode }) {
           setCancelModalState({ isOpen: false, coin: null, order: null, loading: false, error: null });
 
           // Background refresh
-          axios.get('/api/coin-data-live').then(r => r.data?.portfolio && setPortfolio(r.data.portfolio)).catch(() => { });
+          axios.get('/api/coin-data-live').then(r => r.data?.portfolio && applyPortfolioUpdate(r.data.portfolio, nextPortfolioFetchId())).catch(() => { });
           {
             const wFetchId = nextWatchlistFetchId();
             axios.get('/api/watchlist-live', { withCredentials: true }).then(r => Array.isArray(r.data) && applyWatchlistUpdate(r.data, wFetchId)).catch(() => { });
@@ -2580,7 +2597,7 @@ function Dashboard({ isLightMode }) {
           setCancelModalState({ isOpen: false, coin: null, order: null, loading: false, error: null });
 
           // Background refresh
-          axios.get('/api/coin-data-live').then(r => r.data?.portfolio && setPortfolio(r.data.portfolio)).catch(() => { });
+          axios.get('/api/coin-data-live').then(r => r.data?.portfolio && applyPortfolioUpdate(r.data.portfolio, nextPortfolioFetchId())).catch(() => { });
           {
             const wFetchId = nextWatchlistFetchId();
             axios.get('/api/watchlist-live', { withCredentials: true }).then(r => Array.isArray(r.data) && applyWatchlistUpdate(r.data, wFetchId)).catch(() => { });
@@ -2625,7 +2642,7 @@ function Dashboard({ isLightMode }) {
           setCancelModalState({ isOpen: false, coin: null, order: null, loading: false, error: null });
 
           // Background refresh
-          axios.get('/api/coin-data-live').then(r => r.data?.portfolio && setPortfolio(r.data.portfolio)).catch(() => { });
+          axios.get('/api/coin-data-live').then(r => r.data?.portfolio && applyPortfolioUpdate(r.data.portfolio, nextPortfolioFetchId())).catch(() => { });
           axios.get('/api/pending-orders', { withCredentials: true }).then(r => r.data?.pending_orders && setPendingOrders(r.data.pending_orders)).catch(() => { });
 
           return { success: true };
@@ -3655,7 +3672,7 @@ function Dashboard({ isLightMode }) {
       } catch (err) {
         console.error('Update alert type error:', err);
         // Revert optimistic update on error by refreshing data
-        axios.get('/api/coin-data-live').then(r => r.data?.portfolio && setPortfolio(r.data.portfolio)).catch(() => { });
+        axios.get('/api/coin-data-live').then(r => r.data?.portfolio && applyPortfolioUpdate(r.data.portfolio, nextPortfolioFetchId())).catch(() => { });
       }
     };
 
@@ -4138,7 +4155,7 @@ function Dashboard({ isLightMode }) {
             const wFetchId = nextWatchlistFetchId();
             axios.get('/api/watchlist-live', { withCredentials: true }).then(r => r.data && applyWatchlistUpdate(r.data, wFetchId)).catch(() => { });
           } else {
-            axios.get('/api/coin-data-live').then(r => r.data?.portfolio && setPortfolio(r.data.portfolio)).catch(() => { });
+            axios.get('/api/coin-data-live').then(r => r.data?.portfolio && applyPortfolioUpdate(r.data.portfolio, nextPortfolioFetchId())).catch(() => { });
           }
         }
       }, 2000);
@@ -4155,7 +4172,7 @@ function Dashboard({ isLightMode }) {
         const wFetchId = nextWatchlistFetchId();
         axios.get('/api/watchlist-live', { withCredentials: true }).then(r => r.data && applyWatchlistUpdate(r.data, wFetchId)).catch(() => { });
       } else {
-        axios.get('/api/coin-data-live').then(r => r.data?.portfolio && setPortfolio(r.data.portfolio)).catch(() => { });
+        axios.get('/api/coin-data-live').then(r => r.data?.portfolio && applyPortfolioUpdate(r.data.portfolio, nextPortfolioFetchId())).catch(() => { });
       }
 
       showAppToast(err.response?.data?.message || err.message || 'Unable to refresh sentiment.', 'error', { symbol: cleanSymbol });

@@ -1,8 +1,11 @@
 # Crypto & Securities Dashboard
 
-**Version:** 3.2.5
+**Version:** 3.2.6
 
 ## Recent Updates
+
+### v3.2.6
+- **Fix (Dashboard):** Resolved an elusive race condition causing hidden Binance coins (like USD balances) to instantly pop back up and permanently resurrect themselves. Out-of-order background polling responses could arrive slightly after a coin was hidden, re-injecting the older visible state into the frontend. The Dashboard now tags all portfolio fetches with a strict monotonically increasing sequence ID, instantly discarding stale network payloads before they can overwrite newer state.
 
 ### v3.2.5
 - **Fix (Dashboard):** Fixed a bug where explicitly unhidden zero-balance coins, or zero-balance coins with pending orders, would continuously disappear from the Portfolio table every 10 seconds during the live background refresh loop.
