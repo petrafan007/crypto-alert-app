@@ -889,6 +889,9 @@ def call_ai_with_web_search(
                                     max_attempts=attempts, timeout_seconds=audit_timeout)
                             if request_guard:
                                 request_guard()
+                            if prompt_type in ('webull_event_contract_analysis', 'webull_event_contract_batch_analysis'):
+                                from services.event_runtime import reserve_provider_call
+                                reserve_provider_call(user_id)
                             result = _execute_ai_call_impl(p_messages, p_max_tokens)
                             if request_guard:
                                 request_guard()
@@ -915,6 +918,8 @@ def call_ai_with_web_search(
                             )
                             if delay:
                                 time.sleep(delay)
+                except (AIRequestDeferred, AuditCancelled):
+                    raise
                 except Exception as exc:
                     block_failure(key, username, provider + ':' + str(model), exc)
                     raise
@@ -1289,6 +1294,8 @@ def call_ai_with_web_search(
                 )
         
         # All tiers exhausted
+        if isinstance(e, IncompleteAuditError):
+            raise
         raise RuntimeError(f"{locals().get('provider', 'AI Provider').title()}: {short_err}")
 
 def record_sentiment_history(user_id, symbol, sentiment, sentiment_reason, price_at_prediction, provider=None, model=None, tier=None, source_type='portfolio', coin_id=None, search_status=None, forecast_horizon_hours=24, grading_config=None, failover_history=None):

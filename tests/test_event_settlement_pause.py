@@ -12,6 +12,7 @@ from sqlalchemy.schema import CreateSchema
 from core.extensions import db
 from credentials import User
 from event_algo import event_algo_worker_loop, resolve_event_outcomes
+from services.event_runtime import event_maintenance_loop
 from event_algo_models import (
     EventStrategyConfig, EventMarketSnapshot, EventContractOutcome,
     EventStrategyOrder, EventStrategyDecision,
@@ -91,7 +92,7 @@ class PausedEventSettlementTests(unittest.TestCase):
                         patch('event_algo.resolve_event_outcomes', return_value={'resolved_count': 0}) as resolve, \
                         patch('event_algo.run_event_strategy_scan') as scan, \
                         patch('event_algo.generate_event_strategy_report') as report:
-                    event_algo_worker_loop(self.app, stop)
+                    event_maintenance_loop(self.app, stop, job='settlement')
                 resolve.assert_called_once()
                 scan.assert_not_called()
                 report.assert_not_called()

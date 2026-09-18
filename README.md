@@ -1,8 +1,15 @@
 # Crypto & Securities Dashboard
 
-**Version:** 3.2.7
+**Version:** 3.3.0
 
 ## Recent Updates
+
+### v3.3.0
+- **Quantitative workers:** Event settlement and operational reporting now run as independently supervised jobs. Cross-process scan/report locks, fresh stop checks, elapsed-time logs and publication deadlines prevent overlapping or late work. The v3.2.7 local-model timeout remains intact.
+- **Evidence and AI controls:** Event reports compute exact-window totals and factual tables in code, disclose bounded samples and unknown data, and separate cited AI interpretation from measured facts. Actual forecast-provider attempts share a durable hourly budget across workers; the portfolio Event watchlist controls collection.
+- **Research validation:** Added read-only Event forecast, timestamp-pairing and reported-depth/cost experiments with chronological development/held-out windows. Missing depth does not become an assumed research fill. Spot replay remains explicitly limited to one equities/crypto symbol.
+- **Options and risk reporting:** Versioned daily ATM call/put IV observations use a consistent expiration target and exchange close window, preserve legacy history, and retain the 252-observation entry requirement. Module correlations now identify daily dollar P&L changes and exclude missing values.
+- **Scope:** Completes the remaining engineering and collection/import planning checkpoint. Independent timestamp/depth evidence, licensed IV history and forward/held-out portfolio validation remain research requirements; this release does not certify profitability or live-trading readiness. See [completion evidence and remaining validation](docs/quantitative_strategy_engine.md#v330-completion-and-validation-boundaries).
 
 ### v3.2.7
 - **Fix (AI):** Extended the timeout for the Ollama local model to 1800 seconds (30 minutes) to resolve the "AI evaluation failed for this scan (Ollama: Request Timed Out)" error, ensuring that heavy local models have sufficient inference time.

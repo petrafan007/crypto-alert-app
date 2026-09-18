@@ -592,18 +592,19 @@ def portfolio_status(user_id):
             item['status'] = 'READY'
     # Surface warm-up prerequisites even when the session gate prevents a scan.
     from portfolio_algo_models import PortfolioMarketObservation
+    from services.portfolio_iv import iv_source, iv_series
     watches = loads(cfg.watchlists_json, DEFAULT_QUANT_WATCHLISTS)
     if module_settings['options']['enabled']:
         telemetry['options']['prerequisites'] = []
         for symbol in watches.get('options', []):
-            count = PortfolioMarketObservation.query.filter_by(user_id=user_id, series='IV:'+symbol).filter(
+            count = PortfolioMarketObservation.query.filter_by(user_id=user_id, series=iv_series(symbol, module_settings['options']['target_dte'])).filter(
                 PortfolioMarketObservation.day >= datetime.utcnow().date()-timedelta(days=370),
                 PortfolioMarketObservation.day <= datetime.utcnow().date(),
-                PortfolioMarketObservation.source == 'WEBULL_OPTION_QUOTES',
+                PortfolioMarketObservation.source == iv_source(module_settings['options']['target_dte']),
                 PortfolioMarketObservation.observed_at.isnot(None)).count()
             telemetry['options']['prerequisites'].append({
                 'symbol': symbol, 'daily_iv_observations': min(count, 252), 'required': 252,
-                'message': f'{symbol}: {min(count, 252)}/252 verified daily IV observations. Unverified legacy rows are retained but excluded. No historical IV import is configured; allocation remains unused until history and executable quotes qualify.',
+                'message': f'{symbol}: {min(count, 252)}/252 consistent near-close ATM-pair IV observations. Other methodology/history is retained but excluded. No historical IV import is configured; allocation remains unused until history and executable quotes qualify.',
             })
     event_open = [p for p in positions if p['module'] == 'events']
     risk_status = event_risk_status(user_id, state, datetime.utcnow())
@@ -1081,27 +1082,31 @@ def run_scan(user_id, force=False, provider=None):
 
 
 def measured_correlations(user_id, generation):
+    """Correlation of observed module dollar-P&L changes, never asset returns."""
     rows = daily_snapshots(user_id, generation)
-    daily = {}
-    for row in rows:
-        daily[row.created_at.date()] = loads(row.modules_json, {})
+    daily = {row.created_at.date(): loads(row.modules_json, {}) for row in rows}
     days = sorted(daily)
-    changes = {m: [] for m in MODULES}
-    for a, b in zip(days, days[1:]):
-        if (b-a).days == 1:
-            for m in MODULES:
-                changes[m].append(daily[b].get(m, 0)-daily[a].get(m, 0))
     pairs = []
     for i, a in enumerate(MODULES):
         for b in MODULES[i+1:]:
-            x, y = changes[a], changes[b]
+            observations = []
+            for left, right in zip(days, days[1:]):
+                if (right-left).days != 1:
+                    continue
+                values = [daily[day].get(module) for day in (left, right) for module in (a,b)]
+                if any(isinstance(v, bool) or not isinstance(v, (int,float)) or not math.isfinite(v) for v in values):
+                    continue
+                observations.append((values[2]-values[0], values[3]-values[1]))
             correlation = None
-            if len(x) >= 30:
+            if len(observations) >= 30:
+                x, y = zip(*observations)
                 mx, my = sum(x)/len(x), sum(y)/len(y)
                 denominator = math.sqrt(sum((v-mx)**2 for v in x)*sum((v-my)**2 for v in y))
                 if denominator:
-                    correlation = sum((u-mx)*(v-my) for u, v in zip(x,y))/denominator
-            pairs.append({'a': a, 'b': b, 'pearson_r': correlation, 'daily_samples': len(x)})
+                    correlation = sum((u-mx)*(v-my) for u,v in observations)/denominator
+            pairs.append({'a':a, 'b':b, 'pearson_r':correlation, 'daily_samples':len(observations),
+                          'basis':'DAILY_MODULE_DOLLAR_PNL_CHANGES',
+                          'limitation':'Position sizing, inactive modules and uneven exposure affect this measure; it is not underlying asset-return correlation.'})
     return pairs
 
 

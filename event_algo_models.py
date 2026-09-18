@@ -330,7 +330,7 @@ class EventStrategyReport(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False, index=True)
     period_start = db.Column(db.DateTime, nullable=False)
     period_end = db.Column(db.DateTime, nullable=False)
-    status = db.Column(db.String(30), default="HEALTHY", nullable=False)
+    status = db.Column(db.String(30), default="UNKNOWN", nullable=False)
     headline = db.Column(db.String(255), nullable=True)
     summary = db.Column(db.Text, nullable=True)
     content_markdown = db.Column(db.Text, nullable=False)

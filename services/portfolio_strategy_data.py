@@ -1,4 +1,5 @@
 """Read-only market data boundary for the isolated quantitative ledger."""
+import math
 from datetime import timedelta
 
 from core.extensions import db
@@ -37,19 +38,24 @@ class PortfolioMarketData:
             raise ValueError('Provider quote does not match the requested instrument.')
         return fresh_quote(raw, now)
 
-    def observe(self, series, value, now, *, source):
-        if source not in ('COINGECKO_GLOBAL', 'WEBULL_OPTION_QUOTES'):
+    def observe(self, series, value, now, *, source, preserve_daily=False):
+        if source not in ('COINGECKO_GLOBAL', 'WEBULL_OPTION_QUOTES') and not source.startswith('WEBULL_ATM_PAIR_V1_DTE'):
             raise ValueError('A supported measured observation source is required.')
         day = utc(now).astimezone(ET).date() if series.startswith('IV:') else utc(now).date()
         row = PortfolioMarketObservation.query.filter_by(user_id=self.user_id, series=series, day=day).first()
         if row is None:
             row = PortfolioMarketObservation(user_id=self.user_id, series=series, day=day, value=value)
             db.session.add(row)
+        elif preserve_daily and row.source == source:
+            return self.observation_history(series, source, day)
         else:
             row.value = value
         row.source = source
         row.observed_at = utc(now).replace(tzinfo=None)
         db.session.commit()
+        return self.observation_history(series, source, day)
+
+    def observation_history(self, series, source, day):
         return PortfolioMarketObservation.query.filter_by(user_id=self.user_id, series=series).filter(
             PortfolioMarketObservation.day >= day-timedelta(days=370),
             PortfolioMarketObservation.day <= day,
@@ -128,17 +134,18 @@ class PortfolioMarketData:
                 continue
         if not contracts:
             raise ValueError('No Webull option contracts in the 20–65 DTE window.')
-        expiration = min({c['expiration'] for c in contracts}, key=lambda e: abs((utc(e).date()-utc(now).astimezone(ET).date()).days-settings['target_dte']))
+        expiration = min({c['expiration'] for c in contracts}, key=lambda e: (abs((utc(e).date()-utc(now).astimezone(ET).date()).days-settings['target_dte']), e))
         selected = sorted([c for c in contracts if c['expiration'] == expiration], key=lambda c: abs(c['strike']-price))[:80]
         quoted = self.option_quotes(selected, now)
-        ivs = [float(c['implied_volatility']) for c in sorted(quoted, key=lambda c: abs(c['strike']-price))[:4]
-               if c.get('implied_volatility') is not None and 0 < float(c['implied_volatility']) < 10]
-        if not ivs:
-            raise ValueError('Provider ATM implied volatility is missing.')
-        current = sum(ivs)/len(ivs)
-        history = self.observe('IV:'+symbol, current, now, source='WEBULL_OPTION_QUOTES')
-        values = [row.value for row in history][-252:]
-        rank = 100*(current-min(values))/(max(values)-min(values)) if len(values) >= 252 and max(values)>min(values) else None
+        from services.portfolio_iv import atm_pair, collection_window, iv_source, iv_series
+        current = atm_pair(quoted, price)
+        source = iv_source(settings['target_dte'])
+        if collection_window(now):
+            history = self.observe(iv_series(symbol, settings['target_dte']), current, now, source=source, preserve_daily=True)
+        else:
+            history = self.observation_history(iv_series(symbol, settings['target_dte']), source, today)
+        values = [row.value for row in history if math.isfinite(row.value) and 0 < row.value < 10][-252:]
+        rank = max(0, min(100, 100*(current-min(values))/(max(values)-min(values)))) if len(values) >= 252 and max(values)>min(values) else None
         return price, quoted, rank
 
     def spread_mark(self, details, now):

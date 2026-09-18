@@ -1432,6 +1432,11 @@ def start_background_jobs(app=None):
     from event_algo import event_algo_worker_loop
     event_algo_thread = threading.Thread(target=event_algo_worker_loop, args=(app,), daemon=True, name="event-strategy-paper")
     event_algo_thread.start()
+    from services.event_runtime import event_maintenance_loop
+    event_settlement_thread = threading.Thread(target=event_maintenance_loop, args=(app,), kwargs={'job':'settlement'}, daemon=True, name='event-settlement')
+    event_report_thread = threading.Thread(target=event_maintenance_loop, args=(app,), kwargs={'job':'report'}, daemon=True, name='event-reports')
+    event_settlement_thread.start()
+    event_report_thread.start()
 
     from services.portfolio_engine import portfolio_worker_loop, portfolio_audit_loop
     quant_thread = threading.Thread(target=portfolio_worker_loop, args=(app,), daemon=True, name="quant-paper-worker")
@@ -1510,6 +1515,8 @@ def start_background_jobs(app=None):
     t_opt.start()
     return {
         "event_strategy": event_algo_thread,
+        "event_settlement": event_settlement_thread,
+        "event_reports": event_report_thread,
         "quantitative_strategy": quant_thread,
         "quantitative_event_handoff": quant_event_thread,
         "quantitative_audits": quant_audit_thread,

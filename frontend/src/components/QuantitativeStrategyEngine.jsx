@@ -394,7 +394,7 @@ export default function QuantitativeStrategyEngine({
             ['last_run', 'Last portfolio scan', engineStatus?.last_scan_at ? formatEasternDateTime(engineStatus.last_scan_at) : '—'],
             ['heartbeat_at', 'Portfolio heartbeat', engineStatus?.heartbeat_at ? formatEasternDateTime(engineStatus.heartbeat_at) : '—'],
             ['next_expected_scan', 'Portfolio scan cadence', engineStatus?.enabled ? `Every ${(engineStatus.scan_interval_seconds || 300) / 60} minutes` : 'Stopped / paused'],
-            ['ai_batch_calls_last_hour', 'AI batches (last hour)', `${eventStrategyHealth?.ai_batch_calls_last_hour ?? 0} / ${eventStrategyHealth?.ai_batch_budget_per_hour ?? 12}`],
+            ['ai_batch_calls_last_hour', 'AI provider requests (last hour)', `${eventStrategyHealth?.ai_batch_calls_last_hour ?? 0} / ${eventStrategyHealth?.ai_batch_budget_per_hour ?? 12}`],
             ['ai_evaluations', 'AI evaluation states', (() => {
               const evals = eventStrategyHealth?.ai_evaluations;
               if (!evals || typeof evals !== 'object' || Object.keys(evals).length === 0) {
@@ -769,32 +769,8 @@ export default function QuantitativeStrategyEngine({
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 16 }}>
                   <div>
                     <h4>Research Scope</h4>
-                    <label className="settings-form-group">Symbols (comma separated)
-                      <input
-                        value={(eventStrategyConfig.symbols || []).join(', ')}
-                        onChange={(e) =>
-                          setEventStrategyConfig((prev) => ({
-                            ...prev,
-                            symbols: e.target.value.split(',').map((item) => item.trim().toUpperCase()).filter(Boolean),
-                          }))
-                        }
-                      />
-                    </label>
-                    <div className="settings-form-group">
-                      <label>Durations</label>
-                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                        {(EVENT_STRATEGY_DURATIONS || []).map((duration) => (
-                          <label key={duration} style={{ display: 'flex', gap: 5, alignItems: 'center', fontSize: 13 }}>
-                            <input
-                              type="checkbox"
-                              checked={(eventStrategyConfig.durations || []).includes(duration)}
-                              onChange={(e) => updateEventStrategyDuration(duration, e.target.checked)}
-                            />
-                            {duration.replace('_', ' ').toLowerCase()}
-                          </label>
-                        ))}
-                      </div>
-                    </div>
+                    <p>Collection uses the saved Event series watchlist in the Event module card. Save watchlist changes there to apply them.</p>
+                    <p>Each series determines its contract durations. Unavailable provider series are reported in the engine logs.</p>
                   </div>
 
                   <div>
@@ -804,7 +780,7 @@ export default function QuantitativeStrategyEngine({
                       ['scan_interval_seconds', 'Worker scan interval (seconds)'],
                       ['ai_batch_interval_seconds', 'Minimum interval between AI batches (seconds)'],
                       ['ai_batch_size', 'Contracts per AI batch'],
-                      ['max_ai_calls_per_hour', 'Maximum AI batches per hour'],
+                      ['max_ai_calls_per_hour', 'Maximum AI provider requests per hour'],
                       ['ai_cache_ttl_seconds', 'Prediction cache TTL (seconds)'],
                       ['ai_context_refresh_hours', 'Web/search context refresh (hours)'],
                       ['ai_retry_backoff_seconds', 'Initial AI retry backoff (seconds)'],
@@ -1250,7 +1226,7 @@ export default function QuantitativeStrategyEngine({
 
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <span style={{ fontSize: '0.82rem', color: '#94a3b8' }}>
-                  Audits cross-asset correlation, Sharpe profile, risk budget, and strategic capital rebalancing.
+                  Reviews daily module dollar P&L correlation, Sharpe estimates, risk budgets, and capital allocation.
                 </span>
                 <button
                   type="button"

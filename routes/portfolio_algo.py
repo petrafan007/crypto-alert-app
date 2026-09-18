@@ -148,10 +148,17 @@ def portfolio_algo_validation():
         raise ValueError('Historical validation requires a JSON upload no larger than 5 MiB.')
     data = payload()
     from services.portfolio_validation import run_validation
-    cfg, _, _ = engine.ensure_portfolio(current_user.id)
     module = data.get('module')
+    if module == 'events':
+        from event_algo_models import EventStrategyConfig
+        from services.event_research_validation import run_event_validation
+        event_config = EventStrategyConfig.query.filter_by(user_id=current_user.id).order_by(EventStrategyConfig.id).first()
+        if event_config is None:
+            raise ValueError('Save an Event configuration before running Event validation.')
+        return jsonify(success=True, validation=run_event_validation(data, event_config))
     if module not in ('equities', 'crypto'):
         raise ValueError('Historical replay currently supports equities or crypto only.')
+    cfg, _, _ = engine.ensure_portfolio(current_user.id)
     result = run_validation(data, engine.settings_for(cfg)[module], engine.allocations_for(cfg)[module],
                             cfg.total_bankroll, cfg.target_annual_return)
     return jsonify(success=True, validation=result)

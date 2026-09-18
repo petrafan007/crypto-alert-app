@@ -30,6 +30,7 @@ EVIDENCE_RULES = (
     'unknown. Neither missing bids nor stale/terminal-looking trade prices prove a winner. Event value '
     'is quantity times mark; collateral and fees are separate. Distinguish open position counts, '
     'watchlist symbols evaluated, qualified signals, rejected entries and actual filled entries. '
+    'Module correlations describe daily changes in module dollar P&L, not underlying asset returns; sizing and inactive exposure affect them. '
     'Use only code-calculated goal_tracking annualization and correlations when present; a null metric '
     'means unavailable, not zero. No sample-count threshold automatically implements or validates stress tests. '
     'An indicator omitted from the report is NOT evidence that its provider data are missing. '
