@@ -4,6 +4,7 @@ import { moduleStatusLabel } from '../utils/portfolioModules.mjs';
 import PortfolioGoalTracking from './PortfolioGoalTracking';
 import PortfolioEventCalibration from './PortfolioEventCalibration';
 import PortfolioValidation from './PortfolioValidation';
+import ResearchDataCollection from './ResearchDataCollection';
 import { Line } from 'react-chartjs-2';
 import { Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Legend } from 'chart.js';
 
@@ -83,5 +84,6 @@ export default function QuantitativeTelemetry({ onAccount, onStatus, refetchSign
       {(status?.rebalance || []).map(r => <tr key={r.module}><td>{r.module}</td><td>{metric(r.target_pct, '%')}</td><td>{metric(r.actual_pct, '%')}</td><td>{metric(r.drift_pct, ' pp')}</td><td>{money(r.available_capital)}</td><td>{r.signal.replaceAll('_', ' ')}</td></tr>)}
     </tbody></table></div>
     <PortfolioValidation />
+    <ResearchDataCollection />
   </section>;
 }

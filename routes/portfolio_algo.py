@@ -58,6 +58,29 @@ def payload():
     return data
 
 
+@portfolio_algo_bp.route('/api/webull/portfolio-algo/research-data', methods=['GET', 'POST'])
+@portfolio_admin_required
+def research_data():
+    from services.research_archive import configure, status
+    if request.method == 'POST':
+        engine.ensure_portfolio(current_user.id)
+        result = configure(current_user.id, payload())
+    else:
+        result = status(current_user.id)
+    return jsonify(success=True, collection=result)
+
+
+@portfolio_algo_bp.route('/api/webull/portfolio-algo/research-data/export', methods=['GET'])
+@portfolio_admin_required
+def research_data_export():
+    from services.research_archive import export_page
+    result = export_page(current_user.id, int(request.args.get('after',0)), int(request.args.get('limit',100)))
+    response = jsonify(result)
+    response.headers['Cache-Control'] = 'no-store'
+    response.headers['Content-Disposition'] = 'attachment; filename="research_archive_page.json"'
+    return response
+
+
 def validate_master_ai_config(ai_config):
     """Reject a dedicated cascade that references unavailable local models."""
     allowed_providers = {'gemini', 'openai', 'zai', 'perplexity', 'inception', 'ollama'}

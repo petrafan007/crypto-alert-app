@@ -55,6 +55,9 @@ def main():
             connection.execute(text('SELECT id, status, result FROM staking_purchases LIMIT 0'))
             connection.execute(text('SELECT source, observed_at FROM portfolio_market_observations LIMIT 0'))
             connection.execute(text('SELECT id, status FROM webull_scheduled_orders LIMIT 0'))
+            connection.execute(text('SELECT user_id, stored_bytes FROM research_collection_configs LIMIT 0'))
+            connection.execute(text('SELECT lane, heartbeat_at FROM research_collection_states LIMIT 0'))
+            connection.execute(text('SELECT sha256, payload_gzip FROM research_captures LIMIT 0'))
     else:
         stop = threading.Event()
         for signum in (signal.SIGINT, signal.SIGTERM):

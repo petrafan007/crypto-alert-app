@@ -1,8 +1,14 @@
 # Crypto & Securities Dashboard
 
-**Version:** 3.3.0
+**Version:** 3.4.0
 
 ## Recent Updates
+
+### v3.4.0
+- **Collect our own research data:** Three independently supervised collectors archive options catalogs/quotes (including provider IV and Greeks), underlying stock snapshots, Event quotes/books/trades, and public Binance.US order books, aggregate trades and candles. They use existing Webull access or public endpoints, with no subscription activation, purchases, AI requests or trading actions.
+- **Collection controls:** The Quantitative Strategy Engine now shows collection status, endpoint access failures, coverage, cadence and storage capacity. Collection follows saved watchlists independently of paper execution; pause and capacity limits preserve existing history. Initial defaults are five-minute options, one-minute Events, thirty-second crypto and a 10 GiB compressed-payload/metadata budget.
+- **Research provenance:** Compressed, checksummed raw responses retain provider timestamps separately from request/receipt times, with bounded user-scoped JSON exports. This is sampled history collected from now onward, plus available recent crypto candles/trades—not a complete historical options or tick feed. Raw archives require normalization before historical replay; the existing daily IV-rank series and entry requirements remain intact.
+- **Future flexibility:** Source identifiers and a versioned archive format leave room for future licensed sources without purchasing one now. See [data collection scope, controls and limitations](docs/quantitative_strategy_engine.md#v340-research-data-collection).
 
 ### v3.3.0
 - **Quantitative workers:** Event settlement and operational reporting now run as independently supervised jobs. Cross-process scan/report locks, fresh stop checks, elapsed-time logs and publication deadlines prevent overlapping or late work. The v3.2.7 local-model timeout remains intact.

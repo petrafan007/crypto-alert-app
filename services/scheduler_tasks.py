@@ -1449,6 +1449,13 @@ def start_background_jobs(app=None):
     from services.portfolio_audit_lifecycle import audit_recovery_loop
     quant_recovery_thread = threading.Thread(target=audit_recovery_loop, args=(app,), daemon=True, name="quant-audit-recovery")
     quant_recovery_thread.start()
+
+    from services.research_collection import collection_loop
+    research_threads = {}
+    for lane in ('options', 'events', 'crypto'):
+        thread = threading.Thread(target=collection_loop, args=(app,lane), daemon=True, name='research-'+lane)
+        thread.start()
+        research_threads['research_'+lane] = thread
     
     # 1. Binance Portfolio Sync Loop
     sync_thread = threading.Thread(target=background_binance_sync_loop, args=(app,), daemon=True)
@@ -1514,6 +1521,7 @@ def start_background_jobs(app=None):
     t_opt = threading.Thread(target=options_thesis_refresh_loop, args=(app,), daemon=True)
     t_opt.start()
     return {
+        **research_threads,
         "event_strategy": event_algo_thread,
         "event_settlement": event_settlement_thread,
         "event_reports": event_report_thread,
