@@ -2,6 +2,7 @@
 import json
 import time
 import threading
+from uuid import uuid4
 from datetime import timedelta
 from sqlalchemy import select
 from core.extensions import db
@@ -12,6 +13,12 @@ WEBULL_PATHS = {
     'option_catalog':'/trading/instruments/options/contracts/list',
     'option_quotes':'/market-data/options/snapshots/list',
     'stock_quotes':'/market-data/stocks/snapshots/list',
+    'stock_bars':'/openapi/market-data/stock/bars',
+    'webull_crypto_quotes':'/market-data/crypto/snapshots/list',
+    'webull_crypto_bars':'/market-data/crypto/bars/list',
+    'futures_catalog':'/openapi/instrument/futures/by-code',
+    'futures_quotes':'/market-data/futures/snapshots/list',
+    'futures_bars':'/market-data/futures/bars/list',
     'event_catalog':'/trading/instruments/event-contracts/markets/list',
     'event_quotes':'/market-data/event-contracts/snapshots/list',
     'event_depth':'/market-data/event-contracts/depths/list',
@@ -45,6 +52,7 @@ class Collector:
         self.details['cooldowns'] = {k:v for k,v in self.details['cooldowns'].items() if v.get('retry_at',0) > time.time()}
         self.details.setdefault('cursors', {})
         self.connection = None
+        self.cycle_id = uuid4().hex
         self.deadline = time.monotonic()+(240 if lane == 'options' else 55)
 
     def guard(self):
@@ -87,14 +95,29 @@ class Collector:
                 if response.status_code != 200:
                     raise ValueError('Unexpected public feed response.')
                 body, source = response.json(), 'BINANCE_US_PUBLIC'
+            elif kind=='dominance':
+                import requests
+                response=requests.get('https://api.coingecko.com/api/v3/global',timeout=10,allow_redirects=False)
+                response.raise_for_status()
+                body,source=response.json(),'COINGECKO_GLOBAL'
+            elif kind=='independent_event_depth':
+                import re
+                import requests
+                if not re.fullmatch(r'[A-Z0-9][A-Z0-9.-]{0,159}',symbol):
+                    raise ValueError('Invalid public market ticker.')
+                response=requests.get('https://external-api.kalshi.com/trade-api/v2/markets/'+symbol+'/orderbook',
+                                      params={'depth':10},timeout=10,allow_redirects=False)
+                response.raise_for_status()
+                if response.status_code!=200:raise ValueError('Unexpected public book response.')
+                body,source=response.json(),'KALSHI_PUBLIC'
             else:
                 raise ValueError('Unsupported read-only research endpoint.')
             received = utcnow()
             self.guard()
             save_capture(self.user_id, self.lane, source, kind, symbol, body, started,
-                         {'endpoint':WEBULL_PATHS.get(kind, PUBLIC_PATHS.get(kind)), 'parameters':params,
+                         {'endpoint':WEBULL_PATHS.get(kind, PUBLIC_PATHS.get(kind, '/trade-api/v2/markets/{ticker}/orderbook' if kind=='independent_event_depth' else '/api/v3/global')), 'parameters':params,
                           'capture_method':'REST_POLL', 'provider_timestamps':'Retained verbatim in payload; absent timestamps are UNKNOWN.',
-                          'schema_version':1}, received_at=received)
+                          'schema_version':1, 'cycle_id':self.cycle_id}, received_at=received)
             self.details['captures'] += 1
             self.details['cooldowns'].pop(key, None)
             return body
@@ -124,9 +147,13 @@ class Collector:
                 return
             self.details['off_session_date'] = str(now.date())
             self.details['waiting'] = 'Off-session baseline; provider timestamps determine quote age.'
-        symbols = sorted(set(watches.get('options', [])+watches.get('equities', [])))[:30]
+        symbols = list(dict.fromkeys((['SPY'] if watches.get('equities') else [])+sorted(set(watches.get('options', [])+watches.get('equities', [])))))[:30]
         for symbol in symbols:
             self.fetch('stock_quotes', symbol, {'symbols':symbol, 'category':'US_STOCK'})
+            key='daily-bars:'+symbol
+            if self.details['cursors'].get(key)!=str(now.date()):
+                if self.fetch('stock_bars',symbol,{'symbol':symbol,'category':'US_STOCK','timespan':'D','count':1200}) is not None:
+                    self.details['cursors'][key]=str(now.date())
         roots = list(watches.get('options', []))[:20]
         roots, _ = rotated(roots, self.details['cursors'].get('root', 0), len(roots))
         for root in roots:
@@ -153,6 +180,14 @@ class Collector:
             near_params.update(start_date=str(now.date()+timedelta(days=20)), end_date=str(now.date()+timedelta(days=65)))
             near_body = self.fetch('option_catalog', root, near_params)
             near = self.records(near_body)
+            near_cursor=next_cursor(near_body,'pagination_key')
+            seen=set()
+            while near_cursor and near_cursor not in seen and len(seen)<9:
+                seen.add(near_cursor)
+                near_body=self.fetch('option_catalog',root,{**near_params,'pagination_key':near_cursor})
+                if near_body is None:break
+                near.extend(self.records(near_body))
+                near_cursor=next_cursor(near_body,'pagination_key')
             stock = self.records(self.fetch('stock_quotes', root, {'symbols':root,'category':'US_STOCK'}))
             underlying = stock[0] if stock else {}
             price = underlying.get('price', underlying.get('last_price'))
@@ -178,7 +213,7 @@ class Collector:
             selected = priority+extra
             self.details['coverage'][root] = {'catalog_page_contracts':len(catalog), 'catalog_more_pages':bool(cursor),
                                               'selected_contracts':len(selected),
-                                              'near_catalog_complete':near_body is not None and len(near)<1000 and not next_cursor(near_body,'pagination_key'),
+                                              'near_catalog_complete':near_body is not None and not near_cursor,
                                               'note':'Rotating bounded pages/contracts; not an entire simultaneous chain.'}
             for start in range(0,len(selected),20):
                 names = [c['symbol'] for c in selected[start:start+20]]
@@ -203,16 +238,26 @@ class Collector:
                 if symbol.startswith(series+'-') and cutoff and cutoff > utcnow() and str(row.get('status') or '').upper() in ('LISTING',''):
                     contracts[symbol] = row
         ordered = sorted(contracts, key=lambda symbol:(_market_cutoff(contracts[symbol]),symbol))
-        selected, offset = rotated(ordered,self.details['cursors'].get('contracts',0),self.options['event_contracts'])
+        priority=[symbol for symbol in ordered if _market_cutoff(contracts[symbol])<=utcnow()+timedelta(minutes=30)][:min(4,self.options['event_contracts'])]
+        selected, offset = rotated([symbol for symbol in ordered if symbol not in priority],self.details['cursors'].get('contracts',0),self.options['event_contracts']-len(priority))
+        selected=priority+selected
         self.details['cursors']['contracts'] = offset
         self.details['coverage']['selection'] = {'active_candidates':len(ordered),'selected':len(selected),'rotation':True}
         if selected:
             self.fetch('event_quotes', ','.join(selected)[:160], {'symbols':','.join(selected),'category':'US_EVENT'})
         for symbol in selected:
             self.fetch('event_depth',symbol,{'symbol':symbol,'category':'US_EVENT','depth':10})
+            # Pair exact tickers close in receipt time, keeping sources separate.
+            # Public books do not establish Webull queue priority or quote age.
+            if symbol in selected[:4] and self.connection and self.connection[2].upper()=='PRODUCTION':
+                self.fetch('independent_event_depth',symbol,{'depth':10})
             self.fetch('event_trades',symbol,{'symbol':symbol,'category':'US_EVENT','count':1200})
 
     def crypto_lane(self, watches):
+        key='dominance-hour'
+        hour=utcnow().strftime('%Y-%m-%dT%H')
+        if self.details['cursors'].get(key)!=hour:
+            if self.fetch('dominance','BTC_DOMINANCE',{}) is not None:self.details['cursors'][key]=hour
         for symbol in watches.get('crypto', [])[:10]:
             # Keep exchange/quote currency explicit; USDT is never relabeled USD.
             pair = symbol if symbol.endswith(('USDT','USD','USDC')) else symbol+'USDT'
@@ -220,7 +265,11 @@ class Collector:
                 continue
             book = self.fetch('crypto_depth', pair, {'symbol':pair,'limit':1000})
             trades = self.fetch('crypto_trades', pair, {'symbol':pair,'limit':1000})
-            bars = self.fetch('crypto_bars', pair, {'symbol':pair,'interval':'1m','limit':1000})
+            params={'symbol':pair,'interval':'1m','limit':1000}
+            key='minute-bar:'+pair
+            if self.details['cursors'].get(key):params['startTime']=self.details['cursors'][key]-60000
+            bars = self.fetch('crypto_bars', pair, params)
+            if isinstance(bars,list) and bars:self.details['cursors'][key]=bars[-1][0]
             self.details['coverage'][pair] = {
                 'bid_levels':len(book.get('bids',[])) if isinstance(book,dict) else None,
                 'ask_levels':len(book.get('asks',[])) if isinstance(book,dict) else None,
@@ -234,6 +283,28 @@ class Collector:
                 if self.details['cursors'].get(key) != str(utcnow().date()):
                     if self.fetch('crypto_bars',pair,{'symbol':pair,'interval':interval,'limit':1000}) is not None:
                         self.details['cursors'][key] = str(utcnow().date())
+            root=symbol[:-len(currency)] if (currency:=next((q for q in ('USDT','USDC','USD') if symbol.endswith(q)),None)) else symbol
+            usd=root+'USD'
+            self.fetch('webull_crypto_quotes',usd,{'symbols':usd,'category':'US_CRYPTO'})
+            key='usd-bars:'+usd
+            if self.details['cursors'].get(key)!=hour:
+                if self.fetch('webull_crypto_bars',usd,{'symbols':usd,'category':'US_CRYPTO','timespan':'M60','count':1200}) is not None:self.details['cursors'][key]=hour
+
+    def futures_lane(self,watches):
+        from services.portfolio_strategy_signals import in_session
+        if not in_session(utcnow()):
+            self.details['waiting']='Futures research follows the strategy US cash session.'
+            return
+        for root in watches.get('futures',[])[:10]:
+            body=self.fetch('futures_catalog',root,{'category':'US_FUTURES','code':root,'contract_type':'MONTHLY'})
+            from services.webull_service import _normalise_futures_catalog_record
+            rows=[_normalise_futures_catalog_record(r) for r in self.records(body)]
+            active=[r for r in rows if r and r.get('symbol') and str(r.get('expiration_date') or '')>str(utcnow().date())]
+            if not active:continue
+            contract=min(active,key=lambda r:r['expiration_date'])
+            symbol=contract['symbol']
+            self.fetch('futures_quotes',symbol,{'symbols':symbol,'category':'US_FUTURES'})
+            self.fetch('futures_bars',symbol,{'symbols':symbol,'category':'US_FUTURES','timespan':'M1','count':1200})
 
 
 def collect_once(user_id, lane, stop=None):
@@ -263,6 +334,7 @@ def collect_once(user_id, lane, stop=None):
         try:
             if lane=='options': collector.options_lane(watches,module_settings)
             elif lane=='events': collector.events_lane(watches)
+            elif lane=='futures': collector.futures_lane(watches)
             else: collector.crypto_lane(watches)
             status = 'PARTIAL' if details['errors'] or details['cooldowns'] else 'WAITING' if details.get('waiting') else 'RECORDING'
         except CollectionPaused as exc:

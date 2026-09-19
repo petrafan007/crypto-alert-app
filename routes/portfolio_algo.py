@@ -81,6 +81,64 @@ def research_data_export():
     return response
 
 
+@portfolio_algo_bp.route('/api/webull/portfolio-algo/research', methods=['GET'])
+@portfolio_admin_required
+def research_workbench():
+    from research_data_models import ResearchDataset,ResearchJob
+    from services.research_jobs import job_dict
+    from sqlalchemy.orm import defer
+    datasets=ResearchDataset.query.options(defer(ResearchDataset.payload_gzip)).filter_by(user_id=current_user.id).order_by(ResearchDataset.id.desc()).limit(30)
+    jobs=ResearchJob.query.options(defer(ResearchJob.result_gzip),defer(ResearchJob.request_json),defer(ResearchJob.summary_json)).filter_by(user_id=current_user.id).order_by(ResearchJob.id.desc()).limit(30)
+    response=jsonify(success=True,datasets=[{'id':r.id,'sha256':r.sha256,'created_at':r.created_at.isoformat()+'Z','quality':json.loads(r.summary_json)} for r in datasets],jobs=[job_dict(r) for r in jobs])
+    response.headers['Cache-Control']='no-store'
+    return response
+
+
+@portfolio_algo_bp.route('/api/webull/portfolio-algo/research/jobs', methods=['POST'])
+@portfolio_admin_required
+def research_queue():
+    from services.research_jobs import enqueue
+    data=payload()
+    return jsonify(success=True,job=enqueue(current_user.id,data.get('kind'),data.get('request',{}))),202
+
+
+@portfolio_algo_bp.route('/api/webull/portfolio-algo/research/jobs/<int:job_id>', methods=['GET'])
+@portfolio_admin_required
+def research_job_result(job_id):
+    from research_data_models import ResearchJob
+    from services.research_jobs import job_dict
+    row=ResearchJob.query.filter_by(id=job_id,user_id=current_user.id).first()
+    if row is None:raise ValueError('Research job not found.')
+    response=jsonify(success=True,job=job_dict(row,result=True));response.headers['Cache-Control']='no-store'
+    return response
+
+
+@portfolio_algo_bp.route('/api/webull/portfolio-algo/research/datasets/<int:dataset_id>', methods=['GET'])
+@portfolio_admin_required
+def research_dataset_export(dataset_id):
+    from services.research_dataset import get_dataset
+    _,data=get_dataset(current_user.id,dataset_id)
+    response=jsonify(data);response.headers['Cache-Control']='no-store'
+    response.headers['Content-Disposition']=f'attachment; filename="research_dataset_{dataset_id}.json"'
+    return response
+
+
+@portfolio_algo_bp.route('/api/webull/portfolio-algo/research/import', methods=['POST'])
+@portfolio_admin_required
+def research_import():
+    if request.content_length is None or request.content_length>5*1048576:raise ValueError('Dataset uploads are limited to 5 MiB.')
+    from services.research_jobs import import_preview
+    from services.research_dataset import save_dataset
+    body=payload();data,digest=import_preview(body.get('dataset'))
+    result={'quality':data['quality'],'sha256':digest,'source_verified':False}
+    if body.get('commit') is True:
+        if body.get('sha256')!=digest:raise ValueError('Preview this exact dataset before importing.')
+        from services.event_runtime import job_slot
+        with job_slot(current_user.id,'research-import'):
+            row=save_dataset(current_user.id,data);result['dataset_id']=row.id
+    return jsonify(success=True,preview=result)
+
+
 def validate_master_ai_config(ai_config):
     """Reject a dedicated cascade that references unavailable local models."""
     allowed_providers = {'gemini', 'openai', 'zai', 'perplexity', 'inception', 'ollama'}

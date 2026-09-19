@@ -35,6 +35,7 @@ const TOC_GROUPS = [
         items: [
             { id: 'safeguards', label: 'Administrative Safeguards' },
             { id: 'logs', label: 'Reviewing Operations (Logs)' },
+            { id: 'research', label: 'Collected Data & Portfolio Replay' },
         ]
     },
 ];
@@ -254,13 +255,14 @@ export default function QuantitativeStrategyEngineDoc({ isLightMode }) {
                 <ol style={{ paddingLeft: '24px', lineHeight: '2.2', marginBottom: '16px' }}>
                     <li>
                         <strong>Market Data Ingestion</strong> — The background worker (<SettingTag>run_scan</SettingTag> in
-                        <SettingTag>services/portfolio_engine.py</SettingTag>) wakes up on 15-second intervals to fetch
-                        OHLCV (Open, High, Low, Close, Volume) data for all assets in your active modules.
+                        <SettingTag>services/portfolio_engine.py</SettingTag>) checks for work every 15 seconds and
+                        normally scans the portfolio every five minutes. A separate Event consumer checks fresh
+                        decisions every 15 seconds. Session, freshness and risk gates still apply.
                     </li>
                     <li>
                         <strong>Algorithmic Signal Evaluation</strong> — Ingested data is passed through purely deterministic,
                         math-driven algorithms in <SettingTag>services/portfolio_strategy_signals.py</SettingTag>.
-                        No AI is involved in this signaling phase.
+                        Entry and exit gates are deterministic. Event probabilities come from the separate AI forecast worker.
                     </li>
                     <li>
                         <strong>Paper Ledger Execution</strong> — When an algorithm fires an entry or exit signal, the engine
@@ -329,6 +331,7 @@ export default function QuantitativeStrategyEngineDoc({ isLightMode }) {
                     The engine selects the best spread by jointly minimizing: <em>|DTE - target_dte|</em>,
                     <em>|delta - target_delta|</em>, and spread width. Only quoted contracts with provider-supplied
                     Greeks are eligible; contracts with a missing or TBD condition are excluded.
+                    IV rank also requires 252 compatible measured daily ATM observations with a non-flat range.
                 </Note>
             </Section>
 
@@ -378,29 +381,31 @@ export default function QuantitativeStrategyEngineDoc({ isLightMode }) {
             {/* Section 6: Events */}
             <Section id="events" icon={<FaSearch />} title="Event Contracts Module">
                 <p style={{ marginBottom: '12px', lineHeight: '1.7' }}>
-                    <strong>Strategy:</strong> Mean-reversion around binary outcome probability mispricings.
+                    <strong>Strategy:</strong> Compare archived model probabilities with fresh executable binary-contract prices.
                 </p>
                 <p style={{ marginBottom: '16px', lineHeight: '1.7' }}>
-                    The module capitalizes on overreactions in event markets by entering positions when contract
-                    probabilities deviate significantly from mathematical baselines.
+                    The independent Event consumer revalidates forecast age, cutoff, confidence, net edge after fees,
+                    spread and saved risk limits before entering the shared paper ledger. Missing or stale evidence
+                    blocks entry. Expired positions remain open until an explicit provider settlement is observed.
                 </p>
                 <SubHeading>Key Settings</SubHeading>
                 <ul style={{ paddingLeft: '20px', lineHeight: '2.2' }}>
-                    <li><SettingTag>probability_threshold</SettingTag> — minimum deviation from baseline probability required to enter.</li>
+                    <li><SettingTag>min_confidence</SettingTag> — required forecast confidence.</li>
+                    <li><SettingTag>min_net_edge</SettingTag> — required modeled edge after fees and uncertainty allowance.</li>
                 </ul>
             </Section>
 
             {/* Section 7: AI Tiers */}
             <Section id="ai-tiers" icon={<FaBrain />} title="3-Tier AI Integration & Failover">
                 <p style={{ marginBottom: '16px', lineHeight: '1.7' }}>
-                    The engine guarantees high availability for autonomous reporting by routing AI calls through
+                    The engine supports retries and fallback for autonomous reporting by routing AI calls through
                     a 3-Tier failover system configured in <strong>Master AI Configuration</strong>.
                 </p>
                 <SubHeading>Configuring the Tiers</SubHeading>
                 <ul style={{ paddingLeft: '20px', lineHeight: '2.2', marginBottom: '16px' }}>
-                    <li><strong>Primary</strong> — your fastest/most capable model (e.g., <SettingTag>gemini-3.8-flash</SettingTag>).</li>
-                    <li><strong>Secondary</strong> — a reliable backup (e.g., <SettingTag>gpt-4o</SettingTag>).</li>
-                    <li><strong>Tertiary</strong> — a local or cost-free fallback (e.g., Ollama <SettingTag>qwen2.5:14b</SettingTag>).</li>
+                    <li><strong>Primary</strong> — your configured first provider and model.</li>
+                    <li><strong>Secondary</strong> — your configured backup.</li>
+                    <li><strong>Tertiary</strong> — your final configured fallback, including an available local model if selected.</li>
                 </ul>
                 <SubHeading>Failover Execution Logic</SubHeading>
                 <p style={{ lineHeight: '1.7' }}>
@@ -427,25 +432,24 @@ export default function QuantitativeStrategyEngineDoc({ isLightMode }) {
                 <SubHeading>Global Circuit Breaker</SubHeading>
                 <p style={{ lineHeight: '1.7', marginBottom: '12px' }}>
                     The system monitors <strong>Total Portfolio Equity</strong> after every scan. If simulated equity
-                    falls more than <strong>10%</strong> below its peak, the engine sets <SettingTag>kill_switch = True</SettingTag>.
-                    All future entries are blocked until an administrator manually resets the engine via the dashboard.
+                    falls to <strong>90% of the starting bankroll or below</strong>, the engine pauses new entries.
+                    Existing positions can still be monitored and exited. Review the pause in the dashboard;
+                    an explicit Stop separately freezes execution.
                 </p>
                 <SubHeading>Stall Detection via Lease Tokens</SubHeading>
                 <p style={{ lineHeight: '1.7', marginBottom: '12px' }}>
                     Background workers write a <SettingTag>lease_token</SettingTag> and <SettingTag>lease_until</SettingTag>
                     timestamp to the database before each scan. If a gunicorn worker process stalls or crashes, the lease
-                    expires after <strong>10 minutes</strong>, allowing any healthy worker to reclaim it and continue safely.
+                    expires after <strong>five minutes without renewal</strong>, allowing the scheduler to reclaim it safely.
                 </p>
                 <SubHeading>Position Sizing & Allocation Enforcement</SubHeading>
                 <p style={{ lineHeight: '1.7', marginBottom: '12px' }}>
-                    The engine never allows a module to exceed its allocated capital percentage. If the module's current
-                    open exposure already meets or exceeds its allocation target, new entries are blocked until exposure
-                    drops below the threshold.
+                    Entry sizing respects the module's available budget and shared cash. Market moves and retained
+                    positions can put actual weights above targets; an allocation target is not a guarantee of exact exposure.
                 </p>
                 <Warning>
-                    The circuit breaker's 10% drawdown threshold is measured against the <em>peak</em> simulated equity
-                    during the paper run, not against the initial balance. If you reset the paper ledger, the circuit
-                    breaker baseline also resets.
+                    The portfolio circuit uses the starting bankroll. Reported peak-to-trough drawdown and the
+                    Event module's separate daily risk controls have different baselines.
                 </Warning>
             </Section>
 
@@ -457,7 +461,7 @@ export default function QuantitativeStrategyEngineDoc({ isLightMode }) {
                 </p>
                 <SubHeading>Log Event Types</SubHeading>
                 <ul style={{ paddingLeft: '20px', lineHeight: '2.4' }}>
-                    <li><SettingTag>SCAN_START</SettingTag> / <SettingTag>SCAN_COMPLETE</SettingTag> — confirms the background worker is actively evaluating market data every 15 seconds.</li>
+                    <li><SettingTag>SCAN_START</SettingTag> / <SettingTag>SCAN_COMPLETE</SettingTag> — identifies actual portfolio scans and their recorded results.</li>
                     <li><SettingTag>POSITION_OPENED</SettingTag> — logs the module, instrument, entry price, and signal reason (e.g., <em>Donchian breakout with measured dominance regime</em>).</li>
                     <li><SettingTag>POSITION_CLOSED</SettingTag> — logs the instrument, exit price, and closing reason (e.g., stop-loss hit or exit signal triggered).</li>
                     <li><SettingTag>AUDIT_START</SettingTag> — signals the beginning of a full autonomous AI audit cascade.</li>
@@ -466,9 +470,24 @@ export default function QuantitativeStrategyEngineDoc({ isLightMode }) {
                     <li><SettingTag>AUDIT_COMPLETE</SettingTag> — confirms the Master CIO report was generated successfully.</li>
                 </ul>
                 <Tip>
-                    If the <strong>View Logs</strong> modal is empty, the engine has not yet completed a scan since the
-                    last restart. Logs are written in real-time — wait one scan cycle (15 seconds) and refresh.
+                    Logs persist across restarts. An empty view may reflect filters, a new paper run or no recorded
+                    activity; check the saved worker state and timestamps before drawing conclusions.
                 </Tip>
+            </Section>
+
+            <Section id="research" icon={<FaChartLine />} title="Collected Data & Portfolio Replay (v3.5.0)">
+                <p>Enable the market research archive in quantitative telemetry to collect available options, stock,
+                    crypto, futures and Event observations using public feeds and existing access. Collection adds
+                    no data subscription and submits no trade or AI request.</p>
+                <ol style={{ paddingLeft: '24px', lineHeight: '2.2' }}>
+                    <li>Build a dataset from a receipt-time window, starting with 20–60 minutes. View its job result and select the saved dataset.</li>
+                    <li>Preview daily IV to see compatible sessions and exclusions. Append measured self-collected days without replacing history; a post-close job also attempts this automatically.</li>
+                    <li>Choose a chronological split and run the shared-capital portfolio replay. Six scenarios exercise costs, delayed entries, reduced depth and derivative stress.</li>
+                    <li>Inspect module coverage and download the full evidence. Optional historical imports require a preview and explicit save; no purchase is made.</li>
+                </ol>
+                <Note>Jobs continue after you close the page. Completed computation does not establish profitable
+                    trading. Missing history, unverified exchange timestamps and pending outcomes remain visible.
+                    Public Event books permit receipt-time comparisons, not a guarantee of broker fills.</Note>
             </Section>
 
             <div style={{ textAlign: 'center', padding: '20px', color: textColor, opacity: 0.6 }}>

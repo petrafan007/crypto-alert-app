@@ -1452,10 +1452,14 @@ def start_background_jobs(app=None):
 
     from services.research_collection import collection_loop
     research_threads = {}
-    for lane in ('options', 'events', 'crypto'):
+    for lane in ('options', 'events', 'crypto', 'futures'):
         thread = threading.Thread(target=collection_loop, args=(app,lane), daemon=True, name='research-'+lane)
         thread.start()
         research_threads['research_'+lane] = thread
+    from services.research_jobs import research_job_loop
+    thread=threading.Thread(target=research_job_loop,args=(app,),daemon=True,name='research-jobs')
+    thread.start()
+    research_threads['research_jobs']=thread
     
     # 1. Binance Portfolio Sync Loop
     sync_thread = threading.Thread(target=background_binance_sync_loop, args=(app,), daemon=True)

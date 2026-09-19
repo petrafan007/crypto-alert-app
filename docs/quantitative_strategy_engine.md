@@ -1,10 +1,79 @@
 # Quantitative Strategy Engine
 
-Current engineering checkpoint: **v3.4.0**, adding self-collected research history to v3.3.0. See [research data collection](#v340-research-data-collection) and the [prior completion ledger and validation boundaries](#v330-completion-and-validation-boundaries).
+Current release: **v3.5.0**. The [completion ledger below](#v350-research-workflow-completion) supersedes the earlier collection-only and single-symbol replay limitations. Historical version sections describe their original releases.
 
 The engine is an administrator-only, multi-asset **paper research system**. The default starting bankroll is $50,000, with relative allocation weights of 35 for equities, 25 for options, 20 for crypto, 10 for micro futures, and 10 for events. Enabled modules share 100% of the target capital proportionally. Futures is disabled by default, giving initial targets of 38.89%, 27.78%, 22.22%, 0%, and 11.11%, respectively. The 18.5% annual return setting is a research objective, not a forecast or validated strategy result.
 
+## v3.5.0 research workflow completion
+
+This release connects collection, normalization, import, daily IV, shared-capital replay, diagnostics and audit evidence. It completes the previously identified engineering workflow; empirical results remain limited by the observations actually available. No purchase, paid-data activation, AI request or real order is made by the research workflow.
+
+| Previously unfinished component | Delivered behavior |
+| --- | --- |
+| Raw archives could not feed replay | **Build dataset from collected data** verifies checksums, adapts provider fields, removes identical observations and retains later revisions with their actual availability. Original raw captures remain intact. |
+| Optional purchased history had no importer | Version 2 JSON imports provide validation and a digest preview before explicit saving. Datasets are immutable, user-scoped and source-labeled; imported provider declarations cannot overwrite the live Webull IV series. The same format accepts any future permitted historical export after mapping its fields. |
+| Missing stock, USD crypto, dominance and futures inputs | Collectors now include SPY/stock daily bars, Webull USD crypto snapshots/hourly bars, CoinGecko dominance, and actual futures catalogs, quotes and minute bars. Binance USDT remains a separate currency. Unreported margin, depth or timestamps remain missing. |
+| No independent Event-book comparison | Production Event collection also requests up to four exact-ticker public Kalshi books per cycle. Dataset diagnostics pair one-to-one receipts within five seconds and report observed bid/size differences and absent sides. These are descriptive comparisons, not an exchange-latency or fill-quality certification. |
+| Collected options could not populate consistent daily IV | Complete paginated near-expiry catalogs and selected quote-batch evidence support the existing `ATM_PAIR_V1` sampler. Preview shows rejected sessions. Compatible self-collected production Webull days can be appended idempotently; existing observations and conflicts are retained. A daily background job attempts this automatically after session close while collection is enabled. |
+| Replay omitted joint cash, options and futures | The new workbench runs the actual paper ledger with shared cash across saved equity, option, crypto, futures and Event watchlists. It preserves sizing, collateral, fees, rebalancing, settlement and circuit controls. Each chronological window and scenario starts in a separate ledger. |
+| Research results were disconnected from audits | Durable jobs retain results/failures; bounded dataset and job summaries are included in fresh quantitative audits. Runtime prompt rules distinguish completed computation, missing observations and empirical validation. Existing prompts and archived reports remain intact. |
+
+### Collect and evaluate
+
+1. Enable **Market research data archive** in the quantitative telemetry panel. Four independently supervised collection lanes follow the saved watchlists. Futures history can collect while futures trading is disabled; it follows the strategy's US cash session. Existing collection settings remain saved. No paid feed is selected automatically.
+2. In **Collected-data research workbench**, select a receipt-time window and build a dataset. Start with 20–60 minutes for busy Event/crypto feeds. Completed jobs supply a dataset ID and coverage. Data backfilled today remains unavailable before today's receipt time, even if its candle dates are older.
+3. Select the saved dataset. **Preview daily IV history** explains accepted/rejected close-window observations. **Append compatible self-collected IV days** preserves existing daily values. Missing exchange quote times, incomplete catalogs or unverified imported history cannot become measured live IV days.
+4. Choose start, chronological split and end; run the shared-capital replay. Six scenarios cover baseline, doubled costs, one-observation entry delay with revalidation, half reported depth, one-cent adverse options/Event execution, and options-assignment/futures-margin stress. View per-module coverage and download the full evidence, trades, cash/exposure curves and correlations.
+5. Additional historical data is optional. Preview an import, then save its exact digest. No account or subscription is created. Provider identity, licensing and adjustment declarations are retained but not independently certified by the importer.
+
+The automatic IV job runs once after the actual NYSE close, including early closes, between close +5 minutes and close +4 hours. It examines the preceding 20 minutes of archived data and only accepts valid observations from the actual final 15-minute collection window. A missed automatic run can be recovered by manually building the appropriate archive window and appending its compatible days. Different DTE targets retain separate histories. The existing 252 distinct measured-day, non-flat-range entry requirement is unchanged.
+
+The options collector follows all near-expiry catalog pages within its request/time budget and quotes up to 80 contracts nearest the chosen expiration/underlying price first. An incomplete page chain cannot certify a daily IV observation. Broader expiries and other contracts rotate under the saved cap. Webull stock/crypto/futures feeds use existing entitlements; denials remain visible with backoff. Public [Kalshi books](https://docs.kalshi.com/api-reference/market/get-market-orderbook) provide reported YES/NO bids in dollars; the adapter preserves those bids and does not invent broker asks or exchange timestamps.
+
+### Dataset and API contract
+
+Administrator-only paths under `/api/webull/portfolio-algo/research` provide dataset/job lists, `POST /jobs`, `GET /jobs/<id>`, `GET /datasets/<id>` and `POST /import`. Import requests contain `dataset`, with optional `commit: true` and the preview's `sha256`. Raw version 1 exports and the earlier `/validation` APIs remain available separately.
+
+An import's top level contains `schema_version: 2`, a `source` declaration (provider, permission and adjustment conventions), and `records`. Every record requires `kind`, `module`, exact `symbol`, `source`, `currency`, `event_at` and `available_at`. Timestamps require UTC offsets; `available_at` means when that observation was knowable. Quote timestamp bases are `PROVIDER`, `RECEIPT_ONLY` or `UNSPECIFIED`. Unknown timing cannot be relabeled as exchange timing. Prices, sizes and metrics must be finite; invalid units, crossed books, unfinished candles and impossible timestamp order are rejected.
+
+| Record kind | Additional fields |
+| --- | --- |
+| `quote` | `price`; optional `bid`, `ask`, `bid_size`, `ask_size`. Module: equities, crypto or futures. |
+| `bar` | `interval` (`1m`, `1h`, `1d`), `open`, `high`, `low`, `close`, `volume`, `complete_at`; `event_at` is candle opening time. Equity daily bars must respect the actual exchange session. |
+| `contract` (options) | `root`, `expiration` (YYYY-MM-DD), `strike`, `option_type` (CALL/PUT), `multiplier`, `standard` boolean. |
+| `contract` (futures) | `root`, `expiration`, actual `multiplier`, actual `margin` when supplied. Missing margin blocks research entry. |
+| `option_quote` | `bid`, `ask`, reported sizes, `implied_volatility`, `iv_units: DECIMAL`, optional decimal Greeks including `delta`. A 25% IV is `0.25`. |
+| `catalog` / `quote_batch` | Options root in `symbol`. Catalog: `cycle_id`, date-range `start`/`end`, `page`/`next` cursors (null at chain boundaries). Quote batch: `symbols` actually requested. Complete catalog/batch evidence is required to derive daily IV. |
+| `iv` | Options root, decimal `value`, `iv_units: DECIMAL`, `methodology: ATM_PAIR_V1`, integer `target_dte` 20–65, observation in the real session close window. Declared scalar history supports source-compatible research only; it is not promoted into live history. |
+| `event_quote` / `event_book` | YES/NO bid/ask prices and sizes, or `yes_bids`, `no_bids`, `yes_asks`, `no_asks` arrays of `{price, size}`. An absent side stays absent. |
+| `forecast` | Event `probability_yes`, `confidence`, `cutoff_at`, contemporaneous `market` entry-gate fields; optional YES/NO `outcome`, `decision_id`, `config_id`. Forecast precedes cutoff. |
+| `outcome` | Event resolved YES/NO `outcome`, `cutoff_at`, optional `config_id`; `event_at` is actual settlement and `available_at` is when the resolution was observed. |
+| `dominance` | Crypto `BTC_DOMINANCE`, percentage `value`, original observation and availability times; altcoin evaluation needs all seven preceding UTC days. |
+| `trade` | Provider trade ID, price/YES/NO price and size; retained evidence, not an assumed strategy fill. |
+
+Example minimal import for quote inspection (a strategy replay also requires its candle, metadata, forecast and warm-up inputs):
+
+```json
+{"schema_version":2,"source":"My permitted unadjusted provider export; USD prices","records":[{"kind":"quote","module":"equities","symbol":"SPY","source":"MY_PROVIDER","currency":"USD","event_at":"2025-06-02T14:00:00Z","available_at":"2025-06-02T14:00:01Z","timestamp_basis":"PROVIDER","price":100,"bid":99.99,"ask":100.01,"bid_size":10,"ask_size":12}]}
+```
+
+### Limits and interpretation
+
+Raw captures, normalized datasets, job requests, summaries and compressed results share the existing storage allowance; database/index/WAL/backup overhead is additional. Existing records are retained at capacity. A dataset is bounded to 100,000 observations, 128 MiB uncompressed, 20,000 source batches and 370 days; imports are limited to 5 MiB. Narrow oversized windows. Normalization has a three-minute deadline and IV derivation two minutes. At most two jobs per administrator may be pending. Replay runs in a network-disabled subprocess with a four-minute deadline, CPU/memory limits and at most 3,000 observed steps per window. Interrupted jobs become visible failures after six minutes. Dashboard polling reads metadata only.
+
+Replay preserves availability times, stale-data gates and source/currency distinctions. Development and held-out windows have independent ledgers; earlier observations can warm up indicators, but no later information is made available early. Chronological separation cannot certify that a user has never inspected a holdout. Entry quantities respect reported depth; missing option/Event depth cannot produce a research fill. Unknown spot/futures depth is counted explicitly. The assignment stress applies an observed in-the-money spread's maximum defined loss; it does not model physical share delivery. No poll-based replay reconstructs exchange queue position, intra-poll price paths or actual broker fills. Correlations retain the existing requirement for 30 consecutive daily paired dollar-P&L changes.
+
+**External evidence still needed:** enough forward option sessions to build the compatible IV series, seven prior days for altcoin dominance, suitable observed signals and finalized outcomes, and longer out-of-sample evaluation across market regimes. Collection and replay now implement that workflow without requiring a data purchase. Missing historical observations cannot be created by releasing code. A `COMPLETED` job means computation succeeded; `DATA_LIMITED`, absent trades or a flat cash curve do not validate investment performance or live-trading readiness.
+
+### Release verification
+
+On September 19, 2026, all 386 selected Python tests passed against isolated PostgreSQL, including lock/concurrency, settlement, research import, shared-ledger replay and worker recovery checks. All 11 frontend algorithm/audit tests passed; the production frontend build, modified-module compilation and whitespace checks passed. Read-only provider checks normalized 1,200 SPY daily bars, 1,200 BTCUSD hourly bars, a BTCUSD snapshot, dominance and five futures contracts with no excluded records or transport errors. Public Kalshi discovery/book requests also succeeded without credentials. The calendar now caches complete exchange years; the 1,200-bar SPY normalization completed in 0.77 seconds on this instance while retaining holiday, early-close and DST behavior.
+
+A pre-deployment read-only 20-minute archive sample normalized 23,844 observations after removing 227,763 overlapping duplicates. Its development/held-out runs completed all six scenarios but remained data-limited, as expected for the old archive's missing USD feeds and a closed stock/options session. These are engineering and data-access checks, not investment performance evidence. New observations and their archived job results provide ongoing empirical evidence after deployment.
+
 ## v3.4.0 research data collection
+
+This section records the original collection-only release. Its normalization/import and portfolio-replay follow-ups are delivered in v3.5.0 above.
 
 The administrator's **Market research data archive** panel below quantitative telemetry controls three independent, supervised workers. They run without paper execution or AI and follow saved options/equities/Event/crypto watchlists. Collection is off on new installations until enabled; this personal-instance release enables it under the owner's explicit authorization. It makes only allowlisted market-data GET requests and never activates a subscription, buys data, requests inference or submits an order. Existing API entitlements may themselves be paid; this feature adds no subscription. An access denial pauses that endpoint for 24 hours; rate/transient failures back off for 15 minutes. A bad symbol does not block other symbols. Retry times and last-cycle diagnostics appear in the panel.
 

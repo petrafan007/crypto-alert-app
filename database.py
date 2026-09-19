@@ -7,7 +7,7 @@ def init_db(app=None):
     """Initialize the database with all models"""
     # Import models here to avoid circular imports
     from services.provider_resilience import ProviderState
-    from research_data_models import ResearchCollectionConfig, ResearchCollectionState, ResearchCapture
+    from research_data_models import ResearchCollectionConfig, ResearchCollectionState, ResearchCapture, ResearchDataset, ResearchJob
     from models import (
         Coin, WatchlistCoin, Notification, AIPrompt, DefaultAIPrompt, StakedCoin, StakingReward,
         AICopilotSession, AIConversation, AICache, AIAnalysisSchedule, PriceHistory,

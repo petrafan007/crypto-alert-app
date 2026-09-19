@@ -1241,6 +1241,8 @@ def run_audit(user_id, prompt=None, scheduled=False, audit_id=None):
         evidence['goal_tracking'].pop('curve', None)
         evidence['audit_context_version'] = 3
         evidence['as_of'] = datetime.utcnow().isoformat()+'Z'
+        from services.research_jobs import audit_summary
+        evidence['research'] = audit_summary(user_id)
         now = datetime.utcnow()
         local = utc(now).astimezone(ET)
         next_open = None

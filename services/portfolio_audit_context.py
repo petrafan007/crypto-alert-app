@@ -68,7 +68,11 @@ EVIDENCE_RULES = (
     'Only claim historical replay, cost/latency sensitivity, stress scenarios or calibration were performed '
     'when their timestamped results and coverage are supplied. Never turn an engineering unit-test pass '
     'into a claim of investment performance. Treat any validation result as scoped to its supplied data, '
-    'assumptions and module coverage, never proof of portfolio-wide goal attainment.'
+    'assumptions and module coverage, never proof of portfolio-wide goal attainment. '
+    'Use timestamped research job summaries when supplied; COMPLETED means computation finished. '
+    'DATA_LIMITED or unevaluated modules and zero-trade cash curves cannot validate a strategy. '
+    'Research configurations and dates are separate from the live paper run. Public book receipt '
+    'comparisons do not establish exchange quote latency, broker queue priority or attainable fills.'
 )
 
 DEFAULT_AUDIT_GUIDANCE = (

@@ -58,6 +58,8 @@ def main():
             connection.execute(text('SELECT user_id, stored_bytes FROM research_collection_configs LIMIT 0'))
             connection.execute(text('SELECT lane, heartbeat_at FROM research_collection_states LIMIT 0'))
             connection.execute(text('SELECT sha256, payload_gzip FROM research_captures LIMIT 0'))
+            connection.execute(text('SELECT sha256, payload_gzip FROM research_datasets LIMIT 0'))
+            connection.execute(text('SELECT status, result_gzip FROM research_jobs LIMIT 0'))
     else:
         stop = threading.Event()
         for signum in (signal.SIGINT, signal.SIGTERM):

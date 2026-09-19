@@ -1,8 +1,16 @@
 # Crypto & Securities Dashboard
 
-**Version:** 3.4.0
+**Version:** 3.5.0
 
 ## Recent Updates
+
+### v3.5.0
+- **Complete research workflow:** Build immutable, deduplicated datasets directly from collected archives. Preview/import optional historical provider data with timestamps, currency, checksums and source declarations retained.
+- **Shared-capital portfolio replay:** Run saved equities, options, crypto, futures and Event rules through the actual isolated paper ledger, with chronological development/held-out windows and six cost, delay, depth and derivative-risk scenarios. Durable background jobs preserve results and failures without blocking dashboard requests.
+- **Broader free/existing-access collection:** Added stock/SPY daily history, Webull USD crypto quotes/hourly history, public dominance observations, futures metadata/quotes/bars, and independent public Event-book comparisons. Complete near-expiry option catalog pagination supports consistent IV sampling.
+- **Daily IV and audit evidence:** Preview and idempotently append compatible self-collected IV days, with an automatic post-close job. Preserve existing history and the 252-day requirement. Fresh audits receive bounded research results and explicit data limitations.
+- **Responsiveness and documentation:** Cache exchange calendars by year to remove repeated history-processing delays; status polling loads summaries only. Corrected in-app guidance for scan cadence, Event entry rules and the starting-bankroll circuit breaker.
+- **Verification boundaries:** No data purchase, real trade or new AI request is made by these features. Missing historical observations and longer empirical validation remain external evidence requirements. See the [v3.5.0 completion ledger and usage guide](docs/quantitative_strategy_engine.md#v350-research-workflow-completion).
 
 ### v3.4.0
 - **Collect our own research data:** Three independently supervised collectors archive options catalogs/quotes (including provider IV and Greeks), underlying stock snapshots, Event quotes/books/trades, and public Binance.US order books, aggregate trades and candles. They use existing Webull access or public endpoints, with no subscription activation, purchases, AI requests or trading actions.

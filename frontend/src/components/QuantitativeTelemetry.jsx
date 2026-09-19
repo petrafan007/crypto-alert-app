@@ -5,6 +5,7 @@ import PortfolioGoalTracking from './PortfolioGoalTracking';
 import PortfolioEventCalibration from './PortfolioEventCalibration';
 import PortfolioValidation from './PortfolioValidation';
 import ResearchDataCollection from './ResearchDataCollection';
+import ResearchWorkbench from './ResearchWorkbench';
 import { Line } from 'react-chartjs-2';
 import { Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Legend } from 'chart.js';
 
@@ -85,5 +86,6 @@ export default function QuantitativeTelemetry({ onAccount, onStatus, refetchSign
     </tbody></table></div>
     <PortfolioValidation />
     <ResearchDataCollection />
+    <ResearchWorkbench />
   </section>;
 }

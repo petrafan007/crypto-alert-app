@@ -47,3 +47,29 @@ class ResearchCapture(db.Model):
         db.Index('ix_research_capture_user_id', 'user_id', 'id'),
         db.Index('ix_research_capture_user_lane_received', 'user_id', 'lane', 'received_at'),
     )
+
+
+class ResearchDataset(db.Model):
+    __tablename__ = 'research_datasets'
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, nullable=False, index=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=utcnow)
+    sha256 = db.Column(db.String(64), nullable=False)
+    payload_gzip = db.Column(db.LargeBinary, nullable=False)
+    summary_json = db.Column(db.Text, nullable=False)
+    __table_args__ = (db.UniqueConstraint('user_id', 'sha256', name='uq_research_dataset_hash'),)
+
+
+class ResearchJob(db.Model):
+    __tablename__ = 'research_jobs'
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, nullable=False, index=True)
+    kind = db.Column(db.String(24), nullable=False)
+    status = db.Column(db.String(24), nullable=False, default='QUEUED')
+    created_at = db.Column(db.DateTime, nullable=False, default=utcnow)
+    started_at = db.Column(db.DateTime)
+    completed_at = db.Column(db.DateTime)
+    request_json = db.Column(db.Text, nullable=False)
+    result_gzip = db.Column(db.LargeBinary)
+    summary_json = db.Column(db.Text)
+    message = db.Column(db.Text)

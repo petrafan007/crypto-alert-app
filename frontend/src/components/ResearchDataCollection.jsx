@@ -7,6 +7,7 @@ const fields = [
   ['options_seconds', 'Options interval (seconds)', 300, 3600],
   ['events_seconds', 'Events interval (seconds)', 60, 3600],
   ['crypto_seconds', 'Crypto interval (seconds)', 30, 3600],
+  ['futures_seconds', 'Futures interval (seconds)', 60, 3600],
   ['options_contracts', 'Options per underlying per cycle', 80, 400],
   ['event_contracts', 'Event contracts per cycle', 1, 20],
   ['storage_mb', 'Archive capacity (MiB)', 100, 102400],
@@ -62,7 +63,7 @@ export default function ResearchDataCollection() {
     <p>No subscription is purchased or activated. Unavailable access is reported and retried with a cooldown. Future paid sources can remain separate in the archive. New collection cannot recover past options quotes or order books.</p>
     {error && <p role="alert">{error}</p>}
     {collection && <>
-      <p><strong>{collection.enabled ? 'Collection enabled' : 'Collection paused'}</strong> · {(collection.stored_bytes / 1048576).toFixed(2)} / {collection.settings.storage_mb} MiB stored. Capacity measures compressed payloads and metadata; database overhead is additional. At capacity, collection pauses and history is retained.</p>
+      <p><strong>{collection.enabled ? 'Collection enabled' : 'Collection paused'}</strong> · {(collection.stored_bytes / 1048576).toFixed(2)} / {collection.settings.storage_mb} MiB stored. Capacity includes archived payloads, metadata, normalized datasets and research results; database overhead is additional. At capacity, new writes pause and history is retained.</p>
       <button type="button" disabled={busy} onClick={() => save({ enabled: !collection.enabled })}>{collection.enabled ? 'Pause collection' : 'Start collection'}</button>
       <details><summary>Collection settings</summary>
         <form onSubmit={event => { event.preventDefault(); save(Object.fromEntries(fields.map(([key]) => [key, Number(draft[key])]))); }}>
@@ -70,7 +71,7 @@ export default function ResearchDataCollection() {
           <button disabled={busy} type="submit">Save collection settings</button>
         </form>
       </details>
-      {['options', 'events', 'crypto'].map(lane => {
+      {['options', 'events', 'crypto', 'futures'].map(lane => {
         const row = collection.lanes.find(item => item.lane === lane);
         return <div key={lane}>
           <h4>{lane.charAt(0).toUpperCase() + lane.slice(1)} · {collection.enabled ? row?.status || 'Waiting for worker' : 'Paused'}</h4>
@@ -81,7 +82,7 @@ export default function ResearchDataCollection() {
           <details><summary>Last cycle coverage and diagnostics</summary><pre style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{JSON.stringify(row?.details || {}, null, 2)}</pre></details>
         </div>;
       })}
-      <p>Polling records samples, not a complete tick feed or guaranteed execution. Original provider timestamps and retrieval times are retained separately. Raw archives require normalization before use in the historical validation workbench; collection does not change live IV rank or certify strategy performance.</p>
+      <p>Polling records samples, not a complete tick feed or guaranteed execution. Original provider timestamps and retrieval times are retained separately. Use the collected-data workbench below to normalize observations, preview daily IV and run portfolio replay.</p>
       <button type="button" disabled={busy} onClick={download}>{exported ? 'Download newer batches' : cursor ? 'Download next archive page' : 'Download first archive page'}</button>
       {cursor > 0 && <button type="button" disabled={busy} onClick={() => { setCursor(0); setExported(false); }}>Restart export</button>}
       <p>Each download contains up to 100 batches / 8 MiB of uncompressed payloads. Keep every page for a full export.</p>

@@ -6,10 +6,10 @@ from sqlalchemy import func
 from core.extensions import db
 from research_data_models import ResearchCapture as Capture, ResearchCollectionConfig as Config, ResearchCollectionState as State, utcnow
 
-LANES = ('options', 'events', 'crypto')
-DEFAULTS = {'options_seconds': 300, 'events_seconds': 60, 'crypto_seconds': 30,
+LANES = ('options', 'events', 'crypto', 'futures')
+DEFAULTS = {'options_seconds': 300, 'events_seconds': 60, 'crypto_seconds': 30, 'futures_seconds':60,
             'options_contracts': 200, 'event_contracts': 20, 'storage_mb': 10240}
-LIMITS = {'options_seconds': (300, 3600), 'events_seconds': (60, 3600), 'crypto_seconds': (30, 3600),
+LIMITS = {'options_seconds': (300, 3600), 'events_seconds': (60, 3600), 'crypto_seconds': (30, 3600), 'futures_seconds':(60,3600),
           'options_contracts': (80, 400), 'event_contracts': (1, 20), 'storage_mb': (100, 102400)}
 
 

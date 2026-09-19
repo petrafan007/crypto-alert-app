@@ -44,11 +44,25 @@ class PortfolioMarketData:
         day = utc(now).astimezone(ET).date() if series.startswith('IV:') else utc(now).date()
         row = PortfolioMarketObservation.query.filter_by(user_id=self.user_id, series=series, day=day).first()
         if row is None:
-            row = PortfolioMarketObservation(user_id=self.user_id, series=series, day=day, value=value)
-            db.session.add(row)
+            from sqlalchemy.exc import IntegrityError
+            try:
+                with db.session.begin_nested():
+                    row = PortfolioMarketObservation(user_id=self.user_id, series=series, day=day, value=value,
+                                                     source=source, observed_at=utc(now).replace(tzinfo=None))
+                    db.session.add(row)
+                    db.session.flush()
+            except IntegrityError:
+                # A daily archive append may have won the unique day key.
+                # Preserve that observation and keep the session usable.
+                row = PortfolioMarketObservation.query.filter_by(user_id=self.user_id, series=series, day=day).one()
+                if preserve_daily:
+                    db.session.commit()
+                    return self.observation_history(series, source, day)
         elif preserve_daily and row.source == source:
             return self.observation_history(series, source, day)
         else:
+            row.value = value
+        if not preserve_daily:
             row.value = value
         row.source = source
         row.observed_at = utc(now).replace(tzinfo=None)
