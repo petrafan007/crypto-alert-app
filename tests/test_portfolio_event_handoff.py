@@ -59,6 +59,22 @@ class EventQuoteValidationTests(unittest.TestCase):
             status, _ = handoff.readiness(1, SimpleNamespace(id=1, enabled=True), self.now)
         self.assertEqual(status, 'DATA_LIMITED')
 
+    def test_outside_entry_window_does_not_hide_real_in_scope_data_faults(self):
+        run = SimpleNamespace(id=1, finished_at=self.now, error_count=0, error_message=None, status='COMPLETED')
+        excluded = SimpleNamespace(created_at=self.now, eligible=False,
+            reason_codes='["TOO_FAR_FROM_EXPIRATION", "MISSING_QUOTE", "AI_NOT_REQUIRED"]')
+        relevant = SimpleNamespace(created_at=self.now, eligible=False, reason_codes='["MISSING_QUOTE"]')
+        with patch.object(handoff, 'EventStrategyRun') as runs, patch.object(handoff, 'EventStrategyDecision') as decisions:
+            runs.query.filter_by.return_value.order_by.return_value.first.return_value = run
+            decisions.query.filter_by.return_value.all.return_value = [excluded]
+            status, message = handoff.readiness(1, SimpleNamespace(id=1, enabled=True), self.now)
+            self.assertEqual(status, 'NO_SIGNAL')
+            self.assertIn('outside the saved entry window', message)
+            decisions.query.filter_by.return_value.all.return_value = [excluded, relevant]
+            self.assertEqual(handoff.readiness(1, SimpleNamespace(id=1, enabled=True), self.now)[0], 'DATA_LIMITED')
+            relevant.reason_codes = '["DATA_ERROR", "AI_NOT_REQUIRED"]'
+            self.assertEqual(handoff.readiness(1, SimpleNamespace(id=1, enabled=True), self.now)[0], 'DATA_LIMITED')
+
     def test_fresh_quote_does_not_inherit_old_depth(self):
         old = {'symbol': 'TEST', 'yes_ask_size': 0, 'no_ask_size': 500}
         credential = SimpleNamespace(webull_app_key='test', webull_app_secret='test', webull_access_token='test')

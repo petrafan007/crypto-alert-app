@@ -1,8 +1,18 @@
 # Quantitative Strategy Engine
 
-Current release: **v3.5.1**. The [completion ledger below](#v350-research-workflow-completion) supersedes the earlier collection-only and single-symbol replay limitations. Historical version sections describe their original releases.
+Current release: **v3.5.2**. The [completion ledger below](#v350-research-workflow-completion) supersedes the earlier collection-only and single-symbol replay limitations. Historical version sections describe their original releases.
 
 The engine is an administrator-only, multi-asset **paper research system**. The default starting bankroll is $50,000, with relative allocation weights of 35 for equities, 25 for options, 20 for crypto, 10 for micro futures, and 10 for events. Enabled modules share 100% of the target capital proportionally. Futures is disabled by default, giving initial targets of 38.89%, 27.78%, 22.22%, 0%, and 11.11%, respectively. The 18.5% annual return setting is a research objective, not a forecast or validated strategy result.
+
+## v3.5.2 Eligible inference and smaller-model instructions
+
+Known contract gates are evaluated before allocating AI work: the saved expiration window, market status, usable quote timing, bid/ask sides, spread and reported liquidity. A contract needs at least one potentially usable outcome; the final model-selected side still passes the full entry gates afterward. Closed/out-of-window contracts do not receive additional execution-quote refreshes, and contracts failing prechecks create no AI retry record. Observations and `AI_NOT_REQUIRED` reasons remain available for research and audits. A scoped guard rechecks the entry window before provider attempts, including after search or queue waits.
+
+Requests contain at most two contracts, even if a larger batch was previously saved. This lowers the completion burden for smaller models; the existing hourly provider-request budget remains enforced. Explicit instructions are applied in the actual search/synthesis system prompt, including exact symbols/count, decimal numbers, short plain-text rationales, complete JSON and no invented underlying prices or trends. Missing evidence requires zero confidence and an explanation; the neutral probability placeholder is not a calibrated prediction or an entry signal. Zero confidence always blocks entry, including when a zero minimum confidence was saved. Response validation checks the complete document, unique fields/symbols, exact requested coverage and finite values. A surrounding JSON code fence is harmless, but incomplete fragments and malformed JSON are not repaired into forecasts. This release adds no automatic correction requests or new provider subscriptions.
+
+Health excludes closed and out-of-window contracts when evaluating quote/model faults. In-scope missing or crossed books, stale observations and invalid forecasts still produce `DATA_LIMITED`. A scan with only out-of-window contracts reports `NO_SIGNAL`; trade freshness, confidence, portfolio risk and execution controls are unchanged.
+
+Telegram delivery diagnostics now name the account and credential record on success and failure without exposing the token, chat ID or message. Credentials are not migrated or replaced by this release. NewsAPI and its fallback behavior are unchanged. Verification: 435 Python tests passed against isolated PostgreSQL, including zero-inference excluded scans, batch publication, complete response validation, queue-time eligibility guards and notification-log privacy.
 
 ## v3.5.1 Event health and freshness
 

@@ -117,13 +117,15 @@ def readiness(user_id, event_cfg, now):
         return 'DATA_LIMITED', 'Last completed Event scan produced no contract observations.'
     recent = [row for row in decisions if -5 <= (now - row.created_at).total_seconds() <= DECISION_TTL_SECONDS]
     unavailable = {'AI_PROVIDER_ERROR', 'AI_RESPONSE_INVALID', 'AI_BUDGET_EXHAUSTED',
-                   'MODEL_UNAVAILABLE', 'STALE_QUOTE', 'MISSING_QUOTE', 'CROSSED_QUOTE'}
-    actionable = [row for row in decisions if not {'CONTRACT_EXPIRED', 'MARKET_NOT_OPEN'}.intersection(engine.loads(row.reason_codes, []))]
+                   'MODEL_UNAVAILABLE', 'STALE_QUOTE', 'MISSING_QUOTE', 'CROSSED_QUOTE', 'DATA_ERROR'}
+    from services.event_inference import SCOPE_EXCLUSIONS
+    actionable = [row for row in decisions if not SCOPE_EXCLUSIONS.intersection(engine.loads(row.reason_codes, []))]
     faults = sorted(set().union(*(unavailable.intersection(engine.loads(row.reason_codes, [])) for row in actionable)))
     if faults:
         labels = {'AI_PROVIDER_ERROR': 'AI provider error', 'AI_RESPONSE_INVALID': 'invalid AI response',
                   'AI_BUDGET_EXHAUSTED': 'AI request budget exhausted', 'MODEL_UNAVAILABLE': 'forecast unavailable',
-                  'STALE_QUOTE': 'stale quote', 'MISSING_QUOTE': 'missing executable quote', 'CROSSED_QUOTE': 'crossed quote'}
+                  'STALE_QUOTE': 'stale quote', 'MISSING_QUOTE': 'missing executable quote', 'CROSSED_QUOTE': 'crossed quote',
+                  'DATA_ERROR': 'missing or invalid contract data'}
         return 'DATA_LIMITED', 'Latest Event scan: ' + ', '.join(labels[fault] for fault in faults) + '.'
     if not recent:
         if active:
@@ -131,6 +133,8 @@ def readiness(user_id, event_cfg, now):
         return 'DATA_LIMITED', 'No fresh Event decisions; waiting for market/model observations.'
     if any(row.eligible for row in recent):
         return 'READY', 'Fresh eligible Event decisions evaluated.'
+    if not actionable:
+        return 'NO_SIGNAL', 'Observed Event contracts are closed or outside the saved entry window; no AI evaluation required.'
     if all('AI_EVALUATION_DEFERRED' in engine.loads(row.reason_codes, []) for row in recent):
         return 'NO_SIGNAL', 'Fresh contract quotes evaluated; AI evaluation is deferred pending batch cadence.'
     return 'NO_SIGNAL', 'Fresh markets and model decisions evaluated; no entry met the saved gates.'

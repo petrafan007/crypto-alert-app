@@ -477,6 +477,12 @@ export default function QuantitativeStrategyEngineDoc({ isLightMode }) {
                     AI batches publish immediately with refreshed quotes. Degraded status still indicates missing
                     or failed evidence in an enabled module; a running scan alone does not establish a fault.
                     Quote refreshes never extend a forecast's lifetime or bypass entry and risk controls.</p>
+                <p>Before requesting AI, the engine checks the saved entry window, market status, quote timing,
+                    usable bid/ask sides, spread and reported liquidity. Excluded contracts retain an observation
+                    and an explanation that AI was not required. Closed or out-of-window contracts do not create
+                    a data fault merely because their books or forecasts are unavailable. Eligible contracts still
+                    require valid evidence. Model requests contain at most two contracts with explicit JSON
+                    instructions, and incomplete or invalid answers cannot authorize an entry.</p>
             </Section>
 
             <Section id="research" icon={<FaChartLine />} title="Collected Data & Portfolio Replay (v3.5.0)">

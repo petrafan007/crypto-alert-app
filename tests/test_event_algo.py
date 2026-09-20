@@ -88,7 +88,9 @@ class EventAlgoTests(unittest.TestCase):
     def test_audit_deferral_is_informational_and_retries_without_failure_backoff(self):
         from event_algo import _predict_event_markets_batch, _record_ai_evaluation
         from services.provider_resilience import AIRequestDeferred
-        market = {'symbol': 'TEST', 'yes_ask': 0.4, 'no_ask': 0.6}
+        market = {'symbol': 'TEST', 'yes_ask': 0.4, 'no_ask': 0.6, 'yes_bid': .39, 'no_bid': .59,
+                  'quote_as_of': datetime.utcnow().isoformat(),
+                  'cutoff_at': (datetime.utcnow()+timedelta(minutes=10)).isoformat()}
         with patch('event_algo.User') as users, \
                 patch('services.analysis_service.is_ai_enabled', return_value=True), \
                 patch('event_algo.get_event_strategy_ai_tiers_and_keys', return_value=([], {})), \
@@ -96,7 +98,8 @@ class EventAlgoTests(unittest.TestCase):
                 patch('event_algo.db'), \
                 patch('services.ai_service.call_ai_with_web_search', side_effect=AIRequestDeferred('Audit in progress')):
             users.query.filter_by.return_value.first.return_value = SimpleNamespace(username='admin')
-            result = _predict_event_markets_batch(1, [market], config=SimpleNamespace(id=1, enabled=True))['TEST']
+            result = _predict_event_markets_batch(1, [market], config=SimpleNamespace(id=1, enabled=True,
+                risk_config='{}', signal_config='{}', kill_switch=False))['TEST']
         self.assertEqual(result['metadata']['status'], 'skipped')
         status = summarize_ai_scan_status([{'_model_metadata': result['metadata']}])
         self.assertEqual(status['event_type'], 'AI_EVALUATION_DEFERRED')

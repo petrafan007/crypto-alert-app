@@ -93,7 +93,7 @@ class QuantitativeCompletionTests(unittest.TestCase):
         calls = []
         def quotes(*args, **kwargs):
             calls.append(kwargs)
-            price = .6 if len(calls) in (3, 5) else .4
+            price = .6 if len(calls) in (3, 5, 7) else .4
             return {symbol: {'symbol': symbol, 'yes_ask': price, 'yes_bid': price-.01,
                 'no_ask': .8, 'no_bid': .79, 'quote_retrieved_at': datetime.utcnow().isoformat(),
                 'quote_time_basis': 'RETRIEVAL_ONLY'} for symbol in kwargs['symbols']}
@@ -109,9 +109,9 @@ class QuantitativeCompletionTests(unittest.TestCase):
              patch('services.portfolio_event_execution.consume_event_decisions') as handoff:
             result = _run_event_strategy_scan(1, config=self.config)
         self.assertTrue(result['success'], result)
-        self.assertEqual(len(calls), 5)
-        self.assertEqual(published_before_inference, [0, 5])
-        self.assertEqual(len(handoff.call_args_list[0].kwargs['decision_ids']), 5)
+        self.assertEqual(len(calls), 7)
+        self.assertEqual(published_before_inference, [0, 2, 4])
+        self.assertEqual(len(handoff.call_args_list[0].kwargs['decision_ids']), 2)
         snapshots = {row.id: row for row in Snapshot.query.filter_by(user_id=1).all()}
         self.assertEqual(len(snapshots), 6)
         for decision in Decision.query.filter_by(user_id=1).all():
@@ -119,6 +119,29 @@ class QuantitativeCompletionTests(unittest.TestCase):
             self.assertEqual(snapshots[decision.snapshot_id].contract_symbol, decision.contract_symbol)
             self.assertFalse(decision.eligible)
         fills.assert_not_called()
+
+    def test_scan_skips_ai_and_quote_refresh_for_outside_window_contracts(self):
+        from event_algo import _run_event_strategy_scan
+        from services.portfolio_event_execution import readiness
+        credential = SimpleNamespace(webull_app_key='test', webull_app_secret='test', webull_access_token='test')
+        market = {'symbol': 'TEST-FUTURE', 'series_symbol': 'TEST', 'yes_ask': .4,
+                  'cutoff_at': (self.now+timedelta(days=3)).isoformat()}
+        with patch('event_algo._webull_connection_for_user', return_value=(credential, 'test')), \
+             patch('services.event_runtime.event_request_guard', return_value=lambda: None), \
+             patch('services.event_universe.collection_targets', return_value=([('TEST', None, 'CRYPTO', 'TEST')], [])), \
+             patch('services.webull_service.get_webull_event_markets', return_value={'markets': [market]}), \
+             patch('services.webull_service.get_webull_event_snapshots') as quotes, \
+             patch('event_algo._ai_batch_budget_available') as budget, \
+             patch('event_algo._predict_event_markets_batch') as ai, \
+             patch('services.portfolio_event_execution.consume_event_decisions'):
+            result = _run_event_strategy_scan(1, config=self.config)
+        self.assertTrue(result['success'], result)
+        ai.assert_not_called(); budget.assert_not_called(); quotes.assert_not_called()
+        self.assertEqual(Evaluation.query.count(), 0)
+        self.assertEqual(Snapshot.query.count(), 1)
+        self.assertIn('AI_NOT_REQUIRED', json.loads(Decision.query.one().reason_codes))
+        self.assertEqual(readiness(1, Config.query.filter_by(user_id=1).one(), datetime.utcnow())[0], 'NO_SIGNAL')
+        self.assertEqual(Log.query.filter_by(event_type='AI_NOT_REQUIRED').count(), 1)
 
     def test_exact_window_counts_exceed_samples_and_isolate_configuration(self):
         for idx in range(260):

@@ -154,6 +154,28 @@ class ProviderResilienceTests(unittest.TestCase):
             self.assertFalse(send_telegram_message('alice', 'message'))
             post.assert_not_called()
 
+    def test_telegram_delivery_identifies_account_without_logging_token_or_message(self):
+        from services.notification_service import send_telegram_message
+        with patch('credentials.User') as user, patch('credentials.UserSetting') as settings, \
+             patch('services.notification_service.get_user_credentials') as credentials, \
+             patch('services.notification_service.requests.post') as post, \
+             patch('services.notification_service.logger') as logger:
+            user.query.filter_by.return_value.first.return_value = SimpleNamespace(id=1)
+            settings.query.filter_by.return_value.first.return_value = SimpleNamespace(telegram_notifications_enabled=True)
+            credentials.return_value = SimpleNamespace(id=12, telegram_token='secret-token', telegram_chat_id='private-chat')
+            for code in (200, 401):
+                post.return_value.status_code = code
+                post.return_value.text = 'secret-token'
+                self.assertEqual(send_telegram_message('alice', 'private message'), code == 200)
+            post.side_effect = ConnectionError('https://api.telegram.org/botsecret-token/sendMessage')
+            self.assertFalse(send_telegram_message('alice', 'private message'))
+            output = str(logger.mock_calls)
+            self.assertIn('alice', output)
+            self.assertIn('401', output)
+            self.assertNotIn('secret-token', output)
+            self.assertNotIn('private-chat', output)
+            self.assertNotIn('private message', output)
+
 
 if __name__ == '__main__':
     unittest.main()

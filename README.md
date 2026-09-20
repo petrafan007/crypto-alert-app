@@ -1,8 +1,15 @@
 # Crypto & Securities Dashboard
 
-**Version:** 3.5.1
+**Version:** 3.5.2
 
 ## Recent Updates
+
+### v3.5.2
+- **AI instructions for smaller models:** The actual provider synthesis prompt now gives explicit steps, exact symbol/count requirements, short plain-text rationales and a safe low-confidence response for missing evidence. Requests contain at most two contracts. Complete JSON, exact symbol coverage and finite decimal probabilities are validated before accepting a batch.
+- **Avoid unnecessary inference:** Apply known entry-window, market-status, quote, spread and liquidity gates before AI. Recheck the entry window while waiting for a provider. Skipped contracts retain auditable observations without consuming model requests or creating AI retry records.
+- **Accurate health:** Closed and out-of-window contracts no longer cause missing-quote/model health faults. Genuine data problems for in-scope opportunities remain visible; all execution and risk controls remain enforced.
+- **Telegram diagnostics:** Delivery logs now identify the account and credential record on success/failure, without exposing bot tokens, chat IDs or message contents. Existing credentials and notification settings are retained. NewsAPI behavior is unchanged.
+- **Verification:** 435 Python tests passed against isolated PostgreSQL, covering entry prechecks, complete model-output validation, provider guards, health classification and account-specific notification logging.
 
 ### v3.5.1
 - **Event health:** An in-progress scan no longer hides the last completed scan. The independent Event consumer updates overall health when evidence recovers, while retaining upstream errors, other module faults and stopped/risk-paused states.

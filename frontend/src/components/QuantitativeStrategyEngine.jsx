@@ -775,6 +775,8 @@ export default function QuantitativeStrategyEngine({
 
                   <div>
                     <h4>Collection &amp; AI Frequency</h4>
+                    <p>Only contracts passing known entry gates reach AI. Requests contain at most two contracts
+                      to help smaller models return complete answers; the saved hourly request budget still applies.</p>
                     {[
                       ['scan_interval_seconds', 'Worker scan interval (seconds)'],
                       ['ai_batch_interval_seconds', 'Minimum interval between AI batches (seconds)'],

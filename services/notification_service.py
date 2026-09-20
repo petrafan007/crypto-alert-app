@@ -28,14 +28,18 @@ def send_telegram_message(username, message, admin_notify=True):
         try:
             response = requests.post(url, data=payload, timeout=10)
             if response.status_code != 200:
-                logger.error(f"[TELEGRAM] ERROR: {response.status_code} - {response.text}")
+                logger.error('[TELEGRAM] Delivery failed for account %s (credential %s): HTTP %s',
+                             username, getattr(cred, 'id', None), response.status_code)
                 return False
+            logger.info('[TELEGRAM] Delivered for account %s (credential %s)',
+                        username, getattr(cred, 'id', None))
             return True
         except Exception as exc:
-            logger.error(f"[TELEGRAM] Exception: {exc}")
+            # Request exceptions can embed the URL, which contains the bot token.
+            logger.error('[TELEGRAM] Delivery exception for account %s: %s', username, type(exc).__name__)
             return False
     except Exception as e:
-        logger.error(f"[TELEGRAM] Unexpected error: {e}")
+        logger.error('[TELEGRAM] Configuration error for account %s: %s', username, type(e).__name__)
         return False
 
 def send_telegram_alert(username, symbol, price, alert_type, threshold, admin_notify=True):
