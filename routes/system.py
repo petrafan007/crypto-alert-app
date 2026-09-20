@@ -1650,6 +1650,11 @@ def api_settings():
                     cred.api_key = data['api_key']
                 if 'api_secret' in data:
                     cred.api_secret = data['api_secret']
+                # Persist Telegram edits through the encrypted model properties.
+                # Omitted fields retain their saved values; blank fields clear them.
+                for field in ('telegram_token', 'telegram_chat_id'):
+                    if field in data:
+                        setattr(cred, field, str(data[field] or '').strip())
                 if data.get('webull_app_key') and data['webull_app_key'] != '********':
                     cred.webull_app_key = data['webull_app_key']
                 if data.get('webull_app_secret') and data['webull_app_secret'] != '********':

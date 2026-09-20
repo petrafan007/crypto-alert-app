@@ -705,7 +705,6 @@ export default function Settings({ isLightMode }) {
 
       // Fetch regular settings
       const settingsResponse = await axios.get('/api/settings', { withCredentials: true });
-      console.log('Fetched settings:', settingsResponse.data);
       const encryptionConfigured = Boolean(settingsResponse.data.credentials_encryption_key_configured);
       const encryptionPersisted = Boolean(settingsResponse.data.credentials_encryption_key_persisted);
       setEncryptionStatus({
@@ -810,7 +809,6 @@ export default function Settings({ isLightMode }) {
   }, [isEventStrategyAdmin, settings.ai_provider, settings.ai_provider_secondary, settings.ai_provider_fallback, settings.ai_provider_tertiary, settings.ai_provider_quaternary]);
 
   const handleInputChange = (field, value) => {
-    console.log(`Updating ${field} to: ${value}`);
     setSettings((prev) => {
       if (field === 'ai_provider') {
         const sanitizedModel = sanitizeModel(value, value === 'ollama' ? '' : prev.ai_model, modelOptions);
@@ -982,7 +980,6 @@ export default function Settings({ isLightMode }) {
         return;
       }
 
-      console.log('Saving settings:', settings);
 
       // Save regular settings
       const payload = { ...settings };
@@ -1010,7 +1007,6 @@ export default function Settings({ isLightMode }) {
 
 
 
-      console.log('Save response:', settingsResponse.data);
       setEncryptionStatus({
         configured: Boolean(settingsResponse.data?.credentials_encryption_key_configured),
         persisted: Boolean(settingsResponse.data?.credentials_encryption_key_persisted)

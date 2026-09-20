@@ -1,8 +1,13 @@
 # Crypto & Securities Dashboard
 
-**Version:** 3.5.2
+**Version:** 3.5.3
 
 ## Recent Updates
+
+### v3.5.3
+- **Telegram settings:** Save edited bot tokens and chat IDs through encrypted credential storage, trim surrounding whitespace, and retain omitted fields. Previously, Settings could report success while silently ignoring these edits.
+- **Credential privacy:** Remove browser console logging of settings and credential input values.
+- After upgrading, re-enter and save any replacement Telegram token that the previous version discarded.
 
 ### v3.5.2
 - **AI instructions for smaller models:** The actual provider synthesis prompt now gives explicit steps, exact symbol/count requirements, short plain-text rationales and a safe low-confidence response for missing evidence. Requests contain at most two contracts. Complete JSON, exact symbol coverage and finite decimal probabilities are validated before accepting a batch.
