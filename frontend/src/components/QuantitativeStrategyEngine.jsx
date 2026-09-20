@@ -20,7 +20,7 @@ const DEFAULT_WATCHLISTS = {
   options: ['SPY', 'QQQ', 'IWM', 'NVDA', 'TSLA'],
   crypto: ['BTC', 'ETH', 'SOL'],
   futures: ['MES', 'MNQ', 'MGC', 'MCL'],
-  events: ['KXBTC15M', 'KXBTCD', 'KXETH15M', 'KXINXD'],
+  events: ['KXBTC15M', 'KXBTCD', 'KXETH15M', 'KXINXU'],
 };
 
 const ASSET_MODULE_DEFS = {
@@ -776,7 +776,6 @@ export default function QuantitativeStrategyEngine({
                   <div>
                     <h4>Collection &amp; AI Frequency</h4>
                     {[
-                      ['snapshot_interval_seconds', 'Snapshot collection interval (seconds)'],
                       ['scan_interval_seconds', 'Worker scan interval (seconds)'],
                       ['ai_batch_interval_seconds', 'Minimum interval between AI batches (seconds)'],
                       ['ai_batch_size', 'Contracts per AI batch'],

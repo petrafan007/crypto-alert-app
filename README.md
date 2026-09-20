@@ -1,8 +1,15 @@
 # Crypto & Securities Dashboard
 
-**Version:** 3.5.0
+**Version:** 3.5.1
 
 ## Recent Updates
+
+### v3.5.1
+- **Event health:** An in-progress scan no longer hides the last completed scan. The independent Event consumer updates overall health when evidence recovers, while retaining upstream errors, other module faults and stopped/risk-paused states.
+- **Fresh executable evidence:** Refresh exact-contract quotes before inference batches and again before decisions; publish each completed batch immediately, prioritize earlier expirations, skip expired inference, and save each decision's actual quote snapshot. Failed/missing refreshes cannot retain obsolete prices or depth.
+- **Forecast lifetime:** Preserve each AI batch's generation time and recheck forecast expiry after slow inference and before paper entry. New quote timestamps cannot renew an old forecast.
+- **Correct Event universe:** Replace the unavailable shipped `KXINXD` default with Webull's `KXINXU` S&P 500 above/below series. The idempotent upgrade retains other watchlist entries, controls and paper history.
+- **Verification:** 400 Python regression tests passed against isolated PostgreSQL. Data availability, measured IV history and empirical strategy validation remain dependent on actual observations; see the [engine guide](docs/quantitative_strategy_engine.md#v351-event-health-and-freshness).
 
 ### v3.5.0
 - **Complete research workflow:** Build immutable, deduplicated datasets directly from collected archives, including prior measured inputs for indicator warm-up. Preview/import optional historical provider data with timestamps, currency, checksums and source declarations retained.

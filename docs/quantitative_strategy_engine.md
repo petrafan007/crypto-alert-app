@@ -1,8 +1,20 @@
 # Quantitative Strategy Engine
 
-Current release: **v3.5.0**. The [completion ledger below](#v350-research-workflow-completion) supersedes the earlier collection-only and single-symbol replay limitations. Historical version sections describe their original releases.
+Current release: **v3.5.1**. The [completion ledger below](#v350-research-workflow-completion) supersedes the earlier collection-only and single-symbol replay limitations. Historical version sections describe their original releases.
 
 The engine is an administrator-only, multi-asset **paper research system**. The default starting bankroll is $50,000, with relative allocation weights of 35 for equities, 25 for options, 20 for crypto, 10 for micro futures, and 10 for events. Enabled modules share 100% of the target capital proportionally. Futures is disabled by default, giving initial targets of 38.89%, 27.78%, 22.22%, 0%, and 11.11%, respectively. The 18.5% annual return setting is a research objective, not a forecast or validated strategy result.
+
+## v3.5.1 Event health and freshness
+
+The Event health check now examines the latest completed scan when another scan is running. A completed scan remains operational evidence for up to ten minutes; its individual decisions retain the separate 120-second entry window. While a new scan runs, older healthy decisions mean waiting for refreshed decisions, not permission to trade those old decisions. Failed scans and unavailable model/quote evidence remain visible. Expired or closed contracts do not make the active universe unhealthy merely because their quotes have stopped. The independent Event consumer recomputes overall status after recovery, preserving faults in other enabled modules and all stop/risk controls.
+
+The producer refreshes exact-contract quotes before inference batches and after inference. Cached predictions and completed batches publish immediately instead of waiting behind later AI calls. Earlier cutoffs run first, and contracts already expired are skipped for inference. Each decision references its own current snapshot; the former snapshot-reuse interval is no longer offered as a control. A failed or incomplete refresh clears prior prices, depth and quote timestamps instead of retaining executable stale fields. Provider `quote_time` is recognized separately from retrieval and trade times. Quotes must still satisfy existing freshness, spread, fee, confidence, expiry and risk gates.
+
+Forecast caches use each batch's actual response-generation time. The saved forecast TTL is checked again after inference and before paper entry, so a later quote or database write cannot renew an earlier forecast. Slow or unavailable providers can therefore still produce a truthful data-limited state.
+
+The shipped S&P 500 Event series `KXINXD` was absent from the provider catalog. Both defaults now use the verified `KXINXU` above/below series; an idempotent migration replaces only that legacy watchlist token, retaining other symbols and settings. No paper history or circuit-breaker state is reset.
+
+Verification: 400 Python tests passed against isolated PostgreSQL, including scan/decision snapshot consistency, quote-refresh failures, forecast lifetime, health recovery, stop controls and migration idempotence. Historical data accumulation, actual provider availability and out-of-sample performance evidence remain ongoing requirements; a successful software release does not manufacture that evidence.
 
 ## v3.5.0 research workflow completion
 

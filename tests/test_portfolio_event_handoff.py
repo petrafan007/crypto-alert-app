@@ -64,7 +64,7 @@ class EventQuoteValidationTests(unittest.TestCase):
         credential = SimpleNamespace(webull_app_key='test', webull_app_secret='test', webull_access_token='test')
         with patch.object(handoff, 'db') as database, \
                 patch('event_algo._webull_connection_for_user', return_value=(credential, 'test')), \
-                patch('services.webull_service.get_webull_event_snapshots', return_value={'TEST': {'yes_ask': .4}}):
+                patch('services.webull_service.get_webull_event_snapshots', return_value={'TEST': {'symbol': 'TEST', 'yes_ask': .4}}):
             database.session.get.return_value = SimpleNamespace(raw_json=json.dumps(old))
             market = handoff.fresh_market(1, SimpleNamespace(snapshot_id=1, contract_symbol='TEST'))
         self.assertNotIn('yes_ask_size', market)
@@ -75,6 +75,13 @@ class EventQuoteValidationTests(unittest.TestCase):
         self.assertEqual(self.validate(quote(now=self.now))[0], 'MISSED')
         self.decision.created_at = self.now
         self.assertEqual(self.validate(quote(now=self.now, cutoff_at=(self.now+timedelta(seconds=25)).isoformat()))[0], 'MISSED')
+
+    def test_fresh_decision_cannot_renew_an_expired_forecast(self):
+        market = quote(now=self.now, _model_metadata={'status': 'cached',
+            'cached_at': (self.now-timedelta(seconds=301)).isoformat()})
+        status, message, _ = self.validate(market)
+        self.assertEqual(status, 'REJECTED')
+        self.assertIn('MODEL_UNAVAILABLE', message)
 
     def test_recompute_edge_including_configured_uncertainty_not_only_old_edge(self):
         status, reason, _ = self.validate(quote(now=self.now, yes_ask=.795, yes_bid=.79))
@@ -311,3 +318,52 @@ class EventHandoffLedgerTests(unittest.TestCase):
         status, msg = handoff.readiness(self.user_id, cfg, datetime.utcnow())
         self.assertEqual(status, 'NO_SIGNAL')
         self.assertIn('deferred pending batch cadence', msg)
+
+    def test_running_scan_does_not_hide_completed_evidence_or_errors(self):
+        row = self.decision()
+        cfg = db.session.get(EventStrategyConfig, row.config_id)
+        run = db.session.get(EventStrategyRun, row.run_id)
+        now = datetime.utcnow()
+        active = EventStrategyRun(user_id=self.user_id, config_id=cfg.id,
+                                  started_at=now, status='RUNNING', heartbeat_at=now)
+        db.session.add(active)
+        db.session.commit()
+        self.assertEqual(handoff.readiness(self.user_id, cfg, now)[0], 'READY')
+        row.created_at = now-timedelta(seconds=121)
+        db.session.commit()
+        self.assertEqual(handoff.readiness(self.user_id, cfg, now)[0], 'NO_SIGNAL')
+        row.eligible, row.reason_codes = False, '["MISSING_QUOTE"]'
+        db.session.commit()
+        self.assertEqual(handoff.readiness(self.user_id, cfg, now)[0], 'DATA_LIMITED')
+        row.reason_codes = '["CONTRACT_EXPIRED", "MISSING_QUOTE"]'
+        db.session.commit()
+        self.assertEqual(handoff.readiness(self.user_id, cfg, now)[0], 'NO_SIGNAL')
+        run.error_message = 'Provider failed'
+        db.session.commit()
+        self.assertEqual(handoff.readiness(self.user_id, cfg, now)[0], 'DATA_LIMITED')
+        run.error_message = None
+        run.finished_at = now-timedelta(seconds=601)
+        db.session.commit()
+        self.assertEqual(handoff.readiness(self.user_id, cfg, now)[0], 'DATA_LIMITED')
+
+    def test_handoff_recovery_updates_master_health_but_preserves_other_faults(self):
+        row = self.decision()
+        row.eligible, row.reason_codes = False, '["EDGE_TOO_SMALL"]'
+        self.state.last_scan_at = datetime.utcnow()
+        self.cfg.worker_status = 'DEGRADED'
+        self.state.telemetry_json = json.dumps({'crypto': {'status': 'READY'},
+            'equities': {'status': 'MARKET_CLOSED'}, 'options': {'status': 'MARKET_CLOSED'}})
+        db.session.commit()
+        self.assertTrue(handoff.consume_event_decisions(self.user_id)['success'])
+        self.assertEqual(self.cfg.worker_status, 'RUNNING')
+        telemetry = json.loads(self.state.telemetry_json)
+        telemetry['crypto']['status'] = 'DATA_LIMITED'
+        self.state.telemetry_json = json.dumps(telemetry)
+        db.session.commit()
+        self.assertTrue(handoff.consume_event_decisions(self.user_id)['success'])
+        self.assertEqual(self.cfg.worker_status, 'DEGRADED')
+        self.cfg.worker_status = 'STOPPED'
+        self.cfg.enabled = False
+        db.session.commit()
+        handoff.consume_event_decisions(self.user_id)
+        self.assertEqual(self.cfg.worker_status, 'STOPPED')

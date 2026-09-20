@@ -473,6 +473,10 @@ export default function QuantitativeStrategyEngineDoc({ isLightMode }) {
                     Logs persist across restarts. An empty view may reflect filters, a new paper run or no recorded
                     activity; check the saved worker state and timestamps before drawing conclusions.
                 </Tip>
+                <p>Event health uses the last completed scan while a new scan runs. Cached forecasts and completed
+                    AI batches publish immediately with refreshed quotes. Degraded status still indicates missing
+                    or failed evidence in an enabled module; a running scan alone does not establish a fault.
+                    Quote refreshes never extend a forecast's lifetime or bypass entry and risk controls.</p>
             </Section>
 
             <Section id="research" icon={<FaChartLine />} title="Collected Data & Portfolio Replay (v3.5.0)">

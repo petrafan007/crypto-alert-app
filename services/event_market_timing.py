@@ -35,7 +35,7 @@ def _age_status(value, now):
 
 
 def normalise_quote_times(raw, retrieved_at):
-    key = next((key for key in ('quote_as_of', 'timestamp', 'updated_at') if raw.get(key) not in (None, '')), None)
+    key = next((key for key in ('quote_as_of', 'quote_time', 'timestamp', 'updated_at') if raw.get(key) not in (None, '')), None)
     provider_time = observation_time(raw.get(key)) if key else None
     return {'quote_as_of': _iso(provider_time), 'quote_retrieved_at': _iso(retrieved_at),
             'quote_time_basis': 'PROVIDER' if provider_time else 'INVALID_PROVIDER' if key else 'RETRIEVAL_ONLY',
@@ -45,7 +45,7 @@ def normalise_quote_times(raw, retrieved_at):
 def quote_freshness(market, now=None):
     now = now or datetime.now(timezone.utc)
     basis = market.get('quote_time_basis')
-    provider = next((market[key] for key in ('quote_as_of', 'timestamp', 'updated_at')
+    provider = next((market[key] for key in ('quote_as_of', 'quote_time', 'timestamp', 'updated_at')
                      if market.get(key) not in (None, '')), None)
     if basis == 'RETRIEVAL_ONLY':
         provider = None

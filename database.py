@@ -199,6 +199,9 @@ def init_db(app=None):
             except Exception as ex:
                 print(f"Migration note for {table}.{col}: {ex}")
 
+        from services.event_universe import repair_legacy_default_series
+        repair_legacy_default_series()
+
         # Sessions make manual Copilot chats explicit and isolated.  Preserve
         # existing history by grouping unassigned legacy manual messages into
         # one read-only-in-spirit session per user rather than discarding or

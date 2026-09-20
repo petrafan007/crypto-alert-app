@@ -16,7 +16,7 @@ DEFAULT_QUANT_WATCHLISTS = {
     "crypto": ["BTC", "ETH", "SOL"],
     "options": ["SPY", "QQQ", "IWM", "NVDA", "TSLA"],
     "futures": ["MES", "MNQ", "MGC", "MCL"],
-    "events": ["KXBTC15M", "KXBTCD", "KXETH15M", "KXINXD"],
+    "events": ["KXBTC15M", "KXBTCD", "KXETH15M", "KXINXU"],
 }
 
 DEFAULT_ALLOCATIONS = {

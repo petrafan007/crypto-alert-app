@@ -43,6 +43,83 @@ class QuantitativeCompletionTests(unittest.TestCase):
     def tearDown(self):
         db.session.remove();db.engine.dispose();self.ctx.pop()
 
+    def test_legacy_series_repair_is_narrow_and_idempotent(self):
+        from services.event_universe import repair_legacy_default_series
+        watches = {'events': ['CUSTOM', 'KXINXD', 'KXINXU'], 'crypto': ['BTC']}
+        cfg = PortfolioConfig(user_id=1, enabled=False, watchlists_json=json.dumps(watches),
+                              module_settings_json='{"events":{"enabled":false}}')
+        untouched = PortfolioConfig(user_id=2, watchlists_json='{"events":["CUSTOM"]}')
+        db.session.add_all([cfg, untouched]); db.session.commit()
+        self.assertEqual(repair_legacy_default_series(), 1)
+        self.assertEqual(json.loads(cfg.watchlists_json), {'events': ['CUSTOM', 'KXINXU'], 'crypto': ['BTC']})
+        self.assertFalse(cfg.enabled)
+        self.assertEqual(cfg.module_settings_json, '{"events":{"enabled":false}}')
+        self.assertEqual(untouched.watchlists_json, '{"events":["CUSTOM"]}')
+        self.assertEqual(repair_legacy_default_series(), 0)
+
+    def test_empty_completed_scan_cannot_certify_running_scan_health(self):
+        from services.portfolio_event_execution import readiness
+        db.session.add_all([
+            Run(user_id=1, config_id=self.config.id, status='COMPLETED',
+                started_at=self.now-timedelta(minutes=2), finished_at=self.now-timedelta(minutes=1)),
+            Run(user_id=1, config_id=self.config.id, status='RUNNING', started_at=self.now)])
+        db.session.commit()
+        status, message = readiness(1, self.config, self.now)
+        self.assertEqual(status, 'DATA_LIMITED')
+        self.assertIn('no contract observations', message)
+
+    def test_ai_cache_age_uses_generation_time_not_late_database_write(self):
+        from event_algo import _record_ai_evaluation, _apply_cached_prediction, _event_market_fingerprint
+        market = {'symbol': 'TEST', 'yes_ask': .4}
+        generated = self.now-timedelta(seconds=301)
+        result = {'model_probability_yes': .8, 'model_confidence': .9,
+                  'metadata': {'status': 'success', 'generated_at': generated.isoformat()+'Z'}}
+        row = _record_ai_evaluation(1, self.config.id, market, '15m', result, {}, self.now)
+        self.assertEqual(row.last_success_at, generated)
+        self.assertFalse(_apply_cached_prediction(market, row, self.now, _event_market_fingerprint(market), {}))
+
+    def test_scan_publishes_each_batch_with_matching_refreshed_snapshots(self):
+        from event_algo import _run_event_strategy_scan
+        credential = SimpleNamespace(webull_app_key='test', webull_app_secret='test', webull_access_token='test')
+        market = {'symbol': 'TEST-LIVE', 'series_symbol': 'TEST', 'yes_bid': .39, 'yes_ask': .4,
+                  'no_bid': .59, 'no_ask': .61, 'volume': 500, 'open_interest': 100,
+                  'cutoff_at': (self.now+timedelta(minutes=15)).isoformat()}
+        markets = [{**market, 'symbol': f'TEST-{idx}'} for idx in range(6)]
+        published_before_inference = []
+        def predict(user_id, batch, **kwargs):
+            published_before_inference.append(Decision.query.filter_by(user_id=1).count())
+            return {m['symbol']: {'model_probability_yes': .5, 'model_confidence': .9,
+                'metadata': {'status': 'success', 'generated_at': datetime.utcnow().isoformat()+'Z'}} for m in batch}
+        calls = []
+        def quotes(*args, **kwargs):
+            calls.append(kwargs)
+            price = .6 if len(calls) in (3, 5) else .4
+            return {symbol: {'symbol': symbol, 'yes_ask': price, 'yes_bid': price-.01,
+                'no_ask': .8, 'no_bid': .79, 'quote_retrieved_at': datetime.utcnow().isoformat(),
+                'quote_time_basis': 'RETRIEVAL_ONLY'} for symbol in kwargs['symbols']}
+        with patch('event_algo._webull_connection_for_user', return_value=(credential, 'test')), \
+             patch('services.event_runtime.event_request_guard', return_value=lambda: None), \
+             patch('services.event_universe.collection_targets', return_value=([('TEST', None, 'CRYPTO', 'TEST')], [])), \
+             patch('services.webull_service.get_webull_event_markets', return_value={'markets': markets}), \
+             patch('services.webull_service.get_webull_event_snapshots', side_effect=quotes), \
+             patch('event_algo._ai_batch_interval_available', return_value=True), \
+             patch('event_algo._ai_batch_budget_available', return_value=True), \
+             patch('event_algo._predict_event_markets_batch', side_effect=predict), \
+             patch('event_algo.simulate_paper_fills') as fills, \
+             patch('services.portfolio_event_execution.consume_event_decisions') as handoff:
+            result = _run_event_strategy_scan(1, config=self.config)
+        self.assertTrue(result['success'], result)
+        self.assertEqual(len(calls), 5)
+        self.assertEqual(published_before_inference, [0, 5])
+        self.assertEqual(len(handoff.call_args_list[0].kwargs['decision_ids']), 5)
+        snapshots = {row.id: row for row in Snapshot.query.filter_by(user_id=1).all()}
+        self.assertEqual(len(snapshots), 6)
+        for decision in Decision.query.filter_by(user_id=1).all():
+            self.assertEqual(snapshots[decision.snapshot_id].yes_ask, .6)
+            self.assertEqual(snapshots[decision.snapshot_id].contract_symbol, decision.contract_symbol)
+            self.assertFalse(decision.eligible)
+        fills.assert_not_called()
+
     def test_exact_window_counts_exceed_samples_and_isolate_configuration(self):
         for idx in range(260):
             db.session.add(Log(user_id=1,config_id=self.config.id,level='ERROR' if idx==0 else 'INFO',event_type='TEST',message='Evidence',created_at=self.now-timedelta(minutes=1)))

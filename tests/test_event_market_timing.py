@@ -127,7 +127,7 @@ class EventMarketTimingTests(unittest.TestCase):
         credential = SimpleNamespace(webull_app_key='test', webull_app_secret='test', webull_access_token='test')
         with patch.object(handoff, 'db') as database, \
                 patch('event_algo._webull_connection_for_user', return_value=(credential, 'test')), \
-                patch('services.webull_service.get_webull_event_snapshots', return_value={'TEST': {'yes_ask': .4}}):
+                patch('services.webull_service.get_webull_event_snapshots', return_value={'TEST': {'symbol': 'TEST', 'yes_ask': .4}}):
             database.session.get.return_value = SimpleNamespace(raw_json=json.dumps(market))
             refreshed = handoff.fresh_market(1, SimpleNamespace(snapshot_id=1, contract_symbol='TEST'))
         self.assertEqual(quote_freshness(refreshed, self.now)['status'], 'UNKNOWN')

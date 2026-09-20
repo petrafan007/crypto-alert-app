@@ -52,14 +52,9 @@ def fresh_market(user_id, decision):
     if not quote:
         raise ValueError('Provider returned no fresh executable Event quote.')
     # Do not retain old executable fields if the new quote omits them.
-    for field in ('yes_bid', 'yes_ask', 'no_bid', 'no_ask',
-                  'yes_bid_size', 'yes_ask_size', 'no_bid_size', 'no_ask_size', 'quote_as_of', 'timestamp',
-                  'last_trade_time', 'trade_time', 'updated_at', 'quote_retrieved_at',
-                  'quote_time_basis', 'quote_timestamp_source', 'quote_provider_timestamp_raw'):
-        market.pop(field, None)
-    market.update(quote)
+    from services.event_quote_refresh import replace_quote
     market['symbol'] = symbol
-    return market
+    return replace_quote(market, quote)
 
 
 def validate_entry(decision, market, event_cfg, settings, watchlist, now):
@@ -83,6 +78,10 @@ def validate_entry(decision, market, event_cfg, settings, watchlist, now):
         return 'REJECTED', 'Decision confidence is below the portfolio threshold.', None
     refreshed = {**market, 'model_probability_yes': decision.probability_yes,
                  'model_confidence': decision.confidence}
+    if refreshed.get('_model_metadata'):
+        from services.event_quote_refresh import expire_prediction
+        signal = engine.loads(event_cfg.signal_config, {})
+        expire_prediction(refreshed, now, max(30, int(signal.get('ai_cache_ttl_seconds', 300))))
     assessment = evaluate_market(refreshed, event_cfg, now=now)
     if not assessment['eligible']:
         return 'REJECTED', 'Fresh quote failed Event gates: ' + ', '.join(assessment['reason_codes']), assessment
@@ -103,19 +102,33 @@ def readiness(user_id, event_cfg, now):
     """A successful empty lookup does not certify functioning market/model data."""
     if not event_cfg or not event_cfg.enabled:
         return 'DATA_LIMITED', 'Event decision producer is not running.'
-    run = EventStrategyRun.query.filter_by(user_id=user_id, config_id=event_cfg.id).order_by(EventStrategyRun.started_at.desc()).first()
+    query = EventStrategyRun.query.filter_by(user_id=user_id, config_id=event_cfg.id)
+    latest = query.order_by(EventStrategyRun.started_at.desc(), EventStrategyRun.id.desc()).first()
+    active = latest is not None and not latest.finished_at
+    run = (query.filter(EventStrategyRun.finished_at.isnot(None)).order_by(EventStrategyRun.finished_at.desc(), EventStrategyRun.id.desc()).first()
+           if active else latest)
     if not run or not run.finished_at or (now - run.finished_at).total_seconds() > 600:
-        return 'DATA_LIMITED', 'No recently completed Event producer scan.'
+        return 'DATA_LIMITED', ('Event scan is in progress; no completed scan within ten minutes.' if active else 'No recently completed Event producer scan.')
     if run.error_count or run.error_message or run.status not in ('COMPLETED', 'DEGRADED'):
-        return 'DATA_LIMITED', 'Event producer reports upstream errors or an incomplete scan.'
+        detail = str(run.error_message or run.status or 'Incomplete scan')[:300]
+        return 'DATA_LIMITED', 'Event producer reports upstream errors or an incomplete scan: ' + detail
     decisions = EventStrategyDecision.query.filter_by(user_id=user_id, run_id=run.id).all()
-    recent = [row for row in decisions if (now - row.created_at).total_seconds() <= DECISION_TTL_SECONDS]
-    if not recent:
-        return 'DATA_LIMITED', 'No fresh Event decisions; waiting for market/model observations.'
+    if not decisions:
+        return 'DATA_LIMITED', 'Last completed Event scan produced no contract observations.'
+    recent = [row for row in decisions if -5 <= (now - row.created_at).total_seconds() <= DECISION_TTL_SECONDS]
     unavailable = {'AI_PROVIDER_ERROR', 'AI_RESPONSE_INVALID', 'AI_BUDGET_EXHAUSTED',
                    'MODEL_UNAVAILABLE', 'STALE_QUOTE', 'MISSING_QUOTE', 'CROSSED_QUOTE'}
-    if any(unavailable.intersection(engine.loads(row.reason_codes, [])) for row in recent):
-        return 'DATA_LIMITED', 'Latest Event scan contains unavailable model or quote evidence.'
+    actionable = [row for row in decisions if not {'CONTRACT_EXPIRED', 'MARKET_NOT_OPEN'}.intersection(engine.loads(row.reason_codes, []))]
+    faults = sorted(set().union(*(unavailable.intersection(engine.loads(row.reason_codes, [])) for row in actionable)))
+    if faults:
+        labels = {'AI_PROVIDER_ERROR': 'AI provider error', 'AI_RESPONSE_INVALID': 'invalid AI response',
+                  'AI_BUDGET_EXHAUSTED': 'AI request budget exhausted', 'MODEL_UNAVAILABLE': 'forecast unavailable',
+                  'STALE_QUOTE': 'stale quote', 'MISSING_QUOTE': 'missing executable quote', 'CROSSED_QUOTE': 'crossed quote'}
+        return 'DATA_LIMITED', 'Latest Event scan: ' + ', '.join(labels[fault] for fault in faults) + '.'
+    if not recent:
+        if active:
+            return 'NO_SIGNAL', 'Event scan is in progress; waiting for refreshed decisions after the last completed scan.'
+        return 'DATA_LIMITED', 'No fresh Event decisions; waiting for market/model observations.'
     if any(row.eligible for row in recent):
         return 'READY', 'Fresh eligible Event decisions evaluated.'
     if all('AI_EVALUATION_DEFERRED' in engine.loads(row.reason_codes, []) for row in recent):
@@ -275,6 +288,9 @@ def _consume(user_id, *, decision_ids, quote_loader):
         'qualified_signals': len(processed) if processed else previous.get('qualified_signals', 0),
         'rejected_entries': [row for row in history if row['status'] != 'FILLED']}
     state.telemetry_json = json.dumps(telemetry)
+    if cfg.enabled and not state.kill_switch and state.last_scan_at and cfg.worker_status in ('RUNNING', 'DEGRADED'):
+        cfg.worker_status = ('DEGRADED' if any(telemetry.get(module, {}).get('status') in ('DATA_LIMITED', 'SUBSCRIPTION_REQUIRED')
+            for module, setting in engine.settings_for(cfg).items() if setting['enabled']) else 'RUNNING')
     if processed or ledger_changed:
         engine.snapshot(cfg, acc, state, now)
     db.session.commit()
