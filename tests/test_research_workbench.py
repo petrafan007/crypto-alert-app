@@ -274,6 +274,33 @@ class ResearchDatabaseTests(unittest.TestCase):
         self.assertEqual(db.session.get(ResearchCollectionConfig,1).stored_bytes,len(one.payload_gzip)+len(one.summary_json.encode()))
         with self.assertRaises(ValueError):get_dataset(2,one.id)
 
+    def test_archive_carries_prior_candles_by_interval_and_completed_iv_jobs(self):
+        def capture(kind,body,at,parameters,user=1):
+            raw=encoded(body);blob=gzip.compress(raw)
+            db.session.add(ResearchCapture(user_id=user,lane='crypto',source='BINANCE_US_PUBLIC',kind=kind,symbol='BTCUSDT',
+                started_at=at.replace(tzinfo=None),received_at=at.replace(tzinfo=None),sha256=hashlib.sha256(raw).hexdigest(),
+                compressed_bytes=len(blob),raw_bytes=len(raw),payload_gzip=blob,metadata_json=json.dumps({'parameters':parameters})))
+        t=NOW-timedelta(hours=3)
+        for interval,seconds in [('1h',3600),('1m',60)]:
+            bar=[int(t.timestamp()*1000),'100','101','99','100','10',int((t+timedelta(seconds=seconds)).timestamp()*1000)-1]
+            capture('crypto_bars',[bar],NOW-timedelta(hours=1),{'interval':interval})
+        capture('crypto_depth',{'bids':[['100','2']],'asks':[['101','2']]},NOW+timedelta(minutes=1),{})
+        capture('crypto_depth',{'bids':[['200','2']],'asks':[['201','2']]},NOW+timedelta(minutes=1),{},user=2)
+        at=(NOW-timedelta(days=3)).replace(hour=19,minute=50)
+        iv=row('iv','options','SPY',at,source='WEBULL_PRODUCTION',value=.4,iv_units='DECIMAL',methodology='ATM_PAIR_V1',target_dte=45)
+        result=gzip.compress(encoded({'daily_iv':{'accepted':[iv]}}))
+        db.session.add(ResearchJob(user_id=1,kind='daily_iv',status='COMPLETED',completed_at=at.replace(tzinfo=None)+timedelta(minutes=20),request_json='{}',result_gzip=result))
+        db.session.add(ResearchJob(user_id=2,kind='daily_iv',status='COMPLETED',completed_at=at.replace(tzinfo=None)+timedelta(minutes=20),request_json='{}',result_gzip=result))
+        db.session.commit()
+        dataset=build_archive(1,NOW,NOW+timedelta(minutes=2))
+        self.assertEqual(dataset['quality']['warmup_observations'],3)
+        self.assertEqual(dataset['quality']['evaluation_start'],NOW.isoformat())
+        self.assertEqual(len(dataset['provenance']['prior_iv_job_ids']),1)
+        provider=ResearchMarketData(dataset,'USDT')
+        self.assertEqual(len(provider.bars('BTC','CRYPTO',NOW,interval='H1')),1)
+        self.assertEqual(provider.quote('BTC','CRYPTO',NOW+timedelta(minutes=1)),100.5)
+        with self.assertRaises(ValueError):provider.bars('BTC','CRYPTO',NOW-timedelta(hours=2),interval='H1')
+
     def test_append_iv_is_idempotent_and_preserves_conflicts(self):
         dataset=save_dataset(1,option_data());first=apply_iv(1,dataset.id,dataset.sha256,45)
         self.assertEqual(first['inserted'],1)

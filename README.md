@@ -5,7 +5,7 @@
 ## Recent Updates
 
 ### v3.5.0
-- **Complete research workflow:** Build immutable, deduplicated datasets directly from collected archives. Preview/import optional historical provider data with timestamps, currency, checksums and source declarations retained.
+- **Complete research workflow:** Build immutable, deduplicated datasets directly from collected archives, including prior measured inputs for indicator warm-up. Preview/import optional historical provider data with timestamps, currency, checksums and source declarations retained.
 - **Shared-capital portfolio replay:** Run saved equities, options, crypto, futures and Event rules through the actual isolated paper ledger, with chronological development/held-out windows and six cost, delay, depth and derivative-risk scenarios. Durable background jobs preserve results and failures without blocking dashboard requests.
 - **Broader free/existing-access collection:** Added stock/SPY daily history, Webull USD crypto quotes/hourly history, public dominance observations, futures metadata/quotes/bars, and independent public Event-book comparisons. Complete near-expiry option catalog pagination supports consistent IV sampling.
 - **Daily IV and audit evidence:** Preview and idempotently append compatible self-collected IV days, with an automatic post-close job. Preserve existing history and the 252-day requirement. Fresh audits receive bounded research results and explicit data limitations.

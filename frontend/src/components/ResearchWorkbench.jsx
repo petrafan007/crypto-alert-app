@@ -47,7 +47,7 @@ export default function ResearchWorkbench() {
     setSelected(value); setJob(null);
     const dataset = state.datasets.find(d => d.id === Number(value));
     if (dataset) {
-      const first = new Date(dataset.quality.first_available_at).getTime(); const last = new Date(dataset.quality.last_available_at).getTime();
+      const first = new Date(dataset.quality.evaluation_start || dataset.quality.first_available_at).getTime(); const last = new Date(dataset.quality.evaluation_end || dataset.quality.last_available_at).getTime();
       setStart(local(first)); setEnd(local(last + 60000)); setSplit(local((first + last) / 2));
     }
   };
@@ -70,7 +70,7 @@ export default function ResearchWorkbench() {
       <label>End (your local time)<input type="datetime-local" value={end} onChange={e => setEnd(e.target.value)} /></label>
     </div>
     <button disabled={busy || !start || !end} type="button" onClick={() => queue('build')}>Build dataset from collected data</button>
-    <p>Builds verify archive checksums, preserve when data became available, and remove identical observations. Backfilled candles remain unavailable before their actual collection time. Oversized selections fail with a smaller-window instruction; they are not silently truncated.</p>
+    <p>Builds include previously collected candle history, dominance and compatible daily IV for indicator warm-up. Original availability times are preserved; backfills never become available before collection. Oversized selections fail with a smaller-window instruction; they are not silently truncated.</p>
     <label>Saved dataset <select value={selected} onChange={e => select(e.target.value)}>
       <option value="">Select a dataset</option>{state.datasets.map(d => <option key={d.id} value={d.id}>Dataset {d.id} · {d.quality.accepted} observations · {new Date(d.created_at).toLocaleString()}</option>)}
     </select></label>

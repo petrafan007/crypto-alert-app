@@ -284,10 +284,11 @@ def build_archive(user_id,start,end):
     start,end=stamp(start),stamp(end)
     if not start<end or (end-start).days>370:raise ValueError('Choose an archive window of at most 370 days.')
     query=ResearchCapture.query.filter(ResearchCapture.user_id==user_id,ResearchCapture.received_at>=start.replace(tzinfo=None),ResearchCapture.received_at<end.replace(tzinfo=None)).order_by(ResearchCapture.id)
-    hashes=[];excluded=Counter()
+    hashes=[];excluded=Counter();iv_jobs=[]
     def read_rows():
+        from itertools import chain
         total=0
-        for capture in query.yield_per(25):
+        for capture in chain(warmup_captures(user_id,start),query.yield_per(25)):
             total+=capture.raw_bytes
             if total>MAX_RAW_BYTES or len(hashes)>=20000:raise ValueError('Archive window exceeds 128 MiB / 20,000 batches; narrow the dates.')
             hashes.append([capture.id,capture.sha256])
@@ -296,10 +297,51 @@ def build_archive(user_id,start,end):
                     try:yield validate_row(raw)
                     except (ValueError,TypeError,KeyError) as exc:excluded[str(exc)[:120]]+=1
             except (KeyError,TypeError):excluded['Malformed '+capture.kind]+=1
+        # Completed, compatible archive-derived IV jobs preserve the daily
+        # series without reloading a year's raw books or accepting legacy IV.
+        from research_data_models import ResearchJob
+        jobs=ResearchJob.query.filter(ResearchJob.user_id==user_id,ResearchJob.kind.in_(('daily_iv','iv_apply')),
+            ResearchJob.status=='COMPLETED',ResearchJob.completed_at<start.replace(tzinfo=None),
+            ResearchJob.completed_at>=(start-timedelta(days=370)).replace(tzinfo=None)).order_by(ResearchJob.id).limit(801)
+        for job in jobs.yield_per(10):
+            if len(iv_jobs)>=800:raise ValueError('More than 800 prior IV jobs; use a normalized historical import.')
+            result=unpack(job.result_gzip)
+            iv_jobs.append(job.id)
+            for item in result.get('daily_iv',result).get('accepted',[]):
+                if stamp(item['available_at'])<start:yield validate_row(item)
         for row in event_evidence(user_id,start,end):
             try:yield validate_row(row)
             except (ValueError,TypeError,KeyError) as exc:excluded['Event evidence: '+str(exc)[:100]]+=1
-    return canonical(read_rows(),{'origin':'LOCAL_ARCHIVE','captures':hashes,'start':iso(start),'end':iso(end),'source_verified':False},excluded)
+    data=canonical(read_rows(),{'origin':'LOCAL_ARCHIVE','captures':hashes,'prior_iv_job_ids':iv_jobs,'start':iso(start),'end':iso(end),'source_verified':False},excluded)
+    data['quality'].update(evaluation_start=iso(start),evaluation_end=iso(end),
+                           warmup_observations=sum(stamp(r['available_at'])<start for r in data['records']))
+    return data
+
+
+def warmup_captures(user_id,start):
+    """Carry measured pre-window inputs, with their original availability."""
+    from sqlalchemy import func,cast,JSON
+    capture=ResearchCapture
+    # Partition by candle interval too: public minute updates must not hide
+    # the previously collected hourly/daily history for that same symbol.
+    interval=(func.json_extract(capture.metadata_json,'$.parameters.interval') if db.engine.dialect.name=='sqlite'
+              else cast(capture.metadata_json,JSON)['parameters']['interval'].as_string())
+    ranked=db.session.query(capture.id,func.row_number().over(
+        partition_by=(capture.kind,capture.source,capture.symbol,interval),
+        order_by=(capture.received_at.desc(),capture.id.desc())).label('rank')).filter(
+        capture.user_id==user_id,capture.received_at<start.replace(tzinfo=None),
+        capture.received_at>=(start-timedelta(days=7)).replace(tzinfo=None),
+        capture.kind.in_(('stock_bars','webull_crypto_bars','crypto_bars','futures_bars','futures_catalog',
+                          'stock_quotes','webull_crypto_quotes','futures_quotes'))).subquery()
+    query=capture.query.join(ranked,capture.id==ranked.c.id).filter(ranked.c.rank==1).order_by(capture.id).limit(201)
+    for index,row in enumerate(query.yield_per(10)):
+        if index>=200:raise ValueError('More than 200 warm-up feed series; use a normalized historical import.')
+        yield row
+    dominance=capture.query.filter(capture.user_id==user_id,capture.kind=='dominance',
+        capture.received_at<start.replace(tzinfo=None),capture.received_at>=(start-timedelta(days=8)).replace(tzinfo=None)).order_by(capture.id).limit(2001)
+    for index,row in enumerate(dominance.yield_per(10)):
+        if index>=2000:raise ValueError('Dominance warm-up exceeds 2,000 captures; use a normalized historical import.')
+        yield row
 
 
 def event_evidence(user_id,start,end):
