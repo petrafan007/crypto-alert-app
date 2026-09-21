@@ -209,3 +209,7 @@ jcavallarojr_access_token.json*
 credentials.db*
 cookies*
 backups/
+
+# Private environment variants must never be published.
+.env.*
+!.env.example

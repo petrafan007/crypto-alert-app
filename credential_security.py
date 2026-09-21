@@ -36,13 +36,8 @@ def encrypt_secret(value: Optional[str]) -> Optional[str]:
     """
     if not value:
         return None
-    try:
-        fernet = _get_fernet()
-    except EncryptionKeyError:
-        logger.warning(
-            "Credential encryption key is not configured; returning secret as-is."
-        )
-        return value
+    # Never accept a new credential write without encryption.
+    fernet = _get_fernet()
     token = fernet.encrypt(value.encode("utf-8"))
     return token.decode("utf-8")
 

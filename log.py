@@ -25,3 +25,6 @@ if logger.hasHandlers():
 
 logger.addHandler(stream_handler)
 logger.addHandler(file_handler)
+from core.log_redaction import SecretRedactionFilter
+stream_handler.addFilter(SecretRedactionFilter())
+file_handler.addFilter(SecretRedactionFilter())

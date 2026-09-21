@@ -170,24 +170,9 @@ def enforce_required_onboarding():
         }), 428
     return redirect('/onboarding')
 
-@auth_bp.route("/api/login", methods=["POST"])
-def api_login():
-    """API endpoint for logging in. Returns JSON only, with 2FA verification if enabled on profile."""
+def login_second_factor_error(user, data):
     from trading_models import TradingSettings
-
-    data = request.get_json() or request.form or {}
-    username = (data.get("username") or "").strip()
-    password = data.get("password")
-    two_factor_code = data.get("two_factor_code") or data.get("code") or ""
-
-    if not username or not password:
-        return jsonify({"success": False, "error": "Username and password required."}), 400
-
-    user = User.query.filter_by(username=username).first()
-    if not user or not user.check_password(password):
-        return jsonify({"success": False, "error": "Invalid username or password."}), 401
-
-    # Check if user has 2FA enabled on profile
+    two_factor_code = data.get('two_factor_code') or data.get('code') or ''
     settings = TradingSettings.query.filter_by(user_id=user.id).first()
     if settings and settings.totp_secret:
         if not two_factor_code:
@@ -205,12 +190,36 @@ def api_login():
                     "error": "Invalid 2FA code. Please try again."
                 }), 401
         except Exception as totp_err:
-            logger.error(f"Error validating login 2FA for {username}: {totp_err}")
+            logger.error('Login second-factor validation failed: %s', type(totp_err).__name__)
             return jsonify({
                 "success": False,
                 "requires_2fa": True,
                 "error": "Failed to verify 2FA code."
             }), 401
+
+    return None
+
+
+@auth_bp.route("/api/login", methods=["POST"])
+def api_login():
+    """API endpoint for logging in. Returns JSON only, with 2FA verification if enabled on profile."""
+    from trading_models import TradingSettings
+
+    data = request.get_json(silent=True) or request.form or {}
+    username = (data.get("username") or "").strip()
+    password = data.get("password")
+    two_factor_code = data.get("two_factor_code") or data.get("code") or ""
+
+    if not username or not password:
+        return jsonify({"success": False, "error": "Username and password required."}), 400
+
+    user = User.query.filter_by(username=username).first()
+    if not user or not user.check_password(password):
+        return jsonify({"success": False, "error": "Invalid username or password."}), 401
+
+    error = login_second_factor_error(user, data)
+    if error:
+        return error
 
     login_user(user, remember=True)
     session.permanent = True
@@ -349,32 +358,8 @@ def register():
 
 @auth_bp.route("/login", methods=["GET", "POST"])
 def login():
-    logger.info(f"Login request: method={request.method}")
-    if request.method == "POST":
-        logger.info("Login POST request received")
-        try:
-            username = request.form["username"]
-            password = request.form["password"]
-            logger.info(f"Login attempt for username: {username}")
-            
-            user = User.query.filter_by(username=username).first()
-            logger.info(f"User found: {user is not None}")
-                
-            if user and user.check_password(password):
-                logger.info(f"Password check successful for user: {username}")
-                login_user(user, remember=True)
-                session.permanent = True
-                logger.info("Login successful, redirecting to dashboard")
-                return redirect(url_for("dashboard"))
-            else:
-                logger.error(f"Login failed: invalid username or password for {username}")
-                return jsonify({"error": "Invalid username or password"}), 401
-        except Exception as e:
-            logger.error(f"Login error: {str(e)}")
-            return jsonify({"error": str(e)}), 500
-    
-    # For GET requests, serve the React app by importing the shared helper
-    logger.info("Login GET request, serving React app")
+    if request.method == 'POST':
+        return api_login()
     return serve_react_app()
 
 @auth_bp.route("/logout")
@@ -578,7 +563,7 @@ def onboarding_telegram_test():
         return jsonify({'success': False, 'message': 'Credential encryption is not configured.'}), 500
     except Exception as exc:
         db.session.rollback()
-        logger.warning('Telegram onboarding test failed: %s', exc)
+        logger.warning('Telegram onboarding test failed: %s', type(exc).__name__)
         return jsonify({'success': False, 'message': 'Telegram could not deliver the test message.'}), 502
 
 
@@ -602,22 +587,9 @@ def onboarding_finish():
 @auth_bp.route('/api/get-credentials')
 @login_required
 def api_get_credentials():
-    try:
-        logger.error(f"api_get_credentials: current_user.username = {str(current_user.username)}")
-        username = current_user.username
-        # No more context switching! Use the consolidated models directly  
-        cred = Credential.query.filter_by(username=username).first()
-        logger.error(f"api_get_credentials: cred = {str(cred)}")
-        if not cred:
-            return jsonify({})
-        return jsonify({
-                                    "telegram_token": cred.telegram_token or "",
-            "telegram_chat_id": cred.telegram_chat_id or "",
-            "news_api_key": cred.news_api or ""
-        })
-    except Exception as e:
-        logger.error(f"api_get_credentials ERROR: {str(e)}")
-        return jsonify({"error": str(e)}), 500
+    response = jsonify({'username': current_user.username})
+    response.headers['Cache-Control'] = 'no-store'
+    return response
 
 @auth_bp.route("/test-session")
 @login_required

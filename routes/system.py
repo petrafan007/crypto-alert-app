@@ -1,3 +1,4 @@
+from services.credential_views import masked_settings, credential_changes, saved_or_supplied
 
 from datetime import timedelta, datetime, timezone
 import requests
@@ -638,6 +639,10 @@ def extension_login():
         user = User.query.filter_by(username=username).first()
         if not user or not user.check_password(password):
             return jsonify({"error": "Invalid credentials"}), 401
+        from routes.auth import login_second_factor_error
+        error = login_second_factor_error(user, body)
+        if error:
+            return error
         token = create_extension_jwt(user)
         return jsonify({
             "access_token": token,
@@ -679,6 +684,10 @@ def desktop_login():
                 logger.warning(f"Desktop login attempt with invalid password for user: {username}")
                 return jsonify({"error": "Invalid credentials"}), 401
             
+            from routes.auth import login_second_factor_error
+            error = login_second_factor_error(user, data)
+            if error:
+                return error
             # Generate a session token (simple approach)
             import secrets
             session_token = secrets.token_urlsafe(32)
@@ -1478,7 +1487,7 @@ def api_settings():
         encryption_persisted = is_persisted_key_available()
         
         if request.method == "POST":
-            data = request.get_json() or {}
+            data = credential_changes(request.get_json() or {})
             ollama_fields = (
                 'ai_provider',
                 'ai_provider_fallback',
@@ -1619,6 +1628,9 @@ def api_settings():
                         setattr(user_setting, key, str(value))
             # --- END UserSetting Logic ---
 
+            if data.get('credentials_encryption_key') and not is_event_strategy_admin(current_user):
+                db.session.rollback()
+                return jsonify(success=False, message='Only the administrator may change the encryption key.'), 403
             encryption_key_value = data.pop('credentials_encryption_key', None)
             data.pop('credentials_encryption_key_configured', None)
             data.pop('credentials_encryption_key_persisted', None)
@@ -1847,7 +1859,9 @@ def api_settings():
             "credentials_encryption_key_persisted": bool(encryption_persisted),
         })
         
-        return jsonify(response)
+        result = jsonify(masked_settings(response))
+        result.headers["Cache-Control"] = "no-store"
+        return result
     except Exception as e:
         logger.error(f"Get settings error: {str(e)}")
         db.session.rollback()
@@ -3872,58 +3886,12 @@ def api_webull_options_chain():
         return jsonify({'success': False, 'message': 'Unable to load option chain.'}), 500
 
 
-@system_bp.route('/api/check-credential')
+@system_bp.route('/api/check-credential', methods=['GET', 'POST'])
 @login_required
 def check_credential():
-    field = request.args.get('field')
-    value = request.args.get('value')
+    # Retire the legacy credential-bearing query-string API.
+    return jsonify(valid=False, message='Use Settings or onboarding connection tests.'), 410
 
-    # Basic length check
-    if not value or len(value) < 5:
-        return jsonify(valid=False, message="This value is too short.")
-
-    if field == "telegram_token":
-        try:
-            r = requests.get(f"https://api.telegram.org/bot{value}/getMe", timeout=8)
-            data = r.json()
-            if data.get("ok"):
-                return jsonify(valid=True, message="Telegram Bot Token is valid.")
-            else:
-                return jsonify(valid=False, message="Telegram Bot Token is invalid.")
-        except Exception as e:
-            return jsonify(valid=False, message=f"Telegram Bot Token check error: {str(e)}")
-
-    if field == "telegram_chat_id":
-        token = request.args.get('telegram_token', '')
-        if not token:
-            return jsonify(valid=True, message="Format looks OK. (Token required for full check)")
-        try:
-            test_url = f"https://api.telegram.org/bot{token}/sendMessage"
-            payload = {"chat_id": value, "text": "Test message from Crypto & Securities Dashboard onboarding."}
-            r = requests.post(test_url, data=payload, timeout=8)
-            data = r.json()
-            if data.get("ok"):
-                return jsonify(valid=True, message="Telegram Chat ID is valid and can receive messages.")
-            else:
-                return jsonify(valid=False, message=f"Telegram Chat ID error: {data.get('description', 'Unknown error')}")
-        except Exception as e:
-            return jsonify(valid=False, message=f"Telegram Chat ID check error: {str(e)}")
-
-    if field == "news_api_key":
-        try:
-            url = f"https://newsapi.org/v2/top-headlines?category=business&apiKey={value}"
-            r = requests.get(url, timeout=8)
-            data = r.json()
-            if data.get("status") == "ok":
-                return jsonify(valid=True, message="News API Key accepted.")
-            else:
-                return jsonify(valid=False, message=f"News API Key error: {data.get('message', 'Unknown error')}")
-        except Exception as e:
-            return jsonify(valid=False, message=f"News API check error: {str(e)}")
-
-
-
-    return jsonify(valid=False, message="Unknown field.")
 
 @system_bp.route("/api/update-note", methods=["POST"])
 @login_required
@@ -4787,6 +4755,9 @@ def api_test_brave_search():
     try:
         data = request.get_json()
         brave_api_key = data.get('brave_search_api_key') or data.get('api_key')
+        cred = Credential.query.filter_by(user_id=current_user.id).first()
+        field = 'brave_search_api_key_fallback' if data.get('is_fallback') else 'brave_search_api_key'
+        brave_api_key = saved_or_supplied(brave_api_key, cred, field)
         
         if not brave_api_key:
             return jsonify({

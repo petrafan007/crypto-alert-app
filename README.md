@@ -1,8 +1,14 @@
 # Crypto & Securities Dashboard
 
-**Version:** 3.5.3
+**Version:** 3.5.4
 
 ## Recent Updates
+
+### v3.5.4
+- **Credential containment:** Removed a tracked private deployment file. Previously published credentials must be revoked; old Git revisions and downloaded copies are not made safe by this release.
+- **Authentication:** Require a strong configured session-signing key. Legacy form, desktop and extension logins now enforce configured two-factor authentication.
+- **Secret handling:** Settings returns masks instead of stored provider credentials, preserves masked values on save, and resolves saved keys server-side for connection tests. The legacy credential-query endpoint is retired; onboarding errors no longer log token-bearing exceptions.
+- **Browser safety:** Render news-analysis output as text. Global encryption-key changes require administrator authority. Add release-time secret checks.
 
 ### v3.5.3
 - **Telegram settings:** Save edited bot tokens and chat IDs through encrypted credential storage, trim surrounding whitespace, and retain omitted fields. Previously, Settings could report success while silently ignoring these edits.

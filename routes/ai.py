@@ -1068,15 +1068,15 @@ def api_test_binance_connection():
             save_on_success = False
         
         # Fallback to credentials from database
-        if not api_key or not api_secret:
+        if not api_key or not api_secret or api_key == '********' or api_secret == '********':
             # Get credentials from credentials table
             creds = Credential.query.filter_by(user_id=current_user.id).first()
             
             if creds:
-                api_key = creds.api_key
-                api_secret = creds.api_secret
+                api_key = creds.api_key if not api_key or api_key == '********' else api_key
+                api_secret = creds.api_secret if not api_secret or api_secret == '********' else api_secret
             
-        if not api_key or not api_secret:
+        if not api_key or not api_secret or api_key == '********' or api_secret == '********':
             return jsonify({
                 "success": False,
                 "message": "Binance API key and secret are required"

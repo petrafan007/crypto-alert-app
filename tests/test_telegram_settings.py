@@ -51,8 +51,10 @@ class TelegramSettingsTests(unittest.TestCase):
         self.assertNotIn('new-test-secret', self.cred._telegram_token)
         self.reload_credential()
         result = self.call('GET')
-        self.assertEqual(result['telegram_token'], '123456:new-test-secret')
-        self.assertEqual(result['telegram_chat_id'], '-100123')
+        self.assertEqual(result['telegram_token'], '********')
+        self.assertEqual(self.cred.telegram_token, '123456:new-test-secret')
+        self.assertEqual(result['telegram_chat_id'], '********')
+        self.assertEqual(self.cred.telegram_chat_id, '-100123')
 
     def test_omitted_fields_retain_saved_credentials(self):
         self.call('POST', {'telegram_notifications_enabled': True})
@@ -62,6 +64,12 @@ class TelegramSettingsTests(unittest.TestCase):
     def test_token_only_save_preserves_chat_id(self):
         self.call('POST', {'telegram_token': '123456:new-test-secret'})
         self.assertEqual(self.cred.telegram_token, '123456:new-test-secret')
+        self.assertEqual(self.cred.telegram_chat_id, '100')
+
+    def test_round_tripped_masks_preserve_credentials(self):
+        result = self.call('GET')
+        self.call('POST', {'telegram_token': result['telegram_token'], 'telegram_chat_id': result['telegram_chat_id']})
+        self.assertEqual(self.cred.telegram_token, '123456:old-test-secret')
         self.assertEqual(self.cred.telegram_chat_id, '100')
 
     def test_explicit_blank_clears_credentials(self):

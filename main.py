@@ -29,7 +29,8 @@ from routes.portfolio_algo import portfolio_algo_bp
 from credentials import User
 
 app = Flask(__name__, static_folder='frontend/dist', static_url_path='/static', instance_relative_config=True)
-app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'super-secret-key')
+from core.session_security import require_session_secret
+app.config['SECRET_KEY'] = require_session_secret(os.getenv('SECRET_KEY'))
 app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 0
 configure_public_proxy_security(app)
 

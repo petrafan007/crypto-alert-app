@@ -570,7 +570,7 @@ export default function Settings({ isLightMode }) {
         setEventStrategyAIConfig(reconcileDedicatedAIConfig(loadedConfig, modelOptions));
       }
     } catch (err) {
-      console.error('Failed to load Event Strategy AI configuration:', err);
+      console.error('Failed to load Event Strategy AI configuration:');
     } finally {
       setEventStrategyAILoading(false);
     }
@@ -604,7 +604,7 @@ export default function Settings({ isLightMode }) {
         setShowEventStrategyAIModal(false);
       }
     } catch (err) {
-      console.error('Failed to save Event Strategy AI config:', err);
+      console.error('Failed to save Event Strategy AI config:');
       alert(err.response?.data?.message || 'Failed to save AI configuration.');
     } finally {
       setEventStrategyAISaving(false);
@@ -700,7 +700,7 @@ export default function Settings({ isLightMode }) {
           setModelOptions(currentModelOptions);
         }
       } catch (modelError) {
-        console.error('Failed to fetch AI models:', modelError);
+        console.error('Failed to fetch AI models:');
       }
 
       // Fetch regular settings
@@ -760,8 +760,8 @@ export default function Settings({ isLightMode }) {
         };
       });
     } catch (error) {
-      console.error('Failed to fetch settings:', error);
-      console.error('Error response:', error.response?.data);
+      console.error('Failed to fetch settings:');
+      console.error('Error response:');
       setMessage('Failed to load settings');
       setMessageType('error');
     } finally {
@@ -804,7 +804,7 @@ export default function Settings({ isLightMode }) {
           });
         }
       })
-      .catch((error) => console.error('Failed to refresh Ollama models:', error));
+      .catch((error) => console.error('Failed to refresh Ollama models:'));
     return () => { active = false; };
   }, [isEventStrategyAdmin, settings.ai_provider, settings.ai_provider_secondary, settings.ai_provider_fallback, settings.ai_provider_tertiary, settings.ai_provider_quaternary]);
 
@@ -1026,7 +1026,7 @@ export default function Settings({ isLightMode }) {
         try {
           await axios.post('/api/sync-portfolio', {}, { withCredentials: true });
         } catch (syncErr) {
-          console.error('Initial portfolio sync failed:', syncErr);
+          console.error('Initial portfolio sync failed:');
         }
       }
 
@@ -1068,7 +1068,7 @@ export default function Settings({ isLightMode }) {
         setMessageType('error');
       }
     } catch (error) {
-      console.error('Error testing Binance connection:', error);
+      console.error('Error testing Binance connection:');
       const errorMessage = error.response?.data?.message || error.message || 'Failed to connect to Binance API';
       setMessage(`❌ ${errorMessage}`);
       setMessageType('error');
@@ -1097,7 +1097,7 @@ export default function Settings({ isLightMode }) {
         setMessageType('error');
       }
     } catch (error) {
-      console.error('Error testing Webull connection:', error);
+      console.error('Error testing Webull connection:');
       setMessage(`❌ ${error.response?.data?.message || 'Failed to connect to the Webull API.'}`);
       setMessageType('error');
     } finally {
@@ -1129,7 +1129,7 @@ export default function Settings({ isLightMode }) {
       setMessage(`${result.success ? '✅' : '📱'} ${result.message || 'Webull verification started.'}`);
       setMessageType(result.success ? 'success' : (result.verification_required ? 'success' : 'error'));
     } catch (error) {
-      console.error('Error starting Webull verification:', error);
+      console.error('Error starting Webull verification:');
       setMessage(`❌ ${error.response?.data?.message || 'Unable to start Webull verification.'}`);
       setMessageType('error');
     } finally {
@@ -1155,7 +1155,7 @@ export default function Settings({ isLightMode }) {
       setMessage(`${result.success ? '✅' : '📱'} ${result.message || 'Webull verification status checked.'}`);
       setMessageType(result.success ? 'success' : (result.verification_required ? 'success' : 'error'));
     } catch (error) {
-      console.error('Error checking Webull verification:', error);
+      console.error('Error checking Webull verification:');
       setMessage(`❌ ${error.response?.data?.message || 'Unable to check Webull verification.'}`);
       setMessageType('error');
     } finally {
@@ -1178,7 +1178,7 @@ export default function Settings({ isLightMode }) {
         setWebullAccountsMessage(result.message || 'Webull accounts refreshed.');
       }
     } catch (error) {
-      console.error('Error discovering Webull accounts:', error);
+      console.error('Error discovering Webull accounts:');
       setWebullAccounts([]);
       setWebullAccountsMessage(`Unable to discover accounts: ${error.response?.data?.message || 'Please verify the Webull connection.'}`);
     } finally {
@@ -1194,7 +1194,7 @@ export default function Settings({ isLightMode }) {
     try {
       await axios.post('/api/webull/enabled-accounts', { enabled_account_ids: nextEnabled }, { withCredentials: true });
     } catch (err) {
-      console.error('Failed to update enabled Webull accounts:', err);
+      console.error('Failed to update enabled Webull accounts:');
     }
   };
 
@@ -1207,7 +1207,7 @@ export default function Settings({ isLightMode }) {
       setWebullPortfolioPreview(Array.isArray(result.accounts) ? result.accounts : []);
       setWebullPreviewMessage(result.message || 'Webull portfolio preview loaded.');
     } catch (error) {
-      console.error('Error loading Webull portfolio preview:', error);
+      console.error('Error loading Webull portfolio preview:');
       setWebullPortfolioPreview([]);
       setWebullPreviewMessage(`Unable to load preview: ${error.response?.data?.message || 'Please try again.'}`);
     } finally {
@@ -1223,7 +1223,7 @@ export default function Settings({ isLightMode }) {
       const result = response.data || {};
       setWebullImportMessage(result.message || 'Webull portfolio imported.');
     } catch (error) {
-      console.error('Error importing Webull portfolio:', error);
+      console.error('Error importing Webull portfolio:');
       setWebullImportMessage(`Unable to import Webull portfolio: ${error.response?.data?.message || 'Please try again.'}`);
     } finally {
       setSyncingWebullPortfolio(false);
@@ -1247,7 +1247,7 @@ export default function Settings({ isLightMode }) {
         setMessageType('error');
       }
     } catch (error) {
-      console.error('Error syncing coins:', error);
+      console.error('Error syncing coins:');
       const errorMessage = error.response?.data?.error || error.message || 'Failed to sync coins';
       setMessage(`❌ ${errorMessage}`);
       setMessageType('error');
@@ -1290,7 +1290,7 @@ export default function Settings({ isLightMode }) {
         message: response.data.message || (response.data.success ? 'AI connection successful!' : 'Connection failed')
       });
     } catch (error) {
-      console.error('Error testing primary AI connection:', error);
+      console.error('Error testing primary AI connection:');
       setPrimaryAiTestResult({
         success: false,
         message: error.response?.data?.message || error.message || 'Failed to test AI connection'
@@ -1315,7 +1315,7 @@ export default function Settings({ isLightMode }) {
         message: response.data.message || (response.data.success ? 'API key is valid!' : 'API key test failed')
       });
     } catch (error) {
-      console.error('Error testing Brave Search API:', error);
+      console.error('Error testing Brave Search API:');
       setBraveApiTestResult({
         success: false,
         message: error.response?.data?.message || error.message || 'Failed to test API key'
@@ -1331,7 +1331,8 @@ export default function Settings({ isLightMode }) {
 
     try {
       const response = await axios.post('/api/test-brave-search', {
-        api_key: settings.brave_search_api_key_fallback
+        api_key: settings.brave_search_api_key_fallback,
+        is_fallback: true
       }, { withCredentials: true });
 
       setBraveApiFallbackTestResult({
@@ -1339,7 +1340,7 @@ export default function Settings({ isLightMode }) {
         message: response.data.message || (response.data.success ? 'Fallback API key is valid!' : 'Fallback API key test failed')
       });
     } catch (error) {
-      console.error('Error testing Fallback Brave Search API:', error);
+      console.error('Error testing Fallback Brave Search API:');
       setBraveApiFallbackTestResult({
         success: false,
         message: error.response?.data?.message || error.message || 'Failed to test fallback API key'
@@ -1379,7 +1380,7 @@ export default function Settings({ isLightMode }) {
         message: response.data.message || (response.data.success ? 'Secondary connection successful!' : 'Connection failed')
       });
     } catch (error) {
-      console.error('Error testing secondary connection:', error);
+      console.error('Error testing secondary connection:');
       setFallbackTestResult({
         success: false,
         message: error.response?.data?.message || 'Failed to test secondary connection'
@@ -1418,7 +1419,7 @@ export default function Settings({ isLightMode }) {
         message: response.data.message || (response.data.success ? 'Tertiary connection successful!' : 'Connection failed')
       });
     } catch (error) {
-      console.error('Error testing tertiary connection:', error);
+      console.error('Error testing tertiary connection:');
       setTertiaryAiTestResult({
         success: false,
         message: error.response?.data?.message || 'Failed to test tertiary connection'
@@ -1456,7 +1457,7 @@ export default function Settings({ isLightMode }) {
         message: response.data.message || (response.data.success ? 'Quaternary connection successful!' : 'Connection failed')
       });
     } catch (error) {
-      console.error('Error testing quaternary connection:', error);
+      console.error('Error testing quaternary connection:');
       setQuaternaryAiTestResult({
         success: false,
         message: error.response?.data?.message || error.message || 'Failed to test quaternary connection'
@@ -1482,7 +1483,7 @@ export default function Settings({ isLightMode }) {
         setMessageType('error');
       }
     } catch (err) {
-      console.error('Force analysis error:', err);
+      console.error('Force analysis error:');
       const errMsg = err.response?.data?.error || 'Failed to connect to server';
       setForceAnalysisResult({ success: false, message: errMsg });
       setMessage(errMsg);
@@ -1510,7 +1511,7 @@ export default function Settings({ isLightMode }) {
       }
       setAvailableVersion(response.data.tag_name);
     } catch (error) {
-      console.error('Latest GitHub release lookup failed:', error);
+      console.error('Latest GitHub release lookup failed:');
       setVersionLookupError(error.response?.data?.error || 'Unable to retrieve the latest GitHub release. Please try again.');
     } finally {
       setIsFetchingVersion(false);
@@ -1558,7 +1559,7 @@ export default function Settings({ isLightMode }) {
         setUpgrading(false);
       }
     } catch (err) {
-      console.error('Upgrade error:', err);
+      console.error('Upgrade error:');
       setMessage('❌ ' + (err.response?.data?.error || 'Failed to trigger upgrade'));
       setMessageType('error');
       setUpgrading(false);
@@ -1573,7 +1574,7 @@ export default function Settings({ isLightMode }) {
         setTwoFactorEnabled(response.data.settings.totp_enabled || false);
       }
     } catch (error) {
-      console.error('Error fetching trading settings:', error);
+      console.error('Error fetching trading settings:');
     }
   };
 
@@ -1594,7 +1595,7 @@ export default function Settings({ isLightMode }) {
         setTwoFactorMessage(response.data.error || 'Failed to generate 2FA setup');
       }
     } catch (error) {
-      console.error('Error setting up 2FA:', error);
+      console.error('Error setting up 2FA:');
       setTwoFactorMessage(error.response?.data?.error || 'Failed to generate 2FA setup');
     } finally {
       setTwoFactorLoading(false);
@@ -1627,7 +1628,7 @@ export default function Settings({ isLightMode }) {
         setTwoFactorMessage('❌ ' + (response.data.error || 'Invalid verification code'));
       }
     } catch (error) {
-      console.error('Error verifying 2FA:', error);
+      console.error('Error verifying 2FA:');
       setTwoFactorMessage('❌ ' + (error.response?.data?.error || 'Failed to verify code'));
     } finally {
       setTwoFactorLoading(false);
@@ -1658,7 +1659,7 @@ export default function Settings({ isLightMode }) {
         setTwoFactorMessage('❌ ' + (response.data.error || 'Invalid code'));
       }
     } catch (error) {
-      console.error('Error disabling 2FA:', error);
+      console.error('Error disabling 2FA:');
       setTwoFactorMessage('❌ ' + (error.response?.data?.error || 'Failed to disable 2FA'));
     } finally {
       setTwoFactorLoading(false);
@@ -1689,7 +1690,7 @@ export default function Settings({ isLightMode }) {
       link.remove();
       window.URL.revokeObjectURL(url);
     } catch (err) {
-      console.error('Failed to export tax data:', err);
+      console.error('Failed to export tax data:');
       alert('Failed to export tax data. Please try again.');
     }
   };
@@ -1702,7 +1703,7 @@ export default function Settings({ isLightMode }) {
       // Logout and redirect
       window.location.href = '/login?deleted=true';
     } catch (err) {
-      console.error('Failed to delete account:', err);
+      console.error('Failed to delete account:');
       setDeleteError(err.response?.data?.error || 'Failed to delete account. Please try again.');
       setDeleteLoading(false);
     }

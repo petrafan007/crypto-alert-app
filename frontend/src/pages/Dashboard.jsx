@@ -5678,19 +5678,7 @@ function Dashboard({ isLightMode }) {
                     wordBreak: 'break-word',
                     overflowWrap: 'anywhere'
                   }}>
-                    {newsAnalysisData.analysis.split('\n').map((paragraph, index) => (
-                      paragraph.trim() && (
-                        <p key={index} style={{ marginBottom: '16px', color: '#ffffff' }} dangerouslySetInnerHTML={{
-                          __html: paragraph
-                            .replace(/\*\*(.*?)\*\*/g, '<strong style="color: #4fd1c5; font-weight: 600;">$1</strong>')
-                            .replace(/\*(.*?)\*/g, '<em style="color: #cccccc; font-style: italic;">$1</em>')
-                            .replace(/((?:https?:\/\/|\/\/)[^\s]+)/g, (match) => {
-                              const href = match.startsWith('//') ? `https:${match}` : match;
-                              return `<a href="${href}" target="_blank" rel="noopener noreferrer" style="color: #4fd1c5; text-decoration: underline;">${match}</a>`;
-                            })
-                        }} />
-                      )
-                    ))}
+                    <div style={{ whiteSpace: 'pre-wrap' }}>{newsAnalysisData.analysis}</div>
                   </div>
 
                   <div className="analysis-footer">
