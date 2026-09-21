@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 import requests
 import pytz
 from log import logger
@@ -51,7 +51,7 @@ def send_telegram_alert(username, symbol, price, alert_type, threshold, admin_no
         alert_type_str = "fell below" if alert_type == "down" else "rose above"
         
         eastern = pytz.timezone("US/Eastern")
-        now_utc = datetime.utcnow().replace(tzinfo=pytz.utc)
+        now_utc = datetime.now(timezone.utc)
         now_eastern = now_utc.astimezone(eastern)
         time_str = now_eastern.strftime("%Y-%m-%d %I:%M:%S %p %Z")
         
@@ -118,7 +118,7 @@ def create_system_notification(
             user_id = user_id_or_name
 
         et = pytz.timezone('US/Eastern')
-        now_et = datetime.utcnow().replace(tzinfo=pytz.utc).astimezone(et)
+        now_et = datetime.now(timezone.utc).astimezone(et)
         date_str = now_et.strftime('%m-%d-%Y')
         time_str = now_et.strftime('%I:%M:%S %p %Z')
 

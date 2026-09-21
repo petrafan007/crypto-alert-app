@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta, timezone
+from core.time_utils import utc_now
 from core.extensions import db
 from models import Coin
 from trading_models import PortfolioValueHistory, AllActivity
@@ -116,12 +117,13 @@ def record_true_portfolio_value():
 def record_portfolio_history(user_id, value, source='all'):
     """Utility function to record portfolio value in history table"""
     try:
+        now = utc_now()
         history_record = PortfolioValueHistory(
             user_id=user_id,
             value=value,
             source=source,
-            timestamp=datetime.utcnow(),
-            date=datetime.utcnow().strftime('%Y-%m-%d')
+            timestamp=now,
+            date=now.strftime('%Y-%m-%d')
         )
         db.session.add(history_record)
         db.session.commit()
@@ -641,7 +643,7 @@ def update_portfolio_from_real_order(user_id, symbol, side, quantity, price, com
             else:
                 coin.avg_entry = 0.0
         
-        transaction_date = datetime.utcnow()
+        transaction_date = utc_now()
         gain_loss = None
         if side == 'BUY':
             cost_basis = executed_quote + commission_usd

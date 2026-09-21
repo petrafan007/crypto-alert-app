@@ -24,6 +24,7 @@ class ObservationIntegrityTests(unittest.TestCase):
 
     def tearDown(self):
         db.session.remove()
+        db.engine.dispose()
         self.context.pop()
 
     def test_unverified_history_is_preserved_but_not_used(self):

@@ -9,6 +9,8 @@ from decimal import Decimal, InvalidOperation
 import logging
 from typing import Any, Dict, List, Optional
 
+from core.time_utils import utc_now
+
 from core.extensions import db
 from credentials import Credential, UserSetting, User
 from models import WebullScheduledOrder
@@ -194,7 +196,7 @@ def cancel_scheduled_fractional_order(user_id: int, order_id: int) -> Dict[str, 
         raise ValueError(f'Order cannot be cancelled in status "{order.status}".')
 
     order.status = 'CANCELLED'
-    order.updated_at = datetime.utcnow()
+    order.updated_at = utc_now()
     db.session.commit()
 
     cancel_msg = f"Scheduled 9:30 AM buy for {order.symbol} (#{order.id}) was cancelled."
@@ -245,7 +247,7 @@ def process_due_scheduled_orders(app=None) -> List[Dict[str, Any]]:
 
     processed = []
     try:
-        now_utc = datetime.utcnow()
+        now_utc = utc_now()
         # Find all pending orders due for execution
         pending_orders = WebullScheduledOrder.query.filter(
             WebullScheduledOrder.status == 'PENDING',

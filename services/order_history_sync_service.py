@@ -4,6 +4,8 @@ from datetime import datetime, timedelta, timezone
 import json
 import time
 
+from core.time_utils import utc_now
+
 from binance.client import Client
 
 from core.extensions import db
@@ -74,7 +76,7 @@ def _sync_state(user_id, provider, *, account_id='', symbol=''):
 
 def import_binance_orders(user_id, orders):
     """Idempotently upsert Binance.US orders into the durable external ledger."""
-    now = datetime.utcnow()
+    now = utc_now()
     imported = 0
     latest_updated_at = None
     latest_order_id = None
@@ -261,7 +263,7 @@ def sync_binance_order_history_for_user(user_id, credential=None):
         state = _sync_state(user_id, 'binance', symbol=symbol)
         try:
             if state.initial_backfill_complete:
-                start_at = state.last_provider_updated_at or state.last_successful_at or datetime.utcnow()
+                start_at = state.last_provider_updated_at or state.last_successful_at or utc_now()
                 params = {
                     'symbol': symbol,
                     'startTime': int((start_at - BINANCE_ORDER_HISTORY_OVERLAP).replace(tzinfo=timezone.utc).timestamp() * 1000),
@@ -302,7 +304,7 @@ def sync_binance_order_history_for_user(user_id, credential=None):
                     order['commission'] = fee['commission']
                     order['commissionAsset'] = fee['asset']
             imported, latest_updated_at, latest_order_id = import_binance_orders(user_id, flattened)
-            state.last_successful_at = datetime.utcnow()
+            state.last_successful_at = utc_now()
             state.last_provider_updated_at = latest_updated_at or state.last_provider_updated_at
             state.last_provider_order_id = str(latest_order_id) if latest_order_id is not None else state.last_provider_order_id
             state.initial_backfill_complete = True
@@ -363,7 +365,7 @@ def sync_webull_order_history_for_user(user_id, credential=None, setting=None):
                 for order in orders if isinstance(order, dict)
             ]
             latest_updated_at = max((value for value in updated_times if value is not None), default=None)
-            state.last_successful_at = datetime.utcnow()
+            state.last_successful_at = utc_now()
             state.last_provider_updated_at = latest_updated_at or state.last_provider_updated_at
             state.last_provider_order_id = max((
                 str(order.get('order_id') or order.get('orderId') or '')

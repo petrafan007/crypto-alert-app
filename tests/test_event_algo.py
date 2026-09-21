@@ -621,37 +621,46 @@ class EventAlgoTests(unittest.TestCase):
         self.assertFalse(sanitized["primary"]["has_key"])
 
     def test_update_config_persists_ai_config(self):
+        from cryptography.fernet import Fernet
+        import credential_security
         from event_algo import update_config, sanitize_event_ai_config
-        config = SimpleNamespace(user_id=1, ai_config="{}")
-        update_config(config, {
-            "ai_config": {
-                "primary": {"provider": "gemini", "model": "gemini-3.8-flash", "reasoning_level": "medium", "api_key": "test-gemini-key"},
-                "secondary": {"provider": "ollama", "model": "gpt-oss:120b-cloud", "reasoning_level": "medium", "api_key": ""},
-                "tertiary": {"provider": "ollama", "model": "qwen2.5:14b", "reasoning_level": "medium", "api_key": ""},
-            }
-        })
-        parsed = json.loads(config.ai_config)
-        self.assertEqual(parsed["primary"]["provider"], "gemini")
-        self.assertEqual(parsed["primary"]["model"], "gemini-3.8-flash")
-        self.assertEqual(parsed["secondary"]["model"], "gpt-oss:120b-cloud")
-        self.assertEqual(parsed["tertiary"]["model"], "qwen2.5:14b")
-        self.assertTrue(parsed["primary"]["api_key"])
 
-        sanitized = sanitize_event_ai_config(config.ai_config)
-        self.assertTrue(sanitized["primary"]["has_key"])
-        self.assertEqual(sanitized["primary"]["api_key"], "********")
+        fernet = Fernet(Fernet.generate_key())
+        with patch('credential_security._get_fernet', return_value=fernet):
+            credential_security._get_fernet.cache_clear()
+            try:
+                config = SimpleNamespace(user_id=1, ai_config="{}")
+                update_config(config, {
+                    "ai_config": {
+                        "primary": {"provider": "gemini", "model": "gemini-3.8-flash", "reasoning_level": "medium", "api_key": "test-gemini-key"},
+                        "secondary": {"provider": "ollama", "model": "gpt-oss:120b-cloud", "reasoning_level": "medium", "api_key": ""},
+                        "tertiary": {"provider": "ollama", "model": "qwen2.5:14b", "reasoning_level": "medium", "api_key": ""},
+                    }
+                })
+                parsed = json.loads(config.ai_config)
+                self.assertEqual(parsed["primary"]["provider"], "gemini")
+                self.assertEqual(parsed["primary"]["model"], "gemini-3.8-flash")
+                self.assertEqual(parsed["secondary"]["model"], "gpt-oss:120b-cloud")
+                self.assertEqual(parsed["tertiary"]["model"], "qwen2.5:14b")
+                self.assertTrue(parsed["primary"]["api_key"])
 
-        # Second update preserving masked key
-        update_config(config, {
-            "ai_config": {
-                "primary": {"provider": "gemini", "model": "gemini-3.8-flash", "reasoning_level": "high", "api_key": "********"},
-                "secondary": {"provider": "ollama", "model": "gpt-oss:120b-cloud", "reasoning_level": "medium", "api_key": ""},
-                "tertiary": {"provider": "ollama", "model": "qwen2.5:14b", "reasoning_level": "medium", "api_key": ""},
-            }
-        })
-        parsed2 = json.loads(config.ai_config)
-        self.assertEqual(parsed2["primary"]["reasoning_level"], "high")
-        self.assertEqual(parsed2["primary"]["api_key"], parsed["primary"]["api_key"])
+                sanitized = sanitize_event_ai_config(config.ai_config)
+                self.assertTrue(sanitized["primary"]["has_key"])
+                self.assertEqual(sanitized["primary"]["api_key"], "********")
+
+                # Second update preserving masked key
+                update_config(config, {
+                    "ai_config": {
+                        "primary": {"provider": "gemini", "model": "gemini-3.8-flash", "reasoning_level": "high", "api_key": "********"},
+                        "secondary": {"provider": "ollama", "model": "gpt-oss:120b-cloud", "reasoning_level": "medium", "api_key": ""},
+                        "tertiary": {"provider": "ollama", "model": "qwen2.5:14b", "reasoning_level": "medium", "api_key": ""},
+                    }
+                })
+                parsed2 = json.loads(config.ai_config)
+                self.assertEqual(parsed2["primary"]["reasoning_level"], "high")
+                self.assertEqual(parsed2["primary"]["api_key"], parsed["primary"]["api_key"])
+            finally:
+                credential_security._get_fernet.cache_clear()
 
 
 

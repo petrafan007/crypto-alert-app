@@ -3,6 +3,8 @@
 import json
 from datetime import datetime, timezone
 
+from core.time_utils import utc_now
+
 from core.extensions import db
 from services.position_metadata import enrich_event_positions
 from models import ExternalSentimentSignal, WebullAccountSnapshot, WebullHolding, WebullOrder
@@ -74,7 +76,7 @@ def _webull_order_id(order):
 
 def import_webull_orders(user_id, orders):
     """Upsert provider orders into the durable per-user Webull ledger."""
-    now = datetime.utcnow()
+    now = utc_now()
     imported = 0
     for order in orders or []:
         if not isinstance(order, dict):
@@ -254,7 +256,7 @@ def import_webull_portfolio_snapshot(user_id, preview):
     The source is deliberately isolated from ``Coin``: imported securities may be
     equities, options, futures, or crypto and must not acquire Binance actions.
     """
-    now = datetime.utcnow()
+    now = utc_now()
     imported_accounts = 0
     imported_positions = 0
     account_ids = set()

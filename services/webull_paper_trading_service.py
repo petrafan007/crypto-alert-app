@@ -4,6 +4,8 @@ import uuid
 from datetime import datetime, timezone
 from typing import Dict, Any, List, Optional
 
+from core.time_utils import utc_now
+
 from core.extensions import db
 from services.position_metadata import enrich_event_positions
 from models import WebullTestAccount, WebullTestPosition, WebullTestOrder
@@ -72,7 +74,7 @@ def _find_or_merge_position(user_id: int, symbol: str, instrument_type: str, sid
             if duplicate is not primary:
                 db.session.delete(duplicate)
     primary.instrument_type = clean_type
-    primary.updated_at = datetime.utcnow()
+    primary.updated_at = utc_now()
     return primary
 
 
@@ -202,7 +204,7 @@ def deposit_fake_money(user_id: int, amount: float, reset: bool = False) -> Dict
         for order in active_orders:
             if str(order.status or '').upper().strip() in ACTIVE_PAPER_ORDER_STATUSES:
                 order.status = 'Cancelled'
-                order.updated_at = datetime.utcnow()
+                order.updated_at = utc_now()
                 cancelled_orders += 1
         WebullTestPosition.query.filter_by(user_id=user_id).delete()
     else:
@@ -210,7 +212,7 @@ def deposit_fake_money(user_id: int, amount: float, reset: bool = False) -> Dict
             raise ValueError("Deposit amount must be greater than zero.")
         account.cash_balance = float(account.cash_balance or 0.0) + amount
 
-    account.updated_at = datetime.utcnow()
+    account.updated_at = utc_now()
     db.session.commit()
     return {
         'success': True,
@@ -467,7 +469,7 @@ def get_webull_test_account_summary(user_id: int) -> Dict[str, Any]:
     total_cost_basis = 0.0
     total_unrealized_pnl = 0.0
 
-    now = datetime.utcnow()
+    now = utc_now()
     for pos in positions:
         try:
             if pos.updated_at and (now - pos.updated_at).total_seconds() < 30:
@@ -498,7 +500,7 @@ def get_webull_test_account_summary(user_id: int) -> Dict[str, Any]:
 
         pos.market_value = round(signed_market_value, 2)
         pos.unrealized_pnl = round(pnl, 2)
-        pos.updated_at = datetime.utcnow()
+        pos.updated_at = utc_now()
 
         total_market_value += signed_market_value
         total_cost_basis += cost_basis
@@ -663,7 +665,7 @@ def get_webull_test_positions(user_id: int) -> List[Dict[str, Any]]:
     _normalize_equity_like_positions(user_id)
     positions = WebullTestPosition.query.filter_by(user_id=user_id).filter(WebullTestPosition.quantity > 0).all()
     rows = []
-    now = datetime.utcnow()
+    now = utc_now()
     for pos in positions:
         quote_status = 'current'
         try:
@@ -969,7 +971,7 @@ def execute_webull_test_order(user_id: int, data: Dict[str, Any]) -> Dict[str, A
                 )
                 pos.quantity = new_qty
                 pos.last_price = fill_px
-                pos.updated_at = datetime.utcnow()
+                pos.updated_at = utc_now()
             else:
                 db.session.add(WebullTestPosition(
                     user_id=user_id, symbol=primary['symbol'], underlying_symbol=primary['symbol'],
@@ -990,7 +992,7 @@ def execute_webull_test_order(user_id: int, data: Dict[str, Any]) -> Dict[str, A
                 combo_orders=str(combo_orders), time_in_force=leg['source'].get('time_in_force', 'DAY'),
             ))
 
-        account.updated_at = datetime.utcnow()
+        account.updated_at = utc_now()
         db.session.commit()
         primary_symbol = primary['symbol'] if primary else normalized_legs[0]['symbol']
         status = 'Filled' if primary else 'Working'
@@ -1069,7 +1071,7 @@ def execute_webull_test_order(user_id: int, data: Dict[str, Any]) -> Dict[str, A
             time_in_force=str(data.get('time_in_force') or 'DAY').upper(),
         )
         db.session.add(order)
-        account.updated_at = datetime.utcnow()
+        account.updated_at = utc_now()
         db.session.commit()
         return {
             'success': True,
@@ -1265,7 +1267,7 @@ def execute_webull_test_order(user_id: int, data: Dict[str, Any]) -> Dict[str, A
             time_in_force=data.get('time_in_force', 'DAY'),
         )
         db.session.add(test_order)
-        account.updated_at = datetime.utcnow()
+        account.updated_at = utc_now()
         db.session.commit()
         return {
             'success': True,
@@ -1300,7 +1302,7 @@ def execute_webull_test_order(user_id: int, data: Dict[str, Any]) -> Dict[str, A
             pos.quantity = new_qty
             pos.cost_price = round(new_cost, 4)
             pos.last_price = fill_price
-            pos.updated_at = datetime.utcnow()
+            pos.updated_at = utc_now()
         else:
             pos = WebullTestPosition(
                 user_id=user_id,
@@ -1341,7 +1343,7 @@ def execute_webull_test_order(user_id: int, data: Dict[str, Any]) -> Dict[str, A
         else:
             pos.quantity = float(pos.quantity) - quantity
             pos.last_price = fill_price
-            pos.updated_at = datetime.utcnow()
+            pos.updated_at = utc_now()
 
     elif is_cover:
         pos = _find_or_merge_position(user_id, contract_symbol, instrument_type, 'SHORT')
@@ -1371,7 +1373,7 @@ def execute_webull_test_order(user_id: int, data: Dict[str, Any]) -> Dict[str, A
         else:
             pos.quantity = float(pos.quantity) - quantity
             pos.last_price = fill_price
-            pos.updated_at = datetime.utcnow()
+            pos.updated_at = utc_now()
 
     elif is_short:
         margin_required = total_trade_amount * 1.5
@@ -1388,7 +1390,7 @@ def execute_webull_test_order(user_id: int, data: Dict[str, Any]) -> Dict[str, A
             pos.quantity = new_qty
             pos.cost_price = round(new_cost, 4)
             pos.last_price = fill_price
-            pos.updated_at = datetime.utcnow()
+            pos.updated_at = utc_now()
         else:
             pos = WebullTestPosition(
                 user_id=user_id,
@@ -1500,7 +1502,7 @@ def execute_webull_test_order(user_id: int, data: Dict[str, Any]) -> Dict[str, A
             )
             db.session.add(sl_order)
 
-    account.updated_at = datetime.utcnow()
+    account.updated_at = utc_now()
     db.session.commit()
 
     return {
@@ -1530,7 +1532,7 @@ def cancel_webull_test_order(user_id: int, order_id: str) -> Dict[str, Any]:
             f"Simulated order {order_id} is {order.status or 'not active'} and cannot be cancelled."
         )
     order.status = 'Cancelled'
-    order.updated_at = datetime.utcnow()
+    order.updated_at = utc_now()
     db.session.commit()
     return {
         'success': True,

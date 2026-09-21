@@ -1,8 +1,17 @@
 # Crypto & Securities Dashboard
 
-**Version:** 3.5.6
+**Version:** 3.5.7
 
 ## Recent Updates
+
+### v3.5.7
+- **Webull 2FA order fix:** Removed a scoped inner import shadowing `time` during live Webull order placement with two-factor authentication, resolving an `UnboundLocalError` on token verification.
+- **Frontend dependency security:** Upgraded Vite to 6.4.3, React plugin to 4.7.0, and updated locked dependencies (`rollup`, `postcss`, `nanoid`, `browserslist`, `@babel/core`, and `esbuild` override), resolving all 7 reported npm audit security vulnerabilities.
+- **Test isolation & credential safety:** Provided isolated Fernet key fixtures and cache clearing for Event AI configuration tests, preventing test failures in unconfigured environments while keeping strict production fail-closed security.
+- **Resource cleanup:** Fixed unclosed SQLite connections across database-backed test fixtures by ensuring deterministic connection pool disposal and context teardown.
+- **UTC datetime deprecation hardening:** Introduced centralized `core/time_utils.py` to standardize UTC timestamp generation and started phased migration across services to eliminate Python 3.12+ `datetime.utcnow()` deprecation warnings without naive/aware database comparison regressions.
+- **NewsAPI diagnostics:** Added helper diagnostics for NewsAPI rate limits, cooldown status, and provider resilience.
+- **Automated full test profile:** Added `scripts/run_full_tests.sh` to provision an isolated local PostgreSQL database and execute the complete suite including concurrency and row-lock tests.
 
 ### v3.5.6
 - **Copilot crash fixed:** Null or malformed saved token limits now use a safe bounded default instead of causing the `NoneType` comparison error shown in the browser.

@@ -2787,7 +2787,6 @@ def api_webull_place_order():
                             environment, credential.webull_access_token,
                             account_id=acc_id, order_id=replacing_order_id,
                         )
-                        import time
                         time.sleep(1.0)
                     except Exception as cancel_err:
                         logger.warning(f"Could not cancel live order {replacing_order_id} during replace: {cancel_err}")

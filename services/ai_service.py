@@ -634,6 +634,33 @@ def _news_api_search(symbol, username, lookback_hours=24, max_results=4, asset_c
         logger.warning('NewsAPI search failed for %s: %s', symbol, exc)
         return []
 
+
+def diagnose_news_api_status(username):
+    """Diagnose configuration, rate limiting, and availability for a user's NewsAPI key."""
+    try:
+        cred = get_user_credentials(username)
+        api_key = (getattr(cred, 'news_api', None) or '').strip() if cred else ''
+        if not api_key:
+            return {'configured': False, 'status': 'NOT_CONFIGURED', 'message': 'No NewsAPI key saved'}
+        from services.provider_resilience import identity, read
+        key = identity('provider', username, 'NewsAPI', api_key)
+        state = read(key)
+        if state:
+            expires = state.get('expires_at')
+            expires_str = expires.isoformat() if hasattr(expires, 'isoformat') else str(expires)
+            reason = state.get('payload', {}).get('reason', 'Rate limited or provider error')
+            return {
+                'configured': True,
+                'status': 'COOLDOWN',
+                'reason': reason,
+                'expires_at': expires_str,
+                'message': f"NewsAPI in cooldown: {reason}",
+            }
+        return {'configured': True, 'status': 'READY', 'message': 'NewsAPI key configured and ready'}
+    except Exception as exc:
+        return {'configured': False, 'status': 'ERROR', 'message': str(exc)}
+
+
 class AIResponseWrapper:
     """Wrapper to provide uniform `.choices[0].message.content` interface."""
     def __init__(self, text, tier="primary", provider=None, model=None, search_status=None, failover_history=None):

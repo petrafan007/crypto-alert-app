@@ -27,6 +27,7 @@ class BinanceOrderHistorySymbolTests(unittest.TestCase):
     def tearDownClass(cls):
         db.session.remove()
         db.drop_all()
+        db.engine.dispose()
         cls.context.pop()
 
     def setUp(self):
