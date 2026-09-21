@@ -1,8 +1,17 @@
 # Crypto & Securities Dashboard
 
-**Version:** 3.5.5
+**Version:** 3.5.6
 
 ## Recent Updates
+
+### v3.5.6
+- **Copilot crash fixed:** Null or malformed saved token limits now use a safe bounded default instead of causing the `NoneType` comparison error shown in the browser.
+- **Correct question scope:** Public questions about Bitcoin, stocks, rates, inflation, and other market topics use public-market evidence without treating the question as a request about the user's holdings. Ambiguous follow-ups retain the current chat's scope.
+- **Reliable evidence and failover:** Requested time windows and full questions reach deterministic searches, stored timestamped prices are supplied when available, search/news settings are honored, and empty, blocked, reasoning-only, or truncated model replies advance to the next configured provider.
+- **Account and privacy boundaries:** The server enforces the AI enable switch, authenticated user identity, user-scoped asset classification, hidden-message exclusion, and separate current-session versus explicitly requested past-chat context. Missing account values remain unavailable instead of becoming zero.
+- **Browser and persistence repair:** The browser replaces optimistic messages with persisted database IDs and timestamps, restores history after failed archive/delete operations, and sends idempotency keys so retries do not create duplicate prompts. New chats update their active-session reference immediately.
+- **Response timing:** Interactive Copilot work has a 105-second overall deadline with bounded provider calls, while long quantitative audits retain their existing worker timeouts. Chat titles are generated locally without a second paid AI/search request.
+- **Verification:** Copilot, provider-failover, audit-protocol, resilience, lifecycle, scheduler, and Webull signal regression suites pass; the production frontend build also passes.
 
 ### v3.5.5
 - **Question relevance:** Explicit general-market questions skip personal account/trade lookups. Market searches retain the actual question and requested day/week/month window; mandatory instructions verify market premises and separate market explanations from portfolio advice.

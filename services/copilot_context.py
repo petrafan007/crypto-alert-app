@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 import re
-from datetime import date, datetime
+from datetime import date, datetime, timedelta, timezone
 
 from core.extensions import db
 
@@ -21,32 +21,166 @@ QUANT_REPORT_CATALOG_LIMIT = 200
 QUANT_RECORD_BUDGET_CHARS = 40_000
 QUANT_REPORT_BUDGET_CHARS = 60_000
 
-def is_general_market_question(message):
-    """Keep explicit market questions separate; ambiguous follow-ups retain context."""
-    text = (message or '').lower()
-    if re.search(r"\b(my|mine|our|portfolio|holdings?|positions?|orders?|watchlist|account|quant|engine)\b|\bi (own|hold|bought|sold)\b", text):
-        return False
-    return bool(re.search(
-        r"\b(market|inflation|fed|interest rates?|economy|macroeconomic|rally|rallied|"
-        r"rising|falling|price|up|down|bitcoin itself)\b", text
-    ))
+_PERSONAL_SCOPE = re.compile(
+    r"\b(my|mine|our|portfolio|holdings?|positions?|orders?|watchlist|account|"
+    r"balance|cost basis|average entry|p&l|profit|loss|quant|engine)\b|"
+    r"\bi\s+(?:own|hold|bought|sold|purchased|invested)\b",
+    re.IGNORECASE,
+)
+_PUBLIC_ASSET = re.compile(
+    r"\b(bitcoin|btc|ethereum|ether|eth|solana|sol|xrp|ripple|cardano|ada|"
+    r"dogecoin|doge|binance|bnb|avalanche|avax|chainlink|link|apple|aapl|"
+    r"nvidia|nvda|tesla|tsla|s&p|spx|spy|stock|stocks|crypto|market)\b",
+    re.IGNORECASE,
+)
+_MARKET_TOPIC = re.compile(
+    r"\b(price|trend|performance|return|surge|surged|rally|rallied|rise|rose|"
+    r"rising|fall|fell|falling|up|down|earnings|valuation|volume|volatility|"
+    r"inflation|fed|federal reserve|interest rates?|economy|economic|macro|"
+    r"macroeconomic|news|catalyst|outlook|forecast|compare|versus|vs)\b",
+    re.IGNORECASE,
+)
+_AMBIGUOUS_FOLLOW_UP = re.compile(
+    r"^\s*(?:what|how|why|and|but)?\s*(?:about\s+)?(?:it|that|this|those|them)\b",
+    re.IGNORECASE,
+)
+
+
+def copilot_question_scope(message, prior_user_messages=()):
+    """Classify the requested evidence boundary without consulting account data."""
+    text = str(message or '').strip()
+    if _PERSONAL_SCOPE.search(text):
+        return "account"
+    if _PUBLIC_ASSET.search(text) and (
+        _MARKET_TOPIC.search(text)
+        or re.search(r"\b(why|what|how|explain|analy[sz]e|compare)\b", text, re.IGNORECASE)
+    ):
+        return "market"
+    if _MARKET_TOPIC.search(text) and not _PERSONAL_SCOPE.search(text):
+        return "market"
+    if _AMBIGUOUS_FOLLOW_UP.search(text):
+        for prior in reversed(tuple(prior_user_messages or ())):
+            prior_text = str(prior or '').strip()
+            if prior_text and prior_text != text:
+                return copilot_question_scope(prior_text)
+    return "account"
+
+
+def is_general_market_question(message, prior_user_messages=()):
+    return copilot_question_scope(message, prior_user_messages) == "market"
+
+
+def _market_question(message):
+    value = str(message or '')
+    if 'USER QUESTION / PROMPT:\n' in value:
+        value = value.split('USER QUESTION / PROMPT:\n', 1)[1]
+    for marker in ('\n\n=== GENERAL MARKET QUESTION', '\n\n=== LIVE USER DATABASE SNAPSHOT'):
+        if marker in value:
+            value = value.split(marker, 1)[0]
+    return ' '.join(value.split())
+
+
+def _requested_days(question):
+    number_words = {
+        'one': 1, 'two': 2, 'three': 3, 'four': 4, 'five': 5,
+        'six': 6, 'seven': 7, 'eight': 8, 'nine': 9, 'ten': 10,
+        'eleven': 11, 'twelve': 12, 'fourteen': 14, 'thirty': 30,
+    }
+    match = re.search(r"(?:past|last)\s+(\d+|[a-z-]+)\s+days?", question, re.I)
+    if match:
+        raw = match.group(1).lower()
+        return int(raw) if raw.isdigit() else number_words.get(raw)
+    if re.search(r"\byesterday\b", question, re.I):
+        return 1
+    if re.search(r"\b(?:this|past|last) week\b", question, re.I):
+        return 7
+    if re.search(r"\b(?:this|past|last) month\b", question, re.I):
+        return 31
+    if re.search(r"\b(?:this|past|last) year\b", question, re.I):
+        return 365
+    return None
 
 
 def copilot_market_search(message, symbol):
-    """Use only the current public-market question, never appended account/history data."""
-    question = message.split('USER QUESTION / PROMPT:\n', 1)[-1].split('\n\n', 1)[0].strip()
+    """Preserve the complete current question and its requested time window."""
+    question = _market_question(message)
     freshness = 'pd'
-    day_match = re.search(r"(?:past|last)\s+(\d+)\s+days?", question, re.I)
-    if day_match:
-        days = int(day_match.group(1))
+    days = _requested_days(question)
+    if days is not None:
         freshness = 'pd' if days <= 1 else 'pw' if days <= 7 else 'pm' if days <= 31 else 'py'
-    elif re.search(r"\b(this|past|last) week\b", question, re.I):
-        freshness = 'pw'
-    elif re.search(r"\b(this|past|last) month\b", question, re.I):
-        freshness = 'pm'
-    elif re.search(r"\b(this|past|last) year\b", question, re.I):
-        freshness = 'py'
     return f"{symbol} {question[:500]}", freshness
+
+
+def copilot_market_queries(message, symbols):
+    """Return bounded, deterministic queries for claims and measured movement."""
+    question = _market_question(message)
+    symbols = list(dict.fromkeys(str(value).upper() for value in symbols if value))[:4]
+    symbol_text = ' '.join(symbols) or 'financial market'
+    query, freshness = copilot_market_search(question, symbol_text)
+    queries = [query]
+    days = _requested_days(question)
+    if days:
+        end = datetime.now(timezone.utc).date()
+        start = end - timedelta(days=days)
+        queries.append(
+            f"{symbol_text} historical closing price {start.isoformat()} {end.isoformat()} percent change"
+        )
+    if re.search(r"\b(fed|federal reserve|interest rates?|inflation|economy|economic)\b", question, re.I):
+        queries.append(
+            f"Federal Reserve interest rate decision inflation data {datetime.now(timezone.utc).date().isoformat()}"
+        )
+    return list(dict.fromkeys(queries))[:3], freshness
+
+
+def bounded_copilot_text(value, limit, label):
+    text = str(value or '')
+    if len(text) <= limit:
+        return text
+    omitted = len(text) - limit
+    return f"{text[:limit]}\n[{label} truncated; {omitted} characters omitted.]"
+
+
+def copilot_market_price_evidence(symbols, message):
+    """Summarize stored timestamped prices without inventing missing history."""
+    from models import PriceHistory
+
+    days = _requested_days(_market_question(message)) or 7
+    cutoff = int((datetime.now(timezone.utc) - timedelta(days=days)).timestamp())
+    evidence = []
+    for symbol in list(dict.fromkeys(str(value).upper() for value in symbols if value))[:4]:
+        variants = [symbol]
+        if symbol not in {'USD', 'USDT'} and not symbol.endswith(('USD', 'USDT')):
+            variants.extend((f'{symbol}USDT', f'{symbol}USD'))
+        query = PriceHistory.query.filter(
+            PriceHistory.symbol.in_(variants),
+            PriceHistory.timestamp >= cutoff,
+        )
+        sample_count = query.count()
+        first = query.order_by(PriceHistory.timestamp.asc()).first()
+        last = query.order_by(PriceHistory.timestamp.desc()).first()
+        if sample_count < 2 or not first or not last:
+            evidence.append({
+                'symbol': symbol,
+                'requested_days': days,
+                'status': 'insufficient_stored_history',
+                'samples': sample_count,
+            })
+            continue
+        start_price, end_price = float(first.price), float(last.price)
+        change_pct = ((end_price - start_price) / start_price * 100) if start_price else None
+        evidence.append({
+            'symbol': symbol,
+            'requested_days': days,
+            'status': 'measured_from_stored_price_history',
+            'samples': sample_count,
+            'start_timestamp_utc': datetime.fromtimestamp(first.timestamp, timezone.utc).isoformat(),
+            'end_timestamp_utc': datetime.fromtimestamp(last.timestamp, timezone.utc).isoformat(),
+            'start_price': start_price,
+            'end_price': end_price,
+            'measured_change_pct': change_pct,
+            'exchange': last.exchange,
+        })
+    return evidence
 
 
 DEFAULT_COPILOT_SEARCH_PROMPT = (

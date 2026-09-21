@@ -31,6 +31,8 @@ from portfolio_algo_models import (
 from services.copilot_context import (
     build_admin_quant_copilot_snapshot,
     build_webull_copilot_snapshot,
+    copilot_market_queries,
+    copilot_question_scope,
     copilot_context_json,
 )
 from routes.ai import process_ai_conversation
@@ -355,6 +357,24 @@ class CopilotExpandedContextTests(unittest.TestCase):
         self.assertIn('past 10 days', query)
         self.assertNotIn('Historical conversation', query)
         self.assertEqual(freshness, 'pm')
+
+        for wording in (
+            'Why did Bitcoin surge yesterday?',
+            'What is Bitcoin doing today?',
+            'Explain Apple earnings',
+        ):
+            self.assertEqual(copilot_question_scope(wording), 'market')
+        self.assertEqual(
+            copilot_question_scope('What about that?', ['Why did Bitcoin surge yesterday?']),
+            'market',
+        )
+        queries, freshness = copilot_market_queries(
+            'Why did BTC and ETH rise over the past ten days?\n\nCompare inflation too.',
+            ['BTC', 'ETH'],
+        )
+        self.assertEqual(freshness, 'pm')
+        self.assertIn('Compare inflation too', queries[0])
+        self.assertTrue(any('historical closing price' in query for query in queries))
 
     def test_focused_crypto_chat_handles_missing_and_numeric_realized_pnl(self):
         trade = AllActivity(

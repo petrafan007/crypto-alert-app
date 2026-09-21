@@ -1,8 +1,10 @@
 import unittest
 from datetime import datetime
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
-from flask import Flask
+from flask import Flask, g
 
 from core.extensions import db, login_manager
 from credentials import User
@@ -44,6 +46,7 @@ class CopilotSessionTests(unittest.TestCase):
         cls.context.pop()
 
     def setUp(self):
+        g.pop('_login_user', None)
         db.session.rollback()
         db.session.query(AIConversation).delete()
         db.session.query(AICopilotSession).delete()
@@ -55,6 +58,7 @@ class CopilotSessionTests(unittest.TestCase):
         self._login(self.client, self.user)
 
     def tearDown(self):
+        g.pop('_login_user', None)
         db.session.rollback()
         db.session.remove()
 
@@ -120,6 +124,9 @@ class CopilotSessionTests(unittest.TestCase):
             self._conversation(self.user.id, 'previous-session', 'ai', 'BTC prior-session detail'),
             self._conversation(self.other_user.id, 'another-user-session', 'ai', 'BTC other-user private detail'),
         ])
+        hidden = self._conversation(self.user.id, 'current-session', 'ai', 'Archived ETH instruction')
+        hidden.is_hidden = 1
+        db.session.add(hidden)
         db.session.commit()
 
         label, isolated = _build_copilot_history_context(
@@ -133,8 +140,10 @@ class CopilotSessionTests(unittest.TestCase):
             self.user.id, 'current-session', 'BTC question', include_all_sessions=True,
         )
         self.assertIn('EXPLICITLY REQUESTED', label)
+        self.assertIn('Current BTC question', historical)
         self.assertIn('BTC prior-session detail', historical)
         self.assertNotIn('other-user private detail', historical)
+        self.assertNotIn('Archived ETH instruction', historical)
 
     def test_ai_title_envelope_is_removed_and_messages_persist_the_session_id(self):
         title, response = _extract_copilot_session_title(
@@ -157,6 +166,9 @@ class CopilotSessionTests(unittest.TestCase):
         source = Path('frontend/src/components/AICopilotSidebar.jsx').read_text()
         self.assertIn('scrollToResponseStart(userMessage.id)', source)
         self.assertNotIn('scrollToBottom', source)
+        self.assertIn('id: persistedUserId || m.id', source)
+        self.assertIn('id: persistedAiId || m.id', source)
+        self.assertIn('request_id: requestId', source)
 
     def test_frontend_copilot_preserves_created_at_and_eastern_timestamp_formatting(self):
         source = Path('frontend/src/components/AICopilotSidebar.jsx').read_text()
@@ -166,7 +178,54 @@ class CopilotSessionTests(unittest.TestCase):
 
     def test_routes_ai_api_conversation_includes_created_at(self):
         source = Path('routes/ai.py').read_text()
-        self.assertIn("'created_at': format_iso_utc(datetime.now(timezone.utc))", source)
+        self.assertIn("'user_created_at': format_iso_utc(persisted_user.created_at)", source)
+        self.assertIn("'ai_created_at': format_iso_utc(persisted_ai.created_at)", source)
+
+    def test_both_copilot_post_aliases_enforce_ai_kill_switch(self):
+        session_id = self.client.post('/api/ai/copilot-sessions').get_json()['session']['id']
+        with patch('routes.ai.is_ai_enabled', return_value=False), \
+             patch('routes.ai.process_ai_conversation') as processor:
+            for route in ('/api/ai/conversation', '/api/ai/chat'):
+                response = self.client.post(route, json={
+                    'message': 'Why is BTC up?',
+                    'conversation_id': session_id,
+                    'request_id': 'disabled-test-request',
+                })
+                self.assertEqual(response.status_code, 403)
+            processor.assert_not_called()
+
+    def test_copilot_response_returns_persisted_message_ids_and_one_provider_call(self):
+        session_id = self.client.post('/api/ai/copilot-sessions').get_json()['session']['id']
+        with patch('routes.ai.is_ai_enabled', return_value=True), \
+             patch('routes.ai.call_ai_with_web_search') as provider:
+            provider.return_value = (SimpleNamespace(
+                text='BTC market answer.', tier='primary', provider='test', model='test-model',
+            ), '')
+            response = self.client.post('/api/ai/conversation', json={
+                'message': 'Why did Bitcoin surge yesterday?',
+                'conversation_id': session_id,
+                'request_id': 'persisted-id-test',
+            })
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        self.assertIsInstance(payload['user_message_id'], int)
+        self.assertIsInstance(payload['ai_message_id'], int)
+        self.assertEqual(db.session.get(AIConversation, payload['user_message_id']).sender, 'user')
+        self.assertEqual(db.session.get(AIConversation, payload['ai_message_id']).sender, 'ai')
+        self.assertEqual(provider.call_count, 1)
+        session = db.session.get(AICopilotSession, session_id)
+        self.assertNotEqual(session.title, 'New chat')
+
+        with patch('routes.ai.is_ai_enabled', return_value=True), \
+             patch('routes.ai.call_ai_with_web_search') as repeated_provider:
+            repeated = self.client.post('/api/ai/conversation', json={
+                'message': 'Why did Bitcoin surge yesterday?',
+                'conversation_id': session_id,
+                'request_id': 'persisted-id-test',
+            })
+        self.assertEqual(repeated.status_code, 200)
+        self.assertTrue(repeated.get_json()['replayed'])
+        repeated_provider.assert_not_called()
 
 
 if __name__ == '__main__':

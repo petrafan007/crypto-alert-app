@@ -661,6 +661,8 @@ class AIConversation(db.Model):
     provider = db.Column(db.String(50), nullable=True)
     model = db.Column(db.String(100), nullable=True)
     tier = db.Column(db.String(50), nullable=True)
+    # Browser-generated idempotency key for user-authored Copilot requests.
+    client_request_id = db.Column(db.String(100), nullable=True)
     
     # Indexes for efficient querying
     __table_args__ = (
@@ -670,6 +672,11 @@ class AIConversation(db.Model):
         db.Index('ix_ai_conversations_conversation_id', 'conversation_id'),
         db.Index('ix_ai_conversations_created_at', 'created_at'),
         db.Index('ix_ai_conversations_coin_id', 'coin_id'),
+        db.Index('ix_ai_conversations_user_request', 'user_id', 'client_request_id', 'sender'),
+        db.UniqueConstraint(
+            'user_id', 'client_request_id', 'sender',
+            name='uq_ai_conversations_user_request',
+        ),
     )
 
 class AICache(db.Model):

@@ -425,6 +425,7 @@ export default function AICopilotSidebar() {
       const newSession = response.data?.session;
       if (!newSession?.id) throw new Error('The new Copilot session was not created.');
       setSessions((previous) => [newSession, ...previous.filter((session) => session.id !== newSession.id)]);
+      activeSessionIdRef.current = newSession.id;
       setConversationId(newSession.id);
       setConversations([]);
       setSelectedMessages(new Set());
@@ -446,6 +447,7 @@ export default function AICopilotSidebar() {
 
   const handleSessionChange = (event) => {
     const nextSessionId = event.target.value || null;
+    activeSessionIdRef.current = nextSessionId;
     setConversationId(nextSessionId);
     setConversations([]);
     setSelectedMessages(new Set());
@@ -554,6 +556,7 @@ export default function AICopilotSidebar() {
         });
       } catch (error) {
         console.error('Error deleting message:', error);
+        await fetchConversations(false, true);
       }
     }
   };
@@ -578,6 +581,7 @@ export default function AICopilotSidebar() {
         });
       } catch (error) {
         console.error('Error archiving message:', error);
+        await fetchConversations(false, true);
       }
     }
   };
@@ -624,6 +628,7 @@ export default function AICopilotSidebar() {
       );
     } catch (error) {
       console.error('Error bulk deleting messages:', error);
+      await fetchConversations(false, true);
     }
   };
 
@@ -648,6 +653,7 @@ export default function AICopilotSidebar() {
       );
     } catch (error) {
       console.error('Error bulk archiving messages:', error);
+      await fetchConversations(false, true);
     }
   };
 
@@ -721,8 +727,10 @@ export default function AICopilotSidebar() {
 
     // Add user message immediately
     const nowIso = easternNow.toISOString();
+    const requestId = window.crypto?.randomUUID?.() || `${Date.now()}_${Math.random().toString(36).slice(2)}`;
+    const optimisticUserId = `optimistic_user_${requestId}`;
     const userMessage = {
-      id: Date.now(),
+      id: optimisticUserId,
       created_at: nowIso,
       date: dateStr,
       time: timeStr,
@@ -734,7 +742,7 @@ export default function AICopilotSidebar() {
     };
 
     // Insert placeholder AI message (Thinking…)
-    const placeholderId = userMessage.id + 1;
+    const placeholderId = `placeholder_${requestId}`;
     thinkingPlaceholderIdRef.current = placeholderId;
     const placeholderMessage = {
       id: placeholderId,
@@ -759,6 +767,7 @@ export default function AICopilotSidebar() {
         message: userMessage.body,
         conversation_id: activeConversationId,
         include_all_sessions: includeAllSessions,
+        request_id: requestId,
       }, {
         withCredentials: true,
         timeout: 120000
@@ -767,6 +776,8 @@ export default function AICopilotSidebar() {
       const newConversationId = response.data?.conversation_id;
       const aiResponseText = response.data?.response || 'No response generated.';
       const updatedSession = response.data?.session;
+      const persistedUserId = response.data?.user_message_id;
+      const persistedAiId = response.data?.ai_message_id;
 
       if (updatedSession?.id) {
         setSessions((previous) => [
@@ -782,6 +793,7 @@ export default function AICopilotSidebar() {
         if (m.id === placeholderId) {
           return {
             ...m,
+            id: persistedAiId || m.id,
             body: aiResponseText,
             thinking: false,
             optimistic: false,
@@ -789,21 +801,22 @@ export default function AICopilotSidebar() {
             tier: response.data?.tier,
             provider: response.data?.provider,
             model: response.data?.model,
-            created_at: response.data?.created_at || m.created_at || new Date().toISOString()
+            created_at: response.data?.ai_created_at || response.data?.created_at || m.created_at || new Date().toISOString()
           };
         }
-        if (m.id === userMessage.id) {
+        if (m.id === optimisticUserId) {
           return {
             ...m,
+            id: persistedUserId || m.id,
             optimistic: false,
             conversation_id: newConversationId,
-            created_at: m.created_at || nowIso
+            created_at: response.data?.user_created_at || m.created_at || nowIso
           };
         }
         return m;
       }));
       setConversationId(newConversationId);
-      window.setTimeout(() => scrollToResponseStart(userMessage.id), 0);
+      window.setTimeout(() => scrollToResponseStart(persistedUserId || optimisticUserId), 0);
     } catch (error) {
       console.error('Error sending message:', error);
       const errorMsg = error.response?.data?.error || error.response?.data?.response || (error.code === 'ECONNABORTED' ? 'Request timed out. Please try again.' : 'Error: Failed to get AI response. Please try again.');

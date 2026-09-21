@@ -10,10 +10,94 @@ from services.ai_service import (
     is_ollama_admin,
     _notify_ai_attempt,
     build_configured_ai_tiers,
+    complete_copilot_text,
 )
+from services.portfolio_audit_context import CompletionText
 
 
 class AIProviderFailoverTests(unittest.TestCase):
+    def test_copilot_completion_rejects_empty_nonfinal_and_truncated_answers(self):
+        for value in (
+            CompletionText('', None, True),
+            CompletionText('reasoning only', None, False),
+            CompletionText('partial answer', 'length', True),
+            CompletionText('blocked answer', 'safety', True),
+        ):
+            with self.subTest(value=repr(value), reason=getattr(value, 'finish_reason', None)):
+                with self.assertRaises(ValueError):
+                    complete_copilot_text(value)
+        self.assertEqual(complete_copilot_text(CompletionText('complete answer')), 'complete answer')
+
+    @patch('services.ai_service.news_api_search')
+    @patch('services.ai_service.web_search')
+    @patch('services.ai_service.call_ollama_chat', return_value=CompletionText('Stored-context answer.'))
+    @patch('services.ai_service.get_user_credentials', return_value=SimpleNamespace())
+    @patch('services.ai_service.get_user_ai_settings')
+    @patch('services.ai_service.User')
+    def test_copilot_web_search_toggle_skips_all_external_searches(
+        self, mock_user, mock_settings, _mock_credentials, _mock_ollama,
+        mock_web_search, mock_news,
+    ):
+        from services.ai_service import call_ai_with_web_search
+        mock_user.query.filter_by.return_value.first.return_value = SimpleNamespace(
+            id=1, username='admin', is_admin=True,
+        )
+        mock_settings.return_value = {
+            'ai_enabled': True,
+            'ai_web_search_enabled': False,
+            'ai_provider': 'ollama',
+            'ai_model': 'test-model',
+            # A legacy/null setting previously reached max(None, 2500) and
+            # crashed the browser request before the provider could answer.
+            'ai_max_tokens': None,
+        }
+        with patch('services.ai_service.get_user_ai_prompts', return_value=SimpleNamespace(
+            copilot_chat_pre=None, copilot_chat_post=None,
+        )):
+            response, _ = call_ai_with_web_search(
+                username='admin', user_id=1, prompt_type='copilot', symbol='BTC',
+                messages=[{'role': 'user', 'content': 'Explain BTC from stored context.'}],
+            )
+        self.assertEqual(response.text, 'Stored-context answer.')
+        self.assertEqual(response.search_status, 'Web Search Disabled')
+        self.assertEqual(_mock_ollama.call_args.kwargs['max_tokens'], 2000)
+        self.assertLessEqual(_mock_ollama.call_args.kwargs['timeout'], 75)
+        mock_web_search.assert_not_called()
+        mock_news.assert_not_called()
+
+    @patch('services.ai_service.news_api_search', return_value=[])
+    @patch('services.ai_service.web_search', return_value=[])
+    @patch('services.ai_service.call_ollama_chat', return_value=CompletionText('Fallback answer.'))
+    @patch('services.ai_service.call_gemini_chat', return_value=CompletionText('', None, True))
+    @patch('services.ai_service.get_user_credentials')
+    @patch('services.ai_service.get_user_ai_settings')
+    @patch('services.ai_service.User')
+    def test_empty_primary_copilot_answer_uses_configured_fallback(
+        self, mock_user, mock_settings, mock_credentials, _mock_gemini,
+        mock_ollama, _mock_web, _mock_news,
+    ):
+        from services.ai_service import call_ai_with_web_search
+        mock_user.query.filter_by.return_value.first.return_value = SimpleNamespace(
+            id=1, username='admin', is_admin=True,
+        )
+        mock_credentials.return_value = SimpleNamespace(gemini_key='synthetic')
+        mock_settings.return_value = {
+            'ai_enabled': True,
+            'ai_web_search_enabled': False,
+            'ai_provider': 'gemini', 'ai_model': 'gemini-test',
+            'ai_provider_secondary': 'ollama', 'ai_model_secondary': 'ollama-test',
+            'ai_max_tokens': 1000,
+        }
+        with patch('services.ai_service.get_user_ai_prompts', return_value=SimpleNamespace(
+            copilot_chat_pre=None, copilot_chat_post=None,
+        )):
+            response, _ = call_ai_with_web_search(
+                username='admin', user_id=1, prompt_type='copilot', symbol='BTC',
+                messages=[{'role': 'user', 'content': 'Explain BTC.'}],
+            )
+        self.assertEqual(response.text, 'Fallback answer.')
+        self.assertEqual(response.tier, 'secondary')
+        mock_ollama.assert_called_once()
     def test_failover_chain_contains_only_explicitly_configured_tiers(self):
         settings = {
             'ai_provider': 'gemini',

@@ -1,8 +1,16 @@
 # Quantitative Strategy Engine
 
-Current release: **v3.5.5**. The [completion ledger below](#v350-research-workflow-completion) supersedes the earlier collection-only and single-symbol replay limitations. Historical version sections describe their original releases.
+Current release: **v3.5.6**. The [completion ledger below](#v350-research-workflow-completion) supersedes the earlier collection-only and single-symbol replay limitations. Historical version sections describe their original releases.
 
 The engine is an administrator-only, multi-asset **paper research system**. The default starting bankroll is $50,000, with relative allocation weights of 35 for equities, 25 for options, 20 for crypto, 10 for micro futures, and 10 for events. Enabled modules share 100% of the target capital proportionally. Futures is disabled by default, giving initial targets of 38.89%, 27.78%, 22.22%, 0%, and 11.11%, respectively. The 18.5% annual return setting is a research objective, not a forecast or validated strategy result.
+
+## v3.5.6 Copilot completion and boundary repair
+
+The interactive Copilot now normalizes a missing saved output-token limit before making a provider request, which removes the `NoneType` comparison failure previously returned to the browser. Its public-market classifier preserves full questions and requested periods, follows prior scope for ambiguous follow-ups, supports multiple mentioned assets, and supplies timestamped stored price-history measurements when enough samples exist. External web/news collection obeys the saved search switch. Provider results must contain a complete final answer; empty, blocked, reasoning-only and token-truncated results enter the configured failover chain.
+
+The route enforces the account AI switch before loading context or using a provider. Provider calls verify the authenticated user identity; holding-based asset detection is user-scoped. Personal prompts receive fresh account context with missing values labeled unavailable, independently bounded sections, visible current-session history, and related past-chat excerpts only when explicitly selected. Public-market prompts omit holdings and quantitative records. Deterministic titles avoid a second provider call.
+
+Browser messages use optimistic string IDs only until the API returns the persisted database IDs and timestamps. Archive/delete failures reload authoritative history, new sessions update the active reference immediately, and per-request idempotency keys prevent duplicated user prompts during retries. Interactive work has a 105-second overall deadline with provider-specific caps below the browser's 120-second timeout; quantitative audits retain their longer worker protocol and timeouts.
 
 ## v3.5.5 Copilot reliability
 

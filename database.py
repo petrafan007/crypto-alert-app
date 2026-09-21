@@ -191,6 +191,7 @@ def init_db(app=None):
             ("event_strategy_orders", "realized_pnl", "FLOAT DEFAULT 0.0"),
             ("event_strategy_orders", "settled_at", "TIMESTAMP"),
             ("event_strategy_configs", "ai_config", "TEXT DEFAULT '{}'"),
+            ("ai_conversations", "client_request_id", "VARCHAR(100)"),
         ]
         for table, col, col_type in columns_to_ensure:
             try:
@@ -198,6 +199,16 @@ def init_db(app=None):
                     conn.execute(db.text(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {col} {col_type}"))
             except Exception as ex:
                 print(f"Migration note for {table}.{col}: {ex}")
+
+        try:
+            with db.engine.begin() as conn:
+                conn.execute(db.text(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS uq_ai_conversations_user_request "
+                    "ON ai_conversations (user_id, client_request_id, sender) "
+                    "WHERE client_request_id IS NOT NULL"
+                ))
+        except Exception as ex:
+            print(f"Migration note for Copilot request idempotency index: {ex}")
 
         from services.event_universe import repair_legacy_default_series
         repair_legacy_default_series()

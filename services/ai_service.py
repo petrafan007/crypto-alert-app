@@ -27,7 +27,11 @@ from services.portfolio_audit_context import (
     AUDIT_END, AUDIT_TOKEN_LIMITS, CompletionText, IncompleteAuditError, complete_audit_text, check_drawdown_claim,
 )
 from services.ai_provider_protocol import AIProviderHTTPError, call_gemini_chat, safe_provider_error
-from services.copilot_context import COPILOT_CONTEXT_INTEGRITY_RULES, copilot_market_search
+from services.copilot_context import (
+    COPILOT_CONTEXT_INTEGRITY_RULES,
+    DEFAULT_COPILOT_SEARCH_PROMPT,
+    copilot_market_queries,
+)
 from services.provider_resilience import AIRequestDeferred, AuditCancelled
 
 logger = logging.getLogger(__name__)
@@ -482,7 +486,8 @@ def _web_search(query, max_results=2, username=None, freshness="pd"):
                                     'title': item.get('title', ''),
                                     'snippet': item.get('description', '')[:300],
                                     'url': item.get('url', ''),
-                                    'source': f'Brave Search ({key_name})'
+                                    'source': f'Brave Search ({key_name})',
+                                    'published_at': item.get('page_age') or item.get('age') or '',
                                 })
                             if results:
                                 logger.info(f"Brave Search returned {len(results)} results")
@@ -557,11 +562,13 @@ def _web_search(query, max_results=2, username=None, freshness="pd"):
                 snippet = BeautifulSoup(desc_raw, 'html.parser').get_text(strip=True) if desc_raw else title
                 source_elem = item.find('source')
                 source_name = source_elem.text if source_elem is not None else 'News'
+                published = item.find('pubDate')
                 results.append({
                     'title': title,
                     'snippet': f"[{source_name}] {snippet}"[:300],
                     'url': link,
-                    'source': 'Google News'
+                    'source': 'Google News',
+                    'published_at': published.text.strip() if published is not None and published.text else '',
                 })
             if results:
                 logger.info(f"Google News RSS returned {len(results)} results for '{query}'")
@@ -620,6 +627,7 @@ def _news_api_search(symbol, username, lookback_hours=24, max_results=4, asset_c
                 'snippet': (article.get('description') or article.get('content') or '')[:300],
                 'url': article.get('url') or '',
                 'source': f"NewsAPI ({(article.get('source') or {}).get('name') or 'news'})",
+                'published_at': article.get('publishedAt') or '',
             })
         return results
     except Exception as exc:
@@ -650,17 +658,38 @@ class AIResponseWrapper:
     def __str__(self):
         return self.text
 
-def _is_equity_asset(sym):
+
+def complete_copilot_text(value):
+    """Reject empty, blocked, and token-truncated chat responses so failover runs."""
+    text = str(value or '').strip()
+    reason = str(getattr(value, 'finish_reason', '') or '').lower()
+    if not text:
+        raise ValueError('AI provider returned an empty Copilot response')
+    if getattr(value, 'final_answer', True) is False:
+        raise ValueError('AI provider did not return a final Copilot answer')
+    if reason in {
+        'length', 'max_tokens', 'max_output_tokens', 'model_length',
+        'content_filter', 'safety', 'recitation',
+    }:
+        raise ValueError(f'AI provider ended Copilot response with {reason}')
+    return text
+
+def _is_equity_asset(sym, user_id=None):
     """Determine if a symbol represents a traditional security (stock/ETF) or cryptocurrency."""
     if not sym or sym in ['PORTFOLIO', 'CRYPTO', 'ALL']:
         return False
     s = str(sym).upper().strip()
     try:
         from models import Coin, WebullHolding
-        wh = WebullHolding.query.filter_by(symbol=s).first()
+        webull_query = WebullHolding.query.filter_by(symbol=s)
+        coin_query = Coin.query.filter_by(symbol=s)
+        if user_id:
+            webull_query = webull_query.filter_by(user_id=user_id)
+            coin_query = coin_query.filter_by(user_id=user_id)
+        wh = webull_query.first()
         if wh and str(wh.instrument_type or '').upper() not in ['CRYPTO', 'COIN', 'TOKEN']:
             return True
-        if Coin.query.filter_by(symbol=s).first():
+        if coin_query.first():
             return False
     except Exception:
         pass
@@ -690,6 +719,7 @@ def call_ai_with_web_search(
     custom_tier_configs=None,
     custom_api_keys=None,
     request_guard=None,
+    deadline_monotonic=None,
 ):
     """
     AGENTIC AI WORKFLOW - 3-STAGE PROCESS WITH 3-TIER CASCADE FAILOVER:
@@ -715,6 +745,10 @@ def call_ai_with_web_search(
                 user_obj = None
 
         if user_obj:
+            if user_id and int(user_obj.id) != int(user_id):
+                raise PermissionError('AI request user identity mismatch')
+            if username and isinstance(getattr(user_obj, 'username', None), str) and user_obj.username != str(username):
+                raise PermissionError('AI request username mismatch')
             if not user_id:
                 user_id = user_obj.id
             if not username:
@@ -739,7 +773,16 @@ def call_ai_with_web_search(
                 )
         
         user_ai_settings = get_user_ai_settings(username)
-        max_tokens = user_ai_settings.get('ai_max_tokens', 2000)
+        if prompt_type in ('copilot', 'manual') and not bool(user_ai_settings.get('ai_enabled', True)):
+            raise PermissionError('AI is disabled. Enable AI in Settings to use Copilot.')
+        search_enabled = bool(user_ai_settings.get('ai_web_search_enabled', True))
+        if prompt_type in ('copilot', 'manual') and deadline_monotonic is None:
+            deadline_monotonic = time.monotonic() + 105
+        try:
+            max_tokens = int(user_ai_settings.get('ai_max_tokens') or 2000)
+        except (TypeError, ValueError):
+            max_tokens = 2000
+        max_tokens = min(max(max_tokens, 256), 32768)
 
         cred = get_user_credentials(username)
         if not cred:
@@ -861,10 +904,18 @@ def call_ai_with_web_search(
         def _execute_ai_call(p_messages, p_max_tokens=500):
             from services.provider_resilience import identity, check, read, block_failure, serialized_ai_request
             key = identity('ai', username, provider, model, _pick_key(provider) if provider != 'ollama' else '')
+            def combined_guard():
+                if deadline_monotonic is not None and time.monotonic() >= deadline_monotonic:
+                    raise AIRequestDeferred('Copilot request deadline reached before another provider attempt.')
+                if request_guard:
+                    request_guard()
+
             wait_timeout = max(900, audit_timeout + 60) if is_portfolio_audit else 60
+            if deadline_monotonic is not None:
+                wait_timeout = max(0, min(wait_timeout, deadline_monotonic - time.monotonic()))
             with serialized_ai_request(username, provider,
                     wait_timeout=wait_timeout,
-                    request_guard=request_guard):
+                    request_guard=combined_guard):
                 if is_portfolio_audit:
                     cooldown = read(key)
                     if cooldown:
@@ -883,14 +934,12 @@ def call_ai_with_web_search(
                                 _notify_ai_attempt(attempt_observer, 'started', tier=current_tier_name,
                                     provider=provider, model=model, attempt=request_attempt,
                                     max_attempts=attempts, timeout_seconds=audit_timeout)
-                            if request_guard:
-                                request_guard()
+                            combined_guard()
                             if prompt_type in ('webull_event_contract_analysis', 'webull_event_contract_batch_analysis'):
                                 from services.event_runtime import reserve_provider_call
                                 reserve_provider_call(user_id)
                             result = _execute_ai_call_impl(p_messages, p_max_tokens)
-                            if request_guard:
-                                request_guard()
+                            combined_guard()
                             return result
                         except Exception as exc:
                             if request_attempt >= attempts or not is_transient_ai_provider_error(exc):
@@ -921,12 +970,20 @@ def call_ai_with_web_search(
                     raise
 
         def _execute_ai_call_impl(p_messages, p_max_tokens=600):
+            def provider_timeout(default):
+                if deadline_monotonic is None:
+                    return default
+                remaining = deadline_monotonic - time.monotonic()
+                if remaining <= 1:
+                    raise AIRequestDeferred('Copilot request deadline reached.')
+                return max(1, min(default, remaining))
+
             if provider == 'openai':
                 key = _pick_key('openai')
                 if not key:
                     raise ValueError("OpenAI API key not configured")
                 from openai import OpenAI
-                client = OpenAI(api_key=key, timeout=audit_timeout if is_portfolio_audit else 25.0, max_retries=0)
+                client = OpenAI(api_key=key, timeout=audit_timeout if is_portfolio_audit else provider_timeout(25.0), max_retries=0)
                 is_reasoning_model = any(m in (model or '').lower() for m in ['o1', 'o3', 'gpt-5', 'reasoning'])
                 effective_tokens = max(p_max_tokens, 2500) if is_reasoning_model else p_max_tokens
                 resp = client.chat.completions.create(
@@ -945,7 +1002,7 @@ def call_ai_with_web_search(
                 if not key:
                     raise ValueError("Z.AI API key not configured")
                 from zai_client import ZAIClient
-                client = ZAIClient(key, timeout_seconds=audit_timeout if is_portfolio_audit else 12)
+                client = ZAIClient(key, timeout_seconds=audit_timeout if is_portfolio_audit else provider_timeout(12))
                 resp = client.chat_completion(messages=p_messages, model=model, max_tokens=max(p_max_tokens, 1024), temperature=0.2)
                 if resp.get('success'):
                     return CompletionText(resp.get('content'), resp.get('finish_reason'), final_answer=resp.get('final_answer', True))
@@ -960,7 +1017,7 @@ def call_ai_with_web_search(
                     "https://api.perplexity.ai/chat/completions",
                     headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
                     json={"model": model, "messages": p_messages, "max_tokens": p_max_tokens},
-                    timeout=audit_timeout if is_portfolio_audit else 15
+                    timeout=audit_timeout if is_portfolio_audit else provider_timeout(15)
                 )
                 if r.status_code == 200:
                     choice = r.json()['choices'][0]
@@ -978,7 +1035,7 @@ def call_ai_with_web_search(
                     "max_tokens": p_max_tokens,
                     "temperature": 0.2
                 }
-                r = requests.post(INCEPTION_CHAT_COMPLETIONS_URL, headers=headers, json=payload, timeout=audit_timeout if is_portfolio_audit else 20)
+                r = requests.post(INCEPTION_CHAT_COMPLETIONS_URL, headers=headers, json=payload, timeout=audit_timeout if is_portfolio_audit else provider_timeout(20))
                 if r.status_code == 200:
                     choice = r.json()['choices'][0]
                     return CompletionText(choice['message'].get('content'), choice.get('finish_reason'))
@@ -986,14 +1043,14 @@ def call_ai_with_web_search(
 
             elif provider == 'gemini':
                 return call_gemini_chat(_pick_key('gemini'), model, p_messages, p_max_tokens,
-                    audit_timeout if is_portfolio_audit else 45, ai_reasoning_level)
+                    audit_timeout if is_portfolio_audit else provider_timeout(45), ai_reasoning_level)
 
             elif provider == 'ollama':
                 return call_ollama_chat(
                     model,
                     p_messages,
                     max_tokens=p_max_tokens,
-                    timeout=audit_timeout if is_portfolio_audit else 1800,
+                    timeout=audit_timeout if is_portfolio_audit else provider_timeout(75),
                     reasoning_level=ai_reasoning_level,
                 )
             
@@ -1043,7 +1100,7 @@ def call_ai_with_web_search(
                                      failover_history=failover_history), ''
 
         # Stage 1: Queries
-        is_equity = _is_equity_asset(symbol_value) or prompt_type == 'webull_equity_analysis'
+        is_equity = _is_equity_asset(symbol_value, user_id) or prompt_type == 'webull_equity_analysis'
         if prompt_type in ['webull_event_contract_analysis', 'webull_event_contract_batch_analysis']:
             search_queries = event_search_queries(original_user_message)
         elif prompt_type in ['sentiment_analysis', 'watchlist_sentiment_analysis']:
@@ -1060,13 +1117,30 @@ def call_ai_with_web_search(
         elif prompt_type == 'webull_equity_analysis':
             search_queries = [f"{symbol_value} stock or ETF latest news earnings sector catalysts today"]
         elif prompt_type in ['copilot', 'manual']:
-            # Fast deterministic query for real-time Copilot chat without multi-second LLM query overhead
-            if symbol_value in ['PORTFOLIO', 'CRYPTO', '']:
+            market_match = re.search(
+                r'=== GENERAL MARKET QUESTION \(([^)]+)\) ===', original_user_message
+            )
+            if market_match:
+                market_symbols = [part.strip() for part in market_match.group(1).split(',')]
+                search_queries, freshness_filter = copilot_market_queries(
+                    original_user_message, market_symbols
+                )
+            elif symbol_value in ['PORTFOLIO', 'CRYPTO', '']:
                 search_queries = ["crypto and stock market trends bitcoin s&p 500 sentiment today"]
             elif is_equity:
                 search_queries = [f"{symbol_value} stock market price catalysts sentiment today"]
             else:
                 search_queries = [f"{symbol_value} cryptocurrency market price trend sentiment today"]
+
+            # A customized search prompt is an explicit request for model-generated
+            # queries. Preserve deterministic market/timeframe queries as guards.
+            normalized_custom = ' '.join(str(stage1_template or '').split())
+            normalized_default = ' '.join(DEFAULT_COPILOT_SEARCH_PROMPT.split())
+            if search_enabled and normalized_custom and normalized_custom != normalized_default:
+                generated = validated_search_queries(
+                    _execute_ai_call(stage1_messages, p_max_tokens=300), symbol_value
+                )
+                search_queries = list(dict.fromkeys(search_queries + generated))[:3]
         else:
             try:
                 search_queries_text = _execute_ai_call(stage1_messages, p_max_tokens=300)
@@ -1093,18 +1167,24 @@ def call_ai_with_web_search(
             freshness_filter = "py"
             
         if prompt_type in ['copilot', 'manual'] and '=== GENERAL MARKET QUESTION (' in original_user_message:
-            market_query, freshness_filter = copilot_market_search(original_user_message, symbol_value)
-            search_queries = [market_query]
+            _, freshness_filter = copilot_market_queries(
+                original_user_message,
+                market_symbols if 'market_symbols' in locals() else [symbol_value],
+            )
 
         valid_search_results = 0
         symbol_mentioned = False
         clean_sym = (symbol_value or '').upper()
 
         asset_context = 'equity' if is_equity else 'crypto'
-        news_symbols = event_underlyings(original_user_message) if clean_sym == 'EVENT_BATCH' else [clean_sym]
+        if prompt_type in ('copilot', 'manual') and 'market_symbols' in locals():
+            news_symbols = market_symbols
+        else:
+            news_symbols = event_underlyings(original_user_message) if clean_sym == 'EVENT_BATCH' else [clean_sym]
         news_items = []
-        for news_symbol in news_symbols[:2]:
-            news_items.extend(news_api_search(news_symbol, username, search_lookback_hours, max_results=4, asset_context='crypto' if news_symbol in ('BTC', 'ETH', 'SOL') else asset_context))
+        if search_enabled:
+            for news_symbol in news_symbols[:2]:
+                news_items.extend(news_api_search(news_symbol, username, search_lookback_hours, max_results=4, asset_context='crypto' if news_symbol in ('BTC', 'ETH', 'SOL') else asset_context))
         for item in news_items:
             src = item.get('source', '')
             if src:
@@ -1113,10 +1193,11 @@ def call_ai_with_web_search(
             title_snip = f"{item.get('title', '')} {item.get('snippet', '')}".upper()
             if clean_sym and clean_sym in title_snip:
                 symbol_mentioned = True
-            search_summaries.append(f"- {item.get('title')}: {item.get('snippet')} ({item.get('url')})")
+            published = f" [{item.get('published_at')}]" if item.get('published_at') else ""
+            search_summaries.append(f"- {item.get('title')}{published}: {item.get('snippet')} ({item.get('url')})")
 
         search_error_msg = None
-        for q in search_queries:
+        for q in search_queries if search_enabled else []:
             if not q: continue
             try:
                 res = web_search(q, max_results=2, username=username, freshness=freshness_filter)
@@ -1134,16 +1215,22 @@ def call_ai_with_web_search(
                         title_snip = f"{item.get('title', '')} {item.get('snippet', '')}".upper()
                         if clean_sym and clean_sym in title_snip:
                             symbol_mentioned = True
-                        search_summaries.append(f"- {item.get('title')}: {item.get('snippet')} ({item.get('url')})")
+                        published = f" [{item.get('published_at')}]" if item.get('published_at') else ""
+                        search_summaries.append(f"- {item.get('title')}{published}: {item.get('snippet')} ({item.get('url')})")
             except Exception as e:
                 logger.warning(f"Search failed for query '{q}': {e}")
                 search_error_msg = "Error"
 
         search_details = "\n".join(f"Query: '{q}'" for q in search_queries if q)
-        search_text = f"Exact Search Terms Used:\n{search_details}\n\nResults:\n" + ("\n".join(search_summaries) if search_summaries else "No recent search results found.")
+        if search_enabled:
+            search_text = f"Exact Search Terms Used:\n{search_details}\n\nResults:\n" + ("\n".join(search_summaries) if search_summaries else "No recent search results found.")
+        else:
+            search_text = "External web/news search was disabled by the user's saved setting; no external sources were fetched."
 
         # Compute search status string
-        if search_error_msg and valid_search_results == 0:
+        if not search_enabled:
+            search_status = "Web Search Disabled"
+        elif search_error_msg and valid_search_results == 0:
             search_status = f"Error ({search_error_msg})"
         elif any('NewsAPI' in s for s in search_sources):
             supplemental = ' + web search' if any(('Brave' in s or 'DuckDuckGo' in s or 'Google News' in s) for s in search_sources) else ''
@@ -1205,7 +1292,8 @@ def call_ai_with_web_search(
             {"role": "user", "content": stage3_user_msg}
         ]
 
-        final_content = _execute_ai_call(stage3_messages, p_max_tokens=max_tokens)
+        final_value = _execute_ai_call(stage3_messages, p_max_tokens=max_tokens)
+        final_content = complete_copilot_text(final_value) if prompt_type in ('copilot', 'manual') else final_value
         failover_history.append({
             'tier': current_tier_name,
             'provider': provider,
@@ -1291,6 +1379,7 @@ def call_ai_with_web_search(
                     custom_tier_configs=custom_tier_configs,
                     custom_api_keys=custom_api_keys,
                     request_guard=request_guard,
+                    deadline_monotonic=deadline_monotonic,
                 )
         
         # All tiers exhausted
@@ -1331,7 +1420,9 @@ def record_sentiment_history(user_id, symbol, sentiment, sentiment_reason, price
         db.session.rollback()
 
 
-def log_ai_conversation(user_id, prompt_type, sender, body, conversation_id=None, symbol=None, coin_id=None, provider=None, model=None, tier=None):
+def log_ai_conversation(user_id, prompt_type, sender, body, conversation_id=None, symbol=None,
+                        coin_id=None, provider=None, model=None, tier=None,
+                        client_request_id=None):
     """Persist an AI message, optionally attaching it to a chat/workflow ID."""
     try:
         now = datetime.utcnow()
@@ -1347,7 +1438,8 @@ def log_ai_conversation(user_id, prompt_type, sender, body, conversation_id=None
             created_at=now,
             provider=provider,
             model=model,
-            tier=tier
+            tier=tier,
+            client_request_id=client_request_id,
         )
         db.session.add(conv)
         db.session.commit()

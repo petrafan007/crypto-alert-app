@@ -35,7 +35,9 @@ from services.external_signal_service import signal_to_dict
 from services.webull_signal_service import create_webull_signal
 from services.portfolio_service import get_comprehensive_crypto_data_for_user
 from services.copilot_context import (
-    is_general_market_question,
+    bounded_copilot_text,
+    copilot_market_price_evidence,
+    copilot_question_scope,
     build_admin_quant_copilot_snapshot,
     build_webull_copilot_snapshot,
     copilot_context_json,
@@ -2044,38 +2046,53 @@ def _extract_copilot_session_title(response_text):
     return title or None, text[match.end():].lstrip()
 
 
-def _build_copilot_history_context(user_id, session_id, message, include_all_sessions=False):
+def _build_copilot_history_context(user_id, session_id, message, include_all_sessions=False,
+                                   exclude_message_id=None):
     """Build bounded, user-only history.  Current database state is supplied separately."""
     query = AIConversation.query.filter(
         AIConversation.user_id == user_id,
         AIConversation.prompt_type == 'manual',
         db.or_(AIConversation.is_hidden == 0, AIConversation.is_hidden.is_(None)),
     )
-    if include_all_sessions:
-        query = query.filter(AIConversation.conversation_id != session_id)
-        words = [word for word in re.findall(r'[A-Za-z0-9]{3,}', message or '')[:8]]
-        if words:
-            query = query.filter(db.or_(*[AIConversation.body.ilike(f'%{word}%') for word in words]))
-        records = query.order_by(AIConversation.id.desc()).limit(24).all()
-        records.reverse()
-        label = 'EXPLICITLY REQUESTED PAST COPILOT HISTORY (user-owned sessions only)'
-    else:
-        query = query.filter(AIConversation.conversation_id == session_id)
-        records = query.order_by(AIConversation.id.desc()).limit(30).all()
-        records.reverse()
-        label = 'CURRENT ISOLATED COPILOT SESSION'
+    if exclude_message_id:
+        query = query.filter(AIConversation.id != exclude_message_id)
+    current_query = query.filter(AIConversation.conversation_id == session_id)
+    current_total = current_query.count()
+    current_records = current_query.order_by(AIConversation.id.desc()).limit(30).all()
+    current_records.reverse()
 
-    lines = []
-    for record in records:
-        body = (record.body or '').strip()
-        if not body:
-            continue
-        role = 'User' if (record.sender or '').lower() == 'user' else 'AI Copilot'
-        snippet_limit = 1500 if role == 'AI Copilot' else 1000
-        snippet = body[:snippet_limit] + ('...' if len(body) > snippet_limit else '')
-        lines.append(f'{role}: {snippet}')
+    def render(records):
+        lines = []
+        for record in records:
+            body = (record.body or '').strip()
+            if not body:
+                continue
+            role = 'User' if (record.sender or '').lower() == 'user' else 'AI Copilot'
+            snippet_limit = 3000 if role == 'AI Copilot' else 1500
+            snippet = body[:snippet_limit] + ('...' if len(body) > snippet_limit else '')
+            lines.append(f'{role}: {snippet}')
+        return '\n\n'.join(lines) if lines else 'No earlier messages in this scope.'
 
-    return label, '\n\n'.join(lines) if lines else 'No earlier messages in this scope.'
+    current_text = render(current_records)
+    if current_total > len(current_records):
+        current_text += f'\n\n[{current_total - len(current_records)} older current-session messages omitted.]'
+    if not include_all_sessions:
+        return 'CURRENT ISOLATED COPILOT SESSION', current_text
+
+    past_query = query.filter(AIConversation.conversation_id != session_id)
+    words = list(dict.fromkeys(
+        word for word in re.findall(r'[A-Za-z0-9]{3,}', message or '')[:12]
+    ))
+    if words:
+        past_query = past_query.filter(db.or_(*[AIConversation.body.ilike(f'%{word}%') for word in words]))
+    past_total = past_query.count()
+    past_records = past_query.order_by(AIConversation.id.desc()).limit(24).all()
+    past_records.reverse()
+    past_text = render(past_records)
+    if past_total > len(past_records):
+        past_text += f'\n\n[{past_total - len(past_records)} additional matching past-chat messages omitted.]'
+    label = 'CURRENT SESSION PLUS EXPLICITLY REQUESTED PAST COPILOT HISTORY'
+    return label, f'CURRENT SESSION:\n{current_text}\n\nRELATED PAST CHATS:\n{past_text}'
 
 
 def get_ai_conversations(user_id, limit=20, offset=0, search_term=None, include_hidden=False, filter_sentiment=True, prompt_type_filter=None, conversation_id=None):
@@ -2245,15 +2262,31 @@ def api_ai_copilot_sessions():
         return jsonify({'error': 'Unable to load Copilot sessions'}), 500
 
 
-def process_ai_conversation(user_id, message, conversation_id=None, include_all_sessions=False):
+class CopilotRequestInProgress(RuntimeError):
+    """Raised when a retry reaches a request that another worker already claimed."""
+
+
+def process_ai_conversation(user_id, message, conversation_id=None, include_all_sessions=False,
+                            request_id=None):
     """Respond using one isolated Copilot session plus a fresh user-only account snapshot."""
     from models import Coin, WatchlistCoin, AIConversation
     from credentials import User
     from core.extensions import db
     import re
+
+    def optional_float(value):
+        try:
+            return float(value) if value is not None else None
+        except (TypeError, ValueError):
+            return None
+
+    def money(value, decimals=2):
+        return f"${value:,.{decimals}f}" if value is not None else "unavailable"
     
     user = db.session.get(User, user_id)
-    username = user.username if user else 'admin'
+    if not user:
+        raise ValueError('Copilot user not found')
+    username = user.username
 
     session = _get_owned_copilot_session(user_id, conversation_id)
     if conversation_id and not session:
@@ -2261,22 +2294,38 @@ def process_ai_conversation(user_id, message, conversation_id=None, include_all_
     if not session:
         session = _create_copilot_session(user_id)
     conversation_id = session.id
-    is_first_message = not AIConversation.query.filter_by(
-        user_id=user_id,
-        prompt_type='manual',
-        conversation_id=conversation_id,
-    ).first()
+    prior_records = AIConversation.query.filter(
+        AIConversation.user_id == user_id,
+        AIConversation.prompt_type == 'manual',
+        AIConversation.conversation_id == conversation_id,
+        AIConversation.sender == 'user',
+        db.or_(AIConversation.is_hidden == 0, AIConversation.is_hidden.is_(None)),
+    ).order_by(AIConversation.id.desc()).limit(8).all()
+    is_first_message = not prior_records
+    prior_user_messages = [record.body for record in reversed(prior_records) if record.body]
     
     # Log user message immediately so conversation history is never lost
+    user_message_id = None
+    ai_message_id = None
     try:
-        log_ai_conversation(
+        user_message_id = log_ai_conversation(
             user_id, "manual", "user", message,
             conversation_id=conversation_id,
+            client_request_id=request_id,
         )
     except Exception as log_err:
         logger.error(f"Error logging initial Copilot user message: {log_err}")
+    if not user_message_id:
+        if request_id and AIConversation.query.filter_by(
+            user_id=user_id,
+            prompt_type='manual',
+            sender='user',
+            client_request_id=request_id,
+        ).first():
+            raise CopilotRequestInProgress('This Copilot request is already processing.')
+        raise RuntimeError('Unable to persist the Copilot request.')
     
-    market_only = is_general_market_question(message)
+    market_only = copilot_question_scope(message, prior_user_messages) == 'market'
     coins, wl_coins, webull_holdings, active_real, completed_activities = [], [], [], [], []
     webull_snapshot, oco_groups = {}, {}
     if not market_only:
@@ -2289,22 +2338,28 @@ def process_ai_conversation(user_id, message, conversation_id=None, include_all_
         for c in coins:
             if is_stablecoin(c.symbol):
                 continue
-            price = float(getattr(c, 'current_price', None) or getattr(c, 'current', None) or getattr(c, 'initial_price', 0) or 0)
+            price = optional_float(
+                getattr(c, 'current_price', None)
+                if getattr(c, 'current_price', None) is not None
+                else getattr(c, 'current', None)
+            )
             amt = float(c.amount or 0)
             if amt <= 0.00000001:
                 continue
-            val = amt * price
-            total_crypto_value += val
+            val = amt * price if price is not None else None
+            if val is not None:
+                total_crypto_value += val
             avg_entry = float(c.avg_entry or 0)
             pnl_str = ""
-            if avg_entry > 0 and price > 0:
+            if avg_entry > 0 and price is not None and price > 0:
                 pnl_pct = ((price - avg_entry) / avg_entry) * 100
                 pnl_usd = (price - avg_entry) * amt
                 pnl_str = f", Unrealized PnL: {'+' if pnl_usd >= 0 else ''}${pnl_usd:.2f} ({'+' if pnl_pct >= 0 else ''}{pnl_pct:.2f}%)"
             sent = getattr(c, 'sentiment', None) or 'None'
             reason = getattr(c, 'sentiment_reason', None) or ''
             reason_snippet = f" (Sentiment Note: {reason[:120]}...)" if reason else ""
-            crypto_lines.append(f"- {c.symbol}: {amt:g} tokens @ ${price:,.4f} (Total Value: ${val:,.2f}, Avg Entry: ${avg_entry:,.4f}{pnl_str}, Sentiment: {sent}{reason_snippet})")
+            updated = getattr(c, 'updated_at', None)
+            crypto_lines.append(f"- {c.symbol}: {amt:g} tokens @ {money(price, 4)} (Total Value: {money(val)}, Avg Entry: ${avg_entry:,.4f}{pnl_str}, Sentiment: {sent}{reason_snippet}, Stored At: {updated.isoformat() + 'Z' if updated else 'unavailable'})")
 
         cash_lines = []
         total_cash_value = 0.0
@@ -2323,16 +2378,20 @@ def process_ai_conversation(user_id, message, conversation_id=None, include_all_
         total_webull_value = 0.0
         for w in webull_holdings:
             itype = (w.instrument_type or 'EQUITY').upper()
-            qty = float(w.quantity or 0)
-            last_p = float(w.last_price or 0)
-            val = float(w.current_value or (qty * last_p))
-            cost_p = float(w.cost_price or 0)
-            unrealized = float(w.unrealized_profit_loss or 0)
-            total_webull_value += val
+            qty = optional_float(w.quantity)
+            last_p = optional_float(w.last_price)
+            val = optional_float(w.current_value)
+            if val is None and qty is not None and last_p is not None:
+                val = qty * last_p
+            cost_p = optional_float(w.cost_price)
+            unrealized = optional_float(w.unrealized_profit_loss)
+            if val is not None:
+                total_webull_value += val
             extra_info = ""
             if itype == 'OPTION' and w.option_strike:
                 extra_info = f" [Option: {w.underlying_symbol or w.symbol} {w.option_type or ''} Strike ${float(w.option_strike):.2f}, Exp: {w.option_expiration}]"
-            webull_lines.append(f"- {w.symbol} ({itype}): {qty:g} units @ ${last_p:,.2f} (Value: ${val:,.2f}, Cost Basis: ${cost_p:,.2f}, Unrealized PnL: {'+' if unrealized >= 0 else ''}${unrealized:,.2f}){extra_info}")
+            unrealized_text = (f"{'+' if unrealized >= 0 else ''}${unrealized:,.2f}" if unrealized is not None else "unavailable")
+            webull_lines.append(f"- {w.symbol} ({itype}): {qty if qty is not None else 'unavailable'} units @ {money(last_p)} (Value: {money(val)}, Cost Basis: {money(cost_p)}, Unrealized PnL: {unrealized_text}, Synced At: {w.synced_at.isoformat() + 'Z' if w.synced_at else 'unavailable'}){extra_info}")
 
         total_net_worth = total_crypto_value + total_cash_value + total_webull_value
         holdings_text = (
@@ -2472,17 +2531,21 @@ def process_ai_conversation(user_id, message, conversation_id=None, include_all_
         conversation_id,
         message,
         include_all_sessions=include_all_sessions,
+        exclude_message_id=user_message_id,
     )
     session_records = AIConversation.query.filter(
         AIConversation.user_id == user_id,
         AIConversation.prompt_type == 'manual',
         AIConversation.conversation_id == conversation_id,
+        AIConversation.id != user_message_id if user_message_id else db.true(),
+        db.or_(AIConversation.is_hidden == 0, AIConversation.is_hidden.is_(None)),
     ).order_by(AIConversation.id.desc()).limit(30).all()
     session_records.reverse()
 
     # 6. Intelligent Symbol & Intent Resolution
     upper_msg = message.upper()
-    words = set(re.findall(r'[A-Za-z0-9]+', upper_msg))
+    ordered_words = re.findall(r'[A-Za-z0-9]+', upper_msg)
+    words = set(ordered_words)
 
     crypto_aliases = {
         'BITCOIN': 'BTC', 'BTC': 'BTC',
@@ -2525,13 +2588,17 @@ def process_ai_conversation(user_id, message, conversation_id=None, include_all_
     all_candidate_symbols = set(portfolio_symbols + wl_symbols + list(crypto_aliases.keys()) + list(webull_aliases.keys()))
 
     mentioned_symbols = []
-    for word in words:
+    for word in ordered_words:
         if word in crypto_aliases:
-            mentioned_symbols.append(crypto_aliases[word])
+            candidate = crypto_aliases[word]
         elif word in webull_aliases:
-            mentioned_symbols.append(webull_aliases[word])
+            candidate = webull_aliases[word]
         elif word in all_candidate_symbols:
-            mentioned_symbols.append(word)
+            candidate = word
+        else:
+            continue
+        if candidate not in mentioned_symbols:
+            mentioned_symbols.append(candidate)
 
     target_symbol = None
     if mentioned_symbols:
@@ -2550,7 +2617,7 @@ def process_ai_conversation(user_id, message, conversation_id=None, include_all_
         if not target_symbol and session_records:
             for prev in reversed(session_records):
                 prev_text = f"{prev.body or ''}".upper()
-                prev_words = set(re.findall(r'[A-Za-z0-9]+', prev_text))
+                prev_words = re.findall(r'[A-Za-z0-9]+', prev_text)
                 for pw in prev_words:
                     if pw in crypto_aliases:
                         target_symbol = crypto_aliases[pw]
@@ -2569,8 +2636,11 @@ def process_ai_conversation(user_id, message, conversation_id=None, include_all_
     if target_symbol and target_symbol != 'PORTFOLIO':
         target_coin = next((c for c in coins if c.symbol.upper() == target_symbol), None)
         if target_coin:
-            p = float(getattr(target_coin, 'current_price', None) or getattr(target_coin, 'current', None) or getattr(target_coin, 'initial_price', 0) or 0)
-            symbol_details.append(f"• Portfolio Crypto Holding: {target_coin.symbol} (Balance: {float(target_coin.amount or 0):g} tokens @ ${p:,.4f}, Avg Entry: ${float(target_coin.avg_entry or 0):,.4f}, Sentiment: {getattr(target_coin, 'sentiment', 'None')})")
+            p = optional_float(getattr(target_coin, 'current_price', None))
+            if p is None:
+                p = optional_float(getattr(target_coin, 'current', None))
+            updated = getattr(target_coin, 'updated_at', None)
+            symbol_details.append(f"• Portfolio Crypto Holding: {target_coin.symbol} (Balance: {float(target_coin.amount or 0):g} tokens @ {money(p, 4)}, Avg Entry: ${float(target_coin.avg_entry or 0):,.4f}, Sentiment: {getattr(target_coin, 'sentiment', 'None')}, Stored At: {updated.isoformat() + 'Z' if updated else 'unavailable'})")
 
         target_wl = next((w for w in wl_coins if w.symbol.upper() == target_symbol), None)
         if target_wl:
@@ -2579,7 +2649,7 @@ def process_ai_conversation(user_id, message, conversation_id=None, include_all_
 
         target_webull = [w for w in webull_holdings if w.symbol.upper() == target_symbol]
         for tw in target_webull:
-            symbol_details.append(f"• Webull Position: {tw.symbol} ({tw.instrument_type}) {float(tw.quantity or 0):g} units @ ${float(tw.last_price or 0):,.2f} (Value: ${float(tw.current_value or 0):,.2f}, Unrealized PnL: ${float(tw.unrealized_profit_loss or 0):,.2f})")
+            symbol_details.append(f"• Webull Position: {tw.symbol} ({tw.instrument_type}) {tw.quantity if tw.quantity is not None else 'unavailable'} units @ {money(optional_float(tw.last_price))} (Value: {money(optional_float(tw.current_value))}, Unrealized PnL: {money(optional_float(tw.unrealized_profit_loss))}, Synced At: {tw.synced_at.isoformat() + 'Z' if tw.synced_at else 'unavailable'})")
 
         matching_orders = [o for o in active_real if o.symbol.startswith(target_symbol)]
         if matching_orders:
@@ -2621,15 +2691,33 @@ def process_ai_conversation(user_id, message, conversation_id=None, include_all_
             )
 
     if market_only:
+        market_symbols = mentioned_symbols or ([target_symbol] if target_symbol != 'PORTFOLIO' else [])
+        try:
+            price_evidence = copilot_market_price_evidence(market_symbols, message)
+        except Exception as price_error:
+            logger.warning("Unable to load stored market-price evidence for Copilot: %s", type(price_error).__name__)
+            price_evidence = [{'status': 'unavailable', 'reason': type(price_error).__name__}]
         context_payload = (
             f"USER QUESTION / PROMPT:\n{message}\n\n"
-            f"=== GENERAL MARKET QUESTION ({target_symbol}) ===\n"
+            f"=== GENERAL MARKET QUESTION ({', '.join(market_symbols) or target_symbol}) ===\n"
             "Explain the asset's market behavior over the requested period using dated external evidence. "
             "Verify the question's factual premises, including rate decisions and percentage changes. "
             "Personal holdings and executions are intentionally excluded because they do not explain market prices.\n\n"
+            "=== STORED MARKET-PRICE EVIDENCE ===\n"
+            f"{copilot_context_json(price_evidence)}\n\n"
             f"=== {history_label} (Historical conversation only) ===\n{sidebar_feed_text}\n"
         )
     else:
+        # Bound every section independently so a large provider snapshot cannot
+        # crowd the current question or chat history out of the final prompt.
+        symbol_context_text = bounded_copilot_text(symbol_context_text, 6_000, 'Focused symbol context')
+        pending_orders_text = bounded_copilot_text(pending_orders_text, 10_000, 'Pending orders')
+        holdings_text = bounded_copilot_text(holdings_text, 16_000, 'Portfolio holdings')
+        watchlist_text = bounded_copilot_text(watchlist_text, 10_000, 'Watchlist telemetry')
+        webull_context_text = bounded_copilot_text(webull_context_text, 18_000, 'Webull context')
+        activity_text = bounded_copilot_text(activity_text, 10_000, 'Activity ledger')
+        quant_strategy_context = bounded_copilot_text(quant_strategy_context, 24_000, 'Quantitative strategy context')
+        sidebar_feed_text = bounded_copilot_text(sidebar_feed_text, 14_000, 'Copilot history')
         # Build complete context payload for AI
         context_payload = (
             f"USER QUESTION / PROMPT:\n{message}\n\n"
@@ -2654,6 +2742,8 @@ def process_ai_conversation(user_id, message, conversation_id=None, include_all_
             f"{sidebar_feed_text}\n\n"
         )
 
+    context_payload = bounded_copilot_text(context_payload, 120_000, 'Copilot request context')
+
     copilot_messages = [
         {"role": "user", "content": context_payload}
     ]
@@ -2677,32 +2767,9 @@ def process_ai_conversation(user_id, message, conversation_id=None, include_all_
             ai_content = str(response)
 
         if is_first_message:
-            try:
-                title_prompt_sys = getattr(current_user.settings, 'copilot_title_prompt', None)
-                if not title_prompt_sys:
-                    title_prompt_sys = "You are an AI tasked with generating a concise 3-8 word title for this chat based on the user's first message. Respond ONLY with the title and nothing else, no quotes, no formatting."
-                
-                title_msgs = [
-                    {"role": "system", "content": title_prompt_sys},
-                    {"role": "user", "content": f"User message to summarize into a title: {message}"}
-                ]
-                title_resp, _ = call_ai_with_web_search(
-                    username=username,
-                    messages=title_msgs,
-                    user_id=user_id,
-                    prompt_type='copilot',
-                    symbol=target_symbol,
-                    model=None
-                )
-                if hasattr(title_resp, 'choices') and title_resp.choices:
-                    session.title = title_resp.choices[0].message.content.strip(' "\'.')
-                elif hasattr(title_resp, 'text'):
-                    session.title = title_resp.text.strip(' "\'.')
-                else:
-                    session.title = str(title_resp).strip(' "\'.')
-            except Exception as e:
-                logger.warning(f"Background title generation failed: {e}")
-                session.title = _fallback_copilot_session_title(message)
+            # Titles are deterministic metadata. They must not consume a second
+            # provider/search request or make a successful answer look failed.
+            session.title = _fallback_copilot_session_title(message)
 
         session.updated_at = datetime.utcnow()
         db.session.commit()
@@ -2726,18 +2793,22 @@ def process_ai_conversation(user_id, message, conversation_id=None, include_all_
 
     # Log AI response in database
     try:
-        log_ai_conversation(
+        ai_message_id = log_ai_conversation(
             user_id, "manual", "ai", ai_content,
             conversation_id=conversation_id,
             symbol=target_symbol,
             provider=resp_provider,
             model=resp_model,
             tier=resp_tier,
+            client_request_id=request_id,
         )
     except Exception as log_err:
         logger.error(f"Error logging Copilot AI response: {log_err}")
     
-    return ai_content, conversation_id, resp_tier, resp_provider, resp_model, _serialize_copilot_session(session)
+    return (
+        ai_content, conversation_id, resp_tier, resp_provider, resp_model,
+        _serialize_copilot_session(session), user_message_id, ai_message_id,
+    )
 
 
 @ai_bp.route('/api/ai/conversation', methods=['POST'])
@@ -2747,21 +2818,82 @@ def api_ai_conversation():
     """Process user message and get AI response"""
     conversation_id = None
     try:
-        data = request.get_json() or {}
+        data = request.get_json(silent=True) or {}
         message = data.get('message', '').strip()
         conversation_id = data.get('conversation_id', None)
         include_all_sessions = data.get('include_all_sessions', False) is True
+        request_id = str(data.get('request_id') or '').strip()
         
         if not message:
             return jsonify({'error': 'Message is required'}), 400
+        if not is_ai_enabled(current_user.username):
+            return jsonify({'error': 'AI is disabled. Enable AI in Settings to use Copilot.'}), 403
+        if request_id and not re.fullmatch(r'[A-Za-z0-9_-]{8,100}', request_id):
+            return jsonify({'error': 'Invalid Copilot request ID'}), 400
+
+        if request_id and conversation_id:
+            owned_session = _get_owned_copilot_session(current_user.id, conversation_id)
+            if not owned_session:
+                return jsonify({'error': 'Copilot session not found'}), 404
+            existing_user = AIConversation.query.filter_by(
+                user_id=current_user.id,
+                conversation_id=conversation_id,
+                prompt_type='manual',
+                sender='user',
+                client_request_id=request_id,
+            ).first()
+            if existing_user:
+                existing_ai = AIConversation.query.filter_by(
+                    user_id=current_user.id,
+                    conversation_id=conversation_id,
+                    prompt_type='manual',
+                    sender='ai',
+                    client_request_id=request_id,
+                ).first()
+                if not existing_ai:
+                    return jsonify({
+                        'error': 'This Copilot request is still processing.',
+                        'conversation_id': conversation_id,
+                        'request_id': request_id,
+                    }), 409
+                replay_session = _serialize_copilot_session(owned_session)
+                replay_session['message_count'] = AIConversation.query.filter_by(
+                    user_id=current_user.id,
+                    conversation_id=conversation_id,
+                    prompt_type='manual',
+                ).count()
+                return jsonify({
+                    'response': existing_ai.body,
+                    'conversation_id': conversation_id,
+                    'tier': existing_ai.tier,
+                    'provider': existing_ai.provider,
+                    'model': existing_ai.model,
+                    'session': replay_session,
+                    'user_message_id': existing_user.id,
+                    'ai_message_id': existing_ai.id,
+                    'request_id': request_id,
+                    'created_at': format_iso_utc(existing_ai.created_at),
+                    'user_created_at': format_iso_utc(existing_user.created_at),
+                    'ai_created_at': format_iso_utc(existing_ai.created_at),
+                    'replayed': True,
+                })
         
         # Process the conversation
-        ai_response, conversation_id, resp_tier, resp_provider, resp_model, session = process_ai_conversation(
+        (ai_response, conversation_id, resp_tier, resp_provider, resp_model,
+         session, user_message_id, ai_message_id) = process_ai_conversation(
             current_user.id,
             message,
             conversation_id,
             include_all_sessions=include_all_sessions,
+            request_id=request_id or None,
         )
+        persisted_user = db.session.get(AIConversation, user_message_id) if user_message_id else None
+        persisted_ai = db.session.get(AIConversation, ai_message_id) if ai_message_id else None
+        session['message_count'] = AIConversation.query.filter_by(
+            user_id=current_user.id,
+            conversation_id=conversation_id,
+            prompt_type='manual',
+        ).count()
         
         return jsonify({
             'response': ai_response,
@@ -2770,14 +2902,27 @@ def api_ai_conversation():
             'provider': resp_provider,
             'model': resp_model,
             'session': session,
-            'created_at': format_iso_utc(datetime.now(timezone.utc)),
+            'user_message_id': user_message_id,
+            'ai_message_id': ai_message_id,
+            'request_id': request_id or None,
+            'user_created_at': format_iso_utc(persisted_user.created_at) if persisted_user else None,
+            'ai_created_at': format_iso_utc(persisted_ai.created_at) if persisted_ai else None,
+            'created_at': format_iso_utc(persisted_ai.created_at) if persisted_ai else format_iso_utc(datetime.now(timezone.utc)),
         })
+    except CopilotRequestInProgress as exc:
+        return jsonify({
+            'error': str(exc),
+            'conversation_id': conversation_id,
+            'request_id': request_id or None,
+        }), 409
     except ValueError as exc:
         return jsonify({'error': str(exc)}), 404
     except Exception as e:
         logger.error(f"Error processing AI conversation: {e}", exc_info=True)
-        err_msg = str(e)
-        return jsonify({'error': err_msg, 'conversation_id': conversation_id}), 500
+        return jsonify({
+            'error': 'AI Copilot is temporarily unavailable. Please try again.',
+            'conversation_id': conversation_id,
+        }), 500
 
 
 @ai_bp.route('/api/ai/conversations/<int:message_id>', methods=['DELETE'])
