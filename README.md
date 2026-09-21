@@ -1,8 +1,13 @@
 # Crypto & Securities Dashboard
 
-**Version:** 3.5.4
+**Version:** 3.5.5
 
 ## Recent Updates
+
+### v3.5.5
+- **Question relevance:** Explicit general-market questions skip personal account/trade lookups. Market searches retain the actual question and requested day/week/month window; mandatory instructions verify market premises and separate market explanations from portfolio advice.
+- **AI Copilot:** Fix symbol-specific chats failing when a recent execution has no realized profit/loss. Purchases are labeled as having no applicable realized P&L, holding gains are explicitly unrealized, and sale profits/losses remain intact.
+- **Verification:** Regression coverage exercises the full conversation path with missing and numeric P&L, using a mocked AI provider.
 
 ### v3.5.4
 - **Credential containment:** Removed a tracked private deployment file. Previously published credentials must be revoked; old Git revisions and downloaded copies are not made safe by this release.

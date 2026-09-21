@@ -332,6 +332,63 @@ class CopilotExpandedContextTests(unittest.TestCase):
         self.assertIn(old_log_id, [row["id"] for row in portfolio["archive_log_matches"]])
         self.assertTrue(portfolio["log_window"]["archive_search_performed"])
 
+    def test_general_market_question_excludes_account_context_and_uses_timeframe(self):
+        from services.copilot_context import copilot_market_search, is_general_market_question
+        question = "how is it that bitcoin is up almost 10% in the past 10 days even though the fed increase interest rates and inflation is still higher than they want?"
+        self.assertTrue(is_general_market_question(question))
+        self.assertFalse(is_general_market_question("How does inflation affect my BTC holdings?"))
+        self.assertFalse(is_general_market_question("What about that?"))
+        with patch("routes.ai.call_ai_with_web_search") as provider, \
+             patch("routes.ai.build_webull_copilot_snapshot", side_effect=AssertionError("Account lookup for market question")), \
+             patch("routes.ai.build_admin_quant_copilot_snapshot", side_effect=AssertionError("Quant lookup for market question")):
+            provider.return_value = (SimpleNamespace(
+                text="Market explanation.", tier="primary", provider="test", model="test-model",
+            ), "")
+            result = process_ai_conversation(self.member.id, question)
+        self.assertEqual(result[0], "Market explanation.")
+        prompt = provider.call_args.kwargs['messages'][0]['content']
+        self.assertIn('GENERAL MARKET QUESTION (BTC)', prompt)
+        self.assertNotIn('LIVE USER DATABASE SNAPSHOT', prompt)
+        self.assertNotIn('RECENT COMPLETED TRANSACTIONS', prompt)
+        query, freshness = copilot_market_search(prompt, 'BTC')
+        self.assertIn('inflation', query)
+        self.assertIn('past 10 days', query)
+        self.assertNotIn('Historical conversation', query)
+        self.assertEqual(freshness, 'pm')
+
+    def test_focused_crypto_chat_handles_missing_and_numeric_realized_pnl(self):
+        trade = AllActivity(
+            user_id=self.member.id, date=datetime.now(), type="BUY",
+            asset="BTC", amount=0.01, avg_entry=80000, status="FILLED",
+            gain_loss=None,
+        )
+        db.session.add(trade)
+        db.session.commit()
+        cases = (
+            ("BUY", None, "not applicable (purchase; no realized profit/loss)"),
+            ("BUY", 0, "not applicable (purchase; no realized profit/loss)"),
+            ("SELL", None, "unavailable (not recorded)"),
+            ("SELL", 0, "+$0.00"), ("SELL", 12.5, "+$12.50"),
+            ("SELL", -4.25, "$-4.25"),
+        )
+        for side, value, expected in cases:
+            with self.subTest(side=side, gain_loss=value):
+                trade.type = side
+                trade.gain_loss = value
+                db.session.commit()
+                with patch("routes.ai.call_ai_with_web_search") as provider:
+                    provider.return_value = (SimpleNamespace(
+                        text="Context received.", tier="primary",
+                        provider="test", model="test-model",
+                    ), "")
+                    result = process_ai_conversation(
+                        self.member.id, "Review my bitcoin trades and holdings"
+                    )
+                self.assertEqual(result[0], "Context received.")
+                prompt = provider.call_args.kwargs["messages"][0]["content"]
+                self.assertIn(f"Recent Execution: {side}", prompt)
+                self.assertIn(f"(Realized PnL: {expected})", prompt)
+
     def test_copilot_request_injects_quant_context_for_admin_only(self):
         db.session.add(PortfolioStrategyConfig(
             user_id=self.admin.id,

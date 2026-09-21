@@ -27,7 +27,7 @@ from services.portfolio_audit_context import (
     AUDIT_END, AUDIT_TOKEN_LIMITS, CompletionText, IncompleteAuditError, complete_audit_text, check_drawdown_claim,
 )
 from services.ai_provider_protocol import AIProviderHTTPError, call_gemini_chat, safe_provider_error
-from services.copilot_context import COPILOT_CONTEXT_INTEGRITY_RULES
+from services.copilot_context import COPILOT_CONTEXT_INTEGRITY_RULES, copilot_market_search
 from services.provider_resilience import AIRequestDeferred, AuditCancelled
 
 logger = logging.getLogger(__name__)
@@ -1092,6 +1092,10 @@ def call_ai_with_web_search(
         elif "this year" in lower_msg or "past year" in lower_msg or "last year" in lower_msg:
             freshness_filter = "py"
             
+        if prompt_type in ['copilot', 'manual'] and '=== GENERAL MARKET QUESTION (' in original_user_message:
+            market_query, freshness_filter = copilot_market_search(original_user_message, symbol_value)
+            search_queries = [market_query]
+
         valid_search_results = 0
         symbol_mentioned = False
         clean_sym = (symbol_value or '').upper()

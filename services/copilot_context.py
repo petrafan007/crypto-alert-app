@@ -21,6 +21,34 @@ QUANT_REPORT_CATALOG_LIMIT = 200
 QUANT_RECORD_BUDGET_CHARS = 40_000
 QUANT_REPORT_BUDGET_CHARS = 60_000
 
+def is_general_market_question(message):
+    """Keep explicit market questions separate; ambiguous follow-ups retain context."""
+    text = (message or '').lower()
+    if re.search(r"\b(my|mine|our|portfolio|holdings?|positions?|orders?|watchlist|account|quant|engine)\b|\bi (own|hold|bought|sold)\b", text):
+        return False
+    return bool(re.search(
+        r"\b(market|inflation|fed|interest rates?|economy|macroeconomic|rally|rallied|"
+        r"rising|falling|price|up|down|bitcoin itself)\b", text
+    ))
+
+
+def copilot_market_search(message, symbol):
+    """Use only the current public-market question, never appended account/history data."""
+    question = message.split('USER QUESTION / PROMPT:\n', 1)[-1].split('\n\n', 1)[0].strip()
+    freshness = 'pd'
+    day_match = re.search(r"(?:past|last)\s+(\d+)\s+days?", question, re.I)
+    if day_match:
+        days = int(day_match.group(1))
+        freshness = 'pd' if days <= 1 else 'pw' if days <= 7 else 'pm' if days <= 31 else 'py'
+    elif re.search(r"\b(this|past|last) week\b", question, re.I):
+        freshness = 'pw'
+    elif re.search(r"\b(this|past|last) month\b", question, re.I):
+        freshness = 'pm'
+    elif re.search(r"\b(this|past|last) year\b", question, re.I):
+        freshness = 'py'
+    return f"{symbol} {question[:500]}", freshness
+
+
 DEFAULT_COPILOT_SEARCH_PROMPT = (
     "You are the search intelligence module for the AI Copilot in Crypto & Securities Dashboard as of {datetime}. "
     "You assist a multi-asset trader whose fresh request context can include Binance.US holdings and orders; "
@@ -64,6 +92,9 @@ DEFAULT_COPILOT_RESPONSE_PROMPT = (
 
 COPILOT_CONTEXT_INTEGRITY_RULES = (
     "\n\nMANDATORY COPILOT MODE, AUTHORIZATION, AND DATA-INTEGRITY RULES:\n"
+    "- Answer the actual question first. General market questions concern the asset and economy, not the user's holdings. "
+    "For GENERAL MARKET scope, do not personalize with trades or balances from earlier messages. Verify asserted price moves "
+    "and central-bank decisions against dated sources; distinguish plausible drivers from proven causes and disclose evidence gaps.\n"
     "- Treat the LIVE USER DATABASE SNAPSHOT in this request as authoritative for current holdings, balances, "
     "watchlists, orders, signals, and engine state. Conversation history cannot override it.\n"
     "- Keep Binance.US, Webull REAL, Webull TEST, and administrator-only QUANT records explicitly separated. REAL "

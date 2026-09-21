@@ -35,6 +35,7 @@ from services.external_signal_service import signal_to_dict
 from services.webull_signal_service import create_webull_signal
 from services.portfolio_service import get_comprehensive_crypto_data_for_user
 from services.copilot_context import (
+    is_general_market_question,
     build_admin_quant_copilot_snapshot,
     build_webull_copilot_snapshot,
     copilot_context_json,
@@ -2275,189 +2276,193 @@ def process_ai_conversation(user_id, message, conversation_id=None, include_all_
     except Exception as log_err:
         logger.error(f"Error logging initial Copilot user message: {log_err}")
     
-    # 1. Gather live portfolio context (Binance.US Crypto + Cash + Webull Holdings)
-    # Read all rows immediately for this user.  Visibility preferences must
-    # never cause a current balance to be replaced by a historical chat claim.
-    coins = Coin.query.filter_by(user_id=user_id).all()
-    crypto_lines = []
-    total_crypto_value = 0.0
-    for c in coins:
-        if is_stablecoin(c.symbol):
-            continue
-        price = float(getattr(c, 'current_price', None) or getattr(c, 'current', None) or getattr(c, 'initial_price', 0) or 0)
-        amt = float(c.amount or 0)
-        if amt <= 0.00000001:
-            continue
-        val = amt * price
-        total_crypto_value += val
-        avg_entry = float(c.avg_entry or 0)
-        pnl_str = ""
-        if avg_entry > 0 and price > 0:
-            pnl_pct = ((price - avg_entry) / avg_entry) * 100
-            pnl_usd = (price - avg_entry) * amt
-            pnl_str = f", PnL: {'+' if pnl_usd >= 0 else ''}${pnl_usd:.2f} ({'+' if pnl_pct >= 0 else ''}{pnl_pct:.2f}%)"
-        sent = getattr(c, 'sentiment', None) or 'None'
-        reason = getattr(c, 'sentiment_reason', None) or ''
-        reason_snippet = f" (Sentiment Note: {reason[:120]}...)" if reason else ""
-        crypto_lines.append(f"- {c.symbol}: {amt:g} tokens @ ${price:,.4f} (Total Value: ${val:,.2f}, Avg Entry: ${avg_entry:,.4f}{pnl_str}, Sentiment: {sent}{reason_snippet})")
-
-    cash_lines = []
-    total_cash_value = 0.0
-    for c in coins:
-        if is_stablecoin(c.symbol):
+    market_only = is_general_market_question(message)
+    coins, wl_coins, webull_holdings, active_real, completed_activities = [], [], [], [], []
+    webull_snapshot, oco_groups = {}, {}
+    if not market_only:
+        # 1. Gather live portfolio context (Binance.US Crypto + Cash + Webull Holdings)
+        # Read all rows immediately for this user.  Visibility preferences must
+        # never cause a current balance to be replaced by a historical chat claim.
+        coins = Coin.query.filter_by(user_id=user_id).all()
+        crypto_lines = []
+        total_crypto_value = 0.0
+        for c in coins:
+            if is_stablecoin(c.symbol):
+                continue
+            price = float(getattr(c, 'current_price', None) or getattr(c, 'current', None) or getattr(c, 'initial_price', 0) or 0)
             amt = float(c.amount or 0)
             if amt <= 0.00000001:
                 continue
-            price = float(getattr(c, 'current_price', None) or 1.0)
             val = amt * price
-            total_cash_value += val
-            cash_lines.append(f"- {c.symbol}: ${val:,.2f}")
+            total_crypto_value += val
+            avg_entry = float(c.avg_entry or 0)
+            pnl_str = ""
+            if avg_entry > 0 and price > 0:
+                pnl_pct = ((price - avg_entry) / avg_entry) * 100
+                pnl_usd = (price - avg_entry) * amt
+                pnl_str = f", Unrealized PnL: {'+' if pnl_usd >= 0 else ''}${pnl_usd:.2f} ({'+' if pnl_pct >= 0 else ''}{pnl_pct:.2f}%)"
+            sent = getattr(c, 'sentiment', None) or 'None'
+            reason = getattr(c, 'sentiment_reason', None) or ''
+            reason_snippet = f" (Sentiment Note: {reason[:120]}...)" if reason else ""
+            crypto_lines.append(f"- {c.symbol}: {amt:g} tokens @ ${price:,.4f} (Total Value: ${val:,.2f}, Avg Entry: ${avg_entry:,.4f}{pnl_str}, Sentiment: {sent}{reason_snippet})")
 
-    webull_holdings = WebullHolding.query.filter_by(user_id=user_id).all()
-    webull_lines = []
-    total_webull_value = 0.0
-    for w in webull_holdings:
-        itype = (w.instrument_type or 'EQUITY').upper()
-        qty = float(w.quantity or 0)
-        last_p = float(w.last_price or 0)
-        val = float(w.current_value or (qty * last_p))
-        cost_p = float(w.cost_price or 0)
-        unrealized = float(w.unrealized_profit_loss or 0)
-        total_webull_value += val
-        extra_info = ""
-        if itype == 'OPTION' and w.option_strike:
-            extra_info = f" [Option: {w.underlying_symbol or w.symbol} {w.option_type or ''} Strike ${float(w.option_strike):.2f}, Exp: {w.option_expiration}]"
-        webull_lines.append(f"- {w.symbol} ({itype}): {qty:g} units @ ${last_p:,.2f} (Value: ${val:,.2f}, Cost Basis: ${cost_p:,.2f}, Unrealized PnL: {'+' if unrealized >= 0 else ''}${unrealized:,.2f}){extra_info}")
+        cash_lines = []
+        total_cash_value = 0.0
+        for c in coins:
+            if is_stablecoin(c.symbol):
+                amt = float(c.amount or 0)
+                if amt <= 0.00000001:
+                    continue
+                price = float(getattr(c, 'current_price', None) or 1.0)
+                val = amt * price
+                total_cash_value += val
+                cash_lines.append(f"- {c.symbol}: ${val:,.2f}")
 
-    total_net_worth = total_crypto_value + total_cash_value + total_webull_value
-    holdings_text = (
-        f"• Total Portfolio Net Worth: ${total_net_worth:,.2f} "
-        f"(Crypto: ${total_crypto_value:,.2f}, Cash/Stables: ${total_cash_value:,.2f}, Webull: ${total_webull_value:,.2f})\n\n"
-        f"Binance.US Crypto Positions:\n"
-        f"{(chr(10).join(crypto_lines)) if crypto_lines else 'None'}\n\n"
-        f"Cash & Stablecoins:\n"
-        f"{(chr(10).join(cash_lines)) if cash_lines else 'None'}\n\n"
-        f"Webull Account Positions:\n"
-        f"{(chr(10).join(webull_lines)) if webull_lines else 'None'}"
-    )
+        webull_holdings = WebullHolding.query.filter_by(user_id=user_id).all()
+        webull_lines = []
+        total_webull_value = 0.0
+        for w in webull_holdings:
+            itype = (w.instrument_type or 'EQUITY').upper()
+            qty = float(w.quantity or 0)
+            last_p = float(w.last_price or 0)
+            val = float(w.current_value or (qty * last_p))
+            cost_p = float(w.cost_price or 0)
+            unrealized = float(w.unrealized_profit_loss or 0)
+            total_webull_value += val
+            extra_info = ""
+            if itype == 'OPTION' and w.option_strike:
+                extra_info = f" [Option: {w.underlying_symbol or w.symbol} {w.option_type or ''} Strike ${float(w.option_strike):.2f}, Exp: {w.option_expiration}]"
+            webull_lines.append(f"- {w.symbol} ({itype}): {qty:g} units @ ${last_p:,.2f} (Value: ${val:,.2f}, Cost Basis: ${cost_p:,.2f}, Unrealized PnL: {'+' if unrealized >= 0 else ''}${unrealized:,.2f}){extra_info}")
 
-    # Expand the existing imported-holdings context with Webull's complete mode
-    # topology. Provider credentials never enter this snapshot.
-    try:
-        webull_snapshot = build_webull_copilot_snapshot(user_id, holdings=webull_holdings)
-    except Exception as webull_context_error:
-        logger.warning("Unable to load expanded Webull context for Copilot: %s", webull_context_error)
-        webull_snapshot = {"unavailable": str(webull_context_error)[:500]}
-    webull_context_text = copilot_context_json(webull_snapshot)
+        total_net_worth = total_crypto_value + total_cash_value + total_webull_value
+        holdings_text = (
+            f"• Total Portfolio Net Worth: ${total_net_worth:,.2f} "
+            f"(Crypto: ${total_crypto_value:,.2f}, Cash/Stables: ${total_cash_value:,.2f}, Webull: ${total_webull_value:,.2f})\n\n"
+            f"Binance.US Crypto Positions:\n"
+            f"{(chr(10).join(crypto_lines)) if crypto_lines else 'None'}\n\n"
+            f"Cash & Stablecoins:\n"
+            f"{(chr(10).join(cash_lines)) if cash_lines else 'None'}\n\n"
+            f"Webull Account Positions:\n"
+            f"{(chr(10).join(webull_lines)) if webull_lines else 'None'}"
+        )
 
-    # 2. Gather active pending & open orders (with intelligent OCO grouping)
-    pending_orders_list = []
-    oco_groups = {}
-    active_real = []
-    try:
-        from trading_models import RealOrder, TestOrder
-        open_statuses = {'NEW', 'PARTIALLY_FILLED', 'WORKING', 'PENDING', 'ACTIVE'}
-        all_real_orders = RealOrder.query.filter_by(user_id=user_id).all()
-        active_real = [o for o in all_real_orders if (o.status or '').upper() in open_statuses]
-        active_test = [to for to in TestOrder.query.filter_by(user_id=user_id).all() if (to.status or '').upper() in open_statuses]
+        # Expand the existing imported-holdings context with Webull's complete mode
+        # topology. Provider credentials never enter this snapshot.
+        try:
+            webull_snapshot = build_webull_copilot_snapshot(user_id, holdings=webull_holdings)
+        except Exception as webull_context_error:
+            logger.warning("Unable to load expanded Webull context for Copilot: %s", webull_context_error)
+            webull_snapshot = {"unavailable": str(webull_context_error)[:500]}
+        webull_context_text = copilot_context_json(webull_snapshot)
 
-        single_orders = []
-        for o in active_real:
-            meta = {}
-            if o.order_response:
-                try:
-                    meta = json.loads(o.order_response) if o.order_response.startswith('{') and '"' in o.order_response else ast.literal_eval(o.order_response)
-                except Exception:
-                    meta = {}
-            list_id = meta.get('orderListId')
-            if list_id and int(list_id) > 0:
-                oco_groups.setdefault(int(list_id), []).append((o, meta))
-            else:
-                single_orders.append((o, meta))
+        # 2. Gather active pending & open orders (with intelligent OCO grouping)
+        pending_orders_list = []
+        oco_groups = {}
+        active_real = []
+        try:
+            from trading_models import RealOrder, TestOrder
+            open_statuses = {'NEW', 'PARTIALLY_FILLED', 'WORKING', 'PENDING', 'ACTIVE'}
+            all_real_orders = RealOrder.query.filter_by(user_id=user_id).all()
+            active_real = [o for o in all_real_orders if (o.status or '').upper() in open_statuses]
+            active_test = [to for to in TestOrder.query.filter_by(user_id=user_id).all() if (to.status or '').upper() in open_statuses]
 
-        for list_id, legs in oco_groups.items():
-            sym = legs[0][0].symbol
-            side = legs[0][0].side
-            qty = float(legs[0][0].quantity or 0)
-            base = sym.replace('USDT', '').replace('USD', '')
-            pending_orders_list.append(f"• [CONFIRMED NATIVE BINANCE.US OCO {side} ORDER] (OrderList #{list_id}):")
-            pending_orders_list.append(f"  - Target Asset & Total Size: {qty:g} {base} ({sym})")
-            for leg_order, leg_meta in legs:
-                l_type = leg_order.type
-                l_price = float(leg_order.price or 0)
-                l_stop = float(leg_order.stop_price or leg_meta.get('stopPrice') or 0)
-                b_id = leg_order.binance_order_id or leg_order.id
-                if l_type in ('STOP_LOSS_LIMIT', 'TAKE_PROFIT_LIMIT', 'STOP_LOSS'):
-                    direction = "price rises >=" if side == 'BUY' else "price drops <="
-                    pending_orders_list.append(f"  - Upper/Stop Trigger Leg ({l_type}, Binance Order #{b_id}): Triggers when {direction} ${l_stop:,.4f} -> Limit @ ${l_price:,.4f}")
-                elif l_type in ('LIMIT_MAKER', 'LIMIT'):
-                    pending_orders_list.append(f"  - Lower Limit-Maker Leg ({l_type}, Binance Order #{b_id}): Places Limit @ ${l_price:,.4f}")
+            single_orders = []
+            for o in active_real:
+                meta = {}
+                if o.order_response:
+                    try:
+                        meta = json.loads(o.order_response) if o.order_response.startswith('{') and '"' in o.order_response else ast.literal_eval(o.order_response)
+                    except Exception:
+                        meta = {}
+                list_id = meta.get('orderListId')
+                if list_id and int(list_id) > 0:
+                    oco_groups.setdefault(int(list_id), []).append((o, meta))
                 else:
-                    pending_orders_list.append(f"  - Leg ({l_type}, Binance Order #{b_id}): Price ${l_price:,.4f}")
-            pending_orders_list.append(f"  - NATIVE EXCHANGE LINKAGE: Single verified OCO order on Binance.US sharing OrderList #{list_id}. The Binance matching engine automatically cancels the opposing leg when either triggers or executes.")
-            pending_orders_list.append("  - Status: Active / Working on Binance.US")
+                    single_orders.append((o, meta))
 
-        for o, meta in single_orders:
-            sym = o.symbol
-            side = o.side
-            o_type = o.type
-            qty = float(o.quantity or 0)
-            price = float(o.price or 0)
-            stop = float(o.stop_price or meta.get('stopPrice') or 0)
-            base = sym.replace('USDT', '').replace('USD', '')
-            if stop > 0:
-                direction = "price drops <=" if side == 'SELL' else "price rises >="
-                pending_orders_list.append(f"• [{side} {o_type} ON {sym}]: {qty:g} {base} @ Limit ${price:,.4f} (Stop Trigger: {direction} ${stop:,.4f}) [Status: {o.status}]")
-            else:
-                pending_orders_list.append(f"• [{side} {o_type} ON {sym}]: {qty:g} {base} @ ${price:,.4f} [Status: {o.status}]")
+            for list_id, legs in oco_groups.items():
+                sym = legs[0][0].symbol
+                side = legs[0][0].side
+                qty = float(legs[0][0].quantity or 0)
+                base = sym.replace('USDT', '').replace('USD', '')
+                pending_orders_list.append(f"• [CONFIRMED NATIVE BINANCE.US OCO {side} ORDER] (OrderList #{list_id}):")
+                pending_orders_list.append(f"  - Target Asset & Total Size: {qty:g} {base} ({sym})")
+                for leg_order, leg_meta in legs:
+                    l_type = leg_order.type
+                    l_price = float(leg_order.price or 0)
+                    l_stop = float(leg_order.stop_price or leg_meta.get('stopPrice') or 0)
+                    b_id = leg_order.binance_order_id or leg_order.id
+                    if l_type in ('STOP_LOSS_LIMIT', 'TAKE_PROFIT_LIMIT', 'STOP_LOSS'):
+                        direction = "price rises >=" if side == 'BUY' else "price drops <="
+                        pending_orders_list.append(f"  - Upper/Stop Trigger Leg ({l_type}, Binance Order #{b_id}): Triggers when {direction} ${l_stop:,.4f} -> Limit @ ${l_price:,.4f}")
+                    elif l_type in ('LIMIT_MAKER', 'LIMIT'):
+                        pending_orders_list.append(f"  - Lower Limit-Maker Leg ({l_type}, Binance Order #{b_id}): Places Limit @ ${l_price:,.4f}")
+                    else:
+                        pending_orders_list.append(f"  - Leg ({l_type}, Binance Order #{b_id}): Price ${l_price:,.4f}")
+                pending_orders_list.append(f"  - NATIVE EXCHANGE LINKAGE: Single verified OCO order on Binance.US sharing OrderList #{list_id}. The Binance matching engine automatically cancels the opposing leg when either triggers or executes.")
+                pending_orders_list.append("  - Status: Active / Working on Binance.US")
 
-        for to in active_test:
-            qty = float(to.amount or 0)
-            price = float(to.price or 0)
-            pending_orders_list.append(f"• [TEST {to.side} {to.order_type} ON {to.symbol}]: {qty:g} @ ${price:,.4f} [Status: {to.status}]")
-    except Exception as ord_err:
-        logger.warning(f"Error loading pending orders for Copilot: {ord_err}")
-    pending_orders_text = "\n".join(pending_orders_list) if pending_orders_list else "No active pending orders."
+            for o, meta in single_orders:
+                sym = o.symbol
+                side = o.side
+                o_type = o.type
+                qty = float(o.quantity or 0)
+                price = float(o.price or 0)
+                stop = float(o.stop_price or meta.get('stopPrice') or 0)
+                base = sym.replace('USDT', '').replace('USD', '')
+                if stop > 0:
+                    direction = "price drops <=" if side == 'SELL' else "price rises >="
+                    pending_orders_list.append(f"• [{side} {o_type} ON {sym}]: {qty:g} {base} @ Limit ${price:,.4f} (Stop Trigger: {direction} ${stop:,.4f}) [Status: {o.status}]")
+                else:
+                    pending_orders_list.append(f"• [{side} {o_type} ON {sym}]: {qty:g} {base} @ ${price:,.4f} [Status: {o.status}]")
 
-    # 3. Gather full active Watchlist telemetry & alerts
-    wl_coins = WatchlistCoin.query.filter_by(user_id=user_id).all()
-    watchlist_lines = []
-    for w in wl_coins:
-        price = float(getattr(w, 'current_price', 0) or 0)
-        up_alert = float(w.up_alert or 0)
-        down_alert = float(w.down_alert or 0)
-        vol_alert = getattr(w, 'volatility_pct', None)
-        sent = getattr(w, 'sentiment', 'None') or 'None'
-        reason = getattr(w, 'sentiment_reason', '') or ''
-        alert_str = []
-        if up_alert > 0: alert_str.append(f"Up Alert: >= ${up_alert:,.4f}")
-        if down_alert > 0: alert_str.append(f"Down Alert: <= ${down_alert:,.4f}")
-        if vol_alert: alert_str.append(f"Drop Alert: {vol_alert}%")
-        alerts_desc = f" ({', '.join(alert_str)})" if alert_str else ""
-        watchlist_lines.append(f"- {w.symbol}: ${price:,.4f}{alerts_desc} | Sentiment: {sent} | Analysis: {reason[:160]}")
-    watchlist_text = "\n".join(watchlist_lines) if watchlist_lines else "No watchlist assets tracked."
+            for to in active_test:
+                qty = float(to.amount or 0)
+                price = float(to.price or 0)
+                pending_orders_list.append(f"• [TEST {to.side} {to.order_type} ON {to.symbol}]: {qty:g} @ ${price:,.4f} [Status: {to.status}]")
+        except Exception as ord_err:
+            logger.warning(f"Error loading pending orders for Copilot: {ord_err}")
+        pending_orders_text = "\n".join(pending_orders_list) if pending_orders_list else "No active pending orders."
 
-    # 4. Gather recent completed transactions (activity ledger)
-    activity_lines = []
-    completed_activities = []
-    try:
-        from trading_models import AllActivity
-        completed_activities = AllActivity.query.filter(
-            AllActivity.user_id == user_id,
-            AllActivity.status.in_(['FILLED', 'completed'])
-        ).order_by(AllActivity.date.desc()).limit(15).all()
-        for act in completed_activities:
-            date_str = act.date.strftime('%Y-%m-%d %H:%M') if act.date else 'Recent'
-            fee_str = f", Fee: ${float(act.fee):.4f}" if act.fee and float(act.fee) > 0 else ""
-            gain_str = f", Realized PnL: {'+' if act.gain_loss >= 0 else ''}${float(act.gain_loss):.2f}" if act.gain_loss is not None else ""
-            cost_str = f", Cost Basis: ${float(act.cost_basis):.2f}" if act.cost_basis and float(act.cost_basis) > 0 else ""
-            proc_str = f", Proceeds: ${float(act.proceeds):.2f}" if act.proceeds and float(act.proceeds) > 0 else ""
-            price_str = f" @ ${float(act.price_sold_at):.4f}" if act.price_sold_at else (f" @ ${float(act.avg_entry):.4f}" if act.avg_entry else "")
-            details_clean = f" [{act.details}]" if act.details and not act.details.startswith('{') else ""
-            activity_lines.append(f"[{date_str}] {act.type} {abs(float(act.amount or 0)):g} {act.asset}{price_str}{proc_str}{cost_str}{gain_str}{fee_str} ({act.exchange or 'Binance'}){details_clean}")
-    except Exception as act_err:
-        logger.warning(f"Error loading completed activities for Copilot: {act_err}")
-    activity_text = "\n".join(activity_lines) if activity_lines else "No recent completed transactions recorded."
+        # 3. Gather full active Watchlist telemetry & alerts
+        wl_coins = WatchlistCoin.query.filter_by(user_id=user_id).all()
+        watchlist_lines = []
+        for w in wl_coins:
+            price = float(getattr(w, 'current_price', 0) or 0)
+            up_alert = float(w.up_alert or 0)
+            down_alert = float(w.down_alert or 0)
+            vol_alert = getattr(w, 'volatility_pct', None)
+            sent = getattr(w, 'sentiment', 'None') or 'None'
+            reason = getattr(w, 'sentiment_reason', '') or ''
+            alert_str = []
+            if up_alert > 0: alert_str.append(f"Up Alert: >= ${up_alert:,.4f}")
+            if down_alert > 0: alert_str.append(f"Down Alert: <= ${down_alert:,.4f}")
+            if vol_alert: alert_str.append(f"Drop Alert: {vol_alert}%")
+            alerts_desc = f" ({', '.join(alert_str)})" if alert_str else ""
+            watchlist_lines.append(f"- {w.symbol}: ${price:,.4f}{alerts_desc} | Sentiment: {sent} | Analysis: {reason[:160]}")
+        watchlist_text = "\n".join(watchlist_lines) if watchlist_lines else "No watchlist assets tracked."
+
+        # 4. Gather recent completed transactions (activity ledger)
+        activity_lines = []
+        completed_activities = []
+        try:
+            from trading_models import AllActivity
+            completed_activities = AllActivity.query.filter(
+                AllActivity.user_id == user_id,
+                AllActivity.status.in_(['FILLED', 'completed'])
+            ).order_by(AllActivity.date.desc()).limit(15).all()
+            for act in completed_activities:
+                date_str = act.date.strftime('%Y-%m-%d %H:%M') if act.date else 'Recent'
+                fee_str = f", Fee: ${float(act.fee):.4f}" if act.fee and float(act.fee) > 0 else ""
+                gain_str = f", Realized PnL: {'+' if act.gain_loss >= 0 else ''}${float(act.gain_loss):.2f}" if act.gain_loss is not None else ""
+                cost_str = f", Cost Basis: ${float(act.cost_basis):.2f}" if act.cost_basis and float(act.cost_basis) > 0 else ""
+                proc_str = f", Proceeds: ${float(act.proceeds):.2f}" if act.proceeds and float(act.proceeds) > 0 else ""
+                price_str = f" @ ${float(act.price_sold_at):.4f}" if act.price_sold_at else (f" @ ${float(act.avg_entry):.4f}" if act.avg_entry else "")
+                details_clean = f" [{act.details}]" if act.details and not act.details.startswith('{') else ""
+                activity_lines.append(f"[{date_str}] {act.type} {abs(float(act.amount or 0)):g} {act.asset}{price_str}{proc_str}{cost_str}{gain_str}{fee_str} ({act.exchange or 'Binance'}){details_clean}")
+        except Exception as act_err:
+            logger.warning(f"Error loading completed activities for Copilot: {act_err}")
+        activity_text = "\n".join(activity_lines) if activity_lines else "No recent completed transactions recorded."
 
     # 5. Conversational context is session-scoped by default.  Historical
     # sessions are queried only when the user explicitly asks for them; they
@@ -2583,7 +2588,15 @@ def process_ai_conversation(user_id, message, conversation_id=None, include_all_
         recent_symbol_trades = [a for a in completed_activities if a.asset.upper() == target_symbol][:3]
         if recent_symbol_trades:
             for rst in recent_symbol_trades:
-                symbol_details.append(f"• Recent Execution: {rst.type} {abs(float(rst.amount or 0)):g} {rst.asset} on {rst.date.strftime('%Y-%m-%d %H:%M') if rst.date else ''} @ ${float(rst.price_sold_at or rst.avg_entry or 0):,.2f} (Realized PnL: {'+' if rst.gain_loss >= 0 else ''}${float(rst.gain_loss):.2f})")
+                # Purchases and imported executions may have no realized P&L.
+                # Preserve that distinction instead of treating missing data as zero.
+                if (rst.type or '').upper() == 'BUY':
+                    realized_pnl = "not applicable (purchase; no realized profit/loss)"
+                elif rst.gain_loss is not None:
+                    realized_pnl = f"{'+' if rst.gain_loss >= 0 else ''}${float(rst.gain_loss):.2f}"
+                else:
+                    realized_pnl = "unavailable (not recorded)"
+                symbol_details.append(f"• Recent Execution: {rst.type} {abs(float(rst.amount or 0)):g} {rst.asset} on {rst.date.strftime('%Y-%m-%d %H:%M') if rst.date else ''} @ ${float(rst.price_sold_at or rst.avg_entry or 0):,.2f} (Realized PnL: {realized_pnl})")
 
     symbol_context_text = "\n".join(symbol_details) if symbol_details else ""
 
@@ -2592,7 +2605,7 @@ def process_ai_conversation(user_id, message, conversation_id=None, include_all_
     # context through the Copilot channel.
     quant_strategy_context = ""
     try:
-        quant_snapshot = build_admin_quant_copilot_snapshot(user_id, user, message)
+        quant_snapshot = None if market_only else build_admin_quant_copilot_snapshot(user_id, user, message)
         if quant_snapshot:
             quant_strategy_context = (
                 "=== ADMINISTRATOR-ONLY QUANTITATIVE STRATEGY ENGINE CONTEXT "
@@ -2607,29 +2620,39 @@ def process_ai_conversation(user_id, message, conversation_id=None, include_all_
                 f"{copilot_context_json({'unavailable': str(quant_context_error)[:500]})}\n\n"
             )
 
-    # Build complete context payload for AI
-    context_payload = (
-        f"USER QUESTION / PROMPT:\n{message}\n\n"
-        f"=== LIVE USER DATABASE SNAPSHOT (GENERATED FOR THIS RESPONSE) ===\n"
-        "The portfolio, cash/stablecoin balances, pending orders, watchlist, and execution data below were read for this user immediately before this response. "
-        "Treat this section as the sole authority for any claim about current ownership, balances, orders, or watchlist membership. "
-        "Never treat an earlier Copilot message, completed trade, or prior-session discussion as current account state.\n\n"
-        f"=== FOCUSED SYMBOL COMPLETE CONTEXT ({target_symbol}) ===\n"
-        f"{symbol_context_text or f'General multi-asset inquiry (Focus: {target_symbol})'}\n\n"
-        f"=== USER ACTIVE PENDING & OPEN BINANCE.US ORDERS ===\n"
-        f"{pending_orders_text}\n\n"
-        f"=== USER COMPLETE PORTFOLIO HOLDINGS (Binance.US + Cash + Webull) ===\n"
-        f"{holdings_text}\n\n"
-        f"=== BINANCE.US / LEGACY ACTIVE WATCHLIST TELEMETRY & ALERTS ===\n"
-        f"{watchlist_text}\n\n"
-        f"=== WEBULL REAL TRADING MODE + TEST MODE CONTEXT ===\n"
-        f"{webull_context_text}\n\n"
-        f"=== RECENT COMPLETED TRANSACTIONS & TRADE AUDIT LEDGER ===\n"
-        f"{activity_text}\n\n"
-        f"{quant_strategy_context}"
-        f"=== {history_label} (Oldest to Newest) ===\n"
-        f"{sidebar_feed_text}\n\n"
-    )
+    if market_only:
+        context_payload = (
+            f"USER QUESTION / PROMPT:\n{message}\n\n"
+            f"=== GENERAL MARKET QUESTION ({target_symbol}) ===\n"
+            "Explain the asset's market behavior over the requested period using dated external evidence. "
+            "Verify the question's factual premises, including rate decisions and percentage changes. "
+            "Personal holdings and executions are intentionally excluded because they do not explain market prices.\n\n"
+            f"=== {history_label} (Historical conversation only) ===\n{sidebar_feed_text}\n"
+        )
+    else:
+        # Build complete context payload for AI
+        context_payload = (
+            f"USER QUESTION / PROMPT:\n{message}\n\n"
+            f"=== LIVE USER DATABASE SNAPSHOT (GENERATED FOR THIS RESPONSE) ===\n"
+            "The portfolio, cash/stablecoin balances, pending orders, watchlist, and execution data below were read for this user immediately before this response. "
+            "Treat this section as the sole authority for any claim about current ownership, balances, orders, or watchlist membership. "
+            "Never treat an earlier Copilot message, completed trade, or prior-session discussion as current account state.\n\n"
+            f"=== FOCUSED SYMBOL COMPLETE CONTEXT ({target_symbol}) ===\n"
+            f"{symbol_context_text or f'General multi-asset inquiry (Focus: {target_symbol})'}\n\n"
+            f"=== USER ACTIVE PENDING & OPEN BINANCE.US ORDERS ===\n"
+            f"{pending_orders_text}\n\n"
+            f"=== USER COMPLETE PORTFOLIO HOLDINGS (Binance.US + Cash + Webull) ===\n"
+            f"{holdings_text}\n\n"
+            f"=== BINANCE.US / LEGACY ACTIVE WATCHLIST TELEMETRY & ALERTS ===\n"
+            f"{watchlist_text}\n\n"
+            f"=== WEBULL REAL TRADING MODE + TEST MODE CONTEXT ===\n"
+            f"{webull_context_text}\n\n"
+            f"=== RECENT COMPLETED TRANSACTIONS & TRADE AUDIT LEDGER ===\n"
+            f"{activity_text}\n\n"
+            f"{quant_strategy_context}"
+            f"=== {history_label} (Oldest to Newest) ===\n"
+            f"{sidebar_feed_text}\n\n"
+        )
 
     copilot_messages = [
         {"role": "user", "content": context_payload}
