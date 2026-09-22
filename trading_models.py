@@ -170,7 +170,7 @@ class TradingSettings(db.Model):
     
     user_id = Column(Integer, primary_key=True)
     test_mode_enabled = Column(Boolean, default=True)  # Default to test mode for safety
-    max_order_size_usd = Column(Float, default=1000.0)
+    max_order_size_usd = Column(Float, default=0.0)  # 0.0 means unlimited / no cap
     daily_trade_limit = Column(Integer, default=50)
     require_confirmation = Column(Boolean, default=True)
     require_2fa = Column(Boolean, default=False)  # Require 2FA for all orders
@@ -195,6 +195,60 @@ class TradingSettings(db.Model):
             'require_2fa': self.require_2fa,
             'totp_enabled': bool(self.totp_secret),  # Don't expose the secret
             'default_time_in_force': self.default_time_in_force,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None
+        }
+
+
+class TrailingOrder(db.Model):
+    """
+    Synthetic server-side trailing stop order for Binance.US and crypto trading.
+    Monitors live prices and dynamically adjusts trigger stop price.
+    Fires real/test market order when trigger is breached.
+    """
+    __tablename__ = 'trailing_orders'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, nullable=False, index=True)
+    symbol = Column(String(20), nullable=False)
+    side = Column(String(10), nullable=False)              # 'BUY' or 'SELL'
+    quantity = Column(Float, nullable=False)
+    trail_type = Column(String(10), default='PERCENT')     # 'PERCENT' or 'AMOUNT'
+    trail_value = Column(Float, nullable=False)            # e.g., 2.0 (2%) or 500.0 ($500)
+    activation_price = Column(Float, nullable=True)        # optional threshold price before trailing starts
+    is_activated = Column(Boolean, default=True)
+    highest_price = Column(Float, nullable=True)           # peak price recorded for SELL
+    lowest_price = Column(Float, nullable=True)            # trough price recorded for BUY
+    current_stop_price = Column(Float, nullable=False)     # dynamic trigger price
+    execution_type = Column(String(10), default='MARKET')  # 'MARKET' or 'LIMIT'
+    test_mode = Column(Boolean, default=False)
+    status = Column(String(20), default='ACTIVE')          # 'ACTIVE', 'TRIGGERED', 'FILLED', 'CANCELLED', 'FAILED'
+    triggered_at = Column(DateTime, nullable=True)
+    executed_order_id = Column(String(64), nullable=True)
+    error_message = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'user_id': self.user_id,
+            'symbol': self.symbol,
+            'side': self.side,
+            'quantity': self.quantity,
+            'trail_type': self.trail_type,
+            'trail_value': self.trail_value,
+            'activation_price': self.activation_price,
+            'is_activated': self.is_activated,
+            'highest_price': self.highest_price,
+            'lowest_price': self.lowest_price,
+            'current_stop_price': self.current_stop_price,
+            'execution_type': self.execution_type,
+            'test_mode': self.test_mode,
+            'status': self.status,
+            'triggered_at': self.triggered_at.isoformat() if self.triggered_at else None,
+            'executed_order_id': self.executed_order_id,
+            'error_message': self.error_message,
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None
         }

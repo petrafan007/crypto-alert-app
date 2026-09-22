@@ -93,7 +93,8 @@ def purchase(user_id, cred, settings, data):
         amount = amount.quantize(Decimal('.01'), rounding=ROUND_DOWN)
     except InvalidOperation:
         raise ValueError('Enter a valid purchase amount.')
-    if amount > Decimal(str(settings.max_order_size_usd or 0)):
+    max_order_limit = Decimal(str(settings.max_order_size_usd or 0))
+    if max_order_limit > 0 and amount > max_order_limit:
         raise ValueError('Purchase exceeds your configured maximum order size.')
     catalog = {row['stakingAsset']: row for row in staking_catalog(cred)}
     product = catalog.get(asset)

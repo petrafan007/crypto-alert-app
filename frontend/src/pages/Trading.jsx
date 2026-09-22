@@ -70,10 +70,14 @@ const Trading = ({ isLightMode = false }) => {
   // Trading Settings - Default to real live trading mode
   const [settings, setSettings] = useState({
     test_mode_enabled: false,
-    max_order_size_usd: 1000,
+    max_order_size_usd: 0,
     daily_loss_limit_usd: 500,
     require_2fa: false
   });
+  const [showMaxOrderModal, setShowMaxOrderModal] = useState(false);
+  const [tempMaxOrderSize, setTempMaxOrderSize] = useState('');
+  const [trailingOrders, setTrailingOrders] = useState([]);
+  const [loadingTrailingOrders, setLoadingTrailingOrders] = useState(false);
 
   const urlParams = new URLSearchParams(location.search);
   const urlMode = urlParams.get('mode')?.toUpperCase()?.trim();
@@ -110,7 +114,10 @@ const Trading = ({ isLightMode = false }) => {
     stopPrice: '',
     stopLimitPrice: '', // For OCO orders
     stopLimitTimeInForce: 'GTC', // For OCO orders
-    timeInForce: 'GTC' // GTC, IOC, FOK
+    timeInForce: 'GTC', // GTC, IOC, FOK
+    trailType: 'PERCENT',
+    trailValue: '2.0',
+    activationPrice: ''
   });
   const [quoteQuantity, setQuoteQuantity] = useState('');
   const lastEditedRef = useRef(null);
@@ -505,6 +512,143 @@ const Trading = ({ isLightMode = false }) => {
           stopLimitPriceCell('oco')
         );
         break;
+      case 'TRAILING_STOP': {
+        const curPrice = currentPrices.base || 0;
+        const trailVal = parseFloat(orderForm.trailValue) || 0;
+        let dynStop = 0;
+        if (curPrice > 0 && trailVal > 0) {
+          if (orderForm.side === 'SELL') {
+            dynStop = orderForm.trailType === 'PERCENT'
+              ? curPrice * (1.0 - (trailVal / 100.0))
+              : Math.max(0, curPrice - trailVal);
+          } else {
+            dynStop = orderForm.trailType === 'PERCENT'
+              ? curPrice * (1.0 + (trailVal / 100.0))
+              : curPrice + trailVal;
+          }
+        }
+
+        cells.push(
+          <div className="order-inputs-row" key="trailing-type-row" style={{ width: '100%', marginBottom: '10px' }}>
+            <div className="order-input-group">
+              <label className="order-field-label">Trail Type</label>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <button
+                  type="button"
+                  className={`order-type-btn ${orderForm.trailType === 'PERCENT' ? 'active' : ''}`}
+                  style={{ flex: 1, padding: '8px', fontSize: '0.85rem' }}
+                  onClick={() => setOrderForm(prev => ({ ...prev, trailType: 'PERCENT' }))}
+                >
+                  Percentage (%)
+                </button>
+                <button
+                  type="button"
+                  className={`order-type-btn ${orderForm.trailType === 'AMOUNT' ? 'active' : ''}`}
+                  style={{ flex: 1, padding: '8px', fontSize: '0.85rem' }}
+                  onClick={() => setOrderForm(prev => ({ ...prev, trailType: 'AMOUNT' }))}
+                >
+                  Amount ($ {quoteAsset})
+                </button>
+              </div>
+            </div>
+
+            <div className="order-input-group">
+              <label className="order-field-label">
+                Trail Distance {orderForm.trailType === 'PERCENT' ? '(%)' : `($ ${quoteAsset})`}
+              </label>
+              <div className="order-input-wrapper">
+                <input
+                  type="number"
+                  step="any"
+                  min="0.01"
+                  max={orderForm.trailType === 'PERCENT' ? '99.9' : undefined}
+                  value={orderForm.trailValue}
+                  onChange={(e) => setOrderForm(prev => ({ ...prev, trailValue: e.target.value }))}
+                  placeholder={orderForm.trailType === 'PERCENT' ? '2.5%' : '$500'}
+                  className="order-styled-input"
+                  required
+                />
+              </div>
+              <div style={{ display: 'flex', gap: '4px', marginTop: '6px', flexWrap: 'wrap' }}>
+                {orderForm.trailType === 'PERCENT'
+                  ? [1, 2, 3, 5, 10].map(p => (
+                      <button
+                        key={p}
+                        type="button"
+                        onClick={() => setOrderForm(prev => ({ ...prev, trailValue: String(p) }))}
+                        style={{ padding: '2px 8px', borderRadius: '4px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.15)', color: '#cbd5e1', fontSize: '11px', cursor: 'pointer' }}
+                      >
+                        {p}%
+                      </button>
+                    ))
+                  : [50, 100, 250, 500, 1000].map(a => (
+                      <button
+                        key={a}
+                        type="button"
+                        onClick={() => setOrderForm(prev => ({ ...prev, trailValue: String(a) }))}
+                        style={{ padding: '2px 8px', borderRadius: '4px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.15)', color: '#cbd5e1', fontSize: '11px', cursor: 'pointer' }}
+                      >
+                        ${a}
+                      </button>
+                    ))}
+              </div>
+            </div>
+          </div>,
+
+          <div className="order-input-group" key="trailing-activation" style={{ width: '100%', marginBottom: '10px' }}>
+            <label className="order-field-label">Activation Price ({quoteAsset}) (Optional)</label>
+            <div className="order-input-wrapper">
+              <input
+                type="number"
+                step="any"
+                value={orderForm.activationPrice || ''}
+                onChange={(e) => setOrderForm(prev => ({ ...prev, activationPrice: e.target.value }))}
+                placeholder="Leave blank to activate immediately at market price"
+                className="order-styled-input"
+              />
+            </div>
+            <small className="order-field-help">
+              {orderForm.side === 'SELL'
+                ? 'Only begin trailing after market price climbs to or above this activation price.'
+                : 'Only begin trailing after market price drops to or below this activation price.'}
+            </small>
+          </div>
+        );
+
+        if (curPrice > 0 && dynStop > 0) {
+          cells.push(
+            <div
+              key="trailing-preview-card"
+              style={{
+                width: '100%',
+                padding: '12px 14px',
+                borderRadius: '8px',
+                background: 'rgba(99, 102, 241, 0.1)',
+                border: '1px solid rgba(99, 102, 241, 0.3)',
+                marginBottom: '10px',
+                fontSize: '13px'
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
+                <span style={{ color: '#94a3b8' }}>Current Price:</span>
+                <strong style={{ color: '#fff' }}>${formatNumber(curPrice)} {quoteAsset}</strong>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
+                <span style={{ color: '#94a3b8' }}>Initial Stop Trigger:</span>
+                <strong style={{ color: orderForm.side === 'SELL' ? '#f87171' : '#34d399' }}>
+                  ${formatNumber(dynStop)} {quoteAsset} ({orderForm.side === 'SELL' ? '-' : '+'}{orderForm.trailType === 'PERCENT' ? `${orderForm.trailValue}%` : `$${orderForm.trailValue}`})
+                </strong>
+              </div>
+              <div style={{ fontSize: '11px', color: '#a5b4fc', lineHeight: 1.4 }}>
+                {orderForm.side === 'SELL'
+                  ? '🎯 Profit Protection: As the market price climbs to new highs, your stop price ratchets up. If the price falls to the stop trigger, a real Market Sell order executes.'
+                  : '🎯 Dip Rebound: As the market price drops to new lows, your buy trigger ratchets down. If the price rebounds to the trigger, a real Market Buy order executes.'}
+              </div>
+            </div>
+          );
+        }
+        break;
+      }
       default:
         break;
     }
@@ -776,6 +920,7 @@ const Trading = ({ isLightMode = false }) => {
     loadTradingSettings();
     loadOrderTypes(orderForm.symbol);
     loadOpenOrders();
+    loadTrailingOrders();
     loadLivePortfolio();
     if (!isRealModeRequested && settings.test_mode_enabled) {
       loadTestPortfolio();
@@ -894,6 +1039,46 @@ const Trading = ({ isLightMode = false }) => {
       setFeedbackModal({
         isVisible: true,
         message: 'Failed to load trading settings: ' + (error.response?.data?.error || error.message),
+        type: 'error'
+      });
+    }
+  };
+
+  const loadTrailingOrders = async () => {
+    try {
+      setLoadingTrailingOrders(true);
+      const res = await axios.get('/api/trading/trailing-orders', { withCredentials: true });
+      if (res.data.success) {
+        setTrailingOrders(res.data.trailing_orders || []);
+      }
+    } catch (e) {
+      console.error('Failed to load trailing orders:', e);
+    } finally {
+      setLoadingTrailingOrders(false);
+    }
+  };
+
+  const handleCancelTrailingOrder = async (orderId) => {
+    try {
+      const res = await axios.post(`/api/trading/trailing-orders/${orderId}/cancel`, {}, { withCredentials: true });
+      if (res.data.success) {
+        setFeedbackModal({
+          isVisible: true,
+          message: 'Trailing order cancelled successfully.',
+          type: 'success'
+        });
+        loadTrailingOrders();
+      } else {
+        setFeedbackModal({
+          isVisible: true,
+          message: res.data.error || 'Failed to cancel trailing order',
+          type: 'error'
+        });
+      }
+    } catch (e) {
+      setFeedbackModal({
+        isVisible: true,
+        message: e.response?.data?.error || e.message || 'Failed to cancel trailing order',
         type: 'error'
       });
     }
@@ -1387,6 +1572,18 @@ const Trading = ({ isLightMode = false }) => {
         return;
       }
 
+      if (orderForm.type === 'TRAILING_STOP') {
+        if (!orderForm.trailValue || parseFloat(orderForm.trailValue) <= 0) {
+          setFeedbackModal({
+            isVisible: true,
+            message: 'A positive trail distance is required for trailing stop orders.',
+            type: 'error'
+          });
+          setLoading(false);
+          return;
+        }
+      }
+
       if (['LIMIT', 'STOP_LOSS_LIMIT', 'TAKE_PROFIT_LIMIT', 'LIMIT_MAKER'].includes(orderForm.type)) {
         if (!orderForm.price || parseFloat(orderForm.price) <= 0) {
           setFeedbackModal({
@@ -1608,7 +1805,9 @@ const Trading = ({ isLightMode = false }) => {
 
       // Choose endpoint based on order type and test mode
       let endpoint;
-      if (orderForm.type === 'OCO') {
+      if (orderForm.type === 'TRAILING_STOP') {
+        endpoint = '/api/trading/trailing-orders';
+      } else if (orderForm.type === 'OCO') {
         endpoint = settings.test_mode_enabled ? '/api/trading/test-oco-order' : '/api/trading/oco-order';
       } else {
         endpoint = settings.test_mode_enabled ? '/api/trading/test-order' : '/api/trading/place-order';
@@ -1618,6 +1817,12 @@ const Trading = ({ isLightMode = false }) => {
       const orderData = { ...orderForm };
       if (twofaToken) {
         orderData.twofa_token = twofaToken;
+      }
+      if (orderForm.type === 'TRAILING_STOP') {
+        orderData.trail_type = orderForm.trailType || 'PERCENT';
+        orderData.trail_value = parseFloat(orderForm.trailValue || 2.0);
+        orderData.activation_price = orderForm.activationPrice ? parseFloat(orderForm.activationPrice) : null;
+        orderData.test_mode = settings.test_mode_enabled;
       }
 
       // Add quote amounts if quote was prioritized
@@ -1637,9 +1842,15 @@ const Trading = ({ isLightMode = false }) => {
       const response = await axios.post(endpoint, orderData, { withCredentials: true });
 
       if (response.data.success) {
-        const successMessage = settings.test_mode_enabled
-          ? `Test order placed successfully!\n\n${orderForm.side} ${orderForm.quantity} ${orderForm.symbol.replace('USDT', '')} validated with Binance.US and simulated.\n\nYour test portfolio has been updated.`
-          : `Real order placed successfully!\n\nOrder ID: ${response.data.binance_order_id}\n\nYour portfolio will be updated once the order is filled.`;
+        let successMessage;
+        if (orderForm.type === 'TRAILING_STOP') {
+          successMessage = `Trailing Stop order created successfully!\n\n${orderForm.side} ${orderForm.quantity} ${orderForm.symbol}\nTrail: ${orderForm.trailType === 'PERCENT' ? `${orderForm.trailValue}%` : `$${orderForm.trailValue}`}\n\nThe synthetic engine will track market highs and trigger automatically.`;
+          loadTrailingOrders();
+        } else {
+          successMessage = settings.test_mode_enabled
+            ? `Test order placed successfully!\n\n${orderForm.side} ${orderForm.quantity} ${orderForm.symbol.replace('USDT', '')} validated with Binance.US and simulated.\n\nYour test portfolio has been updated.`
+            : `Real order placed successfully!\n\nOrder ID: ${response.data.binance_order_id}\n\nYour portfolio will be updated once the order is filled.`;
+        }
 
         setFeedbackModal({
           isVisible: true,
@@ -1868,6 +2079,36 @@ const Trading = ({ isLightMode = false }) => {
             </button>
           </div>
 
+          {/* Order Size Safety Limit Badge / Button */}
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '4px' }}>
+            <span className="trading-mode-caption">Order Limit</span>
+            <button
+              type="button"
+              onClick={() => {
+                setTempMaxOrderSize(settings.max_order_size_usd === 0 ? '0' : String(settings.max_order_size_usd || '0'));
+                setShowMaxOrderModal(true);
+              }}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
+                padding: '6px 12px',
+                borderRadius: '8px',
+                background: settings.max_order_size_usd > 0 ? 'rgba(99, 102, 241, 0.15)' : 'rgba(16, 185, 129, 0.15)',
+                border: settings.max_order_size_usd > 0 ? '1px solid rgba(99, 102, 241, 0.4)' : '1px solid rgba(16, 185, 129, 0.4)',
+                color: settings.max_order_size_usd > 0 ? '#a5b4fc' : '#6ee7b7',
+                fontSize: '0.85rem',
+                fontWeight: 600,
+                cursor: 'pointer',
+                transition: 'all 0.2s',
+              }}
+              title="Click to configure or disable Maximum Order Size limit"
+            >
+              <span>{settings.max_order_size_usd > 0 ? `🛡️ $${Number(settings.max_order_size_usd).toLocaleString()}` : '🟢 Unlimited'}</span>
+              <span style={{ fontSize: '0.75rem', opacity: 0.8 }}>⚙️</span>
+            </button>
+          </div>
+
           <div className="trading-mode-toggle">
             <span className="trading-mode-caption">Test Mode</span>
             <label className="toggle-switch">
@@ -1948,6 +2189,21 @@ const Trading = ({ isLightMode = false }) => {
           <span className="tab-text">Open Orders</span>
           {openOrders && openOrders.length > 0 && (
             <span className="tab-badge">{openOrders.length}</span>
+          )}
+        </button>
+        <button
+          className={`tab-button ${activeTab === 'trailing_orders' ? 'active' : ''}`}
+          onClick={() => {
+            setActiveTab('trailing_orders');
+            loadTrailingOrders();
+          }}
+        >
+          <span className="tab-icon">🎯</span>
+          <span className="tab-text">Trailing Orders</span>
+          {trailingOrders && trailingOrders.filter(o => o.status === 'ACTIVE').length > 0 && (
+            <span className="tab-badge" style={{ background: '#6366f1' }}>
+              {trailingOrders.filter(o => o.status === 'ACTIVE').length}
+            </span>
           )}
         </button>
         <button
@@ -2264,6 +2520,47 @@ const Trading = ({ isLightMode = false }) => {
                 </div>
               )}
 
+              {/* Order Limit Warning Banner */}
+              {!settings.test_mode_enabled && settings.max_order_size_usd > 0 && (parseFloat(orderForm.quantity || 0) * determinePriceForCalculations()) > settings.max_order_size_usd && (
+                <div style={{
+                  background: 'rgba(239, 68, 68, 0.15)',
+                  border: '1px solid rgba(239, 68, 68, 0.4)',
+                  borderRadius: '8px',
+                  padding: '10px 14px',
+                  marginBottom: '12px',
+                  fontSize: '13px',
+                  color: '#fca5a5',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: '10px',
+                  flexWrap: 'wrap'
+                }}>
+                  <div>
+                    ⚠️ <strong>Order Size Limit Exceeded:</strong> Order value (${(parseFloat(orderForm.quantity || 0) * determinePriceForCalculations()).toFixed(2)}) exceeds your limit of ${Number(settings.max_order_size_usd).toLocaleString()}.
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setTempMaxOrderSize(String(settings.max_order_size_usd));
+                      setShowMaxOrderModal(true);
+                    }}
+                    style={{
+                      padding: '5px 12px',
+                      borderRadius: '6px',
+                      background: 'rgba(239, 68, 68, 0.3)',
+                      border: '1px solid #ef4444',
+                      color: '#fff',
+                      fontSize: '12px',
+                      fontWeight: 600,
+                      cursor: 'pointer'
+                    }}
+                  >
+                    Adjust or Disable Limit
+                  </button>
+                </div>
+              )}
+
               {/* Row 5: Action Submit Button */}
               <button
                 type="submit"
@@ -2275,8 +2572,8 @@ const Trading = ({ isLightMode = false }) => {
                 ) : (
                   <span>
                     {settings.test_mode_enabled
-                      ? '🧪 Place Test Order'
-                      : `⚡ Place Real ${orderForm.type === 'MARKET' ? 'Market' : orderForm.type === 'LIMIT' ? 'Limit' : ''} ${orderForm.side === 'BUY' ? 'Buy' : 'Sell'} Order`}
+                      ? `🧪 Place Test ${orderForm.type === 'TRAILING_STOP' ? 'Trailing Stop' : ''} Order`
+                      : `⚡ Place Real ${orderForm.type === 'MARKET' ? 'Market' : orderForm.type === 'LIMIT' ? 'Limit' : orderForm.type === 'TRAILING_STOP' ? 'Trailing Stop' : ''} ${orderForm.side === 'BUY' ? 'Buy' : 'Sell'} Order`}
                   </span>
                 )}
               </button>
@@ -2594,7 +2891,246 @@ const Trading = ({ isLightMode = false }) => {
             </div>
           </div>
         )}
+
+        {/* TRAILING ORDERS TAB */}
+        {activeTab === 'trailing_orders' && (
+          <div className="order-history-container open-orders-container">
+            <div className="order-history-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                <h2>🎯 Trailing Stop Orders</h2>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
+                <button
+                  type="button"
+                  onClick={loadTrailingOrders}
+                  className="btn btn-secondary"
+                  disabled={loadingTrailingOrders}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    padding: '8px 14px',
+                    borderRadius: '8px',
+                    fontSize: '0.85rem',
+                    cursor: 'pointer',
+                    background: 'rgba(255, 255, 255, 0.08)',
+                    color: '#e2e8f0',
+                    border: '1px solid rgba(255, 255, 255, 0.15)'
+                  }}
+                  title="Refresh trailing orders"
+                >
+                  {loadingTrailingOrders ? '⏳ Refreshing...' : '🔄 Refresh'}
+                </button>
+              </div>
+            </div>
+
+            <div className="settings-form-help" style={{ margin: '14px 0', padding: '12px', background: 'rgba(99, 102, 241, 0.1)', borderLeft: '3px solid #6366f1', borderRadius: '4px', fontSize: '13px' }}>
+              <strong>Synthetic Server-Side Trailing Engine:</strong> Trailing orders continuously monitor live price action. For sells, the trigger price ratchets up with new highs and fires a Market Sell if the price drops by your trail distance. For buys, it ratchets down with new lows and fires a Market Buy on rebound.
+            </div>
+
+            {trailingOrders.length === 0 ? (
+              <div className="no-orders-message" style={{ padding: '30px', textAlign: 'center', color: '#94a3b8' }}>
+                No trailing orders found. Place a Trailing Stop order from the "Place Order" tab to begin automated tracking!
+              </div>
+            ) : (
+              <div className="table-responsive">
+                <table className="order-table modern-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
+                  <thead>
+                    <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.15)', textAlign: 'left' }}>
+                      <th style={{ padding: '10px' }}>Created</th>
+                      <th style={{ padding: '10px' }}>Symbol</th>
+                      <th style={{ padding: '10px' }}>Side</th>
+                      <th style={{ padding: '10px' }}>Quantity</th>
+                      <th style={{ padding: '10px' }}>Trail</th>
+                      <th style={{ padding: '10px' }}>Peak / Trough</th>
+                      <th style={{ padding: '10px' }}>Stop Trigger</th>
+                      <th style={{ padding: '10px' }}>Status</th>
+                      <th style={{ padding: '10px', textAlign: 'right' }}>Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {trailingOrders.map(order => (
+                      <tr key={order.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+                        <td style={{ padding: '10px', fontSize: '13px', color: '#94a3b8', whiteSpace: 'nowrap' }}>
+                          {formatEasternDate(order.created_at)} {formatEasternTime(order.created_at)}
+                        </td>
+                        <td style={{ padding: '10px', fontWeight: 600 }}>{order.symbol}</td>
+                        <td style={{ padding: '10px' }}>
+                          <span className={`badge badge-${order.side.toLowerCase()}`}>
+                            {order.side}
+                          </span>
+                        </td>
+                        <td style={{ padding: '10px' }}>{formatNumber(order.quantity, 6)}</td>
+                        <td style={{ padding: '10px' }}>
+                          {order.trail_type === 'PERCENT' ? `${order.trail_value}%` : `$${order.trail_value}`}
+                        </td>
+                        <td style={{ padding: '10px' }}>
+                          ${formatNumber(order.side === 'SELL' ? order.highest_price : order.lowest_price)}
+                        </td>
+                        <td style={{ padding: '10px', color: order.side === 'SELL' ? '#f87171' : '#34d399', fontWeight: 600 }}>
+                          ${formatNumber(order.current_stop_price)}
+                        </td>
+                        <td style={{ padding: '10px' }}>
+                          <span className={`badge badge-${order.status.toLowerCase()}`}>
+                            {order.status}
+                          </span>
+                        </td>
+                        <td style={{ padding: '10px', textAlign: 'right' }}>
+                          {order.status === 'ACTIVE' && (
+                            <button
+                              type="button"
+                              className="btn btn-danger cancel-order-btn"
+                              onClick={() => handleCancelTrailingOrder(order.id)}
+                              style={{ padding: '4px 10px', fontSize: '12px' }}
+                            >
+                              Cancel
+                            </button>
+                          )}
+                          {order.status === 'FILLED' && order.executed_order_id && (
+                            <span style={{ fontSize: '11px', color: '#6ee7b7' }}>Filled</span>
+                          )}
+                          {order.status === 'FAILED' && order.error_message && (
+                            <span style={{ fontSize: '11px', color: '#f87171' }} title={order.error_message}>Failed</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
       </div>
+
+      {/* Max Order Size Settings Modal */}
+      {showMaxOrderModal && (
+        <div style={{
+          position: 'fixed',
+          top: 0, left: 0, right: 0, bottom: 0,
+          background: 'rgba(0, 0, 0, 0.75)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 9999,
+          padding: '20px'
+        }}>
+          <div style={{
+            background: '#1e293b',
+            border: '1px solid rgba(255, 255, 255, 0.15)',
+            borderRadius: '12px',
+            maxWidth: '480px',
+            width: '100%',
+            padding: '24px',
+            boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.5)'
+          }}>
+            <h3 style={{ margin: '0 0 12px 0', fontSize: '1.25rem', color: '#fff', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              🛡️ Maximum Order Size Settings
+            </h3>
+            <p style={{ fontSize: '13px', color: '#94a3b8', marginBottom: '16px', lineHeight: 1.5 }}>
+              Configure safety guardrail for live trading. Real orders exceeding this dollar threshold will be blocked to prevent fat-finger errors. Set to <strong>0</strong> for <strong>Unlimited</strong>.
+            </p>
+
+            <div style={{ marginBottom: '16px' }}>
+              <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#cbd5e1', marginBottom: '6px' }}>
+                Maximum Order Value ($ USD)
+              </label>
+              <input
+                type="number"
+                min="0"
+                step="any"
+                value={tempMaxOrderSize}
+                onChange={(e) => setTempMaxOrderSize(e.target.value)}
+                placeholder="0 (Unlimited)"
+                style={{
+                  width: '100%',
+                  padding: '10px 14px',
+                  borderRadius: '8px',
+                  background: 'rgba(255, 255, 255, 0.05)',
+                  border: '1px solid rgba(255, 255, 255, 0.2)',
+                  color: '#fff',
+                  fontSize: '16px',
+                  boxSizing: 'border-box'
+                }}
+              />
+            </div>
+
+            <div style={{ display: 'flex', gap: '6px', marginBottom: '20px', flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                onClick={() => setTempMaxOrderSize('0')}
+                style={{
+                  padding: '6px 12px',
+                  borderRadius: '6px',
+                  background: tempMaxOrderSize === '0' || tempMaxOrderSize === 0 ? 'rgba(16, 185, 129, 0.3)' : 'rgba(255, 255, 255, 0.08)',
+                  border: tempMaxOrderSize === '0' || tempMaxOrderSize === 0 ? '1px solid #10b981' : '1px solid rgba(255, 255, 255, 0.15)',
+                  color: tempMaxOrderSize === '0' || tempMaxOrderSize === 0 ? '#6ee7b7' : '#cbd5e1',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  cursor: 'pointer'
+                }}
+              >
+                🟢 Unlimited (0)
+              </button>
+              {[1000, 5000, 10000, 50000, 100000].map(val => (
+                <button
+                  key={val}
+                  type="button"
+                  onClick={() => setTempMaxOrderSize(String(val))}
+                  style={{
+                    padding: '6px 12px',
+                    borderRadius: '6px',
+                    background: String(tempMaxOrderSize) === String(val) ? 'rgba(99, 102, 241, 0.3)' : 'rgba(255, 255, 255, 0.08)',
+                    border: String(tempMaxOrderSize) === String(val) ? '1px solid #6366f1' : '1px solid rgba(255, 255, 255, 0.15)',
+                    color: String(tempMaxOrderSize) === String(val) ? '#a5b4fc' : '#cbd5e1',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    cursor: 'pointer'
+                  }}
+                >
+                  ${val.toLocaleString()}
+                </button>
+              ))}
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+              <button
+                type="button"
+                onClick={() => setShowMaxOrderModal(false)}
+                style={{
+                  padding: '8px 16px',
+                  borderRadius: '8px',
+                  background: 'rgba(255, 255, 255, 0.1)',
+                  border: '1px solid rgba(255, 255, 255, 0.2)',
+                  color: '#cbd5e1',
+                  cursor: 'pointer'
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  const val = parseFloat(tempMaxOrderSize) || 0;
+                  await handleSettingsUpdate({ max_order_size_usd: val });
+                  setShowMaxOrderModal(false);
+                }}
+                style={{
+                  padding: '8px 20px',
+                  borderRadius: '8px',
+                  background: '#3b82f6',
+                  border: 'none',
+                  color: '#fff',
+                  fontWeight: 600,
+                  cursor: 'pointer'
+                }}
+              >
+                Save Limit
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

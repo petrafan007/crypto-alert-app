@@ -1488,6 +1488,15 @@ def start_background_jobs(app=None):
     )
     webull_scheduled_thread.start()
 
+    from services.trailing_order_service import trailing_order_worker_loop
+    trailing_order_thread = threading.Thread(
+        target=trailing_order_worker_loop,
+        args=(app,),
+        daemon=True,
+        name="crypto-trailing-orders",
+    )
+    trailing_order_thread.start()
+
     # 2. Portfolio Price Alert Loop
     portfolio_thread = threading.Thread(target=portfolio_alert_loop, args=(app,), daemon=True)
     portfolio_thread.start()

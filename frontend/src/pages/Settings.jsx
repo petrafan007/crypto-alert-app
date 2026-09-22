@@ -298,6 +298,11 @@ export default function Settings({ isLightMode }) {
   const [disableCode, setDisableCode] = useState('');
   const [twoFactorLoading, setTwoFactorLoading] = useState(false);
   const [twoFactorMessage, setTwoFactorMessage] = useState('');
+  const [tradingLimits, setTradingLimits] = useState({
+    max_order_size_usd: 0,
+    daily_loss_limit_usd: 500,
+  });
+  const [savingTradingLimits, setSavingTradingLimits] = useState(false);
 
   const [searchParams, setSearchParams] = useSearchParams();
 
@@ -307,7 +312,7 @@ export default function Settings({ isLightMode }) {
     { id: 'ai-prompts', label: 'AI Workflow Prompts', icon: '📝' },
     { id: 'sentiment-strategy', label: 'Sentiment & Strategy', icon: '🎯' },
     { id: 'web-search', label: 'Web Search & News', icon: '🔍' },
-    { id: 'security-2fa', label: 'Security & 2FA', icon: '🔐' },
+    { id: 'security-2fa', label: 'Security & Trading Limits', icon: '🔐' },
     { id: 'system', label: 'Notifications & System', icon: '⚙️' },
     { id: 'quant-strategy', label: 'Quantitative Strategy Engine', icon: '🏛️' },
   ];
@@ -1572,9 +1577,35 @@ export default function Settings({ isLightMode }) {
       const response = await axios.get('/api/trading/settings', { withCredentials: true });
       if (response.data && response.data.settings) {
         setTwoFactorEnabled(response.data.settings.totp_enabled || false);
+        setTradingLimits({
+          max_order_size_usd: response.data.settings.max_order_size_usd ?? 0,
+          daily_loss_limit_usd: response.data.settings.daily_loss_limit_usd ?? 500,
+        });
       }
     } catch (error) {
-      console.error('Error fetching trading settings:');
+      console.error('Error fetching trading settings:', error);
+    }
+  };
+
+  const handleSaveTradingLimits = async () => {
+    setSavingTradingLimits(true);
+    try {
+      const response = await axios.post('/api/trading/settings', {
+        max_order_size_usd: Number(tradingLimits.max_order_size_usd || 0),
+        daily_loss_limit_usd: Number(tradingLimits.daily_loss_limit_usd || 500)
+      }, { withCredentials: true });
+      if (response.data.success) {
+        setMessage('Trading limits saved successfully!');
+        setMessageType('success');
+      } else {
+        setMessage(response.data.error || 'Failed to save trading limits');
+        setMessageType('error');
+      }
+    } catch (err) {
+      setMessage(err.response?.data?.error || err.message || 'Failed to save trading limits');
+      setMessageType('error');
+    } finally {
+      setSavingTradingLimits(false);
     }
   };
 
@@ -2451,6 +2482,78 @@ export default function Settings({ isLightMode }) {
               </button>
             </div>
           )}
+
+          {/* Trading Risk & Order Limits */}
+          <div style={{ marginTop: '30px', paddingTop: '24px', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
+            <h3>⚡ Trading Risk &amp; Order Limits</h3>
+            <div className="settings-form-help" style={{ marginBottom: '20px', padding: '12px', background: 'rgba(79, 209, 197, 0.1)', borderLeft: '3px solid #4fd1c5', borderRadius: '4px', fontSize: '13px' }}>
+              <strong>Maximum Order Size Guardrail</strong><br />
+              Protects against unintended order sizes or fat-finger errors during live trading.
+              Enter <strong>0</strong> for <strong>Unlimited</strong> (no maximum order cap).
+            </div>
+
+            <div className="settings-form-group" style={{ marginBottom: '16px' }}>
+              <label>Maximum Order Size ($ USD)</label>
+              <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                <input
+                  type="number"
+                  min="0"
+                  step="any"
+                  value={tradingLimits.max_order_size_usd === 0 ? '0' : (tradingLimits.max_order_size_usd || '')}
+                  onChange={(e) => setTradingLimits(prev => ({ ...prev, max_order_size_usd: e.target.value === '' ? '' : Number(e.target.value) }))}
+                  placeholder="0 (Unlimited)"
+                  style={{ flex: 1, padding: '10px 14px', borderRadius: '6px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.2)', color: '#fff' }}
+                />
+                <button
+                  type="button"
+                  onClick={() => setTradingLimits(prev => ({ ...prev, max_order_size_usd: 0 }))}
+                  style={{ padding: '10px 14px', borderRadius: '6px', background: 'rgba(79, 209, 197, 0.2)', border: '1px solid #4fd1c5', color: '#4fd1c5', cursor: 'pointer', fontSize: '12px', fontWeight: 600 }}
+                >
+                  Set Unlimited (0)
+                </button>
+              </div>
+              <div style={{ display: 'flex', gap: '6px', marginTop: '8px', flexWrap: 'wrap' }}>
+                {[1000, 5000, 10000, 50000, 100000].map(amt => (
+                  <button
+                    key={amt}
+                    type="button"
+                    onClick={() => setTradingLimits(prev => ({ ...prev, max_order_size_usd: amt }))}
+                    style={{ padding: '4px 10px', borderRadius: '4px', background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)', color: '#cbd5e1', cursor: 'pointer', fontSize: '11px' }}
+                  >
+                    ${amt.toLocaleString()}
+                  </button>
+                ))}
+              </div>
+              <span className="settings-form-help" style={{ marginTop: '6px', display: 'block' }}>
+                {Number(tradingLimits.max_order_size_usd) > 0
+                  ? `Live real orders will be blocked if they exceed $${Number(tradingLimits.max_order_size_usd).toLocaleString()}.`
+                  : '🟢 Unlimited: Orders of any size allowed up to available balance.'}
+              </span>
+            </div>
+
+            <div className="settings-form-group" style={{ marginBottom: '20px' }}>
+              <label>Daily Loss Limit ($ USD)</label>
+              <input
+                type="number"
+                min="0"
+                step="any"
+                value={tradingLimits.daily_loss_limit_usd || ''}
+                onChange={(e) => setTradingLimits(prev => ({ ...prev, daily_loss_limit_usd: Number(e.target.value) }))}
+                placeholder="500"
+                style={{ width: '100%', padding: '10px 14px', borderRadius: '6px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.2)', color: '#fff' }}
+              />
+            </div>
+
+            <button
+              type="button"
+              onClick={handleSaveTradingLimits}
+              disabled={savingTradingLimits}
+              className="settings-button"
+              style={{ background: '#4fd1c5', color: '#1a202c', fontWeight: 600 }}
+            >
+              {savingTradingLimits ? 'Saving...' : '💾 Save Trading Limits'}
+            </button>
+          </div>
         </div>
       )}
 

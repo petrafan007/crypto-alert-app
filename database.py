@@ -20,7 +20,7 @@ def init_db(app=None):
         PortfolioStrategyPosition, PortfolioStrategyOrder, PortfolioEngineState,
         PortfolioStrategyLot, PortfolioEquitySnapshot, PortfolioAudit, PortfolioMarketObservation)
     from credentials import User, Credential, UserSetting, DesktopToken, OnboardingDefaultProfile
-    from trading_models import TestOrder, RealOrder, TestPortfolio, TradingSettings, AllActivity, PortfolioValueHistory, StakingOrder
+    from trading_models import TestOrder, RealOrder, TestPortfolio, TradingSettings, AllActivity, PortfolioValueHistory, StakingOrder, TrailingOrder
     
     target_app = app if app is not None else current_app
     ctx = target_app.app_context() if target_app else None
@@ -33,6 +33,7 @@ def init_db(app=None):
             PortfolioStrategyPosition.__table__.create(db.engine, checkfirst=True)
             PortfolioStrategyOrder.__table__.create(db.engine, checkfirst=True)
             WebullScheduledOrder.__table__.create(db.engine, checkfirst=True)
+            TrailingOrder.__table__.create(db.engine, checkfirst=True)
         except Exception as e:
             print(f"db.create_all error: {e}")
         

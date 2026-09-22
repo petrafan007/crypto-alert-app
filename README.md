@@ -1,8 +1,14 @@
 # Crypto & Securities Dashboard
 
-**Version:** 3.5.7
+**Version:** 3.6.0
 
 ## Recent Updates
+
+### v3.6.0
+- **Configurable Max Order Size USD:** Made maximum order limit fully configurable in Trading Settings with a `0.0` setting for unlimited order values. Added quick preset buttons (`Unlimited`, `$1k`, `$5k`, `$10k`, `$50k`, `$100k`) in Settings and a dedicated order limit badge/modal directly in the Binance trading interface. Prevented hard stops on orders exceeding $1,000 when configured as unlimited.
+- **Trailing Stop Order Engine:** Introduced synthetic server-side Trailing Stop Loss and Trailing Take Profit orders for Binance.US spot trading. Supports both percentage (`%`) and fixed dollar (`$`) trailing offsets, optional activation hurdle prices, continuous real-time market price ratcheting via high/low watermarks, and automated market execution upon trigger.
+- **Dedicated Trailing Orders Dashboard:** Added Trailing Orders tab to the Trading view with live order statuses, dynamic trailing stop prices, distance tracking, ratcheting visualizer, and instant cancellation.
+- **Risk Policy Alignment:** Aligned staking purchase service and portfolio validation checks with the new configurable order limit policy.
 
 ### v3.5.7
 - **Webull 2FA order fix:** Removed a scoped inner import shadowing `time` during live Webull order placement with two-factor authentication, resolving an `UnboundLocalError` on token verification.

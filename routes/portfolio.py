@@ -1245,7 +1245,7 @@ def get_trading_settings():
             settings = TradingSettings(
                 user_id=current_user.id,
                 test_mode_enabled=False,
-                max_order_size_usd=1000.0,
+                max_order_size_usd=0.0,
                 require_2fa=False
             )
             db.session.add(settings)
@@ -1277,7 +1277,15 @@ def update_trading_settings():
         if 'test_mode_enabled' in data:
             settings.test_mode_enabled = bool(data['test_mode_enabled'])
         if 'max_order_size_usd' in data:
-            settings.max_order_size_usd = float(data['max_order_size_usd'])
+            raw_val = data['max_order_size_usd']
+            if raw_val is None or raw_val == '' or str(raw_val).strip().lower() in ('unlimited', 'none', 'null', '0'):
+                settings.max_order_size_usd = 0.0
+            else:
+                try:
+                    fval = float(raw_val)
+                    settings.max_order_size_usd = max(0.0, fval)
+                except (ValueError, TypeError):
+                    settings.max_order_size_usd = 0.0
         if 'daily_loss_limit_usd' in data:
             settings.daily_loss_limit_usd = float(data['daily_loss_limit_usd'])
         if 'require_2fa' in data:
@@ -1373,6 +1381,15 @@ def get_trading_order_types():
                 'requires_stop_price': True,
                 'requires_time_in_force': False,
                 'requires_stop_limit_price': True
+            },
+            {
+                'value': 'TRAILING_STOP',
+                'label': 'Trailing Stop',
+                'description': 'Dynamic trailing stop order that ratchets with favorable price movement',
+                'requires_price': False,
+                'requires_stop_price': False,
+                'requires_trail_value': True,
+                'requires_time_in_force': False
             }
         ]
         
@@ -1400,7 +1417,8 @@ def get_trading_order_types():
                             if sym_info['symbol'] == symbol:
                                 allowed_types = set(sym_info.get('orderTypes', []))
                                 if sym_info.get('ocoAllowed', False) or 'STOP_LOSS_LIMIT' in allowed_types:
-                                    allowed_types.add('OCO')
+                                     allowed_types.add('OCO')
+                                allowed_types.add('TRAILING_STOP')
                                 order_types = [ot for ot in all_order_types if ot['value'] in allowed_types]
                                 logger.info(f"Filtered order types for {symbol}: {[ot['value'] for ot in order_types]}")
                                 break
@@ -3136,12 +3154,19 @@ def place_real_order():
                     'error': f'Order value too small. Minimum order value for {symbol} is ${filters["minNotional"]:.2f}. Your order value is ${order_value_usd:.2f}. Please increase quantity or price.'
                 }), 400
             
-            # Check max order size
-            if order_value_usd > settings.max_order_size_usd:
-                return jsonify({
-                    'success': False,
-                    'error': f'Order size ${order_value_usd:.2f} exceeds maximum allowed ${settings.max_order_size_usd:.2f}'
-                }), 400
+            # Check max order size (if configured with a positive limit)
+            max_limit = getattr(settings, 'max_order_size_usd', None)
+            if max_limit is not None and float(max_limit) > 0:
+                if order_value_usd > float(max_limit):
+                    return jsonify({
+                        'success': False,
+                        'error': (
+                            f'Order size ${order_value_usd:.2f} exceeds maximum allowed ${float(max_limit):.2f}. '
+                            'You can adjust or disable this limit in Trading Settings.'
+                        ),
+                        'current_limit': float(max_limit),
+                        'order_value': order_value_usd
+                    }), 400
         except Exception as e:
             logger.error(f"Failed to validate order size: {e}")
             return jsonify({'success': False, 'error': f'Failed to validate order: {str(e)}'}), 400
@@ -3277,6 +3302,74 @@ def place_real_order():
                 'error_code': 'invalid_trading_credentials'
             }), 400
         return jsonify({'success': False, 'error': err_msg}), 500
+
+
+
+@portfolio_bp.route('/api/trading/trailing-orders', methods=['POST'])
+@login_required
+def api_create_trailing_order():
+    """Create a new synthetic trailing stop order"""
+    try:
+        from services.trailing_order_service import create_trailing_order
+        data = request.get_json() or {}
+
+        # Check trading settings
+        settings = TradingSettings.query.filter_by(user_id=current_user.id).first()
+        test_mode = bool(settings.test_mode_enabled) if settings else False
+
+        if 'test_mode' in data:
+            test_mode = bool(data['test_mode'])
+
+        symbol = data.get('symbol')
+        side = data.get('side')
+        quantity = data.get('quantity')
+        trail_type = data.get('trail_type', 'PERCENT')
+        trail_value = data.get('trail_value', 2.0)
+        activation_price = data.get('activation_price')
+        execution_type = data.get('execution_type', 'MARKET')
+
+        order_dict = create_trailing_order(
+            user_id=current_user.id,
+            symbol=symbol,
+            side=side,
+            quantity=quantity,
+            trail_type=trail_type,
+            trail_value=trail_value,
+            activation_price=activation_price,
+            execution_type=execution_type,
+            test_mode=test_mode
+        )
+        return jsonify({'success': True, 'trailing_order': order_dict})
+    except Exception as e:
+        logger.error(f"Failed to create trailing order: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 400
+
+
+@portfolio_bp.route('/api/trading/trailing-orders', methods=['GET'])
+@login_required
+def api_get_trailing_orders():
+    """List trailing orders for current user"""
+    try:
+        from services.trailing_order_service import get_user_trailing_orders
+        status = request.args.get('status')
+        orders = get_user_trailing_orders(current_user.id, status=status)
+        return jsonify({'success': True, 'trailing_orders': orders})
+    except Exception as e:
+        logger.error(f"Failed to fetch trailing orders: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@portfolio_bp.route('/api/trading/trailing-orders/<int:order_id>/cancel', methods=['POST'])
+@login_required
+def api_cancel_trailing_order(order_id):
+    """Cancel an active trailing order"""
+    try:
+        from services.trailing_order_service import cancel_trailing_order
+        cancelled = cancel_trailing_order(order_id, current_user.id)
+        return jsonify({'success': True, 'trailing_order': cancelled})
+    except Exception as e:
+        logger.error(f"Failed to cancel trailing order #{order_id}: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 400
 
 
 
