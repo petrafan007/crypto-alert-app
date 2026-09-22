@@ -3097,7 +3097,7 @@ body.light-mode .event-payout-summary strong { color: #166534; }
 .ladder-strategy-split-container {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 16px;
+  gap: 20px;
   align-items: start;
   width: 100%;
   margin-top: 6px;

@@ -4890,13 +4890,28 @@ def _build_tax_transactions(raw_transactions):
     )
     for tx in ordered:
         tx_type = str(tx.get('type') or '').upper()
-        asset = str(tx.get('asset') or '').upper()
+        asset = str(tx.get('asset') or '').upper().strip()
+        if not asset or asset == '—':
+            details_str = str(tx.get('details') or '') + ' ' + str(tx.get('txid') or '') + ' ' + str(tx.get('description') or '')
+            if 'USDT' in details_str:
+                asset = 'USDT'
+            elif 'USD' in details_str:
+                asset = 'USD'
+            elif 'GRAM' in details_str:
+                asset = 'GRAM'
         lot_asset = str(tx.get('_asset_key') or asset).upper()
         quantity = abs(float(tx.get('amount') or 0.0))
         fee = abs(float(tx.get('fee') or 0.0))
         price = float(tx.get('price_sold_at') or tx.get('avg_entry') or 0.0)
         stored_cost = float(tx.get('cost_basis') or 0.0)
         stored_proceeds = float(tx.get('proceeds') or 0.0)
+        if price <= 0 and quantity > 0:
+            if tx_type in acquisition_types and stored_cost > 0:
+                price = stored_cost / quantity
+            elif tx_type == 'SELL' and stored_proceeds > 0:
+                price = stored_proceeds / quantity
+            elif asset in ['USD', 'USDT', 'USDC', 'BUSD', 'DAI']:
+                price = 1.0
         tx_date = _tax_datetime(tx.get('date'))
         row = {
             'id': tx.get('id'),
@@ -4915,7 +4930,8 @@ def _build_tax_transactions(raw_transactions):
             'cost_basis': stored_cost,
             'gain_loss': None,
             'gain_loss_type': None,
-            'price_sold_at': tx.get('price_sold_at'),
+            'price_sold_at': price if price > 0 else tx.get('price_sold_at'),
+            'avg_entry': price if price > 0 else tx.get('avg_entry'),
             'exchange': tx.get('exchange') or 'binance',
             'holding_days': None,
             'acquisition_date': None,
@@ -5215,11 +5231,27 @@ def api_tax_report():
                         fee_asset = match.group(2).upper()
                     except (ValueError, TypeError):
                         pass
+            tx_asset = str(activity.asset or '').strip()
+            if not tx_asset or tx_asset == '—':
+                det_str = str(activity.details or '') + ' ' + str(activity.txid or '') + ' ' + str(activity.description or '')
+                if 'USDT' in det_str:
+                    tx_asset = 'USDT'
+                elif 'USD' in det_str:
+                    tx_asset = 'USD'
+            tx_price = activity.price_sold_at or getattr(activity, 'avg_entry', None)
+            if (tx_price is None or float(tx_price or 0) <= 0) and activity.amount and abs(float(activity.amount)) > 0:
+                if activity.type == 'BUY' and activity.cost_basis and float(activity.cost_basis) > 0:
+                    tx_price = float(activity.cost_basis) / abs(float(activity.amount))
+                elif activity.type == 'SELL' and activity.proceeds and float(activity.proceeds) > 0:
+                    tx_price = float(activity.proceeds) / abs(float(activity.amount))
+                elif tx_asset in ['USD', 'USDT', 'USDC', 'BUSD', 'DAI']:
+                    tx_price = 1.0
+
             tx_dict = {
                 'id': activity.id,
                 'date': activity.date,
                 'type': activity.type,
-                'asset': activity.asset,
+                'asset': tx_asset,
                 'amount': activity.amount,
                 'proceeds': activity.proceeds,
                 'cost_basis': activity.cost_basis,
@@ -5229,7 +5261,8 @@ def api_tax_report():
                 'txid': activity.txid,
                 'status': activity.status,
                 'details': activity.details,
-                'price_sold_at': activity.price_sold_at,
+                'price_sold_at': tx_price,
+                'avg_entry': getattr(activity, 'avg_entry', None) or tx_price,
                 'exchange': activity.exchange or 'coinbase'  # Default to coinbase for legacy records
             }
             transactions.append(tx_dict)

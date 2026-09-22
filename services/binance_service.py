@@ -462,9 +462,9 @@ def process_binance_trades(user_id, trades):
             symbol = trade['symbol']
             
             if symbol.endswith('USDT'):
-                asset = symbol.replace('USDT', '')
+                asset = symbol[:-4] or 'USDT'
             elif symbol.endswith('USD'):
-                asset = symbol.replace('USD', '')
+                asset = symbol[:-3] or 'USD'
             else:
                 asset = symbol
             

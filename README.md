@@ -1,8 +1,14 @@
 # Crypto & Securities Dashboard
 
-**Version:** 3.8.5
+**Version:** 3.8.6
 
 ## Recent Updates
+
+### v3.8.6
+- **Strategy 50/50 Split Layout Alignment:** Resolved layout nesting where Upside and Downside strategy columns were squeezed side-by-side inside the left half under Quantity. Re-anchored the configuration container as a full-width block with matching grid column spacing (`20px`), aligning Upside Strategy directly underneath Quantity across its full width and Downside Strategy directly underneath Order Value across its full width.
+- **Staked Asset Average Entry & Portfolio Metrics:** Preserved `avg_entry` cost basis for staked assets during database synchronizations, preventing zero-wipes when spot holdings are staked. Added FIFO cost-basis fallback calculations (`cost_basis / total_amount`) in portfolio endpoints and the frontend dashboard table, eliminating dashes (`—`) for average entry and `% Change` on staked holdings (such as GRAM).
+- **Transaction Log Asset Identification & Unit Price:** Resolved an issue in Binance transaction history where `USDTUSD` had its base asset stripped to empty string, and ensured unit price (`cost_basis / amount` or `proceeds / amount`) is computed and displayed for all fills and executions, eliminating dashes (`—`) across Tax Report and Binance transaction logs.
+- **Sentiment Analysis Stuck State Recovery & Polling Fix:** Resolved an issue where Bitcoin and other assets could get stuck displaying `⌛ Checking now...` indefinitely. Fixed the frontend polling completion condition to cleanly recognize completed AI recommendations (including `Hold` and `Watch`), and added automatic server-side recovery that resets stale checking statuses older than 90 seconds.
 
 ### v3.8.5
 - **Single Unified Order Types Tab ("Ladder / Trailing Stop"):** Consolidated separate "Ladder", "Trailing Stop", and "Synthetic Bracket" order type buttons into one single tab named `Ladder / Trailing Stop` across Binance Trading (`/trading`), Webull Cryptos, and Webull Equities & ETFs (real and paper trading). Selecting this tab provides immediate access to the full multi-mode strategy engine (Mode A Single Target/Stop, Mode B Multi-Rung Ladder, and Mode C Trailing Stop).

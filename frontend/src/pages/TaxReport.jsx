@@ -524,14 +524,30 @@ export default function TaxReport({ isLightMode, source = 'binance' }) {
     {
       id: 'asset',
       label: 'Asset',
-      value: (tx) => getAssetDisplaySymbol(tx) || tx.asset,
+      value: (tx) => {
+        let sym = getAssetDisplaySymbol(tx) || tx.asset;
+        if (!sym || sym === '—') {
+          const det = `${tx.txid || ''} ${tx.description || ''} ${tx.details || ''}`;
+          if (det.includes('USDT')) sym = 'USDT';
+          else if (det.includes('USD')) sym = 'USD';
+        }
+        return sym || '—';
+      },
       filterable: true,
-      render: (tx) => (
-        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', justifyContent: 'center' }}>
-          {!isWebullReport && <CryptoIcon symbol={tx.asset} size={18} />}
-          <span style={{ fontWeight: 600 }}>{getAssetDisplaySymbol(tx) || tx.asset}</span>
-        </span>
-      ),
+      render: (tx) => {
+        let sym = getAssetDisplaySymbol(tx) || tx.asset;
+        if (!sym || sym === '—') {
+          const det = `${tx.txid || ''} ${tx.description || ''} ${tx.details || ''}`;
+          if (det.includes('USDT')) sym = 'USDT';
+          else if (det.includes('USD')) sym = 'USD';
+        }
+        return (
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', justifyContent: 'center' }}>
+            {!isWebullReport && sym && sym !== '—' && <CryptoIcon symbol={sym} size={18} />}
+            <span style={{ fontWeight: 600 }}>{sym || '—'}</span>
+          </span>
+        );
+      },
       style: { textAlign: 'center' },
     },
     {
@@ -544,8 +560,29 @@ export default function TaxReport({ isLightMode, source = 'binance' }) {
     {
       id: 'price_sold_at',
       label: 'Price Traded At',
-      value: (tx) => Number(tx.price_sold_at || tx.avg_entry || 0),
-      render: (tx) => (tx.price_sold_at || tx.avg_entry ? `$${formatNumber(tx.price_sold_at || tx.avg_entry, 4)}` : '—'),
+      value: (tx) => {
+        if (Number(tx.price_sold_at) > 0) return Number(tx.price_sold_at);
+        if (Number(tx.avg_entry) > 0) return Number(tx.avg_entry);
+        if (Math.abs(Number(tx.amount || 0)) > 0) {
+          if (tx.type === 'BUY' && Number(tx.cost_basis) > 0) return Number(tx.cost_basis) / Math.abs(Number(tx.amount));
+          if (tx.type === 'SELL' && Number(tx.proceeds) > 0) return Number(tx.proceeds) / Math.abs(Number(tx.amount));
+        }
+        if (['USD', 'USDT', 'USDC', 'BUSD', 'DAI'].includes((tx.asset || '').toUpperCase())) return 1.0;
+        return 0;
+      },
+      render: (tx) => {
+        let p = Number(tx.price_sold_at || tx.avg_entry || 0);
+        if (p <= 0 && Math.abs(Number(tx.amount || 0)) > 0) {
+          if (tx.type === 'BUY' && Number(tx.cost_basis) > 0) {
+            p = Number(tx.cost_basis) / Math.abs(Number(tx.amount));
+          } else if (tx.type === 'SELL' && Number(tx.proceeds) > 0) {
+            p = Number(tx.proceeds) / Math.abs(Number(tx.amount));
+          } else if (['USD', 'USDT', 'USDC', 'BUSD', 'DAI'].includes((tx.asset || '').toUpperCase())) {
+            p = 1.0;
+          }
+        }
+        return p > 0 ? `$${formatNumber(p, p >= 1 ? 4 : 6)}` : '—';
+      },
       style: { textAlign: 'right' },
     },
     {

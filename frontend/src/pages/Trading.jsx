@@ -677,6 +677,14 @@ const Trading = ({ isLightMode = false }) => {
 
     if (cells.length === 0) return null;
 
+    if (orderForm.type === 'LADDER' || orderForm.type === 'SYNTHETIC') {
+      return (
+        <div className="ladder-order-config-wrapper" style={{ width: '100%', marginBottom: '14px' }}>
+          {cells}
+        </div>
+      );
+    }
+
     return (
       <div className="order-inputs-row conditional-fields-row">
         {cells}

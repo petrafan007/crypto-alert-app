@@ -1,6 +1,6 @@
 # Quantitative Strategy Engine
 
-Current release: **v3.8.5**. The [completion ledger below](#v350-research-workflow-completion) supersedes the earlier collection-only and single-symbol replay limitations. Historical version sections describe their original releases.
+Current release: **v3.8.6**. The [completion ledger below](#v350-research-workflow-completion) supersedes the earlier collection-only and single-symbol replay limitations. Historical version sections describe their original releases.
 
 The engine is an administrator-only, multi-asset **paper research system**. The default starting bankroll is $50,000, with relative allocation weights of 35 for equities, 25 for options, 20 for crypto, 10 for micro futures, and 10 for events. Enabled modules share 100% of the target capital proportionally. Futures is disabled by default, giving initial targets of 38.89%, 27.78%, 22.22%, 0%, and 11.11%, respectively. The 18.5% annual return setting is a research objective, not a forecast or validated strategy result.
 

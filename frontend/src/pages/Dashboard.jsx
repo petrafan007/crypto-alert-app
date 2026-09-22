@@ -4186,7 +4186,7 @@ function Dashboard({ isLightMode }) {
               const found = res.data.find(x => (x.symbol || '').toUpperCase() === cleanSymbol);
               if (found) {
                 const isFinished = (found.sentiment_last_updated && found.sentiment_last_updated !== initialLastUpdated && found.sentiment !== 'Checking now...')
-                  || (attempts > 6 && found.sentiment !== 'Checking now...' && found.sentiment !== 'Watch');
+                  || (attempts > 4 && found.sentiment !== 'Checking now...');
 
                 if (found.sentiment === 'Checking now...' || !isFinished) {
                   applyWatchlistUpdate(res.data.map(item => (item.symbol || '').toUpperCase() === cleanSymbol ? { ...item, sentiment: 'Checking now...' } : item), wFetchId);
@@ -4207,7 +4207,7 @@ function Dashboard({ isLightMode }) {
               const found = res.data.portfolio.find(x => !(x.source === 'webull' || x.is_external) && (x.symbol || '').toUpperCase() === cleanSymbol);
               if (found) {
                 const isFinished = (found.sentiment_last_updated && found.sentiment_last_updated !== initialLastUpdated && found.sentiment !== 'Checking now...')
-                  || (attempts > 6 && found.sentiment !== 'Checking now...' && found.sentiment !== 'Hold');
+                  || (attempts > 4 && found.sentiment !== 'Checking now...');
 
                 if (found.sentiment === 'Checking now...' || !isFinished) {
                   setPortfolio(res.data.portfolio.map(c => {
@@ -4233,7 +4233,7 @@ function Dashboard({ isLightMode }) {
           console.error('Error polling after sentiment refresh:', pollErr);
         }
 
-        if (attempts >= 100) {
+        if (attempts >= 20) {
           clearInterval(pollInterval);
           setRefreshingSentiment(prev => {
             const next = { ...prev };
@@ -5001,30 +5001,41 @@ function Dashboard({ isLightMode }) {
                                 </td>
                               );
                             case 'avg_entry': {
-                              const hasHoldings = !coin.pendingPlaceholder && Number(coin.amount) > 0.00000001;
+                              const totalAmt = Number(coin.amount || 0) + (Number(coin.staked_amount || 0) > Number(coin.amount || 0) ? Number(coin.staked_amount || 0) - Number(coin.amount || 0) : 0);
+                              const hasHoldings = !coin.pendingPlaceholder && (Number(coin.amount) > 0.00000001 || Number(coin.staked_amount) > 0.00000001);
+                              const entryVal = Number(coin.avg_entry) > 0
+                                ? Number(coin.avg_entry)
+                                : (Number(coin.cost_basis) > 0 && totalAmt > 0 ? Number(coin.cost_basis) / totalAmt : (Number(coin.initial_price) > 0 ? Number(coin.initial_price) : 0));
                               return (
                                 <td key="avg_entry" style={{ whiteSpace: 'nowrap', textAlign: 'center' }}>
-                                  {isStable ? '$1.00' : (hasHoldings && coin.avg_entry ? `$${coin.avg_entry.toFixed(2)}` : '—')}
+                                  {isStable ? '$1.00' : (hasHoldings && entryVal > 0 ? `$${entryVal.toFixed(2)}` : '—')}
                                 </td>
                               );
                             }
                             case 'pct_change': {
-                              const hasHoldings = !isStable && !coin.pendingPlaceholder && Number(coin.amount) > 0.00000001 && Number(coin.avg_entry) > 0;
-                              const hasPct = hasHoldings && coin.pct_change !== undefined && coin.pct_change !== null;
+                              const totalAmt = Number(coin.amount || 0) + (Number(coin.staked_amount || 0) > Number(coin.amount || 0) ? Number(coin.staked_amount || 0) - Number(coin.amount || 0) : 0);
+                              const hasHoldings = !isStable && !coin.pendingPlaceholder && (Number(coin.amount) > 0.00000001 || Number(coin.staked_amount) > 0.00000001);
+                              const entryVal = Number(coin.avg_entry) > 0
+                                ? Number(coin.avg_entry)
+                                : (Number(coin.cost_basis) > 0 && totalAmt > 0 ? Number(coin.cost_basis) / totalAmt : (Number(coin.initial_price) > 0 ? Number(coin.initial_price) : 0));
+                              let calculatedPct = coin.pct_change !== undefined && coin.pct_change !== null && Number(coin.pct_change) !== 0
+                                ? Number(coin.pct_change)
+                                : (entryVal > 0 && Number(coin.current_price) > 0 ? ((Number(coin.current_price) - entryVal) / entryVal) * 100 : null);
+                              const hasPct = hasHoldings && calculatedPct !== null && !isNaN(calculatedPct);
                               return (
                                 <td
                                   key="pct_change"
-                                  className={hasPct && coin.pct_change >= 0 ? 'status-positive' : hasPct && coin.pct_change < 0 ? 'status-negative' : ''}
+                                  className={hasPct && calculatedPct >= 0 ? 'status-positive' : hasPct && calculatedPct < 0 ? 'status-negative' : ''}
                                   style={{
                                     whiteSpace: 'nowrap',
                                     textAlign: 'center',
                                     color: hasPct
-                                      ? (coin.pct_change >= 0 ? '#22c55e' : '#ef4444')
+                                      ? (calculatedPct >= 0 ? '#22c55e' : '#ef4444')
                                       : undefined,
                                     fontWeight: '600'
                                   }}
                                 >
-                                  {hasPct ? `${coin.pct_change >= 0 ? '+' : ''}${coin.pct_change.toFixed(2)}%` : '—'}
+                                  {hasPct ? `${calculatedPct >= 0 ? '+' : ''}${calculatedPct.toFixed(2)}%` : '—'}
                                 </td>
                               );
                             }

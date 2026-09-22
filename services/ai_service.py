@@ -2130,6 +2130,15 @@ def run_sentiment_analysis_for_user(user_id, username, force=False, symbol=None)
 
             except Exception as coin_error:
                 logger.error(f"Error processing portfolio sentiment for {sym}: {coin_error}")
+                try:
+                    c_err = Coin.query.filter_by(user_id=user_id, symbol=sym, hidden=False).first()
+                    if c_err and c_err.sentiment == "Checking now...":
+                        c_err.sentiment = "Hold"
+                        c_err.sentiment_reason = f"Analysis error: {str(coin_error)[:120]}"
+                        c_err.sentiment_last_updated = datetime.utcnow()
+                        db.session.commit()
+                except Exception:
+                    db.session.rollback()
                 if not symbol:
                     # Extra backoff if error was due to rate limits
                     if any(k in str(coin_error).lower() for k in ["429", "rate limit", "resource_exhausted", "overloaded", "1302", "1305"]):
@@ -2245,6 +2254,16 @@ def run_watchlist_sentiment_analysis_for_user(user_id, username, force=False, sy
 
             except Exception as coin_error:
                 logger.error(f"Error processing watchlist sentiment for {sym}: {coin_error}")
+                try:
+                    w_err = WatchlistCoin.query.filter_by(user_id=user_id, symbol=sym, hidden=False).first()
+                    if w_err and w_err.sentiment == "Checking now...":
+                        w_err.sentiment = "Watch"
+                        w_err.sentiment_reason = f"Analysis error: {str(coin_error)[:120]}"
+                        if hasattr(w_err, 'sentiment_last_updated'):
+                            w_err.sentiment_last_updated = datetime.utcnow()
+                        db.session.commit()
+                except Exception:
+                    db.session.rollback()
                 if not symbol:
                     # Extra backoff if error was due to rate limits
                     if any(k in str(coin_error).lower() for k in ["429", "rate limit", "resource_exhausted", "overloaded", "1302", "1305"]):

@@ -1002,11 +1002,27 @@ def api_logs_all():
         result = []
         
         for activity in activities:
+            act_asset = str(activity.asset or '').strip()
+            if not act_asset or act_asset == '—':
+                det_str = str(activity.details or '') + ' ' + str(activity.txid or '') + ' ' + str(activity.description or '')
+                if 'USDT' in det_str:
+                    act_asset = 'USDT'
+                elif 'USD' in det_str:
+                    act_asset = 'USD'
+            act_price = activity.price_sold_at or getattr(activity, 'avg_entry', None)
+            if (act_price is None or float(act_price or 0) <= 0) and activity.amount and abs(float(activity.amount)) > 0:
+                if activity.type == 'BUY' and activity.cost_basis and float(activity.cost_basis) > 0:
+                    act_price = float(activity.cost_basis) / abs(float(activity.amount))
+                elif activity.type == 'SELL' and activity.proceeds and float(activity.proceeds) > 0:
+                    act_price = float(activity.proceeds) / abs(float(activity.amount))
+                elif act_asset in ['USD', 'USDT', 'USDC', 'BUSD', 'DAI']:
+                    act_price = 1.0
+
             log_dict = {
                 'id': activity.id,
                 'date': _format_activity_date(activity.date),
                 'type': activity.type,
-                'asset': activity.asset,
+                'asset': act_asset,
                 'amount': activity.amount,
                 'proceeds': activity.proceeds,
                 'cost_basis': activity.cost_basis,
@@ -1016,7 +1032,8 @@ def api_logs_all():
                 'txid': activity.txid,
                 'status': activity.status,
                 'details': activity.details,
-                'price_sold_at': activity.price_sold_at,
+                'price_sold_at': act_price,
+                'avg_entry': getattr(activity, 'avg_entry', None) or act_price,
                 'exchange': activity.exchange or 'coinbase'  # Default to coinbase for legacy records
             }
             

@@ -236,6 +236,21 @@ def api_coin_data_live():
                     symbol,
                     target_amount=total_amount,
                 ) if total_amount > 0.00000001 else 0.0
+                if total_amount > 0.00000001 and avg_entry_val <= 0:
+                    try:
+                        fifo_avg = calculate_avg_entry_fifo(current_user.id, symbol, target_amount=total_amount)
+                        if fifo_avg and float(fifo_avg) > 0:
+                            avg_entry_val = float(fifo_avg)
+                            coin.avg_entry = avg_entry_val
+                            db.session.commit()
+                        elif cost_basis > 0 and total_amount > 0:
+                            avg_entry_val = cost_basis / total_amount
+                            coin.avg_entry = avg_entry_val
+                            db.session.commit()
+                        elif _to_float(coin.initial_price) > 0:
+                            avg_entry_val = _to_float(coin.initial_price)
+                    except Exception:
+                        pass
                 pct_change = 0.0
                 if total_amount > 0.00000001 and avg_entry_val > 0:
                     pct_change = ((current_price - avg_entry_val) / avg_entry_val) * 100
@@ -458,6 +473,21 @@ def api_coin_data():
                     target_amount=total_amount,
                 ) if total_amount > 0.00000001 else 0.0
                 avg_entry_val = _to_float(coin.avg_entry) if total_amount > 0.00000001 else 0.0
+                if total_amount > 0.00000001 and avg_entry_val <= 0:
+                    try:
+                        fifo_avg = calculate_avg_entry_fifo(current_user.id, symbol, target_amount=total_amount)
+                        if fifo_avg and float(fifo_avg) > 0:
+                            avg_entry_val = float(fifo_avg)
+                            coin.avg_entry = avg_entry_val
+                            db.session.commit()
+                        elif cost_basis > 0 and total_amount > 0:
+                            avg_entry_val = cost_basis / total_amount
+                            coin.avg_entry = avg_entry_val
+                            db.session.commit()
+                        elif _to_float(coin.initial_price) > 0:
+                            avg_entry_val = _to_float(coin.initial_price)
+                    except Exception:
+                        pass
                 pct_change = round(((current_price - avg_entry_val) / avg_entry_val * 100), 6) if (total_amount > 0.00000001 and avg_entry_val > 0 and current_price) else 0.0
                 purchase_date = coin.purchase_date
                 coin_news = news_cache.get(coin.id) or news_cache.get(symbol) or {}
