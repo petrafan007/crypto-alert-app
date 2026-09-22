@@ -20,7 +20,7 @@ def init_db(app=None):
         PortfolioStrategyPosition, PortfolioStrategyOrder, PortfolioEngineState,
         PortfolioStrategyLot, PortfolioEquitySnapshot, PortfolioAudit, PortfolioMarketObservation)
     from credentials import User, Credential, UserSetting, DesktopToken, OnboardingDefaultProfile
-    from trading_models import TestOrder, RealOrder, TestPortfolio, TradingSettings, AllActivity, PortfolioValueHistory, StakingOrder, TrailingOrder
+    from trading_models import TestOrder, RealOrder, TestPortfolio, TradingSettings, AllActivity, PortfolioValueHistory, StakingOrder, TrailingOrder, LadderOrder, LadderRung
     
     target_app = app if app is not None else current_app
     ctx = target_app.app_context() if target_app else None
@@ -34,11 +34,17 @@ def init_db(app=None):
             PortfolioStrategyOrder.__table__.create(db.engine, checkfirst=True)
             WebullScheduledOrder.__table__.create(db.engine, checkfirst=True)
             TrailingOrder.__table__.create(db.engine, checkfirst=True)
+            LadderOrder.__table__.create(db.engine, checkfirst=True)
+            LadderRung.__table__.create(db.engine, checkfirst=True)
         except Exception as e:
             print(f"db.create_all error: {e}")
         
         # Ensure recently added columns exist in PostgreSQL
         columns_to_ensure = [
+            ("trailing_orders", "broker", "VARCHAR(20) DEFAULT 'binance'"),
+            ("trailing_orders", "account_id", "VARCHAR(64)"),
+            ("trailing_orders", "instrument_type", "VARCHAR(20) DEFAULT 'CRYPTO'"),
+            ("trailing_orders", "trading_session", "VARCHAR(20) DEFAULT 'CORE'"),
             ("portfolio_market_observations", "source", "VARCHAR(80)"),
             ("portfolio_market_observations", "observed_at", "TIMESTAMP"),
             ("user_settings", "telegram_notifications_enabled", "BOOLEAN DEFAULT TRUE"),

@@ -1,8 +1,14 @@
 # Crypto & Securities Dashboard
 
-**Version:** 3.6.0
+**Version:** 3.7.0
 
 ## Recent Updates
+
+### v3.7.0
+- **Synthetic Ladder Orders (Scale-Out & Scale-In):** Added algorithmic server-side Ladder Orders across both Binance.US (spot crypto) and Webull (equities, ETFs, and crypto). Features quick preset templates (*Conservative Scale-Out* [+2%, +4%, +6%], *Aggressive Scale-Out* [+5%, +10%, +15%, +20%], and *Custom*), dynamic stepped visual preview bars showing target price, percentage distance, exact quantity, cash value ($), and cumulative total, plus an optional downside stop-loss safety net.
+- **Multi-Broker Trailing Stop Orders:** Expanded synthetic server-side trailing stop orders to Webull, supporting equities, ETFs, and crypto alongside Binance.US. Supports trailing loss and trailing profit with percentage or fixed dollar offsets, real-time peak/dip watermarking, and automated trigger execution.
+- **Dedicated Order Management Tabs:** Added "Trailing Orders" and "Ladder Orders" tabs to Binance Trading, Webull Trading, and Central Orders (with broker filter pills for `All`, `Binance.US`, and `Webull`), providing full real-time visibility, rung status tracking, and cancellation controls.
+- **Dashboard Synthetic Orders Widget & Row Highlighting:** Introduced a new customizable Dashboard widget for tracking active Synthetic & Ladder orders, highlighted active order assets with `.pending-order` yellow badges across Portfolio and Watchlist tables, and enhanced hover tooltips with complete rung breakdown and execution metrics.
 
 ### v3.6.0
 - **Configurable Max Order Size USD:** Made maximum order limit fully configurable in Trading Settings with a `0.0` setting for unlimited order values. Added quick preset buttons (`Unlimited`, `$1k`, `$5k`, `$10k`, `$50k`, `$100k`) in Settings and a dedicated order limit badge/modal directly in the Binance trading interface. Prevented hard stops on orders exceeding $1,000 when configured as unlimited.

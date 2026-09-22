@@ -42,6 +42,9 @@ import {
   quantityDecimalPlaces,
   shouldUseEquityCashAmount,
 } from '../utils/webullOrderEntry.mjs';
+import LadderOrderConfig, { defaultLadderState } from '../components/LadderOrderConfig';
+import LadderOrdersTable from '../components/LadderOrdersTable';
+import TrailingOrdersTable from '../components/TrailingOrdersTable';
 import './Trading.css';
 
 const OPEN_STATUSES = new Set([
@@ -1300,6 +1303,9 @@ export default function WebullTrading({ isLightMode = false }) {
     optionStrategyLegs: [],
     trailingType: 'AMOUNT',
     trailingStopStep: '',
+    trailType: 'PERCENT',
+    trailValue: '2.0',
+    activationPrice: '',
     // Webull Stock Orders API extensions
     entrustType: 'QTY', // 'QTY' | 'AMOUNT'
     totalCashAmount: '',
@@ -1316,6 +1322,8 @@ export default function WebullTrading({ isLightMode = false }) {
     // Event Contracts extension
     eventOutcome: 'yes', // 'yes' | 'no'
   });
+
+  const [ladderConfig, setLadderConfig] = useState(defaultLadderState);
 
   // Combo Orders Form State (OTO / OCO / OTOCO)
   const [comboForm, setComboForm] = useState({
@@ -1347,6 +1355,8 @@ export default function WebullTrading({ isLightMode = false }) {
         { value: 'MARKET', label: 'Market', description: 'Execute immediately at the best available price' },
         commonLimit,
         stopLossLimit,
+        { value: 'TRAILING_STOP', label: 'Trailing Stop', description: 'Server-side synthetic trailing stop order' },
+        { value: 'LADDER', label: 'Ladder Order', description: 'Server-side automated ladder order' },
       ];
     }
     if (selectedInstrumentType === 'FUTURES') {
@@ -1364,7 +1374,9 @@ export default function WebullTrading({ isLightMode = false }) {
       { value: 'MARKET', label: 'Market', description: 'Execute immediately at the best available price' },
       stopLoss,
       stopLossLimit,
-      { value: 'TRAILING_STOP_LOSS', label: 'Trailing Stop', description: 'Stop price trails the market price by a set amount or percentage (DAY only)' },
+      { value: 'TRAILING_STOP', label: 'Trailing Stop', description: 'Synthetic trailing stop that monitors market and fires when target trigger is breached' },
+      { value: 'LADDER', label: 'Ladder Order', description: 'Automated tiered scale-in or scale-out ladder with optional stop-loss' },
+      { value: 'TRAILING_STOP_LOSS', label: 'Trailing Stop (Webull DAY)', description: 'Stop price trails the market price by a set amount or percentage (DAY only)' },
       { value: 'MARKET_ON_OPEN', label: formatOrderType('MARKET_ON_OPEN'), description: 'Execute at the opening auction price' },
       { value: 'MARKET_ON_CLOSE', label: formatOrderType('MARKET_ON_CLOSE'), description: 'Execute at the closing auction price' },
       { value: 'LIMIT_ON_OPEN', label: formatOrderType('LIMIT_ON_OPEN'), description: 'Limit order executed at the market-open auction' },
@@ -3799,6 +3811,23 @@ export default function WebullTrading({ isLightMode = false }) {
         return;
       }
     }
+    if (orderForm.type === 'TRAILING_STOP') {
+      if (!orderForm.trailValue || Number(orderForm.trailValue) <= 0) {
+        rejectOrder('Synthetic trailing stops require a positive trail value.');
+        return;
+      }
+    }
+    if (orderForm.type === 'LADDER') {
+      const totalPct = ladderConfig.rungs.reduce((acc, r) => acc + (parseFloat(r.percentage_of_total) || 0), 0);
+      if (Math.abs(totalPct - 100) > 0.5) {
+        rejectOrder(`Ladder rungs allocation must sum to 100% (currently ${totalPct.toFixed(1)}%).`);
+        return;
+      }
+      if (ladderConfig.rungs.some(r => !r.target_price || parseFloat(r.target_price) <= 0)) {
+        rejectOrder('All ladder rungs must have a valid target price greater than 0.');
+        return;
+      }
+    }
     if (!['FUTURES', 'EVENT'].includes(selectedInstrumentType) && !(selectedInstrumentType === 'OPTION' && !optionIsSingle) && orderForm.side === 'SELL' && !isCashAmountMode && qty > heldQuantity + QUANTITY_EPSILON) {
       rejectOrder(`You can sell up to ${formatQuantityForTicket(heldQuantity, 6) || '0'} ${selectedSymbol} from ${activeAccountLabel()}.`);
       return;
@@ -3959,6 +3988,103 @@ export default function WebullTrading({ isLightMode = false }) {
         replacing_order_id: replacingOrderId || undefined,
         ...(tokenOverride ? { twofa_token: tokenOverride } : {}),
       };
+
+      if (orderForm.type === 'TRAILING_STOP') {
+        const syntheticPayload = {
+          broker: 'webull',
+          account_id: effectiveAccountId,
+          symbol: selectedSymbol.trim().toUpperCase(),
+          instrument_type: selectedInstrumentType,
+          side: orderForm.side,
+          quantity: Number(orderForm.quantity),
+          trail_type: orderForm.trailType || 'PERCENT',
+          trail_value: parseFloat(orderForm.trailValue || 2.0),
+          activation_price: orderForm.activationPrice ? parseFloat(orderForm.activationPrice) : null,
+          trading_session: orderForm.tradingSession || 'CORE',
+          test_mode: isTestMode,
+          ...(tokenOverride ? { twofa_token: tokenOverride } : {}),
+        };
+        const response = await axios.post('/api/trading/trailing-orders', syntheticPayload, { withCredentials: true });
+        if (response.data?.success) {
+          setOrderFeedback({
+            type: 'success',
+            message: `Synthetic Trailing Stop order placed successfully for ${selectedSymbol.trim().toUpperCase()}! The engine will track live prices and trigger a Webull market order automatically.`
+          });
+          setShowConfirmModal(false);
+          setReplacingOrderId(null);
+          setOrderForm((prev) => ({
+            ...prev,
+            quantity: '',
+            quoteQuantity: '',
+            totalCashAmount: '',
+            price: '',
+            stopPrice: '',
+          }));
+          setActiveTab('trailing_orders');
+          return;
+        } else {
+          setOrderFeedback({ type: 'error', message: response.data?.error || 'Failed to place synthetic trailing stop order.' });
+          return;
+        }
+      }
+
+      if (orderForm.type === 'LADDER') {
+        let slPrice = null;
+        if (ladderConfig.hasStopLoss) {
+          if (ladderConfig.stopLossType === 'PRICE') {
+            slPrice = parseFloat(ladderConfig.stopLossTriggerPrice) || null;
+          } else {
+            const offset = parseFloat(ladderConfig.stopLossOffsetPct) || 0;
+            const curP = parseFloat(livePrice) || 0;
+            if (curP > 0 && offset > 0) {
+              slPrice = orderForm.side === 'SELL' ? curP * (1 - offset / 100) : curP * (1 + offset / 100);
+            }
+          }
+        }
+        const ladderPayload = {
+          broker: 'webull',
+          account_id: effectiveAccountId,
+          symbol: selectedSymbol.trim().toUpperCase(),
+          instrument_type: selectedInstrumentType,
+          side: orderForm.side,
+          total_quantity: Number(orderForm.quantity),
+          mode: ladderConfig.mode || 'PERCENTAGE',
+          preset_name: ladderConfig.preset,
+          rungs: ladderConfig.rungs.map(r => ({
+            price_offset_pct: parseFloat(r.price_offset_pct),
+            percentage_of_total: parseFloat(r.percentage_of_total),
+            target_price: parseFloat(r.target_price)
+          })),
+          has_stop_loss: Boolean(ladderConfig.hasStopLoss),
+          stop_loss_trigger_price: slPrice,
+          stop_loss_action: ladderConfig.stopLossAction || 'MARKET_SELL_ALL',
+          trading_session: orderForm.tradingSession || 'CORE',
+          test_mode: isTestMode,
+          ...(tokenOverride ? { twofa_token: tokenOverride } : {}),
+        };
+        const response = await axios.post('/api/trading/ladder-orders', ladderPayload, { withCredentials: true });
+        if (response.data?.success) {
+          setOrderFeedback({
+            type: 'success',
+            message: `Synthetic Ladder Order placed successfully for ${selectedSymbol.trim().toUpperCase()}! The engine will monitor target rungs and execute orders on Webull.`
+          });
+          setShowConfirmModal(false);
+          setReplacingOrderId(null);
+          setOrderForm((prev) => ({
+            ...prev,
+            quantity: '',
+            quoteQuantity: '',
+            totalCashAmount: '',
+            price: '',
+            stopPrice: '',
+          }));
+          setActiveTab('ladder_orders');
+          return;
+        } else {
+          setOrderFeedback({ type: 'error', message: response.data?.error || 'Failed to place synthetic ladder order.' });
+          return;
+        }
+      }
 
       const response = await axios.post('/api/webull/orders/place', payload, { withCredentials: true });
       if (response.data?.success) {
@@ -5089,6 +5215,12 @@ export default function WebullTrading({ isLightMode = false }) {
           ⏳ <span className="tab-text">Open Orders</span>
           {displayOpenOrders.length > 0 && <span className="tab-badge">{displayOpenOrders.length}</span>}
         </button>
+        <button className={`tab-button ${activeTab === 'trailing_orders' ? 'active' : ''}`} onClick={() => setActiveTab('trailing_orders')}>
+          🎯 <span className="tab-text">Trailing Orders</span>
+        </button>
+        <button className={`tab-button ${activeTab === 'ladder_orders' ? 'active' : ''}`} onClick={() => setActiveTab('ladder_orders')}>
+          🪜 <span className="tab-text">Ladder Orders</span>
+        </button>
         <button className={`tab-button ${activeTab === 'history' ? 'active' : ''}`} onClick={() => setActiveTab('history')}>
           📜 <span className="tab-text">Order History</span>
         </button>
@@ -6129,6 +6261,128 @@ export default function WebullTrading({ isLightMode = false }) {
                       </div>
                     )}
 
+                    {orderForm.type === 'TRAILING_STOP' && (
+                      <div style={{ width: '100%', marginBottom: '14px' }}>
+                        <div className="order-inputs-row" style={{ marginBottom: '10px' }}>
+                          <div className="order-input-group">
+                            <label className="order-field-label">Trail Type</label>
+                            <div style={{ display: 'flex', gap: '8px' }}>
+                              <button
+                                type="button"
+                                className={`order-type-btn ${orderForm.trailType === 'PERCENT' ? 'active' : ''}`}
+                                style={{ flex: 1, padding: '8px', fontSize: '0.85rem' }}
+                                onClick={() => setOrderForm(prev => ({ ...prev, trailType: 'PERCENT' }))}
+                              >
+                                Percentage (%)
+                              </button>
+                              <button
+                                type="button"
+                                className={`order-type-btn ${orderForm.trailType === 'AMOUNT' ? 'active' : ''}`}
+                                style={{ flex: 1, padding: '8px', fontSize: '0.85rem' }}
+                                onClick={() => setOrderForm(prev => ({ ...prev, trailType: 'AMOUNT' }))}
+                              >
+                                Amount ($ USD)
+                              </button>
+                            </div>
+                          </div>
+
+                          <div className="order-input-group">
+                            <label className="order-field-label">
+                              Trail Distance {orderForm.trailType === 'PERCENT' ? '(%)' : '($ USD)'}
+                            </label>
+                            <div className="order-input-wrapper">
+                              <input
+                                type="number"
+                                step="any"
+                                min="0.01"
+                                max={orderForm.trailType === 'PERCENT' ? '99.9' : undefined}
+                                value={orderForm.trailValue}
+                                onChange={(e) => setOrderForm(prev => ({ ...prev, trailValue: e.target.value }))}
+                                placeholder={orderForm.trailType === 'PERCENT' ? '2.0%' : '$2.00'}
+                                className="order-styled-input"
+                                required
+                              />
+                            </div>
+                            <div style={{ display: 'flex', gap: '4px', marginTop: '6px', flexWrap: 'wrap' }}>
+                              {orderForm.trailType === 'PERCENT'
+                                ? [1, 2, 3, 5, 10].map(p => (
+                                    <button
+                                      key={p}
+                                      type="button"
+                                      onClick={() => setOrderForm(prev => ({ ...prev, trailValue: String(p) }))}
+                                      style={{ padding: '2px 8px', borderRadius: '4px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.15)', color: '#cbd5e1', fontSize: '11px', cursor: 'pointer' }}
+                                    >
+                                      {p}%
+                                    </button>
+                                  ))
+                                : [1, 2, 5, 10, 25].map(a => (
+                                    <button
+                                      key={a}
+                                      type="button"
+                                      onClick={() => setOrderForm(prev => ({ ...prev, trailValue: String(a) }))}
+                                      style={{ padding: '2px 8px', borderRadius: '4px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.15)', color: '#cbd5e1', fontSize: '11px', cursor: 'pointer' }}
+                                    >
+                                      ${a}
+                                    </button>
+                                  ))}
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="order-input-group" style={{ marginBottom: '10px' }}>
+                          <label className="order-field-label">Activation Price ($ USD) (Optional)</label>
+                          <input
+                            type="number"
+                            step="any"
+                            value={orderForm.activationPrice || ''}
+                            onChange={(e) => setOrderForm(prev => ({ ...prev, activationPrice: e.target.value }))}
+                            placeholder="Leave blank to activate immediately at market price"
+                            className="order-styled-input"
+                          />
+                        </div>
+
+                        {Number(livePrice) > 0 && (
+                          <div style={{
+                            padding: '12px 14px',
+                            borderRadius: '8px',
+                            background: 'rgba(99, 102, 241, 0.1)',
+                            border: '1px solid rgba(99, 102, 241, 0.3)',
+                            fontSize: '13px'
+                          }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
+                              <span style={{ color: '#94a3b8' }}>Live Market Price:</span>
+                              <strong style={{ color: '#fff' }}>${Number(livePrice).toFixed(2)} USD</strong>
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
+                              <span style={{ color: '#94a3b8' }}>Initial Stop Trigger:</span>
+                              <strong style={{ color: orderForm.side === 'SELL' ? '#f87171' : '#34d399' }}>
+                                ${orderForm.trailType === 'PERCENT'
+                                  ? (Number(livePrice) * (1 + (orderForm.side === 'SELL' ? -1 : 1) * (parseFloat(orderForm.trailValue || 0) / 100))).toFixed(2)
+                                  : Math.max(0, Number(livePrice) + (orderForm.side === 'SELL' ? -1 : 1) * parseFloat(orderForm.trailValue || 0)).toFixed(2)} USD
+                              </strong>
+                            </div>
+                            <div style={{ fontSize: '11px', color: '#a5b4fc', lineHeight: 1.4 }}>
+                              🎯 Synthetic Engine: Server continuously tracks market highs/lows and fires an automated Webull market order once trigger is hit.
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {orderForm.type === 'LADDER' && (
+                      <div style={{ width: '100%', marginBottom: '14px' }}>
+                        <LadderOrderConfig
+                          side={orderForm.side}
+                          currentPrice={Number(livePrice) || 0}
+                          totalQuantity={orderForm.quantity}
+                          baseAsset={selectedSymbol}
+                          quoteAsset="USD"
+                          ladderConfig={ladderConfig}
+                          onChange={setLadderConfig}
+                        />
+                      </div>
+                    )}
+
                     {['LIMIT', 'LIMIT_ON_OPEN'].includes(orderForm.type) && (
                       <div className="order-inputs-row">
                         <div className="order-input-group" style={{ width: '100%' }}>
@@ -7056,6 +7310,32 @@ export default function WebullTrading({ isLightMode = false }) {
                   userId={user?.id}
                   tableId="webull-open-orders"
                 />
+              </section>
+            )}
+
+            {/* TRAILING ORDERS TAB */}
+            {activeTab === 'trailing_orders' && (
+              <section className="order-history-container" style={{ padding: '16px' }}>
+                <div style={{ marginBottom: '16px' }}>
+                  <h2 style={{ margin: '0 0 4px 0', fontSize: '18px', color: '#fff' }}>🎯 Synthetic Trailing Stop Orders (Webull)</h2>
+                  <p style={{ margin: 0, fontSize: '12px', color: '#94a3b8' }}>
+                    Server-side synthetic trailing stops for Webull Equities, ETFs, and Crypto. Trailing stops continuously monitor market prices and automatically fire market orders.
+                  </p>
+                </div>
+                <TrailingOrdersTable defaultBroker="webull" showBrokerFilter={false} />
+              </section>
+            )}
+
+            {/* LADDER ORDERS TAB */}
+            {activeTab === 'ladder_orders' && (
+              <section className="order-history-container" style={{ padding: '16px' }}>
+                <div style={{ marginBottom: '16px' }}>
+                  <h2 style={{ margin: '0 0 4px 0', fontSize: '18px', color: '#fff' }}>🪜 Synthetic Ladder Orders (Webull)</h2>
+                  <p style={{ margin: 0, fontSize: '12px', color: '#94a3b8' }}>
+                    Automated tiered scale-in or scale-out ladder execution for Webull Equities, ETFs, and Crypto with optional downside stop-loss.
+                  </p>
+                </div>
+                <LadderOrdersTable defaultBroker="webull" showBrokerFilter={false} />
               </section>
             )}
 

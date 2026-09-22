@@ -6,7 +6,7 @@ Database: exchange_logs.db (separate database binding)
 """
 
 from datetime import datetime
-from sqlalchemy import Column, Integer, String, Float, Boolean, DateTime, Text, BigInteger, Index
+from sqlalchemy import Column, Integer, String, Float, Boolean, DateTime, Text, BigInteger, Index, ForeignKey
 from core.extensions import db
 
 class TestOrder(db.Model):
@@ -202,7 +202,7 @@ class TradingSettings(db.Model):
 
 class TrailingOrder(db.Model):
     """
-    Synthetic server-side trailing stop order for Binance.US and crypto trading.
+    Synthetic server-side trailing stop order for Binance.US and Webull trading.
     Monitors live prices and dynamically adjusts trigger stop price.
     Fires real/test market order when trigger is breached.
     """
@@ -210,19 +210,23 @@ class TrailingOrder(db.Model):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     user_id = Column(Integer, nullable=False, index=True)
+    broker = Column(String(20), default='binance', nullable=False)  # 'binance' or 'webull'
+    account_id = Column(String(64), nullable=True)                  # Webull account ID
     symbol = Column(String(20), nullable=False)
-    side = Column(String(10), nullable=False)              # 'BUY' or 'SELL'
+    instrument_type = Column(String(20), default='CRYPTO')          # 'CRYPTO', 'EQUITY', 'ETF'
+    side = Column(String(10), nullable=False)                       # 'BUY' or 'SELL'
     quantity = Column(Float, nullable=False)
-    trail_type = Column(String(10), default='PERCENT')     # 'PERCENT' or 'AMOUNT'
-    trail_value = Column(Float, nullable=False)            # e.g., 2.0 (2%) or 500.0 ($500)
-    activation_price = Column(Float, nullable=True)        # optional threshold price before trailing starts
+    trail_type = Column(String(10), default='PERCENT')              # 'PERCENT' or 'AMOUNT'
+    trail_value = Column(Float, nullable=False)                     # e.g., 2.0 (2%) or 500.0 ($500)
+    activation_price = Column(Float, nullable=True)                 # optional threshold price before trailing starts
     is_activated = Column(Boolean, default=True)
-    highest_price = Column(Float, nullable=True)           # peak price recorded for SELL
-    lowest_price = Column(Float, nullable=True)            # trough price recorded for BUY
-    current_stop_price = Column(Float, nullable=False)     # dynamic trigger price
-    execution_type = Column(String(10), default='MARKET')  # 'MARKET' or 'LIMIT'
+    highest_price = Column(Float, nullable=True)                    # peak price recorded for SELL
+    lowest_price = Column(Float, nullable=True)                     # trough price recorded for BUY
+    current_stop_price = Column(Float, nullable=False)              # dynamic trigger price
+    execution_type = Column(String(10), default='MARKET')           # 'MARKET' or 'LIMIT'
     test_mode = Column(Boolean, default=False)
-    status = Column(String(20), default='ACTIVE')          # 'ACTIVE', 'TRIGGERED', 'FILLED', 'CANCELLED', 'FAILED'
+    trading_session = Column(String(20), default='CORE')            # 'CORE', 'ALL', 'NIGHT'
+    status = Column(String(20), default='ACTIVE')                   # 'ACTIVE', 'TRIGGERED', 'FILLED', 'CANCELLED', 'FAILED'
     triggered_at = Column(DateTime, nullable=True)
     executed_order_id = Column(String(64), nullable=True)
     error_message = Column(Text, nullable=True)
@@ -233,7 +237,10 @@ class TrailingOrder(db.Model):
         return {
             'id': self.id,
             'user_id': self.user_id,
+            'broker': self.broker or 'binance',
+            'account_id': self.account_id,
             'symbol': self.symbol,
+            'instrument_type': self.instrument_type or 'CRYPTO',
             'side': self.side,
             'quantity': self.quantity,
             'trail_type': self.trail_type,
@@ -245,6 +252,7 @@ class TrailingOrder(db.Model):
             'current_stop_price': self.current_stop_price,
             'execution_type': self.execution_type,
             'test_mode': self.test_mode,
+            'trading_session': self.trading_session or 'CORE',
             'status': self.status,
             'triggered_at': self.triggered_at.isoformat() if self.triggered_at else None,
             'executed_order_id': self.executed_order_id,
@@ -252,6 +260,104 @@ class TrailingOrder(db.Model):
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None
         }
+
+
+class LadderOrder(db.Model):
+    """
+    Synthetic server-side ladder order (Scale-Out Profit Taking or Scale-In DCA).
+    Slices an order into multiple price tiers executed progressively as price thresholds are crossed.
+    Supports both Binance.US (Crypto) and Webull (Equities, ETFs, Crypto).
+    """
+    __tablename__ = 'ladder_orders'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, nullable=False, index=True)
+    broker = Column(String(20), default='binance', nullable=False)   # 'binance' or 'webull'
+    account_id = Column(String(64), nullable=True)                   # Webull account ID
+    symbol = Column(String(20), nullable=False)
+    instrument_type = Column(String(20), default='CRYPTO')           # 'CRYPTO', 'EQUITY', 'ETF'
+    side = Column(String(10), nullable=False)                        # 'BUY' or 'SELL'
+    total_quantity = Column(Float, nullable=False)
+    total_budget_usd = Column(Float, nullable=True)
+    mode = Column(String(20), default='PERCENT')                     # 'PERCENT' or 'PRICE'
+    preset_name = Column(String(50), nullable=True)                  # 'Conservative', 'Aggressive', 'Custom'
+    has_stop_loss = Column(Boolean, default=False)
+    stop_loss_trigger_price = Column(Float, nullable=True)
+    stop_loss_action = Column(String(20), default='SELL_ALL')        # 'SELL_ALL', 'SELL_REMAINDER'
+    status = Column(String(20), default='ACTIVE')                    # 'ACTIVE', 'PARTIALLY_FILLED', 'COMPLETED', 'CANCELLED', 'FAILED'
+    rungs_total = Column(Integer, default=0)
+    rungs_filled = Column(Integer, default=0)
+    test_mode = Column(Boolean, default=False)
+    trading_session = Column(String(20), default='CORE')             # 'CORE', 'ALL', 'NIGHT'
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    rungs = db.relationship('LadderRung', backref='ladder_order', cascade='all, delete-orphan', lazy=True, order_by='LadderRung.rung_number')
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'user_id': self.user_id,
+            'broker': self.broker or 'binance',
+            'account_id': self.account_id,
+            'symbol': self.symbol,
+            'instrument_type': self.instrument_type or 'CRYPTO',
+            'side': self.side,
+            'total_quantity': self.total_quantity,
+            'total_budget_usd': self.total_budget_usd,
+            'mode': self.mode,
+            'preset_name': self.preset_name,
+            'has_stop_loss': self.has_stop_loss,
+            'stop_loss_trigger_price': self.stop_loss_trigger_price,
+            'stop_loss_action': self.stop_loss_action,
+            'status': self.status,
+            'rungs_total': self.rungs_total,
+            'rungs_filled': self.rungs_filled,
+            'test_mode': self.test_mode,
+            'trading_session': self.trading_session or 'CORE',
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
+            'rungs': [r.to_dict() for r in self.rungs] if hasattr(self, 'rungs') and self.rungs else []
+        }
+
+
+class LadderRung(db.Model):
+    """
+    Individual step/tier within a parent LadderOrder.
+    """
+    __tablename__ = 'ladder_rungs'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    ladder_id = Column(Integer, ForeignKey('ladder_orders.id'), nullable=False, index=True)
+    rung_number = Column(Integer, nullable=False)
+    target_price = Column(Float, nullable=False)
+    price_offset_pct = Column(Float, nullable=True)
+    quantity = Column(Float, nullable=False)
+    percentage_of_total = Column(Float, nullable=True)
+    estimated_usd = Column(Float, nullable=True)
+    status = Column(String(20), default='PENDING')                   # 'PENDING', 'TRIGGERED', 'FILLED', 'CANCELLED', 'FAILED'
+    executed_order_id = Column(String(64), nullable=True)
+    executed_price = Column(Float, nullable=True)
+    executed_at = Column(DateTime, nullable=True)
+    error_message = Column(Text, nullable=True)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'ladder_id': self.ladder_id,
+            'rung_number': self.rung_number,
+            'target_price': self.target_price,
+            'price_offset_pct': self.price_offset_pct,
+            'quantity': self.quantity,
+            'percentage_of_total': self.percentage_of_total,
+            'estimated_usd': self.estimated_usd,
+            'status': self.status,
+            'executed_order_id': self.executed_order_id,
+            'executed_price': self.executed_price,
+            'executed_at': self.executed_at.isoformat() if self.executed_at else None,
+            'error_message': self.error_message
+        }
+
 
 class AllActivity(db.Model):
     """

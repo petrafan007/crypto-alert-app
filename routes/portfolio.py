@@ -965,8 +965,68 @@ def api_pending_orders():
                         c.auto_buy_enabled = False
                         coin_updates = True
 
-            if coin_updates:
-                db.session.commit()
+            # Include active Trailing and Ladder Orders so portfolio/watchlist rows highlight yellow
+            try:
+                from trading_models import TrailingOrder, LadderOrder
+                active_trailing = TrailingOrder.query.filter_by(user_id=current_user.id, status='ACTIVE').all()
+                for to in active_trailing:
+                    sym = to.symbol.upper()
+                    base_asset = sym.replace('USDT', '').replace('USD', '')
+                    pending_orders.append({
+                        'order_id': f"trail_{to.id}",
+                        'symbol': sym,
+                        'asset': base_asset,
+                        'provider': to.broker or 'binance',
+                        'source': to.broker or 'binance',
+                        'side': to.side,
+                        'type': 'TRAILING_STOP',
+                        'price': to.current_stop_price,
+                        'stop_price': to.current_stop_price,
+                        'trigger_price': to.current_stop_price,
+                        'highest_price': to.highest_price,
+                        'lowest_price': to.lowest_price,
+                        'quantity': to.quantity,
+                        'quantity_usdt': to.quantity * (to.current_stop_price or 0.0),
+                        'trail_type': to.trail_type,
+                        'trail_value': to.trail_value,
+                        'status': 'ACTIVE',
+                        'direction': 'drops below' if to.side == 'SELL' else 'rises above',
+                        'is_trailing': True,
+                        'is_activated': to.is_activated
+                    })
+
+                active_ladders = LadderOrder.query.filter(LadderOrder.user_id == current_user.id, LadderOrder.status.in_(['ACTIVE', 'PARTIALLY_FILLED'])).all()
+                for lo in active_ladders:
+                    sym = lo.symbol.upper()
+                    base_asset = sym.replace('USDT', '').replace('USD', '')
+                    pending_rungs = [r for r in lo.rungs if r.status == 'PENDING']
+                    next_rung = pending_rungs[0] if pending_rungs else None
+                    target_px = next_rung.target_price if next_rung else 0.0
+                    pending_orders.append({
+                        'order_id': f"ladder_{lo.id}",
+                        'symbol': sym,
+                        'asset': base_asset,
+                        'provider': lo.broker or 'binance',
+                        'source': lo.broker or 'binance',
+                        'side': lo.side,
+                        'type': 'LADDER',
+                        'price': target_px,
+                        'trigger_price': target_px,
+                        'quantity': lo.total_quantity,
+                        'quantity_usdt': lo.total_budget_usd or (lo.total_quantity * target_px),
+                        'status': lo.status,
+                        'direction': 'rises to' if lo.side == 'SELL' else 'drops to',
+                        'is_ladder': True,
+                        'rungs_total': lo.rungs_total,
+                        'rungs_filled': lo.rungs_filled,
+                        'next_rung_number': next_rung.rung_number if next_rung else None,
+                        'next_rung_price': target_px,
+                        'next_rung_qty': next_rung.quantity if next_rung else None,
+                        'preset_name': lo.preset_name,
+                        'stop_loss_price': lo.stop_loss_trigger_price if lo.has_stop_loss else None
+                    })
+            except Exception as synth_err:
+                logger.warning(f"Error appending synthetic orders to pending_orders: {synth_err}")
 
             logger.info(f"Retrieved {len(pending_orders)} pending orders for user {current_user.username}")
             return jsonify({'pending_orders': pending_orders})
@@ -1390,6 +1450,14 @@ def get_trading_order_types():
                 'requires_stop_price': False,
                 'requires_trail_value': True,
                 'requires_time_in_force': False
+            },
+            {
+                'value': 'LADDER',
+                'label': 'Ladder',
+                'description': 'Server-side ladder order for staged scale-in or scale-out execution across multiple price rungs',
+                'requires_price': False,
+                'requires_stop_price': False,
+                'requires_time_in_force': False
             }
         ]
         
@@ -1419,6 +1487,7 @@ def get_trading_order_types():
                                 if sym_info.get('ocoAllowed', False) or 'STOP_LOSS_LIMIT' in allowed_types:
                                      allowed_types.add('OCO')
                                 allowed_types.add('TRAILING_STOP')
+                                allowed_types.add('LADDER')
                                 order_types = [ot for ot in all_order_types if ot['value'] in allowed_types]
                                 logger.info(f"Filtered order types for {symbol}: {[ot['value'] for ot in order_types]}")
                                 break
@@ -3308,7 +3377,7 @@ def place_real_order():
 @portfolio_bp.route('/api/trading/trailing-orders', methods=['POST'])
 @login_required
 def api_create_trailing_order():
-    """Create a new synthetic trailing stop order"""
+    """Create a new synthetic trailing stop order (Binance.US or Webull)"""
     try:
         from services.trailing_order_service import create_trailing_order
         data = request.get_json() or {}
@@ -3327,6 +3396,10 @@ def api_create_trailing_order():
         trail_value = data.get('trail_value', 2.0)
         activation_price = data.get('activation_price')
         execution_type = data.get('execution_type', 'MARKET')
+        broker = data.get('broker', 'binance')
+        account_id = data.get('account_id')
+        instrument_type = data.get('instrument_type', 'CRYPTO')
+        trading_session = data.get('trading_session', 'CORE')
 
         order_dict = create_trailing_order(
             user_id=current_user.id,
@@ -3337,7 +3410,11 @@ def api_create_trailing_order():
             trail_value=trail_value,
             activation_price=activation_price,
             execution_type=execution_type,
-            test_mode=test_mode
+            test_mode=test_mode,
+            broker=broker,
+            account_id=account_id,
+            instrument_type=instrument_type,
+            trading_session=trading_session
         )
         return jsonify({'success': True, 'trailing_order': order_dict})
     except Exception as e:
@@ -3348,11 +3425,13 @@ def api_create_trailing_order():
 @portfolio_bp.route('/api/trading/trailing-orders', methods=['GET'])
 @login_required
 def api_get_trailing_orders():
-    """List trailing orders for current user"""
+    """List trailing orders for current user with optional filters"""
     try:
         from services.trailing_order_service import get_user_trailing_orders
         status = request.args.get('status')
-        orders = get_user_trailing_orders(current_user.id, status=status)
+        broker = request.args.get('broker')
+        symbol = request.args.get('symbol')
+        orders = get_user_trailing_orders(current_user.id, symbol=symbol, status=status, broker=broker)
         return jsonify({'success': True, 'trailing_orders': orders})
     except Exception as e:
         logger.error(f"Failed to fetch trailing orders: {e}")
@@ -3369,6 +3448,83 @@ def api_cancel_trailing_order(order_id):
         return jsonify({'success': True, 'trailing_order': cancelled})
     except Exception as e:
         logger.error(f"Failed to cancel trailing order #{order_id}: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 400
+
+
+@portfolio_bp.route('/api/trading/ladder-orders', methods=['POST'])
+@login_required
+def api_create_ladder_order():
+    """Create a new synthetic ladder order (Scale-Out or Scale-In)"""
+    try:
+        from services.ladder_order_service import create_ladder_order
+        data = request.get_json() or {}
+
+        settings = TradingSettings.query.filter_by(user_id=current_user.id).first()
+        test_mode = bool(settings.test_mode_enabled) if settings else False
+        if 'test_mode' in data:
+            test_mode = bool(data['test_mode'])
+
+        symbol = data.get('symbol')
+        side = data.get('side')
+        total_quantity = data.get('total_quantity') or data.get('quantity')
+        preset_name = data.get('preset_name', 'Conservative')
+        custom_rungs = data.get('custom_rungs')
+        has_stop_loss = bool(data.get('has_stop_loss', False))
+        stop_loss_trigger_price = data.get('stop_loss_trigger_price')
+        stop_loss_action = data.get('stop_loss_action', 'SELL_ALL')
+        broker = data.get('broker', 'binance')
+        account_id = data.get('account_id')
+        instrument_type = data.get('instrument_type', 'CRYPTO')
+        trading_session = data.get('trading_session', 'CORE')
+
+        ladder_dict = create_ladder_order(
+            user_id=current_user.id,
+            symbol=symbol,
+            side=side,
+            total_quantity=total_quantity,
+            preset_name=preset_name,
+            custom_rungs=custom_rungs,
+            has_stop_loss=has_stop_loss,
+            stop_loss_trigger_price=stop_loss_trigger_price,
+            stop_loss_action=stop_loss_action,
+            broker=broker,
+            account_id=account_id,
+            instrument_type=instrument_type,
+            trading_session=trading_session,
+            test_mode=test_mode
+        )
+        return jsonify({'success': True, 'ladder_order': ladder_dict})
+    except Exception as e:
+        logger.error(f"Failed to create ladder order: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 400
+
+
+@portfolio_bp.route('/api/trading/ladder-orders', methods=['GET'])
+@login_required
+def api_get_ladder_orders():
+    """List ladder orders for current user"""
+    try:
+        from services.ladder_order_service import get_user_ladder_orders
+        status = request.args.get('status')
+        broker = request.args.get('broker')
+        symbol = request.args.get('symbol')
+        ladders = get_user_ladder_orders(current_user.id, symbol=symbol, status=status, broker=broker)
+        return jsonify({'success': True, 'ladder_orders': ladders})
+    except Exception as e:
+        logger.error(f"Failed to fetch ladder orders: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@portfolio_bp.route('/api/trading/ladder-orders/<int:ladder_id>/cancel', methods=['POST'])
+@login_required
+def api_cancel_ladder_order(ladder_id):
+    """Cancel an active ladder order and remaining rungs"""
+    try:
+        from services.ladder_order_service import cancel_ladder_order
+        cancelled = cancel_ladder_order(ladder_id, current_user.id)
+        return jsonify({'success': True, 'ladder_order': cancelled})
+    except Exception as e:
+        logger.error(f"Failed to cancel ladder order #{ladder_id}: {e}")
         return jsonify({'success': False, 'error': str(e)}), 400
 
 

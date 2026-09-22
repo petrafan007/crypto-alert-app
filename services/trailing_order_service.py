@@ -9,12 +9,37 @@ from models import Coin
 from credentials import Credential
 from log import logger
 
-def _get_reference_price(symbol, client=None):
+def _get_reference_price(symbol, client=None, broker='binance', instrument_type='CRYPTO', user_id=None):
     """
-    Get current market price for a symbol using Coin table, Binance client, or public ticker.
+    Get current market price for a symbol using Coin table, Binance client, Webull quote, or public ticker.
     """
     clean_sym = symbol.strip().upper()
-    
+    clean_broker = (broker or 'binance').lower()
+    clean_type = (instrument_type or 'CRYPTO').upper()
+
+    if clean_broker == 'webull':
+        try:
+            from services.webull_service import get_webull_quote
+            from credentials import Credential
+            # Fetch user's credentials if user_id provided
+            cred = Credential.query.filter_by(user_id=user_id).first() if user_id else None
+            if not cred:
+                cred = Credential.query.filter(Credential._webull_app_key.isnot(None)).first()
+            if cred and cred.webull_app_key and cred.webull_app_secret:
+                quote = get_webull_quote(
+                    cred.webull_app_key,
+                    cred.webull_app_secret,
+                    environment='production',
+                    access_token=cred.webull_access_token,
+                    symbol=clean_sym,
+                    instrument_type=clean_type
+                )
+                p = quote.get('price') or quote.get('regular_price') or quote.get('last_price')
+                if p and float(p) > 0:
+                    return float(p)
+        except Exception as e:
+            logger.warning(f"Webull price lookup failed for {clean_sym} ({clean_type}): {e}")
+
     # 1. Try Coin table first (fastest, cached by background sync)
     coin = Coin.query.filter_by(symbol=clean_sym).first()
     if coin and coin.current and coin.current > 0:
@@ -77,14 +102,20 @@ def calculate_trailing_stop_price(side, reference_price, trail_type, trail_value
 
 
 def create_trailing_order(user_id, symbol, side, quantity, trail_type='PERCENT', trail_value=2.0,
-                          activation_price=None, execution_type='MARKET', test_mode=False, client=None):
+                          activation_price=None, execution_type='MARKET', test_mode=False, client=None,
+                          broker='binance', account_id=None, instrument_type='CRYPTO', trading_session='CORE'):
     """
     Validate and persist a new synthetic TrailingOrder.
+    Supports both Binance.US and Webull.
     """
     clean_symbol = str(symbol or '').strip().upper()
     clean_side = str(side or '').strip().upper()
     clean_trail_type = str(trail_type or 'PERCENT').strip().upper()
     clean_exec_type = str(execution_type or 'MARKET').strip().upper()
+    clean_broker = str(broker or 'binance').strip().lower()
+    clean_instrument = str(instrument_type or 'CRYPTO').strip().upper()
+    clean_session = str(trading_session or 'CORE').strip().upper()
+    clean_account_id = str(account_id).strip() if account_id else None
 
     if clean_side not in ('BUY', 'SELL'):
         raise ValueError("Order side must be BUY or SELL.")
@@ -108,7 +139,7 @@ def create_trailing_order(user_id, symbol, side, quantity, trail_type='PERCENT',
     except (TypeError, ValueError):
         raise ValueError("Trail value must be a positive number.")
 
-    current_price = _get_reference_price(clean_symbol, client=client)
+    current_price = _get_reference_price(clean_symbol, client=client, broker=clean_broker, instrument_type=clean_instrument, user_id=user_id)
     if not current_price or current_price <= 0:
         raise ValueError(f"Unable to determine current market price for {clean_symbol}.")
 
@@ -139,7 +170,10 @@ def create_trailing_order(user_id, symbol, side, quantity, trail_type='PERCENT',
 
     order = TrailingOrder(
         user_id=user_id,
+        broker=clean_broker,
+        account_id=clean_account_id,
         symbol=clean_symbol,
+        instrument_type=clean_instrument,
         side=clean_side,
         quantity=qty,
         trail_type=clean_trail_type,
@@ -151,6 +185,7 @@ def create_trailing_order(user_id, symbol, side, quantity, trail_type='PERCENT',
         current_stop_price=initial_stop,
         execution_type=clean_exec_type,
         test_mode=bool(test_mode),
+        trading_session=clean_session,
         status='ACTIVE',
         created_at=utc_now(aware=False),
         updated_at=utc_now(aware=False)
@@ -158,7 +193,7 @@ def create_trailing_order(user_id, symbol, side, quantity, trail_type='PERCENT',
 
     db.session.add(order)
     db.session.commit()
-    logger.info(f"Created TrailingOrder #{order.id}: {clean_side} {qty} {clean_symbol} (trail={t_val} {clean_trail_type}, stop={initial_stop})")
+    logger.info(f"Created TrailingOrder #{order.id} [{clean_broker.upper()}]: {clean_side} {qty} {clean_symbol} (trail={t_val} {clean_trail_type}, stop={initial_stop})")
     return order.to_dict()
 
 
@@ -168,25 +203,30 @@ def cancel_trailing_order(order_id, user_id):
     """
     order = TrailingOrder.query.filter_by(id=order_id, user_id=user_id).first()
     if not order:
-        raise ValueError("Trailing order not found.")
+        raise ValueError(f"Trailing order #{order_id} not found.")
 
     if order.status != 'ACTIVE':
-        raise ValueError(f"Cannot cancel order in '{order.status}' status.")
+        raise ValueError(f"Order #{order_id} is already in state {order.status} and cannot be cancelled.")
 
     order.status = 'CANCELLED'
     order.updated_at = utc_now(aware=False)
     db.session.commit()
-    logger.info(f"Cancelled TrailingOrder #{order.id} for user {user_id}")
+    logger.info(f"Cancelled TrailingOrder #{order_id} for user {user_id}")
     return order.to_dict()
 
 
-def get_user_trailing_orders(user_id, status=None):
+def get_user_trailing_orders(user_id, symbol=None, status=None, broker=None):
     """
-    Fetch all trailing orders for user, optionally filtered by status.
+    Fetch trailing orders for a user with optional filters.
     """
     query = TrailingOrder.query.filter_by(user_id=user_id)
+    if broker:
+        query = query.filter_by(broker=broker.lower())
+    if symbol:
+        query = query.filter_by(symbol=symbol.strip().upper())
     if status:
-        query = query.filter_by(status=status.upper())
+        query = query.filter_by(status=status.strip().upper())
+
     orders = query.order_by(TrailingOrder.created_at.desc()).all()
     return [o.to_dict() for o in orders]
 
@@ -275,6 +315,7 @@ def evaluate_single_trailing_order(order, current_price, execute_trigger=True):
 def execute_trailing_trigger(order, current_price):
     """
     Submits market order when trailing stop is triggered.
+    Dispatches to Binance.US or Webull based on order.broker.
     """
     try:
         if order.test_mode:
@@ -295,6 +336,46 @@ def execute_trailing_trigger(order, current_price):
             order.executed_order_id = f"test_trail_{int(time.time())}"
             logger.info(f"TrailingOrder #{order.id} filled in TEST mode.")
             return
+
+        clean_broker = (order.broker or 'binance').lower()
+
+        # Webull execution (Equities, ETFs, Crypto)
+        if clean_broker == 'webull':
+            from services.webull_service import place_webull_order
+            from credentials import Credential, UserSetting
+            cred = Credential.query.filter_by(user_id=order.user_id).first()
+            if not cred or not cred.webull_app_key or not cred.webull_app_secret:
+                order.status = 'FAILED'
+                order.error_message = "Missing Webull trading credentials."
+                logger.error(f"TrailingOrder #{order.id} failed: No Webull credentials.")
+                return
+
+            setting = UserSetting.query.filter_by(user_id=order.user_id).first()
+            environment = getattr(setting, 'webull_environment', 'production') if setting else 'production'
+
+            account_id = order.account_id
+            if not account_id and setting and setting.webull_default_account_id:
+                account_id = setting.webull_default_account_id
+
+            webull_params = {
+                'app_key': cred.webull_app_key,
+                'app_secret': cred.webull_app_secret,
+                'environment': environment,
+                'access_token': cred.webull_access_token,
+                'account_id': account_id,
+                'symbol': order.symbol,
+                'instrument_type': order.instrument_type or 'EQUITY',
+                'side': order.side,
+                'order_type': 'MARKET',
+                'quantity': order.quantity,
+                'support_trading_session': order.trading_session or 'CORE'
+            }
+            logger.info(f"Submitting Webull order for TrailingOrder #{order.id}: {webull_params}")
+            resp = place_webull_order(**webull_params)
+            order.executed_order_id = str(resp.get('order_id') or resp.get('client_order_id') or '')
+            order.status = 'FILLED'
+            logger.info(f"TrailingOrder #{order.id} successfully submitted to Webull (orderId={order.executed_order_id})")
+            return True
 
         # Real trading execution on Binance.US
         from credential_security import decrypt_secret
@@ -342,18 +423,10 @@ def evaluate_active_trailing_orders():
         if not active_orders:
             return
 
-        # Group by symbol to minimize price fetches
-        symbols = list(set(o.symbol for o in active_orders))
-        prices = {}
-        for s in symbols:
-            p = _get_reference_price(s)
-            if p and p > 0:
-                prices[s] = p
-
         modified = False
         for order in active_orders:
-            price = prices.get(order.symbol)
-            if price:
+            price = _get_reference_price(order.symbol, broker=order.broker, instrument_type=order.instrument_type, user_id=order.user_id)
+            if price and price > 0:
                 updated, _ = evaluate_single_trailing_order(order, price, execute_trigger=True)
                 if updated:
                     modified = True

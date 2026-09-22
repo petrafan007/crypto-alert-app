@@ -15,6 +15,8 @@ import { useAuth } from '../components/AuthContext';
 import CryptoIcon, { BinanceLogo } from '../components/CryptoIcon';
 import AIDashboard from './AIDashboard';
 import Staking from './Staking';
+import LadderOrderConfig, { defaultLadderState } from '../components/LadderOrderConfig';
+import LadderOrdersTable from '../components/LadderOrdersTable';
 import './Trading.css';
 import { useLocation, useNavigate } from 'react-router-dom';
 
@@ -78,6 +80,9 @@ const Trading = ({ isLightMode = false }) => {
   const [tempMaxOrderSize, setTempMaxOrderSize] = useState('');
   const [trailingOrders, setTrailingOrders] = useState([]);
   const [loadingTrailingOrders, setLoadingTrailingOrders] = useState(false);
+  const [ladderOrders, setLadderOrders] = useState([]);
+  const [loadingLadderOrders, setLoadingLadderOrders] = useState(false);
+  const [ladderConfig, setLadderConfig] = useState(defaultLadderState);
 
   const urlParams = new URLSearchParams(location.search);
   const urlMode = urlParams.get('mode')?.toUpperCase()?.trim();
@@ -649,6 +654,21 @@ const Trading = ({ isLightMode = false }) => {
         }
         break;
       }
+      case 'LADDER': {
+        cells.push(
+          <LadderOrderConfig
+            key="ladder-config-panel"
+            side={orderForm.side}
+            currentPrice={currentPrices.base || 0}
+            totalQuantity={orderForm.quantity}
+            baseAsset={baseAsset}
+            quoteAsset={quoteAsset}
+            ladderConfig={ladderConfig}
+            onChange={setLadderConfig}
+          />
+        );
+        break;
+      }
       default:
         break;
     }
@@ -921,6 +941,7 @@ const Trading = ({ isLightMode = false }) => {
     loadOrderTypes(orderForm.symbol);
     loadOpenOrders();
     loadTrailingOrders();
+    loadLadderOrders();
     loadLivePortfolio();
     if (!isRealModeRequested && settings.test_mode_enabled) {
       loadTestPortfolio();
@@ -1055,6 +1076,20 @@ const Trading = ({ isLightMode = false }) => {
       console.error('Failed to load trailing orders:', e);
     } finally {
       setLoadingTrailingOrders(false);
+    }
+  };
+
+  const loadLadderOrders = async () => {
+    try {
+      setLoadingLadderOrders(true);
+      const res = await axios.get('/api/trading/ladder-orders?broker=binance', { withCredentials: true });
+      if (res.data.success) {
+        setLadderOrders(res.data.ladder_orders || []);
+      }
+    } catch (e) {
+      console.error('Failed to load ladder orders:', e);
+    } finally {
+      setLoadingLadderOrders(false);
     }
   };
 
@@ -1584,6 +1619,28 @@ const Trading = ({ isLightMode = false }) => {
         }
       }
 
+      if (orderForm.type === 'LADDER') {
+        const totalPct = ladderConfig.rungs.reduce((acc, r) => acc + (parseFloat(r.percentage_of_total) || 0), 0);
+        if (Math.abs(totalPct - 100) > 0.5) {
+          setFeedbackModal({
+            isVisible: true,
+            message: `Ladder rungs percentage allocation must sum to 100% (currently ${totalPct.toFixed(1)}%).`,
+            type: 'error'
+          });
+          setLoading(false);
+          return;
+        }
+        if (ladderConfig.rungs.some(r => !r.target_price || parseFloat(r.target_price) <= 0)) {
+          setFeedbackModal({
+            isVisible: true,
+            message: 'All ladder rungs must have a valid target price greater than 0.',
+            type: 'error'
+          });
+          setLoading(false);
+          return;
+        }
+      }
+
       if (['LIMIT', 'STOP_LOSS_LIMIT', 'TAKE_PROFIT_LIMIT', 'LIMIT_MAKER'].includes(orderForm.type)) {
         if (!orderForm.price || parseFloat(orderForm.price) <= 0) {
           setFeedbackModal({
@@ -1807,6 +1864,8 @@ const Trading = ({ isLightMode = false }) => {
       let endpoint;
       if (orderForm.type === 'TRAILING_STOP') {
         endpoint = '/api/trading/trailing-orders';
+      } else if (orderForm.type === 'LADDER') {
+        endpoint = '/api/trading/ladder-orders';
       } else if (orderForm.type === 'OCO') {
         endpoint = settings.test_mode_enabled ? '/api/trading/test-oco-order' : '/api/trading/oco-order';
       } else {
@@ -1823,6 +1882,32 @@ const Trading = ({ isLightMode = false }) => {
         orderData.trail_value = parseFloat(orderForm.trailValue || 2.0);
         orderData.activation_price = orderForm.activationPrice ? parseFloat(orderForm.activationPrice) : null;
         orderData.test_mode = settings.test_mode_enabled;
+      } else if (orderForm.type === 'LADDER') {
+        orderData.total_quantity = parseFloat(orderForm.quantity);
+        orderData.mode = ladderConfig.mode || 'PERCENTAGE';
+        orderData.preset_name = ladderConfig.preset;
+        orderData.rungs = ladderConfig.rungs.map(r => ({
+          price_offset_pct: parseFloat(r.price_offset_pct),
+          percentage_of_total: parseFloat(r.percentage_of_total),
+          target_price: parseFloat(r.target_price)
+        }));
+        orderData.has_stop_loss = Boolean(ladderConfig.hasStopLoss);
+        let slPrice = null;
+        if (ladderConfig.hasStopLoss) {
+          if (ladderConfig.stopLossType === 'PRICE') {
+            slPrice = parseFloat(ladderConfig.stopLossTriggerPrice) || null;
+          } else {
+            const offset = parseFloat(ladderConfig.stopLossOffsetPct) || 0;
+            const curP = parseFloat(currentPrices.base) || 0;
+            if (curP > 0 && offset > 0) {
+              slPrice = orderForm.side === 'SELL' ? curP * (1 - offset / 100) : curP * (1 + offset / 100);
+            }
+          }
+        }
+        orderData.stop_loss_trigger_price = slPrice;
+        orderData.stop_loss_action = ladderConfig.stopLossAction || 'MARKET_SELL_ALL';
+        orderData.test_mode = settings.test_mode_enabled;
+        orderData.broker = 'binance';
       }
 
       // Add quote amounts if quote was prioritized
@@ -1846,6 +1931,9 @@ const Trading = ({ isLightMode = false }) => {
         if (orderForm.type === 'TRAILING_STOP') {
           successMessage = `Trailing Stop order created successfully!\n\n${orderForm.side} ${orderForm.quantity} ${orderForm.symbol}\nTrail: ${orderForm.trailType === 'PERCENT' ? `${orderForm.trailValue}%` : `$${orderForm.trailValue}`}\n\nThe synthetic engine will track market highs and trigger automatically.`;
           loadTrailingOrders();
+        } else if (orderForm.type === 'LADDER') {
+          successMessage = `🪜 Ladder Order created successfully!\n\n${orderForm.side} ${orderForm.quantity} ${orderForm.symbol}\nPreset: ${ladderConfig.preset} (${ladderConfig.rungs.length} rungs)\n\nThe synthetic ladder engine is now actively monitoring target prices.`;
+          loadLadderOrders();
         } else {
           successMessage = settings.test_mode_enabled
             ? `Test order placed successfully!\n\n${orderForm.side} ${orderForm.quantity} ${orderForm.symbol.replace('USDT', '')} validated with Binance.US and simulated.\n\nYour test portfolio has been updated.`
@@ -2203,6 +2291,21 @@ const Trading = ({ isLightMode = false }) => {
           {trailingOrders && trailingOrders.filter(o => o.status === 'ACTIVE').length > 0 && (
             <span className="tab-badge" style={{ background: '#6366f1' }}>
               {trailingOrders.filter(o => o.status === 'ACTIVE').length}
+            </span>
+          )}
+        </button>
+        <button
+          className={`tab-button ${activeTab === 'ladder_orders' ? 'active' : ''}`}
+          onClick={() => {
+            setActiveTab('ladder_orders');
+            loadLadderOrders();
+          }}
+        >
+          <span className="tab-icon">🪜</span>
+          <span className="tab-text">Ladder Orders</span>
+          {ladderOrders && ladderOrders.filter(o => o.status === 'ACTIVE').length > 0 && (
+            <span className="tab-badge" style={{ background: '#0284c7' }}>
+              {ladderOrders.filter(o => o.status === 'ACTIVE').length}
             </span>
           )}
         </button>
@@ -2572,8 +2675,8 @@ const Trading = ({ isLightMode = false }) => {
                 ) : (
                   <span>
                     {settings.test_mode_enabled
-                      ? `🧪 Place Test ${orderForm.type === 'TRAILING_STOP' ? 'Trailing Stop' : ''} Order`
-                      : `⚡ Place Real ${orderForm.type === 'MARKET' ? 'Market' : orderForm.type === 'LIMIT' ? 'Limit' : orderForm.type === 'TRAILING_STOP' ? 'Trailing Stop' : ''} ${orderForm.side === 'BUY' ? 'Buy' : 'Sell'} Order`}
+                      ? `🧪 Place Test ${orderForm.type === 'TRAILING_STOP' ? 'Trailing Stop' : orderForm.type === 'LADDER' ? 'Ladder' : ''} Order`
+                      : `⚡ Place Real ${orderForm.type === 'MARKET' ? 'Market' : orderForm.type === 'LIMIT' ? 'Limit' : orderForm.type === 'TRAILING_STOP' ? 'Trailing Stop' : orderForm.type === 'LADDER' ? 'Ladder' : ''} ${orderForm.side === 'BUY' ? 'Buy' : 'Sell'} Order`}
                   </span>
                 )}
               </button>
@@ -2999,6 +3102,19 @@ const Trading = ({ isLightMode = false }) => {
                 </table>
               </div>
             )}
+          </div>
+        )}
+
+        {/* LADDER ORDERS TAB */}
+        {activeTab === 'ladder_orders' && (
+          <div className="trading-history-tab" style={{ padding: '16px' }}>
+            <div style={{ marginBottom: '16px' }}>
+              <h2 style={{ margin: '0 0 4px 0', fontSize: '18px', color: '#fff' }}>🪜 Synthetic Ladder Orders</h2>
+              <p style={{ margin: 0, fontSize: '12px', color: '#94a3b8' }}>
+                Automated multi-rung scale-out profit targets and scale-in accumulation ladders for Binance.US spot trading.
+              </p>
+            </div>
+            <LadderOrdersTable defaultBroker="binance" showBrokerFilter={false} onOrderCancelled={loadLadderOrders} />
           </div>
         )}
       </div>

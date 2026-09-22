@@ -1497,6 +1497,15 @@ def start_background_jobs(app=None):
     )
     trailing_order_thread.start()
 
+    from services.ladder_order_service import ladder_order_worker_loop
+    ladder_order_thread = threading.Thread(
+        target=ladder_order_worker_loop,
+        args=(app,),
+        daemon=True,
+        name="crypto-ladder-orders",
+    )
+    ladder_order_thread.start()
+
     # 2. Portfolio Price Alert Loop
     portfolio_thread = threading.Thread(target=portfolio_alert_loop, args=(app,), daemon=True)
     portfolio_thread.start()
@@ -1548,6 +1557,8 @@ def start_background_jobs(app=None):
         "order_history": order_history_thread,
         "webull_portfolio": webull_portfolio_thread,
         "webull_scheduled_orders": webull_scheduled_thread,
+        "trailing_orders": trailing_order_thread,
+        "ladder_orders": ladder_order_thread,
         "portfolio": portfolio_thread,
         "watchlist": watchlist_thread,
         "volatility": volatility_thread,

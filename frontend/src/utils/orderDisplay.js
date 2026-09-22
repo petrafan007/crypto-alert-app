@@ -13,6 +13,8 @@ export const ORDER_TYPE_LABELS = Object.freeze({
   STOP_LOSS: 'Stop Loss',
   STOP_LOSS_LIMIT: 'Stop Loss Limit',
   TRAILING_STOP_LOSS: 'Trailing Stop',
+  TRAILING_STOP: 'Trailing Stop',
+  LADDER: 'Ladder',
   MARKET_ON_OPEN: 'Market on Open (MOO)',
   MARKET_ON_CLOSE: 'Market on Close (MOC)',
   LIMIT_ON_OPEN: 'Limit on Open (LOO)',
