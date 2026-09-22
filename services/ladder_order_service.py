@@ -1,8 +1,8 @@
 """
-Ladder Order Service
-Provides synthetic server-side ladder order creation, template configuration,
-price monitoring, progressive rung execution, and lifecycle management for
-both Binance.US (Crypto) and Webull (Equities, ETFs, and Crypto).
+Ladder & Synthetic Bracket Order Service
+Provides synthetic server-side smart order creation, template configuration,
+price monitoring, progressive rung execution, trailing take-profit/stop-loss,
+and lifecycle management for both Binance.US (Crypto) and Webull (Equities, ETFs, and Crypto).
 """
 
 import time
@@ -47,11 +47,38 @@ PRESET_TEMPLATES = {
     }
 }
 
+DOWNSIDE_PRESET_TEMPLATES = {
+    'SELL': {
+        'Tight': [
+            {'offset_pct': -1.5, 'pct_of_total': 33.33},
+            {'offset_pct': -3.0, 'pct_of_total': 33.33},
+            {'offset_pct': -4.5, 'pct_of_total': 33.34},
+        ],
+        'Moderate': [
+            {'offset_pct': -3.0, 'pct_of_total': 30.0},
+            {'offset_pct': -5.0, 'pct_of_total': 30.0},
+            {'offset_pct': -8.0, 'pct_of_total': 40.0},
+        ]
+    },
+    'BUY': {
+        'Tight': [
+            {'offset_pct': 1.5, 'pct_of_total': 33.33},
+            {'offset_pct': 3.0, 'pct_of_total': 33.33},
+            {'offset_pct': 4.5, 'pct_of_total': 33.34},
+        ],
+        'Moderate': [
+            {'offset_pct': 3.0, 'pct_of_total': 30.0},
+            {'offset_pct': 5.0, 'pct_of_total': 30.0},
+            {'offset_pct': 8.0, 'pct_of_total': 40.0},
+        ]
+    }
+}
 
-def calculate_ladder_rungs(side, current_price, total_quantity, preset_name='Conservative', custom_rungs=None):
+
+def calculate_ladder_rungs(side, current_price, total_quantity, preset_name='Conservative', custom_rungs=None, rung_type='TAKE_PROFIT'):
     """
     Computes price targets and quantity allocation for each rung of a ladder.
-    Returns list of dicts: [{rung_number, target_price, price_offset_pct, quantity, percentage_of_total, estimated_usd}]
+    Returns list of dicts: [{rung_number, target_price, price_offset_pct, quantity, percentage_of_total, estimated_usd, rung_type}]
     """
     ref_price = float(current_price)
     total_qty = float(total_quantity)
@@ -60,8 +87,14 @@ def calculate_ladder_rungs(side, current_price, total_quantity, preset_name='Con
     if custom_rungs and len(custom_rungs) > 0:
         specs = custom_rungs
     else:
-        preset = preset_name if preset_name in PRESET_TEMPLATES.get(clean_side, {}) else 'Conservative'
-        specs = PRESET_TEMPLATES[clean_side][preset]
+        if rung_type == 'STOP_LOSS':
+            templates = DOWNSIDE_PRESET_TEMPLATES.get(clean_side, {})
+            preset = preset_name if preset_name in templates else 'Moderate'
+            specs = templates.get(preset, templates.get('Moderate', []))
+        else:
+            templates = PRESET_TEMPLATES.get(clean_side, {})
+            preset = preset_name if preset_name in templates else 'Conservative'
+            specs = templates.get(preset, templates.get('Conservative', []))
 
     calculated_rungs = []
     remaining_qty = total_qty
@@ -79,11 +112,10 @@ def calculate_ladder_rungs(side, current_price, total_quantity, preset_name='Con
 
         # Determine quantity
         if i == len(specs) - 1:
-            # Final rung absorbs any rounding discrepancy
             qty = round(remaining_qty, 8)
-            pct_total = round((qty / total_qty) * 100.0, 2)
+            pct_total = round((qty / total_qty) * 100.0, 2) if total_qty > 0 else 0
         else:
-            pct_total = float(spec.get('pct_of_total', spec.get('percentage_of_total', 100.0 / len(specs))))
+            pct_total = float(spec.get('pct_of_total', spec.get('percentage_of_total', 100.0 / max(len(specs), 1))))
             qty = round(total_qty * (pct_total / 100.0), 8)
             remaining_qty -= qty
 
@@ -91,6 +123,7 @@ def calculate_ladder_rungs(side, current_price, total_quantity, preset_name='Con
 
         calculated_rungs.append({
             'rung_number': rung_num,
+            'rung_type': rung_type,
             'target_price': target_px,
             'price_offset_pct': offset_pct,
             'quantity': qty,
@@ -105,9 +138,15 @@ def calculate_ladder_rungs(side, current_price, total_quantity, preset_name='Con
 def create_ladder_order(user_id, symbol, side, total_quantity, preset_name='Conservative',
                         custom_rungs=None, has_stop_loss=False, stop_loss_trigger_price=None,
                         stop_loss_action='SELL_ALL', broker='binance', account_id=None,
-                        instrument_type='CRYPTO', trading_session='CORE', test_mode=False, client=None):
+                        instrument_type='CRYPTO', trading_session='CORE', test_mode=False, client=None,
+                        strategy_type='SYNTHETIC', upside_mode='LADDER', upside_target_price=None,
+                        upside_trail_value=None, upside_trail_type='PERCENT', upside_activation_price=None,
+                        downside_mode='NONE', downside_target_price=None, downside_trail_value=None,
+                        downside_trail_type='PERCENT', downside_activation_price=None,
+                        downside_preset='Moderate', downside_rungs=None):
     """
     Validate, calculate, and persist a parent LadderOrder with child LadderRungs.
+    Supports Mode A (Single), Mode B (Ladder), Mode C (Trailing) for both Upside and Downside.
     """
     clean_symbol = str(symbol or '').strip().upper()
     clean_side = str(side or '').strip().upper()
@@ -115,6 +154,9 @@ def create_ladder_order(user_id, symbol, side, total_quantity, preset_name='Cons
     clean_instrument = str(instrument_type or 'CRYPTO').strip().upper()
     clean_session = str(trading_session or 'CORE').strip().upper()
     clean_account_id = str(account_id).strip() if account_id else None
+
+    clean_upside_mode = str(upside_mode or 'LADDER').strip().upper()
+    clean_downside_mode = str(downside_mode or 'NONE').strip().upper()
 
     if clean_side not in ('BUY', 'SELL'):
         raise ValueError("Order side must be BUY or SELL.")
@@ -130,20 +172,76 @@ def create_ladder_order(user_id, symbol, side, total_quantity, preset_name='Cons
     if not current_price or current_price <= 0:
         raise ValueError(f"Unable to determine current market price for {clean_symbol}.")
 
+    # Resolve legacy stop-loss arguments
     sl_price = None
-    if has_stop_loss and stop_loss_trigger_price:
+    if (has_stop_loss or clean_downside_mode == 'SINGLE') and (stop_loss_trigger_price or downside_target_price):
         try:
-            sl_price = float(stop_loss_trigger_price)
+            sl_price = float(downside_target_price or stop_loss_trigger_price)
             if sl_price <= 0:
                 sl_price = None
         except (TypeError, ValueError):
             sl_price = None
 
-    rungs_data = calculate_ladder_rungs(clean_side, current_price, qty, preset_name=preset_name, custom_rungs=custom_rungs)
-    if not rungs_data or len(rungs_data) == 0:
-        raise ValueError("Ladder must contain at least one valid rung.")
+    if sl_price and clean_downside_mode == 'NONE':
+        clean_downside_mode = 'SINGLE'
 
-    total_budget = sum(r['estimated_usd'] for r in rungs_data)
+    # Build rungs list
+    all_rungs_data = []
+
+    # 1. Upside rungs (Take Profit)
+    if clean_upside_mode == 'LADDER':
+        upside_rungs_data = calculate_ladder_rungs(clean_side, current_price, qty, preset_name=preset_name, custom_rungs=custom_rungs, rung_type='TAKE_PROFIT')
+        all_rungs_data.extend(upside_rungs_data)
+    elif clean_upside_mode == 'SINGLE':
+        tgt_px = float(upside_target_price) if upside_target_price else (current_price * 1.05 if clean_side == 'SELL' else current_price * 0.95)
+        offset_pct = round(((tgt_px - current_price) / current_price) * 100.0, 2)
+        all_rungs_data.append({
+            'rung_number': 1,
+            'rung_type': 'TAKE_PROFIT',
+            'target_price': tgt_px,
+            'price_offset_pct': offset_pct,
+            'quantity': qty,
+            'percentage_of_total': 100.0,
+            'estimated_usd': round(qty * tgt_px, 2),
+            'status': 'PENDING'
+        })
+        upside_target_price = tgt_px
+    elif clean_upside_mode == 'TRAILING':
+        upside_trail_value = float(upside_trail_value or 2.0)
+        upside_trail_type = str(upside_trail_type or 'PERCENT').upper()
+        upside_activation_price = float(upside_activation_price) if upside_activation_price else None
+
+    # 2. Downside rungs (Stop Loss)
+    if clean_downside_mode == 'LADDER':
+        downside_rungs_data = calculate_ladder_rungs(clean_side, current_price, qty, preset_name=downside_preset, custom_rungs=downside_rungs, rung_type='STOP_LOSS')
+        # Assign contiguous rung numbers
+        start_num = len(all_rungs_data) + 1
+        for idx, r in enumerate(downside_rungs_data):
+            r['rung_number'] = start_num + idx
+            all_rungs_data.append(r)
+    elif clean_downside_mode == 'TRAILING':
+        downside_trail_value = float(downside_trail_value or 3.0)
+        downside_trail_type = str(downside_trail_type or 'PERCENT').upper()
+        downside_activation_price = float(downside_activation_price) if downside_activation_price else None
+
+    total_budget = sum(r['estimated_usd'] for r in all_rungs_data if r['rung_type'] == 'TAKE_PROFIT')
+    if total_budget <= 0:
+        total_budget = round(qty * current_price, 2)
+
+    # Initial watermarks
+    up_stop = None
+    if clean_upside_mode == 'TRAILING':
+        if clean_side == 'SELL':
+            up_stop = current_price * (1.0 - (upside_trail_value / 100.0)) if upside_trail_type == 'PERCENT' else max(0.0, current_price - upside_trail_value)
+        else:
+            up_stop = current_price * (1.0 + (upside_trail_value / 100.0)) if upside_trail_type == 'PERCENT' else current_price + upside_trail_value
+
+    down_stop = None
+    if clean_downside_mode == 'TRAILING':
+        if clean_side == 'SELL':
+            down_stop = current_price * (1.0 - (downside_trail_value / 100.0)) if downside_trail_type == 'PERCENT' else max(0.0, current_price - downside_trail_value)
+        else:
+            down_stop = current_price * (1.0 + (downside_trail_value / 100.0)) if downside_trail_type == 'PERCENT' else current_price + downside_trail_value
 
     ladder = LadderOrder(
         user_id=user_id,
@@ -155,11 +253,26 @@ def create_ladder_order(user_id, symbol, side, total_quantity, preset_name='Cons
         total_quantity=qty,
         total_budget_usd=total_budget,
         preset_name=preset_name or 'Custom',
-        has_stop_loss=bool(has_stop_loss and sl_price),
+        strategy_type=strategy_type or 'SYNTHETIC',
+        upside_mode=clean_upside_mode,
+        upside_target_price=upside_target_price,
+        upside_trail_value=upside_trail_value,
+        upside_trail_type=upside_trail_type,
+        upside_activation_price=upside_activation_price,
+        upside_highest_price=current_price if clean_upside_mode == 'TRAILING' else None,
+        upside_current_stop_price=up_stop,
+        downside_mode=clean_downside_mode,
+        downside_target_price=sl_price,
+        downside_trail_value=downside_trail_value,
+        downside_trail_type=downside_trail_type,
+        downside_activation_price=downside_activation_price,
+        downside_lowest_price=current_price if clean_downside_mode == 'TRAILING' else None,
+        downside_current_stop_price=down_stop,
+        has_stop_loss=bool(clean_downside_mode != 'NONE'),
         stop_loss_trigger_price=sl_price,
         stop_loss_action=stop_loss_action or 'SELL_ALL',
         status='ACTIVE',
-        rungs_total=len(rungs_data),
+        rungs_total=len(all_rungs_data),
         rungs_filled=0,
         test_mode=bool(test_mode),
         trading_session=clean_session,
@@ -168,12 +281,13 @@ def create_ladder_order(user_id, symbol, side, total_quantity, preset_name='Cons
     )
 
     db.session.add(ladder)
-    db.session.flush() # Flush to obtain ladder.id
+    db.session.flush()
 
-    for r in rungs_data:
+    for r in all_rungs_data:
         rung = LadderRung(
             ladder_id=ladder.id,
             rung_number=r['rung_number'],
+            rung_type=r.get('rung_type', 'TAKE_PROFIT'),
             target_price=r['target_price'],
             price_offset_pct=r.get('price_offset_pct'),
             quantity=r['quantity'],
@@ -184,7 +298,7 @@ def create_ladder_order(user_id, symbol, side, total_quantity, preset_name='Cons
         db.session.add(rung)
 
     db.session.commit()
-    logger.info(f"Created LadderOrder #{ladder.id} [{clean_broker.upper()}]: {clean_side} {qty} {clean_symbol} across {len(rungs_data)} rungs.")
+    logger.info(f"Created LadderOrder #{ladder.id} [{clean_broker.upper()}]: {clean_side} {qty} {clean_symbol} [Upside: {clean_upside_mode}, Downside: {clean_downside_mode}] across {len(all_rungs_data)} rungs.")
     return ladder.to_dict()
 
 
@@ -196,7 +310,7 @@ def cancel_ladder_order(ladder_id, user_id):
     if not ladder:
         raise ValueError(f"Ladder order #{ladder_id} not found.")
 
-    if ladder.status in ('COMPLETED', 'CANCELLED'):
+    if ladder.status in ('COMPLETED', 'CANCELLED', 'STOPPED_OUT'):
         raise ValueError(f"Ladder order #{ladder_id} is already in state {ladder.status}.")
 
     for rung in ladder.rungs:
@@ -228,7 +342,8 @@ def get_user_ladder_orders(user_id, symbol=None, status=None, broker=None):
 
 def evaluate_single_ladder_order(ladder, current_price, execute_trigger=True):
     """
-    Evaluates ladder rungs against market price.
+    Evaluates ladder order and its rungs against market price.
+    Supports Mode A (Single), Mode B (Ladder), and Mode C (Trailing) for both Upside and Downside.
     Returns (updated, triggered_count).
     """
     if ladder.status not in ('ACTIVE', 'PARTIALLY_FILLED'):
@@ -237,55 +352,150 @@ def evaluate_single_ladder_order(ladder, current_price, execute_trigger=True):
     price = float(current_price)
     updated = False
     triggered_count = 0
+    downside_mode = (ladder.downside_mode or ('SINGLE' if ladder.has_stop_loss else 'NONE')).upper()
+    upside_mode = (ladder.upside_mode or 'LADDER').upper()
 
-    # 1. Check Downside Stop-Loss if enabled
-    if ladder.has_stop_loss and ladder.stop_loss_trigger_price:
-        if ladder.side == 'SELL' and price <= ladder.stop_loss_trigger_price:
-            logger.info(f"LadderOrder #{ladder.id} STOP-LOSS TRIGGERED at price ${price:.4f} <= stop ${ladder.stop_loss_trigger_price:.4f}")
-            # Calculate remaining unfilled quantity
-            pending_rungs = [r for r in ladder.rungs if r.status == 'PENDING']
-            remaining_qty = sum(r.quantity for r in pending_rungs)
-            
-            if remaining_qty > 0 and execute_trigger:
-                _execute_stop_loss_market_sell(ladder, remaining_qty, price)
+    # -------------------------------------------------------------
+    # 1. DOWNSIDE EVALUATION (Stop-Loss / Protection)
+    # -------------------------------------------------------------
+    if downside_mode == 'SINGLE':
+        sl_price = ladder.downside_target_price or ladder.stop_loss_trigger_price
+        if sl_price:
+            triggered = (price <= sl_price) if ladder.side == 'SELL' else (price >= sl_price)
+            if triggered:
+                logger.info(f"LadderOrder #{ladder.id} DOWNSIDE SINGLE STOP TRIGGERED at price ${price:.4f} <= stop ${sl_price:.4f}")
+                pending_rungs = [r for r in ladder.rungs if r.status == 'PENDING']
+                remaining_qty = sum(r.quantity for r in pending_rungs) if pending_rungs else ladder.total_quantity
 
-            for r in pending_rungs:
-                r.status = 'CANCELLED'
-                r.error_message = f"Cancelled due to Stop-Loss trigger at ${price:.4f}"
+                if remaining_qty > 0 and execute_trigger:
+                    _execute_stop_loss_market_sell(ladder, remaining_qty, price)
 
-            ladder.status = 'STOPPED_OUT'
-            ladder.updated_at = utc_now(aware=False)
-            return True, 1
+                for r in pending_rungs:
+                    r.status = 'CANCELLED'
+                    r.error_message = f"Cancelled due to Stop-Loss trigger at ${price:.4f}"
 
-    # 2. Check each pending rung
-    for rung in ladder.rungs:
-        if rung.status != 'PENDING':
-            continue
+                ladder.status = 'STOPPED_OUT'
+                ladder.updated_at = utc_now(aware=False)
+                return True, 1
 
-        rung_triggered = False
+    elif downside_mode == 'TRAILING':
+        trail_val = float(ladder.downside_trail_value or 3.0)
+        trail_type = ladder.downside_trail_type or 'PERCENT'
+        act_px = ladder.downside_activation_price
+
         if ladder.side == 'SELL':
-            # Profit-taking ladder: price climbed to or above target
-            if price >= rung.target_price:
-                rung_triggered = True
-        else: # BUY
-            # Scale-in ladder: price dipped to or below target
-            if price <= rung.target_price:
-                rung_triggered = True
+            # Ratchet peak watermark
+            if ladder.downside_lowest_price is None or price > ladder.downside_lowest_price:
+                ladder.downside_lowest_price = price
+                new_stop = price * (1.0 - (trail_val / 100.0)) if trail_type == 'PERCENT' else max(0.0, price - trail_val)
+                if ladder.downside_current_stop_price is None or new_stop > ladder.downside_current_stop_price:
+                    ladder.downside_current_stop_price = new_stop
+                    updated = True
 
-        if rung_triggered:
-            rung.status = 'TRIGGERED'
-            updated = True
-            triggered_count += 1
-            logger.info(f"LadderOrder #{ladder.id} Rung #{rung.rung_number} TRIGGERED at price ${price:.4f} (target: ${rung.target_price:.4f})")
-            
-            if execute_trigger:
-                execute_ladder_rung_trigger(ladder, rung, price)
+            is_active = True
+            if act_px and ladder.downside_lowest_price and ladder.downside_lowest_price < act_px:
+                is_active = False
+
+            if is_active and ladder.downside_current_stop_price and price <= ladder.downside_current_stop_price:
+                logger.info(f"LadderOrder #{ladder.id} DOWNSIDE TRAILING STOP TRIGGERED at ${price:.4f} <= dynamic stop ${ladder.downside_current_stop_price:.4f}")
+                pending_rungs = [r for r in ladder.rungs if r.status == 'PENDING']
+                remaining_qty = sum(r.quantity for r in pending_rungs) if pending_rungs else ladder.total_quantity
+
+                if remaining_qty > 0 and execute_trigger:
+                    _execute_stop_loss_market_sell(ladder, remaining_qty, price)
+
+                for r in pending_rungs:
+                    r.status = 'CANCELLED'
+                    r.error_message = f"Cancelled due to Trailing Stop trigger at ${price:.4f}"
+
+                ladder.status = 'STOPPED_OUT'
+                ladder.updated_at = utc_now(aware=False)
+                return True, 1
+
+    elif downside_mode == 'LADDER':
+        # Check staged downside stop rungs
+        stop_rungs = [r for r in ladder.rungs if getattr(r, 'rung_type', None) == 'STOP_LOSS' and r.status == 'PENDING']
+        for rung in stop_rungs:
+            triggered = (price <= rung.target_price) if ladder.side == 'SELL' else (price >= rung.target_price)
+            if triggered:
+                rung.status = 'TRIGGERED'
+                updated = True
+                triggered_count += 1
+                logger.info(f"LadderOrder #{ladder.id} STOP Rung #{rung.rung_number} TRIGGERED at price ${price:.4f} (target: ${rung.target_price:.4f})")
+                if execute_trigger:
+                    execute_ladder_rung_trigger(ladder, rung, price)
+
+    # -------------------------------------------------------------
+    # 2. UPSIDE EVALUATION (Take-Profit / Scale-Out)
+    # -------------------------------------------------------------
+    if upside_mode == 'SINGLE':
+        tgt_px = ladder.upside_target_price
+        if tgt_px:
+            hit = (price >= tgt_px) if ladder.side == 'SELL' else (price <= tgt_px)
+            if hit:
+                logger.info(f"LadderOrder #{ladder.id} UPSIDE SINGLE TARGET TRIGGERED at price ${price:.4f} >= target ${tgt_px:.4f}")
+                pending_rungs = [r for r in ladder.rungs if r.status == 'PENDING']
+                remaining_qty = sum(r.quantity for r in pending_rungs) if pending_rungs else ladder.total_quantity
+                if remaining_qty > 0 and execute_trigger:
+                    single_rung = pending_rungs[0] if pending_rungs else LadderRung(quantity=remaining_qty, rung_number=1)
+                    execute_ladder_rung_trigger(ladder, single_rung, price)
+                for r in pending_rungs:
+                    r.status = 'FILLED'
+                ladder.status = 'COMPLETED'
+                ladder.rungs_filled = max(ladder.rungs_total, 1)
+                ladder.updated_at = utc_now(aware=False)
+                return True, 1
+
+    elif upside_mode == 'TRAILING':
+        trail_val = float(ladder.upside_trail_value or 2.0)
+        trail_type = ladder.upside_trail_type or 'PERCENT'
+        act_px = ladder.upside_activation_price
+
+        if ladder.side == 'SELL':
+            # Ratchet peak watermark
+            if ladder.upside_highest_price is None or price > ladder.upside_highest_price:
+                ladder.upside_highest_price = price
+                updated = True
+
+            is_active = True
+            if act_px and ladder.upside_highest_price < act_px:
+                is_active = False
+
+            if is_active and ladder.upside_highest_price:
+                stop_px = ladder.upside_highest_price * (1.0 - (trail_val / 100.0)) if trail_type == 'PERCENT' else max(0.0, ladder.upside_highest_price - trail_val)
+                ladder.upside_current_stop_price = stop_px
+
+                if price <= stop_px:
+                    logger.info(f"LadderOrder #{ladder.id} UPSIDE TRAILING TAKE-PROFIT TRIGGERED at price ${price:.4f} <= peak pullback ${stop_px:.4f}")
+                    pending_rungs = [r for r in ladder.rungs if r.status == 'PENDING']
+                    remaining_qty = sum(r.quantity for r in pending_rungs) if pending_rungs else ladder.total_quantity
+                    if remaining_qty > 0 and execute_trigger:
+                        single_rung = pending_rungs[0] if pending_rungs else LadderRung(quantity=remaining_qty, rung_number=1)
+                        execute_ladder_rung_trigger(ladder, single_rung, price)
+                    for r in pending_rungs:
+                        r.status = 'FILLED'
+                    ladder.status = 'COMPLETED'
+                    ladder.rungs_filled = max(ladder.rungs_total, 1)
+                    ladder.updated_at = utc_now(aware=False)
+                    return True, 1
+
+    elif upside_mode == 'LADDER':
+        # Check staged upside take-profit rungs
+        tp_rungs = [r for r in ladder.rungs if getattr(r, 'rung_type', None) in ('TAKE_PROFIT', None) and r.status == 'PENDING']
+        for rung in tp_rungs:
+            triggered = (price >= rung.target_price) if ladder.side == 'SELL' else (price <= rung.target_price)
+            if triggered:
+                rung.status = 'TRIGGERED'
+                updated = True
+                triggered_count += 1
+                logger.info(f"LadderOrder #{ladder.id} TAKE-PROFIT Rung #{rung.rung_number} TRIGGERED at price ${price:.4f} (target: ${rung.target_price:.4f})")
+                if execute_trigger:
+                    execute_ladder_rung_trigger(ladder, rung, price)
 
     if updated:
-        # Re-tally filled/triggered rungs
         filled_count = sum(1 for r in ladder.rungs if r.status in ('FILLED', 'TRIGGERED'))
         ladder.rungs_filled = filled_count
-        if filled_count >= ladder.rungs_total:
+        if filled_count >= ladder.rungs_total and ladder.rungs_total > 0:
             ladder.status = 'COMPLETED'
         elif filled_count > 0:
             ladder.status = 'PARTIALLY_FILLED'
@@ -296,7 +506,8 @@ def evaluate_single_ladder_order(ladder, current_price, execute_trigger=True):
 
 def execute_ladder_rung_trigger(ladder, rung, current_price):
     """
-    Submits a market execution for a triggered ladder rung.
+    Submits a market execution for a triggered ladder rung on Binance.US or Webull.
+    Supports Equities, ETFs, and Webull Crypto, as well as Binance.US Crypto spot.
     """
     try:
         if ladder.test_mode:
@@ -451,20 +662,5 @@ def evaluate_active_ladder_orders():
 
         if modified:
             db.session.commit()
-
     except Exception as e:
-        logger.error(f"Error in evaluate_active_ladder_orders: {e}")
-
-
-def ladder_order_worker_loop(app):
-    """
-    Supervised daemon thread running continuous evaluation for ladder orders.
-    """
-    logger.info("Starting background ladder orders monitoring loop...")
-    with app.app_context():
-        while True:
-            try:
-                evaluate_active_ladder_orders()
-            except Exception as e:
-                logger.error(f"Error in ladder_order_worker_loop: {e}")
-            time.sleep(2.5)
+        logger.error(f"Error during evaluate_active_ladder_orders cycle: {e}")

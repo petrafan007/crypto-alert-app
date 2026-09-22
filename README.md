@@ -1,8 +1,20 @@
 # Crypto & Securities Dashboard
 
-**Version:** 3.7.0
+**Version:** 3.8.0
 
 ## Recent Updates
+
+### v3.8.0
+- **Unified Smart Bracket Orders (Trailing & Ladder):** Consolidated synthetic orders into a unified 3-Mode Smart Bracket architecture for both Upside (Take Profit) and Downside (Stop Loss / Protection) across Binance.US (Crypto) and Webull (Equities, ETFs, and Webull Crypto).
+  - **Mode A (Single Target / Stop):** 100% exit at a specific price or percentage offset.
+  - **Mode B (Multi-Rung Staged Ladder):** Tiered scale-out or scale-in rungs with configurable distances and quantity allocations, complete with live preset templates (*Conservative*, *Aggressive*, *Tight Stop*, *Moderate Stop*, *Custom*).
+  - **Mode C (Trailing Stop / Trailing Profit):** Continuous real-time watermarking tracking highest/lowest prices with percentage (`%`) or dollar (`$`) offsets and optional activation price hurdles.
+  - **Flexible Symmetrical Mix-and-Match:** Combine any upside and downside mode (e.g., Trailing Profit Up + Stop Ladder Down, Ladder Up + Trailing Stop Down, Dual Ladder Up & Down, or Classic Single Bracket).
+- **Consolidated Synthetic Orders UI & Navigation:**
+  - Redesigned `LadderOrderConfig` with a modern side-by-side grid layout featuring interactive control pills on the left and a stepped visual preview bar on the right.
+  - Consolidated fragmented "Trailing Orders" and "Ladder Orders" tabs and panels into a single unified **"Synthetic Orders"** section across Consolidated Orders (`/orders`), Binance.US Trading (`/trading/binance`), and Webull Trading (`/trading/webull`).
+  - Unified Dashboard **Synthetic Orders Widget** with real-time progress bars, multi-broker filtering (`All`, `Binance`, `Webull`), strategy badges, and instant drill-down.
+- **Enhanced Backward Compatibility & Database Migration Safety:** Seamless non-destructive column additions across SQLite and PostgreSQL for all dual-mode strategy properties.
 
 ### v3.7.0
 - **Synthetic Ladder Orders (Scale-Out & Scale-In):** Added algorithmic server-side Ladder Orders across both Binance.US (spot crypto) and Webull (equities, ETFs, and crypto). Features quick preset templates (*Conservative Scale-Out* [+2%, +4%, +6%], *Aggressive Scale-Out* [+5%, +10%, +15%, +20%], and *Custom*), dynamic stepped visual preview bars showing target price, percentage distance, exact quantity, cash value ($), and cumulative total, plus an optional downside stop-loss safety net.

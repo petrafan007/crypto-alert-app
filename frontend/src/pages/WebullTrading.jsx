@@ -45,6 +45,7 @@ import {
 import LadderOrderConfig, { defaultLadderState } from '../components/LadderOrderConfig';
 import LadderOrdersTable from '../components/LadderOrdersTable';
 import TrailingOrdersTable from '../components/TrailingOrdersTable';
+import SyntheticOrdersTable from '../components/SyntheticOrdersTable';
 import './Trading.css';
 
 const OPEN_STATUSES = new Set([
@@ -1356,6 +1357,7 @@ export default function WebullTrading({ isLightMode = false }) {
         commonLimit,
         stopLossLimit,
         { value: 'TRAILING_STOP', label: 'Trailing Stop', description: 'Server-side synthetic trailing stop order' },
+        { value: 'SYNTHETIC', label: 'Synthetic Bracket', description: 'Advanced multi-mode synthetic bracket combining profit targets and trailing protection' },
         { value: 'LADDER', label: 'Ladder Order', description: 'Server-side automated ladder order' },
       ];
     }
@@ -1375,6 +1377,7 @@ export default function WebullTrading({ isLightMode = false }) {
       stopLoss,
       stopLossLimit,
       { value: 'TRAILING_STOP', label: 'Trailing Stop', description: 'Synthetic trailing stop that monitors market and fires when target trigger is breached' },
+      { value: 'SYNTHETIC', label: 'Synthetic Bracket', description: 'Advanced multi-mode synthetic bracket combining profit targets and trailing protection' },
       { value: 'LADDER', label: 'Ladder Order', description: 'Automated tiered scale-in or scale-out ladder with optional stop-loss' },
       { value: 'TRAILING_STOP_LOSS', label: 'Trailing Stop (Webull DAY)', description: 'Stop price trails the market price by a set amount or percentage (DAY only)' },
       { value: 'MARKET_ON_OPEN', label: formatOrderType('MARKET_ON_OPEN'), description: 'Execute at the opening auction price' },
@@ -3817,15 +3820,51 @@ export default function WebullTrading({ isLightMode = false }) {
         return;
       }
     }
-    if (orderForm.type === 'LADDER') {
-      const totalPct = ladderConfig.rungs.reduce((acc, r) => acc + (parseFloat(r.percentage_of_total) || 0), 0);
-      if (Math.abs(totalPct - 100) > 0.5) {
-        rejectOrder(`Ladder rungs allocation must sum to 100% (currently ${totalPct.toFixed(1)}%).`);
-        return;
+    if (orderForm.type === 'LADDER' || orderForm.type === 'SYNTHETIC') {
+      if (ladderConfig.upsideMode === 'LADDER') {
+        const totalPct = (ladderConfig.rungs || []).reduce((acc, r) => acc + (parseFloat(r.percentage_of_total) || 0), 0);
+        if (Math.abs(totalPct - 100) > 0.5) {
+          rejectOrder(`Upside ladder rungs allocation must sum to 100% (currently ${totalPct.toFixed(1)}%).`);
+          return;
+        }
+        if (ladderConfig.rungs.some(r => !r.target_price || parseFloat(r.target_price) <= 0)) {
+          rejectOrder('All upside ladder rungs must have a valid target price greater than 0.');
+          return;
+        }
+      } else if (ladderConfig.upsideMode === 'SINGLE') {
+        if (!ladderConfig.upsideTargetPrice || parseFloat(ladderConfig.upsideTargetPrice) <= 0) {
+          rejectOrder('Single target price must be greater than 0.');
+          return;
+        }
+      } else if (ladderConfig.upsideMode === 'TRAILING') {
+        if (!ladderConfig.upsideTrailValue || parseFloat(ladderConfig.upsideTrailValue) <= 0) {
+          rejectOrder('Trailing profit offset value must be greater than 0.');
+          return;
+        }
       }
-      if (ladderConfig.rungs.some(r => !r.target_price || parseFloat(r.target_price) <= 0)) {
-        rejectOrder('All ladder rungs must have a valid target price greater than 0.');
-        return;
+
+      if (ladderConfig.hasDownside) {
+        if (ladderConfig.downsideMode === 'LADDER') {
+          const totalSlPct = (ladderConfig.downsideRungs || []).reduce((acc, r) => acc + (parseFloat(r.percentage_of_total) || 0), 0);
+          if (Math.abs(totalSlPct - 100) > 0.5) {
+            rejectOrder(`Downside ladder rungs allocation must sum to 100% (currently ${totalSlPct.toFixed(1)}%).`);
+            return;
+          }
+          if (ladderConfig.downsideRungs.some(r => !r.target_price || parseFloat(r.target_price) <= 0)) {
+            rejectOrder('All downside ladder rungs must have a valid target price greater than 0.');
+            return;
+          }
+        } else if (ladderConfig.downsideMode === 'SINGLE') {
+          if (!ladderConfig.downsideTargetPrice && !ladderConfig.downsideOffsetPct) {
+            rejectOrder('Downside stop loss price or percentage is required.');
+            return;
+          }
+        } else if (ladderConfig.downsideMode === 'TRAILING') {
+          if (!ladderConfig.downsideTrailValue || parseFloat(ladderConfig.downsideTrailValue) <= 0) {
+            rejectOrder('Downside trailing stop offset value must be greater than 0.');
+            return;
+          }
+        }
       }
     }
     if (!['FUTURES', 'EVENT'].includes(selectedInstrumentType) && !(selectedInstrumentType === 'OPTION' && !optionIsSingle) && orderForm.side === 'SELL' && !isCashAmountMode && qty > heldQuantity + QUANTITY_EPSILON) {
@@ -4028,16 +4067,18 @@ export default function WebullTrading({ isLightMode = false }) {
         }
       }
 
-      if (orderForm.type === 'LADDER') {
+      if (orderForm.type === 'LADDER' || orderForm.type === 'SYNTHETIC') {
         let slPrice = null;
-        if (ladderConfig.hasStopLoss) {
-          if (ladderConfig.stopLossType === 'PRICE') {
-            slPrice = parseFloat(ladderConfig.stopLossTriggerPrice) || null;
-          } else {
-            const offset = parseFloat(ladderConfig.stopLossOffsetPct) || 0;
-            const curP = parseFloat(livePrice) || 0;
-            if (curP > 0 && offset > 0) {
-              slPrice = orderForm.side === 'SELL' ? curP * (1 - offset / 100) : curP * (1 + offset / 100);
+        if (ladderConfig.hasDownside) {
+          if (ladderConfig.downsideMode === 'SINGLE') {
+            if (ladderConfig.downsideTargetPrice) {
+              slPrice = parseFloat(ladderConfig.downsideTargetPrice) || null;
+            } else if (ladderConfig.downsideOffsetPct) {
+              const offset = parseFloat(ladderConfig.downsideOffsetPct) || 0;
+              const curP = parseFloat(livePrice) || 0;
+              if (curP > 0 && offset > 0) {
+                slPrice = orderForm.side === 'SELL' ? curP * (1 - offset / 100) : curP * (1 + offset / 100);
+              }
             }
           }
         }
@@ -4048,14 +4089,30 @@ export default function WebullTrading({ isLightMode = false }) {
           instrument_type: selectedInstrumentType,
           side: orderForm.side,
           total_quantity: Number(orderForm.quantity),
+          strategy_type: 'BRACKET',
+          upside_mode: ladderConfig.upsideMode || 'LADDER',
+          upside_target_price: ladderConfig.upsideTargetPrice ? parseFloat(ladderConfig.upsideTargetPrice) : null,
+          upside_trail_value: ladderConfig.upsideTrailValue ? parseFloat(ladderConfig.upsideTrailValue) : null,
+          upside_trail_type: ladderConfig.upsideTrailType || 'PERCENT',
+          upside_activation_price: ladderConfig.upsideActivationPrice ? parseFloat(ladderConfig.upsideActivationPrice) : null,
           mode: ladderConfig.mode || 'PERCENTAGE',
           preset_name: ladderConfig.preset,
-          rungs: ladderConfig.rungs.map(r => ({
-            price_offset_pct: parseFloat(r.price_offset_pct),
-            percentage_of_total: parseFloat(r.percentage_of_total),
-            target_price: parseFloat(r.target_price)
+          rungs: (ladderConfig.rungs || []).map(r => ({
+            price_offset_pct: parseFloat(r.price_offset_pct) || 0,
+            percentage_of_total: parseFloat(r.percentage_of_total) || 0,
+            target_price: parseFloat(r.target_price) || 0
           })),
-          has_stop_loss: Boolean(ladderConfig.hasStopLoss),
+          downside_mode: ladderConfig.hasDownside ? (ladderConfig.downsideMode || 'SINGLE') : 'NONE',
+          downside_target_price: slPrice,
+          downside_trail_value: ladderConfig.downsideTrailValue ? parseFloat(ladderConfig.downsideTrailValue) : null,
+          downside_trail_type: ladderConfig.downsideTrailType || 'PERCENT',
+          downside_activation_price: ladderConfig.downsideActivationPrice ? parseFloat(ladderConfig.downsideActivationPrice) : null,
+          downside_rungs: (ladderConfig.downsideRungs || []).map(r => ({
+            price_offset_pct: parseFloat(r.price_offset_pct) || 0,
+            percentage_of_total: parseFloat(r.percentage_of_total) || 0,
+            target_price: parseFloat(r.target_price) || 0
+          })),
+          has_stop_loss: Boolean(ladderConfig.hasDownside),
           stop_loss_trigger_price: slPrice,
           stop_loss_action: ladderConfig.stopLossAction || 'MARKET_SELL_ALL',
           trading_session: orderForm.tradingSession || 'CORE',
@@ -4066,7 +4123,7 @@ export default function WebullTrading({ isLightMode = false }) {
         if (response.data?.success) {
           setOrderFeedback({
             type: 'success',
-            message: `Synthetic Ladder Order placed successfully for ${selectedSymbol.trim().toUpperCase()}! The engine will monitor target rungs and execute orders on Webull.`
+            message: `⚡ Synthetic Smart Bracket Order placed successfully for ${selectedSymbol.trim().toUpperCase()}! The engine will monitor target rungs and trailing protection on Webull.`
           });
           setShowConfirmModal(false);
           setReplacingOrderId(null);
@@ -4078,10 +4135,10 @@ export default function WebullTrading({ isLightMode = false }) {
             price: '',
             stopPrice: '',
           }));
-          setActiveTab('ladder_orders');
+          setActiveTab('synthetic_orders');
           return;
         } else {
-          setOrderFeedback({ type: 'error', message: response.data?.error || 'Failed to place synthetic ladder order.' });
+          setOrderFeedback({ type: 'error', message: response.data?.error || 'Failed to place synthetic order.' });
           return;
         }
       }
@@ -5215,11 +5272,8 @@ export default function WebullTrading({ isLightMode = false }) {
           ⏳ <span className="tab-text">Open Orders</span>
           {displayOpenOrders.length > 0 && <span className="tab-badge">{displayOpenOrders.length}</span>}
         </button>
-        <button className={`tab-button ${activeTab === 'trailing_orders' ? 'active' : ''}`} onClick={() => setActiveTab('trailing_orders')}>
-          🎯 <span className="tab-text">Trailing Orders</span>
-        </button>
-        <button className={`tab-button ${activeTab === 'ladder_orders' ? 'active' : ''}`} onClick={() => setActiveTab('ladder_orders')}>
-          🪜 <span className="tab-text">Ladder Orders</span>
+        <button className={`tab-button ${['synthetic_orders', 'trailing_orders', 'ladder_orders'].includes(activeTab) ? 'active' : ''}`} onClick={() => setActiveTab('synthetic_orders')}>
+          ⚡ <span className="tab-text">Synthetic Orders</span>
         </button>
         <button className={`tab-button ${activeTab === 'history' ? 'active' : ''}`} onClick={() => setActiveTab('history')}>
           📜 <span className="tab-text">Order History</span>
@@ -6369,7 +6423,7 @@ export default function WebullTrading({ isLightMode = false }) {
                       </div>
                     )}
 
-                    {orderForm.type === 'LADDER' && (
+                    {(orderForm.type === 'LADDER' || orderForm.type === 'SYNTHETIC') && (
                       <div style={{ width: '100%', marginBottom: '14px' }}>
                         <LadderOrderConfig
                           side={orderForm.side}
@@ -7313,29 +7367,16 @@ export default function WebullTrading({ isLightMode = false }) {
               </section>
             )}
 
-            {/* TRAILING ORDERS TAB */}
-            {activeTab === 'trailing_orders' && (
+            {/* SYNTHETIC ORDERS TAB */}
+            {['synthetic_orders', 'trailing_orders', 'ladder_orders'].includes(activeTab) && (
               <section className="order-history-container" style={{ padding: '16px' }}>
                 <div style={{ marginBottom: '16px' }}>
-                  <h2 style={{ margin: '0 0 4px 0', fontSize: '18px', color: '#fff' }}>🎯 Synthetic Trailing Stop Orders (Webull)</h2>
+                  <h2 style={{ margin: '0 0 4px 0', fontSize: '18px', color: '#fff' }}>⚡ Synthetic & Bracket Orders (Webull)</h2>
                   <p style={{ margin: 0, fontSize: '12px', color: '#94a3b8' }}>
-                    Server-side synthetic trailing stops for Webull Equities, ETFs, and Crypto. Trailing stops continuously monitor market prices and automatically fire market orders.
+                    Server-side synthetic trailing stops, tiered ladder scale-outs, and smart bracket orders for Webull Equities, ETFs, and Crypto.
                   </p>
                 </div>
-                <TrailingOrdersTable defaultBroker="webull" showBrokerFilter={false} />
-              </section>
-            )}
-
-            {/* LADDER ORDERS TAB */}
-            {activeTab === 'ladder_orders' && (
-              <section className="order-history-container" style={{ padding: '16px' }}>
-                <div style={{ marginBottom: '16px' }}>
-                  <h2 style={{ margin: '0 0 4px 0', fontSize: '18px', color: '#fff' }}>🪜 Synthetic Ladder Orders (Webull)</h2>
-                  <p style={{ margin: 0, fontSize: '12px', color: '#94a3b8' }}>
-                    Automated tiered scale-in or scale-out ladder execution for Webull Equities, ETFs, and Crypto with optional downside stop-loss.
-                  </p>
-                </div>
-                <LadderOrdersTable defaultBroker="webull" showBrokerFilter={false} />
+                <SyntheticOrdersTable defaultBroker="webull" showBrokerFilter={false} />
               </section>
             )}
 

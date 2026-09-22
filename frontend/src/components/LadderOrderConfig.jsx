@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo } from 'react';
 import '../pages/Trading.css';
 
-const PRESETS = {
+export const UPSIDE_PRESETS = {
   CONSERVATIVE: {
     name: 'Conservative',
     label: '🛡️ Conservative',
@@ -39,24 +39,96 @@ const PRESETS = {
   CUSTOM: {
     name: 'Custom',
     label: '⚙️ Custom',
-    descSell: 'Configure custom rungs & sizes',
-    descBuy: 'Configure custom rungs & sizes'
+    descSell: 'User-defined rungs',
+    descBuy: 'User-defined rungs'
+  }
+};
+
+export const DOWNSIDE_PRESETS = {
+  TIGHT: {
+    name: 'Tight',
+    label: '🛡️ Tight',
+    descSell: '3 rungs: -1.5%, -3.0%, -4.5%',
+    descBuy: '3 rungs: +1.5%, +3.0%, +4.5%',
+    rungsSell: [
+      { price_offset_pct: -1.5, percentage_of_total: 33.33 },
+      { price_offset_pct: -3.0, percentage_of_total: 33.33 },
+      { price_offset_pct: -4.5, percentage_of_total: 33.34 }
+    ],
+    rungsBuy: [
+      { price_offset_pct: 1.5, percentage_of_total: 33.33 },
+      { price_offset_pct: 3.0, percentage_of_total: 33.33 },
+      { price_offset_pct: 4.5, percentage_of_total: 33.34 }
+    ]
+  },
+  MODERATE: {
+    name: 'Moderate',
+    label: '🛑 Moderate',
+    descSell: '3 rungs: -3%, -5%, -8%',
+    descBuy: '3 rungs: +3%, +5%, +8%',
+    rungsSell: [
+      { price_offset_pct: -3.0, percentage_of_total: 30.0 },
+      { price_offset_pct: -5.0, percentage_of_total: 30.0 },
+      { price_offset_pct: -8.0, percentage_of_total: 40.0 }
+    ],
+    rungsBuy: [
+      { price_offset_pct: 3.0, percentage_of_total: 30.0 },
+      { price_offset_pct: 5.0, percentage_of_total: 30.0 },
+      { price_offset_pct: 8.0, percentage_of_total: 40.0 }
+    ]
+  },
+  CUSTOM: {
+    name: 'Custom',
+    label: '⚙️ Custom',
+    descSell: 'User-defined stop rungs',
+    descBuy: 'User-defined stop rungs'
   }
 };
 
 export const defaultLadderState = {
+  strategyType: 'SYNTHETIC',
+  // Upside Strategy
+  upsideMode: 'LADDER', // 'SINGLE' | 'LADDER' | 'TRAILING'
+  upsidePreset: 'CONSERVATIVE', // 'CONSERVATIVE' | 'AGGRESSIVE' | 'CUSTOM'
+  upsideTargetPrice: '',
+  upsideOffsetPct: '5.0',
+  upsideTrailValue: '2.0',
+  upsideTrailType: 'PERCENT', // 'PERCENT' | 'AMOUNT'
+  upsideActivationPrice: '',
+  upsideRungs: [
+    { price_offset_pct: 2.0, percentage_of_total: 33.33, target_price: '' },
+    { price_offset_pct: 4.0, percentage_of_total: 33.33, target_price: '' },
+    { price_offset_pct: 6.0, percentage_of_total: 33.34, target_price: '' }
+  ],
+
+  // Downside Strategy
+  hasDownsideProtection: true,
+  downsideMode: 'LADDER', // 'SINGLE' | 'LADDER' | 'TRAILING'
+  downsidePreset: 'MODERATE', // 'TIGHT' | 'MODERATE' | 'CUSTOM'
+  downsideTargetPrice: '',
+  downsideOffsetPct: '5.0',
+  downsideTrailValue: '3.0',
+  downsideTrailType: 'PERCENT', // 'PERCENT' | 'AMOUNT'
+  downsideActivationPrice: '',
+  downsideStopAction: 'MARKET_SELL_ALL', // 'MARKET_SELL_ALL' | 'CANCEL_REMAINING'
+  downsideRungs: [
+    { price_offset_pct: -3.0, percentage_of_total: 30.0, target_price: '' },
+    { price_offset_pct: -5.0, percentage_of_total: 30.0, target_price: '' },
+    { price_offset_pct: -8.0, percentage_of_total: 40.0, target_price: '' }
+  ],
+
+  // Legacy mappings for backwards compatibility
   preset: 'CONSERVATIVE',
-  mode: 'PERCENTAGE',
   rungs: [
     { price_offset_pct: 2.0, percentage_of_total: 33.33, target_price: '' },
     { price_offset_pct: 4.0, percentage_of_total: 33.33, target_price: '' },
     { price_offset_pct: 6.0, percentage_of_total: 33.34, target_price: '' }
   ],
-  hasStopLoss: false,
-  stopLossType: 'PERCENT', // 'PERCENT' or 'PRICE'
+  hasStopLoss: true,
+  stopLossType: 'PERCENT',
   stopLossOffsetPct: '5.0',
   stopLossTriggerPrice: '',
-  stopLossAction: 'MARKET_SELL_ALL' // 'MARKET_SELL_ALL' or 'CANCEL_REMAINING'
+  stopLossAction: 'MARKET_SELL_ALL'
 };
 
 const LadderOrderConfig = ({
@@ -72,56 +144,125 @@ const LadderOrderConfig = ({
   const price = parseFloat(currentPrice) || 0;
   const totalQty = parseFloat(totalQuantity) || 0;
 
-  // Sync preset if side changes or initial load
-  const applyPreset = (presetKey) => {
-    if (presetKey === 'CUSTOM') {
-      onChange({
-        ...ladderConfig,
-        preset: 'CUSTOM'
-      });
-      return;
-    }
-    const preset = PRESETS[presetKey];
-    if (!preset) return;
-    const templateRungs = isSell ? preset.rungsSell : preset.rungsBuy;
-    const updatedRungs = templateRungs.map(r => ({
-      price_offset_pct: r.price_offset_pct,
-      percentage_of_total: r.percentage_of_total,
-      target_price: price > 0 ? (price * (1 + r.price_offset_pct / 100)).toFixed(price >= 1 ? 2 : 6) : ''
-    }));
+  // Active configurations with safe fallbacks
+  const upsideMode = ladderConfig.upsideMode || 'LADDER';
+  const downsideMode = ladderConfig.downsideMode || (ladderConfig.hasStopLoss ? 'SINGLE' : 'LADDER');
+  const hasDownside = ladderConfig.hasDownsideProtection !== undefined ? ladderConfig.hasDownsideProtection : (ladderConfig.hasStopLoss || true);
 
-    onChange({
-      ...ladderConfig,
-      preset: presetKey,
-      rungs: updatedRungs
-    });
+  const upsideRungs = ladderConfig.upsideRungs || ladderConfig.rungs || defaultLadderState.upsideRungs;
+  const downsideRungs = ladderConfig.downsideRungs || defaultLadderState.downsideRungs;
+
+  // Update helper
+  const updateConfig = (patch) => {
+    const next = { ...ladderConfig, ...patch };
+    // Synchronize legacy fields for backwards compatibility
+    if (patch.upsideRungs) next.rungs = patch.upsideRungs;
+    if (patch.upsidePreset) next.preset = patch.upsidePreset;
+    if (patch.hasDownsideProtection !== undefined) next.hasStopLoss = patch.hasDownsideProtection;
+    if (patch.downsideTargetPrice !== undefined) next.stopLossTriggerPrice = patch.downsideTargetPrice;
+    if (patch.downsideOffsetPct !== undefined) next.stopLossOffsetPct = patch.downsideOffsetPct;
+    if (patch.downsideStopAction !== undefined) next.stopLossAction = patch.downsideStopAction;
+    onChange(next);
   };
 
-  // Recompute target prices when currentPrice changes if in percentage mode
+  // Recompute target prices when price changes
   useEffect(() => {
-    if (price > 0 && ladderConfig.preset !== 'CUSTOM') {
-      const preset = PRESETS[ladderConfig.preset] || PRESETS.CONSERVATIVE;
-      const templateRungs = isSell ? preset.rungsSell : preset.rungsBuy;
-      const updatedRungs = ladderConfig.rungs.map((r, idx) => {
-        const offset = templateRungs[idx]?.price_offset_pct ?? r.price_offset_pct;
-        const calcPrice = price * (1 + offset / 100);
-        return {
-          ...r,
-          price_offset_pct: offset,
-          target_price: calcPrice.toFixed(price >= 1 ? 2 : 6)
-        };
+    if (price <= 0) return;
+
+    let modified = false;
+    let newUpsideRungs = upsideRungs;
+    let newDownsideRungs = downsideRungs;
+
+    if (ladderConfig.upsidePreset !== 'CUSTOM') {
+      const p = UPSIDE_PRESETS[ladderConfig.upsidePreset] || UPSIDE_PRESETS.CONSERVATIVE;
+      const tpl = isSell ? p.rungsSell : p.rungsBuy;
+      newUpsideRungs = upsideRungs.map((r, i) => {
+        const off = tpl[i]?.price_offset_pct ?? r.price_offset_pct;
+        const tgt = (price * (1 + off / 100)).toFixed(price >= 1 ? 2 : 6);
+        return { ...r, price_offset_pct: off, target_price: tgt };
       });
-      onChange({
-        ...ladderConfig,
-        rungs: updatedRungs
+      modified = true;
+    }
+
+    if (ladderConfig.downsidePreset !== 'CUSTOM') {
+      const p = DOWNSIDE_PRESETS[ladderConfig.downsidePreset] || DOWNSIDE_PRESETS.MODERATE;
+      const tpl = isSell ? p.rungsSell : p.rungsBuy;
+      newDownsideRungs = downsideRungs.map((r, i) => {
+        const off = tpl[i]?.price_offset_pct ?? r.price_offset_pct;
+        const tgt = (price * (1 + off / 100)).toFixed(price >= 1 ? 2 : 6);
+        return { ...r, price_offset_pct: off, target_price: tgt };
+      });
+      modified = true;
+    }
+
+    let upTarget = ladderConfig.upsideTargetPrice;
+    if (!upTarget || ladderConfig.upsideMode === 'SINGLE') {
+      const off = parseFloat(ladderConfig.upsideOffsetPct || 5.0);
+      upTarget = (isSell ? price * (1 + off / 100) : price * (1 - off / 100)).toFixed(price >= 1 ? 2 : 6);
+      modified = true;
+    }
+
+    let downTarget = ladderConfig.downsideTargetPrice;
+    if (!downTarget || ladderConfig.downsideMode === 'SINGLE') {
+      const off = parseFloat(ladderConfig.downsideOffsetPct || 5.0);
+      downTarget = (isSell ? price * (1 - off / 100) : price * (1 + off / 100)).toFixed(price >= 1 ? 2 : 6);
+      modified = true;
+    }
+
+    if (modified) {
+      updateConfig({
+        upsideRungs: newUpsideRungs,
+        downsideRungs: newDownsideRungs,
+        upsideTargetPrice: upTarget,
+        downsideTargetPrice: downTarget
       });
     }
   }, [price, side]);
 
-  const handleRungChange = (index, field, value) => {
-    const updated = [...ladderConfig.rungs];
-    const rung = { ...updated[index], [field]: value };
+  // Apply Upside Preset
+  const applyUpsidePreset = (key) => {
+    if (key === 'CUSTOM') {
+      updateConfig({ upsidePreset: 'CUSTOM' });
+      return;
+    }
+    const preset = UPSIDE_PRESETS[key];
+    if (!preset) return;
+    const tpl = isSell ? preset.rungsSell : preset.rungsBuy;
+    const updated = tpl.map(r => ({
+      price_offset_pct: r.price_offset_pct,
+      percentage_of_total: r.percentage_of_total,
+      target_price: price > 0 ? (price * (1 + r.price_offset_pct / 100)).toFixed(price >= 1 ? 2 : 6) : ''
+    }));
+    updateConfig({
+      upsidePreset: key,
+      upsideRungs: updated
+    });
+  };
 
+  // Apply Downside Preset
+  const applyDownsidePreset = (key) => {
+    if (key === 'CUSTOM') {
+      updateConfig({ downsidePreset: 'CUSTOM' });
+      return;
+    }
+    const preset = DOWNSIDE_PRESETS[key];
+    if (!preset) return;
+    const tpl = isSell ? preset.rungsSell : preset.rungsBuy;
+    const updated = tpl.map(r => ({
+      price_offset_pct: r.price_offset_pct,
+      percentage_of_total: r.percentage_of_total,
+      target_price: price > 0 ? (price * (1 + r.price_offset_pct / 100)).toFixed(price >= 1 ? 2 : 6) : ''
+    }));
+    updateConfig({
+      downsidePreset: key,
+      downsideRungs: updated
+    });
+  };
+
+  // Handle Upside Rung Changes
+  const handleUpsideRungChange = (index, field, value) => {
+    const updated = [...upsideRungs];
+    const rung = { ...updated[index], [field]: value };
     if (field === 'price_offset_pct' && price > 0) {
       const offset = parseFloat(value) || 0;
       rung.target_price = (price * (1 + offset / 100)).toFixed(price >= 1 ? 2 : 6);
@@ -131,81 +272,95 @@ const LadderOrderConfig = ({
         rung.price_offset_pct = Number((((tgt - price) / price) * 100).toFixed(2));
       }
     }
-
     updated[index] = rung;
-    onChange({
-      ...ladderConfig,
-      preset: 'CUSTOM',
-      rungs: updated
-    });
+    updateConfig({ upsidePreset: 'CUSTOM', upsideRungs: updated });
   };
 
-  const handleAddRung = () => {
-    if (ladderConfig.rungs.length >= 10) return;
-    const lastRung = ladderConfig.rungs[ladderConfig.rungs.length - 1];
-    const nextOffset = lastRung ? (isSell ? lastRung.price_offset_pct + 3 : lastRung.price_offset_pct - 3) : (isSell ? 3 : -3);
+  const handleAddUpsideRung = () => {
+    if (upsideRungs.length >= 10) return;
+    const last = upsideRungs[upsideRungs.length - 1];
+    const nextOffset = last ? (isSell ? last.price_offset_pct + 2.5 : last.price_offset_pct - 2.5) : (isSell ? 2.5 : -2.5);
     const nextPrice = price > 0 ? (price * (1 + nextOffset / 100)).toFixed(price >= 1 ? 2 : 6) : '';
-    const updated = [
-      ...ladderConfig.rungs,
-      {
-        price_offset_pct: nextOffset,
-        percentage_of_total: 10,
-        target_price: nextPrice
-      }
-    ];
-    onChange({
-      ...ladderConfig,
-      preset: 'CUSTOM',
-      rungs: updated
-    });
+    const updated = [...upsideRungs, { price_offset_pct: nextOffset, percentage_of_total: 10, target_price: nextPrice }];
+    updateConfig({ upsidePreset: 'CUSTOM', upsideRungs: updated });
   };
 
-  const handleRemoveRung = (index) => {
-    if (ladderConfig.rungs.length <= 2) return;
-    const updated = ladderConfig.rungs.filter((_, idx) => idx !== index);
-    onChange({
-      ...ladderConfig,
-      preset: 'CUSTOM',
-      rungs: updated
-    });
+  const handleRemoveUpsideRung = (index) => {
+    if (upsideRungs.length <= 1) return;
+    updateConfig({ upsidePreset: 'CUSTOM', upsideRungs: upsideRungs.filter((_, i) => i !== index) });
   };
 
-  // Evenly distribute quantities
-  const handleEvenlyDistribute = () => {
-    const count = ladderConfig.rungs.length;
+  const handleEvenlyDistributeUpside = () => {
+    const count = upsideRungs.length;
     if (count === 0) return;
     const pctEach = Number((100 / count).toFixed(2));
-    const updated = ladderConfig.rungs.map((r, i) => ({
+    const updated = upsideRungs.map((r, i) => ({
       ...r,
       percentage_of_total: i === count - 1 ? Number((100 - pctEach * (count - 1)).toFixed(2)) : pctEach
     }));
-    onChange({
-      ...ladderConfig,
-      preset: 'CUSTOM',
-      rungs: updated
-    });
+    updateConfig({ upsidePreset: 'CUSTOM', upsideRungs: updated });
   };
 
-  // Compute calculated tiers for visual preview
-  const calculatedTiers = useMemo(() => {
+  // Handle Downside Rung Changes
+  const handleDownsideRungChange = (index, field, value) => {
+    const updated = [...downsideRungs];
+    const rung = { ...updated[index], [field]: value };
+    if (field === 'price_offset_pct' && price > 0) {
+      const offset = parseFloat(value) || 0;
+      rung.target_price = (price * (1 + offset / 100)).toFixed(price >= 1 ? 2 : 6);
+    } else if (field === 'target_price' && price > 0) {
+      const tgt = parseFloat(value) || 0;
+      if (tgt > 0) {
+        rung.price_offset_pct = Number((((tgt - price) / price) * 100).toFixed(2));
+      }
+    }
+    updated[index] = rung;
+    updateConfig({ downsidePreset: 'CUSTOM', downsideRungs: updated });
+  };
+
+  const handleAddDownsideRung = () => {
+    if (downsideRungs.length >= 10) return;
+    const last = downsideRungs[downsideRungs.length - 1];
+    const nextOffset = last ? (isSell ? last.price_offset_pct - 2.5 : last.price_offset_pct + 2.5) : (isSell ? -2.5 : 2.5);
+    const nextPrice = price > 0 ? (price * (1 + nextOffset / 100)).toFixed(price >= 1 ? 2 : 6) : '';
+    const updated = [...downsideRungs, { price_offset_pct: nextOffset, percentage_of_total: 10, target_price: nextPrice }];
+    updateConfig({ downsidePreset: 'CUSTOM', downsideRungs: updated });
+  };
+
+  const handleRemoveDownsideRung = (index) => {
+    if (downsideRungs.length <= 1) return;
+    updateConfig({ downsidePreset: 'CUSTOM', downsideRungs: downsideRungs.filter((_, i) => i !== index) });
+  };
+
+  const handleEvenlyDistributeDownside = () => {
+    const count = downsideRungs.length;
+    if (count === 0) return;
+    const pctEach = Number((100 / count).toFixed(2));
+    const updated = downsideRungs.map((r, i) => ({
+      ...r,
+      percentage_of_total: i === count - 1 ? Number((100 - pctEach * (count - 1)).toFixed(2)) : pctEach
+    }));
+    updateConfig({ downsidePreset: 'CUSTOM', downsideRungs: updated });
+  };
+
+  // Stepped preview calculations for Upside
+  const calculatedUpsideTiers = useMemo(() => {
     let cumulativeQty = 0;
     let cumulativeUsd = 0;
-
-    return ladderConfig.rungs.map((r, idx) => {
+    return upsideRungs.map((r, idx) => {
       const pct = parseFloat(r.percentage_of_total) || 0;
       const rungQty = totalQty > 0 ? (totalQty * (pct / 100)) : 0;
-      let targetPrice = parseFloat(r.target_price) || 0;
-      if (targetPrice <= 0 && price > 0) {
-        targetPrice = price * (1 + (parseFloat(r.price_offset_pct) || 0) / 100);
+      let tgt = parseFloat(r.target_price) || 0;
+      if (tgt <= 0 && price > 0) {
+        tgt = price * (1 + (parseFloat(r.price_offset_pct) || 0) / 100);
       }
-      const estUsd = rungQty * targetPrice;
+      const estUsd = rungQty * tgt;
       cumulativeQty += rungQty;
       cumulativeUsd += estUsd;
-
       return {
         rungNumber: idx + 1,
         offsetPct: parseFloat(r.price_offset_pct) || 0,
-        targetPrice,
+        targetPrice: tgt,
         percentageOfTotal: pct,
         quantity: rungQty,
         estimatedUsd: estUsd,
@@ -213,382 +368,756 @@ const LadderOrderConfig = ({
         cumulativeUsd
       };
     });
-  }, [ladderConfig.rungs, totalQty, price]);
+  }, [upsideRungs, totalQty, price]);
 
-  const totalPctAssigned = ladderConfig.rungs.reduce((acc, r) => acc + (parseFloat(r.percentage_of_total) || 0), 0);
-  const isTotalPctValid = Math.abs(totalPctAssigned - 100) < 0.5;
-
-  // Calculate Stop Loss Price preview
-  const calculatedStopPrice = useMemo(() => {
-    if (!ladderConfig.hasStopLoss) return null;
-    if (ladderConfig.stopLossType === 'PRICE') {
-      return parseFloat(ladderConfig.stopLossTriggerPrice) || 0;
-    }
-    const offset = parseFloat(ladderConfig.stopLossOffsetPct) || 0;
-    if (price > 0 && offset > 0) {
-      return isSell ? price * (1 - offset / 100) : price * (1 + offset / 100);
-    }
-    return null;
-  }, [ladderConfig.hasStopLoss, ladderConfig.stopLossType, ladderConfig.stopLossOffsetPct, ladderConfig.stopLossTriggerPrice, price, isSell]);
+  // Stepped preview calculations for Downside
+  const calculatedDownsideTiers = useMemo(() => {
+    let cumulativeQty = 0;
+    let cumulativeUsd = 0;
+    return downsideRungs.map((r, idx) => {
+      const pct = parseFloat(r.percentage_of_total) || 0;
+      const rungQty = totalQty > 0 ? (totalQty * (pct / 100)) : 0;
+      let tgt = parseFloat(r.target_price) || 0;
+      if (tgt <= 0 && price > 0) {
+        tgt = price * (1 + (parseFloat(r.price_offset_pct) || 0) / 100);
+      }
+      const estUsd = rungQty * tgt;
+      cumulativeQty += rungQty;
+      cumulativeUsd += estUsd;
+      return {
+        rungNumber: idx + 1,
+        offsetPct: parseFloat(r.price_offset_pct) || 0,
+        targetPrice: tgt,
+        percentageOfTotal: pct,
+        quantity: rungQty,
+        estimatedUsd: estUsd,
+        cumulativeQty,
+        cumulativeUsd
+      };
+    });
+  }, [downsideRungs, totalQty, price]);
 
   return (
     <div className="ladder-order-config-container" style={{ width: '100%', marginTop: '6px' }}>
-      {/* PRESETS SELECTION */}
-      <div style={{ marginBottom: '14px' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-          <label className="order-field-label" style={{ marginBottom: 0 }}>
-            Ladder Preset ({isSell ? 'Scale-Out' : 'Scale-In'})
-          </label>
-          <span style={{ fontSize: '11px', color: '#94a3b8' }}>
-            {isSell ? 'Take profits incrementally as price rises' : 'Accumulate incrementally as price dips'}
-          </span>
-        </div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px' }}>
-          {Object.keys(PRESETS).map((key) => {
-            const p = PRESETS[key];
-            const isActive = ladderConfig.preset === key;
-            return (
-              <button
-                key={key}
-                type="button"
-                className={`order-type-btn ${isActive ? 'active' : ''}`}
-                style={{
-                  padding: '10px 8px',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  alignItems: 'center',
-                  gap: '3px',
-                  textAlign: 'center',
-                  borderColor: isActive ? '#38bdf8' : 'rgba(255,255,255,0.12)'
-                }}
-                onClick={() => applyPreset(key)}
-              >
-                <span style={{ fontWeight: '600', fontSize: '13px' }}>{p.label}</span>
-                <span style={{ fontSize: '10px', color: isActive ? '#e0f2fe' : '#94a3b8', lineHeight: '1.2' }}>
-                  {isSell ? p.descSell : p.descBuy}
-                </span>
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* RUNGS EDITOR TABLE */}
+      {/* ============================================================== */}
+      {/* MASTER STRATEGY MODE SELECTORS (TOP BAR)                       */}
+      {/* ============================================================== */}
       <div style={{
-        background: 'rgba(15, 23, 42, 0.5)',
-        border: '1px solid rgba(255,255,255,0.1)',
-        borderRadius: '8px',
-        padding: '12px',
-        marginBottom: '14px'
-      }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <span style={{ fontSize: '13px', fontWeight: '700', color: '#f8fafc' }}>
-              🎯 Ladder Rungs ({ladderConfig.rungs.length})
-            </span>
-            <span style={{
-              fontSize: '11px',
-              padding: '2px 6px',
-              borderRadius: '4px',
-              background: isTotalPctValid ? 'rgba(34, 197, 94, 0.15)' : 'rgba(239, 68, 68, 0.15)',
-              color: isTotalPctValid ? '#4ade80' : '#f87171',
-              fontWeight: '600'
-            }}>
-              Total: {totalPctAssigned.toFixed(1)}% / 100%
-            </span>
-          </div>
-
-          <div style={{ display: 'flex', gap: '6px' }}>
-            <button
-              type="button"
-              onClick={handleEvenlyDistribute}
-              style={{
-                background: 'rgba(255,255,255,0.06)',
-                border: '1px solid rgba(255,255,255,0.15)',
-                color: '#cbd5e1',
-                padding: '3px 8px',
-                borderRadius: '4px',
-                fontSize: '11px',
-                cursor: 'pointer'
-              }}
-              title="Split total quantity equally among all rungs"
-            >
-              ⚖️ Split Evenly
-            </button>
-            <button
-              type="button"
-              onClick={handleAddRung}
-              disabled={ladderConfig.rungs.length >= 10}
-              style={{
-                background: 'rgba(56, 189, 248, 0.15)',
-                border: '1px solid rgba(56, 189, 248, 0.3)',
-                color: '#38bdf8',
-                padding: '3px 8px',
-                borderRadius: '4px',
-                fontSize: '11px',
-                cursor: ladderConfig.rungs.length >= 10 ? 'not-allowed' : 'pointer'
-              }}
-            >
-              ➕ Add Rung
-            </button>
-          </div>
-        </div>
-
-        {/* Rungs Header */}
-        <div style={{
-          display: 'grid',
-          gridTemplateColumns: '40px 1.2fr 1fr 1fr 30px',
-          gap: '8px',
-          padding: '4px 6px',
-          fontSize: '11px',
-          fontWeight: '600',
-          color: '#94a3b8',
-          borderBottom: '1px solid rgba(255,255,255,0.08)',
-          marginBottom: '6px'
-        }}>
-          <span>Tier</span>
-          <span>Target Price ({quoteAsset})</span>
-          <span>Distance %</span>
-          <span>Alloc %</span>
-          <span></span>
-        </div>
-
-        {/* Rungs Rows */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '220px', overflowY: 'auto' }}>
-          {ladderConfig.rungs.map((rung, index) => {
-            const isNegative = rung.price_offset_pct < 0;
-            return (
-              <div
-                key={index}
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: '40px 1.2fr 1fr 1fr 30px',
-                  gap: '8px',
-                  alignItems: 'center',
-                  background: 'rgba(255,255,255,0.02)',
-                  padding: '4px 6px',
-                  borderRadius: '6px',
-                  border: '1px solid rgba(255,255,255,0.04)'
-                }}
-              >
-                <span style={{ fontSize: '11px', fontWeight: '700', color: '#cbd5e1' }}>
-                  #{index + 1}
-                </span>
-
-                <input
-                  type="number"
-                  step="any"
-                  className="order-styled-input"
-                  style={{ padding: '6px 8px', fontSize: '12px' }}
-                  value={rung.target_price || ''}
-                  placeholder="Target Price"
-                  onChange={(e) => handleRungChange(index, 'target_price', e.target.value)}
-                />
-
-                <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
-                  <input
-                    type="number"
-                    step="any"
-                    className="order-styled-input"
-                    style={{
-                      padding: '6px 8px',
-                      fontSize: '12px',
-                      color: isNegative ? '#f87171' : '#34d399',
-                      fontWeight: '600'
-                    }}
-                    value={rung.price_offset_pct}
-                    onChange={(e) => handleRungChange(index, 'price_offset_pct', e.target.value)}
-                  />
-                  <span style={{ position: 'absolute', right: '8px', fontSize: '11px', color: '#94a3b8', pointerEvents: 'none' }}>%</span>
-                </div>
-
-                <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
-                  <input
-                    type="number"
-                    step="any"
-                    min="1"
-                    max="100"
-                    className="order-styled-input"
-                    style={{ padding: '6px 8px', fontSize: '12px' }}
-                    value={rung.percentage_of_total}
-                    onChange={(e) => handleRungChange(index, 'percentage_of_total', e.target.value)}
-                  />
-                  <span style={{ position: 'absolute', right: '8px', fontSize: '11px', color: '#94a3b8', pointerEvents: 'none' }}>%</span>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={() => handleRemoveRung(index)}
-                  disabled={ladderConfig.rungs.length <= 2}
-                  style={{
-                    background: 'transparent',
-                    border: 'none',
-                    color: ladderConfig.rungs.length <= 2 ? '#475569' : '#f87171',
-                    cursor: ladderConfig.rungs.length <= 2 ? 'not-allowed' : 'pointer',
-                    fontSize: '14px',
-                    padding: '2px'
-                  }}
-                  title="Remove rung"
-                >
-                  ✕
-                </button>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* STEPPED VISUAL PREVIEW BAR */}
-      <div style={{
-        background: 'rgba(30, 41, 59, 0.7)',
+        background: 'rgba(15, 23, 42, 0.75)',
         border: '1px solid rgba(56, 189, 248, 0.25)',
-        borderRadius: '8px',
-        padding: '12px',
-        marginBottom: '14px'
+        borderRadius: '10px',
+        padding: '12px 14px',
+        marginBottom: '16px'
       }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-          <span style={{ fontSize: '12px', fontWeight: '700', color: '#38bdf8', display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <span>📊</span> Stepped Ladder Execution Preview
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '16px' }}>
+          {/* Upside Strategy Selector */}
+          <div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+              <label className="order-field-label" style={{ margin: 0, color: '#34d399', fontWeight: '700' }}>
+                🟢 Upside Strategy (Take Profit)
+              </label>
+              <span style={{ fontSize: '11px', color: '#94a3b8' }}>
+                {isSell ? 'Exit into strength' : 'Dip entry'}
+              </span>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '6px' }}>
+              {[
+                { id: 'SINGLE', label: 'Mode A', title: 'Single Target (100% Exit)' },
+                { id: 'LADDER', label: 'Mode B', title: 'Multi-Rung Ladder' },
+                { id: 'TRAILING', label: 'Mode C', title: 'Trailing Stop' }
+              ].map(m => (
+                <button
+                  key={m.id}
+                  type="button"
+                  onClick={() => updateConfig({ upsideMode: m.id })}
+                  className={`order-type-btn ${upsideMode === m.id ? 'active' : ''}`}
+                  style={{
+                    padding: '8px 4px',
+                    fontSize: '11px',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    gap: '2px',
+                    borderColor: upsideMode === m.id ? '#34d399' : undefined
+                  }}
+                  title={m.title}
+                >
+                  <strong style={{ color: upsideMode === m.id ? '#34d399' : '#e2e8f0' }}>{m.label}</strong>
+                  <span style={{ fontSize: '9.5px', color: '#94a3b8', whiteSpace: 'nowrap' }}>{m.title.split(' ')[0]} {m.title.split(' ')[1]}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Downside Strategy Selector */}
+          <div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', margin: 0 }}>
+                <input
+                  type="checkbox"
+                  checked={hasDownside}
+                  onChange={(e) => updateConfig({ hasDownsideProtection: e.target.checked })}
+                  style={{ width: '14px', height: '14px', accentColor: '#f87171' }}
+                />
+                <span style={{ color: hasDownside ? '#f87171' : '#cbd5e1', fontWeight: '700', fontSize: '12px' }}>
+                  🔴 Downside Strategy (Stop Loss)
+                </span>
+              </label>
+              <span style={{ fontSize: '11px', color: hasDownside ? '#f87171' : '#64748b' }}>
+                {hasDownside ? 'Active' : 'Disabled (Off)'}
+              </span>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '6px', opacity: hasDownside ? 1 : 0.4, pointerEvents: hasDownside ? 'auto' : 'none' }}>
+              {[
+                { id: 'SINGLE', label: 'Mode A', title: 'Single Stop (100% Exit)' },
+                { id: 'LADDER', label: 'Mode B', title: 'Staged Stop Ladder' },
+                { id: 'TRAILING', label: 'Mode C', title: 'Trailing Stop' }
+              ].map(m => (
+                <button
+                  key={m.id}
+                  type="button"
+                  onClick={() => updateConfig({ downsideMode: m.id })}
+                  className={`order-type-btn ${downsideMode === m.id ? 'active' : ''}`}
+                  style={{
+                    padding: '8px 4px',
+                    fontSize: '11px',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    gap: '2px',
+                    borderColor: downsideMode === m.id ? '#f87171' : undefined
+                  }}
+                  title={m.title}
+                >
+                  <strong style={{ color: downsideMode === m.id ? '#f87171' : '#e2e8f0' }}>{m.label}</strong>
+                  <span style={{ fontSize: '9.5px', color: '#94a3b8', whiteSpace: 'nowrap' }}>{m.title.split(' ')[0]} {m.title.split(' ')[1]}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* ============================================================== */}
+      {/* 🟢 SECTION 1: UPSIDE TAKE-PROFIT STRATEGY                      */}
+      {/* ============================================================== */}
+      <div style={{
+        background: 'rgba(16, 185, 129, 0.05)',
+        border: '1px solid rgba(16, 185, 129, 0.25)',
+        borderRadius: '10px',
+        padding: '14px',
+        marginBottom: '16px'
+      }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+          <span style={{ fontWeight: '700', fontSize: '13px', color: '#34d399', display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <span>📈</span> Upside Take-Profit Strategy: {upsideMode === 'SINGLE' ? 'Mode A (Single Target 100%)' : upsideMode === 'TRAILING' ? 'Mode C (Trailing Take-Profit)' : 'Mode B (Multi-Rung Ladder)'}
           </span>
           {price > 0 && (
             <span style={{ fontSize: '11px', color: '#94a3b8' }}>
-              Base: <strong style={{ color: '#fff' }}>${price.toLocaleString()}</strong>
+              Market Price: <strong style={{ color: '#fff' }}>${price.toLocaleString()}</strong>
             </span>
           )}
         </div>
 
-        {/* Stepped Bars */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-          {calculatedTiers.map((tier) => {
-            const isGain = tier.offsetPct >= 0;
-            const progressPct = totalQty > 0 ? Math.min(100, (tier.cumulativeQty / totalQty) * 100) : tier.rungNumber * (100 / calculatedTiers.length);
-
-            return (
-              <div
-                key={tier.rungNumber}
-                style={{
-                  background: 'rgba(15, 23, 42, 0.6)',
-                  borderRadius: '6px',
-                  padding: '8px 10px',
-                  border: '1px solid rgba(255, 255, 255, 0.05)',
-                  position: 'relative',
-                  overflow: 'hidden'
+        {/* MODE A: Single Target */}
+        {upsideMode === 'SINGLE' && (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '14px' }}>
+            <div>
+              <label className="order-field-label">Target Exit Price ({quoteAsset})</label>
+              <input
+                type="number"
+                step="any"
+                className="order-styled-input"
+                value={ladderConfig.upsideTargetPrice || ''}
+                placeholder="Target Price"
+                onChange={(e) => {
+                  const val = e.target.value;
+                  const pFloat = parseFloat(val) || 0;
+                  const off = price > 0 && pFloat > 0 ? (((pFloat - price) / price) * 100).toFixed(2) : ladderConfig.upsideOffsetPct;
+                  updateConfig({ upsideTargetPrice: val, upsideOffsetPct: off });
                 }}
-              >
-                {/* Background progress fill */}
-                <div
-                  style={{
-                    position: 'absolute',
-                    top: 0,
-                    bottom: 0,
-                    left: 0,
-                    width: `${progressPct}%`,
-                    background: isSell ? 'rgba(56, 189, 248, 0.08)' : 'rgba(34, 197, 94, 0.08)',
-                    zIndex: 0,
-                    pointerEvents: 'none'
-                  }}
-                />
-
-                <div style={{ position: 'relative', zIndex: 1, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '4px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <span style={{
-                      display: 'inline-block',
-                      width: '20px',
-                      height: '20px',
-                      borderRadius: '50%',
-                      background: isSell ? 'rgba(56, 189, 248, 0.2)' : 'rgba(34, 197, 94, 0.2)',
-                      color: isSell ? '#38bdf8' : '#4ade80',
+              />
+              <div style={{ display: 'flex', gap: '6px', marginTop: '6px', alignItems: 'center' }}>
+                <span style={{ fontSize: '11px', color: '#94a3b8' }}>Quick +%:</span>
+                {[2, 5, 10, 15, 20].map(pct => (
+                  <button
+                    key={pct}
+                    type="button"
+                    onClick={() => {
+                      const tgt = price > 0 ? (price * (1 + pct / 100)).toFixed(price >= 1 ? 2 : 6) : '';
+                      updateConfig({ upsideOffsetPct: String(pct), upsideTargetPrice: tgt });
+                    }}
+                    style={{
+                      padding: '2px 7px',
+                      borderRadius: '4px',
+                      background: 'rgba(255,255,255,0.06)',
+                      border: '1px solid rgba(255,255,255,0.15)',
+                      color: '#34d399',
                       fontSize: '11px',
-                      fontWeight: '700',
-                      textAlign: 'center',
-                      lineHeight: '20px'
-                    }}>
-                      {tier.rungNumber}
-                    </span>
-                    <div>
-                      <span style={{ fontWeight: '700', fontSize: '13px', color: '#fff' }}>
-                        ${tier.targetPrice > 0 ? tier.targetPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: tier.targetPrice >= 1 ? 2 : 6 }) : '—'}
-                      </span>
-                      <span style={{
-                        marginLeft: '6px',
-                        fontSize: '11px',
-                        fontWeight: '600',
-                        color: isGain ? '#34d399' : '#f87171'
-                      }}>
-                        ({isGain ? '+' : ''}{tier.offsetPct}%)
-                      </span>
-                    </div>
-                  </div>
-
-                  <div style={{ textAlign: 'right' }}>
-                    <div style={{ fontSize: '12px', fontWeight: '600', color: '#e2e8f0' }}>
-                      {tier.quantity > 0 ? tier.quantity.toLocaleString(undefined, { maximumFractionDigits: 6 }) : '—'} {baseAsset}
-                      <span style={{ color: '#94a3b8', fontSize: '11px', marginLeft: '4px' }}>({tier.percentageOfTotal}%)</span>
-                    </div>
-                    <div style={{ fontSize: '10px', color: '#94a3b8' }}>
-                      Tier Value: ${tier.estimatedUsd.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {quoteAsset} | Cum: ${tier.cumulativeUsd.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                    </div>
-                  </div>
-                </div>
+                      cursor: 'pointer'
+                    }}
+                  >
+                    +{pct}%
+                  </button>
+                ))}
               </div>
-            );
-          })}
-        </div>
-      </div>
+            </div>
 
-      {/* DOWNSIDE STOP-LOSS SAFETY NET */}
-      <div style={{
-        background: ladderConfig.hasStopLoss ? 'rgba(239, 68, 68, 0.08)' : 'rgba(255,255,255,0.02)',
-        border: `1px solid ${ladderConfig.hasStopLoss ? 'rgba(239, 68, 68, 0.3)' : 'rgba(255,255,255,0.08)'}`,
-        borderRadius: '8px',
-        padding: '12px',
-        marginBottom: '10px'
-      }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', margin: 0 }}>
-            <input
-              type="checkbox"
-              checked={ladderConfig.hasStopLoss}
-              onChange={(e) => onChange({ ...ladderConfig, hasStopLoss: e.target.checked })}
-              style={{ width: '16px', height: '16px', accentColor: '#f87171' }}
-            />
-            <span style={{ fontWeight: '700', fontSize: '13px', color: ladderConfig.hasStopLoss ? '#f87171' : '#cbd5e1' }}>
-              🛡️ Downside Stop-Loss Safety Net
-            </span>
-          </label>
-          <span style={{ fontSize: '11px', color: '#94a3b8' }}>
-            {ladderConfig.hasStopLoss ? 'Active' : 'Optional safety hedge'}
-          </span>
-        </div>
+            <div style={{
+              background: 'rgba(15, 23, 42, 0.6)',
+              borderRadius: '8px',
+              padding: '12px',
+              border: '1px solid rgba(255, 255, 255, 0.05)',
+              display: 'flex',
+              flexDirection: 'column',
+              justifyContent: 'center'
+            }}>
+              <div style={{ fontSize: '11px', color: '#94a3b8', marginBottom: '4px' }}>Single Exit Execution Summary</div>
+              <div style={{ fontSize: '13px', fontWeight: '700', color: '#34d399' }}>
+                100% Position ({totalQty > 0 ? totalQty.toLocaleString() : '—'} {baseAsset})
+              </div>
+              <div style={{ fontSize: '11px', color: '#cbd5e1', marginTop: '4px' }}>
+                Est. Proceeds: <strong style={{ color: '#fff' }}>${(totalQty * (parseFloat(ladderConfig.upsideTargetPrice) || price)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
+              </div>
+            </div>
+          </div>
+        )}
 
-        {ladderConfig.hasStopLoss && (
-          <div style={{ marginTop: '12px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
-            <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: '8px' }}>
-              <div>
-                <label className="order-field-label" style={{ fontSize: '11px' }}>
-                  Stop Trigger Distance ({isSell ? 'Drop below' : 'Surge above'})
-                </label>
-                <div style={{ display: 'flex', gap: '6px' }}>
-                  <div style={{ position: 'relative', flex: 1 }}>
+        {/* MODE C: Trailing Take-Profit */}
+        {upsideMode === 'TRAILING' && (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '14px' }}>
+            <div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: '8px' }}>
+                <div>
+                  <label className="order-field-label">Trail Distance Offset</label>
+                  <div style={{ display: 'flex', gap: '4px' }}>
                     <input
                       type="number"
                       step="any"
                       min="0.1"
                       className="order-styled-input"
-                      value={ladderConfig.stopLossOffsetPct}
-                      onChange={(e) => onChange({ ...ladderConfig, stopLossOffsetPct: e.target.value })}
-                      placeholder="5.0"
+                      value={ladderConfig.upsideTrailValue || '2.0'}
+                      onChange={(e) => updateConfig({ upsideTrailValue: e.target.value })}
+                      placeholder="2.0"
                     />
-                    <span style={{ position: 'absolute', right: '8px', top: '8px', fontSize: '11px', color: '#94a3b8' }}>%</span>
+                    <button
+                      type="button"
+                      onClick={() => updateConfig({ upsideTrailType: ladderConfig.upsideTrailType === 'AMOUNT' ? 'PERCENT' : 'AMOUNT' })}
+                      className="order-type-btn active"
+                      style={{ padding: '0 8px', fontSize: '11px' }}
+                    >
+                      {ladderConfig.upsideTrailType === 'AMOUNT' ? '$' : '%'}
+                    </button>
                   </div>
-                  <div style={{ display: 'flex', gap: '3px' }}>
-                    {[3, 5, 8, 10].map(p => (
+                </div>
+
+                <div>
+                  <label className="order-field-label">Activation Hurdle (Opt.)</label>
+                  <input
+                    type="number"
+                    step="any"
+                    className="order-styled-input"
+                    value={ladderConfig.upsideActivationPrice || ''}
+                    onChange={(e) => updateConfig({ upsideActivationPrice: e.target.value })}
+                    placeholder="Optional Price"
+                  />
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', gap: '6px', marginTop: '6px', alignItems: 'center' }}>
+                <span style={{ fontSize: '11px', color: '#94a3b8' }}>Presets:</span>
+                {[1.5, 2.0, 3.0, 5.0].map(p => (
+                  <button
+                    key={p}
+                    type="button"
+                    onClick={() => updateConfig({ upsideTrailValue: String(p), upsideTrailType: 'PERCENT' })}
+                    style={{
+                      padding: '2px 7px',
+                      borderRadius: '4px',
+                      background: 'rgba(255,255,255,0.06)',
+                      border: '1px solid rgba(255,255,255,0.15)',
+                      color: '#34d399',
+                      fontSize: '11px',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    {p}%
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div style={{
+              background: 'rgba(15, 23, 42, 0.6)',
+              borderRadius: '8px',
+              padding: '12px',
+              border: '1px solid rgba(255, 255, 255, 0.05)',
+              display: 'flex',
+              flexDirection: 'column',
+              justifyContent: 'center'
+            }}>
+              <div style={{ fontSize: '11px', color: '#94a3b8', marginBottom: '4px' }}>Trailing Take-Profit Engine</div>
+              <div style={{ fontSize: '12px', color: '#e2e8f0', lineHeight: 1.4 }}>
+                Ratchets the peak high watermark upwards as price climbs. Once price pulls back by <strong style={{ color: '#34d399' }}>{ladderConfig.upsideTrailValue || '2.0'}{ladderConfig.upsideTrailType === 'AMOUNT' ? '$' : '%'}</strong> from its highest peak, an automated market sell triggers.
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* MODE B: Multi-Rung Ladder (SIDE-BY-SIDE LAYOUT) */}
+        {upsideMode === 'LADDER' && (
+          <div>
+            {/* Presets Bar */}
+            <div style={{ display: 'flex', gap: '8px', marginBottom: '12px', flexWrap: 'wrap' }}>
+              {Object.keys(UPSIDE_PRESETS).map(key => (
+                <button
+                  key={key}
+                  type="button"
+                  className={`order-type-btn ${ladderConfig.upsidePreset === key ? 'active' : ''}`}
+                  style={{ padding: '6px 12px', fontSize: '11px' }}
+                  onClick={() => applyUpsidePreset(key)}
+                >
+                  {UPSIDE_PRESETS[key].label}
+                </button>
+              ))}
+            </div>
+
+            {/* SIDE BY SIDE: Rungs Table (Left) + Stepped Preview Bar (Right) */}
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
+              gap: '14px',
+              alignItems: 'start'
+            }}>
+              {/* Left Column: Interactive Rungs Table */}
+              <div style={{
+                background: 'rgba(15, 23, 42, 0.6)',
+                borderRadius: '8px',
+                padding: '10px 12px',
+                border: '1px solid rgba(255, 255, 255, 0.05)'
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                  <span style={{ fontSize: '12px', fontWeight: '700', color: '#cbd5e1' }}>
+                    📋 Profit Rungs ({upsideRungs.length})
+                  </span>
+                  <div style={{ display: 'flex', gap: '6px' }}>
+                    <button
+                      type="button"
+                      onClick={handleEvenlyDistributeUpside}
+                      style={{
+                        padding: '2px 8px',
+                        borderRadius: '4px',
+                        background: 'rgba(255,255,255,0.06)',
+                        border: '1px solid rgba(255,255,255,0.15)',
+                        color: '#cbd5e1',
+                        fontSize: '11px',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      ⚖️ Split Evenly
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleAddUpsideRung}
+                      disabled={upsideRungs.length >= 10}
+                      style={{
+                        padding: '2px 8px',
+                        borderRadius: '4px',
+                        background: 'rgba(16, 185, 129, 0.2)',
+                        border: '1px solid rgba(16, 185, 129, 0.4)',
+                        color: '#34d399',
+                        fontSize: '11px',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      + Add Rung
+                    </button>
+                  </div>
+                </div>
+
+                {/* Table Header */}
+                <div style={{
+                  display: 'grid',
+                  gridTemplateColumns: '28px 1.3fr 1fr 1fr 24px',
+                  gap: '6px',
+                  padding: '4px 0',
+                  fontSize: '10px',
+                  fontWeight: '700',
+                  color: '#94a3b8',
+                  borderBottom: '1px solid rgba(255,255,255,0.08)'
+                }}>
+                  <span>Tier</span>
+                  <span>Target ({quoteAsset})</span>
+                  <span>Dist %</span>
+                  <span>Alloc %</span>
+                  <span></span>
+                </div>
+
+                {/* Table Rows */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginTop: '6px' }}>
+                  {upsideRungs.map((rung, index) => (
+                    <div
+                      key={index}
+                      style={{
+                        display: 'grid',
+                        gridTemplateColumns: '28px 1.3fr 1fr 1fr 24px',
+                        gap: '6px',
+                        alignItems: 'center'
+                      }}
+                    >
+                      <span style={{ fontSize: '11px', fontWeight: '700', color: '#94a3b8', textAlign: 'center' }}>
+                        #{index + 1}
+                      </span>
+                      <input
+                        type="number"
+                        step="any"
+                        className="order-styled-input"
+                        style={{ padding: '4px 6px', fontSize: '11px' }}
+                        value={rung.target_price || ''}
+                        placeholder="Target"
+                        onChange={(e) => handleUpsideRungChange(index, 'target_price', e.target.value)}
+                      />
+                      <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                        <input
+                          type="number"
+                          step="any"
+                          className="order-styled-input"
+                          style={{ padding: '4px 6px', fontSize: '11px', color: '#34d399', fontWeight: '600' }}
+                          value={rung.price_offset_pct}
+                          onChange={(e) => handleUpsideRungChange(index, 'price_offset_pct', e.target.value)}
+                        />
+                        <span style={{ position: 'absolute', right: '6px', fontSize: '10px', color: '#94a3b8', pointerEvents: 'none' }}>%</span>
+                      </div>
+                      <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                        <input
+                          type="number"
+                          step="any"
+                          min="1"
+                          max="100"
+                          className="order-styled-input"
+                          style={{ padding: '4px 6px', fontSize: '11px' }}
+                          value={rung.percentage_of_total}
+                          onChange={(e) => handleUpsideRungChange(index, 'percentage_of_total', e.target.value)}
+                        />
+                        <span style={{ position: 'absolute', right: '6px', fontSize: '10px', color: '#94a3b8', pointerEvents: 'none' }}>%</span>
+                      </div>
                       <button
-                        key={p}
                         type="button"
-                        onClick={() => onChange({ ...ladderConfig, stopLossOffsetPct: String(p) })}
+                        onClick={() => handleRemoveUpsideRung(index)}
+                        disabled={upsideRungs.length <= 1}
                         style={{
-                          padding: '2px 6px',
+                          background: 'transparent',
+                          border: 'none',
+                          color: upsideRungs.length <= 1 ? '#475569' : '#f87171',
+                          cursor: upsideRungs.length <= 1 ? 'not-allowed' : 'pointer',
+                          fontSize: '12px'
+                        }}
+                        title="Remove rung"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Right Column: Stepped Ladder Execution Preview */}
+              <div style={{
+                background: 'rgba(15, 23, 42, 0.6)',
+                borderRadius: '8px',
+                padding: '10px 12px',
+                border: '1px solid rgba(56, 189, 248, 0.25)'
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                  <span style={{ fontSize: '12px', fontWeight: '700', color: '#38bdf8', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <span>📊</span> Stepped Execution Preview
+                  </span>
+                  <span style={{ fontSize: '10.5px', color: '#94a3b8' }}>
+                    Alloc: <strong style={{ color: Math.abs(upsideRungs.reduce((a, b) => a + (parseFloat(b.percentage_of_total) || 0), 0) - 100) < 0.5 ? '#34d399' : '#f87171' }}>
+                      {upsideRungs.reduce((a, b) => a + (parseFloat(b.percentage_of_total) || 0), 0).toFixed(1)}% / 100%
+                    </strong>
+                  </span>
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  {calculatedUpsideTiers.map(tier => {
+                    const prog = totalQty > 0 ? Math.min(100, (tier.cumulativeQty / totalQty) * 100) : (tier.rungNumber / calculatedUpsideTiers.length) * 100;
+                    return (
+                      <div
+                        key={tier.rungNumber}
+                        style={{
+                          background: 'rgba(30, 41, 59, 0.6)',
+                          borderRadius: '6px',
+                          padding: '6px 8px',
+                          border: '1px solid rgba(255, 255, 255, 0.05)',
+                          position: 'relative',
+                          overflow: 'hidden'
+                        }}
+                      >
+                        <div
+                          style={{
+                            position: 'absolute',
+                            left: 0,
+                            top: 0,
+                            bottom: 0,
+                            width: `${prog}%`,
+                            background: 'linear-gradient(90deg, rgba(16, 185, 129, 0.15) 0%, rgba(16, 185, 129, 0.3) 100%)',
+                            borderRight: '2px solid #34d399',
+                            pointerEvents: 'none'
+                          }}
+                        />
+                        <div style={{ position: 'relative', zIndex: 1, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <div>
+                            <span style={{ fontSize: '11px', fontWeight: '700', color: '#38bdf8', marginRight: '6px' }}>
+                              #{tier.rungNumber}
+                            </span>
+                            <span style={{ fontSize: '11.5px', fontWeight: '700', color: '#fff' }}>
+                              ${tier.targetPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            </span>
+                            <span style={{ fontSize: '10.5px', color: '#34d399', marginLeft: '6px', fontWeight: '600' }}>
+                              (+{tier.offsetPct}%)
+                            </span>
+                          </div>
+                          <div style={{ textAlign: 'right' }}>
+                            <div style={{ fontSize: '11px', fontWeight: '600', color: '#e2e8f0' }}>
+                              {tier.quantity > 0 ? tier.quantity.toLocaleString(undefined, { maximumFractionDigits: 4 }) : '—'} {baseAsset} ({tier.percentageOfTotal}%)
+                            </div>
+                            <div style={{ fontSize: '9.5px', color: '#94a3b8' }}>
+                              Val: ${tier.estimatedUsd.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} | Cum: ${tier.cumulativeUsd.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* ============================================================== */}
+      {/* 🔴 SECTION 2: DOWNSIDE STOP-LOSS / PROTECTION                  */}
+      {/* ============================================================== */}
+      {hasDownside && (
+        <div style={{
+          background: 'rgba(239, 68, 68, 0.05)',
+          border: '1px solid rgba(239, 68, 68, 0.3)',
+          borderRadius: '10px',
+          padding: '14px',
+          marginBottom: '10px'
+        }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+            <span style={{ fontWeight: '700', fontSize: '13px', color: '#f87171', display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <span>🛡️</span> Downside Capital Protection: {downsideMode === 'SINGLE' ? 'Mode A (Single Stop-Loss Floor)' : downsideMode === 'TRAILING' ? 'Mode C (Trailing Stop Loss)' : 'Mode B (Staged Stop Ladder)'}
+            </span>
+            <span style={{ fontSize: '11px', color: '#fca5a5' }}>
+              Protects position on adverse movement
+            </span>
+          </div>
+
+          {/* MODE A: Single Stop Floor */}
+          {downsideMode === 'SINGLE' && (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '14px' }}>
+              <div>
+                <label className="order-field-label">Stop-Loss Trigger Price ({quoteAsset})</label>
+                <input
+                  type="number"
+                  step="any"
+                  className="order-styled-input"
+                  style={{ color: '#f87171', fontWeight: '700' }}
+                  value={ladderConfig.downsideTargetPrice || ''}
+                  placeholder="Stop Price"
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    const pFloat = parseFloat(val) || 0;
+                    const off = price > 0 && pFloat > 0 ? (((price - pFloat) / price) * 100).toFixed(2) : ladderConfig.downsideOffsetPct;
+                    updateConfig({ downsideTargetPrice: val, downsideOffsetPct: off });
+                  }}
+                />
+                <div style={{ display: 'flex', gap: '6px', marginTop: '6px', alignItems: 'center' }}>
+                  <span style={{ fontSize: '11px', color: '#94a3b8' }}>Quick -%:</span>
+                  {[2, 3, 5, 8, 10].map(pct => (
+                    <button
+                      key={pct}
+                      type="button"
+                      onClick={() => {
+                        const tgt = price > 0 ? (price * (1 - pct / 100)).toFixed(price >= 1 ? 2 : 6) : '';
+                        updateConfig({ downsideOffsetPct: String(pct), downsideTargetPrice: tgt });
+                      }}
+                      style={{
+                        padding: '2px 7px',
+                        borderRadius: '4px',
+                        background: 'rgba(255,255,255,0.06)',
+                        border: '1px solid rgba(255,255,255,0.15)',
+                        color: '#f87171',
+                        fontSize: '11px',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      -{pct}%
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div style={{
+                background: 'rgba(15, 23, 42, 0.6)',
+                borderRadius: '8px',
+                padding: '12px',
+                border: '1px solid rgba(255, 255, 255, 0.05)',
+                display: 'flex',
+                flexDirection: 'column',
+                justifyContent: 'center'
+              }}>
+                <div style={{ fontSize: '11px', color: '#94a3b8', marginBottom: '4px' }}>Stop-Loss Action When Triggered</div>
+                <div style={{ display: 'flex', gap: '6px' }}>
+                  <button
+                    type="button"
+                    className={`order-type-btn ${ladderConfig.downsideStopAction === 'MARKET_SELL_ALL' ? 'active' : ''}`}
+                    style={{ flex: 1, padding: '6px 8px', fontSize: '11px' }}
+                    onClick={() => updateConfig({ downsideStopAction: 'MARKET_SELL_ALL' })}
+                  >
+                    🚨 Market Liquidate Remaining
+                  </button>
+                  <button
+                    type="button"
+                    className={`order-type-btn ${ladderConfig.downsideStopAction === 'CANCEL_REMAINING' ? 'active' : ''}`}
+                    style={{ flex: 1, padding: '6px 8px', fontSize: '11px' }}
+                    onClick={() => updateConfig({ downsideStopAction: 'CANCEL_REMAINING' })}
+                  >
+                    🛑 Cancel Open Rungs Only
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* MODE C: Trailing Stop Loss */}
+          {downsideMode === 'TRAILING' && (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '14px' }}>
+              <div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: '8px' }}>
+                  <div>
+                    <label className="order-field-label">Trailing Stop Distance</label>
+                    <div style={{ display: 'flex', gap: '4px' }}>
+                      <input
+                        type="number"
+                        step="any"
+                        min="0.1"
+                        className="order-styled-input"
+                        value={ladderConfig.downsideTrailValue || '3.0'}
+                        onChange={(e) => updateConfig({ downsideTrailValue: e.target.value })}
+                        placeholder="3.0"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => updateConfig({ downsideTrailType: ladderConfig.downsideTrailType === 'AMOUNT' ? 'PERCENT' : 'AMOUNT' })}
+                        className="order-type-btn active"
+                        style={{ padding: '0 8px', fontSize: '11px' }}
+                      >
+                        {ladderConfig.downsideTrailType === 'AMOUNT' ? '$' : '%'}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="order-field-label">Activation Price (Opt.)</label>
+                    <input
+                      type="number"
+                      step="any"
+                      className="order-styled-input"
+                      value={ladderConfig.downsideActivationPrice || ''}
+                      onChange={(e) => updateConfig({ downsideActivationPrice: e.target.value })}
+                      placeholder="Optional Hurdle"
+                    />
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', gap: '6px', marginTop: '6px', alignItems: 'center' }}>
+                  <span style={{ fontSize: '11px', color: '#94a3b8' }}>Presets:</span>
+                  {[2.0, 3.0, 5.0, 8.0].map(p => (
+                    <button
+                      key={p}
+                      type="button"
+                      onClick={() => updateConfig({ downsideTrailValue: String(p), downsideTrailType: 'PERCENT' })}
+                      style={{
+                        padding: '2px 7px',
+                        borderRadius: '4px',
+                        background: 'rgba(255,255,255,0.06)',
+                        border: '1px solid rgba(255,255,255,0.15)',
+                        color: '#f87171',
+                        fontSize: '11px',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      {p}%
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div style={{
+                background: 'rgba(15, 23, 42, 0.6)',
+                borderRadius: '8px',
+                padding: '12px',
+                border: '1px solid rgba(255, 255, 255, 0.05)',
+                display: 'flex',
+                flexDirection: 'column',
+                justifyContent: 'center'
+              }}>
+                <div style={{ fontSize: '11px', color: '#94a3b8', marginBottom: '4px' }}>Trailing Stop Loss Engine</div>
+                <div style={{ fontSize: '12px', color: '#e2e8f0', lineHeight: 1.4 }}>
+                  As the asset gains value, the stop-loss price ratchets upward dynamically, staying <strong style={{ color: '#f87171' }}>{ladderConfig.downsideTrailValue || '3.0'}{ladderConfig.downsideTrailType === 'AMOUNT' ? '$' : '%'}</strong> behind market highs to protect accrued profits.
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* MODE B: Staged Stop Ladder (SIDE-BY-SIDE LAYOUT) */}
+          {downsideMode === 'LADDER' && (
+            <div>
+              {/* Presets Bar */}
+              <div style={{ display: 'flex', gap: '8px', marginBottom: '12px', flexWrap: 'wrap' }}>
+                {Object.keys(DOWNSIDE_PRESETS).map(key => (
+                  <button
+                    key={key}
+                    type="button"
+                    className={`order-type-btn ${ladderConfig.downsidePreset === key ? 'active' : ''}`}
+                    style={{ padding: '6px 12px', fontSize: '11px', borderColor: ladderConfig.downsidePreset === key ? '#f87171' : undefined }}
+                    onClick={() => applyDownsidePreset(key)}
+                  >
+                    {DOWNSIDE_PRESETS[key].label}
+                  </button>
+                ))}
+              </div>
+
+              {/* SIDE BY SIDE: Downside Stop Rungs Table (Left) + Downside Stepped Preview (Right) */}
+              <div style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
+                gap: '14px',
+                alignItems: 'start'
+              }}>
+                {/* Left Column: Interactive Stop Rungs Table */}
+                <div style={{
+                  background: 'rgba(15, 23, 42, 0.6)',
+                  borderRadius: '8px',
+                  padding: '10px 12px',
+                  border: '1px solid rgba(255, 255, 255, 0.05)'
+                }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                    <span style={{ fontSize: '12px', fontWeight: '700', color: '#cbd5e1' }}>
+                      📋 Stop Rungs ({downsideRungs.length})
+                    </span>
+                    <div style={{ display: 'flex', gap: '6px' }}>
+                      <button
+                        type="button"
+                        onClick={handleEvenlyDistributeDownside}
+                        style={{
+                          padding: '2px 8px',
                           borderRadius: '4px',
                           background: 'rgba(255,255,255,0.06)',
                           border: '1px solid rgba(255,255,255,0.15)',
@@ -597,53 +1126,189 @@ const LadderOrderConfig = ({
                           cursor: 'pointer'
                         }}
                       >
-                        {p}%
+                        ⚖️ Split Evenly
                       </button>
+                      <button
+                        type="button"
+                        onClick={handleAddDownsideRung}
+                        disabled={downsideRungs.length >= 10}
+                        style={{
+                          padding: '2px 8px',
+                          borderRadius: '4px',
+                          background: 'rgba(239, 68, 68, 0.2)',
+                          border: '1px solid rgba(239, 68, 68, 0.4)',
+                          color: '#f87171',
+                          fontSize: '11px',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        + Add Stop Rung
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Table Header */}
+                  <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: '28px 1.3fr 1fr 1fr 24px',
+                    gap: '6px',
+                    padding: '4px 0',
+                    fontSize: '10px',
+                    fontWeight: '700',
+                    color: '#94a3b8',
+                    borderBottom: '1px solid rgba(255,255,255,0.08)'
+                  }}>
+                    <span>Tier</span>
+                    <span>Stop ({quoteAsset})</span>
+                    <span>Drop %</span>
+                    <span>Alloc %</span>
+                    <span></span>
+                  </div>
+
+                  {/* Table Rows */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginTop: '6px' }}>
+                    {downsideRungs.map((rung, index) => (
+                      <div
+                        key={index}
+                        style={{
+                          display: 'grid',
+                          gridTemplateColumns: '28px 1.3fr 1fr 1fr 24px',
+                          gap: '6px',
+                          alignItems: 'center'
+                        }}
+                      >
+                        <span style={{ fontSize: '11px', fontWeight: '700', color: '#94a3b8', textAlign: 'center' }}>
+                          #{index + 1}
+                        </span>
+                        <input
+                          type="number"
+                          step="any"
+                          className="order-styled-input"
+                          style={{ padding: '4px 6px', fontSize: '11px', color: '#f87171', fontWeight: '600' }}
+                          value={rung.target_price || ''}
+                          placeholder="Stop Px"
+                          onChange={(e) => handleDownsideRungChange(index, 'target_price', e.target.value)}
+                        />
+                        <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                          <input
+                            type="number"
+                            step="any"
+                            className="order-styled-input"
+                            style={{ padding: '4px 6px', fontSize: '11px', color: '#f87171', fontWeight: '600' }}
+                            value={rung.price_offset_pct}
+                            onChange={(e) => handleDownsideRungChange(index, 'price_offset_pct', e.target.value)}
+                          />
+                          <span style={{ position: 'absolute', right: '6px', fontSize: '10px', color: '#94a3b8', pointerEvents: 'none' }}>%</span>
+                        </div>
+                        <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                          <input
+                            type="number"
+                            step="any"
+                            min="1"
+                            max="100"
+                            className="order-styled-input"
+                            style={{ padding: '4px 6px', fontSize: '11px' }}
+                            value={rung.percentage_of_total}
+                            onChange={(e) => handleDownsideRungChange(index, 'percentage_of_total', e.target.value)}
+                          />
+                          <span style={{ position: 'absolute', right: '6px', fontSize: '10px', color: '#94a3b8', pointerEvents: 'none' }}>%</span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveDownsideRung(index)}
+                          disabled={downsideRungs.length <= 1}
+                          style={{
+                            background: 'transparent',
+                            border: 'none',
+                            color: downsideRungs.length <= 1 ? '#475569' : '#f87171',
+                            cursor: downsideRungs.length <= 1 ? 'not-allowed' : 'pointer',
+                            fontSize: '12px'
+                          }}
+                          title="Remove rung"
+                        >
+                          ✕
+                        </button>
+                      </div>
                     ))}
                   </div>
                 </div>
-              </div>
 
-              <div>
-                <label className="order-field-label" style={{ fontSize: '11px' }}>
-                  Stop Trigger Price ({quoteAsset})
-                </label>
-                <input
-                  type="text"
-                  readOnly
-                  className="order-styled-input"
-                  style={{ background: 'rgba(0,0,0,0.3)', color: '#f87171', fontWeight: '700' }}
-                  value={calculatedStopPrice ? `$${calculatedStopPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: calculatedStopPrice >= 1 ? 2 : 6 })}` : '—'}
-                />
+                {/* Right Column: Downside Stepped Preview */}
+                <div style={{
+                  background: 'rgba(15, 23, 42, 0.6)',
+                  borderRadius: '8px',
+                  padding: '10px 12px',
+                  border: '1px solid rgba(239, 68, 68, 0.3)'
+                }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                    <span style={{ fontSize: '12px', fontWeight: '700', color: '#f87171', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <span>📉</span> Downside Stop Preview
+                    </span>
+                    <span style={{ fontSize: '10.5px', color: '#94a3b8' }}>
+                      Alloc: <strong style={{ color: Math.abs(downsideRungs.reduce((a, b) => a + (parseFloat(b.percentage_of_total) || 0), 0) - 100) < 0.5 ? '#34d399' : '#f87171' }}>
+                        {downsideRungs.reduce((a, b) => a + (parseFloat(b.percentage_of_total) || 0), 0).toFixed(1)}% / 100%
+                      </strong>
+                    </span>
+                  </div>
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                    {calculatedDownsideTiers.map(tier => {
+                      const prog = totalQty > 0 ? Math.min(100, (tier.cumulativeQty / totalQty) * 100) : (tier.rungNumber / calculatedDownsideTiers.length) * 100;
+                      return (
+                        <div
+                          key={tier.rungNumber}
+                          style={{
+                            background: 'rgba(30, 41, 59, 0.6)',
+                            borderRadius: '6px',
+                            padding: '6px 8px',
+                            border: '1px solid rgba(255, 255, 255, 0.05)',
+                            position: 'relative',
+                            overflow: 'hidden'
+                          }}
+                        >
+                          <div
+                            style={{
+                              position: 'absolute',
+                              left: 0,
+                              top: 0,
+                              bottom: 0,
+                              width: `${prog}%`,
+                              background: 'linear-gradient(90deg, rgba(239, 68, 68, 0.15) 0%, rgba(239, 68, 68, 0.3) 100%)',
+                              borderRight: '2px solid #f87171',
+                              pointerEvents: 'none'
+                            }}
+                          />
+                          <div style={{ position: 'relative', zIndex: 1, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <div>
+                              <span style={{ fontSize: '11px', fontWeight: '700', color: '#f87171', marginRight: '6px' }}>
+                                #{tier.rungNumber}
+                              </span>
+                              <span style={{ fontSize: '11.5px', fontWeight: '700', color: '#fff' }}>
+                                ${tier.targetPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                              </span>
+                              <span style={{ fontSize: '10.5px', color: '#f87171', marginLeft: '6px', fontWeight: '600' }}>
+                                ({tier.offsetPct}%)
+                              </span>
+                            </div>
+                            <div style={{ textAlign: 'right' }}>
+                              <div style={{ fontSize: '11px', fontWeight: '600', color: '#e2e8f0' }}>
+                                {tier.quantity > 0 ? tier.quantity.toLocaleString(undefined, { maximumFractionDigits: 4 }) : '—'} {baseAsset} ({tier.percentageOfTotal}%)
+                              </div>
+                              <div style={{ fontSize: '9.5px', color: '#94a3b8' }}>
+                                Cut: ${tier.estimatedUsd.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} | Cum: ${tier.cumulativeUsd.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
               </div>
             </div>
-
-            <div>
-              <label className="order-field-label" style={{ fontSize: '11px' }}>
-                Stop-Loss Action When Triggered
-              </label>
-              <div style={{ display: 'flex', gap: '8px' }}>
-                <button
-                  type="button"
-                  className={`order-type-btn ${ladderConfig.stopLossAction === 'MARKET_SELL_ALL' ? 'active' : ''}`}
-                  style={{ flex: 1, padding: '6px 8px', fontSize: '11px' }}
-                  onClick={() => onChange({ ...ladderConfig, stopLossAction: 'MARKET_SELL_ALL' })}
-                >
-                  🚨 Market {isSell ? 'Sell' : 'Close'} Remaining Position
-                </button>
-                <button
-                  type="button"
-                  className={`order-type-btn ${ladderConfig.stopLossAction === 'CANCEL_REMAINING' ? 'active' : ''}`}
-                  style={{ flex: 1, padding: '6px 8px', fontSize: '11px' }}
-                  onClick={() => onChange({ ...ladderConfig, stopLossAction: 'CANCEL_REMAINING' })}
-                >
-                  🛑 Cancel Remaining Rungs Only
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
+          )}
+        </div>
+      )}
     </div>
   );
 };

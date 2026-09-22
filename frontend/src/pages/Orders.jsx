@@ -4,6 +4,7 @@ import CombinedPositions from '../components/CombinedPositions';
 import ConfigurableOrderTable from '../components/ConfigurableOrderTable';
 import { useAuth } from '../components/AuthContext';
 import CancelOrderModal from '../components/CancelOrderModal';
+import SyntheticOrdersTable from '../components/SyntheticOrdersTable';
 import TrailingOrdersTable from '../components/TrailingOrdersTable';
 import LadderOrdersTable from '../components/LadderOrdersTable';
 import {
@@ -389,7 +390,7 @@ export default function Orders() {
     try {
       const params = new URLSearchParams(window.location.search);
       const t = params.get('tab');
-      if (['open', 'history', 'positions', 'market_analysis', 'portfolio_review', 'trailing_orders', 'ladder_orders'].includes(t)) {
+      if (['open', 'history', 'positions', 'market_analysis', 'portfolio_review', 'synthetic_orders', 'trailing_orders', 'ladder_orders'].includes(t)) {
         return t;
       }
     } catch { }
@@ -802,11 +803,8 @@ export default function Orders() {
         <button className={`tab-button ${activeTab === 'open' ? 'active' : ''}`} onClick={() => selectTab('open')}>
           ⏳ <span className="tab-text">Open Orders</span>{filteredOpenOrders.length > 0 && <span className="tab-badge">{filteredOpenOrders.length}</span>}
         </button>
-        <button className={`tab-button ${activeTab === 'trailing_orders' ? 'active' : ''}`} onClick={() => selectTab('trailing_orders')}>
-          🎯 <span className="tab-text">Trailing Orders</span>
-        </button>
-        <button className={`tab-button ${activeTab === 'ladder_orders' ? 'active' : ''}`} onClick={() => selectTab('ladder_orders')}>
-          🪜 <span className="tab-text">Ladder Orders</span>
+        <button className={`tab-button ${['synthetic_orders', 'trailing_orders', 'ladder_orders'].includes(activeTab) ? 'active' : ''}`} onClick={() => selectTab('synthetic_orders')}>
+          ⚡ <span className="tab-text">Synthetic Orders</span>
         </button>
         <button className={`tab-button ${activeTab === 'history' ? 'active' : ''}`} onClick={() => selectTab('history')}>
           📜 <span className="tab-text">Order History</span>
@@ -823,26 +821,15 @@ export default function Orders() {
       </div>
       <div className="trading-content">
         {activeTab === 'positions' && <CombinedPositions user={user} refreshKey={positionsRefresh} />}
-        {activeTab === 'trailing_orders' && (
+        {['synthetic_orders', 'trailing_orders', 'ladder_orders'].includes(activeTab) && (
           <section className="order-history-container" style={{ padding: '16px' }}>
             <div style={{ marginBottom: '16px' }}>
-              <h2 style={{ margin: '0 0 4px 0', fontSize: '18px', color: '#fff' }}>🎯 Synthetic Trailing Stop Orders</h2>
+              <h2 style={{ margin: '0 0 4px 0', fontSize: '18px', color: '#fff' }}>⚡ Synthetic Orders (Trailing & Ladder)</h2>
               <p style={{ margin: 0, fontSize: '12px', color: '#94a3b8' }}>
-                Server-side synthetic trailing orders monitoring live prices across Binance.US and Webull (Equities, ETFs, and Crypto).
+                Unified server-side synthetic orders (Trailing Stops, Scale-Out Ladders, and Smart Brackets) across Binance.US and Webull (Equities, ETFs, and Crypto).
               </p>
             </div>
-            <TrailingOrdersTable showBrokerFilter={true} defaultBroker="all" />
-          </section>
-        )}
-        {activeTab === 'ladder_orders' && (
-          <section className="order-history-container" style={{ padding: '16px' }}>
-            <div style={{ marginBottom: '16px' }}>
-              <h2 style={{ margin: '0 0 4px 0', fontSize: '18px', color: '#fff' }}>🪜 Synthetic Ladder Orders (Scale-In / Scale-Out)</h2>
-              <p style={{ margin: 0, fontSize: '12px', color: '#94a3b8' }}>
-                Automated multi-rung scale-out profit targets and scale-in accumulation ladders across Binance.US and Webull with optional downside stop-loss safety nets.
-              </p>
-            </div>
-            <LadderOrdersTable showBrokerFilter={true} defaultBroker="all" />
+            <SyntheticOrdersTable showBrokerFilter={true} defaultBroker="all" />
           </section>
         )}
         {(activeTab === 'open' || activeTab === 'history') && (

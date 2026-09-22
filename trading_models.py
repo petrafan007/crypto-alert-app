@@ -284,6 +284,21 @@ class LadderOrder(db.Model):
     has_stop_loss = Column(Boolean, default=False)
     stop_loss_trigger_price = Column(Float, nullable=True)
     stop_loss_action = Column(String(20), default='SELL_ALL')        # 'SELL_ALL', 'SELL_REMAINDER'
+    strategy_type = Column(String(30), default='SYNTHETIC')          # 'SYNTHETIC', 'LADDER', 'BRACKET'
+    upside_mode = Column(String(20), default='LADDER')               # 'SINGLE', 'LADDER', 'TRAILING'
+    upside_target_price = Column(Float, nullable=True)
+    upside_trail_value = Column(Float, nullable=True)
+    upside_trail_type = Column(String(10), default='PERCENT')
+    upside_activation_price = Column(Float, nullable=True)
+    upside_highest_price = Column(Float, nullable=True)
+    upside_current_stop_price = Column(Float, nullable=True)
+    downside_mode = Column(String(20), default='NONE')               # 'NONE', 'SINGLE', 'LADDER', 'TRAILING'
+    downside_target_price = Column(Float, nullable=True)
+    downside_trail_value = Column(Float, nullable=True)
+    downside_trail_type = Column(String(10), default='PERCENT')
+    downside_activation_price = Column(Float, nullable=True)
+    downside_lowest_price = Column(Float, nullable=True)
+    downside_current_stop_price = Column(Float, nullable=True)
     status = Column(String(20), default='ACTIVE')                    # 'ACTIVE', 'PARTIALLY_FILLED', 'COMPLETED', 'CANCELLED', 'FAILED'
     rungs_total = Column(Integer, default=0)
     rungs_filled = Column(Integer, default=0)
@@ -307,8 +322,23 @@ class LadderOrder(db.Model):
             'total_budget_usd': self.total_budget_usd,
             'mode': self.mode,
             'preset_name': self.preset_name,
-            'has_stop_loss': self.has_stop_loss,
-            'stop_loss_trigger_price': self.stop_loss_trigger_price,
+            'strategy_type': self.strategy_type or 'SYNTHETIC',
+            'upside_mode': self.upside_mode or 'LADDER',
+            'upside_target_price': self.upside_target_price,
+            'upside_trail_value': self.upside_trail_value,
+            'upside_trail_type': self.upside_trail_type or 'PERCENT',
+            'upside_activation_price': self.upside_activation_price,
+            'upside_highest_price': self.upside_highest_price,
+            'upside_current_stop_price': self.upside_current_stop_price,
+            'downside_mode': self.downside_mode or ('SINGLE' if self.has_stop_loss else 'NONE'),
+            'downside_target_price': self.downside_target_price or self.stop_loss_trigger_price,
+            'downside_trail_value': self.downside_trail_value,
+            'downside_trail_type': self.downside_trail_type or 'PERCENT',
+            'downside_activation_price': self.downside_activation_price,
+            'downside_lowest_price': self.downside_lowest_price,
+            'downside_current_stop_price': self.downside_current_stop_price,
+            'has_stop_loss': self.has_stop_loss or (self.downside_mode not in ('NONE', None)),
+            'stop_loss_trigger_price': self.stop_loss_trigger_price or self.downside_target_price,
             'stop_loss_action': self.stop_loss_action,
             'status': self.status,
             'rungs_total': self.rungs_total,
@@ -330,6 +360,7 @@ class LadderRung(db.Model):
     id = Column(Integer, primary_key=True, autoincrement=True)
     ladder_id = Column(Integer, ForeignKey('ladder_orders.id'), nullable=False, index=True)
     rung_number = Column(Integer, nullable=False)
+    rung_type = Column(String(20), default='TAKE_PROFIT')            # 'TAKE_PROFIT' or 'STOP_LOSS'
     target_price = Column(Float, nullable=False)
     price_offset_pct = Column(Float, nullable=True)
     quantity = Column(Float, nullable=False)
@@ -346,6 +377,7 @@ class LadderRung(db.Model):
             'id': self.id,
             'ladder_id': self.ladder_id,
             'rung_number': self.rung_number,
+            'rung_type': self.rung_type or 'TAKE_PROFIT',
             'target_price': self.target_price,
             'price_offset_pct': self.price_offset_pct,
             'quantity': self.quantity,

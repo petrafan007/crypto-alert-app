@@ -17,6 +17,7 @@ import AIDashboard from './AIDashboard';
 import Staking from './Staking';
 import LadderOrderConfig, { defaultLadderState } from '../components/LadderOrderConfig';
 import LadderOrdersTable from '../components/LadderOrdersTable';
+import SyntheticOrdersTable from '../components/SyntheticOrdersTable';
 import './Trading.css';
 import { useLocation, useNavigate } from 'react-router-dom';
 
@@ -654,6 +655,7 @@ const Trading = ({ isLightMode = false }) => {
         }
         break;
       }
+      case 'SYNTHETIC':
       case 'LADDER': {
         cells.push(
           <LadderOrderConfig
@@ -1619,25 +1621,91 @@ const Trading = ({ isLightMode = false }) => {
         }
       }
 
-      if (orderForm.type === 'LADDER') {
-        const totalPct = ladderConfig.rungs.reduce((acc, r) => acc + (parseFloat(r.percentage_of_total) || 0), 0);
-        if (Math.abs(totalPct - 100) > 0.5) {
-          setFeedbackModal({
-            isVisible: true,
-            message: `Ladder rungs percentage allocation must sum to 100% (currently ${totalPct.toFixed(1)}%).`,
-            type: 'error'
-          });
-          setLoading(false);
-          return;
+      if (orderForm.type === 'LADDER' || orderForm.type === 'SYNTHETIC') {
+        if (ladderConfig.upsideMode === 'LADDER') {
+          const totalPct = (ladderConfig.rungs || []).reduce((acc, r) => acc + (parseFloat(r.percentage_of_total) || 0), 0);
+          if (Math.abs(totalPct - 100) > 0.5) {
+            setFeedbackModal({
+              isVisible: true,
+              message: `Upside ladder rungs allocation must sum to 100% (currently ${totalPct.toFixed(1)}%).`,
+              type: 'error'
+            });
+            setLoading(false);
+            return;
+          }
+          if (ladderConfig.rungs.some(r => !r.target_price || parseFloat(r.target_price) <= 0)) {
+            setFeedbackModal({
+              isVisible: true,
+              message: 'All upside ladder rungs must have a valid target price greater than 0.',
+              type: 'error'
+            });
+            setLoading(false);
+            return;
+          }
+        } else if (ladderConfig.upsideMode === 'SINGLE') {
+          if (!ladderConfig.upsideTargetPrice || parseFloat(ladderConfig.upsideTargetPrice) <= 0) {
+            setFeedbackModal({
+              isVisible: true,
+              message: 'Single target price must be greater than 0.',
+              type: 'error'
+            });
+            setLoading(false);
+            return;
+          }
+        } else if (ladderConfig.upsideMode === 'TRAILING') {
+          if (!ladderConfig.upsideTrailValue || parseFloat(ladderConfig.upsideTrailValue) <= 0) {
+            setFeedbackModal({
+              isVisible: true,
+              message: 'Trailing profit offset value must be greater than 0.',
+              type: 'error'
+            });
+            setLoading(false);
+            return;
+          }
         }
-        if (ladderConfig.rungs.some(r => !r.target_price || parseFloat(r.target_price) <= 0)) {
-          setFeedbackModal({
-            isVisible: true,
-            message: 'All ladder rungs must have a valid target price greater than 0.',
-            type: 'error'
-          });
-          setLoading(false);
-          return;
+
+        if (ladderConfig.hasDownside) {
+          if (ladderConfig.downsideMode === 'LADDER') {
+            const totalSlPct = (ladderConfig.downsideRungs || []).reduce((acc, r) => acc + (parseFloat(r.percentage_of_total) || 0), 0);
+            if (Math.abs(totalSlPct - 100) > 0.5) {
+              setFeedbackModal({
+                isVisible: true,
+                message: `Downside ladder rungs allocation must sum to 100% (currently ${totalSlPct.toFixed(1)}%).`,
+                type: 'error'
+              });
+              setLoading(false);
+              return;
+            }
+            if (ladderConfig.downsideRungs.some(r => !r.target_price || parseFloat(r.target_price) <= 0)) {
+              setFeedbackModal({
+                isVisible: true,
+                message: 'All downside ladder rungs must have a valid target price greater than 0.',
+                type: 'error'
+              });
+              setLoading(false);
+              return;
+            }
+          } else if (ladderConfig.downsideMode === 'SINGLE') {
+            if (!ladderConfig.downsideTargetPrice && !ladderConfig.downsideOffsetPct) {
+              setFeedbackModal({
+                isVisible: true,
+                message: 'Downside stop loss price or percentage is required.',
+                type: 'error'
+              });
+              setLoading(false);
+              return;
+            }
+          } else if (ladderConfig.downsideMode === 'TRAILING') {
+            if (!ladderConfig.downsideTrailValue || parseFloat(ladderConfig.downsideTrailValue) <= 0) {
+              setFeedbackModal({
+                isVisible: true,
+                message: 'Downside trailing stop offset value must be greater than 0.',
+                type: 'error'
+              });
+              setLoading(false);
+              return;
+            }
+          }
         }
       }
 
@@ -1864,7 +1932,7 @@ const Trading = ({ isLightMode = false }) => {
       let endpoint;
       if (orderForm.type === 'TRAILING_STOP') {
         endpoint = '/api/trading/trailing-orders';
-      } else if (orderForm.type === 'LADDER') {
+      } else if (orderForm.type === 'LADDER' || orderForm.type === 'SYNTHETIC') {
         endpoint = '/api/trading/ladder-orders';
       } else if (orderForm.type === 'OCO') {
         endpoint = settings.test_mode_enabled ? '/api/trading/test-oco-order' : '/api/trading/oco-order';
@@ -1882,28 +1950,47 @@ const Trading = ({ isLightMode = false }) => {
         orderData.trail_value = parseFloat(orderForm.trailValue || 2.0);
         orderData.activation_price = orderForm.activationPrice ? parseFloat(orderForm.activationPrice) : null;
         orderData.test_mode = settings.test_mode_enabled;
-      } else if (orderForm.type === 'LADDER') {
+      } else if (orderForm.type === 'LADDER' || orderForm.type === 'SYNTHETIC') {
         orderData.total_quantity = parseFloat(orderForm.quantity);
+        orderData.strategy_type = 'BRACKET';
+        orderData.upside_mode = ladderConfig.upsideMode || 'LADDER';
+        orderData.upside_target_price = ladderConfig.upsideTargetPrice ? parseFloat(ladderConfig.upsideTargetPrice) : null;
+        orderData.upside_trail_value = ladderConfig.upsideTrailValue ? parseFloat(ladderConfig.upsideTrailValue) : null;
+        orderData.upside_trail_type = ladderConfig.upsideTrailType || 'PERCENT';
+        orderData.upside_activation_price = ladderConfig.upsideActivationPrice ? parseFloat(ladderConfig.upsideActivationPrice) : null;
         orderData.mode = ladderConfig.mode || 'PERCENTAGE';
         orderData.preset_name = ladderConfig.preset;
-        orderData.rungs = ladderConfig.rungs.map(r => ({
-          price_offset_pct: parseFloat(r.price_offset_pct),
-          percentage_of_total: parseFloat(r.percentage_of_total),
-          target_price: parseFloat(r.target_price)
+        orderData.rungs = (ladderConfig.rungs || []).map(r => ({
+          price_offset_pct: parseFloat(r.price_offset_pct) || 0,
+          percentage_of_total: parseFloat(r.percentage_of_total) || 0,
+          target_price: parseFloat(r.target_price) || 0
         }));
-        orderData.has_stop_loss = Boolean(ladderConfig.hasStopLoss);
+
+        orderData.downside_mode = ladderConfig.hasDownside ? (ladderConfig.downsideMode || 'SINGLE') : 'NONE';
         let slPrice = null;
-        if (ladderConfig.hasStopLoss) {
-          if (ladderConfig.stopLossType === 'PRICE') {
-            slPrice = parseFloat(ladderConfig.stopLossTriggerPrice) || null;
-          } else {
-            const offset = parseFloat(ladderConfig.stopLossOffsetPct) || 0;
-            const curP = parseFloat(currentPrices.base) || 0;
-            if (curP > 0 && offset > 0) {
-              slPrice = orderForm.side === 'SELL' ? curP * (1 - offset / 100) : curP * (1 + offset / 100);
+        if (ladderConfig.hasDownside) {
+          if (ladderConfig.downsideMode === 'SINGLE') {
+            if (ladderConfig.downsideTargetPrice) {
+              slPrice = parseFloat(ladderConfig.downsideTargetPrice) || null;
+            } else if (ladderConfig.downsideOffsetPct) {
+              const offset = parseFloat(ladderConfig.downsideOffsetPct) || 0;
+              const curP = parseFloat(currentPrices.base) || 0;
+              if (curP > 0 && offset > 0) {
+                slPrice = orderForm.side === 'SELL' ? curP * (1 - offset / 100) : curP * (1 + offset / 100);
+              }
             }
           }
         }
+        orderData.downside_target_price = slPrice;
+        orderData.downside_trail_value = ladderConfig.downsideTrailValue ? parseFloat(ladderConfig.downsideTrailValue) : null;
+        orderData.downside_trail_type = ladderConfig.downsideTrailType || 'PERCENT';
+        orderData.downside_activation_price = ladderConfig.downsideActivationPrice ? parseFloat(ladderConfig.downsideActivationPrice) : null;
+        orderData.downside_rungs = (ladderConfig.downsideRungs || []).map(r => ({
+          price_offset_pct: parseFloat(r.price_offset_pct) || 0,
+          percentage_of_total: parseFloat(r.percentage_of_total) || 0,
+          target_price: parseFloat(r.target_price) || 0
+        }));
+        orderData.has_stop_loss = Boolean(ladderConfig.hasDownside);
         orderData.stop_loss_trigger_price = slPrice;
         orderData.stop_loss_action = ladderConfig.stopLossAction || 'MARKET_SELL_ALL';
         orderData.test_mode = settings.test_mode_enabled;
@@ -1931,9 +2018,10 @@ const Trading = ({ isLightMode = false }) => {
         if (orderForm.type === 'TRAILING_STOP') {
           successMessage = `Trailing Stop order created successfully!\n\n${orderForm.side} ${orderForm.quantity} ${orderForm.symbol}\nTrail: ${orderForm.trailType === 'PERCENT' ? `${orderForm.trailValue}%` : `$${orderForm.trailValue}`}\n\nThe synthetic engine will track market highs and trigger automatically.`;
           loadTrailingOrders();
-        } else if (orderForm.type === 'LADDER') {
-          successMessage = `🪜 Ladder Order created successfully!\n\n${orderForm.side} ${orderForm.quantity} ${orderForm.symbol}\nPreset: ${ladderConfig.preset} (${ladderConfig.rungs.length} rungs)\n\nThe synthetic ladder engine is now actively monitoring target prices.`;
+        } else if (orderForm.type === 'LADDER' || orderForm.type === 'SYNTHETIC') {
+          successMessage = `⚡ Synthetic Smart Bracket Order created successfully!\n\n${orderForm.side} ${orderForm.quantity} ${orderForm.symbol}\nUpside: ${ladderConfig.upsideMode}\nDownside: ${ladderConfig.hasDownside ? ladderConfig.downsideMode : 'NONE'}\n\nThe synthetic bracket engine is now actively monitoring execution.`;
           loadLadderOrders();
+          setActiveTab('synthetic_orders');
         } else {
           successMessage = settings.test_mode_enabled
             ? `Test order placed successfully!\n\n${orderForm.side} ${orderForm.quantity} ${orderForm.symbol.replace('USDT', '')} validated with Binance.US and simulated.\n\nYour test portfolio has been updated.`
@@ -2280,32 +2368,18 @@ const Trading = ({ isLightMode = false }) => {
           )}
         </button>
         <button
-          className={`tab-button ${activeTab === 'trailing_orders' ? 'active' : ''}`}
+          className={`tab-button ${['synthetic_orders', 'trailing_orders', 'ladder_orders'].includes(activeTab) ? 'active' : ''}`}
           onClick={() => {
-            setActiveTab('trailing_orders');
+            setActiveTab('synthetic_orders');
             loadTrailingOrders();
-          }}
-        >
-          <span className="tab-icon">🎯</span>
-          <span className="tab-text">Trailing Orders</span>
-          {trailingOrders && trailingOrders.filter(o => o.status === 'ACTIVE').length > 0 && (
-            <span className="tab-badge" style={{ background: '#6366f1' }}>
-              {trailingOrders.filter(o => o.status === 'ACTIVE').length}
-            </span>
-          )}
-        </button>
-        <button
-          className={`tab-button ${activeTab === 'ladder_orders' ? 'active' : ''}`}
-          onClick={() => {
-            setActiveTab('ladder_orders');
             loadLadderOrders();
           }}
         >
-          <span className="tab-icon">🪜</span>
-          <span className="tab-text">Ladder Orders</span>
-          {ladderOrders && ladderOrders.filter(o => o.status === 'ACTIVE').length > 0 && (
-            <span className="tab-badge" style={{ background: '#0284c7' }}>
-              {ladderOrders.filter(o => o.status === 'ACTIVE').length}
+          <span className="tab-icon">⚡</span>
+          <span className="tab-text">Synthetic Orders</span>
+          {((trailingOrders?.filter(o => o.status === 'ACTIVE').length || 0) + (ladderOrders?.filter(o => o.status === 'ACTIVE').length || 0) > 0) && (
+            <span className="tab-badge" style={{ background: '#38bdf8' }}>
+              {(trailingOrders?.filter(o => o.status === 'ACTIVE').length || 0) + (ladderOrders?.filter(o => o.status === 'ACTIVE').length || 0)}
             </span>
           )}
         </button>
@@ -2675,8 +2749,8 @@ const Trading = ({ isLightMode = false }) => {
                 ) : (
                   <span>
                     {settings.test_mode_enabled
-                      ? `🧪 Place Test ${orderForm.type === 'TRAILING_STOP' ? 'Trailing Stop' : orderForm.type === 'LADDER' ? 'Ladder' : ''} Order`
-                      : `⚡ Place Real ${orderForm.type === 'MARKET' ? 'Market' : orderForm.type === 'LIMIT' ? 'Limit' : orderForm.type === 'TRAILING_STOP' ? 'Trailing Stop' : orderForm.type === 'LADDER' ? 'Ladder' : ''} ${orderForm.side === 'BUY' ? 'Buy' : 'Sell'} Order`}
+                      ? `🧪 Place Test ${orderForm.type === 'TRAILING_STOP' ? 'Trailing Stop' : ['LADDER', 'SYNTHETIC'].includes(orderForm.type) ? 'Synthetic Bracket' : ''} Order`
+                      : `⚡ Place Real ${orderForm.type === 'MARKET' ? 'Market' : orderForm.type === 'LIMIT' ? 'Limit' : orderForm.type === 'TRAILING_STOP' ? 'Trailing Stop' : ['LADDER', 'SYNTHETIC'].includes(orderForm.type) ? 'Synthetic Bracket' : ''} ${orderForm.side === 'BUY' ? 'Buy' : 'Sell'} Order`}
                   </span>
                 )}
               </button>
@@ -2995,126 +3069,16 @@ const Trading = ({ isLightMode = false }) => {
           </div>
         )}
 
-        {/* TRAILING ORDERS TAB */}
-        {activeTab === 'trailing_orders' && (
-          <div className="order-history-container open-orders-container">
-            <div className="order-history-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-                <h2>🎯 Trailing Stop Orders</h2>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
-                <button
-                  type="button"
-                  onClick={loadTrailingOrders}
-                  className="btn btn-secondary"
-                  disabled={loadingTrailingOrders}
-                  style={{
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: '6px',
-                    padding: '8px 14px',
-                    borderRadius: '8px',
-                    fontSize: '0.85rem',
-                    cursor: 'pointer',
-                    background: 'rgba(255, 255, 255, 0.08)',
-                    color: '#e2e8f0',
-                    border: '1px solid rgba(255, 255, 255, 0.15)'
-                  }}
-                  title="Refresh trailing orders"
-                >
-                  {loadingTrailingOrders ? '⏳ Refreshing...' : '🔄 Refresh'}
-                </button>
-              </div>
-            </div>
-
-            <div className="settings-form-help" style={{ margin: '14px 0', padding: '12px', background: 'rgba(99, 102, 241, 0.1)', borderLeft: '3px solid #6366f1', borderRadius: '4px', fontSize: '13px' }}>
-              <strong>Synthetic Server-Side Trailing Engine:</strong> Trailing orders continuously monitor live price action. For sells, the trigger price ratchets up with new highs and fires a Market Sell if the price drops by your trail distance. For buys, it ratchets down with new lows and fires a Market Buy on rebound.
-            </div>
-
-            {trailingOrders.length === 0 ? (
-              <div className="no-orders-message" style={{ padding: '30px', textAlign: 'center', color: '#94a3b8' }}>
-                No trailing orders found. Place a Trailing Stop order from the "Place Order" tab to begin automated tracking!
-              </div>
-            ) : (
-              <div className="table-responsive">
-                <table className="order-table modern-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
-                  <thead>
-                    <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.15)', textAlign: 'left' }}>
-                      <th style={{ padding: '10px' }}>Created</th>
-                      <th style={{ padding: '10px' }}>Symbol</th>
-                      <th style={{ padding: '10px' }}>Side</th>
-                      <th style={{ padding: '10px' }}>Quantity</th>
-                      <th style={{ padding: '10px' }}>Trail</th>
-                      <th style={{ padding: '10px' }}>Peak / Trough</th>
-                      <th style={{ padding: '10px' }}>Stop Trigger</th>
-                      <th style={{ padding: '10px' }}>Status</th>
-                      <th style={{ padding: '10px', textAlign: 'right' }}>Action</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {trailingOrders.map(order => (
-                      <tr key={order.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
-                        <td style={{ padding: '10px', fontSize: '13px', color: '#94a3b8', whiteSpace: 'nowrap' }}>
-                          {formatEasternDate(order.created_at)} {formatEasternTime(order.created_at)}
-                        </td>
-                        <td style={{ padding: '10px', fontWeight: 600 }}>{order.symbol}</td>
-                        <td style={{ padding: '10px' }}>
-                          <span className={`badge badge-${order.side.toLowerCase()}`}>
-                            {order.side}
-                          </span>
-                        </td>
-                        <td style={{ padding: '10px' }}>{formatNumber(order.quantity, 6)}</td>
-                        <td style={{ padding: '10px' }}>
-                          {order.trail_type === 'PERCENT' ? `${order.trail_value}%` : `$${order.trail_value}`}
-                        </td>
-                        <td style={{ padding: '10px' }}>
-                          ${formatNumber(order.side === 'SELL' ? order.highest_price : order.lowest_price)}
-                        </td>
-                        <td style={{ padding: '10px', color: order.side === 'SELL' ? '#f87171' : '#34d399', fontWeight: 600 }}>
-                          ${formatNumber(order.current_stop_price)}
-                        </td>
-                        <td style={{ padding: '10px' }}>
-                          <span className={`badge badge-${order.status.toLowerCase()}`}>
-                            {order.status}
-                          </span>
-                        </td>
-                        <td style={{ padding: '10px', textAlign: 'right' }}>
-                          {order.status === 'ACTIVE' && (
-                            <button
-                              type="button"
-                              className="btn btn-danger cancel-order-btn"
-                              onClick={() => handleCancelTrailingOrder(order.id)}
-                              style={{ padding: '4px 10px', fontSize: '12px' }}
-                            >
-                              Cancel
-                            </button>
-                          )}
-                          {order.status === 'FILLED' && order.executed_order_id && (
-                            <span style={{ fontSize: '11px', color: '#6ee7b7' }}>Filled</span>
-                          )}
-                          {order.status === 'FAILED' && order.error_message && (
-                            <span style={{ fontSize: '11px', color: '#f87171' }} title={order.error_message}>Failed</span>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* LADDER ORDERS TAB */}
-        {activeTab === 'ladder_orders' && (
+        {/* SYNTHETIC ORDERS TAB (CONSOLIDATED) */}
+        {['synthetic_orders', 'trailing_orders', 'ladder_orders'].includes(activeTab) && (
           <div className="trading-history-tab" style={{ padding: '16px' }}>
             <div style={{ marginBottom: '16px' }}>
-              <h2 style={{ margin: '0 0 4px 0', fontSize: '18px', color: '#fff' }}>🪜 Synthetic Ladder Orders</h2>
+              <h2 style={{ margin: '0 0 4px 0', fontSize: '18px', color: '#fff' }}>⚡ Synthetic & Bracket Orders</h2>
               <p style={{ margin: 0, fontSize: '12px', color: '#94a3b8' }}>
-                Automated multi-rung scale-out profit targets and scale-in accumulation ladders for Binance.US spot trading.
+                Server-side synthetic trailing stops, tiered ladder scale-outs, and smart bracket orders for Binance.US spot trading.
               </p>
             </div>
-            <LadderOrdersTable defaultBroker="binance" showBrokerFilter={false} onOrderCancelled={loadLadderOrders} />
+            <SyntheticOrdersTable defaultBroker="binance" showBrokerFilter={false} onOrderCancelled={() => { loadLadderOrders(); loadTrailingOrders(); }} />
           </div>
         )}
       </div>

@@ -1023,6 +1023,13 @@ def api_pending_orders():
                         'next_rung_price': target_px,
                         'next_rung_qty': next_rung.quantity if next_rung else None,
                         'preset_name': lo.preset_name,
+                        'strategy_type': lo.strategy_type or 'SYNTHETIC',
+                        'upside_mode': lo.upside_mode or 'LADDER',
+                        'downside_mode': lo.downside_mode or ('SINGLE' if lo.has_stop_loss else 'NONE'),
+                        'upside_target_price': lo.upside_target_price,
+                        'downside_target_price': lo.downside_target_price or lo.stop_loss_trigger_price,
+                        'upside_trail_value': lo.upside_trail_value,
+                        'downside_trail_value': lo.downside_trail_value,
                         'stop_loss_price': lo.stop_loss_trigger_price if lo.has_stop_loss else None
                     })
             except Exception as synth_err:
@@ -1441,6 +1448,14 @@ def get_trading_order_types():
                 'requires_stop_price': True,
                 'requires_time_in_force': False,
                 'requires_stop_limit_price': True
+            },
+            {
+                'value': 'SYNTHETIC',
+                'label': 'Synthetic (Trailing / Ladder)',
+                'description': 'Advanced multi-mode synthetic bracket order combining take-profit (Single, Ladder, Trailing) and capital protection',
+                'requires_price': False,
+                'requires_stop_price': False,
+                'requires_time_in_force': False
             },
             {
                 'value': 'TRAILING_STOP',
@@ -3477,6 +3492,21 @@ def api_create_ladder_order():
         instrument_type = data.get('instrument_type', 'CRYPTO')
         trading_session = data.get('trading_session', 'CORE')
 
+        strategy_type = data.get('strategy_type', 'SYNTHETIC')
+        upside_mode = data.get('upside_mode', 'LADDER')
+        upside_target_price = data.get('upside_target_price')
+        upside_trail_value = data.get('upside_trail_value')
+        upside_trail_type = data.get('upside_trail_type', 'PERCENT')
+        upside_activation_price = data.get('upside_activation_price')
+
+        downside_mode = data.get('downside_mode', 'NONE')
+        downside_target_price = data.get('downside_target_price')
+        downside_trail_value = data.get('downside_trail_value')
+        downside_trail_type = data.get('downside_trail_type', 'PERCENT')
+        downside_activation_price = data.get('downside_activation_price')
+        downside_preset = data.get('downside_preset', 'Moderate')
+        downside_rungs = data.get('downside_rungs')
+
         ladder_dict = create_ladder_order(
             user_id=current_user.id,
             symbol=symbol,
@@ -3491,7 +3521,20 @@ def api_create_ladder_order():
             account_id=account_id,
             instrument_type=instrument_type,
             trading_session=trading_session,
-            test_mode=test_mode
+            test_mode=test_mode,
+            strategy_type=strategy_type,
+            upside_mode=upside_mode,
+            upside_target_price=upside_target_price,
+            upside_trail_value=upside_trail_value,
+            upside_trail_type=upside_trail_type,
+            upside_activation_price=upside_activation_price,
+            downside_mode=downside_mode,
+            downside_target_price=downside_target_price,
+            downside_trail_value=downside_trail_value,
+            downside_trail_type=downside_trail_type,
+            downside_activation_price=downside_activation_price,
+            downside_preset=downside_preset,
+            downside_rungs=downside_rungs
         )
         return jsonify({'success': True, 'ladder_order': ladder_dict})
     except Exception as e:
