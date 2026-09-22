@@ -21,7 +21,7 @@ try {
     import PaperDepositModal from './src/components/PaperDepositModal.jsx';
     import {buildSyntheticReview,buildSyntheticPayload} from './src/utils/syntheticOrders.mjs';
     import './src/theme.css'; import './src/light-theme.css'; import './src/theme-variables.css';
-    import './src/index.css'; import './src/pages/Trading.theme.css';
+    import './src/index.css'; import './src/pages/Trading.css'; import './src/pages/Trading.theme.css';
     const fees={takerRate:.0002, rates:{SELL:{taker:.0002},BUY:{taker:.0002}},bnb:{enabled:false},quantityStep:'.00001',source:'Verified test fixture',as_of:'2026-09-22T12:00:00Z'};
     const params=new URLSearchParams(location.search); document.body.className=params.get('theme')+'-mode'; document.documentElement.dataset.theme=params.get('theme');
     function App(){const [config,setConfig]=useState(defaultLadderState);const [side,setSide]=useState('SELL'); const [modal,setModal]=useState('');
@@ -51,6 +51,8 @@ try {
       const runtimeErrors=[]; page.on('pageerror', error=>runtimeErrors.push(error.message));
       let failTrailing=false, loads=0;
       const base={id:1, broker:broker==='all'?'binance':broker, account_id:broker==='webull'?'ACCOUNT_A':null, symbol:'BTCUSD', side:'SELL', instrument_type:'CRYPTO', test_mode:false, created_at:'2026-09-22T12:00:00', status:'ACTIVE', total_quantity:1.23456789, filled_quantity:0, remaining_quantity:1.23456789, executions:[], upside_mode:'LADDER',downside_mode:'NONE',rungs:[{id:1,rung_number:1,rung_type:'TAKE_PROFIT',target_price:0.00000012,quantity:1.23456789,percentage_of_total:100,estimated_usd:.00001,status:'PENDING'}]};
+      base.downside_mode='LADDER';
+      base.rungs=Array.from({length:7},(_,i)=>({...base.rungs[0],id:i+1,rung_number:i+1,rung_type:i<4?'TAKE_PROFIT':'STOP_LOSS',percentage_of_total:24.940047961631,target_price:i===0?.00000012:90515.26,estimated_usd:282.4076112,error_message:'Example-long-error-'+ 'x'.repeat(90)}));
       await page.route('**/api/trading/**', async route=> {
         const isTrailing=route.request().url().includes('trailing-orders');loads++;
         if(isTrailing&&failTrailing) return route.fulfill({status:503,json:{success:false}});
@@ -58,10 +60,20 @@ try {
       });
       await page.goto(`http://127.0.0.1:${server.address().port}/?theme=${theme}&broker=${broker}`);
       await page.getByRole('button',{name:'Details',exact:true}).first().waitFor();
-      await page.getByLabel('Strategy',{exact:true}).selectOption('LADDER');
+      assert.equal(await page.getByLabel('Status',{exact:true}).inputValue(),'ACTIVE');
+      assert.equal(await page.getByRole('button',{name:'Details',exact:true}).count(),1);
+      await page.getByLabel('Strategy',{exact:true}).selectOption('BRACKET');
       assert.equal(await page.getByRole('button',{name:'Details',exact:true}).count(),1);
       await page.getByRole('button',{name:'Details',exact:true}).click();
       assert.ok((await page.locator('.synthetic-detail').innerText()).includes('0.00 USD'));
+      assert.ok((await page.locator('.synthetic-detail').innerText()).includes('(24.94%)'));
+      for(const width of [2048,1440,768,390]){
+        await page.setViewportSize({width,height:1000});
+        const cards=await page.locator('.synthetic-step').evaluateAll(nodes=>nodes.map(el=>({width:el.clientWidth,scroll:el.scrollWidth,children:[...el.children].map(c=>({width:c.clientWidth,scroll:c.scrollWidth,wrap:getComputedStyle(c).whiteSpace}))})));
+        assert.equal(cards.length,7);
+        for(const card of cards){assert.ok(card.scroll<=card.width+1,JSON.stringify(card));for(const c of card.children){assert.equal(c.wrap,'normal');assert.ok(c.scroll<=c.width+1,JSON.stringify(c));}}
+      }
+      await page.setViewportSize({width:1440,height:1000});
       await page.getByLabel('Strategy',{exact:true}).selectOption('ALL');
       await page.getByLabel('Status',{exact:true}).selectOption('COMPLETED');
       assert.equal(await page.getByRole('button',{name:'Details',exact:true}).count(),1);

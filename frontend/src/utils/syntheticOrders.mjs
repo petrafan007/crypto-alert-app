@@ -120,3 +120,39 @@ export function strategySummary(config, currency = 'USD') {
     return `${label}: ${(prefix === 'upside' ? payload.custom_rungs : payload.downside_rungs).map(r => `${money(r.target_price, currency)} (${number(r.percentage_of_total)}%)`).join(', ')}`;
   });
 }
+
+// Compact portfolio hover summary, using the same strategy data as order details.
+export function syntheticOrderTooltip(pending, asset = '') {
+  const order = pending.synthetic_details || pending;
+  const broker = order.broker || pending.provider || pending.source || 'binance';
+  const currency = quoteCurrency({ ...order, broker });
+  const base = pending.asset || asset || order.symbol;
+  const standalone = pending.type === 'TRAILING_STOP';
+  const protectedOrder = order.downside_mode && order.downside_mode !== 'NONE';
+  const title = standalone ? 'Trailing stop' : protectedOrder ? 'Smart bracket' : 'Ladder';
+  const total = order.total_quantity ?? order.quantity;
+  const lines = [`${title} ${order.side} · ${broker === 'webull' ? 'Webull' : 'Binance.US'} · ${order.status || 'ACTIVE'}`,
+    `Filled ${number(order.filled_quantity)} / ${number(total)} ${base} · Remaining ${number(order.remaining_quantity)}`];
+  const trail = prefix => {
+    const value = order[prefix + 'trail_value'], type = order[prefix + 'trail_type'];
+    const activation = order[prefix + 'activation_price'];
+    const stop = order[prefix + 'current_stop_price'];
+    return `trail ${trailLabel(value, type, currency)} · stop ${money(stop, currency)}${activation ? ` · activation ${order.side === 'SELL' ? '≥' : '≤'} ${money(activation, currency)}` : ' · immediate activation'}`;
+  };
+  if (standalone) lines.push(trail(''));
+  else for (const prefix of ['upside', 'downside']) {
+    const mode = order[prefix + '_mode'] || (prefix === 'upside' ? 'LADDER' : 'NONE');
+    const label = prefix === 'upside' ? (order.side === 'BUY' ? 'Dip entry' : 'Profit') : 'Protection';
+    const direction = (prefix === 'upside') === (order.side === 'SELL') ? '≥' : '≤';
+    if (mode === 'NONE') lines.push(`${label}: off`);
+    else if (mode === 'TRAILING') lines.push(`${label}: ${trail(prefix + '_')}`);
+    else if (mode === 'SINGLE') lines.push(`${label}: ${direction} ${money(order[prefix + '_target_price'], currency)}${prefix === 'downside' && order.stop_loss_action === 'CANCEL_REMAINING' ? ' · cancel remainder only' : ' · trade remainder'}`);
+    else {
+      const rungs = (order.rungs || []).filter(r => (r.rung_type || 'TAKE_PROFIT') === (prefix === 'upside' ? 'TAKE_PROFIT' : 'STOP_LOSS'));
+      const next = rungs.filter(r => r.status === 'PENDING').sort((a,b) => a.rung_number-b.rung_number)[0];
+      lines.push(`${label}: ${rungs.filter(r => r.status === 'FILLED').length}/${rungs.length} steps filled${next ? ` · next ${direction} ${money(next.target_price, currency)} (${number(next.quantity)} ${base})` : ' · no pending steps'}`);
+    }
+  }
+  lines.push(standalone ? 'Market execution at trigger; fill price can vary.' : 'Both sides share the remainder; market fill prices can vary.');
+  return lines.join('\n');
+}

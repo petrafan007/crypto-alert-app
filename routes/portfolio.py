@@ -1000,6 +1000,7 @@ def api_pending_orders():
                         'status': to.status,
                         'account_id': to.account_id,
                         'direction': 'drops below' if to.side == 'SELL' else 'rises above',
+                        'synthetic_details': to.to_dict(),
                         'is_trailing': True,
                         'is_activated': to.is_activated
                     })
@@ -1008,7 +1009,8 @@ def api_pending_orders():
                 for lo in active_ladders:
                     sym = lo.symbol.upper()
                     base_asset = next((sym[:-len(q)] for q in ('USDT', 'USDC', 'USD') if sym.endswith(q)), sym)
-                    pending_rungs = [r for r in lo.rungs if r.status == 'PENDING']
+                    details = lo.to_dict()
+                    pending_rungs = [r for r in lo.rungs if r.status == 'PENDING' and r.rung_type == 'TAKE_PROFIT']
                     next_rung = pending_rungs[0] if pending_rungs else None
                     target_px = next_rung.target_price if next_rung else 0.0
                     pending_orders.append({
@@ -1021,7 +1023,8 @@ def api_pending_orders():
                         'type': 'LADDER',
                         'price': target_px,
                         'trigger_price': target_px,
-                        'quantity': lo.to_dict()['remaining_quantity'],
+                        'quantity': details['remaining_quantity'],
+                        'synthetic_details': details,
                         'account_id': lo.account_id,
                         'quantity_usdt': lo.total_budget_usd or (lo.total_quantity * target_px),
                         'status': lo.status,

@@ -1,3 +1,4 @@
+import { syntheticOrderTooltip } from '../utils/syntheticOrders.mjs';
 import React, { useEffect, useState, useRef, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
@@ -1698,23 +1699,7 @@ function Dashboard({ isLightMode }) {
 
     if (orders && orders.length > 0) {
       const describeOrder = (order) => {
-        if (order.type === 'LADDER') {
-          const rungsInfo = `${order.rungs_filled || 0}/${order.rungs_total || 0} rungs filled`;
-          const targetStr = order.trigger_price ? `$${Number(order.trigger_price).toFixed(4)}` : 'N/A';
-          const stopStr = order.has_stop_loss && order.stop_loss_trigger_price ? ` | Stop-Loss: $${Number(order.stop_loss_trigger_price).toFixed(4)}` : '';
-          const brokerStr = (order.broker || 'binance').toUpperCase();
-          const orderQuantity = Number(order.quantity ?? 0);
-          const quantityText = formatOrderQuantity(orderQuantity);
-          return `🪜 Ladder ${order.side} (${order.preset_name || 'Scale'}): ${rungsInfo} · Next target: ${targetStr} · Total: ${quantityText} ${order.asset || coin?.symbol || ''} (${brokerStr})${stopStr}`;
-        }
-        if (order.type === 'TRAILING_STOP') {
-          const stopStr = order.trigger_price ? `$${Number(order.trigger_price).toFixed(4)}` : 'Tracking Peak/Dip';
-          const trailStr = order.trail_type === 'PERCENT' ? `${order.trail_value}%` : `$${order.trail_value}`;
-          const brokerStr = (order.broker || 'binance').toUpperCase();
-          const orderQuantity = Number(order.quantity ?? 0);
-          const quantityText = formatOrderQuantity(orderQuantity);
-          return `🎯 Trailing Stop ${order.side}: Current Trigger ${stopStr} (Trail: ${trailStr}) · Size: ${quantityText} ${order.asset || coin?.symbol || ''} (${brokerStr})`;
-        }
+        if (['LADDER', 'TRAILING_STOP'].includes(order.type)) return syntheticOrderTooltip(order, coin?.symbol);
         const orderTypeName = (order.type || 'LIMIT').replace(/_/g, ' ').toLowerCase();
         const side = (order.side || '').toLowerCase();
         const trigger = order.trigger_price

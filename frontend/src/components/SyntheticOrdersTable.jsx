@@ -35,7 +35,7 @@ function Strategy({ order }) {
 export default function SyntheticOrdersTable({ defaultBroker = 'all', showBrokerFilter = true, accountId, testMode, onOrderCancelled }) {
   const [orders, setOrders] = useState([]);
   const [broker, setBroker] = useState(defaultBroker);
-  const [status, setStatus] = useState('ALL');
+  const [status, setStatus] = useState('ACTIVE');
   const [kind, setKind] = useState('ALL');
   const [mode, setMode] = useState('all');
   const [search, setSearch] = useState('');
@@ -137,8 +137,9 @@ export default function SyntheticOrdersTable({ defaultBroker = 'all', showBroker
           <p>Updated: {timestamp(order.updated_at)} · Both sides share the total quantity. Failed strategies and strategies needing review are paused.</p>
           {!!order.rungs?.length && <div className="synthetic-step-grid">{order.rungs.map(rung => <div key={rung.id || rung.rung_number} className="synthetic-step">
             <strong>{rung.rung_type === 'STOP_LOSS' ? 'Protection' : 'Target'} #{rung.rung_number} · {rung.status.replaceAll('_', ' ')}</strong>
-            <small>Trigger: {money(rung.target_price, currency)} ({number(rung.price_offset_pct)}%)</small>
-            <small>Allocation: {number(rung.quantity)} ({number(rung.percentage_of_total)}%) · Estimated value: {money(rung.estimated_usd, currency)}</small>
+            <small>Trigger: {money(rung.target_price, currency)} ({Number(rung.price_offset_pct).toFixed(2)}%)</small>
+            <small>Allocation: {number(rung.quantity)} ({Number(rung.percentage_of_total).toFixed(2)}%)</small>
+            <small>Estimated value: {money(rung.estimated_usd, currency)}</small>
             {rung.error_message && <small className="synthetic-warning">{rung.error_message}</small>}
           </div>)}</div>}
           <strong>{order.test_mode ? 'Paper executions' : 'Broker executions'}</strong>{!order.executions?.length ? <p>No executions recorded{!verified ? ' by the new engine. Review older fills in broker order history.' : '.'}</p> :

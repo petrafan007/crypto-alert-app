@@ -1,8 +1,13 @@
 # Crypto & Securities Dashboard
 
-**Version:** 3.9.1
+**Version:** 3.9.2
 
 ## Recent Updates
+
+### v3.9.2
+- **Complete portfolio tooltips:** Synthetic order hover text now includes both profit and protection, per-side step progress and next triggers, filled/remaining quantity, correct quote currency, and trailing activation/stop details.
+- **Readable ladder details:** Fixed inherited no-wrap table styling that let rung and execution text escape their cards. Allocation and estimated value now have separate lines, percentages display two decimals, and long identifiers/errors wrap inside the cards in both themes.
+- **Active orders by default:** Synthetic Orders opens with Status set to ACTIVE across Binance.US, Webull and consolidated orders. Other statuses remain selectable.
 
 ### v3.9.1
 - **Complete synthetic order review:** Confirmation explains both directions, every rung, shared remaining quantity, gross proceeds, estimated taker fees, net proceeds and cumulative values. Trailing explanations define the observed peak/trough, activation hurdle and the resulting trigger/proceeds scenario.
