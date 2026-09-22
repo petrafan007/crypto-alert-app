@@ -1758,8 +1758,12 @@ function Dashboard({ isLightMode }) {
       const avail = coin.available_amount !== undefined ? Number(coin.available_amount) : Number(coin.amount || 0);
       const staked = Number(coin.staked_amount || 0);
       const sym = (coin.symbol || '').toUpperCase();
-      const statusStr = (coin.staking_status || 'staked').toUpperCase();
-      lines.push(`🔷 Staked Asset (${statusStr}): ${staked.toFixed(4)} ${sym} staked · ${avail.toFixed(4)} ${sym} available for trading`);
+      const isBonding = ['processing', 'pending'].includes((coin.staking_status || '').toLowerCase());
+      if (isBonding) {
+        lines.push(`⏳ Staked Asset (Bonding / Processing): ${staked.toFixed(4)} ${sym} locked in bonding · ${avail.toFixed(4)} ${sym} available for trading`);
+      } else {
+        lines.push(`🔷 Staked Asset (Active): ${staked.toFixed(4)} ${sym} staked · ${avail.toFixed(4)} ${sym} available for trading`);
+      }
     }
 
     return lines.join('\n');
@@ -2992,10 +2996,16 @@ function Dashboard({ isLightMode }) {
               const isStakeable = isPortfolio && stakeableCoins.includes(coin.symbol) && !isPlaceholder;
               const stakedAmount = Number(coin.staked_amount || 0);
               const availableAmount = coin.available_amount !== undefined ? Number(coin.available_amount) : Number(coin.amount || 0);
-              const hasStakedBalance = stakedAmount > 0.00001;
+              const isBonding = ['processing', 'pending'].includes((coin.staking_status || '').toLowerCase());
+              const activeStakedAmount = Number(
+                coin.active_staked_amount !== undefined
+                  ? coin.active_staked_amount
+                  : (isBonding ? 0 : stakedAmount)
+              );
+              const hasActiveStakedBalance = activeStakedAmount > 0.00001;
               const hasUnstakedBalance = availableAmount >= 0.0001;
               const canStake = isStakeable && hasUnstakedBalance && (!coin.current_value || (availableAmount * (coin.current_price || 1)) >= 1);
-              const canUnstake = isPortfolio && !isWebullAsset(coin) && !isPlaceholder && hasStakedBalance;
+              const canUnstake = isPortfolio && !isWebullAsset(coin) && !isPlaceholder && hasActiveStakedBalance;
 
               return (
                 <>
@@ -3086,10 +3096,16 @@ function Dashboard({ isLightMode }) {
     const isStakeable = isPortfolio && stakeableCoins.includes(coin.symbol) && !isPlaceholder;
     const stakedAmount = Number(coin.staked_amount || 0);
     const availableAmount = coin.available_amount !== undefined ? Number(coin.available_amount) : Number(coin.amount || 0);
-    const hasStakedBalance = stakedAmount > 0.00001;
+    const isBonding = ['processing', 'pending'].includes((coin?.staking_status || '').toLowerCase());
+    const activeStakedAmount = Number(
+      coin?.active_staked_amount !== undefined
+        ? coin.active_staked_amount
+        : (isBonding ? 0 : stakedAmount)
+    );
+    const hasActiveStakedBalance = activeStakedAmount > 0.00001;
     const hasUnstakedBalance = availableAmount >= 0.0001;
     const canStake = isStakeable && hasUnstakedBalance && (!coin.current_value || (availableAmount * (coin.current_price || 1)) >= 1);
-    const canUnstake = isPortfolio && !isWebullAsset(coin) && !isPlaceholder && hasStakedBalance;
+    const canUnstake = isPortfolio && !isWebullAsset(coin) && !isPlaceholder && hasActiveStakedBalance;
 
     return createPortal(
       <div
@@ -4886,7 +4902,10 @@ function Dashboard({ isLightMode }) {
 
                     let rowTitle = undefined;
                     if (isStaked) {
-                      rowTitle = `${availableAmount.toFixed(4)} ${sym} available for trading (${stakedAmount.toFixed(4)} ${sym} staked)`;
+                      const isBonding = ['processing', 'pending'].includes((coin.staking_status || '').toLowerCase());
+                      rowTitle = isBonding
+                        ? `${availableAmount.toFixed(4)} ${sym} available for trading (${stakedAmount.toFixed(4)} ${sym} locked in staking bonding)`
+                        : `${availableAmount.toFixed(4)} ${sym} available for trading (${stakedAmount.toFixed(4)} ${sym} staked)`;
                     } else if (hasLockedQuote) {
                       rowTitle = `${availableQuote.toFixed(2)} available`;
                     }
@@ -4934,6 +4953,32 @@ function Dashboard({ isLightMode }) {
                                     >
                                       {isCryptoAsset ? <FaBitcoin /> : <FaDollarSign />}
                                     </span>
+                                    {isStaked && (
+                                      <span
+                                        className="staked-badge-pill"
+                                        title={['processing', 'pending'].includes((coin.staking_status || '').toLowerCase())
+                                          ? `Staked Asset (Bonding / Processing): ${stakedAmount.toFixed(4)} ${coin.symbol} locked in bonding`
+                                          : `Staked Asset: ${stakedAmount.toFixed(4)} ${coin.symbol} staked`}
+                                        style={{
+                                          fontSize: '0.68rem',
+                                          fontWeight: '700',
+                                          padding: '1px 5px',
+                                          borderRadius: '4px',
+                                          background: ['processing', 'pending'].includes((coin.staking_status || '').toLowerCase())
+                                            ? 'rgba(245, 158, 11, 0.25)'
+                                            : 'rgba(16, 185, 129, 0.25)',
+                                          color: ['processing', 'pending'].includes((coin.staking_status || '').toLowerCase())
+                                            ? '#fbbf24'
+                                            : '#34d399',
+                                          border: `1px solid ${['processing', 'pending'].includes((coin.staking_status || '').toLowerCase()) ? 'rgba(245, 158, 11, 0.45)' : 'rgba(16, 185, 129, 0.45)'}`,
+                                          marginLeft: '2px',
+                                          letterSpacing: '0.02em',
+                                          whiteSpace: 'nowrap'
+                                        }}
+                                      >
+                                        {['processing', 'pending'].includes((coin.staking_status || '').toLowerCase()) ? '⏳ BONDING' : '🔷 STAKED'}
+                                      </span>
+                                    )}
                                   </div>
                                 </td>
                               );

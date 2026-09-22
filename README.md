@@ -1,8 +1,14 @@
 # Crypto & Securities Dashboard
 
-**Version:** 3.8.2
+**Version:** 3.8.3
 
 ## Recent Updates
+
+### v3.8.3
+- **Unstake Modal Re-open Loop & Flashing Glitch Fix:** Resolved an issue where closing the Unstake modal (via Cancel, close button, or backdrop click) triggered an immediate auto-reopen re-render loop due to lingering URL parameters. Cleaned up query parameters upon dismissal and hardened the auto-open effect to fire only once per navigation.
+- **Staking Bonding Period Eligibility Guard:** Gated the "Unstake" option in the Actions menu to assets with active, fully bonded balances (`active_staked_amount > 0`). Assets still processing in their Binance.US validator bonding period (such as GRAM) now correctly suppress "Unstake" until the bonding period completes and funds become eligible for unstaking.
+- **Visual Staking Bonding Badges:** Added a distinct `⏳ BONDING` badge for assets undergoing validator bonding and `🔷 STAKED` for active staking positions directly in the coin symbol cell, complete with informative hover tooltips.
+- **High-Contrast Deep Emerald Row Highlighting:** Upgraded staked asset row styling from light cyan to an ultra-high-contrast Deep Emerald theme (`rgba(6, 78, 59, 0.68)`) in dark mode with a `#10b981` border and crisp `#ffffff` text (>9:1 contrast ratio, WCAG AAA compliant), preventing washed-out text while avoiding generic yellow styling. Soft mint with dark forest green text in light mode.
 
 ### v3.8.2
 - **Staked Asset Portfolio Integration & Total Balance Sync:** Staked and bonding assets (such as GRAM) are now fully integrated into the Portfolio overview and Allocations donut chart. Instead of displaying zero balance and $0.00, rows reflect the user's total holdings (`spot_amount + staked_amount`), available trading balance, and true market value. Staked assets are protected from zero-balance auto-hiding while active.

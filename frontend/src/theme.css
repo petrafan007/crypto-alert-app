@@ -3545,21 +3545,21 @@ body.light-mode *[style*="color:'#666'"] {
   color: #f1f5f9 !important;
 }
 
-/* Staked / Partially Staked Asset Highlight - Diamond Cyan Accent (Not Yellow) */
+/* Staked / Partially Staked Asset Highlight - Deep Emerald (High Contrast, Not Yellow) */
 .table-container tr.staked-coin-row,
 .table-container tbody tr.staked-coin-row,
 .table-container tr.staked-coin-row td,
 .table-container tbody tr.staked-coin-row td,
 .table-container tr.staked-coin-row .symbol-cell,
 .table-container tbody tr.staked-coin-row .symbol-cell {
-  background: rgba(6, 182, 212, 0.22) !important;
-  background-color: rgba(6, 182, 212, 0.22) !important;
-  color: #e0f2fe !important;
+  background: linear-gradient(90deg, rgba(6, 78, 59, 0.65) 0%, rgba(4, 47, 46, 0.6) 100%) !important;
+  background-color: rgba(6, 78, 59, 0.65) !important;
+  color: #ffffff !important;
 }
 
 .table-container tr.staked-coin-row td:first-child,
 .table-container tbody tr.staked-coin-row td:first-child {
-  border-left: 4px solid #06b6d4 !important;
+  border-left: 4px solid #10b981 !important;
 }
 
 /* Sentiment contrast protection on pending-order highlighted rows */
@@ -3704,14 +3704,42 @@ body.dark-mode .table-container tr.staked-coin-row td,
 body.dark-mode .table-container tbody tr.staked-coin-row td,
 body.dark-mode .table-container tr.staked-coin-row .symbol-cell,
 body.dark-mode .table-container tbody tr.staked-coin-row .symbol-cell {
-  background: rgba(6, 182, 212, 0.25) !important;
-  background-color: rgba(6, 182, 212, 0.25) !important;
-  color: #e0f2fe !important;
+  background: linear-gradient(90deg, rgba(6, 78, 59, 0.7) 0%, rgba(4, 47, 46, 0.65) 100%) !important;
+  background-color: rgba(6, 78, 59, 0.7) !important;
+  color: #ffffff !important;
 }
 
 body.dark-mode .table-container tr.staked-coin-row td:first-child,
 body.dark-mode .table-container tbody tr.staked-coin-row td:first-child {
-  border-left: 4px solid #06b6d4 !important;
+  border-left: 4px solid #10b981 !important;
+}
+
+body.dark-mode .table-container tr.staked-coin-row td,
+body.dark-mode .table-container tr.staked-coin-row span:not(.badge):not(.asset-type-pill):not(.sentiment-pill-wrapper):not(.staked-badge-pill) {
+  color: #ffffff !important;
+}
+
+body.light-mode .table-container tr.staked-coin-row,
+body.light-mode .table-container tbody tr.staked-coin-row,
+body.light-mode .table-container tr.staked-coin-row td,
+body.light-mode .table-container tbody tr.staked-coin-row td,
+body.light-mode .table-container tr.staked-coin-row .symbol-cell,
+body.light-mode .table-container tbody tr.staked-coin-row .symbol-cell {
+  background: rgba(16, 185, 129, 0.12) !important;
+  background-color: rgba(16, 185, 129, 0.12) !important;
+  color: #064e3b !important;
+  font-weight: 500;
+}
+
+body.light-mode .table-container tr.staked-coin-row td:first-child,
+body.light-mode .table-container tbody tr.staked-coin-row td:first-child {
+  border-left: 4px solid #059669 !important;
+}
+
+body.light-mode .table-container tr.staked-coin-row td,
+body.light-mode .table-container tr.staked-coin-row span:not(.badge):not(.asset-type-pill):not(.sentiment-pill-wrapper):not(.staked-badge-pill) {
+  color: #064e3b !important;
+  font-weight: 500;
 }
 
 /* Light mode overrides */

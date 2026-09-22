@@ -186,6 +186,8 @@ def get_portfolio_data_for_user(user_id):
                     "amount": total_amount,
                     "available_amount": spot_amount,
                     "staked_amount": staked_amount,
+                    "active_staked_amount": staked_info.get('active_amount', 0.0) if is_staked else 0.0,
+                    "pending_staked_amount": staked_info.get('pending_amount', 0.0) if is_staked else 0.0,
                     "is_staked": is_staked,
                     "staking_status": staked_info.get('status', 'staked') if is_staked else None,
                     "avg_entry": effective_avg_entry,

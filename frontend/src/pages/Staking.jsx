@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import { useSearchParams } from 'react-router-dom';
 import './Staking.css';
@@ -9,7 +9,8 @@ import TotpCodeInput from '../components/TotpCodeInput';
 import { formatEasternDateTime } from '../utils/dateTime';
 
 export default function Staking({ isLightMode }) {
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const handledParamRef = useRef('');
   const [stakingAssets, setStakingAssets] = useState([]);
   const [recommendations, setRecommendations] = useState([]);
   const [purchaseAsset, setPurchaseAsset] = useState(null);
@@ -76,33 +77,72 @@ export default function Staking({ isLightMode }) {
     fetchSettings();
   }, []);
 
+  // Clean closing handlers that remove query parameters to prevent auto-reopen loops
+  const handleCloseUnstakeModal = () => {
+    setShowUnstakeModal(false);
+    setSelectedStakedCoin(null);
+    setTwoFactorCode('');
+    setTwoFactorError('');
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev);
+      next.delete('action');
+      next.delete('coin');
+      return next;
+    }, { replace: true });
+  };
+
+  const handleCloseStakeModal = () => {
+    setShowStakeModal(false);
+    setSelectedAsset(null);
+    setTwoFactorCode('');
+    setTwoFactorError('');
+    setShowTwoFactorInput(!!(settings.require_2fa && settings.totp_enabled));
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev);
+      next.delete('coin');
+      return next;
+    }, { replace: true });
+  };
+
   // Auto-open stake modal if coin parameter is present
   useEffect(() => {
     const coinParam = searchParams.get('coin');
     const actionParam = searchParams.get('action');
-    if (coinParam && actionParam === 'unstake' && !showUnstakeModal) {
-      const staked = (stakedCoins || []).find(c => (c.symbol || c.asset) === coinParam)
-        || (pendingPositions || []).find(p => (p.asset || p.symbol) === coinParam)
-        || (portfolioMap[coinParam] ? {
-            asset: coinParam,
-            stakingAmount: parseFloat(portfolioMap[coinParam].balance || 0),
-            currentPrice: portfolioMap[coinParam].price || 0
-          } : null);
-      if (staked) {
+    if (!coinParam) return;
+
+    const currentKey = `${coinParam}:${actionParam || 'stake'}`;
+    if (handledParamRef.current === currentKey) return;
+
+    if (actionParam === 'unstake') {
+      const activeStaked = (stakedCoins || []).find(c => (c.symbol || c.asset) === coinParam && Number(c.stakingAmount || c.amount || 0) > 0);
+      const isPending = (pendingPositions || []).some(p => (p.asset || p.symbol) === coinParam);
+
+      if (activeStaked) {
+        handledParamRef.current = currentKey;
         handleUnstakeClick({
-          ...staked,
-          asset: staked.asset || staked.symbol || coinParam,
-          stakingAmount: Number(staked.stakingAmount || staked.amount || 0),
-          currentPrice: Number(staked.currentPrice || staked.current_price || 0)
+          ...activeStaked,
+          asset: activeStaked.asset || activeStaked.symbol || coinParam,
+          stakingAmount: Number(activeStaked.stakingAmount || activeStaked.amount || 0),
+          currentPrice: Number(activeStaked.currentPrice || activeStaked.current_price || 0)
         });
+      } else if (isPending) {
+        handledParamRef.current = currentKey;
+        setError(`${coinParam} is currently in its staking bonding period (Processing) on Binance.US and cannot be unstaked until bonding completes.`);
+        setSearchParams(prev => {
+          const next = new URLSearchParams(prev);
+          next.delete('action');
+          next.delete('coin');
+          return next;
+        }, { replace: true });
       }
     } else if (coinParam && stakingAssets.length > 0 && !showStakeModal && actionParam !== 'unstake') {
       const asset = stakingAssets.find(a => a.stakingAsset === coinParam);
       if (asset) {
+        handledParamRef.current = currentKey;
         handleStakeClick(asset);
       }
     }
-  }, [searchParams, stakingAssets, stakedCoins, pendingPositions, portfolioMap, showUnstakeModal, showStakeModal]);
+  }, [searchParams, stakingAssets, stakedCoins, pendingPositions, showUnstakeModal, showStakeModal]);
 
   const fetchSettings = async () => {
     try {
@@ -748,11 +788,11 @@ export default function Staking({ isLightMode }) {
 
       {/* Stake Modal */}
       {showStakeModal && selectedAsset && (
-        <div className="modal-overlay" onClick={() => setShowStakeModal(false)}>
+        <div className="modal-overlay" onClick={handleCloseStakeModal} style={{ zIndex: 10000, backdropFilter: 'blur(4px)' }}>
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <h3>Stake {selectedAsset.stakingAsset}</h3>
-              <button className="modal-close" onClick={() => setShowStakeModal(false)}>×</button>
+              <button className="modal-close" onClick={handleCloseStakeModal}>×</button>
             </div>
             <div className="modal-body">
               {/* Real-time Balance Display from Binance API */}
@@ -910,12 +950,7 @@ export default function Staking({ isLightMode }) {
               )}
             </div>
             <div className="modal-footer">
-              <button className="btn btn-secondary" onClick={() => {
-                setShowStakeModal(false);
-                setTwoFactorCode('');
-                setTwoFactorError('');
-                setShowTwoFactorInput(!!(settings.require_2fa && settings.totp_enabled));
-              }}>Cancel</button>
+              <button className="btn btn-secondary" onClick={handleCloseStakeModal}>Cancel</button>
               <button
                 className="btn btn-primary"
                 onClick={handleStakeSubmit}
@@ -930,11 +965,11 @@ export default function Staking({ isLightMode }) {
 
       {/* Unstake Modal */}
       {showUnstakeModal && selectedStakedCoin && (
-        <div className="modal-overlay" onClick={() => setShowUnstakeModal(false)}>
+        <div className="modal-overlay" onClick={handleCloseUnstakeModal} style={{ zIndex: 10000, backdropFilter: 'blur(4px)' }}>
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <h3>Unstake {selectedStakedCoin.asset}</h3>
-              <button className="modal-close" onClick={() => setShowUnstakeModal(false)}>×</button>
+              <button className="modal-close" onClick={handleCloseUnstakeModal}>×</button>
             </div>
             <div className="modal-body">
               <div className="modal-info">
@@ -1018,7 +1053,7 @@ export default function Staking({ isLightMode }) {
               )}
             </div>
             <div className="modal-footer">
-              <button className="btn btn-secondary" disabled={verifying2FA} onClick={() => setShowUnstakeModal(false)}>Cancel</button>
+              <button className="btn btn-secondary" disabled={verifying2FA} onClick={handleCloseUnstakeModal}>Cancel</button>
               <button
                 className="btn btn-danger"
                 onClick={handleUnstakeSubmit}
